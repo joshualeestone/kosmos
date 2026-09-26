@@ -27,7 +27,7 @@ test('#3965: the block says a thing made for the person is a FILE, named in the 
 });
 
 test('#3965: the block rules out an artifact or link unless the person asks, and says it outranks a tool default', () => {
-  assert.match(FLAT, /Do not publish it as a Claude artifact, a shared document or any other link unless the person asks for that by name/);
+  assert.match(FLAT, /Do not publish it as a Claude artifact, a shared document or any other link unless the person asks for that, here or in your instructions/);
   assert.match(FLAT, /If one of your tools offers to publish by default, this instruction comes first\./);
 });
 
@@ -40,22 +40,24 @@ test('#3965: the rule comes FIRST in the block, before where the file goes', () 
 test('#3965: an app\'s scratch files are not listed; ordinary names that look similar are', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-scratch-3965-'));
   try {
-    const keep = ['report.docx', '~notes.txt', 'price$.xlsx', 'thumbs.db.txt'];
-    const hide = ['~$report.docx', '~$on (Grok A.docx', '.~lock.report.docx#', '.DS_Store', 'Thumbs.db', 'desktop.ini', 'DESKTOP.INI'];
+    const keep = ['report.docx', '~notes.txt', 'price$.xlsx', 'thumbs.db.txt', '~WRLnotes.tmp', 'Icon.png'];
+    const hide = ['~$report.docx', '~$on (Grok A.docx', '.~lock.report.docx#', '.DS_Store', 'Thumbs.db', 'DESKTOP.INI', '~WRL0001.tmp', '~wrd1234.tmp', 'Icon\r'];
     for (const n of [...keep, ...hide]) fs.writeFileSync(path.join(dir, n), 'x');
     const listed = projects.listFiles(dir, 100, { maxDepth: 0 });
     const names = listed.files.map((f) => f.name).sort();
     assert.deepEqual(names, [...keep].sort());
-    // control: the listing does see the folder (it is not simply empty)
-    assert.equal(names.length, keep.length);
+    // (one spelling of desktop.ini only: this Mac's disk is case-insensitive, so two would be one file)
+    // control: every hidden name really is on disk, so the list left them out rather than never saw them
+    const onDisk = new Set(fs.readdirSync(dir));
+    for (const n of hide) assert.ok(onDisk.has(n), 'fixture did not write ' + JSON.stringify(n));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('#3965: a swarm lead tells its helpers the same rule (helpers have no instructions of their own)', () => {
+test('#3965: a swarm lead tells its helpers to hand files back, not publish them (a reinforcement)', () => {
   const swarm = require('./swarm');
   const flat = swarm.blockBody(3).replace(/\s+/g, ' ');
-  assert.match(flat, /Tell every helper that anything it makes to keep is saved as a file/);
-  assert.match(flat, /never published as a Claude artifact or a link/);
+  assert.match(flat, /A helper that makes something to keep hands it back to you as a file, never as a Claude artifact or a link/);
+  assert.match(flat, /You save it where your "Where to save files" section says/);
 });

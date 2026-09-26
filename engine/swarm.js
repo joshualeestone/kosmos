@@ -170,11 +170,12 @@ function blockBody(maxHelpers) {
     '  same part.',
     '- You check and merge every helper\'s work yourself before you answer. Only you',
     '  speak: helpers never post in a room or message anyone.',
-    /* #3965: helpers are subagents with no instructions file of their own, so the file-not-artifact
-       rule in the lead's "Where to save files" section only reaches them if the lead passes it on. */
-    '- Tell every helper that anything it makes to keep is saved as a file, where your',
-    '  "Where to save files" section says, and never published as a Claude artifact or',
-    '  a link.',
+    /* #3965: a REINFORCEMENT, not the only path: a helper started in the lead's folder likely reads
+       the same instructions file, file-not-artifact rule included. This says the helper's part in it:
+       it hands its file back and the lead, which merges every helper's work, is the one that saves. */
+    '- A helper that makes something to keep hands it back to you as a file, never as a',
+    '  Claude artifact or a link. You save it where your "Where to save files" section',
+    '  says, after you have checked it like the rest of its work.',
   ].join('\n');
 }
 

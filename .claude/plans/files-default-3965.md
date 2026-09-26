@@ -11,11 +11,15 @@
   and the card asks for the shared part.
 - Why "outranks a tool default" is spelled out: a Claude agent's own harness tells it to publish a
   finished piece as an artifact by default; a softer sentence loses to an always-present one.
-- Swarm helpers are the lead's subagents with no instructions file, so the lead's block
-  (engine/swarm.js) now tells it to pass the rule on.
+- Swarm helpers: CORRECTED after review. I first wrote that helpers have no instructions file and
+  the rule only reaches them through the lead. Not measured, and likely false: a Claude Code
+  subagent started in the lead's folder reads that folder's CLAUDE.md (the reviewer saw exactly
+  that). So the swarm bullet is a REINFORCEMENT, and it now says the helper hands its file BACK and
+  the lead saves it, so helpers keep working in their own copies and the lead still merges.
 - Scratch files: projects.listFiles is the one walk behind the agent page's Files, project Files
   and View All. Dot-names were already hidden (.DS_Store, .~lock.*#); isScratchName adds `~$*`
-  (Office owner files, Josh's "~$on (Grok A..." 162 B row), Thumbs.db and desktop.ini.
+  (Office owner files, Josh's "~$on (Grok A..." 162 B row), Word's ~WRL/~WRD####.tmp save files, the
+  macOS `Icon\r` folder-icon file, Thumbs.db and desktop.ini (any case).
 
 ## Rejected
 - Hiding by extension or size (a real 162-byte file would vanish).
@@ -33,3 +37,13 @@
   scratch filter (hides ~$, Thumbs.db, desktop.ini in any case, keeps ~notes.txt, price$.xlsx,
   thumbs.db.txt). Removing the `~$` clause reds the listing test.
 - engine/dmfiles.test.js, engine/projects.test.js, engine/swarm.test.js green.
+
+## Challenge-loop iteration 1
+- DEFERRED: existing swarm leads get the helper bullet only when their swarm block is next written
+  (tellLead has one caller, a maxHelpers PATCH; there is no boot resync). Not worth a new boot
+  sweep for a reinforcement: the main rule reaches existing leads through the dmfiles boot sync and,
+  per the correction above, very likely their helpers too.
+- The test's new control (every hidden name is on disk) caught a fixture bug of mine:
+  `desktop.ini` and `DESKTOP.INI` are ONE file on this Mac's case-insensitive disk, so the earlier
+  fixture never wrote the second. It now writes one spelling.
+- Kept "Two things come first" in the next paragraph: an existing dmfiles test pins that sentence.

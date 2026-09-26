@@ -1359,11 +1359,14 @@ const LIST_SKIP_DIRS = new Set(['node_modules', 'venv', 'env', '__pycache__', 'd
  * #3965 (Josh, 2026-09-26): a name that is an app's scratch file, never the person's work, and so
  * never listed. Dot-names (`.DS_Store`, LibreOffice's `.~lock.*#`, `.git`) were already hidden;
  * this adds Microsoft Office's owner file (`~$report.docx`, the "~$on (Grok A..." 162 B row Josh
- * saw in an agent's Files) and Windows' folder files (`Thumbs.db`, `desktop.ini`).
+ * saw in an agent's Files), Word's save-time temp files (`~WRL0001.tmp`, `~WRD0002.tmp`), the macOS
+ * custom-folder-icon file (`Icon` followed by a carriage return) and Windows' folder files
+ * (`Thumbs.db`, `desktop.ini`). Applied to folders too, so a folder with such a name is not walked.
  */
 function isScratchName(name) {
   const n = String(name || '');
-  return n.startsWith('.') || n.startsWith('~$') || /^(thumbs\.db|desktop\.ini)$/i.test(n);
+  return n.startsWith('.') || n.startsWith('~$') || n === 'Icon\r'
+    || /^~WR[A-Z]\d+\.tmp$/i.test(n) || /^(thumbs\.db|desktop\.ini)$/i.test(n);
 }
 
 /**

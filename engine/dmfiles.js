@@ -23,7 +23,9 @@
  * This block tells the agent where the folder is, to create it if it is missing,
  * and that the person sees its files on its page; and (#3759) that a file for one of
  * its projects goes in that project instead, that it tells the person where each file
- * went, and that when it cannot tell, it saves here and asks which project.
+ * went, and that when it cannot tell, it saves here and asks which project. And (#3965) it
+ * opens by saying a thing made for the person is a FILE, never a Claude artifact or a link
+ * unless the person asks for one.
  *
  * Same guards as reports.js / connections.js, deliberately: an ambiguous file is
  * refused rather than spliced into, an unreadable one is reported, nothing is ever
@@ -89,9 +91,9 @@ function blockBody(dir) {
     'Anything you make for the person to keep (a document, a report, notes, a list,',
     'a draft) is a FILE on this computer, saved where the next paragraphs say, and',
     'named in your reply. Do not publish it as a Claude artifact, a shared document',
-    'or any other link unless the person asks for that by name: they look for your',
-    'work under Files in Kosmos, and a link lives somewhere else. If one of your',
-    'tools offers to publish by default, this instruction comes first.',
+    'or any other link unless the person asks for that, here or in your instructions:',
+    'they look for your work under Files in Kosmos, and a link lives somewhere else.',
+    'If one of your tools offers to publish by default, this instruction comes first.',
     '',
     'When you make a file for the person in a direct conversation with them, or they',
     'ask you for one there, save it in your Files folder. Two things come first: if',
