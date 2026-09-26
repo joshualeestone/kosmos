@@ -20060,7 +20060,8 @@ async function tick() {
        app need not ask the board itself while this page is polling. Nothing outside the Mac app. */
     try {
       const h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosBadge;
-      if (h && typeof c.waiting === 'number') h.postMessage(c.waiting);
+      // null when this board has no count (older than #3996): the app clears the badge, and does not poll.
+      if (h) h.postMessage(typeof c.waiting === 'number' ? c.waiting : null);
     } catch { /* not in the Mac app, or no window (a test): nothing to tell */ }
     /* #3423: if the Issue filter is on and there is nothing left to filter, exit it
        (same auto-exit the Messages filter does at dmTotal <= 0). */

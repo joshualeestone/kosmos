@@ -1072,6 +1072,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var badgeAsked = 0
     private var badgeShown = 0
     private var badgeReadFailing = false
+    private var badgeEverAnswered = false
+    // The board's own origin, the only page allowed to hand over a count (set where the board is chosen).
+    private var badgeOrigin: (host: String, port: Int)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // #2124: single-instance. A fresh install could run this app from two bundle
@@ -1453,6 +1456,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 return
             }
             logLine("LOADING \(url.absoluteString) (KOSMOS_URL override, test path)")
+            /* #3996: the page on the chosen board still feeds the Dock badge (its origin is the board);
+               the app's own poll needs the resolved port, so it stays off here. */
+            if let host = url.host { badgeOrigin = (host, url.port ?? (url.scheme == "https" ? 443 : 80)) }
+            logLine("dock badge: fed by the page only under KOSMOS_URL")
             boardLoadNavigation = webView.load(URLRequest(url: url))
             return
         }
@@ -1464,6 +1471,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         do {
             resolved = try resolveInstall(config: config)
             resolvedPort = resolved.port
+            badgeOrigin = ("127.0.0.1", resolved.port)
             startDockBadge(port: resolved.port)
         } catch InstallResolutionError.noOwnInstallForOtherUser {
             // Logged before the modal so a test double can observe the
@@ -2310,9 +2318,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 guard let self else { return }
                 // Said once when the read starts failing and once when it recovers, so "the badge
                 // never shows" can be told apart from "nothing is waiting" in the app's log.
-                if !answered && !self.badgeReadFailing { logLine("dock badge: the board did not answer /api/status; the badge is cleared") }
+                // Not before the first answer: at a cold launch the board is still starting.
+                if !answered && !self.badgeReadFailing && self.badgeEverAnswered { logLine("dock badge: the board did not answer /api/status; the badge is cleared") }
                 if answered && self.badgeReadFailing { logLine("dock badge: the board answers again") }
-                self.badgeReadFailing = !answered
+                if answered { self.badgeEverAnswered = true }
+                self.badgeReadFailing = !answered && self.badgeEverAnswered
                 self.showBadge(label, asked: asked)
             }
         }.resume()
@@ -2320,8 +2330,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// Whether a page origin is this app's board (127.0.0.1 on the resolved port), for BadgeMessageProxy.
     func isBoardOrigin(host: String, port: Int) -> Bool {
-        guard let mine = resolvedPort else { return false }
-        return host == "127.0.0.1" && port == mine
+        guard let mine = badgeOrigin else { return false }
+        return host == mine.host && port == mine.port
     }
 
     /// The page's own count (#3996), handed over by BadgeMessageProxy after every board poll.
@@ -2337,7 +2347,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             DispatchQueue.main.async {
                 guard asked >= self.badgeShown else { return }
                 self.badgeShown = asked
-                NSApp.dockTile.badgeLabel = allowed ? label : nil
+                let next = allowed ? label : nil
+                if NSApp.dockTile.badgeLabel != next { NSApp.dockTile.badgeLabel = next }
             }
         }
     }
@@ -2369,6 +2380,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
        every few seconds): the last answer is kept and handed on in between. */
     private static var badgeSettingAnswer: (allowed: Bool, at: Date)?
     static func badgesAllowed(_ done: @escaping (Bool) -> Void) {
+        dispatchPrecondition(condition: .onQueue(.main))   // badgeSettingAnswer is read and written only here
         guard Bundle.main.bundleIdentifier != nil else { done(true); return }
         if let last = badgeSettingAnswer, Date().timeIntervalSince(last.at) < 300 { done(last.allowed); return }
         UNUserNotificationCenter.current().getNotificationSettings { settings in

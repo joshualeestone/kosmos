@@ -30,7 +30,7 @@ test('#3996: the instrument is reading the app', () => {
 });
 
 test('#3996: the badge starts once the board\'s port is known, and keeps polling on its own timer', () => {
-  assert.match(SRC, /resolvedPort = resolved\.port\n\s+startDockBadge\(port: resolved\.port\)/,
+  assert.match(SRC, /resolvedPort = resolved\.port\n\s+badgeOrigin = \("127\.0\.0\.1", resolved\.port\)\n\s+startDockBadge\(port: resolved\.port\)/,
     'the badge is not started where the port is resolved');
   const start = body('private func startDockBadge(port: Int)');
   assert.match(start, /badgeTimer\?\.invalidate\(\)/, 'a second start would leave two timers polling');
@@ -52,7 +52,7 @@ test('#3996: while the page polls, the app asks the board nothing extra; otherwi
   const show = body('private func showBadge(_ label: String?, asked: Int)');
   assert.match(show, /guard asked >= self\.badgeShown else \{ return \}/, 'an older answer can overwrite a newer one');
   assert.match(show, /DispatchQueue\.main\.async \{/);
-  assert.match(show, /NSApp\.dockTile\.badgeLabel = allowed \? label : nil/);
+  assert.match(show, /let next = allowed \? label : nil\n\s+if NSApp\.dockTile\.badgeLabel != next \{ NSApp\.dockTile\.badgeLabel = next \}/);
 });
 
 test('#3996: only the board\'s own page can hand over a count, and the page hands it on every poll', () => {
@@ -64,11 +64,12 @@ test('#3996: only the board\'s own page can hand over a count, and the page hand
   assert.match(proxy, /guard message\.frameInfo\.isMainFrame, let owner else \{ return \}/, 'a subframe could set the badge');
   assert.match(proxy, /owner\.isBoardOrigin\(host: origin\.host, port: origin\.port\)/, 'the origin is not checked');
   const board = body('func isBoardOrigin(host: String, port: Int) -> Bool');
-  assert.match(board, /host == "127\.0\.0\.1" && port == mine/, 'another local service on another port could set the badge');
-  assert.match(SRC, /private static var badgeSettingAnswer/, 'the badge setting is asked on every update');
+  assert.match(board, /return host == mine\.host && port == mine\.port/, 'another local service on another port could set the badge');
+  assert.match(SRC, /badgeOrigin = \("127\.0\.0\.1", resolved\.port\)/, 'the board\'s own origin is not the one allowed');
+  assert.match(SRC, /if let last = badgeSettingAnswer, Date\(\)\.timeIntervalSince\(last\.at\) < 300 \{ done\(last\.allowed\); return \}/, 'the badge setting is asked on every update');
   const page = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
-  assert.match(page, /window\.webkit\.messageHandlers\.kosmosBadge;\n\s+if \(h && typeof c\.waiting === 'number'\) h\.postMessage\(c\.waiting\);/,
-    'the page does not hand the count over');
+  assert.match(page, /if \(h\) h\.postMessage\(typeof c\.waiting === 'number' \? c\.waiting : null\);/,
+    'the page does not hand the count over (or stays silent on an old board, which sets the app polling)');
 });
 
 test('#3996: a macOS badge setting of off would win (a forward check), and Kosmos never asks for notification permission', () => {

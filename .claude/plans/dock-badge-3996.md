@@ -32,5 +32,9 @@ With Kosmos open or closed to the Dock, the Kosmos icon shows a red number equal
 - The macOS badge setting is asked at most every 5 minutes.
 - App Nap: the page's timer and the app's timer can both be slowed while the window is hidden; they are not independent under it. To be measured on a served build with the window closed; if the badge lags badly, the fix is a background activity while the window is hidden and the count is above zero.
 
+## Review round 3
+- Under the KOSMOS_URL test override the page on the chosen board still feeds the badge (its origin is recorded where the board is chosen); the app's own poll stays off there, and the log says so.
+- A failed read is logged only after the board has answered once (a cold launch is not a fault); the label is set only when it changes; the badge-setting cache is main-thread only (dispatchPrecondition); on a board older than #3996 the page posts null, so the badge clears and the app does not poll.
+
 ## Not in this change
 Windows taskbar overlay (Homer, reads the same counts.waiting). A served build with a real Dock screenshot is the card's done; that needs a cut.
