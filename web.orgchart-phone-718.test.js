@@ -37,7 +37,7 @@ const consts = ['ORG_PAD', 'ORG_PAD_MIN', 'ORG_SQUEEZE_MIN'].map((k) => {
 });
 const C = Object.fromEntries(consts);
 // eslint-disable-next-line no-new-func
-const orgFit = new Function(consts.map(([k, v]) => `const ${k} = ${v};`).join('\n') + '\n' + lift('orgFit') + '\nreturn orgFit;')();
+const orgFit = new Function(consts.map(([k, v]) => `const ${k} = ${v};`).join('\n') + '\n' + lift('orgNatural') + '\n' + lift('orgFit') + '\nreturn orgFit;')();
 
 test('#718: a chart that fits keeps exactly the size it always had (desktop unchanged)', () => {
   for (const maxR of [120, 194, 330]) {
@@ -113,6 +113,12 @@ test('#718: a chart wider than its box lets a finger scroll the box, and the dra
   assert.match(SCRIPT, /if \(e\.pointerType !== 'mouse' && map\.classList\.contains\('orgwide'\)\) return;/);
   // A squeezed chart anchors edge callouts inward; a dragged hub keeps its own margin.
   assert.match(SCRIPT, /orgmapEl\.classList\.toggle\('orgtight', size < natural\);/);
+  // One derivation of the natural square, shared by orgFit and the .orgtight test.
+  assert.match(SCRIPT, /const natural = orgNatural\(maxR\);   \/\/ the square before any fit/);
+  assert.equal((SCRIPT.match(/Math\.round\(\(maxR \+ ORG_PAD\) \* 2\)/g) || []).length, 1, 'the natural square is derived in one place');
+  // No repaint on resize mid-drag; the release catches up.
+  assert.match(SCRIPT, /if \(ORG_LIVE && ORG_LIVE\.dragging\) return;/);
+  assert.match(SCRIPT, /orgResizeRepaint\(\);   \/\/ #718: a width change held off during the drag lands now/);
   assert.match(PAGE, /\.orgmap\.orgtight \.onode\.co-l \.callout \{ left: 0; transform: none; \}/);
   assert.match(SCRIPT, /const extra = drag\.body === ORG_LIVE\.hub \? Math\.max\(0, ORG_LIVE\.hub\.size - box\.lo\) : 0;/);
 });

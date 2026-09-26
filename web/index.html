@@ -26464,7 +26464,7 @@ function orgBoxPlain(cleared) {
   wrap.removeAttribute('tabindex'); wrap.removeAttribute('role'); wrap.removeAttribute('aria-label');
   const map = document.getElementById('orgmap');
   map.classList.remove('orgwide');
-  if (cleared) { map.style.width = ''; map.style.height = ''; }
+  if (cleared) { map.style.width = ''; map.style.height = ''; map.classList.remove('orgtight'); }
   // A box that stops being a region stops taking focus: hand it to the first node,
   // or it falls to the page body.
   if (hadFocus) {
@@ -26598,8 +26598,11 @@ const ORG_PAD = 78;
    without moving a ring (120 + 42 <= 163). */
 const ORG_PAD_MIN = 42;
 const ORG_SQUEEZE_MIN = 0.7;
+/* The square a fleet of outer radius maxR draws at when nothing has to fit: one
+   derivation, read by orgFit and by paintOrg's .orgtight test. */
+function orgNatural(maxR) { return Math.round((maxR + ORG_PAD) * 2); }
 function orgFit(maxR, avail) {
-  const natural = Math.round((maxR + ORG_PAD) * 2);
+  const natural = orgNatural(maxR);
   if (!(avail > 0) || natural <= avail) return { size: natural, k: 1 };
   const half = Math.floor(avail / 2);
   if (maxR + ORG_PAD_MIN <= half) return { size: half * 2, k: 1 };
@@ -26638,7 +26641,7 @@ function paintOrg() {
     return;
   }
   const { placed, maxR } = orgPlace(orgTreeOf(agents));
-  const natural = Math.round((maxR + ORG_PAD) * 2);   // the square before any fit (#718)
+  const natural = orgNatural(maxR);   // the square before any fit (#718)
   // #718: fit the width it is given (see orgFit); the rings come in, the nodes do not shrink.
   const viewW = wrap.clientWidth;   // one read: the fit and the scroll logic below agree on the width
   /* A box with no width (an ancestor not laid out) has nothing to draw into: a paint
@@ -27026,6 +27029,7 @@ function orgLiveRun() {
        real click after a drag still opens the page. */
     ORG_DRAG_MOVED = was.moved;
     try { was.el.releasePointerCapture(e.pointerId); } catch { /* fine */ }
+    orgResizeRepaint();   // #718: a width change held off during the drag lands now
   };
   map.addEventListener('pointerup', release);
   map.addEventListener('pointercancel', release);
@@ -27047,6 +27051,9 @@ function orgResizeRepaint() {
     ORG_RESIZE_RAF = 0;
     const wrap = document.getElementById('orgview');
     if (!wrap || wrap.hidden) return;
+    // Not mid-drag: a repaint rebuilds the nodes under the pointer and the drag would go on
+    // moving one that is no longer on the page. The drag's release calls this again.
+    if (ORG_LIVE && ORG_LIVE.dragging) return;
     // Against the width the chart was last PAINTED at, which every paint records:
     // a width remembered only here goes stale while the chart is hidden.
     if (wrap.clientWidth === ORG_VIEW_W) return;
