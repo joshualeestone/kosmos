@@ -79,15 +79,23 @@ function setKnownSecrets(values) {
        every other character taken out (a password's ! and #, the spaced hex's spaces): those characters sit
        between runs in the text, not inside them. */
     const w = f.replace(NOT_KEY_CHARS, '');
-    if (w.length < 12 || w.length > WORD_WALK_MAX_FORM || walked.has(w) || madeOfWords(w)) continue;
-    /* An opening with no letter or digit (a PEM key's -----BEGIN) would start a walk at every markdown rule
-       (review round 5). Such a value is still masked whole, and across lines by the separator copies. */
-    if (!/[A-Za-z0-9]/.test(w.slice(0, OPENING_LEN))) continue;
-    walked.add(w);
-    const o = w.slice(0, OPENING_LEN);
-    if (!knownByOpening.has(o)) knownByOpening.set(o, []);
-    knownByOpening.get(o).push(w);
+    addWalked(w, walked);
+    /* A key given WITHOUT its public prefix (review round 15): a reply that leaves out sk-ant-api03- and splits
+       the rest by words starts no walk from the prefix, so the part after the last - or _ in the first 16
+       characters is walked as a form of its own. */
+    const cut = Math.max(w.lastIndexOf('-', 15), w.lastIndexOf('_', 15));
+    if (cut > 0) addWalked(w.slice(cut + 1), walked);
   }
+}
+function addWalked(w, walked) {
+  if (w.length < 12 || w.length > WORD_WALK_MAX_FORM || walked.has(w) || madeOfWords(w)) return;
+  /* An opening with no letter or digit (a PEM key's -----BEGIN) would start a walk at every markdown rule
+     (review round 5). Such a value is still masked whole, and across lines by the separator copies. */
+  if (!/[A-Za-z0-9]/.test(w.slice(0, OPENING_LEN))) return;
+  walked.add(w);
+  const o = w.slice(0, OPENING_LEN);
+  if (!knownByOpening.has(o)) knownByOpening.set(o, []);
+  knownByOpening.get(o).push(w);
 }
 /* A held value made only of words and numbers (Administrator1, Settings2024) is not walked (review round 3):
    the walk would assemble it out of an ordinary sentence ("Log in as Administrator on step 1") and mask
@@ -216,7 +224,8 @@ function normalisedCopy(text) {
    wordSkippingSpans returns null and mask() withholds the whole message, because a search cut short is one
    that may have missed a key, and this file errs toward masking. What reaches it (review round 5): one held
    value near WORD_WALK_MAX_FORM whose opening the reply repeats a few hundred times (each mention looks ahead
-   over about 4x the value), or thousands of held values sharing an opening that the reply repeats. Measured
+   over about 4x the value), or thousands of held values sharing an opening that the reply repeats. What fills it
+   grows with (held forms sharing an opening) x (mentions of that opening in the reply). Measured
    well inside it: a 50,000-character reply with five held Anthropic keys and 400 sk-ant-api03- mentions. Measured
    reaching it (review round 13): ten held Anthropic keys and a 36,000-character reply repeating a paragraph that
    names sk-ant-api03- 200 times, withheld; whether it trips depends on the keys' random next characters. */
@@ -243,6 +252,14 @@ function pieceVariants(run) {
   /* A key's chunks joined by its own separators, licence-key style (Qw8e-Rt2y), with words between the groups
      (review round 14): the run is tried with every - and _ taken out as well, one piece of the key. */
   for (const v of [...out]) if (/[^-_][-_]+[^-_]/.test(v)) out.add(v.replace(/[-_]+/g, ''));
+  /* A label joined by a hyphen (chunk-2-Rt2mNp9b, review round 15): each tail after a - or _, up to four, and
+     only tails of OPENING_LEN or more (a shorter one, "Wor" of pi03-Wor, is coincidence, not a piece). */
+  let tails = 0;
+  for (let i = trimmed.indexOf('-'), j = 0; j < 2; j += 1, i = trimmed.indexOf('_')) {
+    for (let k = i; k > 0 && trimmed.length - k - 1 >= OPENING_LEN && tails < 4; k = trimmed.indexOf(j === 0 ? '-' : '_', k + 1)) {
+      out.add(trimmed.slice(k + 1)); tails += 1;
+    }
+  }
   out.delete('');
   return [...out];
 }

@@ -750,3 +750,27 @@ test('#3935 licence-key chunks with words between the groups are masked (review 
     }
   } finally { setKnownSecrets([]); }
 });
+
+test('#3935 a key given without its public prefix, split by words, is masked (review round 15)', () => {
+  const held = 'sk-ant-api03-Qx7vRt2mNp9bKd4sLw8zYh3cFj6gTa1e';
+  setKnownSecrets([held]);
+  try {
+    for (const text of ['After the usual prefix, yours goes Qx7vRt2m then Np9bKd4s then Lw8zYh3cFj6gTa1e end',
+      '| Qx7vRt2m | Np9bKd4s | Lw8zYh3cFj6gTa1e | end']) {
+      const out = mask(text).text;
+      for (const c of ['Qx7vRt2m', 'Np9bKd4s', 'Lw8zYh3c']) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+    }
+    /* CONTROL: prose naming the public prefix alone is still untouched. */
+    const prose = 'Anthropic keys start with sk-ant-api03 and are about a hundred characters long.';
+    assert.equal(mask(prose).text, prose);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a label joined to a piece by a hyphen does not hide the piece (review round 15)', () => {
+  const held = 'sk-ant-api03-Qx7vRt2mNp9bKd4sLw8zYh3cFj6gTa1e';
+  setKnownSecrets([held]);
+  try {
+    const out = mask('chunk-1-sk-ant-api03-Qx7v then chunk-2-Rt2mNp9b then chunk-3-Kd4sLw8z then chunk-4-Yh3cFj6gTa1e').text;
+    for (const c of ['Rt2mNp9b', 'Kd4sLw8z', 'Yh3cFj6gTa1e']) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+  } finally { setKnownSecrets([]); }
+});
