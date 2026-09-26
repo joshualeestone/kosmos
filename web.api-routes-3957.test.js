@@ -3,8 +3,8 @@
 /**
  * #3957: the page must not call an /api route the board does not serve.
  *
- * 0.6.96 shipped a page that called /api/federation/invite while the board route for it arrived in
- * a LATER merge (#3312 then 81f1eed5c), and the cut landed between them: Josh got "Kosmos could
+ * 0.6.96 shipped a page that called /api/federation/invite: the page came in #3312 (07a786f9a) and
+ * the route only in the later 81f1eed5c, and the cut landed between them: Josh got "Kosmos could
  * not make a code just now". Nothing on the way could notice, because the page and the board are
  * tested separately. This reads both and refuses a page fetch whose path no board route matches,
  * so the UI PR goes red at merge time, before any cut.
@@ -21,8 +21,12 @@
  *   - the board: '/api/...' literals (either quote) in any code comparison (=== / case; every one on
  *     main is path dispatch, but the test does not check the left-hand side), startsWith prefixes
  *     (pinned at zero), and ANCHORED regex literals mentioning \/api, outside comments and strings.
- *   - the lexer bounds its mistakes to a line: a `/` after `}` or a keyword-free value is guessed,
- *     and a guess that opens a phantom regex can hide a later call on that same line.
+ *   - the lexer guesses regex-vs-division from the previous token; a wrong guess can hide a later
+ *     call on that same line. A template opened in raw markup ends at its line; a template or a
+ *     block comment opened INSIDE a script runs to its close, so a broken one there can hide more.
+ *     Canary calls from across the script must always be read, so such a slip reds by name.
+ *   - an equality guard ahead of its handler (`if (pathname === '/api/x' && !authed) deny`) reads as
+ *     a route even with no handler behind it.
  *   - KNOWN LIMITS (each pinned by a test): a placeholder segment is served by any sibling route
  *     (had the page built '/api/federation/' + kind, a missing invite would pass); and a board
  *     route with a free segment (`/api/project/<id>`) serves any NEW literal of that shape.
@@ -41,6 +45,9 @@ const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
 
 /* Deliberate exceptions, each with its reason. An entry is a claim someone can check. */
 const SERVED_ELSEWHERE = {};
+
+/* Known page calls spread across the script, read on every run (see the main test). */
+const CANARIES = ['/api/accounts', '/api/federation/invite', '/api/federation/join', '/api/remote/devices/x', '/api/update/rollback'];
 
 /* Measured 2026-09-26 on main. Growth reds; shrinking is fine (lower these when it happens). */
 const UNREAD_CEILING = 19;
@@ -68,6 +75,16 @@ function regexCanStart(src, i) {
 }
 function lexMask(src) {
   const mask = new Uint8Array(src.length);
+  /* Where JS actually lives. In the page, raw markup sits OUTSIDE <script> blocks and is lexed as code
+     for its attribute quotes; there a stray backtick in visible text is prose, so a template that
+     opens outside a script ends at its line instead of running into the script. A file with no
+     <script> tag (server.js) is all script. */
+  const scripts = [];
+  for (const m of src.matchAll(/<script\b[^>]*>/g)) {
+    const end = src.indexOf('</script>', m.index);
+    scripts.push([m.index + m[0].length, end < 0 ? src.length : end]);
+  }
+  const inScript = (i) => scripts.length === 0 || scripts.some(([a, b]) => i >= a && i < b);
   /* Scan CODE from i. With `inInterp`, stop at the `}` that closes a template's `${`, tracking brace
      depth, and return its index; otherwise run to the end. Recursive through templates, so a
      template inside an interpolation inside a template is followed at any depth. */
@@ -134,8 +151,10 @@ function lexMask(src) {
      `${...}` interpolations are CODE, scanned by code(), so nesting cannot desynchronise the mask. */
   function template(i) {
     mask[i] = START;
+    const lineBound = !inScript(i);
     let j = i + 1;
     while (j < src.length && src[j] !== '`') {
+      if (lineBound && src[j] === '\n') break;
       if (src[j] === '\\') { mask[j] = STRING; mask[j + 1] = STRING; j += 2; continue; }
       if (src[j] === '$' && src[j + 1] === '{') {
         mask[j] = STRING; mask[j + 1] = STRING;
@@ -275,7 +294,7 @@ function pagePaths(src) {
      `/api/` to the attribute's closing quote, crossing `' + expr + '` and `${...}` joins. */
   for (const a of src.matchAll(/(?:src|srcset|href|action)=(\\?["'])\/api\//g)) {
     const at = a.index + a[0].length - 5;
-    if (mask[at] !== STRING) continue; // raw markup was read above; a comment is not a request
+    if (mask[at] !== STRING) continue; // a comment is not a request (a raw attribute is also read above; the Set dedups)
     const attrQ = a[1].slice(-1);
     let k = at - 1;
     while (k > 0 && mask[k] !== START) k -= 1;
@@ -400,6 +419,10 @@ test('#3957: every /api path the page fetches is served by a board route', () =>
      genuinely loses calls, in the same change. */
   assert.ok(paths.length >= 180, `the extractor read ${paths.length} paths (floor 180); a region of the page is being mis-read, not the page shrinking`);
   assert.ok(board.regexes.length >= 40, 'the board extractor found almost no route regexes (' + board.regexes.length + '); it is broken, not the board');
+  /* CANARIES: known calls from across the script, each of which must be READ. A lexer slip that
+     loses a real call while picking up a junk one keeps the count level and slips past the floor;
+     it cannot keep these. (If one is removed from the page on purpose, replace it here.) */
+  for (const c of CANARIES) assert.ok(paths.includes(c), `the extractor no longer reads ${c}: a region of the page is being mis-read`);
   /* CEILINGS, not just a printout: a green log is read by nobody. A new fetch whose URL is a variable,
      or a new variable-tailed one, cannot be checked here, so it has to be a deliberate change: make
      the URL readable, or raise the ceiling with a reason in the commit. */
@@ -521,4 +544,15 @@ test('#3957 control: a regex anchored at one end only is not a route, and a doub
   const board = boardRoutes(SERVER + "\nif (/\\/api\\/end-anchor-only-3957$/.test(pathname)) {}\nif (pathname.startsWith(\"/api/dq-prefix-3957\")) {}\n");
   assert.equal(served('/api/end-anchor-only-3957', board), false);
   assert.ok(board.prefixes.includes('/api/dq-prefix-3957'), 'a double-quoted startsWith prefix went unseen');
+});
+
+test('#3957 control: a stray backtick in raw markup does not swallow the script', () => {
+  const at = PAGE.indexOf('<script');
+  const planted = pagePaths(PAGE.slice(0, at) + '<p>Type `kosmos start in Terminal to begin.</p>\n' + PAGE.slice(at)).paths;
+  for (const c of CANARIES) assert.ok(planted.includes(c), c + ' was lost after a stray markup backtick');
+});
+
+test('#3957 control: the unread ceiling can go red', () => {
+  const { unread } = pagePaths(PAGE + '\nfetch(someUrl3957);\n');
+  assert.ok(unread > UNREAD_CEILING, 'a new variable-URL fetch did not raise the unread count past its ceiling');
 });

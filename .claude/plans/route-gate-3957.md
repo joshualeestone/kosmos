@@ -96,3 +96,12 @@ and route regexes; not the method; two permissive matcher limits, each pinned by
   `srcset=` are read; a srcset descriptor is cut. Control for all four shapes.
 - `i++ / 2` divides; the header states the board literal rule honestly (any code comparison, all
   dispatch today) and that the lexer can mis-guess a `/` after `}` and hide a call on that one line.
+
+## Challenge-loop iterations 8 and 9
+- 8: a route regex must be anchored at BOTH ends (7's fix checked only `$`, while its comment said
+  both); a double-quoted startsWith prefix is seen by the prefix pin. Controls.
+- 9: a template opened in raw markup (outside <script>) ends at its line, so a stray backtick in
+  visible text cannot swallow the script (measured on a copy: it hid a missing route at an
+  unchanged count). CANARY calls from across the script must always be read, so a count-neutral
+  slip reds by name. The header states the real lexer bounds and the equality-guard limit; a control
+  shows the unread ceiling can go red; the history wording is corrected.
