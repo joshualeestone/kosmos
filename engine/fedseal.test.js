@@ -87,9 +87,9 @@ test('#3728: after a revoke the remaining member reads the next epoch and the re
   const stays = seal.newKeyPair();
   const goes = seal.newKeyPair();
   const next = seal.randomSecret();
-  const rot = seal.rotateFrame(owner, stays.pub, next, 1, ROOM);
+  const rot = seal.rotateFrame(owner, stays.pub, next, 1, ROOM, 1700000000000);
   const got = seal.openRotate(stays, owner.pub, rot, ROOM);
-  assert.deepStrictEqual(got, { epoch: 1, roomKey: next });
+  assert.deepStrictEqual(got, { epoch: 1, roomKey: next, rotatedAt: 1700000000000 }, 'the rotation time did not travel with the key');
   assert.strictEqual(seal.openRotate(goes, owner.pub, rot, ROOM), null, 'a revoked member opened the next key');
   const env = seal.seal(next, 1, ROOM, { from: 'Owner', kind: 'person', text: 'after the revoke' });
   assert.strictEqual(seal.open({ 0: seal.randomSecret() }, ROOM, env), null, 'an old epoch key read a new message');
@@ -100,9 +100,9 @@ test('#3728: only the pinned owner key can produce a rotate, and a share key is 
   const owner = seal.newKeyPair();
   const member = seal.newKeyPair();
   const mallory = seal.newKeyPair();
-  const forged = seal.rotateFrame(mallory, member.pub, seal.randomSecret(), 1, ROOM);
+  const forged = seal.rotateFrame(mallory, member.pub, seal.randomSecret(), 1, ROOM, 1);
   assert.strictEqual(seal.openRotate(member, owner.pub, forged, ROOM), null, 'a rotate from an unpinned key was accepted');
-  assert.strictEqual(seal.openRotate(member, owner.pub, seal.rotateFrame(owner, member.pub, seal.randomSecret(), 1, 'room-other'), ROOM), null,
+  assert.strictEqual(seal.openRotate(member, owner.pub, seal.rotateFrame(owner, member.pub, seal.randomSecret(), 1, 'room-other', 1), ROOM), null,
     'a rotate for another room was accepted');
   // A share's ciphertext presented as a rotate (same keys, same room) does not open: separate derivations.
   const s = seal.randomSecret();

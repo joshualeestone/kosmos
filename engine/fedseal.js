@@ -197,11 +197,16 @@ function openShare(s, code, me, frame, roomId) {
 
 /* ---- key-rotate (owner -> a remaining member, on revoke; authenticated by the pinned keys) ---- */
 
-function rotateFrame(owner, memberPub, roomKey, epoch, roomId) {
+/** `rotatedAt` (ms) is WHEN the owner rotated, sealed with the key so a member that
+    catches up late starts the old epoch's grace from the real rotation, not from its
+    own catch-up (else every late member would reopen the window for a revoked one). */
+function rotateFrame(owner, memberPub, roomKey, epoch, roomId, rotatedAt) {
   const rk = unb64(roomKey, 32);
   const k = pairKey(owner, memberPub, roomId, owner.pub, memberPub, 'rotate');
-  if (!rk || !k || !Number.isInteger(epoch) || epoch < 1) throw new Error('we could not seal the next room key for that member');
-  const box = aeadSeal(k, aad('rotate', roomId, epoch), rk);
+  if (!rk || !k || !Number.isInteger(epoch) || epoch < 1 || !Number.isSafeInteger(rotatedAt) || rotatedAt < 0) throw new Error('we could not seal the next room key for that member');
+  const at = Buffer.alloc(8);
+  at.writeBigUInt64BE(BigInt(rotatedAt));
+  const box = aeadSeal(k, aad('rotate', roomId, epoch), Buffer.concat([rk, at]));
   return { t: 'key-rotate', v: V, epoch, nonce: box.nonce, ct: box.ct };
 }
 /** { epoch, roomKey } when the rotate was made by the PINNED owner key for this
@@ -211,8 +216,11 @@ function openRotate(me, pinnedOwnerPub, frame, roomId) {
   if (!frame || frame.t !== 'key-rotate' || frame.v !== V || !Number.isInteger(frame.epoch) || frame.epoch < 1) return null;
   const k = pairKey(me, pinnedOwnerPub, roomId, pinnedOwnerPub, me.pub, 'rotate');
   if (!k) return null;
-  const rk = aeadOpen(k, aad('rotate', roomId, frame.epoch), frame.nonce, frame.ct);
-  return rk && rk.length === 32 ? { epoch: frame.epoch, roomKey: b64(rk) } : null;
+  const pt = aeadOpen(k, aad('rotate', roomId, frame.epoch), frame.nonce, frame.ct);
+  if (!pt || pt.length !== 40) return null;
+  const rotatedAt = Number(pt.readBigUInt64BE(32));
+  if (!Number.isSafeInteger(rotatedAt)) return null;
+  return { epoch: frame.epoch, roomKey: b64(pt.subarray(0, 32)), rotatedAt };
 }
 
 /* ---- messages ---- */

@@ -866,7 +866,7 @@ test('#3728: a revoked member is rotated out by the edge its invite was redeemed
   const rotates = lines(seat).slice(before).filter((f) => f.t === 'key-rotate');
   assert.strictEqual(rotates.length, 1);
   const ownerPub = fedseal.sealingKey().pub;
-  assert.deepStrictEqual(fedseal.openRotate(kb, ownerPub, rotates[0], 'room-rot'), { epoch: 1, roomKey: st.keys[1] });
+  assert.deepStrictEqual(fedseal.openRotate(kb, ownerPub, rotates[0], 'room-rot'), { epoch: 1, roomKey: st.keys[1], rotatedAt: st.rotatedAt });
   assert.strictEqual(fedseal.openRotate(ka, ownerPub, rotates[0], 'room-rot'), null);
   assert.strictEqual(fedseats.post('proj-rot', { from: 'Owner', kind: 'person', text: 'after revoke' }), true);
   const out = lines(seat).pop();
@@ -921,11 +921,11 @@ test('#3728: a member takes a rotate only from the pinned owner, and the old epo
   say(seat, { event: 'connected', room: 'room-rm', expires_at: 9 });
   await settle();
   const me = fedseal.sealingKey();
-  say(seat, { event: 'message', data: fedseal.rotateFrame(fedseal.newKeyPair(), me.pub, fedseal.randomSecret(), 1, 'room-rm') });
+  say(seat, { event: 'message', data: fedseal.rotateFrame(fedseal.newKeyPair(), me.pub, fedseal.randomSecret(), 1, 'room-rm', Date.now()) });
   await settle();
   assert.strictEqual(fedseal.roomState('proj-rot-m').epoch, 0, 'a rotate from an unpinned key was taken');
   const k1 = fedseal.randomSecret();
-  say(seat, { event: 'message', data: fedseal.rotateFrame(owner, me.pub, k1, 1, 'room-rm') });
+  say(seat, { event: 'message', data: fedseal.rotateFrame(owner, me.pub, k1, 1, 'room-rm', Date.now()) });
   await settle();
   assert.strictEqual(fedseal.roomState('proj-rot-m').epoch, 1);
   // Inside the grace, a message sealed under the old key still opens (it was in flight).
@@ -1001,4 +1001,28 @@ test('#3728: a member that joined before the owner sealed is told how to get bac
   await settle();
   assert.strictEqual(h.recorded.length, 0);
   assert.ok(h.notes.some((n) => /sealed this shared room since this computer joined/.test(n.text) && /new code/.test(n.text)), JSON.stringify(h.notes));
+});
+
+test('#3728: a member catching up on a rotation late does not reopen the old key: the grace runs from the owner\'s rotation', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-26T12:00:00Z') });
+  const s = fedseal.randomSecret();
+  const owner = fedseal.newKeyPair();
+  federation.recordLink('proj-late', { role: 'member', edge_id: 'edge-late' });
+  const k0 = fedseal.randomSecret();
+  fedseal.setRoomState('proj-late', { role: 'member', s, code: 'code-late', peer: owner.pub, epoch: 0, keys: { 0: k0 } });
+  const h = harness();
+  await fedseats.ensure('proj-late');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-late', expires_at: 9 });
+  await settle();
+  // The owner rotated two days ago (a revoke); this member was asleep and catches up now.
+  const k1 = fedseal.randomSecret();
+  say(seat, { event: 'message', data: fedseal.rotateFrame(owner, fedseal.sealingKey().pub, k1, 1, 'room-late', Date.now() - 2 * 24 * 3600 * 1000) });
+  await settle();
+  assert.strictEqual(fedseal.roomState('proj-late').epoch, 1, 'fixture: the late rotate was taken');
+  // The revoked member posts under the old key the moment this member catches up: not shown.
+  say(seat, { event: 'message', data: fedseal.seal(k0, 0, 'room-late', { from: 'Revoked', kind: 'person', text: 'reopened' }) });
+  say(seat, { event: 'message', data: fedseal.seal(k1, 1, 'room-late', { from: 'Owner', kind: 'person', text: 'current' }) });
+  await settle();
+  assert.deepStrictEqual(h.recorded.map((r) => r.text), ['current'], 'a late catch-up reopened the old epoch');
 });

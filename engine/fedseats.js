@@ -490,7 +490,7 @@ function sendRotates(projectId, s) {
   let me;
   try { me = fedseal.sealingKey(); } catch { return; }
   for (const pub of Object.keys(st.peers || {})) {
-    try { sendFrame(s, fedseal.rotateFrame(me, pub, st.keys[st.epoch], st.epoch, s.room)); } catch { /* the next connect sends it again */ }
+    try { sendFrame(s, fedseal.rotateFrame(me, pub, st.keys[st.epoch], st.epoch, s.room, Number.isSafeInteger(st.rotatedAt) ? st.rotatedAt : 0)); } catch { /* the next connect sends it again */ }
   }
 }
 /** Owner: a pinned member whose edge the coordinator reports as not active has been
@@ -577,7 +577,10 @@ function onKeyFrame(projectId, s, frame) {
       const got = fedseal.openRotate(me, st.peer, frame, s.room);
       if (!got || Object.prototype.hasOwnProperty.call(st.keys, got.epoch) || got.epoch <= st.epoch) return;
       const keys = Object.assign({}, st.keys, { [got.epoch]: got.roomKey });
-      fedseal.setRoomState(projectId, Object.assign({}, st, { keys, epoch: got.epoch, rotatedAt: Date.now() }));
+      // The grace runs from the owner's rotation (sealed in the frame), never from now:
+      // a member catching up late must not reopen the old key for a revoked member.
+      // A time ahead of this clock counts as now.
+      fedseal.setRoomState(projectId, Object.assign({}, st, { keys, epoch: got.epoch, rotatedAt: Math.min(got.rotatedAt, Date.now()) }));
     }
   } catch (err) {
     // A record that cannot be written: the handshake is retried on the next connect.
