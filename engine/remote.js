@@ -660,12 +660,20 @@ async function assistantChat(body) {
  * reached still leaves the Mac forgotten HERE, and the answer says the
  * address may still show on the account page until it is removed there. */
 async function forget() {
+  // #3827: a sign-in in flight ends with the Mac's identity. Cancel it (its register
+  // must not turn the switch back on), and WAIT for a register already out, so what
+  // is retired and wiped below includes it; otherwise it writes a fresh identity
+  // into the directory this empties. The wait is bounded: the register itself is
+  // (registerTimeoutMs).
+  signinEpoch += 1;
+  signinSession = null;
+  if (registerInFlight) await registerInFlight;
   const was = { enrolled: enrolled(), address: address() };
   stopChild();
   let retired = false;
   let because = null;
   if (was.enrolled) {
-    const r = await setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()]);
+    const r = await setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, registerTimeoutMs());
     retired = r.ok === true;
     because = r.ok ? null : r.because;
   }
@@ -1195,6 +1203,20 @@ async function signinConfirmEnrol(code) {
     if the switch is on, exactly as `setup complete` does. A failed register
     keeps the session so the person can pick another name without redoing the
     code steps. */
+/* #3827: a register in flight (forget() waits for it), and the bound on a register
+   or a retire, so neither a hung coordinator nor a hung connector can hang Forget. */
+let registerInFlight = null;
+const REGISTER_TIMEOUT_MS = 60000;
+// Env seam for tests, like AGENT_WORKFORCE_TUNNEL_BIN. (0 or unset: the default.)
+const registerTimeoutMs = () => Number(process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS) || REGISTER_TIMEOUT_MS;
+/* #3827: signing in IS asking to be reachable, so a successful register switches
+   Kosmos+ on. A failed save is logged: the Mac is registered either way, and the
+   switch then still says off. */
+function turnOnAfterSignin() {
+  const wrote = write({ on: true });
+  if (!wrote.ok) process.stderr.write('remote: signed in, but could not switch Kosmos+ on: ' + wrote.because + '\n');
+}
+
 async function signinRegister(name) {
   if (!signinSession || typeof signinSession.token !== 'string') {
     return { ok: false, because: 'finish the code steps first' };
@@ -1222,7 +1244,7 @@ async function signinRegister(name) {
     const have = address();
     if (have && have.split('.')[0] === name) {
       /* #3827: signing in IS asking to be reachable; ensure() only starts the tunnel when switched on. */
-      write({ on: true });
+      turnOnAfterSignin();
       ensure(localPort);
       signinSession = null;
       // standing is '' on this path, not omitted: the engine cannot know it
@@ -1233,14 +1255,24 @@ async function signinRegister(name) {
     }
   }
   secureStateDir();
-  const r = parseSaid(await setupRun(['signin', 'register', '--coordinator', COORDINATOR(),
-    '--name', name, '--state-dir', STATE_DIR()], signinSession.token));
+  // Like every other step: a Sign out (or a Forget) that lands while register is
+  // waiting on the connector must not be followed by this turning Kosmos+ on.
+  const epoch = signinEpoch;
+  const running = setupRun(['signin', 'register', '--coordinator', COORDINATOR(),
+    '--name', name, '--state-dir', STATE_DIR()], signinSession.token, registerTimeoutMs());
+  registerInFlight = running;
+  let r;
+  try { r = parseSaid(await running); } finally { if (registerInFlight === running) registerInFlight = null; }
+  // A cancel after the coordinator accepted the register cannot undo it: the Mac is
+  // registered and the next paint shows the switch OFF, which is the truth. What a
+  // cancel must never do is let this switch it on.
+  if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
   if (!r.ok) return r;
   signinSession = null;   // the token is spent; it must not linger in this process
   /* #3827 (Josh's live test: registered, then the relay never heard from this Mac): ensure() starts the
      tunnel only when switched ON, and nothing set it, so the pane showed "Turn on" and the wizard's
      "connecting" was false. Signing in IS asking to be reachable; turning off stays one press away. */
-  write({ on: true });
+  turnOnAfterSignin();
   ensure(localPort);
   const d = r.data && typeof r.data === 'object' ? r.data : {};
   fedSetStanding(d.standing);   // fed gate: SET (or clear) standing from this fresh register
@@ -1290,7 +1322,7 @@ module.exports = { secondReset, forget, macRequest, assistantChat, hostedAvailab
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { signinSession = null; mintedDeviceId = null; stopChild(); },
+  resetForTests: () => { signinSession = null; mintedDeviceId = null; registerInFlight = null; stopChild(); },
   /* test seam: the live child's pid, or null. spawn() sets the handle
      synchronously, so a test can assert "nothing spawned" deterministically
      right after ensure() instead of waiting a fixed interval and hoping. */

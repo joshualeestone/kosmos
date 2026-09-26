@@ -148,6 +148,8 @@ if (args[0] === 'signin') {
     if (!token) { process.stderr.write('no session token on stdin\\n'); process.exit(1); }
     const name = flag('--name');
     if (name === 'taken') { process.stderr.write('the coordinator said no (409): a Mac on this account already has that name\\n'); process.exit(1); }
+    // #3827: a register that is still out when Sign out or Forget lands (busy wait: no timers here).
+    if (mode.includes('slow-register')) { const until = Date.now() + Number(process.env.FAKE_REGISTER_MS || 2500); while (Date.now() < until) { /* wait */ } }
     const dir = flag('--state-dir');
     fs.mkdirSync(dir, { recursive: true });
     for (const f of ['mac_id', 'mac_key', 'coordinator_pubkey', 'tls.crt', 'tls.key']) {
@@ -1006,4 +1008,71 @@ test('register survives a child that exits before reading the token off stdin (t
   // The session is NOT consumed by a failed register, so a retry is possible.
   const retry = await remote.signinRegister('hers');
   assert.equal(retry.ok, true, retry.because);
+});
+
+test('#3827: a Sign out while register is in flight never switches Kosmos+ on', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  process.env.FAKE_TUNNEL_MODE = 'slow-register';
+  try {
+    remote.setOn(false);
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const racing = remote.signinRegister('hers');
+    remote.signinCancel();
+    const late = await racing;
+    assert.equal(late.ok, false, 'a register cancelled mid-flight reported success');
+    assert.equal(remote.read().on, false, 'Sign out during register left Kosmos+ switched on');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+});
+
+test('#3827: Forget waits for a register in flight, retires it once, and leaves nothing registered', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  process.env.FAKE_TUNNEL_MODE = 'slow-register';
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const racing = remote.signinRegister('hers');
+    fs.rmSync(RECORD, { force: true });
+    const got = await remote.forget();
+    await racing;
+    assert.equal(got.retired, true, 'Forget did not retire the Mac the register made: ' + got.because);
+    assert.equal(recorded().filter((c) => c[0] === 'retire').length, 1, 'the Mac was retired more (or less) than once');
+    assert.equal(remote.enrolled(), false, 'a register finishing after Forget left the Mac registered');
+    assert.equal(remote.read().on, false);
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+});
+
+test('#3827: a register that hangs cannot hang Forget: both are bounded', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  process.env.FAKE_TUNNEL_MODE = 'slow-register';
+  process.env.FAKE_REGISTER_MS = '15000';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const racing = remote.signinRegister('hers');
+    const t0 = Date.now();
+    await remote.forget();
+    assert.ok(Date.now() - t0 < 8000, 'Forget waited out a hung register (' + (Date.now() - t0) + 'ms)');
+    const late = await racing;
+    assert.equal(late.ok, false, 'a register killed by its bound reported success');
+    assert.equal(remote.enrolled(), false);
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.FAKE_REGISTER_MS;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+  }
+});
+
+test('#3827: when the switch cannot be saved, the Mac is still registered and the switch honestly says off', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  fs.mkdirSync(nodePath.dirname(remote.FILE), { recursive: true });
+  fs.mkdirSync(remote.FILE + '.tmp', { recursive: true });   // write() goes through FILE + '.tmp'
+  try {
+    const done = await remote.signinRegister('hers');
+    assert.equal(done.ok, true, 'the Mac IS registered; the sign-in did not fail: ' + done.because);
+    assert.equal(remote.read().on, false, 'fixture: the switch really is off');
+  } finally { fs.rmSync(remote.FILE + '.tmp', { recursive: true, force: true }); }
 });
