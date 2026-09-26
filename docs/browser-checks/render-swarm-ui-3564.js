@@ -205,9 +205,11 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       const bad = [];
       for (let n = 2; n <= 10; n += 1) {
         const host = document.createElement('div');
-        host.innerHTML = swarmCluster({ name: 'Nadia', swarm: { maxHelpers: n, activeHelpers: 0 } }, 44, { badge: false });
+        // Every helper working, so each circle carries its gold ring: the ring must stay inside the circle too.
+        host.innerHTML = swarmCluster({ name: 'Nadia', swarm: { maxHelpers: n, activeHelpers: n } }, 44, {});
         document.body.appendChild(host);
         const box = host.querySelector('.swc').getBoundingClientRect();
+        // The drawn extent of each circle INCLUDING its lit ring and edge strokes (the <g>'s box).
         const cs = [...host.querySelectorAll('.swd')].map((d) => { const r = d.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, r: r.width / 2, b: r }; });
         if (cs.length !== n) bad.push(n + ': ' + cs.length + ' circles');
         for (const c of cs) if (c.b.left < box.left - 0.5 || c.b.top < box.top - 0.5 || c.b.right > box.right + 0.5 || c.b.bottom > box.bottom + 0.5) bad.push(n + ': a circle leaves the box');
