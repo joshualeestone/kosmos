@@ -9288,11 +9288,11 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   font: 650 1.75rem/1 ui-monospace, Menlo, monospace; font-size: min(1.75rem, 7.5vw); font-size: min(1.75rem, 8.6cqw);
   width: calc(6 * var(--cw) + 5 * var(--gap)); height: calc(var(--cw) * 1.25); }
 /* Spacing by margin, not flex gap (missing in Safari before 14.5), so the boxes stay under the digits. */
-#plus-state2 .otp-cells { position: absolute; inset: 0; display: flex; pointer-events: none; }
+#plus-state2 .otp-cells { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: flex; pointer-events: none; }   /* not inset: Safari before 14.1 */
 #plus-state2 .otp-cell + .otp-cell { margin-left: var(--gap); }
 #plus-state2 .otp-cell { flex: 0 0 var(--cw); box-sizing: border-box; border-radius: 12px; background: #16223e; border: 1px solid #5c78a6; }
-/* Focus visible without the script: every box brightens while the field has focus (CSS alone), and
-   the script outlines the box being typed into on top of that. */
+/* A focus sign that does not depend on the script's outline: every box brightens while the field has
+   focus (CSS alone), and the script outlines the box being typed into on top of that. */
 #plus-state2 .otp-boxes:focus-within .otp-cell { border-color: #7d95c2; }
 #plus-state2 .otp-cell.on { border-color: #7ea0f0; box-shadow: 0 0 0 2px #7ea0f0 inset; }
 /* Listed a second time with #panel-settings in front: the narrow-screen rule that sets every settings
@@ -37262,6 +37262,7 @@ function plusSiCodeFromPaste(text) {
     if (d.length === 6) six.push({ d, before: t.slice(Math.max(0, m.index - 40), m.index) });
   }
   if (six.length === 1) return six[0].d;
+  if (six.length > 1 && six.every((x) => x.d === six[0].d)) return six[0].d;   // the same code written twice
   const named = six.filter((x) => /\bcode\b/i.test(x.before));   // the word, so not "zipcode" or "barcode"
   return named.length === 1 ? named[0].d : '';
 }
@@ -37333,6 +37334,9 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
     }
   };
   if (go && typeof MutationObserver === 'function') new MutationObserver(freed).observe(go, { attributes: true, attributeFilter: ['disabled'] });
+  // Any press of the step's button (by hand, or by the sixth digit) records what it sent, so a code the
+  // person sent themselves is not sent again by itself, and the answer's selection finds it.
+  if (go) go.addEventListener('click', () => { const c = el.value.replace(/\D/g, ''); if (c.length === 6) { lastSent = c; queued = false; } });
   /* Fixing one digit: in a complete code a typed digit REPLACES the digit after the caret (the box
      that is outlined), rather than being inserted and pushing the last digit off the end, which made
      a different six-digit code and sent it. With the caret at the end, it starts the code again. */
@@ -37356,6 +37360,7 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
     el.dispatchEvent(new Event('input', { bubbles: true }));
   });
   let hadDigits = 0;   // the digits in the field before this input: a seventh counts only after six
+  let prevValue = '';  // the field as this handler last left it (focus re-reads it; the page clears fields quietly)
   // An input method's finished word gets the same cleaning as typing.
   el.addEventListener('compositionend', () => el.dispatchEvent(new Event('input', { bubbles: true })));
   el.addEventListener('input', (e) => {
@@ -37365,6 +37370,21 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
        replace-one-digit behaviour, rather than the last digit falling off the end. */
     const raw = e.target.value;
     let d = raw.replace(/\D/g, '');
+    /* A block of text that arrived without a cancelable beforeinput (some keyboards, dictation, an
+       engine without beforeinput) is searched like a paste: with no one code in it, the field goes back
+       to what it was and nothing is sent (keeping its first six digits sent a date as the code). */
+    // Only text with words or other characters in it, or more digits than a code: digits with spaces,
+    // dashes or dots ("123 45") are simply cleaned, as typing is.
+    if (raw.length - prevValue.length > 1 && (/[^\d\s\u2010-\u2015.-]/.test(raw) || d.length > 7)) {
+      const found = plusSiCodeFromPaste(raw);
+      if (!found) {
+        e.target.value = prevValue;
+        if (typeof plusSiMsg === 'function') plusSiMsg('We could not find one six-digit code in that.');
+        paint();
+        return;
+      }
+      d = found;
+    }
     // Where the caret is, counted in digits (so it can be put back after the field is cleaned).
     let k = typeof el.selectionStart === 'number' ? raw.slice(0, el.selectionStart).replace(/\D/g, '').length : d.length;
     // Inside the code the digit after the caret goes; at the very end, the new digit starts the code
@@ -37377,9 +37397,10 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
       try { if (document.activeElement === el) el.setSelectionRange(k, k); } catch { /* not a text input */ }
     }
     hadDigits = clean.length;
+    prevValue = clean;
     // A refusal on the status line stops being true once the person changes the code.
     const msgEl = document.getElementById('plus-signin-msg');
-    if (msgEl && /one 6-digit code|do not fit the code/.test(msgEl.textContent) && typeof plusSiMsg === 'function') plusSiMsg('');
+    if (msgEl && /one six-digit code|do not fit the code/.test(msgEl.textContent) && typeof plusSiMsg === 'function') plusSiMsg('');
     paint();
     trySend();
   });
@@ -37426,7 +37447,7 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
       el.dispatchEvent(new Event('input', { bubbles: true }));
       return true;
     }
-    if (typeof plusSiMsg === 'function') plusSiMsg('We could not find one 6-digit code in that.');
+    if (typeof plusSiMsg === 'function') plusSiMsg('We could not find one six-digit code in that.');
     return true;
   }
   el.addEventListener('paste', (e) => {
@@ -37449,13 +37470,23 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   // A touch that never focused (a swipe that started here) must not leave the flag set for a later Tab.
   // Long enough for a real tap, whose focus can follow pointerup, to be seen as a tap.
   for (const ev of ['pointerup', 'pointercancel', 'blur']) el.addEventListener(ev, () => setTimeout(() => { byPointer = false; }, 400));
-  el.addEventListener('focus', () => { if (digits() < 6) lastSent = ''; if (!byPointer) place(); byPointer = false; paint(); });
+  el.addEventListener('focus', () => { prevValue = el.value; if (digits() < 6) lastSent = ''; if (!byPointer) place(); byPointer = false; paint(); });
   el.addEventListener('click', paint);
   for (const ev of ['blur', 'keyup', 'select', 'scroll']) el.addEventListener(ev, paint);
   // The outline follows the caret as it moves, a held arrow key included.
   document.addEventListener('selectionchange', () => { if (document.activeElement === el) paint(); });
   el.addEventListener('selectionchange', paint);   // where the event is sent to the field itself
-  el.addEventListener('mouseup', () => setTimeout(paint, 0));   // after the pointer has placed the caret
+  /* After the pointer has placed the caret. In a full code the box is worked out from where the click
+     landed, not from the text caret: a click on the right part of a box put the caret on the NEXT box
+     (and on the last box, at the end, where the next digit starts the code again). */
+  el.addEventListener('mouseup', (ev) => setTimeout(() => {
+    if (digits() >= 6 && el.selectionStart === el.selectionEnd && typeof ev.clientX === 'number') {
+      const rects = Array.from(cells.children).map((c) => c.getBoundingClientRect());
+      const i = rects.findIndex((r) => ev.clientX >= r.left && ev.clientX <= r.right + 1);
+      if (i >= 0) { try { el.setSelectionRange(i, i); } catch { /* not a text input */ } }
+    }
+    paint();
+  }, 0));
 }
 /* Ask signin-start for an email code. ONE place, shared by the initial "Email me a
    code" button and the "again" button on the code step -- two copies of this sequence

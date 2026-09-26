@@ -690,7 +690,7 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.waitForTimeout(300);
       chk(notCancelled === false, `[${k}] #3942 a paste with no single code is cancelled, so the browser inserts nothing`, String(notCancelled));
       const refusal = (await page.textContent('#plus-signin-msg')).trim();
-      chk((await page.inputValue('#plus-si-code-in')) === '482915' && wrongSends === 7 && /one 6-digit code/.test(refusal), `[${k}] #3942 a paste with no single code in it changes nothing, sends nothing, and says why`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends, refusal }));
+      chk((await page.inputValue('#plus-si-code-in')) === '482915' && wrongSends === 7 && /one six-digit code/.test(refusal), `[${k}] #3942 a paste with no single code in it changes nothing, sends nothing, and says why`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends, refusal }));
       /* A code finished while an answer is still on its way goes when the button is free (the
          button watch), once. The first code is slow to answer; the second is typed meanwhile. */
       verifyDelay = 800;
