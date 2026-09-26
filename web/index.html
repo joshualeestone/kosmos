@@ -46630,6 +46630,10 @@ function tskPaint() {
       /* Review round 10: the heading says what its tile says. A zero decision group takes the neutral dot, and
          with the agents unreadable it says it cannot tell, never "0" and never "Nothing here". */
       const unknown = g.k === 'decision' && TSK.rosterUnknown;
+      /* #3949 (Josh, 09-26 18:16: "We already show those in the tiles up top so we don't really need those in there"):
+         a status group with no tasks is the duplicate of its tile's 0, so it is not drawn. The one exception is the
+         decision group that cannot tell (the agents are unreadable): that is a warning, not a zero. */
+      if (!ts.length && !unknown) return '';
       const head = '<h3><span class="tsk-dot" style="--tsk-c:' + tskDot(g, ts.length) + '"></span>' + esc(g.l) + '<span class="count">' + (unknown ? '?' : ts.length) + '</span></h3><p class="why">' + esc(unknown ? TSK_DECISION_UNKNOWN : g.why) + '</p>';
       if (unknown && !ts.length) return '<section class="tsk-grp" data-unknown="1">' + head + '</section>';
       /* Completed is always the fold: finished work is reachable, not in the way. */
@@ -46638,7 +46642,9 @@ function tskPaint() {
         return '<section class="tsk-grp" style="--tsk-c:' + g.c + '"><details class="tsk-fold"' + (TSK.closedOpen || TSK.tile === 'closed' ? ' open' : '') + '><summary>' + esc(g.l) + ' (' + ts.length + ')</summary>' + tskList(ts) + '</details></section>';
       }
       return '<section class="tsk-grp">' + head + tskList(ts) + '</section>';
-    }).join('');
+    }).join('')
+      /* Every group empty: one line, not a column of empty sections. */
+      || '<p class="tsk-empty">' + (TSK.tile || TSK.proj || TSK.win || String(TSK.q).trim() ? 'No tasks match.' : 'No tasks yet.') + '</p>';
   }
   /* #3861 part 2: a folded parent hides its subtasks' rows, and a tick only ever covers a row on
      screen (the rule above), so a tick whose row the fold left out goes too. */

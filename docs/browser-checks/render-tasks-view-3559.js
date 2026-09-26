@@ -350,7 +350,36 @@ function chk(ok, label, extra) {
             redDot: getComputedStyle(t.querySelector('.tsk-dot')).backgroundColor === danger,
             head: h ? h.textContent : null, headRedDot: h ? getComputedStyle(h.querySelector('.tsk-dot')).backgroundColor === danger : null };
         });
-        chk(zero.n === 0 && !zero.red && !zero.redDot && zero.head !== null && !zero.headRedDot, `${tag} a zero Needs Your Decision is not red, its dot and its heading's dot included`, JSON.stringify(zero));
+        chk(zero.n === 0 && !zero.red && !zero.redDot, `${tag} a zero Needs Your Decision tile is not red, its dot included`, JSON.stringify(zero));
+        /* #3949 (Josh, 09-26 18:16): a status group with no tasks is not drawn (its tile already says 0): the search
+           leaves only Unassigned, so only Unassigned is listed, and nothing anywhere says "Nothing here". */
+        const drawn = await page.evaluate(() => ({ heads: [...document.querySelectorAll('#tsk-groups .tsk-grp h3, #tsk-groups .tsk-grp summary')].map((h) => h.textContent.replace(/[\d()?]+/g, '').trim()),
+          nothing: /Nothing here/.test(document.getElementById('tsk-groups').textContent) }));
+        chk(zero.head === null && JSON.stringify(drawn.heads) === JSON.stringify(['Unassigned']) && !drawn.nothing,
+          `${tag} only groups with tasks are listed (the empty ones are left to their tiles), and none says Nothing here`, JSON.stringify(drawn));
+        /* A filter that empties the list says so once: the search plus the (zero) In progress tile. */
+        await page.click('#tsk-tiles [data-tile="working"]');
+        const emptied = await page.evaluate(() => ({ grp: document.querySelectorAll('#tsk-groups .tsk-grp').length, text: document.getElementById('tsk-groups').textContent.trim() }));
+        chk(emptied.grp === 0 && /^No tasks match/.test(emptied.text), `${tag} a filter that empties the list shows one "No tasks match" line`, JSON.stringify(emptied));
+        await page.click('#tsk-tiles [data-tile="working"]'); // back
+        /* And with no search at all: the Newsletter project plus the Needs Your Decision tile (its task is Spring
+           launch's) empties the list, and the line is the plain one. */
+        const emptiedNoSearch = await page.evaluate(async () => {
+          const q = document.getElementById('tsk-search'); q.value = ''; q.dispatchEvent(new Event('input', { bubbles: true }));
+          const sel = document.getElementById('tsk-projsel'); const opt = [...sel.options].find((o) => o.textContent.startsWith('Newsletter'));
+          sel.value = opt.value; sel.dispatchEvent(new Event('change', { bubbles: true }));
+          await new Promise((r) => setTimeout(r, 300));
+          document.querySelector('#tsk-tiles [data-tile="decision"]').click();
+          await new Promise((r) => setTimeout(r, 300));
+          const out = { grp: document.querySelectorAll('#tsk-groups .tsk-grp').length, text: document.getElementById('tsk-groups').textContent.trim() };
+          document.querySelector('#tsk-tiles [data-tile="decision"]').click();
+          sel.value = ''; sel.dispatchEvent(new Event('change', { bubbles: true }));
+          await new Promise((r) => setTimeout(r, 300));
+          q.value = 'podcast'; q.dispatchEvent(new Event('input', { bubbles: true }));
+          await new Promise((r) => setTimeout(r, 300));
+          return out;
+        });
+        chk(emptiedNoSearch.grp === 0 && emptiedNoSearch.text === 'No tasks match.', `${tag} with no search, a project and a tile that empty the list show one "No tasks match." line`, JSON.stringify(emptiedNoSearch));
         /* And unreadable with nothing listed: the group says it cannot tell, never "Nothing here" (review round 10). */
         const unknownEmpty = await page.evaluate(() => {
           TSK.rosterUnknown = true; tskPaint();
