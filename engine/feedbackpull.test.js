@@ -372,7 +372,7 @@ test('#3878: the counts are the message: some unreadable and some malformed is s
   });
   const r = await fp.pull(path.join(SB, 'd-mixed-bad'), { token: 'tok' });
   assert.equal(r.ok, false);
-  assert.match(r.because, /1 report could not be read.*; 2 malformed or not written/);
+  assert.match(r.because, /1 report could not be read.*; 2 malformed/);
 });
 
 test('#3878: a refusal after the token was withheld names the host, not the token', async () => {
@@ -488,20 +488,40 @@ test('#3906: a pull whose every listed report is malformed is NOT ok, and says s
   const r = await fp.pull(path.join(SB, 'd-all-bad'), { token: 'tok' });
   assert.equal(r.ok, false);
   assert.equal(r.written, 0);
-  assert.match(r.because, /the store listed 2 reports and none was pulled: 2 malformed or not written\./);
+  assert.match(r.because, /the store listed 2 reports and none was pulled: 2 malformed\./);
   assert.doesNotMatch(r.because, /could not be read/, 'nothing was unreadable here');
   // A listing entry with no string url is counted the same way.
   fp.setTransport({ list: async () => [{ pathname: 'feedback/x.json' }], get: async () => { throw new Error('should not GET'); } });
   const r2 = await fp.pull(path.join(SB, 'd-no-url'), { token: 'tok' });
   assert.equal(r2.ok, false);
-  assert.match(r2.because, /1 malformed or not written/);
+  assert.match(r2.because, /1 malformed/);
+  assert.doesNotMatch(r2.because, /could not be read/);
   // Controls: one good report among bad ones is still a (partial) success; nothing listed is not a failure.
   let n = 0;
   fp.setTransport({
     list: async () => [1, 2].map((i) => ({ url: 'https://s.private.blob.vercel-storage.com/' + i + '.json' })),
     get: async () => { n += 1; return n === 1 ? '{not json' : JSON.stringify(REC('inst-ok', '2026-09-26', 'ok')); },
   });
-  assert.equal((await fp.pull(path.join(SB, 'd-one-good'), { token: 'tok' })).ok, true);
+  const good = await fp.pull(path.join(SB, 'd-one-good'), { token: 'tok' });
+  assert.equal(good.ok, true);
+  assert.equal(good.written, 1);
+  assert.equal(good.skipped, 1);
   fp.setTransport({ list: async () => [], get: async () => '' });
   assert.equal((await fp.pull(path.join(SB, 'd-empty'), { token: 'tok' })).ok, true);
+});
+
+test('#3906: reports read fine but not saved here are said as a local write failure, with the error', async () => {
+  const dir = path.join(SB, 'd-cannot-write');
+  fs.mkdirSync(dir, { recursive: true });
+  // A directory where the report file (and its .tmp) would go: the write throws.
+  const name = fp.fileName(REC('inst-w', '2026-09-26', 'w'));
+  fs.mkdirSync(path.join(dir, name + '.tmp'), { recursive: true });
+  fp.setTransport({
+    list: async () => [{ url: 'https://s.private.blob.vercel-storage.com/w.json' }],
+    get: async () => JSON.stringify(REC('inst-w', '2026-09-26', 'w')),
+  });
+  const r = await fp.pull(dir, { token: 'tok' });
+  assert.equal(r.ok, false);
+  assert.match(r.because, new RegExp('1 report could not be saved in ' + dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' \\(last error: '));
+  assert.doesNotMatch(r.because, /malformed/, 'a local write failure must not be blamed on the record');
 });
