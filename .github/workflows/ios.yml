@@ -29,9 +29,11 @@ on:
 permissions:
   contents: read
 
+# #4021: never on main, the same as test.yml (see its note): a merge must not cancel main's
+# running build, or a red main is never reported. A PR's superseded run is still cancelled.
 concurrency:
   group: ios-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   build:

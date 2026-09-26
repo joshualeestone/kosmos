@@ -62,9 +62,11 @@ permissions:
 # main (above, #3499), a feature branch no longer builds for both its push and its PR,
 # so there is no push/PR pair left to collapse here; this group only dedupes successive
 # events on the same ref.
+# #4021: never on main, the same as test.yml (see its note): a merge must not cancel main's
+# running build, or a red main is never reported. A PR's superseded run is still cancelled.
 concurrency:
   group: android-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   build:
