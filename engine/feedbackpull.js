@@ -250,6 +250,11 @@ async function pull(dir, opts) {
   // store, so this is not a wrong store; the read path may need another URL or auth
   // form, or the token may lack read access (the message says "may").
   let denied = 0;
+  // kosmos#3906: a report read fine but not saved on THIS computer (a full disk, a
+  // permission, a directory in the way), counted apart from a bad record so the
+  // message points at the local disk, with the error.
+  let unwritten = 0;
+  let lastWriteError = '';
   for (const b of (Array.isArray(blobs) ? blobs : [])) {
     if (!b || typeof b.url !== 'string') { skipped += 1; continue; }
     let text;
@@ -269,7 +274,7 @@ async function pull(dir, opts) {
       fs.writeFileSync(tmp, toMarkdown(rec));
       fs.renameSync(tmp, dest);
       written += 1;
-    } catch { skipped += 1; }
+    } catch (e) { skipped += 1; unwritten += 1; lastWriteError = String((e && e.message) || e); }
   }
   const total = Array.isArray(blobs) ? blobs.length : 0;
   /* Whether the listing came from a PUBLIC blob store (<store>.public.<BLOB_HOST>, the
@@ -288,7 +293,8 @@ async function pull(dir, opts) {
   if (written === 0 && skipped > 0) {
     const why = [];
     if (unreadable) why.push(unreadableClause({ unreadable, denied, lastGetError }));
-    if (skipped > unreadable) why.push((skipped - unreadable) + ' malformed or not written');
+    if (unwritten) why.push(reports(unwritten) + ' could not be saved in ' + target + ' (last error: ' + lastWriteError + ')');
+    if (skipped > unreadable + unwritten) why.push((skipped - unreadable - unwritten) + ' malformed');
     return {
       ok: false, written, skipped, total, dir: target,
       because: 'the store listed ' + reports(total) + ' and none was pulled: ' + why.join('; ')
