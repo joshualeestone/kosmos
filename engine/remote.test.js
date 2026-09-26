@@ -32,6 +32,15 @@ fs.writeFileSync(FAKE_BIN, `#!/usr/bin/env node
 const fs = require('node:fs');
 const path = require('node:path');
 fs.appendFileSync(${JSON.stringify(RECORD)}, JSON.stringify(process.argv.slice(2)) + '\\n');
+if (process.argv[2] === 'run') {
+  fs.writeFileSync(${JSON.stringify(RECORD)} + '.run-env', process.env.KOSMOS_BOARD_TOKEN_FILE || '(unset)');
+  // Never the environment itself (it can hold real credentials on a shared box):
+  // only the NAMES of variables holding the probe value a test planted, if any.
+  let probe = '';
+  try { probe = fs.readFileSync(${JSON.stringify(RECORD)} + '.probe', 'utf8'); } catch { /* no probe */ }
+  const hits = probe ? Object.keys(process.env).filter((k) => String(process.env[k]).includes(probe)) : [];
+  fs.writeFileSync(${JSON.stringify(RECORD)} + '.run-env-hits', JSON.stringify(hits));
+}
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i === -1 ? null : args[i + 1]; };
 const mode = process.env.FAKE_TUNNEL_MODE || '';
@@ -869,6 +878,102 @@ test('#3827 an in-app sign-in from a switched-off computer turns Kosmos+ on and 
   assert.equal(reg.ok, true, reg.because);
   assert.equal(remote.read().on, true, 'signing in left Kosmos+ switched off, so nothing connects');
   await until(() => remote.status().state === 'up', 'the tunnel to come up after sign-in from off');
+  remote.setOn(false);
+});
+
+test('#3838: the token VALUE reaches the tunnel in no argument and no environment variable, only its path', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  const SECRET = 'tok3838secretvalue';
+  const tokenFile = nodePath.join(DATA_ROOT, 'board.token');
+  fs.mkdirSync(DATA_ROOT, { recursive: true });
+  fs.writeFileSync(tokenFile, SECRET + '\n', { mode: 0o600 });
+  fs.rmSync(RECORD + '.run-env', { force: true });
+  fs.rmSync(RECORD + '.run-env-hits', { force: true });
+  fs.writeFileSync(RECORD + '.probe', SECRET);
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    await remote.signinRegister('hers');
+    remote.setOn(true);
+    remote.ensure(4600);
+    await until(() => remote.status().state === 'up', 'the tunnel to come up');
+    assert.equal(fs.readFileSync(RECORD + '.run-env', 'utf8'), tokenFile, 'fixture: the tunnel was told the real token file');
+    const leaked = JSON.parse(fs.readFileSync(RECORD + '.run-env-hits', 'utf8'));
+    assert.deepEqual(leaked, [], 'the token value is in the tunnel environment under ' + leaked.join(', '));
+    const run = recorded().find((c) => c[0] === 'run');
+    assert.ok(!run.some((x) => String(x).includes(SECRET)), 'the token value is on the tunnel argv');
+  } finally {
+    remote.setOn(false);
+    fs.rmSync(tokenFile, { force: true });
+    fs.rmSync(RECORD + '.probe', { force: true });
+    fs.rmSync(RECORD + '.run-env-hits', { force: true });
+  }
+});
+
+test('#3838: a KOSMOS_BOARD_TOKEN_FILE inherited from the launcher never reaches the tunnel when no file is found', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  fs.rmSync(RECORD + '.run-env', { force: true });
+  const boardauth = require('./boardauth');
+  const real = boardauth.enforcedTokenPath;
+  boardauth.enforcedTokenPath = () => { throw new Error('no data root'); };
+  const had = process.env.KOSMOS_BOARD_TOKEN_FILE;
+  process.env.KOSMOS_BOARD_TOKEN_FILE = '/stale/from/the/launcher/board.token';
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    await remote.signinRegister('hers');
+    remote.setOn(true);
+    remote.ensure(4600);
+    await until(() => remote.status().state === 'up', 'the tunnel to come up');
+    assert.equal(fs.readFileSync(RECORD + '.run-env', 'utf8'), '(unset)',
+      'a stale inherited token file reached the tunnel');
+  } finally {
+    boardauth.enforcedTokenPath = real;
+    if (had === undefined) delete process.env.KOSMOS_BOARD_TOKEN_FILE; else process.env.KOSMOS_BOARD_TOKEN_FILE = had;
+    remote.setOn(false);
+  }
+});
+
+test('#3838: the tunnel is told the file the board ENFORCES (enforcedTokenPath), not merely the primary path', async () => {
+  // In this sandbox both would answer the same path, so the wiring is proved by
+  // making them differ: whatever enforcedTokenPath answers is what the tunnel gets.
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  fs.rmSync(RECORD + '.run-env', { force: true });
+  const boardauth = require('./boardauth');
+  const real = boardauth.enforcedTokenPath;
+  const legacyOnly = nodePath.join(SANDBOX, 'legacy-leaf', 'board.token');
+  boardauth.enforcedTokenPath = () => legacyOnly;
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    await remote.signinRegister('hers');
+    remote.setOn(true);
+    remote.ensure(4600);
+    await until(() => remote.status().state === 'up', 'the tunnel to come up');
+    assert.equal(fs.readFileSync(RECORD + '.run-env', 'utf8'), legacyOnly,
+      'the tunnel was told the primary path, not the file the board enforces (a legacy-only token)');
+  } finally {
+    boardauth.enforcedTokenPath = real;
+    remote.setOn(false);
+  }
+});
+
+test('#3838: the tunnel is told where the board token file is, by environment, never argv', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  fs.rmSync(RECORD + '.run-env', { force: true });   // nothing from an earlier start
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  await remote.signinRegister('hers');
+  remote.setOn(true);
+  remote.ensure(4600);
+  await until(() => remote.status().state === 'up', 'the tunnel to come up');
+  const envPath = fs.readFileSync(RECORD + '.run-env', 'utf8');
+  // A literal path, not tokenPath(): the file the board writes its token to.
+  assert.equal(envPath, nodePath.join(DATA_ROOT, 'board.token'), 'the tunnel was not told the board token file');
+  const run = recorded().find((c) => c[0] === 'run');
+  assert.ok(run, 'fixture: run reached the binary');
+  assert.ok(!run.includes('--board-token-file'), 'the path went on argv, which an older bundled tunnel would refuse');
+  assert.ok(!run.some((a) => String(a).includes('board.token')), 'the token file went on argv under some spelling: ' + JSON.stringify(run));
   remote.setOn(false);
 });
 

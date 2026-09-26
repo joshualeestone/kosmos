@@ -179,6 +179,20 @@ function legacyTokenPath() {
    read-only from here; the risk is bounded to an external mode-loosening event on a deprecated
    path, and is documented in the plan rather than maintained. */
 
+/** #3838: the path of the file readToken() actually reads the token from: the
+ * primary leaf, or the legacy leaf when only it holds one (the backfill to the
+ * primary is best-effort and can fail silently). Handed to the tunnel, so it
+ * presents the token this board ENFORCES rather than a missing file. Falls back
+ * to tokenPath() when neither holds one (a board that does not enforce). */
+function enforcedTokenPath() {
+  const nonEmpty = (p) => { try { return !!fs.readFileSync(p, 'utf8').trim(); } catch { return false; } };
+  const primary = tokenPath();
+  if (nonEmpty(primary)) return primary;
+  const lp = legacyTokenPath();
+  if (lp && nonEmpty(lp)) return lp;
+  return primary;
+}
+
 /** Read the token file, or null if it is absent or empty. */
 function readToken() {
   try {
@@ -597,7 +611,7 @@ function tokenOkAny({ tokens, req, routingBase }) {
 }
 
 module.exports = {
-  fullySandboxed, enforced, tokenPath, generateToken, readToken, ensureToken,
+  fullySandboxed, enforced, tokenPath, enforcedTokenPath, generateToken, readToken, ensureToken,
   cookieToken, presentedToken, queryToken, matches, cookieHeader, pathWithoutToken,
   pathWithoutParam, bootstrap, tokenOk, COOKIE_NAME, HEADER_NAME,
   // #3055: the multi-world board-token gate -- read a specific world's token, and
