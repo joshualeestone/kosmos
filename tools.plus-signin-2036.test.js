@@ -89,6 +89,7 @@ const HANG_MS = 2000;
    read from the tool, not copied). Midway between them, so either can move a little and the
    assertion where it is used says when they no longer leave room. */
 const LATE_CANCEL_MS = Math.round((HANG_MS + CLEANUP_FLOOR_MS) / 2);
+assert.ok(HANG_MS + 500 < LATE_CANCEL_MS && LATE_CANCEL_MS + 500 < CLEANUP_FLOOR_MS, 'the late answer must land after HANG_MS and inside the floor, with room');
 /* A cancel that never answers: longer than any budget the runner could legitimately wait. */
 const NEVER_MS = 10 * 60 * 1000;
 /* Slack on top of HANG_MS + the floor for process start and a loaded machine. */
@@ -392,6 +393,8 @@ test('#3986: the cancel after a step times out (fail()) is not abandoned either'
     assert.ok(b.calls.some((c) => c.url === '/api/remote/signin-verify'), 'the runner stopped before the hanging verify: ' + r.out);
     const cancel = b.calls.find((c) => c.url === '/api/remote/signin-cancel');
     assert.ok(cancel, 'the half sign-in was never cancelled after the verify timed out: ' + r.out);
+    assert.strictEqual(r.code, 2, r.out);
+    assert.match(r.out, /nothing recorded/);
     assert.strictEqual(cancel.answered, true, 'the runner abandoned the cancel before the board answered it');
   } finally { b.server.closeAllConnections(); b.server.close(); }
 });
@@ -417,7 +420,6 @@ test('#3986: the cleanup cancel after a timeout is not abandoned on the same sho
      floor it waits for the answer. */
   const dir = tmp(); const e = Object.assign(env(dir), { KOSMOS_PLUS_CALL_MS: String(HANG_MS) }); const ptr = pointerFile(dir);
   record.write(good(), e);
-  assert.ok(HANG_MS + 500 < LATE_CANCEL_MS && LATE_CANCEL_MS + 500 < CLEANUP_FLOOR_MS, 'the late answer must land after HANG_MS and inside the floor, with room');
   const b = await fakeBoard({ startHangs: true, cancelAnswersAfter: LATE_CANCEL_MS });
   try {
     const r = await runner(['start', '--pointer', ptr, '--port', String(b.port)], e);
