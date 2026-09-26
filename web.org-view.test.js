@@ -522,8 +522,10 @@ test('#2577: the node badge is the list-row glyph reused verbatim, so the two ca
    guard against the bare form creeping back (which would silently re-break it). */
 test('#2698: the org avatar URL carries the avatar version so a changed picture repaints the node', () => {
   const paint = SCRIPT.slice(SCRIPT.indexOf('function paintOrg'), SCRIPT.indexOf('function orgLiveStart'));
-  const face = paint.slice(paint.indexOf('const face = a.hasAvatar'), paint.indexOf('const tint'));
-  assert.ok(face.includes('const face = a.hasAvatar'), 'the org face construction moved');
+  // #3946 item 15: the face now starts with the swarm branch (the shared cluster, whose picture URL is versioned in
+  // swarmCircles); the single picture below it is the one this test pins.
+  const face = paint.slice(paint.indexOf('const face = isSwarm'), paint.indexOf('const tint'));
+  assert.ok(face.includes('const face = isSwarm ? swarmCluster(') && face.includes(': a.hasAvatar'), 'the org face construction moved');
   assert.match(face, /\/avatar\?v='\s*\+\s*\(a\.avatarVer \|\| 0\)/,
     'the org avatar img must carry ?v=<avatarVer>; a bare URL never changes so paintOrg skips the repaint and the node keeps the old picture');
   assert.doesNotMatch(face, /\/avatar" alt=""/,
