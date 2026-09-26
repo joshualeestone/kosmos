@@ -87,6 +87,12 @@ subscription, only now that it is true.
   signed-out agy does under `-p` (the check) and on a cold Terminal start (whether it opens the browser
   with no keypress). The only agy here is Josh's, signed in; it will not be signed out to find out.
 
+- Review round 6: agyAsk returned nothing on the path that fetches, so the Gemini row's "offered?" wait
+  was a no-op; it returns the read now, tested with a held fetch. Left as it was, with the reason: a
+  Gemini or Grok pane not yet tagged with its runner can still be read as Claude in the login-warning
+  filter. That predates this card, and Gemini's CLI runs as `node`, so its pane cannot be told apart
+  by its command without a separate detection design.
+
 ## Not in this card
 - Reading what an Antigravity agent is doing (status) and its auth-failed copy: #3568's PR 2.
 - Windows: agy is refused there today.

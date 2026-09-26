@@ -201,8 +201,6 @@ test('#3568: installed but unconfirmed offers Open as its own press; a check nev
 test('#3568: Stop partway: the late answer writes nothing and a new press starts clean', async () => {
   let release;
   const f = agyFlow({ '/api/antigravity/check': [{ installed: false, signedIn: false }] });
-  const slow = agyFlow({});
-  void slow;
   const pending = new Promise((r) => { release = r; });
   const g = agyFlow({ '/api/antigravity/check': [{ installed: true, signedIn: true }] });
   // Drive g with a check that answers only after Stop.
@@ -243,4 +241,25 @@ test('#3568: one predicate says which providers pick their own model (review rou
   assert.match(PAGE, /if \(cur && cur\.disabled && vendorPicksModel\(cur\.value\)\)/);
   assert.match(PAGE, /if \(vendorPicksModel\(want\) && wantOpt && wantOpt\.disabled\)/);
   assert.equal((PAGE.match(/Gemini \(Google subscription\) is not set up on this computer/g) || []).length, 2);
+});
+
+test('#3568: agyAsk returns the read it starts, so the Gemini row waits for "offered?" before its choice (review round 6)', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  // eslint-disable-next-line no-new-func
+  const f = new Function('document', 'fetch', 'CURRENT', 'providerOf', `
+    let AGY_INSTALLED = null; let AGY_OFFERED = null; let AGY_ASKING = null;
+    function paintAgyOption() {}
+    ${grab('function agyAsk(')}
+    return { agyAsk, offered: () => AGY_OFFERED };
+  `)({ getElementById: () => null }, () => held.then(() => ({ ok: true, json: async () => ({ installed: false, enabled: true, supported: false }) })), null, () => '');
+  const p = f.agyAsk();
+  assert.ok(p && typeof p.then === 'function', 'agyAsk must return the promise of the read it started');
+  let settled = false;
+  p.then(() => { settled = true; });
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(settled, false, 'the await ended before the read did');
+  release();
+  await p;
+  assert.equal(f.offered(), false, 'after the wait, "not offered" is known');
 });

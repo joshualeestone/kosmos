@@ -21060,6 +21060,7 @@ function agyAsk() {
         paintAgyOption(sel, cur);
       }
     });
+  return AGY_ASKING;   // review round 6: the caller awaits this read
 }
 function paintKeyedProviderOptions(sel, accounts, known, current, failed) {
   if (!sel || !sel.options) return;
