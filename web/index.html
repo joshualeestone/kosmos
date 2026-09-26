@@ -3429,8 +3429,8 @@ details.tsk-fold summary { cursor: pointer; color: var(--k-ink-2); font-size: .8
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks { grid-column: 2; grid-row: 1; margin: 0; width: 100%;
   padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; }
 /* #3880 (Josh, 2026-09-25 22:01): in the column the view has no outer frame of its own; the title, New task, filters,
-   tiles and list sit on the column's ground unframed. The tiles and the list keep their own borders, and the tab view
-   keeps its frame (there the rail sits inside it). */
+   tiles and list sit on the column's ground unframed. The tiles and the list keep their own borders. The tab view keeps
+   its frame: Josh scoped this to the consolidated view. */
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-view { grid-template-columns: 1fr;
   border: 0; border-radius: 0; background: none; }
 /* Mona's look review of #3701: in the column the panel's own top inset already spaces the title,
