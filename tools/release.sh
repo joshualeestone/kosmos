@@ -252,8 +252,8 @@ case "$_v_major.$_v_minor" in
     # with every other version: nothing in this script refuses V equal to the current version.
     # ⚠️ Nothing here checks whether V is ALREADY SERVED. What stands in the way of re-cutting a
     # published version is step 1b's versions-entry stamp window (an entry already on the page carries
-    # its old publish stamp) and step 7's byte compare against a local dist/kosmos-$V-arm64.tar.gz
-    # (only on a box that has that file). Neither is a served-version check.
+    # its old publish stamp) and the byte compare against a local dist/kosmos-$V-arm64.tar.gz after
+    # step 4b (only on a box that has that file). Neither is a served-version check.
     _p_rest="${_prev#*.}"
     _p_minor="${_p_rest%%.*}"
     if [ "${_prev##*.}" = "99" ] && [ "$_p_minor" = "$_v_minor" ] && [ "$V" != "$_prev" ]; then

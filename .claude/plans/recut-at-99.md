@@ -23,8 +23,8 @@ elsewhere.
 by tools/lib/cut-rerun-guard.sh. It is not: that lib is the step-3 isolation rerun and never looks
 at a version. What actually stands in the way of re-cutting a PUBLISHED version is (a) step 1b's
 versions-entry stamp window (an entry already on the page carries its old publish stamp) and
-(b) step 7's byte compare against a local dist/kosmos-$V-arm64.tar.gz, which fires only on a box
-that has that file. Neither is a served-version check, and the comment in release.sh now says so.
+(b) the byte compare against a local dist/kosmos-$V-arm64.tar.gz after step 4b ("refusing to
+republish $V with different bytes"), which fires only on a box that has that file. Neither is a served-version check, and the comment in release.sh now says so.
 
 ## Tests
 
