@@ -23,7 +23,8 @@
 #                       fields separated by the ASCII unit separator (\x1f), not a tab: read
 #                       collapses repeated tabs, which would shift the fields after an empty cwd.
 #                       pid, cwd, command, ancestor commands joined by " | "
-#                       (an empty cwd stands for a process that has already exited)
+#                       (a cwd of <exited> stands for a process that is gone; an EMPTY cwd means
+#                       the cwd could not be read, and that process still counts)
 #   KOSMOS_HG_CLAIM     set: use this text as the reservation line instead of who-has-the-box;
 #                       it counts as free only if it says "no release holds"
 set -uo pipefail
@@ -35,7 +36,7 @@ while [ $# -gt 0 ]; do
     --except-cwd) EXCEPT_SET=1; EXCEPT="${2:-}"; shift 2 || shift ;;
     --twice) TWICE=1; shift ;;
     --quiet) QUIET=1; shift ;;
-    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+    -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *) echo "heavy-gate: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -49,20 +50,25 @@ if [ "$EXCEPT_SET" = 1 ]; then
 fi
 
 say() { [ "$QUIET" = 1 ] || printf '%s\n' "$*"; }
+# A seam left set in an agent's shell would skip the real checks, so say so every time.
+[ -n "${KOSMOS_HG_CLAIM+x}${KOSMOS_HG_SNAPSHOT:+x}" ] && say "(test seam active: KOSMOS_HG_CLAIM or KOSMOS_HG_SNAPSHOT is set)"
 
 claim_line() {
   if [ -n "${KOSMOS_HG_CLAIM+x}" ]; then printf '%s\n' "$KOSMOS_HG_CLAIM"; return; fi
   bash "$REPO/tools/who-has-the-box.sh" 2>&1
 }
 
-# Live snapshot in the seam's format, candidates only (the match is re-applied by classify).
+# Live snapshot in the seam's format. Every shell that has a release.sh or browser-checks.sh
+# word in its arguments is a candidate; classify decides whether it is RUNNING the script.
 live_snapshot() {
   local p q cwd cmd anc
-  ps -axo pid=,command= | awk '$2 ~ /(^|\/)(bash|sh|zsh)$/ && $3 ~ /(^|\/)tools\/(release|browser-checks)\.sh$/ {print $1}' |
+  ps -axo pid=,command= | awk '$2 ~ /(^|\/)(bash|sh|zsh)$/ { for (i = 3; i <= NF; i++) if ($i ~ /(^|\/)(release|browser-checks)\.sh$/) { print $1; next } }' |
   while read -r p; do
     cmd="$(ps -o command= -p "$p" 2>/dev/null)"
-    cwd=""
-    kill -0 "$p" 2>/dev/null && cwd="$(lsof -a -p "$p" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')"
+    # Gone means ps no longer knows the pid; a live pid whose cwd lsof cannot read keeps an
+    # EMPTY cwd and still counts (fail toward busy).
+    if [ -z "$cmd" ] || ! ps -p "$p" >/dev/null 2>&1; then cwd="<exited>"
+    else cwd="$(lsof -a -p "$p" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')"; fi
     anc="" ; q="$p"
     for _ in 1 2 3 4 5 6 7 8 9 10; do
       q="$(ps -o ppid= -p "$q" 2>/dev/null | tr -d ' ')"
@@ -73,28 +79,57 @@ live_snapshot() {
   done
 }
 
+# The script a shell command runs: the first argument after the shell's own options. A -c
+# command string is not a script run (it only mentions the name). Prints nothing if none.
+script_of() {
+  local w first=1
+  for w in $1; do
+    if [ "$first" = 1 ]; then first=0; continue; fi
+    case "$w" in -c) return ;; -*) continue ;; *) printf '%s' "$w"; return ;; esac
+  done
+}
+
+# True if one ancestor IS a node --test process (node as the program, a --test flag in its
+# arguments), not a wrapper shell whose command line merely mentions it.
+has_test_runner() {
+  local a prog w
+  local IFS=$'\n'
+  for a in $(printf '%s\n' "$1" | sed 's/ | /\n/g'); do
+    prog="${a%% *}"; prog="${prog##*/}"
+    [ "$prog" = node ] || continue
+    IFS=' '
+    for w in $a; do case "$w" in --test|--test=*|--test-*) return 0 ;; esac; done
+    IFS=$'\n'
+  done
+  return 1
+}
+
 # Reads snapshot lines on stdin; prints one verdict line each; prints COUNTED=<n> last.
 classify() {
-  local pid cwd cmd anc w1 w2 base n=0 why
+  local pid cwd cmd anc w1 base script n=0 why
   while IFS=$'\037' read -r pid cwd cmd anc; do
     [ -n "$pid" ] || continue
-    read -r w1 w2 _ <<< "$cmd"
+    read -r w1 _ <<< "$cmd"
     base="${w1##*/}"
     case "$base" in bash|sh|zsh) ;; *) say "  ignore $pid: not a shell running the script ($cmd)"; continue ;; esac
-    if ! printf '%s' "$w2" | grep -Eq '(^|/)tools/(release|browser-checks)\.sh$'; then
-      say "  ignore $pid: mentions the name but does not run it ($cmd)"; continue
-    fi
+    script="$(script_of "$cmd")"
+    case "$script" in
+      */tools/release.sh|*/tools/browser-checks.sh|tools/release.sh|tools/browser-checks.sh) ;;
+      release.sh|browser-checks.sh) case "$cwd" in */tools|"") ;; *) script="" ;; esac ;;
+      *) script="" ;;
+    esac
+    if [ -z "$script" ]; then say "  ignore $pid: mentions the name but does not run it ($cmd)"; continue; fi
     why=""
-    case "$anc" in *"node --test"*|*"--test-concurrency"*) why="a unit-test fixture (node --test ancestor)" ;; esac
-    [ -z "$why" ] && [ -z "$cwd" ] && why="already exited"
+    has_test_runner "$anc" && why="a unit-test fixture (node --test ancestor)"
+    [ -z "$why" ] && [ "$cwd" = "<exited>" ] && why="already exited"
     if [ -z "$why" ]; then
-      case "$cwd $cmd" in */T/kt[0-9]*/*) why="a unit-test fixture (run-tests.sh sandbox)" ;; esac
+      case "$cwd $script" in */T/kt[0-9]*/*) why="a unit-test fixture (run-tests.sh sandbox)" ;; esac
     fi
-    if [ -z "$why" ] && [ -n "$EXCEPT" ]; then
+    if [ -z "$why" ] && [ -n "$EXCEPT" ] && [ -n "$cwd" ]; then
       case "$cwd" in "$EXCEPT"|"$EXCEPT"/*) why="your own run (--except-cwd)" ;; esac
     fi
     if [ -n "$why" ]; then say "  ignore $pid: $why ($cwd: $cmd)"; continue; fi
-    n=$((n + 1)); say "  COUNTS $pid: a real run ($cwd: $cmd)"
+    n=$((n + 1)); say "  COUNTS $pid: a real run (${cwd:-cwd unknown}: $cmd)"
   done
   echo "COUNTED=$n"
 }
