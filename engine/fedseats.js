@@ -305,8 +305,31 @@ function logUnreadable(err) {
   console.error('#3311: the shared-project record (federation.json) cannot be read, so shared rooms act local until it can: ' + String((err && err.message) || err));
 }
 
+/* #3851: a link names its project by id, and ids are reused (a slug). A link
+   left behind by a removed project (its forget failed while federation.json was
+   unreadable) must not make a NEW local project of the same id act shared: every
+   post in it would leave this Mac with no join ever made. So a link carries the
+   createdAt of the project it was made for (`project_created`). 'stale' is a
+   stamp that names another project; 'unstamped' is a link from before the stamp;
+   anything else, including a createdAt that cannot be read, is 'ok'. */
+function stampOf(projectId, link) {
+  if (!link || !deps || typeof deps.projectCreatedAt !== 'function') return 'ok';
+  const born = deps.projectCreatedAt(projectId);
+  if (typeof born !== 'string' || !born) return 'ok';
+  if (typeof link.project_created !== 'string') return 'unstamped';
+  return link.project_created === born ? 'ok' : 'stale';
+}
+
+/** The link for a project, or null when there is none or it was left by an
+    earlier project of the same id (#3851). Throws, like federation.linkFor,
+    when the record cannot be read. Every reader outside this module asks here. */
+function linkFor(projectId) {
+  const link = federation.linkFor(projectId);
+  return stampOf(projectId, link) === 'stale' ? null : link;
+}
+
 function safeLink(projectId) {
-  try { return federation.linkFor(projectId); } catch { return null; }
+  try { return linkFor(projectId); } catch { return null; }
 }
 
 /** Make sure a linked project has a live seat. Safe to call repeatedly and
@@ -317,32 +340,25 @@ async function ensure(projectId, edges) {
   const link = federation.linkFor(projectId);
   // No link, no seat: one still running would carry another project's room.
   if (!link) { if (seats.has(projectId)) stop(projectId); return null; }
+  /* #3851: checked before anything else, enrolled or not, so a stale link is
+     dropped on sight. A link from before the stamp is stamped on first sight
+     (weakest point: a reuse that happened before this shipped is stamped as if
+     it were the original). */
+  const stamp = stampOf(projectId, link);
+  if (stamp === 'stale') {
+    stop(projectId);
+    try { federation.forgetLink(projectId); } catch { /* retried on the next check */ }
+    console.error('#3851: a shared-project link was left from an earlier project with the id ' + JSON.stringify(projectId) + '; it is dropped, and the project here stays local');
+    return null;
+  }
+  if (stamp === 'unstamped') {
+    try { federation.recordLink(projectId, Object.assign({}, link, { project_created: deps.projectCreatedAt(projectId) })); } catch { /* stamped on the next check */ }
+  }
   if (typeof deps.enrolled === 'function' && !deps.enrolled()) return null;
   if (typeof deps.projectExists === 'function' && !deps.projectExists(projectId)) {
     stop(projectId);
     try { federation.forgetLink(projectId); } catch { /* retried on the next check */ }
     return null;
-  }
-  /* #3851: a link names its project by id, and ids are reused (a slug). A link
-     left behind by a removed project (its forget failed while federation.json
-     was unreadable) must not give a NEW local project of the same id a seat:
-     every post in it would leave this Mac with no join ever made. So a link
-     carries the createdAt of the project it was made for, and a mismatch is a
-     stale link, forgotten here. A link from before the stamp is stamped on
-     first sight (weakest point: a reuse that happened before this shipped is
-     stamped as if it were the original). Unknown (undefined) decides nothing. */
-  if (typeof deps.projectCreatedAt === 'function') {
-    const born = deps.projectCreatedAt(projectId);
-    if (typeof born === 'string' && born) {
-      if (typeof link.project_created !== 'string') {
-        try { federation.recordLink(projectId, Object.assign({}, link, { project_created: born })); } catch { /* stamped on the next check */ }
-      } else if (link.project_created !== born) {
-        stop(projectId);
-        try { federation.forgetLink(projectId); } catch { /* retried on the next check */ }
-        console.error('#3851: a shared-project link was left from an earlier project with the id ' + JSON.stringify(projectId) + '; it is dropped, and the project here stays local');
-        return null;
-      }
-    }
   }
   let s = seats.get(projectId);
   if (link.ended) {
@@ -464,4 +480,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };
+module.exports = { linkFor, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };

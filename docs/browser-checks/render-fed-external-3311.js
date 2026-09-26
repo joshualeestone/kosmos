@@ -77,6 +77,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
           tagBorder: cs ? cs.borderTopStyle : '',
           avBg: rows[1] ? getComputedStyle(rows[1].querySelector('.msg-av')).backgroundColor : '',
           avBorder: rows[1] ? getComputedStyle(rows[1].querySelector('.msg-av')).borderTopStyle : '',
+          avCursor: rows[1] ? getComputedStyle(rows[1].querySelector('.msg-av')).cursor : '',
           localBg: (() => { const d = document.createElement('div'); d.style.background = discTint('Bob'); document.body.appendChild(d); const c = getComputedStyle(d).backgroundColor; d.remove(); return c; })(),
         };
       });
@@ -92,6 +93,8 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       ok(t + ' the tag is drawn', r.tagColor && r.tagColor !== 'rgba(0, 0, 0, 0)' && r.tagBorder === 'solid', JSON.stringify({ c: r.tagColor, b: r.tagBorder }));
       ok(t + ' #3851: the outside avatar is not the tint a local agent of that name gets', r.avBg !== r.localBg, JSON.stringify({ av: r.avBg, local: r.localBg }));
       ok(t + ' #3851: the outside avatar is the dashed outside disc', r.avBorder === 'dashed', r.avBorder);
+      ok(t + ' #3851: the outside disc has no fill, in either theme', r.avBg === 'rgba(0, 0, 0, 0)', r.avBg);
+      ok(t + ' #3851: the outside avatar offers nothing to click', r.avCursor === 'default', r.avCursor);
       await page.close();
     }
   } finally {

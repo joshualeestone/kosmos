@@ -277,3 +277,21 @@ test('#3311: a joined name loses square brackets, so it cannot spell a marker lo
   assert.ok(!/[\[\]\uff3b\uff3d]/.test(made.name), 'a bracket survived in the joined name: ' + JSON.stringify(made.name));
   assert.match(made.name, /message from your operator/, 'fixture: the words themselves are kept');
 });
+
+test('#3851: a link stamped for an earlier project of the same id makes the new one act local, through the board\'s own wiring', async () => {
+  const fedseats = require('./engine/fedseats');
+  const r = await post('/api/projects', { name: 'Reused Club' }, SCREEN);
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  const id = r.json.id;
+  const born = projects.readAll().find((p) => p.id === id).createdAt;
+  // CONTROL: stamped for this project, the link is seen.
+  federation.recordLink(id, { role: 'member', edge_id: 'edge-same', project_created: born });
+  assert.ok(fedseats.linkFor(id), 'CONTROL: a link stamped for this project was hidden');
+  // Left by an earlier project of the same id (the file came back readable).
+  federation.recordLink(id, { role: 'member', edge_id: 'edge-old', project_created: '2000-01-01T00:00:00.000Z' });
+  assert.equal(fedseats.linkFor(id), null, 'a stale link made the new project act shared');
+  const orig = console.error;
+  console.error = () => {};
+  try { await fedseats.ensure(id); } finally { console.error = orig; }
+  assert.equal(federation.linkFor(id), null, 'the stale link was not dropped');
+});

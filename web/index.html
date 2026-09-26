@@ -5668,7 +5668,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .msg.ext .msg-bd { outline: 1px dashed var(--k-rule); outline-offset: -1px; }
 /* #3851: an outside sender's avatar is outside the local tint space (a local agent's
    is drawn from its name, and the outside name is only the sender's claim). */
-.msg-av.ext-av { background: transparent; color: var(--label-2); border: 1px dashed var(--label-2); box-sizing: border-box; }
+.msg.ext .msg-av.ext-av, :root .msg.ext .msg-av.ext-av { background: transparent; color: var(--label-2); border: 1px dashed var(--label-2); box-sizing: border-box; }
+/* Nothing to open on an outside sender: no local card behind the disc or the name. */
+.msg.ext:not(.you) .msg-av, .msg.ext:not(.you) .msg-nm { cursor: default; }
 .msg-ext-tag { font: 600 .6875rem var(--font-ui); text-transform: uppercase; letter-spacing: .04em;
   color: var(--label-2); border: 1px solid var(--k-rule); border-radius: 999px; padding: 0 6px; vertical-align: 1px; }
 .msg-ext-tx { white-space: normal; overflow-wrap: anywhere; }
