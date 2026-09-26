@@ -61,14 +61,17 @@ function setKnownSecrets(values) {
      separator, and kept a copy of every held file. */
   const signature = require('crypto').createHash('sha256').update(JSON.stringify([...list].sort())).digest('hex');
   if (signature === knownSignature) return;
-  knownSignature = signature;
+  /* Recorded only once the build below completes (review round 27): a build that throws must not leave a
+     half-built index that every later load of the same set then keeps. */
+  knownSignature = null;
   indexBuilds += 1;
   maskCache.clear();
   maskCacheChars = 0;
   const forms = new Set();
   const heldValues = [];   // the values taken, as trimmed: the same set the forms and the fragment index come from
   const walkable = new Set();   // forms of values that are not NAME=value lines
-  for (const v of list) {
+  /* In sorted order (review round 27): past MAX_KNOWN_VALUES the same set in another order keeps the same values. */
+  for (const v of [...list].sort()) {
     const k = v.trim();
     if (k.length < MIN_VALUE_LEN) continue;
     /* A bound on the work every reply pays (review round 1 measured 545ms per reply at 20,000 values). */
@@ -148,12 +151,13 @@ function setKnownSecrets(values) {
       for (let i = from; i + FRAGMENT_LEN <= w.length; i += stride) knownGrams.add(w.slice(i, i + FRAGMENT_LEN));
     }
   }
+  knownSignature = signature;
 }
 /* #3935 (review round 19): a key whose first chunk is under OPENING_LEN starts no walk, and the rest can sit in
    the reply as one run (Zq then 8vLm3pRt6wXy9kHb2nWc4d: 22 of 24 characters). Any run holding FRAGMENT_LEN
-   consecutive characters of a held value is masked whole, within these limits: FRAGMENT_LEN + fragmentStride - 1 for a value over KEY_LEN_MAX (and keyStride for keys, 1
-   unless keys alone fill it)
-   characters once the index is thinned; not a run made of words; not a value over WORD_WALK_MAX_FORM, a
+   consecutive characters of a held value is masked whole, within these limits: once the index is thinned,
+   FRAGMENT_LEN + fragmentStride - 1 characters for a value over KEY_LEN_MAX (keyStride, 1 unless keys alone fill
+   the index, for shorter ones); not a run made of words; not a value over WORD_WALK_MAX_FORM, a
    NAME=value line (its value is held on its own), the public head before the first 16 characters' last - or _,
    or a URL's scheme, host and path. That many consecutive characters of a random value
    do not turn up in ordinary text by chance, and the shortest value held at all is this long. */
@@ -171,9 +175,9 @@ const KEY_LEN_MAX = 256;
    base64 (Zq8vLm3pRt6wXy9kHb2nWc4dQ1==) has the same shape, but its "value" is the padding, never held: that is a
    secret, not a line, and it is walked like any other. */
 function isEnvLine(v, heldSet) {
-  const m = /^[A-Za-z_][A-Za-z0-9_]*=(.*)$/.exec(v);
-  if (!m) return false;
-  const value = m[1].trim().replace(/^["']|["']$/g, '');
+  /* The collector's own parser (NAME=value, export, YAML, JSON; review round 27), so the two cannot disagree. */
+  const value = require('./knownsecrets').assignedValue(v);
+  if (!value) return false;
   /* Only when that value is really held (review round 25): past MAX_KNOWN_VALUES it may not be, and then the line
      is the only way to walk it. */
   return value.length >= MIN_VALUE_LEN && (!heldSet || heldSet.has(value));
@@ -182,10 +186,13 @@ function isEnvLine(v, heldSet) {
    file, whose second and later NAMES would otherwise sit inside a walked value, review round 25). A line under
    MIN_VALUE_LEN is not held, and is not a key by this file's measure. */
 function envLike(v, heldSet) {
+  /* A comment line (review round 27: "# Cloudflare API token, DNS edit scope" masked the same words in a guide's
+     sentence). Masked whole if a reply quotes it, never walked or sliced. */
+  if (/^#/.test(v)) return true;
   if (isEnvLine(v, heldSet)) return true;
   if (!/\n/.test(v)) return false;
   const lines = v.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
-  return lines.some((x) => isEnvLine(x, heldSet)) && lines.every((x) => x.length < MIN_VALUE_LEN || heldSet.has(x));
+  return lines.some((x) => isEnvLine(x, heldSet)) && lines.every((x) => x.length < MIN_VALUE_LEN || heldSet.has(x) || /^#/.test(x));
 }
 /* Values shorter than this are not held, so a short word is never taken for a key. */
 const MIN_VALUE_LEN = 12;
@@ -292,8 +299,7 @@ const ZERO_WIDTH = /[\u200B-\u200D\u2060\uFEFF\u00AD]/g;
 
 /* A copy with the tricks undone (review): a key broken across lines, or spelled with a space between
    each character. It is only ever SEARCHED, never shown: if a known value or a named key shape is in
-   it and was not in the text itself, the key's place in the text cannot be pinned down, so the whole
-   message is withheld. */
+   it and was not in the text itself, the span it came from is mapped back to the text and masked. */
 /* Delete the characters `re` captures in group `g` from `str`, keeping `map` (each kept character's index
    in the original text) in step. */
 function deleting(str, map, re, pick) {

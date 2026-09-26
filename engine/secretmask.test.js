@@ -615,11 +615,18 @@ test('#3935 deciding which starts to keep is not quadratic: many repeated openin
   try {
     /* Measured against the same reply with an unrelated held value, since most of a 1.5MB reply's cost is the
        mask's ordinary linear passes: 1.3x with the sweep, 4x when every completion was compared with every other. */
-    setKnownSecrets(['zz9yx8wv7ut6']);
-    const baseline = cpuMillisecondsOf(() => mask(reply));
-    setKnownSecrets(['a1b2c3d4e5f6']);
+    /* The median of three interleaved runs each (review round 27: one run each failed under a loaded full suite,
+       780ms against 376ms, and passed alone; the reply is past the cache's text limit, so every run is fresh). */
+    const base = []; const hit = [];
     let r;
-    const ms = cpuMillisecondsOf(() => { r = mask(reply); });
+    for (let i = 0; i < 3; i += 1) {
+      setKnownSecrets(['zz9yx8wv7ut6']);
+      base.push(cpuMillisecondsOf(() => mask(reply)));
+      setKnownSecrets(['a1b2c3d4e5f6']);
+      hit.push(cpuMillisecondsOf(() => { r = mask(reply); }));
+    }
+    const median = (xs) => [...xs].sort((x, y) => x - y)[1];
+    const baseline = median(base); const ms = median(hit);
     assert.ok(ms < 2 * baseline, `20,000 repeated openings cost ${Math.round(ms)}ms of CPU against ${Math.round(baseline)}ms for the same reply with no match`);
     assert.ok(!r.text.includes('c3d4e5f6'), 'the held value was not masked');
   } finally { setKnownSecrets([]); }
@@ -1117,4 +1124,42 @@ test('#3935 a label glued after a piece stays readable; only the piece is masked
     assert.ok(/-part1/.test(out2) && /-part2/.test(out2), out2);
     assert.ok(!out2.includes('Zq8vLm3p') && !out2.includes('Rt6wXy9k'), out2);
   } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a hand-placed secrets file: comment lines and export, YAML and JSON names stay readable, every value is masked (review round 27)', () => {
+  const knownsecrets = require('./knownsecrets');
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'km-3935-27-'));
+  const a = 'Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v'; const b = 'Qw8eRt2yUi9oPa3sDf6gHj1kLz5xCv0b';
+  const c = 'Mn4bVc7xZa1sDf3gHj5kLp8oIu2yTr6e'; const d = 'Pl9oKi8uJy7hGt6fRd5eSw4qAz3xCv2b';
+  try {
+    fs.mkdirSync(path.join(root, 'secrets'));
+    fs.writeFileSync(path.join(root, 'secrets', 'cf.env'), `# Cloudflare API token, DNS edit scope\nexport CF_API_TOKEN=${a}\n`);
+    fs.writeFileSync(path.join(root, 'secrets', 'r2.yaml'), `r2_secret_access_key: ${b}\n`);
+    fs.writeFileSync(path.join(root, 'secrets', 'hook.json'), `{\n  "webhook_url_v2": "${c}",\n  "other": "${d}"\n}\n`);
+    setKnownSecrets(knownsecrets.collect({ dataRoot: root, home: root }));
+    for (const t of [
+      'Create a Cloudflare API token with the DNS edit scope, then paste it.',
+      'Set CF_API_TOKEN in the file.',
+      'Put it under r2_secret_access_key in the YAML.',
+      'The JSON key is webhook_url_v2, then save.',
+    ]) assert.equal(mask(t).text, t, t);
+    for (const v of [a, b, c, d]) {
+      const out = mask(`First ${v.slice(0, 8)} then ${v.slice(8, 16)} then ${v.slice(16, 24)} then ${v.slice(24)} done`).text;
+      assert.ok(!out.includes(v.slice(8, 16)) && !out.includes(v.slice(24)), `${v}: ${out}`);
+    }
+  } finally { setKnownSecrets([]); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('#3935 past the value cap, the same set in another order keeps the same values (review round 27)', () => {
+  const filler = Array.from({ length: 2000 }, (_, i) => `filler-value-${String(i).padStart(6, '0')}-xyz`);
+  const key = 'Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v';
+  const t = 'First Zq8vLm3p then Rt6wXy9k then Hb2nWc4dPq7sTu5v done';
+  const results = [];
+  for (const list of [[key, ...filler], [...filler, key]]) {
+    setKnownSecrets([]);
+    setKnownSecrets(list);
+    try { results.push(mask(t).text !== t); } finally { setKnownSecrets([]); }
+  }
+  assert.equal(results[0], results[1], `the same set held a different subset by order: ${JSON.stringify(results)}`);
 });

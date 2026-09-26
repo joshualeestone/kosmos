@@ -40,9 +40,24 @@ function valuesIn(text, out) {
     const t = line.trim();
     if (!t) continue;
     out.add(t);
-    const eq = /^[A-Za-z_][A-Za-z0-9_]*=(.*)$/.exec(t);
-    if (eq && eq[1].trim()) out.add(eq[1].trim().replace(/^["']|["']$/g, ''));
+    const value = assignedValue(t);
+    if (value) out.add(value);
   }
+}
+
+/* The value a secrets-file line assigns to a public NAME, or null (#3935 review round 27): NAME=value, export
+   NAME=value, YAML "name: value" (a space after the colon, so a URL's scheme is not a name) and JSON
+   "name": "value". Trimmed and unquoted. engine/secretmask.js reads the same function: a line whose value is held
+   on its own here is masked whole there but not walked, so its NAME stays readable. One parser, two uses. */
+function assignedValue(line) {
+  if (typeof line !== 'string') return null;
+  const t = line.trim();
+  const m = /^(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*=(.*)$/.exec(t)
+    || /^[A-Za-z_][A-Za-z0-9_.-]*:\s+(.*)$/.exec(t)
+    || /^"[A-Za-z_][A-Za-z0-9_.-]*"\s*:\s*(.*?),?$/.exec(t);
+  if (!m) return null;
+  const value = m[1].trim().replace(/^["']|["']$/g, '');
+  return value || null;
 }
 
 function walk(dir, out, depth = 0) {
@@ -82,4 +97,4 @@ function collect({ dataRoot = null, home = null } = {}) {
   return [...out].filter((v) => v.length >= 12);
 }
 
-module.exports = { collect, KEY_FILES };
+module.exports = { collect, KEY_FILES, assignedValue };
