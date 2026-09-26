@@ -9261,6 +9261,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #conn:not([hidden]) { margin-top: var(--space-6); }
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > :not(#panel-detail) { flex: none; }
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > .apphead { margin-bottom: 0; }
+  /* The help tour's dimmed page is min-height 100vh (never shrinks for a keyboard); on the phone
+     chat the page must stay exactly the visible height, tour or not. */
+  html.tip-dimming:not([data-layout="consolidated"]) > body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { min-height: 0; }
   body > #panel-detail:has(#d-sec-talk:not([hidden])) {
     flex: 1 1 auto; min-height: 0; height: auto; display: flex; flex-direction: column; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dbody {
@@ -9307,12 +9310,15 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed {
     flex: none;
     flex-direction: row; flex-wrap: nowrap; gap: 6px; overflow-x: auto; scrollbar-width: none;
-    margin: 0 -2px; padding: 4px 2px 4px; }
+    margin: 0 -2px; padding: 4px 32px 4px 2px; scroll-snap-type: x proximity; overscroll-behavior-x: contain;
+    /* The same "there is more" cue as the phone Settings row (#s-nav). */
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed::-webkit-scrollbar { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack { display: contents; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button,
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button.dnav-dm {
-    flex: none; width: auto; min-height: 44px; flex-direction: row; gap: 6px;
+    flex: none; width: auto; min-height: 44px; flex-direction: row; gap: 6px; scroll-snap-align: center;
     padding: 0 14px; border-radius: 22px; font-size: .875rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-lab,
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack .dnav-lab { font-size: .875rem; }
@@ -9361,6 +9367,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-talk-box #d-talk-label { position: absolute; width: 1px; height: 1px; overflow: hidden;
     clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
   #d-talk-box .d-talk-caprow #d-talk-search-wrap { flex: 1 1 auto; min-height: 44px; }
+  #d-talk-box #d-talk-search { min-height: 42px; }
   /* 16px or iOS zooms the page when the search box takes focus (as for the composer above). */
   #d-talk-box #d-talk-search { font-size: 16px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back { margin: 4px 0 0; min-height: 44px; }
@@ -30115,6 +30122,7 @@ function detailGo(section, opts) {
    keyboard; the visual viewport does shrink. Written as --kosmos-visible-height on
    <html> on every visual-viewport resize; the CSS falls back to 100dvh wherever
    visualViewport is missing. Only the phone block reads it, so desktop is unaffected. */
+// Registered before emojiPlace's visualViewport listener on purpose: emojiPlace measures the body this resizes.
 (function trackVisibleViewportHeight() {
   const viewport = window.visualViewport;
   if (!viewport) return;
@@ -40610,7 +40618,7 @@ function renderAvatarSwarmOnly(a) {
   const swEl = document.getElementById('d-swarm');
   if (!swEl || swEl.hidden) return;
   const slot = swEl.parentElement && swEl.parentElement.getBoundingClientRect().width;
-  if (slot === 0) return;   // #718: laid out at 0 (the phone chat hides its header while typing); keep the last size
+  if (slot === 0) return;   // #718: laid out at 0 (not yet shown at open, or the phone chat's header aside while typing); keep the last size
   const size = Math.round(slot || 88);
   const html = swarmCluster(a, size);
   if (swEl.innerHTML !== html) swEl.innerHTML = html;
@@ -49821,7 +49829,10 @@ function emojiPlace() {
   panel.style.left = Math.round(Math.max(EDGE, Math.min(box.right - 12 - w, innerWidth - EDGE - w))) + 'px';
 }
 window.addEventListener('resize', emojiPlace);
-if (window.visualViewport) window.visualViewport.addEventListener('resize', emojiPlace);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', emojiPlace);
+  window.visualViewport.addEventListener('scroll', emojiPlace);   // an iOS pan moves offsetTop without a resize
+}
 /* Any scroll that moves the box: the page's (it scrolls at mid widths, where .apphead is not
    sticky), or an ancestor's. Capture phase, because scroll events do not bubble; emojiPlace returns
    at once while the panel is closed. The panel's own grid scrolling is skipped: nothing about the
