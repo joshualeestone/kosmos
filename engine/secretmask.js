@@ -123,7 +123,9 @@ function deleting(str, map, re, pick) {
    masked exactly where its pieces are, rather than the whole message withheld). Joins a line break (one
    blank line allowed) between key characters, and closes up a spaced-out run of single characters. */
 function normalisedCopy(text) {
-  let cur = { str: text, map: Array.from(text, (_, i) => i) };
+  /* UTF-16 positions (review round 1 of the separator change): Array.from(text, fn) walks CODE POINTS, so
+     with an emoji earlier in the text every later position was off, and a split key's tail was left showing. */
+  let cur = { str: text, map: Array.from({ length: text.length }, (_, i) => i) };
   /* Every line break between key characters is joined (up to two blank lines), with any quote or list
      marker after it. No gate on what surrounds it: review round 3 measured that gating the join (plain
      letters on both sides, or fewer than three characters on one side) left split keys readable. The
@@ -138,6 +140,12 @@ function normalisedCopy(text) {
     return spans;
   });
   return cur;
+}
+/* How many characters of text[from, to) are not whitespace, counting no further than `cap + 1`. */
+function nonSpaceIn(text, from, to, cap = Infinity) {
+  let n = 0;
+  for (let i = from; i < to && n <= cap; i += 1) if (!/\s/.test(text[i])) n += 1;
+  return n;
 }
 const WITHHELD = `${'••••'} (Kosmos removed a password or key from this message.)`;
 const MAX_KNOWN_VALUES = 2000;
@@ -206,12 +214,45 @@ function mask(text) {
      the ordinary masking, because masking the first half of a split key would hide the evidence and
      leave the second half showing. */
   const { str: norm, map } = normalisedCopy(original);
+  const spans = [];
+  /* #3769 (Ice Cream Kitty's re-check after #3800): a HELD value written with other characters between its
+     pieces, a table row per chunk (| Ab3d | Ef7h |) or one character at a time (s,k,-,a,n,t), is not joined
+     by the copy above, which only closes line breaks and single spaces. So a second copy keeps ONLY the
+     characters a key is made of, and is searched for held values alone: prose is never matched against
+     it, and a 12-character-or-longer held value does not assemble itself from unrelated words. A hit is
+     masked from its first piece to its last. An occurrence that is already contiguous in the text is
+     left to the ordinary pass below (it is the same value, masked as known_secret).
+     Two copies, because the noise between pieces comes in two kinds: characters no key uses (| , ; . and
+     spaces), which the first copy drops, and SHORT runs of key characters, such as a table's row number or
+     its --- divider (| 0 | Ab3dEf7h |), which the second copy drops by keeping only runs of four or more. */
+  if (knownByPrefix.size) {
+    const identity = Array.from({ length: original.length }, (_, i) => i);   // UTF-16 positions, as slice uses
+    const allKeyChars = deleting(original, identity, /[^A-Za-z0-9_+/=-]+/g, (m) => [m.index, m.index + m[0].length]);
+    const longRuns = deleting(original, identity, /[A-Za-z0-9_+/=-]{1,3}(?![A-Za-z0-9_+/=-])|[^A-Za-z0-9_+/=-]+/g,
+      (m) => (m.index > 0 && /[A-Za-z0-9_+/=-]/.test(original[m.index - 1]) && /^[A-Za-z0-9_+/=-]/.test(m[0]) ? null : [m.index, m.index + m[0].length]));
+    for (const copy of [allKeyChars, longRuns]) {
+      if (copy.str === original) continue;
+      for (const f of knownFormsIn(copy.str)) {
+        let at = copy.str.indexOf(f);
+        while (at !== -1) {
+          const from = copy.map[at], to = copy.map[at + f.length - 1] + 1;
+          /* Local only (review round 1): without a bound, a held value that two ordinary words happen to
+             spell, thousands of characters apart, masked all the text between them. The bound counts only
+             the NON-WHITESPACE characters in the span (review round 2): column padding in an aligned table is
+             layout, not noise, and measuring raw distance let an ordinary padded table leak the whole key.
+             Real splits carry little else (a row number and two pipes per chunk); four times the value is
+             generous for them and far below a swallowed table. */
+          if (to - from !== f.length && nonSpaceIn(original, from, to, 4 * f.length) <= 4 * f.length) spans.push([from, to]);
+          at = copy.str.indexOf(f, at + f.length);
+        }
+      }
+    }
+  }
   if (norm !== original) {
     /* A match in the copy counts only if no match of the same pattern in the text itself is the same
        characters once whitespace is set aside: a private key block legitimately spans lines (the same key
        either way), while a split key's first line matches only its first half. */
     const bare = (x) => x.replace(/\s+/g, '');
-    const spans = [];
     const inOriginal = new Set(knownFormsIn(original));
     for (const f of knownFormsIn(norm)) {
       if (inOriginal.has(f)) continue;
@@ -230,18 +271,18 @@ function mask(text) {
       }
       re.lastIndex = 0;
     }
-    if (spans.length) {
-      spans.sort((a, b) => a[0] - b[0]);
-      let rebuilt = '';
-      let last = 0;
-      for (const [from, to] of spans) {
-        if (to <= last) continue;
-        rebuilt += original.slice(last, Math.max(from, last)) + MASK;
-        last = to;
-        hit('split_secret');
-      }
-      original = rebuilt + original.slice(last);
+  }
+  if (spans.length) {
+    spans.sort((a, b) => a[0] - b[0]);
+    let rebuilt = '';
+    let last = 0;
+    for (const [from, to] of spans) {
+      if (to <= last) continue;
+      rebuilt += original.slice(last, Math.max(from, last)) + MASK;
+      last = to;
+      hit('split_secret');
     }
+    original = rebuilt + original.slice(last);
   }
   let out = original;
   for (const f of knownFormsIn(out)) {

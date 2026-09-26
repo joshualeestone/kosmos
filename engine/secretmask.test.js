@@ -241,3 +241,96 @@ test('#3769 an ordinary 40KB table or list with 2000 held values costs little (r
     assert.ok(!mask(withKey).text.includes('held-value-00001234'), 'CONTROL: a held value inside the same table was not masked');
   } finally { setKnownSecrets([]); }
 });
+
+test('#3769 a held key split across table cells or spelled out with commas is masked (Ice Cream Kitty, after #3800)', () => {
+  const held = j('sk-ant-', 'api03-', 'TableCellsAndCommas0123456789XYZ');
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{1,8}/g);
+    const TAB = String.fromCharCode(9);   // named, so fixture-discipline does not read a join on it as a tmux pane line
+    const cases = [
+      ['table', `Here it is:\n| part | value |\n|---|---|\n${chunks.map((c, i) => `| ${i} | ${c} |`).join('\n')}\nDone.`, 'Here it is:\n', '\nDone.'],
+      ['commas', `spelled: ${held.split('').join(',')} ok`, 'spelled: ', ' ok'],
+      ['comma-space', `spelled: ${held.split('').join(', ')} ok`, 'spelled: ', ' ok'],
+      ['semicolons', `pieces: ${chunks.join('; ')} end`, 'pieces: ', ' end'],
+      ['dots', `pieces: ${chunks.join(' . ')} end`, 'pieces: ', ' end'],
+      ['tabs', `pieces:${TAB}${chunks.join(TAB)}${TAB}end`, `pieces:${TAB}`, `${TAB}end`],
+      ['emoji first', `\u{1F511} | ${chunks.join(' | ')} | kept \u{1F600}`, '\u{1F511} | ', ' | kept \u{1F600}'],
+    ];
+    for (const [name, input, head, tail] of cases) {
+      const r = mask(input);
+      for (const piece of [held.slice(0, 8), held.slice(14, 22), held.slice(-8)]) assert.ok(!r.text.includes(piece), `${name}: a piece of the key survived: ${r.text}`);
+      assert.ok(r.text.startsWith(head) && r.text.endsWith(tail) && r.text.includes(MASK), `${name}: the text around the key was lost: ${JSON.stringify(r.text)}`);
+      assert.ok(r.fired.some((f) => f.kind === 'split_secret'), `${name}: reported as ${JSON.stringify(r.fired)}`);
+    }
+    /* The same key intact AND split in one message: both go (the intact copy used to exempt the split one). */
+    const both = mask(`first ${held} then ${held.split('').join(',')} end`).text;
+    assert.ok(!both.includes(held.slice(0, 8)) && !both.includes(held.slice(-8)), `an intact copy let the split copy through: ${both}`);
+    assert.ok(both.startsWith('first ') && both.endsWith(' end'), both);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3769 the separator-free search is for held values only: ordinary lists, tables and prose are untouched', () => {
+  const held = j('sk-ant-', 'api03-', 'TableCellsAndCommas0123456789XYZ');
+  setKnownSecrets([held, 'correcthorsebatterystaple']);
+  try {
+    const ordinary = [
+      'apples, pears, plums, cherries, grapes, and figs',
+      '| Setting | Value |\n|---|---|\n| Theme | Dark |\n| Model | Opus |',
+      'a,b,c,d,e,f,g,h,i,j,k,l,m',
+    ];
+    for (const t of ordinary) assert.equal(mask(t).text, t, `ordinary text was changed: ${t}`);
+    /* CONTROL: words that join to a HELD value are masked. The rule is "held values only", not "never across
+       words": a held password written as its words is the leak. */
+    const joined = 'correct,horse,battery,staple';
+    assert.ok(!mask(`x ${joined} y`).text.includes('battery'), 'CONTROL: a held value assembled from comma pieces survived');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3769 the separator join is local: a held value two far-apart words happen to spell does not swallow the text between', () => {
+  setKnownSecrets(['Setting1And2x']);
+  try {
+    const between = '|  :  |\n'.repeat(500);
+    const input = `Please review these Setting1${between}And2x options above before continuing.`;
+    const out = mask(input).text;
+    assert.equal(out, input, `a coincidental far-apart join masked ${input.length - out.length} characters`);
+    /* CONTROL: the same value written close together, a real split, is still masked. */
+    assert.ok(!mask('value: Setting1 | And2x end').text.includes('And2x'), 'CONTROL: a close split of the held value survived');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3769 an emoji before a key split across lines does not shift the mask (code-point vs UTF-16 positions)', () => {
+  const held = j('sk-ant-', 'api03-', 'ManyEmojiBeforeSplitKey0123456789XYZ');
+  setKnownSecrets([held]);
+  try {
+    const out = mask(`${'\u{1F600}'.repeat(50)} part one:\n${held.slice(0, 20)}\n${held.slice(20)} done \u{1F600} tail-word`).text;
+    for (const piece of [held.slice(0, 10), held.slice(22, 34), held.slice(-10)]) assert.ok(!out.includes(piece), `a piece survived: ${out}`);
+    assert.ok(out.endsWith(' done \u{1F600} tail-word') && out.includes(' part one:\n'), `the text around the key was damaged: ${JSON.stringify(out)}`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3769 a column-aligned table does not escape the join: padding is layout, not noise (review round 2)', () => {
+  const held = j('sk-ant-', 'api03-', 'TableCellsAndCommas0123456789XYZ');
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{1,8}/g);
+    const width = 80;   // one long unrelated cell in the column pads every cell to it
+    const row = (a, b) => `| ${a.padEnd(4)} | ${b.padEnd(width)} |`;
+    const table = [row('Row', 'Value'), row('---', '---'), ...chunks.map((c, i) => row(String(i), c)),
+      row('note', 'x'.repeat(width))].join('\n');
+    const r = mask(`Here:\n${table}\nDone.`);
+    for (const piece of [held.slice(0, 8), held.slice(16, 24), held.slice(-8)]) assert.ok(!r.text.includes(piece), `a padded table leaked a piece: ${r.text.slice(0, 400)}`);
+    assert.ok(r.text.endsWith('\nDone.') && r.fired.some((f) => f.kind === 'split_secret'), JSON.stringify(r.fired));
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3769 the separator join stays cheap on a long reply with the held values at their cap (review round 3)', () => {
+  setKnownSecrets(Array.from({ length: 2000 }, (_, i) => `held-value-${String(i).padStart(8, '0')}-xyz`));
+  try {
+    const noisy = Array.from({ length: 4000 }, (_, i) => `| ${i} | held | value | ${i % 7} |, a; b. c`).join('\n');
+    const ms = cpuMillisecondsOf(() => mask(noisy));
+    assert.ok(ms < 1500, `a ${noisy.length}-character reply cost ${Math.round(ms)}ms of CPU`);
+    const withSplit = `${noisy.slice(0, 5000)} held-value-0000, 1234-xyz ${noisy.slice(5000)}`;
+    assert.ok(!mask(withSplit).text.includes('1234-xyz'), 'CONTROL: a comma-split held value inside the same reply was not masked');
+  } finally { setKnownSecrets([]); }
+});
