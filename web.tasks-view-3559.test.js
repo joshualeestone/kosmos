@@ -160,7 +160,7 @@ test('#3949 Needs Your Decision stays live: a change in WHO needs the person re-
     const TSK = { data: [], names: '', needs: null, busy: false };
     const document = { getElementById: () => ({ hidden: env.hidden }) };
     let loads = 0, paints = 0;
-    const tskLoad = () => { loads += 1; };
+    const tskLoad = () => { loads += 1; TSK.needs = tskNeedsSig(); };   // the real tskLoad records the baseline
     const tskPaintKeepingCurrentFocus = () => { paints += 1; };
     ${src}
     return { tick(next) { LAST = next; tskRosterChanged(); return { loads, paints }; }, TSK, names: () => tskNamesSig() };`);
@@ -184,4 +184,13 @@ test('#3949 Needs Your Decision stays live: a change in WHO needs the person re-
   const hid = make(Object.assign(env, { LAST: idle }));
   hid.tick(idle);
   assert.deepEqual(hid.tick(asks), { loads: 0, paints: 0 }, 'a hidden view does not read (arriving on it loads fresh)');
+  /* Busy closing tasks when a question arrives: no read then, and the change is still seen on the next tick. */
+  env.hidden = false;
+  const busy = make(Object.assign(env, { LAST: idle }));
+  busy.TSK.names = busy.names();
+  busy.tick(idle);
+  busy.TSK.busy = true;
+  assert.deepEqual(busy.tick(asks), { loads: 0, paints: 0 }, 'no read while a bulk close is running');
+  busy.TSK.busy = false;
+  assert.deepEqual(busy.tick(asks), { loads: 1, paints: 0 }, 'the question that arrived while busy is read on the next tick');
 });

@@ -45174,7 +45174,7 @@ document.getElementById('pj-alltasks').addEventListener('click', () => openProje
    waiting" is not drawn: no task stores it yet (#3951). */
 const TSK_GROUPS = [
   { k: 'decision', l: 'Needs Your Decision', c: 'var(--tsk-decision)',
-    why: 'The agent on these needs you: a question about this project, your go-ahead, or a connection Kosmos could not restore.' },
+    why: 'The agent on these needs you: a question about its project, your go-ahead, or a connection Kosmos could not restore.' },
   { k: 'working', l: 'In progress', c: 'var(--tsk-working)',
     why: 'The agent’s own report names these as what it is working on.' },
   { k: 'assigned', l: 'Assigned but not started', c: 'var(--tsk-assigned)',
@@ -45205,10 +45205,11 @@ function tskRosterChanged() {
   /* #3949: Needs Your Decision is live board state, so when WHO needs the person changes (a question asked
      or answered), the tasks are read again while the view is on screen; any other poll changes nothing. */
   const needs = tskNeedsSig();
-  const needsMoved = TSK.needs !== null && needs !== TSK.needs;
-  TSK.needs = needs;
   const shown = !document.getElementById('panel-tasks').hidden;
-  if (needsMoved && shown && TSK.data && !TSK.busy) { tskLoad(); return; }
+  /* The baseline moves only with a read (tskLoad records it): a change seen while the view is hidden, busy
+     closing tasks or not yet read is still a change on the next tick (review round 5). */
+  if (TSK.needs === null) TSK.needs = needs;
+  else if (needs !== TSK.needs && shown && TSK.data && !TSK.busy) { tskLoad(); return; }
   if (TSK.data && shown && tskNamesSig() !== TSK.names) tskPaintKeepingCurrentFocus();
 }
 /* The agents needing the person by the board's own rule, with the project a question names: the part of the
