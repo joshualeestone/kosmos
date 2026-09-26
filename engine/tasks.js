@@ -845,14 +845,42 @@ function allTasks(everyProject) {
  *              read, in which case the claim's `because` travels with the task
  *              and the screen says why it cannot tell, never "not started" as
  *              a fact
- * "Waiting on you" and "Done, check it" need a decision flag, a question and
- * an agent-says-done that no task stores yet, so no task is ever put in them.
+ *   'decision' (#3949) open, and the agent holding it needs the person right now
+ *              (`waitingOnPerson`, set by the Tasks route from the roster); it
+ *              wins over working and assigned, so each open task is in one group
+ * "Built, waiting to ship" needs an agent-says-built that no task stores yet
+ * (#3951), so no task is ever put in it.
  */
 function taskState(task) {
   if (!task) return 'nobody';
   if (progressOf(task).closed) return 'closed';
   if (whoOf(task).length === 0) return 'nobody';
+  if (task.waitingOnPerson === true) return 'decision';
   return (task.claim && task.claim.claimed === true) ? 'working' : 'assigned';
+}
+
+/**
+ * #3949 (Josh, 2026-09-26): does this open task need the person's decision? True when ANY agent
+ * holding an open part of it needs the person right now by the board's own rule (status.needsPerson:
+ * a question, a trust wait, a connection given up on), on a pane tied to that name, and, for a
+ * question, one about THIS task's project: the project page's needsYou rule (#763, #3726), per task.
+ * Every holder, not only the first (claimWho): the red tile is the one the person acts on, and a
+ * second agent's question on a shared task is still a question. A question belongs to the agent and
+ * names a project, not a task, so an agent holding two tasks in one project marks both.
+ * A trust wait is counted by the same rule, but today it never reaches the roster this is given (the
+ * status route builds those rows offline, after snapshot), as projects.js says of the project page.
+ */
+function waitingOnPerson(task, roster) {
+  if (!task || progressOf(task).closed || !Array.isArray(roster)) return false;
+  const holders = new Set(partsOf(task).filter((x) => x && x.who && !x.closedAt).map((x) => x.who));
+  if (!holders.size) return false;
+  // Required here rather than at the top, as projects.js does: status is loaded lazily from this layer.
+  const status = require('./status');
+  return roster.some((card) => card && holders.has(card.sessionName) && card.isNamedOurs === true
+    && status.needsPerson(card)
+    /* Only a question names a project. A trust wait or a connection given up on is about the agent itself,
+       so it counts on every task the agent holds, as it does on the project page (#3726). */
+    && (card.state === status.STATE.NEEDS_YOU ? card.stateProject === task.projectId : true));
 }
 
 /**
@@ -1008,7 +1036,7 @@ function tasksTabShown() {
 }
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
-  taskState, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, setParent, tasksEverCreated, tasksTabShown, claimWho,
+  taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX };

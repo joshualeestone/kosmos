@@ -100,17 +100,19 @@ test('the state line shows only when grouping by project; the agent pill shows i
   const byStatus = rowOf(t, 'status');
   const byProject = rowOf(t, 'project');
   assert.doesNotMatch(byStatus, /class="tsk-state"/, 'the row repeats its own group heading');
-  assert.match(byProject, /class="tsk-state"[^>]*><span class="tsk-dot"><\/span>Assigned, not started<\/span>/);
+  assert.match(byProject, /class="tsk-state"[^>]*><span class="tsk-dot"><\/span>Assigned but not started<\/span>/);
   for (const html of [byStatus, byProject]) assert.match(html, /class="tsk-who" data-agent="rex">/);
   // A screen reader moving between checkboxes still hears the state the row no longer shows.
   // In parentheses, so a project name with a comma in it cannot run into the state.
-  assert.match(byStatus, /aria-label="Select task 3 of Launch \(Assigned, not started\)"/);
+  assert.match(byStatus, /aria-label="Select task 3 of Launch \(Assigned but not started\)"/);
   assert.match(byProject, /aria-label="Select task 3 of Launch"/, 'grouped by project the label repeats the state the row shows');
 });
 
-test('Closed is not a tile; it stays the folded list', () => {
-  assert.match(SCRIPT, /getElementById\('tsk-tiles'\)\.innerHTML = !TSK\.data \? '' : TSK_GROUPS\.filter\(\(g\) => g\.k !== 'closed'\)\.map/);
-  // That Closed renders as the fold (and its count) is pinned by render-tasks-view-3559's fold arms.
+test('#3949 (Josh): Completed is a tile again, every tile is one label with no byline, and the list keeps the fold', () => {
+  assert.match(SCRIPT, /getElementById\('tsk-tiles'\)\.innerHTML = !TSK\.data \? '' : TSK_GROUPS\.map\(/, 'a group is left out of the tiles');
+  assert.doesNotMatch(SCRIPT, /class="ts">/, 'a tile still carries a byline');
+  // Completed stays the folded list below, and opens when its tile is picked.
+  assert.match(SCRIPT, /<details class="tsk-fold"' \+ \(TSK\.closedOpen \|\| TSK\.tile === 'closed' \? ' open' : ''\)/);
 });
 
 test('the two big gaps: less top padding, an empty crumb takes no room, and the status line keeps one reserved line', () => {

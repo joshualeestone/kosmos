@@ -78,6 +78,8 @@ function chk(ok, label, extra) {
     chip: (r.querySelector('.tsk-chip') || {}).textContent || '',
     allDone: /all subtasks done/.test(r.querySelector('.meta').textContent),
     group: (() => { const g = r.closest('.tsk-grp'); const h = g && (g.querySelector('h3') || g.querySelector('summary')); return h ? h.textContent : ''; })(),
+    /* In the finished-work fold, by the element, not its label (#3949 renamed it from Closed to Completed). */
+    folded: !!r.closest('.tsk-fold'),
   }));
   try {
     for (const [theme, width] of [['light', 1400], ['dark', 1400], ['light', 390]]) {
@@ -92,11 +94,11 @@ function chk(ok, label, extra) {
       await page.evaluate(() => { const f = document.querySelector('#tsk-groups .tsk-fold'); if (f) f.open = true; });
       const rows = await page.evaluate(rowsOf);
       const at = (n) => rows.find((r) => r.n === n) || {};
-      const order = rows.filter((r) => !/Closed/.test(r.group)).map((r) => r.n);
-      /* Nobody-on-it holds 1..5 and 7 (all unassigned): 7 then 1 (newest first), 1's family under it. */
+      const order = rows.filter((r) => !r.folded).map((r) => r.n);
+      /* Unassigned holds 1..5 and 7 (all unassigned): 7 then 1 (newest first), 1's family under it. */
       /* The family: every row after 1 until the next top-level row is one of its descendants, and
          all four seeded ones are there (a subtask added by the first pass joins it later). */
-      const open = rows.filter((r) => !/Closed/.test(r.group));
+      const open = rows.filter((r) => !r.folded);
       const i1 = open.findIndex((r) => r.n === 1);
       const fam = [];
       for (let k = i1 + 1; i1 > -1 && k < open.length && open[k].depth > 0; k += 1) fam.push(open[k].n);
@@ -110,8 +112,10 @@ function chk(ok, label, extra) {
       chk(/(^|\D)1\/3$/.test(at(1).chip), `${tag} the parent's chip counts its direct subtasks (1 of 3 done)`, at(1).chip);
       /* 0/1 on the first pass; the first pass then adds a subtask under 3, so later passes read 0/2. */
       chk(/(^|\D)0\/[12]$/.test(at(3).chip), `${tag} a subtask with its own subtask carries its own chip`, at(3).chip);
-      chk(/Closed/.test(at(6).group) && at(6).depth === 0 && /^Part of #1 Plan the launch week/.test(at(6).part),
-        `${tag} a closed child under an open parent stays in Closed and says what it is part of`, JSON.stringify(at(6)));
+      chk(at(6).folded && /^Completed/.test(at(6).group) && at(6).depth === 0 && /^Part of #1 Plan the launch week/.test(at(6).part),
+        `${tag} a closed child under an open parent stays in Completed and says what it is part of`, JSON.stringify(at(6)));
+      /* The two lists above must hold open rows only: a label change once let closed rows into them unnoticed. */
+      chk(!order.includes(6) && !order.includes(8), `${tag} the open order leaves out the finished rows`, JSON.stringify(order));
       chk(at(7).allDone && /1\/1/.test(at(7).chip), `${tag} a parent with every subtask closed says so (and stayed open)`, JSON.stringify(at(7)));
       const bad = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
       chk(!bad, `${tag} no sideways scroll`);

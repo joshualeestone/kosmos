@@ -13637,7 +13637,8 @@ const server = http.createServer((req, res) => {
                         this" / has not said / could not tell, with why), one
                         roster read and one commitments reading per agent for
                         the whole request
-         state          tasks.taskState: closed / nobody / working / assigned
+         waitingOnPerson tasks.waitingOnPerson: its agent needs the person about it (#3949)
+         state          tasks.taskState: closed / nobody / decision / working / assigned
          lastActivityAt the newest transcript event, else created/closed
        Added fields only, and only on ?view=tasks, which also leaves out archived
        projects' tasks (the view does not list them) except the one `withArchived` names. */
@@ -13668,13 +13669,18 @@ const server = http.createServer((req, res) => {
       if (about) {
         claim = { claimed: null, because: 'we could not read what its agent reports', about, neverReported: false };
       }
+      /* #3949: Needs Your Decision, from the same roster read (the engine's rule, tasks.waitingOnPerson). */
+      const waitingOnPerson = tasks.waitingOnPerson(t, roster);
       return Object.assign({}, t, {
         claim,
-        state: tasks.taskState(Object.assign({}, t, { claim })),
+        waitingOnPerson,
+        state: tasks.taskState(Object.assign({}, t, { claim, waitingOnPerson })),
         lastActivityAt: tasks.lastActivityOf(t.projectId, t),
       });
     });
-    sendJson(res, 200, { tasks: rows, count: rows.length, project: projectScope });
+    /* #3949 (review round 9): with no roster, waitingOnPerson cannot see a question, so the page must not
+       read its "false" as "nobody needs you". It says it could not tell. */
+    sendJson(res, 200, { tasks: rows, count: rows.length, project: projectScope, rosterUnreadable: !Array.isArray(roster) });
     return;
   }
 

@@ -3403,21 +3403,15 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    their own. 🛑 NO COLOURED BAR DOWN A LEFT EDGE, ANYWHERE (Josh, 2026-09-24 12:52: "the em-dash
    version of, this was made with Ai"): a status is a round DOT beside its label, and the
    browser check asserts no element here carries a coloured left border.
-   The status colours: grey for nobody on it, gold for assigned, the working green for in
-   progress, a quiet grey for closed -- the app's existing meanings, no new palette. */
+   The status colours: red (--danger) for Needs Your Decision (#3949), grey for unassigned, gold for
+   assigned but not started, the working green for in progress, a quiet grey for completed -- the
+   app's existing meanings, no new palette. */
 #panel-tasks { --tsk-c: var(--k-ink-2); --tsk-nobody: var(--k-ink-2); --tsk-assigned: var(--gold-deep); --tsk-working: var(--ok);
+  --tsk-decision: var(--danger);
   --tsk-closed: color-mix(in srgb, var(--k-ink-2) 55%, var(--k-rule));
   --tsk-wash: color-mix(in srgb, var(--gold) 14%, var(--k-surface)); color: var(--k-ink); }
-.tsk-view { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 70vh;
-  background: var(--k-bg); border: 1px solid var(--k-rule); border-radius: 14px; overflow: hidden; }
-.tsk-rail { background: var(--k-side); border-right: 1px solid var(--k-rule); padding: 18px 12px 24px; }
-.tsk-rcap { font: 650 .6875rem var(--font-ui); letter-spacing: .12em; text-transform: uppercase; color: var(--k-ink-2); margin: 4px 8px 6px; }
-.tsk-ritem { display: flex; align-items: center; gap: 8px; width: 100%; border: 1px solid transparent; background: none;
-  font: 500 .875rem var(--font-ui); color: var(--k-ink); padding: 6px 8px; border-radius: 8px; cursor: pointer; text-align: left; }
-.tsk-ritem:hover:not(.on) { background: var(--tsk-wash); }
-.tsk-ritem.on { background: var(--k-surface); border-color: var(--gold-edge); font-weight: 650; }
-.tsk-ritem .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tsk-ritem .ct { font: 500 .75rem var(--font-mono); color: var(--k-ink-2); font-variant-numeric: tabular-nums; }
+/* #3949: one column, the full width (the Projects rail is gone; its choice is the dropdown). */
+.tsk-view { min-height: 70vh; background: var(--k-bg); border: 1px solid var(--k-rule); border-radius: 14px; overflow: hidden; }
 .tsk-main { padding: 25px 26px 110px; min-width: 0; position: relative; }
 .tsk-crumb { font-size: .8125rem; color: var(--k-ink-2); margin: 0 0 2px; min-height: 1.3em; }
 /* Mona's look review of #3701: halve the two big vertical gaps (measured 51px above the title,
@@ -3429,17 +3423,20 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    because truncating would hide the part the person needs. It stays a live region. */
 .tsk-crumb:empty { min-height: 0; margin: 0; }
 #tsk-msg { margin: 0; min-height: 1.6em; min-height: 1lh; }   /* one message line, reserved */
-#panel-tasks #tsk-hint { margin-bottom: 0; }
 #tsk-groups > .tsk-grp:first-child { margin-top: 3px; }
 .tsk-crumb button { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer;
   text-decoration: underline; text-decoration-color: var(--gold); text-underline-offset: 3px; }
 #panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
 /* #3703: the head carries "+ New task" beside the title, as Mona's mock draws it (.mh / .newbtn). */
 #panel-tasks .tsk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.tsk-sub { color: var(--k-ink-2); font-size: .9375rem; margin: 2px 0 0; }
-.tsk-ctrls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 18px 0 4px; }
+/* #3949: the search takes about half the width, with the open-task count to its right. */
+.tsk-toprow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; margin: 16px 0 0; }
+.tsk-toprow .tsk-search { flex: 0 1 50%; min-width: 240px; margin: 0; max-width: none; }
+.tsk-sub { color: var(--k-ink-2); font-size: .9375rem; margin: 0; }
+.tsk-ctrls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 14px 0 4px; }
+#tsk-under { margin: 12px 0 4px; }
 .tsk-ctl { display: flex; align-items: center; }
-.tsk-cl { font: 650 .6875rem var(--font-ui); letter-spacing: .1em; text-transform: uppercase; color: var(--k-ink-2); margin-right: 6px; white-space: nowrap; }
+.tsk-cl { font: 600 .875rem var(--font-ui); color: var(--k-ink-2); margin-right: 6px; white-space: nowrap; }
 .tsk-search { position: relative; margin: 16px 0 0; max-width: 520px; }
 .tsk-search svg { position: absolute; left: 11px; top: 50%; width: 16px; height: 16px; margin-top: -8px; color: var(--k-ink-2); pointer-events: none; }
 .tsk-search input { width: 100%; box-sizing: border-box; font: .9375rem var(--font-ui); height: 38px; padding: 0 34px 0 36px; border-radius: 10px;
@@ -3448,10 +3445,6 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .tsk-search button { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: 0; background: none; cursor: pointer;
   color: var(--k-ink-2); font: 600 1rem var(--font-ui); width: 26px; height: 26px; border-radius: 7px; }
 .tsk-search button:hover { background: var(--k-rule); }
-.tsk-seg { display: inline-flex; border: 1px solid var(--k-rule); border-radius: 9px; overflow: hidden; background: var(--k-surface); }
-.tsk-seg button { border: 0; background: none; cursor: pointer; padding: 0 11px; height: 30px; color: var(--k-ink-2); font: 600 .8125rem var(--font-ui); white-space: nowrap; }
-.tsk-seg button + button { border-left: 1px solid var(--k-rule); }
-.tsk-seg button[aria-pressed="true"] { color: #231b06; background: linear-gradient(150deg, var(--gold-bright), var(--gold-deep)); }
 /* The arrow's position and size and the radius come from the global `select`
    rule; `background-color`, not the `background` shorthand, so they survive.
    The 2rem right padding is restated because the `padding` shorthand replaces
@@ -3461,7 +3454,6 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
   background-color: var(--k-surface); color: var(--k-ink);
   background-image: linear-gradient(45deg, transparent 50%, var(--k-ink-2) 50%),
                     linear-gradient(135deg, var(--k-ink-2) 50%, transparent 50%); }
-.tsk-mobsel { display: none; }
 .tsk-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(138px, 1fr)); gap: 10px; margin: 16px 0 4px; }
 .tsk-tile { background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 12px; padding: 11px 13px 10px; cursor: pointer;
   text-align: left; font: inherit; color: inherit; display: flex; flex-direction: column; gap: 1px; }
@@ -3469,9 +3461,11 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-tile[aria-pressed="true"] { background: var(--agent-msg); border-color: var(--gold-edge); }
 .tsk-tile .num { font: 650 1.5rem var(--font-ui); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
 .tsk-tile .lab { font-size: .8125rem; font-weight: 650; }
-.tsk-tile .ts { font-size: .75rem; color: var(--k-ink-2); }
+/* #3949 (Josh): Needs Your Decision is red, the only tile the person acts on; at zero there is nothing to act on,
+   so it is drawn like the others. */
+.tsk-tile[data-tile="decision"]:not([data-n="0"]):not([data-n="unknown"]) { border-color: color-mix(in srgb, var(--danger) 45%, var(--k-rule)); }
+.tsk-tile[data-tile="decision"]:not([data-n="0"]):not([data-n="unknown"]) .num, .tsk-tile[data-tile="decision"]:not([data-n="0"]):not([data-n="unknown"]) .lab { color: var(--danger); }
 .tsk-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--tsk-c); margin-right: 6px; vertical-align: 1px; flex: none; }
-.tsk-hint { font-size: .8125rem; color: var(--k-ink-2); margin: 6px 0 4px; max-width: 80ch; }
 .tsk-grp { margin-top: 24px; }
 .tsk-grp h3 { font-size: 1.0625rem; margin: 0; display: flex; align-items: center; gap: 3px; }
 .tsk-grp h3 .count { font: 500 .8125rem var(--font-mono); color: var(--k-ink-2); margin-left: 6px; }
@@ -3536,24 +3530,18 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-task
 /* #3880 (Josh, 2026-09-25 22:01): in the column the view has no outer frame of its own; the title, New task, filters,
    tiles and list sit on the column's ground unframed. The tiles and the list keep their own borders. The tab view keeps
    its frame: Josh scoped this to the consolidated view. */
-html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-view { grid-template-columns: 1fr;
+html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-view {
   border: 0; border-radius: 0; background: none; }
 /* Mona's look review of #3701: in the column the panel's own top inset already spaces the title,
    so the view's does not stack on it (was about 49px, like the tab view's 51px before halving). */
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-main { padding-top: 0; }
-html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-rail { display: none; }
-html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-mobsel { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 /* The consolidated projects rail's way into Tasks (the tab bar is hidden there). */
 .rail-tasks { border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); font: 600 .75rem var(--font-ui);
   padding: 2px 8px; border-radius: 999px; cursor: pointer; margin-left: 8px; }
 .rail-tasks:hover { color: var(--k-ink); border-color: var(--gold-edge); }
 @media (max-width: 760px) {
-  .tsk-view { grid-template-columns: 1fr; }
-  .tsk-rail { display: none; }
-  .tsk-mobsel { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-  .tsk-search { max-width: none; }
+  .tsk-toprow .tsk-search { flex-basis: 100%; }
   .tsk-ctl { flex-wrap: wrap; row-gap: 4px; }
-  .tsk-seg button { padding: 0 8px; }
   .tsk-main { padding: 22px 14px 120px; }
   .tsk-row { grid-template-columns: 22px minmax(0, 1fr); }
   .tsk-side { grid-column: 2; flex-direction: row; align-items: center; justify-content: flex-start; min-width: 0; flex-wrap: wrap; }
@@ -14655,40 +14643,40 @@ window.kosmosMeasureScrollbarWidth();
 <!-- #3559 (Josh, 2026-09-24): Tasks is a top-level view beside Agents and Projects, every
      task across every project. Mona's mock (chaoskosmos-site tasks-view-3559 248c953, the dot
      revision) plus Josh's search box. Groups are WHERE THE WORK IS, derived by the engine
-     (tasks.taskState) and only those it can prove today: Nobody on it, Assigned not started, In
-     progress, Closed. Waiting on you, Done-check-it and categories need evidence no task stores
-     yet, so they are not drawn at all rather than guessed. No coloured left bars anywhere (Josh,
-     12:52): the status mark is a round dot beside the label. -->
+     (tasks.taskState) and only those it can prove (since #3949: Needs Your Decision, In progress,
+     Assigned but not started, Unassigned, Completed). Built-but-waiting and categories need
+     evidence no task stores yet (#3951), so they are not drawn at all rather than guessed. No
+     coloured left bars anywhere (Josh, 12:52): the status mark is a round dot beside the label. -->
+<!-- #3949 (Josh, 2026-09-26): no left Projects column; the body takes the full width. Projects is a
+     dropdown on one line with Created:, the search is about half as wide with the open-task count to its
+     right, five single-label tiles (Needs Your Decision red), and Group by and Sort under the tiles. -->
 <section class="panel panel-wide" id="panel-tasks" hidden>
   <div class="tsk-view">
-    <aside class="tsk-rail" aria-label="Filter tasks by project">
-      <div class="tsk-rcap">Projects</div>
-      <div id="tsk-projects"></div>
-    </aside>
     <div class="tsk-main">
       <p class="tsk-crumb" id="tsk-crumb"></p>
       <div class="tsk-head"><h2 id="tsk-title">All tasks</h2><button class="btn uprime" id="tsk-new" type="button"><span aria-hidden="true">+</span> New task</button></div>
-      <p class="tsk-sub" id="tsk-sub"></p>
-      <!-- Mona's a40bbe1: on a narrow window (and in the consolidated column) the rail becomes this
-           dropdown, and the search sits below it, full width. -->
-      <div class="tsk-mobsel"><select class="tsk-sel" id="tsk-projsel" aria-label="Project"></select></div>
-      <!-- #3559 (Josh, 14:39): search, on its own line above the controls (Mona's a40bbe1). Its own
-           clear button; the browser's native one is hidden. -->
+      <!-- #3559 (Josh, 14:39): search, with its own clear button; the browser's native one is hidden.
+           #3949: about half as wide, with the open-task count to its right. -->
+      <div class="tsk-toprow">
       <div class="tsk-search" role="search">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5" stroke-linecap="round"/></svg>
         <input id="tsk-search" type="search" autocomplete="off" spellcheck="false"
                placeholder="Search tasks" aria-label="Search tasks by what they say, number, project or agent">
         <button type="button" id="tsk-qclear" aria-label="Clear search" hidden>&times;</button>
       </div>
-      <div class="tsk-ctrls">
-        <div class="tsk-ctl"><span class="tsk-cl" id="tsk-win-l">Added in</span><span class="tsk-seg" id="tsk-win" role="group" aria-labelledby="tsk-win-l"></span></div>
-        <div class="tsk-ctl"><span class="tsk-cl" id="tsk-by-l">Group by</span><span class="tsk-seg" id="tsk-by" role="group" aria-labelledby="tsk-by-l"></span></div>
-        <div class="tsk-ctl"><label class="tsk-cl" for="tsk-sort">Sort</label><select class="tsk-sel" id="tsk-sort">
+      <p class="tsk-sub" id="tsk-sub"></p>
+      </div>
+      <div class="tsk-ctrls" id="tsk-filters">
+        <div class="tsk-ctl"><label class="tsk-cl" for="tsk-projsel">Project:</label><select class="tsk-sel" id="tsk-projsel"></select></div>
+        <div class="tsk-ctl"><label class="tsk-cl" for="tsk-win">Created:</label><select class="tsk-sel" id="tsk-win"></select></div>
+      </div>
+      <div class="tsk-tiles" id="tsk-tiles"></div>
+      <div class="tsk-ctrls" id="tsk-under">
+        <div class="tsk-ctl"><label class="tsk-cl" for="tsk-by">Group by:</label><select class="tsk-sel" id="tsk-by"></select></div>
+        <div class="tsk-ctl"><label class="tsk-cl" for="tsk-sort">Sort:</label><select class="tsk-sel" id="tsk-sort">
           <option value="new">Newest first</option><option value="stale">Quietest first</option><option value="old">Oldest first</option>
         </select></div>
       </div>
-      <div class="tsk-tiles" id="tsk-tiles"></div>
-      <p class="tsk-hint" id="tsk-hint">Tap a tile to see only that group, tap it again to see everything.</p>
       <p class="fmsg" id="tsk-msg" role="status" aria-live="polite"></p>
       <!-- What a search found, said to a screen reader while focus stays in the search box (the
            rows themselves change silently). Visually hidden: the page already shows it. -->
@@ -45349,21 +45337,34 @@ document.getElementById('pj-alltasks').addEventListener('click', () => openProje
 /* ---- #3559: the Tasks view ------------------------------------------------------------
    Every task on every project, grouped by WHERE THE WORK IS. The engine derives each task's
    `state` (tasks.taskState, from the same claim the project card shows); this code renders it
-   and never computes it. Only the groups the engine can prove exist here; waiting-on-you,
-   done-check-it and categories wait for evidence no task stores yet (Mona's weakest-premise
-   note on #3559), so they are not drawn at all rather than guessed. */
+   and never computes it. Only the groups the engine can prove exist here (#3949 added Needs Your
+   Decision, from the roster); built-but-waiting and categories wait for evidence no task stores yet
+   (#3951, and Mona's weakest-premise note on #3559), so they are not drawn at all rather than guessed. */
+/* #3949 (Josh, 2026-09-26): one label per group, no byline, in his order. Needs Your Decision is red, the
+   only group the person acts on; the engine's `decision` state (tasks.waitingOnPerson) fills it. "Built but
+   waiting" is not drawn: no task stores it yet (#3951). */
 const TSK_GROUPS = [
-  { k: 'nobody', l: 'Nobody on it', s: 'no agent assigned', c: 'var(--tsk-nobody)',
-    why: 'Open and unassigned. Give these to an agent, or close the ones that no longer matter.' },
-  { k: 'assigned', l: 'Assigned, not started', s: 'agent named, has not said it started', c: 'var(--tsk-assigned)',
-    why: 'An agent has these, and what it reports does not name them yet. Old ones here are worth a nudge.' },
-  { k: 'working', l: 'In progress', s: 'the agent says it is on it', c: 'var(--tsk-working)',
+  { k: 'decision', l: 'Needs Your Decision', c: 'var(--tsk-decision)',
+    /* Not "your go-ahead" (review round 11): a trust wait never reaches the tasks route's roster today (the
+       status route builds those rows offline), the same gap projects.js names; the rule covers it if it does. */
+    why: 'The agent on these needs you: a question about its project, or a connection Kosmos could not restore.' },
+  { k: 'working', l: 'In progress', c: 'var(--tsk-working)',
     why: 'The agent’s own report names these as what it is working on.' },
-  { k: 'closed', l: 'Closed', s: 'finished and closed', c: 'var(--tsk-closed)', why: 'Closed tasks.' },
+  { k: 'assigned', l: 'Assigned but not started', c: 'var(--tsk-assigned)',
+    why: 'An agent has these, and what it reports does not name them yet. Old ones here are worth a nudge.' },
+  { k: 'nobody', l: 'Unassigned', c: 'var(--tsk-nobody)',
+    why: 'Open and unassigned. Give these to an agent, or close the ones that no longer matter.' },
+  { k: 'closed', l: 'Completed', c: 'var(--tsk-closed)', why: 'Finished and closed.' },
 ];
 const TSK_WINDOWS = [['24h', 1], ['48h', 2], ['1 week', 7], ['1 month', 30], ['All', 0]];
 const TSK_BYS = [['status', 'Status'], ['project', 'Project']];
-const TSK = { data: null, error: null, proj: null, projHint: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '', closedOpen: false, fold: new Set() };
+/* The dot a group wears, on its tile and its heading alike (review round 10: the heading had kept red at zero).
+   Needs Your Decision is red only when there is something to act on and Kosmos could read the agents. */
+const TSK_DECISION_UNKNOWN = 'Kosmos could not read your agents just now, so it cannot tell whether one is waiting on you.';
+function tskDot(g, n) {
+  return g.k === 'decision' && (!n || TSK.rosterUnknown) ? 'var(--tsk-nobody)' : g.c;
+}
+const TSK = { data: null, error: null, proj: null, projHint: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '', needs: null, rosterUnknown: false, closedOpen: false, fold: new Set() };
 TSK_READY = true;
 const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
 /* The name the board prints for an agent (its roster card's `name`; a card has no `displayName`
@@ -45378,9 +45379,28 @@ function tskAgentName(sessionName) {
    a function declaration is hoisted, and TSK_READY (a hoisted var) covers the one ordering (a poll
    landing before the script finished) in which TSK would still be uninitialised. */
 var TSK_READY;   // hoisted (undefined) until `const TSK` below has run
+/* A baseline no signature equals: set after a failed read, so the next tick reads again. */
+const TSK_NEEDS_UNREAD = '\u0000unread';
 function tskRosterChanged() {
   if (!TSK_READY) return;   // the Tasks view is not set up yet; its own load paints with the roster it finds
-  if (TSK.data && !document.getElementById('panel-tasks').hidden && tskNamesSig() !== TSK.names) tskPaintKeepingCurrentFocus();
+  /* #3949: Needs Your Decision is live board state, so when WHO needs the person changes (a question asked
+     or answered), the tasks are read again while the view is on screen; any other poll changes nothing. */
+  const needs = tskNeedsSig();
+  const shown = !document.getElementById('panel-tasks').hidden;
+  /* The baseline moves only with a read (tskLoad records it): a change seen while the view is hidden, busy
+     closing tasks or not yet read is still a change on the next tick (review round 5). */
+  if (TSK.needs === null) TSK.needs = needs;
+  else if (needs !== TSK.needs && shown && TSK.data && !TSK.busy) { tskLoad(); return; }
+  if (TSK.data && shown && tskNamesSig() !== TSK.names) tskPaintKeepingCurrentFocus();
+}
+/* The agents needing the person by the board's own rule, with the project a question names: the part of the
+   roster Needs Your Decision is derived from. The rule is engine/status.js needsPerson, which the server
+   applies (tasks.waitingOnPerson); this copy only decides WHEN to re-read, and it is the same inline rule the
+   cards' data-attn uses on this page. A case added to needsPerson belongs here and in data-attn too. */
+function tskNeedsSig() {
+  return (Array.isArray(LAST) ? LAST : []).filter((a) => a && a.isNamedOurs === true && (a.state === 'needs_you' || a.state === 'needs_trust'
+    || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')))
+    .map((a) => a.sessionName + ':' + a.state + ':' + (a.stateProject || '')).sort().join('|');
 }
 function tskNamesSig() {
   return (Array.isArray(LAST) ? LAST : []).map((a) => a && (a.sessionName + '=' + (a.name || ''))).sort().join('|');
@@ -45431,6 +45451,9 @@ function tskScoped(all, st, now) {
    earlier visit are dropped, and a first visit says it is reading rather than showing zeros. */
 async function tskLoad(arrival) {
   const mine = ++TSK.gen;
+  /* #3949: who needs the person as of THIS read, so a question asked after the read and before the next poll
+     still counts as a change (tskRosterChanged). */
+  TSK.needs = tskNeedsSig();
   const msg = document.getElementById('tsk-msg');
   if (arrival) {
     TSK.sel.clear();
@@ -45449,6 +45472,9 @@ async function tskLoad(arrival) {
       /* An unreadable store is an error, never an empty list (the route says so): "No tasks"
          would be a claim about somebody's work that we did not make. */
       TSK.error = String(body.error || 'we could not read your tasks just now');
+      /* Review round 11: a failed read keeps no baseline, so the next roster tick reads again rather than
+         leaving the decision count stale until who needs the person changes once more. */
+      TSK.needs = TSK_NEEDS_UNREAD;
     } else {
       /* A good read clears the error a failed one left, and only that (a "Closed N" line stays). */
       if (TSK.error && msg && msg.textContent === asSentence(TSK.error)) msg.textContent = '';
@@ -45456,6 +45482,7 @@ async function tskLoad(arrival) {
       /* Archived projects are set aside: their tasks are not in this view (the rails tuck archived
          projects away too), except the one a project door scoped us to (#3703; tskVisible). */
       TSK.data = body.tasks;
+      TSK.rosterUnknown = body.rosterUnreadable === true;
       /* A ticked task that has since closed or gone cannot stay ticked. */
       const open = new Set(TSK.data.filter((t) => t.state !== 'closed').map(tskKey));
       TSK.sel.forEach((k) => { if (!open.has(k)) TSK.sel.delete(k); });
@@ -45463,6 +45490,7 @@ async function tskLoad(arrival) {
   } catch {
     if (mine !== TSK.gen) return;
     TSK.error = 'we could not reach Kosmos to read your tasks';
+    TSK.needs = TSK_NEEDS_UNREAD;
   }
   if (msg && TSK.error) msg.textContent = asSentence(TSK.error);
   tskPaintKeepingCurrentFocus();
@@ -45494,8 +45522,10 @@ function tskRow(t, at) {
   const who = (t.whoNames || []);
   const whoHtml = who.length
     ? who.map((w) => '<button type="button" class="tsk-who" data-agent="' + esc(w) + '">' + esc(tskAgentName(w)) + '</button>').join('')
-    : '<span class="tsk-who nobody">Nobody yet</span>';
-  /* The claim could not be read: say WHY on the row, so "Assigned, not started" is never read
+    /* Mona's design review of #3949: inside the Unassigned group the heading already says it; a project
+       grouping mixes states, so the chip stays there. */
+    : TSK.by !== 'project' && t.state === 'nobody' ? '' : '<span class="tsk-who nobody">Nobody yet</span>';
+  /* The claim could not be read: say WHY on the row, so "Assigned but not started" is never read
      as a fact about a task we simply could not check. */
   /* Mona's look review of #3701: in Josh's words, and short. The field says only that the agent
      has never written its report (the engine's `neverReported`), not that it has said nothing
@@ -45569,6 +45599,13 @@ function taskNest(rows, keyOf, parentKeyOf, folded) {
   for (const t of rows) walk(t, 0);
   return out;
 }
+/* #3949: a dropdown's options are rewritten only when they change, so a background repaint that changes
+   nothing (a load, the roster) does not close or reset one the person has open. A read that changes a
+   project's open count does rewrite the project list's options; its value is kept in step either way. */
+function tskOptions(sel, html, value) {
+  if (sel.dataset.opts !== html) { sel.innerHTML = html; sel.dataset.opts = html; }
+  if (sel.value !== value) sel.value = value;
+}
 /* What the view lists: every task except an archived project's, unless that project is the one
    in scope (its own View-all door, #3703). Unarchiving brings them back on the next read. */
 function tskVisible(all, proj) {
@@ -45593,18 +45630,14 @@ function tskPaint() {
      project a door just asked for (#3703). */
   if (TSK.data && TSK.proj && !projMap.has(TSK.proj)) TSK.proj = null;
   const projectsList = [...projMap.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
-  /* "All tasks" counts what clicking it shows: every task but an archived project's, even while a
-     door has us scoped to that archived project (#1346: a count agrees with its destination). */
-  const openAll = tskVisible(TSK.data, null).filter((t) => t.state !== 'closed').length;
-  /* The rail, and its narrow-window twin. */
-  const rail = document.getElementById('tsk-projects');
-  if (rail) {
-    rail.innerHTML = '<button type="button" class="tsk-ritem' + (TSK.proj ? '' : ' on') + '" aria-pressed="' + !TSK.proj + '" data-proj=""><span class="nm">All tasks</span><span class="ct">' + openAll + '</span></button>'
-      + projectsList.map((p) => '<button type="button" class="tsk-ritem' + (TSK.proj === p.id ? ' on' : '') + '" aria-pressed="' + (TSK.proj === p.id) + '" data-proj="' + esc(p.id) + '"><span class="nm">' + esc(p.name) + '</span><span class="ct">' + p.open + '</span></button>').join('');
-  }
+  /* #3949: the project picker is this dropdown at every width (the left rail is gone). Each option keeps
+     the rail's open count of that project's tasks, whatever Created: and the search hide (#1346 held it
+     equal to what picking it shows with neither set). */
   const sel = document.getElementById('tsk-projsel');
   if (sel) {
-    sel.innerHTML = '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>').join('');
+    /* Mona's design review: a count here sat under "N open tasks across M projects" and read as a number
+       of projects. The count stays on each project's own option. */
+    tskOptions(sel, '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(p.name) + ' (' + p.open + ')</option>').join(''), TSK.proj || '');
   }
   const picked = TSK.proj ? projMap.get(TSK.proj) : null;
   document.getElementById('tsk-title').textContent = picked ? picked.name : 'All tasks';
@@ -45616,16 +45649,25 @@ function tskPaint() {
   document.getElementById('tsk-sub').textContent = TSK.error && !TSK.data ? ''
     : open.length + (open.length === 1 ? ' open task' : ' open tasks')
       + (picked ? '' : ' across ' + projectsList.length + (projectsList.length === 1 ? ' project' : ' projects'));
-  document.getElementById('tsk-win').innerHTML = TSK_WINDOWS.map(([l, d]) => '<button type="button" data-win="' + d + '" aria-pressed="' + (TSK.win === d) + '">' + esc(l) + '</button>').join('');
-  document.getElementById('tsk-by').innerHTML = TSK_BYS.map(([k, l]) => '<button type="button" data-by="' + k + '" aria-pressed="' + (TSK.by === k) + '">' + esc(l) + '</button>').join('');
+  /* #3949: Created: and Group by are dropdowns (they were button rows). */
+  tskOptions(document.getElementById('tsk-win'), TSK_WINDOWS.map(([l, d]) => '<option value="' + d + '"' + (TSK.win === d ? ' selected' : '') + '>' + esc(l) + '</option>').join(''), String(TSK.win));
+  tskOptions(document.getElementById('tsk-by'), TSK_BYS.map(([k, l]) => '<option value="' + k + '"' + (TSK.by === k ? ' selected' : '') + '>' + esc(l) + '</option>').join(''), TSK.by);
   document.getElementById('tsk-sort').value = TSK.sort;
-  /* Tiles: the proven groups only, counted before the tile filter so every tile keeps its number. */
-  /* Closed is not a tile (Mona, as the mock draws it): tiles are where the open work is, and the
-     sub-line counts open tasks, so a Closed tile read as one more. Closed stays the folded list. */
-  document.getElementById('tsk-tiles').innerHTML = !TSK.data ? '' : TSK_GROUPS.filter((g) => g.k !== 'closed').map((g) => {
+  /* Tiles: the proven groups only, counted before the tile filter so every tile keeps its number.
+     #3949 (Josh): one label each, no byline, and Completed is a tile again (it was only the fold). */
+  document.getElementById('tsk-tiles').innerHTML = !TSK.data ? '' : TSK_GROUPS.map((g) => {
     const n = scoped.filter((t) => t.state === g.k).length;
-    return '<button type="button" class="tsk-tile" data-tile="' + g.k + '" aria-pressed="' + (TSK.tile === g.k) + '" style="--tsk-c:' + g.c + '">'
-      + '<span class="num">' + n + '</span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span><span class="ts">' + esc(g.s) + '</span></button>';
+    /* A zero Needs Your Decision takes a neutral dot too: nothing to act on, nothing red (post-rebase review). */
+    const dot = tskDot(g, n);
+    /* Review round 9: when the server could not read the agents, a 0 here would say nobody needs the person
+       when nobody could look. The tile says it cannot tell, and stays neutral. */
+    if (g.k === 'decision' && TSK.rosterUnknown) {
+      const why = TSK_DECISION_UNKNOWN;
+      return '<button type="button" class="tsk-tile" data-tile="decision" data-n="unknown" aria-pressed="' + (TSK.tile === g.k) + '" style="--tsk-c:var(--tsk-nobody)" title="' + esc(why) + '" aria-label="' + esc(g.l + ': cannot tell. ' + why) + '">'
+        + '<span class="num">?</span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span></button>';
+    }
+    return '<button type="button" class="tsk-tile" data-tile="' + g.k + '" data-n="' + n + '" aria-pressed="' + (TSK.tile === g.k) + '" style="--tsk-c:' + dot + '">'
+      + '<span class="num">' + n + '</span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span></button>';
   }).join('');
   const groups = document.getElementById('tsk-groups');
   if (!TSK.data) { groups.innerHTML = TSK.error ? '' : '<p class="tsk-empty">Reading your tasks…</p>'; tskPaintBulk(); return; }
@@ -45662,10 +45704,15 @@ function tskPaint() {
   } else {
     groups.innerHTML = TSK_GROUPS.filter((g) => !TSK.tile || TSK.tile === g.k).map((g) => {
       const ts = sorted.filter((t) => t.state === g.k);
-      const head = '<h3><span class="tsk-dot" style="--tsk-c:' + g.c + '"></span>' + esc(g.l) + '<span class="count">' + ts.length + '</span></h3><p class="why">' + esc(g.why) + '</p>';
-      /* Closed is always the fold (it has no tile): finished work is reachable, not in the way. */
+      /* Review round 10: the heading says what its tile says. A zero decision group takes the neutral dot, and
+         with the agents unreadable it says it cannot tell, never "0" and never "Nothing here". */
+      const unknown = g.k === 'decision' && TSK.rosterUnknown;
+      const head = '<h3><span class="tsk-dot" style="--tsk-c:' + tskDot(g, ts.length) + '"></span>' + esc(g.l) + '<span class="count">' + (unknown ? '?' : ts.length) + '</span></h3><p class="why">' + esc(unknown ? TSK_DECISION_UNKNOWN : g.why) + '</p>';
+      if (unknown && !ts.length) return '<section class="tsk-grp" data-unknown="1">' + head + '</section>';
+      /* Completed is always the fold: finished work is reachable, not in the way. */
       if (g.k === 'closed') {
-        return '<section class="tsk-grp" style="--tsk-c:' + g.c + '"><details class="tsk-fold"' + (TSK.closedOpen ? ' open' : '') + '><summary>' + esc(g.l) + ' (' + ts.length + ')</summary>' + tskList(ts) + '</details></section>';
+        /* #3949: picked from its tile, Completed opens: the person asked to see exactly these. */
+        return '<section class="tsk-grp" style="--tsk-c:' + g.c + '"><details class="tsk-fold"' + (TSK.closedOpen || TSK.tile === 'closed' ? ' open' : '') + '><summary>' + esc(g.l) + ' (' + ts.length + ')</summary>' + tskList(ts) + '</details></section>';
       }
       return '<section class="tsk-grp">' + head + tskList(ts) + '</section>';
     }).join('');
@@ -45802,18 +45849,18 @@ async function tskBulkClose() {
 }
 /* A repaint replaces the control that had focus, so focus goes to its REPLACEMENT: the same kind
    of control (tag + data attribute + value) inside the same container (its row by task key, the
-   crumb, the rail, the tiles, a segmented control), and only one that is on screen. Scoping to the
-   container is what makes it the same control: an agent's button repeats on every row it holds,
-   a row and its checkbox share a key, and the crumb's "All tasks" shares data-proj="" with a rail
-   item that is hidden in the consolidated view. */
-const TSK_FOCUS_KEYS = ['data-fold', 'data-close-parent', 'data-open-task', 'data-open-project', 'data-agent', 'data-tile', 'data-proj', 'data-win', 'data-by', 'data-key'];
+   crumb, the tiles), and only one that is on screen. Scoping to the container is what makes it the
+   same control: an agent's button repeats on every row it holds, and a row and its checkbox share a
+   key. The dropdowns (#3949: project, Created:, Group by, Sort) keep their own focus, since a repaint
+   replaces only their options. */
+const TSK_FOCUS_KEYS = ['data-fold', 'data-close-parent', 'data-open-task', 'data-open-project', 'data-agent', 'data-tile', 'data-proj', 'data-key'];
 function tskFocusMark(el) {
   const panel = document.getElementById('panel-tasks');
   if (!el || !panel || !panel.contains(el)) return null;
   const attr = TSK_FOCUS_KEYS.find((k) => el.hasAttribute(k));
   if (!attr) return null;
   const row = el.closest('.tsk-row');
-  const box = row ? null : el.closest('#tsk-crumb, #tsk-projects, #tsk-tiles, #tsk-win, #tsk-by');
+  const box = row ? null : el.closest('#tsk-crumb, #tsk-tiles');
   return { tag: el.tagName.toLowerCase(), attr, value: el.getAttribute(attr), row: row ? row.dataset.key : null, box: box ? box.id : null };
 }
 function tskFocusRestore(mark) {
@@ -45825,10 +45872,8 @@ function tskFocusRestore(mark) {
   const again = scope ? [...scope.querySelectorAll(mark.tag + '[' + mark.attr + '="' + CSS.escape(String(mark.value)) + '"]')].find(shown) : null;
   if (again) { again.focus(); return; }
   /* The control is gone with its container (the crumb's "All tasks" empties the crumb): land on
-     what now stands for it, the rail's item for that project, else the dropdown, else the search,
-     never the page body. */
-  const fallback = [...document.querySelectorAll('#tsk-projects [data-proj="' + CSS.escape(String(mark.attr === 'data-proj' ? mark.value : '')) + '"]')].find(shown)
-    || [document.getElementById('tsk-projsel'), document.getElementById('tsk-search')].find(shown);
+     what now stands for it, the project dropdown, else the search, never the page body. */
+  const fallback = [document.getElementById('tsk-projsel'), document.getElementById('tsk-search')].find(shown);
   if (fallback) fallback.focus();
 }
 function tskPaintKeepingFocus(el) {
@@ -45844,8 +45889,6 @@ document.getElementById('panel-tasks').addEventListener('click', (e) => {
   const el = (sel) => e.target.closest(sel);
   let b;
   if ((b = el('[data-proj]'))) { TSK.proj = b.dataset.proj || null; TSK.tile = null; tskPaintKeepingFocus(b); return; }
-  if ((b = el('[data-win]'))) { TSK.win = Number(b.dataset.win) || 0; tskPaintKeepingFocus(b); return; }
-  if ((b = el('[data-by]'))) { TSK.by = b.dataset.by; tskPaintKeepingFocus(b); return; }
   if ((b = el('[data-tile]'))) { TSK.tile = TSK.tile === b.dataset.tile ? null : b.dataset.tile; tskPaintKeepingFocus(b); return; }
   if ((b = el('[data-fold]'))) { const k = b.dataset.fold; if (TSK.fold.has(k)) TSK.fold.delete(k); else TSK.fold.add(k); tskPaintKeepingFocus(b); return; }
   if ((b = el('[data-close-parent]'))) { tskCloseParent(b.dataset.closeParent); return; }
@@ -45863,12 +45906,15 @@ document.getElementById('panel-tasks').addEventListener('change', (e) => {
     return;
   }
   if (e.target.id === 'tsk-sort') { TSK.sort = e.target.value; tskPaint(); return; }
-  if (e.target.id === 'tsk-projsel') { TSK.proj = e.target.value || null; TSK.tile = null; tskPaint(); }
+  if (e.target.id === 'tsk-projsel') { TSK.proj = e.target.value || null; TSK.tile = null; tskPaint(); return; }
+  if (e.target.id === 'tsk-win') { TSK.win = Number(e.target.value) || 0; tskPaint(); return; }
+  if (e.target.id === 'tsk-by') { TSK.by = e.target.value === 'project' ? 'project' : 'status'; tskPaint(); }
 });
 /* `toggle` does not bubble, so the Closed fold's open state is caught in the capture phase and
    kept across repaints. */
 document.getElementById('panel-tasks').addEventListener('toggle', (e) => {
-  if (e.target && e.target.classList && e.target.classList.contains('tsk-fold')) TSK.closedOpen = e.target.open;
+  /* #3949: while the Completed tile is picked the fold is forced open; that is not the person opening it. */
+  if (e.target && e.target.classList && e.target.classList.contains('tsk-fold') && TSK.tile !== 'closed') TSK.closedOpen = e.target.open;
 }, true);
 document.getElementById('tsk-search').addEventListener('input', (e) => {
   TSK.q = e.target.value;
