@@ -25,4 +25,4 @@ No issues found. NO NEW FINDINGS.
 ## Evidence
 - web.agent-files-3614.test.js + web.agent-nav.test.js: 18/18. Control: old line restored, the one-file assertion fails.
 - docs/browser-checks/render-agent-files-3614.js: All checks passed (light/dark 1400, light 760, light/dark 412). Control: old line restored, 2 FAILs per width (one-file View All; April's two listed files).
-- Full suite: see PR.
+- Full suite: 7 reds in 3 files (cli.post-stdin-2909, engine/openaiaccounts.devicecode-3436, engine/updating-988), all timing, 1-minute load 47 on 10 cores; each file alone passes (24/24, 15/15, 40/40). #1720 and #2518 gates run directly: both 0.
