@@ -18,6 +18,11 @@ tmp="$(mktemp -d "${TMPDIR:-/tmp}/apst-test.XXXXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 fails=0
 T=2                 # short bound: fast, and a real hang is caught quickly
+QUICK_T=30          # #3854: the bound for bundles that ANSWER. bounded_run polls once a
+                    # second, so under T=2 perl + bash startup on a loaded Mac (load 7-12)
+                    # was killed at 124 about 1 run in 6. A quick answer returns as soon as it
+                    # exits, so a generous bound costs nothing when the Mac is idle. Only the
+                    # HANGING arms keep T: their 124 is the thing under test.
 FORK="9552$$"     # a distinctive sleep the stub FORKS: orphaned by a naive kill, reaped
                     # only by the group-kill -- this is what makes the no-orphan arm real.
                     # $$ makes it unique per run so a CONCURRENT run of this test on the
@@ -87,15 +92,15 @@ else check "bounded_run did not hang (bounded)" ok "SLOW-${elapsed}s"; fi
 check "the FORKED child is reaped by the group-kill (not orphaned)" 0 "$(wait_gone "sleep $FORK")"
 
 # --- bounded_run returns a quick command's output and rc --------------------------
-out="$(bounded_run "$T" "$cur" --kosmos-app-port-selftest 501)"; rc=$?
+out="$(bounded_run "$QUICK_T" "$cur" --kosmos-app-port-selftest 501)"; rc=$?
 check "bounded_run returns a quick command's rc" 0 "$rc"
 check "bounded_run returns a quick command's stdout" 16180 "$out"
 
 # --- the premise check: current vs behind -----------------------------------------
-kosmos_app_selftest_current "$cur" 16180 "$T";    check "a CURRENT bundle is #910-aware" 0 "$?"
+kosmos_app_selftest_current "$cur" 16180 "$QUICK_T";    check "a CURRENT bundle is #910-aware" 0 "$?"
 kosmos_app_selftest_current "$bhang" 16180 "$T";  check "a BEHIND (hanging) bundle is behind" 1 "$?"
-kosmos_app_selftest_current "$bexit" 16180 "$T";  check "a BEHIND (exit, no port) bundle is behind" 1 "$?"
-kosmos_app_selftest_current "$bwrong" 16180 "$T"; check "a bundle answering the WRONG port is behind" 1 "$?"
+kosmos_app_selftest_current "$bexit" 16180 "$QUICK_T";  check "a BEHIND (exit, no port) bundle is behind" 1 "$?"
+kosmos_app_selftest_current "$bwrong" 16180 "$QUICK_T"; check "a bundle answering the WRONG port is behind" 1 "$?"
 
 # The CURRENT premise check exits fast on the real flag (starts no app, forks nothing),
 # and every BEHIND arm above was group-killed. Prove nothing leaked across the whole run.
