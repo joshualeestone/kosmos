@@ -175,10 +175,12 @@ test('#3998: a recognised screen that does not move on becomes stuck (a changed 
 /* ---- the round-2 review's cases, on a scripted screen (no tmux) ---------------------------- */
 function scripted(s, first) {
   const st = { screen: first, sent: [], killed: 0, t: 1000000, checks: 0, answer: { signedIn: null }, captureThrows: null, hasSession: true };
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-scripted-'));   // its own folder, never a shared one
+  st.root = root;
   s.resetForTests();
   s.setForTests({
     agyBin: () => ({ installed: true, bin: '/bin/true' }),
-    folderRoot: () => os.tmpdir(),
+    folderRoot: () => root,
     now: () => st.t,
     confirmSignedIn: async () => { st.checks += 1; return st.answer; },
     tmux: (args) => {
@@ -312,15 +314,15 @@ test('#3998 W7: Sign in again on an agy that is already signed in finishes, once
     s.tickForTests(); await settle();
     assert.equal(st.checks, 1, 'agy\'s own ready screen was not confirmed');
     assert.equal(s.status().state, 'done', 'an already signed-in agy was shown as stuck');
-    // A first screen Kosmos does not know is given a moment before agy is asked (one ask).
+    // A first screen Kosmos does not know is NOT asked about (round 8: a signed-out check may open a
+    // second Google page); after a moment it is shown instead.
     const st2 = scripted(s, 'agy 1.2.11 starting...');
     st2.answer = { signedIn: true };
     s.start();
     s.tickForTests(); await settle();
-    assert.equal(st2.checks, 0, 'CONTROL: agy is given a moment to draw its first screen before being asked');
     st2.t += 9000; s.tickForTests(); await settle();
-    assert.equal(st2.checks, 1);
-    assert.equal(s.status().state, 'done');
+    assert.equal(st2.checks, 0, 'agy was asked before it had drawn a screen Kosmos knows');
+    assert.equal(s.status().state, 'stuck');
   } finally { s.resetForTests(); }
 });
 
@@ -479,10 +481,10 @@ test('#3998 round 6: between setup screens, an unknown frame is not asked about 
     assert.equal(st.checks, 0, 'agy was asked on a redraw between theme and terms');
     assert.notEqual(s.status().state, 'done');
     // CONTROL: after the LAST setup screen (trust), an unknown screen is asked about at once.
-    const st2 = scripted(s, 'Accessing workspace:\n\n' + require('node:path').join(os.tmpdir(), 'agy-signin') + '\n\nDo you trust the contents of this project?\n\n> Yes, I trust this folder\n');
+    const st2 = scripted(s, '');
+    st2.screen = 'Accessing workspace:\n\n' + path.join(st2.root, 'agy-signin') + '\n\nDo you trust the contents of this project?\n\n> Yes, I trust this folder\n';
     st2.answer = { signedIn: true };
-    require('node:fs').mkdirSync(require('node:path').join(os.tmpdir(), 'agy-signin'), { recursive: true });
-    s.start();
+    s.start();   // makes its own sign-in folder under the scripted root
     s.tickForTests();
     assert.ok(st2.sent.includes('Enter'), 'CONTROL: the trust screen for its own folder was answered');
     st2.screen = ''; st2.t += 1000; s.tickForTests(); await settle();
@@ -522,5 +524,60 @@ test('#3998 round 7: a second refused code is counted, so the page can bring the
     assert.equal(s.status().refusals, 1);
     s.code(CODE, id); st.t += 21000; s.tickForTests();
     assert.equal(s.status().refusals, 2, 'a second refusal with the same words looked like the first');
+  } finally { s.resetForTests(); }
+});
+
+/* ---- review round 8 ---------------------------------------------------------------------- */
+test('#3998 round 8: the marker words must be the item the marker is on (a one-line button row)', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'Terms of Service & Data Use\n\n> Previous    [Done]\n');
+  try {
+    s.start();
+    s.tickForTests();
+    assert.ok(!st.sent.includes('Enter'), 'Enter was pressed on Previous because [Done] shared its line');
+    assert.deepEqual(st.sent, ['Down'], 'CONTROL: it moved off Previous instead');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 8: a screen that keeps coming back is shown, not driven round for half an hour', () => {
+  const s = require('./agysignin');
+  const THEME = 'Choose your color scheme\n> terminal\n';
+  const TERMS_BACK = 'Terms of Service & Data Use\n> [Done]\n';
+  const st = scripted(s, THEME);
+  try {
+    s.start();
+    for (let i = 0; i < 5; i++) { st.screen = THEME; s.tickForTests(); st.screen = TERMS_BACK; s.tickForTests(); }
+    assert.equal(s.status().state, 'stuck', 'theme and terms looped without end');
+    const presses = st.sent.length;
+    st.screen = THEME; s.tickForTests(); st.screen = TERMS_BACK; s.tickForTests();
+    assert.equal(st.sent.length, presses, 'keys kept going after it was shown as stuck');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 8: the socket is this macOS account\'s, the same in every Kosmos on it', () => {
+  const s = require('./agysignin');
+  const was = process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET;
+  const wasData = process.env.AGENT_WORKFORCE_DATA;
+  delete process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET;
+  try {
+    const a = s.socket();
+    process.env.AGENT_WORKFORCE_DATA = path.join(os.tmpdir(), 'another-kosmos');
+    assert.equal(s.socket(), a, 'a second Kosmos on the same account named another socket (its old sign-in would be orphaned)');
+    assert.match(a, /^kosmos-agy-signin-[0-9a-f]{10}$/);
+  } finally {
+    if (was !== undefined) process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET = was;
+    if (wasData === undefined) delete process.env.AGENT_WORKFORCE_DATA; else process.env.AGENT_WORKFORCE_DATA = wasData;
+  }
+});
+
+test('#3998 round 8: an unconfirmed ready screen says the sign-in could not be confirmed, not a strange step', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'j@example.com (Antigravity Starter Quota) - Gemini 3.8 Flash (High)\n> \n');
+  st.answer = { signedIn: null };
+  try {
+    s.start();
+    s.tickForTests(); await settle();
+    assert.equal(s.status().state, 'stuck');
+    assert.match(s.status().because, /could not confirm the sign-in/);
   } finally { s.resetForTests(); }
 });

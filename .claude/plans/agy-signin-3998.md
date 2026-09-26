@@ -74,3 +74,13 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 - Only the trust screen (the last setup screen) counts as settled for an immediate ask; between theme and terms an unknown redraw waits like any other.
 - An answer that is not a state reads "Waiting for Kosmos to answer".
 - Left, documented: the "did not take that code" retry trusts the code screen's words being the last on screen (real agy may print under its prompt; unmeasured, Josh's run will show); tmux calls are synchronous with a 5 s cap; a board restart mid-sign-in leaves the private session until the next start kills it.
+
+## Review rounds 7 and 8 (decided)
+- Surface-gate trailers name the check WITH ".js" (the gate matches the file name).
+- A Down counts against the terms screen's moves only once it went out; a refused code is counted (status().refusals), so every refusal brings the cursor back.
+- Nothing is asked of agy before it has drawn a screen Kosmos knows: a signed-out check can open a second Google page. An unknown first screen is shown instead; an already signed-in agy is its ready screen.
+- Marker checks are anchored to the marked item ("> [Done]", "> 1. Google OAuth", "> Yes"); a screen that comes back more than 3 times is shown, not driven round.
+- A row hidden with focus in it moves focus to Stop (or the step); the Settings browser check asserts focus stays inside the dialog.
+- The tmux socket is named after the macOS account's home, not the Kosmos folder: one agy sign-in per account, so a switch between Kosmoses cannot orphan it. The remembered row stays per Kosmos (it is that Kosmos's last check); weakest premise: after a switch, the other Kosmos shows the row only once it has checked agy itself.
+- An unconfirmed ready screen says the sign-in could not be confirmed. Kosmos's own refusal of a paste shows before Antigravity's older reason.
+- agystatus.test.js sandboxes the data root before requiring anything; scripted engine tests use their own temp folders.

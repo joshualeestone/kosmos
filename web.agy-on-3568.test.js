@@ -431,3 +431,17 @@ test('#3998 round 6: once the window is shown, the panel says to finish there an
   assert.match(f.view().text, /^The sign-in window is open\. Finish it there/);
   assert.equal(f.el('fr-gemini-sub-show-row').hidden, true, 'a second Show would open another window');
 });
+
+test('#3998 round 8: hiding the paste row with focus in it moves focus to Stop, not behind the dialog', () => {
+  const f = agyFlow({ '/api/antigravity/check': [{ installed: true, signedIn: null }] });
+  const row = f.el('fr-gemini-sub-paste-row');
+  const box = f.el('fr-gemini-sub-paste');
+  row.hidden = false; row.contains = (x) => x === box;
+  f.el('fr-gemini-sub-cancel-row').hidden = false;
+  let moved = null;
+  f.el('fr-gemini-sub-cancel').focus = () => { moved = 'cancel'; };
+  box.focus();   // the flow's own document now has focus in the paste box
+  f.FR_AGY_SUB.rows(false, false);
+  assert.equal(row.hidden, true);
+  assert.equal(moved, 'cancel', 'focus was left in a hidden row');
+});

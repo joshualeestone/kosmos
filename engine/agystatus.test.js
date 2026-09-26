@@ -5,6 +5,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+/* Sandbox the data root BEFORE anything reads it (repo convention 2, review round 8): the round-4
+   test below checks the real-record guard, and with this a regressed guard would touch a temp
+   folder, never the person's own Kosmos folder. */
+process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'agystatus-data-'));
 const agystatus = require('./agystatus');
 test.after(() => agystatus.resetForTests());   // no stub outlives this file
 

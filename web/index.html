@@ -25241,8 +25241,18 @@ function agySubDriver(pre, onReady) { return {
   },
   /* #3998: the paste box (with "Open Google's page again") and the last-resort window button. */
   rows(paste, show, url) {
-    const pr = this.el('paste-row'); if (pr) pr.hidden = !paste;
-    const sr = this.el('show-row'); if (sr) sr.hidden = !show;
+    const pr = this.el('paste-row'); const sr = this.el('show-row');
+    /* A row hidden with focus inside it would drop focus to the page behind the dialog (round 8): move
+       it to Stop, or to the step itself. */
+    const active = typeof document !== 'undefined' ? document.activeElement : null;
+    const leaving = (row, keep) => row && !keep && active && typeof row.contains === 'function' && row.contains(active);
+    if (leaving(pr, paste) || leaving(sr, show)) {
+      const cancel = this.el('cancel'); const cr = this.el('cancel-row');
+      const to = cancel && cr && !cr.hidden ? cancel : this.el('step');
+      if (to) { if (to !== cancel && to.setAttribute && !to.hasAttribute('tabindex')) to.setAttribute('tabindex', '-1'); if (to.focus) to.focus(); }
+    }
+    if (pr) pr.hidden = !paste;
+    if (sr) sr.hidden = !show;
     const pg = this.el('page'); if (pg) { pg.hidden = !url; pg.setAttribute('href', url || '#'); }
   },
   /* #3998: follow the hidden sign-in the board is running, once a second, until it ends or this step
@@ -25265,7 +25275,8 @@ function agySubDriver(pre, onReady) { return {
         // A code Antigravity did not take comes back here with the reason (#3998 review round 2).
         /* The words: Antigravity's reason for refusing a code, else Kosmos's own refusal of what was
            pasted (kept until the person types again, round 6), else the prompt. */
-        this.say(st.because ? frCap(st.because) : (this.codeError || "Google's sign-in is open in your browser. Sign in there, then copy the code Google shows and paste it below."), '', false);
+        // Kosmos's own refusal of the latest paste first (the person's last act), then Antigravity's.
+        this.say(this.codeError || (st.because ? frCap(st.because) : "Google's sign-in is open in your browser. Sign in there, then copy the code Google shows and paste it below."), '', false);
         this.rows(true, false, st.url || '');
         /* Focus the box when it appears, and again only when a code comes back refused (the box was
            emptied on the send): never on every poll, or Tab could never leave it (round 6). */
