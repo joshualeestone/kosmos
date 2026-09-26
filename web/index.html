@@ -9277,15 +9277,21 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    (invisible) caret, so the script puts its scroll back to zero. The wrapper CLIPS rather than
    hides, because a hidden-overflow box still scrolls to show a focused child, which shifted every
    box left. */
+/* The row scales to the width it is given: six boxes plus gaps are about 10.9em of monospace, so
+   9cqw of the .otp-fit wrapper keeps all six inside it on a narrow phone (a fixed size clipped the
+   sixth box at 320 to 375px, measured on the web sign-in). Where container units are missing, the
+   1.75rem before it stands. */
+#plus-state2 .otp-fit { container-type: inline-size; margin-top: .75rem; }
 #plus-state2 .otp-boxes { --cw: 2.6ch; --gap: .5ch; position: relative; display: block; overflow: hidden; overflow: clip;
-  font: 650 1.75rem/1 ui-monospace, Menlo, monospace; width: calc(6 * var(--cw) + 5 * var(--gap)); height: calc(var(--cw) * 1.25); margin-top: .75rem; }
+  font: 650 1.75rem/1 ui-monospace, Menlo, monospace; font-size: min(1.75rem, 9cqw);
+  width: calc(6 * var(--cw) + 5 * var(--gap)); height: calc(var(--cw) * 1.25); }
 #plus-state2 .otp-cells { position: absolute; inset: 0; display: flex; gap: var(--gap); pointer-events: none; }
 #plus-state2 .otp-cell { flex: 0 0 var(--cw); box-sizing: border-box; border-radius: 12px; background: #16223e; border: 1px solid #5c78a6; }
 #plus-state2 .otp-cell.on { border-color: #7ea0f0; box-shadow: 0 0 0 2px #7ea0f0 inset; }
 #plus-state2 .otp-boxes .plus-si-otp, #plus-state2 .otp-boxes .plus-si-otp:focus { position: absolute; left: 0; top: 0; height: 100%; width: 100%;
   margin: 0; padding: 0 0 0 calc((var(--cw) - 1ch) / 2); border: 0; border-radius: 0; outline: 0; box-shadow: none; background: transparent;
   font: inherit; letter-spacing: calc(var(--cw) + var(--gap) - 1ch); text-indent: 0; text-align: left; caret-color: transparent; }
-#plus-state2 .otp-boxes .plus-si-otp:-webkit-autofill { -webkit-box-shadow: none; transition: background-color 600000s 0s; }
+#plus-state2 .otp-boxes .plus-si-otp:-webkit-autofill { -webkit-box-shadow: none; transition: background-color 600000s 0s; -webkit-text-fill-color: #E6EBF7; }
 /* High-contrast (forced colours) drops the box-shadow and repaints every border alike, which would
    leave no sign of focus or of the current box: give the current box a thick system-colour edge. */
 @media (forced-colors: active) { #plus-state2 .otp-cell.on { border: 3px solid Highlight; } }
@@ -37233,7 +37239,10 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   cells.className = 'otp-cells';
   cells.setAttribute('aria-hidden', 'true');
   for (let i = 0; i < 6; i += 1) cells.appendChild(document.createElement('span')).className = 'otp-cell';
-  el.parentNode.insertBefore(box, el);
+  const fit = document.createElement('div');   // the width the row scales to (CSS .otp-fit)
+  fit.className = 'otp-fit';
+  el.parentNode.insertBefore(fit, el);
+  fit.appendChild(box);
   box.appendChild(cells);
   box.appendChild(el);
   // Where overflow: clip is not supported, a focus can still scroll the box; put it straight back.
@@ -37268,6 +37277,7 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   };
   if (go && typeof MutationObserver === 'function') new MutationObserver(trySend).observe(go, { attributes: true, attributeFilter: ['disabled'] });
   el.addEventListener('input', (e) => {
+    if (e.isComposing) return;   // an input method mid-word: clean up when it commits
     const clean = e.target.value.replace(/\D/g, '').slice(0, 6);
     if (e.target.value !== clean) e.target.value = clean;
     paint();
@@ -37276,12 +37286,17 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   /* A paste carrying a whole code REPLACES what is there: pasted into a full field, or after a few
      typed digits, keeping the old digits would drop the paste or splice a wrong code (and each wrong
      code counts toward the sign-in's too-many-tries limit). A shorter paste inserts as usual. */
+  /* The code is six digits, optionally split by one space or hyphen ("123 456", "123-456"), standing
+     alone; pasting a whole email takes THAT, not the first six digits of whatever number comes first
+     (a date or ticket number would otherwise be sent as a wrong code). Text that is only the code's
+     digits with other separators counts too. */
   el.addEventListener('paste', (e) => {
     const text = (e.clipboardData && e.clipboardData.getData('text')) || '';
-    const code = text.replace(/\D/g, '');
-    if (code.length < 6) return;
+    const alone = /(?:^|\D)(\d(?:[ -]?\d){5})(?!\d)/.exec(text);
+    const code = alone ? alone[1].replace(/\D/g, '') : (text.replace(/\D/g, '').length === 6 ? text.replace(/\D/g, '') : '');
+    if (!code) return;
     e.preventDefault();
-    el.value = code.slice(0, 6);
+    el.value = code;
     el.dispatchEvent(new Event('input', { bubbles: true }));
   });
   /* Typing continues at the end, one box after another; Backspace steps back a box. A field that

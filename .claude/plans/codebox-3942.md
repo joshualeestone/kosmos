@@ -44,3 +44,14 @@
   forced-colours mode gives the current box a thick Highlight edge.
 - Not taken: widening the input past its boxes so the caret never scrolls it. The phone check
   flags that overhang on narrow screens; the scroll reset is kept, and a check arm fails without it.
+
+## Review round 1 (web side, measured)
+- The row scales to its width: a fixed-size row clipped the sixth box at 320 to 375px in both
+  engines. An .otp-fit wrapper is the size container; font-size min(1.75rem, 9cqw) keeps six boxes
+  plus gaps (about 10.9em of monospace) inside it; the 1.75rem stands where container units are
+  missing. signin-phone.browser.mjs now asserts, on every phone size and a 320-wide pass, that all
+  six boxes sit inside their row with digits of at least 18px (it fails without the scaling).
+- A pasted email line yields the code itself: six digits, optionally split by one space or hyphen,
+  standing alone; otherwise only text whose digits are exactly six. A date or ticket number earlier
+  in the text is not sent as a wrong code.
+- The input handler waits for an input method to commit; autofill keeps the digits' ink colour.

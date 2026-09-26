@@ -580,6 +580,10 @@ const visible = (page, sel) => page.evaluate((s) => {
       await pasteCode('987654');
       await page.waitForTimeout(400);
       chk((await page.inputValue('#plus-si-code-in')) === '987654' && wrongSends === 3, `[${k}] #3942 a whole code pasted after a few typed digits replaces them (no spliced 123987)`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      // Pasting a whole email line takes the code itself, not the first digits of another number.
+      await pasteCode('Your Kosmos+ code is 482 913. Ref 20260926.');
+      await page.waitForTimeout(400);
+      chk((await page.inputValue('#plus-si-code-in')) === '482913' && wrongSends === 4, `[${k}] #3942 pasting a whole email line picks out the code, not another number`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
       const hint = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); const ids = (i.getAttribute('aria-describedby') || '').split(/\s+/); const h = ids.map((x) => document.getElementById(x)).find(Boolean); return h ? h.textContent : null; });
       chk(hint === 'Kosmos checks the code as soon as all six digits are in.', `[${k}] #3942 a screen reader is told the sixth digit checks the code`, JSON.stringify(hint));
       page.off('request', countWrong);
