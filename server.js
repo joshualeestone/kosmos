@@ -7665,6 +7665,22 @@ const server = http.createServer((req, res) => {
     sendJson(res, 200, { runners: runners.status() });
     return;
   }
+  /* #3568: Gemini on a Google subscription runs on Google's Antigravity CLI (agy), which Kosmos
+     does not install and cannot read the sign-in of. GET says whether agy is installed (cheap, safe
+     to poll). POST .../check asks agy one tiny question to learn whether it is signed in: it costs a
+     prompt on the person's subscription, so a screen calls it only on a press, and concurrent presses
+     share one run. signedIn is true, false (not installed) or null (could not confirm). */
+  if (pathname === '/api/antigravity' && req.method === 'GET') {
+    sendJson(res, 200, require('./engine/agystatus').installed());
+    return;
+  }
+  if (pathname === '/api/antigravity/check' && req.method === 'POST') {
+    req.resume();
+    require('./engine/agystatus').check()
+      .then((r) => sendJson(res, 200, r))
+      .catch(() => sendJson(res, 200, { installed: null, signedIn: null, because: 'we could not check Antigravity just now' }));
+    return;
+  }
   /**
    * Start (or join) a runner install. Idempotent on purpose: a second
    * Confirm while a download runs gets the RUNNING job, and Confirm on an
