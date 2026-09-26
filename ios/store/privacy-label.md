@@ -40,9 +40,12 @@ For every row: **linked to the person's identity: yes**, **used for tracking: no
 
 ## Not collected (and why), so the reviewer's questions have answers
 
-- **Messages, photos, videos, files, audio.** The camera, microphone and Photos
-  permissions exist because the board's file pickers run inside the app. What
-  they pick goes to the person's own Mac, end to end encrypted (see above).
+- **Messages, photos, videos, files, audio.** The camera and microphone
+  permissions are there so a photo or video taken in the app can be sent to an
+  agent; it goes to the person's own Mac, end to end encrypted (see above). The
+  Photos permission only lets the app save an image the person chooses into
+  their own Photos; nothing is read from the library or sent anywhere
+  (`NSPhotoLibraryAddUsageDescription` in the Xcode project).
 - **Location.** None. The relay and web server logs keep IP addresses (see
   UNSURE 3), but nothing turns them into a location.
 - **Contacts, health, fitness, financial info, browsing history, search history,

@@ -45,7 +45,8 @@
  *   { name, owner, go: async (page, data) => { ...navigate to the screen... } }
  * plus `noServiceWorker: true` if `go` stubs a request with page.route.
  * `go` starts on a freshly loaded board at the phone size and theme (data has
- * `projectId`); leave the page showing the screen. Keep names short and unique
+ * `projectId`, and `chatAgent` / `askAgent`: use those, never a literal agent id,
+ * so the screen works under --data store too); leave the page showing the screen. Keep names short and unique
  * (they are file names). Sample data: 5 agents (working, idle, needs you,
  * stopped; one very long name and task), Ada's DM with a long reply and a code
  * block, a project room with posts and reactions, Cleo's pending ask. The
@@ -59,9 +60,9 @@ const path = require('node:path');
 
 const REPO = path.resolve(__dirname, '..', '..');
 
-/* The four phone sizes from the #718 plan. `dpr` is the device's pixel ratio;
-   shots are saved at CSS pixels (scale: 'css') so files stay small and every
-   size compares one to one. */
+/* The four phone sizes from the #718 plan, plus the App Store size. `dpr` is the
+   device's pixel ratio; by default shots are saved at CSS pixels so files stay
+   small and every size compares one to one (--scale device for store images). */
 const SIZES = {
   se: { width: 375, height: 667, dpr: 2, label: 'iPhone SE' },
   iphone15: { width: 393, height: 852, dpr: 3, label: 'iPhone 15' },
@@ -385,24 +386,24 @@ function seedFiles(roots) {
       fs.writeFileSync(path.join(create.workerDir(a.claim), 'CLAUDE.md'), '# ' + a.name + '\n\nYou are ' + a.name + ', the ' + a.role.toLowerCase() + '.\n');
     }
   }
-  /* Ada's Files folder, for the agent-files screens: more rows than the
+  /* The chat agent's Files folder, for the agent-files screens: more rows than the
      agent page shows (AGENT_FILES_SHOWN, 10, so View All appears), one with
      a long name. */
-  const adaFiles = require(path.join(REPO, 'engine', 'dmfiles')).filesDir(DATA.chatAgent);
-  fs.mkdirSync(adaFiles, { recursive: true });
+  const chatFiles = require(path.join(REPO, 'engine', 'dmfiles')).filesDir(DATA.chatAgent);
+  fs.mkdirSync(chatFiles, { recursive: true });
   const fileNames = ['catalogue-copy-pages-1-to-8-final-reviewed-by-cleo.docx', 'prices.xlsx', 'photographer-brief.pdf',
     'notes.md', 'cover.png', 'linen-range.csv', 'spring-2026-print-schedule.pdf', 'draft-2.docx',
     'invoice-0412.pdf', 'studio-quote.pdf', 'page-9-layout.png', 'captions.md'];
   fileNames.forEach((f, i) => {
-    fs.writeFileSync(path.join(adaFiles, f), 'x'.repeat(1024 * (i + 1)));
+    fs.writeFileSync(path.join(chatFiles, f), 'x'.repeat(1024 * (i + 1)));
     const t = new Date(t0 + i * 60e3);
-    fs.utimesSync(path.join(adaFiles, f), t, t);
+    fs.utimesSync(path.join(chatFiles, f), t, t);
   });
   // The store set records this after the project exists, naming it (seed below).
   if (!DATA.askInProject) {
     landed(require(path.join(REPO, 'engine', 'selfreport')).record(DATA.askAgent, {
       state: 'needs_you', because: DATA.ask,
-    }), "Cleo's needs-you state");
+    }), "the ask agent's needs-you state");
   }
 }
 
@@ -524,7 +525,7 @@ async function seed(base, roots) {
      lights that project rather than counting as a needs-you with no project. */
   if (DATA.askInProject) {
     const r = require(path.join(REPO, 'engine', 'selfreport')).record(DATA.askAgent, { state: 'needs_you', because: DATA.ask, project: pid });
-    if (r && r.recorded === false) throw new Error('the seed could not write Cleo\'s needs-you state: ' + r.because);
+    if (r && r.recorded === false) throw new Error('the seed could not write the ask agent\'s needs-you state: ' + r.because);
   }
   return { projectId: pid, chatAgent: DATA.chatAgent, askAgent: DATA.askAgent };
 }
