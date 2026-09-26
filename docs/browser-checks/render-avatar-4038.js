@@ -117,6 +117,18 @@ function solidPng(r, g, b) {
   await page.waitForTimeout(1200);
   const back = await page.evaluate(() => ({ btn: document.getElementById('d-file-btn').disabled, desc: document.getElementById('d-file-btn').getAttribute('aria-describedby') }));
   chk(back.btn === false && back.desc === null, 'back on a tied agent the button is live and names no stale reason', JSON.stringify(back));
+
+  /* Withdrawn, driven live: April leaves the board while her page is open, then comes back. */
+  const btnState = () => page.evaluate(() => ({ btn: document.getElementById('d-file-btn').disabled,
+    desc: document.getElementById('d-file-btn').getAttribute('aria-describedby'), shown: !document.getElementById('d-withdrawn').hidden }));
+  fleet.install([fleet.stranger('outsider')]);
+  await page.waitForFunction(() => !document.getElementById('d-withdrawn').hidden, null, { timeout: 15000 }).catch(() => {});
+  const gone = await btnState();
+  chk(gone.shown && gone.btn === true && gone.desc === 'd-withdrawn', 'a withdrawn agent\'s button is disabled and names the withdrawn sentence', JSON.stringify(gone));
+  fleet.install([fleet.agent('april', { state: 'idle', displayName: 'April', role: 'a researcher' }), fleet.stranger('outsider')]);
+  await page.waitForFunction(() => document.getElementById('d-withdrawn').hidden, null, { timeout: 15000 }).catch(() => {});
+  const returned = await btnState();
+  chk(!returned.shown && returned.btn === false && returned.desc === null, 'when she is back the button is live and names no stale reason', JSON.stringify(returned));
   chk(errors.length === 0, 'no page errors', JSON.stringify(errors.slice(0, 2)));
 
   await browser.close();
