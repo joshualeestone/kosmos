@@ -15779,12 +15779,15 @@ window.kosmosMeasureScrollbarWidth();
         <p class="fmsg" id="plus-devmsg" role="alert" aria-live="assertive"></p>
       </div>
       <!-- #733 recovery: the second step at sign-in can be reset only from
-           this Mac, with its own signed request; a person at this keyboard
+           a Mac connected to the account (this one or any other live one,
+           kosmos#3860), with its own signed request; a person at this keyboard
            already holds what the step protects, and no support path or
            server-side unlock exists on purpose (docs/second-factor.md in
            kosmos-relay). Two clicks, so a stray one switches nothing off.
            These words were reviewed by the design lane (Mona Lisa, #2499) and
-           left as-is; the verbatim Josh ruling below is unchanged. -->
+           left as-is then; kosmos#3860 later added "or any other computer
+           connected to this account" to the hint (a fact, not a re-voicing).
+           The verbatim Josh ruling below is unchanged. -->
       <div id="plus-second" hidden style="margin-top:16px;">
         <p class="setname">I lost my phone</p>
         <!-- 🛑 "ALWAYS", NOT "from a phone" (Josh, 2026-08-29 14:04, verbatim):
@@ -15804,7 +15807,7 @@ window.kosmosMeasureScrollbarWidth();
              ⇒ So whether to NAME it here is a wording decision for whoever owns
              this voice, not a gap. The sentence as written is true either way:
              the second step always happens, whichever thing supplies the code. -->
-        <p class="fhint">Signing in always asks for a second code after the email code, on every device. If the phone that gives that code is gone, this computer can switch the second step off. Nobody else can, not even us. Sign in from your new phone afterwards and set it up again there.</p>
+        <p class="fhint">Signing in always asks for a second code after the email code, on every device. If the phone that gives that code is gone, this computer, or any other computer connected to this account, can switch the second step off. Nobody else can, not even us. Sign in from your new phone afterwards and set it up again there.</p>
         <div class="frow">
           <button class="btn" type="button" id="plus-second-reset">Reset the second step</button>
         </div>

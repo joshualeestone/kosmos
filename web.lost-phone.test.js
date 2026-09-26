@@ -32,6 +32,9 @@ test('the control lives under Plus, hidden until enrolled, and paints with the d
   assert.match(sec, /id="plus-second" hidden/, 'the control does not start hidden');
   assert.match(sec, /I lost my phone/);
   assert.match(sec, /Nobody else can/, 'the sentence that says there is no support path is gone');
+  // kosmos#3860: every live Mac on the account can reset the step, not only this one. The
+  // sentence used to say "this computer can ... Nobody else can", which read as this Mac alone.
+  assert.match(sec, /this computer, or any other computer connected to this account, can switch the second step off/, 'kosmos#3860: the sentence says only this computer can reset the step');
   const paint = SCRIPT.slice(SCRIPT.indexOf('async function paintPlus('), SCRIPT.indexOf("document.getElementById('plus-switch').addEventListener"));
   assert.match(paint, /plus-second'\)\.hidden = r\.enrolled !== true/, 'the control is not gated on enrolled; an unenrolled Mac cannot sign the request');
   assert.match(paint, /plusSecondDisarm\(\)/, 'a repaint leaves a half-taken click armed');
