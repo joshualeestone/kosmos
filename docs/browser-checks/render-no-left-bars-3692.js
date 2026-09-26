@@ -153,6 +153,8 @@ const SAMPLES = [
     /* On navy the warn tint is the pinned dark one: the light one is near invisible there. */
     chk(tintByTheme['plus-light'] === tintByTheme.dark && tintByTheme['plus-light'] !== tintByTheme.light,
       'the Kosmos+ navy look takes the dark warn tint on a light-mode Mac', JSON.stringify(tintByTheme));
+    chk(ringByTheme['plus-light'] === ringByTheme.dark && ringByTheme['plus-light'] !== ringByTheme.light,
+      'the Kosmos+ navy look takes the dark roadmap ring on a light-mode Mac', JSON.stringify(ringByTheme));
     /* The explicit dark theme reaches its own override: the same ring colour as the media-query
        dark, and not the light one (which it would fall back to if that override were missing). */
     chk(ringByTheme['dark-explicit'] === ringByTheme.dark && ringByTheme['dark-explicit'] !== ringByTheme.light,
