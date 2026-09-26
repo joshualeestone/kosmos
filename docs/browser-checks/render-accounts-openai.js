@@ -96,6 +96,10 @@ let failed = 0;
   await p.click('#acct-openai-pick-key');
   await p.waitForTimeout(200);
   say('choosing "Use an API key" reveals the key form', await p.isVisible('#acct-openai-key-step'));
+  // #3960: the key box has a "Get a key" link to OpenAI's key page, read from the page's own table.
+  const oaKey = await p.evaluate(() => { const a = document.getElementById('acct-openai-getkey');
+    return { shown: !!(a && a.offsetParent), href: a && a.getAttribute('href'), want: typeof KEY_PAGES === 'object' ? KEY_PAGES.openai : null }; });
+  say('#3960 the OpenAI key box has a Get a key link to its key page', oaKey.shown && !!oaKey.want && oaKey.href === oaKey.want, JSON.stringify(oaKey));
   say('the key field is a password field', (await p.getAttribute('#acct-openai-key', 'type')) === 'password');
   await p.fill('#acct-openai-key', 'sk-proj-walkwalkwalkwalkwalkWALK');
   /* 🛑 A UNIQUE LABEL PER ATTEMPT, BECAUSE THE RETRY COULD NEVER PASS AND
@@ -718,6 +722,10 @@ let failed = 0;
       && (await p.isHidden('#acct-gemini-flow')) && (await p.isHidden('#acct-keyed-install')));
   const head = (await p.innerText('#acct-apikey-head')).trim();
   say('#3566 the key step names Gemini and Google', /Gemini/.test(head) && /Google/.test(head), head);
+  // #3960: the shared key box's "Get a key" follows the provider picked: Google's key page for Gemini.
+  const gKey = await p.evaluate(() => { const a = document.getElementById('acct-apikey-getkey');
+    return { shown: !!(a && a.offsetParent), href: a && a.getAttribute('href'), want: typeof KEY_PAGES === 'object' ? KEY_PAGES.google : null }; });
+  say('#3960 the Gemini key box has a Get a key link to Google\'s key page', gKey.shown && !!gKey.want && gKey.href === gKey.want, JSON.stringify(gKey));
   say('#3566 the key field is a password field', (await p.getAttribute('#acct-apikey-key', 'type')) === 'password');
   await p.click('#acct-apikey-go');
   await p.waitForTimeout(150);
