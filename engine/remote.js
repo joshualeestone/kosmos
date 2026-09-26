@@ -732,10 +732,10 @@ async function forget() {
   // must not turn the switch back on), and WAIT for a register already out, so what
   // is retired and wiped below includes it; otherwise it writes a fresh identity
   // into the directory this empties. The wait is bounded: the register itself is
-  // (registerTimeoutMs). Worst case, three bounds in a row, about seven minutes:
+  // (registerTimeoutMs). Worst case, four bounds in a row, about eight minutes:
   // the register first retiring a half identity (retireTimeoutMs, a minute), the
-  // register itself (five), then this retire (a minute). Only when something is
-  // already broken.
+  // register itself (five), signed calls already out (a minute, below), then this
+  // retire (a minute). Only when something is already broken.
   //
   // One forget at a time: a second (a double click, two tabs, a retried request)
   // gets the first one's answer instead of retiring the same Mac beside it.
@@ -748,7 +748,16 @@ async function forget() {
   forgetInFlight = (async () => {
     try {
       if (registerInFlight) await registerInFlight;
-      if (signedInFlight.size) await Promise.allSettled([...signedInFlight]);
+      // Bounded: these calls carry no timeout of their own (a dead network can hold
+      // one forever), so Forget waits at most one retire bound for them.
+      if (signedInFlight.size) {
+        let timer;
+        await Promise.race([
+          Promise.allSettled([...signedInFlight]),
+          new Promise((r) => { timer = setTimeout(r, retireTimeoutMs()); if (timer.unref) timer.unref(); }),
+        ]);
+        clearTimeout(timer);
+      }
       return await forgetNow();
     } finally {
       forgetting = false;

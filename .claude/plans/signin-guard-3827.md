@@ -131,3 +131,8 @@ Main gained the split-out parseSaid fix (PR #3893: lastJsonLine, used by parseSa
 - NIT (hardening, no dedicated test): a replaced identity (a cancelled register that succeeded, or one killed after writing) clears the cached standing, so the previous account's "good" does not carry over.
 - NIT (hardening, no dedicated test): Forget waits for signed calls already in flight (device verbs, second reset); a standing refresh that lands during a Forget writes nothing.
 - NIT (left): the 409 fixtures lack the "Error: " prefix and setup-409 drops the coordinator's last sentence; neither affects the matches.
+
+## Round 17 review (sonnet)
+- BLOCKER (mine, from round 16): Forget waited, unbounded, for tracked signed calls (device verbs, second reset). Those carry no timeout in setupRun or in the tunnel (signed_request sets none), so one device Allow on a dead network would hang Forget forever. Every later Forget returned the same pending promise, and `forgetting` stayed true, so ensure() never brought the tunnel back. The wait is now bounded at one retire bound; Forget then proceeds. The worst-case comment says four bounds, about eight minutes. Test: a device Allow hung on the fake, then Forget finishes within the bound; control (unbounded wait) fails by name.
+- WARNING (accepted, stated): a tunnel killed after the coordinator accepted a register but before its first local write leaves nothing on disk, so there is nothing to retire from here. That registration can only be removed from the account page. The window is between one HTTP answer and one file write. Every later window (key and id written) is handled.
+- NIT: "turning Kosmos+ on ... waits for a register" said waits where the call is refused; renamed "is refused while".

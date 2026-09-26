@@ -206,6 +206,8 @@ if (args[0] === 'signin') {
   process.stderr.write('unknown signin verb\\n');
   process.exit(1);
 }
+// A device verb on a dead network (signed_request sets no timeout of its own).
+if (args[0] === 'devices' && mode.includes('hung-devices')) { const until = Date.now() + Number(process.env.FAKE_DEVICE_HANG_MS || 3000); while (Date.now() < until) { /* wait */ } }
 if (args[0] === 'devices') {
   const verb = args[1];
   if (mode === 'devices-fail') {
@@ -1523,7 +1525,7 @@ test('#3827: a Forget during a Settings setup ends it cancelled, not "set up"', 
   }
 });
 
-test('#3827: turning Kosmos+ on, or changing the relay, waits for a register that is still out', async () => {
+test('#3827: turning Kosmos+ on, or changing the relay, is refused while a register is still out', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   process.env.FAKE_TUNNEL_MODE = 'slow-register';
   try {
@@ -1998,4 +2000,26 @@ test('#3838: the tunnel is told where the board token file is, by environment, n
   assert.ok(!run.includes('--board-token-file'), 'the path went on argv, which an older bundled tunnel would refuse');
   assert.ok(!run.some((a) => String(a).includes('board.token')), 'the token file went on argv under some spelling: ' + JSON.stringify(run));
   remote.setOn(false);
+});
+
+test('#3827: a device verb hanging on a dead network cannot hang Forget', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  process.env.FAKE_TUNNEL_MODE = 'hung-devices';
+  process.env.FAKE_DEVICE_HANG_MS = '4000';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000';
+  process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '800';
+  try {
+    const allowing = remote.deviceAllow('dev-1', 'iPhone');   // out before the Forget, on a dead network
+    const t0 = Date.now();
+    await remote.forget();
+    assert.ok(Date.now() - t0 < 3000, 'Forget waited out a hung device call (' + (Date.now() - t0) + 'ms)');
+    await allowing;   // let the hung call finish inside this test
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.FAKE_DEVICE_HANG_MS;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
+  }
 });
