@@ -174,3 +174,27 @@
 - Correction to the 3cebb85 commit message: its arms covered bullets 1 and 3 (the judged-wrong guard, the
   retype during a check), not 1 and 2. drop() forgetting the code and focus re-reading hadDigits got
   their arms in the round-11 commit.
+
+## Review rounds 8 to 10 (recorded late, at round 12's request; the calls were made at the time)
+- Round 8: Send again while a code is being checked makes that check's answer stale (PLUS_SI_EPOCH),
+  so its "not right" or the timed-out panel cannot land on the fresh step. Rejected: letting the answer
+  land and clearing it later (it would flash). Weakest premise: that the resend always changes the code;
+  if the coordinator ever re-sends the same code, the stale answer was about the live code.
+- Round 9: Send again drops a code typed during that check (it was for the old code); a hand press on
+  the unchanged code just answered does not resend it but selects it in the field. Rejected: disabling
+  Verify after a refusal (it is also the button for a new code).
+- Round 10: that hold-back applies only to the coordinator's wrong-guess words (see round 11), because
+  a 500 / "give it a minute" / cooldown never judged the code and holding it back left a dead button.
+  Deleting a digit during a check does not forget the code, so retyping it does not queue a second try.
+
+## Review round 12 (app, opus)
+- Pasting the exact code the server just judged wrong is held back like a hand press (selected, the
+  status line said again). Deleting a digit and typing it back stays the deliberate way to resend it:
+  rejected holding that back too, because it would leave no way at all to retry a code the person is
+  sure of (the plan's original design). Weakest premise: that a re-paste is a mistake, not a deliberate
+  retry; the deliberate path above covers it.
+- Send again keeps Verify BUSY until the new code's request answers: freed at once, the old code in the
+  boxes could be sent alongside the new-code request and count as a wrong guess against the new code, or
+  answer "not right" on the fresh step. On success the boxes are cleared, then Verify is freed; when no new
+  code is made (a refusal or cooldown), Verify is freed for the old code, which drop() already forgot.
+- A held-back press re-writes the status line so a screen reader hears why.

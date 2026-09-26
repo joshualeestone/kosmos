@@ -37348,15 +37348,23 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
      we texted"); any other answer (a network failure, "give it a minute", a 500, a cooldown) never judged
      the code, so it goes. Should those words change, this fails open: a wasted try, never a dead button.
      Capture phase, so this runs before the step's own click handler. */
+  const judgedWrong = (c) => c === lastSent
+    && /\bcode is not (right|what the app shows|the one we texted)/i.test((document.getElementById('plus-signin-msg') || {}).textContent || '');
+  // Holding a refused code back: the person is put in the field with it selected, and the status line
+  // is said again (written anew), so a screen reader hears why nothing was sent.
+  const holdRefused = () => {
+    el.focus();
+    try { el.setSelectionRange(0, el.value.length); } catch { /* not a text input */ }
+    paint();
+    const msg = document.getElementById('plus-signin-msg');
+    if (msg) { const t = msg.textContent; msg.textContent = ''; setTimeout(() => { if (!msg.textContent) msg.textContent = t; }, 50); }
+  };
   if (go) go.addEventListener('click', (e) => {
     const c = el.value.replace(/\D/g, '');
     if (c.length !== 6) return;
-    const said = (document.getElementById('plus-signin-msg') || {}).textContent || '';
-    if (!sendingNow && c === lastSent && /\bcode is not (right|what the app shows|the one we texted)/i.test(said)) {
+    if (!sendingNow && judgedWrong(c)) {
       e.stopImmediatePropagation(); e.preventDefault();
-      el.focus();
-      try { el.setSelectionRange(0, el.value.length); } catch { /* not a text input */ }
-      paint();
+      holdRefused();
       return;
     }
     lastSent = c; queued = false;
@@ -37438,14 +37446,19 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
      code, not another number. When there is no one code in it, nothing is pasted at all: letting the
      browser paste would keep the first six digits of whatever was there and send them. A short run
      of digits alone (a few digits typed elsewhere) pastes as usual. A paste is also an intent to
-     send, so the same code pasted again (after a network failure, say) goes again. */
+     send, so the same code pasted again (after a network failure, say) goes again, unless the server
+     has just judged that very code wrong. */
   /* Returns true when it has dealt with the text (the caller stops the browser's own insert). When
      there is no one code, the status line says so, so the field does not just look dead. */
   function takeText(text) {
     const code = plusSiCodeFromPaste(text);
     if (code) {
       // A paste is an intent to send (the same code again after a network failure goes again), but
-      // not while a check is in flight: that would queue the same code for a second, wasted try.
+      // not while a check is in flight: that would queue the same code for a second, wasted try. And
+      // not the very code the server has just judged wrong (round 12): pasting it again "properly" would
+      // spend another try on it, so it is held back as a press by hand is. Deleting a digit and typing
+      // it back stays the deliberate way to send it again.
+      if (judgedWrong(code) && el.value.replace(/\D/g, '') === code) { holdRefused(); return true; }
       if (!go || !go.disabled) lastSent = '';
       el.value = code;
       el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -37528,24 +37541,32 @@ async function plusSiRequestCode(btn) {
   /* #3942: a code check still on its way when the person asks for a new code (easy now that the sixth
      digit sends by itself) must not land afterwards: "not right" beside the fresh, empty code step, or
      the timed-out panel seconds after a new code went out. Its answer is made stale, as Start over
-     does, and its button is freed here, since a stale answer never frees it. */
-  if (btn && btn.id === 'plus-si-code-resend') {
+     does. Verify stays busy until the new code's request answers (a stale answer never frees it, so
+     this does, below): free at once, the old code still in the boxes could be sent while the new code
+     is being made, counting as a wrong guess against it or answering "not right" on the fresh step. */
+  const resend = !!(btn && btn.id === 'plus-si-code-resend');
+  const box = resend && typeof PLUS_SI_OTP_BOX !== 'undefined' ? PLUS_SI_OTP_BOX['plus-si-code-in'] : null;
+  const verify = resend ? document.getElementById('plus-si-code-go') : null;
+  if (resend) {
     PLUS_SI_EPOCH += 1;
     // A code typed while that check was running was waiting for the button: it is for the OLD code,
-    // so it is dropped, not sent the moment the button is freed below.
-    if (typeof PLUS_SI_OTP_BOX !== 'undefined' && PLUS_SI_OTP_BOX['plus-si-code-in']) PLUS_SI_OTP_BOX['plus-si-code-in'].drop();
-    const verify = document.getElementById('plus-si-code-go');
-    if (verify) verify.disabled = false;
+    // so it is dropped, not sent when the button is freed.
+    if (box) box.drop();
+    if (verify) verify.disabled = true;
   }
+  // No new code: the old one is back in play (its check was thrown away unjudged, and drop() above forgot
+  // it as sent), so Verify is freed for it; a code typed during the wait goes now.
+  const noNewCode = () => { if (verify) verify.disabled = false; };
   plusSiMsg(PLUS_CODE_WORDS.asking(email));
   plusSetBusy(btn, true);
   const r = await plusSiPost('/api/remote/signin-start', { email });
   if (r.stale) return;
   if (!r.ok) {
     const m = /in (\d+) seconds?/.exec(r.because);
-    if (m) { plusCountdown(document.getElementById('plus-signin-msg'), btn, r.because, Number(m[1])); return; }
+    if (m) { noNewCode(); plusCountdown(document.getElementById('plus-signin-msg'), btn, r.because, Number(m[1])); return; }
     plusSetBusy(btn, false);
     plusSiMsg(PLUS_CODE_WORDS.refused(r.because));
+    noNewCode();
     return;
   }
   plusSetBusy(btn, false);
@@ -37558,6 +37579,7 @@ async function plusSiRequestCode(btn) {
   if (btn.id === 'plus-si-code-resend') {
     const inp = document.getElementById('plus-si-code-in');
     if (inp && inp.value) { inp.value = ''; inp.dispatchEvent(new Event('input', { bubbles: true })); }
+    if (verify) verify.disabled = false;   // the boxes are empty now, for the new code
   }
   plusSiStage(r.data.stage, r.data);
 }
