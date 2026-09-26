@@ -44,6 +44,25 @@
 # mistake here cannot stop the fleet, and fail-soft keeps even this repo's unrelated
 # runs green.
 
+# The merge base the gate anchors on (#3893). One base: that one (every ordinary PR).
+# Several bases happen when base already contains this PR (merged before CI checked out), a
+# criss-cross in which git's plain pick can be the PR head, so the "PR change" becomes main's.
+# CI's HEAD is the synthetic merge of the PR into the tip HEAD^1; when that tip is one of the
+# bases, anchoring on it gives exactly the PR's net change. Otherwise the change cannot be told
+# apart from main's: say so and fail (the caller fails soft). IDENTICAL in browser-check-gate.sh
+# and browser-check-surface-gate.sh (each is sourced alone, sometimes into zsh); a test
+# asserts the two copies match.
+bcg_anchor_base() {  # <base> -> prints the merge base, or returns 1
+  local all n p1
+  all="$(git merge-base --all "$1" HEAD 2>/dev/null)" || return 1
+  n="$(printf '%s\n' "$all" | grep -c .)"
+  if [ "$n" -le 1 ]; then printf '%s\n' "$all"; return 0; fi
+  p1="$(git rev-parse -q --verify 'HEAD^1' 2>/dev/null)" || p1=""
+  if [ -n "$p1" ] && printf '%s\n' "$all" | grep -qx "$p1"; then printf '%s\n' "$p1"; return 0; fi
+  echo "browser-check gate: $n merge bases with $1, and HEAD^1 is not one of them; cannot tell this change from main's, skipping" >&2
+  return 1
+}
+
 kosmos_browser_check_gate() {
   # NB: dstat/dpath, NOT status/path -- zsh ties `path` to PATH (emptying it) and
   # `status` to $?, and this lib is sourced, sometimes into a zsh shell.
@@ -53,7 +72,7 @@ kosmos_browser_check_gate() {
   # ONE merge base for the file list AND the trailers (#3893): `base...HEAD` and
   # `base..HEAD` diverge when base already contains the PR (merged before CI checked out,
   # so there are two merge bases). See browser-check-surface-gate.sh for the measured case.
-  mb="$(git merge-base "$base" HEAD 2>/dev/null)" || mb=""
+  mb="$(bcg_anchor_base "$base")" || mb=""
   if [ -n "${KOSMOS_BCG_FILES:-}" ]; then
     files="$(cat "$KOSMOS_BCG_FILES" 2>/dev/null)"
   else

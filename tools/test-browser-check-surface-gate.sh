@@ -213,12 +213,27 @@ else
   fail "#3893 control: the ordinary single-merge-base case must pass"
 fi
 # The fix must not blind the gate: a PR that DOES change tok-x without updating render-y.js
-# (or excusing it) is still refused, in the same criss-cross shape.
+# (or excusing it) is still refused. First with one merge base (base = the tip it merged into),
+# then IN the criss-cross (base = main after the PR merged), where anchoring on git's plain
+# merge-base pick would read main's change and main's trailer and pass it (review, #3893).
 read -r Y_M1 Y_M2 Y_H <<< "$(xrepo "$TMP/yy" 1)"
 if gate_at "$TMP/yy" "$Y_M1" "$HERE/lib/browser-check-surface-gate.sh"; then
   fail "#3893 positive control: a PR changing tok-x with render-y.js not updated must be refused"
 else
   pass "#3893 positive control: a PR's own unexcused surface change is still refused"
+fi
+if gate_at "$TMP/yy" "$Y_M2" "$HERE/lib/browser-check-surface-gate.sh"; then
+  fail "#3893 criss-cross positive control: the PR's own unexcused change passed on main's trailer"
+else
+  pass "#3893 criss-cross positive control: the PR's own unexcused change is refused even when base already contains the PR"
+fi
+# The anchor helper is duplicated in both gate libs (each is sourced alone); the copies must match.
+h1="$(sed -n '/^bcg_anchor_base() {/,/^}/p' "$HERE/lib/browser-check-surface-gate.sh")"
+h2="$(sed -n '/^bcg_anchor_base() {/,/^}/p' "$HERE/lib/browser-check-gate.sh")"
+if [ -n "$h1" ] && [ "$h1" = "$h2" ]; then
+  pass "bcg_anchor_base is identical in both gate libs"
+else
+  fail "bcg_anchor_base differs between the two gate libs (or is missing)"
 fi
 
 echo "browser-check surface gate: $fails FAILED"

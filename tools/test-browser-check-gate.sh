@@ -187,6 +187,8 @@ check "#3893: an already-merged PR is not refused for main's own excused web cha
 read -r D_M1 D_M2 D_H <<< "$(cx "$tmp/dx" 1)"
 ( cd "$tmp/dx" && unset KOSMOS_BCG_FILES KOSMOS_BCG_MSGS; KOSMOS_BCG_BASE="$D_M1" kosmos_browser_check_gate ) >/dev/null 2>&1
 check "#3893 positive control: a PR's own web change with no check and no trailer is refused" 1 "$?"
+( cd "$tmp/dx" && unset KOSMOS_BCG_FILES KOSMOS_BCG_MSGS; KOSMOS_BCG_BASE="$D_M2" kosmos_browser_check_gate ) >/dev/null 2>&1
+check "#3893 criss-cross positive control: the PR's own unexcused web change is refused even when base contains the PR" 1 "$?"
 
 echo "---"
 if [ "$fails" -eq 0 ]; then
