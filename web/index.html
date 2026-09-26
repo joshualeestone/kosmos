@@ -25512,10 +25512,17 @@ function agySubDriver(pre, onReady) { return {
   signinId: '',    // #3998: which sign-in that is, so this step never stops or types into another tab's
   sendingCode: false,   // #3998: a code is on its way (a second press is ignored)
   codeError: '',   // #3998: why the last pasted code was refused, until the person types again
+  windowOpen: false,   // #3998 round 26: the sign-in's window is open and the person is driving it
   leave() {
     this.gen += 1; this.busy = false; this.next = 'check';
-    // A sign-in nobody is watching any more ends, rather than waiting out its half hour.
-    if (this.signing) { this.signing = false; this.post('/api/antigravity/signin/stop', { id: this.signinId }); }
+    /* A sign-in nobody is watching any more ends, rather than waiting out its half hour. Not one whose
+       window the person has open (round 26): closing this dialog must not cut off the Terminal they are
+       finishing it in (the engine ends it after half an hour with no change there). */
+    if (this.signing) {
+      this.signing = false;
+      if (!this.windowOpen) this.post('/api/antigravity/signin/stop', { id: this.signinId });
+    }
+    this.windowOpen = false;
     this.rows(false, false);
   },
   /* #3998: the paste box (with "Open Google's page again") and the last-resort window button. */
@@ -25552,6 +25559,7 @@ function agySubDriver(pre, onReady) { return {
         return;
       }
       const state = st && st.state;
+      this.windowOpen = !!(st && st.shown && !st.showFailed);
       if (state === 'code') {
         // A code Antigravity did not take comes back here with the reason (#3998 review round 2).
         /* The words: Antigravity's reason for refusing a code, else Kosmos's own refusal of what was

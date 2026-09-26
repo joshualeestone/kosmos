@@ -35,10 +35,24 @@ const SESSION = 'agy-signin';
 const TICK_MS = 1000;
 const STUCK_MS = 8000;          // an unrecognised screen this long is shown, not guessed at
 const GIVE_UP_MS = 30 * 60000;  // a sign-in nobody finishes ends by itself
+/* Round 26: however busy a shown window's screen stays (a spinner counts as a change), it ends this
+   long after Show, so agy is never left running out of sight. */
+const SHOWN_MAX_MS = 2 * 60 * 60000;
 const SAME_SCREEN_MS = 20000;   // a recognised screen that does not move on this long is stuck too
 const CODE_RETRY_MS = 20000;    // the code screen still showing this long after a code: it was not taken
+/* Round 26: while the prompt still HOLDS the code (agy has not cleared it, so it may still be trading
+   it with Google), a refusal is read only after this much longer wait. */
+const CODE_STALE_MS = 90000;
+const CODE_PROMPT = 'Paste the authorization code:';
+/* What sits on agy's code prompt now: '' when it is empty (waiting for a code). */
+function promptText(text) {
+  const at = String(text).lastIndexOf(CODE_PROMPT);
+  return at < 0 ? '' : String(text).slice(at + CODE_PROMPT.length).trim();
+}
 /* Asking agy whether it is signed in costs a prompt on the person's subscription, so one sign-in
-   asks at most this many times, however long it sits on a screen Kosmos does not know. */
+   asks at most this many times, however long it sits on a screen Kosmos does not know. The whole
+   total (round 26): MAX_CHECKS shared by unknown screens and repeat ready-screen asks, plus the first
+   look at agy's ready screen, plus one when agy exits: MAX_CHECKS + 2 at the very most. */
 const MAX_CHECKS = 3;
 const UNKNOWN = 'Antigravity is showing a step Kosmos does not recognise';
 // On agy's own ready screen the honest reason is that the sign-in could not be confirmed, not a strange step.
@@ -239,7 +253,7 @@ function step() {
   /* Round 25: once the window is shown the person is driving it, so the half hour counts from the last
      time its screen changed, not from the start: a person still working in it is never cut off. */
   const since = S.shown ? Math.max(S.startedAt, S.lastChangeAt || 0) : S.startedAt;
-  if (now() - since > GIVE_UP_MS) { end('failed', 'the sign-in was not finished, so Kosmos stopped it'); return; }
+  if (now() - since > GIVE_UP_MS || (S.shown && S.shownAt && now() - S.shownAt > SHOWN_MAX_MS)) { end('failed', 'the sign-in was not finished, so Kosmos stopped it'); return; }
   const text = screen();
   if (typeof text === 'string' && text !== S.lastText) { S.lastText = text; S.lastChangeAt = now(); }
   /* Gone only when tmux says so twice in a row (round 13): one failed has-session can be a hiccup
@@ -335,6 +349,9 @@ function step() {
     /* Each key once: Enter once on "[Done]", and the next Down only after the marker has moved, so
        a slow redraw never carries a second key onto the next screen (the trust question). */
     if (S.pressed) return;
+    /* Round 26: no key until the marker is drawn on one of the terms' own lines. A half-drawn frame
+       (no ">" yet) sent a Down, and the full frame a second one, two Downs for one step. */
+    if (!/^>\s*(\[ \]|\[x\]|\[X\]|Previous\b|\[Done\])/.test(on)) return;
     if (/^>\s*\[Done\]/.test(on)) { S.pressed = true; keys('Enter'); return; }
     if (S.downFrom !== null && S.downFrom !== undefined && on === S.downFrom) return;   // the last Down has not landed yet
     // The move counts only once the key went out (round 7): a tmux hiccup must not spend the budget.
@@ -367,7 +384,8 @@ function step() {
     return;
   }
   if (seen('code')) {
-    if (S.step === 'code-sent' && now() - S.codeSentAt > CODE_RETRY_MS) {
+    const holding = promptText(text) !== '';
+    if (S.step === 'code-sent' && now() - S.codeSentAt > (holding ? CODE_STALE_MS : CODE_RETRY_MS)) {
       // Still asking for a code well after one was typed: Google's code was not taken (expired, or
       // copied short). Ask again rather than wait here for half an hour.
       S.state = 'code'; S.step = 'code';
@@ -435,9 +453,9 @@ function readyCheck(text) {
   /* Once, except in the shown window (round 24): after a "could not confirm", the person may finish or
      see it signed in there, and the panel says Kosmos notices. The ready screen is asked at most
      MAX_CHECKS times in all (the first included), STUCK_MS apart. */
-  if (S.readyChecked && !(S.shown && (S.readyAsks || 0) < MAX_CHECKS && now() - S.lastCheckAt > STUCK_MS)) return;
+  if (S.readyChecked && !(S.shown && S.checks < MAX_CHECKS && now() - S.lastCheckAt > STUCK_MS)) return;
   const mine = S;
-  mine.readyAsks = (mine.readyAsks || 0) + 1;
+  if (mine.readyChecked) mine.checks += 1;   // round 26: a repeat spends from the one budget
   mine.readyChecked = true; mine.busy = true; mine.lastCheckAt = now();
   if (mine.state !== 'stuck') mine.state = 'checking';
   Promise.resolve().then(() => confirmSignedIn()).then((r) => {
@@ -506,6 +524,8 @@ function code(value, id) {
   const now_ = screen();
   // The tick's own reading (round 24): only the code screen itself; with the ready line under it, agy has moved on.
   const drawn = typeof now_ === 'string' ? screenOf(now_) : null;
+  // Round 26: never over the code just sent while agy may still be reading it.
+  if (drawn === 'code' && S.step === 'code-sent' && promptText(now_) !== '') return { ok: false, because: 'Antigravity is still checking the last code' };
   if (drawn !== 'code') return { ok: false, because: 'Antigravity is not waiting for a code' };
   // C-u first (round 12): a code left half-sent by an earlier failed try is cleared, not doubled.
   try { keys('C-u'); keys('-l', '--', v); keys('Enter'); } catch (e) {
@@ -528,6 +548,7 @@ function show(id) {
     /* From here the person drives, set BEFORE the window opens (round 6): `open` can time out after
        Terminal has come up, and pressing nothing is the safe way to be wrong. Stop still works. */
     S.shown = true;
+    if (!S.shownAt) S.shownAt = now();
     const mine = S;
     openFile(file, (err) => {
       /* An `open` that failed outright (not a timeout, which may have opened Terminal anyway) opened

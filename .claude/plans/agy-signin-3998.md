@@ -170,3 +170,10 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 ## Review round 25 (decided)
 - Once the window is shown, the half-hour give-up counts from the last time its screen changed, so a person still working in it is never cut off; a shown window left unchanged for over half an hour still ends. Not shown, it counts from the start as before.
 - Left: the first-run paste box and Show row have no browser check of their own. They are the same agySubDriver the Settings browser check drives end to end in a real browser (render-settings-agy-3874), and web.agy-on-3568.test.js covers the first-run markup; a first-run browser check is a follow-up, not this card.
+
+## Review round 26 (decided)
+- Leaving the step (closing the dialog, switching provider, cancelling first run) no longer stops a sign-in whose window the person has open; the engine ends it after half an hour with no change there, or two hours after Show.
+- Terms: no key until the marker is drawn on one of the terms' own lines (a half-drawn frame sent a Down, and the full frame a second).
+- A code still on agy's prompt is being checked: read as refused only after 90 s (an empty prompt still after 20 s), and code() never types over it. Weakest premise: agy clears its prompt when it refuses a code; if it leaves the code there, a refusal shows after 90 s instead of 20.
+- A shown window ends two hours after Show however busy its screen is (a spinner counts as a change).
+- One budget: repeat ready-screen asks spend MAX_CHECKS with unknown screens; the stated total is MAX_CHECKS + 2 (the first ready look and one on exit).

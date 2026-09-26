@@ -472,3 +472,17 @@ test('#3998 round 11: Sign in again waits for the availability read, and refuses
   const closed = await run(true, true, false);
   assert.equal(closed.state.started, 0, 'Sign in again started a hidden sign-in after the dialog was closed (round 12)');
 });
+
+test('#3998 round 26: leaving the step does not stop a sign-in whose window the person has open', async () => {
+  const f = agyFlow({
+    '/api/antigravity/check': [{ installed: true, signedIn: null }],
+    'POST /api/antigravity/signin': [{ ok: true, id: 'feedc0de00000002' }],
+    'GET /api/antigravity/signin': [{ id: 'feedc0de00000002', state: 'stuck', shown: true, because: 'x' }],
+    '/api/antigravity/signin/stop': [{ ok: true }],
+  });
+  await f.FR_AGY_SUB.start();
+  await f.FR_AGY_SUB.start();
+  await f.settle(() => /window is open/.test(f.view().text));
+  f.FR_AGY_SUB.leave();
+  assert.equal(f.posts.includes('/api/antigravity/signin/stop'), false, 'closing the dialog cut off the window the person is finishing it in');
+});

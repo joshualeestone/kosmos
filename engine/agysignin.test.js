@@ -1027,7 +1027,8 @@ test('#3998 round 24: after a ready screen could not be confirmed, the shown win
     s.tickForTests(); await settle();
     await s.show(again.id);
     for (let i = 0; i < 120; i++) { st2.t += 1000; s.tickForTests(); await settle(); }
-    assert.ok(st2.checks <= s.MAX_CHECKS, 'asked ' + st2.checks + ' times: each is a prompt on the person\'s subscription');
+    // Round 26's stated total for this path: the first look at the ready screen plus MAX_CHECKS repeats (no exit here).
+    assert.ok(st2.checks <= s.MAX_CHECKS + 1, 'asked ' + st2.checks + ' times: each is a prompt on the person\'s subscription');
   } finally { s.resetForTests(); }
 });
 
@@ -1070,5 +1071,54 @@ test('#3998 round 25: a shown window the person is still working in is not cut o
     s.start();
     for (let i = 0; i < 31; i++) { st2.screen = 'hidden screen ' + i; st2.t += 60000; s.tickForTests(); await settle(); }
     assert.equal(s.status().state, 'failed');
+  } finally { s.resetForTests(); }
+});
+
+/* ---- review round 26 --------------------------------------------------------------------- */
+test('#3998 round 26: a terms frame with no marker drawn yet gets no key', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'Terms of Service & Data Use\n\n  [ ] Yes, I agree\n  Previous\n  [Done]\n');
+  try {
+    s.start();
+    s.tickForTests();
+    assert.deepEqual(st.sent, [], 'a Down went out before the marker was drawn');
+    st.screen = TERMS('Previous'); s.tickForTests();
+    assert.deepEqual(st.sent, ['Down'], 'CONTROL: once the marker is drawn, one Down');
+    s.tickForTests();
+    assert.deepEqual(st.sent, ['Down'], 'a second Down before the first landed');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 26: a code still on agy\'s prompt is being checked, not refused; no second code goes over it', () => {
+  const s = require('./agysignin');
+  const CODE = 'Your browser should open automatically. If not:\n\nhttps://accounts.google.com/o/oauth2/auth?x=1\n\nPaste the authorization code:\n';
+  const C = '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v';
+  const st = scripted(s, CODE);
+  try {
+    const { id } = s.start();
+    s.tickForTests();
+    assert.equal(s.code(C, id).ok, true);
+    st.screen = CODE + C + '\n';   // agy still holds it (a slow exchange with Google)
+    st.t += 25000; s.tickForTests();
+    assert.notEqual(s.status().state, 'code', 'a slow exchange was read as a refusal at 25 s');
+    assert.equal(s.code(C, id).ok, false, 'a second code went over one agy may still be reading');
+    st.t += 70000; s.tickForTests();
+    assert.equal(s.status().state, 'code', 'CONTROL: after 95 s on the same held code it is read as refused');
+    assert.equal(s.code(C, id).ok, true, 'CONTROL: once refused, a new code can be pasted (C-u clears the old one)');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 26: a shown window ends two hours after Show however busy its screen is', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'something Kosmos does not know');
+  st.answer = { signedIn: null };
+  s.setForTests({ openFile: (f, done) => done(null) });
+  try {
+    const { id } = s.start();
+    await s.show(id);
+    for (let i = 0; i < 119; i++) { st.screen = 'spinner ' + i; st.t += 60000; s.tickForTests(); await settle(); }
+    assert.notEqual(s.status().state, 'failed', 'CONTROL: still running before two hours');
+    for (let i = 0; i < 3; i++) { st.screen = 'spinner x' + i; st.t += 60000; s.tickForTests(); await settle(); }
+    assert.equal(s.status().state, 'failed', 'a shown window with a spinner ran past two hours');
   } finally { s.resetForTests(); }
 });
