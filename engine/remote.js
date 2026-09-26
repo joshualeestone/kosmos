@@ -237,6 +237,7 @@ async function refreshStandingIfStale(opts) {
   const now = typeof opts.now === 'number' ? opts.now : Date.now();
   const fetcher = typeof opts.fetcher === 'function' ? opts.fetcher : fetchStanding;
   if (standingRefreshInFlight) return;
+  if (busy()) return;                        // not on a key being replaced or retired
   if (!enrolled()) return;                  // no account on this board -> nothing to refresh
   const s = read();
   if (s.ok !== true) return;
@@ -366,9 +367,9 @@ function setOn(on) {
   if (on) { const b = busy(); if (b) return b; }
   // Off during a register is an answer the register must respect: it would
   // otherwise switch Kosmos+ back on when it finishes (turnOnAfterSignin).
-  if (!on) offEpoch += 1;
   const wrote = write({ on });
   if (!wrote.ok) return wrote;
+  if (!on) offEpoch += 1;   // only an off that was saved counts
   ensure(localPort);
   return { ok: true };
 }
@@ -660,7 +661,10 @@ async function macRequest(method, routePath, body) {
     '--method', method, '--path', routePath];
   // AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS is a test seam (a hung tunnel in a test).
   const timeout = Number(process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS) || MAC_REQUEST_TIMEOUT_MS;
-  // A signed call like the device verbs: Forget waits for it (it carries its own bound).
+  // A signed call like the device verbs: refused while a register or a Forget is
+  // out (it would sign with a key being replaced or retired), and Forget waits for
+  // one already out (it carries its own bound).
+  { const b = busy(); if (b) return b; }
   const r = await tracked(setupRun(args, method === 'GET' ? null : JSON.stringify(body || {}), timeout));
   if (!r.ok) return { ok: false, because: r.because };
   const got = lastJsonLine(r.said);
@@ -753,16 +757,9 @@ async function forget() {
   forgetInFlight = (async () => {
     try {
       if (registerInFlight) await registerInFlight;
-      // Bounded: these calls carry no timeout of their own (a dead network can hold
-      // one forever), so Forget waits at most one retire bound for them.
-      if (signedInFlight.size) {
-        let timer;
-        await Promise.race([
-          Promise.allSettled([...signedInFlight]),
-          new Promise((r) => { timer = setTimeout(r, retireTimeoutMs()); if (timer.unref) timer.unref(); }),
-        ]);
-        clearTimeout(timer);
-      }
+      // Bounded: each tracked call carries its own kill timeout (at most one retire
+      // bound), so this wait ends with the calls ended.
+      if (signedInFlight.size) await Promise.allSettled([...signedInFlight]);
       return await forgetNow();
     } finally {
       forgetting = false;
@@ -886,6 +883,7 @@ async function setupComplete(code, name) {
   const epoch = signinEpoch;
   const before = macIdHere();
   const addressBefore = address();
+  const startedAt = Date.now();
   const running = (async () => {
     const half = await clearHalfIdentity();
     if (half && half.kept) return KEPT_HALF(half.kept);
@@ -904,9 +902,9 @@ async function setupComplete(code, name) {
   // be told it is set up, and nothing here may bring the tunnel up.
   let result;
   try { result = await running; } finally { if (registerInFlight === running) registerInFlight = null; }
-  if (epoch !== signinEpoch) return cancelledAfter(result, before);
+  if (epoch !== signinEpoch) return cancelledAfter(result, before, addressBefore, startedAt);
   if (result.ok && macIdHere() !== before) stopChild();
-  if (!result.ok) abandonChangedIdentity(before, addressBefore);
+  if (!result.ok) abandonChangedIdentity(before, addressBefore, startedAt);
   // A new identity: the previous account's cached standing does not carry over.
   if (result.ok && macIdHere() !== before) fedSetStanding('');
   if (result.ok) ensure(localPort);
@@ -1194,19 +1192,26 @@ const SIGNIN_CANCELLED = { ok: false, because: 'the sign-in was cancelled' };
    beside the old certificate, which no tunnel may run on. The old certificate
    belongs to a key that is gone, so it is dropped: the directory is then half
    registered, and the next register retires that id first. (#3827) */
-function abandonChangedIdentity(before, addressBefore) {
+function abandonChangedIdentity(before, addressBefore, startedAt) {
   if (macIdHere() === before) return;
   stopChild();
   // The certificate belongs to the ADDRESS (the tunnel keeps it across a register
   // at the same address: setup.rs certificate_survives), so it is dropped only when
-  // the address changed; then it is for a name this key no longer holds.
-  if (address() !== addressBefore) {
+  // the address changed; then it is for a name this key no longer holds. And only
+  // an OLD one: a register killed after it wrote its new certificate left a whole
+  // new identity, which is kept (the certificate is younger than the register).
+  let certAt = 0;
+  try { certAt = fs.statSync(path.join(STATE_DIR(), 'tls.crt')).mtimeMs; } catch { certAt = 0; }
+  if (address() !== addressBefore && certAt && certAt < startedAt) {
     for (const f of ['tls.crt', 'tls.key']) { try { fs.rmSync(path.join(STATE_DIR(), f), { force: true }); } catch { /* the register writes them again */ } }
   }
   fedSetStanding('');
 }
 const macIdHere = () => { try { return fs.readFileSync(path.join(STATE_DIR(), 'mac_id'), 'utf8').trim() || null; } catch { return null; } };
-function cancelledAfter(result, before) {
+function cancelledAfter(result, before, addressBefore, startedAt) {
+  // Failed after writing a new id: the same clean-up as an uncancelled failure,
+  // so no tunnel can later run the new id on the old certificate.
+  if (!(result && result.ok)) abandonChangedIdentity(before, addressBefore, startedAt);
   // What is on disk, not only what the program said: a register killed by its
   // bound after it wrote the identity reports a failure and is still set up. But
   // only a NEW identity: a register that failed and changed nothing leaves a Mac
@@ -1567,6 +1572,7 @@ async function signinRegister(name) {
   const token = signinSession.token;
   const before = macIdHere();
   const addressBefore = address();
+  const startedAt = Date.now();
   const running = (async () => {
     // An earlier register that stopped after the coordinator accepted it (key and
     // id, no certificate) is retired first, so this one does not strand it.
@@ -1585,9 +1591,9 @@ async function signinRegister(name) {
   // A cancel after the coordinator accepted the register cannot undo it: the Mac is
   // registered and the next paint shows the switch OFF, which is the truth. What a
   // cancel must never do is let this switch it on.
-  if (epoch !== signinEpoch) return cancelledAfter(r, before);
+  if (epoch !== signinEpoch) return cancelledAfter(r, before, addressBefore, startedAt);
   if (!r.ok) {
-    abandonChangedIdentity(before, addressBefore);
+    abandonChangedIdentity(before, addressBefore, startedAt);
     return r;
   }
   signinSession = null;   // the token is spent; it must not linger in this process
@@ -1653,7 +1659,7 @@ module.exports = { lastJsonLine, secondReset, forget, macRequest, assistantChat,
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; stopChild(); },
+  resetForTests: () => { signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); stopChild(); },
   /* test seam: the live child's pid, or null. spawn() sets the handle
      synchronously, so a test can assert "nothing spawned" deterministically
      right after ensure() instead of waiting a fixed interval and hoping. */

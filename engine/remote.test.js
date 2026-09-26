@@ -163,6 +163,13 @@ if (args[0] === 'signin') {
     if (mode.includes('register-409')) { process.stderr.write('Kosmos+ said no (409): The name ' + name + ' is already in use by a Mac on this account, at ' + name + '.kosmos.invalid. If that is this Mac, it is already signed in. If it is a different Mac, turn it off there first, or pick another name.\\n'); process.exit(1); }
     // A rename whose certificate step fails: the new key, id and address are
     // written (write_registration), then the fetch fails.
+    if (mode.includes('slow-write-then-fail')) {
+      const d4 = flag('--state-dir'); fs.mkdirSync(d4, { recursive: true });
+      for (const f of ['mac_id', 'mac_key', 'coordinator_pubkey', 'allow_list']) fs.writeFileSync(path.join(d4, f), f === 'mac_id' ? 'mac-' + name : 'fake');
+      fs.writeFileSync(path.join(d4, 'address'), name + '.kosmos.invalid\\n');
+      const until = Date.now() + 2500; while (Date.now() < until) { /* the certificate step */ }
+      process.stderr.write('Error: Kosmos+ answered 502 for /v1/mac/cert: bad gateway\\n'); process.exit(1);
+    }
     if (mode.includes('write-then-fail')) {
       const d3 = flag('--state-dir'); fs.mkdirSync(d3, { recursive: true });
       for (const f of ['mac_id', 'mac_key', 'coordinator_pubkey', 'allow_list']) fs.writeFileSync(path.join(d3, f), f === 'mac_id' ? 'mac-' + name : 'fake');
@@ -2169,5 +2176,55 @@ test('#3827: Forget lets a signed mac-request already out finish before it retir
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
     delete process.env.FAKE_DEVICE_HANG_MS;
+  }
+});
+
+test('#3827: a Sign out during a rename that then fails leaves no new id beside the old certificate', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  const dir = process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote');
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  const orig = process.stderr.write;
+  try {
+    process.stderr.write = () => true;
+    process.env.FAKE_TUNNEL_MODE = 'slow-write-then-fail';
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    fs.rmSync(RECORD, { force: true });
+    const racing = remote.signinRegister('theirs');
+    await registerSent();
+    remote.signinCancel();
+    assert.match((await racing).because, /cancelled/);
+    assert.ok(!fs.existsSync(nodePath.join(dir, 'tls.crt')), 'the old certificate was left beside the new id after a Sign out');
+    delete process.env.FAKE_TUNNEL_MODE;
+    remote.setOn(true);
+    remote.ensure(4600);
+    assert.equal(remote.currentChildPid(), null, 'a tunnel started on the new id and the old certificate');
+  } finally {
+    process.stderr.write = orig;
+    delete process.env.FAKE_TUNNEL_MODE;
+    remote.setOn(false);
+    await remote.forget();
+  }
+});
+
+test('#3827: a signed mac-request is refused while this computer is being forgotten', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  process.env.FAKE_TUNNEL_MODE = 'hung-retire';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000';
+  process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '1500';
+  try {
+    const forgetting = remote.forget();
+    const r = await remote.macRequest('POST', '/v1/mac/standing', {});
+    assert.equal(r.ok, false, 'a mac-request signed with a key being retired');
+    assert.match(r.because, /being forgotten/);
+    await forgetting;
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
   }
 });
