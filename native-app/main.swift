@@ -2281,7 +2281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
        shows it.
        TWO SOURCES, ONE NUMBER. While the page is polling the board (every 5 s) it hands the app its
        counts.waiting (pageSaidWaiting), so the app asks nothing extra of the board's heaviest
-       route. When the page has not said anything for 12 s (the window closed, the page hidden or
+       route. When the page has not said anything for 8 s (the window closed, the page hidden or
        reloading), the app's own 10 s timer asks /api/status itself, the stale check's request
        (token header, no cache), so the badge keeps up with the window closed.
        ⚠️ macOS may slow a windowless app's timers (App Nap): with the window closed the badge can
@@ -2299,7 +2299,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     private func refreshDockBadge(port: Int) {
-        if let at = lastPageBadgeAt, Date().timeIntervalSince(at) < 12 { return }   // the page is saying it
+        // 8 s: above the page's 5 s poll, below this timer's 10 s, so a page that went quiet costs one tick at most.
+        if let at = lastPageBadgeAt, Date().timeIntervalSince(at) < 8 { return }   // the page is saying it
         guard let url = URL(string: "http://127.0.0.1:\(port)/api/status") else { return }
         var req = URLRequest(url: url)
         if let tok = boardTokenValue() {

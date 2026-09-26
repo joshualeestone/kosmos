@@ -40,7 +40,7 @@ test('#3996: the badge starts once the board\'s port is known, and keeps polling
 
 test('#3996: while the page polls, the app asks the board nothing extra; otherwise it reads /api/status with the token', () => {
   const refresh = body('private func refreshDockBadge(port: Int)');
-  assert.match(refresh, /if let at = lastPageBadgeAt, Date\(\)\.timeIntervalSince\(at\) < 12 \{ return \}/,
+  assert.match(refresh, /if let at = lastPageBadgeAt, Date\(\)\.timeIntervalSince\(at\) < 8 \{ return \}/,
     'the app polls the heaviest route even while the page is already handing it the count');
   assert.match(refresh, /\/api\/status/);
   assert.match(refresh, /x-kosmos-board-token/, 'an enforcing board refuses a request without its token');
