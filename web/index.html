@@ -25286,7 +25286,8 @@ function agySubDriver(pre, onReady) { return {
         if (focusedFor === null || refusalMark !== focusedFor) { const i = this.el('paste'); if (i) i.focus(); focusedFor = refusalMark; }
       } else if (state === 'checking' || state === 'setup') {
         this.rows(false, false);
-        this.say(state === 'checking' ? 'Checking the code with Google…'
+        // "checking" is also Kosmos asking Antigravity whether it is signed in (round 9): the code only after one was sent.
+        this.say(state === 'checking' ? (st.step === 'code-sent' ? 'Checking the code with Google…' : 'Checking with Antigravity…')
           : "Finishing Antigravity's setup. Kosmos leaves Google's optional data sharing off; you can change that later in Antigravity's settings.", '', false);
       } else if (state === 'stuck' && st.shown) {
         // The window is open and the person drives it: no second Show (each would open another window).

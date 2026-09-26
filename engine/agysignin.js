@@ -174,6 +174,7 @@ function step() {
   if (text === null) {
     // The session is gone: agy exited. Signed in or not is agy's own answer. The answer is for THIS
     // session only: a Stop and a new Sign in while it was out must not be ended by it.
+    // Not counted against MAX_CHECKS: it happens once at most, since the sign-in ends right after it.
     const mine = S;
     mine.busy = true;
     Promise.resolve().then(() => confirmSignedIn()).then((r) => {   // a throw is a rejection, so busy is always cleared
@@ -181,7 +182,7 @@ function step() {
       if (S !== mine || !mine.timer) return;   // stopped or replaced while agy was asked
       if (r && r.signedIn === true) end('done');
       else end('failed', 'Antigravity closed before the sign-in finished');
-    }, () => { mine.busy = false; if (S === mine && mine.timer) end('failed', 'Antigravity closed before the sign-in finished'); });
+    }, () => { mine.busy = false; if (S === mine && mine.timer) end('failed', 'Antigravity closed before the sign-in finished'); }).catch(() => { mine.busy = false; });   // round 9: nothing a callback throws escapes (no process handler)
     return;
   }
   if (text === undefined) return;
@@ -301,7 +302,7 @@ function step() {
     mine.busy = false;
     if (S !== mine || !mine.timer) return;
     mine.state = 'stuck'; mine.because = UNKNOWN; mine.stuckText = text;
-  });
+  }).catch(() => { mine.busy = false; });   // round 9: nothing a callback throws escapes (no process handler)
 }
 
 /* agy's ready screen: signed in, very likely. It is confirmed once (a prompt on the person's
@@ -322,7 +323,7 @@ function readyCheck(text) {
     mine.busy = false;
     if (S !== mine || !mine.timer) return;
     mine.state = 'stuck'; mine.because = NOT_CONFIRMED; mine.stuckText = text;
-  });
+  }).catch(() => { mine.busy = false; });   // round 9: nothing a callback throws escapes (no process handler)
 }
 // On agy's own ready screen the honest reason is that the sign-in could not be confirmed, not a strange step.
 const NOT_CONFIRMED = 'Kosmos could not confirm the sign-in with Antigravity just now';
