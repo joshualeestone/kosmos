@@ -60,7 +60,7 @@ tasks.setPartsLimitForTests(12);
 
 let base;
 test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
-test.after(async () => { server.closeAllConnections(); server.close(); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+test.after(async () => { tasks.setPartsLimitForTests(); server.closeAllConnections(); server.close(); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 async function req(p, options) { const res = await fetch(base + p, options); return { status: res.status, headers: res.headers, body: await res.text() }; }
 const asProcess = (body) => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 const asScreen = (body) => ({ method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify(body) });

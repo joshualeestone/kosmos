@@ -1689,28 +1689,38 @@ function policySummaries(r) {
    never wrongly blocks one) -- unlike the task-CREATION valve, which counts persisted
    tasks because those must survive a restart. CAP process task-messages per hour,
    fleet-wide, matching the task-creation valve's spirit. */
-/* `>= 0`, not `|| 30`: an operator who sets the cap to 0 to silence agent
-   task-messages entirely means 0, and `Number("0") || 30` would give 30 -- the
-   same env-0 footgun this file already guards against elsewhere with a range check. */
 /* #3959: the default was 30 an hour; it is now the shared runaway breaker (engine/runaway.js).
-   An operator's AGENT_WORKFORCE_TASK_MSG_CAP still wins, including 0 (switched off). */
-const TASK_MSG_CAP_PER_HOUR = (() => {
-  const raw = process.env.AGENT_WORKFORCE_TASK_MSG_CAP;
-  const n = raw === undefined || raw === '' ? NaN : Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : require('./engine/runaway').AGENT_RUNAWAY_PER_HOUR;
-})();
+   An operator's AGENT_WORKFORCE_TASK_MSG_CAP still wins. Read by taskMsgCapFrom:
+     - a whole number of 0 or more is the cap, and 0 means agent task messages are switched off
+       (so `>= 0`, never `|| default`, which would turn a deliberate 0 into the default);
+     - a fraction is rounded down (2.5 is 2), since the cap counts whole messages;
+     - unset, empty or blank means NOT SET and gives the default. Before #3959 an empty value read
+       as 0 (Number('') is 0) and switched messages off; blank is now treated like unset, on
+       purpose, so clearing the variable restores the default rather than silencing agents;
+     - anything else (negative, not a number) gives the default. */
+function taskMsgCapFrom(raw) {
+  const s = raw === undefined || raw === null ? '' : String(raw).trim();
+  if (s === '') return AGENT_RUNAWAY_PER_HOUR;
+  const n = Number(s);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : AGENT_RUNAWAY_PER_HOUR;
+}
+let TASK_MSG_CAP_PER_HOUR = taskMsgCapFrom(process.env.AGENT_WORKFORCE_TASK_MSG_CAP);
+// Test-only: set the cap for a test and restore it (no argument restores the environment's value).
+function setTaskMsgCapForTests(n) {
+  TASK_MSG_CAP_PER_HOUR = n === undefined ? taskMsgCapFrom(process.env.AGENT_WORKFORCE_TASK_MSG_CAP) : n;
+}
 const TASK_MSG_WINDOW_MS = 3600000;
 let taskMessageSends = [];
 /* null to allow, or { because, retryAfterSecs }. The sentence names the limit, that it is shared
    by all agents, and when it lifts; a cap of 0 says the messages are switched off instead. */
-function taskMessageRefusal() {
-  const cutoff = Date.now() - TASK_MSG_WINDOW_MS;
-  taskMessageSends = taskMessageSends.filter((t) => t >= cutoff);
+function taskMessageRefusal(now = Date.now()) {
+  taskMessageSends = taskMessageSends.filter((t) => t >= now - TASK_MSG_WINDOW_MS);
   if (TASK_MSG_CAP_PER_HOUR === 0) {
-    return { because: 'agent task messages are switched off on this computer (AGENT_WORKFORCE_TASK_MSG_CAP is 0); the person can still send from the screen', retryAfterSecs: TASK_MSG_WINDOW_MS / 1000 };
+    // No retry time: waiting does not help while the cap is 0, so none is offered.
+    return { because: 'agent task messages are switched off on this computer (AGENT_WORKFORCE_TASK_MSG_CAP is 0); the person can still send from the screen', retryAfterSecs: null };
   }
-  const r = require('./engine/runaway').runawayRefusal(taskMessageSends, { noun: 'task messages', did: 'sent',
-    pausing: 'agent task messages', again: 'send task messages', screen: 'send them' }, { limit: TASK_MSG_CAP_PER_HOUR });
+  const r = runawayRefusal(taskMessageSends, { noun: 'task messages', did: 'sent',
+    pausing: 'agent task messages', again: 'send task messages', screen: 'send them' }, { now, limit: TASK_MSG_CAP_PER_HOUR });
   return r && { because: r.because, retryAfterSecs: r.retryAfterSecs };
 }
 function taskMessageValveRecord() {
@@ -15091,8 +15101,12 @@ const server = http.createServer((req, res) => {
          posture as the task-creation and room valves). */
       const msgRefusal = viaScreen ? null : taskMessageRefusal();
       if (msgRefusal) {
-        res.setHeader('retry-after', String(msgRefusal.retryAfterSecs));
-        sendJson(res, 429, { error: msgRefusal.because, retry_after_secs: msgRefusal.retryAfterSecs });
+        if (msgRefusal.retryAfterSecs !== null) {
+          res.setHeader('retry-after', String(msgRefusal.retryAfterSecs));
+          sendJson(res, 429, { error: msgRefusal.because, retry_after_secs: msgRefusal.retryAfterSecs });
+        } else {
+          sendJson(res, 429, { error: msgRefusal.because });
+        }
         return;
       }
       try {
@@ -16956,7 +16970,8 @@ if (require.main === module) {
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
-  TASK_MSG_CAP_PER_HOUR, // #3959: the task-message limit's default is the same breaker, pinned by a test
+  get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker)
+  taskMsgCapFrom, setTaskMsgCapForTests, // #3959: how the operator's value is read, and the test seam
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
   federateOut, // #3311: what leaves this computer for a federated room, exported so the agent arm is tested

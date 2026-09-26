@@ -319,21 +319,22 @@ function viaOf(made) {
 
 /** Every process-originated part write in the last hour, across all
  * projects: parts added, and parts moved to somebody. Answers the count and
- * when the oldest one ages out, so a refusal can say the number. */
+ * each write's time; partValve hands the times to the shared breaker, which
+ * works out when the valve lifts. */
 function processPartWrites(now = Date.now()) {
   const since = now - HOUR_MS;
-  let count = 0; let oldest = null; const times = [];
+  let count = 0; const times = [];
   for (const p of projects.readAll()) {
     for (const t of (p && p.tasks) || []) {
       for (const x of (t && t.parts) || []) {
         for (const [via, at] of [[x.addedVia, x.createdAt], [x.movedVia, x.movedAt]]) {
           const ms = Date.parse(at);
-          if (via === 'process' && Number.isFinite(ms) && ms >= since) { count += 1; times.push(ms); if (oldest === null || ms < oldest) oldest = ms; }
+          if (via === 'process' && Number.isFinite(ms) && ms >= since) { count += 1; times.push(ms); }
         }
       }
     }
   }
-  return { count, times, liftsInSecs: oldest === null ? 0 : Math.max(1, Math.ceil((oldest + HOUR_MS - now) / 1000)) };
+  return { count, times };
 }
 
 /** The refusal, or not, for a process write right now: the shared breaker's sentence (the

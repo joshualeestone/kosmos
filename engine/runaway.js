@@ -17,7 +17,9 @@ const AGENT_RUNAWAY_WINDOW_MS = 3600000;
    Returns null to allow, or { because, retryAfterSecs, count }. The wait is when enough of the
    OLDEST writes leave the hour to bring the count under the limit, capped at the window so a
    record dated in the future never quotes a longer wait. */
-function runawayRefusal(times, what, { now = Date.now(), limit = AGENT_RUNAWAY_PER_HOUR } = {}) {
+function runawayRefusal(times, what, { now = Date.now(), limit: rawLimit = AGENT_RUNAWAY_PER_HOUR } = {}) {
+  // A whole number of writes: a fractional limit would index between two writes and give NaN.
+  const limit = Number.isFinite(rawLimit) && rawLimit >= 0 ? Math.floor(rawLimit) : AGENT_RUNAWAY_PER_HOUR;
   const hourAgo = now - AGENT_RUNAWAY_WINDOW_MS;
   const recent = times.filter((t) => Number.isFinite(t) && t >= hourAgo).sort((a, b) => a - b);
   if (recent.length < limit) return null;

@@ -11853,7 +11853,26 @@ test('a task records who added it and how; 30 agent-made tasks in an hour all la
 
 test('#3959: agent task messages default to the same 500-an-hour breaker (the operator override still wins)', () => {
   assert.equal(process.env.AGENT_WORKFORCE_TASK_MSG_CAP, undefined, 'PRECONDITION: this file sets no override');
-  assert.equal(require('./server').TASK_MSG_CAP_PER_HOUR, 500);
+  const { TASK_MSG_CAP_PER_HOUR, taskMsgCapFrom } = require('./server');
+  assert.equal(TASK_MSG_CAP_PER_HOUR, 500);
+  // How an operator's value is read: unset, empty and blank mean "not set" (the default);
+  // 0 is a deliberate off; a fraction rounds down; nonsense falls back to the default.
+  const cases = [[undefined, 500], ['', 500], ['  ', 500], ['0', 0], ['2', 2], ['2.5', 2], ['0.5', 0], ['750', 750],
+    ['-1', 500], ['abc', 500], [' 7 ', 7]];
+  for (const [raw, want] of cases) assert.equal(taskMsgCapFrom(raw), want, 'AGENT_WORKFORCE_TASK_MSG_CAP=' + JSON.stringify(raw));
+});
+
+test('#3959: the shared breaker rounds a fractional limit down instead of quoting NaN minutes', () => {
+  const { runawayRefusal } = require('./engine/runaway');
+  const now = Date.parse('2026-09-26T13:00:00Z');
+  const times = [now - 50 * 60000, now - 40 * 60000, now - 30 * 60000];
+  const r = runawayRefusal(times, { noun: 'task messages', did: 'sent', pausing: 'agent task messages', again: 'send task messages', screen: 'send them' }, { now, limit: 2.5 });
+  assert.ok(r, 'three in the hour at a limit of 2.5 (read as 2) did not refuse');
+  assert.equal(Number.isFinite(r.retryAfterSecs), true, 'retryAfterSecs is ' + r.retryAfterSecs);
+  assert.doesNotMatch(r.because, /NaN/);
+  assert.match(r.because, /limit of 2 an hour/);
+  // With 3 on the books and a limit of 2, the SECOND oldest (40 min ago) is the one whose leaving opens it.
+  assert.match(r.because, /again in about 20 minutes;/, r.because);
 });
 
 test('the agent runaway breaker: 500 an hour, shared, and it says when it lifts (#3959)', () => {

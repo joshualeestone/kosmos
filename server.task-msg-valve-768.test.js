@@ -94,4 +94,19 @@ test('win32-cli-verbs: a request presenting a VALID agent token is valved even w
   assert.match((await r.json()).error, /pausing agent task messages/);
 });
 
+test('#3959: with the cap set to 0, agent task messages are refused as switched off, with no retry time', async () => {
+  const { setTaskMsgCapForTests } = require('./server');
+  setTaskMsgCapForTests(0);
+  try {
+    const r = await post();
+    assert.equal(r.status, 429);
+    const b = await r.json();
+    assert.match(b.error, /agent task messages are switched off on this computer \(AGENT_WORKFORCE_TASK_MSG_CAP is 0\)/);
+    assert.match(b.error, /from the screen/);
+    assert.equal(r.headers.get('retry-after'), null, 'a switched-off cap offered a retry time');
+    assert.equal(b.retry_after_secs, undefined, 'a switched-off cap offered retry_after_secs');
+    assert.equal((await post({ 'sec-fetch-site': 'same-origin' })).status, 200, 'the operator was valved by a 0 cap');
+  } finally { setTaskMsgCapForTests(); }
+});
+
 test.after(() => { win32job.setRunner(null); try { server.close(); } catch { /* already down */ } });

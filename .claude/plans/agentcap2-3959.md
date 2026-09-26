@@ -28,8 +28,17 @@ IN the error text, because both CLIs print only the error (Homer checked).
   exactly the limit; the shared helper computes it from the write whose leaving brings the count
   under the limit. `setPartsLimitForTests` lets tests run the valve at twelve.
 - **server.js** task messages: the default is the shared 500; an operator's
-  `AGENT_WORKFORCE_TASK_MSG_CAP` still wins, and 0 now says "switched off on this computer" rather
-  than a count. The 429 gains `retry-after` / `retry_after_secs`, like the part routes.
+  `AGENT_WORKFORCE_TASK_MSG_CAP` still wins, read by `taskMsgCapFrom`:
+  - a whole number of 0 or more is the cap; **0 means switched off**, and the refusal says so,
+    with NO retry time (waiting does not help while the cap is 0);
+  - a fraction rounds down (2.5 is 2): a fractional limit used to produce "NaN minutes";
+  - ⚠️ **unset, empty or blank means not set, so the default.** Before this, an EMPTY value read
+    as 0 (`Number('')` is 0) and switched messages off. Clearing the variable now restores the
+    default instead of silencing agents; chosen on purpose, and pinned by a test.
+  - anything else falls back to the default.
+  The 429 gains `retry-after` / `retry_after_secs`, like the part routes.
+- `processPartWrites` no longer returns `liftsInSecs`, which was computed from the oldest write
+  and read by nobody after this change.
 
 ## Deliberately NOT changed
 
@@ -55,6 +64,9 @@ IN the error text, because both CLIs print only the error (Homer checked).
 
 - `PARTS_PER_HOUR` back to 12: fails at "the parts limit moved off the shared breaker".
 - The task-message default back to 30: the default-500 pin fails.
+- The shared breaker without rounding the limit: the fractional-limit test fails at
+  "retryAfterSecs is NaN".
+- A retry time on the switched-off cap: fails at "a switched-off cap offered a retry time".
 
 ## Weakest premise
 
