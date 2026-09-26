@@ -131,3 +131,10 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 - A new start stops only a sign-in still running (no false "ended stopped" log line after a finished one).
 - The route's catch for a throwing start() is tested by making start() itself throw (exactly 500).
 - The paragraph around "Open Google's sign-in page again" hides with its link.
+
+## Review round 19 (decided)
+- agy exiting before the trust question now ends failed ("closed before its setup finished") without asking, the same gate as the unknown-screen ask (round 16): a yes there would have ended the sign-in done with the setup unfinished. Weakest premise: a person whose Google sign-in did save must press Sign in again; that is the safe side.
+- Back at the menu, the step starts over too (step and code time cleared), so a stale trust step cannot make an exit at the menu read as after the setup (tested with the marker off Google OAuth, the case where no Enter re-sets it; fails with the reset removed).
+- The revisit and terms-Down caps are named constants (MAX_VISITS, MAX_DOWNS).
+- readyCheck's last-resort catch uses the ready screen's own reason (NOT_CONFIRMED).
+- Sign in again's click catches a throw and says so in the step.

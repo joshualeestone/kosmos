@@ -264,19 +264,54 @@ test('#3998 W3: a code agy did not take goes back to asking for one', () => {
 
 test('#3998 W4: a Stop while agy is asked (after it exited) stays stopped', async () => {
   const s = require('./agysignin');
-  const st = scripted(s, 'Your browser should open automatically. If not:\n\nhttps://accounts.google.com/o/oauth2/auth?x=1\n\nPaste the authorization code:\n');
+  const st = scripted(s, '');
+  st.screen = 'Accessing workspace:\n\n' + path.join(st.root, 'agy-signin') + '\n\nDo you trust the contents of this project?\n\n> Yes, I trust this folder\n';
   st.answer = { signedIn: true };
   try {
     const { id } = s.start();
-    s.tickForTests();
-    assert.equal(s.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v', id).ok, true);   // a code went in: agy may be signed in now
+    s.tickForTests();                 // trust (its own folder): Enter, the last setup screen
     st.hasSession = false; st.captureThrows = new Error('gone');
     s.tickForTests();                 // gone once: not yet
     s.tickForTests();                 // gone twice: agy is asked (on the next turn)
     s.stop(id);                       // ...and the person stops it meanwhile
     await settle();
-    assert.equal(st.checks, 1, 'CONTROL: agy was asked (after a code, it may have signed in)');
+    assert.equal(st.checks, 1, 'CONTROL: agy was asked (after the setup, it may have signed in)');
     assert.equal(s.status().state, 'stopped', 'the answer overwrote the person\'s Stop');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 19: agy exiting before its setup finished ends failed without asking, even when it would say signed in', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'Your browser should open automatically. If not:\n\nhttps://accounts.google.com/o/oauth2/auth?x=1\n\nPaste the authorization code:\n');
+  st.answer = { signedIn: true };
+  try {
+    const { id } = s.start();
+    s.tickForTests();
+    assert.equal(s.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v', id).ok, true);
+    st.hasSession = false; st.captureThrows = new Error('gone');
+    s.tickForTests(); s.tickForTests(); await settle();
+    assert.equal(st.checks, 0, 'agy was asked after it exited mid-setup: a yes would end it done with the setup unfinished');
+    assert.equal(s.status().state, 'failed');
+    assert.match(s.status().because, /setup finished/);
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 19: back at the menu after the trust step, the step starts over, so an exit then is not read as after the setup', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, '');
+  st.screen = 'Accessing workspace:\n\n' + path.join(st.root, 'agy-signin') + '\n\nDo you trust the contents of this project?\n\n> Yes, I trust this folder\n';
+  st.answer = { signedIn: true };
+  try {
+    s.start();
+    s.tickForTests();                 // trust: Enter (step = trust)
+    /* Back at the menu with the marker NOT on Google OAuth, so no Enter re-sets the step: only the
+       round-19 reset keeps the stale 'trust' from counting. */
+    st.screen = 'Select login method:\n  1. Google OAuth\n> 2. Use a Google Cloud project\n';
+    s.tickForTests();                 // back at the menu
+    st.hasSession = false; st.captureThrows = new Error('gone');
+    s.tickForTests(); s.tickForTests(); await settle();
+    assert.equal(st.checks, 0, 'a stale trust step made an exit at the menu look like one after the setup');
+    assert.equal(s.status().state, 'failed');
   } finally { s.resetForTests(); }
 });
 

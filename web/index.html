@@ -22587,7 +22587,12 @@ async function paintAccounts() {
   /* #3391 part 2: the Grok subscription sign-in again, aimed at this account. */
   /* #3998: the Gemini subscription row's two actions. */
   for (const btn of box.querySelectorAll('[data-agy-reauth]')) {
-    btn.addEventListener('click', () => acctGeminiSignInAgain());
+    /* Round 19: a throw is said in the step, not lost as an unhandled rejection. */
+    btn.addEventListener('click', () => { acctGeminiSignInAgain().catch(() => {
+      const m = document.getElementById('acct-gemini-sub-code');
+      const step = document.getElementById('acct-gemini-sub-step');
+      if (m && step) { step.hidden = false; m.hidden = false; m.textContent = 'Kosmos could not start the sign-in just now. Try again.'; }
+    }); });
   }
   for (const btn of box.querySelectorAll('[data-agy-forget]')) {
     /* Two presses, like Disconnect: the first arms (danger style, and the name a screen reader

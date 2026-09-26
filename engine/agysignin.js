@@ -51,6 +51,10 @@ const AFTER_CODE = Object.freeze(['code-sent', 'theme', 'terms', 'trust']);
    and a signed-out agy asked may open a second Google page. (agy EXITING after the code is still asked:
    AFTER_CODE above.) */
 const ASK_STEPS = Object.freeze(['trust']);   // round 16: a yes after theme or terms would end the sign-in with the setup unfinished
+/* A screen that keeps coming back more than this often is shown, not driven round (round 8). */
+const MAX_VISITS = 3;
+/* Downs Kosmos sends looking for the terms' [Done] before it shows the screen instead (round 7). */
+const MAX_DOWNS = 4;
 
 /* The words each screen shows (agy 1.2.11, Josh's screenshots of 2026-09-26). Matched on the text
    of the screen with the ANSI styling already stripped by capture-pane -p. */
@@ -218,7 +222,12 @@ function step() {
     /* Before a code went in, agy cannot have signed in, and asking a signed-out agy may open a Google
        page of its own (round 10): it ends as not finished without asking. A window the person drove
        may have finished it, so that one is asked. */
-    if (!S.shown && !AFTER_CODE.includes(S.step)) { end('failed', 'Antigravity closed before the sign-in finished'); return; }
+    /* Round 19: an exit before the trust question is not asked either, the same gate as ASK_STEPS
+       (round 16): a yes there would end the sign-in done with agy's setup unfinished. */
+    if (!S.shown && !ASK_STEPS.includes(S.step)) {
+      end('failed', AFTER_CODE.includes(S.step) ? 'Antigravity closed before its setup finished' : 'Antigravity closed before the sign-in finished');
+      return;
+    }
     const mine = S;
     mine.busy = true;
     Promise.resolve().then(() => confirmSignedIn()).then((r) => {   // a throw is a rejection, so busy is always cleared
@@ -246,7 +255,7 @@ function step() {
          is shown, not driven round for half an hour (round 8). */
       S.visits = S.visits || {};
       S.visits[name] = (S.visits[name] || 0) + 1;
-      if (S.visits[name] > 3 && name !== 'code' && !S.shown) { S.state = 'stuck'; S.because = UNKNOWN; return; }
+      if (S.visits[name] > MAX_VISITS && name !== 'code' && !S.shown) { S.state = 'stuck'; S.because = UNKNOWN; return; }
     }
   }
   if (name === 'ready') { readyCheck(text); return; }
@@ -267,7 +276,9 @@ function step() {
     // "> 1. Google OAuth" is the default choice; press Enter only when it is the marked one.
     /* Back at the menu (stuck, or after a code agy did not take, round 18): the sign-in starts over, so
        the next code screen asks for a code again instead of sitting on "checking". */
-    if (S.state === 'stuck' || S.state === 'checking' || AFTER_CODE.includes(S.step)) { S.state = 'starting'; S.because = null; }
+    /* Round 19: the step starts over too, so a stale 'trust' left from the last attempt cannot make an
+       exit in the next tick look like one after the setup. */
+    if (S.state === 'stuck' || S.state === 'checking' || AFTER_CODE.includes(S.step)) { S.state = 'starting'; S.because = null; S.step = null; S.codeSentAt = null; }
     // Anchored to the marker (round 8): the words must be the item the ">" is on, not anywhere on its line.
     if (/^>\s*(1\.\s*)?Google OAuth\b/.test(markedLine(text)) && !S.pressed) { S.step = 'menu'; S.pressed = true; keys('Enter'); }
     S.lastSeen = now();
@@ -287,7 +298,7 @@ function step() {
     // The move counts only once the key went out (round 7): a tmux hiccup must not spend the budget.
     /* downFrom BEFORE the send (round 16): a Down that timed out may have gone out, so the next tick
        waits for the marker to move rather than sending another; moves counts only a send that returned. */
-    if (S.moves < 4) { S.downFrom = on; keys('Down'); S.moves += 1; return; }
+    if (S.moves < MAX_DOWNS) { S.downFrom = on; keys('Down'); S.moves += 1; return; }
     // Shown, not ended: the person can still finish it in the window, or stop.
     S.state = 'stuck'; S.because = 'Kosmos could not find the Done button on Antigravity\'s terms';
     return;
@@ -386,7 +397,7 @@ function readyCheck(text) {
     mine.state = 'stuck'; mine.because = NOT_CONFIRMED; mine.stuckText = text;
   }).catch(() => {   // round 9: nothing a callback throws escapes (no process handler)
     mine.busy = false;
-    if (S === mine && mine.timer) { mine.state = 'stuck'; mine.because = UNKNOWN; }   // round 13: shown, not left stale
+    if (S === mine && mine.timer) { mine.state = 'stuck'; mine.because = NOT_CONFIRMED; }   // round 13: shown, not left stale; round 19: the ready screen's own reason
   });
 }
 
