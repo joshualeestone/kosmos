@@ -1073,19 +1073,19 @@ test('#3831: the app\'s own sign-in is named after this computer, never left as 
 test('#3831: the computer name becomes a label that always fits the device-name rule', () => {
   const RULE = /^[^\n\r]{1,60}$/;
   const cases = {
-    plain: ['Josh’s Mac mini', 'darwin', 'Josh’s Mac mini (Kosmos app)'],
-    newline: ['Josh\nMac', 'darwin', 'Josh Mac (Kosmos app)'],
-    empty: ['', 'darwin', 'This Mac (Kosmos app)'],
-    spaces: ['   ', 'win32', 'This computer (Kosmos app)'],
-    nul: [null, 'linux', 'This computer (Kosmos app)'],
+    plain: ['Josh’s Mac mini', 'Josh’s Mac mini (Kosmos app)'],
+    newline: ['Josh\nMac', 'Josh Mac (Kosmos app)'],
+    empty: ['', 'This computer (Kosmos app)'],
+    spaces: ['   ', 'This computer (Kosmos app)'],
+    nul: [null, 'This computer (Kosmos app)'],
   };
-  for (const [k, [raw, platform, want]] of Object.entries(cases)) {
-    assert.equal(remote.deviceNameFrom(raw, platform), want, k);
+  for (const [k, [raw, want]] of Object.entries(cases)) {
+    assert.equal(remote.deviceNameFrom(raw), want, k);
   }
   // Long, and long with emoji (two UTF-16 units each): still inside the rule, never half an emoji.
-  const long = remote.deviceNameFrom('M'.repeat(70), 'darwin');
+  const long = remote.deviceNameFrom('M'.repeat(70));
   assert.ok(RULE.test(long) && long.endsWith(' (Kosmos app)'), long);
-  const emoji = remote.deviceNameFrom('Mac ' + '😀'.repeat(30), 'darwin');
+  const emoji = remote.deviceNameFrom('Mac ' + '😀'.repeat(30));
   assert.ok(RULE.test(emoji), 'over the rule: ' + emoji.length);
   assert.ok(!/[\ud800-\udbff](?![\udc00-\udfff])/.test(emoji), 'half an emoji: ' + JSON.stringify(emoji));
   assert.ok(emoji.startsWith('Mac 😀'), 'cut away the name: ' + emoji);

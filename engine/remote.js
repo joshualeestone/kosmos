@@ -1175,7 +1175,7 @@ const DEVICE_SUFFIX = ' (Kosmos app)';
     one line, no control characters, cut to fit DEVICE_NAME's 60 UTF-16 units with
     the suffix (never splitting a surrogate pair), and a plain fallback when
     nothing usable is left. */
-function deviceNameFrom(raw, platform) {
+function deviceNameFrom(raw) {
   let name = String(raw == null ? '' : raw).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
   const room = 60 - DEVICE_SUFFIX.length;
   if (name.length > room) {
@@ -1186,7 +1186,8 @@ function deviceNameFrom(raw, platform) {
   }
   const label = name ? name + DEVICE_SUFFIX : '';
   if (label && DEVICE_NAME.test(label)) return label;
-  return (platform === 'darwin' ? 'This Mac' : 'This computer') + DEVICE_SUFFIX;
+  // "this computer", never "this Mac", on every platform (Josh, kosmos#1004).
+  return 'This computer' + DEVICE_SUFFIX;
 }
 /* Read once per process (a computer's name does not change under a running
    sign-in). scutil is synchronous but local and bounded at 2 seconds, once. */
@@ -1198,7 +1199,7 @@ function thisComputerDeviceName() {
     try { raw = execFileSync('/usr/sbin/scutil', ['--get', 'ComputerName'], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }); } catch { raw = ''; }
   }
   if (!String(raw).trim()) { try { raw = os.hostname().replace(/\.local$/i, ''); } catch { raw = ''; } }
-  thisComputerNameCache = deviceNameFrom(raw, process.platform);
+  thisComputerNameCache = deviceNameFrom(raw);
   return thisComputerNameCache;
 }
 
