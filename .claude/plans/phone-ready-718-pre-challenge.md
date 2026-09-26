@@ -2,106 +2,90 @@
 pre_challenge: true
 method: challenge-loop
 branch: phone-ready-718
-diff_hash: d95df48ef38059774c8177d0b8195ac84647dbb6b171d5cbdf66fecc8c63caf7
+diff_hash: 08426c1fb1fdf59fcd21165a3bc5933bae0d700d1f5e629b7b5f3759b2b52c38
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-26T07:58:17Z
-iterations: 6
+timestamp: 2026-09-26T09:14:05Z
+iterations: 4
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 6 (iteration 1 is 6.0's fix-and-validate pass; five blind reviews, iterations 2-6)
+This proof replaces the pre-rebase one. The branch had converged over 6 iterations (5 blind reviews: sonnet,
+opus, sonnet, opus, sonnet), was rebased onto origin/main (57 new commits; the only conflict was the
+tools/browser-checks.sh gate list line, resolved by keeping main's new entry and adding this branch's), and
+this re-run reviewed the rebased branch from scratch. 6.0's initial validation for this run was the
+post-rebase validation (9896 tests, 0 fail), so iteration 1 is the first blind review.
+
+**Iterations:** 4
 **Converged:** Yes
-**Total findings:** 11 actionable (2 BLOCKERs, 8 WARNINGs, 1 CONVENTION) plus 14 NITs; both BLOCKERs and the 6g contention flake are synthetic validation findings
-**Fixed:** 10 | **Deferred:** 1 | **Asked (awaiting user):** 0
+**Total findings:** 6 actionable (1 BLOCKER, 5 WARNINGs, 0 CONVENTIONs) plus 14 NITs; the BLOCKER is a synthetic 6g validation finding
+**Fixed:** 6 | **Deferred:** 0 | **Asked (awaiting user):** 0
 
 ### Per-Iteration Breakdown
 
-#### Iteration 1 (6.0 initial validation)
-**Reviewer model:** none (validation helper)
-**New findings:** 1 BLOCKER, 0 WARNINGs, 0 CONVENTIONs, 0 NITs
-**Self-generated:** 0 of the above (6.0's own pass; synthetic finding is BRANCH by instruction)
-- [BLOCKER] initial-validation: yarn test failed, 2 tests: web.consolidated-breakpoint.test.js (the new arrow-form resize listener shadowed the one it anchors on) and browser-checks README index (new check not listed) --> FIXED (commit 4b8a3ed4: named listener orgResizeRepaint, README row)
+#### Iteration 1
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 4 NITs
+**Self-generated:** 0 of the above (no commit in this run yet)
+- [WARNING] web/index.html orgFit / .onode .callout — a hidden callout is still laid out; with realistic names the rightmost node's callout widened the page (measured 406px at 375, 414 at 393, 424 at 412, 433 at 430) --> FIXED (commit 49ae26e0: .orgwrap overflow-x: clip, not a scroller so overflow-y stays visible; long-callout arm at every phone size; control fails all four)
+- [WARNING] web/index.html pointerdown — a touch on a node of an overflowing chart started a drag that jittered before the pan cancelled it --> FIXED (commit 49ae26e0: no touch drag on .orgwide; unit pin only, Playwright cannot drive a real pan's pointer sequence)
+- [NIT] touch-action: none on a fitted chart blocks page scroll by swipe (pre-existing) --> not taken
+- [NIT] ORG_VIEW_W recorded from a zero-width box --> fixed
+- [NIT] regex source pins in the unit test --> not taken
+- [NIT] rescale is proportional, not exact (measured drift, accepted) --> not taken
 
 #### Iteration 2
 **Reviewer model:** sonnet
-**New findings:** 0 BLOCKERs, 1 WARNING, 1 CONVENTION, 1 NIT (+1 synthetic BLOCKER at 6g)
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 1 NIT
 **Self-generated:** 0 of the above
-- [WARNING] web/index.html .orgwrap — overflowing chart's in-box scroll unreachable by touch (touch-action: none on .orgmap); a 3-level fleet already overflows an iPhone SE at the floor --> FIXED (commit 4ba4e668: .orgmap.orgwide allows touch pan; deep-fleet browser arm with a real CDP touch swipe; control fails)
-- [CONVENTION] web/index.html orgLiveStart — drag box literal 30 duplicated ORG_PAD_MIN --> FIXED (commit 4ba4e668)
-- [BLOCKER] 6g validation: browser-check surface gate, render-org-rings-2576 maps the orgmap surface --> FIXED (commit 11c9fc33: measured render-org-rings-2576 ALL PASS on the branch, per-check Browser-check-surface trailer)
-- [NIT] .orgwrap split into two rule blocks --> fixed in 4ba4e668
+- [WARNING] web/index.html .orgwrap.orgscroll — the scrolling box is not keyboard focusable or named --> FIXED (commit 5cf28862: tabindex 0, role region, aria-label while it scrolls; arm checks them; measured Chromium focuses a scroller by itself, so the control fails on the attributes)
+- [WARNING] web/index.html paintOrg — a chart that grows a ring while scrolled at the same width drifts off centre --> FIXED (commit 5cf28862: scroll moves by half the growth; ring-added arm; control 62 vs centre 114)
+- [NIT] two base .orgwrap rules --> fixed (merged)
 
 #### Iteration 3
 **Reviewer model:** opus
-**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 5 NITs
-**Self-generated:** 1 of the above (the .orgwrap CSS line, written by 4ba4e668; a code line, fixed normally)
-- [WARNING] web/index.html .orgwrap — overflow-x: auto also clips vertically, cutting off callouts on every chart --> FIXED (commit b690ff37: scroll only when wider than the box (.orgscroll), 48px top padding; measured the padding is needed for a node held at the drag box top (callout 45px above the box); arms + controls)
-- [WARNING] web/index.html paintOrg — ORG_POS dropped on any size change --> FIXED (commit b690ff37: positions rescaled; measured that ORG_POS only seeds the relaxation, so the reported user-visible loss was small; a non-discriminating browser arm was written and removed; pinned by unit test)
-- [NIT] deep chart opens at left edge --> fixed (opens centred)
-- [NIT] stale .orgwide on an empty board --> fixed
-- [NIT] ResizeObserver instead of window resize; drag rect vs mid-drag scroll; wiring tests match source formatting --> not taken
+**New findings:** 1 BLOCKER (6g), 1 WARNING, 0 CONVENTIONs, 4 NITs
+**Self-generated:** 0 of the above (the cited lines predate this run's commits or are main's own failure path)
+- [WARNING] web/index.html tick() failure path — a failed poll cleared the chart but left the scrolling box's classes and region attributes --> FIXED (commit 5b7c9e08: orgBoxPlain() on every path that clears the chart; failed-poll arm made in the page's own fetch, since the board's service worker carries requests past page.route in WebKit; control fails in both engines. Keyboard arrow-key assertion made Chromium only: headless WebKit does not pan a focused box by keyboard, measured over three runs)
+- [BLOCKER] 6g validation: server.test.js and web.offline-note.test.js (x2) run tick()'s failure path with every dependency injected and had no orgBoxPlain --> FIXED (commit 6545734d: injected like their other tick dependencies; server.test.js asserts the failure path calls it; control without the call fails)
+- [NIT] resize misses a page scrollbar appearing (self-heals on the next poll) --> not taken
+- [NIT] extract the box geometry into its own function --> not taken
+- [NIT] regex source pins --> not taken
+- [NIT] plan Change item 2 stale --> fixed
 
 #### Iteration 4
 **Reviewer model:** sonnet
-**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 1 NIT (+1 synthetic at 6g)
-**Self-generated:** 2 of the above (both code lines written by loop commits 4b8a3ed4 / b690ff37, fixed normally)
-- [WARNING] web/index.html orgResizeRepaint — unthrottled full repaint per resize event --> FIXED (commit 95e189f2: one repaint per animation frame)
-- [WARNING] web/index.html paintOrg — scrolled chart kept its old scroll offset across a width change --> FIXED (commit 95e189f2: keeps the centre point; set before the repaint guard, which skips at the squeeze floor; narrowed 375 -> 360 arm, control fails)
-- [WARNING] 6g validation: engine/trust-lock-3088.test.js failed once under load 12 on 12 cores --> DEFERRED: contention, not this change (branch touches no engine file; the file passed 3 of 3 alone; the full rerun was clean)
-- [NIT] no tabindex on the scrolling box --> not taken (tabbing to a node scrolls it into view)
-
-#### Iteration 5
-**Reviewer model:** opus
-**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 4 NITs
-**Self-generated:** 2 of the above (the swipe arm written by 4ba4e668/b690ff37 and the scroll write from 95e189f2; test and code lines, fixed normally)
-- [WARNING] docs/browser-checks/render-orgchart-phone-718.js — swipe arm had become vacuous (iteration 4's narrowed arm moves the scroll first) --> FIXED (commit 0f496399: baseline read right before the gesture; control re-measured: 62 -> 62, fails)
-- [WARNING] web/index.html paintOrg — the 5s poll repaint wrote scrollLeft every time, which stops a pan in progress --> FIXED (commit 0f496399: written only on first scroll or width change; spy arm counts 0 writes; control 2)
-- [NIT] resize handler's own remembered width went stale while hidden (measured: reintroduced the page-420px bug) --> fixed (compares ORG_VIEW_W; turned-while-hidden arm, control fails)
-- [NIT] clientWidth 0 read as wide --> fixed
-- [NIT] rescale on desktop fleet growth --> fixed (rescale only on a width change)
-- [NIT] no test for height-only resize --> not taken
-
-#### Iteration 6
-**Reviewer model:** sonnet
-**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 3 NITs
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 1 NIT
 **Self-generated:** 0 of the above
 **Converged** — no new actionable findings.
-- [NIT] wrap.clientWidth read twice in paintOrg
-- [NIT] no tabindex on the scrolling box (already considered)
-- [NIT] WebKit swipe arm is Chromium only (documented)
+- [NIT] ORG_SIZE / ORG_VIEW_W not reset on the empty/failed paths (self-corrects on the next paint)
 
 ### Final Ledger
 
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
 |---|------|----------|-----------|--------|-------------|--------|------------|
-| 1 | 1 | BLOCKER | initial-validation | BRANCH | 2 suite failures (resize anchor, README index) | FIXED | 4b8a3ed4 |
-| 2 | 2 | WARNING | web/index.html .orgwrap | BRANCH | overflowing chart not scrollable by touch | FIXED | 4ba4e668 |
-| 3 | 2 | CONVENTION | web/index.html orgLiveStart box | BRANCH | literal 30 vs ORG_PAD_MIN | FIXED | 4ba4e668 |
-| 4 | 2 | BLOCKER | 6g surface gate | BRANCH | render-org-rings-2576 surface not acknowledged | FIXED | 11c9fc33 |
-| 5 | 3 | WARNING | web/index.html .orgwrap | SELF | always-on scroller clips callouts | FIXED | b690ff37 |
-| 6 | 3 | WARNING | web/index.html paintOrg ORG_POS | BRANCH | positions dropped on size change | FIXED | b690ff37 |
-| 7 | 4 | WARNING | web/index.html orgResizeRepaint | SELF | unthrottled resize repaint | FIXED | 95e189f2 |
-| 8 | 4 | WARNING | web/index.html paintOrg scroll | SELF | scroll offset kept across width change | FIXED | 95e189f2 |
-| 9 | 4 | WARNING | 6g engine/trust-lock-3088 | BRANCH | concurrency test red under load | DEFERRED | contention; 3/3 alone, clean rerun |
-| 10 | 5 | WARNING | render-orgchart-phone-718.js swipe | SELF | vacuous swipe assertion | FIXED | 0f496399 |
-| 11 | 5 | WARNING | web/index.html paintOrg scroll | SELF | poll repaint writes scrollLeft mid-pan | FIXED | 0f496399 |
+| 1 | 1 | WARNING | web/index.html .orgwrap / callout | BRANCH | hidden callout widens the page | FIXED | 49ae26e0 |
+| 2 | 1 | WARNING | web/index.html pointerdown | BRANCH | touch drag jitter on a wide chart | FIXED | 49ae26e0 |
+| 3 | 2 | WARNING | web/index.html .orgwrap.orgscroll | BRANCH | scrolling box not focusable or named | FIXED | 5cf28862 |
+| 4 | 2 | WARNING | web/index.html paintOrg scroll | BRANCH | same-width growth drifts off centre | FIXED | 5cf28862 |
+| 5 | 3 | WARNING | web/index.html tick failure path | BRANCH | failed poll leaves scrolling box state | FIXED | 5b7c9e08 |
+| 6 | 3 | BLOCKER | 6g validation (3 tick harness tests) | BRANCH | orgBoxPlain not injected | FIXED | 6545734d |
 
 ### Outstanding questions (ASKED, still unresolved when the run ended)
 - none
 
 ### NITs (non-blocking, across all iterations)
-- [NIT] ResizeObserver on #orgview instead of window resize (iteration 3)
-- [NIT] drag uses the map rect from pointerdown; a mid-drag scroll of the box shifts the node (iteration 3)
-- [NIT] wiring tests match exact source formatting (iteration 3)
-- [NIT] no tabindex/aria-label on the scrolling box (iterations 4, 6)
-- [NIT] no test for a height-only resize not repainting (iteration 5)
-- [NIT] wrap.clientWidth read twice in paintOrg (iteration 6)
-- [NIT] WebKit gets the touch-action assertion, not a real swipe (iteration 6)
+- [NIT] touch-action: none on a fitted chart blocks a page scroll that starts on it (pre-existing) (iteration 1)
+- [NIT] unit test pins source text rather than executing the scroll/rescale logic (iterations 1, 3)
+- [NIT] rescale is proportional, not exact (iteration 1)
+- [NIT] a page scrollbar appearing does not fire resize; self-heals on the next poll (iteration 3)
+- [NIT] box geometry could be its own function (iteration 3)
+- [NIT] ORG_SIZE / ORG_VIEW_W not reset on the empty/failed paths (iteration 4)
 
 ### Strengths (across all iterations)
-- orgFit is a small pure function with a clear fallback order (margin first, then rings to a floor, never node size), unit-tested with constants read from the page (iterations 2-6)
-- The browser check drives the real server at the four harness phone sizes, desktop and a deep fleet, and every arm has a measured control that fails without its fix (iterations 3-6)
-- The plan names rejected options (transform: scale, an always-on scroller) and its weakest part (no touch drag on an overflowing chart) (iterations 2, 4, 6)
+- orgFit gives up margin first, then brings the rings in to a floor, and never shrinks a node, so every face stays a 44px tap target; desktop gets exactly the old natural square (all iterations)
+- The scroll handling is sequenced around the repaint guard, a same-width poll never writes the scroll, and the resize handler compares with the width last painted (iterations 1, 3, 4)
+- The browser check drives the real server in Chromium and WebKit at four phone sizes, desktop and a deep fleet, and every arm has a measured control that fails without its fix (iterations 1-4)
+- The tick harness tests keep their positional arguments aligned and one now asserts the failure path resets the box (iteration 4)
