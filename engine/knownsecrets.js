@@ -61,7 +61,8 @@ function assignedValue(line) {
     || /^"[A-Za-z_][A-Za-z0-9_.-]*"\s*:\s*("[^\s"]*"|[^\s,]+),?$/.exec(t);
   if (!m) return null;
   const value = m[1].trim().replace(/^["']|["']$/g, '');
-  return value || null;
+  /* Padding is not a value (review round 31: Zq8v...Q1== read as NAME "Zq8v...Q1" and value "="). */
+  return value && !/^=+$/.test(value) ? value : null;
 }
 
 /* The key-shaped tokens of a line with spaces in it (#3935 review rounds 28 and 29). The mask does not walk such a
@@ -76,7 +77,9 @@ function keyTokens(line) {
   const { madeOfWords } = require('./secretmask');
   const out = [];
   /* A name being assigned (r2_secret_access_key:, API_KEY=, "webhook_url_v2":) is public, not a token. */
-  const names = /(^|[\s,;{#])["']?[A-Za-z_][A-Za-z0-9_.-]*["']?\s*[:=](?!=)/g;
+  /* An = counts only with a value after it (review round 31: a single-padded base64 key, Zq8v...Q1=, ended in = and
+     was removed as a name). */
+  const names = /(^|[\s,;{#])["']?[A-Za-z_][A-Za-z0-9_.-]*["']?\s*(?::|=(?![=\s]|$))/g;
   for (const raw of line.trim().replace(names, '$1 ').split(/[\s,;:]+|=(?=[^=\s])/)) {
     const tok = raw.replace(/^[#"'`([{<]+|["'`)\]}>.,]+$/g, '');
     if (tok.length < 12 || tok.includes('//') || (tok.match(/[A-Za-z]/g) || []).length < 4 || !/[0-9]/.test(tok)) continue;

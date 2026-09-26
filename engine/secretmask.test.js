@@ -1232,3 +1232,45 @@ test('#3935 an env value is one token or a quoted string, not the rest of the li
   assert.equal(assignedValue('CF_API_TOKEN=AbCdEf123456ZzYy # rotated'), 'AbCdEf123456ZzYy');
   assert.equal(assignedValue('PASS="my long pass phrase 9"'), 'my long pass phrase 9');
 });
+
+test('#3935 a padded base64 key on a line with spaces is held and masked, whole or split (review round 31)', () => {
+  const knownsecrets = require('./knownsecrets');
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'km-3935-31-'));
+  const key = 'Zq8vLm3pRt6wXy9kHb2nWc4dQ1=';
+  try {
+    fs.mkdirSync(path.join(root, 'secrets'));
+    fs.writeFileSync(path.join(root, 'secrets', 'notes.txt'), `prod key ${key} (rotated monthly)\n`);
+    setKnownSecrets(knownsecrets.collect({ dataRoot: root, home: root }));
+    assert.ok(!mask(`The key is ${key}`).text.includes('Rt6wXy9k'), 'shown whole');
+    const out = mask('First Zq8vLm3p then Rt6wXy9k then Hb2nWc4dQ1= done').text;
+    assert.ok(!out.includes('Rt6wXy9k') && !out.includes('Hb2nWc4d'), out);
+  } finally { setKnownSecrets([]); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('#3935 past the value cap, a bare ==-padded key is ranked as a key, not an assignment line (review round 31)', () => {
+  const value = 'zq8vLm3pRt6wXy9kHb2nWc4dQ1==';
+  /* 1,999 bare values and the key fill the cap exactly; ranked as a line, the key sorts after CF_API_TOKEN=... and is
+     the one dropped. */
+  const filler = Array.from({ length: 1999 }, (_, i) => `aa-filler-${String(i).padStart(6, '0')}-xyz`);
+  setKnownSecrets([...filler, value, 'CF_API_TOKEN=Mn4bVc7xZa1sDf3gHj5kLp8o']);
+  try {
+    const out = mask('First zq8vLm3p then Rt6wXy9k then Hb2nWc4dQ1== done').text;
+    assert.ok(!out.includes('Rt6wXy9k') && !out.includes('Hb2nWc4d'), out);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a text over the cache limit is cached by its hash, and not past a change in the held set (review round 31)', () => {
+  const t = `${'Some ordinary guide prose here. '.repeat(2500)}First Zq8vLm3p then Rt6wXy9k then Hb2nWc4dPq7sTu5v done`;
+  assert.ok(t.length > 65536, 'fixture: over the text limit');
+  setKnownSecrets(['Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v']);
+  try {
+    const first = mask(t).text;
+    assert.ok(!first.includes('Rt6wXy9k'), 'first read');
+    const again = cpuMillisecondsOf(() => mask(t));
+    const fresh = cpuMillisecondsOf(() => mask(`${t} `));
+    assert.ok(again < fresh, `a repeated long text was searched again (${Math.round(again)}ms against ${Math.round(fresh)}ms fresh)`);
+    setKnownSecrets([]);
+    assert.equal(mask(t).text, t, 'a cleared set still served the cached long result');
+  } finally { setKnownSecrets([]); }
+});

@@ -76,8 +76,9 @@ function setKnownSecrets(values) {
   /* The collector's own parser decides what an assignment is (review round 30: a second regex here missed a compact
      JSON line, "name":"value", which then crowded a real key out of the cap). */
   const { assignedValue } = require('./knownsecrets');
-  const rank = (v) => (/\s/.test(v.trim()) || assignedValue(v) ? 1 : 0);
-  for (const v of [...list].sort((x, y) => rank(x) - rank(y) || (x < y ? -1 : x > y ? 1 : 0))) {
+  /* Computed once per value, not per comparison (review round 31: 384ms against 82ms at 20,000 values). */
+  const rankOf = new Map(list.map((v) => [v, /\s/.test(v.trim()) || assignedValue(v) ? 1 : 0]));
+  for (const v of [...list].sort((x, y) => rankOf.get(x) - rankOf.get(y) || (x < y ? -1 : x > y ? 1 : 0))) {
     const k = v.trim();
     if (k.length < MIN_VALUE_LEN) continue;
     /* A bound on the work every reply pays (review round 1 measured 545ms per reply at 20,000 values). */
@@ -722,17 +723,20 @@ const MASK_CACHE_CHARS_MAX = 4000000;
 let maskCacheChars = 0;
 const maskCache = new Map();
 function mask(text) {
-  if (typeof text !== 'string' || !text || text.length > MASK_CACHE_TEXT_MAX) return maskFresh(text);
-  const hit = maskCache.get(text);
+  if (typeof text !== 'string' || !text) return maskFresh(text);
+  /* A long text is cached by its hash (review round 31: a stored row over the limit paid the full search on every
+     poll), so the cache holds only its result. */
+  const key = text.length > MASK_CACHE_TEXT_MAX ? `#${require('crypto').createHash('sha256').update(text).digest('hex')}` : text;
+  const hit = maskCache.get(key);
   if (hit) return { text: hit.text, fired: hit.fired.map((f) => ({ ...f })) };
   const out = maskFresh(text);
-  const cost = text.length + out.text.length;
+  const cost = key.length + out.text.length;
   while (maskCache.size && (maskCache.size >= MASK_CACHE_MAX || maskCacheChars + cost > MASK_CACHE_CHARS_MAX)) {
     const [oldest, was] = maskCache.entries().next().value;
     maskCacheChars -= oldest.length + was.text.length;
     maskCache.delete(oldest);
   }
-  maskCache.set(text, { text: out.text, fired: out.fired.map((f) => ({ ...f })) });
+  maskCache.set(key, { text: out.text, fired: out.fired.map((f) => ({ ...f })) });
   maskCacheChars += cost;
   return out;
 }
