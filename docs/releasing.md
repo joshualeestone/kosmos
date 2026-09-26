@@ -35,8 +35,8 @@ improvement it gained would have died with the session that wrote it.
    sentence for the line; no em dashes. A cut whose file is missing, not for the
    version being cut, or not one the window can draw stops here
    (`tools/whats-new-check.js` says why). **A hotfix with nothing to announce:**
-   `KOSMOS_CUT_NO_WHATS_NEW=1 yarn release X.Y.Z`, and the window shows only the
-   title and the version.
+   `KOSMOS_CUT_NO_WHATS_NEW=1 yarn release X.Y.Z`, and that release shows no
+   "Kosmos has been updated" window. The check runs again on the frozen tree.
 
    **Then, still in step 1, test-sign with the cut's own identity (#3579; the cut
    labels it `1c`)**, before anything is bumped or built. Step 4 signs Developer

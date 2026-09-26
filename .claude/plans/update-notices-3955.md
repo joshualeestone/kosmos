@@ -32,12 +32,20 @@ Card #3955 (Josh, #admin, 2026-09-26 08:11). Design: Mona Lisa's mock on card-sh
 - The window's document-level keys and focus backstop stand aside while another window is open over it.
 - Left: the one-shot whats-new read at load has no retry (as the old news line); an unused `.utxt small a` rule predates this change.
 
+## Review round 3 (decided)
+- Only boxes that hold words (textareas, text-like inputs) are remembered as typed, and one blocks the reload only while it is still shown and holding words: a dropdown or checkbox changed once, or a field saved and closed, no longer stops the reload for the rest of the tab.
+- A release with no highlights (the hotfix opt-out) shows no window and records the version quietly, as agreed with Baron on the card; release.sh, the check's messages and docs/releasing.md say so.
+- The cut check runs again on the frozen tree, so a pull between step 1 and the freeze cannot ship a different file.
+- The window stands aside only for windows really drawn over it (first run, the update overlay), not the dialogs under it.
+- render-reload-toast records the board's own version as seen in a finally, however it ends.
+- Tests pin the reload's wiring in renderUpdateToast and that every page value it reads is declared.
+
 ## Tests
 - The chip's two states and its one button; the stale chip never says "Kosmos updated"; engine-stale still first.
 - Safe reload: reloads when hidden and idle; not when visible, sending, drafting, or a dialog is open.
 - The window: shown for a new version on a fresh page, with tiles; title only without highlights; not on a fresh install; not on an old page; Got it and Escape record seen; focus trapped and returned.
 - whats-new.json shape (committed file, when present) and the check script's red arms (stale version refused, matching accepted, opt-out accepted, bad icon, too many).
-- release.sh runs the check at 1c before the bump.
+- release.sh runs the check at 1b-ii before the bump, and again on the frozen tree.
 - Browser check: the three states rendered (shots to the card).
 
 ## Not in this change

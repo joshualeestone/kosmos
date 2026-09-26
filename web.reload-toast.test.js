@@ -176,7 +176,7 @@ test('#3955: an old page in the background with nothing in hand reloads itself, 
 test('#3955: it never reloads a page someone is looking at, sending from, typing in, attaching to, or reading a window over', () => {
   /* Typed, not filled (review round 1): the page fills boxes itself (an agent's instructions), and
      only fields the person typed into count; the page collects those with one 'input' listener. */
-  assert.match(SCRIPT, /document\.addEventListener\('input', \(e\) => \{ const t = e\.target; if \(t && 'value' in t\) UPDATE_TYPED\.add\(t\); \}, true\);/);
+  assert.match(SCRIPT, /document\.addEventListener\('input', \(e\) => \{ if \(updateTypedBox\(e\.target\)\) UPDATE_TYPED\.add\(e\.target\); \}, true\);/);
   assert.doesNotMatch(page.liftAll(SCRIPT, ['updateSafeReload']), /querySelectorAll\('textarea'\)/, 'every filled textarea blocks the reload again');
   assert.equal(safeReload({ hidden: false }).reloaded, 0, 'reloaded the page in front of the person');
   assert.equal(safeReload({ sending: { talk: true } }).reloaded, 0, 'reloaded mid-send');
@@ -202,4 +202,27 @@ test('#3955 round 2: a field removed from the page is let go, and holds no words
   assert.equal(got, true);
   assert.equal(reloaded, 1, 'a closed box\'s words blocked the reload');
   assert.equal(typed.size, 0, 'the removed field was kept');
+});
+
+test('#3955 round 3: only boxes that hold words count as typed (not a dropdown, checkbox or slider)', () => {
+  const box = new Function(page.liftAll(SCRIPT, ['updateTypedBox']) + '\nreturn updateTypedBox;')();
+  assert.equal(box({ tagName: 'TEXTAREA' }), true);
+  assert.equal(box({ tagName: 'INPUT', type: 'text' }), true);
+  assert.equal(box({ tagName: 'INPUT', type: '' }), true, 'an input with no type is a text box');
+  for (const t of [{ tagName: 'SELECT' }, { tagName: 'INPUT', type: 'checkbox' }, { tagName: 'INPUT', type: 'range' }, { tagName: 'INPUT', type: 'radio' }]) {
+    assert.equal(box(t), false, (t.type || t.tagName) + ' would stop the reload for the rest of the tab');
+  }
+});
+
+test('#3955 round 3: the old-page chip runs the safe reload, and every value the reload reads is declared on the page', () => {
+  const r = page.liftAll(SCRIPT, ['renderUpdateToast']);
+  const stale = r.slice(r.indexOf('pageIsStale(SERVED_VERSION)'));
+  assert.match(stale.slice(0, 200), /updateSafeReload\(SERVED_VERSION\);/, 'the stale chip no longer tries the safe reload');
+  /* The reload guards each value with typeof (a missing one is skipped silently), so a rename would
+     turn a check off with the tests still green: pin that each is declared under this name. */
+  for (const name of ['TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING', 'TALK_DRAFTS', 'TERM_DRAFTS',
+    'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'ATTACH_PENDING', 'UPDATE_TYPED']) {
+    assert.match(PAGE, new RegExp('^(let|const) ' + name + '\\b', 'm'), name + ' is not declared on the page: the reload\'s check on it is off');
+  }
+  assert.match(PAGE, /^function tipModalOpen\(/m, 'tipModalOpen is gone: the reload would ignore open windows');
 });

@@ -26,7 +26,7 @@ function main(argv) {
   try { raw = fs.readFileSync(file, 'utf8'); } catch {
     process.stderr.write(name + ' is missing. Write the highlights for ' + version
       + ' (1 to 5: an icon, a short title and one line each) and commit it before cutting, or set'
-      + ' KOSMOS_CUT_NO_WHATS_NEW=1 to cut with no "What\'s new" window.\n');
+      + ' KOSMOS_CUT_NO_WHATS_NEW=1 to cut with no "Kosmos has been updated" window.\n');
     return 1;
   }
   let obj;
@@ -37,7 +37,7 @@ function main(argv) {
   const bad = whatsnew.problems(obj, version);
   if (bad.length) {
     process.stderr.write(name + ' is not ready for ' + version + ':\n' + bad.map((b) => '  - ' + b).join('\n') + '\n'
-      + 'Fix it and commit it before cutting, or set KOSMOS_CUT_NO_WHATS_NEW=1 to cut with no "What\'s new" window.\n');
+      + 'Fix it and commit it before cutting, or set KOSMOS_CUT_NO_WHATS_NEW=1 to cut with no "Kosmos has been updated" window.\n');
     return 1;
   }
   process.stdout.write(name + ': ' + obj.highlights.length + ' highlight(s) for ' + version + '\n');

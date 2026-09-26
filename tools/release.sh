@@ -537,7 +537,7 @@ step "== 1b-ii. the What's new highlights are for this version (#3955) =="
 # cut whose file is not for $V stops HERE, before anything is built or bumped.
 # KOSMOS_CUT_NO_WHATS_NEW=1 is the hotfix opt-out: the release then shows the title alone.
 if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" = "1" ]; then
-  echo "KOSMOS_CUT_NO_WHATS_NEW=1: $V ships with no highlights; the update window will say only \"Kosmos has been updated\" and the version."
+  echo "KOSMOS_CUT_NO_WHATS_NEW=1: $V ships with no highlights, so there will be no \"Kosmos has been updated\" window for it."
 else
   node "$REPO/tools/whats-new-check.js" "$V" "$REPO/web/whats-new.json" || exit 1
 fi
@@ -681,6 +681,11 @@ DEPLOYED=0
 trap '_rc=$?; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had" "$_ptr_had" "$BUILD_ROOT" "$_staging_ptr_had"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
 REPO="$BUILD"
 release_freeze_notice "$SHA" "$BUILD"
+# #3955: the highlights checked at 1b-ii are the ones in the tree that SHIPS. A pull between step 1 and
+# the freeze could have changed the file, so the same check runs again on the frozen tree.
+if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" != "1" ]; then
+  node "$BUILD/tools/whats-new-check.js" "$V" "$BUILD/web/whats-new.json" || exit 1
+fi
 
 # #2017: do not run the gated steps (the suite here AND the browser layer at 3b)
 # into a box some OTHER heavy job is saturating. #1962 reserves the box against

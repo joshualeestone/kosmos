@@ -14,7 +14,8 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
 const page = require('./test-support/page');
 const SCRIPT = page.scriptOf(PAGE);
 
-async function check({ current = '0.6.98', seen = '0.6.97', baked = '0.6.98', highlights = null } = {}) {
+const H1 = [{ icon: 'spark', title: 'A thing', line: 'It does a thing.' }];
+async function check({ current = '0.6.98', seen = '0.6.97', baked = '0.6.98', highlights = H1 } = {}) {
   const posts = [];
   const opened = [];
   const fetchStub = async (url, opts) => {
@@ -64,4 +65,12 @@ test('#3955: a rollback (or a switch to an older version) is recorded quietly, n
   assert.deepEqual(r.opened, [], 'a rollback was announced as "Kosmos has been updated"');
   assert.deepEqual(r.posts, [['/api/whats-new/seen', JSON.stringify({ version: '0.6.97' })]]);
   assert.deepEqual((await check({ current: '0.6.10', seen: '0.6.9', baked: '0.6.10' })).opened.length, 1, 'CONTROL: 0.6.10 is newer than 0.6.9 (numbers, not text)');
+});
+
+test('#3955 round 3: a release with no highlights (a hotfix) shows no window and records the version quietly', async () => {
+  for (const none of [null, []]) {
+    const r = await check({ highlights: none });
+    assert.deepEqual(r.opened, [], 'a hotfix interrupted people with a window saying nothing new');
+    assert.deepEqual(r.posts, [['/api/whats-new/seen', JSON.stringify({ version: '0.6.98' })]], 'the hotfix was not recorded, so the next release would compare against the wrong version');
+  }
 });

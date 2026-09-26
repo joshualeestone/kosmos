@@ -18687,8 +18687,15 @@ function paintLoginAdvisories(advs) {
    project's description), and those are not the person's unsaved words; every field the person has
    typed into is remembered here (UPDATE_TYPED), and one still holding words blocks the reload. */
 const UPDATE_TYPED = new Set();
+/* Only boxes that hold WORDS (review round 3): a dropdown, checkbox or slider always has a value, and
+   one change to it must not stop the reload for the rest of the tab's life. */
+function updateTypedBox(t) {
+  if (!t || !t.tagName) return false;
+  if (t.tagName === 'TEXTAREA') return true;
+  return t.tagName === 'INPUT' && /^(text|search|email|url|)$/.test(String(t.type || '').toLowerCase());
+}
 if (typeof document !== 'undefined' && document.addEventListener) {
-  document.addEventListener('input', (e) => { const t = e.target; if (t && 'value' in t) UPDATE_TYPED.add(t); }, true);
+  document.addEventListener('input', (e) => { if (updateTypedBox(e.target)) UPDATE_TYPED.add(e.target); }, true);
 }
 function updateSafeReload(servedVersion) {
   try {
@@ -18701,7 +18708,9 @@ function updateSafeReload(servedVersion) {
     if ([typeof TALK_DRAFTS !== 'undefined' && TALK_DRAFTS, typeof TERM_DRAFTS !== 'undefined' && TERM_DRAFTS,
       typeof PJ_DRAFTS !== 'undefined' && PJ_DRAFTS, typeof PJ_ROOM_DRAFTS !== 'undefined' && PJ_ROOM_DRAFTS].some(drafted)) return false;
     for (const t of [...UPDATE_TYPED]) if (t.isConnected === false) UPDATE_TYPED.delete(t);   // a removed field holds nothing (and is let go)
-    if ([...UPDATE_TYPED].some((t) => String(t.value || '').trim())) return false;
+    /* Still on screen and still holding words (round 3): a field that was saved and whose dialog
+       closed is no longer shown, and does not keep blocking. */
+    if ([...UPDATE_TYPED].some((t) => String(t.value || '').trim() && t.offsetParent !== null && !(t.closest && t.closest('[hidden]')))) return false;
     const attached = typeof ATTACH_PENDING !== 'undefined' && ATTACH_PENDING;
     if (attached && Object.values(attached).some((m) => m && Object.values(m).some((v) => Array.isArray(v) ? v.length : !!v))) return false;
     if (typeof tipModalOpen === 'function' && tipModalOpen()) return false;
@@ -32008,7 +32017,8 @@ function wnWire(back) {
    outside is brought back in. Each does nothing while the window is not up. */
 /* Another window opened over this one (an update confirm, first run) owns the keys and focus. */
 function wnCovered() {
-  return !!document.querySelector('.rm-back:not(#whatsnew):not([hidden]), .fr-back:not([hidden]), .upd-back');
+  // Only windows drawn OVER this one (round 3): the other .rm-back dialogs sit under it at the same layer.
+  return !!document.querySelector('.fr-back:not([hidden]), .upd-back');
 }
 document.addEventListener('keydown', (e) => {
   const back = document.getElementById('whatsnew');
@@ -32054,6 +32064,10 @@ async function whatsNewCheck() {
     if (wnNewer(got.current, got.seen) !== true) { record(); return; }
     const baked = bakedVersion();
     if (baked && baked !== got.current) return;   // an old page: the chip says Reload first
+    /* A release with no highlights (a hotfix cut with KOSMOS_CUT_NO_WHATS_NEW=1) shows no window
+       (round 3, as agreed with Baron on the card): it is recorded quietly rather than interrupting
+       people with a title and nothing new. */
+    if (!Array.isArray(got.highlights) || !got.highlights.length) { record(); return; }
     wnOpen(got.current, got.highlights);
   } catch { /* news can wait */ }
 }
