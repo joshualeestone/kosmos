@@ -15,7 +15,9 @@
  *     inside JS strings (src=, href=, action=). Dynamic pieces become placeholders; a query glued
  *     on without '/' is dropped.
  *   - NOT read, and COUNTED with a ceiling: a fetch whose URL is a variable, and a URL with a
- *     variable tail. NOT read and NOT counted: a helper called with a variable URL.
+ *     variable tail. The ceilings are NET counts (removing one and adding another passes). NOT read
+ *     and NOT counted: a helper called with a variable URL, and a URL split before its first
+ *     segment ('/api' + '/x'). A URL that is itself a template is read with its `${}` flattened.
  *   - the board: '/api/...' literals (either quote) the server COMPARES the path to (=== / case),
  *     startsWith prefixes, and regex literals mentioning \/api, all outside comments and strings.
  *   - KNOWN LIMITS (each pinned by a test): a placeholder segment is served by any sibling route
@@ -44,8 +46,7 @@ const UNREADABLE_CEILING = 1;
 /* A lexical mask over a source text: CODE, COMMENT (JS and HTML), STRING (inside a string literal),
    START (the opening quote of one) and REGEX (a regex literal). Templates are followed through their
    `${...}` at any depth, so a nested template cannot desynchronise it, and an /api literal inside an
-   interpolation is CODE and is read. Measured against acorn at the time of writing: every '/api/'
-   string and template literal in both files classified START. */
+   interpolation is CODE and is read. Raw HTML tags are skipped as tokens. */
 const CODE = 0; const COMMENT = 1; const STRING = 2; const START = 3; const REGEX = 4;
 /* Can a `/` at i open a regex literal? Yes after an operator, an opening bracket, a comma, a colon,
    a semicolon, `return`/`typeof`-style keywords, or at the start of a line; no after a value
@@ -93,6 +94,13 @@ function lexMask(src) {
         const end = e < 0 ? src.length : e;
         mask.fill(COMMENT, i, end);
         i = end;
+      } else if (c === '<' && /^<\/?[A-Za-z]/.test(src.slice(i, i + 3))) {
+        /* An HTML tag in the page's raw markup (`</p>`, `<img`): skipped to the end of its name, so
+           the `/` of a closing tag is never read as a regex that swallows a following attribute. */
+        let j = i + 1;
+        if (src[j] === '/') j += 1;
+        while (j < src.length && /[A-Za-z0-9-]/.test(src[j])) j += 1;
+        i = j;
       } else if (c === '<' && src.startsWith('<!--', i)) {
         /* An HTML comment in the page's markup: prose, like a JS comment. */
         const e = src.indexOf('-->', i + 4);
@@ -320,7 +328,7 @@ const baseBoard = () => (BASE_BOARD = BASE_BOARD || boardRoutes(SERVER));
 
 function served(p, board) {
   if (board.literals.has(p)) return true;
-  if (board.prefixes.some((l) => p.startsWith(l))) return true;
+  if (board.prefixes.some((l) => p.startsWith(l.endsWith('/') ? l : l + '/'))) return true;
   if (board.regexes.some((r) => r.test(p))) return true;
   if (!/\/x(\/|$)/.test(p)) return false;
   /* A placeholder segment (a value only known at run time) is served when SOME value makes it a
@@ -358,6 +366,10 @@ test('#3957: every /api path the page fetches is served by a board route', () =>
   /* CEILINGS, not just a printout: a green log is read by nobody. A new fetch whose URL is a variable,
      or a new variable-tailed one, cannot be checked here, so it has to be a deliberate change: make
      the URL readable, or raise the ceiling with a reason in the commit. */
+  /* A board startsWith('/api/x') prefix serves everything under it, so a guard written that way
+     would serve a route with no handler (the 0.6.96 shape). None exists today: a new one must be a
+     deliberate change to this number. */
+  assert.equal(board.prefixes.length, 0, 'a board startsWith(\'/api/...\') prefix appeared: ' + board.prefixes.join(', ') + '; check it is a real route family, then raise this with a reason');
   assert.ok(unread <= UNREAD_CEILING, `fetches whose URL is not a literal grew to ${unread} (ceiling ${UNREAD_CEILING}); make the new one's URL a literal, or raise the ceiling with a reason`);
   assert.ok(unreadable.length <= UNREADABLE_CEILING, `fetches with a variable tail grew to ${unreadable.length} (ceiling ${UNREADABLE_CEILING}): ${unreadable.join(', ')}`);
 });
@@ -440,4 +452,15 @@ test('#3957 control: a double-quoted board comparison and a grouped route regex 
   const board = boardRoutes(SERVER + '\nif (pathname === "/api/doublequote-3957") {}\nconst g3957 = pathname.match(/^\\/api(?:\\/agent|\\/project)\\/thing-3957$/);\n');
   assert.equal(served('/api/doublequote-3957', board), true);
   assert.equal(served('/api/project/thing-3957', board), true);
+});
+
+test('#3957 control: a closing HTML tag does not open a phantom regex over a following attribute', () => {
+  const planted = pagePaths(PAGE + '\n<p>Hi</p><img src="/api/raw-after-close-3957">\n').paths;
+  assert.ok(planted.includes('/api/raw-after-close-3957'), 'raw markup after a closing tag was swallowed');
+});
+
+test('#3957 control: a board prefix serves only whole segments under it', () => {
+  const board = boardRoutes(SERVER + "\nif (pathname.startsWith('/api/pfx-3957')) {}\n");
+  assert.equal(served('/api/pfx-3957/child', board), true);
+  assert.equal(served('/api/pfx-3957bar', board), false, 'a prefix matched across a segment boundary');
 });

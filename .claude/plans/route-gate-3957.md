@@ -71,3 +71,12 @@ and route regexes; not the method; two permissive matcher limits, each pinned by
 - Board literals read in either quote; route regexes are taken from the lexer's REGEX spans (so a
   grouped anchor, /^\/api(?:\/a|\/b)\//, is read); controls added. Both failed safe before.
 - History re-run: red on exactly the three federation routes.
+
+## Challenge-loop iteration 5
+- Raw HTML tags are lexed as tokens: a `</p>` no longer opens a phantom regex over a following
+  attribute (latent: all raw-HTML /api sits in comments today); control added.
+- A board startsWith prefix serves whole segments only, and the prefix count is pinned at 0 (a
+  guard written as startsWith would otherwise serve a route with no handler); control added.
+- Header: ceilings are NET; '/api' + '/x' is not read; a template URL is read with `${}` flattened.
+  The acorn measurement (every /api literal in both files classified START, iteration 3's review)
+  lives here, not in the code.
