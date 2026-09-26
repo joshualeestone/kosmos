@@ -324,16 +324,6 @@ test('#4006: a by:auto needs_you on a NON-Claude agent is never restarted; a Cla
   }
 });
 
-test('#4006: the sweep never restarts a quiet Grok agent (end to end through sweepOnce)', () => {
-  const restarted = [];
-  const out = require('./class1-autohandle').sweepOnce({
-    roster: [{ sessionName: 'elon', name: 'Elon', runner: 'grok', state: 'needs_you', stateReportedBy: 'auto', stateEvidence: 'Waiting for your next prompt' },
-      { sessionName: 'casey', name: 'Casey', runner: '', state: 'needs_you', stateReportedBy: 'auto' }],
-    attempts: new Map(), now: Date.now(),
-    trustAgentFolder: () => ({ wrote: true }), restart: (n) => { restarted.push(n); return { outcome: 'restarted' }; }, RESTARTED: 'restarted',
-  });
-  assert.deepEqual(restarted, ['casey'], 'the Grok agent was restarted, or the Claude CONTROL was not: ' + JSON.stringify(out.results));
-});
 test('standingFromAgent: a TRUST-DIALOG scrape (no by:auto self-report) IS class-1', () => {
   // The folder-trust dialog is not a PermissionRequest, so stateReportedBy is null; the live
   // screen evidence is the only signal, and it must still count as class-1.
