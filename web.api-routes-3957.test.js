@@ -18,8 +18,11 @@
  *     variable tail. The ceilings are NET counts (removing one and adding another passes). NOT read
  *     and NOT counted: a helper called with a variable URL, and a URL split before its first
  *     segment ('/api' + '/x'). A URL that is itself a template is read with its `${}` flattened.
- *   - the board: '/api/...' literals (either quote) the server COMPARES the path to (=== / case),
- *     startsWith prefixes, and regex literals mentioning \/api, all outside comments and strings.
+ *   - the board: '/api/...' literals (either quote) in any code comparison (=== / case; every one on
+ *     main is path dispatch, but the test does not check the left-hand side), startsWith prefixes
+ *     (pinned at zero), and ANCHORED regex literals mentioning \/api, outside comments and strings.
+ *   - the lexer bounds its mistakes to a line: a `/` after `}` or a keyword-free value is guessed,
+ *     and a guess that opens a phantom regex can hide a later call on that same line.
  *   - KNOWN LIMITS (each pinned by a test): a placeholder segment is served by any sibling route
  *     (had the page built '/api/federation/' + kind, a missing invite would pass); and a board
  *     route with a free segment (`/api/project/<id>`) serves any NEW literal of that shape.
@@ -58,6 +61,7 @@ function regexCanStart(src, i) {
   let k = i - 1;
   while (k >= 0 && /\s/.test(src[k])) k -= 1;
   if (k < 0) return true;
+  if ((src[k] === '+' || src[k] === '-') && src[k - 1] === src[k]) return false; // `i++ / 2` divides
   if ('(,=:[!&|?{};+-*%<>~^}'.includes(src[k])) return true;
   const word = src.slice(Math.max(0, k - 10), k + 1).match(/[A-Za-z_$]+$/);
   return !!(word && /^(return|typeof|case|in|of|new|delete|void|throw|else|do)$/.test(word[0]));
@@ -182,7 +186,7 @@ function skipDynamic(src, i) {
 /* Normalise a read URL (placeholders as \u0000) into an example path, or null if it is not /api. */
 function finish(path) {
   if (!path.startsWith('/api/')) return null;
-  path = path.split('?')[0];
+  path = path.split('?')[0].split(/\s/)[0]; // a srcset descriptor (`/x 2x`) is not part of the path
   /* A dynamic piece glued on WITHOUT a `/` before it (`'/api/folders' + qs`) is a query or a
      suffix, not a path segment: the path ends where it starts. */
   const glued = path.search(/[^/\u0000]\u0000/);
@@ -242,15 +246,34 @@ function pagePaths(src) {
   }
   /* A template whose URL starts with an interpolated BASE (`${origin}/api/x`): the base is only an
      origin, so the route is read from '/api/' onward, its own `${}` as placeholders. */
-  for (const t of src.matchAll(/`\$\{[^}`]*\}(\/api\/[^`]*)`/g)) {
-    if (mask[t.index] !== START) continue;
-    const f = finish(t[1].replace(/\$\{[^}]*\}/g, '\u0000'));
+  for (let t = src.indexOf('`'); t > -1; t = src.indexOf('`', t + 1)) {
+    if (mask[t] !== START) continue;
+    let e = t + 1;
+    while (e < src.length && !(src[e] === '`' && mask[e] === STRING && mask[e - 1] !== START)) e += 1;
+    const text = src.slice(t + 1, e);
+    const k = text.indexOf('/api/');
+    if (k <= 0) continue; // at 0 it was read above
+    /* The URL ends where the markup around it resumes: a quote, whitespace or a bracket. */
+    const url = text.slice(k).replace(/\$\{[^}]*\}/g, '\u0000').split(/["'\s<>)]/)[0];
+    const f = finish(url);
+    if (f) out.add(f);
+  }
+  /* A call written INSIDE markup (`onclick="fetch('/api/x')"`): its quote sits inside the
+     attribute's string, so the first loop does not see it as a start. Read it with the same walker. */
+  for (const q of src.matchAll(/\(\s*(['"])\/api\//g)) {
+    const at = q.index + q[0].length - 6;
+    if (mask[at] !== STRING) continue;
+    let path = ''; let i = at; const qq = src[at];
+    const end = src.indexOf(qq, i + 1);
+    if (end < 0) continue;
+    path = src.slice(i + 1, end);
+    const f = finish(path);
     if (f) out.add(f);
   }
   /* MARKUP built inside JS strings: `'<img src="/api/agent/' + name + '/avatar">'`. The URL's own
      quote is inside the JS string, so the loop above does not see it as a string start. Read from
      `/api/` to the attribute's closing quote, crossing `' + expr + '` and `${...}` joins. */
-  for (const a of src.matchAll(/(?:src|href|action)=(\\?["'])\/api\//g)) {
+  for (const a of src.matchAll(/(?:src|srcset|href|action)=(\\?["'])\/api\//g)) {
     const at = a.index + a[0].length - 5;
     if (mask[at] !== STRING) continue; // raw markup was read above; a comment is not a request
     const attrQ = a[1].slice(-1);
@@ -317,7 +340,11 @@ function boardRoutes(src) {
     if (lit.indexOf('\\/api') < 0) continue;
     const last = lit.lastIndexOf('/');
     const flags = (src.slice(e).match(/^[gimsuy]*/) || [''])[0];
-    try { regexes.push(new RegExp(lit.slice(1, last), flags.replace('g', ''))); } catch { /* not a regex after all */ }
+    /* A ROUTE regex is anchored at both ends (all 55 today): an unanchored one mentioning \/api is a
+       guard (`/^\/api\/federation\//.test(pathname) && !authed`), and would serve everything under it. */
+    if (lit.slice(1, last).endsWith('$')) {
+      try { regexes.push(new RegExp(lit.slice(1, last), flags.replace('g', ''))); } catch { /* not a regex after all */ }
+    }
     i = e;
   }
   return { literals, prefixes, regexes };
@@ -366,7 +393,7 @@ test('#3957: every /api path the page fetches is served by a board route', () =>
   assert.deepEqual(missing, [],
     'the page calls /api paths no board route serves. Either add the route in the SAME change, or '
     + '(only if it is served by something else) list it in SERVED_ELSEWHERE with the reason:\n  ' + missing.join('\n  '));
-  /* A FLOOR close under today's count (185), not a token one: a lexer slip that mis-reads a region
+  /* A FLOOR close under today's count, not a token one: a lexer slip that mis-reads a region
      drops real calls SILENTLY (one did during development, taking the federation routes with it),
      and only a floor this tight can see a slip of more than a handful. Lower it only when the page
      genuinely loses calls, in the same change. */
@@ -477,4 +504,14 @@ test('#3957 control: a board prefix serves only whole segments under it', () => 
 test('#3957 control: a template URL with an interpolated base is read from /api on', () => {
   const planted = pagePaths(PAGE + "\nplusSiPost(`${base}/api/helper-template-gap-3957/${id}/go`, {});\n").paths;
   assert.ok(planted.includes('/api/helper-template-gap-3957/x/go'), 'a base-prefixed template call was invisible');
+});
+
+test('#3957 control: an unanchored guard regex is not a route', () => {
+  const board = boardRoutes(SERVER.split('/api/federation/invite').join('/api/federation/inv1te') + "\nif (/^\\/api\\/federation\\//.test(pathname) && !authed) return deny(res);\n");
+  assert.equal(served('/api/federation/invite', board), false);
+});
+
+test('#3957 control: template URLs with host text or two interpolations first, srcset, and inline handlers are read', () => {
+  const planted = pagePaths(PAGE + "\nfetch(`http://127.0.0.1:${port}/api/p2-missing-3957`);\nfetch(`${a}${b}/api/p3-missing-3957`);\n<button onclick=\"fetch('/api/p1-missing-3957')\">x</button>\nconst s3957 = '<img srcset=\"/api/p4-missing-3957/' + n + '/x 2x\">';\n").paths;
+  for (const p of ['/api/p2-missing-3957', '/api/p3-missing-3957', '/api/p1-missing-3957', '/api/p4-missing-3957/x/x']) assert.ok(planted.includes(p), p + ' was not read');
 });

@@ -87,3 +87,12 @@ and route regexes; not the method; two permissive matcher limits, each pinned by
 - skipDynamic flags an expression that ran past its 600-char budget as open-ended (counted),
   not a clean end; alternation words are matched case-insensitively; a comment now says raw-HTML
   attributes ARE read.
+
+## Challenge-loop iteration 7
+- Only ANCHORED regexes are routes: an unanchored guard (`/^\/api\/federation\//.test(...)`) would
+  otherwise serve a missing invite (the same hole the prefix pin closes for startsWith). Control.
+- Any template containing '/api/' after other text (a host, several interpolations) is read from
+  '/api/' to where the markup resumes; inline handlers in markup (`onclick="fetch('/api/x')"`) and
+  `srcset=` are read; a srcset descriptor is cut. Control for all four shapes.
+- `i++ / 2` divides; the header states the board literal rule honestly (any code comparison, all
+  dispatch today) and that the lexer can mis-guess a `/` after `}` and hide a call on that one line.

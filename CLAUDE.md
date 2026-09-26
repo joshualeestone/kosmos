@@ -249,7 +249,7 @@ from a night in this codebase, kosmos#2616.)
 
 7. **A page `/api` call needs its board route in the same change.** `web.api-routes-3957.test.js`
    reads the `/api/` literals in `web/index.html`'s code (and in markup built in JS strings) and
-   refuses one that no route in `server.js` serves (kosmos#3957: 0.6.96 shipped a page calling
+   refuses one that no route in `server.js` serves (a compared literal, or an anchored route regex) (kosmos#3957: 0.6.96 shipped a page calling
    `/api/federation/invite` before the route merged). Its header lists what it cannot see: the
    HTTP method, a URL built from a variable (counted under a ceiling when it is a `fetch`), a
    variable segment a sibling route fills, and a new literal a free-segment route happens to match.
