@@ -93,6 +93,13 @@ subscription, only now that it is true.
   filter. That predates this card, and Gemini's CLI runs as `node`, so its pane cannot be told apart
   by its command without a separate detection design.
 
+- Review round 7: an Antigravity agent's own page says there is no account to move it to; signed in
+  only on agy's whole answer "ok"; a dropped install request reads as maybe-still-installing; the
+  runner also turns off with false/off/no; the page treats Windows as not offered by its own platform
+  tag, and a Gemini CLI download already running goes on to the key step (render-keyed-install-3713).
+  Left: the install holds one request open for its length (no job + poll); a drop now says "may still
+  be installing", and Check again finds out.
+
 ## Not in this card
 - Reading what an Antigravity agent is doing (status) and its auth-failed copy: #3568's PR 2.
 - Windows: agy is refused there today.
