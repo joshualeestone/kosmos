@@ -266,8 +266,8 @@ function retryHandler(state) {
   assert.ok(/getElementById\('alist-pj-notice'\);\s*if \(rn\) rn\.addEventListener\('click', pjNoticeRetryClick\)/.test(PAGE), 'the rail notice lost its Try again listener');
   const body = PAGE.slice(at, PAGE.indexOf('\n}\n', at) + 2).replace(/PJ_CURRENT/g, 'state.PJ_CURRENT').replace(/PJ_READ_FAILED/g, 'state.PJ_READ_FAILED');
   // eslint-disable-next-line no-new-func
-  const fn = new Function('state', 'document', 'fetch', 'loadProjects', 'paintOneProject', 'paintAgentList', 'PROJECTS', 'PJ_NOTICE_TRIED', 'PJ_NOTICE_MISSED', 'window', 'CSS', 'requestAnimationFrame',
-    pageFn('const pjNoticeKey').split('\n')[0] + '\n' + body + '\nreturn pjNoticeRetryClick;')(state, state.document, state.fetch, state.loadProjects, state.paintOneProject, state.paintAgentList, state.PROJECTS, state.tried, state.missed, {}, undefined, (f) => { state.frames.push(f); });
+  const fn = new Function('state', 'document', 'fetch', 'loadProjects', 'paintOneProject', 'paintRailPjNotice', 'PROJECTS', 'PJ_NOTICE_TRIED', 'PJ_NOTICE_MISSED', 'window', 'CSS', 'requestAnimationFrame',
+    pageFn('const pjNoticeKey').split('\n')[0] + '\n' + body + '\nreturn pjNoticeRetryClick;')(state, state.document, state.fetch, state.loadProjects, state.paintOneProject, state.paintRailPjNotice, state.PROJECTS, state.tried, state.missed, {}, undefined, (f) => { state.frames.push(f); });
   return (e) => fn({ currentTarget: state.box, ...e });
 }
 function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false, refused = false, status = null, overtaken = false, focusedElsewhere = false, focusedInside = false, readFails = false, toldState = null, otherRow = false, rail = false } = {}) {
@@ -296,7 +296,7 @@ function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false
     fetch: async (url, opts) => { log.push('fetch:' + opts.method + ' ' + url + ' disabled=' + btn.disabled); if (switchTo) state.PJ_CURRENT = switchTo; if (fetchFails) throw new Error('offline'); const ok = !refused && !status; return { ok, status: status || (refused ? 500 : 200), json: async () => ({ told: { state: verdict } }) }; },
     loadProjects: async () => { log.push('load live=' + box.__lastLive); state.PJ_READ_FAILED = readFails; return !overtaken; },
     paintOneProject: () => { log.push('paint live=' + box.__lastLive); },
-    paintAgentList: () => { log.push('rail paint'); },
+    paintRailPjNotice: () => { log.push('rail paint'); },
   };
   return state;
 }

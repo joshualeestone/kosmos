@@ -4369,6 +4369,14 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   html[data-layout="consolidated"] body.consolidated.fold-a { grid-template-columns: 48px minmax(0, 1fr); }
   html[data-layout="consolidated"] body.consolidated.fold-a .railhead#rail-agents { flex-direction: column; margin-left: 0; }
   html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents .railacts { flex-direction: column; }
+  /* #3948: the project notice sits in the Agents rail head (a body child of its own would overrun the 38
+     pre-rail rows), so the head wraps and the notice takes the whole line under the name and the +.
+     Folded, the rail is a 48px strip of letters with no room for a sentence, and a notice squeezed into it
+     reads as noise; it goes with the name. ⚠️ That also silences it while folded, the same as the rows'
+     names are silent there. Unfolding shows it again; it is not re-announced (its text has not changed). */
+  html[data-layout="consolidated"] body.consolidated .railhead#rail-agents { flex-wrap: wrap; }
+  html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn { flex: 0 0 100%; min-width: 0; }
+  html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents > .alist-pjn { display: none; }
   /* #980: SCOPED to the agents rail -- unscoped, folding agents also hid
      the PROJECTS label two columns over (Josh's "they jump around all over
      the place" family: a fold on one rail visibly rearranging the other). */
@@ -6952,9 +6960,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    the person must do. No bar down the left (Josh has ruled those out). #pj-one-notice is the live
    region and stays in the page, empty and unstyled, so a notice written into it is announced the
    first time too; the visible box is the .pnotice drawn inside it. */
-/* #3948: the rail's copy of the project notice (consolidated layout). Room around it only while it has
-   something to say; the region itself is never hidden (a live region must stay in the tree to be heard). */
-.alist-pjn:not(:empty) { padding: 8px 12px 4px; }
+/* #3948: the rail's copy of the project notice (consolidated layout). Room above it only while it has
+   something to say; the region itself is never hidden (a live region must stay in the tree to be heard).
+   Its place in the rail head is set with the consolidated rules (the head wraps, the notice takes a line). */
+.alist-pjn:not(:empty) { padding: 6px 0 2px; }
 .pnotice { display: flex; gap: 10px; align-items: flex-start; padding: 13px 15px; border-radius: 10px;
   background: var(--k-sunk, rgba(20,22,26,.05)); border: 1px solid var(--k-rule); margin: 0 0 12px; }
 .pn-b { flex: 1 1 auto; min-width: 0; }
@@ -16316,13 +16325,16 @@ window.kosmosMeasureScrollbarWidth();
   <span class="railacts">
     <button class="fold plus" type="button" id="rail-agents-new" aria-label="New agent" title="New agent">+</button>
   </span>
+  <!-- #3948: the consolidated layout hides the Members card (#3218), so #3923's project notice lives here too,
+       at the foot of the Agents rail head, straight above the list whose top group IS the open project's
+       members. Inside the head rather than a body child of its own because the consolidated grid's 38
+       pre-rail rows are full (web.consolidated-980.test.js), and inside the head it shares the head's row.
+       Painted by paintRailPjNotice only while a project is open in the consolidated layout, so one notice
+       speaks at a time. Never hidden itself: only its content comes and goes, so a screen reader hears it
+       arrive (the same rule as #pj-one-notice). -->
+  <div id="alist-pj-notice" class="alist-pjn" role="status" aria-live="polite"></div>
+  <div id="alist-pj-notice-said" class="vh" role="status" aria-live="polite"></div>
 </div>
-<!-- #3948: the consolidated layout hides the Members card (#3218), so #3923's project notice lives here too,
-     above the Agents list whose top group IS the open project's members. Painted by paintAgentList only
-     while a project is open in the consolidated layout, so one notice speaks at a time. Never hidden: only
-     its content comes and goes, so a screen reader hears it arrive (the same rule as #pj-one-notice). -->
-<div id="alist-pj-notice" class="alist-pjn" role="status" aria-live="polite"></div>
-<div id="alist-pj-notice-said" class="vh" role="status" aria-live="polite"></div>
 <div class="alist" id="alist" hidden></div>
 <!-- #520, piece three: the person, bottom left of the agents rail, in the
      consolidated view only. Their picture and name (the same You record
@@ -19589,6 +19601,19 @@ function openAddMemberModal() {
   if (sel) sel.focus();
 }
 
+/* #3948: the Agents rail's copy of the project notice, for the consolidated layout (which hides the
+   Members card and its #pj-one-notice). Called by paintAgentList (every poll and on opening a project)
+   and by showTab (a layout switch, including the resize re-check), so leaving the consolidated layout
+   empties it at once rather than at the next poll. Same roster as paintOneProject, so pjNotice's pruning
+   of the retry marks agrees between the two. */
+function paintRailPjNotice() {
+  const rn = document.getElementById('alist-pj-notice');
+  if (!rn) return;
+  const op = (document.body.classList.contains('consolidated') && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
+  setIfChanged(rn, op ? pjNotice(op.agents || [], op.id) : '');
+  const rs = document.getElementById('alist-pj-notice-said');
+  if (rs && rs.dataset.pj && (!op || rs.dataset.pj !== String(op.id))) { rs.textContent = ''; rs.dataset.pj = ''; }
+}
 /* #3218/#3387: paint the single Agents list (#alist) from the last board sample (LAST). Called by
    tick() every poll AND by pjMarkOpen() the instant a project opens or closes, so the grouping tracks
    PJ_CURRENT without a ~5s lag. In the CONSOLIDATED view with a project open, that project's agents
@@ -19608,13 +19633,7 @@ function paintAgentList() {
      same pjNotice from the same roster (p.agents) the tab layout paints, above this list; empty when no
      project is open or in the tab layout (its own notice speaks there). Before the empty-board return, so
      leaving the project always clears it. */
-  { const rn = document.getElementById('alist-pj-notice');
-    if (rn && typeof pjNotice === 'function') {
-      const op = (layoutConsolidated() && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
-      setIfChanged(rn, op ? pjNotice(op.agents || [], op.id) : '');
-      const rs = document.getElementById('alist-pj-notice-said');
-      if (rs && rs.dataset.pj && (!op || rs.dataset.pj !== String(op.id))) { rs.textContent = ''; rs.dataset.pj = ''; }
-    } }
+  paintRailPjNotice();
   if (!shown.length) { setAgentsGrouped(false); alist.innerHTML = boardEmpty(); return; }
   const openProj = (layoutConsolidated() && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
   const inProj = (openProj && Array.isArray(openProj.agents))
@@ -20548,6 +20567,8 @@ function showTab(tab) {
   document.getElementById('rail-agents').hidden = !cons;
   document.getElementById('rail-projects').hidden = !cons;
   document.getElementById('rail-me').hidden = !cons;
+  // #3948: the rail's project notice follows the layout now, not at the next poll.
+  if (typeof paintRailPjNotice === 'function') paintRailPjNotice();
   if (cons) {
     paintRailMe();
   }
@@ -53969,8 +53990,8 @@ async function pjNoticeRetryClick(e) {
   // A read that landed but FAILED (offline) paints no project view, so the row's mark would wait for
   // the connection to come back: paint it from the projects already loaded.
   if (PJ_READ_FAILED) paintOneProject();
-  // The rail's notice is painted by the Agents list, which otherwise waits for the next poll.
-  if (rail && typeof paintAgentList === 'function') paintAgentList();
+  // The rail's notice is otherwise painted at the next poll.
+  if (rail) paintRailPjNotice();
   // Success empties the row, which a screen reader does not announce: say it in words. Only on the
   // board's own "told" verdict: a retry that came back with a different reason may leave a row with
   // no button, which is not success. Said whether or not focus is put back below.
