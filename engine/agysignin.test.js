@@ -798,3 +798,35 @@ test('#3998 round 16: a terms Down that timed out is not sent again', () => {
     assert.deepEqual(st.sent, ['Down'], 'a second Down went out after a timeout');
   } finally { s.resetForTests(); }
 });
+
+/* ---- review round 17 --------------------------------------------------------------------- */
+test('#3998 round 17: the trust step counts only once its Enter went out (no done with trust unanswered)', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, '');
+  st.answer = { signedIn: true };
+  // Kosmos's own folder, but the marker is NOT on Yes: nothing is pressed.
+  st.screen = 'Accessing workspace:\n\n' + path.join(st.root, 'agy-signin') + '\n\nDo you trust the contents of this project?\n\n  Yes, I trust this folder\n> No, exit\n';
+  try {
+    s.start();
+    s.tickForTests();
+    st.screen = '';                    // a blank frame next
+    st.t += 1000; s.tickForTests(); await settle();
+    assert.equal(st.checks, 0, 'agy was asked with the trust question unanswered');
+    assert.notEqual(s.status().state, 'done');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 17: a sign-in that ends leaves a line in the log, and its window script is removed', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'Select login method:\n> 1. Google OAuth\n');
+  const lines = [];
+  const was = console.error;
+  console.error = (m) => lines.push(String(m));
+  try {
+    const { id } = s.start();
+    fs.writeFileSync(path.join(st.root, 'agy-signin', 'show-sign-in.command'), '#!/bin/sh\n');
+    s.stop(id);
+    assert.ok(lines.some((l) => /^agy sign-in: ended stopped/.test(l)), 'no log line for the end: ' + lines.join(' | '));
+    assert.equal(fs.existsSync(path.join(st.root, 'agy-signin', 'show-sign-in.command')), false, 'the window script was left behind');
+  } finally { console.error = was; s.resetForTests(); }
+});

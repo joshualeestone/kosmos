@@ -8001,8 +8001,7 @@ const server = http.createServer((req, res) => {
       }).catch(() => sendJson(res, 400, { ok: false, error: 'we could not read that request' }));
       return;
     }
-    req.resume();
-    sendJson(res, 404, { error: 'there is nothing at that address' });
+    // (every sub-address was answered above; an unknown one is refused 404 at the top)
     return;
   }
   /**

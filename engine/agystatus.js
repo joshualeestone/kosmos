@@ -102,7 +102,8 @@ function lastFile() {
   /* Two independent signs of a test (round 13; bulletin runtime-self-detection-is-version-dependent):
      execArgv's --test, which a runtime can stop reporting, and the test runner's own environment. */
   if (require('./live-execution').inTestProcess() || process.env.NODE_TEST_CONTEXT) return null;
-  return path.join(require('./store').ROOT, 'agy-signin', 'last.json');
+  // Its own folder (round 17), apart from the sign-in's throwaway workspace (<ROOT>/agy-signin).
+  return path.join(require('./store').ROOT, 'agy-account', 'last.json');
 }
 function remember(r) {
   if (!r || r.offered === false) return;   // "not offered here" says nothing about a sign-in

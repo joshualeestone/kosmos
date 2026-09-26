@@ -155,7 +155,7 @@ test('#3998: the last confident answer is remembered for the account row, and "c
 });
 
 test('#3998 review round 4: a test process never reads or writes the real board\'s remembered sign-in', () => {
-  const real = path.join(require('./store').ROOT, 'agy-signin', 'last.json');
+  const real = path.join(require('./store').ROOT, 'agy-account', 'last.json');
   const before = fs.existsSync(real) ? fs.readFileSync(real, 'utf8') : null;
   agystatus.setLastFileForTests(null);
   agystatus.remember({ installed: true, signedIn: true });

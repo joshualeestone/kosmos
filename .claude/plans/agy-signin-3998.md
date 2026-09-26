@@ -118,3 +118,10 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 - An unknown screen is asked about only after the trust question (the last setup screen) was answered (narrows round 14): a yes after theme or terms would end the sign-in with the setup unfinished, and the next agent would stop on the terms. The ready screen, agy exiting after a code, and the shown window still end it.
 - A terms Down marks the marker line before it is sent, so a Down that timed out is not sent again.
 - Left: a torn first frame of the trust screen (question drawn, folder not yet) goes stuck and stays shown; it fails safe and agy prints the path first.
+
+## Review round 17 (decided)
+- "No proof file" is not a finding at this stage: the proof is written when the loop converges.
+- One log line per sign-in end (state, reason, step) and when tmux keeps failing; never the code or the screen.
+- The trust step is set only after its Enter went out, so no ask (and no done) with the trust question unanswered.
+- The remembered sign-in lives in <ROOT>/agy-account/last.json, apart from the sign-in's throwaway workspace (<ROOT>/agy-signin), whose window script is removed when the sign-in ends.
+- The dead 404 after the sign-in routes is gone; NOT_CONFIRMED sits with UNKNOWN.

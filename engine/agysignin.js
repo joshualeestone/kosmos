@@ -41,6 +41,8 @@ const CODE_RETRY_MS = 20000;    // the code screen still showing this long after
    asks at most this many times, however long it sits on a screen Kosmos does not know. */
 const MAX_CHECKS = 3;
 const UNKNOWN = 'Antigravity is showing a step Kosmos does not recognise';
+// On agy's own ready screen the honest reason is that the sign-in could not be confirmed, not a strange step.
+const NOT_CONFIRMED = 'Kosmos could not confirm the sign-in with Antigravity just now';
 /* The steps after the person's code went in: only from here can agy be signed in, so only from here is
    it asked (a signed-out agy asked "are you signed in" may open a second Google page). */
 const AFTER_CODE = Object.freeze(['code-sent', 'theme', 'terms', 'trust']);
@@ -132,13 +134,19 @@ function screen() {
 }
 function keys(...k) { tmux(['send-keys', '-t', SESSION].concat(k)); }
 
+/* One line per sign-in that ends, and per failure at the tmux/open boundary (round 17): a stuck sign-in
+   on someone's Mac must leave something to read besides a state name. Never the code or the screen. */
+function logLine(what) { try { console.error('agy sign-in: ' + what); } catch { /* nothing to log to */ } }
 function end(state, because) {
   if (!S) return;
   if (S.timer) clearInterval(S.timer);
   S.timer = null;
   S.state = state;
   S.because = because || null;
+  logLine('ended ' + state + (because ? ' (' + because + ')' : '') + ' at step ' + (S.step || 'none'));
   try { tmux(['kill-session', '-t', SESSION]); } catch { /* already gone */ }
+  // The throwaway window script goes with the session (the remembered sign-in lives elsewhere, agystatus).
+  try { fs.rmSync(path.join(S.folder, 'show-sign-in.command'), { force: true }); } catch { /* none */ }
 }
 
 /* The Google sign-in address agy prints under "If not:"; wrapped lines are joined by -J. */
@@ -190,7 +198,10 @@ function tick() {
     const unknownDelivery = !!e && (e.code === 'ETIMEDOUT' || !!e.signal);
     if (!unknownDelivery) { mine.pressed = false; mine.downFrom = null; }
     mine.keyFailures = (mine.keyFailures || 0) + 1;
-    if (mine.keyFailures >= MAX_KEY_FAILURES) { mine.state = 'stuck'; mine.because = 'Kosmos could not reach Antigravity\'s sign-in just now'; }
+    if (mine.keyFailures >= MAX_KEY_FAILURES) {
+      mine.state = 'stuck'; mine.because = 'Kosmos could not reach Antigravity\'s sign-in just now';
+      logLine('tmux kept failing (' + ((e && (e.code || e.message)) || 'unknown') + ')');
+    }
   }
 }
 function step() {
@@ -287,8 +298,9 @@ function step() {
       if (S.state !== 'stuck') { S.state = 'stuck'; S.because = 'Antigravity asked to trust a folder Kosmos did not choose, so Kosmos left that question to you'; }
       return;
     }
-    S.state = 'setup'; S.step = 'trust'; S.because = null;
-    if (/^>\s*Yes\b/.test(markedLine(text)) && !S.pressed) { S.pressed = true; keys('Enter'); }
+    S.state = 'setup'; S.because = null;
+    // The step becomes 'trust' only once its Enter went out (round 17): asking agy (and so a done) waits for it.
+    if (/^>\s*Yes\b/.test(markedLine(text)) && !S.pressed) { S.pressed = true; keys('Enter'); S.step = 'trust'; }
     S.lastSeen = now();
     return;
   }
@@ -375,8 +387,6 @@ function readyCheck(text) {
     if (S === mine && mine.timer) { mine.state = 'stuck'; mine.because = UNKNOWN; }   // round 13: shown, not left stale
   });
 }
-// On agy's own ready screen the honest reason is that the sign-in could not be confirmed, not a strange step.
-const NOT_CONFIRMED = 'Kosmos could not confirm the sign-in with Antigravity just now';
 
 /** Start a sign-in (ending any earlier one). */
 function start() {
