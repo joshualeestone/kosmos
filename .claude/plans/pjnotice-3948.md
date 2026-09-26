@@ -16,8 +16,9 @@ Try again, straight above the consolidated Agents list, and a screen reader anno
    roster as paintOneProject; called by paintAgentList, loadProjects, showTab and the retry handler.
    It clears the rail's success line on a project switch or leaving the layout.
 4. The Try again listener is one named handler `pjNoticeRetryClick` on both notices; the rail branch
-   repaints the rail, writes the rail's success line, and falls back to focusing the rail's name
-   ("Project Members") when no row is left.
+   repaints the rail, writes the rail's success line, and falls back to focusing the rail's name when
+   no row is left ("Project Members" while the members head the list; "Agents" on an empty board or
+   after a failed status read, which still names the rail).
 
 ## Tests
 - web.project-notice-3923.test.js: harness re-anchored to the named handler; rail arm (repaint,
