@@ -324,6 +324,8 @@ function write(patch) {
 
 /** Enrolled means setup finished: the state dir holds the identity and the
     certificate. Half a state dir is not enrolled. */
+/* mac_key is deliberately not listed: enrolled() asks whether the Mac can serve,
+   halfRegistered() whether it holds a key the coordinator knows (#3827). */
 function enrolled() {
   const dir = STATE_DIR();
   return ['mac_id', 'address', 'tls.crt', 'tls.key'].every((f) =>

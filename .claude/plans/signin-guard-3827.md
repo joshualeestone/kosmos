@@ -47,3 +47,9 @@ Weakest premise: Forget can now take up to the register bound (60s) when a regis
 ## Round 6 review (sonnet)
 - WARNING fixed: busy() is now the first statement of signinRegister (it ran after the session and name checks).
 - WARNING open: tests for the forgetting branch on setupComplete and the four signin steps; a test for clearHalfIdentity's failed-retire log.
+
+## Round 6 review (opus)
+- WARNING: busy() first in signinRegister. Fixed in 0ffc60806.
+- WARNING: the `forgetting` branch was untested. Test: with a registered Mac and a hung retire, a Forget in progress refuses start, verify, second, enrol, confirm, register and the Settings setup with "being forgotten" (no register out, so only that branch can refuse). Control (busy() ignores forgetting) fails.
+- WARNING: clearHalfIdentity's failed-retire log was untested. Test: a killed register leaves a half identity, the retire hangs past its bound, the line is logged and the new register still succeeds. Control (log removed) fails.
+- NIT: enrolled() now says why mac_key is not listed.
