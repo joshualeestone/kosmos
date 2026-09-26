@@ -26430,6 +26430,7 @@ let ORG_LIVE = null;   // { nodes: Map key -> node, hub, size, raf, alpha }
 let ORG_DRAG_MOVED = false;   // the last pointer sequence on the map was a drag, not a click (#381)
 let ORG_POS = new Map(); // last positions by key, so a repaint does not snap back
 let ORG_SIZE = 0;        // the canvas ORG_POS was measured on (#718: a new width rescales them)
+let ORG_VIEW_W = 0;      // the chart box's width at the last paint (#718: keeps a scrolled chart's centre)
 let ORG_HTML = null;         // the repaint guard's memory
 
 function orgTreeOf(agents) {
@@ -26597,16 +26598,32 @@ function paintOrg() {
   /* Positions kept from a canvas of another size (a phone turned sideways, a
      scrollbar coming and going) are in that canvas's frame: carry them across
      in proportion rather than restarting from the rings. */
+  const f = ORG_SIZE > 0 ? size / ORG_SIZE : 1;
   if (ORG_SIZE !== size) {
-    if (ORG_SIZE > 0) { const f = size / ORG_SIZE; for (const p of ORG_POS.values()) { p.x *= f; p.y *= f; } }
+    if (ORG_SIZE > 0) for (const p of ORG_POS.values()) { p.x *= f; p.y *= f; }
     ORG_SIZE = size;
   }
   // #718: wider than its box even at the floor: the box scrolls (.orgscroll) and
   // touch must pan it (.orgwide). The first time, it opens centred on the hub.
   const wide = size > wrap.clientWidth;
-  const centreScroll = wide && !wrap.classList.contains('orgscroll');
+  /* Where the box should be scrolled to after this paint: centred the first time
+     it scrolls; after that, the point that was in the middle of the box stays in
+     the middle when the width changes again (a phone turned while scrolled). */
+  const wasWide = wrap.classList.contains('orgscroll');
+  const scrollTo = !wide ? null : !wasWide ? (size - wrap.clientWidth) / 2
+    : (wrap.scrollLeft + ORG_VIEW_W / 2) * f - wrap.clientWidth / 2;
+  ORG_VIEW_W = wrap.clientWidth;
   wrap.classList.toggle('orgscroll', wide);
-  document.getElementById('orgmap').classList.toggle('orgwide', wide);
+  const orgmapEl = document.getElementById('orgmap');
+  orgmapEl.classList.toggle('orgwide', wide);
+  /* Here, before the repaint guard below: at the squeeze floor a narrower box
+     paints the same chart, the guard skips the rest, and the scroll would never
+     move. The chart takes its size first so the scroll is set against it. */
+  if (scrollTo !== null) {
+    orgmapEl.style.width = size + 'px';
+    orgmapEl.style.height = size + 'px';
+    wrap.scrollLeft = Math.round(scrollTo);
+  }
   /**
    * 🔑 CENTRED ON THE DRAWING, NOT ON THE HUB, and this is the change that does
    * most of the work for "too wide". The hub was pinned to the middle of the
@@ -26776,7 +26793,6 @@ function paintOrg() {
   const map = document.getElementById('orgmap');
   map.style.width = size + 'px';
   map.style.height = size + 'px';
-  if (centreScroll) wrap.scrollLeft = Math.round((size - wrap.clientWidth) / 2);
   map.innerHTML = html;
   ORG_HTML = html;
   if (hadName) {
@@ -26946,13 +26962,18 @@ document.getElementById('orgmap').addEventListener('click', (e) => {
    Registered by name, not as an arrow: web.consolidated-breakpoint.test.js finds
    the layout resize handler as the only arrow-form resize listener. */
 let ORG_RESIZE_W = 0;
+let ORG_RESIZE_RAF = 0;   // one repaint per frame while a window edge is being dragged
 function orgResizeRepaint() {
-  const wrap = document.getElementById('orgview');
-  if (!wrap || wrap.hidden) return;
-  const w = wrap.clientWidth;
-  if (w === ORG_RESIZE_W) return;
-  ORG_RESIZE_W = w;
-  paintOrg();
+  if (ORG_RESIZE_RAF) return;
+  ORG_RESIZE_RAF = requestAnimationFrame(() => {
+    ORG_RESIZE_RAF = 0;
+    const wrap = document.getElementById('orgview');
+    if (!wrap || wrap.hidden) return;
+    const w = wrap.clientWidth;
+    if (w === ORG_RESIZE_W) return;
+    ORG_RESIZE_W = w;
+    paintOrg();
+  });
 }
 window.addEventListener('resize', orgResizeRepaint);
 

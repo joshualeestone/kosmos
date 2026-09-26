@@ -29,7 +29,8 @@
  * The deep-fleet swipe arm reds when the chart keeps touch-action: none while
  * wider than its box (scrollLeft does not move). The "does not clip" arms red when
  * the box scrolls for every chart; the deep "held at the top edge" arm reds without the
- * scrolling box's top padding; and the centred arm reds without the centring.
+ * scrolling box's top padding; the centred arm reds without the centring; the narrowed
+ * arm reds when the old scroll offset is kept across a width change.
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -202,6 +203,15 @@ function measure(page) {
         const opened = await page.evaluate(() => document.getElementById('orgview').scrollLeft);
         const mid = Math.round((box.scrollW - box.clientW) / 2);
         chk(Math.abs(opened - mid) <= 2, `${tag} the chart opens centred on the hub, not scrolled to its left edge`, `scrollLeft ${opened}, centre ${mid}`);
+        // Narrowed while it scrolls (a phone turned, a smaller phone): the point in the middle
+        // of the box stays in the middle, rather than the old scroll offset being kept as is.
+        {
+          await page.setViewportSize({ width: 360, height: 667 });
+          await page.waitForTimeout(600);
+          const r = await page.evaluate(() => { const w = document.getElementById('orgview'); return { left: w.scrollLeft, scrollW: w.scrollWidth, clientW: w.clientWidth }; });
+          const c = Math.round((r.scrollW - r.clientW) / 2);
+          chk(r.clientW < box.clientW && Math.abs(r.left - c) <= 2, `${tag} narrowed to 360, the chart stays centred in its box`, `box ${box.clientW} -> ${r.clientW}px, scrollLeft ${r.left}, centre ${c}`);
+        }
         // The scrolling box clips vertically too. The worst case for a callout is a node held
         // at the top of the drag box: drag the topmost node up past it (mouse, so the drag is
         // not given over to a pan) and measure while it is still held there.

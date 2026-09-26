@@ -83,3 +83,13 @@ and a phone has no hover: a tap opens the agent. Changing that is a design call 
   measured as non-discriminating, and removed; the rescale is pinned by the unit test only.
 - An empty board clears both classes.
 - Fixed 75/75 (Chromium + WebKit). Controls: always-on scroller (5 fails), no top padding (1), no centring (1).
+
+## Challenge loop, iteration 4
+- Resize repaints are coalesced to one per animation frame (a window edge being dragged fired a full paintOrg
+  per resize event).
+- A chart already scrolling keeps the point in the middle of its box in the middle when the width changes
+  again. The scroll is set before the repaint guard: at the squeeze floor a narrower box paints the same chart,
+  so the guard returned before the old scroll line ever ran (the first version of this fix failed its own check
+  for exactly that reason). New arm: narrowed 375 -> 360 while scrolling; control keeping the old offset fails.
+- Not done: a tabindex on the scrolling box. Tabbing to a node already scrolls it into view.
+- Fixed 77/77 (Chromium + WebKit).
