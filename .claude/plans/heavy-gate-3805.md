@@ -12,8 +12,11 @@ hold: no reservation (who-has-the-box's answer), and no REAL `tools/release.sh` 
 candidate with the reason it counts or does not. Each case on the card has a test with a control.
 
 ## What counts, and what does not
-- **Counts:** a shell running the script (`bash|sh|zsh` as the command, the script path as its
-  first argument), with a cwd outside the exclusions below.
+- **Counts:** a shell running the script (`bash|sh|zsh` as the command, and a word ending in
+  `tools/release.sh` or `tools/browser-checks.sh`, or a bare name as the first argument after the
+  shell's options), with a cwd outside the exclusions below. `-c` and `-n` are not runs.
+- **Cannot read the process table** (`ps` fails, or lists no pid 1): exit 2, do not start. An empty
+  table would otherwise read exactly like "nothing running".
 - **Does not count:**
   - A shell that only mentions the name: a watcher loop, `bash -c echo ...`, grep. This was m828's
     correction to pgrep -f.

@@ -238,7 +238,9 @@ test('--except-cwd with a missing or non-existent directory is an error, never a
   assert.equal(run([], { args: ['--except-cwd', ''] }).code, 2);
   assert.equal(run([], { args: ['--except-cwd', '/no/such/dir-3805'] }).code, 2);
   /* A folder that is not a checkout (a parent passed by mistake) would rule out every run below it. */
-  const notCheckout = run([realRun(os.homedir() + '/work/kosmos')], { args: ['--except-cwd', os.homedir()] });
+  const plain = fs.mkdtempSync('/tmp/hg-plain-');
+  const notCheckout = run([realRun(plain + '/kosmos')], { args: ['--except-cwd', plain] });
+  fs.rmSync(plain, { recursive: true, force: true });
   assert.equal(notCheckout.code, 2, notCheckout.out);
   assert.match(notCheckout.out, /needs a checkout/);
   assert.equal(run([], { args: ['--bogus'] }).code, 2);
@@ -295,6 +297,19 @@ test('the sandbox under /tmp (TMPDIR unset) is a fixture too, and only kt plus d
   assert.equal(run([['703', '/private/var/folders/ab/T/kt9release/x', 'bash tools/release.sh 0.6.9', 'zsh']]).code, 1);
 });
 
+test('a kt<digits> folder directly under this shell\'s own TMPDIR is a fixture (controls: kt77x, a sibling folder)', () => {
+  const env = { TMPDIR: '/Users/x/scratch/' };
+  const r = run([['801', '/Users/x/scratch/kt77/y', 'bash tools/release.sh', 'zsh']], { env });
+  assert.equal(r.code, 0, r.out);
+  assert.equal(run([['802', '/Users/x/scratch/kt77x/y', 'bash tools/release.sh', 'zsh']], { env }).code, 1);
+  assert.equal(run([['803', '/Users/x/other/kt77/y', 'bash tools/release.sh', 'zsh']], { env }).code, 1);
+});
+
+test('bash -n (a syntax check) is not a run (control: the same without -n is)', () => {
+  assert.equal(run([['851', WORK, 'bash -n tools/release.sh', 'zsh']]).code, 0);
+  assert.equal(run([['852', WORK, 'bash tools/release.sh', 'zsh']]).code, 1);
+});
+
 test('a KOSMOS_HG_TWICE_SECONDS that is not whole seconds is exit 2, never a quick double read (control: 0 is fine)', () => {
   const r = run([], { args: ['--twice'], env: { KOSMOS_HG_TWICE_SECONDS: 'abc' } });
   assert.equal(r.code, 2, r.out);
@@ -333,6 +348,7 @@ test('the LIVE scan (ps, lsof, the ancestor walk) through a fake ps and lsof on 
   /* table: pid, ppid, cwd, command (tab-separated), read by the fakes below */
   fs.writeFileSync(path.join(bin, 'ps'), `#!/bin/bash
 T="$FAKE_PS_TABLE"
+if [ -n "\${FAKE_PS_FAIL:-}" ]; then echo "ps: Operation not permitted" >&2; exit 1; fi
 if [ "$*" = "-axo pid=,command=" ]; then awk -F'\t' '{ print $1 " " $4 }' "$T"; exit 0; fi
 field=""; pid=""
 while [ $# -gt 0 ]; do case "$1" in -o) field="$2"; shift 2 ;; -p) pid="$2"; shift 2 ;; *) shift ;; esac; done
@@ -352,16 +368,22 @@ cwd="$(awk -F'\t' -v p="$pid" '$1 == p { print $3 }' "$FAKE_PS_TABLE")"
 printf 'p%s\nfcwd\nn%s\n' "$pid" "$cwd"
 `, { mode: 0o755 });
   const rows = [
+    ['1', '0', '/', '/sbin/launchd'],
     ['900', '1', '/', 'zsh'],
     ['901', '900', WORK, 'bash tools/release.sh 0.6.9'],
     ['910', '1', WORK, 'node --test x.test.js'],
     ['911', '910', WORK, 'bash tools/browser-checks.sh'],
     ['920', '900', WORK, 'zsh -c echo tools/release.sh'],
+    /* three hops below the runner: node, run-tests.sh, a wrapper shell, the script */
+    ['930', '1', WORK, 'node --test y.test.js'],
+    ['931', '930', WORK, 'bash tools/run-tests.sh'],
+    ['932', '931', WORK, 'sh -c x'],
+    ['933', '932', WORK, 'bash tools/release.sh 0.6.9'],
   ];
-  const live = (table) => {
+  const live = (table, extra = {}) => {
     const f = path.join(dir, 'table.tsv');
     fs.writeFileSync(f, table.map((r) => r.join('\t')).join('\n') + '\n');
-    const env = { ...process.env, PATH: bin + ':' + process.env.PATH, FAKE_PS_TABLE: f, KOSMOS_HG_CLAIM: FREE };
+    const env = { ...process.env, PATH: bin + ':' + process.env.PATH, FAKE_PS_TABLE: f, KOSMOS_HG_CLAIM: FREE, ...extra };
     delete env.KOSMOS_HG_SNAPSHOT;
     const r = spawnSync('bash', [TOOL], { encoding: 'utf8', env });
     return { code: r.status, out: r.stdout + r.stderr };
@@ -371,8 +393,14 @@ printf 'p%s\nfcwd\nn%s\n' "$pid" "$cwd"
   assert.match(r.out, new RegExp('COUNTS 901: a real run \\(' + WORK));
   assert.match(r.out, /ignore 911: a unit-test fixture \(node --test ancestor\)/);
   assert.match(r.out, /ignore 920: mentions/);
+  assert.match(r.out, /ignore 933: a unit-test fixture \(node --test ancestor\)/);
   const without = live(rows.filter((row) => row[0] !== '901'));
   assert.equal(without.code, 0, without.out);
+  /* A table that cannot be read must never read as "nothing running". */
+  const failed = live(rows, { FAKE_PS_FAIL: '1' });
+  assert.equal(failed.code, 2, failed.out);
+  assert.match(failed.out, /could not read the process table/);
+  assert.equal(live([]).code, 2, 'an empty table (no pid 1) is do-not-start');
 });
 
 test('smoke: against the live Mac it gives an answer (0 or 1), never a usage error', () => {
