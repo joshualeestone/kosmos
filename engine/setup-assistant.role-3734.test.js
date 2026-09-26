@@ -59,6 +59,20 @@ test('#3734 a guide whose instructions the person reworded is left alone', () =>
 const BORN_3034 = ['# You are Josh', '', '## Who you are', '', ...roles.WHO_YOU_ARE_LINES_BEFORE_3947, '', '## How you work', '',
   '- Answer the question they asked, briefly, then offer the one next step.', ''].join('\n');
 
+test('#3947 the paragraph refreshGuideRole looks for is the text guides were actually born with', () => {
+  // A literal copy of what instructionsFor('setup') wrote from 1f47aa227 (#3666) until #3947, the only form it ever
+  // had. The fixtures below are built from the constant, so without this a typo in it would pass them all and
+  // migrate no real guide.
+  assert.equal(roles.WHO_YOU_ARE_LINES_BEFORE_3947.join('\n'), [
+    'You speak as the builder: "I built Kosmos, let me help you get set up." You',
+    'know why each part is there, and you enjoy showing it. But you are an AI,',
+    'not Josh typing live, and you say so the first time you talk to someone and',
+    'whenever they seem to think otherwise. Never claim to be the real person,',
+    'never promise that Josh will read something or get back to them, and never',
+    'speak for him on anything beyond how Kosmos works.',
+  ].join('\n'));
+});
+
 test('#3947 an existing guide\'s first-answer AI note paragraph is replaced once, and nothing else moves', () => {
   const file = seed('guidec', BORN_3034);
   assert.deepEqual(sa.refreshGuideRole({ name: 'guidec', isGuide: () => true }), { changed: true });
@@ -68,7 +82,7 @@ test('#3947 an existing guide\'s first-answer AI note paragraph is replaced once
   assert.deepEqual(sa.refreshGuideRole({ name: 'guidec', isGuide: () => true }), { changed: false }, 'a second run changed it again');
 });
 
-test('#3947 a guide born before #3734 gets both paragraphs replaced in one write', () => {
+test('#3947 a guide born before #3734 gets both paragraphs replaced', () => {
   const both = BEFORE.replace('## How you work', ['## Who you are', '', ...roles.WHO_YOU_ARE_LINES_BEFORE_3947, '', '## How you work'].join('\n'));
   const file = seed('guided', both);
   assert.deepEqual(sa.refreshGuideRole({ name: 'guided', isGuide: () => true }), { changed: true });
@@ -77,6 +91,7 @@ test('#3947 a guide born before #3734 gets both paragraphs replaced in one write
   assert.doesNotMatch(after, /you say so the first time you talk to someone/);
   assert.ok(after.includes(roles.WHO_YOU_ARE_LINES.join('\n')));
   assert.ok(after.includes(roles.MAKE_AGENTS_LINES.join('\n')));
+  assert.ok(after.includes(roles.HANDS_OFF_LINES.join('\n')), 'settings stopped being hands-off');
 });
 
 test('#3947 a guide whose "Who you are" paragraph the person reworded is left alone', () => {

@@ -22,10 +22,8 @@
  *   i want to use my avatar and play off the fact that I built it and will help
  *   them." The first version (#3153) read the 09-14 note ("give it my avatar")
  *   as the USER'S picture and name; his 09-24 ruling settles it the other way. So
- *   the guide is GUIDE_NAME, carries GUIDE_TAG so nobody mistakes it for him
- *   typing live, and wears the bundled picture at GUIDE_AVATAR_BASE when one is
- *   shipped (no picture -> the initials avatar; never fatal). The role's own text
- *   (engine/roles.js, `setup`) says the same, so the words and the face agree.
+ *   the guide is GUIDE_NAME and wears the bundled picture at GUIDE_AVATAR_BASE
+ *   when one is shipped (no picture -> the initials avatar; never fatal).
  *   A saved user name is therefore no longer needed to seed.
  * - MODEL/ACCOUNT = the first connected model, on ITS provider (Claude, OpenAI,
  *   Gemini, Grok, in that order; a named account by its dir, a default as none),
@@ -54,9 +52,7 @@ const create = require('./create');
 
 const SETUP_ROLE_KEY = 'setup';
 
-/* The guide's name, and the words that say it is an AI (#3034, Josh 2026-09-24).
-   GUIDE_TAG is for every surface that shows the guide's name, so the label
-   travels with it; the role's label says the same. */
+/* The guide's name, and its short AI tag (#3034, Josh 2026-09-24), used in the guide's purpose line below. */
 const GUIDE_NAME = 'Josh';
 const GUIDE_TAG = require('./roles').GUIDE_TAG;
 /* Tried only when GUIDE_NAME is taken (Josh running his own build most likely has an

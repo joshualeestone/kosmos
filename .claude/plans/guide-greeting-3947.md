@@ -23,6 +23,11 @@ Card: joshualeestone/kosmos#3947 (Josh, #admin, 2026-09-26 07:41 CDT).
   claims the opening line is built from it.
 - Windows: builds from this same repo and serves the same `web/index.html` and `engine/roles.js`; no second copy.
 
+- "whenever they seem to think otherwise" dropped deliberately: Josh, same message, "I dont really care if people
+  think its a live person or not". Honest-when-asked-directly kept (the card's own line).
+- The HOSTED guide (before a model is connected) runs on kosmos-relay `coordinator/prompts/setup-assistant.md`, a second
+  copy of the rule; it gets the same change on relay branch guide-greeting-3947 (separate PR, relay deploy).
+
 ## Rejected
 - Serving the greeting to the page from the engine (a new API field): more surface than a pinned literal for one line.
 - Leaving existing guides alone: the reported behaviour is from an existing guide, so the fix would not reach Josh.
