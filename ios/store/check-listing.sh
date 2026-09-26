@@ -31,6 +31,8 @@ check promo 170 chars
 check description 4000 chars
 check keywords 100 bytes
 
+if [ -z "$(field copyright)" ]; then echo "FAIL  copyright: missing or empty"; fail=1; else echo "ok    copyright: $(field copyright)"; fi
+
 kw="$(field keywords)"
 case "$kw" in *", "*) echo "FAIL  keywords: a space after a comma wastes a byte"; fail=1;; esac
 

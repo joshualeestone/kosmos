@@ -40,7 +40,7 @@ missing = [s for s in srcs.values() if not os.path.exists(s)]
 if missing:
     sys.exit('missing shots, nothing filed: ' + ', '.join(os.path.basename(m) for m in missing))
 # Flatten every shot into a staging folder first; the committed set is touched
-# only once all of them were written, so a failure part way leaves it as it was.
+# only once all of them were written.
 stage = os.path.join(raw, 'filed')
 for theme in themes:
     os.makedirs(os.path.join(stage, theme))
