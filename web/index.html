@@ -13720,9 +13720,10 @@ window.kosmosMeasureScrollbarWidth();
 <div class="pjcard pjcard-members">
       <!-- Josh, 2026-09-10 (#2711 item 14): the column heading is just
            "Members" now. "Project members" restated the page it sits on. -->
-      <h3 class="dlab">Members</h3>
-      <!-- #3923: the project notice, painted by pjNotice() only while something is wrong. -->
+      <!-- #3923: the project notice, painted by pjNotice() only while something is wrong. Above
+           the heading, so the heading stays immediately before the list it names. -->
       <div id="pj-one-notice" class="pnotice" role="status" hidden></div>
+      <h3 class="dlab">Members</h3>
       <div id="pj-one-agents" class="pj-members"></div>
       <!-- ⚠️ The picker hides behind the button, not the other way round: the
            resting state of the box is the members, and "+ Add Member" (the
