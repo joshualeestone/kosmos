@@ -24,7 +24,7 @@ function fakeChild() {
   return c;
 }
 
-function harness({ enrolled = true, edges = null, exists = () => true, gate = null } = {}) {
+function harness({ enrolled = true, edges = null, exists = () => true, gate = null, createdAt = () => undefined } = {}) {
   const spawned = [];
   const recorded = [];
   const statuses = [];
@@ -42,6 +42,7 @@ function harness({ enrolled = true, edges = null, exists = () => true, gate = nu
     onStatus: (projectId, status) => statuses.push([projectId, status]),
     enrolled: () => enrolled,
     projectExists: (projectId) => exists(projectId),
+    projectCreatedAt: (projectId) => createdAt(projectId),
     note: (projectId, text) => notes.push({ projectId, text }),
   });
   return h;
@@ -614,4 +615,57 @@ test('a padded sender name is charged for what is kept, not its raw length', asy
   assert.strictEqual(h.recorded.length, 10, 'a padded name spent the room budget: ' + h.recorded.length + ' of 10 kept');
   assert.strictEqual(h.notes.length, 0);
   assert.strictEqual(h.recorded[0].from.length, 80);
+});
+
+// #3851: a link names its project by id, and ids are reused.
+test('#3851: a link left by an earlier project of the same id gives the new project no seat, and is dropped', async () => {
+  const orig = console.error;
+  console.error = () => {};
+  try {
+    federation.recordLink('proj-reused', { role: 'member', edge_id: 'edge-old', project_created: '2026-09-01T00:00:00.000Z' });
+    const h = harness({ createdAt: () => '2026-09-26T00:00:00.000Z' });
+    // Before any check runs, a post already treats the room as local: no seat, and
+    // no "stayed on this computer" note, which a room read as shared would get.
+    assert.strictEqual(fedseats.linkFor('proj-reused'), null, 'the stale link was seen');
+    assert.strictEqual(fedseats.post('proj-reused', { from: 'Josh', kind: 'person', text: 'private' }), false);
+    assert.strictEqual(h.notes.length, 0, 'the room was treated as shared: ' + JSON.stringify(h.notes));
+    await fedseats.ensure('proj-reused');
+    assert.strictEqual(h.spawned.length, 0, 'a seat started for a project nobody joined');
+    assert.strictEqual(federation.linkFor('proj-reused'), null, 'the stale link was kept');
+  } finally {
+    console.error = orig;
+  }
+});
+
+test('#3851: CONTROL: a link stamped for this very project still gets its seat', async () => {
+  federation.recordLink('proj-same', { role: 'member', edge_id: 'edge-same', project_created: '2026-09-26T00:00:00.000Z' });
+  const h = harness({ createdAt: () => '2026-09-26T00:00:00.000Z' });
+  await fedseats.ensure('proj-same');
+  assert.strictEqual(h.spawned.length, 1);
+  assert.ok(federation.linkFor('proj-same'));
+});
+
+test('#3851: a link from before the stamp is stamped on first sight and keeps its seat', async () => {
+  federation.recordLink('proj-legacy', { role: 'member', edge_id: 'edge-legacy' });
+  const h = harness({ createdAt: () => '2026-09-20T00:00:00.000Z' });
+  await fedseats.ensure('proj-legacy');
+  assert.strictEqual(h.spawned.length, 1);
+  assert.strictEqual(federation.linkFor('proj-legacy').project_created, '2026-09-20T00:00:00.000Z');
+});
+
+test('#3851: a project whose createdAt cannot be read decides nothing', async () => {
+  federation.recordLink('proj-unknown', { role: 'member', edge_id: 'edge-unknown', project_created: '2026-09-01T00:00:00.000Z' });
+  const h = harness({ createdAt: () => undefined });
+  await fedseats.ensure('proj-unknown');
+  assert.strictEqual(h.spawned.length, 1);
+  assert.strictEqual(federation.linkFor('proj-unknown').project_created, '2026-09-01T00:00:00.000Z');
+});
+
+test('#3851: a legacy link is stamped with the createdAt the check was made on, read once', async () => {
+  federation.recordLink('proj-once', { role: 'member', edge_id: 'edge-once' });
+  let reads = 0;
+  const h = harness({ createdAt: () => { reads += 1; return reads === 1 ? '2026-09-21T00:00:00.000Z' : undefined; } });
+  await fedseats.ensure('proj-once');
+  assert.strictEqual(federation.linkFor('proj-once').project_created, '2026-09-21T00:00:00.000Z', 'the stamp came from a second read');
+  assert.strictEqual(h.spawned.length, 1);
 });
