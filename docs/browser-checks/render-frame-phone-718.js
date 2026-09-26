@@ -19,6 +19,8 @@
  *   - Project settings' back link ("← <span>name</span>") keeps the space between the arrow
  *     and the name (a flex container drops the literal space; the rule's column-gap replaces it);
  *   - the page is no wider than the screen;
+ *   - the switcher's and You's menus open with a gap under their grown buttons (the menus hang
+ *     from the 32px wrappers, so they drop by the button's extra 6px);
  *   - the header is no taller than the same page with the old sizes put back (the grown
  *     boxes are cancelled by negative margins, so the row keeps its height);
  *   - at the rule's edge the phone sizes apply at 640px and the old ones hold at 641px;
@@ -37,6 +39,7 @@
  * With the rule at 41rem instead of 40rem, the 641px edge arm reds (mark 44x44).
  * Without the back link's min-width, the one-character label arm reds (10.9px wide).
  * Without the back link's column-gap, Project settings' arrow and name touch (gap 0) and reds.
+ * Without the menus' extra 6px, the switcher's and You's menus touch their buttons (0px) and red.
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -199,6 +202,17 @@ async function projectsArm(page, tag, w) {
           const before = await headH();
           await tagEl.evaluate((n) => n.remove());
           chk(now <= before, `${tag} the header is no taller than with the old sizes`, `${now}px now, ${before}px old`);
+          // The switcher's and You's menus hang from their 32px wrappers; the grown buttons reach 6px
+          // below, so the menus must drop to keep a gap under the button, not touch it.
+          for (const [btnSel, menuSel, name] of [['#worldsw-btn', '#worldsw-menu', 'the Kosmos switcher'], ['#userpop-btn', '#userpop-menu', 'You']]) {
+            await page.tap(btnSel).catch(() => {});
+            const g = await page.waitForSelector(menuSel, { state: 'visible', timeout: 3000 }).then(() => page.evaluate(([b, m]) => {
+              return Math.round((document.querySelector(m).getBoundingClientRect().top - document.querySelector(b).getBoundingClientRect().bottom) * 10) / 10;
+            }, [btnSel, menuSel]), () => null);
+            chk(g !== null && g >= 4, `${tag} ${name}'s menu opens with a gap under the button`, g === null ? 'the menu did not open' : `${g}px`);
+            await page.keyboard.press('Escape');
+            await page.waitForTimeout(150);
+          }
           await projectsArm(page, tag, w);
           // The back links, on the agent page and on the create page.
           for (const [go, sel, name] of [
@@ -217,6 +231,7 @@ async function projectsArm(page, tag, w) {
               // Project settings' back link is "← <span>name</span>": the arrow and the name keep a
               // space's width apart (a flex container drops the literal space).
               const gap = await page.evaluate(() => {
+                if (typeof pjView !== 'function') return { error: 'pjView missing (renamed? re-anchor this arm)' };
                 document.getElementById('pj-settings-backname').textContent = 'Kosmos';
                 pjView('settings');
                 const b = document.getElementById('pj-settings-back');
@@ -227,7 +242,7 @@ async function projectsArm(page, tag, w) {
                 const out = { gap: arrow ? Math.round((name.left - arrow.right) * 10) / 10 : null, h: Math.round(r.height * 10) / 10 };
                 pjView('add');
                 return out;
-              });
+              }).catch((e) => ({ error: String(e && e.message || e).split('\n')[0] }));
               chk(gap.gap !== null && gap.gap >= 3 && gap.h >= 44, `${tag} Project settings' back link keeps the space between the arrow and the name, and is 44 tall`, JSON.stringify(gap));
 
               // Three back links carry a project or task name; the shortest label must still be 44 wide.
@@ -252,7 +267,7 @@ async function projectsArm(page, tag, w) {
           const [back] = await measure(page, [{ sel: '#create-back', name: 'the create page\'s "All agents"' }]);
           const ok = phone ? (mark.w >= 44 && mark.h >= 44 && grid.w >= 44 && grid.h >= 44 && back.h >= 44)
             : (mark.w === 34 && mark.h === 34 && grid.w === 38 && grid.h === 30 && back.h < 44);
-          chk(!mark.missing && !grid.missing && ok, `${tag} ${phone ? 'the phone sizes apply' : 'the old sizes hold'} at the rule's edge`,
+          chk(!mark.missing && !grid.missing && !back.missing && ok, `${tag} ${phone ? 'the phone sizes apply' : 'the old sizes hold'} at the rule's edge`,
             `mark ${mark.w}x${mark.h}, grid toggle ${grid.w}x${grid.h}, back link ${back.w}x${back.h}`);
           await ctx.close();
         }
