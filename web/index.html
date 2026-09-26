@@ -21059,6 +21059,10 @@ function agyAsk() {
         const cur = id === 'd-provider' && typeof CURRENT !== 'undefined' && CURRENT ? providerOf(CURRENT) : '';
         paintAgyOption(sel, cur);
       }
+      // The first-run Gemini row names the subscription only where it is offered (review round 9).
+      const tag = document.querySelector && document.querySelector('#fr-gemini-connect');
+      const small = tag && tag.parentElement && tag.parentElement.querySelector('.llm-w small');
+      if (small) small.innerHTML = keyedSubReady('google') ? 'Google &middot; subscription or API key today' : 'Google &middot; API key today';
     });
   return AGY_ASKING;   // review round 6: the caller awaits this read
 }
@@ -24708,13 +24712,14 @@ function frKeyedShowPick(which) {
   /* #3568 (review round 4): the choice can now come BEFORE any download (Gemini's subscription does
      not need the Gemini CLI), so "Download complete." is said only when one happened. */
   const head = frK(which, 'pick-t');
-  if (head) head.textContent = (FR_KEYED_KEY_NEEDS_INSTALL[which] ? '' : 'Download complete. ') + 'Choose how to connect ' + KEYED_FULL_NAME[which] + '.';
+  if (head) head.textContent = (FR_KEYED_DOWNLOADED[which] ? 'Download complete. ' : '') + 'Choose how to connect ' + KEYED_FULL_NAME[which] + '.';
   frK(which, 'pick').hidden = false;
   frK(which, 'pick-sub').focus();
 }
 /* #3568: set when a provider's choice was shown before its terminal agent was installed (Gemini,
    whose subscription does not need it): "Use an API key" installs it first. */
 const FR_KEYED_KEY_NEEDS_INSTALL = { google: false, xai: false };
+const FR_KEYED_DOWNLOADED = { google: false, xai: false };   // a download finished in this opening (review round 9)
 function frKeyedChoose(which, how) {
   const msg = frK(which, 'msg'); if (msg) msg.textContent = '';
   if (how === 'key' && FR_KEYED_KEY_NEEDS_INSTALL[which]) {
@@ -24754,6 +24759,7 @@ async function frKeyedConnect(which) {
   if (mine !== FR_KEYED_GEN) return;
   if (which === 'google') { await agyAsk(); if (mine !== FR_KEYED_GEN) return; }   // is the subscription offered here?
   FR_KEYED_KEY_NEEDS_INSTALL[which] = false;
+  FR_KEYED_DOWNLOADED[which] = false;
   if (info && info.present) { frKeyedShowPick(which); return; }
   /* #3568 (review round 1): Gemini's subscription runs on Antigravity, not the Gemini CLI, so the
      choice comes first and the Gemini CLI is downloaded only for "Use an API key". A download already
@@ -24786,6 +24792,7 @@ async function frKeyedConfirm(which) {
   if (!alive()) return;
   bar.hidden = true;
   if (!ok) { go.disabled = false; return; }
+  FR_KEYED_DOWNLOADED[which] = true;
   msg.textContent = '';
   /* The install ran for "Use an API key" (#3568): go on to the key, not back to the choice. */
   if (FR_KEYED_KEY_NEEDS_INSTALL[which]) {
