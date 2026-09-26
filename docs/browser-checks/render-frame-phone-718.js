@@ -8,7 +8,9 @@
  * each now has a 44x44 box. This drives the REAL page from the REAL server and reads:
  *   - at the four harness phone sizes, every frame control that is showing is at least
  *     44x44, and every one of them is showing (a hidden one fails, so a renamed or moved control cannot pass
- *     by vanishing), with both back links;
+ *     by vanishing), with the back links on the agent page, the create page and the Add a
+ *     project page (the .back rule reaches every back link; that one stands for the project
+ *     pages' four and the Files view's);
  *   - no two of them overlap (a grown box must not take its neighbour's taps);
  *   - the page is no wider than the screen;
  *   - the header is no taller than the same page with the old sizes put back (the grown
@@ -17,7 +19,7 @@
  *
  * Controls, measured (Chromium and WebKit, all four sizes): on main's page every size arm
  * reds (the mark 34x34, the switcher and You 32 tall, the menu 40x40, the toggles 38x30, the
- * create page's back link 15 tall) except the agent page's back link, which main already
+ * create page's and the Add a project page's back links 15 tall) except the agent page's back link, which main already
  * makes 44px tall on a phone (the Talk section's own rule); the other arms stay green there.
  * Without the negative margins the header arm reds (99px against 83 at 375, 87 at the rest).
  *
@@ -162,6 +164,8 @@ async function home(page, url) {
           for (const [go, sel, name] of [
             [() => page.locator('.acard[data-agent="ada"] .namego').first().tap(), '#detail-back', 'the agent page\'s "All agents"'],
             [() => page.evaluate(() => showTab('create')), '#create-back', 'the create page\'s "All agents"'],
+            // The same .back rule reaches the project pages' back links; one stands for them.
+            [() => page.evaluate(() => { showTab('projects'); openAddProject(); }), '#pj-add-back', 'the Add a project page\'s "All projects"'],
           ]) {
             await home(page, URL);
             await go();
@@ -181,11 +185,12 @@ async function home(page, url) {
           await home(page, URL);
           const rows = await measure(page, HOME.filter((c) => c.sel !== '#burger'));
           const want = { '#klink': [34, 34], '#worldsw-btn': [null, 32], '#userpop-btn': [null, 32] };
-          const got = rows.filter((c) => c.shown).map((c) => {
+          // Every control shows at desktop too, so a missing one fails rather than being skipped.
+          const got = rows.map((c) => {
             const exp = want[c.sel] || (c.sel.includes('.vt') ? [38, 30] : null);
-            return { name: c.name, w: c.w, h: c.h, ok: !exp || ((exp[0] === null || c.w === exp[0]) && c.h === exp[1]) };
+            return { name: c.name, w: c.w, h: c.h, ok: !c.missing && c.shown && (!exp || ((exp[0] === null || c.w === exp[0]) && c.h === exp[1])) };
           });
-          chk(got.length >= 4 && got.every((x) => x.ok), `${tag} every frame control keeps its desktop size`, JSON.stringify(got));
+          chk(got.length === 6 && got.every((x) => x.ok), `${tag} every frame control shows and keeps its desktop size`, JSON.stringify(got));
           await ctx.close();
         }
       } finally {

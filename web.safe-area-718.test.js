@@ -17,9 +17,10 @@
  * ⚠️ COMMENTS ARE STRIPPED before the rules are read, for the same reason: the
  * comment shows `var(--safe-bottom)` as an example and must not count as a
  * frame that pads.
- * ⚠️ WEAKEST PART: "the frame" is `body` or a `.apphead` rule. Padding that
- * lands on some other wrapper is correct and would read red here; widen FRAME
- * rather than delete the test.
+ * ⚠️ WEAKEST PART: "the frame" is `body` or a `.apphead` rule (not a descendant of
+ * either). Padding that lands on some other wrapper is correct and would read red
+ * here; widen FRAME rather than delete the test. A padding value it does not know
+ * (a calc() around the inset, say) also reads red; widen INSET for that.
  */
 
 const test = require('node:test');
@@ -29,7 +30,13 @@ const nodePath = require('node:path');
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 const SIDES = ['top', 'right', 'bottom', 'left'];
-const FRAME = /^(body|\.apphead)(\b|$)/;
+// The frame itself: `body` or `.apphead`, optionally narrowed (`body.consolidated`,
+// `.apphead:hover`), never a descendant (`.apphead .burger` pads a child, not the frame).
+const FRAME = /^(body|\.apphead)([.:#\[][^\s>+~]*)?$/;
+// A side's inset as a padding value: the variable, with or without a fallback
+// (`var(--safe-bottom, 0px)` is the house form), or the raw env() it stands for.
+const INSET = (side) => `(var\\(--safe-${side}(\\s*,[^)]*)?\\)|env\\(safe-area-inset-${side}[^)]*\\))`;
+const STRIP = /var\(--safe-(top|right|bottom|left)(\s*,[^)]*)?\)|env\(safe-area-inset-(top|right|bottom|left)[^)]*\)/g;
 
 function viewportContent(page) {
   const m = page.match(/<meta\s+name="viewport"\s+content="([^"]*)"/);
@@ -51,10 +58,10 @@ function frameRules(page) {
 function unpaddedSides(page) {
   const vp = viewportContent(page);
   if (vp === null) return ['no viewport meta'];
-  if (!/viewport-fit\s*=\s*cover/.test(vp)) return [];
+  if (!/viewport-fit\s*=\s*cover/i.test(vp)) return [];
   const decls = frameRules(page).join(';');
   return SIDES.filter((side) => !new RegExp(
-    `padding(-${side})?\\s*:[^;]*var\\(--safe-${side}\\)`).test(decls));
+    `padding(-${side})?\\s*:[^;]*${INSET(side)}`).test(decls));
 }
 
 test('the four inset variables exist and read the real inset', () => {
@@ -75,7 +82,7 @@ test('control: cover without frame padding goes red, on all four sides', () => {
   /* Only red if the shipped page has no frame padding yet. Once someone ships
      the padding this arm would go green for the right reason, so strip it
      first and keep the control aimed at the arm under test. */
-  const bare = opted.replace(/var\(--safe-(top|right|bottom|left)\)/g, '0px');
+  const bare = opted.replace(STRIP, '0px');
   assert.deepEqual(unpaddedSides(bare), SIDES);
 });
 
@@ -91,9 +98,22 @@ test('control: cover WITH frame padding goes green, and one missing side is name
 
 test('control: padding that only appears in a comment or off the frame does not count', () => {
   const opted = PAGE.replace(/(<meta\s+name="viewport"\s+content=")([^"]*)"/, '$1$2, viewport-fit=cover"');
-  const bare = opted.replace(/var\(--safe-(top|right|bottom|left)\)/g, '0px');
+  const bare = opted.replace(STRIP, '0px');
   const fake = bare.replace('</style>',
     '/* body { padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left); } */\n'
     + '.cinput { padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left); }\n</style>');
   assert.deepEqual(unpaddedSides(fake), SIDES);
+});
+
+test('control: the house fallback form and raw env() count; a descendant of the frame does not; Cover in any case', () => {
+  const opted = PAGE.replace(/(<meta\s+name="viewport"\s+content=")([^"]*)"/, '$1$2, viewport-fit=cover"');
+  const bare = opted.replace(STRIP, '0px');
+  const fallback = bare.replace('</style>',
+    'body { padding: var(--safe-top, 0px) var(--safe-right,0px) env(safe-area-inset-bottom) var(--safe-left , 0px); }\n</style>');
+  assert.deepEqual(unpaddedSides(fallback), []);
+  const child = bare.replace('</style>',
+    '.apphead .burger { padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left); }\n</style>');
+  assert.deepEqual(unpaddedSides(child), SIDES);
+  const upper = PAGE.replace(/(<meta\s+name="viewport"\s+content=")([^"]*)"/, '$1$2, viewport-fit=Cover"').replace(STRIP, '0px');
+  assert.deepEqual(unpaddedSides(upper), SIDES);
 });
