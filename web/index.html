@@ -19589,6 +19589,9 @@ async function tick() {
          second find() for the same card is the one-fact-two-derivations habit
          this file keeps paying for. */
       paintBusy(fresh, CURRENT.name);
+      /* #3958: the pill follows the poll too, off the same `fresh` card. No card this poll (the
+         agent is gone or unread) keeps the last reading rather than guessing. */
+      if (fresh) paintDetailState(fresh);
       /* #3614: the Files list, on the same tab-and-panel gate as the Talk poll above. */
       if (!document.hidden && !document.getElementById('panel-detail').hidden) paintAgentFiles(CURRENT.sessionName);
       /* The same tab gate as the poll above, for the same reason: this is a
@@ -29764,6 +29767,65 @@ document.getElementById('d-files-finder') && document.getElementById('d-files-fi
   paintAgentFiles(who);   // with the stamp reset this also repaints the Files screen, which is showing
 });
 
+/**
+ * #3958: the agent page's status pill (#d-state) and its short engine-state line (#d-task).
+ *
+ * Josh, 2026-09-26: the pill said Idle while the same page's DM said "is working…", and the
+ * dots did not animate after idle -> working. Both were one defect: this used to be painted
+ * only by openDetail, so the pill froze at whatever state the agent had when the page opened,
+ * while the DM line followed every poll. Now openDetail AND the poll call it, and the poll
+ * passes the same `fresh` card it hands paintBusy and swarmPagePaint, so the pill, the DM
+ * line's dots and the card's green all read one sample.
+ */
+function paintDetailState(a) {
+  const copy = stateCopyOf(a);
+  /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
+     class, `GLYPH` the mark, `stateCopyOf` the word (the shared wrapper over
+     STATE_COPY that also names a restarting cause, #2019). A card and its detail page
+     disagreeing about an agent's state is worse than either being wrong. */
+  const dm = cardStOf(a);
+  const dst = document.getElementById('d-state');
+  if (!dst) return;
+  dst.className = 'detail-state astate st-' + dm.st;
+  /* #3958: WRITTEN ONLY WHEN IT CHANGED, for the reason paintBusy gives (#3421): the poll calls
+     this every five seconds, and rewriting the pill would rebuild its working dots and restart
+     them each time. Keyed on the markup itself, held in a data attribute, because innerHTML
+     reads back reserialized and would never compare equal. */
+  const pillHtml = glyphOf(a) + '<b>' + esc(copy.label) + '</b>';
+  if (dst.dataset.pillKey !== pillHtml) {
+    dst.innerHTML = pillHtml;
+    dst.dataset.pillKey = pillHtml;
+  }
+  /* #3729 (Josh, 2026-09-25): there is no "its reports and its screen disagree" line here, or on
+     the card, any more. The slot is gone, not hidden, so nothing can be written into it. */
+  /* ⚠️ HIDDEN WHEN THERE IS NO TASK. Beside a badge that already says Idle,
+     a task line would restate the badge; this panel shows nothing rather than
+     that. Since #209 the card, too, shows nothing here rather than a frozen
+     title, so the two surfaces no longer diverge on what "no task" looks like. */
+  /* #3043 (Josh, 2026-09-14) then #3271 (Josh, 2026-09-18): the agent's own self-reported
+     sentence no longer prints beside the status bubble in the header. Josh, on the agent view:
+     "I only want to show the status bubble ... it prints out really long stuff that I don't
+     need. I just need to know if it's idle, or if it's working, or if it needs something." So
+     the reported quote is dropped from this line. #3043 had relocated it to a #d-why note below
+     the name; #3271 removed that note entirely (Josh: no status line up there), so the reported
+     reason now shows on no header line at all. The SHORT engine-state reassurances stay here
+     (restarting "Nothing was lost" #2019, auth #874, rate-limit #215): those are not the long
+     self-reported text Josh flagged, and
+     dropping them would silently undo those prior rulings.
+     (#2833 still holds: needs_you hides its quote here, and the Talk waiting box carries it.)
+     taskLine / stateReason are UNCHANGED, so the grid/list cards that share them are unaffected.
+     🔑 The mechanism is the SAME derivation the grid/list cards already use -- taskLine with
+     { noQuote: true }. That path falls through stateReason's reported branch (returning '' for a
+     reported self-quote) while KEEPING the engine-state sentences (auth/rate-limit/restart), which
+     is exactly what this line wants. Delegating rather than re-deriving the "is this the reported
+     quote" test inline keeps the header and the cards from ever disagreeing about what drops beside
+     the bubble (one fact, one derivation), and the noQuote behavior is already unit-tested. */
+  const dtask = document.getElementById('d-task');
+  if (!dtask) return;
+  dtask.textContent = taskLine(a, { noQuote: true });
+  dtask.hidden = !dtask.textContent || (a.state === 'needs_you');
+}
+
 function openDetail(sessionName, section, fromProject) {
   // #3050: opening ANY agent - INCLUDING one no longer in LAST (removed while its
   // Update reload was in flight), which is why this precedes the `if (!a) return`
@@ -29938,42 +30000,7 @@ function openDetail(sessionName, section, fromProject) {
   // flex column with gap:4px, so an empty-but-shown #d-meta would still take a slot and
   // double the gap between the name and the status badge (#3385 iteration-9).
   dmeta.hidden = metaBits.length === 0;
-  const copy = stateCopyOf(a);
-  /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
-     class, `GLYPH` the mark, `stateCopyOf` the word (the shared wrapper over
-     STATE_COPY that also names a restarting cause, #2019). A card and its detail page
-     disagreeing about an agent's state is worse than either being wrong. */
-  const dm = cardStOf(a);
-  const dst = document.getElementById('d-state');
-  dst.className = 'detail-state astate st-' + dm.st;
-  dst.innerHTML = glyphOf(a) + '<b>' + esc(copy.label) + '</b>';
-  /* #3729 (Josh, 2026-09-25): there is no "its reports and its screen disagree" line here, or on
-     the card, any more. The slot is gone, not hidden, so nothing can be written into it. */
-  /* ⚠️ HIDDEN WHEN THERE IS NO TASK. Beside a badge that already says Idle,
-     a task line would restate the badge; this panel shows nothing rather than
-     that. Since #209 the card, too, shows nothing here rather than a frozen
-     title, so the two surfaces no longer diverge on what "no task" looks like. */
-  /* #3043 (Josh, 2026-09-14) then #3271 (Josh, 2026-09-18): the agent's own self-reported
-     sentence no longer prints beside the status bubble in the header. Josh, on the agent view:
-     "I only want to show the status bubble ... it prints out really long stuff that I don't
-     need. I just need to know if it's idle, or if it's working, or if it needs something." So
-     the reported quote is dropped from this line. #3043 had relocated it to a #d-why note below
-     the name; #3271 removed that note entirely (Josh: no status line up there), so the reported
-     reason now shows on no header line at all. The SHORT engine-state reassurances stay here
-     (restarting "Nothing was lost" #2019, auth #874, rate-limit #215): those are not the long
-     self-reported text Josh flagged, and
-     dropping them would silently undo those prior rulings.
-     (#2833 still holds: needs_you hides its quote here, and the Talk waiting box carries it.)
-     taskLine / stateReason are UNCHANGED, so the grid/list cards that share them are unaffected.
-     🔑 The mechanism is the SAME derivation the grid/list cards already use -- taskLine with
-     { noQuote: true }. That path falls through stateReason's reported branch (returning '' for a
-     reported self-quote) while KEEPING the engine-state sentences (auth/rate-limit/restart), which
-     is exactly what this line wants. Delegating rather than re-deriving the "is this the reported
-     quote" test inline keeps the header and the cards from ever disagreeing about what drops beside
-     the bubble (one fact, one derivation), and the noQuote behavior is already unit-tested. */
-  const dtask = document.getElementById('d-task');
-  dtask.textContent = taskLine(a, { noQuote: true });
-  dtask.hidden = !dtask.textContent || (a.state === 'needs_you');
+  paintDetailState(a);
   /* The lede names the AGENT rather than saying "this agent", which is the
      pack's wording and the same substitution the rest of this panel already
      makes. `textContent`, so a name is never markup.
