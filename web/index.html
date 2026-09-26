@@ -30113,7 +30113,8 @@ function detailGo(section, opts) {
   const shownFor = CURRENT;
   if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => {
     if (!CURRENT || CURRENT !== shownFor) return;
-    renderAvatarSwarmOnly(LAST.find((x) => x && x.sessionName === CURRENT.sessionName) || CURRENT);
+    const fresh = LAST.find((x) => x && x.sessionName === CURRENT.sessionName);
+    if (fresh) renderAvatarSwarmOnly(fresh);
   });
 }
 /* #718: the height a phone can actually see, for the chat-first layout (the 40rem
