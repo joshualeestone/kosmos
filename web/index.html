@@ -9287,9 +9287,8 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      they come before the notes, so they sit at the top of the capped block, on screen. The helper
      and daily-limit sliders stay on Profile. */
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox ~ .swbox { display: none; }
-  /* Stop now acts at once, so what it does stays visible, in two lines. */
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel #d-swarm-stop-hint { display: -webkit-box; -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; margin: 4px 0 0; }
+  /* Stop now acts at once, so its explanation stays visible in full (it says work is dropped). */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel #d-swarm-stop-hint { margin: 4px 0 0; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel { gap: 0; margin-top: 4px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox { padding: 4px 8px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox .swlab { position: absolute; width: 1px; height: 1px;
@@ -9348,10 +9347,12 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      answer, which on iOS raises no keyboard; a narrow desktop window) leaves the header alone.
      Known edge: a narrow desktop window made 150px+ shorter at the same width reads as a keyboard.
      Accepted trade: hidden this way they are also out of the accessibility tree until focus
-     leaves the composer. Searching keeps its own row and sets the composer aside instead, since
+     leaves the composer. The phone-pairing card (#askcard) steps aside too, and is back the moment
+     the keyboard closes. Searching keeps its own row and sets the composer aside instead, since
      the person is reading results, not writing. */
   /* Lines begin `html.kosmos-keyboard-up body`, not `body:has(`: the stylesheet guard in
      server.test.js reads a line beginning `body:has(` as a stray `prop: value`. */
+  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send, #d-emoji-btn, #d-emoji button):focus, #d-talk-search:focus):has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #askcard,
   html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send, #d-emoji-btn, #d-emoji button):focus, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
   html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send, #d-emoji-btn, #d-emoji button):focus, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) .dleft,
   html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send, #d-emoji-btn, #d-emoji button):focus, #d-talk-search:focus) #d-talk-box #d-talk-older,
@@ -30155,12 +30156,14 @@ function detailGo(section, opts) {
      that shows up as window.scrollY, and only while typing in the phone chat with the keyboard up
      (not on a pinch zoom), so a tall header menu's own scroll is left alone. A pan that shows up only as visualViewport.offsetTop is NOT
      handled: unobserved (no iOS simulator on this Mac), on Johnny's simulator checklist. */
+  // The controls that count as typing; the CSS block's :is(...) list is the same, pinned by render-dm-chatfirst-718.
+  const KOSMOS_TYPING_SELECTOR = '#d-say, #d-send, #d-emoji-btn, #d-emoji button';
   // Same breakpoint as the CSS block "#718 CHAT FIRST ON A PHONE"; change both together.
   const PHONE_WIDTH = window.matchMedia('(max-width: 40rem)');
   viewport.addEventListener('resize', () => {
     write();
     const talk = document.getElementById('d-sec-talk');
-    const typing = document.activeElement && document.activeElement.matches && document.activeElement.matches('#d-say, #d-send, #d-emoji-btn, #d-emoji button, #d-talk-search');
+    const typing = document.activeElement && document.activeElement.matches && document.activeElement.matches(KOSMOS_TYPING_SELECTOR + ', #d-talk-search');
     const keyboardUp = document.documentElement.classList.contains('kosmos-keyboard-up');
     if (PHONE_WIDTH.matches && talk && !talk.hidden && typing && keyboardUp && window.scrollY) window.scrollTo(0, 0);
   });
