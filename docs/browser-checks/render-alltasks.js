@@ -271,18 +271,17 @@ const say = (n, cond, note) => {
     /* Read once the view's own read has come back (it knows Beta is archived); the arrival paint
        before it draws from the previous read, when Beta was not archived yet. */
     await p.waitForFunction(() => (TSK.data || []).some((t) => t.projectArchived), null, { timeout: 8000 }).catch(() => {});
-    /* #3949: the All projects count is on the dropdown's first option, "All projects (N)". */
-    const allCount = () => Number((document.querySelector('#tsk-projsel option[value=""]').textContent.match(/\((\d+)\)$/) || [])[1]);
-    const railAllBefore = await p.evaluate(allCount);
+    /* #3949, Mona's design review: "All projects" carries no count (next to "N open tasks across M projects" it
+       read as a number of projects), so it has no number that could disagree with its destination (#1346).
+       Picking it from an archived door shows every open task outside archived projects. */
     await p.selectOption('#tsk-projsel', '');
     await p.waitForTimeout(200);
     const railAllAfter = await p.evaluate(() => ({
-      badge: Number((document.querySelector('#tsk-projsel option[value=""]').textContent.match(/\((\d+)\)$/) || [])[1]),
+      label: document.querySelector('#tsk-projsel option[value=""]').textContent,
       openRows: Number((document.getElementById('tsk-sub').textContent.match(/^(\d+) open/) || [])[1]),
     }));
-    /* #1346 on the picker: while scoped to an archived project, "All projects" counts what picking it shows. */
-    say('the dropdown\'s All projects count agrees with its destination, even from an archived door',
-      railAllBefore === railAllAfter.badge && railAllAfter.badge === railAllAfter.openRows, JSON.stringify({ railAllBefore, ...railAllAfter }));
+    say('the dropdown\'s All projects option carries no number, and picking it from an archived door shows the open tasks',
+      railAllAfter.label === 'All projects' && railAllAfter.openRows > 0, JSON.stringify(railAllAfter));
     const setAside = await p.evaluate((id) => [...document.querySelectorAll('#tsk-groups .tsk-row')].filter((r) => r.dataset.key.startsWith(id + '#')).length, made[1]);
     say('on All tasks the archived project is set aside again', setAside === 0, String(setAside));
     /* And the All-tasks picker leaves it out too (Beta is archived now; Alpha is not). */

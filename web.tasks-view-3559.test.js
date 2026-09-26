@@ -111,7 +111,7 @@ test('#3949 the layout: no Projects rail, search beside the count, Project and C
   // Group by and Sort are dropdowns under the tiles.
   const under = body.slice(at(/id="tsk-under"/));
   assert.ok(at(/id="tsk-under"/) > at(/id="tsk-tiles"/), 'Group by and Sort are not under the tiles');
-  assert.match(under, /<label class="tsk-cl" for="tsk-by">Group by<\/label><select class="tsk-sel" id="tsk-by">/);
+  assert.match(under, /<label class="tsk-cl" for="tsk-by">Group by:<\/label><select class="tsk-sel" id="tsk-by">/);
   assert.match(under, /id="tsk-sort"/);
   // The dropdowns drive the view.
   assert.match(SCRIPT, /if \(e\.target\.id === 'tsk-win'\) \{ TSK\.win = Number\(e\.target\.value\) \|\| 0; tskPaint\(\); return; \}/);

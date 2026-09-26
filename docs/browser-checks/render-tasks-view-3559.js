@@ -132,6 +132,11 @@ function chk(ok, label, extra) {
       underBelow: rect('tsk-by').top >= rect('tsk-tiles').bottom && rect('tsk-sort').top >= rect('tsk-tiles').bottom,
       underRow: Math.abs(rect('tsk-by').top - rect('tsk-sort').top) < 4,
       createdLabel: (document.querySelector('label[for="tsk-win"]') || {}).textContent || '',
+      /* Mona's design review of #3949: the four labels in Josh's own form, not letter-spaced capitals. */
+      labels: [...panel.querySelectorAll('.tsk-cl')].map((l) => l.textContent),
+      labelCase: getComputedStyle(panel.querySelector('.tsk-cl')).textTransform,
+      allOption: (document.querySelector('#tsk-projsel option[value=""]') || {}).textContent || '',
+      nobodyChips: document.querySelectorAll('#tsk-groups .tsk-who.nobody').length,
       searchW: Math.round(document.getElementById('tsk-search').getBoundingClientRect().width),
       mainW: Math.round(document.querySelector('.tsk-main').getBoundingClientRect().width),
     };
@@ -196,6 +201,9 @@ function chk(ok, label, extra) {
       chk(a.foldCount === EXPECT.closed, `${tag} the Completed fold counts the closed tasks`, JSON.stringify({ fold: a.foldCount, expect: EXPECT.closed }));
       chk(!a.rail && a.selShown, `${tag} no left Projects column; the project dropdown is there`, JSON.stringify({ rail: a.rail, sel: a.selShown }));
       chk(!a.hint, `${tag} the tile hint is gone`);
+      chk(JSON.stringify(a.labels) === JSON.stringify(['Project:', 'Created:', 'Group by:', 'Sort:']) && a.labelCase === 'none', `${tag} the labels read as Josh wrote Created:, not in capitals`, JSON.stringify({ labels: a.labels, c: a.labelCase }));
+      chk(a.allOption === 'All projects', `${tag} All projects carries no count (it read as a number of projects)`, JSON.stringify(a.allOption));
+      chk(a.nobodyChips === 0, `${tag} grouped by status, the Unassigned rows carry no Nobody yet chip (the heading says it)`, String(a.nobodyChips));
       /* On a phone-width window each pair may wrap onto two lines; above it they share one (Josh: "the same line"). */
       /* The pairs wrap only by flex-wrap (no breakpoint): measured at 390 each pair wraps, at 760 each fits, so 480
          splits the widths this check drives and asserts nothing about widths it does not. */
@@ -313,6 +321,8 @@ function chk(ok, label, extra) {
         const byProj = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row')].map((r) => ({ t: r.querySelector('.tl').textContent, s: (r.querySelector('.tsk-state') || {}).textContent || '' })));
         const dateP = byProj.find((r) => r.t === 'Pick the launch date');
         chk(dateP && /In progress/.test(dateP.s), `${tag} grouped by project, each row carries its state`, JSON.stringify(dateP));
+        const podP = await page.evaluate(() => { const r = [...document.querySelectorAll('#tsk-groups .tsk-row')].find((x) => x.querySelector('.tl').textContent === 'Book the podcast tour'); return r ? !!r.querySelector('.tsk-who.nobody') : null; });
+        chk(podP === true, `${tag} grouped by project (states mixed), an unassigned row keeps its Nobody yet chip`, String(podP));
         await page.selectOption('#tsk-by', 'status');
         /* Bulk close two tasks with a note. */
         await page.check('#tsk-groups input[data-key="' + news.id + '#2"]');

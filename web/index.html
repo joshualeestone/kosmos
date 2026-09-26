@@ -3389,7 +3389,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .tsk-ctrls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 14px 0 4px; }
 #tsk-under { margin: 12px 0 4px; }
 .tsk-ctl { display: flex; align-items: center; }
-.tsk-cl { font: 650 .6875rem var(--font-ui); letter-spacing: .1em; text-transform: uppercase; color: var(--k-ink-2); margin-right: 6px; white-space: nowrap; }
+.tsk-cl { font: 600 .875rem var(--font-ui); color: var(--k-ink-2); margin-right: 6px; white-space: nowrap; }
 .tsk-search { position: relative; margin: 16px 0 0; max-width: 520px; }
 .tsk-search svg { position: absolute; left: 11px; top: 50%; width: 16px; height: 16px; margin-top: -8px; color: var(--k-ink-2); pointer-events: none; }
 .tsk-search input { width: 100%; box-sizing: border-box; font: .9375rem var(--font-ui); height: 38px; padding: 0 34px 0 36px; border-radius: 10px;
@@ -14612,13 +14612,13 @@ window.kosmosMeasureScrollbarWidth();
       <p class="tsk-sub" id="tsk-sub"></p>
       </div>
       <div class="tsk-ctrls" id="tsk-filters">
-        <div class="tsk-ctl"><label class="tsk-cl" for="tsk-projsel">Project</label><select class="tsk-sel" id="tsk-projsel"></select></div>
+        <div class="tsk-ctl"><label class="tsk-cl" for="tsk-projsel">Project:</label><select class="tsk-sel" id="tsk-projsel"></select></div>
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-win">Created:</label><select class="tsk-sel" id="tsk-win"></select></div>
       </div>
       <div class="tsk-tiles" id="tsk-tiles"></div>
       <div class="tsk-ctrls" id="tsk-under">
-        <div class="tsk-ctl"><label class="tsk-cl" for="tsk-by">Group by</label><select class="tsk-sel" id="tsk-by"></select></div>
-        <div class="tsk-ctl"><label class="tsk-cl" for="tsk-sort">Sort</label><select class="tsk-sel" id="tsk-sort">
+        <div class="tsk-ctl"><label class="tsk-cl" for="tsk-by">Group by:</label><select class="tsk-sel" id="tsk-by"></select></div>
+        <div class="tsk-ctl"><label class="tsk-cl" for="tsk-sort">Sort:</label><select class="tsk-sel" id="tsk-sort">
           <option value="new">Newest first</option><option value="stale">Quietest first</option><option value="old">Oldest first</option>
         </select></div>
       </div>
@@ -45337,7 +45337,9 @@ function tskRow(t, at) {
   const who = (t.whoNames || []);
   const whoHtml = who.length
     ? who.map((w) => '<button type="button" class="tsk-who" data-agent="' + esc(w) + '">' + esc(tskAgentName(w)) + '</button>').join('')
-    : '<span class="tsk-who nobody">Nobody yet</span>';
+    /* Mona's design review of #3949: inside the Unassigned group the heading already says it; a project
+       grouping mixes states, so the chip stays there. */
+    : TSK.by !== 'project' && t.state === 'nobody' ? '' : '<span class="tsk-who nobody">Nobody yet</span>';
   /* The claim could not be read: say WHY on the row, so "Assigned but not started" is never read
      as a fact about a task we simply could not check. */
   /* Mona's look review of #3701: in Josh's words, and short. The field says only that the agent
@@ -45445,12 +45447,13 @@ function tskPaint() {
   const projectsList = [...projMap.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
   /* "All tasks" counts what clicking it shows: every task but an archived project's, even while a
      door has us scoped to that archived project (#1346: a count agrees with its destination). */
-  const openAll = tskVisible(TSK.data, null).filter((t) => t.state !== 'closed').length;
   /* #3949: the project picker is this dropdown at every width (the left rail is gone). Each option keeps
      the rail's open count, so it still agrees with what picking it shows (#1346). */
   const sel = document.getElementById('tsk-projsel');
   if (sel) {
-    tskOptions(sel, '<option value="">All projects (' + openAll + ')</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(p.name) + ' (' + p.open + ')</option>').join(''), TSK.proj || '');
+    /* Mona's design review: a count here sat under "N open tasks across M projects" and read as a number
+       of projects. The count stays on each project's own option. */
+    tskOptions(sel, '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(p.name) + ' (' + p.open + ')</option>').join(''), TSK.proj || '');
   }
   const picked = TSK.proj ? projMap.get(TSK.proj) : null;
   document.getElementById('tsk-title').textContent = picked ? picked.name : 'All tasks';
