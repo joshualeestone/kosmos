@@ -138,7 +138,7 @@ function chk(ok, label, extra) {
       chk(pack.labs.every((x) => !x.over), `[${theme}] every four-pack label sits on one line, no truncation`, JSON.stringify(pack.labs));
 
       // The mouseover preview actually applies (Josh approved it 2026-09-24): a resting tile takes
-      // the rule border and no wash; on hover the border becomes the gold edge and a faint warm
+      // the rule border and no wash; on hover the border becomes the bright gold (#4051) and a faint warm
       // wash appears. Asserting both CHANGE (not their exact rgb) guards the rule from being
       // dropped or mis-scoped without pinning a brittle colour string. Pointer parked afterward so
       // it does not perturb the pill measurements below.
@@ -148,6 +148,22 @@ function chk(ok, label, extra) {
       await page.waitForTimeout(150);
       const hov = await page.evaluate((s) => { const cs = getComputedStyle(document.querySelector(s)); return { bc: cs.borderTopColor, bg: cs.backgroundColor }; }, hoverSel);
       chk(hov.bc !== rest.bc && hov.bg !== rest.bg, `[${theme}] hovering a four-pack tile applies the warm preview (border and wash both change)`, JSON.stringify({ rest, hov }));
+      // #4051 (Josh, 2026-09-26): the hover and selected outlines are the bright gold of the Post
+      // button, not the brown. Compared to the Post button's own computed fill on this page, so it
+      // follows the token rather than a colour string; the resting tile is the control (not gold).
+      const gold = await page.evaluate(() => {
+        const post = document.getElementById('d-send');
+        const on = document.querySelector('#d-nav button.on');
+        const rgb = (c) => (c.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+        const lum = (c) => { const [r, g, b] = rgb(c).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+        // For the record only (the owner chose this knowing it): the edge against the page background.
+        const onBg = (a, b) => { const x = lum(a), y = lum(b); return +((Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)).toFixed(2); };
+        return { post: post ? getComputedStyle(post).backgroundColor : null, on: on ? getComputedStyle(on).borderTopColor : null,
+          edgeVsPageBg: on ? onBg(getComputedStyle(on).borderTopColor, getComputedStyle(document.body).backgroundColor) : null };
+      });
+      chk(!!gold.post && gold.on === gold.post, `[${theme}] #4051: the selected tile's outline is the Post button's bright gold`, JSON.stringify(gold));
+      chk(hov.bc === gold.post, `[${theme}] #4051: the hover outline is the same bright gold`, JSON.stringify({ hover: hov.bc, post: gold.post }));
+      chk(rest.bc !== gold.post, `[${theme}] #4051 CONTROL: a resting tile is not gold`, JSON.stringify({ rest: rest.bc }));
       await page.mouse.move(0, 0);
       await page.waitForTimeout(50);
 
