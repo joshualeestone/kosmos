@@ -58385,7 +58385,7 @@ const ASB_OPEN_POLL_MS = 5000;     // the thread, while the chat is open (the ag
 const ASB_FOLDED_POLL_MS = 60000;  // the thread, while folded, only to light the reply dot
 const ASB_FIND_FIRST_MS = 5000;    // looking for the guide again: 5s, doubling to a minute, until one is named
 const ASB_FIND_MAX_MS = 60000;
-let ASB = { started: false, guide: null, setting: null, open: false, asking: false, nudgeGone: false,
+let ASB = { started: false, guide: null, setting: null, open: false, asking: false, sentThisOpen: false, draftAtOpen: '', nudgeGone: false,
   wroteOnce: false, heard: null, fallback: null, replyIds: null, lastPoll: 0, screenKey: '', sending: false, dot: false,
   nextFind: 0, findEvery: ASB_FIND_FIRST_MS, finding: false, shown: '', readOnce: false,
   nextSetting: 0, settingEvery: ASB_FIND_FIRST_MS, settingReading: false,
@@ -58819,6 +58819,8 @@ function asbPaintThread(rows, session) {
 
 function asbOpen() {
   ASB.open = true; ASB.asking = false; ASB.dot = false;
+  ASB.sentThisOpen = false;   // #3034 (Josh 09-25 07:38): what asbX asks about is THIS opening
+  { const box = document.getElementById('asp-say'); ASB.draftAtOpen = box ? box.value : ''; }   // an old unsent draft is not typing now
   /* A refusal that came while folded is read now, and the six seconds start from here. */
   const waiting = ASB.asideOnOpen && !ASB.guide ? (ASB.asideText || document.getElementById('asp-msg').textContent) : '';
   if (ASB.asideOnOpen) { asbAsideDone(); if (!ASB.guide) ASB.asideShowing = true; }
@@ -58837,10 +58839,18 @@ function asbFold() {
   const bub = document.getElementById('asb');
   if (bub && !bub.hidden) bub.focus();
 }
-/* The first x asks once (Josh 18:02); after that it just closes. */
+/* The first x asks once (Josh 18:02); after that it just closes, UNLESS the person opened the chat and did
+   nothing in it. #3034, Josh 2026-09-25 07:38 (#admin), verbatim: "If somebody clicks on the assistant agent and
+   doesn't type anything and then hits the X, we should show them the message to dismiss it permanently (because
+   that's probably what they're trying to look for at that point)". Nothing typed means nothing sent this opening
+   AND the box unchanged since it opened: somebody who wrote a question and then closed was using it, not hunting
+   for the way to get rid of it, while a draft left from an earlier visit is not typing now (review round 1). */
 function asbX() {
   if (asbStepping()) { asbFold(); return; }   // nothing to ask about: it is going anyway
-  if (ASB.setting && ASB.setting.asked !== true) { ASB.asking = true; asbPaint(); document.getElementById('asp-close-now').focus(); return; }
+  const say = document.getElementById('asp-say');
+  /* Trimmed both sides (review round 2): a stray space is not typing, while a half-written word still is. */
+  const didNothing = !ASB.sentThisOpen && (say ? say.value : '').trim() === ASB.draftAtOpen.trim();
+  if (ASB.setting && (ASB.setting.asked !== true || didNothing)) { ASB.asking = true; asbPaint(); document.getElementById('asp-close-now').focus(); return; }
   asbFold();
 }
 async function asbSaveSetting(patch) {
@@ -58869,6 +58879,7 @@ async function asbSend() {
   const say = document.getElementById('asp-say');
   const msg = document.getElementById('asp-msg');
   const text = say.value.trim();
+  if (text) ASB.sentThisOpen = true;   // #3034: an attempt to send is using it, whatever the answer
   if (asbIsHosted()) { if (text && !ASB.sending) await asbHostedSend(text); return; }
   /* In the fallback, the board is asked again before each message (Josh: on the next message, not continuously):
      still failing, the backup answers; answering again, it goes to the guide as usual. */

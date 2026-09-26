@@ -409,11 +409,30 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const kept = await bubble(page);
     const s7 = (await (await fetch(URL + '/api/settings')).json()).setupAssistant;
     chk(!kept.panel && kept.bubble && s7.asked === true && s7.on === true, 'B7 Close for now closes it, keeps the bubble, and remembers it asked', JSON.stringify({ kept, s7 }));
+    // A later x, after the person used the chat (here: wrote a question), just closes, without asking again.
     await page.click('#asb');
+    await page.fill('#asp-say', 'how do I add an agent?');
     await page.click('#asp-x');
     await page.waitForTimeout(200);
     const again = await bubble(page);
-    chk(!again.panel && !again.ask && again.bubble, 'B7 a later x just closes, without asking again', JSON.stringify(again));
+    chk(!again.panel && !again.ask && again.bubble, 'B7 a later x after writing in the chat just closes, without asking again', JSON.stringify(again));
+    // B7c (#3034, Josh 2026-09-25 07:38): opened, NOTHING typed, then x: the choice again, even though it was answered,
+    // because that is someone looking for how to get rid of it. CONTROL for B7's arm above: the same x, same setting.
+    // The question written above is still in the box, unsent: a draft from an earlier visit is not typing in this one
+    // (review round 1: reading "the box is empty" let a stale draft suppress the ask).
+    await page.click('#asb');
+    chk(await page.evaluate(() => document.getElementById('asp-say').value === 'how do I add an agent?'), 'B7c precondition: the earlier unsent draft is still in the box');
+    await page.press('#asp-say', 'End');
+    await page.keyboard.type(' ');   // a stray space is not typing (review round 2)
+    await page.click('#asp-x');
+    await page.waitForTimeout(200);
+    const idle = await bubble(page);
+    const s7c = (await (await fetch(URL + '/api/settings')).json()).setupAssistant;
+    chk(idle.panel && idle.ask && s7c.asked === true, 'B7c opened and closed with nothing typed: the choice shows again, although it was answered (#3034)', JSON.stringify({ idle, s7c }));
+    await page.click('#asp-close-now');
+    await page.waitForTimeout(300);
+    const kept7c = await bubble(page);
+    chk(!kept7c.panel && kept7c.bubble, 'B7c Close for now then closes it and keeps the bubble', JSON.stringify(kept7c));
 
     // B8: Close forever turns it off; the Settings switch reads that and brings it back.
     await setting({ asked: false });
