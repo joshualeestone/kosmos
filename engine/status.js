@@ -7296,8 +7296,9 @@ function snapshot() {
          every state that did not read a sentence off the screen. */
       stateEvidence: status.evidence || null,
       because: status.because,
-      /* #2019: present only while state === 'restarting' -- {cause, startedAt}
-         for the deliberate disruption in flight. Null otherwise, so the board
+      /* #2019: present while state === 'restarting' -- {cause, startedAt}
+         for the deliberate disruption in flight -- and (#4006) on the needs_you of a
+         restart that did not come back, with `failed` (and `gone` if its launch file was). Null otherwise, so the board
          reads a fact rather than an absence, and the frontend renders the copy
          (cause + the model field above) and the animated K from it. */
       disruption: status.disruption || null,

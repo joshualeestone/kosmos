@@ -106,7 +106,7 @@ function setDryRun(on) {
 
 /* Test seam (#1598): back to a clean fail-closed state (no runner, explicit
    dry-run flag off) so a test can exercise the live-execution gate itself. */
-function resetForTests() { runner = null; DRY_RUN = false; }
+function resetForTests() { runner = null; DRY_RUN = false; lastRetryWaitAt = 0; lastBootstrap = null; }
 
 /**
  * #2570: can a caller BELIEVE an outcome from this module?

@@ -15146,3 +15146,20 @@ test('#3923: Try again (?retell=1) re-tells a current member and never re-adds o
     require('./server').resetRetellForTests();
   }
 });
+
+test('#4006: an agent whose restart did not come back reads needs_you, and its thread does not claim a question', async () => {
+  const disruption = require('./engine/disruption');
+  const board = fleet.install([fleet.agent('zeta', { state: 'stopped' })]);
+  disruption.begin('zeta', 'restart');
+  disruption.fail('zeta', null);
+  try {
+    const card = JSON.parse((await req('/api/status')).body).agents.find((a) => a.sessionName === 'zeta');
+    assert.equal(card && card.state, 'needs_you', 'precondition: the failed restart reads needs_you');
+    const body = JSON.parse((await req('/api/agent/zeta/thread')).body);
+    assert.equal(body.asking, false, 'the thread claims a question behind a failed restart');
+    assert.equal(body.questionBecause || null, null, 'the thread says it is waiting on an answer');
+  } finally {
+    disruption.clear('zeta');
+    board.restore();
+  }
+});
