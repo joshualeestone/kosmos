@@ -69,6 +69,12 @@ subscription, only now that it is true.
   Gemini row first rather than promising a window the agent's pane would open unseen. The whoami
   sentence names "Gemini (Google subscription)" with the program it runs on.
 
+- Review round 4: one page predicate, vendorPicksModel (key-based providers and antigravity), at every
+  "no Claude model, no Claude account" site, because patching sites one by one missed three (the saved
+  create pick, the create recovery, the switch pre-refusal). The Gemini choice says "Download complete."
+  only after a download. engine/observed.js, listed in "Measured" above, has no runner branching at
+  all: that listing was wrong, and nothing there needed a change.
+
 ## Not in this card
 - Reading what an Antigravity agent is doing (status) and its auth-failed copy: #3568's PR 2.
 - Windows: agy is refused there today.

@@ -56,6 +56,13 @@ test('#3568: an agent on another program (antigravity, codex) is never named in 
   assert.ok(named.includes('angel'), 'CONTROL: the Claude agent is still warned: ' + JSON.stringify(out));
   assert.ok(!named.includes('gem'), 'an Antigravity agent was named in a Claude login warning');
   assert.ok(!named.includes('cx'), 'a Codex agent was named in a Claude login warning');
+  // A pane not yet tagged with its runner is recognised by its command (review round 4).
+  const untaggedAgy = paneOf({ session: 'gem2-discord', pane: '0.3', command: 'agy' });
+  const untaggedCx = paneOf({ session: 'cx2-discord', pane: '0.4', command: 'codex' });
+  const out2 = status.computeLoginAdvisories([untaggedAgy, untaggedCx, claudePane], now, { readCcd, readCred, cache: { at: 0, value: [] } });
+  const named2 = out2.flatMap((a) => a.agents);
+  assert.ok(named2.includes('angel'), 'CONTROL');
+  assert.ok(!named2.includes('gem2') && !named2.includes('cx2'), 'an untagged agy or codex pane was named: ' + JSON.stringify(named2));
 });
 
 test('computeLoginAdvisories: a second call within the TTL serves from the injected cache (no re-resolve)', () => {

@@ -20966,6 +20966,10 @@ const ACCT_KEYED_ROUTE = { openai: 'openai', google: 'gemini', xai: 'grok' };
 function keyOnlyProvider(p) {
   return p !== 'openai' && Object.prototype.hasOwnProperty.call(ACCT_KEYED_ROUTE, p);
 }
+/* #3568 (review round 4): a provider that is neither Claude nor OpenAI and picks its own model:
+   the key-based ones (Gemini, Grok) and Gemini on a Google subscription ('antigravity', no account).
+   ONE predicate for every "no Claude model, no Claude account" site, so a new one is not missed. */
+function vendorPicksModel(p) { return keyOnlyProvider(p) || p === 'antigravity'; }
 /* #3651 (Josh, 2026-09-24 17:05, #admin): "i want to put Grok right under Gemini in all
    lists, so it would be Claude/OpenAI/Gemini/Grok." THE ONE provider order. Every provider
    picker is sorted by it at startup (orderProviderOptions, before its logo combobox is
@@ -24685,6 +24689,10 @@ function frKeyedHideAll() { FR_KEYED_GEN += 1; frKeyedCollapse('google'); frKeye
 function frKeyedShowPick(which) {
   for (const el of frKeyedPanels(which)) el.hidden = true;
   if (!keyedSubReady(which)) { frKeyedChoose(which, 'key'); return; }
+  /* #3568 (review round 4): the choice can now come BEFORE any download (Gemini's subscription does
+     not need the Gemini CLI), so "Download complete." is said only when one happened. */
+  const head = frK(which, 'pick-t');
+  if (head) head.textContent = (FR_KEYED_KEY_NEEDS_INSTALL[which] ? '' : 'Download complete. ') + 'Choose how to connect ' + KEYED_FULL_NAME[which] + '.';
   frK(which, 'pick').hidden = false;
   frK(which, 'pick-sub').focus();
 }
@@ -38764,8 +38772,10 @@ async function changeProviderNow(say) {
      unchecked key, the thing the gate exists to prevent; refuse instead, and say why. */
   {
     const wantOpt = [...sel.options].find((o) => o.value === want);
-    if (keyOnlyProvider(want) && wantOpt && wantOpt.disabled) {
-      const line = 'There is no ' + switchKeyedWord(want) + ' account connected, so there is nothing to switch onto. Add one in Settings, AI Models.';
+    if (vendorPicksModel(want) && wantOpt && wantOpt.disabled) {
+      const line = want === 'antigravity'
+        ? 'Gemini (Google subscription) is not set up on this computer, so there is nothing to switch onto. Set it up on the Gemini row in setup.'
+        : 'There is no ' + switchKeyedWord(want) + ' account connected, so there is nothing to switch onto. Add one in Settings, AI Models.';
       if (msg) { msg.textContent = line; SWITCH_ACCT_SAID = line; }
       tell(line, false);
       return;
@@ -38853,7 +38863,7 @@ async function changeProviderNow(say) {
        Anthropic" with "reactivate on Claude" in one dialog would be the last-screen inconsistency
        this branch exists to avoid. */
     const restarted = out.outcome === 'changed';
-    const provName = want === 'openai' ? 'OpenAI' : (keyOnlyProvider(want) || want === 'antigravity') ? switchKeyedWord(want) : 'Anthropic';   // #3568
+    const provName = want === 'openai' ? 'OpenAI' : vendorPicksModel(want) ? switchKeyedWord(want) : 'Anthropic';   // #3568
     // #2716: build the manual line ONCE and share it with the auto-hello helper, so the
     // helper's content check compares against exactly what tell() painted (no triplicated
     // string to drift out of byte-identity if the wording is retuned).
@@ -39484,7 +39494,7 @@ function applyCreateProviderUI() {
   /* #3566: Gemini and Grok run their CLI's own default model. Kosmos has no list of
      theirs to offer, so the model row is hidden and NO model is sent (the create body
      sends `model` only when the select has a value), with one line saying who picks. */
-  const other = keyOnlyProvider(pv) || pv === 'antigravity';   // #3568: Gemini by subscription picks its own model too
+  const other = vendorPicksModel(pv);   // #3568: Gemini by subscription picks its own model too
   const model = document.getElementById('create-model');
   const acct = document.getElementById('create-account');
   /* Remember a Claude pick before the OpenAI (or Gemini/Grok) branch overwrites #create-model. */
@@ -41465,7 +41475,7 @@ async function loadCreateExtras() {
   const pvNow = document.getElementById('create-provider').value;
   if (pvNow === 'openai') {
     paintOpenaiCreateModel();
-  } else if (keyOnlyProvider(pvNow) || pvNow === 'antigravity') {   // #3568
+  } else if (vendorPicksModel(pvNow)) {   // #3568
     /* #3566: the Claude fill above does not belong under Gemini/Grok; re-apply their
        no-model shape (hidden row, empty value) through the one provider function. */
     applyCreateProviderUI();
@@ -41525,7 +41535,7 @@ async function loadCreateExtras() {
     {
       const pv = document.getElementById('create-provider');
       const cur = pv && pv.options[pv.selectedIndex];
-      if (cur && cur.disabled && keyOnlyProvider(cur.value)) {
+      if (cur && cur.disabled && vendorPicksModel(cur.value)) {
         const gone = switchKeyedWord(cur.value);
         // The same default the form opens on: OpenAI only when it is the one usable provider.
         const hasClaude = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'anthropic');
@@ -41536,7 +41546,9 @@ async function loadCreateExtras() {
         const why = document.getElementById('create-model-why');
         const back = pv.value === 'openai' ? 'OpenAI' : 'Claude';
         if (why) {
-          why.textContent = known
+          why.textContent = cur.value === 'antigravity'
+            ? 'Gemini (Google subscription) is not set up on this computer, so this is back on ' + back + '. Set it up on the Gemini row in setup.'
+            : known
             ? 'There is no ' + gone + ' account connected, so this is back on ' + back + '. Add one in Settings, AI Models.'
             : 'We could not check your ' + gone + ' accounts just now, so this is back on ' + back + '.';
           why.hidden = false;
@@ -41575,7 +41587,9 @@ async function loadCreateExtras() {
         && Array.prototype.some.call(prov.options, (o) => o.value === pref.provider && !o.disabled);
       const prefProviderUsable = provOptOk
         && ((pref.provider === 'openai' && hasOpenai) || (pref.provider === 'anthropic' && hasClaude)
-          || (keyOnlyProvider(pref.provider) && CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === pref.provider)));
+          || (keyOnlyProvider(pref.provider) && CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === pref.provider))
+          // #3568: a saved Gemini-by-subscription pick comes back while it is offered and installed.
+          || (pref.provider === 'antigravity' && AGY_OFFERED !== false && AGY_INSTALLED === true));
       if (prefProviderUsable) {
         // Only re-run the provider UI when the provider actually changes; otherwise the account
         // and model selects filled above are already the right ones to override in place.

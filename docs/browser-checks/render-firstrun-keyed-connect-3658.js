@@ -150,9 +150,11 @@ const chk = (ok, label, extra) => {
     document.getElementById('fr-gemini-connect').click();
     await new Promise((r) => setTimeout(r, 250));
     return { pick: !document.getElementById('fr-gemini-pick').hidden, confirm: !document.getElementById('fr-gemini-confirm').hidden,
-      key: !document.getElementById('fr-gemini-flow').hidden, installs: window.__installs || 0, focus: document.activeElement && document.activeElement.id };
+      key: !document.getElementById('fr-gemini-flow').hidden, installs: window.__installs || 0, focus: document.activeElement && document.activeElement.id,
+      head: document.getElementById('fr-gemini-pick-t').textContent };
   });
-  chk(first.pick && !first.confirm && !first.key && first.installs === 0 && first.focus === 'fr-gemini-pick-sub',
+  chk(first.pick && !first.confirm && !first.key && first.installs === 0 && first.focus === 'fr-gemini-pick-sub'
+      && first.head === 'Choose how to connect Google Gemini.',   // review round 4: no "Download complete." before a download
     '#3568 with the Gemini CLI missing, Gemini offers the choice first and downloads nothing', JSON.stringify(first));
   // A missing tool on the KEY path: the install comes first, never a key box (Josh: an API key cannot work yet).
   const miss = await q(async () => {

@@ -94,7 +94,7 @@ function check() { return shared(); }
 let openTerminal = (bin, done) => execFile('/usr/bin/open', ['-a', 'Terminal', bin], { timeout: 15000 }, (err) => done(err));
 function openForSignIn() {
   return new Promise((resolve) => {
-    if (!supported()) { resolve({ ok: false, because: 'Gemini on a Google subscription works on a Mac only for now' }); return; }
+    if (!supported()) { resolve({ ok: false, because: 'Gemini on a Google subscription is not available on this computer yet' }); return; }
     if (!enabled()) { resolve({ ok: false, because: 'Gemini on a Google subscription is switched off on this computer' }); return; }
     const inst = installed();
     if (!inst.installed) { resolve({ ok: false, because: 'Antigravity is not installed on this computer' }); return; }
@@ -125,7 +125,7 @@ let runInstall = (done) => {
 };
 function installOnce() {
   return new Promise((resolve) => {
-    if (!supported()) { resolve({ ok: false, because: 'Gemini on a Google subscription works on a Mac only for now' }); return; }
+    if (!supported()) { resolve({ ok: false, because: 'Gemini on a Google subscription is not available on this computer yet' }); return; }
     if (!enabled()) { resolve({ ok: false, because: 'Gemini on a Google subscription is switched off on this computer' }); return; }
     if (installed().installed) { resolve({ ok: true, installed: true }); return; }
     if (sandboxed()) { resolve({ ok: false, installed: false, because: 'this board is set to a different home, so Kosmos will not install Antigravity into this computer\'s own' }); return; }

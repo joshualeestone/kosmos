@@ -120,7 +120,7 @@ test('#3568: after a switch, the dialog says "Restarted on Gemini (Google subscr
   const r = PAGE.indexOf('const ACCT_KEYED_ROUTE');
   // eslint-disable-next-line no-new-func
   const provNameFor = new Function('want', PAGE.slice(r, PAGE.indexOf('\n', r)) + '\n'
-    + grab('function keyOnlyProvider(') + '\n' + grab('function switchKeyedWord(') + '\n' + line[1] + '\nreturn provName;');
+    + grab('function keyOnlyProvider(') + '\n' + grab('function vendorPicksModel(') + '\n' + grab('function switchKeyedWord(') + '\n' + line[1] + '\nreturn provName;');
   assert.equal(provNameFor('antigravity'), 'Gemini (Google subscription)');
   assert.equal(provNameFor('google'), 'Gemini', 'CONTROL');
   assert.equal(provNameFor('anthropic'), 'Anthropic', 'CONTROL');
@@ -226,4 +226,21 @@ test('#3568: where it is not offered (not a Mac, or switched off) the step says 
   assert.match(f.view().text, /not available on this computer\. Use an API key instead/);
   assert.equal(f.view().button, '');
   assert.equal(f.offered(), false);
+});
+
+test('#3568: one predicate says which providers pick their own model (review round 4: three sites were missed one by one)', () => {
+  const r = PAGE.indexOf('const ACCT_KEYED_ROUTE');
+  // eslint-disable-next-line no-new-func
+  const f = new Function(PAGE.slice(r, PAGE.indexOf('\n', r)) + '\n' + grab('function keyOnlyProvider(') + '\n'
+    + grab('function vendorPicksModel(') + '\nreturn vendorPicksModel;')();
+  for (const p of ['google', 'xai', 'antigravity']) assert.equal(f(p), true, p);
+  for (const p of ['anthropic', 'openai', 'meta', '']) assert.equal(f(p), false, 'CONTROL ' + p);
+  // No site still spells the pair by hand: the only copy is the helper's own body.
+  assert.equal((PAGE.match(/keyOnlyProvider\([^)]*\) \|\| [a-zA-Z.]+ === 'antigravity'/g) || []).length, 1);
+  // The saved create pick restores for Gemini by subscription while it is offered and installed.
+  assert.match(PAGE, /\|\| \(pref\.provider === 'antigravity' && AGY_OFFERED !== false && AGY_INSTALLED === true\)/);
+  // The create form's recovery and the switch's pre-refusal cover it, with its own words.
+  assert.match(PAGE, /if \(cur && cur\.disabled && vendorPicksModel\(cur\.value\)\)/);
+  assert.match(PAGE, /if \(vendorPicksModel\(want\) && wantOpt && wantOpt\.disabled\)/);
+  assert.equal((PAGE.match(/Gemini \(Google subscription\) is not set up on this computer/g) || []).length, 2);
 });
