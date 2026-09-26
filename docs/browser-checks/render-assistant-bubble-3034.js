@@ -521,7 +521,6 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await setting({ on: true });
     await boot();   // the page reads the switch at load: Hide it turned it off here
     await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 8000);
-    await fresh(0, false);
     // A Hide it whose save fails keeps the offer up, says so, and counts nothing; the next try works and clears it.
     await fresh(1, false);
     await page.click('#asb');
