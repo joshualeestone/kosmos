@@ -36,7 +36,7 @@
   (a helper-count change); their own dmfiles block (the main rule) does sync.
 
 ## Verification
-- engine/dmfiles.artifact-3965.test.js (6): the rule's wording and position, the swarm line, and the
+- engine/dmfiles.artifact-3965.test.js (7): the rule's wording and position, the swarm line, and the
   scratch filter (hides ~$, Thumbs.db, DESKTOP.INI (the /i flag is exercised by ~wrd1234.tmp), a scratch-named folder's contents, keeps ~notes.txt, price$.xlsx,
   thumbs.db.txt). Removing the `~$` clause reds the listing test.
 - engine/dmfiles.test.js, engine/projects.test.js, engine/swarm.test.js green.
@@ -70,3 +70,12 @@
 - openFile's name gate refused only dot-names while its comment claimed it refused every hidden
   entry: it now uses isScratchName, so a name the list hides cannot be opened either (tested, with an
   ordinary file opening as the control).
+
+## Challenge-loop iteration 5
+- Swarm bullet: helpers hand back the PATH and do not save into Files or a project themselves (a
+  helper reading the lead's instructions would otherwise have two destinations and skip the lead's
+  check). Quotes the section's full heading.
+- "in the instructions Kosmos keeps for you", not "your instructions": the harness's own publish
+  guidance must not read as a standing request.
+- NOT measured, recorded: an agent whose instructions are already at the size limit gets COULD_NOT
+  at the boot sync (stderr only) and keeps the old block. The block grew by about 8 lines.

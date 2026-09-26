@@ -27,7 +27,7 @@ test('#3965: the block says a thing made for the person is a FILE, named in the 
 });
 
 test('#3965: the block rules out an artifact or link unless the person asks, and says it outranks a tool default', () => {
-  assert.match(FLAT, /Do not publish it as a Claude artifact, a shared document or any other link unless the person asks for that, in the conversation or in your instructions/);
+  assert.match(FLAT, /Do not publish it as a Claude artifact, a shared document or any other link unless the person asks for that, in the conversation or in the instructions Kosmos keeps for you/);
   assert.match(FLAT, /If one of your tools offers to publish by default, this instruction wins over that default\./);
 });
 
@@ -58,8 +58,8 @@ test('#3965: an app\'s scratch files are not listed; ordinary names that look si
 test('#3965: a swarm lead tells its helpers to hand files back, not publish them (a reinforcement)', () => {
   const swarm = require('./swarm');
   const flat = swarm.blockBody(3).replace(/\s+/g, ' ');
-  assert.match(flat, /Tell each helper that anything it makes to keep comes back to you as a file, never as a Claude artifact or a link/);
-  assert.match(flat, /You save it where your "Where to save files" section says/);
+  assert.match(flat, /Tell each helper to hand back the path of any file it makes to keep, and not to save it into your Files folder or a project itself, nor publish it as a Claude artifact or a link/);
+  assert.match(flat, /You check it, then save it where your "Where to save files you make for the person" section says/);
 });
 
 test('#3965: a folder with a scratch name is not walked, so nothing inside it is listed', () => {
