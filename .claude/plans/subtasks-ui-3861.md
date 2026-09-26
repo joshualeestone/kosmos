@@ -24,3 +24,25 @@
 - Weakest premise (Splinter): two visible levels are enough.
 - The parent's own activity feed does not log a child being put under it (part 1 review NIT): show "Subtasks" on the
   task page instead of a feed line.
+
+## Built (Mona, 2026-09-25 night) and the calls made while building
+- One nesting rule, `taskNest` in web/index.html, used by the Tasks view AND the project column.
+  A row nests under its parent only when the parent is in the same list; otherwise it keeps the
+  list's own place and says "Part of #N <sentence>".
+- DECIDED: the crumb shows only where the indent cannot say it (the parent is not in this list, or
+  the row is a third level drawn at the second). The plan's line read as "every child row"; a child
+  sitting directly under its parent repeating the parent's sentence is the line above said twice.
+  Rejected: crumb on every child. Weakest premise: a long family scrolled so the parent is off the
+  top loses the context; if that bites, show the crumb on children too. One-line change in taskNest.
+- DECIDED: the fold lives in the Tasks view only (the chip is the toggle, aria-expanded). The
+  project column caps at five, so there is nothing to fold there; it nests and shows the chip.
+- The chip counts DIRECT subtasks (the engine's rule): a grandchild counts under its own parent.
+- engine/projects.js joinTaskClaims now puts `parent`, `parentSentence`, `subtasks` on the project
+  page's rows from the same `treeOf` (exported) that /api/tasks rows use; the test pins they agree.
+- "all subtasks done" + Close it on the Tasks row (one task through /api/tasks/close); on the task
+  page "All subtasks done. Close this task" is the page's own Mark as done.
+- Task page: Subtasks list (Open/Done, each opens its page), "Part of" in This task (a way up),
+  "+ Add subtask" opens New task with Part of preset (a closed preset is still offered; a closed
+  parent is valid). New task's "Part of" defaults to None and lists the project's open tasks.
+- EXPECTED_SITES measured: +0, not +2 (the check's PASS/FAIL line is the ternary form the scan does
+  not count, and it has no fail loop). Negative control: disabling nesting reds the check.

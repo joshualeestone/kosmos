@@ -78,7 +78,7 @@ function runPaintProjectTasks(project, showAll) {
     'let TK_SHOW_ALL = ' + (showAll ? 'true' : 'false') + ';',
     fnSource('tkFace'), fnSource('tkSayPart'), fnSource('claimNotReported'), fnSource('taskClaimHtml'), fnSource('tkMemberName'),
     'let TK_LIST_HTML = null;',
-    fnSource('paintProjectTasks'),
+    fnSource('taskNest'), fnSource('paintProjectTasks'),
   ].join('\n');
   new Function('document', 'esc', 'discTint', 'discInk', 'initials', 'encodeURIComponent', 'project',
     src + '\n; paintProjectTasks(project);')(

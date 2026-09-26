@@ -3382,6 +3382,29 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-row .n { font: 500 .8125rem var(--font-mono); color: var(--k-ink-2); margin-right: 6px; }
 .tsk-row .meta { font-size: .8125rem; color: var(--k-ink-2); margin-top: 2px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
 .tsk-row .meta button { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer; }
+/* #3861 part 2: subtasks. A child sits indented under its parent (two levels; deeper ones flatten
+   to the second), a parent carries its "2/5", and a row whose nesting cannot say what it is part
+   of (its parent is not in this list, or it sits deeper than two levels) says so in a small line
+   above its title. Indent only, no bar down the left (Josh's rule for this app). */
+.tsk-row.d1 { padding-left: 40px; }
+.tsk-row.d2 { padding-left: 66px; }
+.tsk-part, .tkcard-part-of { display: block; font-size: .75rem; color: var(--k-ink-2); margin: 0 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tsk-chip { display: inline-flex; align-items: center; gap: 4px; font: 600 .75rem/1.5 var(--font-ui); color: var(--k-ink-2); border: 1px solid var(--k-rule); border-radius: 999px; padding: 0 8px; background: var(--k-surface); font-variant-numeric: tabular-nums; }
+.tsk-row .meta button.tsk-chip { font-weight: 600; color: var(--k-ink-2); border: 1px solid var(--k-rule); padding: 0 8px; }
+.tsk-row .meta button.tsk-chip:hover { color: var(--k-ink); }
+.tsk-chip .car { display: inline-block; font-size: .625rem; transition: transform .15s ease; }
+.tsk-chip[aria-expanded="false"] .car { transform: rotate(-90deg); }
+.tkcard.sub1 { margin-left: 14px; width: calc(100% - 14px); }
+.tkcard.sub2 { margin-left: 28px; width: calc(100% - 28px); }
+.tkcard .tsk-chip { margin-top: 6px; }
+.tksubs { display: grid; gap: 2px; margin: 0; }
+.tksub { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: baseline; width: 100%; text-align: left; border: 0; background: none; padding: 6px 0; font: var(--text-callout) var(--font-ui); color: var(--k-ink); cursor: pointer; border-top: 1px solid var(--k-rule); }
+.tksub:first-child { border-top: 0; }
+.tksub:hover .tksub-t { text-decoration: underline; text-decoration-color: var(--gold); }
+.tksub .tksub-n { font: 500 .8125rem var(--font-mono); color: var(--k-ink-2); }
+.tksub .tksub-s { font-size: .75rem; color: var(--k-ink-2); }
+.tksub.done .tksub-t { color: var(--k-ink-2); text-decoration: line-through; }
+.tksubs-done { margin: 10px 0 0; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .tsk-row .meta button:hover { text-decoration: underline; text-decoration-color: var(--gold); }
 .tsk-row .why { font-size: .8125rem; color: var(--k-ink-2); margin-top: 4px; }
 .tsk-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 120px; }
@@ -10810,6 +10833,12 @@ window.kosmosMeasureScrollbarWidth();
       <label class="flabel tk-lab" for="nt-detail">Anything they should know</label>
       <textarea class="tk-inp" id="nt-detail" rows="3" maxlength="2000" placeholder="Optional. What it is for, what done looks like, anything you already tried."></textarea>
     </div>
+    <!-- #3861 part 2: optional, none by default. The open tasks of the project the dialog is aimed
+         at; "+ Add subtask" on a task page opens this with that task already picked. -->
+    <div class="field">
+      <label class="flabel tk-lab" for="nt-parent">Part of</label>
+      <select class="tk-inp" id="nt-parent"><option value="">None</option></select>
+    </div>
     <div class="field">
       <label class="flabel tk-lab" for="nt-who">Who is on it</label>
       <select class="tk-inp" id="nt-who"><option value="">Nobody yet</option></select>
@@ -13676,6 +13705,13 @@ window.kosmosMeasureScrollbarWidth();
              explanation. Only claimed:null has a because to give -- true and
              false are complete statements. -->
         <p class="dhint" id="tk-why" hidden style="margin:10px 0 0;"></p>
+        <!-- #3861 part 2: the tasks under this one. Each is a whole task with its own page; the
+             list is read from the project (the engine's tree), and "+ Add subtask" opens New task
+             with this task already picked as what it is part of. -->
+        <h3 class="dlab" style="margin-top: var(--space-6);">Subtasks</h3>
+        <div class="tksubs" id="tk-subs"></div>
+        <p class="dhint tksubs-done" id="tk-subs-done" hidden><span>All subtasks done.</span><button class="linkish" type="button" id="tk-subs-close">Close this task</button></p>
+        <button class="linkish" type="button" id="tk-subadd" style="margin-top:10px;">+ Add subtask</button>
       </section>
 
       <!-- MIDDLE: the task's conversation, the whole point of resembling a project.
@@ -13717,6 +13753,8 @@ window.kosmosMeasureScrollbarWidth();
         <div class="tmeta"><span>Project</span><b id="tk-project"></b></div>
         <div class="tmeta"><span>Added</span><b id="tk-added"></b></div>
         <div class="tmeta"><span>State</span><b id="tk-state"></b></div>
+        <!-- #3861 part 2: the task this one is part of, a way up. Hidden when it stands alone. -->
+        <div class="tmeta" id="tk-partof-row" hidden><span>Part of</span><b><button class="linkish" type="button" id="tk-partof"></button></b></div>
         <!-- #768: the task's DUE DATE (Josh's #768: "on the right we could have
              some more detail... if there's a due date assigned"). This REVERSES
              the earlier deliberate no-due-date deferral, on purpose: that deferral
@@ -44014,14 +44052,18 @@ function paintProjectTasks(p) {
      Covers the tab view and the consolidated view alike (both render here). */
   column.sort((a, b) => Number(b.number) - Number(a.number));
   const TK_COLUMN_MAX = 5;
-  const showing = column.slice(0, TK_COLUMN_MAX);
+  /* #3861 part 2: nested the way the Tasks view nests (taskNest, one rule for both), BEFORE the
+     cap: a subtask follows its parent, and one whose parent is not in the column says what it is
+     part of. No fold here: the column shows five, so there is nothing to tuck away. */
+  const showing = taskNest(column, (t) => Number(t.number), (t) => (t.parent == null ? null : Number(t.parent)), null)
+    .slice(0, TK_COLUMN_MAX);
   // kosmos#1009 retired the reasoning that used to sit here ("an empty COLUMN
   // coexists with closed and unpicked tasks behind the door, and the door line
   // below says so"). Josh's first look is the evidence it was not sufficient:
   // an empty column above "View all tasks (3)" states two contradictory things
   // at once, and the COUNT makes it worse rather than better, because it proves
   // the emptiness is wrong instead of explaining it.
-  const html = showing.map((t) => {
+  const html = showing.map(({ t, depth, crumb }) => {
     const n = Number(t.number);   // server-issued, but the one unescaped field deserves the same distrust as the rest
     const parts = Array.isArray(t.parts) ? t.parts : [];
     const assigned = parts.filter((x) => x && x.who);
@@ -44073,10 +44115,18 @@ function paintProjectTasks(p) {
       who = '<span class="tkcard-who">' + tkFace(p, sole)
         + '<span class="tkcard-who-b"><b>' + esc(tkMemberName(p, sole)) + '</b>' + sayHtml + '</span></span>';
     }
-    return '<button class="tkcard' + (t.closedAt ? ' closed' : '') + '" type="button" data-task="' + n + '">'
+    /* #3861 part 2: the parent's "2/5", and what a subtask is part of when the indent cannot say. */
+    const sub = t.subtasks && t.subtasks.total > 0 ? t.subtasks : null;
+    const subLabel = sub ? sub.done + ' of ' + sub.total + ' subtasks done' : '';
+    const chip = sub ? '<span class="tsk-chip" title="' + esc(subLabel) + '" aria-label="' + esc(subLabel) + '">' + sub.done + '/' + sub.total
+      + (sub.done === sub.total ? ', all subtasks done' : '') + '</span>' : '';
+    const partOf = crumb && t.parent != null
+      ? '<span class="tkcard-part-of">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
+    return '<button class="tkcard' + (t.closedAt ? ' closed' : '') + (depth ? ' sub' + depth : '') + '" type="button" data-task="' + n + '">'
+      + partOf
       + '<span class="tkcard-n">Task ' + n + (t.closedAt ? ' (done)' : '') + '</span>'
       + '<div class="tkcard-t">' + esc(t.sentence) + '</div>'
-      + who + '</button>';
+      + who + chip + '</button>';
   }).join('');
   // ⚠️ Change-guarded, the removed-list's own pattern: the five-second poll
   // repaints this project every tick, and an unconditional innerHTML write
@@ -44144,7 +44194,7 @@ const TSK_GROUPS = [
 ];
 const TSK_WINDOWS = [['24h', 1], ['48h', 2], ['1 week', 7], ['1 month', 30], ['All', 0]];
 const TSK_BYS = [['status', 'Status'], ['project', 'Project']];
-const TSK = { data: null, error: null, proj: null, projHint: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '', closedOpen: false };
+const TSK = { data: null, error: null, proj: null, projHint: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '', closedOpen: false, fold: new Set() };
 TSK_READY = true;
 const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
 /* The name the board prints for an agent (its roster card's `name`; a card has no `displayName`
@@ -44248,8 +44298,25 @@ async function tskLoad(arrival) {
   if (msg && TSK.error) msg.textContent = asSentence(TSK.error);
   tskPaintKeepingCurrentFocus();
 }
-function tskRow(t) {
+function tskRow(t, at) {
   const on = TSK.sel.has(tskKey(t));
+  /* #3861 part 2: where the row sits in its list (taskNest): its indent, whether it says what it
+     is part of, and how many of its subtasks are in this same list (the fold toggle). A caller
+     that passes nothing gets a plain top-level row. */
+  const place = at || { depth: 0, crumb: false, kids: 0 };
+  const sub = t.subtasks && t.subtasks.total > 0 ? t.subtasks : null;
+  const folded = TSK.fold && TSK.fold.has(tskKey(t));
+  const chipLabel = sub ? sub.done + ' of ' + sub.total + ' subtasks done' : '';
+  const chip = !sub ? ''
+    : place.kids
+      ? '<button type="button" class="tsk-chip" data-fold="' + esc(tskKey(t)) + '" aria-expanded="' + !folded + '" aria-label="' + esc(chipLabel + (folded ? '. Show them' : '. Hide them')) + '" title="' + esc(chipLabel) + '"><span class="car" aria-hidden="true">\u25be</span>' + sub.done + '/' + sub.total + '</button>'
+      : '<span class="tsk-chip" title="' + esc(chipLabel) + '" aria-label="' + esc(chipLabel) + '">' + sub.done + '/' + sub.total + '</span>';
+  /* Every subtask closed, the parent still open: say so and offer Close. Closing the last child
+     never closes the parent (nothing cascades, engine/tasks.js); the person decides here. */
+  const allDone = sub && sub.done === sub.total && t.state !== 'closed'
+    ? '<span>all subtasks done</span><button type="button" data-close-parent="' + esc(tskKey(t)) + '">Close it</button>' : '';
+  const partOf = place.crumb && t.parent != null
+    ? '<span class="tsk-part">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
   /* A state this view does not know gets no label at all, never a group the engine did not name. */
   const g = TSK_GROUPS.find((x) => x.k === t.state) || null;
   const now = Date.now();
@@ -44271,19 +44338,20 @@ function tskRow(t) {
     : notReported && t.claim.about
       ? '<div class="why">' + esc(tskAgentName(t.claim.about)) + ' ' + notReported + '.</div>'
       : t.claim.because ? '<div class="why">We cannot tell whether it started: ' + esc(t.claim.because) + '.</div>' : '';
-  return '<div class="tsk-row' + (on ? ' sel' : '') + '" data-key="' + esc(tskKey(t)) + '">'
+  return '<div class="tsk-row' + (on ? ' sel' : '') + (place.depth ? ' d' + place.depth : '') + '" data-key="' + esc(tskKey(t)) + '">'
     + '<input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
     /* The row no longer repeats its state in a status group (the heading says it), so there the
        label carries it: a screen reader moving between checkboxes still hears where each task is.
        Grouped by project the row shows its state line, so the label does not say it again. */
     + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(t.projectName)
     + (g && TSK.by !== 'project' ? ' (' + esc(g.l) + ')' : '') + '">'
-    + '<div class="t"><span class="n">#' + Number(t.number) + '</span>'
+    + '<div class="t">' + partOf + '<span class="n">#' + Number(t.number) + '</span>'
     + '<button type="button" class="tl" data-open-task="' + esc(tskKey(t)) + '">' + esc(t.sentence) + '</button>'
     + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(t.projectName) + '</button>'
     + (added ? '<span>added ' + esc(added) + '</span>' : '')
     + (moved && moved !== added ? '<span>last activity ' + esc(moved) + '</span>' : '')
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
+    + chip + allDone
     + '</div>' + cannot + '</div>'
     + '<div class="tsk-side">' + whoHtml
     /* Said once per row (Mona): inside a status group the heading already names the state, so the
@@ -44292,8 +44360,45 @@ function tskRow(t) {
     + '</div>';
 }
 function tskList(rows) {
-  return rows.length ? '<div class="tsk-list">' + rows.map(tskRow).join('') + '</div>'
+  const parentKey = (t) => (t.parent == null ? null : String(t.projectId) + '#' + Number(t.parent));
+  return rows.length ? '<div class="tsk-list">' + taskNest(rows, tskKey, parentKey, TSK.fold).map((x) => tskRow(x.t, x)).join('') + '</div>'
     : '<div class="tsk-list"><p class="tsk-empty">Nothing here.</p></div>';
+}
+/* #3861 part 2: a list of task rows, nested. Pure (the tests lift it), shared by the Tasks view and
+   the project column. A row goes under its parent only when the parent is IN THIS LIST; otherwise
+   it stays where the list's own order put it and says what it is part of (`crumb`), so a filter
+   or a status group never hides a child behind a parent that is not on screen. Children keep the
+   list's order among themselves. Two levels are drawn (`depth` 0, 1, 2); anything deeper is drawn
+   at 2 and says its parent, since the indent no longer can. `kids`: how many of its children are
+   in this list (0 means nothing to fold). A folded parent's descendants are left out entirely.
+   The engine refuses loops (parentProblem); a row that is somehow never reached is still drawn,
+   at the top, rather than lost. */
+function taskNest(rows, keyOf, parentKeyOf, folded) {
+  const here = new Set(rows.map(keyOf));
+  const kids = new Map();
+  const top = [];
+  for (const t of rows) {
+    const pk = parentKeyOf(t);
+    if (pk !== null && pk !== keyOf(t) && here.has(pk)) {
+      if (!kids.has(pk)) kids.set(pk, []);
+      kids.get(pk).push(t);
+    } else top.push(t);
+  }
+  const out = [];
+  const seen = new Set();
+  const hide = (k) => { for (const c of kids.get(k) || []) { if (!seen.has(keyOf(c))) { seen.add(keyOf(c)); hide(keyOf(c)); } } };
+  const walk = (t, level) => {
+    const k = keyOf(t);
+    if (seen.has(k)) return;
+    seen.add(k);
+    const under = kids.get(k) || [];
+    out.push({ t, depth: Math.min(level, 2), crumb: parentKeyOf(t) !== null && (level === 0 || level > 2), kids: under.length });
+    if (folded && folded.has(k)) { hide(k); return; }
+    for (const c of under) walk(c, level + 1);
+  };
+  top.forEach((t) => walk(t, 0));
+  for (const t of rows) walk(t, 0);
+  return out;
 }
 /* What the view lists: every task except an archived project's, unless that project is the one
    in scope (its own View-all door, #3703). Unarchiving brings them back on the next read. */
@@ -44396,6 +44501,10 @@ function tskPaint() {
       return '<section class="tsk-grp">' + head + tskList(ts) + '</section>';
     }).join('');
   }
+  /* #3861 part 2: a folded parent hides its subtasks' rows, and a tick only ever covers a row on
+     screen (the rule above), so a tick whose row the fold left out goes too. */
+  const drawn = new Set([...groups.querySelectorAll('input[type="checkbox"][data-key]')].map((x) => x.dataset.key));
+  TSK.sel.forEach((k) => { if (!drawn.has(k)) TSK.sel.delete(k); });
   tskPaintBulk();
 }
 function tskPaintBulk() {
@@ -44454,6 +44563,32 @@ function openProjectTasks(id) {
   if (document.body.classList.contains('consolidated')) openConsolidatedTasks();
   else showTab('tasks');
 }
+/* #3861 part 2: "all subtasks done", Close it. One task through the same close route the bulk bar
+   uses, and the same honest sentence after. */
+async function tskCloseParent(key) {
+  if (TSK.busy) return;
+  const msg = document.getElementById('tsk-msg');
+  const i = key.lastIndexOf('#');
+  const pick = { projectId: key.slice(0, i), number: Number(key.slice(i + 1)) };
+  TSK.busy = true;
+  try {
+    const r = await fetch('/api/tasks/close', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tasks: [pick], note: '' }),
+    });
+    const body = await r.json().catch(() => ({}));
+    const res = Array.isArray(body.results) ? body.results[0] : null;
+    msg.textContent = res && res.ok
+      ? 'Closed task ' + pick.number + '. Closing a task does not stop an agent that is working on it.'
+      : asSentence((res && res.error) || body.error || 'that task was not closed');
+  } catch {
+    msg.textContent = 'We could not reach Kosmos, so nothing was closed.';
+  } finally {
+    TSK.busy = false;
+  }
+  msg.tabIndex = -1;
+  msg.focus();
+  tskLoad();
+}
 async function tskBulkClose() {
   if (TSK.busy || !TSK.sel.size) return;
   const msg = document.getElementById('tsk-msg');
@@ -44502,7 +44637,7 @@ async function tskBulkClose() {
    container is what makes it the same control: an agent's button repeats on every row it holds,
    a row and its checkbox share a key, and the crumb's "All tasks" shares data-proj="" with a rail
    item that is hidden in the consolidated view. */
-const TSK_FOCUS_KEYS = ['data-open-task', 'data-open-project', 'data-agent', 'data-tile', 'data-proj', 'data-win', 'data-by', 'data-key'];
+const TSK_FOCUS_KEYS = ['data-fold', 'data-close-parent', 'data-open-task', 'data-open-project', 'data-agent', 'data-tile', 'data-proj', 'data-win', 'data-by', 'data-key'];
 function tskFocusMark(el) {
   const panel = document.getElementById('panel-tasks');
   if (!el || !panel || !panel.contains(el)) return null;
@@ -44543,6 +44678,8 @@ document.getElementById('panel-tasks').addEventListener('click', (e) => {
   if ((b = el('[data-win]'))) { TSK.win = Number(b.dataset.win) || 0; tskPaintKeepingFocus(b); return; }
   if ((b = el('[data-by]'))) { TSK.by = b.dataset.by; tskPaintKeepingFocus(b); return; }
   if ((b = el('[data-tile]'))) { TSK.tile = TSK.tile === b.dataset.tile ? null : b.dataset.tile; tskPaintKeepingFocus(b); return; }
+  if ((b = el('[data-fold]'))) { const k = b.dataset.fold; if (TSK.fold.has(k)) TSK.fold.delete(k); else TSK.fold.add(k); tskPaintKeepingFocus(b); return; }
+  if ((b = el('[data-close-parent]'))) { tskCloseParent(b.dataset.closeParent); return; }
   if ((b = el('[data-open-task]'))) { tskOpenTask(b.dataset.openTask); return; }
   if ((b = el('[data-open-project]'))) { tskOpenProject(b.dataset.openProject); return; }
   if ((b = el('[data-agent]'))) { openDetail(b.dataset.agent); return; }
@@ -44770,6 +44907,33 @@ function paintTaskPage() {
   }
   const parentClosed = t.progress ? t.progress.closed : Boolean(t.closedAt);
   document.getElementById('tk-done').textContent = parentClosed ? 'Reopen' : 'Mark as done';
+  tkPaintSubtasks(p, t, parentClosed);
+}
+/* #3861 part 2: the task page's Subtasks list, its Part of line, and "all subtasks done". The
+   children and the parent come from the project read's `parent` (the engine's tree, as read), so
+   the page never decides which parent counts; finished is each child's own progress. Every
+   element is looked up and may be absent (the tests lift paintTaskPage against a stub page). */
+function tkPaintSubtasks(p, t, closed) {
+  const kids = (p.tasks || []).filter((x) => x && x.parent === t.number)
+    .sort((a, b) => Number(a.number) - Number(b.number));
+  const done = (x) => (x.progress ? Boolean(x.progress.closed) : Boolean(x.closedAt));
+  const list = document.getElementById('tk-subs');
+  if (list) {
+    list.innerHTML = kids.length ? kids.map((x) => '<button class="tksub' + (done(x) ? ' done' : '') + '" type="button" data-sub="' + Number(x.number) + '">'
+      + '<span class="tksub-n">#' + Number(x.number) + '</span><span class="tksub-t">' + esc(x.sentence) + '</span>'
+      + '<span class="tksub-s">' + (done(x) ? 'Done' : 'Open') + '</span></button>').join('')
+      : '<p class="dhint" style="margin:0;">None yet. Break this task into smaller ones, each with its own page.</p>';
+  }
+  const all = document.getElementById('tk-subs-done');
+  if (all) all.hidden = !(kids.length && kids.every(done) && !closed);
+  const row = document.getElementById('tk-partof-row');
+  const up = document.getElementById('tk-partof');
+  const parent = t.parent != null ? (p.tasks || []).find((x) => x && x.number === t.parent) : null;
+  if (row && up) {
+    row.hidden = !parent;
+    up.textContent = parent ? '#' + Number(parent.number) + ' ' + parent.sentence : '';
+    up.dataset.sub = parent ? String(Number(parent.number)) : '';
+  }
 }
 /* #768/#992: one recorded lifecycle event, said the way the rest of the page
    says things. The stored text is RAW (engine/taskchat.js keeps it unescaped and
@@ -44986,6 +45150,16 @@ document.getElementById('tk-who').addEventListener('keydown', (e) => {
 });
 
 document.getElementById('tk-back').addEventListener('click', leaveTaskPage);
+/* #3861 part 2: into a subtask or up to the parent (both are task pages on this project). */
+for (const id of ['tk-subs', 'tk-partof-row']) {
+  document.getElementById(id).addEventListener('click', (e) => {
+    const b = e.target.closest('[data-sub]');
+    if (b && b.dataset.sub) openTaskPage(Number(b.dataset.sub));
+  });
+}
+/* "All subtasks done": Close this task is the page's own Mark as done, the one verb a person owns. */
+document.getElementById('tk-subs-close').addEventListener('click', () => document.getElementById('tk-done').click());
+document.getElementById('tk-subadd').addEventListener('click', () => openNewTask(PJ_CURRENT, 'task', TK_OPEN));
 document.getElementById('tk-done').addEventListener('click', async () => {
   const p = pjById(PJ_CURRENT);
   const t = p && (p.tasks || []).find((x) => x.number === TK_OPEN);
@@ -45123,6 +45297,7 @@ let NT_FOR = null;
    dialog. NT_PROJECT is the project it files to; NT_ORIGIN is where focus and the answer go back. */
 let NT_ORIGIN = 'project';
 let NT_PROJECT = null;
+let NT_PARENT = null;   // #3861 part 2: the task "+ Add subtask" was pressed on, or null
 /* The projects the All-tasks picker offers: every project that is not archived, by name. The
    rails set archived projects aside, and so does this list. A view SCOPED to an archived project
    (its own View-all door) files there without the picker, exactly as that project's own page
@@ -45136,8 +45311,9 @@ async function openNewTaskFromTasks() {
   const picked = TSK.proj ? pjById(TSK.proj) : null;
   openNewTask(picked ? picked.id : null, 'tasks');
 }
-function openNewTask(projectId, origin) {
-  NT_ORIGIN = origin === 'tasks' ? 'tasks' : 'project';
+function openNewTask(projectId, origin, parent) {
+  NT_ORIGIN = origin === 'tasks' || origin === 'task' ? origin : 'project';
+  NT_PARENT = parent == null ? null : Number(parent);   // #3861 part 2: "+ Add subtask" presets it
   const row = document.getElementById('nt-projrow');
   const said = document.getElementById('nt-in');
   const pick = document.getElementById('nt-in-pick');
@@ -45237,10 +45413,28 @@ function ntAimAt(p) {
        Nobody, which is what an unselected select would submit anyway. */
     if (sel.selectedIndex === -1) sel.selectedIndex = 0;
   }
+  ntFillParents(p, sameDraft);
+}
+/* #3861 part 2: "Part of", the project's open tasks, newest first, none by default. A preset from
+   "+ Add subtask" is offered even when that task is closed (a closed parent is valid on purpose:
+   a follow-up can be filed under finished work). A kept draft keeps its pick while it is still
+   offered; a different project starts at none, since a task number means nothing across projects. */
+function ntFillParents(p, keep) {
+  const sel = document.getElementById('nt-parent');
+  if (!sel) return;
+  const was = keep ? sel.value : '';
+  const open = (p.tasks || []).filter((x) => x && !(x.progress ? x.progress.closed : x.closedAt));
+  const preset = NT_PARENT != null ? (p.tasks || []).find((x) => x && x.number === NT_PARENT) : null;
+  if (preset && !open.includes(preset)) open.push(preset);
+  open.sort((a, b) => Number(b.number) - Number(a.number));
+  sel.innerHTML = '<option value="">None</option>'
+    + open.map((x) => '<option value="' + Number(x.number) + '">#' + Number(x.number) + ' ' + esc(x.sentence) + '</option>').join('');
+  sel.value = preset ? String(preset.number) : was;
+  if (sel.selectedIndex === -1) sel.selectedIndex = 0;
 }
 function leaveNewTask() {
   document.getElementById('nt-modal').hidden = true;
-  document.getElementById(NT_ORIGIN === 'tasks' ? 'tsk-new' : 'pj-newtask').focus();
+  document.getElementById(NT_ORIGIN === 'tasks' ? 'tsk-new' : NT_ORIGIN === 'task' ? 'tk-subadd' : 'pj-newtask').focus();
 }
 /* Wrapped: a bare listener would hand the click Event to openNewTask as its project id. */
 document.getElementById('pj-newtask').addEventListener('click', () => openNewTask());
@@ -45273,6 +45467,7 @@ document.getElementById('nt-go').addEventListener('click', async () => {
         sentence: document.getElementById('nt-what').value,
         detail: document.getElementById('nt-detail').value.trim() || undefined,
         who: document.getElementById('nt-who').value || undefined,
+        parent: document.getElementById('nt-parent').value ? Number(document.getElementById('nt-parent').value) : undefined,
       }),
     });
     const body = await res.json().catch(() => null);
@@ -45298,6 +45493,13 @@ document.getElementById('nt-go').addEventListener('click', async () => {
       return;
     }
     await pjReload();
+    if (NT_ORIGIN === 'task') {
+      /* #3861 part 2: from a task page's "+ Add subtask": stay on that page, which the reload
+         repainted with the new subtask in its list, and say so there. */
+      const made = body && body.task;
+      document.getElementById('tk-msg').textContent = 'Added task ' + (made && made.number ? made.number + ' ' : '') + 'as a subtask.';
+      return;
+    }
     // Set AFTER the reload and the dialog's own close, which both land on
     // the project page too: an earlier write here would be gone before
     // the person could read it (leaveNewTask moves focus, pjReload
