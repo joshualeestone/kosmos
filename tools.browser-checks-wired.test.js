@@ -133,8 +133,9 @@ function isLibrary(file) {
    afternoon exactly as a false pass does.
 
    📌 There is a fourth `for n in` in the runner that must NOT count: the
-   "server did not boot" branch, which names the $B8 group's checks (from
-   docs/browser-checks/b8-board.txt since #3987) only to push them onto FAILED. Keying on run_one in the body is what excludes it.
+   "server did not boot" branch, which names the $B8 group's checks
+   (docs/browser-checks/b8-board.txt since #3987) only to push them onto
+   FAILED. Keying on run_one in the body is what excludes it.
 
    🛑 THE LIMIT OF THIS FILE, AND IT IS ONE RUNG SHORT OF WHAT I FIRST CLAIMED
    (Mona Lisa, cross-review of #1439). I wrote that presence asks "does this
@@ -337,6 +338,7 @@ function invokedByOtherPosition(code, stem) {
 const B8_FILE = path.join(DIR, 'b8-board.txt');
 const B8_OPEN = 'if boot_board "$sb7" "$P8"; then';
 const B8_READ = 'done < "$REPO/docs/browser-checks/b8-board.txt"';
+const B8_GUARD = '[ "${#B8_CHECKS[@]}" -gt 0 ] || FAILED+=(';
 const B8_LOOP = 'for n in ${B8_CHECKS[@]+"${B8_CHECKS[@]}"}; do FAILED+=("$n (server did not boot)"); done';
 function b8Problems(code, listed) {
   const start = code.indexOf(B8_OPEN);
@@ -344,16 +346,23 @@ function b8Problems(code, listed) {
   const els = code.indexOf('\nelse\n', start);
   const fi = code.indexOf('\nfi\n', els);
   if (els < 0 || fi < 0) return ['the $B8 group has no did-not-boot branch'];
-  const ran = [...code.slice(start, els).matchAll(/^\s*run_one\s+"([^"]+)"/gm)].map((m) => m[1]);
+  const block = code.slice(start, els);
+  const ran = [...block.matchAll(/^\s*run_one\s+"([^"]+)"/gm)].map((m) => m[1]);
+  /* Every check the block launches must be a literal run_one line: a loop or a wrapper would run
+     names this comparison cannot see, so the file could drift again unnoticed. */
+  const launched = [...block.matchAll(/node\s+docs\/browser-checks\/([a-z0-9-]+)\.js/g)].map((m) => m[1]);
   const onFail = code.slice(els, fi);
   const problems = [];
+  for (const n of launched) if (!ran.includes(n)) problems.push(`${n} is launched on $B8 other than by a literal run_one "${n}" line`);
   if (!onFail.includes(B8_READ) || !onFail.includes(B8_LOOP)) problems.push(`the did-not-boot branch does not report the names in ${B8_FILE}`);
+  if (!onFail.includes(B8_GUARD)) problems.push('the did-not-boot branch lost its guard: an empty or missing file would report nothing');
   for (const n of ran) if (!listed.includes(n)) problems.push(`${n} runs on $B8 but is not in ${B8_FILE}`);
   for (const n of listed) if (!ran.includes(n)) problems.push(`${n} is in ${B8_FILE} but does not run on $B8`);
   return problems;
 }
 
 test('#3987: the $B8 did-not-boot list is one name per line, sorted, unique, and names exactly the group\'s checks', () => {
+  /* Stricter than the runner on purpose: a space or CR the runner would copy into a name fails here. */
   const raw = fs.readFileSync(B8_FILE, 'utf8').split('\n');
   if (raw[raw.length - 1] === '') raw.pop();
   for (const [i, l] of raw.entries()) {
@@ -374,6 +383,9 @@ test('#3987: the $B8 did-not-boot list is one name per line, sorted, unique, and
   assert.ok(b8Problems(code, [...names, 'zzz-not-run']).length > 0, 'a name in the file the group does not run goes unnoticed');
   assert.ok(b8Problems(code, names.slice(1)).length > 0, 'a name dropped from the file goes unnoticed');
   assert.ok(b8Problems(code.replace(B8_READ, 'done < /dev/null'), names).length > 0, 'the did-not-boot branch no longer reads the file, unnoticed');
+  assert.ok(b8Problems(code.replace(B8_GUARD, 'true || FAILED+=('), names).length > 0, 'the empty-file guard removed, unnoticed');
+  const wrapped = code.replace(B8_OPEN, `${B8_OPEN}\n  run_b8x zzz-wrapped env KOSMOS_URL="$B8" node docs/browser-checks/zzz-wrapped.js`);
+  assert.ok(b8Problems(wrapped, names).length > 0, 'a check launched on $B8 through a wrapper, not a literal run_one, goes unnoticed');
   assert.ok(b8Problems(code.replace(B8_LOOP, `for n in ${names.slice(0, 3).join(' ')}; do FAILED+=("$n (server did not boot)"); done`), names).length > 0,
     'an inline list restored in place of the file goes unnoticed');
 });
