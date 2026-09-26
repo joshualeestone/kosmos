@@ -426,7 +426,7 @@ async function preflight(base) {
 
 /* ------------------------------------------------------------------ leak guard */
 /* What must never appear in a shot: a real email (anything not example.com),
-   an `sk-` style key fragment, this Mac's home path, user name or host name.
+   an API key (sk-, AIza, xai-), this Mac's home path, user name or host name.
    Returns the offending strings. */
 /* The two controls tools/browser-checks.sh runs, each of which must exit 3:
    `account` plants a signed-in Claude account in the sandboxed home (the
@@ -441,7 +441,8 @@ const REAL_HOST = os.hostname().replace(/\.local$/, '');
    as josh@you.com, a pattern fragment) are the same product text for everyone,
    so they cannot leak anything; only data the board injects is judged. */
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
-const KEY_RE = /\bsk-[A-Za-z0-9_-]{2,}/g;
+// OpenAI / Anthropic (sk-...), Google Gemini (AIza...) and xAI Grok (xai-...) keys.
+const KEY_RE = /\b(?:sk-[A-Za-z0-9_-]{2,}|AIza[0-9A-Za-z_-]{20,}|xai-[A-Za-z0-9]{20,})/g;
 const SHIPPED_HTML = fs.readFileSync(path.join(REPO, 'web', 'index.html'), 'utf8');
 const SHIPPED_EMAILS = new Set(SHIPPED_HTML.match(EMAIL_RE) || []);
 /* e.g. the `sk-ant-` placeholder on the API key field. This scan catches a full key
@@ -469,7 +470,7 @@ const REAL_HOST_RE = nameCheck(REAL_HOST, 'host');
    comments and script would match a common login name such as a word in a
    code comment, and stop every run on that Mac. A hit is reported by kind and
    length only, no characters of it, because the message lands in shared logs. */
-const mask = (t) => (t.includes('@') ? 'an email address' : 'a value') + ` (${t.length} chars)`;
+const mask = (t, kind) => (kind || (t.includes('@') ? 'an email address' : 'a value')) + ` (${t.length} chars)`;
 async function leaksOn(page) {
   const text = await page.evaluate(() => {
     if (!document.body) return '';
@@ -489,7 +490,7 @@ async function leaksOn(page) {
   if (REAL_HOME.length > 1 && text.includes(REAL_HOME)) hits.set('home', 'home: ' + mask(REAL_HOME));
   if (REAL_USER_RE && REAL_USER_RE.test(text)) hits.set('user', 'user: ' + mask(REAL_USER));
   if (REAL_HOST_RE && REAL_HOST_RE.test(text)) hits.set('host', 'host: ' + mask(REAL_HOST));
-  for (const m of text.match(KEY_RE) || []) if (!SHIPPED_KEYS.has(m)) hits.set('key:' + m, 'a key ' + mask(m));
+  for (const m of text.match(KEY_RE) || []) if (!SHIPPED_KEYS.has(m)) hits.set('key:' + m, mask(m, 'a key'));
   return [...hits.values()];
 }
 
