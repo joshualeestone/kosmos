@@ -47,8 +47,11 @@ function ratio(a, b) {
 }
 function rgb(s) {
   const m = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)/.exec(s);
-  if (!m) return null;
-  return { c: [+m[1], +m[2], +m[3]], a: m[4] === undefined ? 1 : +m[4] };
+  if (m) return { c: [+m[1], +m[2], +m[3]], a: m[4] === undefined ? 1 : +m[4] };
+  /* #3955: a color-mix() background computes to `color(srgb r g b [/ a])`, channels 0 to 1. */
+  const c = /color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?\)/.exec(s);
+  if (c) return { c: [c[1] * 255, c[2] * 255, c[3] * 255], a: c[4] === undefined ? 1 : +c[4] };
+  throw new Error('a colour this check cannot read: ' + s);   // never a null that crashes three lines later
 }
 function over(fg, bg) {
   /* A translucent label composited on its own background, because measuring the
