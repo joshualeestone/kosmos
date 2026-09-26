@@ -42215,9 +42215,16 @@ function dotGlyph(cv, letter, color, seedStr) {
   off.width = S; off.height = S;
   const o = off.getContext('2d');
   o.font = '700 215px -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif';
-  o.textAlign = 'center'; o.textBaseline = 'middle';
+  /* #3483: centre the glyph's INK, not its advance box and em-box middle.
+     textAlign/textBaseline centring leaves the letter wherever the font's
+     metrics put it; with Segoe UI (Windows) that was 16px high on every
+     cap and 10px right on K, out of 256. */
+  o.textAlign = 'left'; o.textBaseline = 'alphabetic';
   o.fillStyle = '#000';
-  o.fillText(letter, C, C);
+  const m = o.measureText(letter);
+  o.fillText(letter,
+    C - (m.actualBoundingBoxRight - m.actualBoundingBoxLeft) / 2,
+    C + (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2);
   const mask = o.getImageData(0, 0, S, S).data;
   g.clearRect(0, 0, cv.width, cv.height);
   g.save();
