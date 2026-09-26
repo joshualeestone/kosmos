@@ -33,7 +33,9 @@
  * arm reds when the old scroll offset is kept across a width change; the
  * same-width repaint arm reds when every repaint writes the scroll; the turned-
  * while-hidden arm reds when the resize handler remembers its own width; the long
- * callout arm reds without the box's sideways clip (page 406px at 375).
+ * callout arm reds without the box's sideways clip (page 406px at 375); the
+ * keyboard arm reds when the scrolling box cannot take focus; the ring-added arm
+ * reds when a same-width growth leaves the scroll where it was.
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -308,6 +310,34 @@ function measure(page) {
           chk(left !== before, `${tag} a touch swipe across the chart scrolls its box`, `scrollLeft ${before} -> ${left} at ${r.x},${r.y}${why}`);
         } else {
           console.log(`INFO  ${tag} touch swipe arm is Chromium only (no gesture path here); touch-action is checked above`);
+        }
+        // A keyboard can pan it: the scrolling box takes focus, is named, and the arrow keys move it.
+        {
+          const r = await page.evaluate(() => { const w = document.getElementById('orgview'); w.scrollLeft = 0; w.focus();
+            return { tab: w.tabIndex, role: w.getAttribute('role'), label: w.getAttribute('aria-label'), focused: document.activeElement === w }; });
+          await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight');
+          await page.waitForTimeout(400);
+          const left = await page.evaluate(() => document.getElementById('orgview').scrollLeft);
+          chk(r.tab === 0 && r.role === 'region' && !!r.label && r.focused && left > 0,
+            `${tag} the scrolling box takes keyboard focus, is named, and the arrow keys pan it`, JSON.stringify(r) + ' scrollLeft after two ArrowRight: ' + left);
+        }
+        // The fleet grows a ring while the box is scrolled (same width): the drawing grows by
+        // half the difference on each side, so the point in the middle must stay in the middle.
+        {
+          const c0 = await page.evaluate(() => { const w = document.getElementById('orgview'); w.scrollLeft = Math.round((w.scrollWidth - w.clientWidth) / 2);
+            return { left: w.scrollLeft, size: document.getElementById('orgmap').getBoundingClientRect().width }; });
+          store.writeProfile('dov', { reportsTo: 'cleo' });
+          let r = null;
+          for (let i = 0; i < 24; i++) {   // the board polls every 5s
+            await page.waitForTimeout(500);
+            r = await page.evaluate(() => { const w = document.getElementById('orgview');
+              return { left: w.scrollLeft, scrollW: w.scrollWidth, clientW: w.clientWidth, size: Math.round(document.getElementById('orgmap').getBoundingClientRect().width) }; });
+            if (r.size > c0.size) break;
+          }
+          store.writeProfile('dov', { reportsTo: '' });   // back to the first ring for the next engine (writeProfile merges)
+          const c = Math.round((r.scrollW - r.clientW) / 2);
+          chk(r.size > c0.size && Math.abs(r.left - c) <= 2, `${tag} a ring added while scrolled keeps the chart centred in its box`,
+            `chart ${Math.round(c0.size)} -> ${r.size}px, scrollLeft ${c0.left} -> ${r.left}, centre ${c}`);
         }
         chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));
         await ctx.close();
