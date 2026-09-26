@@ -155,11 +155,16 @@ function onEvent(projectId, line) {
     // #3728: key frames are the room's handshake, never a row.
     if (typeof ev.data.t === 'string' && ev.data.t.startsWith('key-')) { onKeyFrame(projectId, s, ev.data); return; }
     const sealed = roomSeal(projectId);
-    const sealedRoom = sealed === undefined ? undefined : isSealedRoom(sealed, safeLink(projectId));
+    const sealedRoom = sealed === undefined ? undefined : isSealedRoom(sealed, sealLink(projectId));
     if (sealedRoom === undefined) { noteOnce(projectId, s, 'sealUnreadable', 'A message from the external project was not shown: this computer cannot read its sealed-rooms record right now.'); return; }
     if (fedseal.isSealed(ev.data)) {
       const now = Date.now();
       const opened = hasKey(sealed) && s.room ? fedseal.open(acceptedKeys(sealed, now), s.room, ev.data) : null;
+      if (!opened && !sealed) {
+        // This computer joined before the owner sealed the room: it holds no key and never will from that code.
+        noteOnce(projectId, s, 'sealedSince', 'The owner has sealed this shared room since this computer joined, so its messages cannot be read here. Ask the owner to remove you from the shared project and send you a new code.');
+        return;
+      }
       if (!opened) { noteOnce(projectId, s, 'unopened', 'A sealed message arrived that this computer could not open, so it was not shown.'); return; }
       const fresh = freshMessage(s, opened, now);
       if (fresh === 'seen') { noteOnce(projectId, s, 'replay', 'A sealed message arrived a second time, so it was not shown again.'); return; }
@@ -170,7 +175,7 @@ function onEvent(projectId, line) {
       ev.data = opened.m;
     } else if (sealedRoom) {
       // No downgrade: once a room is sealed, words sent in the clear are not shown.
-      noteOnce(projectId, s, 'unsealed', 'A message arrived unsealed in this sealed room, so it was not shown.');
+      noteOnce(projectId, s, 'unsealed', 'A message arrived unsealed in this sealed room, so it was not shown. If someone joined before this room was sealed, remove them from the shared project and send them a new code.');
       return;
     }
   }
@@ -412,6 +417,9 @@ function hasKey(st) {
 function isSealedRoom(st, link) {
   if (st && st.role === 'member') return true;
   if (hasKey(st)) return true;
+  // The link record could not be read: we cannot tell whether an owner has sealed this
+  // room, so the answer is "cannot tell" (nothing sent, nothing shown), never "clear".
+  if (link === undefined) return undefined;
   if (link && link.role === 'owner' && typeof link.ref === 'string') {
     try { return fedseal.isSealedRef(link.ref); } catch { return undefined; }
   }
@@ -424,6 +432,11 @@ function acceptedKeys(st, now) {
   const prev = st.epoch - 1;
   if (prev >= 0 && typeof st.keys[prev] === 'string' && Number.isFinite(st.rotatedAt) && now - st.rotatedAt < EPOCH_GRACE_MS) keys[prev] = st.keys[prev];
   return keys;
+}
+/** The link for the seal decisions: null when there is none, undefined when the record
+    cannot be read (safeLink turns that into null, which would read as "not sealed"). */
+function sealLink(projectId) {
+  try { return linkFor(projectId); } catch { return undefined; }
 }
 /** Whether an opened message is fresh: 'ok', 'seen' (a replay of one already shown),
     or 'time' (sealed too long ago or too far ahead of this computer's clock: a replay,
@@ -720,7 +733,7 @@ function post(projectId, { from, kind, text }) {
   let payload = { from: clean(from, 80) || 'someone', kind: kind === 'agent' ? 'agent' : 'person', text: String(text || '') };
   // #3728: a sealed room's posts leave this Mac only sealed.
   const sealed = roomSeal(projectId);
-  const link = safeLink(projectId);
+  const link = sealLink(projectId);
   const sealedRoom = sealed === undefined ? undefined : isSealedRoom(sealed, link);
   if (sealedRoom === undefined) {
     say(projectId, 'That message stayed on this computer: it cannot read its sealed-rooms record right now, so it cannot tell whether this room is sealed.');

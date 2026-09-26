@@ -971,3 +971,34 @@ test('#3728: an owner re-sends the current key on each pass, so a member offline
   const ownerPub = fedseal.sealingKey().pub;
   assert.ok(lines(seat).slice(n).some((f) => f.t === 'key-rotate' && fedseal.openRotate(kb, ownerPub, f, 'room-cu')), 'the pass did not re-send the current key');
 });
+
+test('#3728: an owner with no key yet stays sealed when the link record cannot be read', async () => {
+  const inv = newInvite('ul');
+  const { h, seat } = await ownerRoom('proj-unread', 'ref-unread', 'room-ul', [inv]);
+  const f = path.join(require('./store').ROOT, 'federation.json');
+  assert.ok(fs.existsSync(f), 'fixture: the link record is where the store keeps it');
+  const good = fs.readFileSync(f, 'utf8');
+  fs.writeFileSync(f, '{damaged');
+  try {
+    assert.strictEqual(fedseats.post('proj-unread', { from: 'Josh', kind: 'person', text: 'must not leave' }), false);
+    say(seat, { event: 'message', data: { from: 'Mallory', kind: 'person', text: 'injected' } });
+    await settle();
+    assert.ok(!lines(seat).some((l) => l.text === 'must not leave'), 'a post left in the clear');
+    assert.strictEqual(h.recorded.length, 0, 'a plaintext row was shown');
+  } finally {
+    fs.writeFileSync(f, good);
+  }
+});
+
+test('#3728: a member that joined before the owner sealed is told how to get back in', async () => {
+  federation.recordLink('proj-mixed', { role: 'member', edge_id: 'edge-mixed' });
+  const h = harness();
+  await fedseats.ensure('proj-mixed');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-mixed', expires_at: 9 });
+  await settle();
+  say(seat, { event: 'message', data: fedseal.seal(fedseal.randomSecret(), 0, 'room-mixed', { from: 'Owner', kind: 'person', text: 'sealed now' }) });
+  await settle();
+  assert.strictEqual(h.recorded.length, 0);
+  assert.ok(h.notes.some((n) => /sealed this shared room since this computer joined/.test(n.text) && /new code/.test(n.text)), JSON.stringify(h.notes));
+});

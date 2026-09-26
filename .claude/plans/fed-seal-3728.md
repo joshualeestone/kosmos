@@ -38,7 +38,7 @@ Tests (engine/fedseal.test.js):
   - An unsealed payload in a sealed room is refused, so there is no downgrade.
   - A seal that cannot be opened is refused.
   - Each refusal gets one note per seat run. Key frames are never rows.
-- **Legacy:** a room with no seal state (made before sealing, or joined with a code from an older owner) behaves exactly as before.
+- **Legacy:** a room with no seal state (made before sealing, or joined with a code from an older owner) behaves exactly as before, UNTIL its owner makes a sealing invite for the project. From then the owner refuses that member's plaintext, and the member cannot open sealed messages. Both rooms name the recovery: remove that person, then send them a new code. A member cannot redeem a second code while its first edge is active (the coordinator answers AlreadyJoined), which is why the removal comes first (round 3).
 - **Tests (engine/fedseats.test.js):**
   - Owner: shares with the half-holder, a stranger gets nothing, the half is spent, a reconnect gets the same key, and posts leave sealed.
   - Member: hello, holding posts, pinning, sealed out and in, downgrade and unopenable refused.
@@ -87,3 +87,7 @@ Tests (engine/fedseal.test.js):
 - [WARNING] a member offline at a rotation stayed on the old key: only the OWNER's reconnect re-sent it, and a member holding any key does not say hello again. FIXED: on each ensureAll pass the owner re-sends the current epoch to its pinned members; members ignore an epoch they hold. Test (owner seat stays up, a pass re-sends); control fails by name.
 - [WARNING] freshness is judged against each Mac's clock, unstated, and a skewed clock refused genuine messages with a note blaming nothing. FIXED: a time refusal has its own note ("...check the date and time on this computer and on the other one"), distinct from a second copy ("arrived a second time"); the clock assumption is stated in engine/fedseal.js. Control (no clock hint) fails by name.
 - The reviewer also checked and found sound: the coordinator lying about invite_id to edge gains nothing (it cannot forge a hello without s); sealStep runs fn once (then(fn, fn) fires one handler) and a hung call is bounded by macRequest's own timeout; a sealed owner with every member revoked still posts (sealed, unread); no plaintext path or unguarded throw in the message pipeline.
+
+## Round 3 review (opus): 2 WARNINGs, both taken
+- [WARNING] an owner with no key yet fell back to plaintext when federation.json could not be read (safeLink turns the throw into null, read as "not sealed"). FIXED: the seal decisions read the link through sealLink, which keeps "cannot read" as undefined, and isSealedRoom answers "cannot tell" (nothing sent, nothing shown). Test with a damaged federation.json; control (the rule removed) fails by name.
+- [WARNING] mixed rooms: a member who joined unsealed is cut off once the owner makes a sealing invite, with no word on recovery (a second code is refused while the first edge is active). FIXED as a stated behaviour: the owner's "arrived unsealed" note and the member's new "sealed this shared room since this computer joined" note both name the recovery (remove, then a new code). The plan's Legacy line now says so. Test.
