@@ -287,9 +287,6 @@ async function pull(dir, opts) {
   const fromPublicStore = (Array.isArray(blobs) ? blobs : []).some((b) => {
     try { return b && new URL(b.url).hostname.endsWith('.public.' + BLOB_HOST); } catch { return false; }
   });
-  /* kosmos#3906: the store listed reports and NONE was pulled, whether they could not
-     be read (#3878), were malformed, or failed to write. Any of those is a failure with
-     its reasons, never "pulled 0" as a success. */
   // Every skip took exactly one branch above, so what is left is the malformed ones
   // (no url, not JSON, the wrong shape). Counted ONCE, here, for both results.
   const malformed = skipped - unreadable - unwritten;
