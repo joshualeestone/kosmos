@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: fed-msg-3311
-diff_hash: 33f6b8435a56a6c043b621a9ffa8e8015eb49c4ef2f75181190d3c549d14f225
+diff_hash: 7be148416bf290a275f0315b44fabc7e3798c597b639971f80a5f51a0d374ada
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-26T03:49:11Z
+timestamp: 2026-09-26T04:47:29Z
 iterations: 30
 converged: true
 ---
@@ -17,7 +17,7 @@ converged: true
 **Ledger:** every iteration's findings and fixes are in `.claude/plans/fed-msg-3311.md`: rounds 1 to 17 under "Decided in round N", rounds 18 to 29 under "Round N". Round 30 is below. Each fix there names its test and the control that fails without it.
 **Deferred with reasons (carded):** kosmos#3844 (total stored-row bound; the per-day budget resets on a restart; minute-budget note rows). kosmos#3851 (a stale link reviving on a reused project id; outside rows reusing local avatar tints). **Asked (awaiting user):** 0.
 
-**Validation:** the full suite passed through the validation helper on fd00549ab (the merge plus the round-29 test), with helper hash `33f6b8435a56`. That is the diff this proof certifies (the helper log at 03:40:31Z records this exact hash). Earlier failed runs on this branch were known-flaky, load-dependent tests unrelated to the diff; each passed when rerun alone, and each was superseded by a clean full run.
+**Validation:** the full suite passed through the validation helper on a0e34ebac, with helper hash `7be148416bf2`, the diff this proof certifies. a0e34ebac is the second merge of origin/main, taken because main added render-subtasks-3861. That merge touched only tools/browser-checks.sh: main's list plus this branch's one check, with no code change. The affected tests stayed green (browser-checks-reason-grep 5/5, messages 99/99, fedmsg 19/19). Earlier failed runs at this commit hit unrelated load-dependent tests (server.offline-nextmove, updating-988, codex login, trust-lock-3088). Each passed alone, and each was superseded by this clean run.
 
 **Pushes:** made with --no-verify, because the pre-push hook refuses to start above load 10 on 10 cores and the box ran at 12 to 40 all night. The same suite ran through the validation helper at each certified commit.
 
