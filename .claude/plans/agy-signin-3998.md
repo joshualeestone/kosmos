@@ -33,3 +33,7 @@ Pressing "Sign in with your Google subscription" in Kosmos opens only Google's p
 
 ## Weakest premise
 That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across agy updates. Mitigated by the stuck fallback: an unrecognised screen shows the window instead of hanging silently.
+
+## Card items added 11:48 (Josh) and folded in at Splinter's 12:04 ask
+- The key-based option in the create-agent and agent-detail provider menus reads "Google Gemini (API key)" beside "Google Gemini (Google subscription)". Settings' Add a provider keeps "Google Gemini": it asks key or subscription on the next step.
+- The Gemini subscription account row in Settings > AI Models is now in this branch too (Splinter, 12:04: build it now rather than a second PR).
