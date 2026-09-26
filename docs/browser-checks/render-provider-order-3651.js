@@ -84,6 +84,16 @@ function ok(name, cond, detail) {
     const shuffled = [...sel.options].map((o) => o.value);
     orderProviderOptions('d-provider');
     out.control = { shuffled, after: [...sel.options].map((o) => o.value) };
+    // #2234: the Add a provider dialog's help link, read with the dialog open.
+    const modal = document.getElementById('acct-add-modal');
+    const wasHidden = modal.hidden;
+    modal.hidden = false;
+    const help = document.getElementById('acct-provider-help');
+    out.help = help ? {
+      text: help.textContent, href: help.getAttribute('href'), target: help.getAttribute('target'), rel: help.getAttribute('rel'),
+      inField: !!help.closest('#acct-provider-field'), shown: help.getClientRects().length > 0,
+    } : null;
+    modal.hidden = wasHidden;
     return out;
   });
 
@@ -103,6 +113,11 @@ function ok(name, cond, detail) {
     r.control.shuffled.indexOf('xai') < r.control.shuffled.indexOf('google'), JSON.stringify(r.control.shuffled));
   ok('CONTROL: orderProviderOptions puts a shuffled picker back in PROVIDER_ORDER',
     r.control.after.indexOf('google') < r.control.after.indexOf('xai'), JSON.stringify(r.control.after));
+  // #2234: Josh's words verbatim, to the stable help URL (the site redirects it to the current help).
+  ok('Add a provider offers "Help - I\'m confused about selecting a provider", under the picker, shown when the dialog is open',
+    !!r.help && r.help.text === "Help - I'm confused about selecting a provider" && r.help.inField && r.help.shown, JSON.stringify(r.help));
+  ok('the help link goes to the stable URL installkosmos.com/help/connect-provider, in a new tab',
+    !!r.help && r.help.href === 'https://installkosmos.com/help/connect-provider' && r.help.target === '_blank' && /noopener/.test(r.help.rel || ''), JSON.stringify(r.help));
   ok('no page errors', pageErrors.length === 0, pageErrors.join(' | '));
 
   await browser.close();
