@@ -157,3 +157,22 @@ test('adding a part records why the mark went; a close drops it without an unbui
   tasks.close(id2, n2);
   assert.equal(taskchat.read(id2, n2).some((e) => e.kind === 'unbuilt'), false);
 });
+
+test('the history reads cause then effect: the part change, then "no longer built" (review round 2)', () => {
+  const { id, n } = freshTask();
+  tasks.setBuilt(id, n, { by: 'rex' });
+  tasks.addPart(id, n, { sentence: 'one more' });
+  const kinds = taskchat.read(id, n).map((e) => e.kind);
+  assert.ok(kinds.indexOf('part-added') < kinds.lastIndexOf('unbuilt'), JSON.stringify(kinds));
+  const { id: id2, n: n2 } = freshTask(null);
+  tasks.addPart(id2, n2, { sentence: 'two' });
+  const parts = tasks.partsOf(stored(id2, n2));
+  tasks.setPartClosed(id2, n2, parts[0].id, new Date().toISOString());
+  tasks.setBuilt(id2, n2, { by: 'operator' });
+  tasks.setPartClosed(id2, n2, parts[0].id, null);
+  const k2 = taskchat.read(id2, n2).map((e) => e.kind);
+  assert.ok(k2.lastIndexOf('part-reopened') < k2.lastIndexOf('unbuilt'), JSON.stringify(k2));
+  /* A part change with no mark to drop records no unbuilt line after it (the flag does not leak). */
+  tasks.addPart(id2, n2, { sentence: 'three' });
+  assert.equal(taskchat.read(id2, n2).filter((e) => e.kind === 'unbuilt').length, 1);
+});

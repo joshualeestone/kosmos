@@ -14719,9 +14719,10 @@ window.kosmosMeasureScrollbarWidth();
 <!-- #3559 (Josh, 2026-09-24): Tasks is a top-level view beside Agents and Projects, every
      task across every project. Mona's mock (chaoskosmos-site tasks-view-3559 248c953, the dot
      revision) plus Josh's search box. Groups are WHERE THE WORK IS, derived by the engine
-     (tasks.taskState) and only those it can prove (since #3949: Needs Your Decision, In progress,
-     Assigned but not started, Unassigned, Completed). Built-but-waiting and categories need
-     evidence no task stores yet (#3951), so they are not drawn at all rather than guessed. No
+     (tasks.taskState) and only those it can prove (Josh's six since #3951: Needs Your Decision, In
+     progress, Assigned but not started, Unassigned, Built but waiting, Completed). Built but waiting
+     is a task's own builtAt (kosmos task built); categories need evidence no task stores yet, so they
+     are not drawn at all rather than guessed. No
      coloured left bars anywhere (Josh, 12:52): the status mark is a round dot beside the label. -->
 <!-- #3949 (Josh, 2026-09-26): no left Projects column; the body takes the full width. Projects is a
      dropdown on one line with Created:, the search is about half as wide with the open-task count to its
@@ -45964,11 +45965,11 @@ document.getElementById('pj-alltasks').addEventListener('click', () => openProje
    Every task on every project, grouped by WHERE THE WORK IS. The engine derives each task's
    `state` (tasks.taskState, from the same claim the project card shows); this code renders it
    and never computes it. Only the groups the engine can prove exist here (#3949 added Needs Your
-   Decision, from the roster); built-but-waiting and categories wait for evidence no task stores yet
-   (#3951, and Mona's weakest-premise note on #3559), so they are not drawn at all rather than guessed. */
+   Decision, from the roster; #3951 Built but waiting, from a task's builtAt); categories wait for evidence no
+   task stores yet (Mona's weakest-premise note on #3559), so they are not drawn at all rather than guessed. */
 /* #3949 (Josh, 2026-09-26): one label per group, no byline, in his order. Needs Your Decision is red, the
    only group the person acts on; the engine's `decision` state (tasks.waitingOnPerson) fills it. "Built but
-   waiting" is not drawn: no task stores it yet (#3951). */
+   waiting" is the engine's `built` state (#3951: tasks.setBuilt, from `kosmos task built`). */
 const TSK_GROUPS = [
   { k: 'decision', l: 'Needs Your Decision', c: 'var(--tsk-decision)',
     /* Not "your go-ahead" (review round 11): a trust wait never reaches the tasks route's roster today (the
@@ -46455,7 +46456,9 @@ async function tskUnbuild(key) {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clear: true }),
     });
     const body = await r.json().catch(() => ({}));
-    msg.textContent = r.ok && body.task ? 'Task ' + number + ' is no longer marked built. It stays open.'
+    /* Only "stays open" when it does: the task may have been closed since the row was drawn (review round 2). */
+    msg.textContent = r.ok && body.task
+      ? 'Task ' + number + ' is no longer marked built.' + (body.task.closedAt ? '' : ' It stays open.')
       : asSentence(body.error || 'the mark was not taken off');
   } catch {
     msg.textContent = 'We could not reach Kosmos, so the mark is still there.';

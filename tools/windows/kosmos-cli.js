@@ -605,7 +605,7 @@ async function taskBuilt(ctx, args) {
   if (clear && note) { ctx.err('--clear takes the mark off, so it takes no note. Run it without the note.'); return 2; }
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '' });
   if (!r.reached) {
-    return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The mark may have been recorded; marking again is safe.')
+    return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
       : ctx.unreachable('mark that task');
   }
   if (r.json && r.json.task) {

@@ -293,9 +293,15 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
     delete changed.who;
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
-  /* The history says why the mark went (review round 1); a close says so itself. */
-  if (droppedForWork) taskchat.record(projectId, changed.number, { kind: 'unbuilt', reason: 'new work' });
+  /* The history says why the mark went (review round 1); a close says so itself. The caller records it after its
+     own event (part-added, part-reopened), so the history reads cause then effect (review round 2). */
+  lastDroppedForWork = droppedForWork;
   return changed;
+}
+let lastDroppedForWork = false;
+function recordDroppedForWork(projectId, n) {
+  if (lastDroppedForWork) taskchat.record(projectId, Number(n), { kind: 'unbuilt', reason: 'new work' });
+  lastDroppedForWork = false;
 }
 
 function nextPartId(parts) {
@@ -408,6 +414,7 @@ function addPart(projectId, n, { sentence, who, made } = {}) {
   }, { dropBuilt: true });
   taskchat.record(projectId, Number(n), { kind: 'part-added', partId: newPartId, sentence: said, who: whoKey });
   if (taskReopened) taskchat.record(projectId, Number(n), { kind: 'reopened' });
+  recordDroppedForWork(projectId, n);
   return { ok: true, task };
 }
 
@@ -495,6 +502,7 @@ function setPartClosed(projectId, n, partId, closedAt) {
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
   if (partTransition) taskchat.record(projectId, Number(n), { kind: closedAt ? 'part-closed' : 'part-reopened', partId: Number(partId) });
   if (taskTransition) taskchat.record(projectId, Number(n), { kind: taskTransition > 0 ? 'closed' : 'reopened' });
+  recordDroppedForWork(projectId, n);
   return { ok: true, task };
 }
 

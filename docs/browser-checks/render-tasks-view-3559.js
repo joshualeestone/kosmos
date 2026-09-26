@@ -195,7 +195,7 @@ function chk(ok, label, extra) {
          view); only the column drops it (asserted below), so a rule that removed it everywhere fails here. */
       const tabFrame = await page.evaluate(() => { const cs = getComputedStyle(document.querySelector('#panel-tasks .tsk-view')); return { w: cs.borderTopWidth, r: cs.borderTopLeftRadius }; });
       chk(tabFrame.w === '1px' && tabFrame.r === '14px', `${tag} the tab view keeps its outer frame (#3880 is the consolidated view only)`, JSON.stringify(tabFrame));
-      /* #3949 (Josh): five single-label tiles in his order; Completed is a tile and still the fold below. */
+      /* #3949/#3951 (Josh): six single-label tiles in his order; Completed is a tile and still the fold below. */
       chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['decision', 'working', 'assigned', 'nobody', 'built', 'closed']), `${tag} the tiles are Josh's six groups in his order, each from a recorded state`, JSON.stringify(a.tiles.map((t) => t.k)));
       chk(JSON.stringify(a.tiles.map((t) => t.label)) === JSON.stringify(['Needs Your Decision', 'In progress', 'Assigned but not started', 'Unassigned', 'Built but waiting', 'Completed']), `${tag} each tile is one label`, JSON.stringify(a.tiles.map((t) => t.label)));
       chk(a.tiles.every((t) => t.bylines === 0), `${tag} no tile carries a byline`);
