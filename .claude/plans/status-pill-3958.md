@@ -104,3 +104,21 @@ member a green dot (its card says running:true, state:stopped); the check caught
   (working, idle, stopped, needs-you, auth-failed) against boardMods computed in the page.
 - A unit test over snapshot cards was tried and refused by the strict fixture: the snapshot has
   no `running` (the server adds it on /api/status), so the browser check is the right instrument.
+
+## Challenge-loop iterations 7 to 16 (details in each commit message)
+- 7-8: the dot's source and the swarm face; the pjMember test harnesses gain the ring/dot helpers.
+- 9: a climbing memory reading patches the ring arc in place (refreshRings) instead of rebuilding
+  the #pj-one-agents column; the ring check gains a climb arm (no member node replaced).
+- 10: a stale working sample is dropped whole (its evidence too); the dot's trust exception reads
+  needsTrust (the board poll's field); refreshRings pairs by [data-agent].
+- 11: the Start button follows the poll; task/said/label writes only on change (a selection
+  survives); unit pins for ring shape, refreshWhens and no-rewrite; comments corrected.
+- 12: BLOCKER: a trust-stuck member drew a green dot beside its red triangle --> hollow unsure dot,
+  pinned against the page's real CARD_ST.
+- 13: the per-poll Start re-derive left a Start of this open alone (START_RECEIPT); a member's ring
+  stays thin in warn/high; the consolidated rail's needstrust row is hollow too.
+- 14: a receipt clears once the agent is seen running and stops again; dot rules win by
+  specificity; the CURRENT fallback in paintTalk stated.
+- 15: a quick exit after a confirmed start no longer strands Start (two stopped polls = real stop);
+  a stale Start line is cleared when the area hides.
+- 16 (sonnet): nothing actionable. Converged.
