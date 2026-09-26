@@ -831,7 +831,10 @@ const HOOK_RATE = { perMinute: 30, perProjectHour: 120, openMax: 200, bodyMs: 10
    webhooks together can add more than 120 tasks an hour (about 2,900 a day at the ceiling, where
    the per-minute limit alone would allow 43,200 from one link). Keyed only on verified webhooks,
    so wrong guesses grow nothing. A restart forgets the counts, which only ever errs toward
-   allowing. Answers null when allowed, or the refusal sentence. */
+   allowing. Answers null when allowed, or { because, retryAfterSecs }.
+   🔑 The project bucket is keyed by the project AS MADE (id plus createdAt), like the webhooks
+   themselves: ids are reused, so a deleted project's spent hour must not fall on a new project
+   that happens to share its name. */
 function hookRateProblem(id, projectId, now = Date.now()) {
   const recent = (HOOK_RATE.seen.get(id) || []).filter((t) => now - t < 60000);
   const hour = (HOOK_RATE.byProject.get(projectId) || []).filter((t) => now - t < 3600000);
@@ -840,8 +843,9 @@ function hookRateProblem(id, projectId, now = Date.now()) {
   // Keys with nothing recent go, so deleted webhooks and projects do not stay in memory forever.
   for (const [k, v] of HOOK_RATE.seen) if (k !== id && !v.some((t) => now - t < 60000)) HOOK_RATE.seen.delete(k);
   for (const [k, v] of HOOK_RATE.byProject) if (k !== projectId && !v.some((t) => now - t < 3600000)) HOOK_RATE.byProject.delete(k);
-  if (recent.length >= HOOK_RATE.perMinute) return 'this webhook was called too often; try again in a minute';
-  if (hour.length >= HOOK_RATE.perProjectHour) return 'this project has had ' + HOOK_RATE.perProjectHour + ' tasks from webhooks in the last hour; try again later';
+  const lifts = (list, span) => Math.max(1, Math.ceil((Math.min(...list) + span - now) / 1000));
+  if (recent.length >= HOOK_RATE.perMinute) return { because: 'this webhook was called too often; try again in a minute', retryAfterSecs: lifts(recent, 60000) };
+  if (hour.length >= HOOK_RATE.perProjectHour) return { because: 'this project has had ' + HOOK_RATE.perProjectHour + ' tasks from webhooks in the last hour; try again later', retryAfterSecs: lifts(hour, 3600000) };
   recent.push(now);
   hour.push(now);
   return null;
@@ -15031,8 +15035,8 @@ const server = http.createServer((req, res) => {
     let owner = null;
     try { owner = projects.get(hook.projectId); } catch { ours(); return; }
     if (!owner || (owner.createdAt || null) !== hook.projectMade) { nope(); return; }
-    const tooOften = hookRateProblem(hook.id, hook.projectId);
-    if (tooOften) { res.setHeader('retry-after', '60'); sendJson(res, 429, { error: tooOften }); return; }
+    const tooOften = hookRateProblem(hook.id, hook.projectId + ':' + (hook.projectMade || ''));
+    if (tooOften) { res.setHeader('retry-after', String(tooOften.retryAfterSecs)); sendJson(res, 429, { error: tooOften.because }); return; }
     /* A caller gets ten seconds IN ALL to send its (at most 16 KB) body. A plain timer, armed once:
        req.setTimeout is an IDLE timeout that resets on every chunk, so a caller trickling a byte
        at a time would hold the socket open for the server's five-minute default. */
@@ -15052,8 +15056,12 @@ const server = http.createServer((req, res) => {
          Whitespace runs (newlines included) become one space; other control characters are
          refused. The detail may keep its lines; it is never printed as a list line. */
       const rawTitle = typeof t === 'string' ? t : '';
-      if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(rawTitle) || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(detail)) {
-        sendJson(res, 400, { error: 'the title and detail are plain text, with no control characters' });
+      /* Also the invisible formatting characters (Unicode Cf: direction overrides, zero-width
+         marks): a person reads this text before giving it out, and an override can make what
+         they see differ from what an agent would read. */
+      const unplain = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]|\p{Cf}/u;
+      if (unplain.test(rawTitle) || unplain.test(detail)) {
+        sendJson(res, 400, { error: 'the title and detail are plain text, with no control or invisible characters' });
         return;
       }
       const title = rawTitle.replace(/\s+/g, ' ').trim();

@@ -63,8 +63,12 @@ test('install/kosmos: task list marks and quotes webhook tasks, one line per tas
   try {
     const env = { ...process.env, KOSMOS_HOME: home, KOSMOS_PORT: String(server.address().port), HOME: sandbox,
       AGENT_WORKFORCE_DATA: path.join(sandbox, 'data'), KOSMOS_NO_LEGACY_MIGRATION: '1', TMUX_PANE: '%42' };
-    const out = await new Promise((resolve) => execFile(CLI, ['task', 'list', 'proj'], { env, timeout: 20000 },
-      (err, stdout, stderr) => resolve({ code: err ? err.code : 0, stdout: stdout || '', stderr: stderr || '' })));
+    const out = await new Promise((resolve, reject) => execFile(CLI, ['task', 'list', 'proj'], { env, timeout: 20000 },
+      (err, stdout, stderr) => {
+        // #3628: a missing exit code (killed, timed out, never started) is a failure, never a number.
+        if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + ') ' + (stderr || ''))); return; }
+        resolve({ code: err ? err.code : 0, stdout: stdout || '', stderr: stderr || '' });
+      }));
     assert.equal(out.code, 0, out.stderr);
     assert.ok(!out.stdout.trim().startsWith('{'), 'control: rendered by the bundled node, not the raw-JSON fallback: ' + out.stdout);
     assert.deepEqual(out.stdout.trim().split('\n'), EXPECTED);

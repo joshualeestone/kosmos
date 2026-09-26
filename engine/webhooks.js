@@ -113,7 +113,8 @@ function nameProblem(name) {
   if (typeof name !== 'string' || !name.trim()) return 'give the webhook a name';
   if (name.trim().length > NAME_MAX) return 'a webhook name can be up to ' + NAME_MAX + ' characters';
   // One line of plain text: the name is written into agents' instructions and task lines.
-  if (/[\u0000-\u001f\u007f]/.test(name)) return 'a webhook name is one line, with no special characters';
+  // No invisible formatting characters either (Unicode Cf): the name is shown to the person.
+  if (/[\u0000-\u001f\u007f-\u009f]|\p{Cf}/u.test(name)) return 'a webhook name is one line, with no special characters';
   return null;
 }
 
@@ -145,9 +146,11 @@ function list(projectId, projectMade) {
 function create(projectId, name, projectMade) {
   const pid = String(projectId);
   const secret = crypto.randomBytes(SECRET_BYTES).toString('base64url');
-  const id = crypto.randomBytes(ID_BYTES).toString('hex');
   const made = locked(() => {
     const hooks = readForChange();
+    // 64 random bits never realistically collide; checked anyway, like projects.idFor.
+    let id;
+    do { id = crypto.randomBytes(ID_BYTES).toString('hex'); } while (hooks.some((h) => h.id === id));
     if (hooks.filter((h) => mine(h, pid, projectMade)).length >= MAX_PER_PROJECT) {
       throw new Error('a project can have up to ' + MAX_PER_PROJECT + ' webhooks; delete one first');
     }
@@ -243,7 +246,7 @@ function verify(id, secret) {
 function touch(id) {
   try {
     locked(() => {
-      const hooks = readAll();
+      const hooks = readForChange(); // a write like the others, so it sweeps orphans too
       const h = hooks.find((x) => x.id === String(id));
       if (!h) return;
       h.lastUsedAt = new Date().toISOString();

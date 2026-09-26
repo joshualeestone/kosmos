@@ -22,7 +22,8 @@
   make a new webhook instead of meeting the same error forever. Until then the settings list and
   calls answer 503. It is
   one file for every project, so this drops every project's webhooks, which were already unusable.
-- Each change also sweeps orphans (project gone, or its id now a later project's), which nothing
+- Each change also sweeps orphans (project gone, or its id now a later project's), "last used"
+  included, which nothing
   could otherwise list or delete. If the project list reads empty while webhooks exist, nothing is
   swept (a briefly missing projects file must not delete every webhook).
 - A webhook task WAITS FOR A PERSON: the Assigner skips it (engine/assigner.js pick), and the
@@ -47,7 +48,12 @@
   - An agent reading raw JSON from /api/tasks still sees addedVia/addedBy. Residual, as the plan
     says below: the person-only checks are advisory, so the marks are the real protection.
 - The title is one line (whitespace runs, newlines included, become a space); control characters
-  in the title or detail are refused. The route also accepts "text" for the title.
+  and invisible formatting characters (Unicode Cf: direction overrides, zero-width marks) in the
+  title or detail are refused, and in a webhook's name. The route also accepts "text" for the
+  title.
+- The per-project hourly bucket is keyed by the project AS MADE (id plus createdAt), so a project
+  made again under a reused name starts fresh. Every 429 carries the true Retry-After (when the
+  oldest counted call ages out of its window).
 - Waiting webhook tasks (nobody given) do not switch off the Assigner's goal ask (blocksGoalAsk);
   one given out counts as open work.
 - 404 only for an address that is not a live webhook; our own trouble reading a store answers 503
@@ -70,7 +76,7 @@
   network peers are still refused by remoteWriteGuard (it is not in REMOTE_AGENT_ROUTES). JSON only,
   since a plain-text POST is refused by the board's cross-site guard. The settings routes are
   ordinary board-token /api routes and never return a hash.
-- Tests: server.webhooks-1307.test.js (enforcing board, 24 arms; three use held or trickled
+- Tests: server.webhooks-1307.test.js (enforcing board, 27 arms; three use held or trickled
   bodies: the concurrent open-task ceiling, delete-while-held, and the body deadline); engine/assigner.test.js (the webhook arm);
   web.webhooks-1307.test.js (the page's tkAdded, pjsHooksPaint and pjsHooksOpen from its real
   source: escaping, the one-row reveal, a half-typed name kept, a read never dropping the row whose
