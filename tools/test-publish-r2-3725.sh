@@ -116,6 +116,25 @@ with zipfile.ZipFile(sys.argv[1], 'w') as z:
     z.writestr('app/package.json', '{"version":"9.9.1"}'); z.writestr('Kosmos.exe', 'MZ not the launcher')
 PYEOF
 refuses "a zip with another launcher refused" "is not the committed launcher" -Zip "$TMP/wrongexe.zip" -CredentialFile "$TMP/cred.env"
+# Iteration 25: a zip carrying the REAL launcher but no baked version is refused even when
+# -Version is passed, because the version it would be published as cannot be checked.
+python3 - "$TMP/nover.zip" "$HERE/windows/Kosmos.exe" <<'PYEOF'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1], 'w') as z:
+    z.writestr('Kosmos.exe', open(sys.argv[2], 'rb').read())
+PYEOF
+refuses "a zip with no baked version is refused even with -Version" "has no version in app/package.json" -Zip "$TMP/nover.zip" -Version 9.9.9 -CredentialFile "$TMP/cred.env"
+# Iteration 25: -ServedBase must END in its -KeyPrefix. This check is skipped under the test
+# transport, so it is driven WITHOUT one, and with no credentials at all: if it ever regressed,
+# the run still stops at "no R2_ACCOUNT_ID" before any network use. The control (a served
+# base that does end in the prefix) proves the check is what refused, by getting past it.
+_sb() { env -u R2_ACCOUNT_ID -u R2_ACCESS_KEY_ID -u R2_SECRET_ACCESS_KEY -u KOSMOS_PUBLISH_R2_FAKE_DIR LOCALAPPDATA="$TMP/none" "$PWSH" -NoProfile -File "$PS1" -Zip "$TMP/x.zip" -KeyPrefix 'itest/' -ServedBase "$1" 2>&1; }
+o_sb=$(_sb https://example.com/dist); rc_sb=$?
+o_sbc=$(_sb https://example.com/dist/itest); rc_sbc=$?
+if [ "$rc_sb" -eq 1 ] && printf '%s' "$o_sb" | grep -qF "must end in the -KeyPrefix" \
+   && [ "$rc_sbc" -eq 1 ] && ! printf '%s' "$o_sbc" | grep -qF "must end in the -KeyPrefix"; then
+  pass "-ServedBase must end in its -KeyPrefix (control: a matching base gets past the check)"
+else fail "-ServedBase/-KeyPrefix: rc=$rc_sb out=$o_sb | control rc=$rc_sbc out=$o_sbc"; fi
 
 # 5. THE GATES AND THE ORDER, through the script's test transport (KOSMOS_PUBLISH_R2_FAKE_DIR: a
 # local directory is the bucket; every request is logged to <dir>/.calls). Each refusal must
