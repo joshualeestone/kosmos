@@ -351,7 +351,8 @@ async function startBoard() {
   Object.assign(process.env, sealed);
   const dropRoots = () => { for (const d of Object.values(roots)) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } } };
   try { seedFiles(roots); } catch (e) { dropRoots(); throw e; }   // a failed seed leaves no sandboxed HOME behind
-  const port = freePort();
+  let port;
+  try { port = freePort(); } catch (e) { dropRoots(); throw e; }
   const base = `http://127.0.0.1:${port}`;
   // Outside DATA, so a board that dies after boot still leaves its stderr to read (printed at the end).
   const stderrLog = path.join(os.tmpdir(), `mobile-shots-board-${process.pid}.log`);
@@ -482,12 +483,18 @@ async function leaksOn(page) {
     }
     return parts.join(' ');
   });
+  return hitsIn(text);
+}
+/* The checks themselves, on any text: the page's, and the report's (tap-target names are
+   read from textContent, which the page scan does not see). */
+function hitsIn(text) {
   // Keyed on what was found, so two different hits of one length count as two; masked only for printing.
   const hits = new Map();
   for (const m of text.match(EMAIL_RE) || []) {
     if (!/@example\.(com|org|net)$/i.test(m) && !SHIPPED_EMAILS.has(m)) hits.set('email:' + m, mask(m));
   }
-  if (REAL_HOME.length > 1 && text.includes(REAL_HOME)) hits.set('home', 'home: ' + mask(REAL_HOME));
+  // macOS paths are case-insensitive: the home shown in another case is the same leak.
+  if (REAL_HOME.length > 1 && text.toLowerCase().includes(REAL_HOME.toLowerCase())) hits.set('home', 'home: ' + mask(REAL_HOME));
   if (REAL_USER_RE && REAL_USER_RE.test(text)) hits.set('user', 'user: ' + mask(REAL_USER));
   if (REAL_HOST_RE && REAL_HOST_RE.test(text)) hits.set('host', 'host: ' + mask(REAL_HOST));
   for (const m of text.match(KEY_RE) || []) if (!SHIPPED_KEYS.has(m)) hits.set('key:' + m, mask(m, 'a key'));
@@ -641,6 +648,15 @@ async function run() {
                     + (ov.worst ? ` widest: ${ov.worst.tag}${ov.worst.id ? '#' + ov.worst.id : ''}${ov.worst.cls ? '.' + ov.worst.cls.split(' ')[0] : ''} to ${ov.worst.right}px of ${ov.vw}` : '');
                 }
                 fit = await fitOf(page);
+                // report.json and report.md travel with the shots: the names in them pass the same checks.
+                const inReport = hitsIn(JSON.stringify(fit) + ' ' + note);
+                if (inReport.length) {
+                  try { fs.rmSync(path.join(out, file), { force: true }); } catch { /* best effort */ }
+                  const err = new Error('LEAK GUARD: this screen\'s report would carry real data (' + inReport.length + ' hits, e.g. '
+                    + inReport[0] + '). Its shot is deleted. Stopping with no further shots.');
+                  err.leak = true;
+                  throw err;
+                }
               } catch (e) {
                 if (e.leak) { await ctx.close(); throw e; }
                 errors++;
