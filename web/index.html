@@ -43815,7 +43815,7 @@ function pjNotice(roster, projectId) {
     // What failed, true in every row's case: the last update did not land (the project may still be
     // listed from an earlier one), and "folder" is kept for the one row about a missing folder.
     ? 'Kosmos could not update ' + esc(rows[0].name) + '\u2019s instructions for this project.'
-    // Digits, as the board's other counts are ("We found 3 agents on this computer.").
+    // Digits, as the board's other counts are (the first-run "We found N agents" title).
     : 'Kosmos could not update ' + rows.length + ' agents\u2019 instructions for this project.';
   const body = rows.map((r) => '<div class="pnrow">'
     + (solo ? '' : '<span class="pnwho">' + esc(r.name) + '</span>')
