@@ -16,7 +16,11 @@
  *     on without '/' is dropped.
  *   - NOT read, and COUNTED with a ceiling: a fetch whose URL is a variable, and a URL with a
  *     variable tail. The ceilings are NET counts (removing one and adding another passes). NOT read
- *     and NOT counted: a helper called with a variable URL. (A URL split at '/api' + '/x' IS read.) A URL that is itself a template is read with its `${}` flattened.
+ *     and NOT counted: a helper called with a variable URL. (A URL split at '/api' + '/x' IS read.) A template URL is read with its `${}` flattened when its
+ *     text starts with /api or holds /api/ after an origin base; one whose base is a variable
+ *     (`${API}/x`) is a variable URL: counted at a fetch(, not at a helper. Markup built in JS strings
+ *     is read at src=, srcset=, href= and action= in quotes only (not poster=, an unquoted attribute
+ *     or a CSS url()).
  *   - the board: '/api/...' literals (either quote) in any code comparison (=== / case; every one on
  *     main is path dispatch, but the test does not check the left-hand side), startsWith prefixes
  *     (pinned at zero), and ANCHORED regex literals mentioning \/api, outside comments and strings.
@@ -58,8 +62,9 @@ const UNREADABLE_CEILING = 1;
    interpolation is CODE and is read. Raw HTML tags are skipped as tokens. */
 const CODE = 0; const COMMENT = 1; const STRING = 2; const START = 3; const REGEX = 4;
 /* Can a `/` at i open a regex literal? Yes after an operator, an opening bracket, a comma, a colon,
-   a semicolon, `return`/`typeof`-style keywords, or at the start of a line; no after a value
-   (an identifier, a number, `)` or `]`), where it divides. */
+   a semicolon, or `return`/`typeof`-style keywords; no after a value (an identifier, a number,
+   `)`, `]` or `x++`), where it divides. The previous token is found across line breaks, so a `/`
+   leading a line is judged by what ended the line before. */
 function regexCanStart(src, i) {
   /* Back over whitespace AND line breaks to the previous real token: a `/` starting a line can
      still divide (`x = a` then `  / 2` on the next line), and taking it for a regex swallowed the
@@ -222,7 +227,18 @@ function pagePaths(src) {
   let unread = 0;
   /* fetch( calls whose URL is not a literal at all: counted, since they cannot be read. */
   const mask = lexMask(src);
-  for (const f of src.matchAll(/fetch\(\s*(.)/g)) if (mask[f.index] === CODE && !"'\"`".includes(f[1])) unread += 1;
+  for (const f of src.matchAll(/fetch\(\s*(.)/g)) {
+    if (mask[f.index] !== CODE) continue;
+    if (!"'\"`".includes(f[1])) { unread += 1; continue; }
+    /* A template whose base is a variable (`${API}/federation/x`) names no /api path the readers
+       below can see: it is a variable URL, so it is counted like one. */
+    if (f[1] === '`') {
+      const t = f.index + f[0].length - 1;
+      const e = mask.templateEnd.get(t);
+      const text = e === undefined ? '' : src.slice(t + 1, e);
+      if (!text.startsWith('/api') && text.indexOf('/api/') < 0) unread += 1;
+    }
+  }
   /* Every quoted '/api/' literal in CODE, not only fetch( arguments: the page also reaches the
      board through helpers (a post wrapper, a table of endpoints, a `url:` field), and a UI merged
      ahead of its route through one of those is the same defect. Comments are skipped. */
@@ -373,6 +389,15 @@ function boardRoutes(src) {
     /* A wildcard (`.*` / `.+`) serves everything under it, like a startsWith prefix: counted, not a
        route, and pinned at zero below. */
     if (/\.[*+]/.test(body)) { wild.push(lit); i = e; continue; }
+    /* Any other spelling of a wildcard (`[\s\S]*`, `.{1,40}`): probe the regex with TWO free
+       segments under its literal stem. A route with one free segment (`[^/]+`) cannot match that;
+       a wildcard can, and it is counted the same way. */
+    if (body.startsWith('^') && body.endsWith('$')) {
+      const stem = (body.slice(1).match(/^(?:\\\/|[A-Za-z0-9_-])+/) || [''])[0].replace(/\\\//g, '/');
+      let probe = null;
+      try { probe = new RegExp(body, flags.replace('g', '')); } catch { /* not a regex after all */ }
+      if (probe && probe.test(stem + (stem.endsWith('/') ? '' : '/') + 'zz3957/yy3957')) { wild.push(lit); i = e; continue; }
+    }
     if (body.startsWith('^') && body.endsWith('$')) {
       try { regexes.push(new RegExp(lit.slice(1, last), flags.replace('g', ''))); } catch { /* not a regex after all */ }
     }
@@ -575,7 +600,14 @@ test('#3957 control: a regex anchored at one end only is not a route, and a doub
 });
 
 test('#3957 control: a stray backtick in raw markup does not swallow the script', () => {
-  const at = PAGE.indexOf('<script');
+  /* Before the LARGEST script, where the canaries live: before the first (small) one, a later
+     backtick in markup closed the runaway template long before it reached them, and the control
+     could not fail. */
+  let at = -1; let len = -1;
+  for (const m of PAGE.matchAll(/<script\b[^>]*>/g)) {
+    const end = PAGE.indexOf('</script>', m.index);
+    if (end - m.index > len) { len = end - m.index; at = m.index; }
+  }
   const planted = pagePaths(PAGE.slice(0, at) + '<p>Type `kosmos start in Terminal to begin.</p>\n' + PAGE.slice(at)).paths;
   for (const c of CANARIES) assert.ok(planted.includes(c), c + ' was lost after a stray markup backtick');
 });
@@ -599,4 +631,40 @@ test('#3957 control: a path suffix glued on without a slash is counted, not drop
 test('#3957 control: a URL split at /api (\'/api\' + \'/x\') is read', () => {
   const planted = pagePaths(inScript("fetch('/api' + '/newroute-missing-3957');")).paths;
   assert.ok(planted.includes('/api/newroute-missing-3957'), 'a split /api literal was invisible');
+});
+
+test('#3957 control: a template fetch whose base is a variable is counted as unread', () => {
+  const base = pagePaths(PAGE).unread;
+  const { unread } = pagePaths(inScript("const API3957 = '/api'; fetch(`${API3957}/federation/inv1te`);"));
+  assert.equal(unread, base + 1, 'a `${API}/x` fetch was neither read nor counted: the 0.6.96 shape would pass');
+});
+
+test('#3957 control: other wildcard spellings in an anchored board regex are counted, not routes', () => {
+  const renamed = SERVER.split('/api/federation/invite').join('/api/federation/inv1te');
+  for (const w of ['[\\s\\S]*', '.{1,40}', '(?:.*)']) {
+    const board = boardRoutes(renamed + `\nif (/^\\/api\\/federation\\/${w}$/.test(pathname) && !authed) deny(res);\n`);
+    assert.equal(served('/api/federation/invite', board), false, w + ' served a path with no handler');
+    assert.equal(board.wild.length, 1, w + ' was not counted as a wildcard');
+  }
+  /* One free segment is a route (the documented limit), not a wildcard. */
+  const one = boardRoutes(renamed + "\nif (/^\\/api\\/federation\\/[^/]+\\/x3957$/.test(pathname)) {}\n");
+  assert.equal(one.wild.length, 0, 'a one-free-segment route was mistaken for a wildcard');
+});
+
+test('#3957 control: lexer rules that can hide a call on the same line', () => {
+  const lines = {
+    '/api/lexctl-incr-3957': "let n3957 = 4; n3957++ / 2; fetch('/api/lexctl-incr-3957');",
+    '/api/lexctl-escape-3957': "const s3957 = 'it\\'s'; const u3957 = { url: '/api/lexctl-escape-3957' };",
+    '/api/lexctl-depth-3957': "const t3957 = `${ { a: 1 }['`'] }`; const v3957 = { url: '/api/lexctl-depth-3957' };",
+  };
+  /* Each line alone, so one mis-read cannot be healed by a quote on the next line. Two are `url:`
+     fields, not fetch( calls: the in-markup reader would read a `('/api/` from inside a mis-read
+     string and heal the very mistake the control is for. */
+  for (const [p, line] of Object.entries(lines)) {
+    assert.ok(pagePaths(inScript(line)).paths.includes(p), p + ' was hidden by a lexer mis-read on its line');
+  }
+  /* An HTML comment in markup is a comment: a call written there is not read. */
+  const at = PAGE.indexOf('<body');
+  const ghost = pagePaths(PAGE.slice(0, at) + "<!-- onclick=\"fetch('/api/lexctl-ghost-3957')\" -->\n" + PAGE.slice(at)).paths;
+  assert.ok(!ghost.includes('/api/lexctl-ghost-3957'), 'a call inside an HTML comment was read as live');
 });
