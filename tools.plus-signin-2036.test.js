@@ -85,6 +85,11 @@ test('#2036: the TOTP matches RFC 6238\'s SHA-1 test vectors', () => {
    expects, so only a later assertion noticed. Each such test also asserts the hanging call was
    reached. */
 const HANG_MS = '2000';
+/* The runner's floor for a cleanup cancel (tools/plus-signin-fresh.js CLEANUP_MS), and a late
+   answer that lands after HANG_MS but inside the floor: fixed, not derived from HANG_MS, so
+   raising HANG_MS cannot push it past the floor (asserted where it is used). */
+const CLEANUP_FLOOR_MS = 5000;
+const LATE_CANCEL_MS = 3000;
 
 /** A fake board: the routes the procedure uses, with switchable behaviour. */
 function fakeBoard(opts = {}) {
@@ -107,7 +112,8 @@ function fakeBoard(opts = {}) {
         const call = calls[calls.length - 1];
         let gone = false;
         res.on('close', () => { if (!res.writableFinished) gone = true; });
-        setTimeout(() => { if (!gone) { send(200, { ok: true }); call.answered = true; } }, opts.cancelAnswersAfter);
+        /* unref: a late answer still pending when the test ends must not keep the process alive. */
+        setTimeout(() => { if (!gone) { send(200, { ok: true }); call.answered = true; } }, opts.cancelAnswersAfter).unref();
         return undefined;
       }
       if (req.url === '/api/remote/signin-cancel') return send(200, { ok: true });
@@ -334,15 +340,17 @@ test('#2036: a register refused before it wrote anything does not claim a throwa
 });
 
 test('#2036: a register that times out after finishing on the board is recorded as a fail, and its Mac is forgotten', async () => {
-  const dir = tmp(); const e = Object.assign(env(dir), { KOSMOS_PLUS_REGISTER_MS: '300' }); const ptr = pointerFile(dir);
+  const dir = tmp(); const e = Object.assign(env(dir), { KOSMOS_PLUS_REGISTER_MS: HANG_MS }); const ptr = pointerFile(dir);
   const b = await fakeBoard({ registerHangs: true });
   try {
     const r = await both(b, e, ptr, ['--code', '123456', '--placement', 'INBOX']);
+    assert.ok(b.calls.some((c) => c.url === '/api/remote/signin-register'), 'the runner stopped before the hanging register: ' + r.out);
     assert.strictEqual(r.code, 1, r.out);
     const got = rec(e);
     assert.strictEqual(step(got, 'register').result, 'fail');
     assert.match(step(got, 'register').detail, /no answer from the board/);
     assert.ok(b.calls.some((c) => c.url === '/api/remote/forget'), 'a register that timed out left its Mac');
+    assert.deepStrictEqual(step(got, 'forget'), { id: 'forget', result: 'pass' }, 'forget did not retire a real registration (it found nothing to retire)');
     assert.strictEqual(b.state.enrolled, false);
   } finally { b.server.closeAllConnections(); b.server.close(); }
 });
@@ -361,13 +369,28 @@ test('#2036: a signin-start that times out is setup: the earlier record stands a
   } finally { b.server.closeAllConnections(); b.server.close(); }
 });
 
-test('#3986: the cleanup cancel after a timeout is not abandoned on the same short clock', async () => {
-  /* Made deterministic: start times out at HANG_MS, and the board answers the cancel only after
-     HANG_MS + 1s. On the old shared budget the runner gave up on the cancel; with the cleanup floor
-     (5s) it waits for the answer. */
+test('#3986: a cleanup cancel that never answers is still bounded (a hung board must not hang the agent)', async () => {
   const dir = tmp(); const e = Object.assign(env(dir), { KOSMOS_PLUS_CALL_MS: HANG_MS }); const ptr = pointerFile(dir);
   record.write(good(), e);
-  const b = await fakeBoard({ startHangs: true, cancelAnswersAfter: Number(HANG_MS) + 1000 });
+  const b = await fakeBoard({ startHangs: true, cancelAnswersAfter: 10 * 60 * 1000 });
+  try {
+    const began = Date.now();
+    const r = await runner(['start', '--pointer', ptr, '--port', String(b.port)], e);
+    const took = Date.now() - began;
+    assert.ok(b.calls.some((c) => c.url === '/api/remote/signin-cancel'), 'the half sign-in was never cancelled: ' + r.out);
+    assert.strictEqual(r.code, 2, r.out);
+    assert.ok(took < Number(HANG_MS) + CLEANUP_FLOOR_MS + 4000, 'the runner waited ' + took + 'ms on a cancel that never answered');
+  } finally { b.server.closeAllConnections(); b.server.close(); }
+});
+
+test('#3986: the cleanup cancel after a timeout is not abandoned on the same short clock', async () => {
+  /* Made deterministic: start times out at HANG_MS, and the board answers the cancel only after
+     LATE_CANCEL_MS. On the old shared budget the runner gave up on the cancel; with the cleanup
+     floor it waits for the answer. */
+  const dir = tmp(); const e = Object.assign(env(dir), { KOSMOS_PLUS_CALL_MS: HANG_MS }); const ptr = pointerFile(dir);
+  record.write(good(), e);
+  assert.ok(Number(HANG_MS) + 500 < LATE_CANCEL_MS && LATE_CANCEL_MS < CLEANUP_FLOOR_MS, 'the late answer must land after HANG_MS and inside the floor');
+  const b = await fakeBoard({ startHangs: true, cancelAnswersAfter: LATE_CANCEL_MS });
   try {
     const r = await runner(['start', '--pointer', ptr, '--port', String(b.port)], e);
     assert.ok(b.calls.some((c) => c.url === '/api/remote/signin-start'), 'the runner stopped before the hanging start: ' + r.out);
