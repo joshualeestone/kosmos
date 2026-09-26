@@ -43,3 +43,7 @@ Weakest premise: Forget can now take up to the register bound (60s) when a regis
 - NIT: "key and id exist" has one definition (halfRegistered), used by forgetNow too.
 - Controls: without clearHalfIdentity fails "not retired before the new register"; without busy() in signinVerify fails "verify ran while a register was out" (that run then hung and was killed).
 - Two new-test expectations fixed: a sign-in during Forget with a register still out gets "still signing in" (busy checks the register first); the call-name map read "retire --coordinator".
+
+## Round 6 review (sonnet)
+- WARNING fixed: busy() is now the first statement of signinRegister (it ran after the session and name checks).
+- WARNING open: tests for the forgetting branch on setupComplete and the four signin steps; a test for clearHalfIdentity's failed-retire log.

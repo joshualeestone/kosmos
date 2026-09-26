@@ -1283,6 +1283,11 @@ function turnOnAfterSignin() {
 }
 
 async function signinRegister(name) {
+  // First, before every path (the #1010 shortcut included): one register at a time (the
+  // page gives up waiting long before a register with a certificate is done, and a
+  // Try again must not start a second into the same directory), and none while
+  // this computer is being forgotten.
+  { const b = busy(); if (b) return b; }
   if (!signinSession || typeof signinSession.token !== 'string') {
     return { ok: false, because: 'finish the code steps first' };
   }
@@ -1292,11 +1297,6 @@ async function signinRegister(name) {
   if (typeof name !== 'string' || !NAME_RULE.test(name)) {
     return { ok: false, because: 'the name is 3 to 32 letters, digits or hyphens' };
   }
-  // Before every path, the #1010 shortcut included: one register at a time (the
-  // page gives up waiting long before a register with a certificate is done, and a
-  // Try again must not start a second into the same directory), and none while
-  // this computer is being forgotten.
-  { const b = busy(); if (b) return b; }
   // #1010/#1003: a surviving state dir already at this name IS this Mac. Do not
   // re-register -- it would mint a fresh identity key and spend a scarce
   // certificate for this Mac's own previous life. Recognise it, bring the tunnel
