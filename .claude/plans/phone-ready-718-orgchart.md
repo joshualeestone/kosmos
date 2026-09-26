@@ -40,9 +40,19 @@ and a phone has no hover: a tap opens the agent. Changing that is a design call 
   Control: against the unfixed page it fails.
 - Browser: mobile-shots.js org chart at 4 sizes x 2 themes x 2 engines after the fix; the same harness
   flagged 8 overflows on the unfixed code (the control).
+- Gate check `docs/browser-checks/render-orgchart-phone-718.js` (in tools/browser-checks.sh): real server,
+  five-agent fleet, the four phone sizes plus desktop; page no wider than the screen, every face drawn, on
+  screen, 44x44, a tap opens the agent; desktop draws the natural square.
 
 ## Results (2026-09-25)
 - Harness, fixed: 48 of 48 shots clean (org chart, agents list and home x 4 sizes x 2 themes x 2 engines).
 - Chart check (every face drawn, none off screen, none under 44px, a tap opens the agent), 4 sizes x 2 engines:
   fixed 0 of 8 bad; the SAME check on the unfixed page 6 of 8 bad (page 420 wide on a 375/393/412 screen;
   Pro Max fits either way). The chart now takes 326/344/364/382px on the four phones.
+
+## Results (2026-09-26, rebased on origin/main 6fd0e56d8)
+- render-orgchart-phone-718, ENGINES=chromium,webkit: fixed 50 of 50 PASS. Control (origin/main's
+  web/index.html swapped in): 44 PASS, 6 FAIL, exactly "no sideways scroll" at 375/393/412 in both engines
+  (page 420/421px). The other arms stay green on main: the faces sit mid-chart, so they are not the control.
+- Unit + wiring tests (orgchart-phone, browser-checks wired/selectors/reason-grep/home, fixture-discipline,
+  every-test-runs): 52 of 52.
