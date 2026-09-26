@@ -21,13 +21,13 @@ calibration and the slider in %) reads what this records.
 
 - `engine/kosmos-statusline.js` (new): the statusline. Writes
   `{usedPct, resetsAt, at, history}` to `<account dir>/kosmos-weekly.json`
-  only when the reading changes, prints nothing, never errors.
+  only when the reading moves forward, prints nothing, never errors.
 - `engine/allowance.js` (new): `ensureStatusLine` (merge-only wiring),
   `readWeekly` (null for nothing, malformed, or a week already reset).
 - `engine/reporthook.js`: the settings read, the atomic write and the #1582
   ephemeral-path check are extracted as exported helpers, so the report
   hooks and the statusline share one copy of each. Behaviour unchanged
-  (its 29 tests pass).
+  (engine/reporthook.test.js, 29 tests, passes).
 - `engine/accounts.js`: `prepare` wires the statusline and returns `weeklyWired`.
 - `install/setup.sh`: the hook block also wires the statusline on the same
   targets, outside the hooks' refused count.
@@ -40,6 +40,19 @@ calibration and the slider in %) reads what this records.
   exec form does not apply. Needs the Windows box to verify.
 - The script is `engine/*.js` so it ships with no bundle or release-freeze
   plumbing (build-kosmos-bundle.sh copies engine/*.js).
+- The figure only moves forward within a week. Each session carries the
+  figure from its own last API response, so agents sharing an account repaint
+  with readings that lag each other; a lower one is stale, and would put
+  backwards steps into the history the calibration reads. Reset stamps within
+  a day are the same week.
+- The command bakes a node path that survives an upgrade: the bundle's own
+  runtime, else a stable symlink to the same binary, never a versioned
+  Homebrew Cellar path.
+- The DEFAULT account is wired too, not only Kosmos-made ones: most people
+  have only the default account, and their agents run on it. Setup says so
+  in one line. The cost is a node process per repaint of any Claude session
+  on that account, which is small, and the figure it records is the same
+  account's either way.
 
 ## Rejected
 
@@ -56,6 +69,13 @@ token slider, which is the safe direction.
 
 ## Tests
 
-`engine/allowance.test.js` (12). The script runs the way Claude Code runs it,
-fed the measured payload shape. Mutations shown red: always rewriting the
-reading, clobbering a foreign statusline, and trusting a week that already reset.
+`engine/allowance.test.js` (16). The script runs the way Claude Code runs it,
+fed the measured payload shape, and setup.sh's hook block runs for real
+against a sandbox home (extracted from setup.sh). Mutations shown red:
+- always rewriting the reading;
+- clobbering a foreign statusline;
+- trusting a week that already reset;
+- letting a lagging reading step back;
+- treating a reset stamp seconds apart as a new week;
+- setup not wiring the statusline;
+- setup's guard removed.

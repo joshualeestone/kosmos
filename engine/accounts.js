@@ -39,7 +39,8 @@ const path = require('node:path');
 /* Safe to require from here: reporthook has zero engine dependencies, on
    purpose, because THIS module is one of its two callers (#561). */
 const reporthook = require('./reporthook');
-/* Also dependency-free beyond reporthook, so no cycle either (#3946). */
+/* Requires only reporthook and kosmos-statusline, neither of which requires
+   another engine module, so no cycle either (#3946). */
 const allowance = require('./allowance');
 const inflight = require('./inflight');
 

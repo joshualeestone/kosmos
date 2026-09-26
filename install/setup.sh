@@ -3564,6 +3564,10 @@ else
   info "some agent settings could not carry the reporting hook (an unreadable settings"
   info "file is left alone on purpose); those agents stay readable the older way"
 fi
+# #3946: said once, whatever happened above, because it describes a standing rule
+# rather than this run's result: the person should know a status line appears.
+info "where a Claude account has no status line of its own, Kosmos adds one that shows"
+info "nothing and only notes how much of the account's weekly allowance has been used"
 
 # ---- start ------------------------------------------------------------------
 # 🔑 DERIVED HERE, BEFORE THE BOARD FIRST STARTS, NOT JUST WRITTEN INTO THE

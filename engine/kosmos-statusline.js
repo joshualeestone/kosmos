@@ -20,13 +20,15 @@
  * lands beside the settings file that asked for it and never depends on
  * which environment the agent happened to inherit.
  *
- * Written only when the reading CHANGES: Claude Code runs a statusline on
- * every repaint, and a write per repaint would be pointless disk churn.
- * `history` keeps each change with the moment it was first seen, which is
- * what the calibration reads (tokens Kosmos measured per point of weekly
- * movement). Concurrent agents on one account may race; the rename is
- * atomic, so the loser's change is at worst one missing history row, which
- * the next change re-establishes.
+ * Written only when the reading MOVES FORWARD. Claude Code runs a statusline
+ * on every repaint, so an unchanged reading is not rewritten. And each session
+ * carries the figure from its own last API response, so several agents on one
+ * account repaint with readings that lag each other: within one week a LOWER
+ * figure is stale, not news, and a reading for an earlier week is ignored.
+ * `history` keeps each forward step with the moment it was first seen, which
+ * is what the calibration reads (tokens Kosmos measured per point of weekly
+ * movement). Concurrent writers can still race; the rename keeps the file
+ * whole, and a lost row is a gap in history, never a step backwards.
  *
  * Never throws and always exits 0: a statusline that errors shows its error
  * in the person's pane, and nothing here is worth that.
@@ -56,7 +58,13 @@ function record(dir, reading, now) {
   const file = path.join(dir, FILE);
   let cur = null;
   try { cur = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* absent or unreadable: start fresh */ }
-  if (cur && cur.usedPct === reading.usedPct && cur.resetsAt === reading.resetsAt) return false;
+  if (cur && typeof cur.usedPct === 'number' && typeof cur.resetsAt === 'number') {
+    /* Same week when the reset times are within a day of each other: weeks are seven
+       days apart, and this keeps two sessions' slightly different reset stamps from
+       reading as a new week and stepping the figure backwards. */
+    const sameWeek = Math.abs(reading.resetsAt - cur.resetsAt) < 86400;
+    if (sameWeek ? reading.usedPct <= cur.usedPct : reading.resetsAt < cur.resetsAt) return false;
+  }
   const history = cur && Array.isArray(cur.history) ? cur.history.slice(-(HISTORY_MAX - 1)) : [];
   history.push([now, reading.usedPct, reading.resetsAt]);
   const next = { usedPct: reading.usedPct, resetsAt: reading.resetsAt, at: now, history };

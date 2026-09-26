@@ -14,15 +14,16 @@
  * An account that already has its own statusline is LEFT ALONE: replacing it
  * would take away something the person set up, which is clobbering. That
  * account simply has no weekly reading, and the swarm limit stays in tokens
- * for it. The same holds for API-key accounts (no weekly figure exists) and,
- * for now, Windows: a statusline is a shell string there, and the report
+ * for it. The same holds for API-key accounts (no weekly figure exists; they
+ * are wired anyway, because an account's key can be swapped for a sign-in
+ * later and the slot costs nothing while empty) and, for now, Windows: a statusline is a shell string there, and the report
  * hook's exec form (#570) does not apply to it, so wiring it needs the
  * Windows box to verify (the Mac does not ship a Windows change unverified).
  *
  * MERGE-ONLY, NEVER CLOBBER, through the same read/write/#1582 helpers as
- * engine/reporthook.js, so there is one copy of each. Zero engine
- * dependencies beyond reporthook (which has none), so accounts.js can
- * require this without a cycle.
+ * engine/reporthook.js, so there is one copy of each. It requires only
+ * reporthook and kosmos-statusline, neither of which requires any other
+ * engine module, so accounts.js can require this without a cycle.
  */
 
 const fs = require('node:fs');
@@ -30,14 +31,34 @@ const path = require('node:path');
 const reporthook = require('./reporthook');
 const statusline = require('./kosmos-statusline');
 
-/* The dedup key: a statusline command containing this is ours. The stem of
-   the script's name, the same doctrine as reporthook.js's MARKER. */
-const MARKER = 'kosmos-statusline';
+/* The dedup key: a statusline command containing this is ours. The script's
+   whole filename, so a person's own `kosmos-statusline.sh` is not mistaken for
+   ours and repointed. */
+const MARKER = 'kosmos-statusline.js';
 
 /** Where the statusline script is: beside this module, installed or source. */
 function scriptPath() {
   const p = path.resolve(__dirname, 'kosmos-statusline.js');
   return fs.existsSync(p) ? p : null;
+}
+
+/**
+ * The node to bake into the command. The command outlives the process that
+ * writes it, so a versioned path is a trap: a board run from source under
+ * Homebrew has execPath /opt/homebrew/Cellar/node/<version>/bin/node, which
+ * the next upgrade deletes. So prefer, in order: the installed bundle's own
+ * runtime (beside app/, stable across updates), then a stable symlink that
+ * resolves to the same binary, then execPath as it is.
+ */
+function stableNode(execPath = process.execPath) {
+  const bundled = path.resolve(__dirname, '..', '..', 'runtime', 'bin', 'node');
+  if (fs.existsSync(bundled)) return bundled;
+  let real = null;
+  try { real = fs.realpathSync(execPath); } catch { return execPath; }
+  for (const link of ['/opt/homebrew/bin/node', '/usr/local/bin/node']) {
+    try { if (fs.realpathSync(link) === real) return link; } catch { /* not there */ }
+  }
+  return execPath;
 }
 
 /** The statusline command for an account: node, the script, the account dir. */
@@ -64,7 +85,7 @@ function ensureStatusLine(settingsPath, opts) {
   const script = o.script === undefined ? scriptPath() : o.script;
   if (!script) return { wired: false, because: 'the statusline script is not on this machine' };
   if (typeof settingsPath !== 'string') return { wired: false, because: 'there is no settings file to wire' };
-  const node = o.node || process.execPath;
+  const node = o.node || stableNode();
   const accountDir = o.accountDir || path.dirname(settingsPath);
   /* The command is a shell string, so every path in it is vetted the way the
      posix report hook vets its script (quote, backslash, dollar, backtick,
@@ -116,4 +137,4 @@ function readWeekly(accountDir, now = Date.now()) {
   return { usedPct: reading.usedPct, resetsAt: reading.resetsAt, at: j.at, history };
 }
 
-module.exports = { MARKER, scriptPath, commandFor, isOurs, ensureStatusLine, readWeekly };
+module.exports = { MARKER, scriptPath, stableNode, commandFor, isOurs, ensureStatusLine, readWeekly };

@@ -17,7 +17,7 @@ const statusline = require('./kosmos-statusline');
 const accounts = require('./accounts');
 
 const SCRIPT = allowance.scriptPath();
-const NODE = process.execPath;
+const NODE = allowance.stableNode();
 
 let n = 0;
 const freshDir = () => fs.mkdtempSync(path.join(SANDBOX, 'acct-' + (n++) + '-'));
@@ -131,6 +131,29 @@ test('an unchanged reading is not rewritten; a changed one appends to history', 
   assert.deepEqual(w.history.map((h) => h[1]), [42, 43.5]);
 });
 
+test('the figure only moves forward: a lagging session cannot step it back, a new week can', () => {
+  const dir = freshDir();
+  const f = () => allowance.readWeekly(dir);
+  runStatusline(dir, payload(43, FUTURE));
+  runStatusline(dir, payload(42, FUTURE));
+  assert.equal(f().usedPct, 43, 'a lower figure in the same week replaced a higher one');
+  runStatusline(dir, payload(42, FUTURE + 30));
+  assert.equal(f().usedPct, 43, 'a reset stamp seconds apart read as a new week');
+  runStatusline(dir, payload(90, FUTURE - 7 * 86400));
+  assert.equal(f().usedPct, 43, 'a reading for an earlier week was recorded');
+  assert.deepEqual(f().history.map((h) => h[1]), [43]);
+  runStatusline(dir, payload(2, FUTURE + 7 * 86400));
+  assert.equal(f().usedPct, 2, 'the next week did not start fresh');
+  assert.deepEqual(f().history.map((h) => [h[1], h[2]]), [[43, FUTURE], [2, FUTURE + 7 * 86400]]);
+});
+
+test('the node in the command is a path that survives an upgrade', () => {
+  const real = fs.realpathSync(process.execPath);
+  assert.equal(fs.realpathSync(allowance.stableNode()), real, 'stableNode names a different node binary');
+  assert.equal(allowance.stableNode(path.join(SANDBOX, 'no-such-node')), path.join(SANDBOX, 'no-such-node'), 'an unresolvable path should come back unchanged');
+  if (/\/Cellar\//.test(real)) assert.doesNotMatch(allowance.stableNode(), /\/Cellar\//, 'a versioned Homebrew path was baked in');
+});
+
 test('history is capped', () => {
   const dir = freshDir();
   for (let i = 0; i < statusline.HISTORY_MAX + 5; i++) statusline.record(dir, { usedPct: i, resetsAt: FUTURE }, 1000 + i);
@@ -182,4 +205,46 @@ test('an account Kosmos prepares is born with the statusline, and prepare says s
   assert.equal(got.weeklyWired, true, JSON.stringify(got));
   const sl = readJson(path.join(got.dir, 'settings.json')).statusLine;
   assert.equal(sl.command, allowance.commandFor(NODE, SCRIPT, got.dir));
+});
+
+/* setup.sh's hook block, run for real (#3946 review): its node program is extracted
+   from setup.sh and run against a sandbox home, so the wiring an install does is
+   tested, not only the functions it calls. */
+function setupHookProgram() {
+  const sh = fs.readFileSync(path.join(__dirname, '..', 'install', 'setup.sh'), 'utf8');
+  const start = sh.indexOf("<<'HOOKSEOF'");
+  assert.ok(start > 0, 'the hook block moved in setup.sh');
+  const body = sh.slice(sh.indexOf('\n', start) + 1);
+  return body.slice(0, body.indexOf('\nHOOKSEOF\n'));
+}
+function runSetupBlock({ withAllowance }) {
+  const root = fs.mkdtempSync(path.join(SANDBOX, 'setup-'));
+  const kh = path.join(root, 'kosmos');
+  const eng = path.join(kh, 'app', 'engine');
+  fs.mkdirSync(eng, { recursive: true });
+  for (const f of fs.readdirSync(__dirname)) {
+    if (!f.endsWith('.js') || f.endsWith('.test.js')) continue;
+    if (!withAllowance && f === 'allowance.js') continue;
+    fs.symlinkSync(path.join(__dirname, f), path.join(eng, f));
+  }
+  const home = path.join(root, 'home');
+  fs.mkdirSync(home, { recursive: true });
+  const r = spawnSync(NODE, ['-', kh], { input: setupHookProgram(), encoding: 'utf8',
+    env: { ...process.env, AGENT_WORKFORCE_HOME: home, AGENT_WORKFORCE_DATA: path.join(root, 'data') } });
+  const settings = path.join(home, '.claude', 'settings.json');
+  return { r, data: fs.existsSync(settings) ? readJson(settings) : null };
+}
+
+test('setup.sh wires the default account with the report hooks AND the statusline', () => {
+  const { r, data } = runSetupBlock({ withAllowance: true });
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(data && data.hooks && Array.isArray(data.hooks.Stop), 'the report hooks were not wired');
+  assert.ok(allowance.isOurs(data.statusLine), 'the statusline was not wired: ' + JSON.stringify(data && data.statusLine));
+});
+
+test('setup.sh: a statusline that cannot be wired does not change the hooks\' answer', () => {
+  const { r, data } = runSetupBlock({ withAllowance: false });
+  assert.equal(r.status, 0, 'a missing allowance module changed the exit code: ' + r.stderr);
+  assert.ok(data && data.hooks && Array.isArray(data.hooks.Stop), 'the report hooks were not wired');
+  assert.equal(data.statusLine, undefined);
 });
