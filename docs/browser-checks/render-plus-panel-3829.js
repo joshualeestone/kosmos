@@ -10,6 +10,8 @@
  *   one request -> a compact card: the device, when, the code LARGE, one device-neutral sentence,
  *                  Allow / Deny; no Not now, no Not me; the request is NOT repeated in the devices list;
  *   two requests-> one stale (older than an hour, faded) and one unnamed ("Unknown device").
+ * #3978: with one request, Allow (on Kosmos Plus) and the notice's Review (elsewhere) keep keyboard focus
+ * and stay the same nodes through two real 5-second polls; the rows were rebuilt on every poll.
  *
  *   HEADED=0 node docs/browser-checks/render-plus-panel-3829.js [shotsDir]
  */
@@ -122,6 +124,31 @@ const STATES = {
         await page.click('#askcard [data-ask="open"]');
         await page.waitForTimeout(400);
         chk(await page.evaluate(() => !document.getElementById('plus-asks').hidden && document.getElementById('askcard').hidden), `${t} the notice's link opens Kosmos Plus with the request above the panel`);
+      }
+      if (key === 'one') {
+        /* #3978: the rows were rebuilt on every 5-second poll, so focus on Allow was lost. Focus it from
+           the keyboard, mark the node, sit through two REAL polls (setInterval 5000, not a direct call),
+           and it must be the same node, still focused, with its time still filled in. */
+        await page.evaluate(() => { const b = document.querySelector('#plus-ask-rows [data-ask="allow"]'); if (b) { b.focus(); b.__k3978 = 1; } });
+        await page.waitForTimeout(10600);
+        const f = await page.evaluate(() => {
+          const b = document.querySelector('#plus-ask-rows [data-ask="allow"]');
+          const a = document.activeElement;
+          const ago = document.querySelector('#plus-ask-rows .askwho [data-ask-ago]');
+          return { same: !!(b && b.__k3978 === 1), focused: !!(a && a.__k3978 === 1), ago: ago ? ago.textContent : null };
+        });
+        chk(f.same && f.focused, `${t} #3978: two polls later Allow is the same button and still has keyboard focus`, JSON.stringify(f));
+        chk(f.ago === '2 minutes ago', `${t} #3978: the request's time is filled in place`, JSON.stringify(f));
+        // The compact notice on another view has the same rebuild; its Review button keeps focus too.
+        await page.evaluate(() => showTab('agents'));
+        await page.waitForTimeout(300);
+        await page.evaluate(() => { const b = document.querySelector('#askcard [data-ask="open"]'); if (b) { b.focus(); b.__k3978 = 2; } });
+        await page.waitForTimeout(10600);
+        const g = await page.evaluate(() => { const a = document.activeElement; const b = document.querySelector('#askcard [data-ask="open"]'); return { same: !!(b && b.__k3978 === 2), focused: !!(a && a.__k3978 === 2) }; });
+        chk(g.same && g.focused, `${t} #3978: two polls later the notice's Review is the same button and still has keyboard focus`, JSON.stringify(g));
+        await page.evaluate(() => { showTab('settings'); });
+        await page.click('#s-nav button[data-go="plus"]');
+        await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
       }
       if (key === 'two') {
         chk(v.reqs === 2 && v.stale === 1, `${t} two cards, the one older than an hour faded`, JSON.stringify({ reqs: v.reqs, stale: v.stale }));

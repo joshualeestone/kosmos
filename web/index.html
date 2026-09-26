@@ -36878,6 +36878,20 @@ function askClock(unix) {
   return unix ? new Date(unix * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
 }
 function askEsc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+/* #3978: the rows are written only when their shape changes (setLive), so a poll that changes nothing
+   leaves the Allow / Deny buttons, and keyboard focus on them, in place; they were rebuilt every 5
+   seconds. The one thing that does change on its own, how long ago, is a span carrying its time, filled
+   here in place. aria-relevant="additions" on the span keeps that tick quiet inside the card's polite
+   live region, while a new or changed request (new nodes) is still announced. */
+function askAgoSpan(unix) { return '<span data-ask-ago="' + (Number(unix) || 0) + '" aria-relevant="additions"></span>'; }
+function askWrite(el, html) {
+  if (!el) return;
+  setLive(el, html);
+  for (const s of el.querySelectorAll('[data-ask-ago]')) {
+    const t = askAgo(Number(s.dataset.askAgo) || 0);
+    if (s.textContent !== t) s.textContent = t;
+  }
+}
 function askLive() { return ASK.devices.filter((d) => !ASK.done[d.device_id]); }
 async function pollAsk() {
   let r = null;
@@ -36921,13 +36935,12 @@ function paintAsk() {
   const title = document.getElementById('ask-title');
   const lead = document.getElementById('ask-lead');
   if (!onPlus) {
-    document.getElementById('ask-rows').innerHTML = '';
-    if (hide) return;
+    if (hide) { askWrite(document.getElementById('ask-rows'), ''); return; }
     title.textContent = '';
     lead.hidden = true;
     const n = live.length;
-    document.getElementById('ask-rows').innerHTML = '<div class="asknote"><span>' + (n === 1 ? askEsc(askKind(live[0])) + ' is asking to use this Kosmos.' : n + ' devices are asking to use this Kosmos.') +
-      '</span><button class="btn uprime" type="button" data-ask="open">Review</button></div>';
+    askWrite(document.getElementById('ask-rows'), '<div class="asknote"><span>' + (n === 1 ? askEsc(askKind(live[0])) + ' is asking to use this Kosmos.' : n + ' devices are asking to use this Kosmos.') +
+      '</span><button class="btn uprime" type="button" data-ask="open">Review</button></div>');
     return;
   }
   if (!anything) return;
@@ -36953,10 +36966,10 @@ function paintAsk() {
        how long ago, the code LARGE (it is what the person checks against the device in their hand), one
        sentence, Allow / Deny. A request older than an hour is faded. No paragraphs, no "Not now". */
     const stale = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
-    const again = d.denied_at ? ' You said no to this ' + askEsc(kind) + ' ' + askAgo(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
+    const again = d.denied_at ? ' You said no to this ' + askEsc(kind) + ' ' + askAgoSpan(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
     const say = d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
     return '<div class="askreq' + (stale ? ' stale' : '') + '"><div class="askdev">' + askIcon(kind) + '</div>' +
-      '<div class="askwho"><b>' + askEsc(kind) + '</b><span>' + askEsc(askAgo(d.first_seen)) + '</span></div>' +
+      '<div class="askwho"><b>' + askEsc(kind) + '</b>' + askAgoSpan(d.first_seen) + '</div>' +
       (d.code ? '<div class="askcode"><span class="vh">code </span>' + askEsc(d.code) + '</div>' : '') +
       '<p class="asksay">' + say + again + (e && e.state === 'error' ? ' ' + askEsc(e.because) : '') + '</p>' +
       '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + askEsc(kind) + (d.code ? ', code ' + askEsc(d.code) : '') + '">Allow</button>' +
@@ -36964,9 +36977,8 @@ function paintAsk() {
   };
   for (const d of rows) { seen.add(d.device_id); out.push(render(d, ASK.done[d.device_id])); }
   for (const id of doneIds) { if (!seen.has(id)) out.push(render(ASK.done[id].device, ASK.done[id])); }
-  document.getElementById(inPanel ? 'plus-ask-rows' : 'ask-rows').innerHTML = out.join('');
-  if (inPanel) document.getElementById('ask-rows').innerHTML = '';
-  else document.getElementById('plus-ask-rows').innerHTML = '';
+  askWrite(document.getElementById(inPanel ? 'plus-ask-rows' : 'ask-rows'), out.join(''));
+  askWrite(document.getElementById(inPanel ? 'ask-rows' : 'plus-ask-rows'), '');
 }
 async function askAct(act, id) {
   const d = ASK.devices.find((x) => x.device_id === id) || (ASK.done[id] && ASK.done[id].device);
