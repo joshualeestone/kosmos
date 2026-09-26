@@ -443,3 +443,50 @@ test('#3998 round 5: once the window is shown, a code from another tab is refuse
     assert.deepEqual(st.sent, [], 'a code was typed into the window the person is driving');
   } finally { s.resetForTests(); }
 });
+
+/* ---- review round 6 ---------------------------------------------------------------------- */
+test('#3998 round 6: after Show, a screen Kosmos does not know is still asked about (bounded), and a yes finishes', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'something Kosmos does not know');
+  st.answer = { signedIn: null };
+  s.setForTests({ openFile: (f, done) => done(new Error('open timed out')) });   // Terminal came up, open said no
+  try {
+    const { id } = s.start();
+    for (let i = 0; i < 12; i++) { st.t += 1000; s.tickForTests(); await settle(); }
+    await s.show(id);
+    assert.equal(s.status().shown, true, 'a failed open left Kosmos free to press keys under the person');
+    const before = st.sent.length;
+    st.screen = 'Choose your color scheme\n> terminal\n'; st.t += 1000; s.tickForTests(); await settle();
+    assert.equal(st.sent.length, before, 'Kosmos pressed a key after Show');
+    // The person finishes; agy's line is not the one Kosmos knows as ready.
+    st.checks = 0; st.answer = { signedIn: true };
+    st.screen = 'j@example.com - Gemini Pro plan\n> \n';
+    for (let i = 0; i < 12; i++) { st.t += 1000; s.tickForTests(); await settle(); if (s.status().state === 'done') break; }
+    assert.equal(s.status().state, 'done', 'a sign-in finished by hand on an unfamiliar ready line was never confirmed');
+    assert.ok(st.checks >= 1 && st.checks <= s.MAX_CHECKS);
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 6: between setup screens, an unknown frame is not asked about at once (a yes there would skip terms and trust)', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'Choose your color scheme\n> terminal\n');
+  st.answer = { signedIn: true };
+  try {
+    s.start();
+    s.tickForTests();                 // theme: Enter
+    st.screen = '';                   // a blank redraw before the terms
+    st.t += 1000; s.tickForTests(); await settle();
+    assert.equal(st.checks, 0, 'agy was asked on a redraw between theme and terms');
+    assert.notEqual(s.status().state, 'done');
+    // CONTROL: after the LAST setup screen (trust), an unknown screen is asked about at once.
+    const st2 = scripted(s, 'Accessing workspace:\n\n' + require('node:path').join(os.tmpdir(), 'agy-signin') + '\n\nDo you trust the contents of this project?\n\n> Yes, I trust this folder\n');
+    st2.answer = { signedIn: true };
+    require('node:fs').mkdirSync(require('node:path').join(os.tmpdir(), 'agy-signin'), { recursive: true });
+    s.start();
+    s.tickForTests();
+    assert.ok(st2.sent.includes('Enter'), 'CONTROL: the trust screen for its own folder was answered');
+    st2.screen = ''; st2.t += 1000; s.tickForTests(); await settle();
+    assert.equal(st2.checks, 1);
+    assert.equal(s.status().state, 'done');
+  } finally { s.resetForTests(); }
+});

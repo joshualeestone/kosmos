@@ -66,3 +66,11 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 - Routes: a stale sign-in id is 409 on code, show and stop; an unknown sub-address is 404.
 - Page: leaving while the start request is out stops the sign-in it began; the status line is rewritten only when its words change (a live region re-reads every write).
 - Left: N6's cleanup nit (tests reset the module anyway).
+
+## Review rounds 5 and 6 (decided)
+- After Show, Kosmos types no code and presses no key on a screen it knows; `shown` is set before the window opens (an `open` that times out after Terminal came up must not leave Kosmos pressing keys). A screen it does not know is still asked about within the bounded asks, so a finish on an unfamiliar ready line is confirmed. The panel then says the window is open and offers no second one.
+- The paste box is focused when it appears and again only when a code comes back refused, never on every poll (round 5's version pulled focus back every second: a keyboard trap).
+- A refusal of what was pasted stays on screen until the person types again.
+- Only the trust screen (the last setup screen) counts as settled for an immediate ask; between theme and terms an unknown redraw waits like any other.
+- An answer that is not a state reads "Waiting for Kosmos to answer".
+- Left, documented: the "did not take that code" retry trusts the code screen's words being the last on screen (real agy may print under its prompt; unmeasured, Josh's run will show); tmux calls are synchronous with a 5 s cap; a board restart mid-sign-in leaves the private session until the next start kills it.

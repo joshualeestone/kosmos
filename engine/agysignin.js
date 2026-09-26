@@ -102,6 +102,7 @@ function status() {
   const out = { id: S.id, state: S.state, step: S.step || null };
   if (S.url) out.url = S.url;
   if (S.because) out.because = S.because;
+  if (S.shown) out.shown = true;   // the window is the person's now; the panel says so
   return out;
 }
 
@@ -187,10 +188,11 @@ function step() {
   const changed = name !== S.screen;
   if (changed) { S.screen = name; S.screenSince = now(); S.pressed = false; S.downFrom = null; S.moves = 0; }
   if (name === 'ready') { readyCheck(text); return; }
-  /* 🛑 ONCE THE WINDOW IS SHOWN, THE PERSON DRIVES (review round 4). Kosmos presses nothing more:
-     its keys would race theirs (a Done pressed before they tick the box they meant to). It only
-     watches for the end: agy exiting (above) or its ready screen. */
-  if (S.shown) return;
+  /* 🛑 ONCE THE WINDOW IS SHOWN, THE PERSON DRIVES (review round 4). Kosmos presses nothing more on
+     a screen it knows: its keys would race theirs (a Done pressed before they tick the box they
+     meant to). It still watches for the end: agy exiting (above), its ready screen, and a screen it
+     does not know, which it may ask agy about (the bounded asks below press nothing; round 6). */
+  if (S.shown && name) return;
   if (!changed && name && S.state === 'stuck') return;   // shown to the person; nothing more is pressed on it
   /* A recognised screen that stays the same this long is stuck too (a changed default, a cursor
      that is not where Kosmos expects): the code screen is exempt, it waits for the person. */
@@ -258,7 +260,9 @@ function step() {
      most MAX_CHECKS times a sign-in, and while stuck only when the screen has changed (the person
      may have finished it in the shown window). A "no" or "could not tell" makes it stuck, and
      stuck stays stuck: it never flips back to checking by itself. */
-  const settled = S.step === 'terms' || S.step === 'trust' || S.step === 'theme';
+  /* Only after the LAST setup screen (round 6): between theme and terms a blank redraw is not agy's
+     ready screen, and a yes there would end the session before terms and trust were answered. */
+  const settled = S.step === 'trust';
   const ask = S.checks < MAX_CHECKS && (S.state === 'stuck'
     ? text !== S.stuckText && now() - S.lastCheckAt > STUCK_MS   // a redrawing screen does not spend them all at once
     : settled || now() - S.lastSeen > STUCK_MS);
@@ -364,9 +368,10 @@ function show(id) {
     try {
       fs.writeFileSync(file, '#!/bin/sh\nexec ' + shq(tmuxBin()) + ' -L ' + shq(socket()) + ' attach -t ' + SESSION + '\n', { mode: 0o700 });
     } catch { resolve({ ok: false, because: 'Kosmos could not open the sign-in window' }); return; }
-    const mine = S;
+    /* From here the person drives, set BEFORE the window opens (round 6): `open` can time out after
+       Terminal has come up, and pressing nothing is the safe way to be wrong. Stop still works. */
+    S.shown = true;
     openFile(file, (err) => {
-      if (!err && S === mine) mine.shown = true;   // from here the person drives; Kosmos presses nothing
       resolve(err ? { ok: false, because: 'Kosmos could not open the sign-in window' } : { ok: true });
     });
   });

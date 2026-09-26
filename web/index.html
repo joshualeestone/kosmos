@@ -25232,6 +25232,7 @@ function agySubDriver(pre, onReady) { return {
   next: 'check',   // what the step's button does next: 'install' Antigravity, 'open' its sign-in, or 'check'
   signing: false,  // #3998: a hidden Antigravity sign-in this step started and has not finished
   signinId: '',    // #3998: which sign-in that is, so this step never stops or types into another tab's
+  codeError: '',   // #3998: why the last pasted code was refused, until the person types again
   leave() {
     this.gen += 1; this.busy = false; this.next = 'check';
     // A sign-in nobody is watching any more ends, rather than waiting out its half hour.
@@ -25248,7 +25249,7 @@ function agySubDriver(pre, onReady) { return {
      is left. Each state is said in the step's own status line. */
   async follow(mine) {
     const live = () => mine === this.gen && this.signing;
-    let focused = false;
+    let focusedFor = null;   // the reason the box was last focused for ('' for none); null before the first time
     while (live()) {
       let st = null;
       try { st = await (await fetch('/api/antigravity/signin', { cache: 'no-store' })).json(); } catch { st = null; }
@@ -25262,16 +25263,22 @@ function agySubDriver(pre, onReady) { return {
       const state = st && st.state;
       if (state === 'code') {
         // A code Antigravity did not take comes back here with the reason (#3998 review round 2).
-        this.say(st.because ? frCap(st.because) : "Google's sign-in is open in your browser. Sign in there, then copy the code Google shows and paste it below.", '', false);
+        /* The words: Antigravity's reason for refusing a code, else Kosmos's own refusal of what was
+           pasted (kept until the person types again, round 6), else the prompt. */
+        this.say(st.because ? frCap(st.because) : (this.codeError || "Google's sign-in is open in your browser. Sign in there, then copy the code Google shows and paste it below."), '', false);
         this.rows(true, false, st.url || '');
-        /* Focus the box once when it appears, and again when a code comes back refused (round 5):
-           the box was emptied on the send, and the person has to paste into it again. */
+        /* Focus the box when it appears, and again only when a code comes back refused (the box was
+           emptied on the send): never on every poll, or Tab could never leave it (round 6). */
         const reason = st.because || '';
-        if (!focused || reason !== focused) { const i = this.el('paste'); if (i) i.focus(); focused = reason || true; }
+        if (focusedFor === null || reason !== focusedFor) { const i = this.el('paste'); if (i) i.focus(); focusedFor = reason; }
       } else if (state === 'checking' || state === 'setup') {
         this.rows(false, false);
         this.say(state === 'checking' ? 'Checking the code with Google…'
           : "Finishing Antigravity's setup. Kosmos leaves Google's optional data sharing off; you can change that later in Antigravity's settings.", '', false);
+      } else if (state === 'stuck' && st.shown) {
+        // The window is open and the person drives it: no second Show (each would open another window).
+        this.rows(false, false);
+        this.say('The sign-in window is open. Finish it there; Kosmos notices when you are done.', '', false);
       } else if (state === 'stuck') {
         this.rows(false, true);
         this.say(frCap((st && st.because) || 'Antigravity is showing a step Kosmos does not recognise') + '. Show the sign-in window to finish it yourself.', '', false);
@@ -25287,8 +25294,8 @@ function agySubDriver(pre, onReady) { return {
         this.next = 'open';
         this.say(state === 'failed' ? frCap((st && st.because) || 'The sign-in did not finish') + '.' : 'The sign-in stopped.', 'Sign in with Google', false);
         return;
-      } else if (!st) {
-        this.say('Waiting for Kosmos to answer…', '', false);
+      } else if (!st || typeof state !== 'string') {
+        this.say('Waiting for Kosmos to answer…', '', false);   // no answer, or one that is not a state
       } else {
         this.say("Opening Google's sign-in in your browser…", '', false);
       }
@@ -25302,8 +25309,9 @@ function agySubDriver(pre, onReady) { return {
     try {
       r = await (await fetch('/api/antigravity/signin/code', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: v, id: this.signinId }) })).json();
     } catch { r = null; }
-    if (r && r.ok) { if (i) i.value = ''; this.rows(false, false); this.say('Checking the code with Google…', '', false); return; }
-    this.say(frCap((r && r.error) || 'Kosmos could not pass the code on just now') + '.', '', false);
+    if (r && r.ok) { this.codeError = ''; if (i) i.value = ''; this.rows(false, false); this.say('Checking the code with Google…', '', false); return; }
+    this.codeError = frCap((r && r.error) || 'Kosmos could not pass the code on just now') + '.';
+    this.say(this.codeError, '', false);
   },
   async showWindow() {
     const r = await this.post('/api/antigravity/signin/show', { id: this.signinId });
@@ -25312,6 +25320,7 @@ function agySubDriver(pre, onReady) { return {
   wire() {
     const go = this.el('paste-go'); if (go) go.addEventListener('click', () => this.sendCode());
     const i = this.el('paste'); if (i) i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); this.sendCode(); } });
+    if (i) i.addEventListener('input', () => { this.codeError = ''; });   // typing again retires the refusal
     const sh = this.el('show'); if (sh) sh.addEventListener('click', () => this.showWindow());
     return this;
   },
@@ -25365,7 +25374,7 @@ function agySubDriver(pre, onReady) { return {
           this.say(frCap((started && started.error) || "We could not start Antigravity's sign-in just now") + '.', refused ? 'Check again' : 'Sign in with Google', false);
           return;
         }
-        this.signing = true; this.signinId = String(started.id || '');
+        this.signing = true; this.signinId = String(started.id || ''); this.codeError = '';
         this.say("Opening Google's sign-in in your browser…", '', false);
         this.follow(mine);
         return;
