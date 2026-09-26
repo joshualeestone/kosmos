@@ -78,7 +78,32 @@ async function open(browser, opts) {
     if (ask.error) chk(false, '[allow] ' + ask.error);
     else {
       chk(ask.left === ask.top && ask.leftColor === ask.topColor, '[allow] no left accent bar: the left border is the top border', `left=${ask.left} ${ask.leftColor} top=${ask.top} ${ask.topColor}`);
-      chk(ask.hoverNone && ask.buttons.length >= 2 && ask.buttons.every((b) => b.h >= 44), '[allow/touch] every Allow button is at least 44px tall', JSON.stringify(ask.buttons));
+      // #3829 addendum (Josh 20:00): off Kosmos Plus the top card is a one-line notice with Review; its button is thumb-size too.
+      chk(ask.hoverNone && ask.buttons.length >= 1 && ask.buttons.every((b) => b.h >= 44), '[allow/touch] the notice\'s button is at least 44px tall', JSON.stringify(ask.buttons));
+      // On Kosmos Plus the full cards sit above the panel; their Allow and Deny keep the 44px (#718).
+      const inPanel = await phone.evaluate(() => {
+        // This fixture is not enrolled, so show the connected panel the in-panel slot sits above.
+        showTab('settings'); settingsGo('plus');
+        const flow = document.getElementById('plus-flow'); const was = flow.hidden; flow.hidden = false; paintAsk();
+        const box = document.getElementById('plus-asks');
+        const got = (!box || box.hidden) ? { error: 'the request did not show above the Kosmos Plus panel' }
+          : [...box.querySelectorAll('button')].filter((b) => b.getBoundingClientRect().height > 0).map((b) => ({ t: b.textContent.trim().slice(0, 16), h: Math.round(b.getBoundingClientRect().height) }));
+        flow.hidden = was; paintAsk();
+        return got;
+      });
+      chk(Array.isArray(inPanel) && inPanel.length >= 2 && inPanel.every((b) => b.h >= 44), '[allow/touch] every Allow / Deny above the Kosmos Plus panel is at least 44px tall', JSON.stringify(inPanel));
+      // Review (#3829): with the connected panel NOT showing (not enrolled, or mid sign-in) there is nothing to sit
+      // above, so the full cards stay in the top card and the in-panel slot is empty.
+      const noFlow = await phone.evaluate(() => {
+        const flow = document.getElementById('plus-flow');
+        const was = flow.hidden; flow.hidden = true; paintAsk();
+        const out = { panel: document.getElementById('plus-asks').hidden, card: document.getElementById('askcard').hidden,
+          allow: [...document.querySelectorAll('#ask-rows button[data-ask="allow"]')].length,
+          slot: document.getElementById('plus-ask-rows').children.length };
+        flow.hidden = was; paintAsk();
+        return out;
+      });
+      chk(noFlow.panel && !noFlow.card && noFlow.allow >= 1 && noFlow.slot === 0, '[allow/place] with no connected panel showing, the full cards stay in the top card', JSON.stringify(noFlow));
     }
     // (b) Answer's hit area, on a real needs-you card
     const ans = async (page) => page.evaluate((base) => {

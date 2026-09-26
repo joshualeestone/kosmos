@@ -81,11 +81,11 @@ const STATES = {
           chip: vis('plus-chip'), copy: !!document.getElementById('plus-copy'), chipAddr: document.getElementById('plus-chip-addr').textContent.trim(),
           open: document.getElementById('plus-open').getAttribute('href'), account: document.getElementById('plus-account').getAttribute('href'),
           status: document.getElementById('plus-status').textContent.trim(), sw: sw.textContent.trim(), swClass: sw.className,
-          cardShown: vis('askcard'), cardText: card ? card.innerText.replace(/\s+/g, ' ') : '',
-          reqs: document.querySelectorAll('#ask-rows .askreq').length, stale: document.querySelectorAll('#ask-rows .askreq.stale').length,
-          codes: [...document.querySelectorAll('#ask-rows .askcode')].map((e) => ({ t: e.textContent.replace(/^code /, ''), px: parseFloat(getComputedStyle(e).fontSize) })),
+          cardShown: vis('plus-asks'), cardText: (document.getElementById('plus-asks').innerText || '').replace(/\s+/g, ' '),
+          reqs: document.querySelectorAll('#plus-ask-rows .askreq').length, stale: document.querySelectorAll('#plus-ask-rows .askreq.stale').length, topCardShown: vis('askcard'), inPanel: vis('plus-asks'), panelW: document.getElementById('plus-asks').getBoundingClientRect().width, flowW: document.getElementById('plus-flow').getBoundingClientRect().width, asksAbove: document.getElementById('plus-asks').getBoundingClientRect().bottom <= document.getElementById('plus-flow').getBoundingClientRect().top + 1,
+          codes: [...document.querySelectorAll('#plus-ask-rows .askcode')].map((e) => ({ t: e.textContent.replace(/^code /, ''), px: parseFloat(getComputedStyle(e).fontSize) })),
           listPending: document.querySelectorAll('#plus-devlist [data-ask]').length, listNames: [...document.querySelectorAll('#plus-devlist .devname')].map((e) => e.textContent.trim()),
-          leftBar: card ? getComputedStyle(card).borderLeftWidth === getComputedStyle(card).borderTopWidth : true,
+          leftBar: [...document.querySelectorAll('#plus-ask-rows .askreq')].every((c) => getComputedStyle(c).borderLeftWidth === getComputedStyle(c).borderTopWidth),
         };
       });
       const t = `[${key}]`;
@@ -112,6 +112,16 @@ const STATES = {
         chk(v.codes.length === 1 && v.codes[0].t === 'VR-D6' && v.codes[0].px >= 24, `${t} the code is shown large`, JSON.stringify(v.codes));
         chk(v.listPending === 0, `${t} the request is not repeated in the devices list`, String(v.listPending));
         chk(v.leftBar, `${t} no solid left bar on the card (#3692)`);
+        // #3829 addendum (Josh 20:00): on Kosmos Plus the requests sit directly ABOVE the panel at its width; no top banner.
+        chk(v.inPanel && !v.topCardShown && v.asksAbove && Math.abs(v.panelW - v.flowW) <= 2, `${t} the request sits above the panel at the panel's width, not as a top banner`, JSON.stringify({ inPanel: v.inPanel, top: v.topCardShown, above: v.asksAbove, w: [v.panelW, v.flowW] }));
+        // Elsewhere: one compact notice at the top that links to Kosmos Plus.
+        await page.evaluate(() => showTab('agents'));
+        await page.waitForTimeout(300);
+        const other = await page.evaluate(() => ({ shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ').trim(), cards: document.querySelectorAll('#askcard .askreq').length, link: !!document.querySelector('#askcard [data-ask="open"]') }));
+        chk(other.shown && other.cards === 0 && other.link && /asking to use this Kosmos/.test(other.text), `${t} on another view, only a compact notice with a link`, JSON.stringify(other));
+        await page.click('#askcard [data-ask="open"]');
+        await page.waitForTimeout(400);
+        chk(await page.evaluate(() => !document.getElementById('plus-asks').hidden && document.getElementById('askcard').hidden), `${t} the notice's link opens Kosmos Plus with the request above the panel`);
       }
       if (key === 'two') {
         chk(v.reqs === 2 && v.stale === 1, `${t} two cards, the one older than an hour faded`, JSON.stringify({ reqs: v.reqs, stale: v.stale }));
