@@ -98,8 +98,9 @@ function initStub() {
     CURRENT = { sessionName: 'april', name: 'April' };
   });
 
-  const SAID = 'Reactivated on OpenAI, and said hello to wake April.';
-  const MANUAL = 'Say hello to April to reactivate them on OpenAI.';
+  // #4008: the finished line is "Ready: X is on Y." (these direct calls pass no onWhat, so Y is the provider).
+  const SAID = 'Ready: April is on OpenAI.';
+  const MANUAL = 'April is on OpenAI. Send them a message to wake them.';
   // What the dialog paints while the hello is pending; the helper resolves it.
   const WAITING = 'Restarted on OpenAI. Waking them…';
 
@@ -125,7 +126,7 @@ function initStub() {
       back.hidden = false;
       msg.textContent = sd || 'Restarted on OpenAI. Waking them…';
       // The call site builds the manual and waiting lines once and passes both in.
-      autoHelloOnSwitchRestart('april', 'April', 'OpenAI', 'Say hello to April to reactivate them on OpenAI.', 'Restarted on OpenAI. Waking them…');
+      autoHelloOnSwitchRestart('april', 'April', 'OpenAI', 'April is on OpenAI. Send them a message to wake them.', 'Restarted on OpenAI. Waking them…');
     }, { n: readyAfter, tr: threadResp, sd: seed, hd: hold || 300 });
     if (mutate) await page.evaluate(mutate, mutateArg);
     // Wait until either a thread POST fired or the readiness window elapsed and the
@@ -211,7 +212,7 @@ function initStub() {
     const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
     const back = document.getElementById('chg-modal');
     const msg = document.getElementById('chg-msg');
-    const MAN = 'Say hello to April to reactivate them on OpenAI.';
+    const MAN = 'April is on OpenAI. Send them a message to wake them.';
     const WAIT = 'Restarted on OpenAI. Waking them…';
     window.__kosmosRestartHoldMs = 300;
     window.__posted = [];
@@ -240,7 +241,7 @@ function initStub() {
     const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
     const back = document.getElementById('chg-modal');
     const msg = document.getElementById('chg-msg');
-    const MAN = 'Say hello to April to reactivate them on OpenAI.';
+    const MAN = 'April is on OpenAI. Send them a message to wake them.';
     const WAIT = 'Restarted on OpenAI. Waking them…';
     window.__posted = [];
     window.__threadResp = { recorded: true, delivery: { state: 'placed' } };
@@ -292,15 +293,22 @@ function initStub() {
       if (helloAt === null && window.__posted.some((x) => /\/thread$/.test(x.url))) helloAt = Date.now() - t0;
       await sleep(20);
     }
-    const out = { helloAt, msg: msg.textContent, threads: window.__posted.filter((x) => /\/thread$/.test(x.url)).length };
+    const keep = document.getElementById('chg-keep');
+    // #4008: the finished dialog: the title is no longer the question, Done is the gold button with the
+    // focus, and the line leads with a check.
+    const out = { helloAt, msg: msg.textContent, threads: window.__posted.filter((x) => /\/thread$/.test(x.url)).length,
+      title: document.getElementById('chg-title').textContent, gold: keep.classList.contains('uprime'), focused: document.activeElement === keep,
+      check: !!msg.querySelector('svg.wake-done'), keepText: keep.textContent };
     window.__kosmosRestartHoldMs = undefined;
-    document.getElementById('chg-keep').click();
+    keep.click();
     return out;
   });
   check('real model switch: the hello is placed BEFORE the held render (the race actually occurs)',
     s11.helloAt !== null && s11.helloAt < 1500, 'helloAt=' + s11.helloAt + 'ms, hold=1500ms');
   check('real model switch: the dialog still ends on the confirmation',
-    s11.threads === 1 && /^Reactivated on Claude, and said hello to wake /.test(s11.msg), 'threads=' + s11.threads + ' msg=' + JSON.stringify(s11.msg));
+    s11.threads === 1 && s11.msg === 'Ready: April is on Claude Opus 5.', 'threads=' + s11.threads + ' msg=' + JSON.stringify(s11.msg));
+  check('#4008 real model switch: the finished dialog titles what happened, leads with a check, and Done is the gold button with the focus',
+    s11.title === 'Changed to Claude Opus 5' && s11.check && s11.gold && s11.focused && s11.keepText === 'Done', JSON.stringify(s11));
 
   // ---- Arm 11b: the REAL provider-switch path, same timing relationship ----
   // changeProviderNow has its own call site and an extra awaited accounts refresh, so it
@@ -329,15 +337,19 @@ function initStub() {
       if (helloAt === null && window.__posted.some((x) => /\/thread$/.test(x.url))) helloAt = Date.now() - t0;
       await sleep(20);
     }
-    const out = { helloAt, msg: msg.textContent, threads: window.__posted.filter((x) => /\/thread$/.test(x.url)).length };
+    const keep = document.getElementById('chg-keep');
+    const out = { helloAt, msg: msg.textContent, threads: window.__posted.filter((x) => /\/thread$/.test(x.url)).length,
+      title: document.getElementById('chg-title').textContent, gold: keep.classList.contains('uprime'), check: !!msg.querySelector('svg.wake-done') };
     window.__kosmosRestartHoldMs = undefined;
-    document.getElementById('chg-keep').click();
+    keep.click();
     return out;
   });
   check('real provider switch: the hello is placed BEFORE the held render (the race actually occurs)',
     s11b.helloAt !== null && s11b.helloAt < 1500, 'helloAt=' + s11b.helloAt + 'ms, hold=1500ms');
   check('real provider switch: the dialog still ends on the confirmation',
-    s11b.threads === 1 && /^Reactivated on OpenAI, and said hello to wake /.test(s11b.msg), 'threads=' + s11b.threads + ' msg=' + JSON.stringify(s11b.msg));
+    s11b.threads === 1 && s11b.msg === 'Ready: April is on OpenAI.', 'threads=' + s11b.threads + ' msg=' + JSON.stringify(s11b.msg));
+  check('#4008 real provider switch: the finished dialog is titled "Switched to OpenAI", with a check and a gold Done',
+    s11b.title === 'Switched to OpenAI' && s11b.check && s11b.gold, JSON.stringify(s11b));
 
   // ---- Arm 11c: a real switch that does NOT restart sends no hello ----
   const s11c = await page.evaluate(async () => {
