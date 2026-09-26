@@ -6952,6 +6952,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    the person must do. No bar down the left (Josh has ruled those out). #pj-one-notice is the live
    region and stays in the page, empty and unstyled, so a notice written into it is announced the
    first time too; the visible box is the .pnotice drawn inside it. */
+/* #3948: the rail's copy of the project notice (consolidated layout). Room around it only while it has
+   something to say; the region itself is never hidden (a live region must stay in the tree to be heard). */
+.alist-pjn:not(:empty) { padding: 8px 12px 4px; }
 .pnotice { display: flex; gap: 10px; align-items: flex-start; padding: 13px 15px; border-radius: 10px;
   background: var(--k-sunk, rgba(20,22,26,.05)); border: 1px solid var(--k-rule); margin: 0 0 12px; }
 .pn-b { flex: 1 1 auto; min-width: 0; }
@@ -16314,6 +16317,12 @@ window.kosmosMeasureScrollbarWidth();
     <button class="fold plus" type="button" id="rail-agents-new" aria-label="New agent" title="New agent">+</button>
   </span>
 </div>
+<!-- #3948: the consolidated layout hides the Members card (#3218), so #3923's project notice lives here too,
+     above the Agents list whose top group IS the open project's members. Painted by paintAgentList only
+     while a project is open in the consolidated layout, so one notice speaks at a time. Never hidden: only
+     its content comes and goes, so a screen reader hears it arrive (the same rule as #pj-one-notice). -->
+<div id="alist-pj-notice" class="alist-pjn" role="status" aria-live="polite"></div>
+<div id="alist-pj-notice-said" class="vh" role="status" aria-live="polite"></div>
 <div class="alist" id="alist" hidden></div>
 <!-- #520, piece three: the person, bottom left of the agents rail, in the
      consolidated view only. Their picture and name (the same You record
@@ -19595,6 +19604,17 @@ function paintAgentList() {
   const lim = new URLSearchParams(location.search).get('limit');
   const src = (LAST || []).filter((a) => !(a && a.isGuide === true));
   const shown = lim ? src.slice(0, Number(lim)) : src;
+  /* #3948: the project notice (#3923) in the consolidated layout, where the Members card is hidden: the
+     same pjNotice from the same roster (p.agents) the tab layout paints, above this list; empty when no
+     project is open or in the tab layout (its own notice speaks there). Before the empty-board return, so
+     leaving the project always clears it. */
+  { const rn = document.getElementById('alist-pj-notice');
+    if (rn && typeof pjNotice === 'function') {
+      const op = (layoutConsolidated() && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
+      setIfChanged(rn, op ? pjNotice(op.agents || [], op.id) : '');
+      const rs = document.getElementById('alist-pj-notice-said');
+      if (rs && rs.dataset.pj && (!op || rs.dataset.pj !== String(op.id))) { rs.textContent = ''; rs.dataset.pj = ''; }
+    } }
   if (!shown.length) { setAgentsGrouped(false); alist.innerHTML = boardEmpty(); return; }
   const openProj = (layoutConsolidated() && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
   const inProj = (openProj && Array.isArray(openProj.agents))
@@ -53899,12 +53919,16 @@ async function addMemberToProject(who, msg) {
    refuses rather than re-adds an agent that has left). Success says nothing: the repaint drops
    the row. The same answer again says so on the row, and so does a retry that got no answer. Focus returns to the row's new button, or
    to the Members heading when the row is gone, since the repaint replaces the pressed button. */
-document.getElementById('pj-one-notice').addEventListener('click', async (e) => {
+/* #3948: one handler for both notices (the Members card's in the tab layout, the Agents rail's in the
+   consolidated one); `box` is the notice that was clicked, and `rail` picks that notice's own success line,
+   repaint and focus fallback. */
+async function pjNoticeRetryClick(e) {
   const btn = e.target && e.target.closest ? e.target.closest('[data-pn-retry]') : null;
   if (!btn || !PJ_CURRENT) return;
   const key = btn.dataset.pnRetry;
   const project = PJ_CURRENT;   // a switch while this runs must not move focus into another project
-  const box = document.getElementById('pj-one-notice');
+  const box = e.currentTarget;
+  const rail = box.id === 'alist-pj-notice';
   btn.disabled = true;
   let before = '';
   let name = key;   // the display name, for the success line (the row is gone by then)
@@ -53945,10 +53969,13 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
   // A read that landed but FAILED (offline) paints no project view, so the row's mark would wait for
   // the connection to come back: paint it from the projects already loaded.
   if (PJ_READ_FAILED) paintOneProject();
+  // The rail's notice is painted by the Agents list, which otherwise waits for the next poll.
+  if (rail && typeof paintAgentList === 'function') paintAgentList();
   // Success empties the row, which a screen reader does not announce: say it in words. Only on the
   // board's own "told" verdict: a retry that came back with a different reason may leave a row with
   // no button, which is not success. Said whether or not focus is put back below.
-  const said = document.getElementById('pj-one-notice-said');
+  // In the consolidated layout the Members card (and its success line) is hidden, so the rail has its own.
+  const said = document.getElementById(rail ? 'alist-pj-notice-said' : 'pj-one-notice-said');
   if (said) {
     // Emptied, then written a frame later, so the same sentence twice (leo fixed again) is announced
     // again; tagged with its project so a switch clears it (paintOneProject).
@@ -53965,7 +53992,8 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
   if (now && now !== document.body && !box.contains(now)) return;
   // Compared as data, not built into a selector, so no session name can break the lookup.
   const again = Array.from(box.querySelectorAll('[data-pn-retry]')).find((b) => b.dataset.pnRetry === key) || null;
-  const heading = document.querySelector('.pjcard-members > .dlab');
+  // In the rail, the list the notice sits above (its members group heads it); the Members heading is hidden there.
+  const heading = rail ? document.getElementById('alist') : document.querySelector('.pjcard-members > .dlab');
   // The row's own button, else the next row's (keyboard users keep their place in the notice), else
   // the Members heading.
   const next = again || box.querySelector('[data-pn-retry]');
@@ -53978,7 +54006,9 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
     }
     heading.focus();
   }
-});
+}
+document.getElementById('pj-one-notice').addEventListener('click', pjNoticeRetryClick);
+{ const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNoticeRetryClick); }
 document.getElementById('pj-one-add-go').addEventListener('click', async () => {
   // #2429 (Josh, 0.6.45): once the member is added there is nothing more to do in the
   // modal, so CLOSE it on success -- and close BEFORE the board refresh, so the picker's

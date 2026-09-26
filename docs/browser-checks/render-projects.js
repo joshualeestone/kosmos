@@ -1165,6 +1165,33 @@ async function main() {
       contrastFails += 1;
       console.log(`  FAIL  #3923 Try again on a stopped agent: expected "It still did not work.", focus on its Try again and no success line (${scheme}), got ${JSON.stringify(retry)}`);
     }
+    /* #3948: the consolidated layout hides the Members card, so the same notice (same rows, same
+       Try again) is painted above the Agents list in its own live region. Entered the way the cog
+       measure above enters it, painted, read, then the layout put back and the rail read again:
+       the rail copy must be EMPTY outside the consolidated layout, or the tab layout says it twice. */
+    const rail = await page.evaluate(() => {
+      const html = document.documentElement;
+      const prior = { layout: html.getAttribute('data-layout'), consolidated: document.body.classList.contains('consolidated') };
+      const read = () => {
+        const box = document.getElementById('alist-pj-notice');
+        if (!box) return { missing: true };
+        return { text: (box.textContent || '').trim(), shown: !!box.offsetParent, role: box.getAttribute('role'), live: box.getAttribute('aria-live'),
+          retry: box.querySelectorAll('[data-pn-retry]').length, rows: box.querySelectorAll('[data-pn-retry]').length === document.querySelectorAll('#pj-one-notice [data-pn-retry]').length };
+      };
+      html.setAttribute('data-layout', 'consolidated');
+      document.body.classList.add('consolidated');
+      paintAgentList();
+      const on = read();
+      if (prior.layout === null) html.removeAttribute('data-layout'); else html.setAttribute('data-layout', prior.layout);
+      document.body.classList.toggle('consolidated', prior.consolidated);
+      paintAgentList();
+      const off = read();
+      return { on, off };
+    });
+    if (rail.on.missing || !/instructions for this project/.test(rail.on.text) || !rail.on.shown || rail.on.role !== 'status' || rail.on.live !== 'polite' || !rail.on.retry || !rail.on.rows || rail.off.text) {
+      contrastFails += 1;
+      console.log(`  FAIL  #3948 consolidated layout: expected the project notice, with its Try again, in a shown polite status region above the Agents list, and nothing there in the tab layout (${scheme}), got ${JSON.stringify(rail)}`);
+    }
     for (const e of [...listEls, ...badFolderEls, ...els, ...settingsEls, ...toldEls]) {
       if (e.missing) {
         contrastFails += 1;
