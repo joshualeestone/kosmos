@@ -27244,13 +27244,20 @@ function orgLiveStart(map, placed, cx, cy, size) {
    circle's edge, or passes just beside it (through the narrow gap between two), stops level with that
    circle's outer edge rather than running along it or on to the centre. The hub is an opaque disc drawn over the wires: a wire from it starts at
    its centre. */
+/* A node's face is ORG_FACE_PX square (.onode's width and height); a disc's picture ends at half of it. */
+const ORG_FACE_PX = 44;
+/* orgReach runs for every wire end on every frame of a drag or settle: the layout for each helper count is
+   worked out once. */
+const ORG_LAYOUT_BY_MAX = new Map();
 function orgReach(a, ux, uy) {
-  if (!(typeof SWARMS_ON !== 'undefined' && SWARMS_ON && !!a && Object.prototype.hasOwnProperty.call(a, 'swarm') && !!a.swarm)) return 22;
-  const L = swarmLayout(Math.max(2, Math.min(10, Number(a.swarm.maxHelpers) || 3)));
-  const r = L.r * 44;
+  if (!(typeof SWARMS_ON !== 'undefined' && SWARMS_ON && !!a && Object.prototype.hasOwnProperty.call(a, 'swarm') && !!a.swarm)) return ORG_FACE_PX / 2;
+  const max = Math.max(2, Math.min(10, Number(a.swarm.maxHelpers) || 3));
+  if (!ORG_LAYOUT_BY_MAX.has(max)) ORG_LAYOUT_BY_MAX.set(max, swarmLayout(max));
+  const L = ORG_LAYOUT_BY_MAX.get(max);
+  const r = L.r * ORG_FACE_PX;
   let cut = 0;
   for (const q of L.p) {
-    const cx = (q[0] - 0.5) * 44, cy = (q[1] - 0.5) * 44;
+    const cx = (q[0] - 0.5) * ORG_FACE_PX, cy = (q[1] - 0.5) * ORG_FACE_PX;
     const b = cx * ux + cy * uy, d = Math.sqrt(Math.max(0, cx * cx + cy * cy - b * b));
     if (d <= r - 1.5) cut = Math.max(cut, b + Math.sqrt(r * r - d * d));
     else if (d < 1.2 * r) cut = Math.max(cut, b + r);   // grazing its edge stroke, or passing just beside it

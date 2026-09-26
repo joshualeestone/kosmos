@@ -35,7 +35,14 @@ between its circles, and rests at half strength, so the wire shows through it.
 two-helper swarm at the end, the least round cluster), waits until the branch is drawn (not the flat
 ring every agent starts on), and measures against what is drawn: no visible wire comes within any
 cluster circle or agent disc, and both ends of every branch wire land within 6px of their pictures.
-`render-org-drag.js`'s wire-end arm now expects the wire to end at the node's edge.
+`render-org-drag.js`'s wire-end arm now expects the wire to end at the node's near edge.
+`web.org-wire-ends-4040.test.js` lifts the real `orgReach` / `orgWireEnds` / `swarmLayout` and sweeps
+every helper count (2 to 10) at every whole degree: the wire past its cut crosses no circle's face,
+the cut never runs past the cluster's outline, and touching pictures get no wire.
+
+A ray through a wide gap of a 3 to 5 helper ring stops level with the circles beside it (the cluster's
+outline), rather than showing a wire inside the gap. That is the intent: the card asks for a wire that
+ends at the avatar's edge, and the cluster's outline is that edge.
 
 ## Weakest premise
 
