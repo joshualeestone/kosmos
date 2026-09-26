@@ -253,6 +253,17 @@ test('#4004 answerGeminiQuotaStop: presses the number beside Stop when the quest
     const sent = tmux.calls.filter((a) => a[0] === 'send-keys');
     assert.equal(sent.length, 1);
     assert.equal(sent[0][sent[0].length - 1], '2', 'it did not press the Stop number');
+    // The 3-option question (Switch / Upgrade / Stop): the key pressed is the one beside Stop, 3, never a fixed 2
+    // (which would choose Upgrade). Review round 10.
+    const three = DIALOG.replace('│ ● 1. Keep trying                                 │\n│   2. Stop                                        │',
+      '│ ● 1. Switch to gemini-2.5-flash-lite              │\n│   2. Upgrade for higher limits                   │\n│   3. Stop                                        │');
+    assert.notEqual(three, DIALOG, 'the fixture edit did not apply');
+    status.setPaneCapture(() => three);
+    const t3 = chat.answerGeminiQuotaStop('gemq', board.agents);
+    assert.equal(t3.ok, true, JSON.stringify(t3));
+    const sent3 = tmux.calls.filter((a) => a[0] === 'send-keys');
+    assert.equal(sent3.length, 2);
+    assert.equal(sent3[1][sent3[1].length - 1], '3', 'the key beside Stop was not the one pressed');
     // A WORKING agent whose tool output quotes another pane's question (Stop row and all) is not asking it: the
     // re-read must refuse on the reading itself, not only because no Stop number is on screen.
     const quoted = ['✦ Checking the stuck agent', '│ $ tmux capture-pane -p -t other', DIALOG, '⠏ Thinking (esc to cancel, 3s)', ' *   Type your message or @path/to/file'].join('\n');
@@ -260,19 +271,19 @@ test('#4004 answerGeminiQuotaStop: presses the number beside Stop when the quest
     status.setPaneCapture(() => quoted);
     const q = chat.answerGeminiQuotaStop('gemq', board.agents);
     assert.equal(q.ok, false, 'a key was pressed into a pane only quoting the question');
-    assert.equal(tmux.calls.filter((a) => a[0] === 'send-keys').length, 1, 'a key was pressed into a pane only quoting the question');
+    assert.equal(tmux.calls.filter((a) => a[0] === 'send-keys').length, 2, 'a key was pressed into a pane only quoting the question');
     // The limit line with a stray "2. Stop" row on screen (in the agent's own text, say) is not the question either.
     const stray = AFTER_STOP.replace('                                                   ? for shortcuts', '  2. Stop\n                                                   ? for shortcuts');
     assert.notEqual(stray, AFTER_STOP, 'the fixture edit did not apply');
     assert.equal(status.geminiStopKey(stray), '2', 'CONTROL: the stray row does carry a Stop number');
     status.setPaneCapture(() => stray);
     assert.equal(chat.answerGeminiQuotaStop('gemq', board.agents).ok, false, 'a key was pressed with only the limit line up');
-    assert.equal(tmux.calls.filter((a) => a[0] === 'send-keys').length, 1, 'a key was pressed with only the limit line up');
+    assert.equal(tmux.calls.filter((a) => a[0] === 'send-keys').length, 2, 'a key was pressed with only the limit line up');
     // The screen changed (the question was answered, or never there): nothing is pressed.
     status.setPaneCapture(() => AFTER_STOP);
     const none = chat.answerGeminiQuotaStop('gemq', board.agents);
     assert.equal(none.ok, false);
-    assert.equal(tmux.calls.filter((a) => a[0] === 'send-keys').length, 1, 'a key was pressed with no question on screen');
+    assert.equal(tmux.calls.filter((a) => a[0] === 'send-keys').length, 2, 'a key was pressed with no question on screen');
   } finally {
     status.setPaneCapture(null);
     chat.setRunner(null);

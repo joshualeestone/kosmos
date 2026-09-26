@@ -1566,7 +1566,7 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
    While it waits, its quota question is on screen ("Usage limit reached for <model>." over numbered options that
    end in "Stop"), and it waits there forever. After Stop, it is back at its prompt under
    "✕ [API Error: You have exhausted your daily quota on this model.]". Rows may carry the dialog's box border (│),
-   stripped before matching. Both rules are anchored to Gemini's own shapes, because an agent can have these words
+   stripped before matching the question (the error line is matched on the raw row, round 9). Both rules are anchored to Gemini's own shapes, because an agent can have these words
    on screen in its tool output (a grep, another pane's capture) while it is working. */
 const GEMINI_QUOTA_DIALOG = /^Usage limit reached for\b/i;
 const GEMINI_QUOTA_OPTION = /^(?:[●○>]\s*)?\d+\.\s+\S.*$/;
