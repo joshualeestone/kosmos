@@ -912,6 +912,8 @@ function describe(project, roster, all) {
       // to read its model or its transcript: whatever that pane is doing, we
       // have not established it is this agent doing it.
       state: (card && card.isNamedOurs) ? card.state : 'unknown',
+      /* #4006: its needs_you is a restart that did not come back, not a question (the thread must not claim one). */
+      restartFailed: Boolean(card && card.isNamedOurs && card.disruption && card.disruption.failed === true),
       /* #763/#2837: the project the member's state is about, when it said -- a
          needs_you question (#763) or a working state (#2837). */
       stateProject: (card && card.isNamedOurs && typeof card.stateProject === 'string' && card.stateProject && (knownIds === null || knownIds.has(card.stateProject))) ? card.stateProject : null,
@@ -2665,6 +2667,10 @@ function blockBody(projects, sessionName) {
       'The indented lines are tasks written down for you. When you take one up,',
       'report it as "task <number> of <project>": the number alone is ambiguous',
       'when you are on two projects.',
+      /* #3951: the only way a task reaches the Tasks page's "Built but waiting" tile. Taught here, beside the tasks
+         it applies to, and re-spliced on every membership change so existing agents learn it too. */
+      `When you have built one and it is waiting to be released or checked, mark it:`,
+      `\`${cliShown} task built <project-id> <task-number> "what is left"\`. Closing the task clears the mark.`,
     ] : []),
   ].join('\n');
 }

@@ -183,3 +183,95 @@ test('snapshot does NOT self-heal on an UNKNOWN (mid-boot) reading -- the record
 // branch (verified: fleet.stranger(..., {state:'stopped'}) classifies unknown).
 // The gate is therefore belt-and-suspenders, and the unit control above (STOPPED
 // + null record -> STOPPED) already proves the branch fires only on a record.
+
+// ---- #4006: a restart that did NOT come back -------------------------------
+
+test('#4006: a FAILED restart record on a stopped pane reads needs_you and says so; a fresh one still reads restarting', () => {
+  const failed = { cause: 'restart', startedAt: new Date(Date.now() - 1000).toISOString(), failed: true };
+  const out = reconcileReport({ found: false }, STOPPED_SCRAPE, Date.now(), undefined, failed);
+  assert.equal(out.state, STATE.NEEDS_YOU, 'a restart that did not come back is not a quiet stopped or a spinner');
+  assert.match(out.because, /did not come back/);
+  assert.equal(out.disruption.failed, true);
+  // It outranks a stale report from the instance that died (Elon's trailing idle).
+  const stale = reconcileReport({ found: true, state: 'idle', auto: true, at: new Date().toISOString() }, STOPPED_SCRAPE, Date.now(), undefined, failed);
+  assert.equal(stale.state, STATE.NEEDS_YOU, 'the dying instance\'s last idle hid the failure');
+  // CONTROL: the same record not marked failed is the ordinary in-flight restart.
+  assert.equal(reconcileReport({ found: false }, STOPPED_SCRAPE, Date.now(), undefined, freshRec('restart')).state, STATE.RESTARTING);
+});
+
+test('#4006 snapshot: a failed restart keeps its red across ticks and clears once the agent is running again', () => {
+  fleet.install([fleet.agent('elonpane', { state: 'stopped' })]);
+  disruption.begin('elonpane', 'restart');
+  disruption.fail('elonpane', { bootstrap: { ok: true, code: 5 } });
+  let card = status.snapshot().agents.find((a) => a.sessionName === 'elonpane');
+  assert.equal(card.state, STATE.NEEDS_YOU, JSON.stringify(card && { state: card.state, because: card.because }));
+  assert.match(card.because, /did not come back/);
+  card = status.snapshot().agents.find((a) => a.sessionName === 'elonpane');
+  assert.equal(card.state, STATE.NEEDS_YOU, 'the self-heal cleared the failed record on the next tick');
+  assert.equal(disruption.read('elonpane').failed, true);
+  fleet.install([fleet.agent('elonpane', { state: 'working' })]);
+  card = status.snapshot().agents.find((a) => a.sessionName === 'elonpane');
+  assert.equal(card.state, STATE.WORKING);
+  assert.equal(disruption.read('elonpane').found, false, 'the agent is back, and the failed record did not clear');
+});
+
+test('#4006 snapshot: a created agent with NO pane whose restart failed (Josh\'s Elon) reads needs_you, not "not running"', () => {
+  fleet.install([]);
+  status.setCreatedSource(() => ['elongone']);
+  try {
+    let card = status.snapshot().agents.find((a) => a.sessionName === 'elongone');
+    assert.ok(card, 'the created agent is on the board');
+    assert.equal(card.state, STATE.STOPPED, 'CONTROL: with no record it is the plain created-not-running');
+    disruption.begin('elongone', 'restart');
+    card = status.snapshot().agents.find((a) => a.sessionName === 'elongone');
+    assert.equal(card.state, STATE.STOPPED, 'CONTROL: an in-flight (not failed) record does not change a paneless card');
+    disruption.fail('elongone', null);
+    card = status.snapshot().agents.find((a) => a.sessionName === 'elongone');
+    assert.equal(card.state, STATE.NEEDS_YOU, JSON.stringify({ state: card.state, because: card.because }));
+    assert.match(card.because, /did not come back/);
+  } finally {
+    status.setCreatedSource(null);
+    disruption.clear('elongone');
+  }
+});
+
+test('#4006: disruption.fail keeps the cause and start, marks it failed, and keeps the diagnostics on disk', () => {
+  disruption.begin('diagme', 'model');
+  const began = disruption.read('diagme');
+  assert.equal(disruption.fail('diagme', { bootstrap: { ok: false, code: 5, stderr: 'Bootstrap failed: 5: Input/output error' } }).ok, true);
+  const r = disruption.read('diagme');
+  assert.equal(r.failed, true);
+  assert.equal(r.cause, 'model');
+  assert.equal(r.startedAt, began.startedAt);
+  assert.ok(disruption.active('diagme').failed, 'a failed record inside the window must not read as an in-flight restart');
+  const onDisk = JSON.parse(fs.readFileSync(disruption.fileFor('diagme'), 'utf8'));
+  assert.match(onDisk.diagnostics.bootstrap.stderr, /Input\/output error/);
+  disruption.clear('diagme');
+});
+
+test('#4006 snapshot: a failed record clears as soon as the pane runs anything, an UNKNOWN reading included', () => {
+  fleet.install([fleet.agent('backunknown', { state: 'stopped' })]);
+  disruption.begin('backunknown', 'restart');
+  disruption.fail('backunknown', null);
+  assert.equal(status.snapshot().agents.find((a) => a.sessionName === 'backunknown').state, STATE.NEEDS_YOU);
+  fleet.install([fleet.agent('backunknown', { state: 'unknown' })]);
+  const card = status.snapshot().agents.find((a) => a.sessionName === 'backunknown');
+  assert.equal(card.state, STATE.UNKNOWN);
+  assert.equal(disruption.read('backunknown').found, false, 'the failed record should clear once the agent is back (reading unknown with an agent process)');
+});
+
+test('#4006 snapshot: an UNKNOWN reading with NO agent process in the pane keeps the failed record', () => {
+  // A Codex agent's pane that has dropped back to a shell reads unknown (the codex arm cannot read a shell) while
+  // no agent process is running: that is not the agent coming back, so the failure has to stay on file.
+  fleet.install([fleet.agent('notback', { state: 'stopped' })]);
+  disruption.begin('notback', 'restart');
+  disruption.fail('notback', null);
+  assert.equal(status.snapshot().agents.find((a) => a.sessionName === 'notback').state, STATE.NEEDS_YOU);
+  fleet.install([fleet.agent('notback', { state: 'unknown', runner: 'codex', command: '-zsh', screen: '% \n' })]);
+  assert.equal(status.snapshot().agents.find((a) => a.sessionName === 'notback').state, STATE.UNKNOWN);
+  assert.equal(disruption.read('notback').failed, true, 'a pane with no agent process in it wiped the failed record');
+  // CONTROL: the same UNKNOWN reading WITH an agent process in the pane clears it (the agent is back).
+  fleet.install([fleet.agent('notback', { state: 'unknown', runner: 'codex', command: 'codex', screen: '% \n' })]);
+  status.snapshot();
+  assert.equal(disruption.read('notback').found, false, 'CONTROL: an agent process reading unknown did not clear the record');
+});

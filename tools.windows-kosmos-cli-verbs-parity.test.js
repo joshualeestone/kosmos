@@ -150,7 +150,7 @@ test('every shared verb has the same subcommands on both, in both directions', (
 });
 
 test('the parser really reads subcommands (a guard that cannot find any would pass everything)', () => {
-  assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'task')), ['add', 'close', 'list', 'message']);
+  assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'task')), ['add', 'built', 'close', 'list', 'message']);   // built: #3951
   assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'room')), ['reopen']);
   assert.ok(macSubcommands(MAC_CLI, 'feedback').includes('write'));
 });

@@ -246,9 +246,17 @@ case "$_v_major.$_v_minor" in
         exit 1 ;;
     esac
     # Standing at the end of a line, only the next line's first version will do.
+    # Except a RE-CUT of that same .99: a cut that aborted after its step-2 bump leaves main at
+    # 0.x.99, and the retry asks for 0.x.99 again. That is not staying on the line, it is finishing
+    # the same release (2026-09-26: the 0.6.99 re-cut was refused here). This only brings .99 in line
+    # with every other version: nothing in this script refuses V equal to the current version.
+    # ⚠️ Nothing here checks whether V is ALREADY SERVED. What stands in the way of re-cutting a
+    # published version is step 1b's versions-entry stamp window (an entry already on the page carries
+    # its old publish stamp) and the byte compare against a local dist/kosmos-$V-arm64.tar.gz after
+    # step 4b (only on a box that has that file). Neither is a served-version check.
     _p_rest="${_prev#*.}"
     _p_minor="${_p_rest%%.*}"
-    if [ "${_prev##*.}" = "99" ] && [ "$_p_minor" = "$_v_minor" ]; then
+    if [ "${_prev##*.}" = "99" ] && [ "$_p_minor" = "$_v_minor" ] && [ "$V" != "$_prev" ]; then
       echo "0.$_p_minor.99 is the last of the 0.$_p_minor line: the next version is 0.$((_p_minor + 1)).00, not $V."
       echo "(Josh's ruling, 2026-08-28. If that has changed, this guard is in tools/release.sh.)"
       exit 1

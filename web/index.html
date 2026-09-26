@@ -3409,10 +3409,11 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    version of, this was made with Ai"): a status is a round DOT beside its label, and the
    browser check asserts no element here carries a coloured left border.
    The status colours: red (--danger) for Needs Your Decision (#3949), grey for unassigned, gold for
-   assigned but not started, the working green for in progress, a quiet grey for completed -- the
-   app's existing meanings, no new palette. */
+   assigned but not started, the working green for in progress, the mention blue for built but waiting (#3951), a
+   quiet grey for completed -- the app's existing meanings, no new palette. */
 #panel-tasks { --tsk-c: var(--k-ink-2); --tsk-nobody: var(--k-ink-2); --tsk-assigned: var(--gold-deep); --tsk-working: var(--ok);
   --tsk-decision: var(--danger);
+  --tsk-built: var(--pj-mention);
   --tsk-closed: color-mix(in srgb, var(--k-ink-2) 55%, var(--k-rule));
   --tsk-wash: color-mix(in srgb, var(--gold) 14%, var(--k-surface)); color: var(--k-ink); }
 /* #3949: one column, the full width (the Projects rail is gone; its choice is the dropdown). */
@@ -3510,6 +3511,9 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tksub.done .tksub-t { color: var(--k-ink-2); text-decoration: line-through; }
 .tksubs-done { margin: 10px 0 0; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .tsk-row .meta button:hover { text-decoration: underline; text-decoration-color: var(--gold); }
+/* #3951: "Not built yet" on a built row, a quiet text action like the row's other buttons. */
+.tsk-row .tsk-unbuild { border: 0; background: none; padding: 0 0 0 4px; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer; }
+.tsk-row .tsk-unbuild:hover { text-decoration: underline; text-decoration-color: var(--gold); }
 .tsk-row .why { font-size: .8125rem; color: var(--k-ink-2); margin-top: 4px; }
 .tsk-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 120px; }
 .tsk-who { display: inline-flex; align-items: center; gap: 6px; font: 600 .8125rem var(--font-ui); color: var(--k-ink); padding: 2px 9px;
@@ -4369,6 +4373,23 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   html[data-layout="consolidated"] body.consolidated.fold-a { grid-template-columns: 48px minmax(0, 1fr); }
   html[data-layout="consolidated"] body.consolidated.fold-a .railhead#rail-agents { flex-direction: column; margin-left: 0; }
   html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents .railacts { flex-direction: column; }
+  /* #3948: the project notice sits in the Agents rail head (a body child of its own would overrun the 38
+     pre-rail rows), so the head wraps and the notice takes the whole line under the name and the +.
+     Folded, the rail is a 48px strip of letters with no room for a sentence, and a notice squeezed into it
+     reads as noise; it goes with the name. ⚠️ That also silences it while folded, the same as the rows'
+     names are silent there. Unfolding shows it again; it is not re-announced (its text has not changed). */
+  /* ⚠️ row-gap 0: the notice is always a line of its own (flex-basis 100%), even empty, and the head's 6px
+     gap would sit between the lines and make this head 6px taller than the Projects head with nothing to
+     say. Its room comes from its own padding, only while it has content. Unfolded only: folded, the head
+     is a column and that same gap spaces the fold arrow from the +. */
+  html[data-layout="consolidated"] body.consolidated .railhead#rail-agents { flex-wrap: wrap; }
+  html[data-layout="consolidated"] body.consolidated:not(.fold-a) .railhead#rail-agents { row-gap: 0; }
+  /* A wrapping head breaks lines at each item's full width before shrinking any, so the name could no
+     longer squeeze and the + could drop to a line of its own in a 200px rail. A 0 basis on the name's
+     group keeps the name and the + on one line, as before the head wrapped. */
+  html[data-layout="consolidated"] body.consolidated:not(.fold-a) .railhead#rail-agents > .lead { flex: 1 1 0; }
+  html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn { flex: 0 0 100%; min-width: 0; }
+  html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents > .alist-pjn { display: none; }
   /* #980: SCOPED to the agents rail -- unscoped, folding agents also hid
      the PROJECTS label two columns over (Josh's "they jump around all over
      the place" family: a fold on one rail visibly rearranging the other). */
@@ -6952,6 +6973,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    the person must do. No bar down the left (Josh has ruled those out). #pj-one-notice is the live
    region and stays in the page, empty and unstyled, so a notice written into it is announced the
    first time too; the visible box is the .pnotice drawn inside it. */
+/* #3948: the rail's copy of the project notice (consolidated layout). Room above it only while it has
+   something to say; the region itself is never hidden (a live region must stay in the tree to be heard).
+   Its place in the rail head is set with the consolidated rules (the head wraps, the notice takes a line). */
+.alist-pjn:not(:empty) { padding: 6px 0 2px; }
 .pnotice { display: flex; gap: 10px; align-items: flex-start; padding: 13px 15px; border-radius: 10px;
   background: var(--k-sunk, rgba(20,22,26,.05)); border: 1px solid var(--k-rule); margin: 0 0 12px; }
 .pn-b { flex: 1 1 auto; min-width: 0; }
@@ -10284,8 +10309,8 @@ window.kosmosMeasureScrollbarWidth();
        to save there). Rows use the project documents look; a click opens the file. Painted by
        paintAgentFiles on open and on the 5-second poll while this page is on screen. -->
   <!-- #3757 (Josh, 0.6.94): the section is not shown at all while the agent has no files, and it
-       reads like the project page's: "Files", a short list, and View All on the right only when
-       there are more than the list shows. View All opens the Files screen (#d-sec-files), which is
+       reads like the project page's: "Files", a short list, and View All on the right (#3994: with any
+       file, even one; it used to need more than the list shows). View All opens the Files screen (#d-sec-files), which is
        where Open in Finder now lives ("it looks crowded and junky" here). -->
   <!-- #3994 (Josh, 2026-09-26): "lets put the files for an agent inside a white container just like we do
        on projects". It wears the project Files panel's own class, .pjcard, so the two cannot drift: the
@@ -11539,6 +11564,7 @@ window.kosmosMeasureScrollbarWidth();
                aria-label="API key" placeholder="API key">
         <button class="linkish" id="acct-apikey-show" type="button" aria-pressed="false">Show</button>
       </div>
+      <p class="acct-help" style="margin:8px 0 0;"><a class="btn-quiet" id="acct-apikey-getkey" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></p>
       <div class="frow" style="margin-top:8px;">
         <input type="text" id="acct-apikey-name" autocomplete="off" maxlength="40"
                aria-label="A name for this account (optional)" placeholder="A name, if you want one">
@@ -11627,6 +11653,7 @@ window.kosmosMeasureScrollbarWidth();
                  aria-label="Anthropic API key" placeholder="sk-ant-…">
           <button class="linkish" id="acct-claude-show" type="button" aria-pressed="false">Show</button>
         </div>
+        <p class="acct-help" style="margin:8px 0 0;"><a class="btn-quiet" id="acct-claude-getkey" data-keypage="claude" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></p>
         <!-- Add has its own row under both fields (kosmos#978), where it reads as the
              action for the FORM rather than for whichever input it is touching. -->
         <div class="frow" style="margin-top:8px;">
@@ -11724,6 +11751,7 @@ window.kosmosMeasureScrollbarWidth();
                aria-label="OpenAI API key" placeholder="sk-…">
         <button class="linkish" id="acct-openai-show" type="button" aria-pressed="false">Show</button>
       </div>
+      <p class="acct-help" style="margin:8px 0 0;"><a class="btn-quiet" id="acct-openai-getkey" data-keypage="openai" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></p>
       <!-- 🛑 ADD IS NOT ON THE NAME'S ROW ANY MORE (kosmos#978). Josh read this
            form as "Add a name" rather than "activate this key", and the layout
            told him so: the rows were [key][Show] then [name][Add], so the only
@@ -12535,7 +12563,7 @@ window.kosmosMeasureScrollbarWidth();
                 </div>
                 <div id="fr-openai-flow" hidden class="fr-confirm">
                   <p class="fr-confirm-t" id="fr-openai-key-t">Download complete. You will need an OpenAI API key to finish. A key is a bit like a password that OpenAI issues for this computer. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
-                  <div class="frow"><a class="btn" id="fr-openai-getkey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key</a></div>
+                  <div class="frow"><a class="btn" id="fr-openai-getkey" data-keypage="openai" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></div>
                   <!-- 🛑 NO PROMISE ABOUT THE KEY ON THIS SCREEN. Josh, 2026-08-27:
                        "We don't need this line at all for the openAI."
                        ⭐ HE REMOVED THE CLAIM RATHER THAN WORDING IT. Ice Cream Kitty
@@ -12613,7 +12641,7 @@ window.kosmosMeasureScrollbarWidth();
                 </div>
                 <div id="fr-gemini-flow" hidden class="fr-confirm">
                   <p class="fr-confirm-t" id="fr-gemini-key-t">Download complete. You will need a Google API key to finish. A key is a bit like a password that Google issues for this computer. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
-                  <div class="frow"><a class="btn" id="fr-gemini-getkey" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Get a key</a></div>
+                  <div class="frow"><a class="btn" id="fr-gemini-getkey" data-keypage="google" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></div>
                   <p class="fr-confirm-t" id="fr-gemini-key-back" style="margin-top:8px;">Then come back and paste it here.</p>
                   <div class="frow">
                     <input type="password" id="fr-gemini-key" autocomplete="new-password" spellcheck="false"
@@ -12661,7 +12689,7 @@ window.kosmosMeasureScrollbarWidth();
                 </div>
                 <div id="fr-grok-flow" hidden class="fr-confirm">
                   <p class="fr-confirm-t" id="fr-grok-key-t">Download complete. You will need an xAI API key to finish. A key is a bit like a password that xAI issues for this computer. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
-                  <div class="frow"><a class="btn" id="fr-grok-getkey" href="https://console.x.ai/" target="_blank" rel="noopener">Get a key</a></div>
+                  <div class="frow"><a class="btn" id="fr-grok-getkey" data-keypage="xai" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></div>
                   <p class="fr-confirm-t" id="fr-grok-key-back" style="margin-top:8px;">Then come back and paste it here.</p>
                   <div class="frow">
                     <input type="password" id="fr-grok-key" autocomplete="new-password" spellcheck="false"
@@ -14716,9 +14744,10 @@ window.kosmosMeasureScrollbarWidth();
 <!-- #3559 (Josh, 2026-09-24): Tasks is a top-level view beside Agents and Projects, every
      task across every project. Mona's mock (chaoskosmos-site tasks-view-3559 248c953, the dot
      revision) plus Josh's search box. Groups are WHERE THE WORK IS, derived by the engine
-     (tasks.taskState) and only those it can prove (since #3949: Needs Your Decision, In progress,
-     Assigned but not started, Unassigned, Completed). Built-but-waiting and categories need
-     evidence no task stores yet (#3951), so they are not drawn at all rather than guessed. No
+     (tasks.taskState) and only those it can prove (Josh's six since #3951: Needs Your Decision, In
+     progress, Assigned but not started, Unassigned, Built but waiting, Completed). Built but waiting
+     is a task's own builtAt (kosmos task built); categories need evidence no task stores yet, so they
+     are not drawn at all rather than guessed. No
      coloured left bars anywhere (Josh, 12:52): the status mark is a round dot beside the label. -->
 <!-- #3949 (Josh, 2026-09-26): no left Projects column; the body takes the full width. Projects is a
      dropdown on one line with Created:, the search is about half as wide with the open-task count to its
@@ -16314,6 +16343,15 @@ window.kosmosMeasureScrollbarWidth();
   <span class="railacts">
     <button class="fold plus" type="button" id="rail-agents-new" aria-label="New agent" title="New agent">+</button>
   </span>
+  <!-- #3948: the consolidated layout hides the Members card (#3218), so #3923's project notice lives here too,
+       at the foot of the Agents rail head, straight above the list whose top group IS the open project's
+       members. Inside the head rather than a body child of its own because the consolidated grid's 38
+       pre-rail rows are full (web.consolidated-980.test.js), and inside the head it shares the head's row.
+       Painted by paintRailPjNotice only while a project is open in the consolidated layout, so one notice
+       speaks at a time. Never hidden itself: only its content comes and goes, so a screen reader hears it
+       arrive (the same rule as #pj-one-notice). -->
+  <div id="alist-pj-notice" class="alist-pjn" role="status" aria-live="polite"></div>
+  <div id="alist-pj-notice-said" class="vh" role="status" aria-live="polite"></div>
 </div>
 <div class="alist" id="alist" hidden></div>
 <!-- #520, piece three: the person, bottom left of the agents rail, in the
@@ -17037,7 +17075,10 @@ const PRESSAY = {
 /* #3410 (Mona Lisa's look): a lost connection Kosmos has given up on needs the person, so it wears
    needs_you's card, not the quiet paused one it keeps while Kosmos is still reconnecting.
    Kept on ONE line: web.needsyou-dealarm-2808.test.js and server.test.js slice it to the newline. */
-function cardStOf(a) { if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
+/* #4006: a restart that did not come back is red (st attn) but NOT online: nothing is running, so the presence is
+   off, which also keeps "Start this agent" offered (refreshStartAffordance shows it for presence off). */
+const CARD_ST_FAILED_RESTART = Object.freeze({ st: 'attn', pres: 'off' });
+function cardStOf(a) { if (a && a.state === 'needs_you' && a.disruption && a.disruption.failed === true) return CARD_ST_FAILED_RESTART; if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
 /* #2019: the state's word. For every state but 'restarting' it is the static
    STATE_COPY entry. For 'restarting' the word names the CAUSE (present-continuous,
    no blame), so the person knows WHY their agent went quiet, and it is computed
@@ -17185,6 +17226,11 @@ function stateReason(a, opts) {
      "This is not the same as having none": it pre-empts the fear the state exists
      to answer. Placed FIRST so it is not swallowed by the rate_limited guard
      below, which returns '' for every other state. */
+  /* #4006: a restart that did not come back (the engine's needs_you with disruption.failed). The card
+     says so and what to do, instead of a bare "Issue": Josh's Grok agent sat dead 23 minutes behind one. */
+  if (a && a.state === 'needs_you' && a.disruption && a.disruption.failed === true && a.because) {
+    return a.because + '.';   // the engine's one sentence (status.js), not a second copy of it
+  }
   if (a && a.state === 'restarting') {
     /* #2019 timedOut: an OVERRUN restart must not still promise "a few seconds"
        -- the label already says "not back yet", and a card that says both reads
@@ -17815,7 +17861,8 @@ function answerBtn(a) {
      forces untied panes to unknown today; the gate is for the day that
      changes). The accessible name CONTAINS the visible word "Answer"
      verbatim (SC 2.5.3). */
-  return a.state === 'needs_you' && a.isNamedOurs
+  /* #4006: a restart that did not come back has no question to answer. */
+  return a.state === 'needs_you' && a.isNamedOurs && !(a.disruption && a.disruption.failed === true)
     ? `<button class="ansgo" type="button" data-answer="${esc(a.sessionName)}"`
       + ` data-answer-name="${esc(a.name)}"`
       + ` aria-label="Answer ${esc(a.name)}'s question"><u>Answer &rarr;</u></button>`
@@ -19572,6 +19619,19 @@ function openAddMemberModal() {
   if (sel) sel.focus();
 }
 
+/* #3948: the Agents rail's copy of the project notice, for the consolidated layout (which hides the
+   Members card and its #pj-one-notice). Called by paintAgentList (every poll and on opening a project),
+   by loadProjects (a project read), and by showTab (a layout switch, including the resize re-check), so leaving the consolidated layout
+   empties it at once rather than at the next poll. Same roster as paintOneProject, so pjNotice's pruning
+   of the retry marks agrees between the two. */
+function paintRailPjNotice() {
+  const rn = document.getElementById('alist-pj-notice');
+  if (!rn) return;
+  const op = (document.body.classList.contains('consolidated') && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
+  setIfChanged(rn, op ? pjNotice(op.agents || [], op.id) : '');
+  const rs = document.getElementById('alist-pj-notice-said');
+  if (rs && rs.dataset.pj && (!op || rs.dataset.pj !== String(op.id))) { rs.textContent = ''; rs.dataset.pj = ''; }
+}
 /* #3218/#3387: paint the single Agents list (#alist) from the last board sample (LAST). Called by
    tick() every poll AND by pjMarkOpen() the instant a project opens or closes, so the grouping tracks
    PJ_CURRENT without a ~5s lag. In the CONSOLIDATED view with a project open, that project's agents
@@ -19587,6 +19647,11 @@ function paintAgentList() {
   const lim = new URLSearchParams(location.search).get('limit');
   const src = (LAST || []).filter((a) => !(a && a.isGuide === true));
   const shown = lim ? src.slice(0, Number(lim)) : src;
+  /* #3948: the project notice (#3923) in the consolidated layout, where the Members card is hidden: the
+     same pjNotice from the same roster (p.agents) the tab layout paints, above this list; empty when no
+     project is open or in the tab layout (its own notice speaks there). Before the empty-board return, so
+     leaving the project always clears it. */
+  paintRailPjNotice();
   if (!shown.length) { setAgentsGrouped(false); alist.innerHTML = boardEmpty(); return; }
   const openProj = (layoutConsolidated() && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
   const inProj = (openProj && Array.isArray(openProj.agents))
@@ -20062,6 +20127,13 @@ async function tick() {
        and the cards, which is where a stopped agent is read. */
     document.getElementById('st-attn').textContent = String(c.needsYou || 0);
     document.getElementById('st-attn-tile').hidden = !c.needsYou;
+    /* #3996: in the Mac app, hand the board's waiting count to the Dock badge on every poll, so the
+       app need not ask the board itself while this page is polling. Nothing outside the Mac app. */
+    try {
+      const h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosBadge;
+      // null when this board has no count (older than #3996): the app clears the badge, and does not poll.
+      if (h) h.postMessage(typeof c.waiting === 'number' ? c.waiting : null);
+    } catch { /* not in the Mac app, or no window (a test): nothing to tell */ }
     /* #3423: if the Issue filter is on and there is nothing left to filter, exit it
        (same auto-exit the Messages filter does at dmTotal <= 0). */
     if (!c.needsYou && document.body && boardFilterActive() === 'attn') setBoardFilter(null);
@@ -20520,6 +20592,8 @@ function showTab(tab) {
   document.getElementById('rail-agents').hidden = !cons;
   document.getElementById('rail-projects').hidden = !cons;
   document.getElementById('rail-me').hidden = !cons;
+  // #3948: the rail's project notice follows the layout now, not at the next poll.
+  if (typeof paintRailPjNotice === 'function') paintRailPjNotice();
   if (cons) {
     paintRailMe();
   }
@@ -24712,6 +24786,30 @@ document.getElementById('acct-openai-go').addEventListener('click', async () => 
     go.disabled = false;
   }
 });
+/* #3960 (Josh, 2026-09-26: "put a link to that if people select a Gemini key so they know where
+   to go to generate one"): where each provider issues API keys. ONE table, read by every "Get a key"
+   link (Settings and first run), so a moved page is one edit. Checked live 2026-09-26: Google's
+   sends a signed-out visitor through sign-in and back; Anthropic's old console address now forwards
+   to platform.claude.com, so the final address is used; OpenAI's and xAI's sit behind a bot check
+   and are the addresses their own docs give. */
+const KEY_PAGES = {
+  google: 'https://aistudio.google.com/apikey',
+  xai: 'https://console.x.ai/team/default/api-keys',
+  openai: 'https://platform.openai.com/api-keys',
+  claude: 'https://platform.claude.com/settings/keys',
+};
+/* Who issues each key, for the link's screen-reader text ("opens Google's key page"). */
+const KEY_PAGE_WHO = { google: 'Google', xai: 'xAI', openai: 'OpenAI', claude: 'Anthropic' };
+/** Point one "Get a key" link at a provider's key page, or hide it for a provider with none. */
+function keyPageLink(el, provider) {
+  if (!el) return;
+  const url = KEY_PAGES[provider] || '';
+  el.hidden = !url;
+  el.setAttribute('href', url || '#');
+  const said = el.querySelector && el.querySelector('.vh');
+  if (said) said.textContent = url ? ' (opens ' + KEY_PAGE_WHO[provider] + '\u2019s key page in your browser)' : ' (opens the key page in your browser)';
+}
+document.querySelectorAll('[data-keypage]').forEach((el) => keyPageLink(el, el.dataset.keypage));
 /* #2338: the picker's two choices. */
 /* #3566: Gemini and Grok, connected with a pasted API key. ONE step for both, keyed on
    the picked option, because the two engine routes are one helper parameterised by
@@ -24787,6 +24885,7 @@ function acctApikeyShow(which) {
     const m = document.getElementById('acct-apikey-msg'); if (m) m.textContent = '';
   }
   ACCT_APIKEY_WHICH = p ? which : null;
+  keyPageLink(document.getElementById('acct-apikey-getkey'), ACCT_APIKEY_WHICH);   // #3960
   acctKeyedInstallHide();
   /* #3731 (card item 5): never a key box, or Grok's choice, before the software is known to be
      here. Both stay hidden until /api/runners answers; an answer that does not say "present"
@@ -29868,8 +29967,9 @@ function fitDetailName() {
    not made yet is the empty state. The stamp skips a repaint when nothing changed, and the epoch
    and agent re-check stop a late answer painting one agent's files under another's name.
    #3757 (Josh, 0.6.94): an agent with no files shows no Files section at all ("let's not show
-   this section"); with files, the list is the first AGENT_FILES_SHOWN and View All appears only
-   when there are more ("a View All if we exceeded the number that we display"). A folder of its
+   this section"); with files, the list is the first AGENT_FILES_SHOWN. View All appeared only when
+   there were more; #3994 (Josh, 2026-09-26) shows it with any file, even one ("even if there is
+   only one file so that you can easily get to the open finder button"). A folder of its
    own that is missing, or none at all (404), is no files too. A read that FAILED is not "no
    files", so it keeps the section and says so. */
 const AGENT_FILES_SHOWN = 10;   // as many as the project page's Files list shows
@@ -29941,7 +30041,9 @@ async function paintAgentFiles(sessionName) {
   }
   msg.textContent = '';
   for (const f of files) list.append(agentFileRow(f));
-  if (all) all.hidden = !(Number(body.total) > files.length);
+  // #3994 (Josh, 11:18 and again 16:14 on 0.6.99): View All whenever there is a file, even one,
+  // because it is the way to the Files screen and its Open in Finder button.
+  if (all) all.hidden = false;
 }
 /* #3757: the Files screen, reached from View All: every file (up to the route's own cap), with
    Open in Finder, which moved here from the sidebar. */
@@ -36838,6 +36940,30 @@ function askClock(unix) {
   return unix ? new Date(unix * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
 }
 function askEsc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+/* #3978: the rows are written only when their shape changes (setLive), so a poll that changes nothing
+   leaves the Allow / Deny buttons, and keyboard focus on them, in place; they were rebuilt every 5
+   seconds. The one thing that does change on its own, how long ago, is a span carrying its time, filled
+   here in place. aria-live="off" on the span is meant to make it its own, silent region, so the minute
+   tick is not announced while a new or changed request still is. ⚠️ Not measured with a screen reader:
+   where one reads the card's region instead (role=status is atomic), the whole card is read once a
+   minute, which is still far quieter than the old rewrite every 5 seconds. */
+function askAgoSpan(unix) { return '<span data-ask-ago="' + (Number(unix) || 0) + '" aria-live="off"></span>'; }
+function askWrite(el, html) {
+  if (!el) return;
+  /* A real change still rewrites the rows (a request crossing the hour fades, an answer lands): the
+     button that had focus is found again by what it does and for whom, and focus goes back to it. */
+  const a = document.activeElement;
+  const had = a && el.contains(a) && a.dataset ? { ask: a.dataset.ask || '', id: a.dataset.id || '' } : null;
+  setLive(el, html);
+  if (had && !el.contains(document.activeElement)) {
+    const back = Array.from(el.querySelectorAll('[data-ask]')).find((b) => b.dataset.ask === had.ask && (b.dataset.id || '') === had.id);
+    if (back) back.focus();
+  }
+  for (const s of el.querySelectorAll('[data-ask-ago]')) {
+    const t = askAgo(Number(s.dataset.askAgo) || 0);
+    if (s.textContent !== t) s.textContent = t;
+  }
+}
 function askLive() { return ASK.devices.filter((d) => !ASK.done[d.device_id]); }
 async function pollAsk() {
   let r = null;
@@ -36881,13 +37007,12 @@ function paintAsk() {
   const title = document.getElementById('ask-title');
   const lead = document.getElementById('ask-lead');
   if (!onPlus) {
-    document.getElementById('ask-rows').innerHTML = '';
-    if (hide) return;
+    if (hide) { askWrite(document.getElementById('ask-rows'), ''); return; }
     title.textContent = '';
     lead.hidden = true;
     const n = live.length;
-    document.getElementById('ask-rows').innerHTML = '<div class="asknote"><span>' + (n === 1 ? askEsc(askKind(live[0])) + ' is asking to use this Kosmos.' : n + ' devices are asking to use this Kosmos.') +
-      '</span><button class="btn uprime" type="button" data-ask="open">Review</button></div>';
+    askWrite(document.getElementById('ask-rows'), '<div class="asknote"><span>' + (n === 1 ? askEsc(askKind(live[0])) + ' is asking to use this Kosmos.' : n + ' devices are asking to use this Kosmos.') +
+      '</span><button class="btn uprime" type="button" data-ask="open">Review</button></div>');
     return;
   }
   if (!anything) return;
@@ -36913,10 +37038,10 @@ function paintAsk() {
        how long ago, the code LARGE (it is what the person checks against the device in their hand), one
        sentence, Allow / Deny. A request older than an hour is faded. No paragraphs, no "Not now". */
     const stale = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
-    const again = d.denied_at ? ' You said no to this ' + askEsc(kind) + ' ' + askAgo(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
+    const again = d.denied_at ? ' You said no to this ' + askEsc(kind) + ' ' + askAgoSpan(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
     const say = d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
     return '<div class="askreq' + (stale ? ' stale' : '') + '"><div class="askdev">' + askIcon(kind) + '</div>' +
-      '<div class="askwho"><b>' + askEsc(kind) + '</b><span>' + askEsc(askAgo(d.first_seen)) + '</span></div>' +
+      '<div class="askwho"><b>' + askEsc(kind) + '</b>' + askAgoSpan(d.first_seen) + '</div>' +
       (d.code ? '<div class="askcode"><span class="vh">code </span>' + askEsc(d.code) + '</div>' : '') +
       '<p class="asksay">' + say + again + (e && e.state === 'error' ? ' ' + askEsc(e.because) : '') + '</p>' +
       '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + askEsc(kind) + (d.code ? ', code ' + askEsc(d.code) : '') + '">Allow</button>' +
@@ -36924,9 +37049,8 @@ function paintAsk() {
   };
   for (const d of rows) { seen.add(d.device_id); out.push(render(d, ASK.done[d.device_id])); }
   for (const id of doneIds) { if (!seen.has(id)) out.push(render(ASK.done[id].device, ASK.done[id])); }
-  document.getElementById(inPanel ? 'plus-ask-rows' : 'ask-rows').innerHTML = out.join('');
-  if (inPanel) document.getElementById('ask-rows').innerHTML = '';
-  else document.getElementById('plus-ask-rows').innerHTML = '';
+  askWrite(document.getElementById(inPanel ? 'plus-ask-rows' : 'ask-rows'), out.join(''));
+  askWrite(document.getElementById(inPanel ? 'ask-rows' : 'plus-ask-rows'), '');
 }
 async function askAct(act, id) {
   const d = ASK.devices.find((x) => x.device_id === id) || (ASK.done[id] && ASK.done[id].device);
@@ -36945,6 +37069,9 @@ async function askAct(act, id) {
     const said = res ? await res.json().catch(() => null) : null;
     ASK.done[id] = { state: 'error', at: Date.now(), device: d, because: plusWords((said && said.error) || 'We could not save that. Try again.') };
   }
+  /* #3978: a retry that fails with the same words would be an identical write, which setLive skips: no
+     announcement and no sign the press did anything. Forget the last write so the answer is said again. */
+  for (const rid of ['ask-rows', 'plus-ask-rows']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
   paintAsk();
   paintDevices();
 }
@@ -45679,6 +45806,8 @@ async function loadProjects() {
   }
   paintProjects();
   if (PJ_CURRENT) paintOneProject();
+  // #3948: the rail's copy of the project notice follows this read too, not the next agents poll.
+  paintRailPjNotice();
   /* ⚠️ THE THIRD OPEN SURFACE. paintOneProject repaints the project view;
      the task page is a separate view off the same record and would otherwise
      hold whatever it was painted with when it opened -- including a "Mark as
@@ -45977,11 +46106,11 @@ document.getElementById('pj-alltasks').addEventListener('click', () => openProje
    Every task on every project, grouped by WHERE THE WORK IS. The engine derives each task's
    `state` (tasks.taskState, from the same claim the project card shows); this code renders it
    and never computes it. Only the groups the engine can prove exist here (#3949 added Needs Your
-   Decision, from the roster); built-but-waiting and categories wait for evidence no task stores yet
-   (#3951, and Mona's weakest-premise note on #3559), so they are not drawn at all rather than guessed. */
+   Decision, from the roster; #3951 Built but waiting, from a task's builtAt); categories wait for evidence no
+   task stores yet (Mona's weakest-premise note on #3559), so they are not drawn at all rather than guessed. */
 /* #3949 (Josh, 2026-09-26): one label per group, no byline, in his order. Needs Your Decision is red, the
    only group the person acts on; the engine's `decision` state (tasks.waitingOnPerson) fills it. "Built but
-   waiting" is not drawn: no task stores it yet (#3951). */
+   waiting" is the engine's `built` state (#3951: tasks.setBuilt, from `kosmos task built`). */
 const TSK_GROUPS = [
   { k: 'decision', l: 'Needs Your Decision', c: 'var(--tsk-decision)',
     /* Not "your go-ahead" (review round 11): a trust wait never reaches the tasks route's roster today (the
@@ -45993,6 +46122,10 @@ const TSK_GROUPS = [
     why: 'An agent has these, and what it reports does not name them yet. Old ones here are worth a nudge.' },
   { k: 'nobody', l: 'Unassigned', c: 'var(--tsk-nobody)',
     why: 'Open and unassigned. Give these to an agent, or close the ones that no longer matter.' },
+  /* #3951: the fifth of Josh's six tiles. An agent marked the task built (`kosmos task built`); the person closes it once it is
+     live, which clears the mark. */
+  { k: 'built', l: 'Built but waiting', c: 'var(--tsk-built)',
+    why: 'An agent marked these built. They are waiting to be released or checked; close each one once it is live.' },
   { k: 'closed', l: 'Completed', c: 'var(--tsk-closed)', why: 'Finished and closed.' },
 ];
 const TSK_WINDOWS = [['24h', 1], ['48h', 2], ['1 week', 7], ['1 month', 30], ['All', 0]];
@@ -46176,6 +46309,16 @@ function tskRow(t, at) {
     : notReported && t.claim.about
       ? '<div class="why">' + esc(tskAgentName(t.claim.about)) + ' ' + notReported + '.</div>'
       : t.claim.because ? '<div class="why">We cannot tell whether it started: ' + esc(t.claim.because) + '.</div>' : '';
+  /* #3951: a built row says who marked it and what is left, the agent's own words. */
+  /* On any marked open task, not only in the Built group (review round 5: a built task whose agent needs the person
+     sits under Needs Your Decision, and still says who marked it and offers the undo). */
+  const builtLine = !t.builtAt || t.state === 'closed' ? ''
+    : '<div class="why">Marked built' + (t.builtByPerson ? ' by you' : t.builtBy ? ' by ' + esc(tskAgentName(t.builtBy)) : '')
+      /* An empty ago (a time ahead of this device's clock) leaves no stray space before the colon (review round 11). */
+      + (t.builtAt && agoWords(Date.now() - Date.parse(t.builtAt)) ? ' ' + esc(agoWords(Date.now() - Date.parse(t.builtAt))) : '')
+      + (t.builtNote ? ': ' + esc(t.builtNote) : '')
+      /* Review round 1: the person can take a mistaken mark off without closing the task. */
+      + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(t.projectName) + ' not built yet">Not built yet</button></div>';
   return '<div class="tsk-row' + (on ? ' sel' : '') + (place.depth ? ' d' + place.depth : '') + '" data-key="' + esc(tskKey(t)) + '">'
     + '<input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
     /* The row no longer repeats its state in a status group (the heading says it), so there the
@@ -46190,7 +46333,7 @@ function tskRow(t, at) {
     + (moved && moved !== added ? '<span>last activity ' + esc(moved) + '</span>' : '')
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + chip + allDone
-    + '</div>' + cannot + '</div>'
+    + '</div>' + cannot + builtLine + '</div>'
     + '<div class="tsk-side">' + whoHtml
     /* Said once per row (Mona): inside a status group the heading already names the state, so the
        row's state line shows only when grouping by project, where it is information. */
@@ -46444,6 +46587,33 @@ async function tskCloseParent(key) {
   msg.focus();
   tskLoad();
 }
+/* #3951 (review round 1): take the built mark off one task, from the screen. The task stays open. */
+async function tskUnbuild(key) {
+  if (TSK.busy) return;
+  const said = document.getElementById('tsk-msg');
+  const i = key.lastIndexOf('#');
+  const projectId = key.slice(0, i);
+  const number = Number(key.slice(i + 1));
+  TSK.busy = true;
+  try {
+    const r = await fetch('/api/project/' + encodeURIComponent(projectId) + '/task/' + number + '/built', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clear: true }),
+    });
+    const body = await r.json().catch(() => ({}));
+    /* Only "stays open" when it does: the task may have been closed since the row was drawn (review round 2). */
+    said.textContent = r.ok && body.task
+      ? (body.changed === false ? 'Task ' + number + ' was not marked built.'
+        : 'Task ' + number + ' is no longer marked built.' + (body.task.closedAt ? '' : ' It stays open.'))
+      : asSentence(body.error || 'the mark was not taken off');
+  } catch {
+    said.textContent = 'We could not reach Kosmos, so the mark is still there.';
+  } finally {
+    TSK.busy = false;
+  }
+  said.tabIndex = -1;
+  said.focus();
+  tskLoad();
+}
 async function tskBulkClose() {
   if (TSK.busy || !TSK.sel.size) return;
   const msg = document.getElementById('tsk-msg');
@@ -46492,7 +46662,7 @@ async function tskBulkClose() {
    same control: an agent's button repeats on every row it holds, and a row and its checkbox share a
    key. The dropdowns (#3949: project, Created:, Group by, Sort) keep their own focus, since a repaint
    replaces only their options. */
-const TSK_FOCUS_KEYS = ['data-fold', 'data-close-parent', 'data-open-task', 'data-open-project', 'data-agent', 'data-tile', 'data-proj', 'data-key'];
+const TSK_FOCUS_KEYS = ['data-fold', 'data-close-parent', 'data-unbuild', 'data-open-task', 'data-open-project', 'data-agent', 'data-tile', 'data-proj', 'data-key'];
 function tskFocusMark(el) {
   const panel = document.getElementById('panel-tasks');
   if (!el || !panel || !panel.contains(el)) return null;
@@ -46531,6 +46701,7 @@ document.getElementById('panel-tasks').addEventListener('click', (e) => {
   if ((b = el('[data-tile]'))) { TSK.tile = TSK.tile === b.dataset.tile ? null : b.dataset.tile; tskPaintKeepingFocus(b); return; }
   if ((b = el('[data-fold]'))) { const k = b.dataset.fold; if (TSK.fold.has(k)) TSK.fold.delete(k); else TSK.fold.add(k); tskPaintKeepingFocus(b); return; }
   if ((b = el('[data-close-parent]'))) { tskCloseParent(b.dataset.closeParent); return; }
+  if ((b = el('[data-unbuild]'))) { tskUnbuild(b.dataset.unbuild); return; }
   if ((b = el('[data-open-task]'))) { tskOpenTask(b.dataset.openTask); return; }
   if ((b = el('[data-open-project]'))) { tskOpenProject(b.dataset.openProject); return; }
   if ((b = el('[data-agent]'))) { openDetail(b.dataset.agent); return; }
@@ -46655,7 +46826,11 @@ function paintTaskPage() {
 
   document.getElementById('tk-project').textContent = p.name;
   document.getElementById('tk-added').textContent = tkAdded(t);
-  document.getElementById('tk-state').textContent = tkStateWord(t);
+  /* #3951 (review round 4): the task page says the mark too, not only the Tasks tab: who marked it built and what
+     is left. Closing clears it, so a closed task never says it. */
+  const builtWho = t.builtByPerson ? 'you' : (t.builtBy ? tkMemberName(p, t.builtBy) : '');
+  document.getElementById('tk-state').textContent = tkStateWord(t)
+    + (t.builtAt && !t.closedAt ? ', marked built' + (builtWho ? ' by ' + builtWho : '') + (t.builtNote ? ': ' + t.builtNote : '') : '');
   /* #768: the due date. `document.activeElement` guard so the five-second poll
      does not yank the value out from under someone mid-edit (the same reason the
      Prompter interval paint checks it). Empty input means no due date. */
@@ -46818,6 +46993,10 @@ function tkActPhrase(ev, p) {
     case 'said': { const who = nameOf(ev.who); return (who ? who + ': ' : '') + (ev.text || ''); }
     case 'closed': return 'Marked done';
     case 'reopened': return 'Put back';
+    /* #3951: who marked it built and what was left; and why the mark went. */
+    case 'built': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' marked it built' : 'Marked built') + (ev.note ? ': ' + ev.note : ''); }
+    case 'unbuilt': { if (ev.reason === 'new work') return 'No longer built: there is new work on it';
+      const who = ev.person ? 'You' : nameOf(ev.by); return who ? who + ' took the built mark off' : 'Built mark taken off'; }
     default: return String(ev.kind);
   }
 }
@@ -53923,12 +54102,16 @@ async function addMemberToProject(who, msg) {
    refuses rather than re-adds an agent that has left). Success says nothing: the repaint drops
    the row. The same answer again says so on the row, and so does a retry that got no answer. Focus returns to the row's new button, or
    to the Members heading when the row is gone, since the repaint replaces the pressed button. */
-document.getElementById('pj-one-notice').addEventListener('click', async (e) => {
+/* #3948: one handler for both notices (the Members card's in the tab layout, the Agents rail's in the
+   consolidated one); `box` is the notice that was clicked, and `rail` picks that notice's own success line,
+   repaint and focus fallback. */
+async function pjNoticeRetryClick(e) {
   const btn = e.target && e.target.closest ? e.target.closest('[data-pn-retry]') : null;
   if (!btn || !PJ_CURRENT) return;
   const key = btn.dataset.pnRetry;
   const project = PJ_CURRENT;   // a switch while this runs must not move focus into another project
-  const box = document.getElementById('pj-one-notice');
+  const box = e.currentTarget;
+  const rail = box.id === 'alist-pj-notice';
   btn.disabled = true;
   let before = '';
   let name = key;   // the display name, for the success line (the row is gone by then)
@@ -53969,10 +54152,13 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
   // A read that landed but FAILED (offline) paints no project view, so the row's mark would wait for
   // the connection to come back: paint it from the projects already loaded.
   if (PJ_READ_FAILED) paintOneProject();
+  // The rail's notice is otherwise painted at the next poll.
+  if (rail) paintRailPjNotice();
   // Success empties the row, which a screen reader does not announce: say it in words. Only on the
   // board's own "told" verdict: a retry that came back with a different reason may leave a row with
   // no button, which is not success. Said whether or not focus is put back below.
-  const said = document.getElementById('pj-one-notice-said');
+  // In the consolidated layout the Members card (and its success line) is hidden, so the rail has its own.
+  const said = document.getElementById(rail ? 'alist-pj-notice-said' : 'pj-one-notice-said');
   if (said) {
     // Emptied, then written a frame later, so the same sentence twice (leo fixed again) is announced
     // again; tagged with its project so a switch clears it (paintOneProject).
@@ -53989,7 +54175,10 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
   if (now && now !== document.body && !box.contains(now)) return;
   // Compared as data, not built into a selector, so no session name can break the lookup.
   const again = Array.from(box.querySelectorAll('[data-pn-retry]')).find((b) => b.dataset.pnRetry === key) || null;
-  const heading = document.querySelector('.pjcard-members > .dlab');
+  // In the rail, the rail's own name: the Members heading is hidden there, and landing on a named heading
+  // tells a screen reader where focus went. It reads "Project Members" while the project's members head
+  // the list, and "Agents" when they do not (an empty board, a failed status read); both name the rail.
+  const heading = rail ? document.querySelector('#rail-agents .railname') : document.querySelector('.pjcard-members > .dlab');
   // The row's own button, else the next row's (keyboard users keep their place in the notice), else
   // the Members heading.
   const next = again || box.querySelector('[data-pn-retry]');
@@ -54002,7 +54191,9 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
     }
     heading.focus();
   }
-});
+}
+document.getElementById('pj-one-notice').addEventListener('click', pjNoticeRetryClick);
+{ const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNoticeRetryClick); }
 document.getElementById('pj-one-add-go').addEventListener('click', async () => {
   // #2429 (Josh, 0.6.45): once the member is added there is nothing more to do in the
   // modal, so CLOSE it on success -- and close BEFORE the board refresh, so the picker's
@@ -59643,7 +59834,7 @@ const ASB_OPEN_POLL_MS = 5000;     // the thread, while the chat is open (the ag
 const ASB_FOLDED_POLL_MS = 60000;  // the thread, while folded, only to light the reply dot
 const ASB_FIND_FIRST_MS = 5000;    // looking for the guide again: 5s, doubling to a minute, until one is named
 const ASB_FIND_MAX_MS = 60000;
-let ASB = { started: false, guide: null, setting: null, open: false, asking: false, sentThisOpen: false, draftAtOpen: '', nudgeGone: false,
+let ASB = { started: false, guide: null, setting: null, open: false, asking: false, offering: false, sentThisOpen: false, draftAtOpen: '', nudgeGone: false,
   wroteOnce: false, heard: null, fallback: null, replyIds: null, lastPoll: 0, screenKey: '', sending: false, dot: false,
   nextFind: 0, findEvery: ASB_FIND_FIRST_MS, finding: false, shown: '', readOnce: false,
   nextSetting: 0, settingEvery: ASB_FIND_FIRST_MS, settingReading: false,
@@ -59779,11 +59970,16 @@ function asbLayerEnsure() {
     +   '<div class="asp-th" id="asp-th"></div><p class="dmbusy asp-busy" id="asp-busy" hidden></p><span class="vh" id="asp-live" aria-live="polite"></span><span class="vh" id="asp-live-busy" aria-live="polite"></span>'
     +   '<div class="asp-note"></div>'   /* its words are asbPaint's, one copy (#3738) */
     +   '<div class="asp-msg" id="asp-msg" role="status"></div>'
-    +   '<div class="asp-ask" id="asp-ask" hidden><b>Close the assistant?</b>'
+    +   '<div class="asp-ask" id="asp-ask" role="group" aria-labelledby="asp-ask-q" hidden><b id="asp-ask-q">Close the assistant?</b>'
     +     '<button type="button" class="pri" id="asp-close-now">Close for now</button>'
     /* #3758 (Josh 2026-09-25 11:07): his words, verbatim. */
     +     '<button type="button" id="asp-close-off">Close forever</button>'
     +     '<small>You can turn it back on under Settings&nbsp;&gt;&nbsp;Computer</small></div>'   /* held together, so the path does not break */
+    /* #3947 (Josh, 2026-09-26 08:13): the second open-and-close with nothing sent offers to hide it for good. */
+    +   '<div class="asp-ask" id="asp-hide" role="group" aria-labelledby="asp-hide-q" hidden><b id="asp-hide-q">Hide the guide for good?</b>'
+    +     '<button type="button" class="pri" id="asp-hide-yes">Hide it</button>'
+    +     '<button type="button" id="asp-hide-no">Keep it</button>'
+    +     '<small>You can turn it back on under Settings&nbsp;&gt;&nbsp;Computer</small></div>'   /* Josh's words for this (#3758) */
     +   '<form class="asp-in" id="asp-in"><textarea id="asp-say" rows="1" aria-label="Ask about Kosmos" placeholder="Ask about Kosmos\u2026"></textarea>'
     +   '<button type="submit" id="asp-send" aria-label="Send">&uarr;</button></form>'
     + '</div>';
@@ -59795,6 +59991,8 @@ function asbLayerEnsure() {
   document.getElementById('asp-x').addEventListener('click', () => asbX());
   document.getElementById('asp-close-now').addEventListener('click', () => asbCloseChoice(false));
   document.getElementById('asp-close-off').addEventListener('click', () => asbCloseChoice(true));
+  document.getElementById('asp-hide-yes').addEventListener('click', () => asbHideChoice(true));
+  document.getElementById('asp-hide-no').addEventListener('click', () => asbHideChoice(false));
   document.getElementById('asp-in').addEventListener('submit', (e) => { e.preventDefault(); asbSend(); });
   document.getElementById('asp-say').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); asbSend(); }
@@ -59946,6 +60144,7 @@ function asbPaint() {
   if (bub.getAttribute('aria-label') !== lab) bub.setAttribute('aria-label', lab);   // the dot, for a screen reader
   document.getElementById('asb-nudge').hidden = ASB.open || ASB.nudgeGone || ASB.wroteOnce || !ASB.readOnce;   // not before the thread says whether they wrote
   document.getElementById('asp-ask').hidden = !ASB.asking;
+  document.getElementById('asp-hide').hidden = !ASB.offering;
   const ended = !row && !asbIsHosted();
   document.getElementById('asp-send').disabled = ASB.sending || ended;   // nothing to send to while it steps aside
   const sayBox = document.getElementById('asp-say');
@@ -59953,7 +60152,7 @@ function asbPaint() {
     sayBox.readOnly = ended;   // an ended chat takes no words, and says why to whoever lands in the box
     if (ended) sayBox.setAttribute('aria-describedby', 'asp-msg'); else sayBox.removeAttribute('aria-describedby');
   }
-  document.getElementById('asp-in').hidden = ASB.asking;
+  document.getElementById('asp-in').hidden = ASB.asking || ASB.offering;
 }
 
 /* The board's answer NOW to "which agent is the guide". Asked before every thread read and every send,
@@ -60046,11 +60245,12 @@ async function asbPoll(force) {
   else if (heard > ASB.heard && !ASB.dot) { ASB.dot = true; ASB.dotTimed = true; ASB.heardAt = Date.now(); }   // timed once, when the dot lights
   asbPaint();
 }
-/* #3738 (Josh 08:51, verbatim): one opening message, always the first guide bubble. */
+/* #3738 (Josh 08:51, verbatim): one opening message, always the first guide bubble.
+   #3947 (Josh, 2026-09-26 07:41, verbatim): the words. Same line as GUIDE_GREETING in engine/roles.js. */
 function asbOpening() {
   const open = document.createElement('div');
   open.className = 'asp-m him asp-open';
-  open.textContent = 'Hi, I\'m Josh\'s AI guide. Ask me anything about setting up Kosmos.';
+  open.textContent = 'Hi I\'m Josh, an AI Assistant to help you get your Kosmos setup. What can I help you with?';
   return open;
 }
 function asbPaintThread(rows, session) {
@@ -60076,7 +60276,7 @@ function asbPaintThread(rows, session) {
 }
 
 function asbOpen() {
-  ASB.open = true; ASB.asking = false; ASB.dot = false;
+  ASB.open = true; ASB.asking = false; ASB.offering = false; ASB.dot = false;
   ASB.sentThisOpen = false;   // #3034 (Josh 09-25 07:38): what asbX asks about is THIS opening
   { const box = document.getElementById('asp-say'); ASB.draftAtOpen = box ? box.value : ''; }   // an old unsent draft is not typing now
   /* A refusal that came while folded is read now, and the six seconds start from here. */
@@ -60092,24 +60292,63 @@ function asbOpen() {
 }
 function asbFold() {
   ASB.asideShowing = false;   // closing the sentence that says why the hosted assistant ended is reading it
-  ASB.open = false; ASB.asking = false;
+  ASB.open = false; ASB.asking = false; ASB.offering = false;
   asbPaint();
   const bub = document.getElementById('asb');
   if (bub && !bub.hidden) bub.focus();
 }
-/* The first x asks once (Josh 18:02); after that it just closes, UNLESS the person opened the chat and did
-   nothing in it. #3034, Josh 2026-09-25 07:38 (#admin), verbatim: "If somebody clicks on the assistant agent and
-   doesn't type anything and then hits the X, we should show them the message to dismiss it permanently (because
-   that's probably what they're trying to look for at that point)". Nothing typed means nothing sent this opening
-   AND the box unchanged since it opened: somebody who wrote a question and then closed was using it, not hunting
-   for the way to get rid of it, while a draft left from an earlier visit is not typing now (review round 1). */
+const ASB_SAVE_FAILED = 'We could not save that just now. Try again in a moment.';
+/* #3947: the idle-close count and the "Keep it" answer, kept in this page's storage. A count that is lost (storage
+   cleared, a private window) only means one more close before the offer, so it does not need the board; the switch
+   that actually hides the guide is the board's (Hide it = Close forever). Every read and write is guarded: storage
+   can refuse, and then nothing is counted and the chat simply closes. */
+const ASB_IDLE_KEY = 'kosmos.asb.idle-closes.v1';
+const ASB_KEPT_KEY = 'kosmos.asb.kept.v1';
+function asbIdleGet() { try { const n = Number(localStorage.getItem(ASB_IDLE_KEY)); return Number.isInteger(n) && n > 0 ? n : 0; } catch { return 0; } }
+function asbIdleSet(n) { try { localStorage.setItem(ASB_IDLE_KEY, String(n)); } catch { /* not counted: see above */ } }
+function asbKept() { try { return localStorage.getItem(ASB_KEPT_KEY) === '1'; } catch { return false; } }
+/* Trimmed both sides (review round 2): a stray space is not typing, while a half-written word still is. */
+function asbDidNothing() {
+  const say = document.getElementById('asp-say');
+  return !ASB.sentThisOpen && (say ? say.value : '').trim() === ASB.draftAtOpen.trim();
+}
+/* The first x asks once (Josh 18:02). After that, an opening where nothing was typed is counted, and the second
+   offers to hide the guide for good (#3947, in asbX; it replaced #3034's 09-25 rule of asking on every such close).
+   Nothing typed means nothing sent this opening AND the box unchanged since it opened: somebody who wrote a question
+   and then closed was using it, not hunting for the way to get rid of it, while a draft left from an earlier visit
+   is not typing now (review round 1). */
 function asbX() {
   if (asbStepping()) { asbFold(); return; }   // nothing to ask about: it is going anyway
-  const say = document.getElementById('asp-say');
-  /* Trimmed both sides (review round 2): a stray space is not typing, while a half-written word still is. */
-  const didNothing = !ASB.sentThisOpen && (say ? say.value : '').trim() === ASB.draftAtOpen.trim();
-  if (ASB.setting && (ASB.setting.asked !== true || didNothing)) { ASB.asking = true; asbPaint(); document.getElementById('asp-close-now').focus(); return; }
+  if (ASB.offering) { asbFold(); return; }   // #3947: X on the hide offer is "not now", and is not another close to count
+  const didNothing = asbDidNothing();
+  /* The first X asks once, whatever happened in the chat. */
+  if (ASB.setting && ASB.setting.asked !== true) { ASB.asking = true; asbPaint(); document.getElementById('asp-close-now').focus(); return; }
+  /* #3947 (Josh, 2026-09-26 08:13, verbatim): "If I click on the assistant and hit the X on him and haven't typed
+     a message, and I do that twice, then it should prompt me to close the agent forever because, as a user, I'm
+     trying to get rid of it". This replaces the 09-25 rule that asked on EVERY such close. Closes with nothing
+     typed are counted until something is sent (asbSend); the second offers to hide it, unless they answered
+     "Keep it". */
+  if (didNothing && !asbKept()) {
+    const idle = asbIdleGet() + 1;
+    if (idle >= 2) { ASB.offering = true; asbPaint(); document.getElementById('asp-hide-yes').focus(); return; }
+    asbIdleSet(idle);
+  }
   asbFold();
+}
+/* #3947: "Hide it" is the same board switch as Close forever; "Keep it" is remembered and not offered again. */
+async function asbHideChoice(hide) {
+  const msg = document.getElementById('asp-msg');
+  if (hide) {
+    if (!(await asbSaveSetting({ on: false }))) { msg.textContent = ASB_SAVE_FAILED; return; }
+  } else {
+    try { localStorage.setItem(ASB_KEPT_KEY, '1'); } catch { /* not remembered: it may be offered again */ }
+  }
+  if (msg.textContent === ASB_SAVE_FAILED) msg.textContent = '';   // an earlier failed try is not left standing
+  asbIdleSet(0);
+  ASB.offering = false;
+  asbFold();
+  asbPaintSetting();
+  if (hide) asbFocusPage();
 }
 async function asbSaveSetting(patch) {
   try {
@@ -60120,8 +60359,13 @@ async function asbSaveSetting(patch) {
   return false;
 }
 async function asbCloseChoice(forGood) {
+  const idleNow = asbDidNothing();   // read before the save: the answer arrives after the box may have changed
   const ok = await asbSaveSetting(forGood ? { asked: true, on: false } : { asked: true });
-  if (!ok) { document.getElementById('asp-msg').textContent = 'We could not save that just now. Try again in a moment.'; return; }
+  const msg = document.getElementById('asp-msg');
+  if (!ok) { msg.textContent = ASB_SAVE_FAILED; return; }
+  if (msg.textContent === ASB_SAVE_FAILED) msg.textContent = '';
+  /* #3947: a first X on an opening where nothing was typed is also the first of the two that lead to the offer. */
+  if (!forGood && idleNow && !asbKept()) asbIdleSet(1);
   ASB.asking = false;
   asbFold();
   asbPaintSetting();
@@ -60138,6 +60382,7 @@ async function asbSend() {
   const msg = document.getElementById('asp-msg');
   const text = say.value.trim();
   if (text) ASB.sentThisOpen = true;   // #3034: an attempt to send is using it, whatever the answer
+  if (text) asbIdleSet(0);   // #3947: an attempt to send is using it, so the count starts again
   if (asbIsHosted()) { if (text && !ASB.sending) await asbHostedSend(text); return; }
   /* In the fallback, the board is asked again before each message (Josh: on the next message, not continuously):
      still failing, the backup answers; answering again, it goes to the guide as usual. */
@@ -60401,7 +60646,7 @@ function asbForgetGuide() {
   const hadFocus = !standIn && !!document.activeElement && !!document.activeElement.closest('#asblayer');
   const keepOpen = standIn && ASB.open;
   for (const k of [...UNREAD_EDGE.keys()]) if (k.startsWith('asb:')) UNREAD_EDGE.delete(k);   // #3743: a new guide under the same name starts from its own history
-  ASB.guide = null; ASB.fallback = null; ASB.replyIds = null; ASB.open = keepOpen; ASB.asking = false; ASB.heard = null; ASB.heardAt = 0; ASB.wasWorking = false; ASB.saidSignIn = ''; ASB.dotTimed = false; ASB.shown = ''; ASB.dot = false;
+  ASB.guide = null; ASB.fallback = null; ASB.replyIds = null; ASB.open = keepOpen; ASB.asking = false; ASB.offering = false; ASB.heard = null; ASB.heardAt = 0; ASB.wasWorking = false; ASB.saidSignIn = ''; ASB.dotTimed = false; ASB.shown = ''; ASB.dot = false;
   ASB.wroteOnce = false; ASB.readOnce = false; ASB.lastPoll = 0; ASB.nudgeGone = false; ASB.asideShowing = false; asbAsideDone();
   const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = '';   // nothing stale when it comes back
   if (keepOpen) { const th = document.getElementById('asp-th'); if (th) th.replaceChildren(); }   // the guide's thread is not the hosted one's
