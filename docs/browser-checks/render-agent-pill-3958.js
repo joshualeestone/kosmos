@@ -137,6 +137,16 @@ async function read(page) {
         });
         chk(nv.card && nv.pill === nv.card && nv.pill !== 'Working' && nv.pill !== 'Idle',
           `${engineName} -> needs_you: the pill says what the grid card says`, JSON.stringify(nv));
+        /* The rest of the header follows the poll too: an agent that hits auth_failed after the page
+           opened shows the Sign in again button and its screen evidence; back to working hides them. */
+        setState('auth_failed');
+        await page.waitForTimeout(6500);
+        const af = await page.evaluate(() => ({ reauth: !document.getElementById('d-reauth').hidden, said: !document.getElementById('d-said').hidden }));
+        chk(af.reauth && af.said, `${engineName} -> auth_failed: the Sign in again button and the screen evidence appear without reopening`, JSON.stringify(af));
+        setState('working');
+        await page.waitForTimeout(6500);
+        const ok = await page.evaluate(() => ({ reauth: !document.getElementById('d-reauth').hidden }));
+        chk(!ok.reauth, `${engineName} -> working again: the Sign in again button is gone`, JSON.stringify(ok));
         chk(secondPolls === 1, `${engineName}: precondition: the keep-running arm actually ran once`, String(secondPolls));
         chk(errs.length === 0, `${engineName}: no page errors`, errs.join(' | '));
       } finally {

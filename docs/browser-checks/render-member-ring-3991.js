@@ -54,9 +54,11 @@ const PERCENT = { beatrix: 42, dora: 71 };
     fleet.agent('dora', { state: 'stopped', displayName: 'Dora', role: 'Analyst' }),
     fleet.agent('ned', { state: 'needs_you', displayName: 'Ned', role: 'Writer' }),
     fleet.agent('ava', { state: 'auth_failed', displayName: 'Ava', role: 'Editor' }),
+    /* A pane that merely HOLDS a name (not ours): the member projection reads it unknown. */
+    fleet.stranger('zed', { state: 'working' }),
   ]);
   const p = projects.create({ name: 'Ring Check' });
-  projects.writeAll(projects.readAll().map((x) => (x.id === p.id ? { ...x, agents: ['beatrix', 'cosmo', 'dora', 'ned', 'ava'] } : x)));
+  projects.writeAll(projects.readAll().map((x) => (x.id === p.id ? { ...x, agents: ['beatrix', 'cosmo', 'dora', 'ned', 'ava', 'zed'] } : x)));
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
   await fetch(URL + '/api/first-run/complete', { method: 'POST' });
@@ -126,15 +128,26 @@ const PERCENT = { beatrix: 42, dora: 71 };
           const who = row.getAttribute('data-agent');
           const card = LAST.find((x) => x && x.sessionName === who);
           const face = row.querySelector('.pj-face');
-          const mods = ' ' + boardMods(card, cardStOf(card)) + ' ';
-          const want = (card.running === false && card.state !== 'restarting') || mods.indexOf(' off ') > -1 ? 'off'
-            : mods.indexOf(' unk ') > -1 ? 'unk' : 'on';
+          /* What the CONSOLIDATED row actually draws for this card: lrow()'s own classes, read from its
+             output, not a restatement of its rule. */
+          const holder = document.createElement('div');
+          holder.innerHTML = lrow(card);
+          const cls = holder.firstElementChild ? holder.firstElementChild.classList : { contains: () => false };
+          const want = cls.contains('off') ? 'off' : cls.contains('unk') ? 'unk' : 'on';
           const got = face.classList.contains('pjd-off') ? 'off' : face.classList.contains('pjd-unk') ? 'unk' : face.classList.contains('pjd') ? 'on' : 'none';
           return { who, state: card.state, want, got };
         }));
-        chk(parity.length === 5, `${engineName}: precondition: all five members are drawn`, String(parity.length));
-        for (const r of parity) chk(r.got === r.want, `${engineName}: ${r.who} (${r.state}) dot matches the consolidated row's rule`, `${r.got} vs ${r.want}`);
+        chk(parity.length === 6, `${engineName}: precondition: all six members are drawn`, String(parity.length));
+        for (const r of parity.filter((x) => x.who !== 'zed')) chk(r.got === r.want, `${engineName}: ${r.who} (${r.state}) dot matches the consolidated row's rule`, `${r.got} vs ${r.want}`);
 
+        /* The untied pane: the member row says unknown (no state wash), so its dot must not say online. */
+        const z = await page.evaluate(() => {
+          const row = document.querySelector('#pj-one-agents .pj-member[data-agent="zed"]');
+          const face = row && row.querySelector('.pj-face');
+          return row ? { wash: /pjm-(working|attn|idle)/.test(row.className), dot: face ? face.className : '' } : null;
+        });
+        chk(z && !z.wash && !/\bpjd\b(?!-)/.test(z.dot.replace(/pjd-unk|pjd-off/g, '')) || (z && /pjd-unk|pjd-off/.test(z.dot)) || (z && !/pjd/.test(z.dot)),
+          `${engineName}: an untied pane (a stranger holding the name) does not get a green dot`, JSON.stringify(z));
         chk(errs.length === 0, `${engineName}: no page errors`, errs.join(' | '));
         await ctx.close();
       } finally {

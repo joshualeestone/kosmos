@@ -43825,7 +43825,9 @@ function pjToldGroupLine(told) {
  */
 function memberDotClass(row) {
   if (!row) return '';
-  if (row.running === false && row.state !== 'restarting') return ' pjd pjd-off';
+  /* lrow's not-running branch, with its two exceptions: a restart, and the needs-trust arm (which
+     draws `attn notrunning needstrust`, no `off`). */
+  if (row.running === false && row.state !== 'restarting' && row.state !== 'needs_trust') return ' pjd pjd-off';
   const mods = ' ' + boardMods(row, cardStOf(row)) + ' ';
   if (mods.indexOf(' off ') > -1) return ' pjd pjd-off';
   if (mods.indexOf(' unk ') > -1) return ' pjd pjd-unk';
@@ -43910,7 +43912,11 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      excepted) or a stopped pill, hollow for an unknown one, green otherwise. A member the board cannot see keeps its "?" badge instead. */
   const boardCard = typeof LAST !== 'undefined' && Array.isArray(LAST) ? LAST.find((x) => x && x.sessionName === m.sessionName) : null;
   const memRing = boardCard ? lrowRing(boardCard) : '';
-  const dotCls = present ? memberDotClass(boardCard || liveM) : '';
+  /* The dot's STATE is the member projection's (liveM), the same read the row's wash and warning
+     use: it carries the tie gate (a pane merely holding this agent's name reads `unknown`), which
+     the raw board card does not. Only `running` comes from the board card. */
+  const dotRow = boardCard ? Object.assign({}, boardCard, { state: liveM.state }) : liveM;
+  const dotCls = present ? memberDotClass(dotRow) : '';
   const face = m.hasAvatar
     /* #2762: `?v=` the avatar version, same as tkFace above and the org chart
        (#2698). This row is painted through `setIfChanged` -> `setLive`, which is
