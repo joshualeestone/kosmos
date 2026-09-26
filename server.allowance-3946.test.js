@@ -78,11 +78,20 @@ test('#3946 sweep: the account\'s tokens today over the figure\'s movement re-de
     history: [[dayStart - 3600e3, 40, FUTURE], [now - 1000, 44, FUTURE]] }));
   lead('hive', swarm.birthProfile({ dailyTokenLimit: 1000, dailyAllowancePct: 3 }), dir);
   lead('other', { role: 'pm' }, dir);
-  const roster = [
-    { isNamedOurs: true, sessionName: 'hive', swarm: { tokensToday: 3e6 } },
-    { isNamedOurs: true, sessionName: 'other' },   // no transcript here: it counts nothing, and must not throw
-  ];
-  const did = calibrateSwarmAllowances(roster, now);
+  // The real board cards (test-support/fleet), which is what the sweep is handed (safeRoster). Only the
+  // lead's measured tokens are set by hand: the sandbox has no transcript for it to meter.
+  const fleetMod = require('./test-support/fleet');
+  const board = fleetMod.install([fleetMod.agent('hive', { state: 'idle' }), fleetMod.agent('other', { state: 'idle' })]);
+  let did;
+  try {
+    const hive = board.card('hive');
+    assert.ok(hive.swarm, 'the lead\'s real card carries no swarm field');
+    const roster = [
+      { ...hive, swarm: { ...hive.swarm, tokensToday: 3e6 } },
+      board.card('other'),   // no transcript here: it counts nothing, and must not throw
+    ];
+    did = calibrateSwarmAllowances(roster, now);
+  } finally { board.restore(); }
   assert.deepEqual(did, [{ name: 'hive', from: 1000, to: 2250000 }], JSON.stringify(did));
   assert.equal(allowance.readCalibration(dir, now).tokensPerPoint, 750000);
   assert.equal(swarm.settingsOf(store.readProfile('hive')).dailyTokenLimit, 2250000);
