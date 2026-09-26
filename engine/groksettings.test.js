@@ -16,6 +16,9 @@ const groksettings = require('./groksettings');
 const bridge = require('../bin/grok-report-bridge');
 
 const BRIDGE = '/opt/kosmos/app/bin/grok-report-bridge.js';
+/* The tests that pin the POSIX command text say so, so they hold on a Windows host too
+   (where the default form is the win32 one, #4010). */
+const POSIX = { platform: 'darwin' };
 
 function tmpHookFile() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'groksettings-'));
@@ -25,7 +28,7 @@ const readJSON = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 
 test('a fresh hook file gets every report event wired to the bridge', () => {
   const { file } = tmpHookFile();
-  const r = groksettings.ensurePrepared(file, BRIDGE);
+  const r = groksettings.ensurePrepared(file, BRIDGE, POSIX);
   assert.equal(r.prepared, true);
   assert.equal(r.changed, true);
   const s = readJSON(file);
@@ -62,7 +65,7 @@ test('our own file at a STALE bridge path is rewritten to the current one', () =
   const old = '/old/path/grok-report-bridge.js';
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: `node "${old}"` }] }] } }, null, 2) + '\n');
-  const r = groksettings.ensurePrepared(file, BRIDGE);
+  const r = groksettings.ensurePrepared(file, BRIDGE, POSIX);
   assert.equal(r.changed, true);
   const s = readJSON(file);
   const cmds = s.hooks.Stop.flatMap((d) => d.hooks.map((h) => h.command));
@@ -131,7 +134,7 @@ test('a bridge path with a shell-hostile character is refused', () => {
   assert.match(r.because, /characters we will not embed/);
 });
 
-test('the file mode is preserved across a rewrite of our own file', () => {
+test('the file mode is preserved across a rewrite of our own file', { skip: process.platform === 'win32' && 'Windows has no posix file modes' }, () => {
   const { file } = tmpHookFile();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   // seed an OURS file (has the marker) at a stale path, mode 600, so the rewrite path runs
@@ -152,6 +155,42 @@ test('a dangling symlink is refused rather than replaced', () => {
   assert.match(r.because, /link pointing at nothing/);
   assert.ok(!fs.existsSync(path.join(dir, 'hooks', 'does-not-exist.json')),
     'a dangling symlink target must not be created (that would sever someone\'s arrangement)');
+});
+
+// ---- #4010: the win32 form (grok runs a Windows hook through a shell it picks per box) ----
+
+const WIN_NODE = 'C:\\Users\\jo\\AppData\\Local\\Kosmos\\runtime\\node.exe';
+const WIN_BRIDGE = 'C:\\Users\\jo\\AppData\\Roaming\\Kosmos\\bin\\grok-report-bridge.js';
+const WIN32 = { platform: 'win32', node: WIN_NODE };
+
+test('#4010: a real Windows bridge path (backslashes) is written as unquoted forward-slash node + bridge', () => {
+  // The pre-#4010 code refused every path with a backslash, so a Windows grok agent
+  // got no report hooks at all.
+  const { file } = tmpHookFile();
+  const r = groksettings.ensurePrepared(file, WIN_BRIDGE, WIN32);
+  assert.equal(r.prepared, true, r.because);
+  const want = 'C:/Users/jo/AppData/Local/Kosmos/runtime/node.exe C:/Users/jo/AppData/Roaming/Kosmos/bin/grok-report-bridge.js';
+  const s = readJSON(file);
+  for (const ev of groksettings.HOOK_EVENTS) assert.equal(s.hooks[ev][0].hooks[0].command, want, `${ev} not the win32 form`);
+  assert.equal(groksettings.ensurePrepared(file, WIN_BRIDGE, WIN32).changed, false, 'a second run must be a no-op');
+  assert.equal(groksettings.commandFor(BRIDGE, POSIX), `node "${BRIDGE}"`, 'the posix form is unchanged');
+});
+
+test('#4010: win32 refuses anything outside the allowlist, since the path rides unquoted', () => {
+  for (const bad of ['C:\\Users\\Jo Smith\\grok-report-bridge.js', "C:\\x\\it's\\grok-report-bridge.js",
+    'C:\\x\\%APPDATA%\\grok-report-bridge.js', 'C:\\x\\$HOME\\grok-report-bridge.js',
+    'C:\\x\\a&b\\grok-report-bridge.js', 'C:\\Program Files (x86)\\grok-report-bridge.js',
+    'C:\\x\\JOSMIT~1\\grok-report-bridge.js', 'C:\\x\\a\nb\\grok-report-bridge.js']) {
+    assert.equal(groksettings.unsafeForCommand(bad, 'win32'), true, `win32 accepted ${JSON.stringify(bad)}`);
+    const { file } = tmpHookFile();
+    assert.equal(groksettings.ensurePrepared(file, bad, WIN32).prepared, false);
+    assert.equal(groksettings.ensurePrepared(file, WIN_BRIDGE, { platform: 'win32', node: bad }).prepared, false,
+      'the node path is vetted too');
+  }
+  // A letter outside ASCII is an ordinary Windows user name, not a shell character.
+  assert.equal(groksettings.unsafeForCommand('C:\\Users\\Jos\u00e9\\grok-report-bridge.js', 'win32'), false);
+  // A backslash is still refused off Windows, where it rides in a double-quoted sh string.
+  assert.equal(groksettings.unsafeForCommand(WIN_BRIDGE, 'darwin'), true);
 });
 
 // ---- bin/grok-report-bridge.js: the event -> report mapping ----
