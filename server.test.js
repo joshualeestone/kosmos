@@ -14080,6 +14080,20 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
     const stored = require('./engine/projects').readAll().find((x) => x.id === p.id);
     assert.equal((stored.tasks[0].parts || []).some((x) => x.sentence === 'Course 13'), false, 'the write landed over the cap');
     assert.equal(sends.length, before, 'CONTROL: nothing new was typed once the valve tripped');
+    // #3959: the paging allowance is spent, but agent-made TASKS are no longer capped at
+    // twelve, so one lands. Its assignee is NOT typed to, and the answer says so rather
+    // than leaving `heard` out (which reads as "no assignee").
+    const rTask = await req('/api/project/' + encodeURIComponent(p.id) + '/tasks', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sentence: 'Book the caterer', who: 'mara' }),
+    });
+    assert.equal(rTask.status, 200, rTask.body);
+    const heardTask = JSON.parse(rTask.body).heard;
+    assert.ok(heardTask, 'a skipped nudge left heard undefined, which reads as no assignee');
+    assert.equal(heardTask.state, 'could_not');
+    assert.equal(heardTask.who, 'mara');
+    assert.match(heardTask.because, /hourly allowance .*12 an hour, shared by all agents.*on their list/);
+    assert.equal(sends.length, before, 'CONTROL: nothing was typed for the task once the allowance was spent');
     // The screen is never valved: the person adds one right now, and it is heard.
     const r14 = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
       method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },

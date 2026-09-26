@@ -25,13 +25,18 @@ agent-made PROJECTS was the same shape at the same number.
 
 ## Deliberately NOT changed
 
-- **The parts valve** (`engine/tasks.js` `PARTS_PER_HOUR = 12`, #803) and the **pane-paging
-  budget** (`HEARD_BUDGET_MAX = 12`). Neither refuses creating a task or project. The paging
-  budget only decides whether a new assignment also nudges the agent's live pane: past 12 an
-  hour the task still lands and still appears in the assignee's instruction block. That is pane
-  flood protection, not a cap on work. The parts valve limits reassigning parts of a task.
-  Josh's complaint and the card are about creation. Named on the card as a possible follow-up
-  if Josh wants those gone too.
+- **The pane-paging budget** (`HEARD_BUDGET_MAX = 12`, shared by all agents and with the part
+  routes). It does not refuse creation, but it has a user-visible effect, now stated plainly:
+  past 12 agent-made assignments in an hour, the task lands and is on the assignee's list, but a
+  LIVE assignee is not told until its next start (the instruction block is read at start).
+  ⚠️ Corrected in review round 3: I first justified leaving it as "the task still appears in
+  the instruction block", which is true but does not reach a running agent. So this branch now
+  makes the skipped nudge visible: `heard` comes back `could_not` with the reason, instead of
+  undefined (which reads as "no assignee"). The budget itself is kosmos#3961, with a
+  recommendation (per assignee instead of fleet-wide).
+- **The parts valve** (`engine/tasks.js` `PARTS_PER_HOUR = 12`, #803). Splitting a task into
+  parts is still refused past 12 an hour. It is a different route and a different ruling, and
+  it is named in the PR body so Josh sees it if a batch of tasks is also split into parts.
 - The community-feed and task-message valves: different features, not part of the ruling.
 
 ## Tests
@@ -53,6 +58,8 @@ agent-made PROJECTS was the same shape at the same number.
 - Task route given the old limit of 12: the task test fails at "agent-made task #13 in the hour
   was refused".
 - Project route with the refusal disabled: the project test fails (expected 429, got 200).
+- The skipped-nudge answer removed: the #761 round 2 test fails at "a skipped nudge left heard
+  undefined, which reads as no assignee".
 
 ## Weakest premise
 

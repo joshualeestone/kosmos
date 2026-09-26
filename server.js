@@ -14900,6 +14900,13 @@ const server = http.createServer((req, res) => {
             // attempts at an unreachable agent must not exhaust the shared
             // hour for every other project's legitimate placements.
             if (heard && heard.state === chat.DELIVERY.PLACED && !viaScreen) heardBudgetRecord();
+          } else if (typeof made.who === 'string' && made.who.trim()) {
+            /* #3959: the task landed but the assignee's pane was not typed into. Say so,
+               so the calling agent knows; left undefined, it reads as "no assignee". */
+            heard = { who: made.who.trim(), state: chat.DELIVERY.COULD_NOT,
+              because: 'agents have used the hourly allowance for typing into agent screens ('
+                + HEARD_BUDGET_MAX + ' an hour, shared by all agents), so ' + made.who.trim()
+                + ' was not told on screen; the task is on their list' };
           }
           sendJson(res, 200, { task: made, told, heard });
         } catch (err) {
