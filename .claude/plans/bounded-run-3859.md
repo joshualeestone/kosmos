@@ -23,8 +23,8 @@ was not used as written.
 
 Then, from review 1, a fourth step. All the kills are SIGTERM, and a bundle that
 traps or ignores TERM would still hang the `wait`, the same #955 shape by another
-route. So after a grace (10 x `sleep 0.2`: about 2s nominal, 3.3s on Agent1s where
-starting a program is slow), the group and the leader get SIGKILL. The
+route. So after a grace (10 x `sleep 0.2`: about 2s nominal, 3.3s measured on Agent1s
+2026-09-25, where starting a program is slow), the group and the leader get SIGKILL. The
 grace watches the GROUP, not the leader (review 2): a leader that dies on TERM can
 leave a child that ignores it, still holding the port.
 
@@ -64,6 +64,13 @@ copy with its own fix removed:
 
 The rc file each watched arm polls for is written to a temporary name and moved
 into place, so the poller can never read it half-written.
+
+**Review 6 closed two vacuous checks:**
+- The seam arm's stub now marks that it started, and the arm asserts it never did. That
+  proves the kill landed before exec, even on a box stalled past the seam.
+- The how-file gate is checked with a stub that times out, plus a gated control.
+
+The seam variable is also removed from the environment before the real command runs.
 
 **Not measured:** step 3's own window, perl forking between steps 1 and 2. It is
 microseconds wide and no test hits it.

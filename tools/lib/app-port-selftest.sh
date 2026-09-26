@@ -40,7 +40,7 @@ bounded_run() {
   # value left exported in a shell cannot change a real run (review 5): a stray delay would
   # make a healthy bundle read as behind.
   local _delay=""; [ "${KOSMOS_BOUNDED_RUN_TEST:-}" = 1 ] && _delay="${KOSMOS_BOUNDED_RUN_SETPGRP_DELAY:-}"
-  KOSMOS_BOUNDED_RUN_SETPGRP_DELAY="$_delay" perl -e 'select(undef, undef, undef, $ENV{KOSMOS_BOUNDED_RUN_SETPGRP_DELAY}) if $ENV{KOSMOS_BOUNDED_RUN_SETPGRP_DELAY}; setpgrp(0,0); exec @ARGV or exit 127' "$@" >"$tmp" 2>/dev/null &
+  KOSMOS_BOUNDED_RUN_SETPGRP_DELAY="$_delay" perl -e 'select(undef, undef, undef, $ENV{KOSMOS_BOUNDED_RUN_SETPGRP_DELAY}) if $ENV{KOSMOS_BOUNDED_RUN_SETPGRP_DELAY}; delete $ENV{KOSMOS_BOUNDED_RUN_SETPGRP_DELAY}; setpgrp(0,0); exec @ARGV or exit 127' "$@" >"$tmp" 2>/dev/null &
   pid=$!
   waited=0
   while kill -0 "$pid" 2>/dev/null; do
@@ -56,7 +56,7 @@ bounded_run() {
       #    ignores it, still holding the port (review 2). A pgid is not reused while
       #    any member lives, so `kill -0 -- -$pid` cannot reach a stranger's group.
       # Relies on bash reaping the killed child promptly, so `kill -0` stops seeing it (measured
-      # well under 0.3s here). A shell that reaped lazily would burn the whole grace and record
+      # well under 0.3s on Agent1s, 2026-09-25). A shell that reaped lazily would burn the whole grace and record
       # "kill" even when TERM worked: look here first if the TERM arm of the self-test flakes.
       _g=0
       while { kill -0 -- -"$pid" || kill -0 "$pid"; } 2>/dev/null && [ "$_g" -lt 10 ]; do

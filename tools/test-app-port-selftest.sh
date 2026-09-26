@@ -135,8 +135,19 @@ check "the FORKED child is reaped by the group-kill (not orphaned)" 0 "$reaped"
 # bound it too and hide steps 2 and 3 (review 2). Asked of bounded_run itself through a
 # test-only file, not a wall clock: the grace's real length differs by machine (review 4
 # found a time ceiling that passed without steps 2-3 on a normal Mac).
+# Its stub marks that it STARTED: if the bound ever fired after perl had already exec'd it (a
+# box stalled for longer than the 6s seam), this arm would test the normal path and pass on
+# the old code too. The marker proves the kill landed in the window (review 6).
+bstart="$tmp/behind-hang-marks-start"; started="$tmp/started-3859"; rm -f "$started"
+cat > "$bstart" <<EOF
+#!/bin/bash
+touch "$started"
+sleep $FORK &
+exec sleep $LAUNCH
+EOF
+chmod +x "$bstart"
 rcf="$tmp/rc-3859"; howf="$tmp/how-3859"; rm -f "$rcf" "$howf"
-( KOSMOS_BOUNDED_RUN_TEST=1 KOSMOS_BOUNDED_RUN_HOW_FILE="$howf" KOSMOS_BOUNDED_RUN_SETPGRP_DELAY=6 bounded_run "$T" "$bhang" --kosmos-app-port-selftest 501 >/dev/null 2>&1
+( KOSMOS_BOUNDED_RUN_TEST=1 KOSMOS_BOUNDED_RUN_HOW_FILE="$howf" KOSMOS_BOUNDED_RUN_SETPGRP_DELAY=6 bounded_run "$T" "$bstart" --kosmos-app-port-selftest 501 >/dev/null 2>&1
   echo "$?" > "$rcf.tmp"; mv "$rcf.tmp" "$rcf" ) &
 wd=$!
 for _ in $(seq 1 40); do [ -f "$rcf" ] && break; sleep 0.5; done
@@ -144,12 +155,13 @@ if [ -f "$rcf" ]; then
   wait "$wd" 2>/dev/null
   check "bound expiring before setpgrp: returns 124, does not hang (#3859)" 124 "$(cat "$rcf")"
   check "...and ended by TERM to the leader, not by the KILL (steps 2-3)" term "$(cat "$howf" 2>/dev/null || echo none)"
+  check "...and the bound really beat setpgrp: the bundle never started" absent "$([ -e "$started" ] && echo started || echo absent)"
 else
   # The regression: tear down what it left (the subshell, perl, and the bundle it
   # exec'd, which carry our unique markers) so the rest of this test still runs.
   # perl may still be in the seam's sleep (not yet exec'd): its argv names the stub,
   # whose path is unique to this run's tmp dir.
-  pkill -KILL -f "$bhang" 2>/dev/null
+  pkill -KILL -f "$bstart" 2>/dev/null
   pkill -f "sleep $LAUNCH\$" 2>/dev/null; pkill -f "sleep $FORK\$" 2>/dev/null
   kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
   check "bound expiring before setpgrp: returns 124, does not hang (#3859)" 124 "HUNG-20s"
@@ -197,7 +209,13 @@ cat > "$bchild" <<EOF
 exec sleep $LAUNCH
 EOF
 chmod +x "$bchild"
-bounded_run "$T" "$bchild" --kosmos-app-port-selftest 501 >/dev/null 2>&1; rc=$?
+rcf4="$tmp/rc-3859-child"; rm -f "$rcf4"
+( bounded_run "$T" "$bchild" --kosmos-app-port-selftest 501 >/dev/null 2>&1
+  echo "$?" > "$rcf4.tmp"; mv "$rcf4.tmp" "$rcf4" ) &
+wd4=$!
+for _ in $(seq 1 40); do [ -f "$rcf4" ] && break; sleep 0.5; done
+if [ -f "$rcf4" ]; then wait "$wd4" 2>/dev/null; rc=$(cat "$rcf4")
+else pkill -KILL -f "$bchild" 2>/dev/null; pkill -KILL -f "sleep $LAUNCH\$" 2>/dev/null; kill "$wd4" 2>/dev/null; wait "$wd4" 2>/dev/null; rc=HUNG-20s; fi
 check "bounded_run returns 124 on a bundle with a TERM-ignoring child" 124 "$rc"
 left=$(wait_gone "sleep $FORK")
 check "the TERM-ignoring CHILD is killed, not orphaned" 0 "$left"
@@ -206,10 +224,15 @@ check "the TERM-ignoring CHILD is killed, not orphaned" 0 "$left"
 # --- review 5: the seams do nothing without KOSMOS_BOUNDED_RUN_TEST=1 -----------------
 # A delay left exported must not reach a real run: with it set but the gate unset, a quick
 # bundle still answers in time, and no how-file is written.
-howf3="$tmp/how-3859-gate"; rm -f "$howf3"
-out="$(KOSMOS_BOUNDED_RUN_SETPGRP_DELAY=6 KOSMOS_BOUNDED_RUN_HOW_FILE="$howf3" bounded_run "$T" "$cur" --kosmos-app-port-selftest 501)"; rc=$?
+out="$(KOSMOS_BOUNDED_RUN_SETPGRP_DELAY=6 bounded_run "$T" "$cur" --kosmos-app-port-selftest 501)"; rc=$?
 check "an exported seam delay without the test gate does not delay a real run" "0 16180" "$rc $out"
-check "...and writes no how-file" absent "$([ -e "$howf3" ] && echo present || echo absent)"
+# The how-file is only written when the bound fires, so this half needs a HANGING stub, or it
+# could not fail (review 6). Control: the same run WITH the gate writes it.
+howf3="$tmp/how-3859-gate"; rm -f "$howf3"
+KOSMOS_BOUNDED_RUN_HOW_FILE="$howf3" bounded_run "$T" "$bhang" --kosmos-app-port-selftest 501 >/dev/null 2>&1; rc=$?
+check "an exported how-file without the test gate is not written (a timed-out run)" "124 absent" "$rc $([ -e "$howf3" ] && echo present || echo absent)"
+KOSMOS_BOUNDED_RUN_TEST=1 KOSMOS_BOUNDED_RUN_HOW_FILE="$howf3" bounded_run "$T" "$bhang" --kosmos-app-port-selftest 501 >/dev/null 2>&1
+check "...control: with the gate, the same run writes it" present "$([ -e "$howf3" ] && echo present || echo absent)"
 
 # --- bounded_run returns a quick command's output and rc --------------------------
 start=$(date +%s)
