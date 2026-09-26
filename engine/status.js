@@ -6076,6 +6076,23 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity);
     return { ...answer, conflict: 'its screen shows an old Claude sign-in rejection, but the account sign-in is currently valid, so the rejection is stale' };
   }
+  /* #4006: a restart that did NOT come back (disruption.fail). Not "restarting" and not a quiet
+     "not running": the person has to act, so it reads as needs_you (red on the board; not a phone
+     notification, which only a REPORTED needs_you sends).
+     Josh's Grok agent sat dead for 23 minutes behind a plain stopped card before this. Only while
+     nothing is running (the scrape is STOPPED); the agent coming back ends it, and status clears
+     the record then. */
+  if (disruptionRec && disruptionRec.failed === true
+      && scraped.state === STATE.STOPPED && scraped.confidence === CONFIDENCE.STRUCTURED) {
+    return {
+      state: STATE.NEEDS_YOU,
+      confidence: CONFIDENCE.STRUCTURED,
+      because: 'Kosmos restarted this agent and it did not come back. Restart it to bring it back',
+      disruption: { cause: disruptionRec.cause, startedAt: disruptionRec.startedAt, timedOut: true, failed: true },
+      reported: false,
+      conflict: null,
+    };
+  }
   /* #2019: a dead pane is "gone" UNLESS we are the ones who just took it out. If
      a fresh disruption record is on file (a restart / model / provider /
      account / instructions change we initiated, still inside its window) and the
@@ -6561,7 +6578,7 @@ const PANELESS_DEFAULT = { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, be
    cold (both are a job + worker dir with no pane and no beat). */
 const NEVER_RUN_DEFAULT = { state: STATE.STOPPED, confidence: CONFIDENCE.STRUCTURED, because: 'it was created on this computer and is not running right now' };
 
-function panelessCard(key, nowMs, defaultStatus) {
+function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
   const identity = readIdentity(key);
   /* The agent's own account, reconciled against a scrape that could not
      happen. Passing a default rather than skipping `reconcileReport` is
@@ -6576,7 +6593,7 @@ function panelessCard(key, nowMs, defaultStatus) {
   const status = reconcileReport(
     selfreport.read(key),
     defaultStatus || PANELESS_DEFAULT,
-    nowMs);
+    nowMs, undefined, disruptionRec || null);
   /* #2146 for a PANELESS agent (the case this whole role exists for). No pane, so
      the ONLY active-while-waiting signal is the report heartbeat leg -- a beat
      newer than the standing needs_you/blocked report. This is why the report route
@@ -6619,7 +6636,8 @@ function panelessCard(key, nowMs, defaultStatus) {
     because: status.because,
     /* #2019: the field a pane card carries for a deliberate restart. A paneless
        agent has no STOPPED pane to misread, so it never reaches the RESTARTING
-       branch and this is always null here; carried anyway so both card kinds
+       branch; the one exception is a FAILED restart (#4006), passed in for a
+       created agent with no pane, which reads needs_you and carries it here. Carried so both card kinds
        have one shape. Surfacing RESTARTING for a PANELESS agent mid-restart --
        keeping its card on the board through the disruption window instead of
        dropping it -- is a delineated follow-up, and it covers TWO cases, not
@@ -6831,7 +6849,8 @@ function snapshot() {
        NOT the #920 spinner trap: the timeout produces an honest MESSAGE (the render
        stops the animation on `timedOut`), not a spinner that lies forever, and it
        self-heals the instant the pane comes back live (the forward heal below
-       clears any record -- fresh or aged -- once the state is a definite live one). */
+       clears any record -- fresh or aged -- once the state is a definite live one;
+       a FAILED record (#4006) once anything but the failure is read, UNKNOWN included). */
     let disruptionRec = null;
     if (isNamedOurs(pane)) {
       const fresh = disruption.active(pane.name);
@@ -6840,7 +6859,7 @@ function snapshot() {
       } else {
         const full = disruption.read(pane.name);
         if (full.found) {
-          disruptionRec = { cause: full.cause, startedAt: full.startedAt, ageMs: full.ageMs, timedOut: true };
+          disruptionRec = { cause: full.cause, startedAt: full.startedAt, ageMs: full.ageMs, timedOut: true, failed: full.failed === true };
         }
       }
     }
@@ -6958,7 +6977,15 @@ function snapshot() {
        within restartInner, so no snapshot can observe the pre-kill live pane
        after begin(). Clear never throws; the write fits the snapshot's existing
        best-effort writes (wouldping/observed). */
-    if (disruptionRec && status.state !== STATE.RESTARTING && status.state !== STATE.UNKNOWN) {
+    /* #4006: a FAILED record is kept while the failure is what the card shows (clearing it would put the card
+       back to a quiet "not running" next tick), and cleared as soon as anything else is read, UNKNOWN included:
+       an unknown reading means the pane is running something, so the restart did come back after all. */
+    const showingFailure = !!(status.disruption && status.disruption.failed === true);
+    if (disruptionRec && disruptionRec.failed === true) {
+      /* UNKNOWN clears it only with an agent process in the pane: a board that could not read the pane at all
+         also says UNKNOWN, and one bad read must not erase the failure. */
+      if (!showingFailure && (status.state !== STATE.UNKNOWN || isAgentSession(pane))) disruption.clear(pane.name);
+    } else if (disruptionRec && status.state !== STATE.RESTARTING && status.state !== STATE.UNKNOWN) {
       disruption.clear(pane.name);
     }
     /* 🔑 WHAT A PING WOULD HAVE BEEN, AND NOBODY IS PINGED (#1494). The phone
@@ -7186,8 +7213,8 @@ function snapshot() {
        `at` (Pete's dangerous-answer control): the report route pins the report's
        own liveness beat to that `at`, so `>` excludes it and a just-filed needs_you
        does NOT self-trigger; a pane WORKING_LINE this tick is definitionally after
-       any past ask, so it always counts. Mutually exclusive with disruption.timedOut
-       (that lives on RESTARTING; this only on needs_you/blocked). */
+       any past ask, so it always counts. Mutually exclusive with an in-flight
+       disruption (that lives on RESTARTING); a failed one reads needs_you (#4006). */
     let activeWhileWaiting = false;
     if (status.state === STATE.NEEDS_YOU || status.state === STATE.BLOCKED) {
       const waitReport = tied ? selfreport.read(pane.name) : { found: false };
@@ -7269,8 +7296,9 @@ function snapshot() {
          every state that did not read a sentence off the screen. */
       stateEvidence: status.evidence || null,
       because: status.because,
-      /* #2019: present only while state === 'restarting' -- {cause, startedAt}
-         for the deliberate disruption in flight. Null otherwise, so the board
+      /* #2019: present while state === 'restarting' -- {cause, startedAt}
+         for the deliberate disruption in flight -- and (#4006) on the needs_you of a
+         restart that did not come back, with `failed`. Null otherwise, so the board
          reads a fact rather than an absence, and the frontend renders the copy
          (cause + the model field above) and the animated K from it. */
       disruption: status.disruption || null,
@@ -7380,7 +7408,12 @@ function snapshot() {
     try { createdKeys = createdSource(boardKeys) || []; } catch { createdKeys = []; }
     for (const key of createdKeys) {
       if (boardKeys.has(key)) continue;   // belt-and-braces: the source excludes these, re-checked here
-      try { agents.push(panelessCard(key, nowMs, NEVER_RUN_DEFAULT)); boardKeys.add(key); } catch { /* that one agent is not listable */ }
+      /* #4006: a created agent with no pane may be one whose restart did not come back (Josh's Elon: no
+         session, no loaded job). Only a FAILED record is passed: a fresh in-flight one would change the
+         paneless-restart reading, which is its own follow-up (see the disruption note in panelessCard). */
+      let failedRec = null;
+      try { const d = disruption.read(key); if (d.found && d.failed) failedRec = { cause: d.cause, startedAt: d.startedAt, failed: true, timedOut: true }; } catch { failedRec = null; }
+      try { agents.push(panelessCard(key, nowMs, NEVER_RUN_DEFAULT, failedRec)); boardKeys.add(key); } catch { /* that one agent is not listable */ }
     }
   }
 

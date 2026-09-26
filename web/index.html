@@ -17033,7 +17033,10 @@ const PRESSAY = {
 /* #3410 (Mona Lisa's look): a lost connection Kosmos has given up on needs the person, so it wears
    needs_you's card, not the quiet paused one it keeps while Kosmos is still reconnecting.
    Kept on ONE line: web.needsyou-dealarm-2808.test.js and server.test.js slice it to the newline. */
-function cardStOf(a) { if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
+/* #4006: a restart that did not come back is red (st attn) but NOT online: nothing is running, so the presence is
+   off, which also keeps "Start this agent" offered (refreshStartAffordance shows it for presence off). */
+const CARD_ST_FAILED_RESTART = Object.freeze({ st: 'attn', pres: 'off' });
+function cardStOf(a) { if (a && a.state === 'needs_you' && a.disruption && a.disruption.failed === true) return CARD_ST_FAILED_RESTART; if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
 /* #2019: the state's word. For every state but 'restarting' it is the static
    STATE_COPY entry. For 'restarting' the word names the CAUSE (present-continuous,
    no blame), so the person knows WHY their agent went quiet, and it is computed
@@ -17181,6 +17184,11 @@ function stateReason(a, opts) {
      "This is not the same as having none": it pre-empts the fear the state exists
      to answer. Placed FIRST so it is not swallowed by the rate_limited guard
      below, which returns '' for every other state. */
+  /* #4006: a restart that did not come back (the engine's needs_you with disruption.failed). The card
+     says so and what to do, instead of a bare "Issue": Josh's Grok agent sat dead 23 minutes behind one. */
+  if (a && a.state === 'needs_you' && a.disruption && a.disruption.failed === true && a.because) {
+    return a.because + '.';   // the engine's one sentence (status.js), not a second copy of it
+  }
   if (a && a.state === 'restarting') {
     /* #2019 timedOut: an OVERRUN restart must not still promise "a few seconds"
        -- the label already says "not back yet", and a card that says both reads
@@ -17811,7 +17819,8 @@ function answerBtn(a) {
      forces untied panes to unknown today; the gate is for the day that
      changes). The accessible name CONTAINS the visible word "Answer"
      verbatim (SC 2.5.3). */
-  return a.state === 'needs_you' && a.isNamedOurs
+  /* #4006: a restart that did not come back has no question to answer. */
+  return a.state === 'needs_you' && a.isNamedOurs && !(a.disruption && a.disruption.failed === true)
     ? `<button class="ansgo" type="button" data-answer="${esc(a.sessionName)}"`
       + ` data-answer-name="${esc(a.name)}"`
       + ` aria-label="Answer ${esc(a.name)}'s question"><u>Answer &rarr;</u></button>`

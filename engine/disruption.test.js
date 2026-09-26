@@ -111,3 +111,27 @@ test('begin refuses an unwritable name with ok:false rather than throwing', () =
   // And nothing was written under any coerced key.
   assert.equal(disruption.read('').found, false);
 });
+
+test('#4006 fail: marks a begun record failed, keeping its cause and start; refuses a bad time; falls back with no prior record', () => {
+  const disruption = require('./disruption');
+  disruption.begin('failunit', 'model');
+  const began = disruption.read('failunit');
+  assert.equal(disruption.fail('failunit', { bootstrap: { code: 5 } }).ok, true);
+  const r = disruption.read('failunit');
+  assert.equal(r.failed, true);
+  assert.equal(r.cause, 'model');
+  assert.equal(r.startedAt, began.startedAt);
+  // A time that does not parse is refused, and the record is unchanged.
+  assert.equal(disruption.fail('failunit', null, 'not a time').ok, false);
+  assert.equal(disruption.read('failunit').failedAt, r.failedAt);
+  // With no prior record: a restart cause, started when it failed.
+  disruption.clear('failunit');
+  assert.equal(disruption.fail('failunit', 'not an object').ok, true);
+  const alone = disruption.read('failunit');
+  assert.equal(alone.failed, true);
+  assert.equal(alone.cause, 'restart');
+  assert.equal(alone.startedAt, alone.failedAt);
+  assert.equal(JSON.parse(require('node:fs').readFileSync(disruption.fileFor('failunit'), 'utf8')).diagnostics, undefined, 'non-object diagnostics were written');
+  disruption.clear('failunit');
+});
+

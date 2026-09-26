@@ -106,7 +106,7 @@ function setDryRun(on) {
 
 /* Test seam (#1598): back to a clean fail-closed state (no runner, explicit
    dry-run flag off) so a test can exercise the live-execution gate itself. */
-function resetForTests() { runner = null; DRY_RUN = false; }
+function resetForTests() { runner = null; DRY_RUN = false; lastRetryWaitAt = 0; lastBootstrap = null; }
 
 /**
  * #2570: can a caller BELIEVE an outcome from this module?
@@ -143,6 +143,31 @@ function resetForTests() { runner = null; DRY_RUN = false; }
  */
 function commandsAreReal() { return !!runner || liveExec.liveExecutionAllowed(); }
 
+/* #4006: the last Mac bootstrap's answer, for ops.diagnose. */
+let lastBootstrap = null;
+/* #4006: how long a restart waits before trying its job's bootstrap a second time. bootout returns
+   before launchd has finished unloading the job, and a bootstrap sent into that gap can answer
+   "already loaded" (5, treated as success) for a job that is then gone. The env is the test seam only. */
+function relaunchRetryMs() {
+  const v = Number(process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS);
+  return Number.isFinite(v) && v >= 0 ? v : 2000;
+}
+function sleepMs(ms) { if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
+/* The wait blocks this whole process (restart is synchronous), so a burst of failing restarts in one sweep must not
+   add up: only the first failure in a RETRY_WAIT_WINDOW_MS window waits; later ones in the burst retry at once. */
+const RETRY_WAIT_WINDOW_MS = 10 * 1000;
+let lastRetryWaitAt = 0;
+function retryWait() {
+  const now = Date.now();
+  if (now - lastRetryWaitAt < RETRY_WAIT_WINDOW_MS) return;
+  const ms = relaunchRetryMs();
+  if (ms > 0) lastRetryWaitAt = now;
+  sleepMs(ms);
+}
+/* The trade-off, stated: the second and later failures in one burst retry at once, so their second try does not
+   get the wait the bootout race needs. Accepted, because a board frozen for N waits is worse than a second try
+   that may not help; those agents still end on the failed card. */
+
 function run(file, args) {
   if (runner) return runner(file, args);
   if (DRY_RUN) return { ok: true, stdout: '', dryRun: true };
@@ -161,7 +186,11 @@ function run(file, args) {
     // is not loaded, `kill-session` answers 1 for a session that is not there.
     // A bare failure threw that away, and the caller then treated every outcome
     // as success.
-    return { ok: false, code: err && typeof err.status === 'number' ? err.status : null };
+    /* #4006: and what launchctl SAID. A restart whose job did not load is the #3418 class, and its
+       cause is in this text; dropping it left nothing to find it with. */
+    const text = (v) => (v == null ? '' : String(v)).slice(0, 2000);
+    return { ok: false, code: err && typeof err.status === 'number' ? err.status : null,
+      stdout: text(err && err.stdout), stderr: text(err && err.stderr) };
   }
 }
 
@@ -450,8 +479,9 @@ function jobOps(platform) {
          it by hand while the agent was off the board, and bootstrapping a file
          that is gone fails in a way worth reporting rather than hiding -- the
          enable still stands, so a later start by their own tooling works. */
-      if (!record.plist || !fs.existsSync(record.plist)) return true;
+      if (!record.plist || !fs.existsSync(record.plist)) { lastBootstrap = null; return true; }
       const up = run('/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, record.plist]);
+      lastBootstrap = up ? { ok: up.ok !== false, code: up.code == null ? null : up.code, stderr: up.stderr || '', stdout: up.stdout || '' } : null;   // #4006: for diagnose
       // 5 is launchd for "already loaded", which is the end state we wanted.
       return Boolean(up && (up.ok !== false || up.code === 5));
     },
@@ -467,6 +497,19 @@ function jobOps(platform) {
       return Boolean(out && out.ok !== false);
     },
     startableGone: (name, record) => !record.plist || !fs.existsSync(record.plist),
+    /* #4006: when a restart's job did not load, what launchd said: the last bootstrap's code and
+       output, and `launchctl print` of the job now. Kept in the failed disruption record. */
+    diagnose: (name, record) => {
+      const printed = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${record.label}`]);
+      return {
+        label: record.label || null,
+        plistExists: Boolean(record.plist && fs.existsSync(record.plist)),
+        bootstrap: lastBootstrap,
+        /* On success only the code: print's stdout carries the job's environment block. */
+        print: printed ? { ok: printed.ok !== false, code: printed.code == null ? null : printed.code,
+          text: printed.ok !== false ? '' : String(printed.stderr || printed.stdout || '').slice(0, 2000) } : null,
+      };
+    },
   };
 }
 
@@ -650,6 +693,8 @@ function recordRemoval(clean, job, stopped, shownAs, leftRunningByChoice) {
      #1916 fail-opens), giving an operator the one line that says the token
      outlived the removal. */
   let revoked;
+  /* #4006: and its disruption record, so a failed restart does not outlive the agent onto a new one of that name. */
+  try { disruption.clear(clean); } catch { /* best-effort, like the revoke */ }
   try { revoked = sendertoken.revoke(clean); } catch (e) { revoked = { ok: false, because: (e && e.message) || 'threw' }; }
   if (!revoked || revoked.ok !== true) {
     console.error('#2323: removed ' + clean + ' but could NOT revoke its sender token'
@@ -1854,6 +1899,10 @@ function restartInner(name, cause, platform, startIfDead) {
      incidentally clean already -- a pure dry-run fails the `ended` check below
      and reaches disruption.clear -- but an explicit gate matches the module's
      convention rather than relying on that coupling (challenge iter 1). */
+  /* #4006: a failed restart already on file stays failed if this attempt (typically the person's own Restart of a
+     no-pane agent, a fromDead start) fails too; only a success, removal or creation ends it. */
+  let wasFailed = false;
+  try { wasFailed = disruption.read(clean).failed === true; } catch { wasFailed = false; }
   if (!(DRY_RUN && !runner)) disruption.begin(clean, cause);
 
   const steps = [];
@@ -1925,6 +1974,7 @@ function restartInner(name, cause, platform, startIfDead) {
      the NEW supervisor from a state file the dying one left behind; on the Mac there is no
      `beforeRestart` op and this is null, which the Mac's `loaded` ignores. */
   const before = ops.beforeRestart ? ops.beforeRestart(clean, job) : null;
+  lastBootstrap = null;   // #4006: this relaunch's answer only, never an earlier agent's
   const relaunched = step('asked it to start again now', () => {
     ops.stopNow(clean, job);
     return ops.startNow(clean, job);
@@ -1936,19 +1986,41 @@ function restartInner(name, cause, platform, startIfDead) {
      rendered to the person verbatim, so a plain bootstrap failure must not read as two separate
      failures), and the check gets the same try/catch every other op in this function has. The
      verdict gates on `loaded` directly, not on `steps`. */
-  const loaded = relaunched && step('confirmed its job is loaded', () => ops.loaded(clean, job, before));
+  let loaded = relaunched && step('confirmed its job is loaded', () => ops.loaded(clean, job, before));
+  /* #4006: one more try before giving up, after launchd has had a moment to finish the unload.
+     Josh's Grok agent (2026-09-26) was the second #3418-class case: a restart whose job did not
+     reload, while a bootstrap by hand minutes later worked at once. Only when the file is still
+     there (a missing one cannot be bootstrapped at all). */
+  if (!loaded && !ops.win32 && !ops.startableGone(clean, job)) {   // the Mac's bootout/bootstrap race only
+    retryWait();
+    const again = step('asked it to start once more', () => ops.startNow(clean, job));
+    loaded = again && step('confirmed its job is loaded on the second try', () => ops.loaded(clean, job, before));
+  }
 
   if (!loaded) {
     /* The relaunch did not take: bootout already unloaded the job, so nothing will bring the
-       agent back on its own. Clear the restarting record (as the failed-kill path above does)
-       so a down agent is not left marked restarting, and report PARTIAL -- the agent is not
-       running. This is what stops the class-1 auto-handler logging a false "handled" and the
-       Restart button telling a person an agent is back when it is not. */
-    disruption.clear(clean);
+       agent back on its own. Report PARTIAL -- the agent is not running. This is what stops the
+       class-1 auto-handler logging a false "handled" and the Restart button telling a person an
+       agent is back when it is not. #4006: and on the Mac, mark the record FAILED rather than
+       clearing it, so the card says the restart did not come back (needs_you) until the agent is
+       running again, instead of a quiet "not running"; and keep what launchd said. */
+    let diagnostics = null;
+    try { diagnostics = ops.diagnose ? ops.diagnose(clean, job) : null; } catch { diagnostics = null; }
+    /* The Mac only: a Windows row has no pane-side clear for a failed record (status reads it paneless), so it
+       keeps today's clear there. */
+    /* A START of a never-run or fully-dead agent is not a restart that did not come back: the route says what
+       happened, and the card keeps its ordinary "not running". */
+    /* And a launch file that is gone: restarting cannot help, so "restart it" would be wrong; the route says it has
+       to be created again. */
+    const cannotRestart = ops.startableGone(clean, job);
+    if (!(DRY_RUN && !runner)) {
+      if (ops.win32 || cannotRestart || (fromDead && !wasFailed)) disruption.clear(clean);
+      else disruption.fail(clean, diagnostics);
+    }
     /* A missing launch file cannot be bootstrapped at all (startNow returns true without ever
        trying), so "try again" is not actionable in that sub-case -- say what actually has to
        happen instead of sending the person into an indefinite retry that keeps no-opping. */
-    const gone = ops.startableGone(clean, job);
+    const gone = cannotRestart;
     /* #3410: the messages differ for a fully-dead start -- there was no window to close, so
        "we closed X's window but..." would be false. Say what actually happened in each case. */
     return {

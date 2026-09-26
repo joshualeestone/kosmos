@@ -27,6 +27,7 @@ process.on('exit', () => {
 });
 
 const remove = require('./remove');
+process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS = '0';   // #4006: no real wait before the second try, in tests
 const create = require('./create');
 const status = require('./status');
 /* #2615: the shared, both-directions-tested comment stripper (#1080), so the
@@ -2171,7 +2172,7 @@ test('restart reports PARTIAL when the launch job fails to reload, not a false R
       'it claims the agent is coming back when its job never reloaded');
     /* #2019 seam: a down agent must not be left marked restarting. A regression that dropped
        the new PARTIAL branch's disruption.clear would otherwise pass the whole suite. */
-    assert.ok(!disruption.active(name), 'a failed relaunch left the agent marked restarting');
+    { const a = disruption.active(name); const d = disruption.read(name); assert.ok((!a || a.failed === true) && d.found && d.failed === true, 'a failed relaunch left the agent marked restarting' + ' (#4006: the record stays, marked failed, so the card says it did not come back): ' + JSON.stringify(d)); }
   } finally {
     remove.setRunner(null);
     status.setPaneSource(null);
@@ -2202,7 +2203,7 @@ test("restart reports PARTIAL when bootstrap returns 0 but the job never loads -
     assert.doesNotMatch(out.because, /starting again|is back\b/,
       'it claims the agent is coming back when its job never loaded');
     /* #2019 seam: a silently-unloaded agent must not be left marked restarting. */
-    assert.ok(!disruption.active(name), 'a silently-unloaded relaunch left the agent marked restarting');
+    { const a = disruption.active(name); const d = disruption.read(name); assert.ok((!a || a.failed === true) && d.found && d.failed === true, 'a silently-unloaded relaunch left the agent marked restarting' + ' (#4006: the record stays, marked failed, so the card says it did not come back): ' + JSON.stringify(d)); }
   } finally {
     remove.setRunner(null);
     status.setPaneSource(null);
@@ -2276,7 +2277,7 @@ test('restart of a fully-dead agent reports PARTIAL when the launch job fails to
     assert.match(out.because, /could not start|did not load/);
     assert.doesNotMatch(out.because, /closed .*window|starting\b/,
       'it claims a window close or a start that did not happen for a dead agent');
-    assert.ok(!disruption.active(name), 'a dead agent that failed to start was left marked restarting');
+    assert.ok(!disruption.active(name) && !disruption.read(name).found, 'a dead agent that failed to start was left marked restarting (#4006: a failed START is not a failed restart, so its record is cleared)');
   } finally {
     remove.setRunner(null);
     status.setPaneSource(null);
@@ -2305,7 +2306,7 @@ test('restart of a fully-dead agent reports PARTIAL when bootstrap returns 0 but
     assert.ok(calls.some((c) => c[0] === '/bin/launchctl' && c[1][0] === 'print'),
       'the dead-start never confirmed the job was loaded, so a silent no-load is invisible');
     assert.doesNotMatch(out.because, /starting\b/, 'it claims a start that did not take');
-    assert.ok(!disruption.active(name), 'a silently-unloaded dead start was left marked restarting');
+    assert.ok(!disruption.active(name) && !disruption.read(name).found, 'a silently-unloaded dead start was left marked restarting (#4006: a failed START is not a failed restart, so its record is cleared)');
   } finally {
     remove.setRunner(null);
     status.setPaneSource(null);
@@ -2567,4 +2568,127 @@ test('#2323: restoring after removal is unaffected (a fresh token is minted on r
   const fresh = sendertoken.mint(name);
   assert.equal(sendertoken.resolveName(fresh.token).ok, true, 'a freshly minted token resolves after restore');
   assert.equal(sendertoken.resolveName(minted.token).ok, false, 'the pre-removal token stays revoked');
+});
+
+test('#4006: a job that did not load on the first bootstrap is tried once more, and a second-try load is a real RESTARTED', () => {
+  /* Josh's Grok agent (2026-09-26), the second #3418-class case: bootout, bootstrap, and the job not loaded,
+     while a bootstrap by hand minutes later worked at once. The restart now tries once more before giving up. */
+  const name = madeAgent('secondtry');
+  boardShows(name, name);
+  let bootstraps = 0;
+  let prints = 0;
+  remove.setRunner((file, args) => {
+    const cmd = args && args[0];
+    if (cmd === 'has-session') return { ok: false, code: 1 };
+    if (cmd === 'bootstrap') { bootstraps += 1; return { ok: true, stdout: '' }; }
+    if (cmd === 'print') { prints += 1; return prints === 1 ? { ok: false, code: 113 } : { ok: true, stdout: 'state = running' }; }
+    return { ok: true, stdout: '' };
+  });
+  try {
+    const out = mac.restart(name);
+    assert.equal(out.outcome, remove.OUTCOME.RESTARTED, out.because);
+    assert.equal(bootstraps, 2, 'the job was not bootstrapped a second time');
+    assert.equal(disruption.read(name).failed, undefined, 'a restart that came back on the second try was marked failed');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#4006: a burst of failing restarts waits once, not once each (the wait blocks the whole board)', () => {
+  const a = madeAgent('burstone');
+  const b = madeAgent('bursttwo');
+  boardShows(a, a);
+  remove.setRunner((file, args) => {
+    const cmd = args && args[0];
+    if (cmd === 'has-session') return { ok: false, code: 1 };
+    if (cmd === 'bootstrap') return { ok: true, stdout: '' };
+    if (cmd === 'print') return { ok: false, code: 113 };
+    return { ok: true, stdout: '' };
+  });
+  const was = process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS;
+  process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS = '1500';
+  try {
+    mac.restart(a);                       // may wait (or not, if another failure waited moments ago)
+    boardShows(b, b);
+    const t0 = Date.now();
+    const out = mac.restart(b);           // the second failure in the burst must not wait again
+    const took = Date.now() - t0;
+    assert.equal(out.outcome, remove.OUTCOME.PARTIAL, out.because);
+    assert.ok(took < 700, `the second failing restart in a burst waited again (${took}ms)`);
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS; else process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS = was;
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(a); disruption.clear(b);
+  }
+});
+
+test('#4006: when both tries fail, what launchd said (bootstrap code and stderr, and print) is kept in the failed record', () => {
+  const name = madeAgent('bothfail');
+  boardShows(name, name);
+  let bootstraps = 0;
+  remove.setRunner((file, args) => {
+    const cmd = args && args[0];
+    if (cmd === 'has-session') return { ok: false, code: 1 };
+    if (cmd === 'bootstrap') { bootstraps += 1; return { ok: false, code: 5, stderr: 'Bootstrap failed: 5: Input/output error', stdout: '' }; }
+    if (cmd === 'print') return { ok: false, code: 113, stderr: 'Could not find service in domain for port', stdout: '' };
+    return { ok: true, stdout: '' };
+  });
+  try {
+    const out = mac.restart(name);
+    assert.equal(out.outcome, remove.OUTCOME.PARTIAL, out.because);
+    assert.equal(bootstraps, 2, 'the second try did not happen');
+    const rec = JSON.parse(fs.readFileSync(disruption.fileFor(name), 'utf8'));
+    assert.ok(rec.failedAt, 'the record is not marked failed: ' + JSON.stringify(rec));
+    assert.equal(rec.diagnostics.bootstrap.code, 5);
+    assert.match(rec.diagnostics.bootstrap.stderr, /Input\/output error/);
+    assert.equal(rec.diagnostics.print.code, 113);
+    assert.match(rec.diagnostics.print.text, /Could not find service/);
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#4006: removing an agent clears a failed-restart record, so it never shows on a later agent of that name', () => {
+  const name = madeAgent('failedthenremoved');
+  disruption.begin(name, 'restart');
+  disruption.fail(name, null);
+  assert.equal(disruption.read(name).failed, true, 'precondition: the failed record is on file');
+  boardShows(name, name);
+  world();
+  remove.setDryRun(false);
+  const r = mac.remove(name);
+  assert.equal(r.outcome, remove.OUTCOME.REMOVED, r.because);
+  assert.equal(disruption.read(name).found, false, 'the failed record outlived the removal');
+});
+
+test('#4006: the person\'s own Restart of a no-pane agent that fails again keeps the failure on its card', () => {
+  const name = madeAgent('retryfails');
+  status.setPaneSource(() => '');   // no session: the restart is a fromDead start
+  remove.setRunner((file, args) => {
+    const cmd = args && args[0];
+    if (cmd === 'bootstrap') return { ok: true, stdout: '' };
+    if (cmd === 'print') return { ok: false, code: 113 };
+    return { ok: true, stdout: '' };
+  });
+  try {
+    disruption.begin(name, 'restart');
+    disruption.fail(name, null);   // the automatic restart already failed
+    const out = mac.restart(name, 'restart', { startIfDead: true });
+    assert.equal(out.outcome, remove.OUTCOME.PARTIAL, out.because);
+    assert.equal(disruption.read(name).failed, true, 'a second failure wiped the failed record');
+    // CONTROL: a never-failed agent whose start fails keeps the ordinary clear.
+    disruption.clear(name);
+    const again = mac.restart(name, 'restart', { startIfDead: true });
+    assert.equal(again.outcome, remove.OUTCOME.PARTIAL, again.because);
+    assert.equal(disruption.read(name).found, false, 'a failed plain START was marked as a failed restart');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
 });
