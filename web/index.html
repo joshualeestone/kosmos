@@ -24766,7 +24766,7 @@ function acctGeminiShow(which, info) {
   flow.hidden = false;
   document.getElementById('acct-gemini-pick').hidden = false;
   document.getElementById('acct-gemini-sub-step').hidden = true;
-  document.getElementById('acct-gemini-sub-go').hidden = false;
+  { const go = document.getElementById('acct-gemini-sub-go'); go.hidden = false; go.textContent = 'Sign in with Google'; }   // no label left from a stopped step
   document.getElementById('acct-gemini-sub-open-row').hidden = true;
   document.getElementById('acct-gemini-sub-cancel-row').hidden = true;
   document.getElementById('acct-apikey-flow').hidden = true;   // until "Use an API key"
