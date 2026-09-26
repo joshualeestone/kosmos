@@ -27,7 +27,7 @@
  * A refused step records a FAIL, which the gate refuses on. A refusal that was the operator's own
  * mistake (a stale or mistyped code, an old authenticator secret) is cleared by running start and
  * finish again: the new attempt's record REPLACES this build's record when it finishes. An earlier
- * record is never deleted before then, so an abandoned attempt cannot turn a refusal into a HOLD.
+ * record is never deleted before then, so an abandoned attempt cannot turn a refusal into a "cannot tell".
  *
  * THE SEED: the address #1591 decides: a +seed alias on a KOSMOS-owned mailbox (installkosmos.com),
  * connected to the agents' Gmail connector. Never another company's mailbox by default: the connector

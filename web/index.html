@@ -11567,6 +11567,7 @@ window.kosmosMeasureScrollbarWidth();
                aria-label="API key" placeholder="API key">
         <button class="linkish" id="acct-apikey-show" type="button" aria-pressed="false">Show</button>
       </div>
+      <p class="acct-help" style="margin:8px 0 0;"><a class="btn-quiet" id="acct-apikey-getkey" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></p>
       <div class="frow" style="margin-top:8px;">
         <input type="text" id="acct-apikey-name" autocomplete="off" maxlength="40"
                aria-label="A name for this account (optional)" placeholder="A name, if you want one">
@@ -11655,6 +11656,7 @@ window.kosmosMeasureScrollbarWidth();
                  aria-label="Anthropic API key" placeholder="sk-ant-…">
           <button class="linkish" id="acct-claude-show" type="button" aria-pressed="false">Show</button>
         </div>
+        <p class="acct-help" style="margin:8px 0 0;"><a class="btn-quiet" id="acct-claude-getkey" data-keypage="claude" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></p>
         <!-- Add has its own row under both fields (kosmos#978), where it reads as the
              action for the FORM rather than for whichever input it is touching. -->
         <div class="frow" style="margin-top:8px;">
@@ -11752,6 +11754,7 @@ window.kosmosMeasureScrollbarWidth();
                aria-label="OpenAI API key" placeholder="sk-…">
         <button class="linkish" id="acct-openai-show" type="button" aria-pressed="false">Show</button>
       </div>
+      <p class="acct-help" style="margin:8px 0 0;"><a class="btn-quiet" id="acct-openai-getkey" data-keypage="openai" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></p>
       <!-- 🛑 ADD IS NOT ON THE NAME'S ROW ANY MORE (kosmos#978). Josh read this
            form as "Add a name" rather than "activate this key", and the layout
            told him so: the rows were [key][Show] then [name][Add], so the only
@@ -12563,7 +12566,7 @@ window.kosmosMeasureScrollbarWidth();
                 </div>
                 <div id="fr-openai-flow" hidden class="fr-confirm">
                   <p class="fr-confirm-t" id="fr-openai-key-t">Download complete. You will need an OpenAI API key to finish. A key is a bit like a password that OpenAI issues for this computer. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
-                  <div class="frow"><a class="btn" id="fr-openai-getkey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key</a></div>
+                  <div class="frow"><a class="btn" id="fr-openai-getkey" data-keypage="openai" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></div>
                   <!-- 🛑 NO PROMISE ABOUT THE KEY ON THIS SCREEN. Josh, 2026-08-27:
                        "We don't need this line at all for the openAI."
                        ⭐ HE REMOVED THE CLAIM RATHER THAN WORDING IT. Ice Cream Kitty
@@ -12641,7 +12644,7 @@ window.kosmosMeasureScrollbarWidth();
                 </div>
                 <div id="fr-gemini-flow" hidden class="fr-confirm">
                   <p class="fr-confirm-t" id="fr-gemini-key-t">Download complete. You will need a Google API key to finish. A key is a bit like a password that Google issues for this computer. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
-                  <div class="frow"><a class="btn" id="fr-gemini-getkey" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Get a key</a></div>
+                  <div class="frow"><a class="btn" id="fr-gemini-getkey" data-keypage="google" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></div>
                   <p class="fr-confirm-t" id="fr-gemini-key-back" style="margin-top:8px;">Then come back and paste it here.</p>
                   <div class="frow">
                     <input type="password" id="fr-gemini-key" autocomplete="new-password" spellcheck="false"
@@ -12689,7 +12692,7 @@ window.kosmosMeasureScrollbarWidth();
                 </div>
                 <div id="fr-grok-flow" hidden class="fr-confirm">
                   <p class="fr-confirm-t" id="fr-grok-key-t">Download complete. You will need an xAI API key to finish. A key is a bit like a password that xAI issues for this computer. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
-                  <div class="frow"><a class="btn" id="fr-grok-getkey" href="https://console.x.ai/" target="_blank" rel="noopener">Get a key</a></div>
+                  <div class="frow"><a class="btn" id="fr-grok-getkey" data-keypage="xai" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></div>
                   <p class="fr-confirm-t" id="fr-grok-key-back" style="margin-top:8px;">Then come back and paste it here.</p>
                   <div class="frow">
                     <input type="password" id="fr-grok-key" autocomplete="new-password" spellcheck="false"
@@ -17062,7 +17065,10 @@ const PRESSAY = {
 /* #3410 (Mona Lisa's look): a lost connection Kosmos has given up on needs the person, so it wears
    needs_you's card, not the quiet paused one it keeps while Kosmos is still reconnecting.
    Kept on ONE line: web.needsyou-dealarm-2808.test.js and server.test.js slice it to the newline. */
-function cardStOf(a) { if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
+/* #4006: a restart that did not come back is red (st attn) but NOT online: nothing is running, so the presence is
+   off, which also keeps "Start this agent" offered (refreshStartAffordance shows it for presence off). */
+const CARD_ST_FAILED_RESTART = Object.freeze({ st: 'attn', pres: 'off' });
+function cardStOf(a) { if (a && a.state === 'needs_you' && a.disruption && a.disruption.failed === true) return CARD_ST_FAILED_RESTART; if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
 /* #2019: the state's word. For every state but 'restarting' it is the static
    STATE_COPY entry. For 'restarting' the word names the CAUSE (present-continuous,
    no blame), so the person knows WHY their agent went quiet, and it is computed
@@ -17210,6 +17216,11 @@ function stateReason(a, opts) {
      "This is not the same as having none": it pre-empts the fear the state exists
      to answer. Placed FIRST so it is not swallowed by the rate_limited guard
      below, which returns '' for every other state. */
+  /* #4006: a restart that did not come back (the engine's needs_you with disruption.failed). The card
+     says so and what to do, instead of a bare "Issue": Josh's Grok agent sat dead 23 minutes behind one. */
+  if (a && a.state === 'needs_you' && a.disruption && a.disruption.failed === true && a.because) {
+    return a.because + '.';   // the engine's one sentence (status.js), not a second copy of it
+  }
   if (a && a.state === 'restarting') {
     /* #2019 timedOut: an OVERRUN restart must not still promise "a few seconds"
        -- the label already says "not back yet", and a card that says both reads
@@ -17840,7 +17851,8 @@ function answerBtn(a) {
      forces untied panes to unknown today; the gate is for the day that
      changes). The accessible name CONTAINS the visible word "Answer"
      verbatim (SC 2.5.3). */
-  return a.state === 'needs_you' && a.isNamedOurs
+  /* #4006: a restart that did not come back has no question to answer. */
+  return a.state === 'needs_you' && a.isNamedOurs && !(a.disruption && a.disruption.failed === true)
     ? `<button class="ansgo" type="button" data-answer="${esc(a.sessionName)}"`
       + ` data-answer-name="${esc(a.name)}"`
       + ` aria-label="Answer ${esc(a.name)}'s question"><u>Answer &rarr;</u></button>`
@@ -24753,6 +24765,30 @@ document.getElementById('acct-openai-go').addEventListener('click', async () => 
     go.disabled = false;
   }
 });
+/* #3960 (Josh, 2026-09-26: "put a link to that if people select a Gemini key so they know where
+   to go to generate one"): where each provider issues API keys. ONE table, read by every "Get a key"
+   link (Settings and first run), so a moved page is one edit. Checked live 2026-09-26: Google's
+   sends a signed-out visitor through sign-in and back; Anthropic's old console address now forwards
+   to platform.claude.com, so the final address is used; OpenAI's and xAI's sit behind a bot check
+   and are the addresses their own docs give. */
+const KEY_PAGES = {
+  google: 'https://aistudio.google.com/apikey',
+  xai: 'https://console.x.ai/team/default/api-keys',
+  openai: 'https://platform.openai.com/api-keys',
+  claude: 'https://platform.claude.com/settings/keys',
+};
+/* Who issues each key, for the link's screen-reader text ("opens Google's key page"). */
+const KEY_PAGE_WHO = { google: 'Google', xai: 'xAI', openai: 'OpenAI', claude: 'Anthropic' };
+/** Point one "Get a key" link at a provider's key page, or hide it for a provider with none. */
+function keyPageLink(el, provider) {
+  if (!el) return;
+  const url = KEY_PAGES[provider] || '';
+  el.hidden = !url;
+  el.setAttribute('href', url || '#');
+  const said = el.querySelector && el.querySelector('.vh');
+  if (said) said.textContent = url ? ' (opens ' + KEY_PAGE_WHO[provider] + '\u2019s key page in your browser)' : ' (opens the key page in your browser)';
+}
+document.querySelectorAll('[data-keypage]').forEach((el) => keyPageLink(el, el.dataset.keypage));
 /* #2338: the picker's two choices. */
 /* #3566: Gemini and Grok, connected with a pasted API key. ONE step for both, keyed on
    the picked option, because the two engine routes are one helper parameterised by
@@ -24828,6 +24864,7 @@ function acctApikeyShow(which) {
     const m = document.getElementById('acct-apikey-msg'); if (m) m.textContent = '';
   }
   ACCT_APIKEY_WHICH = p ? which : null;
+  keyPageLink(document.getElementById('acct-apikey-getkey'), ACCT_APIKEY_WHICH);   // #3960
   acctKeyedInstallHide();
   /* #3731 (card item 5): never a key box, or Grok's choice, before the software is known to be
      here. Both stay hidden until /api/runners answers; an answer that does not say "present"
@@ -59635,7 +59672,7 @@ const ASB_OPEN_POLL_MS = 5000;     // the thread, while the chat is open (the ag
 const ASB_FOLDED_POLL_MS = 60000;  // the thread, while folded, only to light the reply dot
 const ASB_FIND_FIRST_MS = 5000;    // looking for the guide again: 5s, doubling to a minute, until one is named
 const ASB_FIND_MAX_MS = 60000;
-let ASB = { started: false, guide: null, setting: null, open: false, asking: false, sentThisOpen: false, draftAtOpen: '', nudgeGone: false,
+let ASB = { started: false, guide: null, setting: null, open: false, asking: false, offering: false, sentThisOpen: false, draftAtOpen: '', nudgeGone: false,
   wroteOnce: false, heard: null, fallback: null, replyIds: null, lastPoll: 0, screenKey: '', sending: false, dot: false,
   nextFind: 0, findEvery: ASB_FIND_FIRST_MS, finding: false, shown: '', readOnce: false,
   nextSetting: 0, settingEvery: ASB_FIND_FIRST_MS, settingReading: false,
@@ -59771,11 +59808,16 @@ function asbLayerEnsure() {
     +   '<div class="asp-th" id="asp-th"></div><p class="dmbusy asp-busy" id="asp-busy" hidden></p><span class="vh" id="asp-live" aria-live="polite"></span><span class="vh" id="asp-live-busy" aria-live="polite"></span>'
     +   '<div class="asp-note"></div>'   /* its words are asbPaint's, one copy (#3738) */
     +   '<div class="asp-msg" id="asp-msg" role="status"></div>'
-    +   '<div class="asp-ask" id="asp-ask" hidden><b>Close the assistant?</b>'
+    +   '<div class="asp-ask" id="asp-ask" role="group" aria-labelledby="asp-ask-q" hidden><b id="asp-ask-q">Close the assistant?</b>'
     +     '<button type="button" class="pri" id="asp-close-now">Close for now</button>'
     /* #3758 (Josh 2026-09-25 11:07): his words, verbatim. */
     +     '<button type="button" id="asp-close-off">Close forever</button>'
     +     '<small>You can turn it back on under Settings&nbsp;&gt;&nbsp;Computer</small></div>'   /* held together, so the path does not break */
+    /* #3947 (Josh, 2026-09-26 08:13): the second open-and-close with nothing sent offers to hide it for good. */
+    +   '<div class="asp-ask" id="asp-hide" role="group" aria-labelledby="asp-hide-q" hidden><b id="asp-hide-q">Hide the guide for good?</b>'
+    +     '<button type="button" class="pri" id="asp-hide-yes">Hide it</button>'
+    +     '<button type="button" id="asp-hide-no">Keep it</button>'
+    +     '<small>You can turn it back on under Settings&nbsp;&gt;&nbsp;Computer</small></div>'   /* Josh's words for this (#3758) */
     +   '<form class="asp-in" id="asp-in"><textarea id="asp-say" rows="1" aria-label="Ask about Kosmos" placeholder="Ask about Kosmos\u2026"></textarea>'
     +   '<button type="submit" id="asp-send" aria-label="Send">&uarr;</button></form>'
     + '</div>';
@@ -59787,6 +59829,8 @@ function asbLayerEnsure() {
   document.getElementById('asp-x').addEventListener('click', () => asbX());
   document.getElementById('asp-close-now').addEventListener('click', () => asbCloseChoice(false));
   document.getElementById('asp-close-off').addEventListener('click', () => asbCloseChoice(true));
+  document.getElementById('asp-hide-yes').addEventListener('click', () => asbHideChoice(true));
+  document.getElementById('asp-hide-no').addEventListener('click', () => asbHideChoice(false));
   document.getElementById('asp-in').addEventListener('submit', (e) => { e.preventDefault(); asbSend(); });
   document.getElementById('asp-say').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); asbSend(); }
@@ -59938,6 +59982,7 @@ function asbPaint() {
   if (bub.getAttribute('aria-label') !== lab) bub.setAttribute('aria-label', lab);   // the dot, for a screen reader
   document.getElementById('asb-nudge').hidden = ASB.open || ASB.nudgeGone || ASB.wroteOnce || !ASB.readOnce;   // not before the thread says whether they wrote
   document.getElementById('asp-ask').hidden = !ASB.asking;
+  document.getElementById('asp-hide').hidden = !ASB.offering;
   const ended = !row && !asbIsHosted();
   document.getElementById('asp-send').disabled = ASB.sending || ended;   // nothing to send to while it steps aside
   const sayBox = document.getElementById('asp-say');
@@ -59945,7 +59990,7 @@ function asbPaint() {
     sayBox.readOnly = ended;   // an ended chat takes no words, and says why to whoever lands in the box
     if (ended) sayBox.setAttribute('aria-describedby', 'asp-msg'); else sayBox.removeAttribute('aria-describedby');
   }
-  document.getElementById('asp-in').hidden = ASB.asking;
+  document.getElementById('asp-in').hidden = ASB.asking || ASB.offering;
 }
 
 /* The board's answer NOW to "which agent is the guide". Asked before every thread read and every send,
@@ -60038,11 +60083,12 @@ async function asbPoll(force) {
   else if (heard > ASB.heard && !ASB.dot) { ASB.dot = true; ASB.dotTimed = true; ASB.heardAt = Date.now(); }   // timed once, when the dot lights
   asbPaint();
 }
-/* #3738 (Josh 08:51, verbatim): one opening message, always the first guide bubble. */
+/* #3738 (Josh 08:51, verbatim): one opening message, always the first guide bubble.
+   #3947 (Josh, 2026-09-26 07:41, verbatim): the words. Same line as GUIDE_GREETING in engine/roles.js. */
 function asbOpening() {
   const open = document.createElement('div');
   open.className = 'asp-m him asp-open';
-  open.textContent = 'Hi, I\'m Josh\'s AI guide. Ask me anything about setting up Kosmos.';
+  open.textContent = 'Hi I\'m Josh, an AI Assistant to help you get your Kosmos setup. What can I help you with?';
   return open;
 }
 function asbPaintThread(rows, session) {
@@ -60068,7 +60114,7 @@ function asbPaintThread(rows, session) {
 }
 
 function asbOpen() {
-  ASB.open = true; ASB.asking = false; ASB.dot = false;
+  ASB.open = true; ASB.asking = false; ASB.offering = false; ASB.dot = false;
   ASB.sentThisOpen = false;   // #3034 (Josh 09-25 07:38): what asbX asks about is THIS opening
   { const box = document.getElementById('asp-say'); ASB.draftAtOpen = box ? box.value : ''; }   // an old unsent draft is not typing now
   /* A refusal that came while folded is read now, and the six seconds start from here. */
@@ -60084,24 +60130,63 @@ function asbOpen() {
 }
 function asbFold() {
   ASB.asideShowing = false;   // closing the sentence that says why the hosted assistant ended is reading it
-  ASB.open = false; ASB.asking = false;
+  ASB.open = false; ASB.asking = false; ASB.offering = false;
   asbPaint();
   const bub = document.getElementById('asb');
   if (bub && !bub.hidden) bub.focus();
 }
-/* The first x asks once (Josh 18:02); after that it just closes, UNLESS the person opened the chat and did
-   nothing in it. #3034, Josh 2026-09-25 07:38 (#admin), verbatim: "If somebody clicks on the assistant agent and
-   doesn't type anything and then hits the X, we should show them the message to dismiss it permanently (because
-   that's probably what they're trying to look for at that point)". Nothing typed means nothing sent this opening
-   AND the box unchanged since it opened: somebody who wrote a question and then closed was using it, not hunting
-   for the way to get rid of it, while a draft left from an earlier visit is not typing now (review round 1). */
+const ASB_SAVE_FAILED = 'We could not save that just now. Try again in a moment.';
+/* #3947: the idle-close count and the "Keep it" answer, kept in this page's storage. A count that is lost (storage
+   cleared, a private window) only means one more close before the offer, so it does not need the board; the switch
+   that actually hides the guide is the board's (Hide it = Close forever). Every read and write is guarded: storage
+   can refuse, and then nothing is counted and the chat simply closes. */
+const ASB_IDLE_KEY = 'kosmos.asb.idle-closes.v1';
+const ASB_KEPT_KEY = 'kosmos.asb.kept.v1';
+function asbIdleGet() { try { const n = Number(localStorage.getItem(ASB_IDLE_KEY)); return Number.isInteger(n) && n > 0 ? n : 0; } catch { return 0; } }
+function asbIdleSet(n) { try { localStorage.setItem(ASB_IDLE_KEY, String(n)); } catch { /* not counted: see above */ } }
+function asbKept() { try { return localStorage.getItem(ASB_KEPT_KEY) === '1'; } catch { return false; } }
+/* Trimmed both sides (review round 2): a stray space is not typing, while a half-written word still is. */
+function asbDidNothing() {
+  const say = document.getElementById('asp-say');
+  return !ASB.sentThisOpen && (say ? say.value : '').trim() === ASB.draftAtOpen.trim();
+}
+/* The first x asks once (Josh 18:02). After that, an opening where nothing was typed is counted, and the second
+   offers to hide the guide for good (#3947, in asbX; it replaced #3034's 09-25 rule of asking on every such close).
+   Nothing typed means nothing sent this opening AND the box unchanged since it opened: somebody who wrote a question
+   and then closed was using it, not hunting for the way to get rid of it, while a draft left from an earlier visit
+   is not typing now (review round 1). */
 function asbX() {
   if (asbStepping()) { asbFold(); return; }   // nothing to ask about: it is going anyway
-  const say = document.getElementById('asp-say');
-  /* Trimmed both sides (review round 2): a stray space is not typing, while a half-written word still is. */
-  const didNothing = !ASB.sentThisOpen && (say ? say.value : '').trim() === ASB.draftAtOpen.trim();
-  if (ASB.setting && (ASB.setting.asked !== true || didNothing)) { ASB.asking = true; asbPaint(); document.getElementById('asp-close-now').focus(); return; }
+  if (ASB.offering) { asbFold(); return; }   // #3947: X on the hide offer is "not now", and is not another close to count
+  const didNothing = asbDidNothing();
+  /* The first X asks once, whatever happened in the chat. */
+  if (ASB.setting && ASB.setting.asked !== true) { ASB.asking = true; asbPaint(); document.getElementById('asp-close-now').focus(); return; }
+  /* #3947 (Josh, 2026-09-26 08:13, verbatim): "If I click on the assistant and hit the X on him and haven't typed
+     a message, and I do that twice, then it should prompt me to close the agent forever because, as a user, I'm
+     trying to get rid of it". This replaces the 09-25 rule that asked on EVERY such close. Closes with nothing
+     typed are counted until something is sent (asbSend); the second offers to hide it, unless they answered
+     "Keep it". */
+  if (didNothing && !asbKept()) {
+    const idle = asbIdleGet() + 1;
+    if (idle >= 2) { ASB.offering = true; asbPaint(); document.getElementById('asp-hide-yes').focus(); return; }
+    asbIdleSet(idle);
+  }
   asbFold();
+}
+/* #3947: "Hide it" is the same board switch as Close forever; "Keep it" is remembered and not offered again. */
+async function asbHideChoice(hide) {
+  const msg = document.getElementById('asp-msg');
+  if (hide) {
+    if (!(await asbSaveSetting({ on: false }))) { msg.textContent = ASB_SAVE_FAILED; return; }
+  } else {
+    try { localStorage.setItem(ASB_KEPT_KEY, '1'); } catch { /* not remembered: it may be offered again */ }
+  }
+  if (msg.textContent === ASB_SAVE_FAILED) msg.textContent = '';   // an earlier failed try is not left standing
+  asbIdleSet(0);
+  ASB.offering = false;
+  asbFold();
+  asbPaintSetting();
+  if (hide) asbFocusPage();
 }
 async function asbSaveSetting(patch) {
   try {
@@ -60112,8 +60197,13 @@ async function asbSaveSetting(patch) {
   return false;
 }
 async function asbCloseChoice(forGood) {
+  const idleNow = asbDidNothing();   // read before the save: the answer arrives after the box may have changed
   const ok = await asbSaveSetting(forGood ? { asked: true, on: false } : { asked: true });
-  if (!ok) { document.getElementById('asp-msg').textContent = 'We could not save that just now. Try again in a moment.'; return; }
+  const msg = document.getElementById('asp-msg');
+  if (!ok) { msg.textContent = ASB_SAVE_FAILED; return; }
+  if (msg.textContent === ASB_SAVE_FAILED) msg.textContent = '';
+  /* #3947: a first X on an opening where nothing was typed is also the first of the two that lead to the offer. */
+  if (!forGood && idleNow && !asbKept()) asbIdleSet(1);
   ASB.asking = false;
   asbFold();
   asbPaintSetting();
@@ -60130,6 +60220,7 @@ async function asbSend() {
   const msg = document.getElementById('asp-msg');
   const text = say.value.trim();
   if (text) ASB.sentThisOpen = true;   // #3034: an attempt to send is using it, whatever the answer
+  if (text) asbIdleSet(0);   // #3947: an attempt to send is using it, so the count starts again
   if (asbIsHosted()) { if (text && !ASB.sending) await asbHostedSend(text); return; }
   /* In the fallback, the board is asked again before each message (Josh: on the next message, not continuously):
      still failing, the backup answers; answering again, it goes to the guide as usual. */
@@ -60393,7 +60484,7 @@ function asbForgetGuide() {
   const hadFocus = !standIn && !!document.activeElement && !!document.activeElement.closest('#asblayer');
   const keepOpen = standIn && ASB.open;
   for (const k of [...UNREAD_EDGE.keys()]) if (k.startsWith('asb:')) UNREAD_EDGE.delete(k);   // #3743: a new guide under the same name starts from its own history
-  ASB.guide = null; ASB.fallback = null; ASB.replyIds = null; ASB.open = keepOpen; ASB.asking = false; ASB.heard = null; ASB.heardAt = 0; ASB.wasWorking = false; ASB.saidSignIn = ''; ASB.dotTimed = false; ASB.shown = ''; ASB.dot = false;
+  ASB.guide = null; ASB.fallback = null; ASB.replyIds = null; ASB.open = keepOpen; ASB.asking = false; ASB.offering = false; ASB.heard = null; ASB.heardAt = 0; ASB.wasWorking = false; ASB.saidSignIn = ''; ASB.dotTimed = false; ASB.shown = ''; ASB.dot = false;
   ASB.wroteOnce = false; ASB.readOnce = false; ASB.lastPoll = 0; ASB.nudgeGone = false; ASB.asideShowing = false; asbAsideDone();
   const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = '';   // nothing stale when it comes back
   if (keepOpen) { const th = document.getElementById('asp-th'); if (th) th.replaceChildren(); }   // the guide's thread is not the hosted one's

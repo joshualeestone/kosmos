@@ -248,6 +248,14 @@ from a night in this codebase, kosmos#2616.)
    under `NODE_TEST_CONTEXT` (kosmos#3605, after #3011). Enforced by
    `engine/create.launch-refuse-3605.test.js`.
 
+7. **A page `/api` call needs its board route in the same change.** `web.api-routes-3957.test.js`
+   reads the `/api/` literals in `web/index.html`'s code (and in markup built in JS strings) and
+   refuses one that no route in `server.js` serves: a compared literal, or an anchored route
+   regex. kosmos#3957: 0.6.96 shipped a page calling `/api/federation/invite` before the route
+   merged. Its header lists what it cannot see (the HTTP method, URLs built from variables, a
+   variable segment a sibling route fills, a new literal a free-segment route matches, an
+   equality guard with no handler).
+
 ### This list is intentionally incomplete
 
 The first five come from the account and removal lanes one agent happened to be in. They almost
