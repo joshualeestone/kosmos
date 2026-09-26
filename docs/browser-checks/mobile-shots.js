@@ -152,6 +152,46 @@ const SCREENS = [
     await at(page, '?tab=settings&sec=accounts');
     await page.waitForSelector('#s-sec-accounts', { state: 'visible', timeout: 5000 });
   } },
+  /* The #718 phone-ready sweep's remaining screens (Raiden, 2026-09-25). Each
+     asserts it arrived, for the same reason as the frame shots above. */
+  { name: 'org-chart', owner: 'unowned', go: async (page) => {
+    await page.click('button.vt[data-layout="org"]');
+    await page.waitForSelector('button.vt[data-layout="org"][aria-pressed="true"]', { timeout: 5000 });
+  } },
+  { name: 'create-agent', owner: 'unowned', go: async (page) => {
+    await page.evaluate(() => document.getElementById('new-agent').click());
+    await page.waitForSelector('#panel-create', { state: 'visible', timeout: 5000 });
+  } },
+  { name: 'first-run', owner: 'unowned', go: async (page) => {
+    await at(page, '?first-run=1');
+    await page.waitForSelector('#firstrun', { state: 'visible', timeout: 5000 });
+  } },
+  { name: 'agent-files', owner: 'unowned', go: async (page) => {
+    await at(page, '?tab=detail&agent=ada');
+    await page.waitForSelector('#d-files-list .pj-doc', { state: 'visible', timeout: 8000 });
+    await page.evaluate(() => document.getElementById('d-files').scrollIntoView({ block: 'start' }));
+  } },
+  { name: 'agent-files-all', owner: 'unowned', go: async (page) => {
+    await at(page, '?tab=detail&agent=ada');
+    await page.waitForSelector('#d-files-all', { state: 'visible', timeout: 8000 });
+    await page.click('#d-files-all');
+    await page.waitForSelector('#d-filesall-list .pj-doc', { state: 'visible', timeout: 5000 });
+  } },
+  { name: 'agent-profile', owner: 'unowned', go: async (page) => {
+    await at(page, '?tab=detail&agent=ada');
+    await page.locator('#d-nav button[data-go="profile"]').first().click({ timeout: 5000 });
+    await page.waitForTimeout(300);
+  } },
+  { name: 'agent-instructions', owner: 'unowned', go: async (page) => {
+    await at(page, '?tab=detail&agent=ada');
+    await page.locator('#d-nav button[data-go="instr"]').first().click({ timeout: 5000 });
+    await page.waitForTimeout(300);
+  } },
+  // Tasks is Mona Lisa and April's lane: shot and reported on #3559, not fixed here.
+  { name: 'tasks', owner: 'Mona Lisa / April', go: async (page) => {
+    await at(page, '?tab=tasks');
+    await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+  } },
 ];
 
 /* ------------------------------------------------------------------ args */
@@ -230,6 +270,19 @@ function seedFiles(roots) {
   chat.appendMessage(chat.DIRECT, 'ada', { text: 'Morning! Three things, and none of them are blocked.', at: stamp(2), from: 'ada' });
   chat.appendMessage(chat.DIRECT, 'ada', { text: 'Can you write it up properly so I can read it on my phone later?', at: stamp(3) });
   chat.appendMessage(chat.DIRECT, 'ada', { text: LONG_REPLY, at: stamp(4), from: 'ada' });
+  /* Ada's Files folder, for the agent-files screens: more rows than the
+     agent page shows (AGENT_FILES_SHOWN, 10, so View All appears), one with
+     a long name. */
+  const adaFiles = require(path.join(REPO, 'engine', 'dmfiles')).filesDir('ada');
+  fs.mkdirSync(adaFiles, { recursive: true });
+  const fileNames = ['catalogue-copy-pages-1-to-8-final-reviewed-by-cleo.docx', 'prices.xlsx', 'photographer-brief.pdf',
+    'notes.md', 'cover.png', 'linen-range.csv', 'spring-2026-print-schedule.pdf', 'draft-2.docx',
+    'invoice-0412.pdf', 'studio-quote.pdf', 'page-9-layout.png', 'captions.md'];
+  fileNames.forEach((f, i) => {
+    fs.writeFileSync(path.join(adaFiles, f), 'x'.repeat(1024 * (i + 1)));
+    const t = new Date(t0 + i * 60e3);
+    fs.utimesSync(path.join(adaFiles, f), t, t);
+  });
   require(path.join(REPO, 'engine', 'selfreport')).record('cleo', {
     state: 'needs_you', because: 'The printer quoted two prices for the spring catalogue. May I accept the cheaper one (£1,240, five working days) or do you want the faster one (£1,610, two days)?',
   });
@@ -446,6 +499,50 @@ async function overflowOf(page) {
   }, OVERFLOW_SELECTORS);
 }
 
+/* The other two #718 phone-ready rules, measured on the whole page (not only
+   the part on screen). A tap target is anything a finger presses; under 44 CSS
+   px either way is Apple's floor. A checkbox or radio is judged by its label
+   when it has one, since that is what the finger lands on. A link inside a
+   sentence is exempt (WCAG 2.5.8's inline exception). A typing field under
+   16px makes iOS Safari zoom the page on focus. */
+const MIN_TAP_PX = 44;
+const MIN_FIELD_FONT_PX = 16;
+async function fitOf(page) {
+  return page.evaluate(({ minTap, minFont }) => {
+    const vw = document.documentElement.clientWidth;
+    const shown = (el) => el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+    const onPage = (r) => r.width > 0 && r.height > 0 && r.right > 0 && r.left < vw;
+    const name = (el) => {
+      const t = (el.getAttribute('aria-label') || el.textContent || el.getAttribute('placeholder') || el.value || '').trim().replace(/\s+/g, ' ').slice(0, 28);
+      return el.tagName.toLowerCase() + (el.id ? '#' + el.id : (el.classList[0] ? '.' + el.classList[0] : '')) + (t ? ' "' + t + '"' : '');
+    };
+    const inSentence = (el) => {
+      if (el.tagName !== 'A' || getComputedStyle(el).display !== 'inline') return false;
+      const p = el.parentElement;
+      return !!p && (p.textContent || '').trim().length > (el.textContent || '').trim().length + 10;
+    };
+    const taps = [];
+    const seen = new Set();
+    for (const el of document.querySelectorAll('button, a[href], select, summary, [role="button"], [role="tab"], [role="link"], input:not([type="hidden"]), textarea')) {
+      if (el.disabled || !shown(el) || inSentence(el)) continue;
+      let target = el;
+      if (el.matches('input[type="checkbox"], input[type="radio"]')) target = el.closest('label') || el;
+      if (seen.has(target)) continue;
+      seen.add(target);
+      const r = target.getBoundingClientRect();
+      if (!onPage(r)) continue;
+      if (r.width < minTap - 0.5 || r.height < minTap - 0.5) taps.push(name(target) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
+    }
+    const fields = [];
+    for (const el of document.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="button"]):not([type="submit"]):not([type="color"]), textarea, select, [contenteditable="true"], [contenteditable=""]')) {
+      if (el.disabled || !shown(el) || !onPage(el.getBoundingClientRect())) continue;
+      const fs = parseFloat(getComputedStyle(el).fontSize);
+      if (fs < minFont - 0.01) fields.push(name(el) + ' ' + fs + 'px');
+    }
+    return { taps, fields };
+  }, { minTap: MIN_TAP_PX, minFont: MIN_FIELD_FONT_PX });
+}
+
 async function run() {
   const args = parseArgs(process.argv.slice(2));
   if (args.list) { for (const s of SCREENS) console.log(s.name.padEnd(20) + s.owner); return 0; }
@@ -482,6 +579,7 @@ async function run() {
               page.on('pageerror', (e) => pageErrors.push(String(e)));
               const file = `${sc.name}--${sz}--${theme}--${en}.png`;
               let note = '';
+              let fit = { taps: [], fields: [] };
               try {
                 await page.goto(board.base + '/', { waitUntil: 'load' });
                 await page.waitForTimeout(900);
@@ -502,14 +600,16 @@ async function run() {
                   note = 'OVERFLOW ' + ov.containers.map((c) => `${c.sel} ${c.scrollWidth}>${c.clientWidth}`).join(', ')
                     + (ov.worst ? ` widest: ${ov.worst.tag}${ov.worst.id ? '#' + ov.worst.id : ''}${ov.worst.cls ? '.' + ov.worst.cls.split(' ')[0] : ''} to ${ov.worst.right}px of ${ov.vw}` : '');
                 }
+                fit = await fitOf(page);
               } catch (e) {
                 if (e.leak) { await ctx.close(); throw e; }
                 errors++;
                 note = 'ERROR ' + String(e.message || e).split('\n')[0];
               }
               if (pageErrors.length) note += (note ? '; ' : '') + 'page error: ' + pageErrors.splice(0).join(' | ').slice(0, 200);
-              rows.push({ file, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note });
-              console.log((note ? 'FLAG  ' : 'ok    ') + file + (note ? '  ' + note : ''));
+              rows.push({ file, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields });
+              console.log((note ? 'FLAG  ' : 'ok    ') + file + (note ? '  ' + note : '')
+                + `  taps<${MIN_TAP_PX}: ${fit.taps.length}  fields<${MIN_FIELD_FONT_PX}px: ${fit.fields.length}`);
               await ctx.close();
             }
           }
@@ -528,9 +628,11 @@ async function run() {
   const md = ['# Mobile screenshots', '',
     'Throwaway board with sample data. WebKit is an engine approximation of iOS Safari, not Safari; Chromium at a phone size is not an Android phone.', '',
     `Shots: ${rows.length}. Flagged: ${rows.filter((r) => r.note).length} (overflow ${overflowCount}, errors ${errors}).`, '',
-    '| screen | owner | size | theme | engine | file | flag |', '|---|---|---|---|---|---|---|',
-    ...rows.map((r) => `| ${r.screen} | ${r.owner} | ${SIZES[r.size].label} ${SIZES[r.size].width}x${SIZES[r.size].height} | ${r.theme} | ${r.engine} | ${r.file} | ${r.note.replace(/\|/g, '/')} |`)];
+    `| screen | owner | size | theme | engine | file | flag | taps<${MIN_TAP_PX} | fields<${MIN_FIELD_FONT_PX}px |`, '|---|---|---|---|---|---|---|---|---|',
+    ...rows.map((r) => `| ${r.screen} | ${r.owner} | ${SIZES[r.size].label} ${SIZES[r.size].width}x${SIZES[r.size].height} | ${r.theme} | ${r.engine} | ${r.file} | ${r.note.replace(/\|/g, '/')} | ${r.taps.length} | ${r.fields.length} |`)];
   fs.writeFileSync(path.join(out, 'report.md'), md.join('\n') + '\n');
+  // Every small target and field by name, for whoever fixes the screen.
+  fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify(rows, null, 1) + '\n');
   console.log(`\n${rows.length} shots, ${overflowCount} with overflow, ${errors} errors -> ${out}`);
   /* tools/browser-checks.sh quotes a red's reason from lines starting FAIL. */
   if (errors) { console.error(`FAIL  mobile-shots: ${errors} shot(s) could not be taken; see the ERROR lines above`); return 2; }
