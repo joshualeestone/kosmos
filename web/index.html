@@ -37467,6 +37467,15 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
 async function plusSiRequestCode(btn) {
   const email = document.getElementById('plus-signin-email').value.trim();
   if (!email) { plusSiMsg(PLUS_CODE_WORDS.noEmail); return; }
+  /* #3942: a code check still on its way when the person asks for a new code (easy now that the sixth
+     digit sends by itself) must not land afterwards: "not right" beside the fresh, empty code step, or
+     the timed-out panel seconds after a new code went out. Its answer is made stale, as Start over
+     does, and its button is freed here, since a stale answer never frees it. */
+  if (btn && btn.id === 'plus-si-code-resend') {
+    PLUS_SI_EPOCH += 1;
+    const verify = document.getElementById('plus-si-code-go');
+    if (verify) verify.disabled = false;
+  }
   plusSiMsg(PLUS_CODE_WORDS.asking(email));
   plusSetBusy(btn, true);
   const r = await plusSiPost('/api/remote/signin-start', { email });

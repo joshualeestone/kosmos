@@ -737,6 +737,19 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.waitForTimeout(1600);
       verifyDelay = 0;
       chk(wrongSends === beforeTwice + 1, `[${k}] #3942 the same code pasted twice during a check is sent once`, String(wrongSends - beforeTwice));
+      /* Round 8 review: Send again while a code is still being checked makes that check's answer stale,
+         so its "not right" (or the timed-out panel) cannot land on the fresh code step. */
+      verifyDelay = 800;
+      await page.evaluate(() => plusSiMsg(''));
+      await pasteCode('515151');                     // sent; its answer (wrong) is 0.8s away
+      await page.waitForTimeout(100);
+      await page.click('#plus-si-code-resend');      // a new code, while that answer is in flight
+      await page.waitForTimeout(1600);
+      verifyDelay = 0;
+      const afterResend = { msg: (await page.textContent('#plus-signin-msg')).trim(), v: await page.inputValue('#plus-si-code-in'),
+        expired: await visible(page, '#plus-si-expired'), go: !(await page.isDisabled('#plus-si-code-go')) };
+      chk(!/not right|timed out/i.test(afterResend.msg) && afterResend.v === '' && !afterResend.expired && afterResend.go,
+        `[${k}] #3942 a check still in flight when Send again is pressed does not land on the fresh code step`, JSON.stringify(afterResend));
       // Put a full code back quietly (no input event, so nothing is sent): the scenario after this presses Verify.
       await page.evaluate(() => { document.getElementById('plus-si-code-in').value = '127956'; });
       chk(imeOk, `[${k}] #3942 a seventh digit from an input method replaces the digit after the caret`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
