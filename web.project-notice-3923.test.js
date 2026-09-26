@@ -266,7 +266,9 @@ function retryHandler(state) {
   return new Function('state', 'document', 'fetch', 'loadProjects', 'paintOneProject', 'PROJECTS', 'PJ_NOTICE_TRIED', 'PJ_NOTICE_MISSED', 'window', 'CSS',
     pageFn('const pjNoticeKey').split('\n')[0] + '\nreturn ' + body + ';')(state, state.document, state.fetch, state.loadProjects, state.paintOneProject, state.PROJECTS, state.tried, state.missed, {}, undefined);
 }
-function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false, refused = false, status = null, overtaken = false, focusedElsewhere = false, focusedInside = false, readFails = false } = {}) {
+function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false, refused = false, status = null, overtaken = false, focusedElsewhere = false, focusedInside = false, readFails = false, toldState = null, otherRow = false } = {}) {
+  // The board's verdict on the retry: told when the row went, could_not when it stayed (unless a test says otherwise).
+  const verdict = toldState || (rowAfter ? 'could_not' : 'told');
   const log = [];
   const btn = { dataset: { pnRetry: project.agents[0].sessionName }, disabled: false, closest() { return this; } };
   const again = { focus() { log.push('focus:again'); } };
@@ -276,7 +278,9 @@ function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false
     removeAttribute: (k) => { delete attrs[k]; }, addEventListener: (type, fn) => { if (type === 'blur') onBlur.push(fn); } };
   again.dataset = { pnRetry: project.agents[0].sessionName };
   const inside = { id: 'a-button-in-the-notice' };
-  const box = { __lastLive: 'x', querySelectorAll: () => (rowAfter ? [again] : []), contains: (el) => el === inside };
+  const other = { focus() { log.push('focus:other'); }, dataset: { pnRetry: 'somebody-else' } };
+  const buttons = () => [...(rowAfter ? [again] : []), ...(otherRow ? [other] : [])];
+  const box = { __lastLive: 'x', querySelectorAll: () => buttons(), querySelector: () => buttons()[0] || null, contains: (el) => el === inside };
   const said = { textContent: 'stale' };
   const body = { id: 'body' };
   const elsewhere = { id: 'composer' };
@@ -284,7 +288,7 @@ function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false
     PJ_CURRENT: project.id, PROJECTS: [project], tried: new Map(), missed: new Map(), log, btn, attrs, onBlur, said,
     document: { getElementById: (id) => (id === 'pj-one-notice-said' ? said : box), querySelector: () => heading, body,
       get activeElement() { return focusedElsewhere ? elsewhere : (focusedInside ? inside : body); } },
-    fetch: async (url, opts) => { log.push('fetch:' + opts.method + ' ' + url + ' disabled=' + btn.disabled); if (switchTo) state.PJ_CURRENT = switchTo; if (fetchFails) throw new Error('offline'); return { ok: !refused && !status, status: status || (refused ? 500 : 200) }; },
+    fetch: async (url, opts) => { log.push('fetch:' + opts.method + ' ' + url + ' disabled=' + btn.disabled); if (switchTo) state.PJ_CURRENT = switchTo; if (fetchFails) throw new Error('offline'); const ok = !refused && !status; return { ok, status: status || (refused ? 500 : 200), json: async () => ({ told: { state: verdict } }) }; },
     loadProjects: async () => { log.push('load live=' + box.__lastLive); state.PJ_READ_FAILED = readFails; return !overtaken; },
     paintOneProject: () => { log.push('paint live=' + box.__lastLive); },
   };
@@ -316,6 +320,14 @@ test('#3923: when the row is gone focus goes to the Members heading; after a pro
   assert.equal(gone.log[gone.log.length - 1], 'focus:heading');
   assert.equal(gone.attrs.tabindex, '-1', 'the heading must be focusable to take focus');
   assert.equal(gone.said.textContent, 'Kosmos updated leo’s instructions.', 'a retry that worked was silent to a screen reader');
+  // The row stays with a new reason that has no button: NOT success, nothing announced.
+  const buttonless = standIn(project, { rowAfter: false, toldState: 'could_not' });
+  await retryHandler(buttonless)({ target: buttonless.btn });
+  assert.equal(buttonless.said.textContent, '', 'a failed retry was announced as an update');
+  // The pressed row went and another row still has a Try again: focus moves there, not to the heading.
+  const onward = standIn(project, { rowAfter: false, otherRow: true });
+  await retryHandler(onward)({ target: onward.btn });
+  assert.equal(onward.log[onward.log.length - 1], 'focus:other', 'focus skipped the next row\'s Try again');
   gone.onBlur.forEach((fn) => fn());
   assert.equal('tabindex' in gone.attrs, false, 'the heading stayed focusable after focus left it');
 

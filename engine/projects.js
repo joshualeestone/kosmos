@@ -2553,12 +2553,16 @@ function projectsInBlock(text, ids) {
   const block = src.slice(at.start, at.end);
   return ids.filter((id) => block.includes(projectPostKey(id) + '`'));
 }
-/** Whether a block exists that names NONE of the ids by the current post line: an older-format block
-    (before this line, or with another command shown), whose projects cannot be read, so `added` must
-    not treat everything as new. */
+/** Whether a block exists that carries NO post line of the current shape at all: an older-format
+    block (before this line, or with another command shown), whose projects cannot be read, so `added`
+    must not treat everything as new. Decided by the line's SHAPE, not by today's ids: a current-format
+    block that lists only projects the agent has since left is readable, and a project newly written
+    into it is news. */
 function blockUnreadable(text, ids) {
-  const at = findBlock(String(text == null ? '' : text));
-  return !!(at && !at.ambiguous && ids.length && !projectsInBlock(text, ids).length);
+  const src = String(text == null ? '' : text);
+  const at = findBlock(src);
+  if (!at || at.ambiguous || !ids.length) return false;
+  return !/ post \S+ "your message"`/.test(src.slice(at.start, at.end));
 }
 
 function blockBody(projects, sessionName) {
@@ -2847,6 +2851,17 @@ function membershipLine(project, kind) {
   const name = oneLine((project && project.name) || 'a project');
   if (kind === 'left') {
     return 'Kosmos took you off the project "' + name + '". Do not post to its room any more; your instructions no longer list it.';
+  }
+  /* #3923: a Try again that finally wrote the project into the file. The join line may already
+     have been typed when the agent was added (the add path types it whatever the write did), so
+     this says what is newly true, that the instructions now list it, rather than announcing the
+     join a second time (#304). */
+  if (kind === 'listed') {
+    const lfolder = project && project.folder ? ' Its folder is `' + oneLine(project.folder) + '`.' : '';
+    const lroom = project && project.id
+      ? ' Post to everyone on it with: ' + kosmosCliShown() + ' post ' + oneLine(String(project.id)) + ' "your message".'
+      : '';
+    return 'Your instructions now list the project "' + name + '".' + lfolder + lroom;
   }
   if (kind === 'removed') {
     return 'The project "' + name + '" was removed from Kosmos. Your instructions no longer list it; do not post to its room.';

@@ -2099,6 +2099,32 @@ test('#3923: syncAgent reports which projects the write newly put in the block, 
   assert.deepEqual([same.changed, same.added], [false, []]);
 });
 
+test('#3923: the retry line says the instructions now list the project, never a second join', () => {
+  const line = projects.membershipLine({ id: 'q1', name: 'Quarter close', folder: '/tmp/qc' }, 'listed');
+  assert.match(line, /^Your instructions now list the project "Quarter close"\. Its folder is `\/tmp\/qc`\. Post to everyone on it with: .* post q1 "your message"\.$/);
+  assert.doesNotMatch(line, /put you on/, 'the retry line announced the join again');
+  assert.match(projects.membershipLine({ id: 'q1', name: 'Quarter close' }, 'joined'), /^Kosmos put you on the project/, 'CONTROL: the join line is unchanged');
+});
+
+test('#3923: a current-format block that lists only a project the agent left still reports the new one', () => {
+  reset();
+  agent('pia', '# Pia\n\nHer own words, long enough to be a real instruction file.\n');
+  const R = cards([fleet.agent('pia', { state: 'working' })]);
+  const a = projects.create({ name: 'Left', folder: folder('left-a'), agents: ['pia'] });
+  assert.deepEqual(projects.syncAgent('pia', R).added, [a.id], 'CONTROL: the first block lists A');
+  // The store moves on without a successful write (as when writes failed): off A, on B.
+  const b = projects.create({ name: 'Joined', folder: folder('joined-b'), agents: [] });
+  const all = projects.readAll();
+  for (const p of all) {
+    if (p.id === a.id) p.agents = [];
+    if (p.id === b.id) p.agents = ['pia'];
+  }
+  projects.writeAll(all);
+  const v = projects.syncAgent('pia', R);
+  assert.equal(v.state, projects.TOLD.TOLD, 'verdict: ' + v.because);
+  assert.deepEqual(v.added, [b.id], 'a block listing only a departed project was read as an old format');
+});
+
 test('#3923: a block in an older format (no post line) claims nothing as newly added', () => {
   reset();
   agent('ivo', '# Ivo\n\nHis own words, long enough to be a real instruction file.\n');

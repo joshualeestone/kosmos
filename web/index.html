@@ -43736,7 +43736,7 @@ function pjToldLine(told) {
  */
 const PJ_NOTICE = [
   [/^we could not write to its instructions$|^those instructions could not be saved$/, 'wait', () => 'Saving did not work this time. It may work on another try.'],
-  [/^we could not check which agents are running$/, 'wait', () => 'We could not check which agents are running.'],
+  [/^we could not check which agents are running$/, 'wait', () => 'Kosmos could not check which agents are running.'],
   // Somebody saved the file mid-write; nothing was lost, and a retry reads it fresh.
   // (The raw editor sentence is matched too: verdicts saved before tellAgent translated it keep it.)
   [/^its instructions changed while we were writing to them$|changed since you opened them, reload before saving/, 'wait', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions changed while Kosmos was writing to them, so Kosmos left them as they were.'],
@@ -53316,11 +53316,16 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
     if (m && m.name) name = String(m.name);
   } catch { /* no remembered answer: nothing is marked as "still" */ }
   let reached = false;
+  let told = false;   // the board's own verdict: this agent was told (a row with no button is NOT this)
   let left = false;   // 409 (the agent left) or 404 (the project is gone): an answer, not a failure; the row goes.
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(project) + '/agent/' + encodeURIComponent(key) + '?retell=1', { method: 'POST' });
     reached = !!(res && res.ok);
     left = !!(res && (res.status === 409 || res.status === 404));
+    if (reached) {
+      const body = await res.json().catch(() => null);
+      told = !!(body && body.told && body.told.state === 'told');
+    }
   } catch { /* the repaint below shows where it stands */ }
   // "It still did not work" only about a retry that reached the board, marked before the read so
   // this read's own paint shows it. Cleared again if the read is overtaken (its data is not ours).
@@ -53339,6 +53344,11 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
   // A read that landed but FAILED (offline) paints no project view, so the row's mark would wait for
   // the connection to come back: paint it from the projects already loaded.
   if (PJ_READ_FAILED) paintOneProject();
+  // Success empties the row, which a screen reader does not announce: say it in words. Only on the
+  // board's own "told" verdict: a retry that came back with a different reason may leave a row with
+  // no button, which is not success. Said whether or not focus is put back below.
+  const said = document.getElementById('pj-one-notice-said');
+  if (said) said.textContent = told ? 'Kosmos updated ' + (name || key) + '\u2019s instructions.' : '';
   // Only put focus back if it is still where the press left it (the page, or this notice); a
   // person who has moved on keeps their place.
   const now = document.activeElement;
@@ -53346,10 +53356,10 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
   // Compared as data, not built into a selector, so no session name can break the lookup.
   const again = Array.from(box.querySelectorAll('[data-pn-retry]')).find((b) => b.dataset.pnRetry === key) || null;
   const heading = document.querySelector('.pjcard-members > .dlab');
-  // Success empties the notice, which a screen reader does not announce: say it in words.
-  const said = document.getElementById('pj-one-notice-said');
-  if (said) said.textContent = (reached && !again) ? 'Kosmos updated ' + (name || key) + '\u2019s instructions.' : '';
-  if (again) again.focus();
+  // The row's own button, else the next row's (keyboard users keep their place in the notice), else
+  // the Members heading.
+  const next = again || box.querySelector('[data-pn-retry]');
+  if (next) next.focus();
   else if (heading) {
     // Focusable only for this one landing: a heading left in the tab-by-click order is a stray stop.
     if (!heading.hasAttribute('tabindex')) {

@@ -31,9 +31,10 @@ page. Try again re-tells that agent and the notice updates.
   the project page is where the design puts it.
 - Copy for the reasons the mock does not draw (N blocks, too short, size limit, the ambiguous name, a
   folder Kosmos will not change) follows the mock's pattern: the reason in plain words, the fix in ink.
-- Try again posts the member route with `?retell=1`: a current member is re-told (idempotent, nothing
-  typed into its window); an agent that has left gets 409 rather than being put back (review round 1).
-  A same-answer retry says "It still did not work." on its row; the button re-enables and focus returns.
+- Try again posts the member route with `?retell=1`: a current member is re-told, never re-added
+  (409 if it left, 404 if the project is gone, 500 if the store cannot be read). When the write
+  newly lists a project, the running agent is told on its screen with the "listed" line (see
+  review rounds 9, 13 and 15); a retry that changes nothing types nothing.
 - The consolidated layout hides the whole Members card (#3218/#3305), so the notice does not show there;
   that was already true of the old line. Not changed here.
 - pjSharedTold, pjToldGroupLine, their CSS and tests are removed (dead once the notice replaced the
@@ -125,3 +126,19 @@ page. Try again re-tells that agent and the notice updates.
 - The retell existence check answers 500 for an unreadable store, never "the agent left".
 - The retry bound is in memory and a restart empties it; accepted and said in the comment.
 - 404 (project gone) is an answer like 409.
+
+## Review round 15
+- The success line is said only on the board's own "told" verdict: a retry that came back with a
+  new reason that has no button left a row on screen and was announced as an update. Tested with a
+  stand-in that models the verdict, and a row-stays-button-gone case.
+- A retry that writes the project in types "Your instructions now list the project X" (kind
+  `listed`), not a second "Kosmos put you on the project": the add path types the join line whatever
+  its write did (#304).
+- An older-format block is decided by the SHAPE of its post lines, not by today's ids, so a block
+  listing only a project the agent has left still reports the new one (tested).
+- An unreadable store answers 500 on a retell from the pre-read too (tested).
+- Focus after a successful retry goes to the next row's Try again before the heading.
+- render-projects now presses Try again for real on its stopped-agent fixture and asserts "It still
+  did not work.", focus kept on the button, and no success line.
+- "Kosmos could not check which agents are running." (one voice).
+- Declined: a 400 for DELETE ...?retell=1 (no caller sends it).

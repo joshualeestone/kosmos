@@ -1137,6 +1137,29 @@ async function main() {
       }
       return out;
     });
+    /* #3923: Try again pressed for real on this fixture. Its agent is not running, so the board
+       re-tells, gets the same answer, and the row must say so ("It still did not work."), keep
+       focus on its own Try again, and announce no success on the hidden status line. */
+    const retry = await (async () => {
+      const btn = await page.$('#pj-one-notice [data-pn-retry]');
+      if (!btn) return { missing: true };
+      await btn.focus();
+      await btn.click();
+      await page.waitForFunction(() => /It still did not work\./.test((document.getElementById('pj-one-notice') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => {});
+      return page.evaluate(() => {
+        const box = document.getElementById('pj-one-notice');
+        const a = document.activeElement;
+        return {
+          still: /It still did not work\./.test(box.textContent || ''),
+          focusOnRetry: !!(a && a.matches && a.matches('#pj-one-notice [data-pn-retry]')),
+          said: (document.getElementById('pj-one-notice-said') || {}).textContent || '',
+        };
+      });
+    })();
+    if (retry.missing || !retry.still || !retry.focusOnRetry || retry.said) {
+      contrastFails += 1;
+      console.log(`  FAIL  #3923 Try again on a stopped agent: expected "It still did not work.", focus on its Try again and no success line (${scheme}), got ${JSON.stringify(retry)}`);
+    }
     for (const e of [...listEls, ...badFolderEls, ...els, ...settingsEls, ...toldEls]) {
       if (e.missing) {
         contrastFails += 1;

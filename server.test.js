@@ -15009,7 +15009,7 @@ test('#3923: Try again (?retell=1) re-tells a current member and never re-adds o
     eng.syncAgent = () => ({ state: eng.TOLD.TOLD, because: null, changed: true, added: [id] });
     const wrote = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
     assert.equal(wrote.status, 200, wrote.body);
-    assert.deepEqual(spoke, [['leo', id, 'joined']], 'a retry that wrote the block did not tell the running agent');
+    assert.deepEqual(spoke, [['leo', id, 'listed']], 'a retry that wrote the block did not tell the running agent');
     assert.deepEqual(JSON.parse(wrote.body).said, { state: 'told' });
     // The write changed the block, but by adding ANOTHER project: this one is not news to the agent.
     eng.syncAgent = () => ({ state: eng.TOLD.TOLD, because: null, changed: true, added: ['some-other-project'] });
@@ -15025,7 +15025,7 @@ test('#3923: Try again (?retell=1) re-tells a current member and never re-adds o
     eng.syncAgent = () => ({ state: eng.TOLD.TOLD, because: null, changed: true, added: [id2] });
     const both = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
     assert.equal(both.status, 200, both.body);
-    assert.deepEqual(spoke[spoke.length - 1], ['leo', id2, 'joined'], 'the other newly written project was not announced');
+    assert.deepEqual(spoke[spoke.length - 1], ['leo', id2, 'listed'], 'the other newly written project was not announced');
     assert.equal(JSON.parse(both.body).said, null);
     assert.deepEqual(Object.keys(JSON.parse(both.body).alsoSaid), [id2]);
     spoke.length = 1;
@@ -15062,6 +15062,13 @@ test('#3923: Try again (?retell=1) re-tells a current member and never re-adds o
     assert.ok(JSON.parse(refused.body).retry_after_secs > 0, 'a refusal that does not say when retries lift');
     const screen = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST', headers: { 'sec-fetch-site': 'same-origin' } });
     assert.equal(screen.status, 200, 'the screen was refused a retry: ' + screen.body);
+    // A store that cannot be read is ours to say (500), never "the agent left" or "still did not work".
+    const realReadAll = eng.readAll;
+    eng.readAll = () => { throw Object.assign(new Error('unreadable'), { code: 'UNREADABLE' }); };
+    try {
+      const broken = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST', headers: { 'sec-fetch-site': 'same-origin' } });
+      assert.equal(broken.status, 500, broken.body);
+    } finally { eng.readAll = realReadAll; }
   } finally {
     eng.syncAgent = realSync;
     eng.speakOfMembership = realSpeak;
