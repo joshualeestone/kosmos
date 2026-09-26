@@ -220,11 +220,21 @@ function chk(ok, label, extra) {
           listX: Math.round(list.left + 6), listY: Math.round(list.top + 6), tileX: Math.round(tile.left + 6), tileY: Math.round(tile.top + 6) }; });
       const same = (p, q) => p.every((v, i) => Math.abs(v - q[i]) <= 2);
       const band = [await px(1, geo.bandY), await px(geo.w - 2, geo.bandY)];
-      const below = [await px(1, geo.belowY), await px(geo.w - 2, geo.belowY), await px(1, geo.h - 2), await px(geo.w - 2, geo.h - 2)];
+      const below = [await px(1, geo.belowY), await px(geo.w - 2, geo.belowY)];
       const card = await px(geo.listX, geo.listY); const tilePx = await px(geo.tileX, geo.tileY);
+      /* "To the bottom" is only a claim about the BLEED when the white band itself ends above the window's bottom:
+         with a full list it runs past it and would read white regardless. So empty the list (a search that matches
+         nothing), prove the band ends on screen, then read the window's bottom corners. */
+      await page.fill('#tsk-search', 'zzz no task says this');
+      await page.waitForTimeout(250);
+      const shortEnd = await page.evaluate(() => Math.round(document.querySelector('#panel-tasks .tsk-below').getBoundingClientRect().bottom));
+      const bottom = [await px(1, geo.h - 2), await px(geo.w - 2, geo.h - 2)];
+      await page.fill('#tsk-search', '');
+      await page.waitForTimeout(250);
+      chk(shortEnd < geo.h - 10 && bottom.every((p) => same(p, tok.surface)), `${tag} with a short list the white still reaches the bottom of the window (the bleed, not the list)`, JSON.stringify({ shortEnd, h: geo.h, bottom }));
       chk(!same(tok.bg, tok.surface), `${tag} CONTROL: the ground and the surface are different colours, so the band checks can fail`, JSON.stringify(tok));
       chk(band.every((p) => same(p, tok.bg)), `${tag} the top band keeps the page's ground to both edges`, JSON.stringify({ band, bg: tok.bg }));
-      chk(below.every((p) => same(p, tok.surface)), `${tag} from Group by down it is the surface (white) to both edges and the bottom`, JSON.stringify({ below, surface: tok.surface }));
+      chk(below.every((p) => same(p, tok.surface)), `${tag} from Group by down it is the surface (white) to both edges`, JSON.stringify({ below, surface: tok.surface }));
       chk(same(card, tok.bg) && same(tilePx, tok.surface), `${tag} the task cards are shaded with the ground; the tiles stay the surface`, JSON.stringify({ card, tile: tilePx }));
       chk(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${tag} the full-width band adds no sideways scroll`);
       /* #3949/#3951 (Josh): six single-label tiles in his order; Completed is a tile and still the fold below. */
@@ -469,6 +479,12 @@ function chk(ok, label, extra) {
         await page.check('#tsk-groups input[data-key="' + launch.id + '#1"]');
         const barShown = await page.evaluate(() => !document.getElementById('tsk-bulk').hidden);
         chk(barShown, `${tag} ticking rows brings up the Close bar`);
+        /* #3949: the Close bar is sticky to the window's bottom (#3559's position: sticky; bottom: 14px). It only
+           started to stick when the view stopped clipping (the old frame's overflow: hidden made the view its scroll
+           box). Asserted only when the list is taller than the window, where sticking is observable. */
+        const stick = await page.evaluate(() => { scrollTo(0, 0); const b = document.getElementById('tsk-bulk').getBoundingClientRect();
+          return { tall: document.getElementById('tsk-groups').getBoundingClientRect().bottom > innerHeight, top: Math.round(b.top), bottom: Math.round(b.bottom), h: innerHeight }; });
+        if (stick.tall) chk(stick.top >= 0 && stick.bottom <= stick.h, `${tag} with a long list the Close bar stays on screen at the bottom (sticky)`, JSON.stringify(stick));
         /* Clear hides the bar with its own button in it: focus lands on the search, not the body. */
         await page.click('#tsk-bclear');
         const afterClear = await page.evaluate(() => ({ id: document.activeElement.id, sel: TSK.sel.size }));
@@ -545,6 +561,21 @@ function chk(ok, label, extra) {
       });
       chk(frame.w === '0px' && frame.r === '0px' && /rgba\(0, 0, 0, 0\)|transparent/.test(frame.bg), '[consolidated] the view has no outer rounded box (#3880)', JSON.stringify(frame));
       chk(frame.tileW !== null && frame.tileW !== '0px', '[consolidated] the tiles keep their own border', JSON.stringify(frame));
+      /* #3949: the white band bleeds only to the column. The projects rail beside it, at the height of Group by, keeps
+         the page's ground: the column's scroll box is what contains the bleed, and nothing else would. */
+      {
+        const cg = await page.evaluate(() => { const rail = document.getElementById('rail-projects-tasks').closest('aside, nav, section, div[class*="rail"]') || document.getElementById('rail-projects-tasks').parentElement;
+          const r = rail.getBoundingClientRect(); const u = document.getElementById('tsk-under').getBoundingClientRect();
+          const probe = (v) => { const e = document.createElement('i'); e.style.color = v; document.body.appendChild(e); const c = getComputedStyle(e).color; e.remove(); return c.match(/\d+/g).slice(0, 3).map(Number); };
+          return { x: Math.round(r.right - 6), y: Math.round(u.top + u.height / 2), railRight: Math.round(r.right), colLeft: Math.round(document.getElementById('panel-tasks').getBoundingClientRect().left),
+            surface: probe('var(--k-surface)'), bg: probe('var(--k-bg)') }; });
+        const b64 = (await page.screenshot({ clip: { x: cg.x, y: cg.y, width: 1, height: 1 } })).toString('base64');
+        const railPx = await page.evaluate((src) => new Promise((ok) => { const i = new Image(); i.onload = () => { const c = document.createElement('canvas');
+          c.width = 1; c.height = 1; const x2 = c.getContext('2d'); x2.drawImage(i, 0, 0); ok([...x2.getImageData(0, 0, 1, 1).data].slice(0, 3)); };
+          i.src = 'data:image/png;base64,' + src; }), b64);
+        const near = (p, q) => p.every((v, k) => Math.abs(v - q[k]) <= 2);
+        chk(cg.railRight <= cg.colLeft && !near(railPx, cg.surface), '[consolidated] the white band stays in the column: the rail beside it is not painted', JSON.stringify({ cg, railPx }));
+      }
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'tasks-from-consolidated.png'), fullPage: false });
       /* From consolidated Kosmos+ settings, Tasks takes the Plus chrome down (#3599's rule). */
       const plus = await page.evaluate(() => {

@@ -3426,8 +3426,10 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    background, and then slightly shade the task cards"). The lower band is the surface (white; the dark surface in
    dark mode), bled to the window's edges and down to the bottom with a spread shadow clipped to the sides and below,
    so it never paints over the band above and never widens the page (a shadow is not scrollable overflow). The view
-   no longer clips (its overflow: hidden only served the frame's rounded corners). In the consolidated column the
-   panel's own scroll box bounds the bleed to the column. The cards take the page's ground, the warm off-white. */
+   no longer clips: its overflow: hidden clipped the frame's rounded corners, and it also made the view the scroll box
+   of the sticky Close bar (.tsk-bulk), which therefore never stuck. Without it the bar sticks to the window's bottom
+   as #3559 wrote it to (asserted in the browser check). In the consolidated column the panel's own scroll box
+   (overflow-y: auto) is what bounds the bleed to the column; the browser check reads the rail beside it. The cards take the page's ground, the warm off-white. */
 .tsk-below { background: var(--k-surface); box-shadow: 0 0 0 100vmax var(--k-surface); clip-path: inset(0 -100vmax -100vmax);
   margin-top: 16px; padding-top: 14px; }
 #panel-tasks .tsk-below .tsk-list { background: var(--k-bg); }
