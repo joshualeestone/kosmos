@@ -10,6 +10,9 @@
  * real folder to any process whose data is in temp while its home is real (the same guard
  * status.js keeps for Claude's config roots).
  *
+ * Run it from a checkout OUTSIDE the temp dir: the real-looking home is made under the repo,
+ * so a checkout in /tmp makes it look like a sandbox and the engine-alone arm tests nothing.
+ *
  *   node --test tools.browser-checks-skills-3801.test.js
  */
 const test = require('node:test');
