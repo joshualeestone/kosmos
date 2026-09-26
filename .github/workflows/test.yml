@@ -55,9 +55,8 @@ on:
 permissions:
   contents: read
 
-# Cancel a superseded run of the SAME event+ref: a rapid re-push to main, or a
-# successive sync of a PR, cancels its in-flight predecessor instead of queuing a
-# redundant run. With push gated to main (above, #3499), a feature branch no longer
+# Cancel a superseded run of the SAME event+ref: a successive sync of a PR cancels its
+# in-flight predecessor instead of queuing a redundant run (on main, see #4021 below). With push gated to main (above, #3499), a feature branch no longer
 # runs the suite for BOTH its push and its PR, so there is no push-and-PR pair left to
 # collapse here; this group now only dedupes successive events on the same ref.
 #
@@ -71,6 +70,7 @@ permissions:
 # tests every merge but puts N suites on the shared macOS runners at once, the #3499
 # contention. Weakest premise: a red commit that is superseded while PENDING is never run
 # on its own, so a bisect may need a manual run; the red itself still shows at the head.
+# Cost: under a merge burst a red head can take up to two runs (~2 x 14m) to report.
 concurrency:
   group: test-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}

@@ -14,8 +14,11 @@ showed first at the 0.6.99 cut's step 3.
 - The same for android.yml and ios.yml, which also build on a push to main and carried the same
   shape (review iteration 1; #3499 keeps the three in lockstep).
 - ci.main-runs-finish-4021.test.js pins all three: evaluates the expression for main and a PR ref,
-  with a control that the old `true` reads as cancelling main, and a control that every workflow
-  with a push-to-main trigger is in its list (a new one cannot slip in unpinned).
+  with a control that the old `true` reads as cancelling main, pins each group to github.ref (a
+  group shared with PRs would let a PR run cancel main's), and a control that every workflow whose
+  PARSED YAML (ruby, as tools/test-browser-checks-workflow.sh does) pushes to main is in its list.
+  The detector is tested on 8 spellings that push to main and 6 that do not; it skips where ruby
+  is absent (the per-file pins still run).
 
 ## Iteration 1 (sonnet)
 - WARNING: android.yml and ios.yml had the same main-cancelling shape --> fixed.
@@ -33,3 +36,12 @@ showed first at the 0.6.99 cut's step 3.
 ## Weakest premise
 A red commit superseded while PENDING never runs on its own; the red still shows at the head,
 but bisecting may need a manual dispatch.
+
+## Iteration 2 (opus)
+- WARNING: the push-to-main detector (a regex) missed 6 of 7 YAML spellings --> it reads the parsed
+  YAML now; all 7 caught in a scratch replay.
+- WARNING: the group key was unpinned; `group: test` would let a PR run cancel main's with every pin
+  green --> pinned to github.ref (the replay reds it).
+- WARNING: plan and test overstated the detector --> reworded with it.
+- NITs: older comments above the blocks still said a re-push to main cancels --> reworded; the test's
+  header named only test.yml --> names all three; latency cost (up to ~2 x 14m under a burst) stated.

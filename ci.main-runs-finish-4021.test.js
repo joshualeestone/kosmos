@@ -5,13 +5,16 @@
  * main run for an hour was cancelled, so a red main showed first at a release cut's step 3.
  * A PR's superseded run is still cancelled (that is the #3499 contention fix).
  *
- * A SOURCE pin on .github/workflows/test.yml: GitHub evaluates the expression, nothing here
- * can run it, so the test checks the text and evaluates the expression for both refs.
+ * A SOURCE pin on every workflow that runs on a push to main (test.yml, android.yml, ios.yml):
+ * GitHub evaluates the expression and nothing here can run it, so the test reads the text and
+ * evaluates the expression for both refs. It also pins the group key, since cancel-in-progress is
+ * decided by the NEW run: a group shared by main and PRs would let a PR run cancel main's.
  *
  *   node --test ci.main-runs-finish-4021.test.js
  */
 
 const test = require('node:test');
+const { execFileSync } = require('node:child_process');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -26,7 +29,7 @@ const YML = read('test.yml');
    top-level key. */
 function concurrencyBlock(text) {
   const m = text.match(/^concurrency:\n((?:[ \t]+.*\n|[ \t]*#.*\n|\n)*)/m);
-  assert.ok(m, 'test.yml has no top-level concurrency block');
+  assert.ok(m, 'no top-level concurrency block');
   return m[1];
 }
 
@@ -47,6 +50,8 @@ for (const f of WORKFLOWS) {
     const block = concurrencyBlock(read(f));
     assert.equal(cancelsOn(block, 'refs/heads/main'), false, f + ': main\'s run can be cancelled by the next merge again');
     assert.equal(cancelsOn(block, 'refs/pull/4021/merge'), true, f + ': a PR\'s superseded run is no longer cancelled (the #3499 contention)');
+    const group = (block.split('\n').find((l) => /^\s+group:/.test(l)) || '');
+    assert.match(group, /\$\{\{\s*github\.ref\s*\}\}/, f + ': the group is not keyed on github.ref, so a PR run could cancel main\'s: ' + group.trim());
   });
 }
 
@@ -58,12 +63,48 @@ test('#4021 control: the reader sees the old setting as cancelling main', () => 
   assert.equal(cancelsOn(concurrencyBlock(old), 'refs/heads/main'), true);
 });
 
-test('#4021 control: every workflow that runs on a push to main is in the list', () => {
+/* Does this workflow run on a push to main? Read from the PARSED YAML (ruby, as
+   tools/test-browser-checks-workflow.sh does), so every spelling counts: a block list, a bare
+   `branches: main`, an unquoted flow list, `on: push`, a push with no filter. YAML 1.1 loads the
+   `on` key as `true`, so both are read. GitHub's branch globs: `**` any, `*` no slash, `?` one. */
+const glob = (g) => new RegExp('^' + String(g).replace(/[.+^${}()|[\]\\]/g, '\\$&')
+  .replace(/\*\*/g, '\u0000').replace(/\*/g, '[^/]*').replace(/\u0000/g, '.*').replace(/\?/g, '.') + '$');
+const anyMatch = (list, name) => [].concat(list).some((g) => glob(g).test(name));
+function pushesMain(wf) {
+  const on = wf && (wf.on !== undefined ? wf.on : wf.true);
+  let push;
+  if (on === 'push') push = {};
+  else if (Array.isArray(on)) push = on.includes('push') ? {} : undefined;
+  else if (on && typeof on === 'object' && 'push' in on) push = on.push || {};
+  if (push === undefined) return false;
+  if (push.branches !== undefined) return anyMatch(push.branches, 'main');
+  if (push['branches-ignore'] !== undefined) return !anyMatch(push['branches-ignore'], 'main');
+  return push.tags === undefined && push['tags-ignore'] === undefined; // tags only: no branch push
+}
+function parsed(file) {
+  const out = execFileSync('ruby', ['-ryaml', '-rjson', '-e', 'puts JSON.generate(YAML.load_file(ARGV[0]).transform_keys(&:to_s))', file], { encoding: 'utf8' });
+  return JSON.parse(out);
+}
+let RUBY = true;
+try { execFileSync('ruby', ['-e', '1']); } catch { RUBY = false; }
+
+test('#4021 control: every workflow that runs on a push to main is in the list', { skip: !RUBY && 'ruby is not on this machine (GitHub still runs the pins above)' }, () => {
   const dir = path.join(__dirname, '.github', 'workflows');
-  const onMain = fs.readdirSync(dir).filter((f) => /\.ya?ml$/.test(f)).filter((f) => {
-    const t = read(f);
-    return /^on:[\s\S]*?^\s+push:[\s\S]*?branches:\s*\[[^\]]*["']main["']/m.test(t);
-  });
-  assert.ok(onMain.includes('test.yml'), 'the push-to-main detector cannot see test.yml');
+  const onMain = fs.readdirSync(dir).filter((f) => /\.ya?ml$/.test(f)).filter((f) => pushesMain(parsed(path.join(dir, f))));
+  assert.ok(onMain.includes('test.yml') && onMain.includes('android.yml'), 'the push-to-main detector cannot see the known ones: ' + onMain.join(', '));
   assert.deepEqual(onMain.filter((f) => !WORKFLOWS.includes(f)), [], 'a push-to-main workflow is not pinned here');
+});
+
+test('#4021 control: the push-to-main detector reads every spelling', () => {
+  const yes = [
+    { on: { push: { branches: ['main'] } } }, { on: { push: { branches: 'main' } } }, { true: { push: { branches: ['main'] } } },
+    { on: 'push' }, { on: ['push', 'pull_request'] }, { on: { push: null } }, { on: { push: { branches: ['**'] } } },
+    { on: { push: { 'branches-ignore': ['release/*'] } } },
+  ];
+  const no = [
+    { on: { pull_request: { branches: ['main'] } } }, { on: { push: { tags: ['v*'] } } }, { on: { push: { branches: ['release/*'] } } },
+    { on: { push: { 'branches-ignore': ['main'] } } }, { on: 'workflow_dispatch' }, { on: { schedule: [{ cron: '0 7 * * *' }] } },
+  ];
+  for (const w of yes) assert.equal(pushesMain(w), true, 'missed: ' + JSON.stringify(w));
+  for (const w of no) assert.equal(pushesMain(w), false, 'over-matched: ' + JSON.stringify(w));
 });
