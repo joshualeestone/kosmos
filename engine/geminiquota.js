@@ -4,7 +4,7 @@
  * #4004: a Gemini API-key agent that runs out of Google's free daily limit stops on Gemini's own question
  * ("Usage limit reached for <model>." / 1. Keep trying / 2. Stop) and waits there forever: an unattended agent
  * nobody is watching. Each tick, for every Gemini card whose screen shows that question (status.js reads it as
- * rate_limited, waiting on Keep trying or Stop), answer Stop through chat.answerGeminiQuotaStop, which re-reads the
+ * rate_limited with quotaDialog on the card), answer Stop through chat.answerGeminiQuotaStop, which re-reads the
  * pane and presses the number printed beside Stop. Retrying cannot clear a daily limit. The card then reads the
  * limit (the quota error at its prompt), and the next message after the reset simply works.
  *
@@ -15,8 +15,7 @@
 const ANSWER_EVERY_MS = 60 * 1000;
 
 function waitingOnQuestion(card) {
-  return !!card && card.runner === 'gemini' && card.state === 'rate_limited'
-    && /waiting on Keep trying or Stop/.test(String(card.because || ''));
+  return !!card && card.runner === 'gemini' && card.state === 'rate_limited' && card.quotaDialog === true;
 }
 
 /**

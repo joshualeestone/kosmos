@@ -47,11 +47,11 @@ const AFTER_STOP = [
 ].join('\n');
 const [gem] = status.parsePanes('gemq\t0.0\tnode\t0\tgemq\tgemini\t');
 
-test('#4004: the quota question reads rate_limited, waiting on Keep trying or Stop, with Gemini\'s own words', () => {
+test('#4004: the quota question reads rate_limited, waiting on a question, with Gemini\'s own words', () => {
   const c = status.classify(gem, DIALOG);
   assert.equal(c.state, 'rate_limited', JSON.stringify(c));
   assert.equal(c.quotaDialog, true);
-  assert.match(c.because, /waiting on Keep trying or Stop/);
+  assert.match(c.because, /waiting on a question/);
   assert.equal(c.evidence, 'Usage limit reached for gemini-2.5-flash.');
 });
 
@@ -62,12 +62,41 @@ test('#4004: after Stop, the quota error at its prompt still reads rate_limited 
   assert.match(c.evidence, /exhausted your daily quota/);
 });
 
-test('#4004 CONTROLS: a newer turn after the error, and the same words on a non-Gemini pane, are not this reading', () => {
+test('#4004 CONTROLS: the words in tool output, a quoted dialog, a newer turn, and a non-Gemini pane are not this reading', () => {
+  // A working agent whose Shell output is another pane's capture of the dialog, with its own screen below it.
+  const quoted = ['✦ Checking the stuck agent', '│ $ tmux capture-pane -p -t other', DIALOG, '⠏ Thinking (esc to cancel, 3s)', ' *   Type your message or @path/to/file'].join('\n');
+  const q = status.classify(gem, quoted);
+  assert.ok(!(q.state === 'rate_limited' && q.quotaDialog === true), 'a quoted dialog read as this agent\'s question: ' + JSON.stringify(q));
+  // A grep that prints the phrase is not Gemini's error line.
+  const grep = ['✦ Searching', 'engine/status.js:1590: const GEMINI_QUOTA_ERROR = /exhausted your daily quota/', ' *   Type your message or @path/to/file'].join('\n');
+  assert.notEqual(status.classify(gem, grep).state, 'rate_limited', 'grep output read as the daily limit');
   const newer = AFTER_STOP + '\n > thanks, try again tomorrow\n✦ Sure, I will wait.';
   assert.notEqual(status.classify(gem, newer).state, 'rate_limited', 'a turn after the error still read as the limit');
   const [claude] = status.parsePanes('cl\t0.0\t2.1.283\t0\tcl\t\t');
   const c = status.classify(claude, DIALOG);
   assert.notEqual(c.quotaDialog, true, 'a Claude pane was read with Gemini\'s quota rule');
+});
+
+test('#4004: after Stop with the non-YOLO composer (">   Type your message") below the error, it still reads the limit', () => {
+  const nonYolo = AFTER_STOP.replace(' *   Type your message or @path/to/file', ' >   Type your message or @path/to/file');
+  assert.equal(status.classify(gem, nonYolo).state, 'rate_limited');
+});
+
+test('#4004: the 3-option variant (Switch to <model> / Upgrade / Stop) is the question too, and Stop is read off it', () => {
+  const three = DIALOG.replace('│ ● 1. Keep trying                                 │\n│   2. Stop                                        │',
+    '│ ● 1. Switch to gemini-2.5-flash-lite              │\n│   2. Upgrade for higher limits                   │\n│   3. Stop                                        │');
+  const c = status.classify(gem, three);
+  assert.equal(c.quotaDialog, true, JSON.stringify(c));
+});
+
+test('#4004: the question on screen stands over a fresh report the agent filed itself (it cannot be working through it)', () => {
+  const scraped = status.classify(gem, DIALOG);
+  const out = status.reconcileReport({ found: true, state: 'working', by: 'agent', because: 'writing tests', at: new Date().toISOString() }, scraped, Date.now());
+  assert.equal(out.state, 'rate_limited', JSON.stringify(out));
+  assert.equal(out.quotaDialog, true);
+  // CONTROL: the same fresh report over the after-Stop screen (no question up) keeps the ordinary rule.
+  const after = status.reconcileReport({ found: true, state: 'working', by: 'agent', because: 'writing tests', at: new Date().toISOString() }, status.classify(gem, AFTER_STOP), Date.now());
+  assert.notEqual(after.state, 'rate_limited');
 });
 
 test('#4004: the card and the manager are told in plain words, with the reset and the two ways out', () => {
@@ -85,10 +114,12 @@ test('#4004: the card and the manager are told in plain words, with the reset an
 test('#4004 sweep: answers only a Gemini card waiting on the question, and not twice within a minute', () => {
   const calls = [];
   const answer = (s) => { calls.push(s); return { ok: true, key: '2' }; };
+  const dialog = status.classify(gem, DIALOG);
+  const after = status.classify(gem, AFTER_STOP);
   const roster = [
-    { sessionName: 'gemq', runner: 'gemini', state: 'rate_limited', because: 'its screen says its Google daily limit is used up, and it is waiting on Keep trying or Stop' },
-    { sessionName: 'gemdone', runner: 'gemini', state: 'rate_limited', because: 'its screen says its Google daily limit is used up' },
-    { sessionName: 'cx', runner: 'codex', state: 'rate_limited', because: 'waiting on Keep trying or Stop' },
+    { sessionName: 'gemq', runner: 'gemini', state: dialog.state, because: dialog.because, quotaDialog: dialog.quotaDialog },
+    { sessionName: 'gemdone', runner: 'gemini', state: after.state, because: after.because, quotaDialog: after.quotaDialog },
+    { sessionName: 'cx', runner: 'codex', state: 'rate_limited', because: dialog.because, quotaDialog: true },
   ];
   const book = new Map();
   geminiquota.sweepOnce({ roster, answer, book, now: 1e6 });
