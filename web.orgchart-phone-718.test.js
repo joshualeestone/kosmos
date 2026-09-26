@@ -76,7 +76,7 @@ test('#718: a deeper fleet brings its rings in, and never below the floor', () =
 
 test('#718: paintOrg sizes the chart by orgFit from its own width, and squeezes the rings, not the nodes', () => {
   const paint = SCRIPT.slice(SCRIPT.indexOf('function paintOrg'), SCRIPT.indexOf('function orgLiveStart'));
-  assert.match(paint, /const viewW = wrap\.clientWidth;[^\n]*\n\s*const fit = orgFit\(maxR, viewW\);/);
+  assert.match(paint, /const viewW = wrap\.clientWidth;[\s\S]{0,400}?const fit = orgFit\(maxR, viewW\);/);
   assert.match(paint, /spot\.r \*= fit\.k/);
   assert.match(paint, /const size = fit\.size;/);
   assert.doesNotMatch(paint, /const pad = 78/, 'the old fixed square is back');
@@ -115,6 +115,9 @@ test('#718: positions from a canvas of another width are carried across in propo
   // A zero-width box (an ancestor not laid out) is neither a width change nor a new ORG_SIZE.
   assert.match(paint, /const widthChanged = viewW > 0 && ORG_VIEW_W > 0 && viewW !== ORG_VIEW_W;/);
   assert.match(paint, /if \(viewW > 0\) ORG_SIZE = size;/);
+  assert.match(paint, /if \(viewW === 0\) return;/);
+  // The note inside a scrolling box stays in view.
+  assert.match(PAGE, /\.orgwrap\.orgscroll #orgnote \{ position: sticky; left: 0; \}/);
   // The scroll is written the first time the box scrolls and when its width changes, never on a
   // same-width repaint (the 5s poll): a write mid-pan stops a finger's scroll.
   assert.match(paint, /: widthChanged \? \(ORG_SCROLL_X \+ ORG_VIEW_W \/ 2\) \* f - viewW \/ 2\s*: size !== sizeWas && sizeWas > 0 \? wrap\.scrollLeft \+ \(size - sizeWas\) \/ 2 : null;/);

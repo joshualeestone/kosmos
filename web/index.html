@@ -1817,6 +1817,10 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    so a line hugging the left edge reads as belonging to the page rather than
    to the drawing it is about. */
 #orgnote { text-align: center; margin: 6px 0 0; }
+/* #718: the note sits inside the chart's box, and when that box scrolls sideways
+   a block child moves with the scroll: the note would slide off to the left as
+   the chart opens centred. Sticky at left 0 keeps it in view, the box's width. */
+.orgwrap.orgscroll #orgnote { position: sticky; left: 0; }
 .orgmap { position: relative; margin: 0 auto; touch-action: none; user-select: none; -webkit-user-select: none; }
 /* #718: when the chart is wider than its box (paintOrg sets .orgwide), a finger
    must be able to scroll the box, and touch-action: none on the chart would
@@ -26617,6 +26621,10 @@ function paintOrg() {
   const { placed, maxR } = orgPlace(orgTreeOf(agents));
   // #718: fit the width it is given (see orgFit); the rings come in, the nodes do not shrink.
   const viewW = wrap.clientWidth;   // one read: the fit and the scroll logic below agree on the width
+  /* A box with no width (an ancestor not laid out) has nothing to draw into: a paint
+     here would draw at the natural size and overwrite ORG_POS in that frame. The
+     next paint with a width draws it. */
+  if (viewW === 0) return;
   const fit = orgFit(maxR, viewW);
   if (fit.k < 1) for (const spot of placed.values()) spot.r *= fit.k;
   const size = fit.size;

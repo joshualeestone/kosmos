@@ -38,7 +38,7 @@
  * keyboard arm reds when the scrolling box cannot take focus; the ring-added arm
  * reds when a same-width growth leaves the scroll where it was; the failed-poll
  * arm reds when the failure path leaves the scrolling box's classes or the
- * emptied map's size behind.
+ * emptied map's size behind; the note arm reds when the status note scrolls away.
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -248,6 +248,18 @@ function measure(page) {
         const opened = await page.evaluate(() => document.getElementById('orgview').scrollLeft);
         const mid = Math.round((box.scrollW - box.clientW) / 2);
         chk(Math.abs(opened - mid) <= 2, `${tag} the chart opens centred on the hub, not scrolled to its left edge`, `scrollLeft ${opened}, centre ${mid}`);
+        // The status note sits inside the scrolling box: with the box scrolled (it opens centred) the
+        // note must still be fully in view, not slid off to the left with the chart.
+        {
+          const r = await page.evaluate(() => {
+            const w = document.getElementById('orgview'); const n = document.getElementById('orgnote');
+            const had = n.textContent; n.textContent = 'One or more agents could not be placed (check).';
+            const wr = w.getBoundingClientRect(); const nr = n.getBoundingClientRect();
+            const out = { scrollLeft: w.scrollLeft, noteLeft: Math.round(nr.left - wr.left), noteRight: Math.round(wr.right - nr.right) };
+            n.textContent = had; return out;
+          });
+          chk(r.scrollLeft > 0 && r.noteLeft >= -1 && r.noteRight >= -1, `${tag} the status note stays in view while the box is scrolled`, JSON.stringify(r));
+        }
         // Narrowed while it scrolls (a phone turned, a smaller phone): the point in the middle
         // of the box stays in the middle, rather than the old scroll offset being kept as is.
         {
