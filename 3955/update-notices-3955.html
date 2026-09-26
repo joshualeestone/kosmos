@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Update notices (mock, #3955)</title>
+<style>
+  :root {
+    --bg: #f6f4ef; --surface: #ffffff; --ink: #1d1f23; --ink-2: #5d6168; --rule: #e4e0d6;
+    --gold: #e3b341; --gold-ink: #231b06; --gold-soft: #fbf1d6; --dim: rgba(20, 18, 14, .46);
+    --tile: #faf8f3; --shadow: 0 24px 60px rgba(20, 18, 14, .22);
+  }
+  :root[data-theme="dark"] {
+    --bg: #111214; --surface: #1b1c1f; --ink: #eceae4; --ink-2: #a7a59e; --rule: #2d2e32;
+    --gold: #e3b341; --gold-ink: #231b06; --gold-soft: #3a3120; --dim: rgba(0, 0, 0, .62);
+    --tile: #222327; --shadow: 0 24px 60px rgba(0, 0, 0, .5);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif; }
+  .frame { position: relative; width: 1280px; height: 800px; overflow: hidden; background: var(--bg); }
+  .top { display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 24px; border-bottom: 1px solid var(--rule); background: var(--surface); }
+  .logo { width: 34px; height: 34px; border-radius: 9px; background: var(--gold); display: grid; place-items: center; font-weight: 800; color: var(--gold-ink); }
+  .ws { border: 1px solid var(--rule); border-radius: 9px; padding: 6px 10px; font-weight: 600; font-size: 14px; }
+  .nav { margin-left: 28px; display: flex; gap: 26px; font-weight: 600; color: var(--ink-2); }
+  .nav b { color: var(--ink); }
+  .spacer { flex: 1; }
+  .who { font-weight: 600; font-size: 14px; }
+
+  /* The one small notice: a chip in the top bar, one line, one action. */
+  .chip { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 4px 0 12px; border-radius: 999px;
+    background: var(--gold-soft); border: 1px solid rgba(227, 179, 65, .55); font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); }
+  .chip button { height: 24px; border: 0; border-radius: 999px; padding: 0 12px; background: var(--gold); color: var(--gold-ink); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+
+  .body { display: grid; grid-template-columns: 260px 1fr; height: calc(100% - 64px); }
+  .side { border-right: 1px solid var(--rule); padding: 24px; }
+  .ph { background: var(--tile); border-radius: 12px; height: 16px; margin: 0 0 12px; }
+  .main { padding: 28px 36px; }
+  .main .ph.big { height: 120px; }
+
+  /* After an update: the What's new modal over a dimmed app. */
+  .dim { position: absolute; inset: 0; background: var(--dim); display: grid; place-items: center; }
+  .dim[hidden] { display: none; }
+  .modal { width: 640px; background: var(--surface); border-radius: 22px; box-shadow: var(--shadow); padding: 32px 32px 26px; text-align: center; }
+  .badge { display: inline-flex; align-items: center; gap: 8px; }
+  .badge .logo { width: 52px; height: 52px; border-radius: 14px; font-size: 26px; }
+  .modal h1 { margin: 16px 0 4px; font-size: 24px; letter-spacing: -.01em; }
+  .ver { display: inline-block; margin: 0 0 22px; padding: 3px 10px; border-radius: 999px; background: var(--tile); border: 1px solid var(--rule); font-size: 13px; font-weight: 600; color: var(--ink-2); }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; text-align: left; }
+  .tile { display: flex; gap: 12px; align-items: flex-start; background: var(--tile); border: 1px solid var(--rule); border-radius: 14px; padding: 14px; }
+  .ico { flex: none; width: 40px; height: 40px; border-radius: 11px; background: var(--gold-soft); display: grid; place-items: center; color: #9a6a00; }
+  :root[data-theme="dark"] .ico { color: var(--gold); }
+  .tile b { display: block; font-size: 15px; margin: 1px 0 2px; }
+  .tile span { display: block; font-size: 13.5px; color: var(--ink-2); line-height: 1.4; }
+  .actions { margin-top: 24px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .primary { height: 42px; min-width: 180px; border: 0; border-radius: 12px; background: var(--gold); color: var(--gold-ink); font: inherit; font-weight: 700; font-size: 15px; }
+  .link { color: var(--ink-2); font-size: 13.5px; text-decoration: underline; text-underline-offset: 3px; }
+
+  .label { position: absolute; left: 24px; bottom: 16px; font: 600 12px/1 ui-monospace, Menlo, monospace; color: var(--ink-2); background: var(--surface); border: 1px solid var(--rule); padding: 6px 8px; border-radius: 8px; }
+</style>
+</head>
+<body>
+<!-- State is picked by ?state=available|reload|modal and ?theme=light|dark, for screenshots. -->
+<div class="frame">
+  <div class="top">
+    <div class="logo">K</div>
+    <div class="ws">Kosmos 1 ▾</div>
+    <span id="notice"></span>
+    <div class="nav"><b>Agents</b><span>Projects</span></div>
+    <div class="spacer"></div>
+    <div class="who">Josh ▾</div>
+  </div>
+  <div class="body">
+    <div class="side"><div class="ph" style="width:70%"></div><div class="ph"></div><div class="ph" style="width:80%"></div><div class="ph" style="width:60%"></div></div>
+    <div class="main"><div class="ph" style="width:40%;height:22px"></div><div class="ph big"></div><div class="ph big"></div><div class="ph" style="width:70%"></div></div>
+  </div>
+  <div class="dim" id="modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="wn-t">
+      <div class="badge"><div class="logo">K</div></div>
+      <h1 id="wn-t">Kosmos has been updated</h1>
+      <div class="ver">Version 0.6.96</div>
+      <div class="tiles">
+        <div class="tile"><div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.5"/><circle cx="5.5" cy="16" r="2.5"/><circle cx="18.5" cy="16" r="2.5"/></svg></div>
+          <div><b>Swarms</b><span>One agent brings in helpers when parts of a task can run at once.</span></div></div>
+        <div class="tile"><div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6l2 2 3-3"/><path d="M12 7h8"/><path d="M4 13l2 2 3-3"/><path d="M12 14h8"/><path d="M12 20h8"/></svg></div>
+          <div><b>Subtasks</b><span>Break a task into smaller ones, and see them fold under it.</span></div></div>
+        <div class="tile"><div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg></div>
+          <div><b>Kosmos on your phone</b><span>Chat with your agents from anywhere with Kosmos+.</span></div></div>
+        <div class="tile"><div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M8 10h8M8 14h5"/></svg></div>
+          <div><b>A cleaner Tasks view</b><span>All your tasks in one list, without the extra box around them.</span></div></div>
+      </div>
+      <div class="actions">
+        <button class="primary" type="button">Got it</button>
+        <a class="link" href="#">See everything that changed</a>
+      </div>
+    </div>
+  </div>
+  <div class="label" id="label"></div>
+</div>
+<script>
+  const q = new URLSearchParams(location.search);
+  const state = q.get('state') || 'modal';
+  if (q.get('theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  const notice = document.getElementById('notice');
+  if (state === 'available') notice.innerHTML = '<span class="chip"><span class="dot"></span>An update is available<button type="button">Update</button></span>';
+  if (state === 'reload') notice.innerHTML = '<span class="chip"><span class="dot"></span>Reload to finish updating<button type="button">Reload</button></span>';
+  if (state === 'modal') document.getElementById('modal').hidden = false;
+  document.getElementById('label').textContent = { available: 'A. Before: an update is available', reload: 'B. The app updated underneath: reload to finish', modal: 'C. After: what is new (once per version)' }[state];
+</script>
+</body>
+</html>
