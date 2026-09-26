@@ -1178,13 +1178,18 @@ async function main() {
       const head = document.getElementById('rail-agents');
       if (!box || !list || !head) return { missing: true };
       const b = box.getBoundingClientRect(), l = list.getBoundingClientRect(), h = head.getBoundingClientRect();
+      const ph = document.getElementById('rail-projects');
+      const p = ph ? ph.getBoundingClientRect() : null;
       return { text: (box.textContent || '').trim(), role: box.getAttribute('role'), live: box.getAttribute('aria-live'),
         inHead: head.contains(box), headShown: !!head.offsetParent && h.height > 0,
         retry: box.querySelectorAll('[data-pn-retry]').length,
         rows: box.querySelectorAll('[data-pn-retry]').length === document.querySelectorAll('#pj-one-notice [data-pn-retry]').length,
         // Above the list and in its column: the notice ends where the list begins (within the head's
         // 4px bottom margin and a pixel of rounding), and spans no further right than the rail.
-        gap: Math.round(l.top - b.bottom), leftIn: b.left >= l.left - 1, rightIn: b.right <= l.right + 1, height: Math.round(b.height) };
+        gap: Math.round(l.top - b.bottom), leftIn: b.left >= l.left - 1, rightIn: b.right <= l.right + 1, height: Math.round(b.height),
+        // The head minus the notice is the Projects head's height: the notice adds only itself, never a
+        // phantom line gap, so the two rail heads keep their parity with and without it.
+        headLessNotice: Math.round(h.height - b.height), projectsHead: p ? Math.round(p.height) : null };
     });
     const layoutBefore = await page.evaluate(() => document.documentElement.getAttribute('data-layout') || 'tabs');
     await page.evaluate(() => applyLayout('consolidated', true));
@@ -1196,6 +1201,7 @@ async function main() {
     if (railOn.missing || !/instructions for this project/.test(railOn.text) || railOn.role !== 'status' || railOn.live !== 'polite'
         || !railOn.inHead || !railOn.headShown || !railOn.retry || !railOn.rows
         || !(railOn.gap >= 0 && railOn.gap <= 12) || !railOn.leftIn || !railOn.rightIn || railOn.height < 20
+        || railOn.projectsHead === null || Math.abs(railOn.headLessNotice - railOn.projectsHead) > 1
         || railOff.text) {
       contrastFails += 1;
       console.log(`  FAIL  #3948 consolidated layout: expected the project notice, with its Try again, in a polite status region in the Agents rail head straight above the list, and nothing there once the layout is put back (${scheme}), got ${JSON.stringify(rail)}`);

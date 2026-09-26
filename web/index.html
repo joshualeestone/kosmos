@@ -4374,7 +4374,12 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      Folded, the rail is a 48px strip of letters with no room for a sentence, and a notice squeezed into it
      reads as noise; it goes with the name. ⚠️ That also silences it while folded, the same as the rows'
      names are silent there. Unfolding shows it again; it is not re-announced (its text has not changed). */
+  /* ⚠️ row-gap 0: the notice is always a line of its own (flex-basis 100%), even empty, and the head's 6px
+     gap would sit between the lines and make this head 6px taller than the Projects head with nothing to
+     say. Its room comes from its own padding, only while it has content. Unfolded only: folded, the head
+     is a column and that same gap spaces the fold arrow from the +. */
   html[data-layout="consolidated"] body.consolidated .railhead#rail-agents { flex-wrap: wrap; }
+  html[data-layout="consolidated"] body.consolidated:not(.fold-a) .railhead#rail-agents { row-gap: 0; }
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn { flex: 0 0 100%; min-width: 0; }
   html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents > .alist-pjn { display: none; }
   /* #980: SCOPED to the agents rail -- unscoped, folding agents also hid
