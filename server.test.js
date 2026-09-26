@@ -13997,7 +13997,7 @@ test('#761 round 1: a part is heard with its own sentence, a no-op reassignment 
    taskMake's persisted process-task counter, but addPart/assignPart never
    set `addedVia` on anything -- so the counter never moved and the "cap"
    let a process page a live agent without limit. Fixed with a real,
-   dedicated in-memory counter (server.js heardBudgetLog). */
+   dedicated in-memory counter (server.js heardBudgetLog), per assignee since #3961. */
 test('#761 round 2: a process cannot unboundedly page a live agent through the part routes', async () => {
   const chatEngine = require('./engine/chat');
   const projectsEngine761c = require('./engine/projects');
@@ -14019,11 +14019,12 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
     });
     assert.equal(r0.status, 200, r0.body);
 
-    // #3959: the parts valve is the 500-an-hour breaker in production; this test pins its
-    // interplay with the twelve-an-hour paging allowance, so it runs the valve at twelve too.
+    // The parts valve is the 500-an-hour breaker in production (#4019); this test runs it at
+    // twelve so the write valve trips cheaply. The paging allowance is not the limit here.
     require('./engine/tasks').setPartsLimitForTests(12);
     // Twelve process-originated (no sec-fetch-site: a curl, not a browser)
-    // part assignments should each page the pane -- the cap is 12/hour.
+    // part assignments each page the pane: the parts WRITE valve is 12 an hour,
+    // and mara's paging allowance (30, #3961) is not the limit here.
     let placed = 0;
     for (let i = 0; i < 12; i++) {
       const rp = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
@@ -14051,20 +14052,16 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
     const stored = require('./engine/projects').readAll().find((x) => x.id === p.id);
     assert.equal((stored.tasks[0].parts || []).some((x) => x.sentence === 'Course 13'), false, 'the write landed over the cap');
     assert.equal(sends.length, before, 'CONTROL: nothing new was typed once the valve tripped');
-    // #3959: the paging allowance is spent, but agent-made TASKS are no longer capped at
-    // twelve, so one lands. Its assignee is NOT typed to, and the answer says so rather
-    // than leaving `heard` out (which reads as "no assignee").
+    // #3961: the parts WRITE valve is shut, but the paging allowance is per assignee
+    // (30 an hour) and mara has used twelve, so an agent-made TASK for her still lands
+    // AND is typed to her. Under the old shared count of twelve this was could_not.
     const rTask = await req('/api/project/' + encodeURIComponent(p.id) + '/tasks', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ sentence: 'Book the caterer', who: 'mara' }),
     });
     assert.equal(rTask.status, 200, rTask.body);
-    const heardTask = JSON.parse(rTask.body).heard;
-    assert.ok(heardTask, 'a skipped nudge left heard undefined, which reads as no assignee');
-    assert.equal(heardTask.state, 'could_not');
-    assert.equal(heardTask.who, 'mara');
-    assert.match(heardTask.because, /hourly allowance .*12 an hour, shared by all agents.*the work is on their list/);
-    assert.equal(sends.length, before, 'CONTROL: nothing was typed for the task once the allowance was spent');
+    assert.equal((JSON.parse(rTask.body).heard || {}).state, 'placed', rTask.body);
+    assert.ok(sends.length > before, 'the task was not typed to mara');
     // The screen is never valved: the person adds one right now, and it is heard.
     const r14 = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
       method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
@@ -14072,19 +14069,23 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
     });
     assert.equal(r14.status, 200, r14.body);
   } finally {
+    resetHeardBudgetForTests(); // this test spent mara's allowance; later tests must not inherit it
     require('./engine/tasks').setPartsLimitForTests();
     chatEngine.setRunner(null);
     board.restore();
   }
 });
 
-/* #3959 review round 4: once the shared paging allowance is spent, EVERY agent-made
-   assignment route says the assignee was not told, not only task create. Twelve task
-   assignments spend it (tasks are no longer capped at twelve); the part routes stay open
-   because their own valve is the 500-an-hour breaker, and must answer could_not. */
-test('#3959: with the paging allowance spent by tasks, part add and part reassign say the assignee was not told', async () => {
+/* #3961: the paging allowance is PER ASSIGNEE. One agent's allowance running out does
+   not silence anybody else; every agent-made assignment route says so when it skips; and
+   a fleet-wide ceiling still stops a runaway, with its own sentence. Also measured here:
+   agent-made TASKS do not spend the parts write valve (#803), which a comment in the
+   #3959 version of this test said they did. */
+test('#3961: the paging allowance is per assignee, every route says when it skipped, and the fleet ceiling still holds', async () => {
   const chatEngine = require('./engine/chat');
-  const projectsEngine3959 = require('./engine/projects');
+  const projectsEngine3961 = require('./engine/projects');
+  const tasksEngine3961 = require('./engine/tasks');
+  const { HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests } = require('./server');
   const board = fleet.install([fleet.agent('mara', { state: 'idle' }), fleet.agent('theo', { state: 'idle' })]);
   const sends = [];
   try {
@@ -14095,43 +14096,88 @@ test('#3959: with the paging allowance spent by tasks, part add and part reassig
       return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
     });
     chatEngine.setDryRun(false);
-    const pdir = nodePath.join(SANDBOX, 'p3959-heard'); fs.mkdirSync(pdir, { recursive: true });
-    const p = projectsEngine3959.create({ name: 'Heard check 3959', folder: pdir, agents: ['mara', 'theo'], roster: board.agents });
+    const pdir = nodePath.join(SANDBOX, 'p3961-heard'); fs.mkdirSync(pdir, { recursive: true });
+    const p = projectsEngine3961.create({ name: 'Heard check 3961', folder: pdir, agents: ['mara', 'theo'], roster: board.agents });
     const api = (path, body) => req('/api/project/' + encodeURIComponent(p.id) + path, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    // The parts valve counts across ALL projects and earlier tests in this file made parts.
+    for (const q of projectsEngine3961.readAll()) tasksEngine3961.agePartWritesForTests(q.id, 3700);
+    const valveBefore = tasksEngine3961.partValve().count;
+    // The ceiling must stay far above one agent's allowance, or the two collapse back
+    // into one shared count, which is the defect this card fixed.
+    assert.ok(HEARD_RUNAWAY_MAX >= 10 * HEARD_PER_AGENT_MAX, 'the fleet ceiling is too close to one agent\'s allowance');
     let placed = 0;
-    for (let i = 0; i < 12; i += 1) {
+    for (let i = 0; i < HEARD_PER_AGENT_MAX; i += 1) {
       const r = await api('/tasks', { sentence: 'Errand ' + i, who: 'mara' });
       assert.equal(r.status, 200, r.body);
       if ((JSON.parse(r.body).heard || {}).state === 'placed') placed += 1;
     }
-    assert.equal(placed, 12, 'PRECONDITION: twelve task assignments were typed, spending the allowance');
-    // The parts valve (the 500-an-hour breaker) is nowhere near its limit, so the part routes
-    // below are refused only if this change is wrong, never by that valve.
-    assert.equal(require('./engine/tasks').partValve().refused, false, 'PRECONDITION: the parts valve is open');
-    const before = sends.length;
-    // Add a part with an assignee: it lands, nobody is typed to, and the answer says so.
+    assert.equal(placed, HEARD_PER_AGENT_MAX, 'every assignment up to the allowance was typed');
+    assert.equal(tasksEngine3961.partValve().count, valveBefore, 'agent-made tasks spent the parts write valve');
+    // Mara's allowance is spent: the next task lands, is not typed, and says so.
+    let before = sends.length;
+    const rOver = await api('/tasks', { sentence: 'One more errand', who: 'mara' });
+    assert.equal(rOver.status, 200, rOver.body);
+    const hOver = JSON.parse(rOver.body).heard;
+    assert.ok(hOver, 'a skipped nudge left heard undefined, which reads as no assignee');
+    assert.equal(hOver.state, 'could_not');
+    assert.equal(hOver.who, 'mara');
+    assert.match(hOver.because, new RegExp('already told mara about new work on screen ' + HEARD_PER_AGENT_MAX + ' times this hour.*the work is on their list'));
+    assert.equal(sends.length, before, 'CONTROL: nothing was typed to mara past her allowance');
+    // Theo is not affected by mara's: a task and a part for him are both typed.
+    const rTheo = await api('/tasks', { sentence: 'Theo errand', who: 'theo' });
+    assert.equal((JSON.parse(rTheo.body).heard || {}).state, 'placed', rTheo.body);
     const rAdd = await api('/task/1/parts', { sentence: 'Buy bread', who: 'theo' });
     assert.equal(rAdd.status, 200, rAdd.body);
-    const hAdd = JSON.parse(rAdd.body).heard;
-    assert.ok(hAdd, 'part add left heard undefined with an assignee named');
-    assert.equal(hAdd.state, 'could_not');
-    assert.equal(hAdd.who, 'theo');
-    assert.match(hAdd.because, /hourly allowance/);
-    // Reassign that part: same answer.
-    const parts = (projectsEngine3959.readAll().find((x) => x.id === p.id).tasks[0].parts || []);
+    assert.equal((JSON.parse(rAdd.body).heard || {}).state, 'placed', rAdd.body);
+    // Reassigning that part to mara: lands, not typed, says so.
+    const parts = (projectsEngine3961.readAll().find((x) => x.id === p.id).tasks[0].parts || []);
     const partId = parts[parts.length - 1].id;
+    before = sends.length;
     const rWho = await api('/task/1/part/' + partId + '/who', { who: 'mara' });
     assert.equal(rWho.status, 200, rWho.body);
     const hWho = JSON.parse(rWho.body).heard;
     assert.ok(hWho, 'part reassign left heard undefined with an assignee named');
     assert.equal(hWho.state, 'could_not');
     assert.equal(hWho.who, 'mara');
+    assert.equal(sends.length, before, 'CONTROL: nothing was typed for the reassign');
+    // Part add spends and respects the same allowance: to mara (spent) it is not typed...
+    const rAddMara = await api('/task/1/parts', { sentence: 'Slice bread', who: 'mara' });
+    assert.equal(rAddMara.status, 200, rAddMara.body);
+    assert.equal((JSON.parse(rAddMara.body).heard || {}).state, 'could_not', rAddMara.body);
+    assert.equal(sends.length, before, 'CONTROL: nothing was typed for the part add past the allowance');
+    // ...and theo's placed task and part add each counted: two spent, so spending the
+    // other twenty-eight leaves his next assignment untyped.
+    spendHeardBudgetForTests('theo', HEARD_PER_AGENT_MAX - 2);
+    const rTheoFull = await api('/tasks', { sentence: 'Theo is full', who: 'theo' });
+    assert.equal((JSON.parse(rTheoFull.body).heard || {}).state, 'could_not',
+      'a placed part add or task did not spend the assignee\'s allowance: ' + rTheoFull.body);
     // A part with NOBODY named still answers no heard at all.
     const rNone = await api('/task/1/parts', { sentence: 'Unassigned' });
     assert.equal(rNone.status, 200, rNone.body);
     assert.equal(JSON.parse(rNone.body).heard, undefined, 'a part with no assignee claimed someone was not told');
-    assert.equal(sends.length, before, 'CONTROL: nothing was typed once the allowance was spent');
+    // One allowance per pane, whatever the spelling: "THEO" resolves through the roster
+    // to theo's pane (delivery tolerates case, #989), so spending it spends theo's.
+    resetHeardBudgetForTests();
+    spendHeardBudgetForTests('THEO', HEARD_PER_AGENT_MAX, board.agents);
+    const rCase = await api('/tasks', { sentence: 'Spelled differently', who: 'theo' });
+    assert.equal((JSON.parse(rCase.body).heard || {}).state, 'could_not', 'a differently-cased spelling got its own allowance: ' + rCase.body);
+    assert.match(JSON.parse(rCase.body).heard.because, /already told theo/);
+    resetHeardBudgetForTests();
+    // The fleet-wide ceiling: once agents have typed HEARD_RUNAWAY_MAX times this hour,
+    // even theo (well under his own allowance) is not typed to, and the sentence says why.
+    spendHeardBudgetForTests('somebody-else', HEARD_RUNAWAY_MAX);
+    before = sends.length;
+    const rRun = await api('/tasks', { sentence: 'Past the ceiling', who: 'theo' });
+    assert.equal(rRun.status, 200, rRun.body);
+    const hRun = JSON.parse(rRun.body).heard;
+    assert.equal(hRun.state, 'could_not');
+    assert.match(hRun.because, new RegExp('typed into agent screens ' + HEARD_RUNAWAY_MAX + ' times this hour'));
+    assert.equal(sends.length, before, 'CONTROL: nothing was typed past the fleet ceiling');
+    // Both limits spent at once: the ceiling is the one named.
+    spendHeardBudgetForTests('theo', HEARD_PER_AGENT_MAX);
+    const rBoth = await api('/tasks', { sentence: 'Both spent', who: 'theo' });
+    assert.match(JSON.parse(rBoth.body).heard.because, /typed into agent screens/, 'with both limits spent, the ceiling was not the one named');
   } finally {
     resetHeardBudgetForTests(); // this test spent it; later tests must not inherit that
     chatEngine.setRunner(null);
@@ -14139,64 +14185,77 @@ test('#3959: with the paging allowance spent by tasks, part add and part reassig
   }
 });
 
-/* #761 challenge-loop round 6: heardBudgetRecord() fired whenever heardBy
-   returned an object at all, including a FAILED delivery (could_not /
-   unconfirmed) to an unreachable agent -- so a run of failed attempts spent
-   the same shared budget a real placement does, and could exhaust it for
-   every other project's legitimate ones. Now only a real 'placed' spends it. */
-test('#761 round 6: failed deliveries do not spend the shared pane-notify budget', async () => {
+/* #3961: the allowance belongs to the PANE a name reaches, found the way delivery
+   finds it (exact name first, then case-insensitive). Two live panes whose names differ
+   only in case are two screens, so spending one leaves the other alone. */
+test('#3961: two panes whose names differ only in case keep separate allowances', async () => {
   const chatEngine = require('./engine/chat');
-  const projectsEngine761e = require('./engine/projects');
-  // Only 'mara' is a live pane; 'ghost' is a project member with nowhere real to type.
-  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
-  const sends = [];
+  const projectsEngineCase = require('./engine/projects');
+  const { HEARD_PER_AGENT_MAX, spendHeardBudgetForTests } = require('./server');
+  const board = fleet.install([fleet.agent('casey', { state: 'idle' }), fleet.agent('Casey', { state: 'idle' })]);
   try {
     resetHeardBudgetForTests();
     chatEngine.setRunner((args) => {
-      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chatEngine.setDryRun(false);
+    const pdir = nodePath.join(SANDBOX, 'p3961-case'); fs.mkdirSync(pdir, { recursive: true });
+    const p = projectsEngineCase.create({ name: 'Case check 3961', folder: pdir, agents: ['casey', 'Casey'], roster: board.agents });
+    const api = (body) => req('/api/project/' + encodeURIComponent(p.id) + '/tasks', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    spendHeardBudgetForTests('casey', HEARD_PER_AGENT_MAX);
+    const rLower = await api({ sentence: 'For casey', who: 'casey' });
+    assert.equal((JSON.parse(rLower.body).heard || {}).state, 'could_not', rLower.body);
+    const rUpper = await api({ sentence: 'For Casey', who: 'Casey' });
+    assert.equal((JSON.parse(rUpper.body).heard || {}).state, 'placed', 'a different pane was silenced by casey\'s allowance: ' + rUpper.body);
+  } finally {
+    resetHeardBudgetForTests();
+    chatEngine.setRunner(null);
+    board.restore();
+  }
+});
+
+/* #761 challenge-loop round 6, rebuilt for #3961: only a real PLACED delivery spends the
+   paging allowance. More failed attempts than the whole allowance, all at the SAME agent,
+   then that agent comes back and must still be told. (The earlier version aimed its
+   failures at a different agent, which a per-assignee allowance can never charge, so it
+   could no longer fail.) Tasks, not parts, carry the attempts: the parts write valve
+   would stop a process at twelve. */
+test('#761 round 6: failed deliveries do not spend the paging allowance', async () => {
+  const chatEngine = require('./engine/chat');
+  const projectsEngine761e = require('./engine/projects');
+  const { HEARD_PER_AGENT_MAX } = require('./server');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  let reachable = false;
+  try {
+    resetHeardBudgetForTests();
+    chatEngine.setRunner((args) => {
+      if (!reachable) return { ran: true, spawnFailed: false, status: 1, out: '', err: "can't find pane" };
       if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
       return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
     });
     chatEngine.setDryRun(false);
     const pdir = nodePath.join(SANDBOX, 'p761-failed-not-spent'); fs.mkdirSync(pdir, { recursive: true });
-    const p = projectsEngine761e.create({ name: 'Failed delivery', folder: pdir, agents: ['ghost', 'mara'], roster: board.agents });
-    const r0 = await req('/api/project/' + encodeURIComponent(p.id) + '/tasks', {
-      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
-      body: JSON.stringify({ sentence: 'Host it' }),
-    });
-    assert.equal(r0.status, 200, r0.body);
-    // The parts WRITE valve (#803) is persisted across every project on this
-    // Mac, and round 2 above just spent all twelve; age the books through the
-    // seam so this test measures the pane-notify budget, not the write valve.
-    const tasksEngine761e = require('./engine/tasks');
-    for (const pj of projectsEngine761e.readAll()) tasksEngine761e.agePartWritesForTests(pj.id, 3601);
-
-    // Eleven process-originated attempts at the unreachable 'ghost' -- past
-    // what would trip the pane-notify cap if these counted, and one under
-    // the write valve so the real delivery after them is still a write.
-    let notPlaced = 0;
-    for (let i = 0; i < 11; i++) {
-      const rp = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ sentence: 'Ghost part ' + i, who: 'ghost' }),
-      });
-      assert.equal(rp.status, 200, rp.body);
-      const h = JSON.parse(rp.body).heard;
-      assert.ok(h && h.state && h.state !== 'placed', 'an unreachable agent should not read as placed: ' + JSON.stringify(h));
-      notPlaced++;
+    const p = projectsEngine761e.create({ name: 'Failed delivery', folder: pdir, agents: ['mara'], roster: board.agents });
+    const api = (body) => req('/api/project/' + encodeURIComponent(p.id) + '/tasks', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    for (let i = 0; i <= HEARD_PER_AGENT_MAX; i += 1) {
+      const r = await api({ sentence: 'While away ' + i, who: 'mara' });
+      assert.equal(r.status, 200, r.body);
+      const h = JSON.parse(r.body).heard;
+      assert.equal(h && h.state, 'could_not', 'an unreachable agent read as told: ' + JSON.stringify(h));
+      assert.doesNotMatch(h.because, /times this hour/, 'a failed attempt was answered as an allowance skip');
     }
-    assert.equal(notPlaced, 11, 'all eleven failed attempts got a heard verdict (just not placed)');
-    assert.equal(sends.length, 0, 'nothing was ever really typed for an agent with no live pane');
-
-    // A REAL delivery, right after, still succeeds -- the budget was never spent.
-    const rReal = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sentence: 'Real part', who: 'mara' }),
-    });
+    // Mara is reachable again: the next assignment is typed, because none of the
+    // failed attempts spent her allowance.
+    reachable = true;
+    const rReal = await api({ sentence: 'Back now', who: 'mara' });
     assert.equal(rReal.status, 200, rReal.body);
-    assert.equal(JSON.parse(rReal.body).heard && JSON.parse(rReal.body).heard.state, 'placed',
-      'eleven failed deliveries to a different agent must not exhaust the budget for a real one');
+    assert.equal((JSON.parse(rReal.body).heard || {}).state, 'placed',
+      'failed deliveries used up the allowance, so the agent was not told once reachable: ' + rReal.body);
   } finally {
+    resetHeardBudgetForTests();
     chatEngine.setRunner(null);
     board.restore();
   }
