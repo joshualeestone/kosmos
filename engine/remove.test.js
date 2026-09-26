@@ -2665,3 +2665,30 @@ test('#4006: removing an agent clears a failed-restart record, so it never shows
   assert.equal(r.outcome, remove.OUTCOME.REMOVED, r.because);
   assert.equal(disruption.read(name).found, false, 'the failed record outlived the removal');
 });
+
+test('#4006: the person\'s own Restart of a no-pane agent that fails again keeps the failure on its card', () => {
+  const name = madeAgent('retryfails');
+  status.setPaneSource(() => '');   // no session: the restart is a fromDead start
+  remove.setRunner((file, args) => {
+    const cmd = args && args[0];
+    if (cmd === 'bootstrap') return { ok: true, stdout: '' };
+    if (cmd === 'print') return { ok: false, code: 113 };
+    return { ok: true, stdout: '' };
+  });
+  try {
+    disruption.begin(name, 'restart');
+    disruption.fail(name, null);   // the automatic restart already failed
+    const out = mac.restart(name, 'restart', { startIfDead: true });
+    assert.equal(out.outcome, remove.OUTCOME.PARTIAL, out.because);
+    assert.equal(disruption.read(name).failed, true, 'a second failure wiped the failed record');
+    // CONTROL: a never-failed agent whose start fails keeps the ordinary clear.
+    disruption.clear(name);
+    const again = mac.restart(name, 'restart', { startIfDead: true });
+    assert.equal(again.outcome, remove.OUTCOME.PARTIAL, again.because);
+    assert.equal(disruption.read(name).found, false, 'a failed plain START was marked as a failed restart');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});

@@ -1899,6 +1899,10 @@ function restartInner(name, cause, platform, startIfDead) {
      incidentally clean already -- a pure dry-run fails the `ended` check below
      and reaches disruption.clear -- but an explicit gate matches the module's
      convention rather than relying on that coupling (challenge iter 1). */
+  /* #4006: a failed restart already on file stays failed if this attempt (typically the person's own Restart of a
+     no-pane agent, a fromDead start) fails too; only a success, removal or creation ends it. */
+  let wasFailed = false;
+  try { wasFailed = disruption.read(clean).failed === true; } catch { wasFailed = false; }
   if (!(DRY_RUN && !runner)) disruption.begin(clean, cause);
 
   const steps = [];
@@ -2009,11 +2013,14 @@ function restartInner(name, cause, platform, startIfDead) {
     /* And a launch file that is gone: restarting cannot help, so "restart it" would be wrong; the route says it has
        to be created again. */
     const cannotRestart = ops.startableGone(clean, job);
-    if (!(DRY_RUN && !runner)) { if (ops.win32 || fromDead || cannotRestart) disruption.clear(clean); else disruption.fail(clean, diagnostics); }
+    if (!(DRY_RUN && !runner)) {
+      if (ops.win32 || cannotRestart || (fromDead && !wasFailed)) disruption.clear(clean);
+      else disruption.fail(clean, diagnostics);
+    }
     /* A missing launch file cannot be bootstrapped at all (startNow returns true without ever
        trying), so "try again" is not actionable in that sub-case -- say what actually has to
        happen instead of sending the person into an indefinite retry that keeps no-opping. */
-    const gone = ops.startableGone(clean, job);
+    const gone = cannotRestart;
     /* #3410: the messages differ for a fully-dead start -- there was no window to close, so
        "we closed X's window but..." would be false. Say what actually happened in each case. */
     return {
