@@ -15280,14 +15280,36 @@ const server = http.createServer((req, res) => {
       moved = req.method === 'POST' ? !on : on;
     } catch { moved = false; }
     /* #3923: `?retell=1` is the project notice's Try again: re-tell a CURRENT member, never
-       re-add one. For a POST, `moved` above is exactly "not a member now". A notice painted before the agent left must not put it back on the project
-       (and type "Kosmos put you on the project" into its window). */
-    if (req.method === 'POST' && moved && new URL(req.url, ROUTING_BASE).searchParams.get('retell') === '1') {
-      // A missing project answers 404 like every sibling path; a member that left, 409.
-      let exists = false;
-      try { exists = projects.readAll().some((p) => p && p.id === id); } catch { exists = true; }
-      if (!exists) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
-      sendJson(res, 409, { error: 'that agent is no longer on this project' });
+       re-add one. For a POST, `moved` above is exactly "not a member now", so a notice
+       painted before the agent left gets 409 and nothing is written or typed. A current
+       member is never passed to addAgent (a leave landing between the read above and the
+       write must not be undone), and it moves no membership, so the valve does not apply. */
+    if (req.method === 'POST' && new URL(req.url, ROUTING_BASE).searchParams.get('retell') === '1') {
+      if (moved) {
+        // A missing project answers 404 like every sibling path; a member that left, 409.
+        let exists = false;
+        try { exists = projects.readAll().some((p) => p && p.id === id); } catch { exists = true; }
+        if (!exists) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+        sendJson(res, 409, { error: 'that agent is no longer on this project' });
+        return;
+      }
+      let told;
+      try {
+        told = projects.syncAgent(name, roster);
+      } catch (err) {
+        told = { state: projects.TOLD.COULD_NOT, because: String((err && err.message) || 'we could not reach that agent') };
+      }
+      let retold = null;
+      try { retold = projects.get(id, roster); } catch { retold = null; }
+      /* ⚠️ A retry that writes the block for the first time is the join this agent never
+         got, and `toldOverride` reads the stored TOLD as "told it on its screen". So the
+         running agent is told on its screen, with the same line an add types. Only when
+         the file actually changed: a no-op retry must not repeat the line (#304). */
+      let said = null;
+      if (retold && told && told.state === projects.TOLD.TOLD && told.changed) {
+        said = projects.speakOfMembership(name, retold, 'joined', roster);
+      }
+      sendJson(res, 200, { project: retold, told, said, agentsUnreadable: roster === null });
       return;
     }
     /* The membership valve (#803, extended): a process past sixty membership

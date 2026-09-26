@@ -14995,4 +14995,31 @@ test('#3923: Try again (?retell=1) re-tells a current member and never re-adds o
   // A retell on a project that does not exist is a 404, like every sibling path.
   const nowhere = await req('/api/project/no-such-project/agent/leo?retell=1', { method: 'POST' });
   assert.equal(nowhere.status, 404, nowhere.body);
+
+  /* A retry that WRITES the block is the join the running agent never got: the stored TOLD
+     reads as "told it on its screen" (toldOverride), so the line must actually be typed.
+     A retry that changed nothing must not repeat it (the CONTROL arm). */
+  const eng = require('./engine/projects');
+  const realSync = eng.syncAgent;
+  const realSpeak = eng.speakOfMembership;
+  const spoke = [];
+  try {
+    eng.speakOfMembership = (who, proj, kind) => { spoke.push([who, proj && proj.id, kind]); return { state: 'told' }; };
+    eng.syncAgent = () => ({ state: eng.TOLD.TOLD, because: null, changed: true });
+    const wrote = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
+    assert.equal(wrote.status, 200, wrote.body);
+    assert.deepEqual(spoke, [['leo', id, 'joined']], 'a retry that wrote the block did not tell the running agent');
+    assert.deepEqual(JSON.parse(wrote.body).said, { state: 'told' });
+    eng.syncAgent = () => ({ state: eng.TOLD.TOLD, because: null, changed: false });
+    const same = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
+    assert.equal(same.status, 200, same.body);
+    assert.equal(spoke.length, 1, 'a retry that changed nothing typed the line again');
+    eng.syncAgent = () => ({ state: eng.TOLD.COULD_NOT, because: 'we could not write to its instructions', changed: false });
+    const failed = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
+    assert.equal(failed.status, 200, failed.body);
+    assert.equal(spoke.length, 1, 'a retry that could not write typed a line claiming it had');
+  } finally {
+    eng.syncAgent = realSync;
+    eng.speakOfMembership = realSpeak;
+  }
 });

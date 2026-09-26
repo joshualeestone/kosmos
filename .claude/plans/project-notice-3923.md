@@ -39,12 +39,8 @@ page. Try again re-tells that agent and the notice updates.
 - pjSharedTold, pjToldGroupLine, their CSS and tests are removed (dead once the notice replaced the
   group line). pjToldLine stays: the Settings members list still uses it.
 
-- Act rows say Kosmos picks the fix up "the next time you give NAME a task here or change who is on this project" (Mona's concrete wording, narrowed to what syncAgent fires on: giving that agent a task, or a membership change) (review round 3): nothing
-  re-syncs an agent on a timer or after an instructions save, only on membership, task and project
-  changes, so the mock's "next time" is made concrete rather than promising a mechanism that is not
-  there. Rejected: re-telling inside the instructions save, which rewrites the file under the person's
-  open editor. Follow-up card for an automatic re-sync after the person fixes it. Mona Lisa's copy;
-  she can override.
+- Act rows no longer promise a time Kosmos picks the fix up (superseded in review round 5, below):
+  each is "..., then try again." with a Try again button.
 
 ## Verified checks
 - render-projects and render-project-members-3387 pass through tools/browser-checks.sh with the notice in the Members card (the second is surface-mapped to pjcard-members; the notice adds a sibling and changes nothing it asserts).
@@ -66,3 +62,17 @@ page. Try again re-tells that agent and the notice updates.
   connected agent and for a Kosmos-made one whose folder was deleted.
 - Kept deliberately: engine becauseGroup (still on /api/projects; no page reader now). Removing it is
   an engine change with its own test, outside this card.
+
+## Review round 9
+- Try again that WRITES the block now types the same join line an add types into the running agent,
+  because the stored TOLD is read as "told it on its screen" (toldOverride). A retry that changed
+  nothing, or could not write, types nothing. The retell path never calls addAgent (a leave landing
+  mid-request cannot be undone) and skips the membership valve (it moves no membership).
+- A Try again with no answer (offline, a board error, a refusal) says on its row that it did not go
+  through, instead of leaving the row looking untouched.
+- The instruction writer's editor-worded refusals ("reload before saving", "open it by hand") are
+  translated in tellAgent into Kosmos's own sentences, with notice shapes and a plural row, read from
+  write()'s source by a test so a new refusal cannot pass through verbatim.
+- Kept: the headline "X does not have this project's folder." It is about the instructions file, which
+  is what the agent reads at its next start; a line typed into a window is lost on a restart.
+- The Members heading drops its temporary tabindex when focus leaves it.

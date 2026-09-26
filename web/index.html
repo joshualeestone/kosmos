@@ -43735,6 +43735,8 @@ function pjToldLine(told) {
 const PJ_NOTICE = [
   [/^we could not write to its instructions$/, 'wait', (n) => n ? 'We could not write to ' + n + '\u2019s instructions.' : 'We could not write to its instructions.'],
   [/^we could not check which agents are running$/, 'wait', () => 'We could not check which agents are running.'],
+  // Somebody saved the file mid-write; nothing was lost, and a retry reads it fresh.
+  [/^its instructions changed while we were writing to them$/, 'wait', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions changed while Kosmos was writing to them, so Kosmos left them as they were.'],
   [/^it has no instructions file yet, and we will not create one$|^it has no instruction file yet$/, 'retry', (n) => (n ? n + ' has' : 'It has') + ' no instructions file, and Kosmos will not create one.',
     (name) => 'Give ' + name + ' some instructions, then try again.'],
   [/^its instructions contain \d+ Kosmos project blocks/, 'retry', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions hold more than one Kosmos project section, so Kosmos cannot tell which is its own.',
@@ -43751,14 +43753,20 @@ const PJ_NOTICE = [
   [/^it keeps its instructions somewhere we cannot safely change$|^its worker folder /, 'explain', (n) => (n || 'It') + ' keeps its instructions somewhere Kosmos will not change, so Kosmos has nowhere to write.'],
   // The reader's own refusals for a file it cannot safely edit (workerfile.js, instructions.js):
   // pressing again reads the same file the same way, so no button.
-  [/^its instruction file is not UTF-8 text|^its instruction file is not one we can read$|^its instruction file could not be read$|^we cannot get at its instruction file to read it$|^that file is not inside the workers folder$|^that is not a name we can look up$/, 'explain',
+  [/^its instruction file is not UTF-8 text|^its instruction file is not one we can read$|^its instruction file could not be read$|^we cannot get at its instruction file to read it$|^that file is not inside the workers folder$/, 'explain',
     (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are in a file Kosmos cannot safely change, so Kosmos has nowhere to write.'],
+  // The name itself cannot be turned into a file path (instructions.js): no file was ever found.
+  [/^that is not a name we can look up$/, 'explain', (n, name) => 'Kosmos cannot find instructions for an agent named ' + name + ', so it has nowhere to write.'],
 ];
 /* A Try again that came back with the same answer: its row says so on every paint until the
    answer changes or the row goes. Keyed by project and session name (pjNoticeKey), so browsing
    another project where the same agent is fine does not forget it here. */
 const PJ_NOTICE_TRIED = new Map();
 const pjNoticeKey = (projectId, sessionName) => String(projectId) + '\n' + String(sessionName);
+/* A Try again that never got an answer (offline, refused, a board error): the row keeps the
+   earlier answer, so it says the retry did not go through rather than looking untouched.
+   Same key and the same lifetime as a PJ_NOTICE_TRIED mark. */
+const PJ_NOTICE_MISSED = new Map();
 const PJ_NOTICE_COUNT = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
 
 /** One agent's row, or null when nothing is wrong (success and not_tried say nothing). */
@@ -43777,7 +43785,9 @@ function pjNoticeRow(m, solo) {
 }
 /* The row's sentence after a Try again that did not change the answer. */
 function pjNoticeStill(r, projectId) {
-  return PJ_NOTICE_TRIED.get(pjNoticeKey(projectId, r.key)) === r.because ? ' It still did not work.' : '';
+  const k = pjNoticeKey(projectId, r.key);
+  if (PJ_NOTICE_MISSED.get(k) === r.because) return ' Trying again did not go through, so this is still the earlier answer.';
+  return PJ_NOTICE_TRIED.get(k) === r.because ? ' It still did not work.' : '';
 }
 
 /** The whole notice: '' when every agent has the folder. */
@@ -43786,12 +43796,14 @@ function pjNotice(roster, projectId) {
   // A retry mark lasts only while its agent is still failing, so a row that later comes back
   // does not open with "It still did not work".
   const mine = pjNoticeKey(projectId, '');
-  for (const k of [...PJ_NOTICE_TRIED.keys()]) {
-    if (!k.startsWith(mine)) continue;
-    const m = failing.find((x) => pjNoticeKey(projectId, x.sessionName) === k);
-    // Gone, or a different answer now: the retry's answer is over, so a later return of the same
-    // reason (from some other re-tell) is not "still".
-    if (!m || String(m.told.because || '') !== PJ_NOTICE_TRIED.get(k)) PJ_NOTICE_TRIED.delete(k);
+  for (const marks of [PJ_NOTICE_TRIED, PJ_NOTICE_MISSED]) {
+    for (const k of [...marks.keys()]) {
+      if (!k.startsWith(mine)) continue;
+      const m = failing.find((x) => pjNoticeKey(projectId, x.sessionName) === k);
+      // Gone, or a different answer now: the retry's answer is over, so a later return of the same
+      // reason (from some other re-tell) is not "still".
+      if (!m || String(m.told.because || '') !== marks.get(k)) marks.delete(k);
+    }
   }
   if (!failing.length) return '';
   const solo = failing.length === 1;
@@ -53277,7 +53289,7 @@ async function addMemberToProject(who, msg) {
 }
 /* #3923: "Try again" on the project notice re-tells that one agent (`?retell=1`: the route
    refuses rather than re-adds an agent that has left). Success says nothing: the repaint drops
-   the row. The same answer again says so on the row. Focus returns to the row's new button, or
+   the row. The same answer again says so on the row, and so does a retry that got no answer. Focus returns to the row's new button, or
    to the Members heading when the row is gone, since the repaint replaces the pressed button. */
 document.getElementById('pj-one-notice').addEventListener('click', async (e) => {
   const btn = e.target && e.target.closest ? e.target.closest('[data-pn-retry]') : null;
@@ -53300,7 +53312,10 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
   // "It still did not work" only about a retry that reached the board, marked before the read so
   // this read's own paint shows it. Cleared again if the read is overtaken (its data is not ours).
   const mark = pjNoticeKey(project, key);
-  if (reached) PJ_NOTICE_TRIED.set(mark, before);
+  // One mark per retry: an answered one says "still", an unanswered one says it did not go through.
+  PJ_NOTICE_TRIED.delete(mark);
+  PJ_NOTICE_MISSED.delete(mark);
+  (reached ? PJ_NOTICE_TRIED : PJ_NOTICE_MISSED).set(mark, before);
   box.__lastLive = null;   // repaint even when the answer is word for word the same
   // A newer read that overtook this one also started after the retry, so its data answers the
   // retry too: the mark stands. One more read gives this handler a paint of its own to focus on.
@@ -53316,7 +53331,14 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
   const again = Array.from(box.querySelectorAll('[data-pn-retry]')).find((b) => b.dataset.pnRetry === key) || null;
   const heading = document.querySelector('.pjcard-members > .dlab');
   if (again) again.focus();
-  else if (heading) { if (!heading.hasAttribute('tabindex')) heading.setAttribute('tabindex', '-1'); heading.focus(); }
+  else if (heading) {
+    // Focusable only for this one landing: a heading left in the tab-by-click order is a stray stop.
+    if (!heading.hasAttribute('tabindex')) {
+      heading.setAttribute('tabindex', '-1');
+      heading.addEventListener('blur', () => heading.removeAttribute('tabindex'), { once: true });
+    }
+    heading.focus();
+  }
 });
 document.getElementById('pj-one-add-go').addEventListener('click', async () => {
   // #2429 (Josh, 0.6.45): once the member is added there is nothing more to do in the

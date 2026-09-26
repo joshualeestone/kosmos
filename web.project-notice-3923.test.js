@@ -45,7 +45,7 @@ function notice() {
   assert.ok(at > 0 && end > at, 'the notice code moved; re-anchor');
   // eslint-disable-next-line no-new-func
   return new Function(pageFn('function esc(') + '\n' + pageFn('function pjSentence(') + '\n'
-    + PAGE.slice(at, end) + '\nreturn { pjNotice, PJ_NOTICE, PJ_NOTICE_TRIED };')();
+    + PAGE.slice(at, end) + '\nreturn { pjNotice, PJ_NOTICE, PJ_NOTICE_TRIED, PJ_NOTICE_MISSED };')();
 }
 
 let projectCount = 0;
@@ -143,6 +143,20 @@ test('#3923: a Try again that came back with the same answer says so on the row,
   assert.doesNotMatch(pjNotice(rows({ leo: 'its instructions are already at the size limit' }), 'p1'), /still did not work/);
 });
 
+test('#3923: a Try again that got no answer says it did not go through, and a later answered one replaces that', () => {
+  const { pjNotice, PJ_NOTICE_TRIED, PJ_NOTICE_MISSED } = notice();
+  const r = rows({ leo: 'we could not write to its instructions' });
+  assert.doesNotMatch(pjNotice(r, 'p1'), /did not go through/, 'CONTROL: not before a retry');
+  PJ_NOTICE_MISSED.set('p1\nleo', 'we could not write to its instructions');
+  assert.match(text(pjNotice(r, 'p1')), /We could not write to leo’s instructions\. Trying again did not go through, so this is still the earlier answer\./);
+  assert.doesNotMatch(pjNotice(r, 'p1'), /still did not work/, 'an unanswered retry claimed to have been tried');
+  // A changed answer ends the mark, as for an answered retry.
+  pjNotice(rows({ leo: 'its instructions are already at the size limit' }), 'p1');
+  assert.equal(PJ_NOTICE_MISSED.has('p1\nleo'), false, 'a missed mark outlived a changed answer');
+  PJ_NOTICE_TRIED.set('p1\nleo', 'we could not write to its instructions');
+  assert.match(text(pjNotice(r, 'p1')), /It still did not work\./);
+});
+
 test('#3923: an unknown cause is one honest retry with the engine\'s own sentence', () => {
   const { pjNotice } = notice();
   assert.equal(text(pjNotice(rows({ leo: 'the disk is full' }))), 'leo does not have this project’s folder. The disk is full. Try again');
@@ -171,6 +185,28 @@ test('#3923: every could_not sentence the engine names has a shape (none falls t
   for (const because of keys) {
     assert.ok(PJ_NOTICE.some(([re]) => re.test(because)), 'no shape for: ' + because);
   }
+});
+
+test('#3923: the instruction writer\'s editor-worded refusals reach the notice in Kosmos\'s own words', () => {
+  const { PJ_NOTICE } = notice();
+  const { tellWriteBecause } = projects;
+  // Every refusal write() throws, read from its source, so a new one cannot slip through verbatim.
+  const src = fs.readFileSync(nodePath.join(__dirname, 'engine', 'instructions.js'), 'utf8');
+  const at = src.indexOf('\nfunction write(');
+  assert.ok(at > 0, 'write() moved; re-anchor');
+  const body = src.slice(at, src.indexOf('\n}\n', at));
+  const thrown = [...body.matchAll(/new Error\('([^']+)'\)/g)].map((m) => m[1]);
+  assert.ok(thrown.some((t) => /changed since you opened them/.test(t)) && thrown.some((t) => /open it by hand/.test(t)),
+    'CONTROL: the scan reads the editor-worded refusals: ' + thrown.join(' | '));
+  // Length and size are translated before this in tellAgent (their own tests). The backup's two
+  // checks are caught inside write() (a backup never blocks the save), so they never reach a caller.
+  for (const raw of thrown.filter((t) => !/cannot be this short|larger than an instruction file|^not a regular file$|also known by another name/.test(t))) {
+    const because = tellWriteBecause(raw);
+    assert.doesNotMatch(because, /reload|open it by hand|you opened/, 'editor wording reached a project verdict: ' + because);
+    assert.ok(PJ_NOTICE.some(([re]) => re.test(because)), 'no shape for the writer refusal: ' + raw + ' -> ' + because);
+  }
+  // CONTROL: an unknown message still passes through, to the generic retry.
+  assert.equal(tellWriteBecause('the disk is full'), 'the disk is full');
 });
 
 test('#3923: every refusal the instruction reader can pass through has a shape (read from the source)', () => {
@@ -213,23 +249,25 @@ function retryHandler(state) {
   assert.ok(at > 0, 'the Try again listener moved; re-anchor');
   const body = PAGE.slice(at + sig.length, PAGE.indexOf('\n});', at) + 2).replace(/PJ_CURRENT/g, 'state.PJ_CURRENT');
   // eslint-disable-next-line no-new-func
-  return new Function('state', 'document', 'fetch', 'loadProjects', 'paintOneProject', 'PROJECTS', 'PJ_NOTICE_TRIED', 'window', 'CSS',
-    pageFn('const pjNoticeKey').split('\n')[0] + '\nreturn ' + body + ';')(state, state.document, state.fetch, state.loadProjects, state.paintOneProject, state.PROJECTS, state.tried, {}, undefined);
+  return new Function('state', 'document', 'fetch', 'loadProjects', 'paintOneProject', 'PROJECTS', 'PJ_NOTICE_TRIED', 'PJ_NOTICE_MISSED', 'window', 'CSS',
+    pageFn('const pjNoticeKey').split('\n')[0] + '\nreturn ' + body + ';')(state, state.document, state.fetch, state.loadProjects, state.paintOneProject, state.PROJECTS, state.tried, state.missed, {}, undefined);
 }
-function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false, overtaken = false, focusedElsewhere = false } = {}) {
+function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false, refused = false, overtaken = false, focusedElsewhere = false } = {}) {
   const log = [];
   const btn = { dataset: { pnRetry: project.agents[0].sessionName }, disabled: false, closest() { return this; } };
   const again = { focus() { log.push('focus:again'); } };
   const attrs = {};
-  const heading = { focus() { log.push('focus:heading'); }, hasAttribute: (k) => k in attrs, setAttribute: (k, v) => { attrs[k] = v; } };
+  const onBlur = [];
+  const heading = { focus() { log.push('focus:heading'); }, hasAttribute: (k) => k in attrs, setAttribute: (k, v) => { attrs[k] = v; },
+    removeAttribute: (k) => { delete attrs[k]; }, addEventListener: (type, fn) => { if (type === 'blur') onBlur.push(fn); } };
   again.dataset = { pnRetry: project.agents[0].sessionName };
   const box = { __lastLive: 'x', querySelectorAll: () => (rowAfter ? [again] : []), contains: () => false };
   const body = { id: 'body' };
   const elsewhere = { id: 'composer' };
   const state = {
-    PJ_CURRENT: project.id, PROJECTS: [project], tried: new Map(), log, btn, attrs,
+    PJ_CURRENT: project.id, PROJECTS: [project], tried: new Map(), missed: new Map(), log, btn, attrs, onBlur,
     document: { getElementById: () => box, querySelector: () => heading, body, get activeElement() { return focusedElsewhere ? elsewhere : body; } },
-    fetch: async (url, opts) => { log.push('fetch:' + opts.method + ' ' + url + ' disabled=' + btn.disabled); if (switchTo) state.PJ_CURRENT = switchTo; if (fetchFails) throw new Error('offline'); return { ok: true }; },
+    fetch: async (url, opts) => { log.push('fetch:' + opts.method + ' ' + url + ' disabled=' + btn.disabled); if (switchTo) state.PJ_CURRENT = switchTo; if (fetchFails) throw new Error('offline'); return { ok: !refused }; },
     loadProjects: async () => { log.push('load live=' + box.__lastLive); return !overtaken; },
     paintOneProject: () => { log.push('paint live=' + box.__lastLive); },
   };
@@ -255,17 +293,29 @@ test('#3923: when the row is gone focus goes to the Members heading; after a pro
   await retryHandler(gone)({ target: gone.btn });
   assert.equal(gone.log[gone.log.length - 1], 'focus:heading');
   assert.equal(gone.attrs.tabindex, '-1', 'the heading must be focusable to take focus');
+  gone.onBlur.forEach((fn) => fn());
+  assert.equal('tabindex' in gone.attrs, false, 'the heading stayed focusable after focus left it');
 
   const moved = standIn(project, { switchTo: 'another-project' });
   await retryHandler(moved)({ target: moved.btn });
   assert.ok(!moved.log.some((l) => l.startsWith('focus:')), 'focus moved into a project the person had left: ' + moved.log);
   assert.equal(moved.btn.disabled, false);
 
-  // A retry that never reached the board marks nothing as "still".
+  // A retry that never got an answer marks nothing as "still": it is marked as not gone through.
   const offline = standIn(project, { fetchFails: true });
   await retryHandler(offline)({ target: offline.btn });
   assert.equal(offline.tried.has(project.id + '\nleo'), false, 'a failed request was recorded as a retry that did not work');
+  assert.equal(offline.missed.get(project.id + '\nleo'), 'we could not write to its instructions', 'an offline retry left the row looking untouched');
   assert.equal(offline.btn.disabled, false);
+  // So does one the board refused (a 500 or 429 is not an answer about the agent).
+  const refused = standIn(project, { refused: true });
+  await retryHandler(refused)({ target: refused.btn });
+  assert.equal(refused.tried.has(project.id + '\nleo'), false);
+  assert.equal(refused.missed.get(project.id + '\nleo'), 'we could not write to its instructions');
+  // CONTROL: an answered retry is marked tried, not missed.
+  const answered = standIn(project);
+  await retryHandler(answered)({ target: answered.btn });
+  assert.equal(answered.missed.has(project.id + '\nleo'), false);
 
   // Overtaken twice: the newer reads answer the retry too, so the mark stands; no read of its own
   // landed, so no focus is placed. (Overtaken once, the second read lands and focuses: the first case.)

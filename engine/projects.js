@@ -177,6 +177,8 @@ const GROUP_BECAUSE = new Map([
     'we could not check which agents are running'],
   ['it keeps its instructions somewhere we cannot safely change',
     'they keep their instructions somewhere we cannot safely change'],
+  ['its instructions changed while we were writing to them',
+    'their instructions changed while we were writing to them'],
   ['taking this out would leave its instructions almost empty',
     'taking this out would leave their instructions almost empty'],
   ['its instructions are already at the size limit',
@@ -2751,9 +2753,25 @@ function tellAgent(sessionName, projects, roster) {
           // limit, and telling somebody their file is too big for a write they
           // did not ask for aims the complaint at the wrong person.
           ? 'its instructions are already at the size limit'
-          : (raw || 'we could not write to its instructions')),
+          : tellWriteBecause(raw)),
     };
   }
+}
+
+/* #3923: the writer's refusals are worded for the person at the instruction EDITOR ("reload
+   before saving", "open it by hand"). Here nobody opened anything: Kosmos was writing on their
+   behalf, and those words reached the project notice as instructions nobody could follow. The
+   same facts in this module's own voice, so every screen that reads the verdict says them right. */
+const TELL_WRITE_BECAUSE = [
+  // Somebody saved the file between our read and our write: nothing was lost and a retry reads it fresh.
+  [/changed since you opened them/, 'its instructions changed while we were writing to them'],
+  [/cannot safely replace/, 'it keeps its instructions somewhere we cannot safely change'],
+  [/there is no agent by that name to write to|that is not a folder/, 'it has no folder of its own on this computer yet'],
+  [/could not be saved/, 'we could not write to its instructions'],
+];
+function tellWriteBecause(raw) {
+  const hit = TELL_WRITE_BECAUSE.find(([re]) => re.test(String(raw || '')));
+  return hit ? hit[1] : (raw || 'we could not write to its instructions');
 }
 
 /**
@@ -2871,7 +2889,7 @@ function toldOverride(verdict, sessionName, known) {
 }
 
 module.exports = {
-  joinTaskClaims, swarmOffIn, swarmOffSet, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride,
+  joinTaskClaims, swarmOffIn, swarmOffSet, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, andList,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
