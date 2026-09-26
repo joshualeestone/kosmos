@@ -364,6 +364,19 @@
    consciously overridden here on his call, and the field still reads
    through its border. */
 #pj-settings-view, #pj-add-view { --field-fill: var(--k-surface); }
+/* #1307: a project's webhooks in its settings. */
+.pjs-hooks { display: grid; gap: 8px; margin-top: 8px; }
+.pjs-hooks:empty { display: none; }
+.pjs-hook { border: 1px solid var(--k-rule); border-radius: 10px; padding: 10px 12px; background: var(--k-surface); }
+.pjs-hook-top { display: flex; gap: 10px; align-items: center; }
+.pjs-hook-top .tk-inp { flex: 1 1 auto; min-width: 0; }
+.pjs-hook-when { font-size: .8125rem; color: var(--k-ink-2); margin: 6px 0 0; }
+.pjs-hook-reveal { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--k-rule); }
+.pjs-hook-reveal p { margin: 0 0 8px; font-size: .875rem; color: var(--k-ink); }
+.pjs-hook-reveal .frow { display: flex; gap: 8px; align-items: center; }
+.pjs-hook-reveal input { flex: 1 1 auto; min-width: 0; font-family: var(--font-mono); font-size: .8125rem; }
+.pjs-hook-reveal code { font-family: var(--font-mono); font-size: .8125rem; }
+.pjs-hook-confirm { margin-top: 8px; font-size: .875rem; }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -14165,6 +14178,20 @@ window.kosmosMeasureScrollbarWidth();
         <button class="btn" id="pjs-add-agent" type="button"><span aria-hidden="true">+</span> Add an agent</button>
         <button class="btn" type="button" disabled title="Not yet: people outside Kosmos will be able to join a project in a later version">Add an external person</button>
         <button class="btn" type="button" disabled title="Not yet: agents outside Kosmos will be able to join a project in a later version">Add an external agent</button>
+      </div>
+    </div>
+
+    <!-- #1307 (Josh, 2026-08-28): "below project members... a button to create a new webhook. It
+         should prepopulate a name for the webhook and display the webhook URL... change the name...
+         and a copy button". Each action saves on its own, like the members above (not Save changes).
+         The link is shown ONCE, when made: only a hash is kept (engine/webhooks.js). -->
+    <div class="field" id="pjs-hooks-field">
+      <span class="flabel" id="pjs-hooks-label">Webhooks</span>
+      <p class="fhint" id="pjs-hooks-hint">A webhook is a link another program can call to add a task to this project. For now it answers programs on this computer only.</p>
+      <div class="pjs-hooks" id="pjs-hooks" role="list" aria-labelledby="pjs-hooks-label"></div>
+      <p class="fmsg" id="pjs-hooks-msg" aria-live="polite" tabindex="-1"></p>
+      <div class="frow" style="margin-top: var(--space-4)">
+        <button class="btn" id="pjs-hook-add" type="button"><span aria-hidden="true">+</span> New webhook</button>
       </div>
     </div>
 
@@ -45402,7 +45429,9 @@ function tkAdded(t) {
   /* #485: a process task with no vouched pane is known to be agent-made,
      so it says "An agent", never "Somebody" (that word is for records from
      before the field existed). */
-  const who = t.addedBy === 'operator' ? 'You'
+  /* #1307: a webhook first, so a webhook someone named "operator" never reads as "You". */
+  const who = t.addedVia === 'webhook' ? (t.addedBy || 'A webhook') + ' (a webhook)'
+    : t.addedBy === 'operator' ? 'You'
     : (t.addedBy || (t.addedVia === 'process' ? 'An agent' : 'Somebody'));
   const at = t.createdAt ? new Date(t.createdAt) : null;
   if (!at || isNaN(at.getTime())) return who;
@@ -46333,7 +46362,156 @@ function paintProjectSettings(p) {
   // survive into this one, the same reason PJ A's message could not.
   document.getElementById('pjs-add-row').hidden = true;
   paintSettingsFacts(p);
+  pjsHooksOpen(p);   // #1307
 }
+/* ---- #1307: a project's webhooks ---------------------------------------------------------
+   Listed, made, renamed and deleted through /api/project/:id/webhooks. The full link exists only
+   in the make response, so PJS_HOOKS.reveal holds it (with its webhook id) until the person says
+   Done or leaves this project's settings; nothing else ever shows it again. */
+const PJS_HOOKS = { projectId: null, list: [], reveal: null, confirm: null, gen: 0 };
+function pjsHooksUrl(id) { return '/api/project/' + encodeURIComponent(PJS_HOOKS.projectId) + '/webhooks' + (id ? '/' + id : ''); }
+async function pjsHooksOpen(p) {
+  if (PJS_HOOKS.projectId !== p.id) { PJS_HOOKS.reveal = null; PJS_HOOKS.confirm = null; document.getElementById('pjs-hooks-msg').textContent = ''; }
+  PJS_HOOKS.projectId = p.id;
+  const mine = ++PJS_HOOKS.gen;
+  const msg = document.getElementById('pjs-hooks-msg');
+  try {
+    const r = await fetch(pjsHooksUrl(), { cache: 'no-store' });
+    const body = await r.json().catch(() => ({}));
+    if (mine !== PJS_HOOKS.gen) return;
+    if (!r.ok || !Array.isArray(body.webhooks)) {
+      msg.textContent = asSentence(body.error || 'we could not read this project’s webhooks just now');
+      PJS_HOOKS.list = [];
+    } else {
+      PJS_HOOKS.list = body.webhooks;
+    }
+  } catch {
+    if (mine !== PJS_HOOKS.gen) return;
+    msg.textContent = 'We could not reach Kosmos to read this project’s webhooks.';
+  }
+  pjsHooksPaint();
+}
+function pjsHooksWhen(h) {
+  const now = Date.now();
+  const made = h.createdAt ? 'Made ' + agoWords(now - Date.parse(h.createdAt)) : 'Made';
+  const used = h.lastUsedAt ? 'last used ' + agoWords(now - Date.parse(h.lastUsedAt)) : 'not used yet';
+  return made + ', ' + used + '.';
+}
+function pjsHooksPaint() {
+  const box = document.getElementById('pjs-hooks');
+  if (!box) return;
+  box.innerHTML = PJS_HOOKS.list.map((h) => {
+    const id = esc(h.id);
+    const reveal = PJS_HOOKS.reveal && PJS_HOOKS.reveal.id === h.id
+      ? '<div class="pjs-hook-reveal">'
+        + '<p><b>Copy this link now.</b> For your safety Kosmos shows it only once.</p>'
+        + '<div class="frow"><input class="tk-inp" type="text" readonly id="pjs-hook-url" value="' + esc(PJS_HOOKS.reveal.url) + '" aria-label="The link for ' + esc(h.name) + '">'
+        + '<button class="btn" type="button" data-hook-copy="' + id + '">Copy</button></div>'
+        + '<p class="fhint" style="margin:8px 0 0;">A program adds a task by sending it JSON, like <code>{"title": "Invoice 42 is overdue"}</code>.</p>'
+        + '<p class="fmsg" id="pjs-hook-copied" aria-live="polite" style="margin:6px 0 0;"></p>'
+        + '<button class="linkish" type="button" data-hook-done="' + id + '">Done, I have copied it</button></div>'
+      : '';
+    const confirm = PJS_HOOKS.confirm === h.id
+      ? '<div class="pjs-hook-confirm">Delete ' + esc(h.name) + '? Anything using its link stops working. '
+        + '<button class="btn" type="button" data-hook-delete-yes="' + id + '">Delete</button> '
+        + '<button class="linkish" type="button" data-hook-delete-no="' + id + '">Keep it</button></div>'
+      : '';
+    return '<div class="pjs-hook" role="listitem" data-hook="' + id + '">'
+      + '<div class="pjs-hook-top"><input class="tk-inp" type="text" maxlength="60" value="' + esc(h.name) + '" data-hook-name="' + id + '" aria-label="Name of this webhook">'
+      + (PJS_HOOKS.confirm === h.id ? '' : '<button class="linkish" type="button" data-hook-delete="' + id + '" aria-label="Delete ' + esc(h.name) + '">Delete</button>') + '</div>'
+      + '<p class="pjs-hook-when">' + esc(pjsHooksWhen(h)) + '</p>' + confirm + reveal + '</div>';
+  }).join('');
+}
+async function pjsHooksSend(url, method, body) {
+  const r = await fetch(url, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(out.error || 'that did not work');
+  return out;
+}
+async function pjsHookAdd() {
+  const msg = document.getElementById('pjs-hooks-msg');
+  const btn = document.getElementById('pjs-hook-add');
+  btn.disabled = true;
+  try {
+    const out = await pjsHooksSend(pjsHooksUrl(), 'POST', {});
+    PJS_HOOKS.reveal = { id: out.webhook.id, url: out.url };
+    PJS_HOOKS.list = PJS_HOOKS.list.concat([out.webhook]);
+    msg.textContent = '';
+    pjsHooksPaint();
+    const url = document.getElementById('pjs-hook-url');
+    if (url) { url.focus(); url.select(); }
+  } catch (e) {
+    msg.textContent = asSentence(e.message);
+  } finally { btn.disabled = false; }
+}
+async function pjsHookRename(id, name) {
+  const msg = document.getElementById('pjs-hooks-msg');
+  const h = PJS_HOOKS.list.find((x) => x.id === id);
+  if (!h || name.trim() === h.name) return;
+  try {
+    const out = await pjsHooksSend(pjsHooksUrl(id) + '/name', 'POST', { name });
+    h.name = out.webhook.name;
+    msg.textContent = 'Renamed. Its link has not changed.';
+  } catch (e) {
+    msg.textContent = asSentence(e.message);
+  }
+  pjsHooksPaint();
+}
+async function pjsHookDelete(id) {
+  const msg = document.getElementById('pjs-hooks-msg');
+  const h = PJS_HOOKS.list.find((x) => x.id === id);
+  try {
+    await pjsHooksSend(pjsHooksUrl(id), 'DELETE');
+    PJS_HOOKS.list = PJS_HOOKS.list.filter((x) => x.id !== id);
+    if (PJS_HOOKS.reveal && PJS_HOOKS.reveal.id === id) PJS_HOOKS.reveal = null;
+    PJS_HOOKS.confirm = null;
+    msg.textContent = 'Deleted ' + (h ? h.name : 'the webhook') + '. Its link no longer works.';
+  } catch (e) {
+    msg.textContent = asSentence(e.message);
+  }
+  pjsHooksPaint();
+  msg.focus();
+}
+async function pjsHookCopy() {
+  const input = document.getElementById('pjs-hook-url');
+  const said = document.getElementById('pjs-hook-copied');
+  if (!input) return;
+  let ok = false;
+  try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(input.value); ok = true; } } catch { ok = false; }
+  if (!ok) { try { input.select(); ok = !!(document.execCommand && document.execCommand('copy')); } catch { ok = false; } }
+  if (said) said.textContent = ok ? 'Copied.' : 'Kosmos could not copy it. Select the link and press Command C.';
+}
+document.getElementById('pjs-hook-add').addEventListener('click', pjsHookAdd);
+document.getElementById('pjs-hooks').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.hookCopy) { pjsHookCopy(); return; }
+  if (b.dataset.hookDone) { PJS_HOOKS.reveal = null; pjsHooksPaint(); document.getElementById('pjs-hook-add').focus(); return; }
+  if (b.dataset.hookDelete) {
+    PJS_HOOKS.confirm = b.dataset.hookDelete;
+    pjsHooksPaint();
+    const y = document.querySelector('[data-hook-delete-yes="' + CSS.escape(b.dataset.hookDelete) + '"]');
+    if (y) y.focus();
+    return;
+  }
+  if (b.dataset.hookDeleteNo) {
+    const id = b.dataset.hookDeleteNo;
+    PJS_HOOKS.confirm = null;
+    pjsHooksPaint();
+    const d = document.querySelector('[data-hook-delete="' + CSS.escape(id) + '"]');
+    if (d) d.focus();
+    return;
+  }
+  if (b.dataset.hookDeleteYes) pjsHookDelete(b.dataset.hookDeleteYes);
+});
+document.getElementById('pjs-hooks').addEventListener('change', (e) => {
+  const input = e.target.closest('input[data-hook-name]');
+  if (input) pjsHookRename(input.dataset.hookName, input.value);
+});
+document.getElementById('pjs-hooks').addEventListener('keydown', (e) => {
+  const input = e.target.closest('input[data-hook-name]');
+  if (input && e.key === 'Enter') { e.preventDefault(); input.blur(); }
+});
 
 /* The state-derived half of the settings view, callable from the poll: the
    folder facts and the archive control repaint from the truth on every

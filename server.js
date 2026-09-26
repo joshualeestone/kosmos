@@ -816,6 +816,19 @@ const federation = require('./engine/federation');
 const fedseats = require('./engine/fedseats');
 const { externalName } = require('./engine/externalname');
 const tasks = require('./engine/tasks');
+/* #1307: a project's webhooks (engine/webhooks.js). */
+const webhooks = require('./engine/webhooks');
+const HOOK_BODY_MAX = 16 * 1024;
+const HOOK_RATE = { perMinute: 30, seen: new Map() };
+/* At most 30 calls a minute per webhook, in memory: a leaked or looping URL cannot bury a project
+   in tasks. A restart forgets the counts, which only ever errs toward allowing. */
+function hookRateOk(id, now = Date.now()) {
+  const recent = (HOOK_RATE.seen.get(id) || []).filter((t) => now - t < 60000);
+  if (recent.length >= HOOK_RATE.perMinute) { HOOK_RATE.seen.set(id, recent); return false; }
+  recent.push(now);
+  HOOK_RATE.seen.set(id, recent);
+  return true;
+}
 const chat = require('./engine/chat');
 const messages = require('./engine/messages');
 const unfurl = require('./engine/unfurl');
@@ -3232,6 +3245,13 @@ const REMOTE_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply']);
    token; no-credential refused on an enforcing board), exactly as report/reply do
    one layer down -- see that handler. */
 const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
+/* #1307: a project webhook's call, POST /hooks/<id>/<secret>. It carries its own secret (checked
+   against a hash by engine/webhooks.js in the handler), not the board token, so it is exempt from
+   the board-token gate below. ONLY this exact shape. It is NOT in REMOTE_AGENT_ROUTES, so
+   remoteWriteGuard still refuses every network peer: for now a webhook answers programs on this
+   computer only, and reaching it from the internet waits on the Kosmos+ tunnel admitting it with
+   the Mac's own check (the coordinator must never mint or honour it). */
+const HOOK_CALL_RE = /^\/hooks\/([0-9a-f]{16})\/([A-Za-z0-9_-]{43})$/;
 /* #3055: the world NAMES list (GET /api/worlds/names) is exempt from the board-token
    gate so the world-switcher dropdown ALWAYS renders -- even on a board that came up
    UNSIGNED after a Kosmos switch (the per-world board token means the browser holds the
@@ -3509,7 +3529,9 @@ const server = http.createServer((req, res) => {
     // term, not folded into exemptPublic, because the reason differs: a public
     // product surface, not the post-switch lockout read.
     const exemptPublicCommunity = PUBLIC_COMMUNITY_ROUTES.has(`${req.method} ${pathname}`);
-    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !boardTokenOk(req)) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
+    // #1307: a webhook call (its own secret, checked in the handler; loopback only, see HOOK_CALL_RE).
+    const exemptHook = req.method === 'POST' && HOOK_CALL_RE.test(pathname);
+    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptHook && !boardTokenOk(req)) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
       sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`' });
       return;
     }
@@ -14968,6 +14990,92 @@ const server = http.createServer((req, res) => {
      answer is never a 200 that stored nothing. A process may do this (agents make subtasks).
      This route has no rate valve, like the /due route beside it: it pages no pane and gives
      the task to nobody, and a same-value write records nothing. */
+  /* #1307: a webhook call adds a task to its project. The id and secret are checked against the
+     store's hash; an unknown id, a wrong secret and a gone project all answer the same 404, so a
+     caller learns nothing about which webhooks exist. Body: JSON { "title": ..., "detail": ... }
+     ("text" is accepted for the title). JSON only: a plain-text POST is the shape any web page can
+     send without a preflight, which the board's cross-site guard (crossSiteWrite) refuses on every
+     route, and a webhook is no reason to weaken it. The task is marked as added by this webhook
+     and is given to nobody. */
+  const hookCall = req.method === 'POST' ? pathname.match(HOOK_CALL_RE) : null;
+  if (hookCall) {
+    const hook = webhooks.verify(hookCall[1], hookCall[2]);
+    const nope = () => sendJson(res, 404, { error: 'there is no webhook at this address' });
+    if (!hook) { nope(); return; }
+    if (!hookRateOk(hook.id)) { sendJson(res, 429, { error: 'this webhook was called too often; try again in a minute' }); return; }
+    readBody(req, HOOK_BODY_MAX).then((buf) => {
+      const text = buf.toString('utf8');
+      let parsed;
+      try { parsed = JSON.parse(text); } catch { parsed = undefined; }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        sendJson(res, 400, { error: 'send JSON like { "title": "...", "detail": "..." }' });
+        return;
+      }
+      const t = parsed.title !== undefined ? parsed.title : parsed.text;
+      const title = (typeof t === 'string' ? t : '').trim();
+      const detail = typeof parsed.detail === 'string' ? parsed.detail.trim() : '';
+      if (!title) { sendJson(res, 400, { error: 'send JSON with a "title" for the task' }); return; }
+      let made;
+      try {
+        made = tasks.create(hook.projectId, { sentence: title, detail: detail || undefined, made: { via: 'webhook', by: hook.name } });
+      } catch (err) {
+        const msg = String((err && err.message) || '');
+        if (/no project by that name/.test(msg)) { nope(); return; }
+        sendJson(res, (err && err.code === 'UNREADABLE') ? 500 : 400, { error: msg || 'we could not add that task' });
+        return;
+      }
+      webhooks.touch(hook.id);
+      sendJson(res, 201, { task: made && made.number });
+    }).catch(() => sendJson(res, 413, { error: 'that is too big for a task; keep it under 16 KB' }));
+    return;
+  }
+
+  /* #1307: a project's webhooks, for its settings screen: list, make, rename, delete. Board-token
+     routes like the rest of /api. The secret appears ONLY in the make response (the store keeps a
+     hash), as part of the full URL the screen shows once. */
+  const hookList = pathname.match(/^\/api\/project\/([^/]+)\/webhooks$/);
+  const hookOne = pathname.match(/^\/api\/project\/([^/]+)\/webhooks\/([0-9a-f]{16})(\/name)?$/);
+  if (hookList || hookOne) {
+    const id = decodeSegment((hookList || hookOne)[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let project = null;
+    try { project = projects.get(id); } catch { project = null; }
+    if (!project) { sendJson(res, 404, { error: 'no project by that name' }); return; }
+    const fail = (err, fallback) => {
+      const msg = String((err && err.message) || '');
+      sendJson(res, /no webhook by that id/.test(msg) ? 404 : (/busy|exclusive access|could not read/.test(msg) ? 503 : 400), { error: msg || fallback });
+    };
+    if (hookList && req.method === 'GET') {
+      try { sendJson(res, 200, { webhooks: webhooks.list(project.id) }); } catch (err) { fail(err, 'we could not read the webhooks'); }
+      return;
+    }
+    if (hookList && req.method === 'POST') {
+      readBody(req, 4096).then((raw) => {
+        let body = {};
+        try { body = JSON.parse(raw.toString('utf8') || '{}') || {}; } catch { body = {}; }
+        let made;
+        try { made = webhooks.create(project.id, typeof body.name === 'string' ? body.name : undefined); } catch (err) { fail(err, 'we could not make a webhook'); return; }
+        const url = 'http://127.0.0.1:' + req.socket.localPort + '/hooks/' + made.hook.id + '/' + made.secret;
+        sendJson(res, 201, { webhook: made.hook, url });
+      }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+      return;
+    }
+    if (hookOne && hookOne[3] && req.method === 'POST') {
+      readBody(req, 4096).then((raw) => {
+        let body = {};
+        try { body = JSON.parse(raw.toString('utf8') || '{}') || {}; } catch { body = {}; }
+        try { sendJson(res, 200, { webhook: webhooks.rename(project.id, hookOne[2], body.name) }); } catch (err) { fail(err, 'we could not rename that webhook'); }
+      }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+      return;
+    }
+    if (hookOne && !hookOne[3] && req.method === 'DELETE') {
+      try { webhooks.remove(project.id, hookOne[2]); sendJson(res, 200, { ok: true }); } catch (err) { fail(err, 'we could not delete that webhook'); }
+      return;
+    }
+    sendJson(res, 405, { error: 'that is not something this address does' });
+    return;
+  }
+
   const taskParent = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/parent$/);
   if (taskParent && req.method === 'POST') {
     const id = decodeSegment(taskParent[1]);

@@ -228,8 +228,10 @@ function create(projectId, { sentence, detail, who, parent, made: origin } = {},
          process nothing vouched for -- the screen says "an agent" then,
          never "You". addedVia carries HOW separately, because who and how
          are different facts and the valve counts the second. */
-      addedBy: (origin && origin.via === 'process') ? (origin.by || null) : 'operator',
-      addedVia: (origin && origin.via === 'process') ? 'process' : 'screen',
+      /* #1307: a webhook call adds a task too; addedBy is the webhook's NAME (a label the person
+         chose) and addedVia 'webhook', so the page says which webhook, never "You". */
+      addedBy: (origin && (origin.via === 'process' || origin.via === 'webhook')) ? (origin.by || null) : 'operator',
+      addedVia: (origin && origin.via === 'process') ? 'process' : (origin && origin.via === 'webhook') ? 'webhook' : 'screen',
       createdAt: new Date().toISOString(),
       closedAt: null,
       // #768: every task carries the field so a consumer never has to guess
