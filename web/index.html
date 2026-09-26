@@ -20211,8 +20211,10 @@ async function tick() {
     document.getElementById('orgmap').innerHTML = '';
     ORG_HTML = null;
     orgBoxPlain(true);
-    document.getElementById('orgnote').textContent = BOARD_SIGNED_OUT ? SIGNED_OUT_SENTENCE
-      : BOARD_NEEDS_SIGNIN ? SIGNIN_SENTENCE
+    // #718 state 3: the note carries its own Sign in button.
+    if (BOARD_SIGNED_OUT) document.getElementById('orgnote').innerHTML = esc(SIGNED_OUT_SENTENCE)
+      + ' <button class="btn" type="button" data-device-signin>Sign in</button>';
+    else document.getElementById('orgnote').textContent = BOARD_NEEDS_SIGNIN ? SIGNIN_SENTENCE
       : 'We cannot read the agents right now, so this is not drawn. It is not saying there are none.';
     /* The tiles are claims too. Left alone they hold last-success numbers
        beside "we cannot see them" -- concrete headline counts asserting a
@@ -27730,7 +27732,7 @@ let BOARD_SIGNED_OUT = false;
 function relaySignedOut(status, body) {
   return status === 401 && !!body && body.signed_out === true;
 }
-const SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos, so it cannot see your agents or projects. Your Mac and your agents are fine. Reload the page to sign in again.';
+const SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos, so it cannot see your agents or projects. Your Mac and your agents are fine. Sign in again from the Agents or Projects page.';
 function deviceSignedOutHtml() {
   return '<div class="pj-empty boardfail">'
     + '<p><b>Sign in again to see your agents.</b><br>'
@@ -41541,7 +41543,7 @@ document.addEventListener('click', (e) => {
      legitimately skip it and a permanently disabled button would be worse
      than an inert one. */
   /* #718 state 3: a reload is a navigation, which the relay answers with its sign-in page;
-     after signing in it sends the person back here. */
+     after signing in it sends the person back to the board. */
   if (e.target.closest('[data-device-signin]')) { location.reload(); return; }
   const retry = e.target.closest('[data-board-retry]');
   if (retry) {
@@ -52442,8 +52444,14 @@ function paintAddAgents() {
   // #2023: a not-signed-in board is a known state with a remedy, not "cannot
   // read". Checked first so a 403 (which also sets BOARD_LOOK_FAILED) draws the
   // self-heal copy here too, not the generic could-not-see-them sentence.
-  if (BOARD_SIGNED_OUT || BOARD_NEEDS_SIGNIN) {
-    setLive(box, '<p class="fhint">' + (BOARD_SIGNED_OUT ? SIGNED_OUT_SENTENCE : SIGNIN_SENTENCE) + ' You can still '
+  /* #718 state 3: no "you can still add the project" here: the relay refuses a signed-out
+     device's POST too, so it cannot create one until it signs in. */
+  if (BOARD_SIGNED_OUT) {
+    setLive(box, '<p class="fhint">' + SIGNED_OUT_SENTENCE + '</p>');
+    return;
+  }
+  if (BOARD_NEEDS_SIGNIN) {
+    setLive(box, '<p class="fhint">' + SIGNIN_SENTENCE + ' You can still '
       + 'add the project and put agents on it later.</p>');
     return;
   }
