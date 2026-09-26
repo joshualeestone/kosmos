@@ -84,7 +84,7 @@ test('#718: paintOrg sizes the chart by orgFit from its own width, and squeezes 
 });
 
 test('#718: a width change repaints the chart, and a too-big chart scrolls in its own box', () => {
-  assert.match(SCRIPT, /function orgResizeRepaint\(\) \{\s*const wrap = document\.getElementById\('orgview'\);[\s\S]{0,200}paintOrg\(\);/);
+  assert.match(SCRIPT, /function orgResizeRepaint\(\) \{\s*if \(ORG_RESIZE_RAF\) return;\s*ORG_RESIZE_RAF = requestAnimationFrame\(\(\) => \{[\s\S]{0,300}paintOrg\(\);/);
   assert.match(SCRIPT, /window\.addEventListener\('resize', orgResizeRepaint\);/);
 });
 
@@ -105,6 +105,7 @@ test('#718: a chart wider than its box lets a finger scroll the box, and the dra
 
 test('#718: positions from a canvas of another width are carried across in proportion', () => {
   const paint = SCRIPT.slice(SCRIPT.indexOf('function paintOrg'), SCRIPT.indexOf('function orgLiveStart'));
-  assert.match(paint, /const f = size \/ ORG_SIZE; for \(const p of ORG_POS\.values\(\)\) \{ p\.x \*= f; p\.y \*= f; \}/);
+  assert.match(paint, /const f = ORG_SIZE > 0 \? size \/ ORG_SIZE : 1;/);
+  assert.match(paint, /for \(const p of ORG_POS\.values\(\)\) \{ p\.x \*= f; p\.y \*= f; \}/);
   assert.doesNotMatch(paint, /ORG_POS = new Map\(\)/, 'a width change throws the positions away again');
 });
