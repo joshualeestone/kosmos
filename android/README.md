@@ -2,9 +2,11 @@
 
 This is the Android store shell for Kosmos. It is a **Trusted Web Activity
 (TWA)**: a thin, Google-blessed native app that opens Kosmos full-screen with no
-browser chrome, starting at the Kosmos+ sign-in page (`login.kosmosplus.com`). It
-carries no hand-written app code, only a launcher activity and a notification
-delegation service from `androidbrowserhelper`, plus a few configuration values.
+browser chrome, starting at the Kosmos+ sign-in page (`login.kosmosplus.com`). Almost all of it
+comes from `androidbrowserhelper` (a launcher activity and a notification
+delegation service) plus a few configuration values. The one piece of app code is
+`OpenAddressActivity` and its address rule, which open the person's own board full
+screen after sign-in (see "Opening your own Kosmos" below).
 
 The reasoning for *why a TWA* (rather than a from-scratch native client or a
 naive WebView wrapper) lives in the mobile plan on
@@ -91,8 +93,9 @@ compileSdk 35). No `JAVA_HOME` juggling is needed at the command line.
 Gradle cannot build on it: it starts, but its Groovy build-script compiler
 cannot read JDK-26 bytecode and dies with `Unsupported class file major version
 70` (70 == Java 26). Current Gradle/AGP top out around JDK 21-23. This module has
-**no** Java or Kotlin source (a TWA is zero app code), so the JDK that matters is
-the one **Gradle itself** runs on, not a compile toolchain.
+only a little Java (`OpenAddressActivity`, `AddressChoice`, compiled for Java 17
+by the same daemon JDK), so the JDK that matters is the one **Gradle itself** runs
+on.
 
 **How it is pinned.** `gradle/gradle-daemon-jvm.properties` declares
 `toolchainVersion=21`, so Gradle runs its daemon on JDK 21 even when launched
@@ -215,6 +218,32 @@ $ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner verify --print-certs <apk>
 `app/build.gradle` was chosen to mirror the old placeholder origin. It becomes the
 permanent Play identity at the first upload and cannot change afterwards.
 
+## Opening your own Kosmos (#2854)
+
+The app starts at the front door, `login.kosmosplus.com`, and nothing per-user is
+built into it. But each person's board lives on their own address,
+`<name>.kosmosplus.com`, and a TWA trusts only the origin it was launched with, so
+following a link there from the sign-in page would show Chrome's URL bar.
+
+So the sign-in page hands the address to the app instead. When it runs inside this
+app and the person taps "Open my Kosmos", it gets its usual short-lived handoff token
+and navigates to an `intent://` link for this package (scheme `kosmos-open`, extras
+`address`, `addresses`, `kst`). `OpenAddressActivity` receives it and launches a new
+TWA at `https://<name>.kosmosplus.com/#kst=<token>` with
+`setAdditionalTrustedOrigins` listing that address (and the account's other valid
+addresses). Chrome then verifies each one against its own
+`/.well-known/assetlinks.json`, which every Mac serves since kosmos-relay #161.
+
+Any app can fire that intent, so `AddressChoice` checks every host with the same
+one-label rule as the iOS app and the board's `sw.js`: exactly one RFC 1123 label
+directly under the coordinator's domain, ASCII only, no punycode, never the
+coordinator itself. A chosen address that fails, or is not among the account's
+addresses, or comes with a malformed token, opens the sign-in page instead. The rule
+is plain Java with JVM tests: `./gradlew :app:testDebugUnitTest`.
+
+**Not yet seen on a device.** Whether Chrome drops the URL bar for the runtime-added
+origin is measured on a phone once a Mac runs a tunnel release carrying #161.
+
 ## Push (notification delegation)
 
 Push itself is the coordinator's web push, not anything in this module: the
@@ -225,7 +254,7 @@ declares androidbrowserhelper's `DelegationService` and
 from the verified origin to this app, so they appear under **Kosmos's** name and
 status-bar icon (`res/drawable/ic_notification.xml`) and use the app's own
 notification permission on Android 13+. Without them they would show as Chrome
-notifications. Still zero hand-written Java or Kotlin.
+notifications. Delegation itself needs no app code.
 
 **Not yet seen on a device.** What is verified is the build: the release APK's
 manifest carries the service, the activity and the icon. No push has been shown on

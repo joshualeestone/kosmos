@@ -1,0 +1,54 @@
+# twa-address-2854: the Android app opens the person's own address full screen
+
+Card: kosmos #2854, Android half (Liu Kang m1005, claimed:kano). Mac half: kosmos-relay #161
+(each Mac serves /.well-known/assetlinks.json), merged a87dd52.
+
+## Finished means
+
+- After sign-in inside the Android app, tapping "Open my Kosmos" opens
+  `https://<name>.kosmosplus.com/#kst=<token>` as a TWA with that address (and the person's
+  other valid addresses) passed to `setAdditionalTrustedOrigins`, so Chrome can verify it
+  against #161's assetlinks and drop the URL bar.
+- `launchUrl` is still `https://login.kosmosplus.com/`; nothing per-user is in the APK.
+- The address choice is a pure Java class with JVM unit tests: 0, 1 and several addresses;
+  foreign, malformed, punycode, uppercase-trick, port/path/userinfo and the coordinator's own
+  host are rejected, by the same one-label rule as iOS `PushBridgeLogic.isMacHost`.
+- `./gradlew testDebugUnitTest assembleDebug` is green and the debug APK exists.
+- A companion kosmos-relay PR makes the sign-in page hand the address to the app (below).
+- The on-phone measurement (Sonya, emulator) is NOT part of finished: it waits for a Josh-gated
+  tunnel release carrying #161.
+
+## Decision: how the address reaches the app
+
+**Chosen:** the page hands it over. In the Android app, the sign-in page's `openKosmos(addr)`
+still asks `/v1/account/handoff` for the short-lived token, then navigates to
+`intent://open#Intent;scheme=kosmos-open;package=io.kosmos.app;S.address=..;S.addresses=..;S.kst=..;end`
+instead of `https://<addr>/#kst=..`. A new exported `OpenAddressActivity` validates the hosts and
+launches the TWA. This mirrors iOS, where the page is also the only holder of the session and
+hands the app what it needs (`handToApp`).
+
+**Rejected:**
+- The app calls `/v1/account/me` itself: it has no session. The session lives in Chrome's page
+  storage; getting it into the app means passing the 30-day session through an intent, which is
+  exactly what kosmos-relay #3837 A stopped doing in URLs.
+- Custom Tabs postMessage channel: works in principle, but needs a page-side message protocol,
+  origin handshake and Chrome 115+, for the same one-way value the intent carries.
+- Letting the TWA navigate from login to the address: a TWA cannot add a trusted origin
+  mid-session, which is the whole problem.
+
+**Weakest part (named):** Chrome launches an `intent://` from a page only with a user gesture.
+The tap is a gesture, but the handoff `fetch` sits between the tap and the navigation. Chrome's
+transient activation lasts about 5 seconds, so a normal fetch should be inside it, but I have
+not measured it on a phone. The automatic open after "your Mac allowed this device" (`arrived()`)
+has no gesture at all, so in the app it must show the button instead of auto-opening.
+
+**What would change my mind:** Sonya's emulator run showing the intent blocked after the fetch.
+Then: fetch the token first and navigate synchronously on a second tap, or move to postMessage.
+
+## Security notes
+
+- `OpenAddressActivity` is exported, so any app or page can fire it. Every host is checked with
+  the one-label rule under the coordinator's relay domain, so the worst it can do is open some
+  Kosmos+ Mac's gate page in our app, which a plain link in a browser can do already.
+- The token is the existing short-lived handoff token, put in the fragment as the page does
+  today; it is checked against a URL-safe charset so it cannot inject into the URL.

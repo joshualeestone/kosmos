@@ -134,6 +134,19 @@ jobs:
         working-directory: android
         run: ./gradlew :app:assembleDebug --no-daemon -Dorg.gradle.java.installations.paths="$JAVA_HOME"
 
+      # #2854: the address rule's JVM unit tests (AddressChoiceTest). A test task that
+      # runs zero tests exits 0 and reads green, so the step also reads the report and
+      # fails unless the suite ran at least one test with no failures or errors.
+      - name: Unit tests (address rule)
+        working-directory: android
+        run: |
+          ./gradlew :app:testDebugUnitTest --no-daemon -Dorg.gradle.java.installations.paths="$JAVA_HOME"
+          r=app/build/test-results/testDebugUnitTest/TEST-io.kosmos.app.AddressChoiceTest.xml
+          test -f "$r" || { echo "no report at $r: the suite did not run"; exit 1; }
+          head -2 "$r"
+          grep -Eq '<testsuite [^>]*tests="[1-9][0-9]*"' "$r" || { echo "zero tests ran"; exit 1; }
+          grep -Eq '<testsuite [^>]*failures="0"[^>]*errors="0"' "$r" || { echo "failures or errors in $r"; exit 1; }
+
       # Conditional signed release. Runs ONLY when the signing secrets exist (the
       # presence flag is 'true'), so until a repo admin provisions them this step is
       # skipped and the debug gate above is the whole value. Signed-vs-unsigned output

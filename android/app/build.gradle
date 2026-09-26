@@ -82,6 +82,9 @@ android {
 
 dependencies {
     // Trusted Web Activity support. Provides the LauncherActivity referenced in
-    // AndroidManifest.xml, so this module ships zero hand-written Java/Kotlin.
+    // AndroidManifest.xml and the TwaLauncher that OpenAddressActivity uses (#2854).
     implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+
+    // Plain JVM tests for the address rule (AddressChoice has no Android types).
+    testImplementation 'junit:junit:4.13.2'
 }
