@@ -222,7 +222,91 @@ function isSealed(env) {
     && typeof env.nonce === 'string' && typeof env.ct === 'string';
 }
 
+/* ---- the rooms file: what this board holds per shared room ----
+   fed-seal-rooms.json, mode 600, beside the key. ROOM KEYS AND `s` LIVE HERE, on this
+   Mac only (never on our servers: the "hold no customer key" rule).
+     pending[project_ref] = [{ s, at }]  an owner's invite halves, until a member uses one
+     rooms[projectId] = { role, s, peer | peers, epoch, keys: { epoch: roomKey } }
+   A file that exists but cannot be read or parsed THROWS and is never overwritten:
+   losing it would lose every room key this board holds. */
+const ROOMS_FILE = 'fed-seal-rooms.json';
+const PENDING_TTL_MS = 7 * 24 * 60 * 60 * 1000;   // an invite code lives 7 days
+const PENDING_MAX = 32;                           // halves kept per project
+
+function roomsFile() { return path.join(store.ROOT, ROOMS_FILE); }
+function readRooms() {
+  let raw;
+  try { raw = fs.readFileSync(roomsFile(), 'utf8'); } catch (err) {
+    if (err && err.code === 'ENOENT') return { v: V, pending: {}, rooms: {} };
+    throw new Error('we cannot read this computer\'s sealed-rooms record right now');
+  }
+  let j;
+  try { j = JSON.parse(raw); } catch { j = null; }
+  if (!j || typeof j !== 'object' || !j.pending || !j.rooms) throw new Error('this computer\'s sealed-rooms record is there but we cannot make sense of it');
+  return j;
+}
+function writeRooms(j) {
+  const f = roomsFile();
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  const tmp = f + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(j), { mode: 0o600 });
+  fs.renameSync(tmp, f);
+}
+const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+
+/** Owner: keep an invite's second half for the project it was minted for. */
+function stashInviteSecret(projectRef, s, now = Date.now()) {
+  if (!secretBytes(s)) throw new Error('the invite\'s second half is not the right shape');
+  const j = readRooms();
+  const list = (own(j.pending, projectRef) ? j.pending[projectRef] : []).filter((p) => now - p.at < PENDING_TTL_MS);
+  list.push({ s, at: now });
+  j.pending[projectRef] = list.slice(-PENDING_MAX);
+  writeRooms(j);
+}
+/** Owner: the halves still live for a project, newest first. */
+function inviteSecretsFor(projectRef, now = Date.now()) {
+  const j = readRooms();
+  if (!own(j.pending, projectRef)) return [];
+  return j.pending[projectRef].filter((p) => now - p.at < PENDING_TTL_MS).map((p) => p.s).reverse();
+}
+/** Owner: a half is spent once a member's hello has been checked against it. */
+function spendInviteSecret(projectRef, s) {
+  const j = readRooms();
+  if (!own(j.pending, projectRef)) return;
+  j.pending[projectRef] = j.pending[projectRef].filter((p) => p.s !== s);
+  if (!j.pending[projectRef].length) delete j.pending[projectRef];
+  writeRooms(j);
+}
+function roomState(projectId) {
+  const j = readRooms();
+  return own(j.rooms, projectId) ? j.rooms[projectId] : null;
+}
+function setRoomState(projectId, state) {
+  const j = readRooms();
+  j.rooms[projectId] = state;
+  writeRooms(j);
+  return state;
+}
+function forgetRoom(projectId) {
+  const j = readRooms();
+  if (!own(j.rooms, projectId)) return false;
+  delete j.rooms[projectId];
+  writeRooms(j);
+  return true;
+}
+
+/** An invite code as a person pastes it: `<coordinator code>.<s>`. The coordinator's
+    code is base64url, which never contains '.', so the LAST '.' splits it. A code with
+    no well-formed second half is a code from a board that does not seal (s: null). */
+function splitInviteCode(pasted) {
+  const code = String(pasted == null ? '' : pasted).trim();
+  const at = code.lastIndexOf('.');
+  if (at > 0 && secretBytes(code.slice(at + 1))) return { code: code.slice(0, at), s: code.slice(at + 1) };
+  return { code, s: null };
+}
+
 module.exports = {
+  ROOMS_FILE, stashInviteSecret, inviteSecretsFor, spendInviteSecret, roomState, setRoomState, forgetRoom, splitInviteCode,
   KEY_FILE, sealingKey, newKeyPair, randomSecret,
   helloFrame, checkHello, shareFrame, openShare, rotateFrame, openRotate,
   seal, open, isSealed,

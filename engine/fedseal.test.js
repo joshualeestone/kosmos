@@ -137,3 +137,35 @@ test('#3728: this board\'s sealing key is made once, kept at mode 600, and never
   assert.throws(() => seal.sealingKey(), /cannot make sense of it/);
   assert.strictEqual(fs.readFileSync(f, 'utf8'), '{not json', 'the damaged key was overwritten');
 });
+
+test('#3728: an owner keeps each invite half for its project, spends it once, and lets it lapse after 7 days', () => {
+  const a = seal.randomSecret();
+  const b = seal.randomSecret();
+  seal.stashInviteSecret('ref-x', a, 1000);
+  seal.stashInviteSecret('ref-x', b, 2000);
+  assert.deepStrictEqual(seal.inviteSecretsFor('ref-x', 3000), [b, a], 'newest first');
+  assert.deepStrictEqual(seal.inviteSecretsFor('ref-other', 3000), []);
+  seal.spendInviteSecret('ref-x', b);
+  assert.deepStrictEqual(seal.inviteSecretsFor('ref-x', 3000), [a], 'a spent half is still offered');
+  assert.deepStrictEqual(seal.inviteSecretsFor('ref-x', 1000 + 7 * 24 * 3600 * 1000), [], 'a half outlived its code');
+  const f = path.join(store.ROOT, seal.ROOMS_FILE);
+  assert.strictEqual(fs.statSync(f).mode & 0o777, 0o600, 'the rooms file (room keys) is readable by others');
+});
+
+test('#3728: a pasted code splits at its last dot, and a code with no well-formed second half is unsealed', () => {
+  const s = seal.randomSecret();
+  assert.deepStrictEqual(seal.splitInviteCode(' abc_DEF-1.' + s + ' '), { code: 'abc_DEF-1', s });
+  assert.deepStrictEqual(seal.splitInviteCode('abc_DEF-1'), { code: 'abc_DEF-1', s: null });
+  assert.deepStrictEqual(seal.splitInviteCode('abc.short'), { code: 'abc.short', s: null });
+  assert.deepStrictEqual(seal.splitInviteCode('.' + s), { code: '.' + s, s: null }, 'an empty first half was split off');
+});
+
+test('#3728: a damaged rooms file is an error and is never overwritten (it holds the room keys)', () => {
+  const f = path.join(store.ROOT, seal.ROOMS_FILE);
+  seal.setRoomState('proj-1', { role: 'owner', keys: { 0: seal.randomSecret() } });
+  fs.writeFileSync(f, 'garbage');
+  assert.throws(() => seal.roomState('proj-1'), /cannot make sense of it/);
+  assert.throws(() => seal.setRoomState('proj-2', { role: 'member' }), /cannot make sense of it/);
+  assert.strictEqual(fs.readFileSync(f, 'utf8'), 'garbage', 'the damaged rooms file was replaced');
+  fs.rmSync(f);
+});

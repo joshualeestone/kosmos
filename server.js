@@ -814,6 +814,7 @@ const federation = require('./engine/federation');
    room as an external row (data, never typed into a pane); a post that lands in
    a federated room is sent out through its seat (federateOut below). */
 const fedseats = require('./engine/fedseats');
+const fedseal = require('./engine/fedseal');
 const { externalName } = require('./engine/externalname');
 const tasks = require('./engine/tasks');
 const chat = require('./engine/chat');
@@ -14617,6 +14618,18 @@ const server = http.createServer((req, res) => {
         } catch (err) {
           try { projects.remove(made.id); } catch { /* reported below either way */ }
           throw err;
+        }
+        /* #3728: a code with a second half makes this a SEALED room from the start: its
+           seat says hello with this board's key and posts nothing until the owner's key
+           share arrives. A code without one (an owner on an older Kosmos) joins unsealed,
+           as before, and the room says so when it connects. */
+        if (snap.seal_s) {
+          try { fedseal.setRoomState(made.id, { role: 'member', s: snap.seal_s, peer: null, epoch: null, keys: {} }); }
+          catch (err) {
+            try { federation.forgetLink(made.id); } catch { /* reported below either way */ }
+            try { projects.remove(made.id); } catch { /* reported below either way */ }
+            throw err;
+          }
         }
         federation.forgetSnapshot(snap.edge_id);
         fedseats.ensure(made.id).catch(() => {});
