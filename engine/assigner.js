@@ -70,7 +70,8 @@ function liveProjects(records) {
    in an archived project still means the agent is not free. (Picking stays live-only.)
    #3951: a task an agent marked built is waiting on a release or a check, not on that agent, so it does not keep
    THAT agent busy, nor any agent on it when the person marked it; another agent still holding an open part of a task
-   some other agent marked is still busy (review round 4: the mark is on the task, the work is per part). New work on it drops the mark (tasks.writeParts), and it counts again. */
+   some other agent marked is still busy (review round 4: the mark is on the task, the work is per part). New work on
+   it (a part added, put back, or given to somebody) drops the mark (tasks.writeParts), and it counts again. */
 function hasOpenWork(session, projects) {
   for (const p of projects) {
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {

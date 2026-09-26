@@ -28,6 +28,7 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = path.join(SANDBOX, 'claude-config-dir');
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+process.env.AGENT_WORKFORCE_BUILT_MARK_CAP = '40';   // read at require time; the valve test below fills it
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -46,7 +47,7 @@ test.before(async () => {
   win32job.setRunner(() => ({ ok: false, out: 'ERROR: The system cannot find the file specified.', code: 1 }));
   await start(0);
   base = `http://127.0.0.1:${server.address().port}`;
-  const roster = fleet.install([fleet.agent('mona', { state: 'idle' })]).agents;
+  const roster = fleet.install([fleet.agent('mona', { state: 'idle' }), fleet.agent('zed', { state: 'idle' })]).agents;
   const p = projects.create({ name: 'Alpha' });
   projects.addAgent(p.id, 'mona', roster);
   projectId = p.id;
@@ -187,4 +188,34 @@ test('Mac `kosmos task built` marks with the agent token and a quoted note; --cl
   assert.match(wlist.out, new RegExp('\\[' + m2 + '\\] \\[built\\] Listed as built'), wlist.out);
   const help = await mac(['task']);
   assert.match(help.out, /kosmos task built <project-id> <task-number>/);
+});
+
+test('an agent that is not on the project is refused (403); the person\'s mark is cleared only from the screen (review round 5)', async () => {
+  const n = newTask('Guarded');
+  const zed = sendertoken.mint('zed');
+  assert.equal(zed.ok, true, zed.because);
+  const outsider = await post(`/api/project/${projectId}/task/${n}/built`, {}, { 'x-kosmos-agent-token': zed.token });
+  assert.equal(outsider.status, 403, JSON.stringify(outsider.json));
+  assert.equal('builtAt' in stored(n), false);
+  await post(`/api/project/${projectId}/task/${n}/built`, {}, screen);
+  const mona = sendertoken.mint('mona');
+  const agentClear = await post(`/api/project/${projectId}/task/${n}/built`, { clear: true }, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(agentClear.status, 403, JSON.stringify(agentClear.json));
+  assert.equal(stored(n).builtBy, 'operator', 'an agent took the person\'s mark off');
+  /* CONTROL: the agent can clear its own mark; the screen can clear the person's. */
+  assert.equal((await post(`/api/project/${projectId}/task/${n}/built`, { clear: true }, screen)).status, 200);
+  const again = await post(`/api/project/${projectId}/task/${n}/built`, { clear: true }, screen);
+  assert.equal(again.json.changed, false, 'clearing an unmarked task claimed a change');
+});
+
+test('a process is valved (429) once it has marked too often; a repeat mark is not counted; the screen is never valved (review round 5)', async () => {
+  const mona = sendertoken.mint('mona');
+  let refused = null;
+  for (let i = 0; i < 60 && !refused; i += 1) {
+    const r = await post(`/api/project/${projectId}/task/${newTask('Valve ' + i)}/built`, { note: 'n' + i }, { 'x-kosmos-agent-token': mona.token });
+    if (r.status === 429) refused = i;
+    else assert.equal(r.status, 200, JSON.stringify(r.json));
+  }
+  assert.ok(refused !== null && refused <= 40, 'the valve never closed: ' + refused);
+  assert.equal((await post(`/api/project/${projectId}/task/${newTask('Screen still works')}/built`, {}, screen)).status, 200);
 });

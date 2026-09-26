@@ -2320,7 +2320,9 @@ cmd_task() {
       [ "$rc" -eq 0 ] || { say "We could not reach Kosmos to mark that task. Is it running at $URL?"; exit 1; }
       case "$body" in
         '{"task":'*)
-          if [ "$clear" = true ]; then say "Took the built mark off task $num on ${project:-the project}."
+          if [ "$clear" = true ]; then
+            case "$body" in *'"changed":false'*) say "Task $num on ${project:-the project} was not marked built." ;;
+              *) say "Took the built mark off task $num on ${project:-the project}." ;; esac
           else say "Marked task $num on ${project:-the project} built, waiting to be released or checked. Closing it clears the mark."; fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')

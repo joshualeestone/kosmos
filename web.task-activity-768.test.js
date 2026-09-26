@@ -221,7 +221,7 @@ test('#3951: marked built (by an agent, with its note; by the person) and the ma
   const html = acts.innerHTML;
   assert.match(html, /Mona marked it built: waiting on the release/);
   assert.match(html, /You marked it built</);
-  assert.match(html, /No longer built: new work was added/);
+  assert.match(html, /No longer built: there is new work on it/);
   assert.match(html, /You took the built mark off/);
   assert.doesNotMatch(html, />built<|>unbuilt</, 'a bare kind word leaked through');
 });

@@ -431,6 +431,7 @@ function assignPart(projectId, n, partId, who, made) {
   // `changed` (the merged task record it returns) -- same word, unrelated
   // meaning, easy to conflate on a re-read.
   let moved = false;
+  let givenOpen = false;
   // #3595: `made.onlyIfFree` refuses, inside the same write, a part somebody is already on, so a
   // caller that chose the part from an earlier read never moves it off a person who took it since.
   // `made.onlyIfWho` likewise refuses unless the part is still on that agent (the Assigner's
@@ -452,18 +453,20 @@ function assignPart(projectId, n, partId, who, made) {
       if (made && made.onlyIfFree && x.who) { taken = true; return x; }
       if (made && typeof made.onlyIfWho === 'string' && x.who !== made.onlyIfWho) { taken = true; return x; }
       moved = (x.who || null) !== whoKey;
+      givenOpen = moved && !!whoKey && !x.closedAt;
       if (moved && whoKey && !(p.agents || []).includes(whoKey)) {
         throw new Error('that agent is not on this project, so the part cannot be given to it');
       }
       return moved ? { ...x, who: whoKey, movedVia: viaOf(made), movedAt: new Date().toISOString() } : x;
     });
-  });
+  }, { dropBuilt: () => givenOpen });   // #3951 (review round 5): an open part given to somebody is work to do
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
   if (taken) return { ok: false, because: made && typeof made.onlyIfWho === 'string' ? 'that part is no longer on ' + made.onlyIfWho : 'somebody is already on that part' };
   // Only a real move is recorded: a resubmit of the current assignee (moved
   // false) changed nothing and types no pane line, so it leaves no transcript
   // line either. `who: null` is a real event -- somebody was taken off.
   if (moved) taskchat.record(projectId, Number(n), { kind: 'assigned', partId: Number(partId), who: whoKey });
+  recordDroppedForWork(projectId, n, task);
   return { ok: true, task, changed: moved };
 }
 
@@ -512,6 +515,8 @@ function byNumber(p, n) {
 
 /* #3951: "built, waiting to ship". An agent (or the person) marks an OPEN task built; the Tasks page counts it in
    Josh's "Built but waiting" tile. Three fields, all or none: when, who, and an optional note on what is left. */
+/* The note says what is left in a sentence or two; 300 characters is SENTENCE_MAX's room for a task's own sentence,
+   plus a clause, and keeps the row's line readable. */
 const BUILT_NOTE_MAX = 300;
 function withoutBuilt(t) {
   if (!t || !('builtAt' in t || 'builtBy' in t || 'builtNote' in t)) return t;
@@ -521,7 +526,8 @@ function withoutBuilt(t) {
 
 /**
  * Mark an open task built (`by` is the agent's name, or 'operator' from the screen; `note` is optional). Marking it
- * again refreshes the time, the builder and the note. A closed task is refused: closing already cleared the mark.
+ * again with another builder or note refreshes all three; the same mark again records nothing (`changed: false`).
+ * A closed task is refused: closing already cleared the mark.
  */
 function setBuilt(projectId, n, { by = null, note = '' } = {}) {
   const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
@@ -535,8 +541,8 @@ function setBuilt(projectId, n, { by = null, note = '' } = {}) {
       const t = byNumber(p, n);
       if (!t) throw new Error('there is no task by that number on this project');
       if (progressOf(t).closed) { closed = true; return p; }
-      /* The same mark again (same builder, same note) changes nothing and records nothing (review round 3: a
-         looping agent re-marking wrote a history line and a store write each time). */
+      /* The same mark again (same builder, same note) changes no field and records nothing (review round 3: a looping
+         agent re-marking wrote a history line each time). The store's own write still happens, as for any mutate. */
       if (t.builtAt && (t.builtBy || null) === who && (t.builtNote || '') === said) { same = true; changed = t; return p; }
       changed = { ...withoutBuilt(t), builtAt: new Date().toISOString(), builtBy: who, ...(said ? { builtNote: said } : {}) };
       return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };

@@ -218,3 +218,20 @@ test('a mark frees the agent who made it, or every agent when the person made it
   tasks.setBuilt(p.id, n, { by: 'operator' });
   assert.equal(assigner.hasOpenWork('rex', read()), false, 'the person marking it built did not free the agents on it');
 });
+
+test('giving an open part to somebody drops the mark; giving it to the same agent again keeps it (review round 5)', () => {
+  const assigner = require('../engine/assigner');
+  const { id, n } = freshTask(null);
+  tasks.addPart(id, n, { sentence: 'spare part' });
+  const spare = tasks.partsOf(stored(id, n)).find((x) => x.sentence === 'spare part');
+  tasks.assignPart(id, n, spare.id, 'rex');
+  tasks.setBuilt(id, n, { by: 'rex' });
+  tasks.assignPart(id, n, spare.id, 'rex');   // CONTROL: a resubmit of the current assignee is no move
+  assert.ok('builtAt' in stored(id, n), 'CONTROL: a resubmit dropped the mark');
+  tasks.assignPart(id, n, spare.id, null);
+  assert.ok('builtAt' in stored(id, n), 'CONTROL: taking somebody off is not new work');
+  tasks.assignPart(id, n, spare.id, 'rex');
+  assert.equal('builtAt' in stored(id, n), false, 'a part given to rex left the task built');
+  assert.equal(assigner.hasOpenWork('rex', projects.readAll().filter((p) => p.id === id)), true, 'rex was given a part and still reads as free');
+  assert.ok(taskchat.read(id, n).some((e) => e.kind === 'unbuilt' && e.reason === 'new work'));
+});

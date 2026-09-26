@@ -1782,6 +1782,17 @@ function taskMessageValveRecord() {
   taskMessageSends.push(Date.now());
 }
 
+/* #3951 (review round 5): the built route's own valve, the same sliding hour as task messages, counted only for a
+   PROCESS mark that changed something. A repeat of the same mark records nothing and is not counted; the person is
+   never valved. Its own counter, so marks and messages do not starve each other. */
+const BUILT_MARK_CAP_PER_HOUR = Number(process.env.AGENT_WORKFORCE_BUILT_MARK_CAP) || 60;
+let builtMarks = [];
+function builtMarkValveTripped() {
+  const cutoff = Date.now() - TASK_MSG_WINDOW_MS;
+  builtMarks = builtMarks.filter((t) => t >= cutoff);
+  return builtMarks.length >= BUILT_MARK_CAP_PER_HOUR;
+}
+
 // #3485: the community feed's flood valve, a sliding window like the task valve
 // above but PER AGENT (keyed on the authenticated identity), not fleet-wide. The
 // submit routes are board-token gated (fleet agents only, not the public), but a
@@ -15142,9 +15153,10 @@ const server = http.createServer((req, res) => {
      { note?, clear?, from_pane? }. Who marked it: the screen is 'operator'; a process is named by its agent token
      (a token that does not resolve is refused, as the message route does) or else its pane. The pane name is
      advisory, as on the message route: a local process can claim any pane, so the builder it names is a label, not
-     a proof (an enforcing board still needs the board token to reach this at all). No valve: the mark is
-     one field set per task, and the same mark again (same builder and note) writes and records nothing. A closed task is refused (409): closing
-     already cleared the mark. The block is not re-synced: the mark changes nothing on an agent's instructions list. */
+     a proof (an enforcing board still needs the board token to reach this at all). An identified agent may mark or
+     clear only tasks in projects it is on, and only the screen clears the person's own mark (review round 5). A
+     process is valved (builtMarkValveTripped); the same mark again records nothing and is not counted. A closed task
+     is refused (409): closing already cleared the mark. The block is not re-synced: the mark changes nothing on an agent's instructions list. */
   const taskBuilt = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/built$/);
   if (taskBuilt && req.method === 'POST') {
     const id = decodeSegment(taskBuilt[1]);
@@ -15165,6 +15177,22 @@ const server = http.createServer((req, res) => {
       const card = tokenSender ? tokenSender.card
         : (fromPane && Array.isArray(roster) ? roster.find((c) => c && c.target === fromPane) : null);
       const by = viaScreen ? 'operator' : ((card && card.sessionName) || null);
+      if (!viaScreen) {
+        if (builtMarkValveTripped()) {
+          sendJson(res, 429, { error: 'agents have marked tasks built many times in the last hour, so Kosmos is pausing agent marks; the person can still mark from the screen' });
+          return;
+        }
+        const proj = projects.readAll().find((x) => x.id === id) || null;   // the stored record: agents are names
+        if (card && proj && !(proj.agents || []).includes(card.sessionName)) {
+          sendJson(res, 403, { error: 'that agent is not on this project, so it cannot mark its tasks' });
+          return;
+        }
+        const now = proj && tasks.byNumber(proj, taskBuilt[2]);
+        if (body.clear === true && now && now.builtBy === 'operator') {
+          sendJson(res, 403, { error: 'the person marked this task built, so only the person can take the mark off' });
+          return;
+        }
+      }
       const out = body.clear === true
         ? tasks.clearBuilt(id, taskBuilt[2], { by })
         : tasks.setBuilt(id, taskBuilt[2], { by, note: typeof body.note === 'string' ? body.note : '' });
@@ -15174,7 +15202,8 @@ const server = http.createServer((req, res) => {
         sendJson(res, code, { error: out.because });
         return;
       }
-      sendJson(res, 200, { task: out.task });
+      if (!viaScreen && out.changed) builtMarks.push(Date.now());
+      sendJson(res, 200, { task: out.task, changed: out.changed === true });
     }).catch((err) => {
       sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
     });

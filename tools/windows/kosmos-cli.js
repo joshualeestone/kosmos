@@ -609,7 +609,7 @@ async function taskBuilt(ctx, args) {
       : ctx.unreachable('mark that task');
   }
   if (r.json && r.json.task) {
-    ctx.out(clear ? 'Took the built mark off task ' + num + ' on ' + project + '.'
+    ctx.out(clear ? (r.json.changed === false ? 'Task ' + num + ' on ' + project + ' was not marked built.' : 'Took the built mark off task ' + num + ' on ' + project + '.')
       : 'Marked task ' + num + ' on ' + project + ' built, waiting to be released or checked. Closing it clears the mark.');
     return 0;
   }
