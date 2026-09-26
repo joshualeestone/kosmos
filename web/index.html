@@ -20071,6 +20071,7 @@ async function tick() {
        fix is to depend on the thing that is static and always there. */
     document.getElementById('orgmap').innerHTML = '';
     ORG_HTML = null;
+    orgBoxPlain();
     document.getElementById('orgnote').textContent = BOARD_NEEDS_SIGNIN
       ? SIGNIN_SENTENCE
       : 'We cannot read the agents right now, so this is not drawn. It is not saying there are none.';
@@ -26437,6 +26438,15 @@ let ORG_DRAG_MOVED = false;   // the last pointer sequence on the map was a drag
 let ORG_POS = new Map(); // last positions by key, so a repaint does not snap back
 let ORG_SIZE = 0;        // the canvas ORG_POS was measured on (#718: a new width rescales them)
 let ORG_VIEW_W = 0;      // the chart box's width at the last paint (#718: width changes, a scrolled chart's centre)
+/* #718: the chart box back to a plain one (no sideways scroll, no scroll padding,
+   not a focusable region) wherever the chart is cleared instead of painted: an
+   empty board, and a poll that failed. */
+function orgBoxPlain() {
+  const wrap = document.getElementById('orgview');
+  wrap.classList.remove('orgscroll');
+  wrap.removeAttribute('tabindex'); wrap.removeAttribute('role'); wrap.removeAttribute('aria-label');
+  document.getElementById('orgmap').classList.remove('orgwide');
+}
 let ORG_HTML = null;         // the repaint guard's memory
 
 function orgTreeOf(agents) {
@@ -26592,8 +26602,7 @@ function paintOrg() {
     note.textContent = BOARD_SEEN ? 'No agents set up in Kosmos yet.' : 'Looking…';
     // Same correction as the failure path: the container, never its children.
     document.getElementById('orgmap').innerHTML = '';
-    wrap.classList.remove('orgscroll'); document.getElementById('orgmap').classList.remove('orgwide');
-    wrap.removeAttribute('tabindex'); wrap.removeAttribute('role'); wrap.removeAttribute('aria-label');
+    orgBoxPlain();
     ORG_HTML = null;
     return;
   }
@@ -26631,10 +26640,11 @@ function paintOrg() {
   wrap.classList.toggle('orgscroll', wide);
   /* A box that scrolls can be focused and named, so a keyboard can pan it with
      the arrow keys, not only by tabbing from node to node. */
-  if (wide) { wrap.tabIndex = 0; wrap.setAttribute('role', 'region'); wrap.setAttribute('aria-label', 'Org chart, scrolls sideways'); }
-  else { wrap.removeAttribute('tabindex'); wrap.removeAttribute('role'); wrap.removeAttribute('aria-label'); }
   const orgmapEl = document.getElementById('orgmap');
-  orgmapEl.classList.toggle('orgwide', wide);
+  if (wide) {
+    wrap.tabIndex = 0; wrap.setAttribute('role', 'region'); wrap.setAttribute('aria-label', 'Org chart, scrolls sideways');
+    orgmapEl.classList.add('orgwide');
+  } else orgBoxPlain();
   /* Here, before the repaint guard below: at the squeeze floor a narrower box
      paints the same chart, the guard skips the rest, and the scroll would never
      move. The chart takes its size first so the scroll is set against it. */

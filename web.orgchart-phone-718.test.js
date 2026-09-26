@@ -93,7 +93,7 @@ test('#718: a width change repaints the chart, and a too-big chart scrolls in it
 test('#718: a chart wider than its box lets a finger scroll the box, and the drag box is the fit margin', () => {
   const paint = SCRIPT.slice(SCRIPT.indexOf('function paintOrg'), SCRIPT.indexOf('function orgLiveStart'));
   assert.match(paint, /const wide = viewW > 0 && size > viewW;/);
-  assert.match(paint, /classList\.toggle\('orgwide', wide\)/);
+  assert.match(paint, /orgmapEl\.classList\.add\('orgwide'\)/);
   // touch-action: none on the chart would block the box's own scroll on every point of it.
   assert.match(PAGE, /\.orgmap\.orgwide \{ touch-action: pan-x pan-y; \}/);
   // One number for the margin orgFit leaves and the box a dragged node is kept inside.
@@ -116,7 +116,11 @@ test('#718: positions from a canvas of another width are carried across in propo
   // same-width repaint (the 5s poll): a write mid-pan stops a finger's scroll.
   assert.match(paint, /: widthChanged \? \(wrap\.scrollLeft \+ ORG_VIEW_W \/ 2\) \* f - viewW \/ 2\s*: size !== sizeWas && sizeWas > 0 \? wrap\.scrollLeft \+ \(size - sizeWas\) \/ 2 : null;/);
   // A scrolling box is focusable and named, so a keyboard can pan it.
-  assert.match(paint, /if \(wide\) \{ wrap\.tabIndex = 0; wrap\.setAttribute\('role', 'region'\);/);
+  assert.match(paint, /if \(wide\) \{\s*wrap\.tabIndex = 0; wrap\.setAttribute\('role', 'region'\);/);
+  // Every path that clears the chart instead of painting it resets the box the same way.
+  assert.match(paint, /\} else orgBoxPlain\(\);/);
+  // The failed-poll path in tick(): identified by the note it writes right after.
+  assert.match(SCRIPT, /document\.getElementById\('orgmap'\)\.innerHTML = '';\s*ORG_HTML = null;\s*orgBoxPlain\(\);\s*document\.getElementById\('orgnote'\)\.textContent = BOARD_NEEDS_SIGNIN/);
   assert.match(paint, /for \(const p of ORG_POS\.values\(\)\) \{ p\.x \*= f; p\.y \*= f; \}/);
   assert.doesNotMatch(paint, /ORG_POS = new Map\(\)/, 'a width change throws the positions away again');
 });

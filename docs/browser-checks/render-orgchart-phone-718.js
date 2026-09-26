@@ -35,7 +35,8 @@
  * while-hidden arm reds when the resize handler remembers its own width; the long
  * callout arm reds without the box's sideways clip (page 406px at 375); the
  * keyboard arm reds when the scrolling box cannot take focus; the ring-added arm
- * reds when a same-width growth leaves the scroll where it was.
+ * reds when a same-width growth leaves the scroll where it was; the failed-poll
+ * arm reds when the failure path leaves the scrolling box's classes behind.
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -315,11 +316,17 @@ function measure(page) {
         {
           const r = await page.evaluate(() => { const w = document.getElementById('orgview'); w.scrollLeft = 0; w.focus();
             return { tab: w.tabIndex, role: w.getAttribute('role'), label: w.getAttribute('aria-label'), focused: document.activeElement === w }; });
-          await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight');
-          await page.waitForTimeout(400);
-          const left = await page.evaluate(() => document.getElementById('orgview').scrollLeft);
-          chk(r.tab === 0 && r.role === 'region' && !!r.label && r.focused && left > 0,
-            `${tag} the scrolling box takes keyboard focus, is named, and the arrow keys pan it`, JSON.stringify(r) + ' scrollLeft after two ArrowRight: ' + left);
+          // Arrow keys: Chromium only. Headless WebKit does not pan a focused box with them
+          // (measured, with and without these attributes); focus and the name are checked in both.
+          let left = null;
+          if (engine === 'chromium') {
+            await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight');
+            await page.waitForTimeout(400);
+            left = await page.evaluate(() => document.getElementById('orgview').scrollLeft);
+          }
+          chk(r.tab === 0 && r.role === 'region' && !!r.label && r.focused && (left === null || left > 0),
+            `${tag} the scrolling box takes keyboard focus and is named` + (left === null ? '' : ', and the arrow keys pan it'),
+            JSON.stringify(r) + (left === null ? '' : ' scrollLeft after two ArrowRight: ' + left));
         }
         // The fleet grows a ring while the box is scrolled (same width): the drawing grows by
         // half the difference on each side, so the point in the middle must stay in the middle.
@@ -338,6 +345,26 @@ function measure(page) {
           const c = Math.round((r.scrollW - r.clientW) / 2);
           chk(r.size > c0.size && Math.abs(r.left - c) <= 2, `${tag} a ring added while scrolled keeps the chart centred in its box`,
             `chart ${Math.round(c0.size)} -> ${r.size}px, scrollLeft ${c0.left} -> ${r.left}, centre ${c}`);
+        }
+        // A poll that fails clears the chart: the box must go back to a plain one (no scroll
+        // padding over the error note, not announced as a scrolling chart).
+        {
+          const before = await page.evaluate(() => document.getElementById('orgview').classList.contains('orgscroll'));
+          // The page's own status fetch rejects, as it does when the Mac cannot be reached. Done in
+          // the page, not with page.route: the board's service worker would carry the request past it.
+          await page.evaluate(() => { window.__realFetch = window.fetch;
+            window.fetch = function (u) { if (String(u).includes('/api/status')) return Promise.reject(new TypeError('offline (check)')); return window.__realFetch.apply(this, arguments); }; });
+          let r = null;
+          for (let i = 0; i < 24; i++) {
+            await page.waitForTimeout(500);
+            r = await page.evaluate(() => { const w = document.getElementById('orgview');
+              return { note: document.getElementById('orgnote').textContent, scroll: w.classList.contains('orgscroll'), tab: w.getAttribute('tabindex'), role: w.getAttribute('role'),
+                wide: document.getElementById('orgmap').classList.contains('orgwide'), padTop: getComputedStyle(w).paddingTop }; });
+            if (/cannot read|sign/i.test(r.note)) break;
+          }
+          await page.evaluate(() => { window.fetch = window.__realFetch; });
+          chk(before && /cannot read|sign/i.test(r.note) && !r.scroll && !r.wide && r.tab === null && r.role === null && r.padTop === '0px',
+            `${tag} a failed poll leaves a plain box under its note, not a scrolling region`, JSON.stringify(r));
         }
         chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));
         await ctx.close();
