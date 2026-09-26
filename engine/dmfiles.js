@@ -82,6 +82,17 @@ function blockBody(dir) {
   return [
     '## Where to save files you make for the person',
     '',
+    /* #3965 (Josh, 2026-09-26 08:57): "Agents keep defaulting to trying to put the document as an
+       artifact ... not keep trying to put stuff out as Claude artifacts". A Claude agent's own
+       tools tell it to publish a finished piece as an artifact by default, so the rule here has to
+       say, in so many words, that this default wins over that one. Every provider reads this block. */
+    'Anything you make for the person to keep (a document, a report, notes, a list,',
+    'a draft) is a FILE on this computer, saved where the next paragraphs say, and',
+    'named in your reply. Do not publish it as a Claude artifact, a shared document',
+    'or any other link unless the person asks for that by name: they look for your',
+    'work under Files in Kosmos, and a link lives somewhere else. If one of your',
+    'tools offers to publish by default, this instruction comes first.',
+    '',
     'When you make a file for the person in a direct conversation with them, or they',
     'ask you for one there, save it in your Files folder. Two things come first: if',
     'they tell you where to put it, put it there, and if it is an existing file you',

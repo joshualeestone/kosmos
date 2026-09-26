@@ -1356,6 +1356,17 @@ const LIST_MAX_SCAN = 2000;
 const LIST_SKIP_DIRS = new Set(['node_modules', 'venv', 'env', '__pycache__', 'dist', 'build', 'target', 'Pods', 'DerivedData']);
 
 /**
+ * #3965 (Josh, 2026-09-26): a name that is an app's scratch file, never the person's work, and so
+ * never listed. Dot-names (`.DS_Store`, LibreOffice's `.~lock.*#`, `.git`) were already hidden;
+ * this adds Microsoft Office's owner file (`~$report.docx`, the "~$on (Grok A..." 162 B row Josh
+ * saw in an agent's Files) and Windows' folder files (`Thumbs.db`, `desktop.ini`).
+ */
+function isScratchName(name) {
+  const n = String(name || '');
+  return n.startsWith('.') || n.startsWith('~$') || /^(thumbs\.db|desktop\.ini)$/i.test(n);
+}
+
+/**
  * The files in a project's folder, newest first.
  *
  * ⚠️ FILES ONLY, AND SUBFOLDERS WALKED WITH BOUNDS (#2245; this was top-level only
@@ -1401,7 +1412,7 @@ function listFiles(folder, limit, opts) {
   /* BREADTH-FIRST, so shallower files are reached before deeper ones when the budget runs out. */
   const queue = [{ abs: state.real, rel: '', depth: 0 }];
   const take = (ent, abs, rel, depth) => {
-    if (ent.name.startsWith('.')) return;
+    if (isScratchName(ent.name)) return;
     const relName = rel ? rel + '/' + ent.name : ent.name;
     // ⚠️ isFile()/isDirectory() on the DIRENT, so a symlink is excluded without a
     // second stat: withFileTypes reports the link itself, which is what we want here.

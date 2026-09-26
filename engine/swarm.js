@@ -170,6 +170,11 @@ function blockBody(maxHelpers) {
     '  same part.',
     '- You check and merge every helper\'s work yourself before you answer. Only you',
     '  speak: helpers never post in a room or message anyone.',
+    /* #3965: helpers are subagents with no instructions file of their own, so the file-not-artifact
+       rule in the lead's "Where to save files" section only reaches them if the lead passes it on. */
+    '- Tell every helper that anything it makes to keep is saved as a file, where your',
+    '  "Where to save files" section says, and never published as a Claude artifact or',
+    '  a link.',
   ].join('\n');
 }
 
