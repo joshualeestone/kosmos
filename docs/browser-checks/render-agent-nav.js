@@ -138,7 +138,7 @@ function chk(ok, label, extra) {
       chk(pack.labs.every((x) => !x.over), `[${theme}] every four-pack label sits on one line, no truncation`, JSON.stringify(pack.labs));
 
       // The mouseover preview actually applies (Josh approved it 2026-09-24): a resting tile takes
-      // the rule border and no wash; on hover the border becomes the gold edge and a faint warm
+      // the rule border and no wash; on hover the border becomes the bright gold (#4051) and a faint warm
       // wash appears. Asserting both CHANGE (not their exact rgb) guards the rule from being
       // dropped or mis-scoped without pinning a brittle colour string. Pointer parked afterward so
       // it does not perturb the pill measurements below.
@@ -156,9 +156,10 @@ function chk(ok, label, extra) {
         const on = document.querySelector('#d-nav button.on');
         const rgb = (c) => (c.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
         const lum = (c) => { const [r, g, b] = rgb(c).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
-        const ratio = (a, b) => { const x = lum(a), y = lum(b); return +((Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)).toFixed(2); };
-        const side = getComputedStyle(document.getElementById('d-nav').closest('.detail-side, .dside, aside') || document.body).backgroundColor;
-        return { post: post ? getComputedStyle(post).backgroundColor : null, on: on ? getComputedStyle(on).borderTopColor : null, onKey: on && on.dataset.go, ratioOnPage: on ? ratio(getComputedStyle(on).borderTopColor, getComputedStyle(document.body).backgroundColor) : null, side };
+        // For the record only (the owner chose this knowing it): the edge against the page background.
+        const onBg = (a, b) => { const x = lum(a), y = lum(b); return +((Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)).toFixed(2); };
+        return { post: post ? getComputedStyle(post).backgroundColor : null, on: on ? getComputedStyle(on).borderTopColor : null,
+          edgeVsPageBg: on ? onBg(getComputedStyle(on).borderTopColor, getComputedStyle(document.body).backgroundColor) : null };
       });
       chk(!!gold.post && gold.on === gold.post, `[${theme}] #4051: the selected tile's outline is the Post button's bright gold`, JSON.stringify(gold));
       chk(hov.bc === gold.post, `[${theme}] #4051: the hover outline is the same bright gold`, JSON.stringify({ hover: hov.bc, post: gold.post }));
