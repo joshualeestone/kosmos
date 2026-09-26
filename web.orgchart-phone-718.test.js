@@ -104,7 +104,7 @@ test('#718: a chart wider than its box lets a finger scroll the box, and the dra
   assert.match(PAGE, /\.orgwrap\.orgscroll \{ overflow-x: auto;/);
   assert.doesNotMatch(PAGE, /\.orgwrap \{[^}]*overflow-x: (auto|hidden|scroll)/, 'every chart would clip its callouts');
   // Sideways only, and clip (not hidden) so it is not a scroller and overflow-y stays visible.
-  assert.match(PAGE, /\.orgwrap \{ overflow-x: clip; \}/);
+  assert.match(PAGE, /\.orgwrap \{ margin-top: 8px; overflow-x: clip; \}/);
   // A finger on a wide chart pans it; it does not also start a drag.
   assert.match(SCRIPT, /if \(e\.pointerType === 'touch' && map\.classList\.contains\('orgwide'\)\) return;/);
 });
@@ -114,7 +114,9 @@ test('#718: positions from a canvas of another width are carried across in propo
   assert.match(paint, /const f = widthChanged && ORG_SIZE > 0 \? size \/ ORG_SIZE : 1;/);
   // The scroll is written the first time the box scrolls and when its width changes, never on a
   // same-width repaint (the 5s poll): a write mid-pan stops a finger's scroll.
-  assert.match(paint, /: widthChanged \? \(wrap\.scrollLeft \+ ORG_VIEW_W \/ 2\) \* f - viewW \/ 2 : null;/);
+  assert.match(paint, /: widthChanged \? \(wrap\.scrollLeft \+ ORG_VIEW_W \/ 2\) \* f - viewW \/ 2\s*: size !== sizeWas && sizeWas > 0 \? wrap\.scrollLeft \+ \(size - sizeWas\) \/ 2 : null;/);
+  // A scrolling box is focusable and named, so a keyboard can pan it.
+  assert.match(paint, /if \(wide\) \{ wrap\.tabIndex = 0; wrap\.setAttribute\('role', 'region'\);/);
   assert.match(paint, /for \(const p of ORG_POS\.values\(\)\) \{ p\.x \*= f; p\.y \*= f; \}/);
   assert.doesNotMatch(paint, /ORG_POS = new Map\(\)/, 'a width change throws the positions away again');
 });

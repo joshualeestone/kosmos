@@ -120,3 +120,13 @@ and a phone has no hover: a tap opens the agent. Changing that is a design call 
   cannot drive the pointer sequence a real pan produces.
 - ORG_VIEW_W is not recorded from a zero-width box.
 - Fixed 89/89 (Chromium + WebKit).
+
+## Post-rebase challenge loop, iteration 2
+- A chart that grows a ring while scrolled (same width) now keeps the point in the middle of the box in the
+  middle: the drawing is centred in its square, so the scroll moves by half the growth. New arm (dov made to
+  report to cleo mid-run, then reset); control leaving the scroll alone fails (62 vs centre 114).
+- The scrolling box gets tabindex 0, role region and a name while it scrolls, so a keyboard can pan it.
+  Measured: Chromium already focuses a scroller and pans it with the arrow keys without these, so the arm's
+  control fails on the attributes only; they are what other engines and screen readers need.
+- The two base .orgwrap rules are one rule again.
+- Fixed 93/93 (Chromium + WebKit).
