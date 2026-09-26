@@ -1054,9 +1054,7 @@ test('a device name reaches the binary when valid, and is dropped (never surface
   fs.rmSync(RECORD, { force: true });
   await remote.signinStart('her@example.com', 'bad\nname');
   const dropped = recorded().find((c) => c[0] === 'signin' && c[1] === 'start');
-  assert.ok(!dropped.some((a) => String(a).includes('bad')), 'a malformed device name was passed through: ' + JSON.stringify(dropped));
-  // #3831: it falls back to this computer's own name rather than none.
-  assert.equal(dropped[dropped.indexOf('--device-name') + 1], remote.thisComputerDeviceName());
+  assert.ok(!dropped.includes('--device-name'), 'a malformed device name was passed through: ' + JSON.stringify(dropped));
 });
 
 test('#3831: the app\'s own sign-in is named after this computer, never left as "a device"', async () => {
@@ -1070,6 +1068,27 @@ test('#3831: the app\'s own sign-in is named after this computer, never left as 
   assert.ok(name.length <= 60, name);
   assert.equal(start[start.indexOf('--device-name') + 1], name, 'start carried no name: ' + JSON.stringify(start));
   assert.equal(verify[verify.indexOf('--device-name') + 1], name, 'verify carried no name: ' + JSON.stringify(verify));
+});
+
+test('#3831: the computer name becomes a label that always fits the device-name rule', () => {
+  const RULE = /^[^\n\r]{1,60}$/;
+  const cases = {
+    plain: ['Josh’s Mac mini', 'darwin', 'Josh’s Mac mini (Kosmos app)'],
+    newline: ['Josh\nMac', 'darwin', 'Josh Mac (Kosmos app)'],
+    empty: ['', 'darwin', 'This Mac (Kosmos app)'],
+    spaces: ['   ', 'win32', 'This computer (Kosmos app)'],
+    nul: [null, 'linux', 'This computer (Kosmos app)'],
+  };
+  for (const [k, [raw, platform, want]] of Object.entries(cases)) {
+    assert.equal(remote.deviceNameFrom(raw, platform), want, k);
+  }
+  // Long, and long with emoji (two UTF-16 units each): still inside the rule, never half an emoji.
+  const long = remote.deviceNameFrom('M'.repeat(70), 'darwin');
+  assert.ok(RULE.test(long) && long.endsWith(' (Kosmos app)'), long);
+  const emoji = remote.deviceNameFrom('Mac ' + '😀'.repeat(30), 'darwin');
+  assert.ok(RULE.test(emoji), 'over the rule: ' + emoji.length);
+  assert.ok(!/[\ud800-\udbff](?![\udc00-\udfff])/.test(emoji), 'half an emoji: ' + JSON.stringify(emoji));
+  assert.ok(emoji.startsWith('Mac 😀'), 'cut away the name: ' + emoji);
 });
 
 test('a malformed coordinator answer is refused, and no session is held to spend', async () => {
