@@ -247,7 +247,8 @@ async function pull(dir, opts) {
   let unreadable = 0;
   let lastGetError = '';
   // Reads refused although the token WAS sent. The listing came from this token's
-  // store, so this is not a wrong store: the read path wants another URL or auth form.
+  // store, so this is not a wrong store; the read path may need another URL or auth
+  // form, or the token may lack read access (the message says "may").
   let denied = 0;
   for (const b of (Array.isArray(blobs) ? blobs : [])) {
     if (!b || typeof b.url !== 'string') { skipped += 1; continue; }

@@ -307,7 +307,7 @@ test('#3878: the token goes only to https Vercel Blob hosts or the configured AP
   }
 });
 
-test('#3878: a partial pull says how many reports could not be read; the wrong-store hint only follows a 401/403', async () => {
+test('#3878: a partial pull says how many reports could not be read; only a 401/403 counts as refused', async () => {
   let n = 0;
   fp.setTransport({
     list: async () => [1, 2, 3].map((i) => ({ url: 'https://s.blob.vercel-storage.com/' + i + '.json' })),
@@ -331,7 +331,9 @@ test('#3878: a partial pull says how many reports could not be read; the wrong-s
   });
   const denied = await fp.pull(path.join(SB, 'd-denied'), { token: 'tok' });
   assert.match(denied.because, /1 of them refused although this token was sent/);
-  assert.doesNotMatch(denied.because, /wrong store/, 'a token that listed the store cannot be for another store');
+  // A private-host listing refused with the token: no refile advice (the listing came from
+  // this token's own store), which the code WOULD emit if it wrongly treated it as stale.
+  assert.doesNotMatch(denied.because, /refile/, 'a token that listed the store must not be told to refile');
 });
 
 test('#3878: one summary for every CLI, including the could-not-be-read line', () => {
@@ -401,7 +403,7 @@ test('#3878: a partial pull keeps its refusal count in the summary', () => {
     ['pulled 1 report(s) (3 skipped) to /d', '3 reports could not be read, 2 of them refused although the token was sent (last error: blob GET HTTP 404)']);
 });
 
-test('#3878: reports listed from a PUBLIC blob store say the token is the old store\'s (the real wrong-store case)', async () => {
+test('#3878: reports listed from a PUBLIC blob store carry the conditional public-store note', async () => {
   fp.setTransport({
     list: async () => [{ url: 'https://abc.public.blob.vercel-storage.com/feedback/a.json' }],
     get: async () => JSON.stringify(REC('inst-pub', '2026-09-26', 'old store')),
@@ -420,7 +422,7 @@ test('#3878: reports listed from a PUBLIC blob store say the token is the old st
   assert.doesNotMatch(fp.summaryLines(r2).join('\n'), /PUBLIC/);
 });
 
-test('#3878: a pull that FAILS on a public-store listing still carries the wrong-store hint', async () => {
+test('#3878: a pull that FAILS on a public-store listing still carries the public-store note', async () => {
   fp.setTransport({
     list: async () => [{ url: 'https://abc.public.blob.vercel-storage.com/feedback/a.json' }],
     get: async () => { throw new Error('blob GET HTTP 404'); },
