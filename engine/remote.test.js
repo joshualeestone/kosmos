@@ -180,6 +180,8 @@ if (args[0] === 'devices') {
   console.log(JSON.stringify({ [verb === 'allow' ? 'allowed' : verb === 'deny' ? 'denied' : 'removed']: true, device_id: flag('--device-id') }));
   process.exit(0);
 }
+// #3827: a retire that hangs (a dead network).
+if (args[0] === 'retire' && mode.includes('hung-retire')) { const until = Date.now() + 15000; while (Date.now() < until) { /* wait */ } }
 if (args[0] === 'run') {
   if (mode === 'crash') process.exit(3);
   const statusFile = flag('--status-file');
@@ -1081,6 +1083,10 @@ test('#3827: a register killed after writing the key and id (mid-certificate) is
     assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
     assert.equal(remote.enrolled(), false, 'fixture: no certificate, so not enrolled');
     fs.rmSync(RECORD, { force: true });
+    // Before Forget, a second register is refused: the half identity is registered at the coordinator.
+    const again = await remote.signinRegister('hers');
+    assert.equal(again.ok, false, 'a register ran over a half-registered identity');
+    assert.match(again.because, /did not finish/);
     const got = await remote.forget();
     assert.equal(recorded().filter((c) => c[0] === 'retire').length, 1, 'a Mac with a key and id at the coordinator was not retired');
     assert.ok(got.retired, 'Forget did not report the retire: ' + got.because);
@@ -1140,4 +1146,38 @@ test('#3827: two Forgets at once retire the Mac once and both get the same answe
   assert.equal(recorded().filter((c) => c[0] === 'retire').length, 1, 'two Forgets retired the Mac twice');
   assert.deepEqual(a, b, 'the second Forget got a different answer');
   assert.equal(remote.enrolled(), false);
+});
+
+test('#3827: a retire that hangs cannot hang Forget', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const reg = await remote.signinRegister('hers');
+  assert.equal(reg.ok, true, 'fixture: registered ' + reg.because);
+  process.env.FAKE_TUNNEL_MODE = 'hung-retire';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  try {
+    const t0 = Date.now();
+    const got = await remote.forget();
+    assert.ok(Date.now() - t0 < 8000, 'Forget waited out a hung retire (' + (Date.now() - t0) + 'ms)');
+    assert.equal(got.retired, false, 'a retire killed by its bound was reported as done');
+    assert.equal(remote.enrolled(), false, 'the Mac is still forgotten here');
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+  }
+});
+
+test('#3827: the older Settings setup is refused while a register is in flight', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  process.env.FAKE_TUNNEL_MODE = 'slow-register';
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const racing = remote.signinRegister('hers');
+    const setup = await remote.setupComplete('123456', 'other');
+    assert.equal(setup.ok, false, 'the Settings setup wrote the state dir beside an in-flight register');
+    assert.match(setup.because, /still signing in/);
+    await racing;
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
 });

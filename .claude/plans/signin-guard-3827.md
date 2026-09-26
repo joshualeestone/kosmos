@@ -24,3 +24,10 @@ Weakest premise: Forget can now take up to the register bound (60s) when a regis
 - BLOCKER: two concurrent forget() calls each retired the same Mac. A second forget now returns the first one's promise (same answer, one retire). Test; control without the dedupe fails "retired the Mac twice".
 - BLOCKER: forget's sentence was keyed on enrolled(), so a half-registered Mac was always told "nothing to retire", even after a successful retire, and a real retire failure was hidden. Keyed on canRetire now. Test asserts because is null after a successful retire; control fails.
 - WARNING (documented): worst case a hung register then a hung retire, two bounds, about ten minutes, only when already broken.
+
+## Round 3 review (opus)
+- WARNING: the older Settings setup (setupComplete) wrote the same state dir without the guards. It now refuses while a register is in flight or a forget runs. Test; control: without it the test hangs (killed after 27 minutes), which counts as a failure but is not a clean one.
+- WARNING: after a register cut off mid-certificate, Try again could register over the half identity (stranding it at the coordinator). Register now refuses while a key and id exist with no certificate, pointing to Forget. Test; control fails on the message ("did not finish").
+- WARNING: the retire bound was untested. New hung-retire fake mode; Forget returns within the bound and reports retired false. Control with an unbounded retire fails.
+- NIT: the env seam only accepts a positive number (never "no bound").
+- NIT, left: the forgetting refusal inside signinRegister is not reached by a test (the in-flight check wins first).

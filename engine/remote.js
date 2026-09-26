@@ -747,6 +747,10 @@ async function setupStart(email) {
 /** The code step: finish enrolment, then bring the tunnel up if the switch
     is on. `name` is the address label the person asked for. */
 async function setupComplete(code, name) {
+  // #3827: the older Settings setup writes the same state directory as the in-app
+  // register, so it takes the same guards.
+  if (registerInFlight) return { ok: false, because: 'this computer is still signing in; give it a minute' };
+  if (forgetting) return { ok: false, because: 'this computer is being forgotten; try again in a moment' };
   const settings = read();
   if (!settings.email) return { ok: false, because: 'start with the email step' };
   // #1010: a reinstall whose state SURVIVED is already set up -- do not re-enrol.
@@ -1238,7 +1242,14 @@ let forgetting = false;
 // So the bound is generous: it exists only so a HUNG one cannot hang Forget.
 const REGISTER_TIMEOUT_MS = 5 * 60 * 1000;
 // Env seam for tests, like AGENT_WORKFORCE_TUNNEL_BIN. (0 or unset: the default.)
-const registerTimeoutMs = () => Number(process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS) || REGISTER_TIMEOUT_MS;
+const registerTimeoutMs = () => {
+  const v = Number(process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS);
+  return Number.isFinite(v) && v > 0 ? v : REGISTER_TIMEOUT_MS;   // never "no bound"
+};
+// A Mac key and id with no certificate: a register that was cut off after the
+// coordinator accepted it. It is registered there, so registering again would strand
+// it (or meet "already owns the name"); Forget retires it.
+const halfRegistered = () => !enrolled() && ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(STATE_DIR(), f)));
 /* #3827: signing in IS asking to be reachable, so a successful register switches
    Kosmos+ on. A failed save is logged: the Mac is registered either way, and the
    switch then still says off. */
@@ -1263,6 +1274,9 @@ async function signinRegister(name) {
   // this computer is being forgotten.
   if (registerInFlight) return { ok: false, because: 'this computer is still signing in; give it a minute' };
   if (forgetting) return { ok: false, because: 'this computer is being forgotten; try again in a moment' };
+  if (halfRegistered()) {
+    return { ok: false, because: 'an earlier sign-in on this computer did not finish; choose Forget this computer, then sign in again' };
+  }
   // #1010/#1003: a surviving state dir already at this name IS this Mac. Do not
   // re-register -- it would mint a fresh identity key and spend a scarce
   // certificate for this Mac's own previous life. Recognise it, bring the tunnel
