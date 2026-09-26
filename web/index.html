@@ -53311,9 +53311,11 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
     before = String((m && m.told && m.told.because) || '');
   } catch { /* no remembered answer: nothing is marked as "still" */ }
   let reached = false;
+  let left = false;   // 409: the agent is no longer on the project. An answer, not a failure: its row goes.
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(project) + '/agent/' + encodeURIComponent(key) + '?retell=1', { method: 'POST' });
     reached = !!(res && res.ok);
+    left = !!(res && res.status === 409);
   } catch { /* the repaint below shows where it stands */ }
   // "It still did not work" only about a retry that reached the board, marked before the read so
   // this read's own paint shows it. Cleared again if the read is overtaken (its data is not ours).
@@ -53321,7 +53323,7 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
   // One mark per retry: an answered one says "still", an unanswered one says it did not go through.
   PJ_NOTICE_TRIED.delete(mark);
   PJ_NOTICE_MISSED.delete(mark);
-  (reached ? PJ_NOTICE_TRIED : PJ_NOTICE_MISSED).set(mark, before);
+  if (!left) (reached ? PJ_NOTICE_TRIED : PJ_NOTICE_MISSED).set(mark, before);
   box.__lastLive = null;   // repaint even when the answer is word for word the same
   // A newer read that overtook this one also started after the retry, so its data answers the
   // retry too: the mark stands. One more read gives this handler a paint of its own to focus on.

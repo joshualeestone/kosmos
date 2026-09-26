@@ -854,6 +854,8 @@ const readConnectionsShelf = inflight.collapse(() => {
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
 const projects = require('./engine/projects');
+/* #3923: when each agent-made Try again (`?retell=1`) happened, for its own hourly bound. */
+const RETELL_RECENT = [];
 const { accountProblemOf } = require('./engine/accountproblem'); // #3723
 const federation = require('./engine/federation');
 /* #3311: one room seat per federated project. What arrives is recorded in the
@@ -15292,6 +15294,22 @@ const server = http.createServer((req, res) => {
         if (!exists) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
         sendJson(res, 409, { error: 'that agent is no longer on this project' });
         return;
+      }
+      /* A retry writes the agent's instruction file but moves no membership, so memberValve (which
+         counts membership changes) never sees it. Bounded on its own, for agent-made calls only, at
+         the same sixty an hour: the screen is never valved, like every sibling path here. */
+      if (!isViaScreen(req)) {
+        const now = Date.now();
+        while (RETELL_RECENT.length && now - RETELL_RECENT[0] >= 3600 * 1000) RETELL_RECENT.shift();
+        if (RETELL_RECENT.length >= projects.MEMBERS_PER_HOUR) {
+          const secs = Math.max(1, Math.ceil((RETELL_RECENT[0] + 3600 * 1000 - now) / 1000));
+          const mins = Math.max(1, Math.ceil(secs / 60));
+          res.setHeader('retry-after', String(secs));
+          sendJson(res, 429, { error: 'agents have asked Kosmos to try again ' + RETELL_RECENT.length + ' times in the last hour, so Kosmos is pausing agent-made retries for '
+            + mins + (mins === 1 ? ' minute' : ' minutes') + '; the person can still press Try again on the screen', retry_after_secs: secs });
+          return;
+        }
+        RETELL_RECENT.push(now);
       }
       let told;
       try {

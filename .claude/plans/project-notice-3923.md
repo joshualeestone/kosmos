@@ -96,3 +96,9 @@ page. Try again re-tells that agent and the notice updates.
 - #pj-one-notice is a permanent, unhidden live region; the visible .pnotice is drawn inside it, so a
   first appearance is announced (content inserted into an existing region).
 - "cannot match X to a session" is now "cannot find X running on this computer".
+
+## Review round 12
+- Agent-made Try again calls are bounded on their own (sixty an hour, 429 with retry_after_secs),
+  since they write the instruction file but move no membership and memberValve never sees them. The
+  screen is never refused, like every sibling path.
+- A 409 (the agent left) is an answer, not a failed retry: the row goes, so nothing is marked.

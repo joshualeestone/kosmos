@@ -259,7 +259,7 @@ function retryHandler(state) {
   return new Function('state', 'document', 'fetch', 'loadProjects', 'paintOneProject', 'PROJECTS', 'PJ_NOTICE_TRIED', 'PJ_NOTICE_MISSED', 'window', 'CSS',
     pageFn('const pjNoticeKey').split('\n')[0] + '\nreturn ' + body + ';')(state, state.document, state.fetch, state.loadProjects, state.paintOneProject, state.PROJECTS, state.tried, state.missed, {}, undefined);
 }
-function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false, refused = false, overtaken = false, focusedElsewhere = false, readFails = false } = {}) {
+function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false, refused = false, status = null, overtaken = false, focusedElsewhere = false, readFails = false } = {}) {
   const log = [];
   const btn = { dataset: { pnRetry: project.agents[0].sessionName }, disabled: false, closest() { return this; } };
   const again = { focus() { log.push('focus:again'); } };
@@ -274,7 +274,7 @@ function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false
   const state = {
     PJ_CURRENT: project.id, PROJECTS: [project], tried: new Map(), missed: new Map(), log, btn, attrs, onBlur,
     document: { getElementById: () => box, querySelector: () => heading, body, get activeElement() { return focusedElsewhere ? elsewhere : body; } },
-    fetch: async (url, opts) => { log.push('fetch:' + opts.method + ' ' + url + ' disabled=' + btn.disabled); if (switchTo) state.PJ_CURRENT = switchTo; if (fetchFails) throw new Error('offline'); return { ok: !refused }; },
+    fetch: async (url, opts) => { log.push('fetch:' + opts.method + ' ' + url + ' disabled=' + btn.disabled); if (switchTo) state.PJ_CURRENT = switchTo; if (fetchFails) throw new Error('offline'); return { ok: !refused && !status, status: status || (refused ? 500 : 200) }; },
     loadProjects: async () => { log.push('load live=' + box.__lastLive); state.PJ_READ_FAILED = readFails; return !overtaken; },
     paintOneProject: () => { log.push('paint live=' + box.__lastLive); },
   };
@@ -324,6 +324,10 @@ test('#3923: when the row is gone focus goes to the Members heading; after a pro
   await retryHandler(dark)({ target: dark.btn });
   assert.ok(dark.log.includes('paint live=null'), 'an offline retry left the row unpainted: ' + dark.log);
   assert.ok(!offline.log.some((l) => l.startsWith('paint')), 'CONTROL: a read that worked paints through loadProjects, not here');
+  // The agent left (409): an answer, not a failure, so no "did not go through" on a row that is leaving.
+  const gone409 = standIn(project, { status: 409 });
+  await retryHandler(gone409)({ target: gone409.btn });
+  assert.equal(gone409.missed.has(project.id + '\nleo') || gone409.tried.has(project.id + '\nleo'), false, 'a 409 was marked as a failed retry');
   // CONTROL: an answered retry is marked tried, not missed.
   const answered = standIn(project);
   await retryHandler(answered)({ target: answered.btn });

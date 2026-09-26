@@ -15036,6 +15036,20 @@ test('#3923: Try again (?retell=1) re-tells a current member and never re-adds o
     const failed = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
     assert.equal(failed.status, 200, failed.body);
     assert.equal(spoke.length, 1, 'a retry that could not write typed a line claiming it had');
+    /* The agent-made bound: a process past sixty retries an hour is refused with the count and a
+       Retry-After; the screen (sec-fetch-site) is never refused. */
+    eng.syncAgent = () => ({ state: eng.TOLD.TOLD, because: null, changed: false, added: [] });
+    let refused = null;
+    for (let i = 0; i < eng.MEMBERS_PER_HOUR + 5 && !refused; i++) {
+      const r = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
+      if (r.status === 429) refused = r;
+      else assert.equal(r.status, 200, r.body);
+    }
+    assert.ok(refused, 'agent-made retries were never bounded');
+    assert.match(refused.body, /pausing agent-made retries/);
+    assert.ok(JSON.parse(refused.body).retry_after_secs > 0, 'a refusal that does not say when retries lift');
+    const screen = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST', headers: { 'sec-fetch-site': 'same-origin' } });
+    assert.equal(screen.status, 200, 'the screen was refused a retry: ' + screen.body);
   } finally {
     eng.syncAgent = realSync;
     eng.speakOfMembership = realSpeak;
