@@ -1797,15 +1797,20 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    nobody loses, and it doubles as urgency -- needs-you is nearly the whole
    ring AND the loudest colour, working is a quarter, idle is absent. Read the
    view in greyscale and it still works. */
-.orgwrap { margin-top: 8px; }
-/* #718: a fleet too big to fit a phone even with its rings brought in (orgFit)
-   scrolls inside the chart's own box, never the whole page sideways. */
-.orgwrap { overflow-x: auto; }
+/* #718: overflow-x: a fleet too big to fit a phone even with its rings brought
+   in (orgFit) scrolls inside the chart's own box, never the whole page sideways. */
+.orgwrap { margin-top: 8px; overflow-x: auto; }
 /* Centred under the chart, per Josh. The chart itself is centred in the page,
    so a line hugging the left edge reads as belonging to the page rather than
    to the drawing it is about. */
 #orgnote { text-align: center; margin: 6px 0 0; }
 .orgmap { position: relative; margin: 0 auto; touch-action: none; user-select: none; -webkit-user-select: none; }
+/* #718: when the chart is wider than its box (paintOrg sets .orgwide), a finger
+   must be able to scroll the box, and touch-action: none on the chart would
+   block that on every point of it. So a swipe pans there; dragging a node by
+   touch gives way to the scroll (the browser cancels the pointer, and the drag's
+   pointercancel handler lets go). A mouse drags as before. */
+.orgmap.orgwide { touch-action: pan-x pan-y; }
 /* Grabbable (#285): the cursor says so, and a node being dragged rides above
    its neighbours with no transition fighting the pointer. */
 .orgmap .onode, .orgmap .hub { cursor: grab; }
@@ -26586,6 +26591,8 @@ function paintOrg() {
   /* Positions kept from a canvas of another size (a phone turned sideways) are
      in the wrong frame: start this one from the rings instead. */
   if (ORG_SIZE !== size) { ORG_POS = new Map(); ORG_SIZE = size; }
+  // #718: wider than its box even at the floor: the box scrolls, so touch must pan (.orgwide).
+  document.getElementById('orgmap').classList.toggle('orgwide', size > wrap.clientWidth);
   /**
    * 🔑 CENTRED ON THE DRAWING, NOT ON THE HUB, and this is the change that does
    * most of the work for "too wide". The hub was pinned to the middle of the
@@ -26803,7 +26810,7 @@ function orgLiveStart(map, placed, cx, cy, size) {
     });
   }
   for (const n of nodes.values()) n.parent = n.parentKey ? (nodes.get(n.parentKey) || null) : null;
-  ORG_LIVE = { nodes, hub, size, raf: 0, alpha: still ? 0 : 1, box: { lo: 30, hi: size - 30 } };
+  ORG_LIVE = { nodes, hub, size, raf: 0, alpha: still ? 0 : 1, box: { lo: ORG_PAD_MIN, hi: size - ORG_PAD_MIN } };
   if (still) {
     /* #1738: reduced motion means do NOT ANIMATE, not do not LAY OUT. The old
        path skipped the relaxation entirely, leaving a reduced-motion user with

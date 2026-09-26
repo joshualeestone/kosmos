@@ -17,11 +17,17 @@
  *   - every agent is drawn, fully on screen, and at least 44x44;
  *   - a tap on a face opens that agent;
  *   - a desktop-width board draws the natural square, as before.
+ *   - a three-level fleet, too deep for an iPhone SE even at the squeeze floor:
+ *     the page still does not scroll sideways, the chart's own box does, and a
+ *     touch swipe across the chart scrolls it (Chromium; WebKit checks the
+ *     touch-action only).
  *
  * RED arm (measured, Chromium and WebKit): on the unfixed page "no sideways
  * scroll" reds at 375, 393 and 412 (the page is 420px wide); every other arm stays
  * green there, since the faces sit near the middle of the too-wide chart. 430 (Pro
  * Max) passes either way, which is why it is not the only size.
+ * The deep-fleet swipe arm reds when the chart keeps touch-action: none while
+ * wider than its box (scrollLeft stays 0).
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -51,6 +57,7 @@ catch {
   process.exit(0);
 }
 const fleet = require('../../test-support/fleet');
+const store = require('../../engine/store');
 const srv = require('../../server.js');
 
 // The gate runs Chromium; ENGINES=chromium,webkit adds WebKit by hand.
@@ -141,6 +148,67 @@ function measure(page) {
         const natural = await page.evaluate(() => Math.round((orgPlace(orgTreeOf(LAST)).maxR
           + (typeof ORG_PAD === 'number' ? ORG_PAD : 78)) * 2));
         chk(m.mapW === natural && m.nodes.length === NAMES.length, `[${engine} desktop] the chart is the natural square, as before, with every agent`, `chart ${m.mapW}px, natural ${natural}px, ${m.nodes.length} nodes`);
+        await ctx.close();
+      } finally {
+        await browser.close();
+      }
+    }
+
+    // ── A three-level fleet (ada <- bram <- cleo): too deep to fit an iPhone SE even
+    //    with the rings at the squeeze floor, so the chart scrolls in its own box.
+    //    The page must still not scroll sideways, and a FINGER must be able to scroll
+    //    the box: touch-action: none on the chart (it is there for dragging) would
+    //    block that on every point of it, leaving the far side unreachable by touch.
+    store.writeProfile('bram', { reportsTo: 'ada' });
+    store.writeProfile('cleo', { reportsTo: 'bram' });
+    for (const engine of ENGINES) {
+      let browser;
+      try { browser = await pw[engine].launch({ headless: process.env.HEADED === '0' }); }
+      catch (err) {
+        chk(false, `[${engine} deep] could not start a browser`, (err && err.message ? err.message.split('\n')[0] : String(err)));
+        continue;
+      }
+      try {
+        const tag = `[${engine} 375x667 deep fleet]`;
+        const ctx = await browser.newContext({ viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: true });
+        const page = await ctx.newPage();
+        const errs = [];
+        page.on('pageerror', (e) => errs.push(e.message));
+        await toOrg(page, URL);
+        const m = await measure(page);
+        const box = await page.evaluate(() => {
+          const wrap = document.getElementById('orgview');
+          const map = document.getElementById('orgmap');
+          return { scrollW: wrap.scrollWidth, clientW: wrap.clientWidth, touch: getComputedStyle(map).touchAction };
+        });
+        chk(m.nodes.length === NAMES.length, `${tag} every agent is drawn`, `${m.nodes.length} of ${NAMES.length}`);
+        chk(m.pageW <= m.vw, `${tag} the page does not scroll sideways`, `page ${m.pageW}px on a ${m.vw}px screen`);
+        chk(box.scrollW > box.clientW, `${tag} the fleet is too deep to fit, so the chart's box scrolls (the case under test)`, JSON.stringify(box));
+        chk(/pan-x/.test(box.touch), `${tag} the chart lets a finger pan when it is wider than its box`, box.touch);
+        if (engine === 'chromium') {
+          // A real touch swipe across the middle of the chart, through the browser's own
+          // gesture path (which honours touch-action), not a scrollLeft assignment.
+          // The chart starts below the fold on a short phone: bring it on screen first.
+          const r = await page.evaluate(() => {
+            const map = document.getElementById('orgmap');
+            map.scrollIntoView({ block: 'center' });
+            const b = map.getBoundingClientRect();
+            const wrap = document.getElementById('orgview').getBoundingClientRect();
+            return { x: Math.round(wrap.left + wrap.width / 2),
+              y: Math.round(Math.min(Math.max(b.top + b.height / 2, 1), innerHeight - 1)) };
+          });
+          let left = 0; let why = '';
+          try {
+            const cdp = await ctx.newCDPSession(page);
+            await cdp.send('Input.synthesizeScrollGesture', { x: r.x, y: r.y, xDistance: -150, yDistance: 0, gestureSourceType: 'touch', speed: 800 });
+            await page.waitForTimeout(300);
+            left = await page.evaluate(() => document.getElementById('orgview').scrollLeft);
+          } catch (err) { why = ' (the swipe itself failed: ' + (err && err.message ? err.message.split('\n')[0] : err) + ')'; }
+          chk(left > 0, `${tag} a touch swipe across the chart scrolls its box`, `scrollLeft ${left} at ${r.x},${r.y}${why}`);
+        } else {
+          console.log(`INFO  ${tag} touch swipe arm is Chromium only (no gesture path here); touch-action is checked above`);
+        }
+        chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));
         await ctx.close();
       } finally {
         await browser.close();
