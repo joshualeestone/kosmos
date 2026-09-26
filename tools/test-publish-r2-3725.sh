@@ -104,6 +104,9 @@ refuses "a stand-in served base needs a test prefix" "-ServedBase is for tests" 
 refuses "missing zip refused" "no such zip" -Zip "$TMP/absent.zip"
 refuses "no key refused" "no R2_ACCOUNT_ID" -Promote -ApprovedVersion 1.2.3 -ApprovedSha "$SHA" -ApprovalRef 1789228393.821399
 refuses "non-x.y.z version refused" "x.y.z" -Promote -ApprovedVersion '-0.6.94' -ApprovedSha "$SHA" -ApprovalRef 1789228393.821399 -CredentialFile "$TMP/cred.env"
+# From the 0.6 line on the patch is two digits, as in tools/release.sh: 0.7.0 is the same version as 0.7.00.
+refuses "a one-digit patch on the 0.6+ line is refused" "is spelled 0.7.00" -Promote -ApprovedVersion 0.7.0 -ApprovedSha "$SHA" -ApprovalRef 1789228393.821399 -CredentialFile "$TMP/cred.env"
+refuses "a three-digit patch on the 0.6+ line is refused" "past the end of the 0.6 line" -Promote -ApprovedVersion 0.6.100 -ApprovedSha "$SHA" -ApprovalRef 1789228393.821399 -CredentialFile "$TMP/cred.env"
 refuses "malformed sha refused" "lowercase 64-hex" -Promote -ApprovedVersion 1.2.3 -ApprovedSha nothex -ApprovalRef 1789228393.821399 -CredentialFile "$TMP/cred.env"
 # PowerShell's plain -match ignores case; these must not.
 refuses "UPPERCASE sha refused" "lowercase 64-hex" -Promote -ApprovedVersion 1.2.3 -ApprovedSha "$(printf '%s' "$SHA" | tr a-f A-F)" -ApprovalRef 1789228393.821399 -CredentialFile "$TMP/cred.env"
