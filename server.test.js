@@ -7177,7 +7177,14 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
        (the red triangle + red status), so the real cardStOf and its CARD_ST table join the
        prelude. A stub would let this pass while the shipped needs-you condition differed. */
     + pageConstSource('CARD_ST') + '\n'
-    + pageFnSource('cardStOf') + '\n';
+    + pageFnSource('cardStOf') + '\n'
+    /* #3991: pjMember draws the memory ring (lrowRing) and the presence dot (memberDotClass,
+       which reads boardMods), so the real ones join the prelude. */
+    + pageFnSource('pctOf') + '\n'
+    + pageFnSource('memBand') + '\n'
+    + pageFnSource('lrowRing') + '\n'
+    + pageFnSource('boardMods') + '\n'
+    + pageFnSource('memberDotClass') + '\n';
   const member = pageFunction('pjMember', prelude);
   const toldLine = pageFunction('pjToldLine', TOLD_PRELUDE);
 
@@ -7308,7 +7315,14 @@ test('#2711 item 16: pjMember takes a state wash class, for working/needs-you/id
     + pageFnSource('restartingLabel') + '\n'
     + pageFnSource('stateCopyOf') + '\n'
     + pageConstSource('CARD_ST') + '\n'
-    + pageFnSource('cardStOf') + '\n';
+    + pageFnSource('cardStOf') + '\n'
+    /* #3991: pjMember draws the memory ring (lrowRing) and the presence dot (memberDotClass,
+       which reads boardMods), so the real ones join the prelude. */
+    + pageFnSource('pctOf') + '\n'
+    + pageFnSource('memBand') + '\n'
+    + pageFnSource('lrowRing') + '\n'
+    + pageFnSource('boardMods') + '\n'
+    + pageFnSource('memberDotClass') + '\n';
   const member = pageFunction('pjMember', prelude);
 
   // Real produced roster rows, not hand-built stand-ins (fixture-discipline):
@@ -8745,7 +8759,7 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
   // own earlier in the file, and a forward search finds that one.
   const from = script.lastIndexOf('  const copy = stateCopyOf(a)', dmAt);
   assert.ok(from > -1 && from < dmAt, 'the state copy lookup moved away from the badge');
-  const TAIL = "dtask.hidden = !dtask.textContent || (a.state === 'needs_you');";
+  const TAIL = "dtask.hidden = !taskText || (a.state === 'needs_you');";
   const end = script.indexOf(TAIL, from);
   assert.ok(end > from, 'the detail task line vanished');
   const body = script.slice(from, end + TAIL.length);
@@ -8753,7 +8767,7 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
   const els = {};
   const doc = {
     getElementById: (id) => {
-      if (!els[id]) els[id] = { className: '', innerHTML: '', textContent: '', hidden: false };
+      if (!els[id]) els[id] = { className: '', innerHTML: '', textContent: '', hidden: false, dataset: {} };
       return els[id];
     },
   };

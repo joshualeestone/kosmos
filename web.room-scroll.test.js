@@ -42,6 +42,8 @@ function loadPaint() {
   // eslint-disable-next-line no-new-func
   return new Function([
     slack[0],
+    pageFnSource('threadShape'),
+    pageFnSource('refreshWhens'),
     pageFnSource('setLive'),
     /* 🔑 paintThreadInto now routes the room through pinToBottom, so the pin
        must be IN SCOPE here. Without it every arm below dies on a
