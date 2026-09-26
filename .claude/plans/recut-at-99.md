@@ -15,17 +15,26 @@ first version, so a cut that aborts after its bump at a .99 could never be retri
 One condition in tools/release.sh's .99 arm: it no longer refuses when the requested version EQUALS
 the current one (`[ "$V" != "$_prev" ]`). That is a re-cut of the same release, which the rest of
 the cut already treats as idempotent (step 2 does not re-bump). Every other request at .99 is still
-refused (the existing "staying on the line is refused" test still passes), and publishing a build
-that is already served is refused by its own guard (tools/lib/cut-rerun-guard.sh), not this one.
+refused (the existing "staying on the line is refused" test still passes). It only brings .99 in
+line with every other version: nothing in release.sh refuses V equal to the current version
+elsewhere.
+
+⚠️ Corrected in review round 1: I first wrote that re-publishing an already-served build is refused
+by tools/lib/cut-rerun-guard.sh. It is not: that lib is the step-3 isolation rerun and never looks
+at a version. What actually stands in the way of re-cutting a PUBLISHED version is (a) step 1b's
+versions-entry stamp window (an entry already on the page carries its old publish stamp) and
+(b) step 7's byte compare against a local dist/kosmos-$V-arm64.tar.gz, which fires only on a box
+that has that file. Neither is a served-version check, and the comment in release.sh now says so.
 
 ## Tests
 
 tools.release-gate.test.js: "standing at 0.6.99, a RE-CUT of 0.6.99 gets through" (reaches the
-next thing the script needs, no refusal, package.json untouched). Red check: main's release.sh fails
-it. The 0.2.99 arm (a finished line) is left as is.
+next thing the script needs, with no refusal). Red check: main's release.sh fails it. The 0.2.99 arm
+(a finished line) is left as is.
 
 ## Weakest premise
 
-That nothing else relied on the .99 guard to stop an accidental second cut of 0.x.99 AFTER it was
-published. The cut-rerun guard is meant to own that; if it did not, a re-cut of an already served
-0.x.99 would now reach it rather than stop here.
+That letting V equal the current version through at .99 opens nothing new. It does not: the same
+request was already allowed at every other version, and the only protection against re-cutting a
+published version is the stamp window and the box-local byte compare named above, which apply here
+exactly as they do everywhere else. A real served-version check would be a separate change.

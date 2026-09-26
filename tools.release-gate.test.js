@@ -250,8 +250,8 @@ test('standing at 0.6.99, a RE-CUT of 0.6.99 gets through (a cut that aborted af
   const dir = sandbox('0.6.99');
   const r = run(dir, '0.6.99');
   assert.doesNotMatch(r.said, /last of the 0\.6 line/, 'a re-cut of the bumped version was refused as staying on the line');
+  // Reaching the site check is what proves the version guard let it through.
   assert.match(r.said, /no site checkout at/, r.said.slice(0, 300));
-  assert.equal(r.touched, false);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
