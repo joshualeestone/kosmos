@@ -69,6 +69,7 @@ function pillFor(card, spokeLearnedAt, lastAt) {
     'return paintDetailState;',
   ].join('\n'))(doc, new Map(spokeLearnedAt === null ? [] : [[card.sessionName, { at: 1, learnedAt: spokeLearnedAt }]]), lastAt);
   run(card);
+  pillFor.els = els;
   return els['d-state'].className;
 }
 
@@ -90,10 +91,53 @@ test('#3958: a working sample older than the reply on screen paints the pill idl
   }
 });
 
+test('#3958: a stale working sample is dropped whole: its evidence line does not stay beside the Idle pill', () => {
+  /* A working card that DOES carry evidence: Claude Code's live retry line (engine/status.js #3410). */
+  const board = fleet.install([fleet.agent('beatrix', { state: 'working',
+    screen: 'Reading the lease\n✻ Connection refused (ECONNREFUSED) · Retrying in 5s · attempt 4/10\n' })]);
+  try {
+    const card = board.agents.find((x) => x.name === 'beatrix');
+    assert.ok(card && card.state === 'working' && /Retrying in 5s/.test(String(card.stateEvidence || '')),
+      'the fixture did not produce a working card with evidence: ' + JSON.stringify(card && [card.state, card.stateEvidence]));
+    pillFor(card, null, 1000);
+    assert.match(pillFor.els['d-said'].innerHTML + pillFor.els['d-said'].textContent, /Retrying in 5s/,
+      'control: a sample that stands shows its evidence (else the arm below proves nothing)');
+    assert.match(pillFor(card, 2000, 1000), /\bst-idle\b/);
+    assert.doesNotMatch(pillFor.els['d-said'].innerHTML + pillFor.els['d-said'].textContent, /Retrying in 5s/,
+      'the Idle pill kept the working sample\'s evidence line beside it');
+  } finally {
+    fleet.restore();
+  }
+});
+
 test('#3991: a swarm member\'s face carries the same ring and dot as any other member', () => {
   const src = pageFnSource('pjMember');
   assert.match(src, /const swFace = swRow \? '<span class="lav pj-face pj-swface' \+ dotCls \+ '"[^;]*\+ memRing \+ warn \+ reachMark/,
     'the swarm face is drawn without the ring or the dot (a SOURCE pin: no fixture here turns swarms on)');
   assert.match(src, /const dotCls = present \? memberDotClass\(dotRow\) : '';/, 'the dot must come from the shared helper');
   assert.match(src, /const dotRow = boardCard \? Object\.assign\(\{\}, boardCard, \{ state: liveM\.state \}\) : liveM;/, 'the dot state must follow the member projection (the tie gate)');
+});
+
+test('#3991: the dot\'s trust exception reads needsTrust (the board poll\'s own field), as lrow does', () => {
+  // eslint-disable-next-line no-new-func
+  const memberDotClass = new Function([
+    'const boardMods = () => "";',
+    'const cardStOf = (a) => ({ st: a.state });',
+    pageFnSource('memberDotClass'),
+    'return memberDotClass;',
+  ].join('\n'))();
+  const board = fleet.install([fleet.agent('beatrix', { state: 'idle' })]);
+  try {
+    const card = board.agents.find((x) => x.name === 'beatrix');
+    /* The server adds `running` and `needsTrust` on /api/status; the member row's state comes from
+       the projects poll, so the two can disagree for one poll. The dot follows the board's field. */
+    const onBoard = (extra) => Object.assign({}, card, extra);
+    assert.equal(memberDotClass(onBoard({ running: false, needsTrust: true, state: 'idle' })), ' pjd',
+      'the board says trust-stuck while the member poll still says idle: not an offline dot');
+    assert.equal(memberDotClass(onBoard({ running: false, needsTrust: false, state: 'needs_trust' })), ' pjd pjd-off',
+      'the board has cleared trust (and says not running): the stale member state must not keep it');
+    assert.equal(memberDotClass(onBoard({ running: false })), ' pjd pjd-off', 'control: not running, no trust, offline');
+  } finally {
+    fleet.restore();
+  }
 });

@@ -29969,8 +29969,10 @@ function paintDetailState(card) {
      ⚠️ The grid card does NOT apply it: on the one poll where a reply has landed after the
      sample, this pill and the DM line say idle while the card still says working. Chosen: the
      split Josh reported was the pill against the DM line on this same page, and a card one
-     poll behind resolves on the next sample. */
-  const a = workingSampleIsStale(card) ? { ...card, state: 'idle' } : card;
+     poll behind resolves on the next sample. The stale sample is dropped whole: its evidence line
+     described the work, so an Idle pill beside "Its screen said: <that work>" would be the same
+     split one row lower. */
+  const a = workingSampleIsStale(card) ? { ...card, state: 'idle', stateEvidence: '' } : card;
   /* #3958 (review): the screen-said evidence and the re-auth button follow the poll with the
      pill. Painted FIRST, so a missing #d-task or #d-state cannot stop them. Painted only by openDetail they froze while the pill went live, so a page opened on a
      working agent that then hit auth_failed said so in the pill with no "Sign in again" beside it. */
@@ -43830,8 +43832,11 @@ function pjToldGroupLine(told) {
 function memberDotClass(row) {
   if (!row) return '';
   /* lrow's not-running branch, with its two exceptions: a restart, and the needs-trust arm (which
-     draws `attn notrunning needstrust`, no `off`). */
-  if (row.running === false && row.state !== 'restarting' && row.state !== 'needs_trust') return ' pjd pjd-off';
+     draws `attn notrunning needstrust`, no `off`). The trust arm reads lrow's own field, needsTrust,
+     which rides the same board poll as `running`; a member row's state comes from the projects poll,
+     so it is the fallback only when the board card is not there. */
+  const trust = row.needsTrust === true || (!('needsTrust' in row) && row.state === 'needs_trust');
+  if (row.running === false && row.state !== 'restarting' && !trust) return ' pjd pjd-off';
   const mods = ' ' + boardMods(row, cardStOf(row)) + ' ';
   if (mods.indexOf(' off ') > -1) return ' pjd pjd-off';
   if (mods.indexOf(' unk ') > -1) return ' pjd pjd-unk';
@@ -51109,13 +51114,24 @@ function refreshRings(root, html) {
   if (!root || typeof root.querySelectorAll !== 'function' || typeof document === 'undefined') return;
   const t = document.createElement('template');
   t.innerHTML = html;
-  const fresh = t.content.querySelectorAll('.lring .gf');
-  const cur = root.querySelectorAll('.lring .gf');
-  if (fresh.length !== cur.length) return;
-  cur.forEach((el, i) => {
-    const want = fresh[i].getAttribute('stroke-dasharray');
-    if (el.getAttribute('stroke-dasharray') !== want) el.setAttribute('stroke-dasharray', want);
-  });
+  /* Paired by the agent each ring belongs to (its [data-agent] row) and its place within that row,
+     never by position alone, so a reorder can never hand one agent's reading to another's face. */
+  const keyed = (list) => {
+    const seen = new Map();
+    return Array.from(list, (el) => {
+      const host = el.closest ? el.closest('[data-agent]') : null;
+      const who = host ? host.getAttribute('data-agent') : '';
+      const n = seen.get(who) || 0;
+      seen.set(who, n + 1);
+      return [who + '\u0000' + n, el];
+    });
+  };
+  const want = new Map(keyed(t.content.querySelectorAll('.lring .gf')).map(([k, el]) => [k, el.getAttribute('stroke-dasharray')]));
+  for (const [k, el] of keyed(root.querySelectorAll('.lring .gf'))) {
+    if (!want.has(k)) continue;
+    const w = want.get(k);
+    if (el.getAttribute('stroke-dasharray') !== w) el.setAttribute('stroke-dasharray', w);
+  }
 }
 /** Bring every live time under `root` up to now, touching only the ones whose words changed. */
 function refreshWhens(root) {
