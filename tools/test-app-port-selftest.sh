@@ -121,12 +121,12 @@ out="$(bounded_run "$QUICK_T" "$cur" --kosmos-app-port-selftest 501)"; rc=$?
 quick=$(( $(date +%s) - start ))
 check "bounded_run returns a quick command's rc" 0 "$rc"
 check "bounded_run returns a quick command's stdout" 16180 "$out"
-out="$(bounded_run "$QUICK_T" "$failing" --kosmos-app-port-selftest 501)"; rc=$?
-check "bounded_run returns a failing command's own rc and stdout, not 124" "3:broke" "$rc:$out"
 # A quick answer returns when it exits, not at the bound: this is what makes QUICK_T free.
 QUICK_CEIL=$((QUICK_T * 2 / 3))   # below QUICK_T, so a bound that is always waited out fails
 if [ "$quick" -le "$QUICK_CEIL" ]; then check "a quick answer returns before the bound" ok ok
 else check "a quick answer returns before the bound" ok "WAITED-${quick}s"; fi
+out="$(bounded_run "$QUICK_T" "$failing" --kosmos-app-port-selftest 501)"; rc=$?
+check "bounded_run returns a failing command's own rc and stdout, not 124" "3:broke" "$rc:$out"
 # The BEHIND answering bundles really ANSWER (rc 0) rather than time out, so the premise
 # arms below fail them for their answer, not for a timeout (#3854 review).
 out="$(bounded_run "$QUICK_T" "$bexit" --kosmos-app-port-selftest 501)"; rc=$?

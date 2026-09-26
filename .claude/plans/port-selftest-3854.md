@@ -16,9 +16,12 @@ for the wrong reason, a timeout instead of the answer they test.
 Real use is unaffected: tools/test-install.sh passes ${KOSMOS_SELFTEST_TIMEOUT:-10}.
 
 ## Change
-- tools/test-app-port-selftest.sh: QUICK_T=30 for the answering arms; the two hanging arms keep a short
-  bound (their 124 is under test), raised from 2s to 5s in review round 3. A quick answer returns when it exits, so the longer bound costs nothing
-  on an idle Mac.
+- tools/test-app-port-selftest.sh: QUICK_T=30 for the answering arms. A quick answer returns when it exits,
+  so that longer bound costs nothing on an idle Mac. The two hanging arms keep a short bound (their 124
+  is under test), raised from 2s to 5s in review round 3.
+- Only the standalone hang arm needs the fork marker and rerun: it is the one that checks the reap. The
+  premise call on the same hanging stub ("a BEHIND (hanging) bundle is behind") only asks 124 versus an
+  answer, which a missed fork cannot change, so it has no rerun on purpose.
 
 - Review round 1: the hanging arm's reap check passed with nothing to reap when the kill landed before
   the stub forked (a launcher-only-kill regression went green with a slow fork). The stub now writes a
@@ -49,4 +52,6 @@ Real use is unaffected: tools/test-install.sh passes ${KOSMOS_SELFTEST_TIMEOUT:-
 - Not here: bounded_run can hang if its bound expires before perl's setpgrp (product code, found in
   review round 1). Filed as #3859. Residual in this test until then: a Mac starved for more than 5s
   before perl's setpgrp would hang the self-test (a stuck CI job at its 30-minute cap), not fail it.
+- Residual, far smaller than the original: the quick-answer timing check fails if starting a stub takes
+  longer than its ceiling (20s at QUICK_T=30). The card's flake came from a 2s window at load 7-12.
 - Card offered to Baron Draxum (the test's author) first; his session could not answer.
