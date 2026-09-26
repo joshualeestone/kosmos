@@ -69,14 +69,15 @@ function liveProjects(records) {
 /* Does this agent have an open part of any task, in ANY project, archived included: open work
    in an archived project still means the agent is not free. (Picking stays live-only.)
    #3951: a task an agent marked built is waiting on a release or a check, not on that agent, so it does not keep
-   THAT agent busy, nor any agent on it when the person marked it; another agent still holding an open part of a task
+   THAT agent busy, nor any agent on it when the person (or a caller the board could not name, builtBy null, review
+   round 8: nobody else could free them) marked it; another agent still holding an open part of a task
    some other agent marked is still busy (review round 4: the mark is on the task, the work is per part). New work on
    it (a part added, put back, or given to somebody) drops the mark (tasks.writeParts), and it counts again. */
 function hasOpenWork(session, projects) {
   for (const p of projects) {
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       const prog = tasks.progressOf(t);
-      if (prog.closed || (t.builtAt && (t.builtBy === session || t.builtBy === 'operator'))) continue;
+      if (prog.closed || (t.builtAt && (t.builtBy === session || t.builtBy === 'operator' || !t.builtBy))) continue;
       if (prog.parts.some((x) => x.who === session && !x.closedAt)) return true;
     }
   }

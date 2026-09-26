@@ -1785,7 +1785,11 @@ function taskMessageValveRecord() {
 /* #3951 (review round 5): the built route's own valve, the same sliding hour as task messages, counted only for a
    PROCESS mark that changed something. A repeat of the same mark records nothing and is not counted; the person is
    never valved. Its own counter, so marks and messages do not starve each other. */
-const BUILT_MARK_CAP_PER_HOUR = Number(process.env.AGENT_WORKFORCE_BUILT_MARK_CAP) || 60;
+/* `>= 0`, not `|| 60`, as TASK_MSG_CAP_PER_HOUR above (review round 8): a cap of 0 means no agent marks at all. */
+const BUILT_MARK_CAP_PER_HOUR = (() => {
+  const n = Number(process.env.AGENT_WORKFORCE_BUILT_MARK_CAP);
+  return Number.isFinite(n) && n >= 0 ? n : 60;
+})();
 let builtMarks = [];
 function builtMarkValveTripped() {
   const cutoff = Date.now() - TASK_MSG_WINDOW_MS;
