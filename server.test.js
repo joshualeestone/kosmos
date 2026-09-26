@@ -11360,6 +11360,7 @@ test('the in-app sign-in runs end to end through the routes, and the session tok
     assert.equal(dbody.address, 'srv-mac.kosmos.invalid');
     assert.equal(dbody.name, 'srv-mac');
     assert.equal(dbody.standing, 'good');
+    assert.equal(dbody.switchedOn, true, 'the route dropped switchedOn: ' + done.body);
     // The token reached the binary on stdin, off argv: the fake would have exited 1 without it.
     assert.equal(fs.readFileSync(nodePath.join(sb, 'state', 'address'), 'utf8').trim(), 'srv-mac.kosmos.invalid');
   } finally {

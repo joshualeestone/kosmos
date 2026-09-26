@@ -7112,6 +7112,9 @@ const server = http.createServer((req, res) => {
           // than freshly registered (#1010), so the wizard can say "already
           // signed in" instead of "you're signed in". Absent (falsy) otherwise.
           alreadySetUp: got.data.alreadySetUp === true,
+          // #3827: false when the person turned Kosmos+ off while this register was
+          // out; the page must not say "connecting" about a switch that is off.
+          switchedOn: got.data.switchedOn !== false,
           status: remote.status(),
         });
       })
