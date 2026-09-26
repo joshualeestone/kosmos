@@ -277,10 +277,13 @@ function seedFiles(roots) {
   const chat = require(path.join(REPO, 'engine', 'chat'));
   const t0 = Date.now() - 3600e3;
   const stamp = (min) => new Date(t0 + min * 60e3).toISOString();
-  chat.appendMessage(chat.DIRECT, 'ada', { text: 'Morning Ada. What is left on the catalogue?', at: stamp(1) });
-  chat.appendMessage(chat.DIRECT, 'ada', { text: 'Morning! Three things, and none of them are blocked.', at: stamp(2), from: 'ada' });
-  chat.appendMessage(chat.DIRECT, 'ada', { text: 'Can you write it up properly so I can read it on my phone later?', at: stamp(3) });
-  chat.appendMessage(chat.DIRECT, 'ada', { text: LONG_REPLY, at: stamp(4), from: 'ada' });
+  /* These writers report a failure as { recorded: false, because } rather than throwing;
+     a seed that silently did not land would be photographed as if it had. */
+  const landed = (r, what) => { if (r && r.recorded === false) throw new Error('the seed could not write ' + what + ': ' + r.because); };
+  landed(chat.appendMessage(chat.DIRECT, 'ada', { text: 'Morning Ada. What is left on the catalogue?', at: stamp(1) }), "Ada's chat");
+  landed(chat.appendMessage(chat.DIRECT, 'ada', { text: 'Morning! Three things, and none of them are blocked.', at: stamp(2), from: 'ada' }), "Ada's chat");
+  landed(chat.appendMessage(chat.DIRECT, 'ada', { text: 'Can you write it up properly so I can read it on my phone later?', at: stamp(3) }), "Ada's chat");
+  landed(chat.appendMessage(chat.DIRECT, 'ada', { text: LONG_REPLY, at: stamp(4), from: 'ada' }), "Ada's chat");
   /* Ada's Files folder, for the agent-files screens: more rows than the
      agent page shows (AGENT_FILES_SHOWN, 10, so View All appears), one with
      a long name. */
@@ -294,9 +297,9 @@ function seedFiles(roots) {
     const t = new Date(t0 + i * 60e3);
     fs.utimesSync(path.join(adaFiles, f), t, t);
   });
-  require(path.join(REPO, 'engine', 'selfreport')).record('cleo', {
+  landed(require(path.join(REPO, 'engine', 'selfreport')).record('cleo', {
     state: 'needs_you', because: 'The printer quoted two prices for the spring catalogue. May I accept the cheaper one (£1,240, five working days) or do you want the faster one (£1,610, two days)?',
-  });
+  }), "Cleo's needs-you state");
 }
 
 async function waitForBoard(base, ms) {
@@ -572,8 +575,8 @@ async function fitOf(page) {
     const fields = [];
     for (const el of document.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="button"]):not([type="submit"]):not([type="color"]), textarea, select, [contenteditable="true"], [contenteditable=""]')) {
       if (el.disabled || !shown(el) || !onPage(el.getBoundingClientRect())) continue;
-      const fs = parseFloat(getComputedStyle(el).fontSize);
-      if (fs < minFont - 0.01) fields.push(name(el) + ' ' + fs + 'px');
+      const fontPx = parseFloat(getComputedStyle(el).fontSize);
+      if (fontPx < minFont - 0.01) fields.push(name(el) + ' ' + fontPx + 'px');
     }
     return { taps, fields };
   }, { minTap: MIN_TAP_PX, minFont: MIN_FIELD_FONT_PX });
