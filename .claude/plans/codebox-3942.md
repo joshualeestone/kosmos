@@ -223,3 +223,12 @@
 - ACCEPTED (NIT, web round 12): the hold listener is capture-phase on the button itself; engines older than
   the 2021 DOM change run target listeners in the order they were added, so there the step's handler runs
   first and the hold fails open (one wasted try, never a dead button), the behaviour before this card.
+
+## Web review rounds 13 and 14 (web only; the app already behaves this way)
+- FIXED (round 13): a check in flight when the person went back for a different email left Sign in
+  disabled into the next attempt. newAttempt() now frees every code step's button and drops all three
+  boxes. (The app: Start over and Sign out run plusSiClear, which already frees every button.)
+- FIXED (round 14): that made the round-10 NIT reachable by a new path, so it is now fixed rather than
+  accepted: an older attempt's answer touches NOTHING, the button included (the new attempt freed it). A
+  deletion in six places, not per-request sequence numbers. The resending flag this made dead is gone.
+  (The app's handlers already return on a stale answer before freeing the button.)
