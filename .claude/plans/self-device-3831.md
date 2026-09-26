@@ -10,7 +10,7 @@ Card: kosmos#3831. Josh signed in from the Kosmos app; the Mac then listed "a de
 
 **Weakest premise:** that the Mac's own device list shows the coordinator's device_name for a pending device the same way it shows a browser's. Browsers already send one (the path is shared), so this is the path that already works for them.
 
-**Tests (engine/remote.test.js):** a sign-in with no label carries this computer's name on start AND verify; a malformed label is not passed and falls back to it.
+**Tests (engine/remote.test.js):** a sign-in with no label carries this computer's name on start AND verify; a malformed label is dropped (no --device-name, never replaced by this computer's name); deviceNameFrom on a newline, empty, spaces, null, 70 characters and 30 emoji, every result inside DEVICE_NAME and never half an emoji.
 
 ## Round 1 review (opus): 2 WARNINGs, 3 NITs
 - [WARNING] the name was cut by code points while DEVICE_NAME counts UTF-16 units, so a long name with emoji failed the rule and went unnamed again (and the cached value skipped the fallback). FIXED: pure deviceNameFrom(raw, platform) cuts to 47 UTF-16 units without splitting a surrogate pair, and falls back when the finished label fails the rule. Control (no pair step) fails by name with half an emoji.
@@ -22,3 +22,6 @@ Card: kosmos#3831. Josh signed in from the Kosmos app; the Mac then listed "a de
 ## Round 2 review (sonnet): 1 WARNING, 1 NIT
 - [WARNING] an AGENT_WORKFORCE_COMPUTER_NAME env override (a test seam no test used) could substitute any name on the one surface meant to be an honest label. FIXED: removed; the name comes only from scutil or the host name. deviceNameFrom is the tested seam.
 - [NIT] the plan said 45 characters; the code cuts to 47 UTF-16 units. FIXED.
+
+## Round 3 review (opus): 1 WARNING (plan text)
+- [WARNING] the plan's Tests line still said a malformed label "falls back to" this computer's name, which round 1 removed; a reader could restore that bug from it. FIXED: the line now lists the tests that exist and says a malformed label is dropped, never replaced. No code finding.
