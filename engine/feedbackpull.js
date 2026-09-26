@@ -282,12 +282,16 @@ async function pull(dir, opts) {
   const fromPublicStore = (Array.isArray(blobs) ? blobs : []).some((b) => {
     try { return b && new URL(b.url).hostname.endsWith('.public.' + BLOB_HOST); } catch { return false; }
   });
-  if (written === 0 && unreadable > 0) {
+  /* kosmos#3906: the store listed reports and NONE was pulled, whether they could not
+     be read (#3878), were malformed, or failed to write. Any of those is a failure with
+     its reasons, never "pulled 0" as a success. */
+  if (written === 0 && skipped > 0) {
+    const why = [];
+    if (unreadable) why.push(unreadableClause({ unreadable, denied, lastGetError }));
+    if (skipped > unreadable) why.push((skipped - unreadable) + ' malformed or not written');
     return {
       ok: false, written, skipped, total, dir: target,
-      because: 'the store listed ' + reports(total) + ' and none was pulled: '
-        + unreadableClause({ unreadable, denied, lastGetError })
-        + (skipped > unreadable ? '; ' + (skipped - unreadable) + ' malformed or not written' : '')
+      because: 'the store listed ' + reports(total) + ' and none was pulled: ' + why.join('; ')
         + '.' + (fromPublicStore ? ' ' + PUBLIC_STORE_NOTE : ''),
       unreadable, denied, fromPublicStore,
     };
