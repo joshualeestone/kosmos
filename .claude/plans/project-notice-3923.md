@@ -35,6 +35,7 @@ page. Try again re-tells that agent and the notice updates.
   (409 if it left, 404 if the project is gone, 500 if the store cannot be read). When the write
   newly lists a project, the running agent is told on its screen with the "listed" line (see
   review rounds 9, 13 and 15); a retry that changes nothing types nothing.
+  A same-answer retry says "It still did not work." on its row; the button re-enables and focus returns.
 - The consolidated layout hides the whole Members card (#3218/#3305), so the notice does not show there;
   that was already true of the old line. Not changed here.
 - pjSharedTold, pjToldGroupLine, their CSS and tests are removed (dead once the notice replaced the
