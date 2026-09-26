@@ -92,6 +92,10 @@ function ok(name, cond, detail) {
     out.help = help ? {
       text: help.textContent, href: help.getAttribute('href'), target: help.getAttribute('target'), rel: help.getAttribute('rel'),
       inField: !!help.closest('#acct-provider-field'), shown: help.getClientRects().length > 0,
+      // under the picker, not merely somewhere in its field
+      afterPicker: !!(document.getElementById('acct-provider-pick').compareDocumentPosition(help) & Node.DOCUMENT_POSITION_FOLLOWING),
+      isButton: help.classList.contains('btn-quiet'),
+      visibleText: [...help.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join(''),
     } : null;
     modal.hidden = wasHidden;
     return out;
@@ -114,8 +118,9 @@ function ok(name, cond, detail) {
   ok('CONTROL: orderProviderOptions puts a shuffled picker back in PROVIDER_ORDER',
     r.control.after.indexOf('google') < r.control.after.indexOf('xai'), JSON.stringify(r.control.after));
   // #2234: Josh's words verbatim, to the stable help URL (the site redirects it to the current help).
-  ok('Add a provider offers "Help - I\'m confused about selecting a provider", under the picker, shown when the dialog is open',
-    !!r.help && r.help.text === "Help - I'm confused about selecting a provider" && r.help.inField && r.help.shown, JSON.stringify(r.help));
+  ok('Add a provider offers the button "Help - I\'m confused about selecting a provider", under the picker, shown when the dialog is open',
+    !!r.help && r.help.visibleText === "Help - I'm confused about selecting a provider" && r.help.inField && r.help.afterPicker && r.help.shown && r.help.isButton, JSON.stringify(r.help));
+  ok('the help button tells a screen reader it opens the browser', !!r.help && /\(opens in your browser\)$/.test(r.help.text), JSON.stringify(r.help && r.help.text));
   ok('the help link goes to the stable URL installkosmos.com/help/connect-provider, in a new tab',
     !!r.help && r.help.href === 'https://installkosmos.com/help/connect-provider' && r.help.target === '_blank' && /noopener/.test(r.help.rel || ''), JSON.stringify(r.help));
   ok('no page errors', pageErrors.length === 0, pageErrors.join(' | '));

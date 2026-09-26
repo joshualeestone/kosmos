@@ -690,9 +690,9 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-prov-count { margin-left: auto; color: var(--k-ink-2); font-size: .8125rem; }
 .acct-tag { color: var(--label-2); font-weight: 400; font-size: .8125rem; }
 .acct-ok { color: var(--label-2); white-space: nowrap; }
-/* #2234: the Add a provider dialog's help link, in the page's own ink so it reads in light and dark. */
-.acct-help a { color: var(--k-ink-2); text-decoration: underline; text-underline-offset: 2px; }
-.acct-help a:hover { color: var(--k-ink); }
+/* #2234: the Add a provider dialog's help button (Josh: "help button"). A link, because it leaves the
+   app for the browser, dressed as the page's quiet button; its ink is the page's own, light and dark. */
+.acct-help a.btn-quiet { display: inline-block; text-decoration: none; font-size: .8125rem; }
 .acct-connected { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
   font-weight: 600; color: #2f7d5a; white-space: nowrap; }
 /* #864 (Josh, 2026-08-25 11:54): "the dot, or both, pulsing kind of
@@ -11204,7 +11204,7 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #2234 (Josh 2026-09-05, his words for the button): help for choosing a provider. It links to
            a STABLE help URL on installkosmos.com, never to the help itself: the site redirects it to the
            current help (a written page today, a video later), so the help can change with no release. -->
-      <p class="fhint acct-help" style="margin:8px 0 0;"><a id="acct-provider-help" href="https://installkosmos.com/help/connect-provider" target="_blank" rel="noopener">Help - I'm confused about selecting a provider</a></p>
+      <p class="acct-help" style="margin:10px 0 0;"><a class="btn-quiet" id="acct-provider-help" href="https://installkosmos.com/help/connect-provider" target="_blank" rel="noopener">Help - I'm confused about selecting a provider<span class="vh"> (opens in your browser)</span></a></p>
     </div>
     <!-- #727 (Josh, 2026-08-24 20:57: "Add a Claude account / Add an OpenAI
          account... It changes what's below it for that thing"): one provider
