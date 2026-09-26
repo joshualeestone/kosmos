@@ -9286,8 +9286,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   /* A swarm agent (#3564) on the phone chat keeps only Active/Paused and Stop now in the header;
      they come before the notes, so they sit at the top of the capped block, on screen. The helper
      and daily-limit sliders stay on Profile. */
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox ~ .swbox,
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel #d-swarm-stop-hint { display: none; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox ~ .swbox { display: none; }
+  /* Stop now acts at once, so what it does stays visible, in two lines. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel #d-swarm-stop-hint { display: -webkit-box; -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; margin: 4px 0 0; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel { gap: 0; margin-top: 4px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox { padding: 4px 8px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox .swlab { position: absolute; width: 1px; height: 1px;
@@ -30142,6 +30144,7 @@ function detailGo(section, opts) {
     const width = document.documentElement.clientWidth;
     const tallest = Math.max(tallestByWidth.get(width) || window.innerHeight, visible);
     tallestByWidth.set(width, tallest);
+    if (tallestByWidth.size > 8) tallestByWidth.delete(tallestByWidth.keys().next().value);   // a few widths (rotations) are all it needs
     if (visible !== lastVisible) document.documentElement.style.setProperty('--kosmos-visible-height', visible + 'px');
     lastVisible = visible;
     document.documentElement.classList.toggle('kosmos-keyboard-up', tallest - visible > KEYBOARD_MIN_PX);
@@ -30157,7 +30160,7 @@ function detailGo(section, opts) {
   viewport.addEventListener('resize', () => {
     write();
     const talk = document.getElementById('d-sec-talk');
-    const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('#d-talk-box');
+    const typing = document.activeElement && document.activeElement.matches && document.activeElement.matches('#d-say, #d-send, #d-emoji-btn, #d-emoji button, #d-talk-search');
     const keyboardUp = document.documentElement.classList.contains('kosmos-keyboard-up');
     if (PHONE_WIDTH.matches && talk && !talk.hidden && typing && keyboardUp && window.scrollY) window.scrollTo(0, 0);
   });
@@ -51223,6 +51226,7 @@ async function pjSend() {
    text box already has focus, so a Post press from anywhere else behaves as before. */
 for (const id of ['d-send', 'd-emoji-btn', 'd-emoji']) {
   document.getElementById(id).addEventListener('mousedown', (e) => {
+    if (id === 'd-emoji' && !(e.target.closest && e.target.closest('button'))) return;
     if (document.activeElement === document.getElementById('d-say')) e.preventDefault();
   });
 }
