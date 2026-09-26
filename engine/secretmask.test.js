@@ -527,3 +527,36 @@ test('#3935 every distinct opening scanned is charged, so many openings sharing 
     assert.equal(r.text, WITHHELD);
   } finally { setKnownSecrets([]); }
 });
+
+test('#3935 a sentence naming the key\'s longer prefix between two pieces does not stop the walk (review round 5)', () => {
+  const held = j('sk-ant-', 'api03-', 'WordsBetweenThePieces0123456789XYZ');
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{1,8}/g);
+    const input = `${chunks[0]} is the first part (every Anthropic key starts with sk-ant-api03). Then ${chunks.slice(1).join(' then ')} end`;
+    const out = mask(input).text;
+    for (const c of chunks) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+    assert.ok(out.endsWith(' end'), out);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a key whose later chunk repeats its opening is still masked (review round 5)', () => {
+  const held = 'Qz7kQz7kVb2nLp9xWm4c';
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{1,4}/g);
+    const out = mask(`Here:\n${chunks.map((c, i) => `| Row${i} name | ${c} |`).join('\n')}\nDone.`).text;
+    for (const c of ['Vb2n', 'Lp9x', 'Wm4c']) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+    assert.ok(!out.includes('Qz7k'), out);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a held PEM key does not start a walk at every markdown rule (review round 5)', () => {
+  const pem = j('-----BEGIN EC ', 'PRIVATE KEY-----\nMHcCAQEEIBx7Qz9Lm2Vk4Rt8Wp1Nc6Hd3Js0Fg5Ya2Ub7Xe9Ko\n-----END EC ', 'PRIVATE KEY-----');
+  setKnownSecrets([pem]);
+  try {
+    const reply = Array.from({ length: 3000 }, (_, i) => `Section ${i}\n\n------\n\nsome text`).join('\n');
+    const r = mask(reply);
+    assert.equal(r.text, reply, `an ordinary reply with markdown rules was changed or withheld: ${JSON.stringify(r.fired)}`);
+  } finally { setKnownSecrets([]); }
+});

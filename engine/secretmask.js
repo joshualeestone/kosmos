@@ -80,6 +80,9 @@ function setKnownSecrets(values) {
        between runs in the text, not inside them. */
     const w = f.replace(NOT_KEY_CHARS, '');
     if (w.length < 12 || w.length > WORD_WALK_MAX_FORM || walked.has(w) || madeOfWords(w)) continue;
+    /* An opening with no letter or digit (a PEM key's -----BEGIN) would start a walk at every markdown rule
+       (review round 5). Such a value is still masked whole, and across lines by the separator copies. */
+    if (!/[A-Za-z0-9]/.test(w.slice(0, OPENING_LEN))) continue;
     walked.add(w);
     const o = w.slice(0, OPENING_LEN);
     if (!knownByOpening.has(o)) knownByOpening.set(o, []);
@@ -192,10 +195,12 @@ function normalisedCopy(text) {
  * with = (a piece wrapped in + or -, say); a held form over WORD_WALK_MAX_FORM characters; and a key split
  * across two replies (the mask is per message).
  */
-/* The most checks one reply may cost the walk. A reply that needs more (thousands of held forms sharing an
-   opening, each opening repeated thousands of times with matching pieces after it) is not searched to the end:
+/* The most checks one reply may cost the walk. A reply that needs more is not searched to the end:
    wordSkippingSpans returns null and mask() withholds the whole message, because a search cut short is one
-   that may have missed a key, and this file errs toward masking. */
+   that may have missed a key, and this file errs toward masking. What reaches it (review round 5): one held
+   value near WORD_WALK_MAX_FORM whose opening the reply repeats about 140 times (each mention looks ahead
+   over about 4x the value), or thousands of held values sharing an opening that the reply repeats. Measured
+   well inside it: a 50,000-character reply with five held Anthropic keys and 400 sk-ant-api03- mentions. */
 const WORD_WALK_BUDGET = 250000;
 /* A piece as written can carry key characters that are not the key's (review round 1): a label joined
    with = (part2=Ab3d), markdown italics (_Ab3d_), a trailing slash. Each run is tried as written and with
@@ -223,6 +228,7 @@ function wordSkippingSpans(text) {
     for (let i = 0; i < text.length; i += 1) nonSpaceBefore[i + 1] = nonSpaceBefore[i] + (/\s/.test(text[i]) ? 0 : 1);
   };
   const spans = [];
+  const completed = new Map();   // `${end} ${form}` -> the latest start that completed there
   /* The forms an opening can start, grouped by the character that must begin the next piece, with the
      longest form's bound. Cached per opening for this reply: the cost test's 2,000 held values share one
      opening that occurs 4,000 times, and walking every form from every start cost 12 seconds. */
@@ -278,13 +284,6 @@ function wordSkippingSpans(text) {
         for (let s = r + 1; s < runs.length; s += 1) {
           const [, sTo, , pieces] = runs[s];
           if (nonSpaceBefore[sTo] - nonSpaceBefore[from] > bound) break;
-          /* A run that opens this form again, at least as fully as this walk's opening, starts a later
-             occurrence, and that start walks it. Carrying on here would skip a whole sibling occurrence as
-             noise (review round 2: two held Anthropic keys, both sk-ant-api03-, shown split in one reply,
-             joined into one span that masked everything between them). */
-          /* Not charged: each check reads at most the run's own length, and the reach bound above (4x the form in
-             non-whitespace) caps how much run text one walk can visit, so its total is bounded by the form. */
-          if (pieces.some((v) => v.length >= opening.length && v.length < f.length && f.startsWith(v))) break;
           let done = false;
           const next = new Set(reached);
           if ((budget -= reached.size * pieces.length) < 0) return null;
@@ -296,12 +295,23 @@ function wordSkippingSpans(text) {
             }
             if (done) break;
           }
-          if (done) { spans.push([from, sTo]); break; }
+          if (done) {
+            /* The same form completing at the same place from two starts keeps the LATER start (review rounds 2
+               and 5). Two held Anthropic keys (both sk-ant-api03-) shown split in one reply: the second key's walk
+               also starts at the first key's opening and skips the first key's pieces as noise, which would join
+               them into one span masking everything between; its own later start ends at the same place and wins.
+               Stopping a walk at a later mention of the opening instead let a sentence naming the key's prefix
+               between two pieces stop the only walk that could complete. */
+            const k = `${sTo} ${f}`;
+            if (!(completed.get(k) >= from)) completed.set(k, from);
+            break;
+          }
           reached = next;
         }
       }
     }
   }
+  for (const [k, from] of completed) spans.push([from, Number(k.slice(0, k.indexOf(' ')))]);
   return spans;
 }
 /* How many characters of text[from, to) are not whitespace, counting no further than `cap + 1`. */
