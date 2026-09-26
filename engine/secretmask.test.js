@@ -380,7 +380,8 @@ test('#3935 the word-skipping join is for held values only, and naming a held ke
 test('#3935 the word walk is bounded: a reply built to keep thousands of held forms alive is withheld whole, cheaply', () => {
   setKnownSecrets(Array.from({ length: 2000 }, (_, i) => `held-value-${String(i).padStart(8, '0')}-xyz`));
   try {
-    const bad = Array.from({ length: 4000 }, (_, i) => `| held-value- | 0000 | ${i % 10} | 00 | -xyz |`).join('\n');
+    /* 1,000 rows already exhaust the budget; a small input keeps the timing far inside the bound. */
+    const bad = Array.from({ length: 1000 }, (_, i) => `| held-value- | 0000 | ${i % 10} | 00 | -xyz |`).join('\n');
     let r;
     const ms = cpuMillisecondsOf(() => { r = mask(bad); });
     /* Unbounded, the walk alone cost 9.6 seconds here. Bounded it costs about 18ms; most of what remains
@@ -398,5 +399,57 @@ test('#3935 a noise run that equals the next piece cannot derail the walk ("Part
     const out = mask(`Here:\n${pieces.map((p, i) => `| Part ${i} | ${p} |`).join('\n')}\nDone.`).text;
     for (const p of pieces) assert.ok(!out.includes(p), `the piece ${p} survived: ${out}`);
     assert.ok(out.startsWith('Here:\n| Part 0 | ') && out.endsWith(' |\nDone.'), JSON.stringify(out));
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 key characters glued to a piece do not hide it: a label with =, italics, a trailing slash (review round 1)', () => {
+  const held = j('sk-ant-', 'api03-', 'WordsBetweenThePieces0123456789XYZ');
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{1,8}/g);
+    const cases = [
+      ['labels with =', `${chunks.map((c, i) => `part${i + 1}=${c}`).join(', ')} end`],
+      ['italics on every piece', `${chunks.map((c, i) => `Piece ${i + 1}: _${c}_`).join('\n')}\nend`],
+      ['italics on the first piece only', `_${chunks[0]}_ then ${chunks.slice(1).join(' then ')} end`],
+      ['trailing slash', `${chunks.map((c) => `${c}/`).join(' next ')} end`],
+    ];
+    for (const [name, input] of cases) {
+      const r = mask(input);
+      for (const piece of chunks) assert.ok(!r.text.includes(piece), `${name}: the piece ${piece} survived: ${r.text}`);
+      assert.ok(r.text.endsWith('end') && r.fired.some((f) => f.kind === 'split_secret'), `${name}: ${JSON.stringify(r)}`);
+    }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a very long held value (a whole file) cannot make the word walk scan a reply once per mention (review round 1)', () => {
+  const long = Array.from({ length: 1000 }, (_, i) => `Zq${String(i).padStart(4, '0')}Xw9Lp2Mn7Rt4Kv1B`).join('').slice(0, 40000);
+  const held = j('sk-ant-', 'api03-', 'WordsBetweenThePieces0123456789XYZ');
+  setKnownSecrets([long, held]);
+  try {
+    const reply = `${long.slice(0, 6)} x y z `.repeat(10000);
+    let r;
+    const ms = cpuMillisecondsOf(() => { r = mask(reply); });
+    assert.ok(ms < 600, `a ${reply.length}-character reply repeating a long held value's opening cost ${Math.round(ms)}ms of CPU`);
+    assert.equal(r.text, reply, 'a reply holding no key was changed');
+    /* CONTROL: a short held key split by words in the same reply is still masked. */
+    const chunks = held.match(/.{1,8}/g);
+    const withKey = `${reply.slice(0, 2000)} ${chunks.map((c, i) => `| Row${i} name | ${c} |`).join('\n')} ${reply.slice(2000, 4000)}`;
+    assert.ok(!mask(withKey).text.includes(chunks[2]), 'CONTROL: a split held key beside the long value survived');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 the look-ahead is charged per run visited, so repeating a held value\'s opening cannot run unbounded (review round 1)', () => {
+  const atCap = Array.from({ length: 64 }, (_, i) => `Qv${String(i).padStart(3, '0')}Jk8Wd3Hs6Nb`).join('').slice(0, 1024);
+  setKnownSecrets([atCap]);
+  try {
+    const reply = `${atCap.slice(0, 6)} x y z `.repeat(10000);
+    let r;
+    const ms = cpuMillisecondsOf(() => { r = mask(reply); });
+    assert.ok(ms < 600, `a ${reply.length}-character reply repeating a held value's opening cost ${Math.round(ms)}ms of CPU`);
+    /* The charge is what decides it: 10,000 openings each looking ahead over hundreds of runs spend the budget,
+       and the reply is withheld whole. That is the stated price of the bound on a reply built this way
+       (it holds no key); uncharged, the scan ran to the end instead. */
+    assert.equal(r.text, WITHHELD);
+    assert.deepEqual(r.fired, [{ kind: 'split_search_limit', count: 1 }]);
   } finally { setKnownSecrets([]); }
 });

@@ -76,7 +76,7 @@ function setKnownSecrets(values) {
     knownByPrefix.get(k).push(f);
     /* #3935: the word-skipping join assembles a form from runs of key characters, so a form holding any
        other character (the spaced hex) can never be assembled and is left out. */
-    if (!KEY_RUN_ONLY.test(f)) continue;
+    if (!KEY_RUN_ONLY.test(f) || f.length > WORD_WALK_MAX_FORM) continue;
     const o = f.slice(0, 4);
     if (!knownByOpening.has(o)) knownByOpening.set(o, []);
     knownByOpening.get(o).push(f);
@@ -86,6 +86,11 @@ let knownByPrefix = new Map();
 /* The key-character-only held forms, by their first 4 characters (#3935). */
 let knownByOpening = new Map();
 const KEY_RUN_ONLY = /^[A-Za-z0-9_+/=-]+$/;
+/* The board also holds whole files (engine/knownsecrets.js, up to 64KB) and their encodings. A form that
+   long is not a key someone spells out in pieces, and the walk's reach grows with the form's length, so
+   only forms up to this length are walked (review round 1: one 40,000-character held value made a reply
+   that repeated its opening cost over a second). Longer forms are still masked whole by known_secret. */
+const WORD_WALK_MAX_FORM = 1024;
 /* The held forms that occur in `str`, longest first. */
 function knownFormsIn(str) {
   if (!knownByPrefix.size || typeof str !== 'string') return [];
@@ -174,15 +179,31 @@ function normalisedCopy(text) {
    wordSkippingSpans returns null and mask() withholds the whole message, because a search cut short is one
    that may have missed a key, and this file errs toward masking. */
 const WORD_WALK_BUDGET = 250000;
+/* A piece as written can carry key characters that are not the key's (review round 1): a label joined
+   with = (part2=Ab3d), markdown italics (_Ab3d_), a trailing slash. Each run is tried as written and with
+   those taken off. */
+function pieceVariants(run) {
+  const out = [run];
+  const trimmed = run.replace(/^_+/, '').replace(/[_/]+$/, '');
+  if (trimmed && trimmed !== run) out.push(trimmed);
+  const eq = trimmed.lastIndexOf('=', trimmed.length - 2);
+  /* An = inside the run, not base64 padding at its end: the piece is what follows it. */
+  if (eq > 0 && !/=$/.test(trimmed)) out.push(trimmed.slice(eq + 1));
+  return out;
+}
 function wordSkippingSpans(text) {
   if (!knownByOpening.size) return [];
   let budget = WORD_WALK_BUDGET;
   const runs = [];
-  for (const m of text.matchAll(/[A-Za-z0-9_+/=-]+/g)) runs.push([m.index, m.index + m[0].length, m[0]]);
+  for (const m of text.matchAll(/[A-Za-z0-9_+/=-]+/g)) runs.push([m.index, m.index + m[0].length, m[0], pieceVariants(m[0])]);
   if (runs.length < 2) return [];
-  /* nonSpaceBefore[i]: non-whitespace characters in text[0, i), so any span's count is one subtraction. */
-  const nonSpaceBefore = new Uint32Array(text.length + 1);
-  for (let i = 0; i < text.length; i += 1) nonSpaceBefore[i + 1] = nonSpaceBefore[i] + (/\s/.test(text[i]) ? 0 : 1);
+  /* nonSpaceBefore[i]: non-whitespace characters in text[0, i), so any span's count is one subtraction.
+     Built on the first opening found, so a reply with none pays nothing for it. */
+  let nonSpaceBefore = null;
+  const countNonSpace = () => {
+    nonSpaceBefore = new Uint32Array(text.length + 1);
+    for (let i = 0; i < text.length; i += 1) nonSpaceBefore[i + 1] = nonSpaceBefore[i] + (/\s/.test(text[i]) ? 0 : 1);
+  };
   const spans = [];
   /* The forms an opening can start, grouped by the character that must begin the next piece, with the
      longest form's bound. Cached per opening for this reply: the cost test's 2,000 held values share one
@@ -204,35 +225,46 @@ function wordSkippingSpans(text) {
     return g;
   };
   for (let r = 0; r < runs.length; r += 1) {
-    const [runFrom, , run] = runs[r];
+    const [runFrom, , raw] = runs[r];
+    /* The opening may carry italics or a slash after it (_Ab3d_): it is looked for with those taken off. */
+    const run = raw.replace(/[_/]+$/, '');
     for (let q = 0; q + 4 <= run.length; q += 1) {
       const cands = knownByOpening.get(run.slice(q, q + 4));
       if (!cands) continue;
       const opening = run.slice(q);
       const { byNext, maxLen } = groupsFor(opening, cands);
       if (!maxLen) continue;
+      if (!nonSpaceBefore) countNonSpace();
       const from = runFrom + q;
       /* Only a form whose next character begins some run in reach can ever advance. */
       const live = new Set();
       for (let s = r + 1; s < runs.length && nonSpaceBefore[runs[s][1]] - nonSpaceBefore[from] <= 4 * maxLen; s += 1) {
-        const next = byNext.get(runs[s][2][0]);
-        if (!next) continue;
-        if ((budget -= next.length) < 0) return null;
-        for (const f of next) live.add(f);
+        /* Every run visited is charged, matching or not (review round 1: charging only matches left the
+           scan itself unbounded). */
+        if ((budget -= 1) < 0) return null;
+        for (const v of runs[s][3]) {
+          const next = byNext.get(v[0]);
+          if (!next) continue;
+          if ((budget -= next.length) < 0) return null;
+          for (const f of next) live.add(f);
+        }
       }
       for (const f of live) {
         const bound = 4 * f.length;
         let reached = new Set([opening.length]);
         for (let s = r + 1; s < runs.length; s += 1) {
-          const [, sTo, piece] = runs[s];
+          const [, sTo, , pieces] = runs[s];
           if (nonSpaceBefore[sTo] - nonSpaceBefore[from] > bound) break;
           let done = false;
           const next = new Set(reached);
-          if ((budget -= reached.size) < 0) return null;
+          if ((budget -= reached.size * pieces.length) < 0) return null;
           for (const p of reached) {
-            if (!f.startsWith(piece, p)) continue;
-            if (p + piece.length === f.length) { done = true; break; }
-            next.add(p + piece.length);
+            for (const piece of pieces) {
+              if (!f.startsWith(piece, p)) continue;
+              if (p + piece.length === f.length) { done = true; break; }
+              next.add(p + piece.length);
+            }
+            if (done) break;
           }
           if (done) { spans.push([from, sTo]); break; }
           reached = next;

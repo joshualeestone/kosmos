@@ -1,7 +1,7 @@
 # mask-words-3935: a held key with WORDS between its pieces is masked
 
-Addresses #3935 (the gap #3938 / mask-separators-3769 recorded and left open). Stacked on
-mask-separators-3769 at 4e2d987b; rebase onto main once #3938 merges.
+Addresses #3935 (the gap #3938 / mask-separators-3769 recorded and left open). Built on
+mask-separators-3769 at 4e2d987b, rebased onto main after #3938 merged (426c7711, identical content).
 
 ## Problem
 The guide's output mask joins a held key's pieces only when the noise between them is characters
@@ -54,9 +54,28 @@ another filled column, a bullet's description, words around bold or backticked c
 
 - server.guide-secrets-3769.test.js and engine/secretmask.test.js: 43/43.
 
+## Review round 1
+- [WARNING] the budget did not cover the look-ahead scan, and its reach grows with the form's
+  length: the board holds whole files (knownsecrets.js, up to 64KB), so one 40,000-character held
+  value made a reply repeating its opening cost 1.3s --> FIXED: forms over 1,024 characters are not
+  walked (still masked whole by known_secret), and every run the look-ahead visits is charged. Two
+  tests: the long held value (reds without the cap), and a held value at the cap whose opening
+  repeats 10,000 times, withheld at the budget (reds without the per-run charge).
+- [WARNING] key characters glued to a later piece hid it: a label with = (part2=Ab3d), italics
+  (_Ab3d_), a trailing slash --> FIXED: each run is also tried with leading/trailing _ , a trailing
+  /, and anything up to an inner = removed; the opening is looked for with trailing _ and /
+  removed. Test with the reviewer's four cases; reds before the fix.
+- [NIT] the budget test's margin --> the adversarial input is now 1,000 rows (it already exhausts
+  the budget).
+- [NIT] the non-space count was built for every reply --> built on the first opening found.
+- [NIT] one opening can complete two forms, giving overlapping spans --> DEFERRED: the rebuild
+  merges them; only the split_secret count can read one higher.
+
 ## Not covered (still open, named on #3935)
 - pieces out of order or reversed;
 - an opening piece shorter than four characters that also has words after it;
+- glue other than _ , / and a label joined with = (for example a piece wrapped in + or -);
+- held forms over 1,024 characters split into pieces (whole files; not a key);
 - a key split across two replies (the mask is per message).
 
 ## Weakest premise
