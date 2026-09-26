@@ -16,7 +16,7 @@
  * enumerable and the board has no auth, so a local process can pass another
  * agent's pane. The launch token below is the stronger identity when present.
  *
- * 🔑 GROK CAN REPORT ITS FULL LIFECYCLE. Grok's hook events map cleanly to the
+ * 🔑 GROK REPORTS EVERY STATE EXCEPT needs_you (#4006). Grok's hook events map cleanly to the
  * report vocabulary (measured against the installed grok 1.0.41 on 2026-09-23):
  *   SessionStart {source}                        -> started
  *   UserPromptSubmit {prompt}                     -> working   (a turn started)

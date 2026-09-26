@@ -89,7 +89,8 @@ function isClass1(standing) {
  * PURE decision. Given an agent's standing report, its prior handle timestamps
  * (ms since epoch, most recent last), and the current time, decide what to do.
  *
- * @param {object} standing  the result of selfreport.read(name).
+ * @param {object} standing  the result of selfreport.read(name), or standingFromAgent(card), which adds
+ *   `runner` (#4006: a non-Claude runner, or null for unknown, plans 'none').
  * @param {number[]} attempts  ms timestamps of prior auto-handles for THIS agent.
  * @param {number} now  ms.
  * @param {{maxAttempts?:number, windowMs?:number}} [opts]
