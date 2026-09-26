@@ -418,3 +418,29 @@ test('#3948: Try again in the rail notice repaints the rail, says it in the rail
   await retryHandler(tab)({ target: tab.btn });
   assert.equal(tab.log.includes('rail paint'), false);
 });
+
+test('#3948: the rail notice paints only in the consolidated layout with a project open, and its success line clears on a switch', () => {
+  const run = ({ consolidated, current, said }) => {
+    const rn = { html: null };
+    const rs = { textContent: said ? 'Kosmos updated leo’s instructions.' : '', dataset: { pj: said || '' } };
+    const projects = { p1: { id: 'p1', agents: [{ sessionName: 'leo' }] }, p2: { id: 'p2', agents: [] } };
+    const doc = { body: { classList: { contains: (c) => c === 'consolidated' && consolidated } },
+      getElementById: (id) => (id === 'alist-pj-notice' ? rn : id === 'alist-pj-notice-said' ? rs : null) };
+    // eslint-disable-next-line no-new-func
+    new Function('document', 'PJ_CURRENT', 'pjById', 'pjNotice', 'setIfChanged', pageFn('function paintRailPjNotice(') + '\npaintRailPjNotice();')(
+      doc, current, (id) => projects[id] || null, (roster, id) => 'NOTICE:' + id + ':' + roster.length, (el, html) => { el.html = html; });
+    return { rn, rs };
+  };
+  const on = run({ consolidated: true, current: 'p1', said: 'p1' });
+  assert.equal(on.rn.html, 'NOTICE:p1:1', 'the open project’s notice, from its own roster');
+  assert.equal(on.rs.textContent, 'Kosmos updated leo’s instructions.', 'CONTROL: the same project keeps its success line');
+  const tab = run({ consolidated: false, current: 'p1', said: 'p1' });
+  assert.equal(tab.rn.html, '', 'the tab layout says it in the Members card; the rail must be empty');
+  assert.equal(tab.rs.textContent, '', 'leaving the layout leaves the success line behind');
+  const other = run({ consolidated: true, current: 'p2', said: 'p1' });
+  assert.equal(other.rs.textContent, '', 'another project’s success line stays in the rail');
+  assert.equal(other.rs.dataset.pj, '');
+  const none = run({ consolidated: true, current: null, said: 'p1' });
+  assert.equal(none.rn.html, '');
+  assert.equal(none.rs.textContent, '');
+});

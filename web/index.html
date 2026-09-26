@@ -4380,6 +4380,10 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      is a column and that same gap spaces the fold arrow from the +. */
   html[data-layout="consolidated"] body.consolidated .railhead#rail-agents { flex-wrap: wrap; }
   html[data-layout="consolidated"] body.consolidated:not(.fold-a) .railhead#rail-agents { row-gap: 0; }
+  /* A wrapping head breaks lines at each item's full width before shrinking any, so the name could no
+     longer squeeze and the + could drop to a line of its own in a 200px rail. A 0 basis on the name's
+     group keeps the name and the + on one line, as before the head wrapped. */
+  html[data-layout="consolidated"] body.consolidated:not(.fold-a) .railhead#rail-agents > .lead { flex: 1 1 0; }
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn { flex: 0 0 100%; min-width: 0; }
   html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents > .alist-pjn { display: none; }
   /* #980: SCOPED to the agents rail -- unscoped, folding agents also hid
@@ -19607,8 +19611,8 @@ function openAddMemberModal() {
 }
 
 /* #3948: the Agents rail's copy of the project notice, for the consolidated layout (which hides the
-   Members card and its #pj-one-notice). Called by paintAgentList (every poll and on opening a project)
-   and by showTab (a layout switch, including the resize re-check), so leaving the consolidated layout
+   Members card and its #pj-one-notice). Called by paintAgentList (every poll and on opening a project),
+   by loadProjects (a project read), and by showTab (a layout switch, including the resize re-check), so leaving the consolidated layout
    empties it at once rather than at the next poll. Same roster as paintOneProject, so pjNotice's pruning
    of the retry marks agrees between the two. */
 function paintRailPjNotice() {
@@ -45701,6 +45705,8 @@ async function loadProjects() {
   }
   paintProjects();
   if (PJ_CURRENT) paintOneProject();
+  // #3948: the rail's copy of the project notice follows this read too, not the next agents poll.
+  paintRailPjNotice();
   /* ⚠️ THE THIRD OPEN SURFACE. paintOneProject repaints the project view;
      the task page is a separate view off the same record and would otherwise
      hold whatever it was painted with when it opened -- including a "Mark as
