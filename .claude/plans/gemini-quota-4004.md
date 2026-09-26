@@ -41,6 +41,13 @@ message after the reset works (item 4 with no restart). The board read the quest
   limitFrom and the wording keys on it. Deferred: the setup guide's hosted-fallback limit sentence (web asbFallbackWords)
   stays generic; it belongs with #3997's account wording. A two-digit option number is untested (dialogs have 2-3).
 
+- Review round 3: the error line counts only with Gemini's composer after it and no spinner below (a quoted error in
+  tool output does not). The question alone is worded neutrally ("reached a Google usage limit"): Gemini shows the
+  same question for other limits (a billed key's cap, a model with no free quota); the free-daily wording with the
+  midnight Pacific reset is for Gemini's own "exhausted your daily quota" line. Deferred: an Ink-wrapped error line on
+  a pane narrower than ~70 columns is missed (falls back to idle); no backoff when an answer keeps failing (one log
+  line a minute); no test that a non-Gemini card is refused (the runner check is one line in answerGeminiQuotaStop).
+
 ## Weakest premise
 - Matching Gemini's words on screen: a future CLI can reword them. The reading then falls back to today's behaviour
   (unknown/idle), and the sweep presses nothing, since it needs the question recognised.

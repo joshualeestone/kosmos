@@ -1588,9 +1588,6 @@ const GEMINI_BOX_EDGE = /^[╭╮╰╯─]+$/;
 const GEMINI_COMPOSER = /Type your message/i;
 const GEMINI_LIMIT_ROWS = 14;
 function geminiRow(r) { return String(r).replace(/^[\s│]+|[\s│]+$/g, ''); }
-/* The question is up: its message, then numbered options ending in Stop, and nothing after them but the box's
-   bottom edge (the real dialog replaces the composer; a quoted copy has the agent's own screen below it). Or the
-   quota error is Gemini's newest line: nothing after it but its empty composer and footer. */
 /* The number Gemini printed beside "Stop" in its quota question, or null. The one parser of that row: the reading
    below and chat.answerGeminiQuotaStop both use it. Reads the LAST such row (the dialog is at the bottom). */
 function geminiStopKey(paneText) {
@@ -1599,6 +1596,9 @@ function geminiStopKey(paneText) {
   const m = row ? row.match(/(\d+)\./) : null;
   return m ? m[1] : null;
 }
+/* The question is up: its message, then numbered options ending in Stop, and nothing after them but the box's
+   bottom edge (the real dialog replaces the composer; a quoted copy has the agent's own screen below it). Or the
+   quota error is Gemini's newest line: nothing after it but its empty composer and footer. */
 function geminiQuotaReading(paneText) {
   const rows = String(paneText || '').split('\n').map(geminiRow).filter((r) => r).slice(-GEMINI_LIMIT_ROWS);
   const m = rows.findIndex((r) => GEMINI_QUOTA_DIALOG.test(r));
@@ -1613,8 +1613,13 @@ function geminiQuotaReading(paneText) {
   let at = -1;
   rows.forEach((r, i) => { if (GEMINI_QUOTA_ERROR.test(r)) at = i; });
   if (at < 0) return null;
-  const newer = rows.slice(at + 1).some((r) => (/^>\s+\S/.test(r) && !GEMINI_COMPOSER.test(r)) || /^✦/.test(r));
+  const below = rows.slice(at + 1);
+  const newer = below.some((r) => (/^>\s+\S/.test(r) && !GEMINI_COMPOSER.test(r)) || /^✦/.test(r));
   if (newer) return null;   // a turn since: the person wrote, or the agent answered
+  /* Gemini's own error sits right above its idle prompt: its composer follows, and nothing is working below it
+     (a spinner). A copy of the line in a working agent's tool output has a spinner under it. */
+  if (!below.some((r) => GEMINI_COMPOSER.test(r))) return null;
+  if (below.some((r) => /esc to cancel|[\u2800-\u28FF]/i.test(r))) return null;
   return { dialog: false, evidence: rows[at].replace(/^✕\s*/, '') };
 }
 /* ANCHORED to the start of a row (after only Codex's own lead-in mark), so the sentence has to OPEN
@@ -3719,7 +3724,7 @@ function classify(pane, paneText) {
       return {
         state: STATE.RATE_LIMITED,
         confidence: CONFIDENCE.SCRAPED,
-        because: q.dialog ? 'its screen says its Google daily limit is used up, and it is waiting on a question about it'
+        because: q.dialog ? 'its screen says it has reached a Google usage limit, and it is waiting on a question about it'
           : 'its screen says its Google daily limit is used up',
         evidence: q.evidence,
         limitFrom: 'gemini',
@@ -7334,8 +7339,8 @@ function snapshot() {
       stateEvidence: status.evidence || null,
       /* #4004: Gemini's quota question is on screen (engine/geminiquota.js answers Stop for it). */
       quotaDialog: status.quotaDialog === true,
-    /* #4004: whose own words set a limit reading ('codex' / 'gemini'), so the wording keys on a field, not a sentence. */
-    limitFrom: typeof status.limitFrom === 'string' ? status.limitFrom : null,
+      /* #4004: whose own words set a limit reading ('codex' / 'gemini'), so the wording keys on a field, not a sentence. */
+      limitFrom: typeof status.limitFrom === 'string' ? status.limitFrom : null,
       because: status.because,
       /* #2019: present only while state === 'restarting' -- {cause, startedAt}
          for the deliberate disruption in flight. Null otherwise, so the board
