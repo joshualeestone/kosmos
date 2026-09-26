@@ -1218,7 +1218,17 @@ if boot_board "$sb7" "$P8"; then
   run_one "render-full-width"   env KOSMOS_URL="$B8" node docs/browser-checks/render-full-width.js "$sb7/shots-fullwidth"
   run_one "render-offline-note"  env KOSMOS_URL="$B8" node docs/browser-checks/render-offline-note.js "$sb7/shots-offline" "$B8_PID"
 else
-  for n in contrast named-controls render-create-form render-found-undo render-orgchart-import-1280 render-adopt-1531 render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-updates-stale render-login-expiry-3532 render-switch-states render-optout-403-2020 render-settings-403-2047 render-first-run render-gated-next render-permission-slider-2620 render-token-usage-2617 render-boot-no-flash render-theme-toggle render-full-width render-offline-note; do FAILED+=("$n (server did not boot)"); done
+  # kosmos#3987: the names live in docs/browser-checks/b8-board.txt, one per line, sorted (they
+  # were one line here, which drifted from the run_one calls above and conflicted on every add).
+  B8_CHECKS=()
+  while IFS= read -r n || [ -n "$n" ]; do
+    case "$n" in ''|'#'*) continue ;; esac
+    B8_CHECKS+=("$n")
+  done < "$REPO/docs/browser-checks/b8-board.txt"
+  if [ "${#B8_CHECKS[@]}" -eq 0 ]; then
+    FAILED+=("docs/browser-checks/b8-board.txt missing or named no checks (server did not boot)")
+  fi
+  for n in ${B8_CHECKS[@]+"${B8_CHECKS[@]}"}; do FAILED+=("$n (server did not boot)"); done
 fi
 # #812 batch 2 (retried after the first attempt found four checks that
 # assumed compatibility with B8's fixture instead of verifying it -- those

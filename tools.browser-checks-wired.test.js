@@ -133,7 +133,8 @@ function isLibrary(file) {
    afternoon exactly as a false pass does.
 
    📌 There is a fourth `for n in` in the runner that must NOT count: the
-   "server did not boot" branch, which lists 14 names only to push them onto
+   "server did not boot" branch, which names the $B8 group's checks
+   (docs/browser-checks/b8-board.txt since #3987) only to push them onto
    FAILED. Keying on run_one in the body is what excludes it.
 
    🛑 THE LIMIT OF THIS FILE, AND IT IS ONE RUNG SHORT OF WHAT I FIRST CLAIMED
@@ -281,7 +282,7 @@ test('#1387: the instrument is reading something', () => {
   assert.ok(!wiredIn(inBody, 'beta'),
     'a name in the loop BODY reads as wired; it runs as a command, fails command-not-found, and the check never executes');
 
-  /* 🔑 AND THE FAILED-LIST ARM. The runner has a `for n in <14 names>` whose
+  /* 🔑 AND THE FAILED-LIST ARM. The runner has a `for n in <names>` whose
      body only pushes onto FAILED when the server did not boot. Being named
      there is the OPPOSITE of being run, so it must confer nothing. */
   assert.ok(!wiredIn('for n in gamma; do FAILED+=("$n (server did not boot)"); done', 'gamma'),
@@ -329,6 +330,65 @@ test('#3929: the gated list is one name per line, sorted, unique, each a real ch
 function invokedByOtherPosition(code, stem) {
   return invokedNames(code, []).has(stem);
 }
+
+/* #3987: the shared first-run board ($B8) group runs each check by its own run_one line (their
+   arguments differ, so a file cannot drive them), and when the board does not boot the runner
+   names them as failed from B8_FILE. The two are the same set written twice, so this checks they
+   agree: the list was once an inline line that had silently dropped 6 of the group's 30 checks. */
+const B8_FILE = path.join(DIR, 'b8-board.txt');
+const B8_OPEN = 'if boot_board "$sb7" "$P8"; then';
+const B8_READ = 'done < "$REPO/docs/browser-checks/b8-board.txt"';
+const B8_GUARD = 'if [ "${#B8_CHECKS[@]}" -eq 0 ]; then';
+const B8_LOOP = 'for n in ${B8_CHECKS[@]+"${B8_CHECKS[@]}"}; do FAILED+=("$n (server did not boot)"); done';
+function b8Problems(code, listed) {
+  const start = code.indexOf(B8_OPEN);
+  if (start < 0) return [`${RUNNER} no longer has the $B8 boot (${B8_OPEN})`];
+  const els = code.indexOf('\nelse\n', start);
+  const fi = code.indexOf('\nfi\n', els);
+  if (els < 0 || fi < 0) return ['the $B8 group has no did-not-boot branch'];
+  const block = code.slice(start, els);
+  const ran = [...block.matchAll(/^\s*run_one\s+"([^"]+)"/gm)].map((m) => m[1]);
+  /* Every check the block launches must be a literal run_one line: a loop or a wrapper would run
+     names this comparison cannot see, so the file could drift again unnoticed. */
+  const launched = [...block.matchAll(/node\s+docs\/browser-checks\/([a-z0-9-]+)\.js/g)].map((m) => m[1]);
+  const onFail = code.slice(els, fi);
+  const problems = [];
+  for (const n of launched) if (!ran.includes(n)) problems.push(`${n} is launched on $B8 other than by a literal run_one "${n}" line`);
+  if (!onFail.includes(B8_READ) || !onFail.includes(B8_LOOP)) problems.push(`the did-not-boot branch does not report the names in ${B8_FILE}`);
+  if (!onFail.includes(B8_GUARD)) problems.push('the did-not-boot branch lost its guard: an empty or missing file would report nothing');
+  for (const n of ran) if (!listed.includes(n)) problems.push(`${n} runs on $B8 but is not in ${B8_FILE}`);
+  for (const n of listed) if (!ran.includes(n)) problems.push(`${n} is in ${B8_FILE} but does not run on $B8`);
+  return problems;
+}
+
+test('#3987: the $B8 did-not-boot list is one name per line, sorted, unique, and names exactly the group\'s checks', () => {
+  /* Stricter than the runner on purpose: a space or CR the runner would copy into a name fails here. */
+  const raw = fs.readFileSync(B8_FILE, 'utf8').split('\n');
+  if (raw[raw.length - 1] === '') raw.pop();
+  for (const [i, l] of raw.entries()) {
+    if (l === '' || l.startsWith('#')) continue;
+    assert.ok(/^[a-z0-9-]+$/.test(l), `${B8_FILE}:${i + 1} ${JSON.stringify(l)} is not a bare check name exactly as written`);
+  }
+  const names = gatedNames(fs.readFileSync(B8_FILE, 'utf8'));
+  assert.ok(names.length >= 20, `only ${names.length} names read from ${B8_FILE}; the read looks broken`);
+  const sorted = [...names].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  assert.deepEqual(names, sorted, `${B8_FILE} is not sorted (byte order)`);
+  assert.equal(new Set(names).size, names.length, `${B8_FILE} has a duplicate name`);
+  for (const n of names) assert.ok(fs.existsSync(path.join(DIR, `${n}.js`)), `${B8_FILE} names ${n}, but ${DIR}/${n}.js does not exist`);
+  const code = runnerCode();
+  assert.deepEqual(b8Problems(code, names), []);
+  /* CONTROLS: each way the two can disagree must be caught. */
+  const added = code.replace(B8_OPEN, `${B8_OPEN}\n  run_one "zzz-just-added" node docs/browser-checks/zzz-just-added.js`);
+  assert.ok(b8Problems(added, names).length > 0, 'a check added to the $B8 group but not to the file goes unnoticed');
+  assert.ok(b8Problems(code, [...names, 'zzz-not-run']).length > 0, 'a name in the file the group does not run goes unnoticed');
+  assert.ok(b8Problems(code, names.slice(1)).length > 0, 'a name dropped from the file goes unnoticed');
+  assert.ok(b8Problems(code.replace(B8_READ, 'done < /dev/null'), names).length > 0, 'the did-not-boot branch no longer reads the file, unnoticed');
+  assert.ok(b8Problems(code.replace(B8_GUARD, 'if false; then'), names).length > 0, 'the empty-file guard removed, unnoticed');
+  const wrapped = code.replace(B8_OPEN, `${B8_OPEN}\n  run_b8x zzz-wrapped env KOSMOS_URL="$B8" node docs/browser-checks/zzz-wrapped.js`);
+  assert.ok(b8Problems(wrapped, names).length > 0, 'a check launched on $B8 through a wrapper, not a literal run_one, goes unnoticed');
+  assert.ok(b8Problems(code.replace(B8_LOOP, `for n in ${names.slice(0, 3).join(' ')}; do FAILED+=("$n (server did not boot)"); done`), names).length > 0,
+    'an inline list restored in place of the file goes unnoticed');
+});
 
 test('#1387: every browser check is RUN by the runner, or is listed as unwired with a reason', () => {
   const code = runnerCode();
