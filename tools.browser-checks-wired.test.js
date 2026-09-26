@@ -338,7 +338,7 @@ function invokedByOtherPosition(code, stem) {
 const B8_FILE = path.join(DIR, 'b8-board.txt');
 const B8_OPEN = 'if boot_board "$sb7" "$P8"; then';
 const B8_READ = 'done < "$REPO/docs/browser-checks/b8-board.txt"';
-const B8_GUARD = '[ "${#B8_CHECKS[@]}" -gt 0 ] || FAILED+=(';
+const B8_GUARD = 'if [ "${#B8_CHECKS[@]}" -eq 0 ]; then';
 const B8_LOOP = 'for n in ${B8_CHECKS[@]+"${B8_CHECKS[@]}"}; do FAILED+=("$n (server did not boot)"); done';
 function b8Problems(code, listed) {
   const start = code.indexOf(B8_OPEN);
@@ -383,7 +383,7 @@ test('#3987: the $B8 did-not-boot list is one name per line, sorted, unique, and
   assert.ok(b8Problems(code, [...names, 'zzz-not-run']).length > 0, 'a name in the file the group does not run goes unnoticed');
   assert.ok(b8Problems(code, names.slice(1)).length > 0, 'a name dropped from the file goes unnoticed');
   assert.ok(b8Problems(code.replace(B8_READ, 'done < /dev/null'), names).length > 0, 'the did-not-boot branch no longer reads the file, unnoticed');
-  assert.ok(b8Problems(code.replace(B8_GUARD, 'true || FAILED+=('), names).length > 0, 'the empty-file guard removed, unnoticed');
+  assert.ok(b8Problems(code.replace(B8_GUARD, 'if false; then'), names).length > 0, 'the empty-file guard removed, unnoticed');
   const wrapped = code.replace(B8_OPEN, `${B8_OPEN}\n  run_b8x zzz-wrapped env KOSMOS_URL="$B8" node docs/browser-checks/zzz-wrapped.js`);
   assert.ok(b8Problems(wrapped, names).length > 0, 'a check launched on $B8 through a wrapper, not a literal run_one, goes unnoticed');
   assert.ok(b8Problems(code.replace(B8_LOOP, `for n in ${names.slice(0, 3).join(' ')}; do FAILED+=("$n (server did not boot)"); done`), names).length > 0,
