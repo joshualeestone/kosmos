@@ -1592,10 +1592,8 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .asp-m { max-width: 88%; padding: 8px 11px; border-radius: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* #3738 (Josh 08:51): the same bubbles as a Direct Message, from the same tokens: the person's own blue, the agent's cream. */
 .asp-m.him { background: var(--agent-msg); border-top-left-radius: 4px; }
-/* #3743: the guide's unread replies carry the same fading gold edge as a DM's (Josh: "the setup assistant" too). */
-.asp-m.him { transition: box-shadow 1.2s ease; }
-.asp-m.him[data-unread] { box-shadow: inset 0 0 0 1px var(--unread-edge); transition: none; }
-@media (prefers-reduced-motion: reduce) { .asp-m.him { transition: none; } }
+/* #3743 gave the guide's unread replies the same fading gold edge as a DM's; #3967 (Josh 2026-09-26) removed it
+   everywhere for now, with the DM's (see .msg-bd below for why and how it comes back). */
 .asp-m.you { align-self: flex-end; background: var(--usermsg-tint); border-top-right-radius: 4px; }
 .asp-note { padding: 0 12px 6px; font-size: .75rem; color: var(--k-ink-2); }
 .asp-msg { padding: 0 12px 6px; font-size: .75rem; color: var(--k-ink-2); }
@@ -5788,11 +5786,16 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    shorthand. */
 .msg:not(.you) .msg-bd { background-color: var(--agent-msg); }
 /* #3743 (Josh 2026-09-25 09:15): "the stroke would be cool for an unread message and then as you read it it fades
-   away". An agent message not yet read carries a thin gold edge; once it has been on screen a moment, the edge fades.
-   An inset shadow, so the bubble keeps its size and the edge follows its rounded corners. */
-.msg:not(.you) .msg-bd { transition: box-shadow 1.2s ease; }
-.msg:not(.you) .msg-bd[data-unread] { box-shadow: inset 0 0 0 1px var(--unread-edge); transition: none; }
-@media (prefers-reduced-motion: reduce) { .msg:not(.you) .msg-bd { transition: none; } }
+   away". An agent message not yet read was given a thin gold edge that faded once it had been on screen a moment
+   (an inset shadow, so the bubble kept its size). Not drawn at present: see #3967 below. */
+/* #3967 (Josh 2026-09-26 09:01): the edge is REMOVED FOR NOW. It is an inset shadow on the bubble box, so
+   it does not follow the bubble's tail (the ::before wing below): "it looks broken this way". Josh liked
+   the fading gold, so it is meant to come back as an outline that wraps the tail too (the wing would need
+   its own matching stroke). Everything that decides what is unread stays: the data-unread attribute is
+   still set and cleared (UNREAD_EDGE in the script), and --unread-edge keeps its light, dark and navy
+   values, so bringing it back is a matter of drawing it. What it was: on an agent bubble marked data-unread,
+   an inset 1px box-shadow in the --unread-edge colour with no transition, and a 1.2s box-shadow transition
+   otherwise, so it faded when the mark was cleared (none under reduced motion). */
 /* #3134-followup (Josh 6.72) -> #3267: the bubble TAIL is a clean iMessage-style Option A
    WING at the bottom corner, pointing toward the avatar -- bottom-LEFT on an agent bubble,
    bottom-RIGHT on the person's.
@@ -28416,7 +28419,8 @@ function restoreThreadAnchor(el, a) {
   }
   return false;
 }
-/* #3743 (Josh 2026-09-25 09:15): an unread agent message carries a gold edge that fades once it has been read.
+/* #3743 (Josh 2026-09-25 09:15): an unread agent message carries a gold edge that fades once it has been read
+   (the edge is not drawn at present, #3967, see the .msg-bd CSS; this mark is still kept).
    "Unread" is the app's own count (a DM's dmUnread, a project's unread) read as the thread opens, plus any agent
    message that lands while it is open. "Read" is on screen, half of it at least, for a moment while this window is
    in front. Per thread: `known` is every agent message this page has shown there, `fresh` those still unread,
@@ -28484,7 +28488,7 @@ function unreadEdgeTry(bd) {
     bd.__unreadTimer = null;
     if (!bd.isConnected || !bd.__inView || document.visibilityState !== 'visible' || !document.hasFocus()) return;
     if (bd.__unread) { bd.__unread.st.fresh.delete(bd.__unread.id); bd.__unread.st.read.add(bd.__unread.id); }
-    bd.removeAttribute('data-unread');   // the transition fades the edge
+    bd.removeAttribute('data-unread');   // the transition faded the edge (not drawn at present, #3967)
     if (UNREAD_IO) UNREAD_IO.unobserve(bd);
     UNREAD_WATCHED.delete(bd);
   }, UNREAD_EDGE_DWELL);
