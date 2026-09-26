@@ -522,11 +522,15 @@ function externalKeptOn(projectId, day) {
 /* Kosmos speaking in a room, in its own voice (#167). Only the product may
    write these; the shape validator refuses any other author, so a note can
    never dress an agent in words it did not say. Best-effort like every
-   receipt. */
-function roomNote(projectId, text) {
+   receipt.
+   `audience: 'agents'` marks a note written for the agents on the project (the
+   #2707 "no brief yet" coordination note): `kosmos room` still prints it, and the
+   room's JSON view, which is the person's, leaves it out. */
+function roomNote(projectId, text, opts) {
   try {
+    const audience = opts && opts.audience === 'agents' ? { audience: 'agents' } : {};
     appendLog({ kind: 'note', from: 'kosmos', to: String(projectId), project: String(projectId),
-      text: String(text), at: new Date().toISOString() });
+      text: String(text), at: new Date().toISOString(), ...audience });
     return true;
   } catch { return false; }
 }

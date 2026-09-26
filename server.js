@@ -13900,7 +13900,7 @@ const server = http.createServer((req, res) => {
         // WELCOME_ROOM_NOTE, and a note we could not post is never a reason to fail the create.
         try {
           if (made.agents.length > 0 && projects.briefIsPending(made.folder)) {
-            messages.roomNote(made.id, projects.BRIEF_PENDING_NOTE);
+            messages.roomNote(made.id, projects.BRIEF_PENDING_NOTE, { audience: 'agents' });   // agents read it; the person's room does not
           }
         } catch { /* the note is furniture; the project exists regardless */ }
         // The owner's seat waits for a first edge (someone has joined); try now.
@@ -14222,6 +14222,12 @@ const server = http.createServer((req, res) => {
            who and why, once per sender-reason-window; the room just shows it. */
         .filter((m) => m && ((m.kind === 'post' || m.kind === 'valve' || m.kind === 'note' || m.kind === 'external') ? m.project === id
           : (m.kind === 'refused' && m.project === id)))
+        /* A note written for the agents (the "no brief yet" coordination note) is theirs to
+           read through `kosmos room` (the text arm below keeps it), not the first thing a
+           person sees in a new room: the JSON arm is the person's view, and leaving it out
+           lets the page say its own "Nothing here yet". Notes written before notes carried
+           an audience are matched by their exact text. */
+        .filter((m) => asText || !(m.kind === 'note' && (m.audience === 'agents' || m.text === projects.BRIEF_PENDING_NOTE)))
         .map((m) => (m.kind === 'refused'
           ? { kind: 'refused', from: m.from, because: m.because || null, at: m.at }
           /* #3311: from outside this Kosmos; `external: true` is what the page

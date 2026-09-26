@@ -22,6 +22,7 @@ render-assistant-bubble-3034
 render-assistant-hosted-3660
 render-autohello-2686
 render-autohello-switch-2716
+render-brief-note-agents
 render-bubblepop-2407
 render-build-marker-2066
 render-busy-anim-3421
