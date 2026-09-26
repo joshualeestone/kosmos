@@ -385,7 +385,7 @@ test('#3935 the word walk is bounded: a reply built to keep thousands of held fo
     const bad = Array.from({ length: 1000 }, (_, i) => `| hq7x-vzlq- | 0000 | ${i % 10} | 00 | -k9z |`).join('\n');
     let r;
     const ms = cpuMillisecondsOf(() => { r = mask(bad); });   // the budget is WORD_WALK_BUDGET in secretmask.js
-    /* Unbounded, the walk alone cost 9.6 seconds here. Bounded it costs about 18ms; most of what remains
+    /* Unbounded, the walk alone cost 9.6 seconds here. Bounded it cost about 18ms at the first budget (250,000; now 1,250,000); most of what remains
        (about 600ms) is the separator copies' held-value search, which costs the same without this change. */
     assert.ok(ms < 1500, `a ${bad.length}-character adversarial reply cost ${Math.round(ms)}ms of CPU`);
     assert.equal(r.text, UNCHECKED, 'a search cut short by the budget must not return the text it could not finish checking');
@@ -959,5 +959,70 @@ test('#3935 a full fragment index thins every value evenly, so the last value he
         assert.ok(r.fired.some((f) => f.kind === 'split_secret'), `offset ${off}: ${JSON.stringify(r.fired)}`);
       }
     }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 padded base64 is a secret, not a NAME=value line: walked and fragment-indexed (review round 23)', () => {
+  const value = 'Zq8vLm3pRt6wXy9kHb2nWc4dQ1==';
+  for (const held of [[value], [`AUTH_SECRET=${value}`, value]]) {
+    setKnownSecrets(held);
+    try {
+      const out = mask('First Zq8vLm3p then Rt6wXy9k then Hb2nWc4dQ1== done').text;
+      assert.ok(!out.includes('Rt6wXy9k') && !out.includes('Hb2nWc4d'), `${held.length}: split survived: ${out}`);
+      const r = mask('Zq then 8vLm3pRt6wXy9kHb2n ok');
+      assert.ok(!r.text.includes('8vLm3pRt6wXy9kHb2n'), `${held.length}: fragment survived: ${r.text}`);
+    } finally { setKnownSecrets([]); }
+  }
+  /* Control: a real NAME=value line still leaves its name readable. */
+  setKnownSecrets([`KOSMOS_CF_ACCOUNT_ID_FOR_DEPLOYS=${value}`, value]);
+  try {
+    const t = 'To deploy, set KOSMOS_CF_ACCOUNT_ID_FOR_DEPLOYS in the settings page, then press Save.';
+    assert.equal(mask(t).text, t);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a repeated opening that is not public is masked in its earlier copy too (review round 23)', () => {
+  setKnownSecrets(['Qw8eRt2yUi9oPa3sDf6gHj1kLz5xCv0b']);
+  try {
+    const out = mask('Here Qw8eRt2y, I mean Qw8eRt2y then Ui9oPa3s then Df6gHj1k then Lz5xCv0b ok').text;
+    assert.ok(!out.includes('Qw8eRt2y'), out);
+    assert.ok(out.startsWith('Here ') && out.includes(', I mean '), out);
+  } finally { setKnownSecrets([]); }
+  /* Control: a bare mention of a PUBLIC prefix before the key stays readable. */
+  setKnownSecrets(['sk-ant-api03-Zq8vLm3pRt6wXy9kHb2nWc4dQ1abcdEFGH']);
+  try {
+    const out = mask('Every key begins sk-ant-api03- and then, say, sk-ant-api03-Zq8vLm3p then Rt6wXy9k then Hb2nWc4dQ1ab then cdEFGH done').text;
+    assert.ok(out.startsWith('Every key begins sk-ant-api03- and then, say, '), out);
+    assert.ok(!out.includes('Rt6wXy9k'), out);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a held webhook URL: its public path does not mask a placeholder URL, its token is still found (review round 23)', () => {
+  setKnownSecrets(['https://discord.com/api/webhooks/123456789012345678/Zq8vLm3pRt6wXy9kHb2nWc4dQ1abcdEFGH']);
+  try {
+    const t = 'It looks like https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_TOKEN when you paste it.';
+    assert.equal(mask(t).text, t);
+    const r = mask('token part: xx Hb2nWc4dQ1abcdEF yy');
+    assert.ok(!r.text.includes('Hb2nWc4dQ1abcdEF'), r.text);
+    assert.ok(r.fired.some((f) => f.kind === 'split_secret'), JSON.stringify(r.fired));
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a cached result does not outlive the held set it was made under (review round 23)', () => {
+  const t = 'First Zq8vLm3p then Rt6wXy9k then Hb2nWc4dPq7sTu5v done';
+  setKnownSecrets(['Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v']);
+  try {
+    assert.notEqual(mask(t).text, t);
+    assert.notEqual(mask(t).text, t, 'the second (cached) read differs');
+    setKnownSecrets(['Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v']);
+    assert.notEqual(mask(t).text, t, 'an unchanged set lost its masking');
+    setKnownSecrets([]);
+    assert.equal(mask(t).text, t, 'a cleared set still served the cached mask');
+    /* A caller changing a returned result does not change the next one. */
+    setKnownSecrets(['Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v']);
+    mask(t);
+    const a = mask(t); a.fired.push({ kind: 'x', count: 1 }); a.fired[0].count = 99;
+    const b = mask(t);
+    assert.ok(!b.fired.some((f) => f.kind === 'x' || f.count === 99), JSON.stringify(b.fired));
   } finally { setKnownSecrets([]); }
 });

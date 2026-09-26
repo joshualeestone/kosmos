@@ -49,7 +49,15 @@ const PATTERNS = [
  * a short word can never be taken for a key. The values live only in this process's memory.
  */
 let knownForms = [];
+let knownSignature = null;
 function setKnownSecrets(values) {
+  /* The board reloads the held set every few minutes; an unchanged set keeps its index (review round 23: a rebuild
+     at the value cap took about 2 seconds of the event loop). */
+  const list = Array.isArray(values) ? values.filter((v) => typeof v === 'string') : [];
+  const signature = `${list.length}\u0000${list.join('\u0000')}`;
+  if (signature === knownSignature) return;
+  knownSignature = signature;
+  maskCache.clear();
   const forms = new Set();
   const heldValues = [];   // the values taken, as trimmed: the same set the forms and the fragment index come from
   const walkable = new Set();   // forms of values that are not NAME=value lines
@@ -68,7 +76,7 @@ function setKnownSecrets(values) {
     /* A whole NAME=value line held from a secrets file (review rounds 21 and 22): its NAME is public, and walking
        it, or any encoding of it, would mask the name in a reply that only mentions it. Its forms are still masked
        whole; the value is held on its own, and walked from there. */
-    const env = ENV_LINE.test(k);
+    const env = isEnvLine(k);
     for (const f of [k, hex, hex.toUpperCase(), spaced, spaced.toUpperCase(), buf.toString('base64'), buf.toString('base64').replace(/=+$/, ''), buf.toString('base64url')]) {
       forms.add(f);
       if (!env) walkable.add(f);
@@ -103,12 +111,15 @@ function setKnownSecrets(values) {
   const sliced = [];
   let slices = 0;
   for (const v of heldValues) {
-    if (ENV_LINE.test(v)) continue;
+    if (isEnvLine(v)) continue;
     const w = v.replace(NOT_KEY_CHARS, '');
     if (w.length < FRAGMENT_LEN || w.length > WORD_WALK_MAX_FORM || madeOfWords(w)) continue;
     /* Not the public prefix (sk-ant-api03 is itself 12 characters, and the whole guide names it): slices start
        after the last - or _ in the first 16 characters, as the prefix-less walk does. */
-    const from = Math.max(w.lastIndexOf('-', 15), w.lastIndexOf('_', 15)) + 1;
+    let from = Math.max(w.lastIndexOf('-', 15), w.lastIndexOf('_', 15)) + 1;
+    /* A URL's scheme, host and path are public (review round 23: a held webhook's com/api/webhooks slices masked a
+       guide's placeholder URL), so a URL-shaped value is sliced only after its last /, where its token sits. */
+    if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(v)) from = Math.max(from, w.lastIndexOf('/') + 1);
     if (w.length - from < FRAGMENT_LEN) continue;
     sliced.push([w, from]);
     slices += w.length - from - FRAGMENT_LEN + 1;
@@ -124,7 +135,10 @@ function setKnownSecrets(values) {
 }
 /* #3935 (review round 19): a key whose first chunk is under OPENING_LEN starts no walk, and the rest can sit in
    the reply as one run (Zq then 8vLm3pRt6wXy9kHb2nWc4d: 22 of 24 characters). Any run holding FRAGMENT_LEN
-   consecutive characters of a held value is masked whole. That many consecutive characters of a random value
+   consecutive characters of a held value is masked whole, within these limits: FRAGMENT_LEN + fragmentStride - 1
+   characters once the index is thinned; not a run made of words; not a value over WORD_WALK_MAX_FORM, a
+   NAME=value line (its value is held on its own), the public head before the first 16 characters' last - or _,
+   or a URL's scheme, host and path. That many consecutive characters of a random value
    do not turn up in ordinary text by chance, and the shortest value held at all is this long. */
 const FRAGMENT_LEN = 12;
 /* A bound on the fragment index's memory: 2,000 values of a key's length are about 200,000 slices. Past it the
@@ -132,8 +146,15 @@ const FRAGMENT_LEN = 12;
    (rounding). */
 const MAX_GRAMS = 400000;
 let fragmentStride = 1;
-/* A held value that is a whole environment line, NAME=value. */
-const ENV_LINE = /^[A-Za-z_][A-Za-z0-9_]*=/;
+/* A held value that is a whole environment line, NAME=value, whose value engine/knownsecrets.js also holds on its
+   own (the same NAME=value test, then trimmed and unquoted), long enough to be held here (review round 23). Padded
+   base64 (Zq8vLm3pRt6wXy9kHb2nWc4dQ1==) has the same shape, but its "value" is the padding, never held: that is a
+   secret, not a line, and it is walked like any other. */
+function isEnvLine(v) {
+  const m = /^[A-Za-z_][A-Za-z0-9_]*=(.*)$/.exec(v);
+  if (!m) return false;
+  return m[1].trim().replace(/^["']|["']$/g, '').length >= 12;
+}
 let knownGrams = new Set();
 function fragmentsIn(text) {
   const spans = [];
@@ -311,7 +332,10 @@ function normalisedCopy(text) {
    20 trials at 400 mentions (49,000 characters), 1 of 20 at 160, never at 80 or fewer. That was at a budget of
    250,000; review round 21 measured denser prose (a mention every 130 characters) withheld 9 of 20 times at 80
    mentions with five keys, while an exhausted search had cost only 37 to 50ms, so the budget is 1,250,000: what
-   matters is mentions per character, and every adversarial test still ends at it within its CPU bound.
+   matters is mentions per character, and every adversarial test still ends at it within its CPU bound. At this
+   budget an exhausted search costs about 1 to 1.3 seconds (review round 23, 50,000-character replies), and a
+   1,440-character reply naming sk-ant-api03- 20 times about 50 to 280ms; mask() caches results, so a stored reply
+   served on every poll pays that once per held set, not per read.
    Earlier measurement:
    well inside it: a 50,000-character reply with five held Anthropic keys and 400 sk-ant-api03- mentions. Measured
    reaching it (review round 13): ten held Anthropic keys and a 36,000-character reply repeating a paragraph that
@@ -530,6 +554,21 @@ function wordSkippingSpans(text) {
     /* An earlier start is masked piece by piece, not as one span to the end (review round 16): a retry within
        reach joined the two and hid the prose between them ("Sorry, again:"). */
     for (const { from, movedAt, matched } of c.starts) if (from !== latest && movedAt < latest) for (const m of matched) spans.push(m);
+    /* An earlier start dropped above still shows its opening run. That is right for a public prefix (the bare
+       mention), but a repeated opening that is not public (review round 23: "Here Qw8eRt2y, I mean Qw8eRt2y then
+       ...") leaves the key's first characters readable. So an earlier start's opening run is masked on its own
+       when it holds PARTIAL_MIN characters or more past the value's public head that are not words. */
+    const cut = Math.max(c.f.lastIndexOf('-', 15), c.f.lastIndexOf('_', 15));
+    const head = cut > 0 ? c.f.slice(0, cut + 1) : '';
+    for (const { from, movedAt, matched } of c.starts) {
+      if (from === latest || movedAt < latest || !matched.length) continue;
+      const open = matched.reduce((m, sp) => (sp[0] < m[0] ? sp : m));
+      /* Not the latest start's own run begun earlier (a label glued on, KEY=sk-ant-a): only a separate copy. */
+      if (open[1] > latest) continue;
+      const piece = text.slice(open[0], open[1]).replace(NOT_KEY_CHARS, '');
+      const own = head && piece.startsWith(head) ? piece.slice(head.length) : piece;
+      if (own.length >= PARTIAL_MIN && !madeOfWords(own)) spans.push(open);
+    }
   }
   return spans;
 }
@@ -598,7 +637,22 @@ function looksRandom(run) {
  * { text, fired } where `fired` is [{ kind, count }] in the order the kinds first fired; empty
  * when nothing was masked. A non-string comes back unchanged with nothing fired.
  */
+/* Results by text, for the held set in force (review round 23): the board masks every served row of the guide's
+   thread on every read, and a reply that fills the walk's budget costs about a second, so a stored reply is not
+   searched again on each poll. Cleared whenever the held set changes; bounded, oldest out first. */
+const MASK_CACHE_MAX = 1000;
+const MASK_CACHE_TEXT_MAX = 65536;
+const maskCache = new Map();
 function mask(text) {
+  if (typeof text !== 'string' || !text || text.length > MASK_CACHE_TEXT_MAX) return maskFresh(text);
+  const hit = maskCache.get(text);
+  if (hit) return { text: hit.text, fired: hit.fired.map((f) => ({ ...f })) };
+  const out = maskFresh(text);
+  if (maskCache.size >= MASK_CACHE_MAX) maskCache.delete(maskCache.keys().next().value);
+  maskCache.set(text, { text: out.text, fired: out.fired.map((f) => ({ ...f })) });
+  return out;
+}
+function maskFresh(text) {
   if (typeof text !== 'string' || !text) return { text, fired: [] };
   const counts = new Map();
   const hit = (kind) => { counts.set(kind, (counts.get(kind) || 0) + 1); };
