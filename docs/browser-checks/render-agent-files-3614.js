@@ -62,7 +62,7 @@ function chk(ok, label, extra) {
   const unaFiles = dmfiles.filesDir('una');
   fs.mkdirSync(unaFiles, { recursive: true });
   fs.writeFileSync(path.join(unaFiles, 'only-one.txt'), 'u');
-  // Rex has saved more than the list shows (10), so his list gets View All.
+  // Rex has saved more than the list shows (10): his list stops at ten, and his Files screen shows all 14.
   const rexFiles = dmfiles.filesDir('rex');
   fs.mkdirSync(rexFiles, { recursive: true });
   for (let i = 0; i < 14; i += 1) {
