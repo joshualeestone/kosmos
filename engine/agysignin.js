@@ -117,6 +117,7 @@ let openFile = (file, done) => {
 let confirmSignedIn = () => require('./agystatus').check();
 let agyBin = () => require('./agystatus').installed();
 let now = () => Date.now();
+let tickMs = TICK_MS;   // a test sets it out of the way, so only its own ticks run (round 24)
 let folderRoot = () => require('./store').ROOT;
 
 /* ---- one session at a time --------------------------------------------------------------- */
@@ -216,17 +217,22 @@ function tick() {
     }
   }
 }
-/* The known screen agy's ready line is drawn OVER, when that line is a footer, else null. One rule for
-   the tick and for code()'s last look before typing (round 23: two readings of one frame refused a
-   valid code). Round 20: before the trust step, theme, terms or trust under it is that screen, not the
-   end. Round 22: while Kosmos drives the setup (a step taken, not the shown window), any known screen
-   under it is that screen. After trust, words left above the ready line do not hold it up (round 4). */
+/* The setup screen agy's ready line is drawn OVER, else null. One rule for the tick and for code()'s
+   last look before typing (round 23). Round 20: before the trust step, theme, terms or trust under the
+   ready line is that screen, not the end. Round 24 (reverses round 22's "any known screen"): the code
+   screen or the menu under a ready line is the READY screen, whose earlier words were left above it
+   (round 4): read as the code screen, a second code went onto agy's ready prompt. After trust, nothing
+   holds the ready screen up. */
 function underReady(text) {
   if (!S || S.step === 'trust') return null;
   const under = screenOf(text, 'ready');
-  if (under === 'theme' || under === 'terms' || under === 'trust') return under;
-  if (under && S.step && !S.shown) return under;
-  return null;
+  return under === 'theme' || under === 'terms' || under === 'trust' ? under : null;
+}
+/* The ready line itself (the last one drawn), so "the same ready screen twice" is about that line, not
+   a spinner or tip elsewhere in the frame (round 24: a changing frame held the sign-in for 30 minutes). */
+function readyLineOf(text) {
+  const lines = String(text).split('\n').filter((l) => SCREENS.ready.test(l));
+  return lines.length ? lines[lines.length - 1].trim() : null;
 }
 function step() {
   if (!S || S.busy) return;
@@ -269,7 +275,7 @@ function step() {
     if (under) name = under;
     /* Round 22: a footer caught alone between two setup screens must be the same frame on two ticks
        in a row before agy is asked. */
-    else if (S.step && S.step !== 'trust' && !S.shown && text !== S.lastReady) { S.lastReady = text; return; }
+    else if (S.step && S.step !== 'trust' && !S.shown && readyLineOf(text) !== S.lastReady) { S.lastReady = readyLineOf(text); return; }
   }
   if (name !== 'ready') S.lastReady = null;
   /* A blank frame caught mid-redraw is not a new screen (round 10): it must not clear `pressed` and
@@ -422,8 +428,12 @@ function step() {
    says the person may have finished. A "no" leaves it stuck; the same ready screen is not asked
    about again. */
 function readyCheck(text) {
-  if (S.readyChecked) return;
+  /* Once, except in the shown window (round 24): after a "could not confirm", the person may finish or
+     see it signed in there, and the panel says Kosmos notices. The ready screen is asked at most
+     MAX_CHECKS times in all (the first included), STUCK_MS apart. */
+  if (S.readyChecked && !(S.shown && (S.readyAsks || 0) < MAX_CHECKS && now() - S.lastCheckAt > STUCK_MS)) return;
   const mine = S;
+  mine.readyAsks = (mine.readyAsks || 0) + 1;
   mine.readyChecked = true; mine.busy = true; mine.lastCheckAt = now();
   if (mine.state !== 'stuck') mine.state = 'checking';
   Promise.resolve().then(() => confirmSignedIn()).then((r) => {
@@ -460,12 +470,13 @@ function start() {
        there would keep a dead agy's pane, and the exit would never be seen). The program is quoted
        for the shell tmux runs it with, so a path with a space still starts. */
     tmux(['-f', '/dev/null', 'new-session', '-d', '-s', SESSION, '-x', String(PANE_COLS), '-y', String(PANE_ROWS), '-c', folder, 'exec ' + shq(inst.bin)]);
-  } catch {
+  } catch (e) {
+    logLine('could not start (' + ((e && (e.code || e.message)) || 'unknown') + ')');
     return { ok: false, because: 'Kosmos could not start Antigravity\'s sign-in just now' };
   }
   S = { id: crypto.randomBytes(8).toString('hex'), state: 'starting', url: null, because: null, step: null, folder,
     startedAt: now(), lastSeen: now(), timer: null, busy: false, checks: 0, lastCheckAt: 0, moves: 0, downFrom: null };
-  S.timer = setInterval(tick, TICK_MS);
+  S.timer = setInterval(tick, tickMs);
   if (S.timer.unref) S.timer.unref();
   return { ok: true, id: S.id };
 }
@@ -489,10 +500,14 @@ function code(value, id) {
      behind, and a code typed onto another screen is keystrokes there (on the ready screen, a
      prompt spent on the subscription). */
   const now_ = screen();
+  // The tick's own reading (round 24): only the code screen itself; with the ready line under it, agy has moved on.
   const drawn = typeof now_ === 'string' ? screenOf(now_) : null;
-  if (drawn !== 'code' && !(drawn === 'ready' && underReady(now_) === 'code')) return { ok: false, because: 'Antigravity is not waiting for a code' };
+  if (drawn !== 'code') return { ok: false, because: 'Antigravity is not waiting for a code' };
   // C-u first (round 12): a code left half-sent by an earlier failed try is cleared, not doubled.
-  try { keys('C-u'); keys('-l', '--', v); keys('Enter'); } catch { return { ok: false, because: 'Kosmos could not pass the code to Antigravity' }; }
+  try { keys('C-u'); keys('-l', '--', v); keys('Enter'); } catch (e) {
+    logLine('could not pass the code (' + ((e && (e.code || e.message)) || 'unknown') + ')');   // never the code itself
+    return { ok: false, because: 'Kosmos could not pass the code to Antigravity' };
+  }
   S.state = 'checking'; S.step = 'code-sent'; S.because = null; S.lastSeen = now(); S.codeSentAt = now();
   return { ok: true };
 }
@@ -505,7 +520,7 @@ function show(id) {
     const file = path.join(S.folder, 'show-sign-in.command');
     try {
       fs.writeFileSync(file, '#!/bin/sh\nexec ' + shq(tmuxBin()) + ' -L ' + shq(socket()) + ' attach -t ' + SESSION + '\n', { mode: 0o700 });
-    } catch { resolve({ ok: false, because: 'Kosmos could not open the sign-in window' }); return; }
+    } catch (e) { logLine('could not write the window script (' + ((e && e.code) || 'unknown') + ')'); resolve({ ok: false, because: 'Kosmos could not open the sign-in window' }); return; }
     /* From here the person drives, set BEFORE the window opens (round 6): `open` can time out after
        Terminal has come up, and pressing nothing is the safe way to be wrong. Stop still works. */
     S.shown = true;
@@ -514,6 +529,7 @@ function show(id) {
       /* An `open` that failed outright (not a timeout, which may have opened Terminal anyway) opened
          nothing: the panel says so and offers it again rather than claiming a window (round 10). */
       if (S === mine) mine.showFailed = !!err && !err.killed && !err.signal;
+      if (err) logLine('open ' + (err.killed || err.signal ? 'timed out' : 'failed') + ' (' + (err.code || err.signal || 'unknown') + ')');
       resolve(err ? { ok: false, because: 'Kosmos could not open the sign-in window' } : { ok: true });
     });
   });
@@ -533,6 +549,7 @@ function setForTests(o) {
   if (o.agyBin) agyBin = o.agyBin;
   if (o.now) now = o.now;
   if (o.folderRoot) folderRoot = o.folderRoot;
+  if (o.tickMs) tickMs = o.tickMs;
 }
 function tickForTests() { tick(); }
 const REAL = { tmux, openFile, confirmSignedIn, agyBin, now, folderRoot };
@@ -541,6 +558,7 @@ function resetForTests() {
   if (S && S.timer) clearInterval(S.timer);
   S = null;
   ({ tmux, openFile, confirmSignedIn, agyBin, now, folderRoot } = REAL);
+  tickMs = TICK_MS;
 }
 
 module.exports = { start, status, code, show, stop, socket, SESSION, SCREENS, CODE_RE, MAX_CHECKS, MAX_KEY_FAILURES, NOT_MINE, screenOf,

@@ -157,3 +157,12 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 - One rule (underReady) for the screen under agy's ready line, used by the tick and by code()'s last look before typing: the code screen with the footer under it takes a pasted code, as the panel shows it waiting for one. After trust the rule gives nothing, so a code is still never typed on agy's own ready screen (tested).
 - The hidden terminal's size is named (PANE_COLS, PANE_ROWS).
 - Left: the page's 3 s availability wait and 1 s follow poll stay inline, as the page's other drivers write theirs.
+
+## Review round 24 (decided; a rethink, not a patch)
+- Rounds 20, 22 and 23 were built on a premise nobody has observed: that agy draws its ready line as a footer under a setup screen. Josh's screenshots show that line only on agy's ready screen. Round 22's "any known screen under it is that screen" made the code screen's leftover words (round 4's words-left-above case) read as the code screen, so a second code could be typed onto agy's ready prompt, and the retry said the first code was refused.
+- Decided: only theme, terms or trust under the ready line (before trust) is that setup screen (round 20, the case where "done" would come early). The code screen or menu under it is the READY screen, in the tick and in code() alike, so code() never types there (reverses round 22 and round 23's acceptance).
+- The one-tick steadiness before asking (round 22) compares the ready line itself, not the frame: a spinner or tip beside it no longer holds the sign-in for 30 minutes.
+- In the shown window, a ready screen that could not be confirmed is asked again, STUCK_MS apart, at most MAX_CHECKS times in all (the first included), so "Kosmos notices when you are done" is true.
+- Every failure at the tmux/open boundary is logged (start, the code send, the window script, open), never the code itself. The code and stop routes answer 500 with their own words on a throw.
+- Scripted tests set the real tick interval out of the way (tickMs), so only their own ticks run.
+- Weakest premise now: agy never draws its ready line alone for a whole tick between two setup screens (then a yes would end it before terms and trust); the steadiness tick guards the passing frame.

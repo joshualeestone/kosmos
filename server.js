@@ -7990,11 +7990,16 @@ const server = http.createServer((req, res) => {
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
         const id = body && typeof body.id === 'string' ? body.id : '';
         if (sub === '/code') {
-          const r = signin.code(body && body.code, id);
+          let r;
+          try { r = signin.code(body && body.code, id); } catch { sendJson(res, 500, { ok: false, error: 'Kosmos could not pass the code just now' }); return; }
           sendJson(res, r.ok ? 200 : refusal(r), r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
           return;
         }
-        if (sub === '/stop') { const r = signin.stop(id); sendJson(res, r.ok ? 200 : refusal(r), r.ok ? r : { ...r, error: r.because }); return; }
+        if (sub === '/stop') {
+          let r;
+          try { r = signin.stop(id); } catch { sendJson(res, 500, { ok: false, error: 'Kosmos could not stop the sign-in just now' }); return; }
+          sendJson(res, r.ok ? 200 : refusal(r), r.ok ? r : { ...r, error: r.because }); return;
+        }
         signin.show(id)
           .then((r) => sendJson(res, r.ok ? 200 : refusal(r), r.ok ? r : { ...r, error: r.because }))
           .catch(() => sendJson(res, 500, { ok: false, error: 'Kosmos could not open the sign-in window' }));

@@ -186,6 +186,7 @@ function scripted(s, first) {
     agyBin: () => ({ installed: true, bin: '/bin/true' }),
     folderRoot: () => root,
     now: () => st.t,
+    tickMs: 3600000,   // only the test's own ticks run (round 24: a real 1 s tick between them made counts flaky)
     confirmSignedIn: async () => { st.checks += 1; return st.answer; },
     tmux: (args) => {
       if (args[0] === 'capture-pane') { if (st.captureThrows) throw st.captureThrows; return st.screen; }
@@ -966,43 +967,85 @@ test('#3998 round 22: while Kosmos drives the setup, a ready line alone for one 
     assert.equal(st.checks, 0, 'a footer seen once between setup screens was confirmed');
     st.screen = TERMS('Previous'); st.t += 1000; s.tickForTests(); await settle();
     assert.notEqual(s.status().state, 'done', 'the sign-in ended done with the terms unanswered');
-    // The code screen still drawn with the footer under it, after a code went in:
-    const CODE = 'Your browser should open automatically. If not:\n\nhttps://accounts.google.com/o/oauth2/auth?x=1\n\nPaste the authorization code:\n';
-    const st2 = scripted(s, CODE);
-    st2.answer = { signedIn: true };
-    const { id } = s.start();
-    s.tickForTests();
-    assert.equal(s.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v', id).ok, true);
-    st2.screen = CODE + READY_LINE;
-    for (let i = 0; i < 3; i++) { st2.t += 1000; s.tickForTests(); await settle(); }
-    assert.equal(st2.checks, 0, 'the code screen with a footer under it was taken for the ready screen');
-    assert.notEqual(s.status().state, 'done');
-    // CONTROL: a ready screen that stays (a setup finished on an earlier run) still ends it.
-    st2.screen = READY_LINE;
-    st2.t += 1000; s.tickForTests(); await settle();
-    st2.t += 1000; s.tickForTests(); await settle();
-    assert.equal(st2.checks, 1, 'CONTROL: a steady ready screen after the code was never confirmed');
-    assert.equal(s.status().state, 'done');
+    // CONTROL: the same footer, steady, after the setup: asked.
   } finally { s.resetForTests(); }
 });
 
+test('#3998 round 24 (reverses round 22): after a code, the code screen\'s words left above agy\'s ready line are the READY screen', async () => {
+  const s = require('./agysignin');
+  const CODE = 'Your browser should open automatically. If not:\n\nhttps://accounts.google.com/o/oauth2/auth?x=1\n\nPaste the authorization code:\n';
+  const st = scripted(s, CODE);
+  st.answer = { signedIn: true };
+  try {
+    const { id } = s.start();
+    s.tickForTests();
+    assert.equal(s.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v', id).ok, true);
+    st.screen = CODE + READY_LINE;   // a re-sign-in whose setup was done before: agy goes straight to ready
+    assert.equal(s.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v', id).ok, false, 'a second code went onto agy\'s ready prompt');
+    for (let i = 0; i < 3; i++) { st.t += 1000; s.tickForTests(); await settle(); if (s.status().state === 'done') break; }
+    assert.equal(s.status().state, 'done', 'a ready screen after the code was never confirmed');
+    assert.equal(st.sent.filter((k) => /4\/0A/.test(k)).length, 1, 'the code was typed more than once');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 24: a ready screen whose frame changes every tick (a spinner) is still confirmed', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'Choose your color scheme\n> terminal\n');
+  st.answer = { signedIn: true };
+  try {
+    s.start();
+    s.tickForTests();   // theme: Enter
+    const spin = ['|', '/', '-', '\\'];
+    for (let i = 0; i < 6; i++) {
+      st.screen = 'Loading ' + spin[i % 4] + '\n' + READY_LINE; st.t += 1000; s.tickForTests(); await settle();
+      if (s.status().state === 'done') break;
+    }
+    assert.equal(s.status().state, 'done', 'a spinner beside the ready line held the sign-in');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 24: after a ready screen could not be confirmed, the shown window is asked again (bounded)', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, READY_LINE);
+  st.answer = { signedIn: null };
+  s.setForTests({ openFile: (f, done) => done(null) });
+  try {
+    const { id } = s.start();
+    s.tickForTests(); await settle();
+    assert.equal(s.status().state, 'stuck', 'CONTROL: could not confirm');
+    assert.equal(st.checks, 1);
+    st.t += 1000; s.tickForTests(); await settle();
+    assert.equal(st.checks, 1, 'asked again before Show (only the person\'s window earns another ask)');
+    await s.show(id);
+    st.answer = { signedIn: true };
+    for (let i = 0; i < 30 && s.status().state !== 'done'; i++) { st.t += 1000; s.tickForTests(); await settle(); }
+    assert.equal(s.status().state, 'done', 'the panel said Kosmos notices, and it never did');
+    st.answer = { signedIn: null };
+    const st2 = scripted(s, READY_LINE);
+    s.setForTests({ openFile: (f, done) => done(null) });
+    const again = s.start();
+    s.tickForTests(); await settle();
+    await s.show(again.id);
+    for (let i = 0; i < 120; i++) { st2.t += 1000; s.tickForTests(); await settle(); }
+    assert.ok(st2.checks <= s.MAX_CHECKS, 'asked ' + st2.checks + ' times: each is a prompt on the person\'s subscription');
+  } finally { s.resetForTests(); }
+});
+
+
 /* ---- review round 23 --------------------------------------------------------------------- */
-test('#3998 round 23: a code pasted while the code screen shows agy\'s footer under it is taken, as the tick reads it', async () => {
+test('#3998 round 23: code() reads a frame as the tick does (round 24: the code screen with the ready line under it is ready, and takes no code)', async () => {
   const s = require('./agysignin');
   const CODE = 'Your browser should open automatically. If not:\n\nhttps://accounts.google.com/o/oauth2/auth?x=1\n\nPaste the authorization code:\n';
   const st = scripted(s, CODE);
   try {
     const { id } = s.start();
     s.tickForTests();
-    st.screen = CODE + READY_LINE; s.tickForTests();
-    assert.equal(s.status().state, 'code', 'CONTROL: the tick reads the frame as the code screen');
-    const r = s.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v', id);
-    assert.equal(r.ok, true, 'the code was refused on a frame the panel shows as waiting for it: ' + JSON.stringify(r));
-    // CONTROL: agy's ready screen on its own is never typed on.
-    const st2 = scripted(s, READY_LINE);
-    const again = s.start();
-    s.tickForTests();
-    assert.equal(s.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v', again.id).ok, false, 'a code was typed on the ready screen');
-    assert.deepEqual(st2.sent.filter((k) => /4\/0A/.test(k)), []);
+    assert.equal(s.status().state, 'code', 'CONTROL: the code screen alone is the code screen');
+    st.screen = CODE + READY_LINE;
+    st.t += 1000; s.tickForTests(); await settle();   // held one tick: the ready line must be steady
+    st.t += 1000; s.tickForTests(); await settle();
+    assert.notEqual(s.status().state, 'code', 'the tick read the ready screen as the code screen');
+    assert.equal(s.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v', id).ok, false, 'a code was typed on agy\'s ready prompt');
+    assert.deepEqual(st.sent.filter((k) => /4\/0A/.test(k)), []);
   } finally { s.resetForTests(); }
 });
