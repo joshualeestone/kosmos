@@ -819,15 +819,23 @@ const tasks = require('./engine/tasks');
 /* #1307: a project's webhooks (engine/webhooks.js). */
 const webhooks = require('./engine/webhooks');
 const HOOK_BODY_MAX = 16 * 1024;
-const HOOK_RATE = { perMinute: 30, seen: new Map() };
-/* At most 30 calls a minute per webhook, in memory: a leaked or looping URL cannot bury a project
-   in tasks. A restart forgets the counts, which only ever errs toward allowing. */
-function hookRateOk(id, now = Date.now()) {
+const HOOK_RATE = { perMinute: 30, perProjectHour: 120, seen: new Map(), byProject: new Map() };
+/* Two limits, in memory. Per webhook, 30 a minute, so one looping caller is slowed at once. Per
+   PROJECT, 120 an hour across all its webhooks, so neither a leaked link nor a project's twenty
+   webhooks together can add more than 120 tasks an hour (about 2,900 a day at the ceiling, where
+   the per-minute limit alone would allow 43,200 from one link). Keyed only on verified webhooks,
+   so wrong guesses grow nothing. A restart forgets the counts, which only ever errs toward
+   allowing. Answers null when allowed, or the refusal sentence. */
+function hookRateProblem(id, projectId, now = Date.now()) {
   const recent = (HOOK_RATE.seen.get(id) || []).filter((t) => now - t < 60000);
-  if (recent.length >= HOOK_RATE.perMinute) { HOOK_RATE.seen.set(id, recent); return false; }
-  recent.push(now);
+  const hour = (HOOK_RATE.byProject.get(projectId) || []).filter((t) => now - t < 3600000);
   HOOK_RATE.seen.set(id, recent);
-  return true;
+  HOOK_RATE.byProject.set(projectId, hour);
+  if (recent.length >= HOOK_RATE.perMinute) return 'this webhook was called too often; try again in a minute';
+  if (hour.length >= HOOK_RATE.perProjectHour) return 'this project has had ' + HOOK_RATE.perProjectHour + ' tasks from webhooks in the last hour; try again later';
+  recent.push(now);
+  hour.push(now);
+  return null;
 }
 const chat = require('./engine/chat');
 const messages = require('./engine/messages');
@@ -3368,7 +3376,9 @@ function gateLog(req) {
     // the gate is off by default -- but redacting one secret-bearing query value
     // and not the one beside it stops being harmless the moment the nonce's
     // lifetime or reusability changes, and nothing else recorded the omission.
-    const loggedUrl = String(req.url || '').replace(/([?&](?:token|boot)=)[^&]*/gi, '$1REDACTED');
+    // #1307: a webhook call carries its secret in the PATH (/hooks/<id>/<secret>), redacted too.
+    const loggedUrl = String(req.url || '').replace(/([?&](?:token|boot)=)[^&]*/gi, '$1REDACTED')
+      .replace(/^(\/hooks\/[^/?#]*\/)[^/?#]*/i, '$1REDACTED');
     fs.appendFileSync(GATE_LOG, `${new Date().toISOString()} ${req.method} ${loggedUrl} ${ua}\n`);
   } catch { /* the instrument never becomes the defect */ }
 }
@@ -15002,7 +15012,12 @@ const server = http.createServer((req, res) => {
     const hook = webhooks.verify(hookCall[1], hookCall[2]);
     const nope = () => sendJson(res, 404, { error: 'there is no webhook at this address' });
     if (!hook) { nope(); return; }
-    if (!hookRateOk(hook.id)) { sendJson(res, 429, { error: 'this webhook was called too often; try again in a minute' }); return; }
+    /* The project it was made on, not merely one with the same id (ids are reused). */
+    let owner = null;
+    try { owner = projects.get(hook.projectId); } catch { owner = null; }
+    if (!owner || (owner.createdAt || null) !== hook.projectMade) { nope(); return; }
+    const tooOften = hookRateProblem(hook.id, hook.projectId);
+    if (tooOften) { sendJson(res, 429, { error: tooOften }); return; }
     readBody(req, HOOK_BODY_MAX).then((buf) => {
       const text = buf.toString('utf8');
       let parsed;
@@ -15043,10 +15058,11 @@ const server = http.createServer((req, res) => {
     if (!project) { sendJson(res, 404, { error: 'no project by that name' }); return; }
     const fail = (err, fallback) => {
       const msg = String((err && err.message) || '');
-      sendJson(res, /no webhook by that id/.test(msg) ? 404 : (/busy|exclusive access|could not read/.test(msg) ? 503 : 400), { error: msg || fallback });
+      sendJson(res, /no webhook by that id/.test(msg) ? 404 : ((err && err.code === 'UNREADABLE') || /busy|exclusive access/.test(msg) ? 503 : 400), { error: msg || fallback });
     };
+    const made0 = project.createdAt || null;
     if (hookList && req.method === 'GET') {
-      try { sendJson(res, 200, { webhooks: webhooks.list(project.id) }); } catch (err) { fail(err, 'we could not read the webhooks'); }
+      try { sendJson(res, 200, { webhooks: webhooks.list(project.id, made0) }); } catch (err) { fail(err, 'we could not read the webhooks'); }
       return;
     }
     if (hookList && req.method === 'POST') {
@@ -15054,7 +15070,7 @@ const server = http.createServer((req, res) => {
         let body = {};
         try { body = JSON.parse(raw.toString('utf8') || '{}') || {}; } catch { body = {}; }
         let made;
-        try { made = webhooks.create(project.id, typeof body.name === 'string' ? body.name : undefined); } catch (err) { fail(err, 'we could not make a webhook'); return; }
+        try { made = webhooks.create(project.id, typeof body.name === 'string' ? body.name : undefined, made0); } catch (err) { fail(err, 'we could not make a webhook'); return; }
         const url = 'http://127.0.0.1:' + req.socket.localPort + '/hooks/' + made.hook.id + '/' + made.secret;
         sendJson(res, 201, { webhook: made.hook, url });
       }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
@@ -15064,12 +15080,12 @@ const server = http.createServer((req, res) => {
       readBody(req, 4096).then((raw) => {
         let body = {};
         try { body = JSON.parse(raw.toString('utf8') || '{}') || {}; } catch { body = {}; }
-        try { sendJson(res, 200, { webhook: webhooks.rename(project.id, hookOne[2], body.name) }); } catch (err) { fail(err, 'we could not rename that webhook'); }
+        try { sendJson(res, 200, { webhook: webhooks.rename(project.id, hookOne[2], body.name, made0) }); } catch (err) { fail(err, 'we could not rename that webhook'); }
       }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
       return;
     }
     if (hookOne && !hookOne[3] && req.method === 'DELETE') {
-      try { webhooks.remove(project.id, hookOne[2]); sendJson(res, 200, { ok: true }); } catch (err) { fail(err, 'we could not delete that webhook'); }
+      try { webhooks.remove(project.id, hookOne[2], made0); sendJson(res, 200, { ok: true }); } catch (err) { fail(err, 'we could not delete that webhook'); }
       return;
     }
     sendJson(res, 405, { error: 'that is not something this address does' });
@@ -16992,6 +17008,7 @@ module.exports = {
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
   federateOut, // #3311: what leaves this computer for a federated room, exported so the agent arm is tested
   swarmSweepDeps, // #3564: the limit sweep's wiring, exported so it is tested
+  HOOK_RATE, // #1307: the webhook limits, so a test reads the number it asserts
   markGuide, // #3739: the guide row's mark and title, for its tests
   guideCardFailing, resetGuideCardMemoForTests, // #3660: the fallback's reading of the guide card, for its tests
   keepAgentReply, guideMasked, guideMaskedRows, // #3769: the setup guide's words masked where they are stored, for its tests

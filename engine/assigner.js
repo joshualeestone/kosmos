@@ -97,6 +97,9 @@ function pick(session, projects, taken) {
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       if (typeof t.number !== 'number') continue;
       if (taken.has(p.id + '#' + t.number)) continue;
+      /* #1307: a task a webhook added waits for a person to give it out. Anyone holding the link
+         can write its words, so it is never typed into an agent's pane unseen. */
+      if (t.addedVia === 'webhook') continue;
       const prog = tasks.progressOf(t);
       if (prog.closed || tasks.whoOf(t).length) continue;
       const part = prog.parts.find((x) => !x.closedAt);

@@ -2318,6 +2318,9 @@ function remove(id) {
     throw err;
   }
   writeAll(all.filter((p) => p.id !== id));
+  // #1307: its webhooks go with it, so a new project that reuses this id does not inherit them.
+  // Best effort: each webhook also carries this project's createdAt, which still refuses them.
+  try { require('./webhooks').removeProject(id); } catch { /* the createdAt stamp still holds */ }
   return found;
 }
 

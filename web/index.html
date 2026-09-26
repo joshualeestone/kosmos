@@ -46367,7 +46367,10 @@ function paintProjectSettings(p) {
 /* ---- #1307: a project's webhooks ---------------------------------------------------------
    Listed, made, renamed and deleted through /api/project/:id/webhooks. The full link exists only
    in the make response, so PJS_HOOKS.reveal holds it (with its webhook id) until the person says
-   Done or leaves this project's settings; nothing else ever shows it again. */
+   Done or opens ANOTHER project's settings (reopening this project's settings still shows it, so a
+   link not yet copied is not lost to a stray click); nothing else ever shows it again.
+   Every change bumps PJS_HOOKS.gen, so a list read still in flight cannot land afterwards and
+   replace the list with one that lacks a just-made webhook (and with it the only copy of its link). */
 const PJS_HOOKS = { projectId: null, list: [], reveal: null, confirm: null, gen: 0 };
 function pjsHooksUrl(id) { return '/api/project/' + encodeURIComponent(PJS_HOOKS.projectId) + '/webhooks' + (id ? '/' + id : ''); }
 async function pjsHooksOpen(p) {
@@ -46432,6 +46435,7 @@ async function pjsHookAdd() {
   const msg = document.getElementById('pjs-hooks-msg');
   const btn = document.getElementById('pjs-hook-add');
   btn.disabled = true;
+  PJS_HOOKS.gen += 1;
   try {
     const out = await pjsHooksSend(pjsHooksUrl(), 'POST', {});
     PJS_HOOKS.reveal = { id: out.webhook.id, url: out.url };
@@ -46448,18 +46452,27 @@ async function pjsHookRename(id, name) {
   const msg = document.getElementById('pjs-hooks-msg');
   const h = PJS_HOOKS.list.find((x) => x.id === id);
   if (!h || name.trim() === h.name) return;
+  PJS_HOOKS.gen += 1;
   try {
     const out = await pjsHooksSend(pjsHooksUrl(id) + '/name', 'POST', { name });
     h.name = out.webhook.name;
     msg.textContent = 'Renamed. Its link has not changed.';
+    /* In place, not a repaint: a repaint would drop focus if the person has tabbed on, and throw
+       away anything half-typed in another row's name. */
+    const row = document.querySelector('[data-hook="' + CSS.escape(id) + '"]');
+    const input = row && row.querySelector('[data-hook-name]');
+    const del = row && row.querySelector('[data-hook-delete]');
+    if (input && document.activeElement !== input) input.value = h.name;
+    if (del) del.setAttribute('aria-label', 'Delete ' + h.name);
   } catch (e) {
     msg.textContent = asSentence(e.message);
+    pjsHooksPaint();
   }
-  pjsHooksPaint();
 }
 async function pjsHookDelete(id) {
   const msg = document.getElementById('pjs-hooks-msg');
   const h = PJS_HOOKS.list.find((x) => x.id === id);
+  PJS_HOOKS.gen += 1;
   try {
     await pjsHooksSend(pjsHooksUrl(id), 'DELETE');
     PJS_HOOKS.list = PJS_HOOKS.list.filter((x) => x.id !== id);
@@ -46479,7 +46492,7 @@ async function pjsHookCopy() {
   let ok = false;
   try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(input.value); ok = true; } } catch { ok = false; }
   if (!ok) { try { input.select(); ok = !!(document.execCommand && document.execCommand('copy')); } catch { ok = false; } }
-  if (said) said.textContent = ok ? 'Copied.' : 'Kosmos could not copy it. Select the link and press Command C.';
+  if (said) said.textContent = ok ? 'Copied.' : 'Kosmos could not copy it. Select the link and copy it yourself.';
 }
 document.getElementById('pjs-hook-add').addEventListener('click', pjsHookAdd);
 document.getElementById('pjs-hooks').addEventListener('click', (e) => {

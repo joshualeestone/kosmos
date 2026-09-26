@@ -40,7 +40,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server, boardAuthState } = require('./server');
+const { start, server, boardAuthState, HOOK_RATE } = require('./server');
 const projects = require('./engine/projects');
 const webhooks = require('./engine/webhooks');
 
@@ -128,9 +128,14 @@ test('a wrong secret and an unknown id answer the same 404, and add nothing', as
 
 test('the board-token exemption is ONLY the exact /hooks/<id>/<secret> shape', async () => {
   const made = await api(P(), { method: 'POST', body: { name: 'Shape' } });
-  for (const bad of [made.json.url + '/extra', made.json.url.slice(0, -1), base + '/hooks/abc/def', base + '/hooks/' + '0'.repeat(16)]) {
+  const [, id, secret] = made.json.url.match(/\/hooks\/([0-9a-f]{16})\/(.+)$/);
+  for (const bad of [made.json.url + '/extra', made.json.url + '/', made.json.url.slice(0, -1),
+    base + '/hooks/' + id.toUpperCase() + '/' + secret, base + '/hooks/abc/def', base + '/hooks/' + '0'.repeat(16)]) {
     assert.equal((await call(bad, { title: 'x' })).status, 403, bad);
   }
+  // A query string is not part of the path: the same link with one still works (control: the
+  // exemption is on the parsed pathname, so it can neither widen nor break on a query).
+  assert.equal((await call(made.json.url + '?from=zapier', { title: 'with a query' })).status, 201);
 });
 
 test('renaming keeps the URL; deleting revokes it at once', async () => {
@@ -159,4 +164,54 @@ test('past 30 calls a minute a webhook answers 429', async () => {
   let last;
   for (let i = 0; i < 31; i += 1) last = await call(made.json.url, { title: 'burst ' + i });
   assert.equal(last.status, 429);
+});
+
+test('a deleted project takes its webhooks with it; a new project reusing its id inherits none', async () => {
+  const old = projects.create({ name: 'Reused' });
+  const made = await api(`/api/project/${encodeURIComponent(old.id)}/webhooks`, { method: 'POST', body: {} });
+  assert.equal(made.status, 201);
+  projects.remove(old.id);
+  assert.equal(webhooks.list(old.id, old.createdAt).length, 0, 'removed with the project');
+  const again = projects.create({ name: 'Reused' });
+  assert.equal(again.id, old.id, 'fixture: the id really is reused');
+  assert.equal((await api(`/api/project/${encodeURIComponent(again.id)}/webhooks`)).json.webhooks.length, 0);
+  assert.equal((await call(made.json.url, { title: 'into the wrong project' })).status, 404);
+  assert.equal(projects.get(again.id).tasks.length, 0);
+});
+
+test('an orphan the clean-up missed still answers for nobody: the project stamp refuses it', async () => {
+  const old = projects.create({ name: 'Stamped' });
+  const made = await api(`/api/project/${encodeURIComponent(old.id)}/webhooks`, { method: 'POST', body: {} });
+  // Simulate the clean-up failing: remove the project record only, bypassing projects.remove.
+  const orig = webhooks.removeProject;
+  webhooks.removeProject = () => { throw new Error('simulated'); };
+  try { projects.remove(old.id); } finally { webhooks.removeProject = orig; }
+  const again = projects.create({ name: 'Stamped' });
+  assert.equal(again.id, old.id);
+  assert.equal((await api(`/api/project/${encodeURIComponent(again.id)}/webhooks`)).json.webhooks.length, 0, 'not listed on the new project');
+  assert.equal((await call(made.json.url, { title: 'orphan' })).status, 404);
+  assert.equal(projects.get(again.id).tasks.length, 0);
+});
+
+test('a project gets at most 120 webhook tasks an hour across all its webhooks', async () => {
+  const p = projects.create({ name: 'Hourly' });
+  const url = [];
+  for (let i = 0; i < 5; i += 1) url.push((await api(`/api/project/${encodeURIComponent(p.id)}/webhooks`, { method: 'POST', body: {} })).json.url);
+  let ok = 0; let last;
+  for (let i = 0; i < 125; i += 1) { last = await call(url[i % 5], { title: 'h' + i }); if (last.status === 201) ok += 1; }
+  assert.equal(ok, HOOK_RATE.perProjectHour);
+  assert.equal(last.status, 429);
+  assert.match(last.json.error, /last hour/);
+});
+
+test('a webhooks file that is not JSON: calls answer 404, the list answers 503, and making one moves it aside and works', async () => {
+  const file = path.join(require('./engine/store').ROOT, 'webhooks', 'webhooks.json');
+  const made = await api(P(), { method: 'POST', body: { name: 'Before' } });
+  fs.writeFileSync(file, '{broken');
+  assert.equal((await call(made.json.url, { title: 'x' })).status, 404);
+  assert.equal((await api(P())).status, 503);
+  const fresh = await api(P(), { method: 'POST', body: {} });
+  assert.equal(fresh.status, 201, JSON.stringify(fresh.json));
+  assert.ok(fs.readdirSync(path.dirname(file)).some((n) => n.startsWith('webhooks.json.unreadable-')), 'the bad file is kept aside, not deleted');
+  assert.equal((await call(fresh.json.url, { title: 'after recovery' })).status, 201);
 });
