@@ -2006,7 +2006,10 @@ function restartInner(name, cause, platform, startIfDead) {
        keeps today's clear there. */
     /* A START of a never-run or fully-dead agent is not a restart that did not come back: the route says what
        happened, and the card keeps its ordinary "not running". */
-    if (!(DRY_RUN && !runner)) { if (ops.win32 || fromDead) disruption.clear(clean); else disruption.fail(clean, diagnostics); }
+    /* And a launch file that is gone: restarting cannot help, so "restart it" would be wrong; the route says it has
+       to be created again. */
+    const cannotRestart = ops.startableGone(clean, job);
+    if (!(DRY_RUN && !runner)) { if (ops.win32 || fromDead || cannotRestart) disruption.clear(clean); else disruption.fail(clean, diagnostics); }
     /* A missing launch file cannot be bootstrapped at all (startNow returns true without ever
        trying), so "try again" is not actionable in that sub-case -- say what actually has to
        happen instead of sending the person into an indefinite retry that keeps no-opping. */

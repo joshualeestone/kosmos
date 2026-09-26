@@ -257,6 +257,6 @@ test('#4006 snapshot: a failed record clears as soon as the pane runs anything, 
   fleet.install([fleet.agent('backunknown', { state: 'unknown' })]);
   const card = status.snapshot().agents.find((a) => a.sessionName === 'backunknown');
   assert.equal(card.state, STATE.UNKNOWN);
-  assert.equal(disruption.read('backunknown').found, false, 'an agent that came back reading unknown kept its failed record');
+  assert.equal(disruption.read('backunknown').found, false, 'the failed record should clear once the agent is back (reading unknown with an agent process)');
 });
 
