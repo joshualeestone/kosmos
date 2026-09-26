@@ -83,6 +83,11 @@ message after the reset works (item 4 with no restart). The board read the quest
   and its manager got a false alarm. The error line is now matched on the raw row at the left edge, where Gemini
   prints its own; quoted in tool output or indented in an answer, it is not. The question-box reading is unchanged.
 
+- Review round 10 (Opus, traced the CLI's rendering): Gemini's own error line always starts at the left edge, so the
+  round 9 anchor misses no real limit. A test now presses on the 3-option question and requires "3" (a fixed "2" picks
+  Upgrade; perturbed red). Deferred: a bare RESOURCE_EXHAUSTED line can be a per-minute limit that clears itself; the
+  card then reads a limit until the next turn, in words that stay true (no reset time promised).
+
 ## Weakest premise
 - Matching Gemini's words on screen: a future CLI can reword them. The reading then falls back to today's behaviour
   (unknown/idle), and the sweep presses nothing, since it needs the question recognised.
