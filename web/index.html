@@ -59162,12 +59162,11 @@ function asbFold() {
   const bub = document.getElementById('asb');
   if (bub && !bub.hidden) bub.focus();
 }
-/* The first x asks once (Josh 18:02); after that it just closes, UNLESS the person opened the chat and did
-   nothing in it. #3034, Josh 2026-09-25 07:38 (#admin), verbatim: "If somebody clicks on the assistant agent and
-   doesn't type anything and then hits the X, we should show them the message to dismiss it permanently (because
-   that's probably what they're trying to look for at that point)". Nothing typed means nothing sent this opening
-   AND the box unchanged since it opened: somebody who wrote a question and then closed was using it, not hunting
-   for the way to get rid of it, while a draft left from an earlier visit is not typing now (review round 1). */
+/* The first x asks once (Josh 18:02). After that, an opening where nothing was typed is counted, and the second
+   offers to hide the guide for good (#3947, in asbX; it replaced #3034's 09-25 rule of asking on every such close).
+   Nothing typed means nothing sent this opening AND the box unchanged since it opened: somebody who wrote a question
+   and then closed was using it, not hunting for the way to get rid of it, while a draft left from an earlier visit
+   is not typing now (review round 1). */
 const ASB_SAVE_FAILED = 'We could not save that just now. Try again in a moment.';
 /* Trimmed both sides (review round 2): a stray space is not typing, while a half-written word still is. */
 function asbDidNothing() {
@@ -59204,16 +59203,22 @@ async function asbHideChoice(hide) {
   asbPaintSetting();
   if (hide) asbFocusPage();
 }
-async function asbSaveSetting(patch) {
-  /* #3947: saves can overlap (an idle close's count, then a send's reset). Only the answer to the latest one
-     replaces the page's copy, so a slow earlier answer cannot put back a count the person already reset. */
-  const seq = ASB.saveSeq = (ASB.saveSeq || 0) + 1;
-  try {
-    const r = await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ setupAssistant: patch }) });
-    const body = await r.json();
-    if (r.ok && body && body.setupAssistant) { if (seq === ASB.saveSeq) ASB.setting = body.setupAssistant; return true; }
-  } catch { /* said below */ }
-  return false;
+/* #3947: the page's saves go one at a time, in the order they were made (an idle close's count, then a send's
+   reset). Each patch sets absolute values, so the order they reach the board decides what it keeps; in order, the
+   board and the page end on the same value, and every answer is applied. */
+let ASB_SAVES = Promise.resolve();
+function asbSaveSetting(patch) {
+  const run = async () => {
+    try {
+      const r = await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ setupAssistant: patch }) });
+      const body = await r.json();
+      if (r.ok && body && body.setupAssistant) { ASB.setting = body.setupAssistant; return true; }
+    } catch { /* said below */ }
+    return false;
+  };
+  const done = ASB_SAVES.then(run);
+  ASB_SAVES = done;   // run never rejects, so the queue never stalls
+  return done;
 }
 async function asbCloseChoice(forGood) {
   /* #3947: a first X on an opening where nothing was sent is also the first of the two that lead to the offer. */
