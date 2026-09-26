@@ -1,3 +1,4 @@
+// Browser-check-surface: fr-gemini-getkey fr-grok-getkey
 'use strict';
 /**
  * kosmos#3658 (Josh, 2026-09-24 17:46), rebuilt for #3731 (Josh, 2026-09-25, testing 0.6.94):

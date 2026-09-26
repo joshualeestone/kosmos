@@ -90,7 +90,7 @@ function check(name, pass, detail) {
       seen.hasT ? (seen.copy || '').slice(0, 64) + '…' : 'no identified copy element exists');
     check(`${engine}: there is a Get-a-key button to platform.openai.com`,
       seen.hasGet && seen.getText === 'Get a key' && /^https:\/\/platform\.openai\.com\//.test(seen.href || '')
-        && (!seen.want || seen.href === seen.want),
+        && !!seen.want && seen.href === seen.want,
       `"${seen.getText}" -> ${seen.href}`);
     check(`${engine}: it all sits in a bounding box, like the prior step`,
       seen.boxed, `border ${seen.border}, background ${seen.bg}`);

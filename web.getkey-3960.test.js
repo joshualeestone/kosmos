@@ -63,7 +63,7 @@ test('#3960: every API-key box has a Get a key link beside it', () => {
     assert.ok(container(b), 'CONTROL: ' + box + ' sits inside a named step');
     const tag = PAGE.slice(PAGE.lastIndexOf('<a', l), PAGE.indexOf('>', l) + 1);
     assert.match(tag, /target="_blank"/, link + ' must open in the browser');
-    assert.match(tag, /rel="noopener"/, link + ' must not hand the page to the opened tab');
+    assert.match(tag, /rel="noreferrer noopener"/, link + ' must not hand the page, or its address, to the opened tab');
     if (provider) assert.match(tag, new RegExp('data-keypage="' + provider + '"'), link + ' reads the wrong table row');
     else assert.doesNotMatch(tag, /data-keypage=/, 'the shared box\'s link is set per provider, not fixed');
   }
@@ -77,9 +77,10 @@ test('#3960: no key-page address is written anywhere but the table', () => {
   assert.ok(at > 0 && tableEnd > at, 'the table moved; re-anchor');
   const outside = PAGE.slice(0, at) + PAGE.slice(tableEnd);
   // Every provider's key-page domain, not only today's exact URLs, so an old hard-coded link cannot
-  // hide (OpenAI's other pages live on platform.openai.com too, so that one is a key-page PATH).
+  // hide. Key-page PATHS where the domain has other legitimate pages (OpenAI's billing, Claude's
+  // console), so a future link to those is not mistaken for a stray key link.
   for (const needle of [...Object.values(KEY_PAGES), 'aistudio.google.com', 'console.x.ai', 'platform.openai.com/api-keys',
-    'platform.openai.com/settings', 'console.anthropic.com', 'platform.claude.com']) {
+    'console.anthropic.com/settings/keys', 'platform.claude.com/settings/keys']) {
     assert.equal(outside.includes(needle), false, needle + ' is written outside the table');
   }
   // CONTROL: the scan reads the page (the table itself does hold them).
