@@ -24617,7 +24617,7 @@ function keyPageLink(el, provider) {
   el.hidden = !url;
   el.setAttribute('href', url || '#');
   const said = el.querySelector && el.querySelector('.vh');
-  if (said && url) said.textContent = ' (opens ' + KEY_PAGE_WHO[provider] + '\u2019s key page in your browser)';
+  if (said) said.textContent = url ? ' (opens ' + KEY_PAGE_WHO[provider] + '\u2019s key page in your browser)' : ' (opens the key page in your browser)';
 }
 document.querySelectorAll('[data-keypage]').forEach((el) => keyPageLink(el, el.dataset.keypage));
 /* #2338: the picker's two choices. */

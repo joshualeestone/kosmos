@@ -15,11 +15,13 @@ function keyPages() {
   const end = PAGE.indexOf("document.querySelectorAll('[data-keypage]')", at);
   assert.ok(at > 0 && end > at, 'the key-page table moved; re-anchor');
   // eslint-disable-next-line no-new-func
-  return new Function(PAGE.slice(at, end) + '\nreturn { KEY_PAGES, keyPageLink };')();
+  return new Function(PAGE.slice(at, end) + '\nreturn { KEY_PAGES, KEY_PAGE_WHO, keyPageLink };')();
 }
 
 test('#3960: the table names a key page for each provider that takes an API key, all https', () => {
-  const { KEY_PAGES } = keyPages();
+  const { KEY_PAGES, KEY_PAGE_WHO } = keyPages();
+  // The screen-reader names are read beside the addresses: the two must name the same providers.
+  assert.deepEqual(Object.keys(KEY_PAGE_WHO).sort(), Object.keys(KEY_PAGES).sort(), 'a provider has an address but no name for screen readers, or the reverse');
   assert.deepEqual(Object.keys(KEY_PAGES).sort(), ['claude', 'google', 'openai', 'xai']);
   for (const [provider, url] of Object.entries(KEY_PAGES)) {
     assert.match(url, /^https:\/\/[a-z0-9.-]+\/\S+$/, provider + ': ' + url);
@@ -69,7 +71,7 @@ test('#3960: every API-key box has a Get a key link beside it', () => {
   }
 });
 
-test('#3960: no key-page address is written anywhere but the table', () => {
+test('#3960: no key-page address is written anywhere else in the page', () => {
   const { KEY_PAGES } = keyPages();
   // The table's region starts at its own comment (which names addresses too) and ends with it.
   const at = PAGE.indexOf('/* #3960 (Josh, 2026-09-26');

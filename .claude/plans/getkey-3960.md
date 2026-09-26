@@ -26,9 +26,13 @@ Every place Kosmos asks for a provider's API key (Settings > AI Models > Add a p
 ## Review round 3
 - render-firstrun-keyed-connect-3658's surface header names fr-gemini-getkey and fr-grok-getkey; the render-openai-key-step README row says what it now checks.
 - render-openai-key-step requires the table address (no silent pass when KEY_PAGES is unreadable); the Grok arm also checks the screen-reader text says xAI.
-- The six links use rel="noreferrer noopener", like the page's other outward links (the board's address is not sent to the provider).
+- The six links use rel="noreferrer noopener" (the board's address is not sent to the provider), as the page's external-site links do (plus-site-link, newsbar-link); the dialog's two older neighbours still use noopener only.
 - The outside-the-table scan uses key-page paths where the domain has other legitimate pages.
 
 ## Review round 4
 - render-accounts-openai carries a Browser-check-surface header naming acct-openai-getkey and acct-apikey-getkey, so a future change to those links is tied to the check that pins the shared box's switch.
 - Recorded, not changed: render-accounts-openai and render-openai-key-step are not in gated.txt, so CI does not run them; both were run locally (the first passes via tools/browser-checks.sh; the second needs a board URL and is fixed by reading).
+
+## Review round 5
+- A test pins that KEY_PAGE_WHO and KEY_PAGES name the same providers (a new provider added to one only would have read "opens undefined's key page").
+- keyPageLink resets the screen-reader text when it hides a link; the outside-the-table test is named for what it scans (the page).
