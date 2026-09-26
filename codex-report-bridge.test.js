@@ -39,7 +39,7 @@ const BRIDGE = nodePath.join(__dirname, 'bin', 'codex-report-bridge.js');
  * sufficient barrier: when it returns, a delivered report is already in `seen`
  * and an ignored event (the early-return path, no fetch) left it empty. No
  * timer, no race. */
-function drive(eventJson, env = {}) {
+function drive(eventJson, env = {}, bridge = BRIDGE) {
   return new Promise((resolve, reject) => {
     const seen = [];
     const server = http.createServer((req, res) => {
@@ -53,7 +53,7 @@ function drive(eventJson, env = {}) {
     });
     server.listen(0, '127.0.0.1', () => {
       const port = server.address().port;
-      execFileAsync(process.execPath, [BRIDGE, eventJson], {
+      execFileAsync(process.execPath, [bridge, eventJson], {
         env: { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%77', ...env },
       }).then(
         // The bridge's cardinal rule is to exit 0 no matter what, so a non-zero
@@ -211,5 +211,38 @@ test('#1704: the bridge names this agent\'s Kosmos, and says default when KOSMOS
     assert.equal(plain[0].headers[WORLD_HEADER], 'default');
   } finally {
     fsB.rmSync(data, { recursive: true, force: true });
+  }
+});
+
+/* #4023 (the codex sibling of #4012): the bridge a codex agent RUNS is the copy installSupervisor
+   puts in <supportDir>/bin, and that folder has no engine/ beside it, so `require('../engine/...')`
+   failed there and neither the board token nor the world header was ever sent (measured on
+   Windows). It now finds the engine through the `engine-path` pointer installSupervisor writes
+   beside it. */
+test('#4023: the supportDir COPY finds the engine through engine-path and presents the board token and world header', async () => {
+  const { WORLD_HEADER } = require('./engine/launchidentity');
+  const sup = fsB.mkdtempSync(nodePath.join(osB.tmpdir(), 'aw-4023-codex-sup-'));
+  try {
+    const bin = nodePath.join(sup, 'bin');
+    fsB.mkdirSync(bin, { recursive: true });
+    const copy = nodePath.join(bin, 'codex-report-bridge.js');
+    fsB.copyFileSync(BRIDGE, copy);
+    const root = nodePath.join(sup, 'data', store.APP);
+    fsB.mkdirSync(root, { recursive: true });
+    fsB.writeFileSync(nodePath.join(root, 'board.token'), 'abc123boardtoken');
+    const env = { AGENT_WORKFORCE_DATA: nodePath.join(sup, 'data'), KOSMOS_WORLD: 'test' };
+
+    // No pointer yet: the report still goes, just without the two headers (the old behaviour).
+    const bare = await drive(TURN, env, copy);
+    assert.equal(bare.length, 1, 'a bridge with no engine still reports');
+    assert.equal(bare[0].headers['x-kosmos-board-token'], undefined);
+
+    fsB.writeFileSync(nodePath.join(bin, 'engine-path'), nodePath.join(__dirname, 'engine') + '\n');
+    const seen = await drive(TURN, env, copy);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].headers['x-kosmos-board-token'], 'abc123boardtoken', 'the supportDir copy did not present the board token');
+    assert.equal(seen[0].headers[WORLD_HEADER], 'test', 'the supportDir copy did not name its Kosmos');
+  } finally {
+    fsB.rmSync(sup, { recursive: true, force: true });
   }
 });
