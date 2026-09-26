@@ -17,7 +17,12 @@
  *   - the page is no wider than the screen;
  *   - the header is no taller than the same page with the old sizes put back (the grown
  *     boxes are cancelled by negative margins, so the row keeps its height);
- *   - at desktop width (1280) every control keeps its old size.
+ *   - at the rule's edge the phone sizes apply at 640px and the old ones hold at 641px;
+ *   - at desktop width (1280) every control shows and keeps its old size.
+ * The header arm has teeth only beside the size arms: were the phone rule never to apply,
+ * the two heights would be equal and it would pass.
+ * isMobile is set for Chromium only, so WebKit runs as a touch-enabled desktop viewport
+ * at phone size, not a mobile one.
  *
  * Controls, measured (Chromium and WebKit, all four sizes): on main's page every size arm
  * reds (the mark 34x34, the switcher and You 32 tall, the menu 40x40, the toggles 38x30, the
@@ -25,6 +30,7 @@
  * makes 44px tall on a phone (the Talk section's own rule); the other arms stay green there.
  * Without the negative margins the header arm reds (99px against 83 at 375, 87 at the rest).
  * With the projects toggle slid 120px left onto the sort, the projects overlap arm reds.
+ * With the rule at 41rem instead of 40rem, the 641px edge arm reds (mark 44x44).
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -199,6 +205,20 @@ async function home(page, url) {
             else chk(b.w >= 44 && b.h >= 44, `${tag} ${name} is at least 44x44`, `${b.w}x${b.h}`);
           }
           chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));
+          await ctx.close();
+        }
+        // The edge of the rule (max-width: 40rem = 640px): the phone sizes at 640, the old ones at
+        // 641. A 1280 run alone cannot tell a 40rem breakpoint from a 60rem one.
+        for (const [w, phone] of [[640, true], [641, false]]) {
+          const tag = `[${engine} ${w}x900]`;
+          const ctx = await browser.newContext({ viewport: { width: w, height: 900 } });
+          const page = await ctx.newPage();
+          await home(page, URL);
+          const [mark, grid] = await measure(page, [HOME[0], HOME[4]]);
+          const ok = phone ? (mark.w >= 44 && mark.h >= 44 && grid.w >= 44 && grid.h >= 44)
+            : (mark.w === 34 && mark.h === 34 && grid.w === 38 && grid.h === 30);
+          chk(!mark.missing && !grid.missing && ok, `${tag} ${phone ? 'the phone sizes apply' : 'the old sizes hold'} at the rule's edge`,
+            `mark ${mark.w}x${mark.h}, grid toggle ${grid.w}x${grid.h}`);
           await ctx.close();
         }
         // Desktop: the phone rules must not reach it.

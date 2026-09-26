@@ -2004,17 +2004,12 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 .vt svg { display: block; }
 .vt + .vt { border-left: 0.5px solid var(--separator); }
 .vt:hover { color: var(--label); }
-/* 📱 #718 row 5: THE FRAME'S CONTROLS ARE THUMB-SIZE ON A PHONE (44x44, the tap floor
-   Settings (#3807) and the org chart use). Measured at 375px before: the K mark 34x34,
-   the Kosmos switcher and You 32px tall, the menu 40x40, the layout toggles 38x30, the
-   "← All agents" link 70x15 (every .back link: the agent, create and Files pages and the
-   project pages; each grows to a 44px row, which moves what is under it down by ~29px).
-   Portrait phone width only, so desktop is untouched; a phone turned sideways gets the
-   desktop frame (see the plan's Rejected list).
-   The mark, the switcher, You and the menu grow their BOX with a matching negative
-   margin, so the header row keeps its height and nothing beside them moves; the
-   toggles sit inside a bordered group that clips, so they simply grow (the projects list's
-   grid / roadmap toggle is the same .vt and grows with them; the check measures it there). */
+/* 📱 #718 row 5: THE FRAME'S CONTROLS ARE THUMB-SIZE ON A PHONE: every one at least 44x44,
+   the tap floor Settings (#3807) and the org chart use. Portrait phone width only.
+   The mark, the switcher, You and the menu carry a negative margin equal to their growth, so the
+   header row keeps its height (the switcher's border and the menu's fill do draw larger: that is
+   intended). The toggles, including the projects list's (the same .vt), and every .back link
+   simply grow. render-frame-phone-718.js measures all of it. */
 @media (max-width: 40rem) {
   .klink { padding: 5px; margin: -5px; }
   .worldsw-btn, .userpop-btn { height: 44px; margin-block: -6px; }
@@ -9371,8 +9366,8 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      - Files is not shown here, to keep the first screen for the conversation (it stays on the
        other sections);
      - the page is exactly the visible screen and the thread scrolls inside it, so the composer sits
-       at the bottom, padded by Raiden's shared --safe-bottom once his frame change defines it (the 0px
-       fallback applies until then, and it is 0 anyway today: the board does not opt into
+       at the bottom, padded by the shared --safe-bottom (defined on :root beside
+       the frame's phone rules; it is 0 today because the board does not opt into
        viewport-fit=cover, per Johnny's ruling). The height is --kosmos-visible-height when the script below has set it (the
        visual viewport, which shrinks when the on-screen keyboard opens), else 100dvh.
    Other sections, tablets (40rem to 56rem) and desktop keep their layout.
