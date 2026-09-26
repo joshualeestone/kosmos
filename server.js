@@ -1707,7 +1707,8 @@ function taskMsgCapFrom(raw) {
 let TASK_MSG_CAP_PER_HOUR = taskMsgCapFrom(process.env.AGENT_WORKFORCE_TASK_MSG_CAP);
 // Test-only: set the cap for a test and restore it (no argument restores the environment's value).
 function setTaskMsgCapForTests(n) {
-  TASK_MSG_CAP_PER_HOUR = n === undefined ? taskMsgCapFrom(process.env.AGENT_WORKFORCE_TASK_MSG_CAP) : n;
+  // Read like an operator's value, so a test cannot reach a cap production could never hold.
+  TASK_MSG_CAP_PER_HOUR = taskMsgCapFrom(n === undefined ? process.env.AGENT_WORKFORCE_TASK_MSG_CAP : n);
 }
 const TASK_MSG_WINDOW_MS = AGENT_RUNAWAY_WINDOW_MS; // the breaker's own window
 let taskMessageSends = [];

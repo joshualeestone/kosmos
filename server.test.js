@@ -14188,8 +14188,8 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
 
 /* #3959 review round 4: once the shared paging allowance is spent, EVERY agent-made
    assignment route says the assignee was not told, not only task create. Twelve task
-   assignments spend it (tasks are no longer capped at twelve), so the part routes are
-   still open (their own valve counts parts, not tasks) and must answer could_not. */
+   assignments spend it (tasks are no longer capped at twelve); the part routes stay open
+   because their own valve is the 500-an-hour breaker, and must answer could_not. */
 test('#3959: with the paging allowance spent by tasks, part add and part reassign say the assignee was not told', async () => {
   const chatEngine = require('./engine/chat');
   const projectsEngine3959 = require('./engine/projects');
@@ -14214,12 +14214,9 @@ test('#3959: with the paging allowance spent by tasks, part add and part reassig
       if ((JSON.parse(r.body).heard || {}).state === 'placed') placed += 1;
     }
     assert.equal(placed, 12, 'PRECONDITION: twelve task assignments were typed, spending the allowance');
-    /* An assigned agent task also counts as a part write, so the parts valve (#803, also 12)
-       is spent too. Age those writes past the hour to reopen it; the paging allowance is
-       in memory and does not age with them, so it stays spent. */
-    // The valve counts across ALL projects, and earlier tests in this file made parts too.
-    for (const q of projectsEngine3959.readAll()) require('./engine/tasks').agePartWritesForTests(q.id, 3700);
-    assert.equal(require('./engine/tasks').partValve().refused, false, 'PRECONDITION: the parts valve is open again');
+    // The parts valve (the 500-an-hour breaker) is nowhere near its limit, so the part routes
+    // below are refused only if this change is wrong, never by that valve.
+    assert.equal(require('./engine/tasks').partValve().refused, false, 'PRECONDITION: the parts valve is open');
     const before = sends.length;
     // Add a part with an assignee: it lands, nobody is typed to, and the answer says so.
     const rAdd = await api('/task/1/parts', { sentence: 'Buy bread', who: 'theo' });

@@ -47,6 +47,16 @@ IN the error text, because both CLIs print only the error (Homer checked).
   objected to. Named on the card.
 - **The pane-nudge allowance** (`HEARD_BUDGET_MAX = 12`): kosmos#3961, with a recommendation.
 - **The community-feed valves**: a different feature and a per-agent design (#3485).
+- **Task messages reach every assignee's screen** (review round 3). Each accepted message is
+  typed to every assignee on the task, and the 12-an-hour nudge allowance does not cover
+  messages. So raising the message cap from 30 to 500 also raises what one looping agent can type
+  into others' screens: on a task with four assignees, about 2,000 lines an hour instead of 120.
+  DECIDED, not a side effect: Josh ruled no working limit on agents, and 500 an hour still stops a
+  loop within minutes. Counting DELIVERIES instead of messages would be the tighter design; it is
+  named on #3959 as the thing to do if a real run floods a screen.
+- **The membership valve's wait** is still worked out from the OLDEST change, the bug this branch
+  fixes for parts (right only at exactly the limit, too short after an overshoot). Out of scope with
+  the valve itself; named on #3959 so it can move onto runawayRefusal later.
 
 ## Tests
 

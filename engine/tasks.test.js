@@ -515,26 +515,26 @@ test('the valve counts process adds and moves across projects, says the number a
   assert.ok(before < 10, 'earlier tests left ' + before + ' process writes live; this test needs room');
   tasks.setPartsLimitForTests(12);   // #3959: production is 500; the valve's behaviour is tested at twelve
   try {
-  for (let i = 0; i < 2; i += 1) tasks.addPart(p2.id, t2.number, { sentence: 'q' + i, made: { via: 'process' } });
-  for (let i = 0; i < 3; i += 1) tasks.addPart(p2.id, t2.number, { sentence: 's' + i });   // the screen: never counted
-  assert.equal(tasks.processPartWrites().count, before + 2, 'the screen was counted, or a project was not');
-  while (tasks.processPartWrites().count < 12 - 1) tasks.addPart(p1.id, t1.number, { sentence: 'p' + tasks.processPartWrites().count, made: { via: 'process' } });
-  assert.equal(tasks.partValve().refused, false, 'refused under the cap');
-  const parts = tasks.partsOf(tasks.byNumber(projects.readAll().find((x) => x.id === p1.id), t1.number));
-  const m = tasks.assignPart(p1.id, t1.number, parts[parts.length - 1].id, 'april', { via: 'process' });
-  assert.equal(m.changed, true);
-  assert.equal(tasks.processPartWrites().count, 12, 'the move was not counted');
-  const v = tasks.partValve();
-  assert.equal(v.refused, true, 'twelve in the hour did not close the valve');
-  assert.match(v.because, /agents have made \d+ part changes in the last hour/);
-  assert.match(v.because, /at or over the limit of 12 an hour shared by all agents together/, 'the refusal does not name the limit, or that it is shared');
-  assert.match(v.because, /Agents can make part changes again in about \d+ minutes?;/, 'the refusal does not say when it lifts');
-  assert.match(v.because, /from the screen/, 'the refusal does not tell the person their own path is open');
-  assert.ok(v.retryAfterSecs > 0 && v.retryAfterSecs <= 3600, String(v.retryAfterSecs));
-  // Age p1's writes past the hour; p2's two adds and the earlier books remain, so the valve opens.
-  tasks.agePartWritesForTests(p1.id, 3601);
-  assert.equal(tasks.processPartWrites().count, before + 2);
-  assert.equal(tasks.partValve().refused, false, 'the valve stayed shut after its writes aged out');
+    for (let i = 0; i < 2; i += 1) tasks.addPart(p2.id, t2.number, { sentence: 'q' + i, made: { via: 'process' } });
+    for (let i = 0; i < 3; i += 1) tasks.addPart(p2.id, t2.number, { sentence: 's' + i });   // the screen: never counted
+    assert.equal(tasks.processPartWrites().count, before + 2, 'the screen was counted, or a project was not');
+    while (tasks.processPartWrites().count < 12 - 1) tasks.addPart(p1.id, t1.number, { sentence: 'p' + tasks.processPartWrites().count, made: { via: 'process' } });
+    assert.equal(tasks.partValve().refused, false, 'refused under the cap');
+    const parts = tasks.partsOf(tasks.byNumber(projects.readAll().find((x) => x.id === p1.id), t1.number));
+    const m = tasks.assignPart(p1.id, t1.number, parts[parts.length - 1].id, 'april', { via: 'process' });
+    assert.equal(m.changed, true);
+    assert.equal(tasks.processPartWrites().count, 12, 'the move was not counted');
+    const v = tasks.partValve();
+    assert.equal(v.refused, true, 'twelve in the hour did not close the valve');
+    assert.match(v.because, /agents have made \d+ part changes in the last hour/);
+    assert.match(v.because, /at or over the limit of 12 an hour shared by all agents together/, 'the refusal does not name the limit, or that it is shared');
+    assert.match(v.because, /Agents can make part changes again in about \d+ minutes?;/, 'the refusal does not say when it lifts');
+    assert.match(v.because, /from the screen/, 'the refusal does not tell the person their own path is open');
+    assert.ok(v.retryAfterSecs > 0 && v.retryAfterSecs <= 3600, String(v.retryAfterSecs));
+    // Age p1's writes past the hour; p2's two adds and the earlier books remain, so the valve opens.
+    tasks.agePartWritesForTests(p1.id, 3601);
+    assert.equal(tasks.processPartWrites().count, before + 2);
+    assert.equal(tasks.partValve().refused, false, 'the valve stayed shut after its writes aged out');
   } finally { tasks.setPartsLimitForTests(); }
 });
 
