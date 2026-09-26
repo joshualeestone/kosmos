@@ -668,6 +668,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    drop to its own line and wrap there rather than overrun the identity. */
 .acct-box-top > .acct-connected,
 .acct-box-top > .acct-none,
+.acct-box-top > .acct-unverified,
 .acct-box-top > .acct-unknown { margin-left: auto; max-width: 100%; white-space: normal; }
 .acct-who b { font-weight: 650; display: block; }
 .acct-org, .acct-keytail { display: block; color: var(--label-2); font-size: .8125rem; }
@@ -715,8 +716,16 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    file's other danger states); .acct-unknown is deliberately muted, not red --
    "we could not check" must never look as alarming as a confirmed problem. */
 .acct-none { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
+  font-weight: 600; color: var(--danger); white-space: nowrap; }
+.acct-none .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); flex: 0 0 8px; }
+/* #3997 (Josh, 2026-09-26: "only some of these that are signed in are actually green"): ONE vocabulary across every
+   provider. Green (.acct-connected) = confirmed working. AMBER (.acct-unverified) = signed in, not confirmed yet,
+   with Check now beside it. Red (.acct-none) = signed out, or a request was rejected. Muted grey (.acct-unknown) is
+   left only for "we could not check at all". The pill stays a short "Signed in" (Josh 6.68, #3136); the reason is
+   in its title. */
+.acct-unverified { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
   font-weight: 600; color: var(--warn-ink); white-space: nowrap; }
-.acct-none .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn-ink); flex: 0 0 8px; }
+.acct-unverified .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn-ink); flex: 0 0 8px; }
 .acct-unknown { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
   font-weight: 600; color: var(--label-2); white-space: nowrap; }
 .acct-unknown .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--label-2); flex: 0 0 8px; }
@@ -21915,7 +21924,8 @@ function accountGroupsHtml(list, rowHtml) {
 let acctSayTimer = null;
 function acctCancelSay() { if (acctSayTimer) { clearTimeout(acctSayTimer); acctSayTimer = null; } }
 
-async function paintAccounts() {
+async function paintAccounts(opts) {
+  const followUp = !!(opts && opts.followUp);
   const box = document.getElementById('set-accounts');
   const msg = document.getElementById('set-accounts-msg');
   /* A repaint is itself a writer to that line ("Checking your accounts..."), so
@@ -21935,7 +21945,8 @@ async function paintAccounts() {
      able to paint stale data over fresh -- unlikely when this was an
      instant stat, a real risk now. */
   const mine = ++ACCT_EPOCH;
-  box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">Checking…</p>';
+  /* #3997: the follow-up read (below) repaints in place, without the placeholder flash. */
+  if (!followUp) box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">Checking…</p>';
   // ⚠️ THE ANNOUNCEMENT GOES THROUGH #set-accounts-msg (already
   // role="status"), NOT the list box itself. Making the whole account
   // list a live region would read out every account row on every
@@ -21943,7 +21954,7 @@ async function paintAccounts() {
   // announcing state changes politely. Caught in challenge-loop
   // iteration 6: this box went from an effectively-instant paint to a
   // real, multi-second one and had no announcement for that span at all.
-  if (msg) msg.textContent = 'Checking your accounts…';
+  if (msg && !followUp) msg.textContent = 'Checking your accounts…';
   let list = [];
   try {
     const res = await fetch('/api/accounts', { cache: 'no-store' });
@@ -21969,6 +21980,11 @@ async function paintAccounts() {
     return;
   }
   accountsRead(list);
+  /* #3997: a ChatGPT sign-in whose free check was only just started reads once more, a few seconds on, so it turns
+     green (or says what is wrong) without the person doing anything. Once: a follow-up never schedules another. */
+  if (!followUp && list.some((a) => a && a.connection && a.connection.liveCheckPending)) {
+    setTimeout(() => { if (mine === ACCT_EPOCH) paintAccounts({ followUp: true }); }, 3500);
+  }
   acctCancelSay();  /* post-await writer, same reason as the catch above */
   if (msg) msg.textContent = '';
   /* 🔑 GROUPED BY PROVIDER (kosmos#1393). Josh, twice on 2026-08-28: the Claude
@@ -21994,6 +22010,10 @@ async function paintAccounts() {
        holds a sign-in, not a key, and its titles say so. */
     const keyRoute = ACCT_KEYED_ROUTE[acctProvider(a)] || '';
     const isKeyed = !!keyRoute;
+    /* #3997: a ChatGPT sign-in and a Grok subscription each have a FREE live check, so they get Check now too. */
+    const signInCheck = isOpenai && a.authMode === 'chatgpt' ? 'openai'
+      : (acctProvider(a) === 'xai' && a.authMode === 'subscription') ? 'grok' : '';
+    const canCheckSignIn = !!signInCheck;
     /* #2095: the human-chosen name is the primary label (was key-last-4-only). */
     const who = esc(acctPrimaryName(a));
     const org = a.organization && a.organization !== a.email
@@ -22135,14 +22155,16 @@ async function paintAccounts() {
     // (added with #3145's on-demand probe). Still #874-safe: the dot stays muted, not green --
     // we are NOT claiming the sign-in works, only that it exists and can be verified on demand.
     const unverifiedWhy = 'This account is signed in. We have not seen a request on it succeed recently, so we are not confirming it live here. '
-      + (isKeyed ? 'It confirms itself the next time an agent on it runs.' : 'Use Check now to verify it, or it confirms itself the next time an agent on it runs.');
+      + ((isKeyed && !canCheckSignIn) ? 'It confirms itself the next time an agent on it runs.' : 'Use Check now to verify it, or it confirms itself the next time an agent on it runs.');
+    /* #3997: a Grok subscription's own reason (for example, its key expired and Grok renews it on its next run). */
+    const unverifiedTitle = (acctProvider(a) === 'xai' && a.connection && a.connection.because) ? a.connection.because + '. ' + 'Use Check now to verify it.' : null;
     let connBadge;
     if (badge === 'working') {
       connBadge = '<span class="acct-connected" title="' + esc(workingWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in' + (ageStr ? ' · active ' + esc(ageStr) : '') + '</span>';
     } else if (badge === 'rejected') {
       connBadge = '<span class="acct-none" title="' + esc(rejectedWhy) + '"><span class="dot" aria-hidden="true"></span>Not connected' + (ageStr ? ' · rejected ' + esc(ageStr) : '') + '</span>';
     } else if (badge === 'signed_in_unverified') {
-      connBadge = '<span class="acct-unknown" title="' + esc(unverifiedWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in</span>';
+      connBadge = '<span class="acct-unverified" title="' + esc(unverifiedTitle || unverifiedWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in</span>';
     } else if (badge === 'signed_out') {
       connBadge = '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(noneWhy) + '</span>';
     } else if (badge === 'unchecked') {
@@ -22163,7 +22185,17 @@ async function paintAccounts() {
          rule the #1921 badge vocabulary already uses, so the pill states what it knows without
          the whole reason living in the visible span. This is the "auth_mode-shape display"
          #2568 asks the OpenAI row to adopt. */
-      connBadge = '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · not checked live</span>';
+      /* #3997: amber "Signed in" like every other unconfirmed sign-in (was a grey "Signed in · not checked live").
+         Opening this screen starts the free check (server.js), and a row still waiting on it says so in its title;
+         the page reads the list once more when that check has had time to finish. */
+      const checkingWhy = 'Checking this sign-in now.';
+      const cstate = a.connection && a.connection.state;
+      /* The check's own verdict: confirmed is green, a sign-in ChatGPT refused is red ("sign in again" is its title). */
+      connBadge = cstate === 'connected'
+        ? '<span class="acct-connected" title="' + esc((a.connection && a.connection.because) || 'this sign-in reached ChatGPT, so it is working') + '"><span class="dot" aria-hidden="true"></span>Signed in</span>'
+        : cstate === 'none'
+          ? '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>Not connected</span>'
+          : '<span class="acct-unverified" title="' + esc(a.connection && a.connection.liveCheckPending ? checkingWhy : unknownWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in</span>';
     } else {
       /* The legacy state ternary, kept as the fallback for any row without a `badge`.
          Two rows land here today: an OpenAI API-KEY row (the server overlays `badge` onto
@@ -22222,7 +22254,11 @@ async function paintAccounts() {
          reads as "not connected" though it is fine (Josh, 0.6.68); this lets the
          person confirm it now. Claude rows only: the probe is a real `claude -p`
          call, and "not recently checked" is the Claude-side report this answers. */
-      + (isKeyed ? ''
+      + (isKeyed ? (canCheckSignIn
+          ? '<button class="acct-check" type="button" data-check-signin="' + signInCheck + '" data-check-dir="' + esc(a.dir) + '" '
+            + 'aria-label="Check now whether ' + who + (qual ? ' (' + esc(qual) + ')' : '') + ' is connected" '
+            + 'title="' + esc('Asks the provider whether this sign-in works right now. It uses no quota.') + '">Check now</button>'
+          : '')
         : '<button class="acct-check" type="button" data-check-claude="' + esc(a.dir) + '" '
           + 'aria-label="Check now whether ' + who + (qual ? ' (' + esc(qual) + ')' : '') + ' is connected" '
           + 'title="' + esc('Makes one real request on this account to confirm it is connected right now, then updates the badge.') + '">Check now</button>')
@@ -22407,6 +22443,28 @@ async function paintAccounts() {
      is NOT a dead account (#1916) — the badge is left untouched and the button
      says so briefly rather than asserting a result. On connected/none the outcome
      is recorded server-side, so a repaint renders the real badge. */
+  /* #3997: Check now on a ChatGPT sign-in or a Grok subscription. Free checks (no quota), otherwise the same shape as
+     the Claude one below: disabled while in flight, and an answer that confirms nothing leaves the badge as it is
+     and says so on the button, with the provider's reason in its title. */
+  for (const btn of box.querySelectorAll('[data-check-signin]')) {
+    btn.addEventListener('click', async () => {
+      const label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Checking…';
+      let j = {};
+      try {
+        const res = await fetch('/api/accounts/' + btn.dataset.checkSignin + '/check', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir: btn.dataset.checkDir }),
+        });
+        j = res.ok ? ((await res.json()) || {}) : {};
+      } catch { j = {}; }
+      if (j.state === 'connected' || j.state === 'none') { await paintAccounts(); return; }
+      btn.textContent = 'Could not confirm, try again';
+      if (j.because) btn.title = j.because;
+      btn.disabled = false;
+      setTimeout(() => { if (btn.isConnected) btn.textContent = label; }, 4000);
+    });
+  }
   for (const btn of box.querySelectorAll('[data-check-claude]')) {
     btn.addEventListener('click', async () => {
       const dir = btn.dataset.checkClaude;

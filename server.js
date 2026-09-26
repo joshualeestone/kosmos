@@ -7536,8 +7536,20 @@ const server = http.createServer((req, res) => {
        window converts `cannot tell` back into a confident `not connected`, which
        is the one answer this route exists never to give. If this route ever needs
        to be cheaper still, make the sweep cheaper - do not add a window. */
+    /* #3997: a ChatGPT sign-in's live check (codex's own handshake, codexsigninlive: free) is cached for 30s, so on
+       an idle Mac it is always cold when someone opens this screen, and the row sat grey forever. Start it now for
+       every cold one, WITHOUT waiting (#1921: a render never awaits a handshake); those rows say a check is under
+       way, and the page reads this route once more a few seconds later. */
+    const openaiPending = new Set();
+    for (const row of openaiAccounts.list()) {
+      if (!row || row.authMode !== 'chatgpt' || !row.dir) continue;
+      const signinlive = require('./engine/codexsigninlive');
+      if (signinlive.livenessCached(row.dir).cause !== 'indeterminate') continue;
+      openaiPending.add(row.dir);
+      signinlive.liveness(row.dir).catch(() => { /* never a verdict: the next read shows what it can */ });
+    }
     Promise.all([accounts.listLive(), openaiAccounts.listLive(), geminiAccounts.listLive(), grokAccounts.listLive()])
-      .then(([claudeRows, openaiRows, geminiRows, grokRows]) => {
+      .then(async ([claudeRows, openaiRows, geminiRows, grokRows]) => {
         /* #1921: overlay each Claude account's badge with the LAST OBSERVED
            real-call outcome (engine/observed), joined to the account via the SAME
            accountForAgent the status route uses -- NOT a second copy of the
@@ -7641,7 +7653,9 @@ const server = http.createServer((req, res) => {
           if (!prev || o.at > prev.at) obsByOpenaiDir.set(acct.dir, { outcome: o.outcome, at: o.at });
         }
         const openai = openaiRows.map((a) => {
-          const base = { ...a, offerable: !named || path.resolve(String(a.dir || '')) === onlyDir };
+          const pending = openaiPending.has(a.dir) && a.connection && a.connection.state === 'unknown';
+          const base = { ...a, offerable: !named || path.resolve(String(a.dir || '')) === onlyDir,
+            ...(pending ? { connection: { ...a.connection, liveCheckPending: true } } : {}) };
           const obs = a.dir ? obsByOpenaiDir.get(a.dir) : null;
           if (!obs) return base;
           const v = observed.verdict({
@@ -7719,10 +7733,27 @@ const server = http.createServer((req, res) => {
            so without a fresh working observation it must say so: signed_in_unverified, the muted
            "Signed in" the page draws for a credential that exists but is not confirmed. Without this
            it had no badge and fell through to the page's green legacy pill. */
-        const unverifiedSub = (a) => (a.authMode === 'subscription' && a.connection && a.connection.state === 'connected'
-          ? { ...a, connection: { ...a.connection, badge: 'signed_in_unverified' } } : a);
+        /* #3997: and the FREE live check, run here because this read is person-paced (the route header). A
+           subscription's `live` answer is recorded like an observed request on its dir, so it flows through the
+           same verdict and freshness below; any other answer leaves it unconfirmed, with the reason in the title. */
+        const subChecks = new Map(await Promise.all(grokRows
+          .filter((a) => a.dir && a.authMode === 'subscription' && a.connection && a.connection.state === 'connected')
+          .map(async (a) => {
+            let r;
+            try { r = await grokAccounts.subscriptionLive(a.dir); } catch { r = { verdict: 'unknown', because: 'we could not check this sign-in just now' }; }
+            if (r.verdict === 'live') observed.sawDir(observed.PROVIDER.XAI, a.dir, observed.OUTCOME.OK);
+            return [a.dir, r];
+          })));
+        const unverifiedSub = (a) => {
+          if (!(a.authMode === 'subscription' && a.connection && a.connection.state === 'connected')) return a;
+          const r = subChecks.get(a.dir);
+          const because = r && r.verdict !== 'live' ? r.because : a.connection.because;
+          return { ...a, connection: { ...a.connection, because, badge: 'signed_in_unverified' } };
+        };
         const grok = grokRows.map((a) => {
-          const obs = a.dir ? obsByGrokDir.get(a.dir) : null;
+          const agentObs = a.dir ? obsByGrokDir.get(a.dir) : null;
+          const checkObs = a.dir ? observed.readDir(observed.PROVIDER.XAI, a.dir) : null;
+          const obs = (agentObs && checkObs) ? (checkObs.at >= agentObs.at ? checkObs : agentObs) : (agentObs || checkObs);
           if (!obs) return unverifiedSub(a);
           const v = observed.verdict({
             checkLiveState: a.connection && a.connection.state,
@@ -8013,6 +8044,37 @@ const server = http.createServer((req, res) => {
      and leaves the prior badge — the #1315/#1916 fail-open that must never flip a
      live-but-capped account to "not connected". USER-INITIATED only; a real call
      spends the person's quota, so it is never fired on a tick (#1921). */
+  /* #3997: Check now for a ChatGPT sign-in (codex's own handshake, codexsigninlive) and for a Grok subscription (the
+     models listing grok reads, only with a key that has not expired: Kosmos never renews one). Both are FREE, unlike
+     Claude's below. `connected` and `none` are what the next /api/accounts read will show; anything else confirms
+     nothing and changes nothing, and says why. */
+  if ((pathname === '/api/accounts/openai/check' || pathname === '/api/accounts/grok/check') && req.method === 'POST') {
+    const grok = pathname === '/api/accounts/grok/check';
+    readBody(req)
+      .then(async (raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const dir = body && typeof body === 'object' ? String(body.dir || '') : '';
+        if (!dir) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const resolved = path.resolve(dir);
+        const rows = grok ? grokAccounts.list() : openaiAccounts.list();
+        const acct = rows.find((a) => a.dir === resolved && a.authMode === (grok ? 'subscription' : 'chatgpt'));
+        if (!acct) { sendJson(res, 404, { error: 'we could not find that sign-in on this computer' }); return; }
+        if (grok) {
+          const r = await grokAccounts.subscriptionLive(acct.dir);
+          if (r.verdict === 'live') observed.sawDir(observed.PROVIDER.XAI, acct.dir, observed.OUTCOME.OK);
+          sendJson(res, 200, { state: r.verdict === 'live' ? 'connected' : 'unknown', because: r.because });
+          return;
+        }
+        const v = await require('./engine/codexsigninlive').liveness(acct.dir);
+        sendJson(res, 200, v === 'live' ? { state: 'connected' }
+          : v === 'dead' ? { state: 'none' }
+            : { state: 'unknown', because: 'we could not reach ChatGPT to check this sign-in' });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
   if (pathname === '/api/accounts/claude/check' && req.method === 'POST') {
     readBody(req)
       .then(async (raw) => {

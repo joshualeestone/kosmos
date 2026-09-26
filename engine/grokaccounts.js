@@ -331,6 +331,42 @@ function subscriptionVerdict(dir) {
   return { state: STATE.NONE, checkedLive: true, because: 'Grok sign-in expired' };
 }
 
+/* #3997: a FREE live check for a subscription sign-in. grok's stored key is short-lived (about six hours, measured
+   2026-09-26) and grok renews it itself whenever it runs. Kosmos never renews it: a renewal rotates the refresh token
+   under a running grok (#3391). So only a key that has not expired is checked, with the same models listing grok
+   itself reads (cli-chat-proxy.grok.com/v1/models, measured: 200 with a working sign-in, 401 with a bad key). It
+   spends nothing.
+     live       200: the sign-in works right now.
+     refused    401/403: not confirmed. Not "dead": grok may renew it on its next run.
+     expired    the key has expired, so there is nothing to check until grok runs again.
+     unknown    no answer (network, an unreadable file, anything else); never a negative. */
+const SUBSCRIPTION_EXPIRY_MARGIN_MS = 60 * 1000;
+async function subscriptionLive(dir) {
+  const auth = readAuth(dir);
+  if (auth.kind !== 'ok') return { verdict: 'unknown', because: 'Could not read the Grok sign-in' };
+  const e = auth.entry;
+  const until = typeof e.expires_at === 'string' ? Date.parse(e.expires_at) : NaN;
+  if (typeof e.key !== 'string' || !e.key || !Number.isFinite(until) || until <= Date.now() + SUBSCRIPTION_EXPIRY_MARGIN_MS) {
+    return { verdict: 'expired', because: 'Grok renews this sign-in the next time it runs, so it cannot be checked until then' };
+  }
+  const f = fetcher || (async (url, init) => {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 8000);
+    try {
+      const res = await fetch(url, { ...init, signal: ctl.signal });
+      return { status: res.status };
+    } finally { clearTimeout(t); }
+  });
+  const url = process.env.AGENT_WORKFORCE_GROK_SUB_MODELS_URL || 'https://cli-chat-proxy.grok.com/v1/models';
+  let r;
+  try { r = await f(url, { method: 'GET', headers: { authorization: 'Bearer ' + e.key } }); }
+  catch { return { verdict: 'unknown', because: 'we could not reach Grok to check this sign-in' }; }
+  const status = r && r.status;
+  if (status === 200) return { verdict: 'live', because: 'Grok confirmed this sign-in works' };
+  if (status === 401 || status === 403) return { verdict: 'refused', because: 'Grok did not accept this sign-in just now. Signing in again fixes it' };
+  return { verdict: 'unknown', because: 'we asked Grok about this sign-in and could not tell' };
+}
+
 /* ---- add / store / forget / remove ---------------------------------------- */
 
 /** A shape complaint about a pasted key, or null if it looks usable. Mirrors the
@@ -927,7 +963,7 @@ const listLive = inflight.collapse(listLiveNow);
 module.exports = {
   STATE, PROVIDER, PROVIDER_NAME, DIR_PREFIX, KEY_BASENAME, FORGOTTEN_PREFIX,
   homeDir, defaultDir, keyFile, identityOf, list,
-  setFetcher, askModels, validateLive, checkLive, listLive,
+  setFetcher, askModels, validateLive, checkLive, listLive, subscriptionLive,
   keyProblem, cleanLabel, dirForLabel, nextWorkDir,
   storeKey, forgetKey, forgetAccount, removeAccount,
   authFile, readAuth, parseGrokLoginOutput, startGrokLogin, reauthTarget, grokLoginStatus, cancelGrokLogin, setGrokTimers,

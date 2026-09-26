@@ -79,14 +79,16 @@ test('the five badge states each render, and only "working" is green', () => {
   const unver = fn.match(/badge === 'signed_in_unverified'\)\s*\{([\s\S]*?)\}\s*else if/);
   assert.ok(unver, "the 'signed_in_unverified' branch is missing");
   assert.doesNotMatch(unver[1], /acct-connected/, 'a merely-existing credential is rendered GREEN -- the #874 false green is back');
-  assert.match(unver[1], /acct-unknown/, 'signed_in_unverified is not the muted class');
+  // #3997 (Josh 09-26): the unconfirmed state is AMBER on every provider, not the muted grey kept for "could not check".
+  assert.match(unver[1], /acct-unverified/, 'signed_in_unverified is not the amber unconfirmed class (#3997)');
+  assert.doesNotMatch(unver[1], /acct-none|acct-unknown/, 'signed_in_unverified reads as a negative or as could-not-check');
   assert.match(unver[1], />Signed in</, '#3136: the pill must read a neutral "Signed in"');
   assert.doesNotMatch(unver[1], /not recently checked/, '#3136: "not recently checked" must NOT be in the visible pill -- it reads as "not connected"');
-  assert.match(unver[1], /title="'\s*\+\s*esc\(unverifiedWhy\)/, 'the not-verified-live nuance must ride the tooltip (unverifiedWhy), not the visible pill');
+  assert.match(unver[1], /title="'\s*\+\s*esc\(unverifiedTitle \|\| unverifiedWhy\)/, 'the not-verified-live nuance must ride the tooltip (unverifiedWhy), not the visible pill');
   // and the tooltip itself carries the nuance + nudges to the #3145 Check now button,
   // but ONLY on a row that has one (#3391: keyed rows have no Check now, so their arm must not name it).
-  assert.match(fn, /unverifiedWhy\s*=[^;]*isKeyed\s*\?\s*'[^']*'\s*:\s*'[^']*Check now[^']*'/, '#3136: unverifiedWhy should nudge toward Check now on a non-keyed row');
-  assert.doesNotMatch(fn, /unverifiedWhy\s*=[^;]*isKeyed\s*\?\s*'[^']*Check now/, '#3391: a keyed row\'s tooltip must not point at a Check now it does not have');
+  assert.match(fn, /unverifiedWhy\s*=[^;]*\(isKeyed && !canCheckSignIn\)\s*\?\s*'[^']*'\s*:\s*'[^']*Check now[^']*'/, '#3136/#3997: unverifiedWhy should nudge toward Check now on a row that has one');
+  assert.doesNotMatch(fn, /unverifiedWhy\s*=[^;]*\(isKeyed && !canCheckSignIn\)\s*\?\s*'[^']*Check now/, '#3391: a keyed row without a check must not point at a Check now it does not have');
 
   assert.match(fn, /badge === 'signed_out'/, "the 'signed_out' branch is missing");
   assert.match(fn, /badge === 'unchecked'/, "the 'unchecked' branch is missing");

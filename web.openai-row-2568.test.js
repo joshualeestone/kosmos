@@ -51,13 +51,18 @@ test('a chatgpt OpenAI row renders a SHORT pill, gated on the auth_mode SHAPE, b
   const branch = row.slice(branchAt, row.indexOf('} else', branchAt + 1));
 
   // The full because sentence goes in the TITLE (hover), never the visible span.
-  assert.match(branch, /title="'\s*\+\s*esc\(unknownWhy\)\s*\+\s*'"/,
-    'the chatgpt pill does not carry the full reason in its title');
+  assert.match(branch, /title="'\s*\+\s*esc\(a\.connection && a\.connection\.liveCheckPending \? checkingWhy : unknownWhy\)\s*\+\s*'"/,
+    'the chatgpt pill does not carry the full reason in its title (or "checking" while its free check runs, #3997)');
 
   // The visible label is SHORT and fixed -- the overflow was the long sentence
   // sitting in the visible span, so that shape must NOT come back here.
-  assert.match(branch, /<\/span>Signed in · not checked live<\/span>/,
-    'the chatgpt pill lost its short visible label');
+  // #3997: the same short amber "Signed in" as every other unconfirmed sign-in (was "Signed in · not checked live").
+  assert.match(branch, /class="acct-unverified"[^;]*<\/span>Signed in<\/span>/,
+    'the chatgpt pill lost its short visible label, or is not the amber unconfirmed class');
+  assert.doesNotMatch(branch, /<\/span>Signed in · not checked live</, 'the old grey label is back (#3997)');
+  // A confirmed sign-in is green and a refused one is the red negative: the check's own verdict, not always amber.
+  assert.match(branch, /cstate === 'connected'\s*\?\s*'<span class="acct-connected"/, 'a confirmed ChatGPT sign-in cannot turn green (#3997)');
+  assert.match(branch, /cstate === 'none'\s*\?\s*'<span class="acct-none"/, 'a refused ChatGPT sign-in cannot turn red (#3997)');
   assert.doesNotMatch(branch, /<\/span>'\s*\+\s*esc\(unknownWhy\)/,
     'the chatgpt pill puts the long because sentence back in the visible span -- the exact #2568 overflow');
 
