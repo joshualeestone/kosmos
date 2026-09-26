@@ -5254,6 +5254,37 @@ function readGeminiSession(agentName) {
   catch { return { found: false }; }
 }
 
+/* #4039: resolve an Antigravity agent's launch folder to its agy conversation and read it, ONCE.
+   Mirrors readGeminiSession: workerDir + readJob, gated on runner 'antigravity'. agy keeps its data
+   under ~/.gemini/antigravity-cli (agysession.HOME); a per-account agy home is not a thing yet. */
+function readAgySession(agentName) {
+  const create = require('./create');
+  let dir;
+  try { dir = create.workerDir(agentName); } catch { dir = null; }
+  let job;
+  try { job = create.readJob(agentName); } catch { job = null; }
+  if (!dir || !job || job.runner !== 'antigravity') return { found: false };
+  try { return require('./agysession').read(dir); }
+  catch { return { found: false }; }
+}
+
+/* #4039: the ring for an Antigravity agent, the Gemini arm's shape. agy records its model's window
+   in some generations (3.13.2.22), so the percentage is against a limit it STATED, not assumed. */
+function readAgyContext(agentName, sess) {
+  if (sess === undefined) sess = readAgySession(agentName);
+  if (!sess.found && sess.because === NO_READING.UNREADABLE) {
+    return { ...NONE_BASE, notYet: false, because: NO_READING.UNREADABLE };
+  }
+  if (sess.found && sess.contextUsed == null) return notYetResult();
+  if (!sess.found) {
+    if (notYetStarted(agentName)) return notYetResult();
+    if (neverRecorded(agentName)) return neverRecordedResult();
+    return { ...NONE_BASE, notYet: false, because: NO_READING.NO_TRANSCRIPT };
+  }
+  if (!sess.contextWindow) return noCeilingResult(sess.contextUsed, sess.model || null);
+  return measuredResult(sess.contextUsed, sess.contextWindow, false);
+}
+
 function readGeminiContext(agentName, sess) {
   // Same pre-read-once contract as readCodexContext: `undefined` means "not
   // supplied" (read it here); a supplied {found:false} is honoured.
@@ -7217,6 +7248,8 @@ function snapshot() {
     /* #3568: an Antigravity pane is not a Claude pane either; kept out of the ANTHROPIC
        observation arm below so it can never record a false Claude-account reading. */
     const isAgyPane = pane.runner === 'antigravity' || isAntigravityCommand(pane.command);
+    // #4039: the agy conversation, read once per tick (the ring and the model both use it).
+    const agySess = (isNamedOurs(pane) && isAgyPane) ? readAgySession(pane.name) : null;
     const grokSess = (isNamedOurs(pane) && isGrokPane) ? readGrokSession(pane.name) : null;
     try {
       /* #3296: EXCLUDE a gemini pane from the ANTHROPIC observation arm. Without
@@ -7325,7 +7358,9 @@ function snapshot() {
     // answer, because we do not know whose conversation it is.
     const tied = isNamedOurs(pane);
     // #3568: not for an agy pane: readModel is the Claude transcript lookup, same as the context ring.
-    const { model } = (tied && !isAgyPane) ? readModel(pane.name, pane.session) : { model: null };
+    // #4039: an agy pane's model comes from its own conversation (agysession, gen_metadata 1.19).
+    const { model } = (tied && !isAgyPane) ? readModel(pane.name, pane.session)
+      : { model: (tied && agySess && agySess.found && agySess.model) || null };
     /* #2257: a Codex (OpenAI) agent does not write a Claude `.jsonl`, so
        `readContext` returned NO_TRANSCRIPT for every OpenAI agent and the ring
        read "Not yet read" forever. Its context lives in the Codex rollout, which
@@ -7342,9 +7377,9 @@ function snapshot() {
         // #3391: a Grok pane's context lives in its Grok Build session, read by
         // readGrokContext (same pre-read-once contract as the codex/gemini arms).
         : isGrokPane ? readGrokContext(pane.name, grokSess)
-        // #3568: no Antigravity transcript reader yet, and the Claude one below must never read
-        // an agy agent's folder (it could pick up a Claude transcript left there).
-        : isAgyPane ? { ...NONE_BASE, notYet: false, because: 'Kosmos cannot read how much of its memory an Antigravity agent has used yet' }
+        // #4039: an agy pane's context lives in its agy conversation db (agysession). The Claude
+        // reader below must still never read an agy agent's folder (#3568).
+        : isAgyPane ? readAgyContext(pane.name, agySess)
         : readContext(pane.name, model, pane.session))
       // ⚠️ Unknown, and not because it is ambiguous: this one is a REFUSAL. We
       // can see there is something to read and are declining to read it, so
@@ -7808,6 +7843,7 @@ module.exports = {
   grokLastCompletionAt,
   // #3391: the Grok context-ring reader (wired into snapshot's context ring).
   readGrokContext,
+  readAgyContext,
   /* ⚠️ Exported so the ROUTE can say what tmux said. The alternative is a
      second caller of `list-panes` asking the same question a second time,
      which would report a different moment from the one that failed. */
