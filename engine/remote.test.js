@@ -164,6 +164,9 @@ if (args[0] === 'signin') {
     }
     fs.writeFileSync(path.join(dir, 'address'), name + '.kosmos.invalid\\n');
     fs.writeFileSync(path.join(dir, 'stdin-token'), token);
+    // As the real one does on a fresh register (kosmos-relay setup.rs fetch_certificate): the
+    // certificate line first, then the JSON answer.
+    console.log('certificate for ' + name + '.kosmos.invalid written to ' + path.join(dir, 'tls.crt') + ' (key stayed here)');
     console.log(JSON.stringify({ stage: 'registered', mac_id: 'mac-fake', name: name, address: name + '.kosmos.invalid', standing: 'good', kept_certificate: false }));
     process.exit(0);
   }
@@ -1111,4 +1114,16 @@ test('register survives a child that exits before reading the token off stdin (t
   // The session is NOT consumed by a failed register, so a retry is possible.
   const retry = await remote.signinRegister('hers');
   assert.equal(retry.ok, true, retry.because);
+});
+
+test('#3827: a fresh register whose tunnel prints its certificate line first is still read as signed in, and switches Kosmos+ on', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  remote.setOn(false);
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const r = await remote.signinRegister('hers');
+  assert.equal(r.ok, true, 'a real first sign-in read as a failure: ' + r.because);
+  assert.equal(r.data.address, 'hers.kosmos.invalid');
+  assert.equal(remote.read().on, true, 'signed in, but Kosmos+ was not switched on');
+  remote.setOn(false);
 });

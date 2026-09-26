@@ -814,8 +814,17 @@ function pendingDevices() {
     answer is reported as such rather than guessed at. */
 function parseSaid(result) {
   if (!result.ok) return result;
-  try { return { ok: true, because: null, data: JSON.parse(result.said) }; }
-  catch { return { ok: false, because: 'the tunnel program answered in a shape we could not read' }; }
+  // The answer is the program's last JSON line. A fresh register prints its
+  // certificate line first ("certificate for ... written to ...", kosmos-relay
+  // setup.rs fetch_certificate), so the whole of stdout is not JSON; reading all
+  // of it made every first sign-in read as a failure while the Mac was in fact
+  // registered, and Kosmos+ was never switched on (#3827).
+  const lines = String(result.said || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].startsWith('{')) continue;
+    try { return { ok: true, because: null, data: JSON.parse(lines[i]) }; } catch { break; }
+  }
+  return { ok: false, because: 'the tunnel program answered in a shape we could not read' };
 }
 function deviceArgs(verb, id, withCoordinator) {
   const args = ['devices', verb];
