@@ -65,7 +65,7 @@ test('#3996: only the board\'s own page can hand over a count, and the page hand
   assert.match(proxy, /weak var owner: AppDelegate\?/, 'the handler holds the app strongly (a cycle)');
   assert.match(proxy, /guard message\.frameInfo\.isMainFrame, let owner else \{ return \}/, 'a subframe could set the badge');
   assert.match(proxy, /owner\.isBoardOrigin\(host: origin\.host, port: origin\.port, scheme: origin\.protocol\)/, 'the origin is not checked');
-  const board = body('func isBoardOrigin(host: String, port: Int) -> Bool');
+  const board = body('func isBoardOrigin(host: String, port: Int, scheme: String? = nil) -> Bool');
   assert.match(board, /return host == mine\.host && seen == mine\.port/, 'another local service on another port could set the badge');
   assert.match(board, /let seen = port == 0 \? Self\.defaultPort\(scheme\) : port/, 'a default-port board (port 0 in WebKit) never feeds the badge');
   assert.match(SRC, /badgeOrigin = \("127\.0\.0\.1", resolved\.port\)/, 'the board\'s own origin is not the one allowed');
