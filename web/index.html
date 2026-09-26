@@ -9280,12 +9280,12 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    hides, because a hidden-overflow box still scrolls to show a focused child, which shifted every
    box left. */
 /* The row scales to the width it is given: six boxes plus gaps are about 10.9em of monospace, so
-   9cqw of the .otp-fit wrapper keeps all six inside it on a narrow phone (a fixed size clipped the
-   sixth box at 320 to 375px, measured on the web sign-in). Where container units are missing, the
-   1.75rem before it stands. */
+   8.6cqw of the .otp-fit wrapper (a margin for WebKit, whose monospace runs wider) keeps all six inside it on a narrow phone (a fixed size clipped the
+   sixth box on narrow phones, measured on the web sign-in). Where container units are missing
+   (Safari before 16), 7.5vw of the screen stands in: rougher, but it never overflows a phone. */
 #plus-state2 .otp-fit { container-type: inline-size; margin-top: .75rem; }
 #plus-state2 .otp-boxes { --cw: 2.6ch; --gap: .5ch; position: relative; display: block; overflow: hidden; overflow: clip;
-  font: 650 1.75rem/1 ui-monospace, Menlo, monospace; font-size: min(1.75rem, 9cqw);
+  font: 650 1.75rem/1 ui-monospace, Menlo, monospace; font-size: min(1.75rem, 7.5vw); font-size: min(1.75rem, 8.6cqw);
   width: calc(6 * var(--cw) + 5 * var(--gap)); height: calc(var(--cw) * 1.25); }
 #plus-state2 .otp-cells { position: absolute; inset: 0; display: flex; gap: var(--gap); pointer-events: none; }
 #plus-state2 .otp-cell { flex: 0 0 var(--cw); box-sizing: border-box; border-radius: 12px; background: #16223e; border: 1px solid #5c78a6; }
@@ -37234,6 +37234,24 @@ document.getElementById('plus-si-cancel').addEventListener('click', (e) => {
    submits"): each code field is drawn as six boxes (CSS .otp-boxes: the boxes sit behind the one
    real input, so paste and one-time-code autofill fill them all at once), and the moment the sixth
    digit arrives the step's own button is pressed, once. The button stays for anyone who clicks. */
+/* #3942: the code in a pasted text, or '' when there is not exactly one. A code is a run of exactly
+   six digits, which may be split by single spaces or hyphens ("123 456", "123-456"); longer runs
+   (a date 2026-09-26, a phone number 555-123-4567, an order number 20260926) are not codes. Two
+   six-digit runs: the one just after the word "code" wins, else neither (a guess would be sent as a
+   wrong code, and wrong codes count toward the sign-in's too-many-tries limit). */
+function plusSiCodeFromPaste(text) {
+  const t = String(text || '');
+  const re = /\d(?:[ -]?\d)*/g;
+  const six = [];
+  let m;
+  while ((m = re.exec(t))) {
+    const d = m[0].replace(/\D/g, '');
+    if (d.length === 6) six.push({ d, before: t.slice(Math.max(0, m.index - 24), m.index) });
+  }
+  if (six.length === 1) return six[0].d;
+  const named = six.filter((x) => /code/i.test(x.before));
+  return named.length === 1 ? named[0].d : '';
+}
 const PLUS_SI_OTP_GO = { 'plus-si-code-in': 'plus-si-code-go', 'plus-si-second-in': 'plus-si-second-go', 'plus-si-enrol-code': 'plus-si-enrol-confirm-go' };
 for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code']) {
   const el = document.getElementById(id);
@@ -37272,19 +37290,34 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   };
   /* Auto-submit: six digits that are NOT the code last sent. So a wrong code is not resent by
      itself, but any different code is, however it arrives (typed, pasted over a selection, or
-     completed while a request was still running: the button's disabled attribute is watched, and
-     the code goes the moment the button is free). Deleting a digit forgets the last code, so
-     retyping it on purpose sends it again. */
+     completed while a request was still running: then it waits for the button, see freed). Deleting
+     a digit forgets the last code, so retyping it on purpose sends it again. */
   let lastSent = '';
+  let queued = false;   // a code completed while the button was busy, waiting for it
   const go = document.getElementById(PLUS_SI_OTP_GO[id]);
   const trySend = () => {
     const code = el.value.replace(/\D/g, '');
-    if (code.length < 6) { lastSent = ''; return; }
-    if (code === lastSent || !go || go.disabled) return;
+    if (code.length < 6) { lastSent = ''; queued = false; return; }
+    if (code === lastSent) return;
+    if (!go || go.disabled) { queued = true; return; }
+    queued = false;
     lastSent = code;
     go.click();
   };
-  if (go && typeof MutationObserver === 'function') new MutationObserver(trySend).observe(go, { attributes: true, attributeFilter: ['disabled'] });
+  /* When the button comes back: send a code that was waiting for it, but only while this step is
+     still on screen (a code finished after the answer moved the sign-in on must not go to a step the
+     person has left). And a code the answer left in the field (a wrong one) is selected, so the next
+     keystroke or paste replaces it without the person having to clear it first. */
+  const freed = () => {
+    if (!go || go.disabled) return;
+    const shown = el.getClientRects().length > 0;
+    if (queued && shown) trySend(); else queued = false;
+    if (shown && lastSent && document.activeElement === el && el.value.replace(/\D/g, '') === lastSent) {
+      try { el.setSelectionRange(0, el.value.length); } catch { /* not a text input */ }
+      paint();
+    }
+  };
+  if (go && typeof MutationObserver === 'function') new MutationObserver(freed).observe(go, { attributes: true, attributeFilter: ['disabled'] });
   el.addEventListener('input', (e) => {
     if (e.isComposing) return;   // an input method mid-word: clean up when it commits
     const clean = e.target.value.replace(/\D/g, '').slice(0, 6);
@@ -37295,16 +37328,21 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   /* A paste carrying a whole code REPLACES what is there: pasted into a full field, or after a few
      typed digits, keeping the old digits would drop the paste or splice a wrong code (and each wrong
      code counts toward the sign-in's too-many-tries limit). A shorter paste inserts as usual. */
-  /* The code is six digits, optionally split by one space or hyphen ("123 456", "123-456"), standing
-     alone; pasting a whole email takes THAT, not the first six digits of whatever number comes first
-     (a date or ticket number would otherwise be sent as a wrong code). Text that is only the code's
-     digits with other separators counts too. */
+  /* The code is found in the pasted text (plusSiCodeFromPaste), so pasting a whole email takes the
+     code, not another number. When there is no one code in it, nothing is pasted at all: letting the
+     browser paste would keep the first six digits of whatever was there and send them. A short run
+     of digits alone (a few digits typed elsewhere) pastes as usual. A paste is also an intent to
+     send, so the same code pasted again (after a network failure, say) goes again. */
   el.addEventListener('paste', (e) => {
     const text = (e.clipboardData && e.clipboardData.getData('text')) || '';
-    const alone = /(?:^|\D)(\d(?:[ -]?\d){5})(?!\d)/.exec(text);
-    const code = alone ? alone[1].replace(/\D/g, '') : (text.replace(/\D/g, '').length === 6 ? text.replace(/\D/g, '') : '');
-    if (!code) return;
+    const code = plusSiCodeFromPaste(text);
+    if (!code) {
+      if (/^[\d\s-]*$/.test(text) && text.replace(/\D/g, '').length < 6) return;
+      e.preventDefault();
+      return;
+    }
     e.preventDefault();
+    lastSent = '';
     el.value = code;
     el.dispatchEvent(new Event('input', { bubbles: true }));
   });

@@ -556,6 +556,14 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.fill('#plus-si-code-in', '111111');   // #3942: auto-submits
       await page.waitForTimeout(400);
       chk(wrongSends === 1, `[${k}] #3942 CONTROL: the wrong code was really sent, once`, String(wrongSends));
+      /* #3942 review (web half, round 2, measured): after the answer, WITHOUT leaving the field, the
+         refused code is selected, so typing the right one replaces it and sends it (a full field with
+         the caret at its end would otherwise refuse every keystroke). No blur here, on purpose. */
+      const after = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); return { focused: document.activeElement === i, s: i.selectionStart, e: i.selectionEnd, n: i.value.length }; });
+      chk(after.focused && after.s === 0 && after.e === 6, `[${k}] #3942 after a wrong code, still in the field, the code is selected for replacing`, JSON.stringify(after));
+      await page.keyboard.type('333333');
+      await page.waitForTimeout(400);
+      chk((await page.inputValue('#plus-si-code-in')) === '333333' && wrongSends === 2, `[${k}] #3942 typing a new code over a wrong one replaces it and sends it`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
       /* #3942: with all six digits in (the step stays, the code was wrong), the digits must still sit
          over their boxes: the spacing after the sixth would scroll the field's text unless reset. */
       await page.evaluate(() => document.getElementById('plus-si-code-in').blur());   // arrive afresh
@@ -590,15 +598,19 @@ const visible = (page, sel) => page.evaluate((s) => {
       chk(sel.s === 0 && sel.e === sel.n && sel.n === 6, `[${k}] #3942 focusing a full field selects the whole code, ready to be replaced`, JSON.stringify(sel));
       await pasteCode('222-222');
       await page.waitForTimeout(400);
-      chk((await page.inputValue('#plus-si-code-in')) === '222222' && wrongSends === 2, `[${k}] #3942 pasting a new code over a wrong one replaces it and sends it, once`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      chk((await page.inputValue('#plus-si-code-in')) === '222222' && wrongSends === 3, `[${k}] #3942 pasting a new code over a wrong one replaces it and sends it, once`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
       await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = '123'; i.dispatchEvent(new Event('input', { bubbles: true })); });
       await pasteCode('987654');
       await page.waitForTimeout(400);
-      chk((await page.inputValue('#plus-si-code-in')) === '987654' && wrongSends === 3, `[${k}] #3942 a whole code pasted after a few typed digits replaces them (no spliced 123987)`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      chk((await page.inputValue('#plus-si-code-in')) === '987654' && wrongSends === 4, `[${k}] #3942 a whole code pasted after a few typed digits replaces them (no spliced 123987)`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
       // Pasting a whole email line takes the code itself, not the first digits of another number.
       await pasteCode('Your Kosmos+ code is 482 913. Ref 20260926.');
       await page.waitForTimeout(400);
-      chk((await page.inputValue('#plus-si-code-in')) === '482913' && wrongSends === 4, `[${k}] #3942 pasting a whole email line picks out the code, not another number`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      chk((await page.inputValue('#plus-si-code-in')) === '482913' && wrongSends === 5, `[${k}] #3942 pasting a whole email line picks out the code, not another number`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      // A paste with no one code in it (two numbers, no "code") pastes nothing and sends nothing.
+      await pasteCode('Order 482914 and 123457');
+      await page.waitForTimeout(300);
+      chk((await page.inputValue('#plus-si-code-in')) === '482913' && wrongSends === 5, `[${k}] #3942 a paste with no single code in it changes nothing and sends nothing`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
       const hint = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); const ids = (i.getAttribute('aria-describedby') || '').split(/\s+/); const h = ids.map((x) => document.getElementById(x)).find(Boolean); return h ? h.textContent : null; });
       chk(hint === 'Kosmos checks the code as soon as all six digits are in.', `[${k}] #3942 a screen reader is told the sixth digit checks the code`, JSON.stringify(hint));
       page.off('request', countWrong);

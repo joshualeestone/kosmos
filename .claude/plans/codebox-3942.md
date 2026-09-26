@@ -13,7 +13,7 @@
 ## Calls
 - Boxes behind one input, not six inputs: paste, autofill, Backspace and screen readers then work
   natively; six inputs need a paste splitter, focus hopping, and still confuse autofill.
-- Auto-submit on the step from five digits to six (not on every six-digit value), so a complete
+- (Superseded in review round 1, see below.) First version: auto-submit on the step from five digits to six, so a complete
   code after a wrong-code answer is not re-sent until it changes; focus re-reads the count because
   plusSiClear clears fields without an input event.
 - Typing always continues at the end (caret moved to the end on focus and click): the common code
@@ -51,9 +51,8 @@
   plus gaps (about 10.9em of monospace) inside it; the 1.75rem stands where container units are
   missing. signin-phone.browser.mjs now asserts, on every phone size and a 320-wide pass, that all
   six boxes sit inside their row with digits of at least 18px (it fails without the scaling).
-- A pasted email line yields the code itself: six digits, optionally split by one space or hyphen,
-  standing alone; otherwise only text whose digits are exactly six. A date or ticket number earlier
-  in the text is not sent as a wrong code.
+- (Superseded in round 2, see below.) First code-finder: a standalone six digits; it still picked
+  dates and phone numbers, measured.
 - The input handler waits for an input method to commit; autofill keeps the digits' ink colour.
 
 ## Review round 2 (app side, measured): fixing one digit
@@ -67,3 +66,20 @@
   browser check (its only resend answers with a cooldown); reasoned from the handler.
 - plusSiClear carries a note that clearing the fields before re-enabling the buttons is load-bearing
   for the auto-submit's button watch.
+
+## Review round 2 (web side, measured)
+- After a wrong code, still in the field, the refused code is selected when the button comes back,
+  so typing the right code replaces it (before: a full field with the caret at its end refused every
+  keystroke, and blurring in the check hid it). The checks now test this with no blur.
+- The paste code-finder is one function (app: plusSiCodeFromPaste, web: codeFromPaste) with unit
+  tests: a run of exactly six digits (single spaces or hyphens inside), so dates, phone numbers and
+  order numbers are not codes; two six-digit runs, the one after "code", else nothing. With no one
+  code, the paste inserts NOTHING (the browser's own paste kept the first six digits of any number
+  and sent them); a short run of digits alone still pastes. A paste resets the last code sent (an
+  intent to send, e.g. after a network failure).
+- The button watch sends only a code that was waiting on the button (queued), and only while its
+  step is on screen, so a code finished after a success cannot go to a step the person has left.
+- Sizing: 7.5vw before the cqw line for browsers without container units (Safari before 16);
+  8.6cqw rather than 9 (WebKit's monospace runs wider, measured 2px over at 9). The phone check now
+  measures the row against its container (.otp-fit), not the screen, so it fails at 375 as well as
+  320 without the scaling (measured).
