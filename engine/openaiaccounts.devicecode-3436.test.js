@@ -203,15 +203,16 @@ test('the win32 device-code sign-in waits 14 minutes; a browser sign-in keeps 5'
 });
 
 test('the watchdog uses the longer wait only for a win32 device sign-in', async (t) => {
-  // Short stand-ins for the two waits, restored after, so the arm runs in well under a second.
+  // Stand-ins for the two waits, restored after: the browser wait short so the Mac arm ends fast
+  // (the test runs in well under a second), the device wait long on purpose (below).
   const BROWSER_WAIT_MS = 150;
   const DEVICE_WAIT_MS = 60 * 1000;
   /* The device wait is long here on purpose: a stand-in slow to print must fail on the wait below
      (naming 'starting'), never on this watchdog, whose error text is the same as the browser one. */
   openai.setChatgptTimers({ timeout: BROWSER_WAIT_MS, deviceTimeout: DEVICE_WAIT_MS });
   t.after(() => openai.setChatgptTimers({ timeout: 5 * 60 * 1000, deviceTimeout: 14 * 60 * 1000 }));
-  /* Past any timer lateness on a loaded machine, so the read below lands after a browser-wait
-     watchdog would have fired. */
+  /* A margin for timer lateness (measured, not proven), so the read below lands after a
+     browser-wait watchdog would have fired. */
   const READ_MARGIN_MS = 100;
   const startedAt = Date.now();
   const win = startWithStandin({ say: MEASURED_DEVICE_OUT, platform: 'win32', mode: 'browser' }).r;

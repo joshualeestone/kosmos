@@ -4,7 +4,7 @@ Card: kosmos#4028.
 
 ## What was wrong (measured)
 The card's likely cause (the Windows sign-in timed out on the 150ms browser wait) is not what
-happens: on win32 chatgptLoginMode forces 'device' at start (engine/openaiaccounts.js:898), so its
+happens: on win32 chatgptLoginMode forces 'device' for win32, applied when the sign-in starts, so its
 watchdog is armed with the device wait from the beginning. The test read the Windows session ONCE,
 the moment the Mac one errored (~150ms). The Windows stand-in is a whole node process (execPath +
 a preload); under load it can take longer than that just to print, and until it prints the state
@@ -64,3 +64,9 @@ test's 5s device wait, which failed with a message blaming the browser wait; now
   orders, at load ~14-29 and ~41-77; no leftover stand-ins or sandboxes.
 - CONVENTION: "certainly have fired" claimed a guarantee; the scheduled time is bounded, the
   margin against event-loop lateness is measured, not proven --> reworded.
+
+## Iteration 5 (opus)
+- Confirmed again (24 runs per arm, load 16-54): fixed test passes in both orders and with a slow
+  stand-in; the old test and the wrong-watchdog engine red every time.
+- NITs: a stale "short stand-ins" line, an absolute "past any lateness" claim, a drifting line
+  number in this plan --> fixed.
