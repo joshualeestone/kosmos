@@ -270,7 +270,8 @@ const LONG_REPLY = 'Here is the plan for tomorrow, in order. First I will finish
    one needing you, one idle), nothing stopped and nothing overlong. */
 /* The board lists agents by id, alphabetically (engine/status.js), and the agent
    waiting on you is the one the first store shot must show above the fold, so
-   the asker's id sorts first. */
+   the asker's id sorts first. Nothing on the store screens is overlong; the
+   Files folder below is shared with the sample set and is not in a store shot. */
 const STORE_AGENTS = [
   { claim: 'cleo', title: '', name: 'Cleo', role: 'Project manager' },
   { claim: 'dana', title: '⠋ Writing the product copy for the spring catalogue', name: 'Dana', role: 'Writer' },
@@ -510,6 +511,7 @@ async function seed(base, roots) {
   const t0 = Date.now() - 1800e3;
   const stamp = (min) => new Date(t0 + min * 60e3).toISOString();
   const lines = [
+    // A data set's `room` is exactly three posts: the times and the two reactions below name them.
     ...DATA.room.map(([from, to, text], i) => ({ kind: 'post', id: 'm' + (i + 1), project: pid, from, to, text, at: stamp([1, 4, 9][i]), outcomes: {} })),
     { kind: 'reaction', project: pid, of: 'm3', emoji: '👍', op: 'add', from: DATA.askAgent, at: stamp(10) },
     { kind: 'reaction', project: pid, of: 'm2', emoji: '🔥', op: 'add', from: DATA.chatAgent, at: stamp(11) },
@@ -518,9 +520,9 @@ async function seed(base, roots) {
      DATA/<app>), not at the top of DATA: written there, the room showed no posts at all. */
   const storeRoot = require(path.join(REPO, 'engine', 'store')).ROOT;
   fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  if (DATA.dmRead) await post('/api/agent/' + DATA.chatAgent + '/seen');
   /* The store set's question names its project, as an agent on a project would, so it
      lights that project rather than counting as a needs-you with no project. */
-  if (DATA.dmRead) await post('/api/agent/' + DATA.chatAgent + '/seen');
   if (DATA.askInProject) {
     const r = require(path.join(REPO, 'engine', 'selfreport')).record(DATA.askAgent, { state: 'needs_you', because: DATA.ask, project: pid });
     if (r && r.recorded === false) throw new Error('the seed could not write Cleo\'s needs-you state: ' + r.because);

@@ -74,7 +74,7 @@ scales it down for smaller iPhones. In upload order:
 
 | # | File | What it shows |
 |---|---|---|
-| 1 | `01-home.png` | The whole team at a glance, with Cleo first: her question is waiting, and the others are working or idle |
+| 1 | `01-home.png` | The team at a glance, with Cleo first and her question waiting, and Dana working below her |
 | 2 | `02-push-landing.png` | Where a notification tap lands: Cleo's question about the printer quote, ready to answer |
 | 3 | `03-agent-chat.png` | A direct conversation with Dana, the writer, about the catalogue |
 | 4 | `04-project-room.png` | A project room: the agents on the spring catalogue talking to each other |
@@ -92,6 +92,13 @@ and the board's "Claude subscription" status reads connected. The sandbox has
 no Claude account on purpose (so nobody's real account can leak into a
 picture), and without this every screen would carry a "cannot reach a Claude
 subscription" warning that a customer with a working Mac never sees.
+
+**Two things you may want changed before upload.** The home shot shows a red
+"1 Issue" tile above the cards: that is how the board counts an agent waiting
+on you today, so it is true, but it is the first thing a buyer sees. And in the
+chat shot your own messages carry a plain dark circle where a picture would be,
+because the test board has no profile picture for you. Both come from the app
+as it is, not from the staging above.
 
 **My pick: the light set.** It matches the App Store's own default look and the
 kosmosplus.com site. The dark set is there if you prefer it.
