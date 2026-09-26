@@ -15458,7 +15458,7 @@ window.kosmosMeasureScrollbarWidth();
           <p class="dhint" style="margin:2px 0 0;">In the Kosmos app, the icon in the Dock shows how many things are waiting on you: agents that need you and unread messages. On by default.</p></div>
         <button class="toggle" id="wb-toggle" role="switch" aria-label="Show the waiting count on the Kosmos icon" hidden><i></i></button>
       </div>
-      <p class="dhint" id="wb-msg" role="status"></p>
+      <p class="dhint" id="wb-note" role="status"></p>
     </section>
     <section class="dbox">
       <h3 class="dlab">Sounds</h3>
@@ -21135,7 +21135,7 @@ let WB_SAVING = false;
 async function paintWaitingBadge() {
   if (WB_SAVING) return;   // a save in flight paints the board's answer itself; a repaint now could read the old value
   const mine = ++WB_EPOCH;
-  const msg = document.getElementById('wb-msg');
+  const wbMsg = document.getElementById('wb-note');
   try {
     const res = await fetch('/api/settings', { cache: 'no-store' });
     if (mine !== WB_EPOCH) return;
@@ -21144,11 +21144,11 @@ async function paintWaitingBadge() {
     if (mine !== WB_EPOCH) return;
     if (!r || typeof r.waitingBadge !== 'boolean') throw new Error('no setting');   // an older board
     paintSwitch('wb-toggle', r.waitingBadge);
-    if (msg) msg.textContent = '';
+    if (wbMsg) wbMsg.textContent = '';
   } catch {
     if (mine !== WB_EPOCH) return;
     paintSwitch('wb-toggle', null);
-    if (msg) msg.textContent = 'We could not read this setting just now.';
+    if (wbMsg) wbMsg.textContent = 'We could not read this setting just now.';
   }
 }
 async function saveWaitingBadge() {
@@ -21156,7 +21156,7 @@ async function saveWaitingBadge() {
   if (!tog || WB_SAVING || !tog.hasAttribute('aria-checked')) return;   // not loaded: never write over a stored value
   WB_SAVING = true;
   const mine = ++WB_EPOCH;
-  const msg = document.getElementById('wb-msg');
+  const wbMsg = document.getElementById('wb-note');
   try {
     const res = await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ waitingBadge: tog.getAttribute('aria-checked') !== 'true' }) });
@@ -21164,14 +21164,14 @@ async function saveWaitingBadge() {
     if (mine !== WB_EPOCH) return;
     if (!res.ok || !out || typeof out.waitingBadge !== 'boolean') throw new Error('not saved');
     paintSwitch('wb-toggle', out.waitingBadge);   // what the board stored, not the click
-    if (msg) msg.textContent = '';
+    if (wbMsg) wbMsg.textContent = '';
   } catch {
     if (mine === WB_EPOCH) {
       /* Re-read (round 3): the board may have stored it and only the answer was lost, so the switch
          draws what the board holds, then says the save did not come back. */
       WB_SAVING = false;
       await paintWaitingBadge();
-      if (msg) msg.textContent = 'We could not save that just now. Try again in a moment.';
+      if (wbMsg) wbMsg.textContent = 'We could not save that just now. Try again in a moment.';
     }
   } finally { WB_SAVING = false; }
 }

@@ -1,4 +1,4 @@
-// Browser-check-surface: wb-row wb-toggle wb-msg
+// Browser-check-surface: wb-row wb-toggle wb-note
 'use strict';
 /**
  * kosmos#4025: Settings > Computer > App icon, the switch for the waiting count on the Kosmos
@@ -56,7 +56,7 @@ const look = () => {
   const t = document.getElementById('wb-toggle');
   const b = t.getBoundingClientRect();
   return { hidden: t.hidden, drawn: b.width > 0 && b.height > 0, aria: t.getAttribute('aria-checked'), on: t.classList.contains('on'),
-    msg: document.getElementById('wb-msg').textContent, posts: window.__posts.slice() };
+    msg: document.getElementById('wb-note').textContent, posts: window.__posts.slice() };
 };
 const reveal = () => {
   for (const id of ['s-sec-mac']) {

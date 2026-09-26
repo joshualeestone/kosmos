@@ -19,7 +19,7 @@ function harness(fetchImpl) {
   const tog = { hidden: true, attrs: {}, getAttribute(k) { return this.attrs[k] === undefined ? null : this.attrs[k]; },
     hasAttribute(k) { return this.attrs[k] !== undefined; } };
   const msg = { textContent: '' };
-  const el = { 'wb-toggle': tog, 'wb-msg': msg };
+  const el = { 'wb-toggle': tog, 'wb-note': msg };
   const document = { getElementById: (id) => el[id] || null };
   const paintSwitch = (id, on) => {
     const t = el[id];

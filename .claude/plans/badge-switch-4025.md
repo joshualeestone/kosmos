@@ -36,3 +36,4 @@ Card #4025 (follow-up to #3996). The Dock badge cannot be turned off today: macO
 - A save whose answer is lost (the board may have stored it) re-reads the board before saying it could not save, so the switch draws what the board holds.
 - main.swift's comment names this switch; the browser check's header no longer claims to pin the row's place (web.settings-nav.test.js does).
 - validation #2's one red (tools.plus-signin-2036, a timing test this branch does not touch) is 19/19 alone: machine contention.
+- Round 4: the surface gate (#2518) matched a local variable named msg and the id wb-msg against two chat checks' 'msg' token; renamed wbMsg / wb-note. render-win32-board-copy.js now names the App icon box among its Windows-hidden surfaces (and the tmux box selector excludes it).
