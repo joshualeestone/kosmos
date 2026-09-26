@@ -29,7 +29,8 @@
  *
  * ⚠️ WEAKEST PREMISE: the Vercel Blob REST list shape (`GET <api>/?prefix=..`,
  * `Authorization: Bearer <token>`, `{ blobs: [{ url, pathname }], hasMore,
- * cursor }`) and public per-blob `url`. Built + hermetically tested against that
+ * cursor }`), and a per-blob `url` read with the same Bearer token (the reports
+ * are in a PRIVATE store since kosmos#3878). Built + hermetically tested against that
  * documented shape with an injectable transport; a live run once the token is
  * filed confirms or corrects the exact API, and the transport seam localises any
  * fix to one function.
@@ -70,7 +71,7 @@ const FEEDBACK_TOKEN_TARGET = 'vercel-blob-feedback';
 // data root. feedback.js's dir() stays lazy for the same reason.
 function defaultDir() { return path.join(store.ROOT, 'collected-feedback'); }
 
-let transport = null; // tests inject { list: async(token)=>[{url,pathname}], get: async(url)=>text }
+let transport = null; // tests inject { list: async(token)=>[{url,pathname}], get: async(url, token)=>text }
 function setTransport(t) { transport = t; }
 
 /**
@@ -127,9 +128,10 @@ async function defaultList(tok) {
 
 /* kosmos#3878: the reports now live in a PRIVATE blob store, where a blob URL
    answers 403 without the store token, so each GET carries it (the header
-   @vercel/blob's own get() sends). The token goes ONLY to the blob host
-   (*.blob.vercel-storage.com) or the configured blob API origin: the URL comes from
-   the listing, and a listing naming any other host must not receive the credential. */
+   @vercel/blob's own get() sends). The token goes only to an https Vercel Blob host
+   (*.blob.vercel-storage.com, any store's: the check is Vercel-host scoped, not
+   store scoped) or the configured blob API origin. The URL comes from the listing,
+   and a listing naming any other host must not receive the credential. */
 function tokenMayGoTo(url) {
   try {
     const u = new URL(url);
@@ -225,11 +227,16 @@ async function pull(dir, opts) {
   // could read NOTHING is not reported as a success.
   let unreadable = 0;
   let lastGetError = '';
+  let lastGetDenied = false;
   for (const b of (Array.isArray(blobs) ? blobs : [])) {
     if (!b || typeof b.url !== 'string') { skipped += 1; continue; }
     let text;
     try { text = await tp.get(b.url, tok); }
-    catch (e) { skipped += 1; unreadable += 1; lastGetError = String((e && e.message) || e); continue; }
+    catch (e) {
+      skipped += 1; unreadable += 1; lastGetError = String((e && e.message) || e);
+      lastGetDenied = /HTTP 40[13]\b/.test(lastGetError);
+      continue;
+    }
     let rec;
     try { rec = JSON.parse(text); }
     catch { skipped += 1; continue; }
@@ -246,11 +253,16 @@ async function pull(dir, opts) {
   if (written === 0 && unreadable > 0) {
     return {
       ok: false, written, skipped, total, dir: target,
-      because: 'the store listed ' + total + ' report(s) but none could be read (' + lastGetError
-        + '). The token filed as ' + FEEDBACK_TOKEN_TARGET + ' may be for the wrong store: reports are in the private feedback store (kosmos#3878).',
+      because: 'the store listed ' + total + ' report(s) but none could be read (last error: ' + lastGetError + ')'
+        + (lastGetDenied
+          ? '. The token filed as ' + FEEDBACK_TOKEN_TARGET + ' may be for the wrong store: reports are in the private feedback store (kosmos#3878).'
+          : '.'),
+      unreadable,
     };
   }
-  return { ok: true, written, skipped, total, dir: target };
+  // A partial pull is still ok, but says how many could not be read and why, so a
+  // mostly-failed pull is not mistaken for a clean one.
+  return { ok: true, written, skipped, unreadable, lastGetError: unreadable ? lastGetError : '', total, dir: target };
 }
 
 /**
@@ -306,6 +318,7 @@ async function runCli(argv, opts) {
   process.stdout.write('pulled ' + r.written + ' report(s)'
     + (r.skipped ? ' (' + r.skipped + ' skipped)' : '')
     + ' to ' + r.dir + '\n');
+  if (r.unreadable) process.stdout.write(r.unreadable + ' of them could not be read (last error: ' + r.lastGetError + ')\n');
   return 0;
 }
 
@@ -321,5 +334,5 @@ if (require.main === module) {
 module.exports = {
   pull, runCli, setTransport, token, toMarkdown, fileName,
   FEEDBACK_TOKEN_TARGET, PREFIX, defaultDir, blobApi, DEFAULT_BLOB_API,
-  defaultList, defaultGet,
+  defaultList, defaultGet, tokenMayGoTo,
 };
