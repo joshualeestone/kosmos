@@ -71,6 +71,23 @@ another filled column, a bullet's description, words around bold or backticked c
 - [NIT] one opening can complete two forms, giving overlapping spans --> DEFERRED: the rebuild
   merges them; only the split_secret count can read one higher.
 
+## Review round 2
+- [BLOCKER] two held keys that share an opening (every Anthropic key opens sk-ant-api03-), both
+  split in one reply: the second key's walk started at the FIRST key's opening, skipped the first
+  key's pieces as noise, and completed on its own pieces, so one span masked everything between
+  them --> FIXED: a walk stops at a run that opens the same form again at least as fully as its own
+  opening; that later start walks it. Test (two keys, word rows, a header between) reds without it.
+  The "at least as fully" half has its own test: a short prose mention (sk-ant) between the pieces
+  does not cut a real walk short (reds if any 4-character reopening stops it).
+- [WARNING] overlapping spans printed two masks side by side --> FIXED in the merge: a span that
+  overlaps the previous one widens it. No known input reaches a partial overlap now (forms are
+  walked longest first, so a shared start's longer span always contains the shorter), so this is
+  defensive and has no test that can fail on the old merge; a test that could not fail was dropped.
+- [WARNING] no test with two held keys sharing an opening --> the BLOCKER's test.
+- [NIT] the = rule takes the last = --> the comment says so.
+- [NIT] the trailing _ / strip is written twice --> DEFERRED: two one-line regexes, different
+  inputs (the opening run vs every piece).
+
 ## Not covered (still open, named on #3935)
 - pieces out of order or reversed;
 - an opening piece shorter than four characters that also has words after it;

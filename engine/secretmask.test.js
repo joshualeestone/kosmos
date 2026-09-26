@@ -453,3 +453,30 @@ test('#3935 the look-ahead is charged per run visited, so repeating a held value
     assert.deepEqual(r.fired, [{ kind: 'split_search_limit', count: 1 }]);
   } finally { setKnownSecrets([]); }
 });
+
+test('#3935 two held keys that share an opening, both split in one reply, are masked separately (review round 2)', () => {
+  const heldA = j('sk-ant-', 'api03-', 'QpLg7fWs2Xo9RbTe4Nk1Yz6Hd3Mv8Cu5Ao0Bi');
+  const heldB = j('sk-ant-', 'api03-', 'Vf4Rt9Kx2Zc7Ln0Sp5Wj8Ho3Mu6Db1Ea9Gy2Cq');
+  setKnownSecrets([heldA, heldB]);
+  try {
+    const rows = (k) => k.match(/.{1,8}/g).map((c, i) => `| Row${i} | ${c} |`).join('\n');
+    const input = `Account one:\n${rows(heldA)}\nAccount two:\n${rows(heldB)}\nDone.`;
+    const r = mask(input);
+    for (const k of [heldA, heldB]) for (const c of k.match(/.{1,8}/g).slice(1)) assert.ok(!r.text.includes(c), `the piece ${c} survived: ${r.text}`);
+    assert.ok(r.text.includes('\nAccount two:\n'), `the text between the two keys was masked: ${JSON.stringify(r.text)}`);
+    assert.ok(r.text.startsWith('Account one:\n') && r.text.endsWith(' |\nDone.'), JSON.stringify(r.text));
+    assert.ok(!r.text.includes(MASK + MASK), `two masks printed side by side: ${JSON.stringify(r.text)}`);
+    assert.equal(r.fired.find((f) => f.kind === 'split_secret').count, 2, JSON.stringify(r.fired));
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a short mention of a key\'s opening in the prose does not cut a real split walk short', () => {
+  const held = j('sk-ant-', 'api03-', 'WordsBetweenThePieces0123456789XYZ');
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{1,8}/g);
+    const input = `${chunks[0]} is the first part. Anthropic keys all start sk-ant so that is expected. Then ${chunks.slice(1).join(' then ')} end`;
+    const out = mask(input).text;
+    for (const c of chunks) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+  } finally { setKnownSecrets([]); }
+});

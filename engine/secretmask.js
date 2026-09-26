@@ -187,7 +187,7 @@ function pieceVariants(run) {
   const trimmed = run.replace(/^_+/, '').replace(/[_/]+$/, '');
   if (trimmed && trimmed !== run) out.push(trimmed);
   const eq = trimmed.lastIndexOf('=', trimmed.length - 2);
-  /* An = inside the run, not base64 padding at its end: the piece is what follows it. */
+  /* An = inside the run, not base64 padding at its end: the piece is what follows the LAST one. */
   if (eq > 0 && !/=$/.test(trimmed)) out.push(trimmed.slice(eq + 1));
   return out;
 }
@@ -255,6 +255,11 @@ function wordSkippingSpans(text) {
         for (let s = r + 1; s < runs.length; s += 1) {
           const [, sTo, , pieces] = runs[s];
           if (nonSpaceBefore[sTo] - nonSpaceBefore[from] > bound) break;
+          /* A run that opens this form again, at least as fully as this walk's opening, starts a later
+             occurrence, and that start walks it. Carrying on here would skip a whole sibling occurrence as
+             noise (review round 2: two held Anthropic keys, both sk-ant-api03-, shown split in one reply,
+             joined into one span that masked everything between them). */
+          if (pieces.some((v) => v.length >= opening.length && v.length < f.length && f.startsWith(v))) break;
           let done = false;
           const next = new Set(reached);
           if ((budget -= reached.size * pieces.length) < 0) return null;
@@ -415,7 +420,9 @@ function mask(text) {
     let last = 0;
     for (const [from, to] of spans) {
       if (to <= last) continue;
-      rebuilt += original.slice(last, Math.max(from, last)) + MASK;
+      /* Overlapping an earlier span: widen that one's mask rather than print a second next to it. */
+      if (from < last) { last = to; continue; }
+      rebuilt += original.slice(last, from) + MASK;
       last = to;
       hit('split_secret');
     }
