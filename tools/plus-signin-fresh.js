@@ -8,17 +8,23 @@
  * inbox is behind the Gmail connector. Two phases, with the inbox read in between:
  *
  *   1. node tools/plus-signin-fresh.js start  --pointer <site>/dist/latest-staging.json [--port P]
- *        checks the board holds no Kosmos+ identity (a FIRST sign-in, the #3827 class), then asks
- *        the board to email a code to the seed address.
+ *        checks the board answering on the port IS the pointer's build (its x-kosmos-board
+ *        identity) and holds no Kosmos+ identity (a FIRST sign-in, the #3827 class), then asks it
+ *        to email a code to the seed address.
  *   2. Read the code from the seed inbox with the Gmail connector, scoped to ONE address:
  *        search: to:josh+kosmos-seed@book.io from:kosmosplus.com newer_than:1h
  *        and note where Gmail put it (labelIds: INBOX, SPAM, or neither -> OTHER).
  *   3. KOSMOS_SEED_TOTP="$(secrets-map.sh value kosmos-seed-totp)" \
  *      node tools/plus-signin-fresh.js finish --pointer <same> --code <6 digits> --placement INBOX|SPAM|OTHER [--port P]
- *        verifies the code, passes the second step (TOTP from the seed's stored secret), registers
- *        a throwaway name, checks the board is enrolled, FORGETS the Mac again (retiring the
- *        registration), and writes the record. The first ever run enrols the seed's authenticator
- *        instead and writes its secret to a mode-600 file for `/add-secret --migrate` (never shown).
+ *        verifies the code, passes the second step, registers (the seed's own address if it has
+ *        one), checks the board is enrolled AND switched on AND up (#3827 was enrolled with the
+ *        switch off), ALWAYS forgets whatever the register may have left, and writes the record.
+ *        The first ever run enrols the seed's authenticator instead and writes its secret to a
+ *        mode-600 file under ~/.cache/claude-handoffs for `/add-secret --migrate` (never shown).
+ *
+ * A SETUP mistake (no code read, KOSMOS_SEED_TOTP unset, the wrong board on the port) exits 2 and
+ * records nothing: it says nothing about the build. Only the board or coordinator refusing a step
+ * records a FAIL, which the gate refuses on.
  *
  * THE SEED: josh+kosmos-seed@book.io (#1591's decision): a plus address on the mailbox the Gmail
  * connector already reads, not a new mailbox (#3751). Override with --seed. The Resend key is
@@ -26,7 +32,7 @@
  *
  * The board is reached like the other staging gates: 127.0.0.1:<port> with its board.token in a
  * header (store.ROOT/board.token; KOSMOS_STORE_ROOT overrides for tests). Exit 0 when the record
- * says pass, 1 when it says fail, 2 when the run could not start (nothing recorded).
+ * says pass, 1 when it says fail, 2 when nothing was recorded.
  */
 const fs = require('node:fs');
 const os = require('node:os');
@@ -35,6 +41,12 @@ const crypto = require('node:crypto');
 const record = require('./lib/plus-signin-record');
 
 const DEFAULT_SEED = 'josh+kosmos-seed@book.io';
+const CALL_MS = 15 * 1000;
+/* The engine bounds a register at five minutes plus up to a minute clearing a half identity. */
+const REGISTER_MS = 7 * 60 * 1000;
+/* How long the tunnel may take to report up after the register. */
+const UP_MS = Number(process.env.KOSMOS_PLUS_UP_MS) || 120 * 1000;
+const UP_POLL_MS = Number(process.env.KOSMOS_PLUS_UP_POLL_MS) || 2000;
 
 function args(argv) {
   const out = { _: [] };
@@ -44,12 +56,13 @@ function args(argv) {
   }
   return out;
 }
-function die(msg, code = 2) { console.error('plus-signin-fresh: ' + msg); process.exit(code); }
+class Setup extends Error {}
+function setup(msg) { throw new Setup(msg); }
 
 function pointerFields(p) {
   let j;
-  try { j = JSON.parse(fs.readFileSync(p, 'utf8')); } catch { die('cannot read the staging pointer ' + p); }
-  if (!j || typeof j.version !== 'string' || !/^[0-9a-f]{64}$/.test(String(j.sha256))) die('the staging pointer names no version or sha256');
+  try { j = JSON.parse(fs.readFileSync(p, 'utf8')); } catch { setup('cannot read the staging pointer ' + p); }
+  if (!j || typeof j.version !== 'string' || !/^[0-9a-f]{64}$/.test(String(j.sha256))) setup('the staging pointer names no version or sha256');
   return { version: j.version, sha256: j.sha256 };
 }
 function storeRoot() {
@@ -58,7 +71,7 @@ function storeRoot() {
 }
 function boardPort(given) {
   const p = given || process.env.KOSMOS_PORT;
-  if (p) { if (!/^[0-9]+$/.test(String(p))) die('port ' + p + ' is not numeric'); return Number(p); }
+  if (p) { if (!/^[0-9]+$/.test(String(p))) setup('port ' + p + ' is not numeric'); return Number(p); }
   const uid = typeof process.getuid === 'function' ? process.getuid() : 501;
   return uid === 501 ? 16180 : 16180 + 1 + (uid % 3999);
 }
@@ -79,98 +92,152 @@ function totp(base32, now = Date.now()) {
   return String(n % 1e6).padStart(6, '0');
 }
 
+/** The board, with a timeout on every call (a hung board must not hang the agent). */
 function board(port, token) {
   const base = 'http://127.0.0.1:' + port;
   const headers = { 'content-type': 'application/json', 'x-kosmos-board-token': token, 'sec-fetch-site': 'same-origin' };
-  return {
-    async get(p) { const r = await fetch(base + p, { headers }); return { status: r.status, json: await r.json().catch(() => ({})) }; },
-    async post(p, body) { const r = await fetch(base + p, { method: 'POST', headers, body: JSON.stringify(body || {}) }); return { status: r.status, json: await r.json().catch(() => ({})) }; },
+  const call = async (p, init, ms) => {
+    try {
+      const r = await fetch(base + p, Object.assign({ headers, signal: AbortSignal.timeout(ms) }, init));
+      return { status: r.status, headers: r.headers, json: await r.json().catch(() => ({})) };
+    } catch (err) {
+      return { status: 0, headers: new Headers(), json: { error: 'no answer from the board (' + String((err && err.name) || err) + ')' } };
+    }
   };
+  return {
+    get: (p, ms = CALL_MS) => call(p, {}, ms),
+    post: (p, body, ms = CALL_MS) => call(p, { method: 'POST', body: JSON.stringify(body || {}) }, ms),
+    async identity() {
+      try { const r = await fetch(base + '/', { headers, signal: AbortSignal.timeout(CALL_MS) }); return r.headers.get('x-kosmos-board') || ''; } catch { return ''; }
+    },
+  };
+}
+function tokenAt(root) { try { return fs.readFileSync(path.join(root, 'board.token'), 'utf8').trim(); } catch { return ''; } }
+
+/** The board on the port, checked to be the pointer's build. */
+async function boardFor(a, ptr) {
+  const root = storeRoot() || setup('cannot resolve the board\'s store root');
+  const token = tokenAt(root);
+  if (!token) setup('no board.token at ' + root + ': not an enforcing installed board, so not a fresh staging board');
+  const b = board(boardPort(a.port), token);
+  const identity = await b.identity();
+  if (record.boardVersion(identity) !== ptr.version) {
+    setup('the board on port ' + boardPort(a.port) + ' reports ' + JSON.stringify(identity || 'nothing') + ', not the staged build ' + ptr.version + ': install and start the staged build first');
+  }
+  return { b, identity };
 }
 
 function progressPath(sha) { return record.recordPath(sha).replace(/\.json$/, '.progress.json'); }
 
 async function start(a) {
-  const ptr = pointerFields(a.pointer || die('--pointer is required'));
-  const root = storeRoot() || die('cannot resolve the board\'s store root');
-  const token = (() => { try { return fs.readFileSync(path.join(root, 'board.token'), 'utf8').trim(); } catch { return ''; } })();
-  if (!token) die('no board.token at ' + root + ': not an enforcing installed board, so not a fresh staging board');
-  const b = board(boardPort(a.port), token);
+  const ptr = pointerFields(a.pointer || setup('--pointer is required'));
+  const { b, identity } = await boardFor(a, ptr);
   const seed = a.seed || DEFAULT_SEED;
-  const steps = [];
-  const st = await b.get('/api/remote').catch(() => null);
-  if (!st || st.status !== 200) die('the board did not answer /api/remote on port ' + boardPort(a.port));
-  if (st.json.enrolled === true) die('this board already holds a Kosmos+ identity: a FIRST sign-in cannot be tested here (forget it first, or use a fresh board)');
-  steps.push({ id: 'fresh', result: 'pass' });
+  // A new attempt for this build: whatever an earlier attempt left is not this attempt's result.
+  try { fs.rmSync(record.recordPath(ptr.sha256), { force: true }); } catch { /* none */ }
+  const st = await b.get('/api/remote');
+  if (st.status !== 200) setup('the board did not answer /api/remote on port ' + boardPort(a.port));
+  if (st.json.enrolled === true) setup('this board already holds a Kosmos+ identity: a FIRST sign-in cannot be tested here (forget it first, or use a fresh board)');
+  const steps = [{ id: 'fresh', result: 'pass' }];
   const s = await b.post('/api/remote/signin-start', { email: seed });
-  steps.push(s.status === 200 ? { id: 'start', result: 'pass' } : { id: 'start', result: 'fail', detail: String(s.json.error || s.status) });
+  if (s.status !== 200) {
+    steps.push({ id: 'start', result: 'fail', detail: String(s.json.error || s.status) });
+    return finishRecord(ptr, identity, seed, 'NONE', steps);
+  }
+  steps.push({ id: 'start', result: 'pass' });
   fs.mkdirSync(path.dirname(progressPath(ptr.sha256)), { recursive: true });
-  fs.writeFileSync(progressPath(ptr.sha256), JSON.stringify({ ...ptr, seed, steps, startedAt: new Date().toISOString() }));
-  if (s.status !== 200) return finishRecord(ptr, seed, 'OTHER', steps);
+  fs.writeFileSync(progressPath(ptr.sha256), JSON.stringify({ ...ptr, identity, seed, steps, startedAt: new Date().toISOString() }));
   console.log('plus-signin-fresh: a code was sent to ' + seed + '. Read it with the Gmail connector (to:' + seed + ' from:kosmosplus.com newer_than:1h),');
   console.log('  note its label (INBOX / SPAM / OTHER), then run: finish --pointer ' + a.pointer + ' --code <code> --placement <label>');
   return 0;
 }
 
 async function finish(a) {
-  const ptr = pointerFields(a.pointer || die('--pointer is required'));
+  const ptr = pointerFields(a.pointer || setup('--pointer is required'));
   let prog;
-  try { prog = JSON.parse(fs.readFileSync(progressPath(ptr.sha256), 'utf8')); } catch { die('no started run for ' + ptr.sha256 + ': run `start` first'); }
+  try { prog = JSON.parse(fs.readFileSync(progressPath(ptr.sha256), 'utf8')); } catch { setup('no started run for ' + ptr.sha256 + ': run `start` first'); }
+  const { b, identity } = await boardFor(a, ptr);
+  if (identity !== prog.identity) setup('the board changed since `start` (' + JSON.stringify(prog.identity) + ' then, ' + JSON.stringify(identity) + ' now): run `start` again');
   const placement = String(a.placement || '').toUpperCase();
-  if (!record.PLACEMENTS.includes(placement)) die('--placement must be INBOX, SPAM or OTHER');
-  const steps = prog.steps.slice();
-  const root = storeRoot() || die('cannot resolve the board\'s store root');
-  const token = fs.readFileSync(path.join(root, 'board.token'), 'utf8').trim();
-  const b = board(boardPort(a.port), token);
-  const seed = prog.seed;
   const code = String(a.code || '').trim();
-  steps.push(/^[0-9]{6}$/.test(code) ? { id: 'code', result: 'pass' } : { id: 'code', result: 'fail', detail: 'no six-digit code was read from the seed inbox' });
-  let registered = false;
+  // Setup mistakes say nothing about the build: cancel the half sign-in, record nothing.
+  if (!['INBOX', 'SPAM', 'OTHER'].includes(placement) || !/^[0-9]{6}$/.test(code)) {
+    await b.post('/api/remote/signin-cancel', {});
+    setup('a six-digit --code and --placement INBOX|SPAM|OTHER are required (read them from the seed inbox)');
+  }
+  const seed = prog.seed;
+  const steps = prog.steps.concat([{ id: 'code', result: 'pass' }]);
+  let registerTried = false;
   const fail = (id, r) => steps.push({ id, result: 'fail', detail: String((r && r.json && r.json.error) || (r && r.status) || r) });
   try {
-    if (steps.at(-1).result !== 'pass') throw new Error('no code');
     const v = await b.post('/api/remote/signin-verify', { email: seed, code });
     if (v.status !== 200) { fail('verify', v); throw new Error('verify'); }
     steps.push({ id: 'verify', result: 'pass' });
+    let answer = v.json;
     if (v.json.stage === 'second') {
       const secret = process.env.KOSMOS_SEED_TOTP;
-      if (!secret) { steps.push({ id: 'second', result: 'fail', detail: 'KOSMOS_SEED_TOTP is not set (secrets-map.sh value kosmos-seed-totp)' }); throw new Error('second'); }
+      if (!secret) { await b.post('/api/remote/signin-cancel', {}); setup('KOSMOS_SEED_TOTP is not set (secrets-map.sh value kosmos-seed-totp)'); }
       const r = await b.post('/api/remote/signin-second', { code: totp(secret) });
       if (r.status !== 200) { fail('second', r); throw new Error('second'); }
+      answer = r.json;
     } else if (v.json.stage === 'enrol_second_factor') {
       const e = await b.post('/api/remote/signin-enrol', { kind: 'totp' });
       if (e.status !== 200 || typeof e.json.secret !== 'string') { fail('second', e); throw new Error('second'); }
-      // The seed's authenticator secret, written for /add-secret --migrate and never printed.
-      const out = path.join(os.tmpdir(), 'kosmos-seed-totp-' + process.pid + '.env');
+      // The seed's authenticator secret, somewhere that survives a reboot, never printed.
+      const dir = path.join(os.homedir(), '.cache', 'claude-handoffs');
+      fs.mkdirSync(dir, { recursive: true });
+      const out = path.join(dir, 'kosmos-seed-totp-' + Date.now() + '.env');
       fs.writeFileSync(out, 'KOSMOS_SEED_TOTP=' + e.json.secret + '\n', { mode: 0o600 });
-      console.log('plus-signin-fresh: the seed account had no second step; enrolled an authenticator. File its secret now: /add-secret --migrate ' + out);
+      console.log('plus-signin-fresh: the seed account had no second step; enrolled an authenticator. File its secret now (the seed is locked without it): /add-secret --migrate ' + out);
       const c = await b.post('/api/remote/signin-confirm-enrol', { code: totp(e.json.secret) });
       if (c.status !== 200) { fail('second', c); throw new Error('second'); }
+      answer = c.json;
     } else if (v.json.stage !== 'session') {
       steps.push({ id: 'second', result: 'fail', detail: 'unexpected stage ' + JSON.stringify(v.json.stage) });
       throw new Error('second');
     }
     steps.push({ id: 'second', result: 'pass' });
-    const name = 'kseed-' + ptr.sha256.slice(0, 8);
-    const reg = await b.post('/api/remote/signin-register', { name });
+    // The seed's own address when it has one (the coordinator refuses any other name for an
+    // account that owns one), else a throwaway name for this build.
+    const owned = [answer, v.json].map((j) => j && j.account_address).find((x) => typeof x === 'string' && x);
+    const name = owned ? owned.split('.')[0] : 'kseed-' + ptr.sha256.slice(0, 8);
+    registerTried = true;
+    const reg = await b.post('/api/remote/signin-register', { name }, REGISTER_MS);
     if (reg.status !== 200) { fail('register', reg); throw new Error('register'); }
-    registered = true;
     steps.push({ id: 'register', result: 'pass' });
     const st = await b.get('/api/remote');
-    steps.push(st.status === 200 && st.json.enrolled === true ? { id: 'enrolled', result: 'pass' } : { id: 'enrolled', result: 'fail', detail: 'the board does not report itself enrolled after register' });
-  } catch { /* the failed step is recorded; the rest are marked not reached below */ }
-  // Always retire what was registered, so a cut leaves no throwaway Mac on the account.
-  if (registered) {
-    const f = await b.post('/api/remote/forget', {}).catch((err) => ({ status: 0, json: { error: String(err) } }));
-    steps.push(f.status === 200 && f.json.retired === true ? { id: 'forget', result: 'pass' } : { id: 'forget', result: 'fail', detail: 'the throwaway registration was not retired: ' + String((f.json && (f.json.because || f.json.error)) || f.status) });
+    if (!(st.status === 200 && st.json.enrolled === true)) { steps.push({ id: 'enrolled', result: 'fail', detail: 'the board does not report itself enrolled after register' }); throw new Error('enrolled'); }
+    steps.push({ id: 'enrolled', result: 'pass' });
+    // Switched on and connected, not only enrolled: #3827 left the switch off after a good register.
+    const deadline = Date.now() + UP_MS;
+    let last = st.json;
+    while (!(last.on === true && last.status && last.status.state === 'up') && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, UP_POLL_MS));
+      const r = await b.get('/api/remote');
+      if (r.status === 200) last = r.json;
+    }
+    steps.push(last.on === true && last.status && last.status.state === 'up'
+      ? { id: 'up', result: 'pass' }
+      : { id: 'up', result: 'fail', detail: 'after the register the switch was ' + (last.on === true ? 'on' : 'OFF') + ' and the tunnel ' + JSON.stringify(last.status && last.status.state) });
+  } catch (err) {
+    if (err instanceof Setup) throw err;
+    /* the failed step is recorded; the rest are marked not reached below */
   }
-  return finishRecord(ptr, seed, placement, steps);
+  // Forget whenever a register was TRIED: one that timed out here may still have finished on the
+  // board, and the engine's forget also retires a half-registered identity.
+  if (registerTried) {
+    const f = await b.post('/api/remote/forget', {}, REGISTER_MS);
+    steps.push(f.status === 200 && f.json.retired === true ? { id: 'forget', result: 'pass' } : { id: 'forget', result: 'fail', detail: 'the throwaway registration was not retired: ' + String((f.json && (f.json.because || f.json.error)) || f.status) });
+  } else {
+    await b.post('/api/remote/signin-cancel', {});
+  }
+  return finishRecord(ptr, identity, seed, placement, steps);
 }
 
-function finishRecord(ptr, seed, placement, steps) {
+function finishRecord(ptr, identity, seed, placement, steps) {
   const have = new Set(steps.map((s) => s.id));
   for (const id of record.STEPS) if (!have.has(id)) steps.push({ id, result: 'fail', detail: 'not reached' });
-  const rec = { version: ptr.version, sha256: ptr.sha256, at: new Date().toISOString(), seed, placement, steps,
+  const rec = { version: ptr.version, sha256: ptr.sha256, board: identity, at: new Date().toISOString(), seed, placement, steps,
     result: record.STEPS.every((id) => steps.find((s) => s.id === id).result === 'pass') ? 'pass' : 'fail' };
   const f = record.write(rec);
   try { fs.rmSync(progressPath(ptr.sha256), { force: true }); } catch { /* best effort */ }
@@ -184,6 +251,9 @@ if (require.main === module) {
   const a = args(process.argv.slice(2));
   const cmd = a._[0];
   const run = cmd === 'start' ? start : cmd === 'finish' ? finish : null;
-  if (!run) die('usage: plus-signin-fresh.js start|finish --pointer <latest-staging.json> [...]');
-  run(a).then((rc) => process.exit(rc || 0), (err) => die(String((err && err.message) || err)));
+  if (!run) { console.error('plus-signin-fresh: usage: plus-signin-fresh.js start|finish --pointer <latest-staging.json> [...]'); process.exit(2); }
+  run(a).then((rc) => process.exit(rc || 0), (err) => {
+    console.error('plus-signin-fresh: ' + String((err && err.message) || err) + (err instanceof Setup ? ' (nothing recorded)' : ''));
+    process.exit(2);
+  });
 }

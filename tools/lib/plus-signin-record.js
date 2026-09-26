@@ -16,7 +16,9 @@
  *   $KOSMOS_PLUS_VERIFY_DIR                     when set (tests, or a copied record);
  *   $HOME/.local/state/kosmos/release-verify    otherwise (beside the Windows records).
  *
- * SHAPE: { version, sha256, at, seed, placement, steps: [{ id, result, detail? }], result }
+ * SHAPE: { version, sha256, board, at, seed, placement, steps: [{ id, result, detail? }], result }
+ *   board:     the answering board's identity header (x-kosmos-board, "<version>@<world>"), whose
+ *              version must be the pointer's: the record is about the board that was driven;
  *   placement: where the code email landed in the seed inbox, as Gmail labels it:
  *              'INBOX', 'SPAM', or 'OTHER' (#1591's question, answered each cut);
  *   steps:     every id in STEPS once, in any order, each 'pass' or 'fail';
@@ -26,10 +28,19 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 
-/* The first sign-in, in order. `forget` retires the throwaway registration again. */
-const STEPS = ['fresh', 'start', 'code', 'verify', 'second', 'register', 'enrolled', 'forget'];
-const PLACEMENTS = ['INBOX', 'SPAM', 'OTHER'];
+/* The first sign-in, in order. `enrolled` is the identity on disk; `up` is the switch on and the
+   tunnel connected (#3827 was enrolled with the switch left off: enrolled alone cannot see it).
+   `forget` retires the throwaway registration again. */
+const STEPS = ['fresh', 'start', 'code', 'verify', 'second', 'register', 'enrolled', 'up', 'forget'];
+/* NONE: no code email was sent (signin-start failed), so there is no placement to report. */
+const PLACEMENTS = ['INBOX', 'SPAM', 'OTHER', 'NONE'];
 const SHA = /^[0-9a-f]{64}$/;
+
+/** The version part of a board identity header ("0.6.97@world" or, on Windows, "0.6.97+sha@world"). */
+function boardVersion(identity) {
+  if (typeof identity !== 'string' || !identity) return null;
+  return identity.split('@')[0].split('+')[0] || null;
+}
 
 function recordDir(env = process.env) {
   if (typeof env.KOSMOS_PLUS_VERIFY_DIR === 'string' && env.KOSMOS_PLUS_VERIFY_DIR) return env.KOSMOS_PLUS_VERIFY_DIR;
@@ -46,6 +57,7 @@ function validate(rec, { version, sha256 }) {
   if (rec.sha256 !== sha256) return { ok: false, why: 'the record names sha256 ' + rec.sha256 + ', not ' + sha256 };
   if (rec.version !== version) return { ok: false, why: 'the record names version ' + rec.version + ', not ' + version };
   if (typeof rec.at !== 'string' || Number.isNaN(Date.parse(rec.at))) return { ok: false, why: 'the record has no time' };
+  if (boardVersion(rec.board) !== version) return { ok: false, why: 'the record was made on a board reporting ' + JSON.stringify(rec.board) + ', not version ' + version };
   if (!PLACEMENTS.includes(rec.placement)) return { ok: false, why: 'the record names no placement for the code email' };
   if (!Array.isArray(rec.steps)) return { ok: false, why: 'the record has no steps' };
   const seen = new Map();
@@ -72,7 +84,7 @@ function write(rec, env = process.env) {
   return f;
 }
 
-module.exports = { STEPS, PLACEMENTS, recordDir, recordPath, validate, write };
+module.exports = { STEPS, PLACEMENTS, boardVersion, recordDir, recordPath, validate, write };
 
 /* CLI for the gate: `node plus-signin-record.js check <version> <sha256>` prints one line and
    exits 0 (pass) / 1 (fail or ambiguous) / 2 (no record). */

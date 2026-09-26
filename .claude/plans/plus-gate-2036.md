@@ -35,3 +35,14 @@ Whether a staging pass is MANDATORY before every prod cut (#2036's item 1) is st
   - the runner end to end against a fake board: a pass that retires the Mac, a refusal on an enrolled board, a failed step recorded by name, and first-run enrolment with the secret never printed.
 - **tools/test-staging-channel-2036.sh:** the promote with the third gate: 1 refuses and is not forceable; 2 HOLDs and --force promotes; 0 promotes on the snapshot.
 - **Controls, each failing by name:** pass over a failed step; no forget; no fresh check.
+
+## Round 1 review (opus): 2 BLOCKERs, 4 WARNINGs, 3 NITs, all taken
+- [BLOCKER] the pass condition was `enrolled`, which is true in exactly the #3827 state (identity written, switch left off), so the gate could not see its own bug. FIXED: new step `up`. After the register the switch must be ON and the tunnel `up`, polled for up to 2 minutes. Test: a register that leaves the switch off fails on `up`. Control (enrolled is enough) fails by name.
+- [BLOCKER] nothing tied the driven board to the pointer's build, so a staging Mac still on the previous build could write a pass for the new sha. FIXED: at both start and finish the board's own `x-kosmos-board` identity must report the pointer's version (else exit 2, nothing recorded), and `finish` refuses a board that changed since `start`. The record keeps the identity and `validate` checks it. Test and control. Residual: on macOS the identity carries the version, not the artifact sha, so two builds with one version string would pass. Every cut bumps the version.
+- [WARNING] forget ran only after a 200 from register, but a register that timed out client-side or failed after writing the identity leaves a Mac behind. FIXED: forget runs whenever a register was TRIED (the engine's forget also retires a half identity); earlier exits cancel the half sign-in. Test and control.
+- [WARNING] no timeouts. FIXED: 15 s on every call, 7 minutes on register and forget (the engine's own bound plus its half-identity clearing).
+- [WARNING] setup mistakes (no code, KOSMOS_SEED_TOTP unset) recorded an unforceable FAIL. FIXED: they exit 2, record nothing and cancel the half sign-in. Only a board or coordinator refusal records a fail. Test.
+- [WARNING] the register name ignored the seed's owned address, which the coordinator would refuse on every cut. FIXED: it uses `account_address` from the second-step or verify answer when present. Test.
+- [NIT] a failed start recorded placement OTHER though no email was sent. FIXED: NONE.
+- [NIT] an older record for this sha stood beside a new attempt. FIXED: start deletes it. Test.
+- [NIT] the first-run TOTP secret went to a temp dir a reboot clears, which would lock the seed. FIXED: ~/.cache/claude-handoffs, mode 600, with a stated consequence. Test.
