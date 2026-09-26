@@ -1612,12 +1612,9 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 /* #3564 (Josh, 2026-09-24, mock approved 12:13): Agent Swarms. Built as chaoskosmos-site
    design/agent-swarms.html (c8284df). A swarm is one agent to the person; the cluster is its avatar. */
 .swc { position: relative; display: inline-block; flex: none; vertical-align: middle; }
-.swc .swd { position: absolute; border-radius: 50%; overflow: hidden; display: grid; place-items: center;
-  font: 700 var(--swd-font, 10px) var(--font-ui); box-shadow: 0 0 0 var(--swd-edge, 1px) var(--k-bg); background-size: cover; background-position: center; }
-.swc .swd.rest { opacity: .72; filter: saturate(.7); }
-.swc .swd.on { opacity: 1; box-shadow: 0 0 0 var(--swd-edge, 1px) var(--k-bg), 0 0 0 calc(var(--swd-edge, 1px) + 1.5px) var(--gold-bright); }
-.swc .swb { position: absolute; right: -4px; bottom: -3px; padding: 0 5px; border-radius: 999px; background: var(--k-ink); color: var(--k-bg);
-  font: 700 .625rem/15px var(--font-ui); letter-spacing: .02em; box-shadow: 0 0 0 2px var(--k-bg); }
+.swc .swsvg { display: block; overflow: visible; }
+/* #3946 item 15: a round avatar box would crop the cluster's corner circles; hold it unclipped and bare. */
+.lav:has(> .swc), .onode .face:has(> .swc) { overflow: visible; background: none; }
 .swc .swring { position: absolute; inset: 0; border-radius: 50%; box-shadow: 0 0 0 2.5px var(--ok); pointer-events: none; }
 /* The Agent / Swarm choice at the top of New agent (the mock's two cards). */
 .ctype { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0 0 var(--space-6); border: 0; padding: 0; min-width: 0; }
@@ -1629,6 +1626,8 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .ctype-opt b { display: block; }
 .ctype-opt .d { display: block; font-size: .8125rem; color: var(--k-ink-2); line-height: 1.35; }
 .ctype-dot { width: 44px; height: 44px; border-radius: 50%; flex: none; display: grid; place-items: center; background: var(--k-side); font: 700 1rem var(--font-ui); color: var(--k-ink-2); }
+/* #3946: the identity mark (or chosen picture), mirrored as the name is typed. */
+.ctype-dot.has-mark { background-size: cover; background-position: center; background-repeat: no-repeat; }
 @media (max-width: 40rem) { .ctype { grid-template-columns: 1fr; } }
 /* Sliders: the mock's value beside the track, gold. */
 .swrow, .swticks { max-width: 26rem; }
@@ -9951,22 +9950,27 @@ window.kosmosMeasureScrollbarWidth();
         <p class="fmsg" id="d-start-msg" role="status" aria-live="polite"></p>
       </div>
       <!-- #3564: a swarm's controls, under its name on every section (the mock, section 3). Shown only for a swarm
-           when the engine is in (swarmPagePaint). Stop now is outlined red and never inside a menu. -->
+           when the engine is in (swarmPagePaint). Stop now is outlined red and never inside a menu.
+           #3946: Josh's item 13 (these buttons above this panel) is superseded by his item 14 (a Swarm Settings view);
+           the panel stays here until that view replaces it, because the phone's chat-first header (#718) relies on
+           it sitting in the header. -->
       <section class="swpanel" id="d-swarm-panel" hidden aria-label="Swarm controls">
         <div class="swbox">
           <h3 class="swlab">Swarm</h3>
           <div class="swctl">
-            <fieldset class="pj-mode swmode"><legend class="vh">Active or paused</legend>
+            <fieldset class="pj-mode swmode" aria-describedby="d-swarm-pause-hint"><legend class="vh">Active or paused</legend>
               <label class="pj-mode-opt"><input type="radio" name="d-swarm-active" value="on"> Active</label>
               <label class="pj-mode-opt"><input type="radio" name="d-swarm-active" value="off"> Paused</label>
             </fieldset>
             <button type="button" class="btn swstop" id="d-swarm-stop" aria-describedby="d-swarm-stop-hint">Stop now</button>
           </div>
+          <!-- #3946: Josh asked how Paused differs from Stop now; the toggle said nothing, so it says so here. -->
+          <p class="dhint" id="d-swarm-pause-hint">Paused finishes what it is doing, then takes nothing new until you switch it back to Active.</p>
           <p class="dhint" id="d-swarm-stop-hint">Stop now ends its current work and every helper straight away, and pauses it until you switch it back to Active. Work not handed back is dropped.</p>
           <p class="swwhy" id="d-swarm-why" hidden></p>
         </div>
         <div class="swbox">
-          <label class="swlab" for="d-swarm-max">Most helpers at once</label>
+          <label class="swlab" for="d-swarm-max">Maximum helpers</label>
           <div class="swrow"><input type="range" id="d-swarm-max" min="2" max="10" step="1" aria-describedby="d-swarm-warn"><span class="swval" id="d-swarm-max-v"></span></div>
           <p class="dhint" id="d-swarm-warn"></p>
         </div>
@@ -13093,21 +13097,19 @@ window.kosmosMeasureScrollbarWidth();
          is understating the product on the screen where somebody is choosing. -->
     <!-- #3564: the swarm's two settings and the warning beside them (the mock, section 1). -->
     <section class="sform-sec" id="create-swarm" hidden>
+      <!-- #3946 item 5 (Josh 09-26): the fixed "Runs on Claude" line is gone; the normal model picker shows for a
+           swarm too, with the providers a swarm cannot run on greyed and saying why (swarmProviderGate). -->
       <div class="field">
-        <span class="flabel">Runs on</span>
-        <p class="swfixed"><b>Claude</b><span>Swarms use Claude for now. More choices later.</span></p>
-      </div>
-      <div class="field">
-        <label class="flabel" for="create-swarm-max">Most helpers at once</label>
+        <label class="flabel" for="create-swarm-max">Maximum helpers</label>
         <div class="swrow"><input type="range" id="create-swarm-max" min="2" max="10" step="1" value="3"><span class="swval" id="create-swarm-max-v">3</span></div>
         <div class="swticks" aria-hidden="true"><span>2</span><span>10</span></div>
-        <p class="dhint">The swarm adds helpers when there is a lot to split and lets them go when there is not. With nothing to split, it works alone.</p>
+        <p class="dhint" id="create-swarm-explain">The lead agent brings in up to 3 helpers when parts of a task can be done at the same time. Otherwise, it works alone.</p>
         <p class="swwarn" id="create-swarm-warn" role="note"><span class="i" aria-hidden="true">!</span><span></span></p>
       </div>
       <div class="field">
         <label class="flabel" for="create-swarm-cap">Daily limit</label>
         <div class="swrow"><input type="range" id="create-swarm-cap" min="1" max="20" step="1" value="6"><span class="swval" id="create-swarm-cap-v"></span></div>
-        <p class="dhint">When it reaches this, the swarm pauses itself until tomorrow and tells you. You can raise it any time.</p>
+        <p class="dhint">This swarm pauses when it reaches its daily limit and resumes the next day. You can change the limit anytime.</p>
       </div>
     </section>
     <div class="field" id="create-model-field">
@@ -13171,7 +13173,7 @@ window.kosmosMeasureScrollbarWidth();
            nothing rewrites it (the drift rule at birth). An untouched
            editor sends nothing and the engine writes the same template
            server-side, so the common path has ONE copy of the words. -->
-      <div class="fhint">Describe what this agent does and how it should work. You can edit this later.</div>
+      <div class="fhint" id="create-instr-hint">Describe what this agent does and how it should work. You can edit this later.</div>
       <textarea id="create-instr" rows="10" spellcheck="false"></textarea>
       <div class="fmsg" id="create-instr-note" role="status" aria-live="polite"></div>
       <!-- #739 (Josh, 2026-08-24 21:16): the block that explained the working
@@ -21376,6 +21378,7 @@ function paintAgyOption(sel, current) {
   if (on) delete opt.dataset.off;
   else opt.dataset.off = AGY_OFFERED === false ? 'Not on this computer'
     : AGY_INSTALLED === false ? 'Set up in Settings: Add a provider' : 'Checking Antigravity';
+  if (typeof swarmProviderGate === 'function') swarmProviderGate(sel, { fresh: true });   // #3946: a Swarm keeps its non-Claude providers greyed (typeof: these painters also run alone in tests)
   if (sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
 }
 function agyAsk() {
@@ -21420,6 +21423,7 @@ function paintKeyedProviderOptions(sel, accounts, known, current, failed) {
     if (on) delete opt.dataset.off;
     else opt.dataset.off = known ? 'Connect in AI Models' : failed ? 'Could not check your accounts' : 'Checking your accounts';
   }
+  if (typeof swarmProviderGate === 'function') swarmProviderGate(sel, { fresh: true });   // #3946: a Swarm keeps its non-Claude providers greyed (typeof: these painters also run alone in tests)
   /* An enhanced select (enhanceProviderSelect) re-reads its options on a value write, so an
      open list does not keep a stale pill after the accounts arrive. Same value, no change event. */
   if (sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
@@ -26795,7 +26799,10 @@ function paintOrg() {
     const dmAria = (Number.isFinite(dmN) && dmN > 0 && !(CURRENT && CURRENT.sessionName === a.sessionName))
       ? ', ' + (dmN > 99 ? '99+' : dmN) + ' unread ' + (dmN === 1 ? 'message' : 'messages')
       : '';
-    const face = a.hasAvatar
+    /* #3946 item 15: a swarm's node is the same cluster as its grid card and list row (one component), filling
+       the node's face; an ordinary agent keeps its single picture or initials. */
+    const isSwarm = typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm;
+    const face = isSwarm ? swarmCluster(a, 0, { decorative: true }) : a.hasAvatar
       /* #2698: `?v=` the avatar version so a changed picture changes this markup.
          Without it the URL is byte-identical after an update, the repaint guard
          below (html === ORG_HTML) skips, and this node's <img> is never recreated,
@@ -26807,7 +26814,7 @@ function paintOrg() {
          disc cannot be dimmed without dimming the disc itself, which is the
          transparency Josh asked us to remove. */
       : '<span class="oinit">' + esc(initials(shown)) + '</span>';
-    const tint = a.hasAvatar ? '' : ' style="background:' + discTint(shown) + ';color:' + discInk(shown) + '"';
+    const tint = a.hasAvatar || isSwarm ? '' : ' style="background:' + discTint(shown) + ';color:' + discInk(shown) + '"';
     nodes.push('<button class="onode' + glowCls + '" type="button" data-agent="' + esc(a.sessionName) + '"' + (Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : '')
       /* #3423: the chip-filter markers, keyed on the SERVER state to match the
          "Issue" (c.needsYou) and "No project" (c.needsYouUnattributed) tile counts
@@ -40286,6 +40293,7 @@ function resetCreateProvider() {
   prov.value = (!hasClaude && hasOpenai) ? 'openai' : 'anthropic';
   applyCreateProviderUI();
   CREATE_PROVIDER_TOUCHED = false; // an auto-default is not a deliberate choice
+  if (typeof swarmProviderGate === 'function') swarmProviderGate(prov, { fresh: false });   // #3946 review: a Swarm keeps Claude
 }
 
 async function changeModelNow(say) {
@@ -40862,70 +40870,98 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
    and no swarm route is called, until the board says its engine can run a swarm (/api/status swarms). */
 var SWARMS_ON = false;   // var, not let: the status handler far above writes it (no dead zone)
 
-/* Circle places as fractions of the box, the mock's own: 2-4 in a small group, 5-7 as a centre circle with
-   the rest evenly round it, so every count reads as round. */
+/* Circle places as fractions of the box: 2 side by side, 3-5 on a ring, 6-10 as a centre circle with the rest
+   evenly round it. #3946 (Josh 09-26): every circle is WHOLE, never cut by another or by the box, at every count
+   up to 10. The old table overlapped them from 5 up (the centre-to-ring distance was shorter than two radii, so
+   the ring covered the centre circle) and stopped at 7. Now the figure is built in radius units with a real gap
+   between neighbours (a ring's spacing from its chord, 2D sin(pi/k) >= 2 + gap) and then scaled into the box
+   with a margin, so no overlap is possible by construction. Pinned for 2..10 by S3b in
+   docs/browser-checks/render-swarm-ui-3564.js (measured: inside the box, no two circles overlapping). */
 function swarmLayout(n) {
-  if (n <= 2) return { r: 0.21, p: [[0.3, 0.5], [0.7, 0.5]] };
-  if (n === 3) return { r: 0.2, p: [[0.5, 0.29], [0.3, 0.65], [0.7, 0.65]] };
-  if (n === 4) return { r: 0.19, p: [[0.31, 0.31], [0.69, 0.31], [0.31, 0.69], [0.69, 0.69]] };
-  const k = n - 1, d = n === 5 ? 0.28 : 0.31, r = n === 5 ? 0.17 : (n === 6 ? 0.155 : 0.145), pts = [[0.5, 0.5]];
-  for (let i = 0; i < k; i += 1) { const t = -Math.PI / 2 + i * 2 * Math.PI / k; pts.push([0.5 + d * Math.cos(t), 0.5 + d * Math.sin(t)]); }
-  return { r, p: pts };
+  const GAP = 0.14, MARGIN = 0.02;
+  n = Math.max(2, Math.min(10, Math.round(Number(n) || 2)));
+  let pts;
+  if (n === 2) pts = [[-(1 + GAP / 2), 0], [1 + GAP / 2, 0]];
+  else {
+    const centre = n >= 6, k = centre ? n - 1 : n;
+    const D = Math.max(centre ? 2 + GAP : 0, (2 + GAP) / (2 * Math.sin(Math.PI / k)));
+    const start = k === 4 ? -Math.PI / 4 : -Math.PI / 2;   // four sit as a square, the rest point up
+    pts = centre ? [[0, 0]] : [];
+    for (let i = 0; i < k; i += 1) { const t = start + i * 2 * Math.PI / k; pts.push([D * Math.cos(t), D * Math.sin(t)]); }
+  }
+  /* Centre the figure, then scale it (radius 1) to fit the box. */
+  const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  const half = Math.max(...pts.map((q) => Math.max(Math.abs(q[0] - cx), Math.abs(q[1] - cy)))) + 1;
+  const scale = (0.5 - MARGIN) / half;
+  return { r: scale, p: pts.map((q) => [0.5 + (q[0] - cx) * scale, 0.5 + (q[1] - cy) * scale]) };
 }
 /* The cluster avatar: the agent's own picture (or its initials on its tint), repeated in a round cluster.
    The number of circles is the most helpers it can use (seven drawn at most; the badge carries the count),
    each lit while a helper works; the badge says working/most at 32px and up; the memory ring goes round
    the whole cluster when asked (it is the lead's memory). `a` is a status row with a swarm field, or a
    stand-in { name, sessionName, hasAvatar, avatarVer, swarm: { maxHelpers, activeHelpers } }. */
-function swarmCluster(a, size, { ring = false, decorative = false } = {}) {
+/* #3946 item 15 (Josh 09-26 07:43): ONE swarm avatar everywhere. The grid card, the list, the org chart, the
+   create tile, the swarm's page and project faces all draw the SAME circles through swarmCircles, an SVG
+   fragment laid out by swarmLayout: one copy of the agent's own picture (or its generated mark, or its initials on
+   its tint) per helper, whole, up to ten. There was a second renderer (HTML spans) and the two drifted: the list
+   showed a faded smudge and the org chart a single face. No "0/N" count on any of them (Josh: "I don't think we
+   need the 0/total number"); the lit circles still show helpers at work.
+   `ctx` keeps clip-path ids distinct per drawing size, so two sizes never share a clip, while the markup stays the
+   same from poll to poll (the org chart's repaint guard compares it). */
+function swarmCircles(a, { ox = 0, oy = 0, size = 100, px = size, picUrl = '', ctx = 'c' } = {}) {
   const sw = (a && a.swarm) || {};
   const max = Math.max(2, Math.min(10, Number(sw.maxHelpers) || 3));
-  const measured = sw.metered !== false;   // not read in full: no circle lit, no count claimed
+  const measured = sw.metered !== false;   // not read in full: no circle lit
   const real = measured ? Math.max(0, Number(sw.activeHelpers) || 0) : 0;
-  const live = Math.min(max, real);   // circles lit: at most the circles drawn
-  const n = Math.min(max, 7), L = swarmLayout(n), r = L.r * size;
-  const pic = a && a.hasAvatar && a.sessionName ? `url('/api/agent/${encodeURIComponent(a.sessionName)}/avatar?v=${a.avatarVer || 0}')` : '';
-  const tint = discTint(a && a.name), ink = discInk(a && a.name), ini = esc(initials(a && a.name));
-  const named = decorative ? 'aria-hidden="true"' : `role="img" aria-label="${esc(!measured ? 'Swarm, up to ' + max + ' helpers' : real > max ? 'Swarm, ' + real + ' helpers working, most ' + max : 'Swarm, ' + real + ' of ' + max + ' helpers working')}"`;
-  let h = `<span class="swc" ${named} style="width:${size}px;height:${size}px;--swd-font:${Math.max(7, Math.round(r * 0.95))}px;--swd-edge:${Math.max(1, size / 44).toFixed(1)}px">`;
-  for (let i = 0; i < n; i += 1) {
-    const x = L.p[i][0] * size - r, y = L.p[i][1] * size - r;
-    const look = pic ? `background-image:${pic}` : `background:${tint};color:${ink}`;
-    h += `<span class="swd ${i < live ? 'on' : 'rest'}" style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;width:${(2 * r).toFixed(1)}px;height:${(2 * r).toFixed(1)}px;${look}">${pic || size < 56 ? '' : ini}</span>`;
+  const live = Math.min(max, real);
+  const L = swarmLayout(max), r = L.r * size;
+  /* The id is the sanitized name AND a short hash of the raw one (review round 2): two names that sanitize alike
+     ("a.b" and "a b") must not share a clip, or one cluster would be cut to the other's geometry. */
+  const rawId = String((a && (a.sessionName || a.name)) || 'x');
+  let hsh = 5381;
+  for (let i = 0; i < rawId.length; i += 1) hsh = ((hsh * 33) ^ rawId.charCodeAt(i)) >>> 0;
+  const id = 'swc-' + ctx + '-' + rawId.replace(/[^A-Za-z0-9_-]/g, '_') + '-' + hsh.toString(36);
+  const href = picUrl || (a && a.hasAvatar && a.sessionName ? `/api/agent/${encodeURIComponent(a.sessionName)}/avatar?v=${a.avatarVer || 0}` : '');
+  /* Initials only where a circle is big enough to read them (about 9px across a letter). */
+  const ini = !href && (L.r * px) >= 9 ? esc(initials(a && a.name)) : '';
+  let h = '<defs>';
+  for (let i = 0; i < max; i += 1) h += `<clipPath id="${id}-${i}"><circle cx="${(ox + L.p[i][0] * size).toFixed(2)}" cy="${(oy + L.p[i][1] * size).toFixed(2)}" r="${r.toFixed(2)}"/></clipPath>`;
+  h += '</defs>';
+  for (let i = 0; i < max; i += 1) {
+    const cx = ox + L.p[i][0] * size, cy = oy + L.p[i][1] * size, on = i < live;
+    h += `<g class="swd ${on ? 'on' : 'rest'}" style="opacity:${on ? 1 : 0.72}">`;
+    h += href
+      ? `<image href="${esc(href)}" x="${(cx - r).toFixed(2)}" y="${(cy - r).toFixed(2)}" width="${(2 * r).toFixed(2)}" height="${(2 * r).toFixed(2)}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${id}-${i})"/>`
+      : `<circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="${r.toFixed(2)}" style="fill:${discTint(a && a.name)}"/>`;
+    if (ini) h += `<text x="${cx.toFixed(2)}" y="${cy.toFixed(2)}" text-anchor="middle" dominant-baseline="central" style="fill:${discInk(a && a.name)};font:700 ${(r * 0.9).toFixed(2)}px var(--font-ui)">${ini}</text>`;
+    h += `<circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="${r.toFixed(2)}" fill="none" style="stroke:var(--k-bg)" stroke-width="${(size / 46).toFixed(2)}"/>`;
+    if (on) h += `<circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="${(r + 1.3 * size / 46).toFixed(2)}" fill="none" style="stroke:var(--gold-bright)" stroke-width="${(1.3 * size / 46).toFixed(2)}"/>`;
+    h += '</g>';
   }
-  if (ring) h += '<span class="swring" aria-hidden="true"></span>';
-  if (size >= 32 && measured) h += `<span class="swb" aria-hidden="true">${real}/${max}</span>`;
-  return h + '</span>';
+  return h;
 }
-
-/* The cluster inside face()'s 72-unit box (the avatar disc is r 23 at 36,36): the same layout as
-   swarmCluster, in SVG, with the badge as a small pill at the bottom right. */
-function swarmFaceSvg(a) {
-  const sw = a.swarm || {};
+/* The cluster as its own element, for everything that is not the grid card's face: the list, the org chart, the
+   create tile, the swarm's page, project faces. `size` in px, or 0 to fill its container (the org chart's node).
+   `picUrl` draws every circle with that picture (the create tiles, as the name is typed). The old `badge` option
+   is accepted and ignored: there is no count badge any more (#3946 item 15). */
+function swarmCluster(a, size, { ring = false, decorative = false, picUrl = '' } = {}) {
+  const sw = (a && a.swarm) || {};
   const max = Math.max(2, Math.min(10, Number(sw.maxHelpers) || 3));
   const measured = sw.metered !== false;
   const real = measured ? Math.max(0, Number(sw.activeHelpers) || 0) : 0;
-  const live = Math.min(max, real);
-  const n = Math.min(max, 7), L = swarmLayout(n), size = 46, off = 13, r = L.r * size;
-  const id = 'swc-' + String(a.sessionName || a.name || 'x').replace(/[^A-Za-z0-9_-]/g, '_');
-  const href = a.hasAvatar ? `/api/agent/${encodeURIComponent(a.sessionName)}/avatar?v=${a.avatarVer || 0}` : '';
-  let h = '<defs>';
-  for (let i = 0; i < n; i += 1) h += `<clipPath id="${id}-${i}"><circle cx="${(off + L.p[i][0] * size).toFixed(1)}" cy="${(off + L.p[i][1] * size).toFixed(1)}" r="${r.toFixed(1)}"/></clipPath>`;
-  h += '</defs>';
-  for (let i = 0; i < n; i += 1) {
-    const cx = off + L.p[i][0] * size, cy = off + L.p[i][1] * size, on = i < live;
-    h += `<g style="opacity:${on ? 1 : 0.72}">`;
-    h += href
-      ? `<image href="${href}" x="${(cx - r).toFixed(1)}" y="${(cy - r).toFixed(1)}" width="${(2 * r).toFixed(1)}" height="${(2 * r).toFixed(1)}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${id}-${i})"/>`
-      : `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" style="fill:${discTint(a.name)}"/>`;
-    h += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="none" style="stroke:var(--k-bg)" stroke-width="1"/>`;
-    if (on) h += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(r + 1.3).toFixed(1)}" fill="none" style="stroke:var(--gold-bright)" stroke-width="1.3"/>`;
-    h += '</g>';
-  }
-  const label = measured ? real + '/' + max : 'up to ' + max, bw = 7 + label.length * 5.2;
-  /* Bottom LEFT: the card's presence dot owns the bottom right. */
-  h += `<rect x="12" y="52" width="${bw.toFixed(1)}" height="12" rx="6" style="fill:var(--k-ink)"/><text x="${(12 + bw / 2).toFixed(1)}" y="58.3" text-anchor="middle" dominant-baseline="central" style="fill:var(--k-bg);font:700 8px var(--font-ui)">${label}</text>`;
-  return h;
+  const named = decorative ? 'aria-hidden="true"' : `role="img" aria-label="${esc(!measured ? 'Swarm, up to ' + max + ' helpers' : real > max ? 'Swarm, ' + real + ' helpers working, most ' + max : 'Swarm, ' + real + ' of ' + max + ' helpers working')}"`;
+  const box = size > 0 ? `width:${size}px;height:${size}px` : 'width:100%;height:100%';
+  const px = size > 0 ? size : 44;
+  let h = `<span class="swc" ${named} style="${box}"><svg class="swsvg" viewBox="0 0 100 100" width="100%" height="100%" aria-hidden="true" focusable="false">`;
+  h += swarmCircles(a, { size: 100, px, picUrl, ctx: 'c' + (size || 'fill') }) + '</svg>';
+  if (ring) h += '<span class="swring" aria-hidden="true"></span>';
+  return h + '</span>';
+}
+
+/* The grid card's face: the same circles inside face()'s 72-unit box (the avatar disc is r 23 at 36,36). */
+function swarmFaceSvg(a) {
+  return swarmCircles(a, { ox: 13, oy: 13, size: 46, px: 46, ctx: 'face' });
 }
 /* The mock's status words for a swarm: "3 of 5 helpers working", "Idle, working alone", or why it is paused. */
 function swarmStatusWords(a) {
@@ -41120,7 +41156,49 @@ function swarmWarnWords(max, ratio) {
     return r <= max + 1 ? `Today it has used about <b>${r} times</b> the tokens of one agent. With up to ${max} helpers it can use up to about ${max + 1} times while it is busy.`
       : `Today it has used about <b>${r} times</b> the tokens of one agent, because its helpers are doing the heavy reading.`;
   }
-  return `While it is busy, it can use up to about <b>${max + 1} times</b> the tokens of one agent: ${max} helpers plus the lead. It only adds helpers when there is enough work to split.`;
+  /* #3946 item 8, Josh's words; the numbers follow the slider (helpers, and helpers plus the lead). */
+  return `With all ${max} helpers active, the swarm can use roughly <b>${max + 1} times</b> as many tokens as a single agent.`;
+}
+/* #3946 item 5: on the create form, a Swarm greys every provider but Claude, saying why (swarms run on Claude for
+   now; the engine refuses anything else, engine/swarm.js createProblem). The other painters of this menu
+   (paintKeyedProviderOptions, paintAgyOption) call this last with fresh:true, so their newer answer is what is
+   restored when the form goes back to Agent; swarmCreatePaint calls it with fresh:false. */
+var TILE_MARK = null;   // #3946: the identity canvas as a data URL for the create tiles; null = draw changed, re-read
+var SWARM_PROVIDER_OFF = 'Swarms run on Claude for now';   // var: the painters far above call the gate (no dead zone)
+function swarmProviderGate(sel, { fresh = false } = {}) {
+  if (!sel || sel.id !== 'create-provider' || !sel.options) return;
+  const swarm = typeof createKind === 'function' && createKind() === 'swarm';
+  let moved = false;
+  for (const opt of sel.options) {
+    if (opt.value === 'anthropic') continue;
+    const gated = opt.dataset.swarmGated === '1';
+    if (swarm) {
+      if (!gated || fresh) {
+        if (fresh && gated && opt.dataset.off === SWARM_PROVIDER_OFF && opt.disabled) { /* still ours: keep the saved state */ }
+        else { opt.dataset.swarmWasOff = opt.disabled ? '1' : '0'; opt.dataset.swarmWasText = opt.dataset.off || ''; }
+      }
+      opt.dataset.swarmGated = '1';
+      opt.disabled = true;
+      opt.dataset.off = SWARM_PROVIDER_OFF;
+    } else if (gated) {
+      opt.disabled = opt.dataset.swarmWasOff === '1';
+      if (opt.dataset.swarmWasText) opt.dataset.off = opt.dataset.swarmWasText; else delete opt.dataset.off;
+      delete opt.dataset.swarmGated; delete opt.dataset.swarmWasOff; delete opt.dataset.swarmWasText;
+    }
+  }
+  /* The move to Claude is the form's, not the person's: it must not count as a deliberate pick (CREATE_PROVIDER_TOUCHED
+     gates the auto-upgrade to the only usable provider), and going back to Agent puts their own choice back. */
+  if (swarm && sel.value !== 'anthropic') { sel.dataset.swarmWasValue = sel.value; sel.value = 'anthropic'; moved = true; }
+  if (!swarm && sel.dataset.swarmWasValue) {
+    const back = [...sel.options].find((o) => o.value === sel.dataset.swarmWasValue && !o.disabled);
+    delete sel.dataset.swarmWasValue;
+    if (back && sel.value !== back.value) { sel.value = back.value; moved = true; }
+  }
+  if (moved) {
+    const was = typeof CREATE_PROVIDER_TOUCHED !== 'undefined' ? CREATE_PROVIDER_TOUCHED : null;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));   // the account and model menus follow
+    if (was !== null) CREATE_PROVIDER_TOUCHED = was;
+  }
 }
 function swarmCreatePaint() {
   const box = document.getElementById('create-kind');
@@ -41135,16 +41213,35 @@ function swarmCreatePaint() {
   document.getElementById('create-swarm-cap-v').textContent = capWords;
   document.getElementById('create-swarm-cap').setAttribute('aria-valuetext', capWords + ' tokens a day');
   document.querySelector('#create-swarm-warn span:last-child').innerHTML = swarmWarnWords(max, null);
-  const name = document.getElementById('create-name').value.trim() || 'Swarm';
+  /* #3946 item 7, Josh's words; "up to N" follows the slider so the sentence is true at any setting. */
+  document.getElementById('create-swarm-explain').textContent = `The lead agent brings in up to ${max} helpers when parts of a task can be done at the same time. Otherwise, it works alone.`;
+  /* #3946 item 2: both tiles show the identity avatar as it stands (the generated mark as the name is typed,
+     or the chosen picture), read from its own canvas so the three can never disagree. No name yet: the tiles
+     stay empty like the identity ring, never a stand-in letter (they showed "S", from "Swarm"). */
+  const name = document.getElementById('create-name').value.trim();
+  const cv = document.getElementById('genav');
+  /* Encoded once per change of the canvas (TILE_MARK is cleared where it is drawn), not per slider tick. */
+  if (TILE_MARK == null) {   // == : also undefined, before its var line has run
+    try { TILE_MARK = cv && !cv.classList.contains('empty') ? cv.toDataURL('image/png') : ''; } catch { TILE_MARK = ''; }
+  }
+  const mark = TILE_MARK;
   const stand = { name, swarm: { maxHelpers: max, activeHelpers: 0 } };
   const f = document.getElementById('create-kind-swarm-face');
-  const html = swarmCluster(stand, 44);
+  /* #3946 item 1: no "0/N" here; nothing is working yet, so the count said nothing. */
+  const html = swarmCluster(stand, 44, { picUrl: mark, decorative: true });
   if (f.innerHTML !== html) f.innerHTML = html;
-  document.getElementById('create-kind-agent-face').textContent = initials(name);
-  /* Claude only for now: the mock shows "Runs on Claude" in place of the model picker, so the whole model field
-     steps aside for a swarm (the engine gives it Claude's default; the model can be changed on its page later). */
+  const af = document.getElementById('create-kind-agent-face');
+  af.textContent = '';
+  af.style.backgroundImage = mark ? `url('${mark}')` : '';
+  af.classList.toggle('has-mark', !!mark);
+  /* #3946 item 12: the instructions line speaks of the team when it is one. */
+  document.getElementById('create-instr-hint').textContent = swarm
+    ? 'Describe what these agents do and how they should work. You can edit this later.'
+    : 'Describe what this agent does and how it should work. You can edit this later.';
+  /* #3946 item 5: the normal model picker for a swarm too, with what a swarm cannot run on greyed (not hidden). */
   const mf = document.getElementById('create-model-field');
-  if (mf) mf.hidden = swarm;
+  if (mf) mf.hidden = false;
+  swarmProviderGate(document.getElementById('create-provider'), { fresh: false });
   const go = document.getElementById('create-go');
   if (go && go.dataset.swarmWas === undefined) go.dataset.swarmWas = go.textContent;
   if (go) go.textContent = swarm ? 'Make this swarm' : go.dataset.swarmWas;
@@ -41203,6 +41300,10 @@ function openCreate(initialMode) {
   const genav = document.getElementById('genav');
   genav.classList.add('empty');
   genav.getContext('2d').clearRect(0, 0, genav.width, genav.height);
+  /* #3946 review round 2: the tiles mirror this canvas, and swarmCreatePaint ran above before it was cleared, so a
+     reopened form showed the LAST agent's mark. Forget the cached mark and paint the tiles again, empty. */
+  TILE_MARK = null;
+  swarmCreatePaint();
   document.getElementById('create-go').disabled = false;
   document.getElementById('role-next').disabled = true;
   cstep('role');
@@ -41999,6 +42100,7 @@ function drawCreateMark() {
   const v = document.getElementById('create-name').value.trim();
   cv.classList.toggle('empty', !v);
   const g = cv.getContext('2d');
+  TILE_MARK = null;   // #3946: the create tiles re-read the canvas
   if (!v) { g.clearRect(0, 0, cv.width, cv.height); return; }
   LAST_MARK_SEED = v;
   dotGlyph(cv, v[0].toUpperCase(), markFamFor(v), v);
@@ -42157,11 +42259,14 @@ document.getElementById('create-avatar').addEventListener('change', (e) => {
       const h = img.height * scale;
       g.drawImage(img, (cv.width - w) / 2, (cv.height - h) / 2, w, h);
       URL.revokeObjectURL(url);
+      TILE_MARK = null;
+      swarmCreatePaint();   // #3946: the tiles show the chosen picture too
     };
-    img.onerror = () => { URL.revokeObjectURL(url); drawCreateMark(); };
+    img.onerror = () => { URL.revokeObjectURL(url); drawCreateMark(); swarmCreatePaint(); };
     img.src = url;
   } else {
     drawCreateMark();
+    swarmCreatePaint();
   }
 });
 
@@ -42503,7 +42608,9 @@ document.getElementById('create-go').addEventListener('click', async () => {
           b.kind = 'swarm';
           b.maxHelpers = Number(document.getElementById('create-swarm-max').value);
           b.dailyTokenLimit = Number(document.getElementById('create-swarm-cap').value) * 1000000;
-          delete b.provider; delete b.model; delete b.account;   // Claude's default; the picker is not shown
+          /* #3946 item 5: the picker shows for a swarm now (Claude only, the rest greyed), so its model and
+             account travel like an agent's; the provider is Claude whatever the menu held. */
+          b.provider = 'anthropic';
         }
         return b;
       })()),
