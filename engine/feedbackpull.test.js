@@ -330,7 +330,7 @@ test('#3878: a partial pull says how many reports could not be read; the wrong-s
     get: async () => { throw new Error('blob GET HTTP 403'); },
   });
   const denied = await fp.pull(path.join(SB, 'd-denied'), { token: 'tok' });
-  assert.match(denied.because, /1 were refused although the store's own token was sent/);
+  assert.match(denied.because, /1 of them refused although this token was sent/);
   assert.doesNotMatch(denied.because, /wrong store/, 'a token that listed the store cannot be for another store');
 });
 
@@ -359,7 +359,7 @@ test('#3878: refusals are counted even when the last failure was a 404', async (
   const r = await fp.pull(path.join(SB, 'd-mixed'), { token: 'tok' });
   assert.equal(r.ok, false);
   assert.match(r.because, /last read error: blob GET HTTP 404/);
-  assert.match(r.because, /2 were refused although/, 'two 403s then a 404 must still be reported as refusals');
+  assert.match(r.because, /2 of them refused although/, 'two 403s then a 404 must still be reported as refusals');
 });
 
 test('#3878: the counts are the message: some unreadable and some malformed is said as both', async () => {
@@ -370,7 +370,7 @@ test('#3878: the counts are the message: some unreadable and some malformed is s
   });
   const r = await fp.pull(path.join(SB, 'd-mixed-bad'), { token: 'tok' });
   assert.equal(r.ok, false);
-  assert.match(r.because, /1 could not be read, 2 were malformed or not written/);
+  assert.match(r.because, /1 could not be read, 2 malformed or not written/);
 });
 
 test('#3878: a refusal after the token was withheld names the host, not the token', async () => {
@@ -409,7 +409,7 @@ test('#3878: reports listed from a PUBLIC blob store say the token is the old st
   const r = await fp.pull(path.join(SB, 'd-public'), { token: 'tok' });
   assert.equal(r.ok, true);
   assert.equal(r.fromPublicStore, true);
-  assert.match(fp.summaryLines(r).join('\n'), /listed from a PUBLIC blob store.*refile vercel-blob-feedback/);
+  assert.match(fp.summaryLines(r).join('\n'), /listed from a PUBLIC blob store\. That is expected until.*migration.*refile vercel-blob-feedback/);
   // Control: the private store's host carries no such note.
   fp.setTransport({
     list: async () => [{ url: 'https://abc.private.blob.vercel-storage.com/feedback/a.json' }],
@@ -429,4 +429,18 @@ test('#3878: a pull that FAILS on a public-store listing still carries the wrong
   assert.equal(r.ok, false);
   assert.equal(r.fromPublicStore, true);
   assert.match(r.because, /listed from a PUBLIC blob store.*refile vercel-blob-feedback/);
+});
+
+test('#3878: an empty listing says so and points at the token, a non-empty one does not', () => {
+  assert.match(fp.summaryLines({ written: 0, skipped: 0, total: 0, dir: '/d' }).join('\n'), /no reports were listed.*vercel-blob-feedback/);
+  assert.doesNotMatch(fp.summaryLines({ written: 2, skipped: 0, total: 2, dir: '/d' }).join('\n'), /no reports were listed/);
+});
+
+test('#3878: the public-store flag is anchored to the blob host, not any ".public." host', async () => {
+  fp.setTransport({
+    list: async () => [{ url: 'https://x.public.example.com/feedback/a.json' }],
+    get: async () => JSON.stringify(REC('inst-x', '2026-09-26', 'x')),
+  });
+  const r = await fp.pull(path.join(SB, 'd-notblob'), { token: 'tok' });
+  assert.equal(r.fromPublicStore, false);
 });
