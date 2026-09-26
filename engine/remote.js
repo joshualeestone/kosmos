@@ -1193,8 +1193,8 @@ function deviceNameFrom(raw, platform) {
 let thisComputerNameCache = null;
 function thisComputerDeviceName() {
   if (thisComputerNameCache !== null) return thisComputerNameCache;
-  let raw = typeof process.env.AGENT_WORKFORCE_COMPUTER_NAME === 'string' ? process.env.AGENT_WORKFORCE_COMPUTER_NAME : '';
-  if (!raw && process.platform === 'darwin') {
+  let raw = '';
+  if (process.platform === 'darwin') {
     try { raw = execFileSync('/usr/sbin/scutil', ['--get', 'ComputerName'], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }); } catch { raw = ''; }
   }
   if (!String(raw).trim()) { try { raw = os.hostname().replace(/\.local$/i, ''); } catch { raw = ''; } }
