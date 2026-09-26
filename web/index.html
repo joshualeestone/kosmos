@@ -54024,8 +54024,9 @@ async function pjNoticeRetryClick(e) {
   if (now && now !== document.body && !box.contains(now)) return;
   // Compared as data, not built into a selector, so no session name can break the lookup.
   const again = Array.from(box.querySelectorAll('[data-pn-retry]')).find((b) => b.dataset.pnRetry === key) || null;
-  // In the rail, the list the notice sits above (its members group heads it); the Members heading is hidden there.
-  const heading = rail ? document.getElementById('alist') : document.querySelector('.pjcard-members > .dlab');
+  // In the rail, the rail's own name, which reads "Project Members" while a project is open: the Members
+  // heading is hidden there, and landing on a named heading tells a screen reader where focus went.
+  const heading = rail ? document.querySelector('#rail-agents .railname') : document.querySelector('.pjcard-members > .dlab');
   // The row's own button, else the next row's (keyboard users keep their place in the notice), else
   // the Members heading.
   const next = again || box.querySelector('[data-pn-retry]');

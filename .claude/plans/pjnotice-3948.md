@@ -2,27 +2,35 @@
 
 ## Finished looks like
 A person in the consolidated layout sees the same project notice (#3923), with the same rows and
-Try again, above the consolidated Agents list, and a screen reader announces it.
+Try again, straight above the consolidated Agents list, and a screen reader announces it.
 
-## Plan
-1. A second live region `#alist-pj-notice` (role=status, aria-live=polite, never hidden) above
-   `#alist`, plus its own hidden success line `#alist-pj-notice-said`.
-2. `paintAgentList()` paints it from `pjNotice(p.agents, p.id)` only when the layout is
-   consolidated and a project is open; otherwise it is emptied (so the tab layout never says it
-   twice). Same roster as `paintOneProject`, so the TRIED/MISSED prune agrees.
-3. The Try again listener becomes one named handler `pjNoticeRetryClick`, attached to both
-   notices. `currentTarget` picks the box; the rail arm repaints the rail, writes the rail's
-   success line and falls back to focusing `#alist` (the Members heading is hidden there).
-4. CSS: padding on the rail box only when it has content.
+## What is built
+1. A second live region `#alist-pj-notice` (role=status, aria-live=polite, never hidden itself) plus
+   its own hidden success line `#alist-pj-notice-said`, INSIDE the Agents rail head `#rail-agents`.
+   Not a body child: the consolidated grid's 38 pre-rail rows are full (web.consolidated-980.test.js),
+   and a body child with no row lands as a full-width strip at the top of the page (round 1).
+2. The head wraps; the notice is a full-width line under the name and the +. Unfolded: row-gap 0 (an
+   empty notice adds no height) and a 0 flex basis on `.lead` (the + stays on the name's line in a
+   200px rail). Folded (48px strip): the notice is hidden.
+3. `paintRailPjNotice()` paints it only in the consolidated layout with a project open, from the same
+   roster as paintOneProject; called by paintAgentList, loadProjects, showTab and the retry handler.
+   It clears the rail's success line on a project switch or leaving the layout.
+4. The Try again listener is one named handler `pjNoticeRetryClick` on both notices; the rail branch
+   repaints the rail, writes the rail's success line, and falls back to focusing the rail's name
+   ("Project Members") when no row is left.
 
 ## Tests
-- web.project-notice-3923.test.js: harness re-anchored to the named handler; new rail arm, with
-  the tab-layout control. Proven red with the rail repaint removed.
-- docs/browser-checks/render-projects.js: consolidated arm on the real Quarter close fixture,
-  plus the tab-layout-empty control. Proven red with the rail paint blanked.
+- web.project-notice-3923.test.js: harness re-anchored to the named handler; rail arm (repaint,
+  success line, focus to the rail name) with the tab-layout control; paintRailPjNotice paint and
+  clearing. Each proven red with its piece removed.
+- docs/browser-checks/render-projects.js: enters the layout through applyLayout (no direct paint),
+  asserts the notice in the head straight above the list, in its column, adding only its own height;
+  empty once the layout is put back. Proven red with the paint blanked, the notice displaced, and the
+  row gap restored.
 
 ## Decided
-- Placement above the Agents list, per the card's own example. Rejected: inside the list's
-  members group (it repaints every poll, which would re-announce).
-- Weakest premise: that `#alist` is a sensible focus fallback. It is where the rows were; if a
-  reviewer shows a better target, it is one line to change.
+- Placement in the rail head, per the card's example ("above the consolidated Agents list").
+  Rejected: inside #alist (rewritten every poll: re-announcement and lost focus); a new grid row (the
+  38-row headroom is full).
+- Folded rail hides the notice: no room for a sentence in 48px. Weakest premise: that silence while
+  folded is acceptable; unfolding shows it again but does not re-announce it.

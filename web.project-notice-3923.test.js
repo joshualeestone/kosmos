@@ -290,8 +290,8 @@ function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false
   const elsewhere = { id: 'composer' };
   const state = {
     PJ_CURRENT: project.id, PROJECTS: [project], tried: new Map(), missed: new Map(), log, btn, attrs, onBlur, said, frames: [], box,
-    document: { getElementById: (id) => (id === (rail ? 'alist-pj-notice-said' : 'pj-one-notice-said') ? said : (id === 'alist' ? (rail ? heading : null) : (/-said$/.test(id) ? null : box))),
-      querySelector: () => (rail ? null : heading), body,
+    document: { getElementById: (id) => (id === (rail ? 'alist-pj-notice-said' : 'pj-one-notice-said') ? said : (/-said$/.test(id) || id === 'alist' ? null : box)),
+      querySelector: (sel) => (rail ? (sel === '#rail-agents .railname' ? heading : null) : heading), body,
       get activeElement() { return focusedElsewhere ? elsewhere : (focusedInside ? inside : body); } },
     fetch: async (url, opts) => { log.push('fetch:' + opts.method + ' ' + url + ' disabled=' + btn.disabled); if (switchTo) state.PJ_CURRENT = switchTo; if (fetchFails) throw new Error('offline'); const ok = !refused && !status; return { ok, status: status || (refused ? 500 : 200), json: async () => ({ told: { state: verdict } }) }; },
     loadProjects: async () => { log.push('load live=' + box.__lastLive); state.PJ_READ_FAILED = readFails; return !overtaken; },
@@ -405,12 +405,12 @@ test('#3923: switching project clears a success line that belongs to another pro
     'paintOneProject does not clear another project\'s success line');
 });
 
-test('#3948: Try again in the rail notice repaints the rail, says it in the rail’s own line, and falls back to the Agents list', async () => {
+test('#3948: Try again in the rail notice repaints the rail, says it in the rail’s own line, and falls back to the rail\u2019s name', async () => {
   const project = projectWith({ leo: 'we could not write to its instructions' });
   const gone = standIn(project, { rowAfter: false, rail: true });
   await retryHandler(gone)({ target: gone.btn });
   assert.ok(gone.log.includes('rail paint'), 'the rail notice waits for the next poll to show the answer');
-  assert.equal(gone.log[gone.log.length - 1], 'focus:heading', 'focus did not go to the Agents list once the row went');
+  assert.equal(gone.log[gone.log.length - 1], 'focus:heading', 'focus did not go to the rail\u2019s name ("Project Members") once the row went');
   gone.frames.forEach((fn) => fn());
   assert.equal(gone.said.textContent, 'Kosmos updated leo’s instructions.', 'the rail’s success line was not written');
   // CONTROL: the Members notice does not repaint the rail (the tab layout has none).
