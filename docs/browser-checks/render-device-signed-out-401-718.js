@@ -12,8 +12,8 @@
  * render-board-signin-403-2023 stubs the board's 403, so no relay is needed.
  *
  * CONTROLS: a 401 WITHOUT signed_out keeps the generic card (the new state is keyed on the
- * relay's field, not on 401 alone); the board's own 403 keeps its #2023 copy; a normal board
- * shows none of it.
+ * relay's field, not on 401 alone); the board's own 403 keeps its #2023 copy; a 500 keeps
+ * "cannot read"; a normal board draws its agents and none of this.
  *
  * Run: NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
  *   node docs/browser-checks/render-device-signed-out-401-718.js http://127.0.0.1:PORT
@@ -38,6 +38,7 @@ const OTHER_401 = { error: 'unauthorized' };
 const BOARD_403 = { error: 'this board belongs to the account that started it; open it with `kosmos open`' };
 
 const SIGN_IN_AGAIN = /Sign in again to see your agents/i;
+const SIGNED_OUT_NOTE = /signed out of your Kosmos/i;
 const CANNOT_READ = /We cannot read your (agents|projects) right now/i;
 const BOARD_NOT_SIGNED_IN = /This board is not signed in/i;
 
@@ -66,14 +67,19 @@ const BOARD_NOT_SIGNED_IN = /This board is not signed in/i;
     check('agents 401 signed_out: not the generic cannot-read card', !CANNOT_READ.test(t), t.slice(0, 140));
     const btn = page.locator('[data-device-signin]:visible').first();
     check('agents 401 signed_out: a visible Sign in button', (await btn.count()) === 1 && /Sign in/i.test(await btn.textContent().catch(() => '')));
-    const org = await page.evaluate(() => (document.getElementById('orgnote') || {}).textContent || '');
-    check('agents 401 signed_out: the org note says sign in again too', SIGN_IN_AGAIN.test(org), org.slice(0, 120));
-    // The button must NAVIGATE (the relay answers a navigation with its sign-in page).
+    const org = await page.evaluate(() => {
+      const n = document.getElementById('orgnote');
+      return { text: (n && n.textContent) || '', button: !!(n && n.querySelector('[data-device-signin]')) };
+    });
+    check('agents 401 signed_out: the org note says signed out and carries its own Sign in button',
+      SIGNED_OUT_NOTE.test(org.text) && org.button, org.text.slice(0, 120));
+    // The button must NAVIGATE back to this same address (the relay answers a navigation with its sign-in page).
+    const here = page.url();
     let navigated = false;
-    page.on('request', (req) => { if (req.isNavigationRequest() && req.frame() === page.mainFrame()) navigated = true; });
+    page.on('request', (req) => { if (req.isNavigationRequest() && req.frame() === page.mainFrame() && req.url() === here) navigated = true; });
     if (await btn.count()) await btn.click().catch(() => {});
     await page.waitForTimeout(900);
-    check('agents 401 signed_out: Sign in reloads the page (a navigation the relay turns into its sign-in page)', navigated);
+    check('agents 401 signed_out: Sign in reloads this page (a navigation the relay turns into its sign-in page)', navigated);
     await ctx.close();
   }
 
@@ -113,13 +119,27 @@ const BOARD_NOT_SIGNED_IN = /This board is not signed in/i;
     await ctx.close();
   }
 
-  // ---- CONTROL C: a normal board shows none of it.
+  // ---- CONTROL C: a genuine 500 keeps "cannot read".
+  {
+    const { ctx, page } = await fresh();
+    await stub(page, 500, { error: 'we could not read tmux' });
+    await page.goto(BASE + '/?tab=agents', { waitUntil: 'load' });
+    await page.waitForTimeout(900);
+    const t = await boardText(page);
+    check('CONTROL 500: keeps the generic cannot-read card', CANNOT_READ.test(t), t.slice(0, 120));
+    check('CONTROL 500: does not say sign in again', !SIGN_IN_AGAIN.test(t), t.slice(0, 120));
+    await ctx.close();
+  }
+
+  // ---- CONTROL D: a normal board shows none of it, and did draw something.
   {
     const { ctx, page } = await fresh();
     await page.goto(BASE + '/?tab=agents', { waitUntil: 'load' });
     await page.waitForTimeout(900);
     const t = await boardText(page);
-    check('CONTROL 200: a normal board does not say sign in again', !SIGN_IN_AGAIN.test(t), t.slice(0, 100));
+    const drew = await page.evaluate(() => document.querySelectorAll('#grid .acard, #alist .acard, #grid .pj-empty, #alist .pj-empty').length);
+    check('CONTROL 200: a normal board drew its agents (or its own empty state)', drew > 0, 'elements ' + drew);
+    check('CONTROL 200: a normal board does not say sign in again or cannot read', !SIGN_IN_AGAIN.test(t) && !CANNOT_READ.test(t), t.slice(0, 100));
     await ctx.close();
   }
 
