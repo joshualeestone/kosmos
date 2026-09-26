@@ -231,7 +231,13 @@ function setForTests(o) {
   if (o.folderRoot) folderRoot = o.folderRoot;
 }
 function tickForTests() { tick(); }
-function resetForTests() { if (S && S.timer) clearInterval(S.timer); S = null; }
+const REAL = { tmux, openFile, confirmSignedIn, agyBin, now, folderRoot };
+/** Ends any session and puts every seam back. */
+function resetForTests() {
+  if (S && S.timer) clearInterval(S.timer);
+  S = null;
+  ({ tmux, openFile, confirmSignedIn, agyBin, now, folderRoot } = REAL);
+}
 
 module.exports = { start, status, code, show, stop, socket, SESSION, SCREENS, CODE_RE,
   urlFrom, markedLine, trustFolder, setForTests, tickForTests, resetForTests };

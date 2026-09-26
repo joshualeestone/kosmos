@@ -88,22 +88,8 @@ const shared = inflight.collapse(checkOnce);
     it could not be confirmed, never a guessed "signed out". */
 function check() { return shared(); }
 
-/* Open agy once, in Terminal, so it can sign in. Google's docs (antigravity.google/docs/cli/install):
-   started locally without a saved session, "The CLI automatically launches your local default web
-   browser. Sign in using your approved account credentials." So Kosmos types nothing into it; the
-   person signs in in the browser and presses Check again. macOS only (agy is refused on Windows). */
-let openTerminal = (bin, done) => execFile('/usr/bin/open', ['-a', 'Terminal', bin], { timeout: 15000 }, (err) => done(err));
-function openForSignIn() {
-  return new Promise((resolve) => {
-    if (!supported()) { resolve({ ok: false, because: 'Gemini on a Google subscription is not available on this computer yet' }); return; }
-    if (!enabled()) { resolve({ ok: false, because: 'Gemini on a Google subscription is switched off on this computer' }); return; }
-    const inst = installed();
-    if (!inst.installed) { resolve({ ok: false, because: 'Antigravity is not installed on this computer' }); return; }
-    openTerminal(inst.bin, (err) => resolve(err
-      ? { ok: false, because: 'we could not open Antigravity\'s sign-in just now' }
-      : { ok: true }));
-  });
-}
+/* #3998: signing in is engine/agysignin.js (agy's interactive sign-in run out of sight); the old
+   open-it-in-Terminal path is gone. */
 /* Install agy the way Google documents it (antigravity.google/docs/cli/install): its installer
    script, fetched over https from antigravity.google, puts agy in ~/.local/bin/agy. Kosmos installs
    every provider's terminal agent itself behind a Confirm press, and a person is never told to open
@@ -158,9 +144,8 @@ function install() { return sharedInstall(); }
 function setInstallerForTests(fn) { runInstall = fn; }
 /* The real runner, opener and installer, kept so a test file can put them back when it is done. */
 const REAL = {};
-function resetForTests() { runAgy = REAL.runAgy; openTerminal = REAL.openTerminal; runInstall = REAL.runInstall; sandboxInstallAllowedForTests = false; }
-function setOpenerForTests(fn) { openTerminal = fn; }
+function resetForTests() { runAgy = REAL.runAgy; runInstall = REAL.runInstall; sandboxInstallAllowedForTests = false; }
 function setRunnerForTests(fn) { runAgy = fn; }
 
-REAL.runAgy = runAgy; REAL.openTerminal = openTerminal; REAL.runInstall = runInstall;
-module.exports = { resetForTests, allowSandboxInstallForTests, installed, installedForScreen, offered, check, openForSignIn, install, setRunnerForTests, setOpenerForTests, setInstallerForTests, PROMPT, INSTALL_URL };
+REAL.runAgy = runAgy; REAL.runInstall = runInstall;
+module.exports = { resetForTests, allowSandboxInstallForTests, installed, installedForScreen, offered, check, install, setRunnerForTests, setInstallerForTests, PROMPT, INSTALL_URL };
