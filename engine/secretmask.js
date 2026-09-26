@@ -203,8 +203,8 @@ function normalisedCopy(text) {
  *
  * Not covered: pieces out of order or reversed; an opening piece shorter than four characters; a held value
  * made only of words and numbers (see madeOfWords); a partial try whose pieces after the opening come to fewer
- * than 8 characters in runs of OPENING_LEN or more (such a try is left alone, and one that does reach 8 is masked
- * piece by piece, its public prefix included); glue other than _ + - or / at either end and a label joined
+ * than 8 characters in runs of OPENING_LEN or more that are not themselves words or numbers (such a try is left
+ * alone, and one that does reach 8 is masked piece by piece, its public prefix included); glue other than _ + - or / at either end and a label joined
  * with = on either side (glue in the middle of a run, say); a held form over WORD_WALK_MAX_FORM characters; and a key split
  * across two replies (the mask is per message).
  */
@@ -213,7 +213,9 @@ function normalisedCopy(text) {
    that may have missed a key, and this file errs toward masking. What reaches it (review round 5): one held
    value near WORD_WALK_MAX_FORM whose opening the reply repeats a few hundred times (each mention looks ahead
    over about 4x the value), or thousands of held values sharing an opening that the reply repeats. Measured
-   well inside it: a 50,000-character reply with five held Anthropic keys and 400 sk-ant-api03- mentions. */
+   well inside it: a 50,000-character reply with five held Anthropic keys and 400 sk-ant-api03- mentions. Measured
+   reaching it (review round 13): ten held Anthropic keys and a 36,000-character reply repeating a paragraph that
+   names sk-ant-api03- 200 times, withheld; whether it trips depends on the keys' random next characters. */
 const WORD_WALK_BUDGET = 250000;
 /* A comparison is charged by the characters it can read, one unit per 16 (review round 6): an opening or a
    piece can be up to WORD_WALK_MAX_FORM long, and counting comparisons alone let 2,000 held values sharing a
@@ -357,7 +359,9 @@ function wordSkippingSpans(text) {
           let after = 0;
           for (let at = best; via.has(at); at = via.get(at).prev) {
             const step = via.get(at);
-            if (at - step.prev >= OPENING_LEN) { found.push(step.s); after += at - step.prev; }
+            /* Only a piece that is not made of words or numbers counts (review round 13): a URL-shaped held value's
+               public scheme and host (https, discord, com) are words, and a reply naming them is not a try. */
+            if (at - step.prev >= OPENING_LEN && !madeOfWords(f.slice(step.prev, at))) { found.push(step.s); after += at - step.prev; }
           }
           if (after >= 8) {
             spans.push([from, runs[r][1]]);
@@ -470,7 +474,11 @@ function mask(text) {
     const allKeyChars = deleting(original, identity, /[^A-Za-z0-9_+/=-]+/g, (m) => [m.index, m.index + m[0].length]);
     const longRuns = deleting(original, identity, /[A-Za-z0-9_+/=-]{1,3}(?![A-Za-z0-9_+/=-])|[^A-Za-z0-9_+/=-]+/g,
       (m) => (m.index > 0 && /[A-Za-z0-9_+/=-]/.test(original[m.index - 1]) && /^[A-Za-z0-9_+/=-]/.test(m[0]) ? null : [m.index, m.index + m[0].length]));
-    for (const copy of [allKeyChars, longRuns]) {
+    /* #3935 (review round 13): a key in chunks joined by its own separators, licence-key style
+       (Qw8e-Rt2y-Ui9o-...), is one run to both copies above, so it was never joined. This copy drops - and _
+       too. A held form containing either cannot occur in it, so only forms without them are ever found here. */
+    const noSeps = deleting(original, identity, /[^A-Za-z0-9+/=]+/g, (m) => [m.index, m.index + m[0].length]);
+    for (const copy of [allKeyChars, longRuns, noSeps]) {
       if (copy.str === original) continue;
       for (const f of knownFormsIn(copy.str)) {
         let at = copy.str.indexOf(f);

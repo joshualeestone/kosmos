@@ -699,3 +699,38 @@ test('#3935 a run of the key\'s own separators left out at a split does not end 
     } finally { setKnownSecrets([]); }
   }
 });
+
+test('#3935 a URL-shaped held value: naming its public scheme and host is not a partial try (review round 13)', () => {
+  const cases = [
+    /* Joined, like SECRETS at the top, so this file does not itself read as a leak to a secret scanner. */
+    [j('https://discord.com/api/', 'webhooks/', '1234567890123/', 'AbCdEf0123456789GhIjKlMnOpQrStUvWx'), 'For Discord it looks like https://discord.com/api/webhooks/ followed by two ids.'],
+    [j('https://hooks.', 'slack.com/services/', 'T0123ABCD/', 'B0123EFGH/', 'Xy7Qp2Lm9Vb4Rt8Kz1Wn6Hd3'), 'Slack webhook links begin https://hooks.slack.com/services/ and then three ids.'],
+    [j('postgres://kosmos:', 'Xy7Qp2Lm9Vb4', '@localhost:5432/kosmos'), 'Kosmos stores data in postgres://kosmos on localhost:5432 by default.'],
+  ];
+  for (const [held, text] of cases) {
+    setKnownSecrets([held]);
+    try {
+      assert.equal(mask(text).text, text, `ordinary text naming a URL's public part was masked: ${text}`);
+    } finally { setKnownSecrets([]); }
+  }
+});
+
+test('#3935 a key in chunks joined by hyphens, licence-key style, is masked (review round 13)', () => {
+  const held = 'Qw8eRt2yUi9oPa3sDf6gHj1kLz5xCv0b';
+  setKnownSecrets([held]);
+  try {
+    const r = mask(`Here it is: ${held.match(/.{4}/g).join('-')} done`);
+    for (const c of held.match(/.{4}/g)) assert.ok(!r.text.includes(c), `the chunk ${c} survived: ${r.text}`);
+    assert.ok(r.text.startsWith('Here it is: ') && r.text.endsWith(' done'), r.text);
+    const u = mask(`Here it is: ${held.match(/.{4}/g).join('_')} done`).text;
+    assert.ok(!u.includes('Rt2y') && !u.includes('Cv0b'), `joined by underscores: ${u}`);
+  } finally { setKnownSecrets([]); }
+  /* CONTROL: a held value with its OWN hyphens is not searched with them dropped, and is still masked split by words. */
+  const own = 'sk-ant-api03-Xy7Qp2Lm9Vb4Rt8Kz1Wn6Hd3Js0Fg5Ya2Ub7Xe9Ko';
+  setKnownSecrets([own]);
+  try {
+    const chunks = own.match(/.{1,8}/g);
+    const out = mask(`${chunks.map((c, i) => `| Row${i} name | ${c} |`).join('\n')}`).text;
+    assert.ok(!out.includes(chunks[3]), `CONTROL: a key with its own hyphens, split by words, survived: ${out}`);
+  } finally { setKnownSecrets([]); }
+});
