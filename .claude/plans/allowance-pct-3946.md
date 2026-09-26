@@ -26,7 +26,13 @@ held to, and puts it on screen.
     whose tokens on the old account are counted against the new one. Neither is
     bounded here; the daily re-measure and the points rule below keep them to a day.
 - A new day's estimate replaces the stored one only once it rests on at least as many
-  points, so a noisy 2-point morning does not overwrite a 15-point day.
+  points, so a noisy 2-point morning does not overwrite a 15-point day. Past three days
+  old, any qualifying day replaces it, so one heavy day does not hold until it expires
+  at seven and drop every % swarm on the account back to tokens mid-day.
+- Every Claude account with a Kosmos agent is measured each sweep, swarm or not, so the
+  create screen can offer the % for an account's first swarm.
+- A % that changes no tokens (an uncalibrated account) is not a new limit, so it does
+  not cancel a switch-back-on override for today.
 
 ## The setting
 

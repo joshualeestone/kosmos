@@ -4334,9 +4334,6 @@ function sessionIdsFor(sessionName, exactSession) {
   return found;
 }
 
-/* #3564: the card's `swarm` field. The transcript is resolved only for a swarm. `owns` tells
-   the meter whether a session file in the lead's folder is this agent's: two workdirs can
-   flatten to one folder (see byWorkdirDetailed). */
 /**
  * The Claude account folder an agent runs on (#3946): its launch job's configDir, or
  * the default ~/.claude when that is null. Null for a non-Claude runner or an agent
@@ -4351,6 +4348,9 @@ function claudeAccountDirOf(agentName) {
   try { return path.join(require('./accounts').HOME_FOR_TEST, '.claude'); } catch { return null; }
 }
 
+/* #3564: the card's `swarm` field. The transcript is resolved only for a swarm. `owns` tells
+   the meter whether a session file in the lead's folder is this agent's: two workdirs can
+   flatten to one folder (see byWorkdirDetailed). */
 function swarmField(profile, agentName, exactSession) {
   try {
     const swarm = require('./swarm');

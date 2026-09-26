@@ -2531,35 +2531,37 @@ function agentReplyProblem(text) {
   return chat.messageProblem(text) || chat.storedProblem(text) || messages.markerProblem(text) || null;
 }
 
-/* #3564: what the daily-limit sweep acts through, for one roster. Named so its wiring is
-   tested (server.swarm-3564.test.js), not only the sweep's decisions. */
-/* #3946 item 10: before the daily-limit sweep, re-derive each % swarm's token limit from
-   its account's calibration. The calibration needs every Kosmos agent's tokens today on
-   each Claude account: a swarm's share of the week is measured against all of them, and
-   using the swarm's own tokens alone would make a point look far cheaper than it is.
-   Counted with swarm.meter, the same count the limit enforces, so the two agree. */
-function calibrateSwarmAllowances(roster, now = Date.now()) {
+/* #3946 item 10: before the daily-limit sweep, measure each Claude account's calibration
+   and re-derive each % swarm's token limit from it. Every account is measured, swarm or
+   not, so the create screen can offer the % for an account's first swarm. The calibration
+   needs every Kosmos agent's tokens today on the account: a swarm's share of the week is
+   measured against all of them. Counted with swarm.meter, the same count the limit enforces.
+   Accounts are keyed on the folder's real path, so two spellings of one folder are one account. */
+function calibrateSwarmAllowances(roster, now = Date.now(), tokensFor = null) {
   const swarmMod = require('./engine/swarm');
   const allowance = require('./engine/allowance');
   const status = require('./engine/status');
   const rows = swarmMod.sweepRows(roster);
-  if (!rows.length) return [];
   const dirOf = new Map();
   const tokens = new Map();
   for (const c of Array.isArray(roster) ? roster : []) {
     if (!c || c.isNamedOurs !== true || !c.sessionName) continue;
-    const dir = status.claudeAccountDirOf(c.sessionName);
+    let dir = status.claudeAccountDirOf(c.sessionName);
     if (!dir) continue;
+    try { dir = fs.realpathSync(dir); } catch { /* not there yet: its own spelling */ }
     dirOf.set(c.sessionName, dir);
     let n = 0;
     if (c.swarm && Number.isFinite(c.swarm.tokensToday)) n = c.swarm.tokensToday;
-    else { try { n = swarmMod.meter(status.transcriptFor(c.sessionName), now).tokensToday; } catch { n = 0; } }
+    else {
+      try { n = tokensFor ? tokensFor(c.sessionName) : swarmMod.meter(status.transcriptFor(c.sessionName), now).tokensToday; } catch { n = 0; }
+    }
     tokens.set(dir, (tokens.get(dir) || 0) + (Number.isFinite(n) ? n : 0));
   }
   const cal = new Map();
   for (const [dir, n] of tokens) {
     cal.set(dir, allowance.calibrate(dir, n, { now, dayStart: swarmMod.startOfDay(now) }));
   }
+  if (!rows.length) return [];
   return swarmMod.rederiveLimits(rows, {
     readProfile: (n) => store.readProfile(n),
     writeProfile: (n, patch) => store.writeProfile(n, patch),
@@ -2567,6 +2569,8 @@ function calibrateSwarmAllowances(roster, now = Date.now()) {
   });
 }
 
+/* #3564: what the daily-limit sweep acts through, for one roster. Named so its wiring is
+   tested (server.swarm-3564.test.js), not only the sweep's decisions. */
 function swarmSweepDeps(roster) {
   return {
     readProfile: (n) => store.readProfile(n),

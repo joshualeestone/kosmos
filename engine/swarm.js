@@ -147,8 +147,9 @@ function applyPatch(profile, patch, now = Date.now()) {
   const cur = settingsOf(profile);
   const next = { ...cur };
   if ('maxHelpers' in patch) next.maxHelpers = patch.maxHelpers;
-  const newLimit = ('dailyTokenLimit' in patch && patch.dailyTokenLimit !== cur.dailyTokenLimit)
-    || ('dailyAllowancePct' in patch && patch.dailyAllowancePct !== cur.dailyAllowancePct);
+  /* Only a change to the enforced number is a new limit: a % the account cannot yet turn into
+     tokens leaves today's limit, and a switch-back-on override, as they were. */
+  const newLimit = 'dailyTokenLimit' in patch && patch.dailyTokenLimit !== cur.dailyTokenLimit;
   if ('dailyTokenLimit' in patch) next.dailyTokenLimit = patch.dailyTokenLimit;
   if ('dailyAllowancePct' in patch) next.dailyAllowancePct = patch.dailyAllowancePct;
   if (newLimit) next.limitOverrideDay = null;

@@ -389,6 +389,17 @@ test('calibration: a new day\'s estimate on fewer points than the stored one kee
   assert.equal(allowance.readCalibration(dir, now).at, now, 'the replacement was not stored');
 });
 
+test('calibration: a stored one older than CALIBRATION_REPLACE_AGE_MS is replaced by any qualifying day, even on fewer points', () => {
+  const dir = freshDir();
+  const now = Date.now();
+  const dayStart = now - 6 * 3600 * 1000;
+  weeklyFile(dir, 43, FUTURE, [[dayStart - 3600e3, 40, FUTURE], [now - 60e3, 43, FUTURE]]);
+  fs.writeFileSync(path.join(dir, allowance.CALIBRATION_FILE), JSON.stringify({ tokensPerPoint: 1e6, points: 15, at: now - allowance.CALIBRATION_REPLACE_AGE_MS + 3600e3 }));
+  assert.equal(allowance.calibrate(dir, 8e6, { now, dayStart }).tokensPerPoint, 1e6, 'CONTROL: a young 15-point one was replaced by 3 points');
+  fs.writeFileSync(path.join(dir, allowance.CALIBRATION_FILE), JSON.stringify({ tokensPerPoint: 1e6, points: 15, at: now - allowance.CALIBRATION_REPLACE_AGE_MS - 3600e3 }));
+  assert.equal(allowance.calibrate(dir, 8e6, { now, dayStart }).tokensPerPoint, 2e6, 'an old 15-point one held off a qualifying day');
+});
+
 test('calibration: a stored one older than a week, or from the future, is not used', () => {
   const dir = freshDir();
   const now = Date.now();

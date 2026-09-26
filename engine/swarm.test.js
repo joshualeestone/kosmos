@@ -555,7 +555,7 @@ test('#3564 Stop now sends NO key to an agent on the trust dialog (one Escape th
 });
 
 /* #3946 item 10: a daily limit as a share of the weekly allowance. */
-test('#3946: the % setting is checked, born, patched, and counts as a new limit', () => {
+test('#3946: the % setting is checked, born, patched, and a new limit only when it changes the tokens', () => {
   for (const bad of [0, 21, 2.5, '3']) assert.match(swarm.createProblem({ dailyTokenLimit: 1000, dailyAllowancePct: bad }), /whole percent from 1 to 20/, String(bad));
   assert.equal(swarm.createProblem({ dailyTokenLimit: 1000, dailyAllowancePct: 3 }), null);
   assert.equal(swarm.settingsOf(swarm.birthProfile({ dailyTokenLimit: 1000, dailyAllowancePct: 3 })).dailyAllowancePct, 3);
@@ -563,15 +563,19 @@ test('#3946: the % setting is checked, born, patched, and counts as a new limit'
   assert.equal(swarm.patchProblem({ dailyAllowancePct: 5 }), null);
   assert.equal(swarm.patchProblem({ dailyAllowancePct: null }), null, 'going back to tokens is allowed');
   assert.match(swarm.patchProblem({ dailyAllowancePct: 30 }), /whole percent/);
-  // Changing the % after a limit pause is a new limit: the override for today is not kept.
+  // A % that changes the enforced tokens after a limit pause is a new limit: the override for today is not
+  // kept. A % alone (an account that cannot yet turn it into tokens) leaves today's limit and the override.
   const NOW = new Date(2026, 8, 25, 9, 0, 0).getTime();
   const base = swarm.settingsOf(swarm.birthProfile({ dailyTokenLimit: 1000, dailyAllowancePct: 3 }));
   const paused = { ...swarm.birthProfile({ dailyTokenLimit: 1000, dailyAllowancePct: 3 }), swarm: swarm.pausedFor(base, 'limit', NOW - 60000) };
   const on = swarm.applyPatch(paused, { active: true }, NOW);
   assert.ok(on.limitOverrideDay, 'CONTROL: switching on with the same limit holds for today');
-  const onAndMoved = swarm.applyPatch({ ...paused, swarm: on }, { dailyAllowancePct: 4 }, NOW);
-  assert.equal(onAndMoved.limitOverrideDay, null, 'a new % kept the override');
+  const onAndMoved = swarm.applyPatch({ ...paused, swarm: on }, { dailyAllowancePct: 4, dailyTokenLimit: 4000 }, NOW);
+  assert.equal(onAndMoved.limitOverrideDay, null, 'a new % worth new tokens kept the override');
   assert.equal(onAndMoved.dailyAllowancePct, 4);
+  const pctOnly = swarm.applyPatch({ ...paused, swarm: on }, { dailyAllowancePct: 4 }, NOW);
+  assert.equal(pctOnly.limitOverrideDay, on.limitOverrideDay, 'a % that changed no tokens dropped the override');
+  assert.equal(pctOnly.dailyTokenLimit, 1000);
 });
 
 test('#3946: limitFromAllowance and rederiveLimits keep the token limit in step with the % on a calibrated account', () => {

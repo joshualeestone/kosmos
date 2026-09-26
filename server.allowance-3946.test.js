@@ -97,6 +97,25 @@ test('#3946 sweep: the account\'s tokens today over the figure\'s movement re-de
   assert.equal(swarm.settingsOf(store.readProfile('hive')).dailyTokenLimit, 1800000);
 });
 
+test('#3946 sweep: an account with no swarm on it is still calibrated, so its first swarm can be made in %', () => {
+  const dir = account('acct-noswarm');
+  const now = Date.now();
+  const dayStart = swarm.startOfDay(now);
+  fs.writeFileSync(path.join(dir, statusline.FILE), JSON.stringify({ usedPct: 44, resetsAt: FUTURE, at: now - 1000,
+    history: [[dayStart - 3600e3, 40, FUTURE], [now - 1000, 44, FUTURE]] }));
+  lead('plain', { role: 'pm' }, dir);
+  const fleetMod = require('./test-support/fleet');
+  const board = fleetMod.install([fleetMod.agent('plain', { state: 'idle' })]);
+  let did;
+  try {
+    const card = board.card('plain');
+    assert.equal(card.swarm, null, 'CONTROL: the fixture made a swarm, so this tests the wrong thing');
+    did = calibrateSwarmAllowances([card], now, (n) => (n === 'plain' ? 5e6 : 0));
+  } finally { board.restore(); }
+  assert.deepEqual(did, [], 'no swarm, nothing to re-derive');
+  assert.equal(allowance.readCalibration(dir, now).tokensPerPoint, 1e6, 'an account with no swarm was not calibrated');
+});
+
 test('#3946 /api/accounts says which Claude account is calibrated', async () => {
   const def = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude');
   fs.mkdirSync(def, { recursive: true });

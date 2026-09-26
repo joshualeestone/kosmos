@@ -165,6 +165,8 @@ function readWeekly(accountDir, now = Date.now()) {
 const MIN_CALIBRATION_POINTS = 2;
 /* A stored calibration older than this is not used: it describes a week that is over. */
 const CALIBRATION_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
+/* Past this age any qualifying day replaces it, so one heavy day cannot hold until it expires. */
+const CALIBRATION_REPLACE_AGE_MS = 3 * 24 * 3600 * 1000;
 const CALIBRATION_FILE = 'kosmos-weekly-calibration.json';
 
 /**
@@ -193,7 +195,8 @@ function readCalibration(accountDir, now = Date.now()) {
 /**
  * Update an account's calibration from today's numbers and return the one to use:
  * today's, when the figure moved at least MIN_CALIBRATION_POINTS since a baseline
- * from before today and at least as many points as the stored one rests on; otherwise
+ * from before today and at least as many points as the stored one rests on (or the
+ * stored one is older than CALIBRATION_REPLACE_AGE_MS); otherwise
  * the last stored one (readCalibration); otherwise null.
  * `tokensToday` is every Kosmos agent's tokens on this account since `dayStart`,
  * counted the way the swarm limit counts them (swarm.meter). Never throws.
@@ -203,8 +206,10 @@ function calibrate(accountDir, tokensToday, { now = Date.now(), dayStart } = {})
     const weekly = readWeekly(accountDir, now);
     const points = Number.isFinite(dayStart) ? pointsSince(weekly, dayStart) : null;
     const stored = readCalibration(accountDir, now);
-    /* A day's estimate replaces the stored one only once it rests on at least as many points. */
-    const enough = points !== null && points >= MIN_CALIBRATION_POINTS && (!stored || points >= stored.points);
+    /* A day's estimate replaces the stored one once it rests on at least as many points, or
+       once the stored one is older than CALIBRATION_REPLACE_AGE_MS. */
+    const enough = points !== null && points >= MIN_CALIBRATION_POINTS
+      && (!stored || points >= stored.points || now - stored.at > CALIBRATION_REPLACE_AGE_MS);
     if (enough && Number.isFinite(tokensToday) && tokensToday > 0) {
       const next = { tokensPerPoint: tokensToday / (points + 1), points, at: now };
       const file = path.join(accountDir, CALIBRATION_FILE);
@@ -218,4 +223,4 @@ function calibrate(accountDir, tokensToday, { now = Date.now(), dayStart } = {})
 }
 
 module.exports = { MARKER, scriptPath, stableNode, commandFor, isOurs, ensureStatusLine, readWeekly,
-  MIN_CALIBRATION_POINTS, CALIBRATION_MAX_AGE_MS, CALIBRATION_FILE, pointsSince, readCalibration, calibrate };
+  MIN_CALIBRATION_POINTS, CALIBRATION_MAX_AGE_MS, CALIBRATION_REPLACE_AGE_MS, CALIBRATION_FILE, pointsSince, readCalibration, calibrate };
