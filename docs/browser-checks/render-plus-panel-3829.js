@@ -140,6 +140,19 @@ const STATES = {
         chk(f.same && f.focused, `${t} #3978: two polls later Allow is the same button and still has keyboard focus`, JSON.stringify(f));
         // The request is two minutes old when the script starts; a slow machine can make it three by now.
         chk(/^\d+ minutes? ago$/.test(f.ago || ''), `${t} #3978: the request's time is filled in place`, JSON.stringify(f));
+        /* A REAL change still rewrites the row: the request crosses the hour and fades. Focus must come
+           back to its Allow (a new node now, found by what it does and for whom). Aged in the stub the
+           route serves, then put back, so the screenshot below is the two-minute-old request. */
+        const firstSeen = st.pending[0].first_seen;
+        st.pending[0].first_seen = now() - 2 * 3600;
+        await page.waitForFunction(() => !!document.querySelector('#plus-ask-rows .askreq.stale'), null, { timeout: 12000 }).catch(() => {});
+        const h = await page.evaluate(() => {
+          const a = document.activeElement;
+          return { stale: !!document.querySelector('#plus-ask-rows .askreq.stale'), allow: !!(a && a.dataset && a.dataset.ask === 'allow' && a.dataset.id === 'd-win'), fresh: !!(a && a.__k3978 !== 1) };
+        });
+        chk(h.stale && h.allow && h.fresh, `${t} #3978: a request that fades past the hour is rewritten, and focus comes back to its Allow`, JSON.stringify(h));
+        st.pending[0].first_seen = firstSeen;
+        await page.waitForFunction(() => !document.querySelector('#plus-ask-rows .askreq.stale'), null, { timeout: 12000 }).catch(() => {});
         // The compact notice on another view has the same rebuild; its Review button keeps focus too.
         await page.evaluate(() => showTab('agents'));
         await page.waitForTimeout(300);

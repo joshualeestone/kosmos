@@ -36888,7 +36888,15 @@ function askEsc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;',
 function askAgoSpan(unix) { return '<span data-ask-ago="' + (Number(unix) || 0) + '" aria-live="off"></span>'; }
 function askWrite(el, html) {
   if (!el) return;
+  /* A real change still rewrites the rows (a request crossing the hour fades, an answer lands): the
+     button that had focus is found again by what it does and for whom, and focus goes back to it. */
+  const a = document.activeElement;
+  const had = a && el.contains(a) && a.dataset ? { ask: a.dataset.ask || '', id: a.dataset.id || '' } : null;
   setLive(el, html);
+  if (had && !el.contains(document.activeElement)) {
+    const back = Array.from(el.querySelectorAll('[data-ask]')).find((b) => b.dataset.ask === had.ask && (b.dataset.id || '') === had.id);
+    if (back) back.focus();
+  }
   for (const s of el.querySelectorAll('[data-ask-ago]')) {
     const t = askAgo(Number(s.dataset.askAgo) || 0);
     if (s.textContent !== t) s.textContent = t;
