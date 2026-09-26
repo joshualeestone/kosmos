@@ -15163,8 +15163,9 @@ const server = http.createServer((req, res) => {
      process the board cannot name (no token, no known pane) is not held to membership: it is refused nothing the
      message route would refuse it, it is valved, and it is recorded as builtBy null (review round 6). The real
      boundary is the board token. A
-     process is valved (builtMarkValveTripped); the same mark again records nothing and is not counted. A closed task
-     is refused (409): closing already cleared the mark. The block is not re-synced: the mark changes nothing on an agent's instructions list. */
+     process is valved (builtMarkValveTripped); the same mark again records nothing and is not counted. Marking a closed
+     task is refused (409); clearing one is a no-op answered `changed: false` (review round 10), since closing
+     already cleared the mark. The block is not re-synced: the mark changes nothing on an agent's instructions list. */
   const taskBuilt = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/built$/);
   if (taskBuilt && req.method === 'POST') {
     const id = decodeSegment(taskBuilt[1]);
