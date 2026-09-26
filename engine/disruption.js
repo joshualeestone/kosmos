@@ -11,8 +11,9 @@
  * who took it out. This records that fact so the board can show a RESTARTING
  * state instead of an absence, for the short window a restart takes.
  *
- * 🛑 NO STATE HERE, EXACTLY LIKE liveness.js. This module records only that a
- * deliberate disruption BEGAN, with its CAUSE and WHEN. It never says what the
+ * 🛑 NO STATE HERE, EXACTLY LIKE liveness.js. This module records that a
+ * deliberate disruption BEGAN, with its CAUSE and WHEN, and (#4006, `fail`) that
+ * a restart did not come back, with what launchd said. It never says what the
  * agent is doing; the state layer (status.reconcileReport) decides how to read
  * a dead pane while a fresh disruption is on file. Keeping the two apart is
  * what lets reconcileReport stay a pure function of its inputs.
@@ -134,6 +135,9 @@ function read(sessionName) {
  * `active()` returning null hands off to the timeout path, it does not end the
  * state. `active` still self-heals the IN-PROGRESS animation; the timeout path
  * self-heals when the pane returns live (the caller clears the record then).
+ * #4006: a FAILED record carries `failed` through both, and does not end with the
+ * window: it lasts until status clears it (the agent is running again), a new
+ * `begin` replaces it, or the agent is removed, deleted or created again.
  */
 function active(sessionName, windowMs) {
   const r = read(sessionName);
@@ -145,10 +149,10 @@ function active(sessionName, windowMs) {
 }
 
 /**
- * Drop an agent's disruption record. Optional -- `active` self-heals by the
- * window, so nothing is required to call this -- but a confirmed-alive caller
- * can use it to end the state the instant it has proof, and tests use it to
- * reset. Never throws.
+ * Drop an agent's disruption record. A confirmed-alive caller uses it to end the
+ * state the instant it has proof, removal/creation use it so a record never
+ * outlives its agent (#4006), and tests use it to reset. An in-flight record also
+ * ages out by the window; a failed one does not. Never throws.
  */
 function clear(sessionName) {
   let file;
@@ -174,6 +178,7 @@ function fail(sessionName, diagnostics, atISO) {
   }
   const had = read(sessionName);
   const failedAt = typeof atISO === 'string' && atISO ? atISO : new Date().toISOString();
+  if (!Number.isFinite(Date.parse(failedAt))) return { ok: false, because: 'that is not a time we can read' };
   const rec = {
     cause: had.found ? had.cause : 'restart',
     startedAt: had.found ? had.startedAt : failedAt,

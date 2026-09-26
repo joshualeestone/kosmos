@@ -463,7 +463,7 @@ function jobOps(platform) {
          it by hand while the agent was off the board, and bootstrapping a file
          that is gone fails in a way worth reporting rather than hiding -- the
          enable still stands, so a later start by their own tooling works. */
-      if (!record.plist || !fs.existsSync(record.plist)) return true;
+      if (!record.plist || !fs.existsSync(record.plist)) { lastBootstrap = null; return true; }
       const up = run('/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, record.plist]);
       lastBootstrap = up ? { ok: up.ok !== false, code: up.code == null ? null : up.code, stderr: up.stderr || '', stdout: up.stdout || '' } : null;   // #4006: for diagnose
       // 5 is launchd for "already loaded", which is the end state we wanted.
@@ -676,6 +676,8 @@ function recordRemoval(clean, job, stopped, shownAs, leftRunningByChoice) {
      #1916 fail-opens), giving an operator the one line that says the token
      outlived the removal. */
   let revoked;
+  /* #4006: and its disruption record, so a failed restart does not outlive the agent onto a new one of that name. */
+  try { disruption.clear(clean); } catch { /* best-effort, like the revoke */ }
   try { revoked = sendertoken.revoke(clean); } catch (e) { revoked = { ok: false, because: (e && e.message) || 'threw' }; }
   if (!revoked || revoked.ok !== true) {
     console.error('#2323: removed ' + clean + ' but could NOT revoke its sender token'
@@ -1951,6 +1953,7 @@ function restartInner(name, cause, platform, startIfDead) {
      the NEW supervisor from a state file the dying one left behind; on the Mac there is no
      `beforeRestart` op and this is null, which the Mac's `loaded` ignores. */
   const before = ops.beforeRestart ? ops.beforeRestart(clean, job) : null;
+  lastBootstrap = null;   // #4006: this relaunch's answer only, never an earlier agent's
   const relaunched = step('asked it to start again now', () => {
     ops.stopNow(clean, job);
     return ops.startNow(clean, job);
@@ -1967,7 +1970,7 @@ function restartInner(name, cause, platform, startIfDead) {
      Josh's Grok agent (2026-09-26) was the second #3418-class case: a restart whose job did not
      reload, while a bootstrap by hand minutes later worked at once. Only when the file is still
      there (a missing one cannot be bootstrapped at all). */
-  if (!loaded && !ops.startableGone(clean, job)) {
+  if (!loaded && !ops.win32 && !ops.startableGone(clean, job)) {   // the Mac's bootout/bootstrap race only
     sleepMs(RELAUNCH_RETRY_MS);
     const again = step('asked it to start once more', () => ops.startNow(clean, job));
     loaded = again && step('confirmed its job is loaded on the second try', () => ops.loaded(clean, job, before));
@@ -1975,16 +1978,16 @@ function restartInner(name, cause, platform, startIfDead) {
 
   if (!loaded) {
     /* The relaunch did not take: bootout already unloaded the job, so nothing will bring the
-       agent back on its own. Clear the restarting record (as the failed-kill path above does)
-       so a down agent is not left marked restarting, and report PARTIAL -- the agent is not
-       running. This is what stops the class-1 auto-handler logging a false "handled" and the
-       Restart button telling a person an agent is back when it is not. */
-    /* #4006: mark the record FAILED rather than clearing it, so the card says the restart did not
-       come back (needs_you) until the agent is running again, instead of a quiet "not running";
-       and keep what launchd said, for whoever looks next. */
+       agent back on its own. Report PARTIAL -- the agent is not running. This is what stops the
+       class-1 auto-handler logging a false "handled" and the Restart button telling a person an
+       agent is back when it is not. #4006: and on the Mac, mark the record FAILED rather than
+       clearing it, so the card says the restart did not come back (needs_you) until the agent is
+       running again, instead of a quiet "not running"; and keep what launchd said. */
     let diagnostics = null;
     try { diagnostics = ops.diagnose ? ops.diagnose(clean, job) : null; } catch { diagnostics = null; }
-    if (!(DRY_RUN && !runner)) disruption.fail(clean, diagnostics);
+    /* The Mac only: a Windows row has no pane-side clear for a failed record (status reads it paneless), so it
+       keeps today's clear there. */
+    if (!(DRY_RUN && !runner)) { if (ops.win32) disruption.clear(clean); else disruption.fail(clean, diagnostics); }
     /* A missing launch file cannot be bootstrapped at all (startNow returns true without ever
        trying), so "try again" is not actionable in that sub-case -- say what actually has to
        happen instead of sending the person into an indefinite retry that keeps no-opping. */
