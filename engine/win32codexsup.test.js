@@ -152,3 +152,57 @@ test('#3380 mayStart:false does not start an agent for a task that was just ende
   assert.equal(h.sessionId, null);
   assert.ok(events.includes('not-starting'));
 });
+
+/* #4003: a backlog is ONE turn. A Gemini agent in a busy room on Windows fell minutes
+   behind because every post that arrived during a turn got its own full turn afterwards,
+   each answering a message the room had moved past. */
+function gatedTurns() {
+  const seen = [];
+  const gates = [];
+  const runTurn = (o) => new Promise((resolve) => {
+    seen.push(o.message);
+    gates.push(() => resolve({ ok: true, response: 'x', sessionId: 't' }));
+  });
+  const settle = async () => { for (let i = 0; i < 3; i++) await new Promise((r) => setImmediate(r)); };
+  return { seen, gates, runTurn, settle };
+}
+
+test('#4003 messages that arrive during a turn go to the NEXT turn together, oldest first', async () => {
+  const g = gatedTurns();
+  const h = superviseCodexStreaming({ name: 'gem', cwd: 'C:/w', runner: 'gemini' }, baseOpts({ runTurn: g.runTurn }));
+  h.send('first', () => {});
+  await g.settle();
+  for (const m of ['m2', 'm3', 'm4', 'm5']) h.send(m, () => {});
+  await g.settle();
+  assert.equal(g.gates.length, 1, 'still one turn in flight while the backlog builds');
+  g.gates[0]();
+  await g.settle();
+  assert.equal(g.seen.length, 2, 'the four waiting messages cost ONE turn, not four');
+  assert.equal(g.seen[0], 'first', 'a lone message is passed through untouched');
+  const batch = g.seen[1];
+  assert.ok(batch.startsWith('These 4 messages arrived while you were busy'), 'the turn says it is a backlog');
+  const at = ['m2', 'm3', 'm4', 'm5'].map((m) => batch.indexOf('\n' + m));
+  assert.ok(at.every((i) => i > 0), 'every waiting message is in the turn');
+  assert.deepEqual(at, at.slice().sort((a, b) => a - b), 'in the order they arrived');
+  g.gates[1]();
+  await g.settle();
+  assert.equal(g.seen.length, 2, 'nothing is replayed after the backlog turn');
+});
+
+test('#4003 a backlog too big for one command line is split, and nothing is dropped', async () => {
+  const g = gatedTurns();
+  const h = superviseCodexStreaming({ name: 'gem', cwd: 'C:/w', runner: 'gemini' }, baseOpts({ runTurn: g.runTurn }));
+  h.send('first', () => {});
+  await g.settle();
+  const big = ['A', 'B', 'C'].map((c) => c + c.repeat(9999));   // 10000 chars each
+  for (const m of big) h.send(m, () => {});
+  g.gates[0]();
+  await g.settle();
+  assert.equal(g.seen.length, 2);
+  assert.ok(g.seen[1].includes(big[0]) && g.seen[1].includes(big[1]), 'the first two fit together');
+  assert.ok(!g.seen[1].includes(big[2]), 'the third would push it past the argv budget');
+  assert.ok(g.seen[1].length < 32767, 'the turn stays under the Windows command-line limit');
+  g.gates[1]();
+  await g.settle();
+  assert.equal(g.seen[2], big[2], 'the one that did not fit runs next, on its own');
+});

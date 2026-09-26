@@ -37,7 +37,8 @@
  *
  * ⚠️ TURNS ARE SERIALISED. `codex exec resume` needs the thread id the previous
  * turn established, and two turns against one thread at once would tangle the
- * conversation. So messages queue and run one at a time; `send` reports the message
+ * conversation. So messages queue and turns run one at a time (a backlog goes as ONE
+ * turn, see takeBatch); `send` reports the message
  * ACCEPTED (the codex analog of a claude stdin flush), not the turn finished, which
  * is the delivery contract `win32channel`/`chat.js` already expect.
  *
@@ -58,6 +59,31 @@ const path = require('node:path');
 /* A stream sink that records nothing: the default, so only `main()` publishes --
    the same NO_STREAM the claude supervisor uses. */
 const NO_STREAM = { started() {}, event() {}, wrote() {}, stopped() {}, rekey() {} };
+
+/* 🔑 A BACKLOG IS ONE TURN, NOT ONE TURN PER MESSAGE (#4003). Every message that
+   arrived while a turn was running is handed to the NEXT turn together, so an agent that
+   fell behind catches up in one step and answers where the room is now. Before this, a
+   burst of N room posts cost N full turns in a row (measured with a real Gemini agent on
+   this box: see the PR), each answering a message the room had long moved past. The cap
+   is on characters because the message rides in argv, and a Windows command line tops out
+   at 32767; the first message always goes, so one oversized message is no worse than
+   before, and whatever does not fit waits for the turn after. */
+const BATCH_CHARS = 24000;
+
+function takeBatch(queue) {
+  const parts = [queue.shift()];
+  let size = parts[0].length;
+  while (queue.length && size + queue[0].length <= BATCH_CHARS) {
+    size += queue[0].length;
+    parts.push(queue.shift());
+  }
+  if (parts.length === 1) return parts[0];
+  return 'These ' + parts.length + ' messages arrived while you were busy, oldest first. '
+    + 'Read them all before acting, then answer for where things stand now, once in each place '
+    + 'still waiting on you (each message says how to answer it): skip anything a later message '
+    + 'already settled, and do not answer the messages one by one.\n\n'
+    + parts.map((p, i) => '--- message ' + (i + 1) + ' of ' + parts.length + ' ---\n' + p).join('\n\n');
+}
 
 /**
  * Supervise a codex agent. Returns a handle with `send(text, done)`, `stop()`,
@@ -145,7 +171,7 @@ function superviseCodexStreaming(spec, opts) {
   function pump() {
     if (turning || !running || queue.length === 0) return;
     turning = true;
-    const msg = queue.shift();
+    const msg = takeBatch(queue);   // everything pending, not just the oldest
     /* Busy the moment a turn starts, idle when it ends -- the same two transitions
        the claude stream produces, so the board reads a codex card exactly as a
        claude one. */
