@@ -48,16 +48,16 @@ A Kosmos installation and Kosmos+ account are required.
 | Phone screenshot 1 | `phone/01-team-overview.png` | 1080 × 2160 portrait |
 | Phone screenshot 2 | `phone/02-agent-needs-you.png` | 1080 × 2160 portrait |
 | Phone screenshot 3 | `phone/03-agent-workspace.png` | 1080 × 2160 portrait |
-| Phone screenshot 4 | `phone/04-kosmos-plus.png` | 1080 × 2160 portrait |
+| Phone screenshot 4 | `phone/04-project-room.png` | 1080 × 2160 portrait |
 
-The phone images are captured from the real board UI at a 412 × 915 CSS-pixel viewport using an isolated, invented demo fleet. No real account, agent, message, token, key, project, or machine data is present. Each raw capture is center-cropped to a 1:2 frame and scaled to 1080 × 2160. This satisfies Google's current phone screenshot rules: PNG or JPEG, each edge from 320 to 3840 pixels, and the long edge no more than twice the short edge. Four screenshots also meet Google's recommendation eligibility count and 1080-pixel minimum.
+The phone images are captured from the real board UI at a 412 × 915 CSS-pixel viewport using an isolated, invented demo fleet. No real account, agent, message, token, key, project, or machine data is present. Each full raw capture is scaled and padded to a 1:2 frame at 1080 × 2160 without cropping the interface. This satisfies Google's current phone screenshot rules: PNG or JPEG, each edge from 320 to 3840 pixels, and the long edge no more than twice the short edge. Four screenshots also meet Google's recommendation eligibility count and 1080-pixel minimum.
 
 Suggested alt text, each under 140 characters:
 
-1. `Kosmos team overview showing demo agents working, ready, and asking for a decision.`
-2. `A demo agent in Kosmos asking for approval, with its status and controls visible.`
-3. `A demo agent workspace showing current work and a message field.`
-4. `Kosmos+ settings for secure remote access and approved devices.`
+1. `Kosmos team overview with four demo agents, including two working and Nova asking to approve the Q3 budget.`
+2. `Nova's demo conversation ending with the question, Approve the Q3 budget draft?`
+3. `Atlas's demo conversation about a launch checklist and final asset review.`
+4. `Fall product launch room where Atlas reports on rollout and Pixel shares product copy for review.`
 
 ## Draft Data safety answers
 
