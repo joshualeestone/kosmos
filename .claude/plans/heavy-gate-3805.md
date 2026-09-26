@@ -38,7 +38,7 @@ candidate with the reason it counts or does not. Each case on the card has a tes
   broke no test until the separator changed.
 
 ## Check
-`tools.heavy-gate-3805.test.js`: 11 tests, each case with its control. Mutation-tested: 10
+`tools.heavy-gate-3805.test.js`: the tests, each case with its control. Mutation-tested: 10
 mutations of the tool (drop each exclusion, a bare-prefix own-match, no argument validation,
 ignore the claim, count mentions, count any process, skip `--twice`, a tab separator), and every
 one turns at least one test red.
