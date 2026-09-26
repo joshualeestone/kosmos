@@ -1010,7 +1010,7 @@ final class BadgeMessageProxy: NSObject, WKScriptMessageHandler {
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame, let owner else { return }
         let origin = message.frameInfo.securityOrigin
-        guard owner.isBoardOrigin(host: origin.host, port: origin.port) else { return }
+        guard owner.isBoardOrigin(host: origin.host, port: origin.port, scheme: origin.protocol) else { return }
         owner.pageSaidWaiting(message.body)
     }
 }
@@ -1073,6 +1073,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var badgeShown = 0
     private var badgeReadFailing = false
     private var badgeEverAnswered = false
+    private var badgeMisses = 0
     // The board's own origin, the only page allowed to hand over a count (set where the board is chosen).
     private var badgeOrigin: (host: String, port: Int)?
 
@@ -1458,7 +1459,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             logLine("LOADING \(url.absoluteString) (KOSMOS_URL override, test path)")
             /* #3996: the page on the chosen board still feeds the Dock badge (its origin is the board);
                the app's own poll needs the resolved port, so it stays off here. */
-            if let host = url.host { badgeOrigin = (host, url.port ?? (url.scheme == "https" ? 443 : 80)) }
+            if let host = url.host { badgeOrigin = (host, url.port ?? Self.defaultPort(url.scheme)) }
             logLine("dock badge: fed by the page only under KOSMOS_URL")
             boardLoadNavigation = webView.load(URLRequest(url: url))
             return
@@ -2311,29 +2312,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         badgeAsked += 1
         let asked = badgeAsked
         URLSession.shared.dataTask(with: req) { [weak self] data, response, _ in
-            /* A board that did not answer, or answered anything but 200, CLEARS the badge rather than
-               leaving the last number up: a stale count reads as work waiting that may be gone. */
-            let answered = (response as? HTTPURLResponse)?.statusCode == 200
+            let code = (response as? HTTPURLResponse)?.statusCode
+            let answered = code == 200
             let label = answered ? Self.badgeLabel(fromStatusJSON: data) : nil
             DispatchQueue.main.async {
                 guard let self else { return }
-                // Said once when the read starts failing and once when it recovers, so "the badge
-                // never shows" can be told apart from "nothing is waiting" in the app's log.
-                // Not before the first answer: at a cold launch the board is still starting.
-                if !answered && !self.badgeReadFailing && self.badgeEverAnswered { logLine("dock badge: the board did not answer /api/status; the badge is cleared") }
+                /* Said once when the read starts failing and once when it recovers, so "the badge never
+                   shows" can be told apart from "nothing is waiting" in the app's log. No answer at all
+                   is not logged before the first answer (at a cold launch the board is still starting);
+                   an answer that is a REFUSAL (a wrong token: 403) is logged at once, with its code. */
+                if !answered && !self.badgeReadFailing && (self.badgeEverAnswered || code != nil) {
+                    logLine("dock badge: /api/status " + (code.map { "answered \($0)" } ?? "did not answer") + "; the badge clears if it keeps failing")
+                }
                 if answered && self.badgeReadFailing { logLine("dock badge: the board answers again") }
-                if answered { self.badgeEverAnswered = true }
-                self.badgeReadFailing = !answered && self.badgeEverAnswered
-                self.showBadge(label, asked: asked)
+                if answered { self.badgeEverAnswered = true; self.badgeMisses = 0 } else { self.badgeMisses += 1 }
+                self.badgeReadFailing = !answered && (self.badgeEverAnswered || code != nil)
+                /* One slow answer on a busy board is not a board that is gone: the badge clears only after
+                   three misses in a row (about 30 s), and until then the number stands. A board that is
+                   really down still clears it, so a stale count never outlives it for long. */
+                if answered || self.badgeMisses >= 3 { self.showBadge(label, asked: asked) }
             }
         }.resume()
     }
 
     /// Whether a page origin is this app's board (127.0.0.1 on the resolved port), for BadgeMessageProxy.
-    func isBoardOrigin(host: String, port: Int) -> Bool {
+    func isBoardOrigin(host: String, port: Int, scheme: String? = nil) -> Bool {
         guard let mine = badgeOrigin else { return false }
-        return host == mine.host && port == mine.port
+        // WebKit reports a URL's default port as 0; read it as the scheme's own (KOSMOS_URL without a port).
+        let seen = port == 0 ? Self.defaultPort(scheme) : port
+        return host == mine.host && seen == mine.port
     }
+    static func defaultPort(_ scheme: String?) -> Int { scheme == "https" ? 443 : 80 }
 
     /// The page's own count (#3996), handed over by BadgeMessageProxy after every board poll.
     func pageSaidWaiting(_ body: Any) {

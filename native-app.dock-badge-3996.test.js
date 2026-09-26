@@ -45,7 +45,9 @@ test('#3996: while the page polls, the app asks the board nothing extra; otherwi
   assert.match(refresh, /\/api\/status/);
   assert.match(refresh, /x-kosmos-board-token/, 'an enforcing board refuses a request without its token');
   assert.match(refresh, /answered \? Self\.badgeLabel\(fromStatusJSON: data\) : nil/, 'a refused or failed read does not clear the badge');
-  assert.match(refresh, /logLine\("dock badge: the board did not answer/, 'a missing badge leaves no trace in the log');
+  assert.match(refresh, /logLine\("dock badge: \/api\/status " \+ \(code\.map/, 'a missing badge leaves no trace in the log');
+  assert.match(refresh, /self\.badgeEverAnswered \|\| code != nil/, 'a board that refuses from the start is never logged');
+  assert.match(refresh, /if answered \|\| self\.badgeMisses >= 3 \{ self\.showBadge\(label, asked: asked\) \}/, 'one slow answer blanks the badge');
   const said = body('func pageSaidWaiting(_ body: Any)');
   assert.match(said, /lastPageBadgeAt = Date\(\)/);
   assert.match(said, /badgeLabel\(fromCount: body\)/, 'the page\'s count is not read by the same rule as the board\'s');
@@ -62,14 +64,19 @@ test('#3996: only the board\'s own page can hand over a count, and the page hand
   const proxy = SRC.slice(at, SRC.indexOf('\n}\n', at));
   assert.match(proxy, /weak var owner: AppDelegate\?/, 'the handler holds the app strongly (a cycle)');
   assert.match(proxy, /guard message\.frameInfo\.isMainFrame, let owner else \{ return \}/, 'a subframe could set the badge');
-  assert.match(proxy, /owner\.isBoardOrigin\(host: origin\.host, port: origin\.port\)/, 'the origin is not checked');
+  assert.match(proxy, /owner\.isBoardOrigin\(host: origin\.host, port: origin\.port, scheme: origin\.protocol\)/, 'the origin is not checked');
   const board = body('func isBoardOrigin(host: String, port: Int) -> Bool');
-  assert.match(board, /return host == mine\.host && port == mine\.port/, 'another local service on another port could set the badge');
+  assert.match(board, /return host == mine\.host && seen == mine\.port/, 'another local service on another port could set the badge');
+  assert.match(board, /let seen = port == 0 \? Self\.defaultPort\(scheme\) : port/, 'a default-port board (port 0 in WebKit) never feeds the badge');
   assert.match(SRC, /badgeOrigin = \("127\.0\.0\.1", resolved\.port\)/, 'the board\'s own origin is not the one allowed');
   assert.match(SRC, /if let last = badgeSettingAnswer, Date\(\)\.timeIntervalSince\(last\.at\) < 300 \{ done\(last\.allowed\); return \}/, 'the badge setting is asked on every update');
   const page = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
-  assert.match(page, /if \(h\) h\.postMessage\(typeof c\.waiting === 'number' \? c\.waiting : null\);/,
-    'the page does not hand the count over (or stays silent on an old board, which sets the app polling)');
+  const tickAt = page.indexOf('async function tick(');
+  assert.notEqual(tickAt, -1, 'tick() moved');
+  const tick = page.slice(tickAt, page.indexOf('\n}\n', tickAt));
+  const counts = tick.indexOf('const c = data.counts');
+  const post = tick.indexOf('if (h) h.postMessage(typeof c.waiting === \'number\' ? c.waiting : null);');
+  assert.ok(counts !== -1 && post > counts, 'the page does not hand the count over on every poll (inside tick(), after the counts are read)');
 });
 
 test('#3996: a macOS badge setting of off would win (a forward check), and Kosmos never asks for notification permission', () => {

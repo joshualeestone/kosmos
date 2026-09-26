@@ -18,7 +18,7 @@ With Kosmos open or closed to the Dock, the Kosmos icon shows a red number equal
 
 ## The Mac app (native-app/main.swift)
 - Two sources, one number. While the page polls the board it hands the app `counts.waiting` through a WKScriptMessageHandler (the main frame at the board's own 127.0.0.1 address and port only; a weak proxy, no cycle), so the app asks nothing extra of /api/status, the board's heaviest route. When the page has said nothing for 8 s (above its 5 s poll, below the 10 s timer, so a page gone quiet costs one tick at most) (window closed, page hidden or reloading), a 10 s timer (2 s tolerance, common run-loop mode so dialogs and menus do not stop it), started once the board's port is known, asks `/api/status` itself (token header, 8 s timeout, the stale check's request). Answers are applied in the order they were asked, on the main thread. A failed read is logged once and its recovery once.
-- The label comes from a pure static function, `badgeLabel(fromStatus:)`: a whole number above zero becomes its digits (over 999 reads "999+"); zero, a missing or unreadable count, or no answer clears the badge. A board that did not answer clears it rather than leaving a stale number up.
+- The label comes from a pure static function, `badgeLabel(fromStatusJSON:)` (and `badgeLabel(fromCount:)` for the page's number): a whole number above zero becomes its digits (over 999 reads "999+"); zero, a missing or unreadable count, or no answer clears the badge. A board that did not answer clears it rather than leaving a stale number up.
 - macOS settings (card item 4): macOS lists an app under Notifications, with its Badges switch, only after the app asks for notification permission. Kosmos does not ask (a system dialog Josh did not ask for), so today there is no macOS switch to respect and the badge always shows; the code still checks badgeSetting == .disabled as a forward check (measured by review: an app that never asked reads .notSupported). The person's off switch is a follow-up card: an in-app setting.
 - `--kosmos-app-badge-selftest` drives badgeLabel over its table; tools/build-kosmos-bundle.sh runs it like the stale selftest.
 
@@ -35,6 +35,12 @@ With Kosmos open or closed to the Dock, the Kosmos icon shows a red number equal
 ## Review round 3
 - Under the KOSMOS_URL test override the page on the chosen board still feeds the badge (its origin is recorded where the board is chosen); the app's own poll stays off there, and the log says so.
 - A failed read is logged only after the board has answered once (a cold launch is not a fault); the label is set only when it changes; the badge-setting cache is main-thread only (dispatchPrecondition); on a board older than #3996 the page posts null, so the badge clears and the app does not poll.
+
+## Review round 5
+- A read that the board REFUSED (a wrong token) is logged at once with its code; no answer at all is still quiet until the board has answered once (cold launch).
+- The badge clears only after three misses in a row (about 30 s): one slow answer on a busy board no longer blinks it off.
+- A KOSMOS_URL without a port: WebKit's origin port 0 is read as the scheme's default on both sides.
+- Left: an app poll and a page post can land out of the order they were asked in for one page tick (about 5 s); it corrects itself.
 
 ## Not in this change
 Windows taskbar overlay (Homer, reads the same counts.waiting). A served build with a real Dock screenshot is the card's done; that needs a cut.
