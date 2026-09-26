@@ -20,6 +20,14 @@ reviewer traced every `.pjcard` selector in web/index.html: the base rule is the
 forced-colours or breakpoint override of `.pjcard` or `.dfiles`; no test counts `.pjcard`; the #2518
 surface gate passes (the check that maps `d-files` is the one updated).
 
+### Per-Iteration Breakdown
+
+#### Iteration 1
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 0 NITs
+**Self-generated:** 0
+- No issues found.
+
 ### Validation
 - Full suite (tools/run-tests.sh, DEVELOPER_DIR=CommandLineTools): 9876 pass, 0 fail, SUITE_EXIT=0,
   surface gate 0 FAILED.
