@@ -210,6 +210,29 @@ if [ "$FAMILY" = mac ]; then
       fi ;;
     *) echo "promote-channel: agent-spawn gate returned an unexpected code ($AGENT_RC) - refusing to promote on an ambiguous result" >&2; exit 1 ;;
   esac
+
+  # THE FIRST KOSMOS+ SIGN-IN GATE (#2036, after #3827). The two gates above never touch
+  # Kosmos+, and #3827's parseSaid bug broke exactly the FIRST in-app Kosmos+ sign-in while every
+  # check ran from a Mac already signed in. An agent takes the fresh staging board through a real
+  # first sign-in (tools/plus-signin-fresh.js: the code from the seed inbox via the Gmail
+  # connector, #1591) and leaves a record for this sha; this gate reads it from the SNAPSHOT.
+  # Same exit contract: 0 pass -> promote; 1 fail or ambiguous -> refuse, never forceable; 2 no
+  # record -> HOLD, forceable only after a HAND check. Override via KOSMOS_PROMOTE_PLUS_GATE_CMD.
+  PLUS_GATE_CMD="${KOSMOS_PROMOTE_PLUS_GATE_CMD:-bash $(cd "$(dirname "$0")" && pwd)/plus-signin-verified.sh}"
+  echo "promote-channel: running the first Kosmos+ sign-in gate: $PLUS_GATE_CMD"
+  $PLUS_GATE_CMD "$SNAP"; PLUS_RC=$?
+  case "$PLUS_RC" in
+    0) echo "promote-channel: first Kosmos+ sign-in gate PASSED for $V." ;;
+    1) echo "promote-channel: first Kosmos+ sign-in gate FAILED (exit 1) - a fresh Kosmos+ sign-in does not work on $V (the #3827 class), or its record is ambiguous. REFUSING to promote; --force does not override it." >&2; exit 1 ;;
+    2)
+      if [ "$FORCE" = 1 ]; then
+        echo "promote-channel: first Kosmos+ sign-in gate has no record for $V (exit 2) and --force was given - promoting on the strength of a HAND verification. NOTE: a first Kosmos+ sign-in was NOT verified on this build." >&2
+      else
+        echo "promote-channel: first Kosmos+ sign-in gate has no record for $V (exit 2) - HOLDING. Run tools/plus-signin-fresh.js start/finish against the fresh staging board (an agent reads the code from the seed inbox), or pass --force after verifying by hand." >&2
+        exit 2
+      fi ;;
+    *) echo "promote-channel: first Kosmos+ sign-in gate returned an unexpected code ($PLUS_RC) - refusing to promote on an ambiguous result" >&2; exit 1 ;;
+  esac
 else
   # WINDOWS: derive the alias BEFORE anything is written, so a name that cannot be derived is a
   # refusal with prod untouched (the Mac derives it after the pointer write, below). The pointer's
