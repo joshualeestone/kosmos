@@ -61,3 +61,17 @@ test('#3965: a swarm lead tells its helpers to hand files back, not publish them
   assert.match(flat, /A helper that makes something to keep hands it back to you as a file, never as a Claude artifact or a link/);
   assert.match(flat, /You save it where your "Where to save files" section says/);
 });
+
+test('#3965: a folder with a scratch name is not walked, so nothing inside it is listed', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-scratchdir-3965-'));
+  try {
+    for (const d of ['~$lockdir', 'Thumbs.db', 'real']) {
+      fs.mkdirSync(path.join(dir, d));
+      fs.writeFileSync(path.join(dir, d, 'inside.txt'), 'x');
+    }
+    const names = projects.listFiles(dir, 100, { maxDepth: 2 }).files.map((f) => f.name).sort();
+    assert.deepEqual(names, ['real/inside.txt'], 'control: the ordinary folder IS walked; the scratch ones are not');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

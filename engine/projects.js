@@ -1363,10 +1363,12 @@ const LIST_SKIP_DIRS = new Set(['node_modules', 'venv', 'env', '__pycache__', 'd
  * custom-folder-icon file (`Icon` followed by a carriage return) and Windows' folder files
  * (`Thumbs.db`, `desktop.ini`). Applied to folders too, so a folder with such a name is not walked.
  */
+const SCRATCH_PREFIXES = ['.', '~$'];
+const SCRATCH_NAMES = new Set(['Icon\r']);
+const SCRATCH_PATTERN = /^(?:~WR[A-Z]\d+\.tmp|thumbs\.db|desktop\.ini)$/i;
 function isScratchName(name) {
   const n = String(name || '');
-  return n.startsWith('.') || n.startsWith('~$') || n === 'Icon\r'
-    || /^~WR[A-Z]\d+\.tmp$/i.test(n) || /^(thumbs\.db|desktop\.ini)$/i.test(n);
+  return SCRATCH_PREFIXES.some((p) => n.startsWith(p)) || SCRATCH_NAMES.has(n) || SCRATCH_PATTERN.test(n);
 }
 
 /**

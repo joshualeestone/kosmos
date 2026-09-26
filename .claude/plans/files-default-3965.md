@@ -22,6 +22,9 @@
   macOS `Icon\r` folder-icon file, Thumbs.db and desktop.ini (any case).
 
 ## Rejected
+- (Residual of the prefix rule, accepted:) a person's own file whose name begins `~$` (say
+  `~$5000 budget.xlsx`) is hidden too, with no sign. Office owns that prefix; the collision is
+  judged unlikely enough to accept.
 - Hiding by extension or size (a real 162-byte file would vanish).
 - A client-side filter in web/index.html (three lists, three copies; the server walk is one).
 
@@ -47,3 +50,7 @@
   `desktop.ini` and `DESKTOP.INI` are ONE file on this Mac's case-insensitive disk, so the earlier
   fixture never wrote the second. It now writes one spelling.
 - Kept "Two things come first" in the next paragraph: an existing dmfiles test pins that sentence.
+
+## Challenge-loop iteration 2
+- Folder skipping now has a test (scratch-named folders not walked, an ordinary folder walked as
+  the control). The patterns are named constants, as the repo's convention asks.
