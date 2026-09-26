@@ -64,3 +64,9 @@ but bisecting means `yarn test` locally at that sha (none of the three has a man
   trigger exists); CI=false is not CI and a broken ruby is named as broken; ios.yml is in the
   positive control.
 - CONVENTION: descriptive names (PINNED_WORKFLOWS, branchFilterToRegex, pushesToMain, ...).
+
+## Iteration 5 (sonnet)
+- WARNING: a workflow ruby's safe loader refuses (a custom tag) failed the detector with a raw
+  backtrace naming no file --> the failure names the file and the reason in one line.
+- NIT: `[...]` is copied into the regex as-is, looser than GitHub's alnum-ranges-only sets; kept,
+  since a divergence there can only make the detector disagree loudly, never miss silently.

@@ -125,8 +125,16 @@ function pushesToMain(workflow) {
 /* Anchors (`&b` / `*b`) are legal in a workflow and Psych 4 refuses them by default; dates and
    symbols likewise. Allowed, so an unrelated workflow edit cannot red this test with a parser error. */
 function parseWorkflowYaml(file) {
-  const out = execFileSync('ruby', ['-ryaml', '-rjson', '-rdate', '-e',
-    'puts JSON.generate(YAML.load_file(ARGV[0], aliases: true, permitted_classes: [Date, Symbol]).transform_keys(&:to_s))', file], { encoding: 'utf8' });
+  let out;
+  try {
+    out = execFileSync('ruby', ['-ryaml', '-rjson', '-rdate', '-e',
+      'puts JSON.generate(YAML.load_file(ARGV[0], aliases: true, permitted_classes: [Date, Symbol]).transform_keys(&:to_s))', file],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (err) {
+    /* Named, in one line: a raw Psych backtrace does not say which workflow or why. */
+    const why = String((err && err.stderr) || (err && err.message) || err).split('\n').find((l) => l.trim()) || 'ruby failed';
+    assert.fail(path.basename(file) + ' could not be read as YAML by this check (' + why.trim().slice(0, 200) + '); fix the file, or teach parseWorkflowYaml the construct');
+  }
   return JSON.parse(out);
 }
 let RUBY_PROBLEM = null;
