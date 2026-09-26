@@ -110,6 +110,8 @@ const WORD_WALK_MAX_FORM = 1024;
    ordinary words would start walks against every held value sharing their letters; the cost is that a key
    cut into chunks of three or fewer, with words between them, is not caught (stated under wordSkippingSpans). */
 const OPENING_LEN = 4;
+/* A key's own separators, which a reply may drop where it splits the key (sk-ant-api03 then the rest). */
+const SKIPPABLE = new Set(['-', '_']);
 /* The held forms that occur in `str`, longest first. */
 function knownFormsIn(str) {
   if (!knownByPrefix.size || typeof str !== 'string') return [];
@@ -235,7 +237,7 @@ function wordSkippingSpans(text) {
     for (let i = 0; i < text.length; i += 1) nonSpaceBefore[i + 1] = nonSpaceBefore[i] + (/\s/.test(text[i]) ? 0 : 1);
   };
   const spans = [];
-  const completed = new Map();   // `${end} ${form}` -> the latest start that completed there
+  const completed = new Map();   // `${end} ${form}` -> { f, to, starts: every start that completed there }
   /* The forms an opening can start, grouped by the character that must begin the next piece, with the
      longest form's bound. Cached per opening for this reply: the cost test's 2,000 held values share one
      opening that occurs 4,000 times, and walking every form from every start cost 12 seconds. */
@@ -249,9 +251,14 @@ function wordSkippingSpans(text) {
     for (const f of cands) {
       /* The whole form inside one run is contiguous: the ordinary known_secret pass masks it. */
       if (opening.length >= f.length || !f.startsWith(opening)) continue;
-      const c = f[opening.length];
-      if (!g.byNext.has(c)) g.byNext.set(c, []);
-      g.byNext.get(c).push(f);
+      /* A key's own - or _ at the split may be left out of the reply (review round 7): the next piece can then
+         start with the character after it. */
+      const nexts = SKIPPABLE.has(f[opening.length]) ? [f[opening.length], f[opening.length + 1]] : [f[opening.length]];
+      for (const c of nexts) {
+        if (c === undefined) continue;
+        if (!g.byNext.has(c)) g.byNext.set(c, []);
+        g.byNext.get(c).push(f);
+      }
       g.maxLen = Math.max(g.maxLen, f.length);
     }
     byOpening.set(opening, g);
@@ -266,6 +273,8 @@ function wordSkippingSpans(text) {
       const cands = knownByOpening.get(head.slice(q, q + OPENING_LEN));
       if (!cands) continue;
       const opening = head.slice(q);
+      /* Longer than any walked form, so a prefix of none: not looked up, and not charged (review round 7). */
+      if (opening.length > WORD_WALK_MAX_FORM) continue;
       const group = groupsFor(opening, cands);
       if (!group) return null;
       const { byNext, maxLen } = group;
@@ -293,8 +302,10 @@ function wordSkippingSpans(text) {
           if (nonSpaceBefore[sTo] - nonSpaceBefore[from] > bound) break;
           let done = false;
           const next = new Set(reached);
-          if ((budget -= reached.size * piecesCost) < 0) return null;
-          for (const p of reached) {
+          const at = [];
+          for (const p of reached) { at.push(p); if (SKIPPABLE.has(f[p])) at.push(p + 1); }
+          if ((budget -= at.length * piecesCost) < 0) return null;
+          for (const p of at) {
             for (const piece of pieces) {
               if (!f.startsWith(piece, p)) continue;
               if (p + piece.length === f.length) { done = true; break; }
@@ -303,14 +314,9 @@ function wordSkippingSpans(text) {
             if (done) break;
           }
           if (done) {
-            /* The same form completing at the same place from two starts keeps the LATER start (review rounds 2
-               and 5). Two held Anthropic keys (both sk-ant-api03-) shown split in one reply: the second key's walk
-               also starts at the first key's opening and skips the first key's pieces as noise, which would join
-               them into one span masking everything between; its own later start ends at the same place and wins.
-               Stopping a walk at a later mention of the opening instead let a sentence naming the key's prefix
-               between two pieces stop the only walk that could complete. */
             const k = `${sTo} ${f}`;
-            if (!(completed.get(k) >= from)) completed.set(k, from);
+            if (!completed.has(k)) completed.set(k, { f, to: sTo, starts: [] });
+            completed.get(k).starts.push(from);
             break;
           }
           reached = next;
@@ -318,7 +324,22 @@ function wordSkippingSpans(text) {
       }
     }
   }
-  for (const [k, from] of completed) spans.push([from, Number(k.slice(0, k.indexOf(' ')))]);
+  /* The same form completing at the same place from several starts (review rounds 2, 5 and 7). The latest start
+     is always kept. An earlier one is kept too (an abandoned first try at the key, left readable otherwise)
+     UNLESS a DIFFERENT held form completes between it and the latest start: that is two held keys sharing an
+     opening (both sk-ant-api03-), where the earlier start is the first key's opening and would join the two into
+     one span masking everything between. Stopping a walk at a later mention of the opening instead let a
+     sentence naming the key's prefix between two pieces stop the only walk that could complete. */
+  const all = [...completed.values()];
+  for (const c of all) {
+    const latest = Math.max(...c.starts);
+    spans.push([latest, c.to]);
+    for (const from of c.starts) {
+      if (from === latest) continue;
+      const sibling = all.some((o) => o.f !== c.f && o.to <= latest && o.starts.some((st) => st >= from));
+      if (!sibling) spans.push([from, c.to]);
+    }
+  }
   return spans;
 }
 /* How many characters of text[from, to) are not whitespace, counting no further than `cap + 1`. */

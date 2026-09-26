@@ -510,7 +510,10 @@ test('#3935 a held value made of words is not assembled out of an ordinary sente
       assert.equal(mask(t).text, t, `an ordinary sentence was masked: ${t}`);
     }
     /* CONTROL: written whole, the same held values are still masked. */
-    assert.equal(mask('the password is Administrator1 here').text.includes('Administrator1'), false, 'CONTROL: a whole held value survived');
+    /* No secret-name word in the sentence, so only holding the value can mask it (review round 7). */
+    const whole = mask('use Administrator1 here');
+    assert.equal(whole.text.includes('Administrator1'), false, 'CONTROL: a whole held value survived');
+    assert.ok(whole.fired.some((f) => f.kind === 'known_secret'), JSON.stringify(whole.fired));
   } finally { setKnownSecrets([]); }
 });
 
@@ -575,5 +578,27 @@ test('#3935 a comparison is charged by its length: held values sharing a long pr
     /* Charged by length, two such openings spend the budget (the budget is WORD_WALK_BUDGET in secretmask.js);
        counted per comparison only, all 120 ran to the end, 1.5 to 2.4 seconds on the reviewer's machine. */
     assert.equal(r.text, WITHHELD, `the long comparisons were not charged (${Math.round(ms)}ms)`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a key character left out where the reply splits the key does not end the walk (review round 7)', () => {
+  const held = 'sk-ant-api03-Xy7Qp2Lm9Vb4Rt8Kz1Wn6Hd3Js0Fg5Ya2Ub7Xe9Ko';
+  setKnownSecrets([held]);
+  try {
+    const rest = held.slice(13).match(/.{1,8}/g);
+    const out = mask(`Prefix sk-ant-api03, then the rest: ${rest.map((c, i) => `part ${i + 1} ${c}`).join(', ')}.`).text;
+    for (const c of rest) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+    assert.ok(out.startsWith('Prefix '), out);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 an abandoned first try at a key stays masked when the key is then given in full (review round 7)', () => {
+  const held = 'Qx7Lm2VbRt4Kp1ZsWq9Bn3Hy6Jd0Tc8F';
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{1,8}/g);
+    const out = mask(`First try: ${chunks.slice(0, 3).join(' then ')}. Sorry, again: ${chunks.join(' then ')} end`).text;
+    for (const c of chunks) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+    assert.ok(out.startsWith('First try: ') && out.endsWith(' end'), out);
   } finally { setKnownSecrets([]); }
 });
