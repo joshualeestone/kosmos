@@ -147,7 +147,7 @@ test('#718: positions from a canvas of another width are carried across in propo
   assert.match(paint, /\} else orgBoxPlain\(\);/);
   // The failed-poll path in tick(): identified by the note it writes right after.
   // (#718 state 3 put a signed-out branch, which writes the note with its own button, before it.)
-  assert.match(SCRIPT, /document\.getElementById\('orgmap'\)\.innerHTML = '';\s*ORG_HTML = null;\s*orgBoxPlain\(true\);\s*(?:\/\/[^\n]*\n\s*)?(?:if \(BOARD_SIGNED_OUT\)[^;]*;\s*else )?document\.getElementById\('orgnote'\)\.textContent = BOARD_NEEDS_SIGNIN/);
+  assert.match(SCRIPT, /document\.getElementById\('orgmap'\)\.innerHTML = '';\s*ORG_HTML = null;\s*orgBoxPlain\(true\);\s*(?:\/\*[\s\S]*?\*\/\s*)?const orgNote = document\.getElementById\('orgnote'\);\s*if \(BOARD_SIGNED_OUT\) \{[\s\S]{0,300}?\} else orgNote\.textContent = BOARD_NEEDS_SIGNIN/);
   assert.match(paint, /for \(const p of ORG_POS\.values\(\)\) \{ p\.x \*= f; p\.y \*= f; \}/);
   assert.doesNotMatch(paint, /ORG_POS = new Map\(\)/, 'a width change throws the positions away again');
 });
