@@ -60,11 +60,11 @@ function drivers(answers) {
   let painted = 0;
   // eslint-disable-next-line no-new-func
   const successes = [];   // #3998: Settings' Ready ends on the gold box (acctShowSuccess)
-  const api = new Function('document', 'fetch', 'paintAgyOption', 'frPaintKeyed', 'acctShowSuccess', 'frCheckRow', `
+  const api = new Function('document', 'fetch', 'paintAgyOption', 'frPaintKeyed', 'acctShowSuccess', 'frCheckRow', 'paintAccounts', `
     let AGY_INSTALLED = null; let AGY_OFFERED = null;
     ${PAGE.slice(at, end)}
     return { FR_AGY_SUB, ACCT_AGY_SUB, frReady: () => FR_AGY_READY };
-  `)({ getElementById: el }, fetchStub, () => {}, () => { painted += 1; }, (label, box) => successes.push([label, box]), (o) => o.title);
+  `)({ getElementById: el }, fetchStub, () => {}, () => { painted += 1; }, (label, box) => successes.push([label, box]), (o) => o.title, async () => {});
   return { ...api, el, posts, painted: () => painted, successes };
 }
 
@@ -226,11 +226,11 @@ test('#3874: a check that answers without `offered: false` confirms the offer (a
   const end = PAGE.indexOf('const KEYED_SUB_START', at);
   const els = {};
   const el = (id) => (els[id] || (els[id] = stubEl(id)));
-  const run = async (answer) => new Function('document', 'fetch', 'paintAgyOption', 'frPaintKeyed', 'acctShowSuccess', 'frCheckRow', `
+  const run = async (answer) => new Function('document', 'fetch', 'paintAgyOption', 'frPaintKeyed', 'acctShowSuccess', 'frCheckRow', 'paintAccounts', `
     let AGY_INSTALLED = null; let AGY_OFFERED = null;
     ${PAGE.slice(at, end)}
     return ACCT_AGY_SUB.start().then(() => AGY_OFFERED);
-  `)({ getElementById: el }, async () => ({ json: async () => answer }), () => {}, () => {}, () => {}, (o) => o.title);
+  `)({ getElementById: el }, async () => ({ json: async () => answer }), () => {}, () => {}, () => {}, (o) => o.title, async () => {});
   assert.equal(await run({ installed: true, signedIn: true }), true);
   assert.equal(await run({ installed: false, signedIn: false, offered: false }), false);   // CONTROL
   assert.equal(await run(null), null, 'no answer confirms nothing');
