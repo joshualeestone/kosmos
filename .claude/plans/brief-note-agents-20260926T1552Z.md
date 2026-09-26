@@ -28,8 +28,9 @@ already holds the old, untagged note (written before this change) also hides it 
 ## Change
 1. `messages.roomNote(projectId, text, { audience: 'agents' })`: an optional audience, recorded on the row.
 2. `server.js` POST /api/projects posts BRIEF_PENDING_NOTE with `audience: 'agents'`.
-3. The room route's JSON arm (the person's view) leaves out notes for agents: `audience === 'agents'`, or a note
-   whose text is exactly BRIEF_PENDING_NOTE (rows written before this change carry no audience). The text arm
+3. The room route's JSON arm (the person's view) leaves out notes for agents: `audience === NOTE_AUDIENCE_AGENTS`
+   (exported by engine/messages.js), or a note whose text is in the frozen BRIEF_PENDING_NOTES_BEFORE_AUDIENCE (rows
+   written before this change carry no audience). The text arm
    (the agents' view) is unchanged.
 4. A gated browser check: create the project through the real route, open its room, assert the empty state and no
    note; read `?as=text` and assert the note is there. Control: the JSON arm's filter removed reds it.
@@ -41,5 +42,8 @@ already holds the old, untagged note (written before this change) also hides it 
 - A new empty-state sentence: the existing one already says what happens next.
 
 ## Weakest part
-Old notes are matched by their exact text. If BRIEF_PENDING_NOTE is ever reworded, rooms written before this
-change would show the old wording again; the tag carries it for every note written from now on.
+Old notes are recognised by their exact text, kept as a frozen copy (BRIEF_PENDING_NOTES_BEFORE_AUDIENCE, pinned by
+its sha256 in the test), so rewording BRIEF_PENDING_NOTE cannot bring them back. A room holding some OTHER untagged
+agent instruction written before this change would still show it; only this one note is known to exist. The person
+now sees a plain empty room with no word that their agents are waiting for a goal; a person-facing line for that
+could be a follow-up.
