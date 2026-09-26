@@ -84,11 +84,19 @@ const SCREEN = 'Working on the report\n' + OLD_401 + '\n\nWorked for 1m 02s\n> \
     const list = typeof LAST !== 'undefined' && Array.isArray(LAST) ? LAST : [];
     const a = list.find((x) => x && x.sessionName === 'testy') || null;
     const card = document.querySelector('#grid .acard[data-agent="testy"]');
-    return { apiState: a ? a.state : null, conflict: a ? (a.conflict || a.stateConflict || a.why || null) : null, keys: a ? Object.keys(a).filter((k) => /auth|conflict|probe|scrap|observ/i.test(k)) : [], card: !!card, cardText: card ? card.innerText.replace(/\s+/g, ' ').trim() : '' };
+    return { apiState: a ? a.state : null, card: !!card, cardText: card ? card.innerText.replace(/\s+/g, ' ').trim() : '' };
   });
-  const arm = async (label, live, want, extra) => {
+  const arm = async (label, live, want) => {
     authprobe.resetForTest();
     authprobe.setChecker(async () => ({ state: live }));
+    /* Settle the account check BEFORE the page reads: an empty cache answers UNCHECKED, which
+       leaves auth_failed standing whatever the account says, so without this the control arm
+       would pass on the first poll before the signed-out answer was ever read. verdict() kicks
+       the check; wait until it returns this arm's answer. */
+    const expect = live === subscription.STATE.CONNECTED ? authprobe.HEALTHY : authprobe.EXPIRED;
+    let v = null;
+    for (let i = 0; i < 40 && v !== expect; i += 1) { v = authprobe.verdict(null); if (v !== expect) await new Promise((r) => setTimeout(r, 100)); }
+    chk(v === expect, `[${label}] the account check has settled on ${expect} before the board is read`, String(v));
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     const errs = [];
     page.on('pageerror', (e) => errs.push(e.message));
@@ -101,7 +109,7 @@ const SCREEN = 'Working on the report\n' + OLD_401 + '\n\nWorked for 1m 02s\n> \
     for (let i = 0; i < 20; i += 1) {
       seen = await look(page);
       const failing = seen.apiState === 'auth_failed';
-      if (failing === want) break;
+      if (typeof seen.apiState === 'string' && failing === want) break;   // a real reading, not a missing row
       await page.waitForTimeout(700);
     }
     const shows = /Sign-in isn.t working/.test(seen.cardText);
@@ -109,7 +117,6 @@ const SCREEN = 'Working on the report\n' + OLD_401 + '\n\nWorked for 1m 02s\n> \
     chk((seen.apiState === 'auth_failed') === want, `[${label}] the board's status ${want ? 'reports' : 'does not report'} auth_failed`, String(seen.apiState));
     chk(shows === want, `[${label}] the card ${want ? 'says' : 'does not say'} "Sign-in isn't working"`, seen.cardText.slice(0, 160));
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, `stale-auth-${label}.png`), fullPage: false }); }
-    if (extra) extra(seen, label);
     chk(errs.length === 0, `[${label}] no page errors`, errs.join(' | '));
     await page.close();
   };
