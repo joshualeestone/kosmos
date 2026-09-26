@@ -661,10 +661,17 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
      sit further down, so the one path that returned without reaching it
      returned unshaped tasks. Uses `tasksModEarly`, the same require the filter
      above already made. */
+  /* #3861 part 2: the project page's rows carry the same tree facts as /api/tasks rows (the parent
+     AS READ, its sentence, the direct-children "2 of 5"), from the one tree derivation, so the
+     project column and the task page never count children themselves. Built once per call. */
+  const tree = tasksModEarly.treeOf({ tasks });
   const withParts = (t) => (t ? {
     ...t,
     parts: tasksModEarly.partsOf(t),
     progress: (({ done, total, closed, assigned }) => ({ done, total, closed, assigned }))(tasksModEarly.progressOf(t)),
+    parent: tree.up(t),
+    parentSentence: tree.up(t) === null ? null : (tree.byNum.get(tree.up(t)).sentence || null),
+    subtasks: tree.progress(t.number),
   } : t);
   const withWho = tasks.filter((t) => t && tasksModEarly.whoOf(t).length > 0 && !tasksModEarly.progressOf(t).closed);
   /* 🛑 THE EARLY RETURN USED TO HAND BACK THE RAW TASKS, and that was the whole

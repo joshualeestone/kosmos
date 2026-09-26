@@ -87,7 +87,7 @@ function runPaint({ task, project, now }) {
   const doc = stubDoc(TK_IDS);
   const views = [];
   const src = [fnSource('tkStateWord'), fnSource('tkAdded'), fnSource('tkFace'), fnSource('tkSayPart'), fnSource('claimNotReported'), fnSource('taskClaimHtml'),
-    fnSource('paintTaskPage')].join('\n');
+    fnSource('paintTaskPage'), fnSource('tkPaintSubtasks')].join('\n');
   const NOW = now || Date.now();
   class FixedDate extends Date {
     constructor(...args) { super(...(args.length ? args : [NOW])); }
@@ -307,7 +307,7 @@ test('a task that disappears under the open page sends you to its project', () =
   const doc = stubDoc(TK_IDS);
   const views = [];
   const src = [fnSource('tkStateWord'), fnSource('tkAdded'), fnSource('tkFace'), fnSource('tkSayPart'), fnSource('claimNotReported'), fnSource('taskClaimHtml'),
-    fnSource('paintTaskPage')].join('\n');
+    fnSource('paintTaskPage'), fnSource('tkPaintSubtasks')].join('\n');
   new Function('document', 'pjById', 'PJ_CURRENT', 'TK_OPEN', 'pjView', 'esc',
     'discTint', 'discInk', 'initials', 'tkMemberName', src + '\n; paintTaskPage();')(
     doc, () => ({ ...PROJECT, tasks: [] }), 'p1', 99, (v) => views.push(v),
