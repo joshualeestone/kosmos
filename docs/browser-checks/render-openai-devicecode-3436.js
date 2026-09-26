@@ -96,6 +96,10 @@ async function arm(browser, { platform, where, start, status }) {
       codeText: code ? (code.textContent || '').replace(/\s+/g, ' ').trim() : '',
       codeCell: code && code.querySelector('.fr-cmd-row .fr-cmd') ? code.querySelector('.fr-cmd-row .fr-cmd').textContent : null,
       hasCopy: !!(code && code.querySelector('[data-copy-command]')),
+      // #3952: the code in boxes, one per character, inside the cell Copy reads; no xAI line on OpenAI's screen.
+      boxText: code ? [...code.querySelectorAll('.devcode-cell')].map((c) => c.textContent).join('') : '',
+      boxDashes: code ? code.querySelectorAll('.devcode-dash').length : 0,
+      boxNote: !!(code && code.querySelector('.devcode-note')),
       how: how ? how.textContent.replace(/\s+/g, ' ').trim() : null,
       openText: open ? open.textContent.trim() : null,
       starts: window.__starts,
@@ -151,6 +155,8 @@ async function arm(browser, { platform, where, start, status }) {
     if (r.openText !== 'Open the sign-in page again') problems.push(name + ': the open link does not say it reopens the page: ' + JSON.stringify(r.openText));
     if (r.starts !== 1) problems.push(name + ': one click on Sign in with ChatGPT asked the engine to start ' + r.starts + ' time(s), not once');
     if (r.goShown) problems.push(name + ': a second Sign in with ChatGPT button is still on screen after the sign-in started');
+    if (r.boxText !== CODE.replace(/-/g, '') || r.boxDashes !== (CODE.match(/-/g) || []).length) problems.push(name + ': #3952 the code is not drawn one box per character, grouped as OpenAI prints it: ' + JSON.stringify({ boxText: r.boxText, boxDashes: r.boxDashes }));
+    if (r.boxNote) problems.push(name + ': #3952 xAI\'s "terminal" line is on an OpenAI screen');
     if (!r.hasCopy) problems.push(name + ': no Copy button beside the code');
     else if (!/^(Copied|Select it and copy)$/.test(r.copySays || '')) problems.push(name + ': pressing Copy gave no answer: ' + JSON.stringify(r.copySays));
     if (!/^Kosmos opens OpenAI.s sign-in page in your browser and shows you a short code/.test(r.how || '')) problems.push(name + ': the explainer is not the Windows sentence: ' + JSON.stringify(r.how));
