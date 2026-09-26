@@ -349,6 +349,12 @@ test('#3957: every /api path the page fetches is served by a board route', () =>
   const { paths, unread, unreadable } = basePage();
   const board = baseBoard();
   console.log(`page paths read: ${paths.length}; fetches not read (URL not a literal): ${unread}; with a variable tail, NOT checked: ${unreadable.length} (${unreadable.join(', ')}); board literals ${board.literals.size}, prefixes ${board.prefixes.length}, regexes ${board.regexes.length}`);
+  /* The MISSING list first: when a route is missing, that is the message a person needs, and the
+     floors below would otherwise speak first on an older, smaller page. */
+  const missing = paths.filter((p) => !served(p, board) && !SERVED_ELSEWHERE[p]);
+  assert.deepEqual(missing, [],
+    'the page calls /api paths no board route serves. Either add the route in the SAME change, or '
+    + '(only if it is served by something else) list it in SERVED_ELSEWHERE with the reason:\n  ' + missing.join('\n  '));
   /* A FLOOR close under today's count (185), not a token one: a lexer slip that mis-reads a region
      drops real calls SILENTLY (one did during development, taking the federation routes with it),
      and only a floor this tight can see a slip of more than a handful. Lower it only when the page
@@ -360,10 +366,6 @@ test('#3957: every /api path the page fetches is served by a board route', () =>
      the URL readable, or raise the ceiling with a reason in the commit. */
   assert.ok(unread <= UNREAD_CEILING, `fetches whose URL is not a literal grew to ${unread} (ceiling ${UNREAD_CEILING}); make the new one's URL a literal, or raise the ceiling with a reason`);
   assert.ok(unreadable.length <= UNREADABLE_CEILING, `fetches with a variable tail grew to ${unreadable.length} (ceiling ${UNREADABLE_CEILING}): ${unreadable.join(', ')}`);
-  const missing = paths.filter((p) => !served(p, board) && !SERVED_ELSEWHERE[p]);
-  assert.deepEqual(missing, [],
-    'the page calls /api paths no board route serves. Either add the route in the SAME change, or '
-    + '(only if it is served by something else) list it in SERVED_ELSEWHERE with the reason:\n  ' + missing.join('\n  '));
 });
 
 test('#3957: every SERVED_ELSEWHERE entry is still called by the page, so the list cannot rot', () => {
