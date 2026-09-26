@@ -856,17 +856,20 @@ function providerLabel(provider) {
   if (provider === 'openai') return 'OpenAI';
   if (provider === 'google') return 'Gemini';
   if (provider === 'xai') return 'Grok';
-  if (provider === 'antigravity') return 'Antigravity'; // #3568
+  // #3568: the name the person picked in the menu, not the program's; board labels that name the
+  // program ("an Antigravity agent", "signs in to Antigravity") say Antigravity on purpose.
+  if (provider === 'antigravity') return 'Gemini (Google subscription)';
   return 'Anthropic';
 }
-/* #3568: the Antigravity runner (Google's agy) is built but OFF until an operator opts in with
-   AGENT_WORKFORCE_ANTIGRAVITY=1: its launch was measured signed in once (2026-09-25), but Kosmos
-   cannot read what it is doing yet and the board does not name it. Read at call time so a test
-   can flip it. Checked by every route that sets one up: createAgentInner, setProvider, installJob
+/* #3568: the Antigravity runner (Google's agy): Gemini on a Google subscription. ON by default
+   since Josh's ruling (2026-09-25 20:57, "We don't need googles permission");
+   AGENT_WORKFORCE_ANTIGRAVITY=0 turns it off. Its launch was measured signed in (2026-09-25).
+   Read at call time so a test can flip it. Checked by every route that sets one up: createAgentInner, setProvider, installJob
    (which backfill, repair, connect and an import's first start all reach) and connect's provider
    hint in engine/discover.js. Recognising a running agy pane does not depend on it. */
 function antigravityEnabled() {
-  return process.env.AGENT_WORKFORCE_ANTIGRAVITY === '1';
+  // Off by 0, false or off (review round 7: an operator writing false meant off); anything else is on.
+  return !/^(0|false|off|no)$/i.test(String(process.env.AGENT_WORKFORCE_ANTIGRAVITY || '').trim());
 }
 /* #3296/#3391: the ONE provider-named "unknown account" refusal, shared by the switch
    path and createAgentInner's per-provider create arms, so a new provider does not add
@@ -2075,7 +2078,7 @@ function setModel(name, modelKey, opts) {
        slot is empty) -- and writes an empty model slot. A non-empty id is
        sanity-bounded here; where a live "this account can run it" check exists (OpenAI)
        it is async at the server route. */
-    const vendorLabel = agentProvider === 'openai' ? 'OpenAI' : agentProvider === 'google' ? 'Gemini' : agentProvider === 'antigravity' ? 'Antigravity' : 'Grok';
+    const vendorLabel = agentProvider === 'openai' ? 'OpenAI' : agentProvider === 'google' ? 'Gemini' : agentProvider === 'antigravity' ? 'Gemini' : 'Grok';
     const id = String(modelKey == null ? '' : modelKey).trim();
     if (id !== '') {
       if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(id)) {
@@ -4077,7 +4080,7 @@ function createAgentInner(opts) {
          -- so it leaves modelArg null. A non-empty id is written as the `-m` arg, only
          sanity-bounded here (a bad caller must not write an arbitrary string into the
          launchd job's argv). */
-      const vendorLabel = provider === 'openai' ? 'OpenAI' : provider === 'google' ? 'Gemini' : provider === 'antigravity' ? 'Antigravity' : 'Grok';
+      const vendorLabel = provider === 'openai' ? 'OpenAI' : provider === 'google' ? 'Gemini' : provider === 'antigravity' ? 'Gemini' : 'Grok';
       const id = String(wantModelKey).trim();
       if (id !== '') {
         if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(id)) {

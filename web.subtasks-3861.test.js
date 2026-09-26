@@ -120,3 +120,96 @@ test('every subtask closed and the parent open: "all subtasks done" and Close it
   assert.match(crumbed, /<span class="tsk-part">Part of #1 Press kit<\/span>/);
   assert.doesNotMatch(rowHtml(child, { depth: 1, crumb: false, kids: 0 }), /tsk-part/);
 });
+
+/* #3898 (April's review of #3885): the new strings a person or an agent types (a task's sentence, its
+   parent's sentence) reach innerHTML on four new paths. Each is fed markup-shaped text through the
+   page's REAL esc(), lifted like everything else here, and must arrive as text, never as markup. The
+   control runs the same path with an esc that passes text through, and must see the raw tag, so a
+   path that stopped reaching innerHTML at all cannot pass by accident. */
+const ESC = new Function(page.liftAll(SCRIPT, ['esc']) + '\nreturn esc;')();
+const EVIL = '<img src=x onerror=alert(1)>';
+const rawTag = /<img src=x onerror/;
+const escapedTag = /&lt;img src=x onerror=alert\(1\)&gt;/;
+const PASS = (s) => String(s);
+
+const evilRows = () => {
+  const q = projects.create({ name: 'Escapes' });
+  tasks.create(q.id, { sentence: EVIL });                       // 1, the parent
+  tasks.create(q.id, { sentence: 'child ' + EVIL, parent: 1 }); // 2
+  return { q, rows: tasks.allTasks().filter((t) => t.projectId === q.id) };
+};
+const W1 = evilRows();
+
+const tskRowWith = (escFn, t, at) => new Function('TSK', 'LAST', 'esc', 'agoWords', 'tskKey', 'claimNotReported', 'tskAgentName',
+  GROUPS + '\n' + page.liftAll(SCRIPT, ['tskRow']) + '\nreturn tskRow;')(
+  { sel: new Set(), by: 'status', fold: new Set() }, [], escFn, () => 'just now', tskKey, () => '', (s) => s)(t, at);
+
+test('#3898: the Tasks view row escapes the sentence and the parent\'s sentence in its crumb', () => {
+  const child = W1.rows.find((t) => t.number === 2);
+  assert.equal(child.parentSentence, EVIL, 'PRE-CONTROL: the engine hands the parent\'s sentence to the row');
+  const html = tskRowWith(ESC, child, { depth: 0, crumb: true, kids: 0 });
+  assert.doesNotMatch(html, rawTag);
+  assert.match(html, /<span class="tsk-part">Part of #1 &lt;img src=x onerror=alert\(1\)&gt;<\/span>/);
+  assert.match(tskRowWith(PASS, child, { depth: 0, crumb: true, kids: 0 }), rawTag, 'CONTROL: without esc the raw tag reaches the row');
+});
+
+function paintColumn(escFn, project) {
+  const els = { 'pj-tasklist': { innerHTML: '' }, 'pj-alltasks': { hidden: true, textContent: '' } };
+  const src = [page.liftAll(SCRIPT, ['tkFace', 'tkSayPart', 'claimNotReported', 'taskClaimHtml', 'tkMemberName', 'taskNest', 'paintProjectTasks']),
+    'let TK_LIST_HTML = null;'].join('\n');
+  new Function('document', 'esc', 'discTint', 'discInk', 'initials', 'project', src + '\n; paintProjectTasks(project);')(
+    { getElementById: (id) => els[id] || null }, escFn, () => '#dfe5ea', () => '#4a5560', (n) => String(n).slice(0, 2), project);
+  return els['pj-tasklist'].innerHTML;
+}
+const joinedEvil = () => {
+  const rec = projects.readAll().find((x) => x.id === W1.q.id);
+  return { ...rec, tasks: projects.joinTaskClaims(rec.tasks, projects.readAll(), [], [], { name: rec.name, id: rec.id }) };
+};
+
+test('#3898: the project column escapes a card\'s sentence and its "Part of" crumb', () => {
+  const ep = joinedEvil();
+  // Only the child in the column, so its parent is "not in the list" and the crumb must show.
+  const onlyChild = { ...ep, tasks: ep.tasks.filter((t) => t.number === 2) };
+  const html = paintColumn(ESC, onlyChild);
+  assert.match(html, /tkcard-part-of/, 'PRE-CONTROL: the crumb is drawn at all');
+  assert.doesNotMatch(html, rawTag);
+  assert.match(html, /<span class="tkcard-part-of">Part of #1 &lt;img src=x onerror=alert\(1\)&gt;<\/span>/, 'the crumb carries the parent\'s sentence, escaped');
+  assert.match(paintColumn(PASS, onlyChild), rawTag, 'CONTROL: without esc the raw tag reaches the column');
+});
+
+function paintSubs(escFn, project, parentNumber) {
+  const els = { 'tk-subs': { innerHTML: '' }, 'tk-subs-done': { hidden: true }, 'tk-partof-row': { hidden: true }, 'tk-partof': { textContent: '', dataset: {} } };
+  const t = project.tasks.find((x) => x.number === parentNumber);
+  new Function('document', 'esc', 'p', 't', page.liftAll(SCRIPT, ['tkPaintSubtasks']) + '\n; tkPaintSubtasks(p, t, false);')(
+    { getElementById: (id) => els[id] || null }, escFn, project, t);
+  return els;
+}
+
+test('#3898: the task page escapes each subtask\'s sentence, and names its parent as text', () => {
+  const ep = joinedEvil();
+  const parentPage = paintSubs(ESC, ep, 1);
+  assert.match(parentPage['tk-subs'].innerHTML, /data-sub="2"/, 'PRE-CONTROL: the subtask is listed');
+  assert.doesNotMatch(parentPage['tk-subs'].innerHTML, rawTag);
+  assert.match(parentPage['tk-subs'].innerHTML, /child &lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.match(paintSubs(PASS, ep, 1)['tk-subs'].innerHTML, rawTag, 'CONTROL: without esc the raw tag reaches the list');
+  // The Part of line is textContent, so the parent's sentence is text by construction.
+  const childPage = paintSubs(ESC, ep, 2);
+  assert.equal(childPage['tk-partof'].textContent, '#1 ' + EVIL);
+  assert.equal(childPage['tk-partof-row'].hidden, false);
+});
+
+function fillParents(escFn, project) {
+  const sel = { value: '', innerHTML: '', selectedIndex: 0, dataset: {} };
+  new Function('document', 'esc', 'NT_PARENT', 'p', page.liftAll(SCRIPT, ['ntFillParents']) + '\n; ntFillParents(p, false);')(
+    { getElementById: (id) => (id === 'nt-parent' ? sel : null) }, escFn, null, project);
+  return sel.innerHTML;
+}
+
+test('#3898: New task\'s "Part of" picker escapes each open task\'s sentence', () => {
+  const ep = joinedEvil();
+  const html = fillParents(ESC, ep);
+  assert.match(html, /<option value="1">/, 'PRE-CONTROL: the open task is offered');
+  assert.doesNotMatch(html, rawTag);
+  assert.match(html, escapedTag);
+  assert.match(fillParents(PASS, ep), rawTag, 'CONTROL: without esc the raw tag reaches the picker');
+});

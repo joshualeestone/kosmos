@@ -651,3 +651,25 @@ test('main reads kosmos.ps1\'s file, and refuses a mangled argument with exit 2 
   assert.equal(bad, 2);
   assert.match(errs.join(' '), /Put that part in quotes/);
 });
+
+test('#3878: Windows feedback pull prints the shared summary through the engine seam, could-not-be-read line included', async () => {
+  const realFp = require('./engine/feedbackpull');
+  const engine = { feedbackpull: {
+    pull: async () => ({ ok: true, written: 1, skipped: 2, unreadable: 2, lastGetError: 'blob GET HTTP 403', total: 3, dir: 'C:/fb' }),
+    summaryLines: realFp.summaryLines,
+  } };
+  const out = []; const err = [];
+  const code = await cli.main(['feedback', 'pull'], { env: {}, hook: hookStub, engine, out: (s) => out.push(s), err: (s) => err.push(s),
+    fetch: async () => { throw new Error('feedback reached the network'); } });
+  assert.equal(code, 0, err.join('\n'));
+  assert.deepEqual(out.slice(0, 2), ['pulled 1 report(s) (2 skipped) to C:/fb', '2 reports could not be read (last error: blob GET HTTP 403)']);
+});
+
+test('#3878: a Windows feedback pull whose engine module cannot load says so plainly', async () => {
+  const out = []; const err = [];
+  const engine = new Proxy({}, { get: (t, name) => { if (name === 'feedbackpull') throw new Error('Cannot find module /x/engine/feedbackpull.js'); return undefined; } });
+  const code = await cli.main(['feedback', 'pull'], { env: {}, hook: hookStub, engine, out: (s) => out.push(s), err: (s) => err.push(s),
+    fetch: async () => { throw new Error('feedback reached the network'); } });
+  assert.equal(code, 1);
+  assert.equal(err.join('\n'), 'could not pull the collected feedback');
+});

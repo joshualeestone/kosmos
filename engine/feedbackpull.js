@@ -29,7 +29,8 @@
  *
  * ⚠️ WEAKEST PREMISE: the Vercel Blob REST list shape (`GET <api>/?prefix=..`,
  * `Authorization: Bearer <token>`, `{ blobs: [{ url, pathname }], hasMore,
- * cursor }`) and public per-blob `url`. Built + hermetically tested against that
+ * cursor }`), and a per-blob `url` read with the same Bearer token (the reports
+ * are in a PRIVATE store since kosmos#3878). Built + hermetically tested against that
  * documented shape with an injectable transport; a live run once the token is
  * filed confirms or corrects the exact API, and the transport seam localises any
  * fix to one function.
@@ -70,7 +71,7 @@ const FEEDBACK_TOKEN_TARGET = 'vercel-blob-feedback';
 // data root. feedback.js's dir() stays lazy for the same reason.
 function defaultDir() { return path.join(store.ROOT, 'collected-feedback'); }
 
-let transport = null; // tests inject { list: async(token)=>[{url,pathname}], get: async(url)=>text }
+let transport = null; // tests inject { list: async(token)=>[{url,pathname}], get: async(url, token)=>text }
 function setTransport(t) { transport = t; }
 
 /**
@@ -125,9 +126,43 @@ async function defaultList(tok) {
   return blobs;
 }
 
-async function defaultGet(url) {
-  const res = await fetchBounded(url);
-  if (!res || !res.ok) throw new Error('blob GET HTTP ' + (res && res.status));
+/* kosmos#3878: the reports now live in a PRIVATE blob store, where a blob URL
+   answers 403 without the store token, so each GET carries it (the header
+   @vercel/blob's own get() sends). The token goes only to an https Vercel Blob host
+   (*.blob.vercel-storage.com, any store's: the check is Vercel-host scoped, not
+   store scoped) or the configured blob API origin (whatever its scheme: that origin
+   is operator-set, and the tests run it on http loopback). The URL comes from the
+   listing, and a listing naming any other host must not receive the credential.
+   Only the first hop is checked here; fetch itself drops Authorization on a
+   cross-origin redirect. */
+/* The Vercel Blob host, DERIVED from DEFAULT_BLOB_API so the security check and the
+   API default cannot name two different domains. A report URL is on it when its
+   host is that host or ends in "." + it (URL.hostname is already lower-cased). */
+const BLOB_HOST = new URL(DEFAULT_BLOB_API).hostname;
+function tokenMayGoTo(url) {
+  try {
+    const u = new URL(url);
+    const h = u.hostname;
+    if (u.protocol === 'https:' && (h === BLOB_HOST || h.endsWith('.' + BLOB_HOST))) return true;
+    return u.origin === new URL(blobApi()).origin;
+  } catch { return false; }
+}
+
+/* A read the store REFUSED (as opposed to missing, 404, or failing): 401 or 403 in the
+   'blob GET HTTP <status>' errors defaultGet throws. One pattern, used for the count. */
+const REFUSED_STATUS = /HTTP 40[13]\b/;
+
+async function defaultGet(url, tok) {
+  const send = !!(tok && tokenMayGoTo(url));
+  const res = await fetchBounded(url, send ? { headers: { authorization: 'Bearer ' + tok } } : undefined);
+  if (!res || !res.ok) {
+    try { if (res && res.body && typeof res.body.cancel === 'function') await res.body.cancel(); } catch { /* release only */ }
+    // A refusal after the token was WITHHELD is the host rule, not the token: say so,
+    // so the hint below does not send anyone to refile a token that is fine.
+    let host = '';
+    try { host = new URL(url).hostname; } catch { host = '?'; }
+    throw new Error('blob GET HTTP ' + (res && res.status) + (tok && !send ? ', token withheld from host ' + host : ''));
+  }
   return res.text();
 }
 
@@ -206,10 +241,26 @@ async function pull(dir, opts) {
   catch { return { ok: false, written: 0, skipped: 0, dir: target, because: 'could not create the destination directory' }; }
   let written = 0;
   let skipped = 0;
+  // kosmos#3878: a GET that failed (403 from a private store read without the right
+  // token, a network fault), counted apart from a malformed record, so a pull that
+  // could read NOTHING is not reported as a success.
+  let unreadable = 0;
+  let lastGetError = '';
+  // Reads refused although the token WAS sent. The listing came from this token's
+  // store, so this is not a wrong store; the read path may need another URL or auth
+  // form, or the token may lack read access (the message says "may").
+  let denied = 0;
   for (const b of (Array.isArray(blobs) ? blobs : [])) {
     if (!b || typeof b.url !== 'string') { skipped += 1; continue; }
+    let text;
+    try { text = await tp.get(b.url, tok); }
+    catch (e) {
+      skipped += 1; unreadable += 1; lastGetError = String((e && e.message) || e);
+      if (REFUSED_STATUS.test(lastGetError) && !/token withheld/.test(lastGetError)) denied += 1;
+      continue;
+    }
     let rec;
-    try { rec = JSON.parse(await tp.get(b.url)); }
+    try { rec = JSON.parse(text); }
     catch { skipped += 1; continue; }
     if (!rec || typeof rec !== 'object' || typeof rec.body !== 'string') { skipped += 1; continue; }
     try {
@@ -220,7 +271,67 @@ async function pull(dir, opts) {
       written += 1;
     } catch { skipped += 1; }
   }
-  return { ok: true, written, skipped, total: (Array.isArray(blobs) ? blobs.length : 0), dir: target };
+  const total = Array.isArray(blobs) ? blobs.length : 0;
+  /* Whether the listing came from a PUBLIC blob store (<store>.public.<BLOB_HOST>, the
+     shape @vercel/blob builds). Before kosmos#3878's migration that is correct; after
+     it, it means the token filed as FEEDBACK_TOKEN_TARGET is still the old public
+     store's. This file cannot tell which side of the migration it is on, so the note
+     it drives is conditional (PUBLIC_STORE_NOTE). A stale public token AFTER the
+     migration lists an empty store instead; that case is the zero-listed line in
+     summaryLines, not this flag. */
+  const fromPublicStore = (Array.isArray(blobs) ? blobs : []).some((b) => {
+    try { return b && new URL(b.url).hostname.endsWith('.public.' + BLOB_HOST); } catch { return false; }
+  });
+  if (written === 0 && unreadable > 0) {
+    return {
+      ok: false, written, skipped, total, dir: target,
+      because: 'the store listed ' + reports(total) + ' and none was pulled: '
+        + unreadableClause({ unreadable, denied, lastGetError })
+        + (skipped > unreadable ? '; ' + (skipped - unreadable) + ' malformed or not written' : '')
+        + '.' + (fromPublicStore ? ' ' + PUBLIC_STORE_NOTE : ''),
+      unreadable, denied, fromPublicStore,
+    };
+  }
+  // A partial pull is still ok, but says how many could not be read and why, so a
+  // mostly-failed pull is not mistaken for a clean one.
+  return { ok: true, written, skipped, unreadable, denied, lastGetError: unreadable ? lastGetError : '', fromPublicStore, total, dir: target };
+}
+
+/* The public-store hint, one wording for the success summary and the failure. It is
+   conditional because before the site's private-store migration a public listing is
+   correct, and only after it does it mean the token is stale. */
+const PUBLIC_STORE_NOTE = 'These reports were listed from a PUBLIC blob store. That is expected until the site\'s '
+  + 'private-store migration (kosmos#3878) has run; after it, refile ' + FEEDBACK_TOKEN_TARGET
+  + ' with the private feedback store\'s token.';
+
+/* A count with its noun: "1 report", "2 reports". */
+function reports(n) { return n + (n === 1 ? ' report' : ' reports'); }
+
+/* The one wording of "some reports could not be read", for the failure message and
+   the success summary alike. `denied` = refused although the token was sent. */
+function unreadableClause({ unreadable, denied, lastGetError }) {
+  return reports(unreadable) + ' could not be read'
+    + (denied ? ', ' + denied + ' of them refused although the token was sent (the read path may need a different URL or auth form)' : '')
+    + ' (last error: ' + lastGetError + ')';
+}
+
+/**
+ * The success summary of a pull, as lines. The ONE place it is worded: runCli, the
+ * Mac `kosmos feedback pull` (install/kosmos) and the Windows command all print
+ * these, so a partial pull's "could not be read" line cannot be missing from one of
+ * them (kosmos#3878).
+ */
+function summaryLines(r) {
+  const out = ['pulled ' + r.written + ' report(s)' + (r.skipped ? ' (' + r.skipped + ' skipped)' : '') + ' to ' + r.dir];
+  // After the migration a stale public token lists an EMPTY store and reads cleanly,
+  // so "pulled 0" alone would be the silent success this module refuses elsewhere.
+  if (r.total === 0) {
+    out.push('no reports were listed. If reports are expected, check that ' + FEEDBACK_TOKEN_TARGET
+      + ' holds the private feedback store\'s token (kosmos#3878).');
+  }
+  if (r.unreadable) out.push(unreadableClause(r));
+  if (r.fromPublicStore) out.push('note: ' + PUBLIC_STORE_NOTE);
+  return out;
 }
 
 /**
@@ -273,9 +384,7 @@ async function runCli(argv, opts) {
   try { r = await pull(dir || undefined, opts); }
   catch (e) { process.stderr.write('could not pull the collected feedback: ' + String((e && e.message) || e) + '\n'); return 1; }
   if (!r.ok) { process.stderr.write(r.because + '\n'); return 1; }
-  process.stdout.write('pulled ' + r.written + ' report(s)'
-    + (r.skipped ? ' (' + r.skipped + ' skipped)' : '')
-    + ' to ' + r.dir + '\n');
+  for (const line of summaryLines(r)) process.stdout.write(line + '\n');
   return 0;
 }
 
@@ -291,5 +400,5 @@ if (require.main === module) {
 module.exports = {
   pull, runCli, setTransport, token, toMarkdown, fileName,
   FEEDBACK_TOKEN_TARGET, PREFIX, defaultDir, blobApi, DEFAULT_BLOB_API,
-  defaultList, defaultGet,
+  defaultList, defaultGet, tokenMayGoTo, summaryLines,
 };

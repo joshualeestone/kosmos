@@ -4224,12 +4224,27 @@ test('#3391: a Grok agent is created on the grok runner, recorded, with the righ
     'the auto (empty) Grok model must carry a real label');
 });
 
-/* #3568: the Antigravity runner (Google's agy), OFF unless AGENT_WORKFORCE_ANTIGRAVITY=1. */
+/* #3568: the Antigravity runner (Google's agy), ON unless AGENT_WORKFORCE_ANTIGRAVITY=0 (Josh, 2026-09-25). */
 function withAgyFlag(on, fn) {
   const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY;
-  if (on) process.env.AGENT_WORKFORCE_ANTIGRAVITY = '1'; else delete process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  if (on) process.env.AGENT_WORKFORCE_ANTIGRAVITY = '1'; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = '0';
   try { return fn(); } finally { if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = was; }
 }
+test('#3568: Gemini on a Google subscription is ON by default: unset means on, only 0 turns it off', () => {
+  const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  try {
+    delete process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+    assert.equal(create.antigravityEnabled(), true, 'unset must mean on (Josh, 2026-09-25 20:57)');
+    process.env.AGENT_WORKFORCE_ANTIGRAVITY = '0';
+    assert.equal(create.antigravityEnabled(), false, 'CONTROL: 0 turns it off');
+    process.env.AGENT_WORKFORCE_ANTIGRAVITY = '1';
+    assert.equal(create.antigravityEnabled(), true);
+    for (const off of ['false', 'OFF', 'no', ' 0 ']) {   // review round 7: an operator writing false meant off
+      process.env.AGENT_WORKFORCE_ANTIGRAVITY = off;
+      assert.equal(create.antigravityEnabled(), false, JSON.stringify(off) + ' did not turn it off');
+    }
+  } finally { if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = was; }
+});
 test('#3568: with the flag off, an Antigravity create is refused as an unknown provider, exactly as before', () => {
   recorder();
   create.setDryRun(false);
@@ -4267,7 +4282,7 @@ test('#3568: with the flag on, an Antigravity agent is created on the antigravit
   assert.equal(plistArgs(name)[7], 'gemini-3-pro');
   const auto = create.setModel(name, '');
   assert.equal(plistArgs(name)[7], '');
-  assert.equal(auto.model.label, "Antigravity's default");
+  assert.equal(auto.model.label, "Gemini's default");
 });
 test('#3568: an Antigravity create is refused when agy is missing, when an account is given, and on Windows', () => {
   recorder();
@@ -4297,7 +4312,7 @@ test('#3568: the provider and runner maps round-trip antigravity, and it is a no
   assert.equal(create.runnerProvider('antigravity'), 'antigravity');
   assert.equal(create.isNonClaudeRunner('antigravity'), true);
   assert.equal(create.briefFilename('antigravity'), 'AGENTS.md');
-  assert.equal(create.providerLabel('antigravity'), 'Antigravity');
+  assert.equal(create.providerLabel('antigravity'), 'Gemini (Google subscription)');   // the menu's word (review round 2)
 });
 test('#3568: the supervisor launches agy with its documented auto-approve flag, and --model only when one is set', () => {
   const script = supervisorText();

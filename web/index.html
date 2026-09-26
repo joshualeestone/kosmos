@@ -9224,6 +9224,157 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 #plus-signin-msg:empty { display: none; }
 #plus-state2 .plus-si-lead + .frow { margin-top: 1rem; }   /* a button under a one-line lead gets room (the #3796 landing) */
 @media (max-width: 640px) { .plus-val { grid-template-columns: 1fr; } }
+/* #718 CHAT FIRST ON A PHONE (the 40rem here is repeated in trackVisibleViewportHeight's
+   matchMedia; change both together) (Josh 2026-09-24: "make sure the designs fit well on mobile"; Liu Kang
+   decided the build 2026-09-24 22:30 CDT). Below 40rem, with Direct Message the shown section, the
+   agent page used to stack the whole identity column (88px avatar, name, state, five big nav tiles,
+   Files) above the conversation, so a phone opened a chat and saw the conversation two screens down
+   and the composer two and a half. Here, on a phone and on Talk only:
+     - the identity block is one compact row (small avatar beside the name and state);
+     - the section tiles become one row of small tabs that scrolls sideways, so Profile and the rest
+       stay one tap away through the same buttons and the same click handler;
+     - Files is not shown here, to keep the first screen for the conversation (it stays on the
+       other sections);
+     - the page is exactly the visible screen and the thread scrolls inside it, so the composer sits
+       at the bottom, padded by Raiden's shared --safe-bottom once his frame change defines it (the 0px
+       fallback applies until then, and it is 0 anyway today: the board does not opt into
+       viewport-fit=cover, per Johnny's ruling). The height is --kosmos-visible-height when the script below has set it (the
+       visual viewport, which shrinks when the on-screen keyboard opens), else 100dvh.
+   Other sections, tablets (40rem to 56rem) and desktop keep their layout.
+   Stated weakest part: verified in Playwright Chromium and WebKit with a simulated smaller visual
+   viewport, not on a device; WebKit is an engine approximation, not Safari or WKWebView. */
+@media (max-width: 40rem) {
+  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) {
+    display: flex; flex-direction: column; padding-bottom: 0;
+    height: var(--kosmos-visible-height, 100dvh); }
+  /* Deliberately NOT overflow: hidden. The thread flexes to fit, so nothing overflows in the
+     normal case and the page does not scroll; but a header menu taller than the screen (the
+     world switcher with many Kosmos instances is absolutely positioned and has no max-height)
+     must still be able to scroll the page to its last row.
+     ⚠️ CASCADE: several rules below restate selectors the 56rem talk-fill block (~#2622) also
+     sets (padding-bottom, #d-talk-box height/min-height) with identical specificity and win only
+     by coming later in the sheet, the same restatement the #770 note describes. Keep this block
+     after that one. */
+  /* The wide layout's companions to the header's zero bottom margin (the #3497 block), so the
+     connection line and the pairing card keep their gap on Talk as on every other section. */
+  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #askcard:not([hidden]) { margin-bottom: var(--space-6); }
+  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #conn:not([hidden]) { margin-top: var(--space-6); }
+  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > :not(#panel-detail) { flex: none; }
+  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > .apphead { margin-bottom: 0; }
+  /* The help tour's dimmed page is min-height 100vh (never shrinks for a keyboard); on the phone
+     chat the page must stay exactly the visible height, tour or not. */
+  html.tip-dimming:not([data-layout="consolidated"]) > body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { min-height: 0; }
+  body > #panel-detail:has(#d-sec-talk:not([hidden])) {
+    flex: 1 1 auto; min-height: 0; height: auto; display: flex; flex-direction: column; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dbody {
+    flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dleft { flex: none; overflow: visible; min-height: 0; padding-top: 0; }
+  /* Capped: the identity block's notes (a usage-limit quote, a stale-instructions note, sign in again, start this
+     agent) can run to several lines, and uncapped they took the whole screen and left the thread at
+     0px. Past 18% of the visible height the block scrolls on its own, as the wide
+     layout's column does (#3385). The tab row below it never shrinks, so Profile stays one tap. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead {
+    flex-direction: row; align-items: flex-start; text-align: left; gap: 10px; margin: 0 0 8px;
+    padding: 6px 0 6px 6px; max-height: calc(0.18 * var(--kosmos-visible-height, 100dvh));
+    overflow: hidden auto; }
+  /* Top-aligned, not centred: a centred row taller than its cap spills above the scroll box, where
+     no scroll can reach (the name and Start this agent were cut off). An action further down the
+     notes (Start this agent, Sign in again) is reached by scrolling this block; a roomier cap for
+     them was tried and left an iPhone SE no conversation at all. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dav-wrap,
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dav-wrap .detail-av { width: 40px; height: 40px; flex-basis: 40px; }
+  /* A swarm agent (#3564) on the phone chat keeps only Active/Paused and Stop now in the header;
+     they come before the notes, so they sit at the top of the capped block, on screen. The helper
+     and daily-limit sliders stay on Profile. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox ~ .swbox { display: none; }
+  /* Stop now acts at once, so its explanation stays visible in full (it says work is dropped). */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel #d-swarm-stop-hint { margin: 4px 0 0; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel { gap: 0; margin-top: 4px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox { padding: 4px 8px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox .swlab { position: absolute; width: 1px; height: 1px;
+    overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; margin: 0; }
+  /* The memory-full badge is placed for the 88px avatar; on the 40px one it would cover the face. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .membadge { top: -6px; right: -12px; transform: scale(.7); transform-origin: top right; }
+  /* The memory ring (#1915) is drawn 100px around the 88px avatar; sized with the 40px avatar here,
+     and the .dhead padding above makes room for the ring's 6px overhang instead of clipping it. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .dring,
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .dring svg { width: 52px; height: 52px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dtext { align-items: flex-start; gap: 4px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dnamerow {
+    flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 8px; row-gap: 2px; }
+  /* font-size, not --dname-size: the fit-to-width script writes --dname-size inline on #d-name. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-name.dname { font-size: 1.125rem; }
+  /* One compact identity row: the "no name was chosen" note and the full-size state badge are
+     Profile's to explain; here the state stays, smaller. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) .detail-meta .dmeta-note { display: none; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .detail-state { font-size: .8125rem; margin: 0; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed {
+    flex: none;
+    flex-direction: row; flex-wrap: nowrap; gap: 6px; overflow-x: auto; scrollbar-width: none;
+    margin: 0 -2px; padding: 4px 32px 4px 2px; scroll-snap-type: x proximity; overscroll-behavior-x: contain;
+    /* The same "there is more" cue as the phone Settings row (#s-nav). */
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed::-webkit-scrollbar { display: none; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack { display: contents; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button,
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button.dnav-dm {
+    flex: none; width: auto; min-height: 44px; flex-direction: row; gap: 6px; scroll-snap-align: center;
+    padding: 0 14px; border-radius: 22px; font-size: .875rem; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-lab,
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack .dnav-lab { font-size: .875rem; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-ico svg { width: 18px; height: 18px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button .dot { top: 6px; right: 6px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-files { display: none; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dsecs { flex: 1 1 auto; min-height: 0; padding-top: 0; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box {
+    height: auto; min-height: 0; flex: 1 1 auto; overflow-x: hidden;
+    margin: 0 calc(-1 * var(--space-8)); padding: 10px 12px calc(8px + var(--safe-bottom, 0px)); }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-dmthread { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  /* The composer sticks to the bottom of the talk box. The box scrolls when what sits around the
+     thread (the folder-trust box, file chips, a send error) outgrows it; without this the composer
+     itself could scroll out under the keyboard when notices stack above the panel. At the end of
+     the scroll it sits in its natural place, so the chips and error below it stay reachable. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box .dmbar { position: sticky; bottom: 0; z-index: 4; }
+  /* While the person is typing, the keyboard takes about half a phone screen, and the header,
+     tabs and search above the thread would leave the thread no room (an iPhone SE had the
+     composer pushed below the keyboard). They step aside while focus is anywhere in the
+     composer's text box, on Post or on the emoji button (shown from 481px), so pressing them does
+     not flash the header back mid-tap (not add-a-file, which keeps focus after the file picker
+     closes with no keyboard up), or in the search box, AND the on-screen keyboard is up (html.kosmos-keyboard-up, set by the
+     visualViewport listener), and come back when either ends: the same trade chat apps make.
+     Keyed on the keyboard too, so a focus with no keyboard (a script focusing the box after an
+     answer, which on iOS raises no keyboard; a narrow desktop window) leaves the header alone.
+     Known edge: a narrow desktop window made 150px+ shorter at the same width reads as a keyboard.
+     Accepted trade: hidden this way they are also out of the accessibility tree until focus
+     leaves the composer. The phone-pairing card (#askcard) steps aside too, and is back the moment
+     the keyboard closes. Searching keeps its own row and sets the composer aside instead, since
+     the person is reading results, not writing. */
+  /* Lines begin `html.kosmos-keyboard-up body`, not `body:has(`: the stylesheet guard in
+     server.test.js reads a line beginning `body:has(` as a stray `prop: value`. */
+  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send, #d-emoji-btn, #d-emoji button):focus, #d-talk-search:focus):has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #askcard,
+  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send, #d-emoji-btn, #d-emoji button):focus, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
+  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send, #d-emoji-btn, #d-emoji button):focus, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) .dleft,
+  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send, #d-emoji-btn, #d-emoji button):focus, #d-talk-search:focus) #d-talk-box #d-talk-older,
+  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send, #d-emoji-btn, #d-emoji button):focus) #d-talk-box .d-talk-caprow,
+  html.kosmos-keyboard-up body:has(#d-talk-search:focus) #d-talk-box .dmbar { display: none; }
+  /* Thumb reach: the composer's controls meet the 44px minimum on a phone. */
+  #d-talk-box .composerbox .attachbtn,
+  #d-talk-box .composerbox #d-emoji-btn { width: 44px; height: 44px; }
+  #d-talk-box .composerbox .cpost { min-height: 44px; min-width: 64px; }
+  #d-talk-box .composerbox .cinput { font-size: 16px; }
+  /* The compact header above already names the agent, so the "Direct Message to <name>"
+     caption would say it twice; the search takes the row. Hidden visually only, so the
+     conversation keeps its heading for screen-reader heading navigation. */
+  #d-talk-box .d-talk-caprow { margin-bottom: 6px; }
+  #d-talk-box #d-talk-label { position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+  #d-talk-box .d-talk-caprow #d-talk-search-wrap { flex: 1 1 auto; min-height: 44px; }
+  #d-talk-box #d-talk-search { min-height: 42px; }
+  /* 16px or iOS zooms the page when the search box takes focus (as for the composer above). */
+  #d-talk-box #d-talk-search { font-size: 16px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) > .back { margin: 4px 0 0; min-height: 44px; }
+}
 /* The canvases honour prefers-reduced-motion in JS (a single static frame, no
    rAF loop); this makes that intent visible to a source reader too. */
 </style>
@@ -10066,6 +10217,7 @@ window.kosmosMeasureScrollbarWidth();
           <option value="anthropic">Anthropic / Claude</option>
           <option value="openai">OpenAI / Codex</option>
           <option value="google" disabled data-off="Checking your accounts">Google Gemini</option>
+          <option value="antigravity" disabled data-off="Checking Antigravity">Google Gemini (Google subscription)</option>
           <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
           <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
           <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
@@ -12126,7 +12278,7 @@ window.kosmosMeasureScrollbarWidth();
                      GPT, appeared inside the API-key form, then vanished again when the
                      form hid itself on success. The order test still passed, because it
                      read source order and not whether a hidden container opened in between. -->
-                <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div class="llm on"><span class="llm-m pmark live" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google &middot; API key today</small></div><button class="connect-b" type="button" id="fr-gemini-connect" data-keyed="google" aria-expanded="false" aria-controls="fr-gemini-confirm fr-gemini-pick" aria-label="Connect Gemini">Connect</button></div>
+                <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div class="llm on"><span class="llm-m pmark live" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google &middot; subscription or API key today</small></div><button class="connect-b" type="button" id="fr-gemini-connect" data-keyed="google" aria-expanded="false" aria-controls="fr-gemini-confirm fr-gemini-pick" aria-label="Connect Gemini">Connect</button></div>
                 <!-- #3731 (Josh, 0.6.94): Google Gemini connects EXACTLY like GPT, directly under its own row: install
                      first (Confirm / Not now), then the choice, then the sign-in or the key. Same classes, same
                      copy with the name swapped, no command-line talk. The driver is frKeyed* below. -->
@@ -12148,7 +12300,7 @@ window.kosmosMeasureScrollbarWidth();
                   </div>
                 </div>
                 <div id="fr-gemini-sub-step" hidden class="fr-confirm" role="group" aria-labelledby="fr-gemini-sub-t">
-                  <p class="fr-confirm-t" id="fr-gemini-sub-t"><b>Sign in with your Google subscription.</b> Kosmos opens Google's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</p>
+                  <p class="fr-confirm-t" id="fr-gemini-sub-t"><b>Sign in with your Google subscription.</b> Gemini on a subscription runs on Google's Antigravity, which signs in with Google in your browser; Kosmos never sees your password. Your agents then run on your own subscription, on this computer.</p>
                   <div class="frow" style="margin-top:12px;">
                     <button class="btn uprime" id="fr-gemini-sub-go" type="button">Sign in with Google</button>
                   </div>
@@ -12849,6 +13001,7 @@ window.kosmosMeasureScrollbarWidth();
                  the create path can wire a codex agent end to end now. -->
             <option value="openai">OpenAI / Codex</option>
             <option value="google" disabled data-off="Checking your accounts">Google Gemini</option>
+            <option value="antigravity" disabled data-off="Checking Antigravity">Google Gemini (Google subscription)</option>
             <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
             <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
             <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
@@ -15626,12 +15779,15 @@ window.kosmosMeasureScrollbarWidth();
         <p class="fmsg" id="plus-devmsg" role="alert" aria-live="assertive"></p>
       </div>
       <!-- #733 recovery: the second step at sign-in can be reset only from
-           this Mac, with its own signed request; a person at this keyboard
+           a Mac connected to the account (this one or any other live one,
+           kosmos#3860), with its own signed request; a person at this keyboard
            already holds what the step protects, and no support path or
            server-side unlock exists on purpose (docs/second-factor.md in
            kosmos-relay). Two clicks, so a stray one switches nothing off.
            These words were reviewed by the design lane (Mona Lisa, #2499) and
-           left as-is; the verbatim Josh ruling below is unchanged. -->
+           left as-is then; kosmos#3860 later added "or any other computer
+           connected to this account" to the hint (a fact, not a re-voicing).
+           The verbatim Josh ruling below is unchanged. -->
       <div id="plus-second" hidden style="margin-top:16px;">
         <p class="setname">I lost my phone</p>
         <!-- 🛑 "ALWAYS", NOT "from a phone" (Josh, 2026-08-29 14:04, verbatim):
@@ -15651,7 +15807,7 @@ window.kosmosMeasureScrollbarWidth();
              ⇒ So whether to NAME it here is a wording decision for whoever owns
              this voice, not a gap. The sentence as written is true either way:
              the second step always happens, whichever thing supplies the code. -->
-        <p class="fhint">Signing in always asks for a second code after the email code, on every device. If the phone that gives that code is gone, this computer can switch the second step off. Nobody else can, not even us. Sign in from your new phone afterwards and set it up again there.</p>
+        <p class="fhint">Signing in always asks for a second code after the email code, on every device. If the phone that gives that code is gone, this computer, or any other computer connected to this account, can switch the second step off. Nobody else can, not even us. Sign in from your new phone afterwards and set it up again there.</p>
         <div class="frow">
           <button class="btn" type="button" id="plus-second-reset">Reset the second step</button>
         </div>
@@ -16877,6 +17033,8 @@ function modelLine(a) {
   /* #3566: a Gemini or Grok agent's model id is its own vendor's, never a Claude one, so
      it is shown as-is (no "Claude " prefix), or as the provider when no id is known. */
   if (a.runner === 'gemini' || a.runner === 'grok') return name || (a.runner === 'gemini' ? 'Gemini' : 'Grok');
+  // #3568: Gemini on a Google subscription (Google's Antigravity CLI) picks its own Gemini model too.
+  if (a.runner === 'antigravity') return name || 'Gemini (Google subscription)';
   /* #149/#150: two states were collapsed into "Unknown Model", and only one
      of them is a fault. No launch file at all means there was never anywhere
      to look, no restart will fill it in, and the wording (ruled on card #150)
@@ -21022,6 +21180,10 @@ const ACCT_KEYED_ROUTE = { openai: 'openai', google: 'gemini', xai: 'grok' };
 function keyOnlyProvider(p) {
   return p !== 'openai' && Object.prototype.hasOwnProperty.call(ACCT_KEYED_ROUTE, p);
 }
+/* #3568 (review round 4): a provider that is neither Claude nor OpenAI and picks its own model:
+   the key-based ones (Gemini, Grok) and Gemini on a Google subscription ('antigravity', no account).
+   ONE predicate for every "no Claude model, no Claude account" site, so a new one is not missed. */
+function vendorPicksModel(p) { return keyOnlyProvider(p) || p === 'antigravity'; }
 /* #3651 (Josh, 2026-09-24 17:05, #admin): "i want to put Grok right under Gemini in all
    lists, so it would be Claude/OpenAI/Gemini/Grok." THE ONE provider order. Every provider
    picker is sorted by it at startup (orderProviderOptions, before its logo combobox is
@@ -21029,7 +21191,8 @@ function keyOnlyProvider(p) {
    a list cannot drift out of this order by being written in a different one. The
    coming-soon providers follow the four that work. `claude` is the Add-a-provider
    picker's value for Anthropic. Pinned by docs/browser-checks/render-provider-order-3651.js. */
-const PROVIDER_ORDER = Object.freeze(['anthropic', 'openai', 'google', 'xai', 'meta', 'alibaba', 'moonshot', 'mistral']);
+// #3568: Gemini by subscription ('antigravity') sits beside Gemini.
+const PROVIDER_ORDER = Object.freeze(['anthropic', 'openai', 'google', 'antigravity', 'xai', 'meta', 'alibaba', 'moonshot', 'mistral']);
 const PROVIDER_ORDER_ALIAS = Object.freeze({ claude: 'anthropic' });
 function providerRank(value) {
   const v = String(value == null ? '' : value).toLowerCase();
@@ -21056,6 +21219,7 @@ function acctProvider(a) {
 }
 /* #3566: the screen's word for a keyed provider id ('openai' -> 'OpenAI'). */
 function switchKeyedWord(p) {
+  if (p === 'antigravity') return 'Gemini (Google subscription)';   // #3568
   return p === 'google' ? 'Gemini' : p === 'xai' ? 'Grok' : 'OpenAI';
 }
 /* #3566: an OpenAI sentence re-said for the picker's provider, so "OpenAI sign-in" becomes
@@ -21071,6 +21235,51 @@ function switchKeyedSay(text, p) {
    failed) they stay OFF too: with no account to send, the engine does not refuse, it
    puts the agent on the machine's own env key, which nobody has checked. `current`
    stays selectable so the menu can show what the agent is on. */
+/* #3568: Gemini on a Google subscription (value 'antigravity') runs on Google's Antigravity CLI,
+   which signs in inside the agent's own window and has no Kosmos account rows. So its option is
+   gated on agy being INSTALLED (GET /api/antigravity, cheap), not on an account: null = not asked
+   yet, true / false = the answer. Asked once, the first time a provider menu paints. */
+let AGY_INSTALLED = null;
+let AGY_OFFERED = null;   // false where it cannot run (not a Mac) or is switched off (review round 3)
+let AGY_ASKING = null;
+function paintAgyOption(sel, current) {
+  const opt = sel && sel.options ? Array.from(sel.options).find((o) => o.value === 'antigravity') : null;
+  if (!opt) return;
+  const on = (AGY_OFFERED !== false && AGY_INSTALLED === true) || current === 'antigravity';
+  opt.disabled = !on;
+  if (on) delete opt.dataset.off;
+  else opt.dataset.off = AGY_OFFERED === false ? 'Not on this computer'
+    : AGY_INSTALLED === false ? 'Set up in Settings: Show the guided setup' : 'Checking Antigravity';
+  if (sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
+}
+function agyAsk() {
+  /* Asked again while it reads not installed (review round 1): a person who installs Antigravity with
+     the board open should not have to reload to see the option turn on. The GET is cheap. */
+  if (AGY_ASKING) return AGY_ASKING;
+  // Settled for this page: installed, or not offered here at all (review round 5: no re-ask per repaint).
+  if (AGY_INSTALLED === true || AGY_OFFERED === false) return Promise.resolve();
+  AGY_ASKING = fetch('/api/antigravity', { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((b) => {
+      if (!b) return;
+      AGY_OFFERED = b.enabled !== false && b.supported !== false;
+      AGY_INSTALLED = b.installed === true;
+    })
+    .catch(() => { /* stays null: "Checking", never a confident not-installed */ })
+    .finally(() => {
+      AGY_ASKING = null;
+      for (const id of ['d-provider', 'create-provider']) {
+        const sel = document.getElementById(id);
+        const cur = id === 'd-provider' && typeof CURRENT !== 'undefined' && CURRENT ? providerOf(CURRENT) : '';
+        paintAgyOption(sel, cur);
+      }
+      // The first-run Gemini row names the subscription only where it is offered (review round 9).
+      const tag = document.querySelector && document.querySelector('#fr-gemini-connect');
+      const small = tag && tag.parentElement && tag.parentElement.querySelector('.llm-w small');
+      if (small) small.innerHTML = keyedSubReady('google') ? 'Google &middot; subscription or API key today' : 'Google &middot; API key today';
+    });
+  return AGY_ASKING;   // review round 6: the caller awaits this read
+}
 function paintKeyedProviderOptions(sel, accounts, known, current, failed) {
   if (!sel || !sel.options) return;
   for (const opt of sel.options) {
@@ -24585,8 +24794,119 @@ const FR_KEYED = { google: { pre: 'gemini' }, xai: { pre: 'grok' } };
    Angel's Antigravity sign-in (#3568) and does not exist yet. The choice (Sign in with
    Subscription / Use an API key) is offered only where a start exists, so wiring Gemini is one
    function here and nothing else: no flag that could show a button with nothing behind it. */
-const KEYED_SUB_START = { google: null, xai: () => FR_GROK_SUB.start() };
-const keyedSubReady = (which) => typeof KEYED_SUB_START[which] === 'function';
+/* #3568: Gemini's subscription is Google's Antigravity CLI (agy). It signs in inside its own window
+   (Google's docs: started without a saved session it opens the default browser to sign in), so the
+   step is: check agy (installed? signed in?), and either say it is ready, show Google's installer, or
+   open agy once in Terminal for the sign-in and offer Check again. Nothing is typed into agy. */
+let FR_AGY_READY = false;   // Gemini on a Google subscription confirmed signed in on this computer
+const frCap = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
+const FR_AGY_SUB = {
+  busy: false,
+  gen: 0,          // bumped when the row closes: an answer for a closed row writes nothing (review round 1)
+  next: 'check',   // what the step's button does next: 'install' Antigravity, 'open' its sign-in, or 'check'
+  leave() { this.gen += 1; this.busy = false; this.next = 'check'; },
+  el(part) { return document.getElementById('fr-gemini-sub-' + part); },
+  say(text, button, about, done) {
+    const code = this.el('code'); if (code) { code.textContent = text; code.hidden = !text; }
+    // Stop is there for the whole step, like Grok's, except once it is ready (review round 2).
+    const stop = this.el('cancel-row'); if (stop) stop.hidden = !!done;
+    const go = this.el('go'); if (go) { go.textContent = button || ''; go.hidden = !button; }
+    const row = this.el('open-row'); const a = this.el('open');
+    if (row && a) {
+      row.hidden = !about;
+      if (about) { a.href = 'https://antigravity.google/docs/cli/install/'; a.textContent = 'About Antigravity'; }
+    }
+  },
+  async post(path) {
+    try { return await (await fetch(path, { method: 'POST' })).json(); } catch { return null; }
+  },
+  async start() {
+    if (this.busy) return;
+    this.busy = true;
+    const mine = this.gen;
+    const live = () => mine === this.gen;
+    try {
+      if (this.next === 'open') {
+        /* Opening Terminal is its own press, never a side effect of a check (review round 1): each
+           check costs a prompt and each open is another window. */
+        const opened = await this.post('/api/antigravity/open');
+        if (!live()) return;
+        this.next = 'check';
+        this.say(opened && opened.ok
+          ? "Antigravity opened, and it opens Google's sign-in in your browser. Sign in there with your Google account, then press Check again. You can close Antigravity's window afterwards."
+          : frCap((opened && opened.error) || "We could not open Antigravity's sign-in just now") + '.',
+          opened && opened.ok || /not installed|not available|switched off/.test((opened && opened.error) || '') ? 'Check again' : 'Open Antigravity to sign in', false);
+        if (!(opened && opened.ok)) this.next = /not installed|not available|switched off/.test((opened && opened.error) || '') ? 'check' : 'open';
+        return;
+      }
+      if (this.next === 'install') {
+        this.say('Installing Antigravity from Google…', '', false);
+        const got = await this.post('/api/antigravity/install');
+        if (!live()) return;
+        if (!got) {
+          /* No answer is not a failure (review round 7): the install runs on the board and may still be
+             going (a dropped request, a sleeping laptop). Check again finds out. */
+          this.next = 'check';
+          this.say('Antigravity may still be installing. Press Check again in a moment.', 'Check again', false);
+          return;
+        }
+        if (!got.ok) {
+          // A refusal a retry cannot change goes back to checking, not round the same Try again.
+          const stuck = /different home|switched off|not available/.test(got.error || '');
+          this.next = stuck ? 'check' : 'install';
+          this.say(frCap(got.error || 'We could not install Antigravity just now') + '.', stuck ? 'Check again' : 'Try again', false);
+          return;
+        }
+        AGY_INSTALLED = true;
+        /* Freshly installed means not signed in yet, so go straight to the sign-in step rather than
+           spending a check on it (review round 2: a signed-out check may itself open a browser). */
+        this.next = 'open';
+        this.say('Antigravity is installed. Open it once to sign in with your Google account.', 'Open Antigravity to sign in', false);
+        return;
+      }
+      this.say('Checking Antigravity on this computer…', '', false);
+      const r = await this.post('/api/antigravity/check');
+      if (!live()) return;
+      if (r && typeof r.installed === 'boolean') {
+        AGY_INSTALLED = r.installed;
+        paintAgyOption(document.getElementById('create-provider'), '');
+        paintAgyOption(document.getElementById('d-provider'), typeof CURRENT !== 'undefined' && CURRENT ? providerOf(CURRENT) : '');
+      }
+      if (r && r.offered === false) {
+        this.next = 'check';
+        AGY_OFFERED = false;
+        this.say('Gemini on a Google subscription is not available on this computer. Press Stop this sign-in to use an API key instead.', '', false);
+      } else if (!r || typeof r.installed !== 'boolean') {
+        this.next = 'check';
+        this.say('We could not check Antigravity just now.', 'Check again', false);
+      } else if (r.installed === false) {
+        this.next = 'install';
+        this.say("Gemini on your Google subscription runs on Google's Antigravity, which is not on this computer yet. "
+          + 'Kosmos can install it for you: it is a download from Google.', 'Install Antigravity', false);
+      } else if (r.signedIn === true) {
+        this.next = 'check';
+        this.say('Ready. Gemini runs on your Google subscription on this computer: pick Google Gemini (Google subscription) when you create an agent.', '', false, true);
+        FR_AGY_READY = true;
+        frPaintKeyed();   // the row reads Connected and the step offers Next (review round 3)
+        /* Not dependent on the accounts read (review round 9: frPaintKeyed returns early if it fails). */
+        { const b = document.getElementById('fr-gemini-connect');
+          if (b) { b.innerHTML = '<span aria-hidden="true">✓</span> Connected'; b.disabled = true; if (b.classList) b.classList.add('is-connected'); if (b.setAttribute) b.setAttribute('aria-label', 'Gemini is connected'); } }
+        if (typeof FR_STEP !== 'undefined' && FR_STEP === 5 && !(typeof FR !== 'undefined' && FR && FR.subscription && FR.subscription.state === 'connected')) {
+          frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) }, null);
+        }
+      } else {
+        this.next = 'open';
+        this.say("Antigravity is on this computer but we could not confirm it is signed in. Open it once to sign in with your Google account.",
+          'Open Antigravity to sign in', false);
+      }
+    } finally { if (live()) this.busy = false; }   // a superseded press must not free a newer one
+  },
+};
+const KEYED_SUB_START = { google: () => FR_AGY_SUB.start(), xai: () => FR_GROK_SUB.start() };
+/* #3568: Gemini's subscription only where it can run (a Mac, runner on); AGY_OFFERED is read before
+   the choice is shown (frKeyedConnect). */
+const keyedSubReady = (which) => typeof KEYED_SUB_START[which] === 'function'
+  && (which !== 'google' || (AGY_OFFERED !== false && !onWindows()));   // agy runs on a Mac only
 let FR_KEYED_GEN = 0;   // an answer, a finished download or an Add from an earlier opening changes nothing
 const frK = (which, part) => document.getElementById('fr-' + FR_KEYED[which].pre + '-' + part);
 const frKeyedPanels = (which) => ['confirm', 'pick', 'sub-step', 'flow'].map((part) => frK(which, part)).filter(Boolean);
@@ -24599,6 +24919,7 @@ function frKeyedCollapse(which, keepSignIn) {
   // A closed panel keeps no "Checking..." behind (#3658); a finished sign-in writes its result next.
   const msg = frK(which, 'msg'); if (msg && !keepSignIn && !msg.classList.contains('fr-connbox')) msg.textContent = '';
   if (which === 'xai' && !keepSignIn) FR_GROK_SUB.leave();
+  if (which === 'google' && !keepSignIn) FR_AGY_SUB.leave();   // #3568
   /* A read, install or Add started for this panel no longer owns it (review pass 1: a late
      /api/runners answer reopened a panel another provider's Connect had just closed). */
   if (!keepSignIn) FR_KEYED_GEN += 1;
@@ -24609,11 +24930,25 @@ function frKeyedHideAll() { FR_KEYED_GEN += 1; frKeyedCollapse('google'); frKeye
 function frKeyedShowPick(which) {
   for (const el of frKeyedPanels(which)) el.hidden = true;
   if (!keyedSubReady(which)) { frKeyedChoose(which, 'key'); return; }
+  /* #3568 (review round 4): the choice can now come BEFORE any download (Gemini's subscription does
+     not need the Gemini CLI), so "Download complete." is said only when one happened. */
+  const head = frK(which, 'pick-t');
+  if (head) head.textContent = (FR_KEYED_DOWNLOADED[which] ? 'Download complete. ' : '') + 'Choose how to connect ' + KEYED_FULL_NAME[which] + '.';
   frK(which, 'pick').hidden = false;
   frK(which, 'pick-sub').focus();
 }
+/* #3568: set when a provider's choice was shown before its terminal agent was installed (Gemini,
+   whose subscription does not need it): "Use an API key" installs it first. */
+const FR_KEYED_KEY_NEEDS_INSTALL = { google: false, xai: false };
+const FR_KEYED_DOWNLOADED = { google: false, xai: false };   // a download finished in this opening (review round 9)
 function frKeyedChoose(which, how) {
   const msg = frK(which, 'msg'); if (msg) msg.textContent = '';
+  if (how === 'key' && FR_KEYED_KEY_NEEDS_INSTALL[which]) {
+    frK(which, 'pick').hidden = true;
+    frK(which, 'confirm').hidden = false;
+    const go = frK(which, 'confirm-go'); go.disabled = false; go.focus();
+    return;
+  }
   if (which === 'xai') FR_GROK_SUB.leave();   // a switch between the two ends a sign-in in flight
   frK(which, 'pick').hidden = true;
   frK(which, 'flow').hidden = how !== 'key';
@@ -24643,7 +24978,21 @@ async function frKeyedConnect(which) {
   { const bar = frK(which, 'confirm-bar'); if (bar) bar.hidden = true; const cm = frK(which, 'confirm-msg'); if (cm) cm.textContent = ''; }
   const info = await keyedRunnerInfo(which);
   if (mine !== FR_KEYED_GEN) return;
+  if (which === 'google') { await agyAsk(); if (mine !== FR_KEYED_GEN) return; }   // is the subscription offered here?
+  FR_KEYED_KEY_NEEDS_INSTALL[which] = false;
+  FR_KEYED_DOWNLOADED[which] = false;
   if (info && info.present) { frKeyedShowPick(which); return; }
+  /* #3568 (review round 1): Gemini's subscription runs on Antigravity, not the Gemini CLI, so the
+     choice comes first and the Gemini CLI is downloaded only for "Use an API key". A download already
+     under way is watched as before. */
+  if (which === 'google' && keyedSubReady(which) && !keyedJobLive(info)) {
+    FR_KEYED_KEY_NEEDS_INSTALL[which] = true;
+    frKeyedShowPick(which);
+    return;
+  }
+  /* A Gemini CLI download already under way was started for the key path (the subscription does not
+     use it), so when it finishes it goes on to the key step, as before #3568 (review round 7). */
+  if (which === 'google' && keyedSubReady(which)) FR_KEYED_KEY_NEEDS_INSTALL[which] = true;
   frK(which, 'confirm').hidden = false;
   const go = frK(which, 'confirm-go');
   go.disabled = false;
@@ -24664,7 +25013,15 @@ async function frKeyedConfirm(which) {
   if (!alive()) return;
   bar.hidden = true;
   if (!ok) { go.disabled = false; return; }
+  FR_KEYED_DOWNLOADED[which] = true;
   msg.textContent = '';
+  /* The install ran for "Use an API key" (#3568): go on to the key, not back to the choice. */
+  if (FR_KEYED_KEY_NEEDS_INSTALL[which]) {
+    FR_KEYED_KEY_NEEDS_INSTALL[which] = false;
+    box.hidden = true;
+    frKeyedChoose(which, 'key');
+    return;
+  }
   frKeyedShowPick(which);
 }
 async function frKeyedAdd(which) {
@@ -24741,18 +25098,25 @@ async function frPaintKeyed(known) {
     const connected = mine.some((x) => x.connection && x.connection.state === 'connected');
     /* A key saved but not yet confirmed (the provider did not answer) is not "Connected",
        and must not offer Connect again either: a second paste would make a second account. */
-    const saved = !connected && mine.some((x) => x.connection && x.connection.state === 'unknown');
+    const agyReady = provider === 'google' && FR_AGY_READY;   // #3568: Gemini on a Google subscription
+    const saved = !connected && !agyReady && mine.some((x) => x.connection && x.connection.state === 'unknown');
     const name = provider === 'google' ? 'Gemini' : 'Grok';
-    b.innerHTML = connected ? '<span aria-hidden="true">✓</span> Connected' : saved ? 'Key saved' : 'Connect';
-    b.disabled = connected || saved;
-    b.classList.toggle('is-connected', connected);
-    b.setAttribute('aria-disabled', String(connected || saved));
-    b.setAttribute('aria-label', connected ? name + ' is connected' : saved ? name + ' key saved' : 'Connect ' + name);
+    const on = connected || agyReady;
+    b.innerHTML = on ? '<span aria-hidden="true">✓</span> Connected' : saved ? 'Key saved' : 'Connect';
+    b.disabled = on || saved;
+    b.classList.toggle('is-connected', on);
+    b.setAttribute('aria-disabled', String(on || saved));
+    b.setAttribute('aria-label', on ? name + ' is connected' : saved ? name + ' key saved' : 'Connect ' + name);
     /* #3731: GPT's connected state, cloned (frPaintOpenai, #2241): the gold check box on the
        provider's own line, not a plain sentence. */
     const which = provider;
     const line = frK(which, 'msg');
-    if (line && connected) {
+    if (line && !connected && agyReady) {
+      if (frKeyedOpenNow(which)) frKeyedCollapse(which, true);
+      line.className = 'fr-connbox';
+      line.innerHTML = frCheckRow({ state: 'ok', title: 'Google Gemini (Google subscription) is ready',
+        detail: 'This computer is signed in to Antigravity with your Google account.' });
+    } else if (line && connected) {
       /* As GPT's paint does (#2621): a connected provider shows no key form or choice under its box,
          or a second paste would make a second account. keepSignIn: the box is being drawn now. */
       if (frKeyedOpenNow(which)) frKeyedCollapse(which, true);
@@ -24771,7 +25135,7 @@ async function frPaintKeyed(known) {
   /* #3731: and GPT's Continue (#2134): a connected Gemini or Grok is a usable model provider, so
      the step offers Next rather than leaving "Skip connecting a model" as the only way on, unless
      Claude has already offered its own. */
-  const anyKeyed = list.some((x) => (acctProvider(x) === 'google' || acctProvider(x) === 'xai') && x.connection && x.connection.state === 'connected');
+  const anyKeyed = FR_AGY_READY || list.some((x) => (acctProvider(x) === 'google' || acctProvider(x) === 'xai') && x.connection && x.connection.state === 'connected');
   const claudeConnected = FR && FR.subscription && FR.subscription.state === 'connected';
   if (anyKeyed && !claudeConnected && FR_STEP === 5) frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) }, null);
 }
@@ -24816,6 +25180,11 @@ const FR_GROK_SUB = grokSubDriver({
     try { await frPaintKeyed(); }   // a fresh read: the Grok answer alone would repaint Gemini as not connected
     catch { msg.textContent += ' ' + FR_GROK_REPAINT_FAILED; }
   },
+});
+document.getElementById('fr-gemini-sub-cancel').addEventListener('click', () => {
+  // #3568, as Grok's below: back to the choice, so the key is one press away.
+  FR_AGY_SUB.leave();
+  frKeyedShowPick('google');
 });
 document.getElementById('fr-grok-sub-cancel').addEventListener('click', () => {
   // Like GPT's Stop (frOpenaiShowPick): back to the choice, so the key is one press away.
@@ -29745,7 +30114,64 @@ function detailGo(section, opts) {
   if (section === 'term' && CURRENT && arriving) {
     detailPaintWindow(LAST.find((x) => x.sessionName === CURRENT.sessionName));
   }
+  /* #718: the swarm cluster is sized from its avatar slot, which is 0px wide until the panel is
+     shown and differs between the phone Talk header and the other sections; re-size it once laid out. */
+  const shownFor = CURRENT;
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => {
+    if (!CURRENT || CURRENT !== shownFor) return;
+    const fresh = LAST.find((x) => x && x.sessionName === CURRENT.sessionName);
+    if (fresh) renderAvatarSwarmOnly(fresh);
+  });
 }
+/* #718: the height a phone can actually see, for the chat-first layout (the 40rem
+   CHAT FIRST ON A PHONE block reads it). 100dvh does not shrink when the on-screen
+   keyboard opens, so a composer pinned to the bottom of 100dvh ends up under the
+   keyboard; the visual viewport does shrink. Written as --kosmos-visible-height on
+   <html> on every visual-viewport resize; the CSS falls back to 100dvh wherever
+   visualViewport is missing. Only the phone block reads it, so desktop is unaffected. */
+// Registered before emojiPlace's visualViewport listener on purpose: emojiPlace measures the body this resizes.
+(function trackVisibleViewportHeight() {
+  const viewport = window.visualViewport;
+  if (!viewport) return;
+  /* The height written is height x scale: a keyboard shrinks the visual viewport at scale 1, a
+     pinch zoom shrinks it by the zoom factor, and only the keyboard should shrink the page.
+     The keyboard counts as "up" (the phone chat moves its header aside only then) when that height
+     falls 150px+ below the tallest seen at this width (remembered per width, first seeded from innerHeight). Measured against the tallest, not the layout
+     viewport, so it also works where the keyboard shrinks the layout viewport too (Firefox Android,
+     Chrome with resizes-content, some Android web views). Widths are keyed on
+     documentElement.clientWidth, not innerWidth, because Safari changes innerWidth during a pinch zoom. */
+  const KEYBOARD_MIN_PX = 150;
+  const tallestByWidth = new Map();
+  let lastVisible = null;
+  const write = () => {
+    const visible = Math.round(viewport.height * viewport.scale);
+    const width = document.documentElement.clientWidth;
+    const tallest = Math.max(tallestByWidth.get(width) || window.innerHeight, visible);
+    tallestByWidth.set(width, tallest);
+    if (tallestByWidth.size > 8) tallestByWidth.delete(tallestByWidth.keys().next().value);   // a few widths (rotations) are all it needs
+    if (visible !== lastVisible) document.documentElement.style.setProperty('--kosmos-visible-height', visible + 'px');
+    lastVisible = visible;
+    document.documentElement.classList.toggle('kosmos-keyboard-up', tallest - visible > KEYBOARD_MIN_PX);
+  };
+
+  /* iOS can pan the page to show a focused text box before this resize arrives; with the page
+     already exactly the visible height, that pan only cuts off the header. This undoes a pan
+     that shows up as window.scrollY, and only while typing in the phone chat with the keyboard up
+     (not on a pinch zoom), so a tall header menu's own scroll is left alone. A pan that shows up only as visualViewport.offsetTop is NOT
+     handled: unobserved (no iOS simulator on this Mac), on Johnny's simulator checklist. */
+  // The controls that count as typing; the CSS block's :is(...) list is the same, pinned by render-dm-chatfirst-718.
+  const KOSMOS_TYPING_SELECTOR = '#d-say, #d-send, #d-emoji-btn, #d-emoji button';
+  // Same breakpoint as the CSS block "#718 CHAT FIRST ON A PHONE"; change both together.
+  const PHONE_WIDTH = window.matchMedia('(max-width: 40rem)');
+  viewport.addEventListener('resize', () => {
+    write();
+    const talk = document.getElementById('d-sec-talk');
+    const typing = document.activeElement && document.activeElement.matches && document.activeElement.matches(KOSMOS_TYPING_SELECTOR + ', #d-talk-search');
+    const keyboardUp = document.documentElement.classList.contains('kosmos-keyboard-up');
+    if (PHONE_WIDTH.matches && talk && !talk.hidden && typing && keyboardUp && window.scrollY) window.scrollTo(0, 0);
+  });
+  write();
+})();
 document.getElementById('d-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
   if (!b) return;
@@ -36961,12 +37387,12 @@ async function paintModelPicker(a) {
      list of theirs to offer, so the menu states that as its one option and Switch
      stays down. The Claude flow below would otherwise offer Claude models under a
      Gemini agent, the #2167 "Claude models under an OpenAI agent" shape again. */
-  if (a && (a.runner === 'gemini' || a.runner === 'grok')) {
+  if (a && (a.runner === 'gemini' || a.runner === 'grok' || a.runner === 'antigravity')) {   // #3568: antigravity too
     /* An OpenAI models fetch started for this panel (e.g. just before a switch to Gemini)
        must not land on it, and an OpenAI note must not stay under a Gemini agent. */
     OPENAI_DETAIL_GEN += 1;
     if (msg && msg.textContent) msg.textContent = '';
-    const word = a.runner === 'gemini' ? 'Gemini' : 'Grok';
+    const word = a.runner === 'grok' ? 'Grok' : 'Gemini';   // gemini and antigravity (Gemini by subscription)
     const one = '<option value="" selected>' + esc(word + ' picks its own model') + '</option>';
     if (sel.innerHTML !== one) sel.innerHTML = one;
     sel.dataset.current = '';
@@ -37229,7 +37655,11 @@ function acctMoveWorld(a, accounts) {
      codex agent does among OpenAI's (setGeminiAccount / setGrokAccount accept only those).
      `keyedProvider` is the provider id its runner implies, '' for a Claude agent. Spelled
      inline so this helper stays pure and self-contained. */
-  const keyedProvider = ({ codex: 'openai', gemini: 'google', grok: 'xai' })[a && a.runner] || '';
+  /* #3568: an antigravity agent signs in inside its own window and has no account rows, so its
+     key matches none: the picker offers nothing to move to (the engine refuses a move too). Kept
+     apart from the keyed map, which #3566's pin holds to the key-based providers. */
+  const keyedProvider = (a && a.runner === 'antigravity') ? 'antigravity'
+    : ({ codex: 'openai', gemini: 'google', grok: 'xai' })[a && a.runner] || '';
   const isCodex = keyedProvider === 'openai';
   const isKeyed = !!keyedProvider;
   const isOwnProviderRow = (x) => !!(x && keyedProvider && String(x.provider || '').toLowerCase() === keyedProvider);
@@ -37267,6 +37697,16 @@ async function paintAccountPicker(a) {
      listener, which is unaffected, so the feature degrades rather than dies. Named so the
      coupling is known rather than rediscovered. */
   if (!sel || !go) return;
+  /* #3568 (review round 7): an Antigravity agent signs in with Google inside its own window and has
+     no Kosmos account, so there is nothing to move it to; the keyed branches below would call it a
+     key and point at a Settings path that cannot add one. */
+  if (a && a.runner === 'antigravity') {
+    sel.innerHTML = '<option value="" selected></option>';
+    sel.disabled = true;
+    go.disabled = true;
+    if (msg) msg.textContent = 'It runs on your Google subscription through Antigravity, so there is no account to move it to.';
+    return;
+  }
   /* 🛑 `ACCOUNTS_UNREADABLE` HAS TO BE A RE-FETCH TRIGGER, NOT JUST A FLAG. A failed read
      deliberately does not shrink the list, so the cache can be NON-EMPTY and known-stale at
      the same time. Gating the re-read on emptiness alone meant that state never refreshed:
@@ -37756,7 +38196,8 @@ const agentShown = () => (CURRENT && (CURRENT.name || CURRENT.sessionName)) || '
 /* #3566: gemini -> google and grok -> xai, the engine's own runner<->provider map
    (create.js providerRunner), so a Gemini agent's switch menu opens on Gemini rather
    than claiming it runs on Claude. One line on purpose: harnesses lift it by `const`. */
-const providerOf = (a) => ((a && a.runner === 'codex') ? 'openai' : (a && a.runner === 'gemini') ? 'google' : (a && a.runner === 'grok') ? 'xai' : 'anthropic');
+const providerOf = (a) => ((a && a.runner === 'codex') ? 'openai' : (a && a.runner === 'gemini') ? 'google' : (a && a.runner === 'grok') ? 'xai'
+  : (a && a.runner === 'antigravity') ? 'antigravity' : 'anthropic');   // #3568: Gemini on a Google subscription
 
 function paintProviderPicker(a) {
   const sel = document.getElementById('d-provider');
@@ -37791,6 +38232,7 @@ function paintProviderPicker(a) {
     if (opt.value === 'anthropic' || opt.value === 'openai') opt.disabled = false;
   }
   paintKeyedProviderOptions(sel, ACCOUNTS, ACCOUNTS_LOADED && !ACCOUNTS_UNREADABLE, current, ACCOUNTS_UNREADABLE);
+  paintAgyOption(sel, current); agyAsk();   // #3568: Gemini by subscription is gated on agy, not an account
   /* An unrecognised provider leaves the select alone rather than silently
      showing the first option as though it were the answer. */
   sel.value = current || '';
@@ -37918,6 +38360,7 @@ function fillSwitchAccounts() {
      all dead) stay OpenAI's: they describe engine behaviour measured for codex. */
   const keyed = ACCT_KEYED_ROUTE[prov.value] ? prov.value : '';
   paintKeyedProviderOptions(prov, ACCOUNTS, ACCOUNTS_LOADED && !ACCOUNTS_UNREADABLE, CURRENT ? providerOf(CURRENT) : '', ACCOUNTS_UNREADABLE);
+  paintAgyOption(prov, CURRENT ? providerOf(CURRENT) : ''); agyAsk();   // #3568
   /* ⚠️ ONLY WHEN THE SWITCH IS ACTUALLY ARMED. paintProviderPicker sets
      #d-provider to the agent's CURRENT provider, so on an agent already running
      on OpenAI this menu would render live and enabled while Switch stays
@@ -38177,6 +38620,7 @@ function fillSwitchAccounts() {
    focus management, aria-expanded/selected/activedescendant/disabled. */
 const PROVIDER_MARK_KEY = {
   anthropic: 'claude', openai: 'openai', google: 'gemini', meta: 'meta',
+  antigravity: 'gemini',   // #3568: Gemini on a Google subscription wears Gemini's mark
   xai: 'xai', alibaba: 'qwen', moonshot: 'kimi', mistral: 'mistral',
   /* #1040 2b: #acct-provider-pick (the Add-a-provider screen) uses the value 'claude'
      where #d-provider uses 'anthropic'; both name the same provider and get the same
@@ -38650,8 +39094,10 @@ async function changeProviderNow(say) {
      unchecked key, the thing the gate exists to prevent; refuse instead, and say why. */
   {
     const wantOpt = [...sel.options].find((o) => o.value === want);
-    if (keyOnlyProvider(want) && wantOpt && wantOpt.disabled) {
-      const line = 'There is no ' + switchKeyedWord(want) + ' account connected, so there is nothing to switch onto. Add one in Settings, AI Models.';
+    if (vendorPicksModel(want) && wantOpt && wantOpt.disabled) {
+      const line = want === 'antigravity'
+        ? 'Gemini (Google subscription) is not set up on this computer, so there is nothing to switch onto. Set it up in Settings: choose Show the guided setup, then Connect on Gemini.'
+        : 'There is no ' + switchKeyedWord(want) + ' account connected, so there is nothing to switch onto. Add one in Settings, AI Models.';
       if (msg) { msg.textContent = line; SWITCH_ACCT_SAID = line; }
       tell(line, false);
       return;
@@ -38739,7 +39185,7 @@ async function changeProviderNow(say) {
        Anthropic" with "reactivate on Claude" in one dialog would be the last-screen inconsistency
        this branch exists to avoid. */
     const restarted = out.outcome === 'changed';
-    const provName = want === 'openai' ? 'OpenAI' : keyOnlyProvider(want) ? switchKeyedWord(want) : 'Anthropic';
+    const provName = want === 'openai' ? 'OpenAI' : vendorPicksModel(want) ? switchKeyedWord(want) : 'Anthropic';   // #3568
     // #2716: build the manual line ONCE and share it with the auto-hello helper, so the
     // helper's content check compares against exactly what tell() painted (no triplicated
     // string to drift out of byte-identity if the wording is retuned).
@@ -38852,7 +39298,8 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
   const toOther = keyOnlyProvider(sel.value);
   const fromProv = providerOf(CURRENT);
   const fromWord = fromProv === 'anthropic' ? 'Claude' : switchKeyedWord(fromProv);
-  const label = toOpenai ? 'OpenAI' : toOther ? switchKeyedWord(sel.value) : 'Anthropic';
+  const toAgy = sel.value === 'antigravity';   // #3568: Gemini on a Google subscription, no Kosmos account
+  const label = toOpenai ? 'OpenAI' : (toOther || toAgy) ? switchKeyedWord(sel.value) : 'Anthropic';
   changeDialog({
     title: 'Switch ' + agentShown() + ' to ' + label + '?',
     /* The memory sentence is the ruling, said before it happens: what she
@@ -38965,6 +39412,8 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
              if (!ACCOUNTS_LOADED) return 'and it will run on this computer’s OpenAI sign-in, if one is set up.';
              return 'and it runs on this computer’s OpenAI sign-in.';
            })())
+        : toAgy
+          ? 'Its ' + fromWord + ' model and account choices do not cross: Gemini picks its own model, and it runs on your Google subscription through Antigravity. If Antigravity is not signed in yet, sign in first: in Settings, choose Show the guided setup, then Connect on Gemini.'
         : toOther
           ? 'Its ' + fromWord + ' model and account choices do not cross: ' + label + ' picks its own model, '
             + ((() => {
@@ -39131,6 +39580,17 @@ function fillCreateAccounts() {
   const provSel = document.getElementById('create-provider');
   /* #3566: Gemini and Grok are offered only once an account for them is connected. */
   paintKeyedProviderOptions(provSel, CREATE_ACCOUNTS, CREATE_ACCOUNTS_KNOWN, '', CREATE_ACCOUNTS_FAILED);
+  paintAgyOption(provSel, ''); agyAsk();   // #3568
+  /* #3568: Gemini on a Google subscription signs in inside the agent's own window and has no
+     Kosmos account, so there is nothing to pick and no account is sent. Without this, acctProvider
+     reads 'antigravity' as Claude and would list (and send) a Claude account. */
+  if (provSel.value === 'antigravity') {
+    asel.innerHTML = '<option value="" selected></option>';
+    asel.value = '';
+    const arow = document.getElementById('create-account-row');
+    if (arow) arow.hidden = true;
+    return;
+  }
   const openai = provSel.value === 'openai';
   /* #3566: `keyed` covers OpenAI, Gemini and Grok (a pasted key or an OpenAI sign-in);
      the Claude-only memoryShared rule below does not apply to any of them. The list is
@@ -39356,7 +39816,7 @@ function applyCreateProviderUI() {
   /* #3566: Gemini and Grok run their CLI's own default model. Kosmos has no list of
      theirs to offer, so the model row is hidden and NO model is sent (the create body
      sends `model` only when the select has a value), with one line saying who picks. */
-  const other = keyOnlyProvider(pv);
+  const other = vendorPicksModel(pv);   // #3568: Gemini by subscription picks its own model too
   const model = document.getElementById('create-model');
   const acct = document.getElementById('create-account');
   /* Remember a Claude pick before the OpenAI (or Gemini/Grok) branch overwrites #create-model. */
@@ -39372,7 +39832,12 @@ function applyCreateProviderUI() {
     model.value = '';
     const modelRow = document.getElementById('create-model-row');
     if (modelRow) modelRow.hidden = true;
-    if (why) { why.textContent = switchKeyedWord(pv) + ' picks its own model.'; why.hidden = false; }
+    if (why) {
+      why.textContent = switchKeyedWord(pv) + ' picks its own model.'
+        + (pv === 'antigravity' && !FR_AGY_READY
+          ? ' If Antigravity is not signed in yet, sign in first: in Settings, choose Show the guided setup, then Connect on Gemini.' : '');
+      why.hidden = false;
+    }
   } else if (openai) {
     /* #2140: OpenAI now HAS a model picker, per account. paintOpenaiCreateModel
        manages the model row + select + note across its loading/listable/not-listable
@@ -39491,7 +39956,9 @@ async function changeModelNow(say) {
        failure keep the engine's exact words, because those are different facts. Provider
        is unchanged by a model switch, so it names the agent's current one. */
     const restarted = out.outcome === 'changed';
-    const provName = (providerOf(CURRENT) === 'openai') ? 'OpenAI' : 'Claude';
+    /* #3568: the middle arm names Gemini, Grok and Gemini-by-subscription, which all said "Claude";
+       the short OpenAI | Claude pair either side is what #2612's pin compares. */
+    const provName = (providerOf(CURRENT) === 'openai') ? 'OpenAI' : (providerOf(CURRENT) !== 'anthropic') ? switchKeyedWord(providerOf(CURRENT)) : 'Claude';
     // #2716: build the manual line ONCE and share it with the auto-hello helper (see
     // changeProviderNow), so the content check matches exactly what say() painted.
     const switchShown = agentShown();
@@ -40168,7 +40635,9 @@ function swarmPagePaint(a, { force = false } = {}) {
 function renderAvatarSwarmOnly(a) {
   const swEl = document.getElementById('d-swarm');
   if (!swEl || swEl.hidden) return;
-  const size = Math.round((swEl.parentElement && swEl.parentElement.getBoundingClientRect().width) || 88);
+  const slot = swEl.parentElement && swEl.parentElement.getBoundingClientRect().width;
+  if (slot === 0) return;   // #718: laid out at 0 (not yet shown at open, or the phone chat's header aside while typing); keep the last size
+  const size = Math.round(slot || 88);
   const html = swarmCluster(a, size);
   if (swEl.innerHTML !== html) swEl.innerHTML = html;
 }
@@ -40373,8 +40842,10 @@ function openCreate(initialMode) {
   // import link (openCreate('import')) lands on the import panel rather than being
   // reset to 'pm'. Every other caller passes nothing and gets 'pm' as before.
   loadRoles(initialMode === 'import' ? 'import' : 'pm');
-  /* #2623: the create-agent telemetry checkbox was deleted, so there is nothing
-     to refresh on open. */
+  /* #3877: the created-agent checkbox (#create-tell, restored by #3038, checked by default)
+     is deliberately NOT reset on open: it carries the person's choice for the session, and
+     the one-click found-agent add reads the same box. (This used to say the box was
+     deleted; #3038 brought it back.) */
 }
 
 /* #1652: wrapped, not bound bare. openCreate now takes an optional initialMode
@@ -40843,8 +41314,15 @@ async function addImportedInPlace(file, btn, row) {
      wrong-provider create). */
   const wanted = String(data.provider || '').toLowerCase();
   if (wanted && wanted !== 'anthropic') bodyObj.provider = wanted;
-  /* #2623: the create-agent telemetry (tellKosmos / ping.agentCreated) was deleted,
-     so this path sends nothing about it. */
+  /* #3877: the created-agent count (#3038, restored by Josh: default ON, never removed)
+     travels unless the request says notifyCreated:false. The create form sends its
+     checkbox; this one-click path used to send nothing, so it always counted with no
+     choice. It now sends the SAME box's state: #create-tell is static page markup,
+     CHECKED by default, so it is there even though this path never opens the form, and
+     it carries the person's choice if they unticked it this session. (This comment used
+     to say the telemetry was deleted and nothing was sent; both were out of date.) */
+  const tellBox = document.getElementById('create-tell');
+  bodyObj.notifyCreated = tellBox ? tellBox.checked === true : true;
   let out, res;
   try {
     res = await fetch('/api/agents', {
@@ -41335,7 +41813,7 @@ async function loadCreateExtras() {
   const pvNow = document.getElementById('create-provider').value;
   if (pvNow === 'openai') {
     paintOpenaiCreateModel();
-  } else if (keyOnlyProvider(pvNow)) {
+  } else if (vendorPicksModel(pvNow)) {   // #3568
     /* #3566: the Claude fill above does not belong under Gemini/Grok; re-apply their
        no-model shape (hidden row, empty value) through the one provider function. */
     applyCreateProviderUI();
@@ -41395,7 +41873,7 @@ async function loadCreateExtras() {
     {
       const pv = document.getElementById('create-provider');
       const cur = pv && pv.options[pv.selectedIndex];
-      if (cur && cur.disabled && keyOnlyProvider(cur.value)) {
+      if (cur && cur.disabled && vendorPicksModel(cur.value)) {
         const gone = switchKeyedWord(cur.value);
         // The same default the form opens on: OpenAI only when it is the one usable provider.
         const hasClaude = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'anthropic');
@@ -41406,7 +41884,9 @@ async function loadCreateExtras() {
         const why = document.getElementById('create-model-why');
         const back = pv.value === 'openai' ? 'OpenAI' : 'Claude';
         if (why) {
-          why.textContent = known
+          why.textContent = cur.value === 'antigravity'
+            ? 'Gemini (Google subscription) is not set up on this computer, so this is back on ' + back + '. Set it up in Settings: choose Show the guided setup, then Connect on Gemini.'
+            : known
             ? 'There is no ' + gone + ' account connected, so this is back on ' + back + '. Add one in Settings, AI Models.'
             : 'We could not check your ' + gone + ' accounts just now, so this is back on ' + back + '.';
           why.hidden = false;
@@ -41435,6 +41915,14 @@ async function loadCreateExtras() {
          operator can change any of the three, and a manual change flips the flag so this never
          overrides it. */
       const pref = readCreatePrefs();
+      /* #3568 (review round 8): a saved Gemini-by-subscription pick waits for the "installed?" read
+         (started a moment ago, unawaited, by fillCreateAccounts) before it is judged restorable. */
+      if (pref && pref.provider === 'antigravity') {
+        await agyAsk();
+        // A reopened form, or a provider the person picked while this read ran, wins (review round 9).
+        if (gen !== EXTRAS_GEN || CREATE_PROVIDER_TOUCHED) return;
+        paintAgyOption(document.getElementById('create-provider'), '');
+      }
       /* The saved provider must (a) name an ENABLED provider option and (b) have a usable
          account for it. (a) mirrors the import guard (~line 34503): a coming-soon or unknown
          provider left in localStorage (a hand-edit, or a future provider rename) has a
@@ -41445,7 +41933,9 @@ async function loadCreateExtras() {
         && Array.prototype.some.call(prov.options, (o) => o.value === pref.provider && !o.disabled);
       const prefProviderUsable = provOptOk
         && ((pref.provider === 'openai' && hasOpenai) || (pref.provider === 'anthropic' && hasClaude)
-          || (keyOnlyProvider(pref.provider) && CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === pref.provider)));
+          || (keyOnlyProvider(pref.provider) && CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === pref.provider))
+          // #3568: a saved Gemini-by-subscription pick comes back while it is offered and installed.
+          || (pref.provider === 'antigravity' && AGY_OFFERED !== false && AGY_INSTALLED === true));
       if (prefProviderUsable) {
         // Only re-run the provider UI when the provider actually changes; otherwise the account
         // and model selects filled above are already the right ones to override in place.
@@ -49325,8 +49815,9 @@ function emojiPlace() {
   const box = (btn.closest('.composerbox') || btn).getBoundingClientRect();
   const GAP = 6, EDGE = 8;
   const head = document.querySelector('.apphead');
-  const ceiling = Math.max(EDGE, head ? head.getBoundingClientRect().bottom + 4 : EDGE);
-  const floor = innerHeight - EDGE;
+  const vv = window.visualViewport;
+  const ceiling = Math.max(EDGE, head ? head.getBoundingClientRect().bottom + 4 : EDGE, vv ? vv.offsetTop + EDGE : EDGE);
+  const floor = (vv ? vv.offsetTop + vv.height : innerHeight) - EDGE;
   /* Review pass 2: its box scrolled out of sight, or a window with no room for even a row or two,
      closes the panel rather than leaving it open somewhere nobody can see or reach. */
   if (box.bottom < ceiling || box.top > floor || floor - ceiling < 56) { pjEmojiClose('agent'); return; }
@@ -49356,6 +49847,10 @@ function emojiPlace() {
   panel.style.left = Math.round(Math.max(EDGE, Math.min(box.right - 12 - w, innerWidth - EDGE - w))) + 'px';
 }
 window.addEventListener('resize', emojiPlace);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', emojiPlace);
+  window.visualViewport.addEventListener('scroll', emojiPlace);   // an iOS pan moves offsetTop without a resize
+}
 /* Any scroll that moves the box: the page's (it scrolls at mid widths, where .apphead is not
    sticky), or an ancestor's. Capture phase, because scroll events do not bubble; emojiPlace returns
    at once while the panel is closed. The panel's own grid scrolling is skipped: nothing about the
@@ -50738,6 +51233,17 @@ async function pjSend() {
 }
 
 /* --- the agent page's own composer, and the answers above it -------------- */
+/* #718: pressing Post, the emoji button (shown from 481px) or an emoji in its panel (#d-emoji,
+   delegated: its items are rebuilt) while typing keeps focus in the text box. Safari/WebKit does not focus a
+   button on click, so focus used to fall to the talk box, the phone layout's header came back
+   mid-tap and the keyboard dropped; chat apps keep the keyboard up across a send. Only when the
+   text box already has focus, so a Post press from anywhere else behaves as before. */
+for (const id of ['d-send', 'd-emoji-btn', 'd-emoji']) {
+  document.getElementById(id).addEventListener('mousedown', (e) => {
+    if (id === 'd-emoji' && !(e.target.closest && e.target.closest('button'))) return;
+    if (document.activeElement === document.getElementById('d-say')) e.preventDefault();
+  });
+}
 document.getElementById('d-send').addEventListener('click', () => {
   const say = document.getElementById('d-say');
   /* ⚠️ THE TRIMMED TEXT IS WHAT IS SENT, matching pjSend's `box.value.trim()`
@@ -57667,7 +58173,7 @@ function asbIsHosted() { return !ASB.guide && ASB.hosted && !ASB.hostedOff; }
 /* #3660 fallback (Josh 2026-09-25 07:22): the guide is there, but the AI it runs on cannot answer (out of credits or
    at a limit, a login it rejects, or unreachable), so this chat is answered by Kosmos's own model until it can. */
 function asbInFallback() { return !!(ASB.guide && ASB.fallback && !ASB.hostedOff); }
-const ASB_FALLBACK_PROVIDER = { codex: 'OpenAI', gemini: 'Gemini', grok: 'Grok', antigravity: 'Antigravity' };   // engine/accountproblem.js's names
+const ASB_FALLBACK_PROVIDER = { codex: 'OpenAI', gemini: 'Gemini', grok: 'Grok', antigravity: 'Google' };   // engine/accountproblem.js's names
 /* The one line, the card's words, then what fixes it, in #3723's words where it has them. */
 function asbFallbackWords(f) {
   const p = ASB_FALLBACK_PROVIDER[f && f.runner] || 'Claude';

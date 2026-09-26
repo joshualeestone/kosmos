@@ -84,11 +84,13 @@ const worldimport = require('./engine/worldimport'); // #1704 PR4: copy agents f
    dev machine has a real ~/.claude account he depends on for nothing.
    🛑 An unknown runner ('' / 'claude' / undefined) COUNTS as Claude-dependent,
    so a real Claude failure is never hidden; only agents we can POSITIVELY
-   confirm are codex (OpenAI) runners are excluded. No agents at all -> false:
-   a fresh install depends on nothing yet, so the banner stays down. */
+   confirm run on another program are excluded: codex (OpenAI), and since #3568 gemini, grok and
+   antigravity (Gemini on a Google subscription), which also sign in without Claude. No agents at
+   all -> false: a fresh install depends on nothing yet, so the banner stays down. */
 function someAgentNeedsClaude(agentList) {
+  // create.isNonClaudeRunner is the one list of runners that are not Claude (review round 5).
   return Array.isArray(agentList)
-    && agentList.some((a) => a && a.runner !== 'codex');
+    && agentList.some((a) => a && !require('./engine/create').isNonClaudeRunner(a.runner));
 }
 
 /**
@@ -1466,14 +1468,21 @@ function sentenceForWhoami(account, model, runner) {
      re-read catching it. ⇒ Reasoning that holds for the live reader does not
      transfer to the record reader, which is the third time on this branch. */
   const isForeign = !!(runner && runner !== 'claude');
-  const named = isForeign ? 'This is a ' + runnerDisplayName(runner) + ' agent, and ' : null;
+  /* #3568: the name the person picked ("Gemini (Google subscription)"), with the program it runs on,
+     so the whoami sentence and the menus agree (review round 3). */
+  const shown = !isForeign ? '' : runner === 'antigravity' ? 'Gemini (Google subscription)' : runnerDisplayName(runner);
+  const named = !isForeign ? null
+    : 'This is ' + (/^[AEIOU]/.test(shown) ? 'an ' : 'a ') + shown + ' agent' + (runner === 'antigravity' ? ' (it runs on Antigravity)' : '') + ', and ';
   parts.push(acct
     ? (named ? named + 'it runs on ' + acct : 'This agent runs on ' + acct)
     /* 📌 NO REASON GIVEN ON THE FOREIGN ARM, deliberately. The shared `why` blames
        a missing startup file, and this arm is reachable WITH one present (a job
        exists, carries no account dir, and no row of the right provider matched),
        so borrowing that reason would state a cause that is sometimes false. */
-    : (named ? named + 'we cannot tell which account it runs on' : why));
+    : (named ? named + (runner === 'antigravity'
+      // #3568 (review round 9): no Kosmos account by design, so not a fault to report.
+      ? 'it signs in with your Google account inside Antigravity'
+      : 'we cannot tell which account it runs on') : why));
   parts.push(model && model.name ? 'and its model is ' + model.name : 'and we cannot tell which model it is running');
   return parts.join(', ') + '.';
 }
@@ -7680,6 +7689,40 @@ const server = http.createServer((req, res) => {
     // HEAD like the sibling read routes: cheap route-is-there probe.
     if (req.method === 'HEAD') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(); return; }
     sendJson(res, 200, { runners: runners.status() });
+    return;
+  }
+  /* #3568: Gemini on a Google subscription runs on Google's Antigravity CLI (agy), whose sign-in
+     Kosmos cannot read; Kosmos installs it on a press (/install below). GET says whether agy is installed (cheap, safe
+     to poll). POST .../check asks agy one tiny question to learn whether it is signed in: it costs a
+     prompt on the person's subscription, so a screen calls it only on a press, and concurrent presses
+     share one run. signedIn is true, false (not installed) or null (could not confirm). */
+  if (pathname === '/api/antigravity' && req.method === 'GET') {
+    sendJson(res, 200, require('./engine/agystatus').installedForScreen());
+    return;
+  }
+  /* #3568: open agy once in Terminal so it launches Google's sign-in in the browser (its documented
+     first-run behaviour). Only on a press; Kosmos types nothing into it. */
+  if (pathname === '/api/antigravity/open' && req.method === 'POST') {
+    req.resume();
+    require('./engine/agystatus').openForSignIn()
+      .then((r) => sendJson(res, r.ok ? 200 : 400, r.ok ? r : { ...r, error: r.because }))
+      .catch(() => sendJson(res, 500, { ok: false, error: 'we could not open Antigravity just now' }));
+    return;
+  }
+  /* #3568: install agy with Google's own installer, on a Confirm press (as Kosmos installs every
+     provider's terminal agent); a person is never told to open a Terminal (#996). */
+  if (pathname === '/api/antigravity/install' && req.method === 'POST') {
+    req.resume();
+    require('./engine/agystatus').install()
+      .then((r) => sendJson(res, r.ok ? 200 : 400, r.ok ? r : { ...r, error: r.because }))
+      .catch(() => sendJson(res, 500, { ok: false, error: 'we could not install Antigravity just now' }));
+    return;
+  }
+  if (pathname === '/api/antigravity/check' && req.method === 'POST') {
+    req.resume();
+    require('./engine/agystatus').check()
+      .then((r) => sendJson(res, 200, r))
+      .catch(() => sendJson(res, 200, { installed: null, signedIn: null, because: 'we could not check Antigravity just now' }));
     return;
   }
   /**

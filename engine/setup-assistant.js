@@ -324,6 +324,11 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
   for (const candidate of [GUIDE_NAME, GUIDE_FALLBACK_NAME]) {
     name = candidate;
     try {
+      /* #3894: this path sends no created-agent beacon, on purpose. The guide IS counted:
+         createAgent writes its birth to created.jsonl, and the beacon (#3038) sends
+         createdCount(), the total from that log, the next time the person creates an agent
+         with the box on (POST /api/agents). What it does not do is ping NOW, because the
+         person made no choice here; the create form's box is where that choice lives. */
       out = createAgent({
         name,
         role: SETUP_ROLE_KEY,

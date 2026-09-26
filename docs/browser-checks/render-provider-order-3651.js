@@ -45,6 +45,8 @@ function ok(name, cond, detail) {
 
   const r = await page.evaluate(() => {
     const FOUR = ['anthropic', 'openai', 'google', 'xai'];
+    // #3568: a menu that offers Gemini on a Google subscription lists it beside Gemini.
+    const FIVE = ['anthropic', 'openai', 'google', 'antigravity', 'xai'];
     const canon = (v) => (PROVIDER_ORDER_ALIAS[v] || v);
     const out = { order: PROVIDER_ORDER.slice(), selects: {} };
     for (const id of ['d-provider', 'acct-provider-pick', 'create-provider']) {
@@ -56,11 +58,13 @@ function ok(name, cond, detail) {
       out.selects[id] = {
         values, shown,
         firstFour: values ? values.slice(0, 4) : null,
+        want: values && values.includes('antigravity') ? FIVE : FOUR,
+        firstWant: values ? values.slice(0, (values.includes('antigravity') ? FIVE : FOUR).length) : null,
         sorted: ranks.every((x, i) => i === 0 || ranks[i - 1] <= x),
         widgetMatches: !!(values && shown && values.join() === shown.join()),
       };
     }
-    out.FOUR = FOUR;
+    out.FOUR = FOUR; out.FIVE = FIVE;
     // First-run provider rows, in document order, keeping only the four that work.
     const fr = [...document.querySelectorAll('#firstrun .llm [data-pmark]')].map((e) => e.getAttribute('data-pmark'));
     out.firstrun = fr.filter((k) => ['claude', 'openai', 'gemini', 'xai'].includes(k));
@@ -83,10 +87,11 @@ function ok(name, cond, detail) {
     return out;
   });
 
-  ok('PROVIDER_ORDER starts Claude, OpenAI, Gemini, Grok',
-    JSON.stringify(r.order.slice(0, 4)) === JSON.stringify(r.FOUR), JSON.stringify(r.order));
+  ok('PROVIDER_ORDER starts Claude, OpenAI, Gemini, Gemini by subscription, Grok',
+    JSON.stringify(r.order.slice(0, 5)) === JSON.stringify(r.FIVE), JSON.stringify(r.order));
   for (const [id, s] of Object.entries(r.selects)) {
-    ok('#' + id + ' lists Claude, OpenAI, Gemini, Grok first', JSON.stringify(s.firstFour) === JSON.stringify(r.FOUR), JSON.stringify(s.values));
+    ok('#' + id + ' lists Claude, OpenAI, Gemini' + (s.want.length === 5 ? ', Gemini by subscription' : '') + ', Grok first',
+      JSON.stringify(s.firstWant) === JSON.stringify(s.want), JSON.stringify(s.values));
     ok('#' + id + ' is in PROVIDER_ORDER throughout', s.sorted, JSON.stringify(s.values));
     ok('#' + id + ' logo combobox shows the same order as its select', s.widgetMatches, JSON.stringify({ values: s.values, shown: s.shown }));
   }

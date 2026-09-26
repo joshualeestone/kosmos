@@ -60,7 +60,7 @@ LOG="${5:-}"
 MODEL="${6:-}"
 # The RUNNER this agent runs on, optional and NEW as of #245 (2026-08-24).
 # 'claude' (the default every existing plist means by omission), 'codex', 'gemini', 'grok',
-# or 'antigravity' (#3568, behind AGENT_WORKFORCE_ANTIGRAVITY=1).
+# or 'antigravity' (#3568, on by default; AGENT_WORKFORCE_ANTIGRAVITY=0 turns off setting one up).
 # Per the vector contract above: optional, defaulted, position seven, and
 # every earlier argument keeps its position and meaning. $3 stays "the path
 # to the runner binary" -- for a codex agent, create.js writes the codex
@@ -747,8 +747,7 @@ if [ -z "$adopt" ]; then
       -e "GROK_CLAUDE_HOOKS_ENABLED=0" \
       ${_GROK_PREFIX[@]+"${_GROK_PREFIX[@]}"} "$CLAUDE" --permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL" || exit 1
   elif [ "$RUNNER" = antigravity ]; then
-    # #3568: the Antigravity runner (Google's agy). Only a board started with
-    # AGENT_WORKFORCE_ANTIGRAVITY=1 sets one up, but a job set up while it was on keeps
+    # #3568: the Antigravity runner (Google's agy). The board sets one up unless AGENT_WORKFORCE_ANTIGRAVITY=0, and a job set up while it was on keeps
     # launching here after it is turned off, including the trust write below. Launched with its documented flags only (agy 1.2.10 --help):
     #   --dangerously-skip-permissions : auto-approve tool requests (the claude/gemini/grok analog)
     #   --model                        : only when a model was recorded; empty lets agy pick.

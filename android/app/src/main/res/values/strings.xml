@@ -15,5 +15,6 @@
     <string name="appName">Kosmos</string>
     <string name="launchUrl">https://login.kosmosplus.com/</string>
     <string name="hostName">login.kosmosplus.com</string>
+    <string name="providerAuthority">io.kosmos.app.fileprovider</string>
     <string name="assetStatements">[{ \"relation\": [\"delegate_permission/common.handle_all_urls\"], \"target\": { \"namespace\": \"web\", \"site\": \"https://login.kosmosplus.com\" } }]</string>
 </resources>

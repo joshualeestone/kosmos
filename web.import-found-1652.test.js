@@ -119,3 +119,18 @@ test('#2419: the found list is wired to the import panel and its one Add handler
   // The container exists in the panel markup.
   assert.match(PAGE, /<div class="import-found" id="import-found" hidden><\/div>/, 'the found-import container is missing from the import panel');
 });
+
+test('#3877: the one-click found-agent add sends the create form\'s default-on notifyCreated choice', () => {
+  const start = SCRIPT.indexOf('async function addImportedInPlace');
+  assert.ok(start >= 0, 'addImportedInPlace not found');
+  // Sliced to the line after the change (not to the create fetch, whose quoted route would
+  // make fixture-discipline read this source-only test as one that creates agents).
+  const end = SCRIPT.indexOf('let out, res;', start);
+  assert.ok(end > start, 'the end marker moved; re-anchor this slice');
+  const addSrc = SCRIPT.slice(start, end);
+  assert.match(addSrc, /getElementById\('create-tell'\)/, 'the found path must read the create form\'s checkbox');
+  assert.match(addSrc, /bodyObj\.notifyCreated\s*=/, 'the found path must send notifyCreated');
+  assert.match(addSrc, /:\s*true;/, 'with no box on the page it must default to ON (Josh: the ping stays, default on)');
+  assert.doesNotMatch(addSrc, /this path sends nothing/, 'the stale comment is gone');
+});
+

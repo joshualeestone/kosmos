@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The transparent source canvas keeps the complete K inside Android's
+     66dp adaptive-icon safe zone, so every launcher mask preserves the mark. -->
+<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
+    android:src="@drawable/ic_launcher_k"
+    android:gravity="fill"
+    android:filter="true" />
