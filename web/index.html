@@ -43735,14 +43735,14 @@ function pjToldLine(told) {
 const PJ_NOTICE = [
   [/^we could not write to its instructions$/, 'wait', (n) => n ? 'We could not write to ' + n + '\u2019s instructions.' : 'We could not write to its instructions.'],
   [/^we could not check which agents are running$/, 'wait', () => 'We could not check which agents are running.'],
-  [/^it has no instructions file yet, and we will not create one$/, 'act', (n) => (n ? n + ' has' : 'It has') + ' no instructions file, and Kosmos will not create one.',
-    (name) => 'Give ' + name + ' some instructions and Kosmos will pick it up the next time you give ' + name + ' a task here or change who is on this project.'],
+  [/^it has no instructions file yet, and we will not create one$|^it has no instruction file yet$/, 'act', (n) => (n ? n + ' has' : 'It has') + ' no instructions file, and Kosmos will not create one.',
+    (name) => 'Give ' + name + ' some instructions and Kosmos will pick it up the next time you give ' + name + ' a task here, or change who is on this project or its name.'],
   [/^its instructions contain \d+ Kosmos project blocks/, 'act', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions hold more than one Kosmos project section, so Kosmos cannot tell which is its own.',
-    (name) => 'Leave one Kosmos project section in ' + name + '\u2019s instructions and Kosmos will pick it up the next time you give ' + name + ' a task here or change who is on this project.'],
+    (name) => 'Leave one Kosmos project section in ' + name + '\u2019s instructions and Kosmos will pick it up the next time you give ' + name + ' a task here, or change who is on this project or its name.'],
   [/^taking this out would leave its instructions almost empty$/, 'act', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are too short for Kosmos to change safely.',
-    (name) => 'Add to ' + name + '\u2019s instructions and Kosmos will pick it up the next time you give ' + name + ' a task here or change who is on this project.'],
+    (name) => 'Add to ' + name + '\u2019s instructions and Kosmos will pick it up the next time you give ' + name + ' a task here, or change who is on this project or its name.'],
   [/^its instructions are already at the size limit$/, 'act', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are already at the size limit.',
-    (name) => 'Shorten ' + name + '\u2019s instructions and Kosmos will pick it up the next time you give ' + name + ' a task here or change who is on this project.'],
+    (name) => 'Shorten ' + name + '\u2019s instructions and Kosmos will pick it up the next time you give ' + name + ' a task here, or change who is on this project or its name.'],
   [/^we could not find an agent with exactly this name on this computer$/, 'retry', (n) => 'Kosmos cannot match ' + (n || 'it') + ' to a session on this computer.',
     (name) => 'Start ' + name + ', then try again.'],
   [/^something is running under this name, but we cannot tell that it is this agent$/, 'retry', (n) => 'Something is running under ' + (n ? n + '\u2019s' : 'its') + ' name, but Kosmos cannot tell that it is ' + (n || 'the same agent') + '.',
@@ -43757,8 +43757,10 @@ const PJ_NOTICE = [
     (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are in a file Kosmos cannot safely change, so Kosmos has nowhere to write.'],
 ];
 /* A Try again that came back with the same answer: its row says so on every paint until the
-   answer changes or the row goes. Keyed by session name. */
+   answer changes or the row goes. Keyed by project and session name (pjNoticeKey), so browsing
+   another project where the same agent is fine does not forget it here. */
 const PJ_NOTICE_TRIED = new Map();
+const pjNoticeKey = (projectId, sessionName) => String(projectId) + '\n' + String(sessionName);
 const PJ_NOTICE_COUNT = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
 
 /** One agent's row, or null when nothing is wrong (success and not_tried say nothing). */
@@ -43776,17 +43778,18 @@ function pjNoticeRow(m, solo) {
   return { shape, why: why(solo ? name : null, name), fix: fix ? fix(name) : '', name, key: m.sessionName, because };
 }
 /* The row's sentence after a Try again that did not change the answer. */
-function pjNoticeStill(r) {
-  return PJ_NOTICE_TRIED.get(r.key) === r.because ? ' It still did not work.' : '';
+function pjNoticeStill(r, projectId) {
+  return PJ_NOTICE_TRIED.get(pjNoticeKey(projectId, r.key)) === r.because ? ' It still did not work.' : '';
 }
 
 /** The whole notice: '' when every agent has the folder. */
-function pjNotice(roster) {
+function pjNotice(roster, projectId) {
   const failing = (roster || []).filter((m) => m && m.told && m.told.state === 'could_not');
   // A retry mark lasts only while its agent is still failing, so a row that later comes back
   // does not open with "It still did not work".
+  const mine = pjNoticeKey(projectId, '');
   for (const k of [...PJ_NOTICE_TRIED.keys()]) {
-    if (!failing.some((m) => m.sessionName === k)) PJ_NOTICE_TRIED.delete(k);
+    if (k.startsWith(mine) && !failing.some((m) => pjNoticeKey(projectId, m.sessionName) === k)) PJ_NOTICE_TRIED.delete(k);
   }
   if (!failing.length) return '';
   const solo = failing.length === 1;
@@ -43796,7 +43799,7 @@ function pjNotice(roster) {
     : (PJ_NOTICE_COUNT[rows.length] || String(rows.length)) + ' agents do not have this project\u2019s folder.';
   const body = rows.map((r) => '<div class="pnrow">'
     + (solo ? '' : '<span class="pnwho">' + esc(r.name) + '</span>')
-    + '<span class="pnwhy">' + esc(r.why + pjNoticeStill(r)) + (r.fix ? ' <b class="pnfix">' + esc(r.fix) + '</b>' : '') + '</span>'
+    + '<span class="pnwhy">' + esc(r.why + pjNoticeStill(r, projectId)) + (r.fix ? ' <b class="pnfix">' + esc(r.fix) + '</b>' : '') + '</span>'
     + (r.shape === 'wait' || r.shape === 'retry'
       ? '<button class="qopt" type="button" data-pn-retry="' + esc(r.key) + '" aria-label="' + esc('Try again for ' + r.name) + '">Try again</button>' : '')
     + '</div>').join('');
@@ -47415,7 +47418,7 @@ function paintOneProject() {
   paintRoomBusy(roster.map((a) => (a && a.sessionName) || a), p.id);
   /* #3923: an agent that could not be given the folder is said once, in the project notice
      above the list (Mona's design), not on its row: every member row passes suppressTold. */
-  const notice = pjNotice(roster);
+  const notice = pjNotice(roster, p.id);
   const noticeBox = document.getElementById('pj-one-notice');
   setIfChanged(noticeBox, notice);
   noticeBox.hidden = !notice;
@@ -53293,7 +53296,7 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
     reached = !!(res && res.ok);
   } catch { /* the repaint below shows where it stands */ }
   // "It still did not work" only about a retry that reached the board and was answered.
-  if (reached) PJ_NOTICE_TRIED.set(key, before);
+  if (reached) PJ_NOTICE_TRIED.set(pjNoticeKey(project, key), before);
   box.__lastLive = null;   // repaint even when the answer is word for word the same
   await loadProjects();
   btn.disabled = false;
@@ -53301,7 +53304,8 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
   // A newer poll can overtake this read and paint later; paint now so focus lands on this paint.
   box.__lastLive = null;
   paintOneProject();
-  const again = box.querySelector('[data-pn-retry="' + (window.CSS && CSS.escape ? CSS.escape(key) : key) + '"]');
+  // Compared as data, not built into a selector, so no session name can break the lookup.
+  const again = Array.from(box.querySelectorAll('[data-pn-retry]')).find((b) => b.dataset.pnRetry === key) || null;
   const heading = document.querySelector('.pjcard-members > .dlab');
   if (again) again.focus();
   else if (heading) { if (!heading.hasAttribute('tabindex')) heading.setAttribute('tabindex', '-1'); heading.focus(); }

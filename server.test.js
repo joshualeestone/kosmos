@@ -7642,7 +7642,7 @@ test('the project notice is wired into paintOneProject, not just extractable', (
   // level (the notice is built, written to its box, and the box shown only when non-empty),
   // with a control that the box and its CSS still exist.
   const src = pageFnSource('paintOneProject');
-  assert.ok(/const notice = pjNotice\(roster\);/.test(src), 'paintOneProject no longer builds the notice');
+  assert.ok(/const notice = pjNotice\(roster, p\.id\);/.test(src), 'paintOneProject no longer builds the notice for this project');
   assert.ok(/setIfChanged\(noticeBox, notice\);\s*\n\s*noticeBox\.hidden = !notice;/.test(src), 'the notice is not written and shown');
   assert.ok(src.includes("getElementById('pj-one-notice')"), 'paintOneProject paints a different box');
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');

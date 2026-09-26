@@ -15280,7 +15280,7 @@ const server = http.createServer((req, res) => {
       moved = req.method === 'POST' ? !on : on;
     } catch { moved = false; }
     /* #3923: `?retell=1` is the project notice's Try again: re-tell a CURRENT member, never
-       re-add one. A notice painted before the agent left must not put it back on the project
+       re-add one. For a POST, `moved` above is exactly "not a member now".  A notice painted before the agent left must not put it back on the project
        (and type "Kosmos put you on the project" into its window). */
     if (req.method === 'POST' && moved && new URL(req.url, ROUTING_BASE).searchParams.get('retell') === '1') {
       // A missing project answers 404 like every sibling path; a member that left, 409.
