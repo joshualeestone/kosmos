@@ -662,5 +662,5 @@ test('#3878: Windows feedback pull prints the shared summary through the engine 
   const code = await cli.main(['feedback', 'pull'], { env: {}, hook: hookStub, engine, out: (s) => out.push(s), err: (s) => err.push(s),
     fetch: async () => { throw new Error('feedback reached the network'); } });
   assert.equal(code, 0, err.join('\n'));
-  assert.deepEqual(out.slice(0, 2), ['pulled 1 report(s) (2 skipped) to C:/fb', '2 report(s) could not be read (last error: blob GET HTTP 403)']);
+  assert.deepEqual(out.slice(0, 2), ['pulled 1 report(s) (2 skipped) to C:/fb', '2 reports could not be read (last error: blob GET HTTP 403)']);
 });

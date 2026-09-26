@@ -306,7 +306,7 @@ const PUBLIC_STORE_NOTE = 'These reports were listed from a PUBLIC blob store. T
   + 'private-store migration (kosmos#3878) has run; after it, refile ' + FEEDBACK_TOKEN_TARGET
   + ' with the private feedback store\'s token.';
 
-/* A count with its noun, so a message never says "1 report(s)". */
+/* A count with its noun: "1 report", "2 reports". */
 function reports(n) { return n + (n === 1 ? ' report' : ' reports'); }
 
 /**
@@ -324,7 +324,7 @@ function summaryLines(r) {
       + ' holds the private feedback store\'s token (kosmos#3878).');
   }
   if (r.unreadable) {
-    out.push(r.unreadable + ' report(s) could not be read'
+    out.push(reports(r.unreadable) + ' could not be read'
       + (r.denied ? ', ' + r.denied + ' of them refused although the token was sent' : '')
       + ' (last error: ' + r.lastGetError + ')');
   }

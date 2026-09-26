@@ -337,7 +337,7 @@ test('#3878: a partial pull says how many reports could not be read; the wrong-s
 test('#3878: one summary for every CLI, including the could-not-be-read line', () => {
   assert.deepEqual(fp.summaryLines({ written: 3, skipped: 0, dir: '/d' }), ['pulled 3 report(s) to /d']);
   assert.deepEqual(fp.summaryLines({ written: 1, skipped: 2, unreadable: 2, lastGetError: 'blob GET HTTP 403', dir: '/d' }),
-    ['pulled 1 report(s) (2 skipped) to /d', '2 report(s) could not be read (last error: blob GET HTTP 403)']);
+    ['pulled 1 report(s) (2 skipped) to /d', '2 reports could not be read (last error: blob GET HTTP 403)']);
   // The Mac and Windows commands print THIS, not their own copy of the sentence.
   const repo = path.join(__dirname, '..');
   const mac = fs.readFileSync(path.join(repo, 'install', 'kosmos'), 'utf8');
@@ -398,7 +398,7 @@ test('#3878: a refusal after the token was withheld names the host, not the toke
 
 test('#3878: a partial pull keeps its refusal count in the summary', () => {
   assert.deepEqual(fp.summaryLines({ written: 1, skipped: 3, unreadable: 3, denied: 2, lastGetError: 'blob GET HTTP 404', dir: '/d' }),
-    ['pulled 1 report(s) (3 skipped) to /d', '3 report(s) could not be read, 2 of them refused although the token was sent (last error: blob GET HTTP 404)']);
+    ['pulled 1 report(s) (3 skipped) to /d', '3 reports could not be read, 2 of them refused although the token was sent (last error: blob GET HTTP 404)']);
 });
 
 test('#3878: reports listed from a PUBLIC blob store say the token is the old store\'s (the real wrong-store case)', async () => {
