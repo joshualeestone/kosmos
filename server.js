@@ -14889,8 +14889,8 @@ const server = http.createServer((req, res) => {
           // a process at the part routes' 12/hour cap must not ALSO get a
           // separate 12/hour allowance here -- one shared count of "how many
           // times a process paged a live pane this hour", not two 12/hour
-          // caps that combine to 24. Task CREATION keeps its own, stronger,
-          // persisted refusal above (429s the whole request); this only
+          // caps that combine to 24. Task CREATION has its own persisted
+          // refusal above (the runaway breaker, which 429s the whole request); this only
           // gates whether the creation also gets to page a pane.
           let heard;
           if (viaScreen || heardBudgetAllows()) {
