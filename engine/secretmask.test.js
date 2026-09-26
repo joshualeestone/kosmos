@@ -618,3 +618,33 @@ test('#3935 deciding which starts to keep is not quadratic: many repeated openin
     assert.ok(!r.text.includes('c3d4e5f6'), 'the held value was not masked');
   } finally { setKnownSecrets([]); }
 });
+
+test('#3935 glue at the end of a piece: a trailing -, a label after =, pieces wrapped in + (review round 9)', () => {
+  const held = 'sk-ant-api03-Xy7Qp2Lm9Vb4Rt8Kz1Wn6Hd3Js0Fg5Ya2Ub7Xe9Ko';
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{1,8}/g);
+    const cases = [
+      ['trailing -', `${chunks.map((c, i) => `step${i}: ${c}-`).join(' ')} end`],
+      ['label after =', `${chunks.map((c, i) => `${c}=part${i}`).join(' ')} end`],
+      ['wrapped in +', `${chunks.map((c) => `+${c}+`).join(' word ')} end`],
+    ];
+    for (const [name, input] of cases) {
+      const out = mask(input).text;
+      for (const c of chunks.slice(1)) assert.ok(!out.includes(c), `${name}: the piece ${c} survived: ${out}`);
+      assert.ok(out.endsWith(' end'), `${name}: ${out}`);
+    }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a bare mention of the key\'s prefix before the key is not taken for a first try: the explanation stays (review round 9)', () => {
+  const held = 'sk-ant-api03-Xy7Qp2Lm9Vb4Rt8Kz1Wn6Hd3Js0Fg5Ya2Ub7Xe9Ko';
+  setKnownSecrets([held]);
+  try {
+    const rest = held.slice(13).match(/.{1,8}/g);
+    const out = mask(`Every Anthropic key begins sk-ant-api03- like this. Here is yours, split: sk-ant-api03- ${rest.join(' | ')} done`).text;
+    /* The last chunk is one letter, which ordinary words contain: check the pieces a reader could use. */
+    for (const c of rest.filter((x) => x.length >= 4)) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+    assert.ok(out.includes(' like this. Here is yours, split: '), `the explanation was masked: ${out}`);
+  } finally { setKnownSecrets([]); }
+});

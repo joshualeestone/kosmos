@@ -193,14 +193,14 @@ function normalisedCopy(text) {
  * swallowing a reply. Returns [from, to) spans in the text, first piece to last.
  *
  * Not covered: pieces out of order or reversed; an opening piece shorter than four characters; a held value
- * made only of words and numbers (see madeOfWords); glue other than _ , a trailing / and a label joined
- * with = (a piece wrapped in + or -, say); a held form over WORD_WALK_MAX_FORM characters; and a key split
+ * made only of words and numbers (see madeOfWords); glue other than _ + - or / at either end and a label joined
+ * with = on either side (glue in the middle of a run, say); a held form over WORD_WALK_MAX_FORM characters; and a key split
  * across two replies (the mask is per message).
  */
 /* The most checks one reply may cost the walk. A reply that needs more is not searched to the end:
    wordSkippingSpans returns null and mask() withholds the whole message, because a search cut short is one
    that may have missed a key, and this file errs toward masking. What reaches it (review round 5): one held
-   value near WORD_WALK_MAX_FORM whose opening the reply repeats about 140 times (each mention looks ahead
+   value near WORD_WALK_MAX_FORM whose opening the reply repeats a few hundred times (each mention looks ahead
    over about 4x the value), or thousands of held values sharing an opening that the reply repeats. Measured
    well inside it: a 50,000-character reply with five held Anthropic keys and 400 sk-ant-api03- mentions. */
 const WORD_WALK_BUDGET = 250000;
@@ -212,13 +212,19 @@ const chunksOf = (len) => Math.max(1, Math.ceil(len / 16));
    with = (part2=Ab3d), markdown italics (_Ab3d_), a slash before or after. Each run is tried as written and with
    those taken off. */
 function pieceVariants(run) {
-  const out = [run];
-  const trimmed = run.replace(/^[_/]+/, '').replace(/[_/]+$/, '');
-  if (trimmed && trimmed !== run) out.push(trimmed);
-  const eq = trimmed.lastIndexOf('=', trimmed.length - 2);
-  /* An = inside the run, not base64 padding at its end: the piece is what follows the LAST one. */
-  if (eq > 0 && !/=$/.test(trimmed)) out.push(trimmed.slice(eq + 1));
-  return out;
+  const out = new Set([run]);
+  const trimmed = run.replace(/^[-+_/]+/, '').replace(/[-+_/]+$/, '');
+  if (trimmed) out.add(trimmed);
+  /* An = inside the run, not base64 padding at its end, joins a label to the piece on one side or the other:
+     part2=Ab3d (the piece follows the LAST =) or Ab3d=part2 (the piece comes before the FIRST). */
+  if (!/=$/.test(trimmed)) {
+    const last = trimmed.lastIndexOf('=');
+    if (last > 0) out.add(trimmed.slice(last + 1));
+    const first = trimmed.indexOf('=');
+    if (first > 0) out.add(trimmed.slice(0, first));
+  }
+  out.delete('');
+  return [...out];
 }
 function wordSkippingSpans(text) {
   if (!knownByOpening.size) return [];
@@ -265,11 +271,10 @@ function wordSkippingSpans(text) {
     return g;
   };
   for (let r = 0; r < runs.length; r += 1) {
-    const [runFrom, , raw] = runs[r];
-    /* The opening may carry italics or a slash after it (_Ab3d_), or end in a _ or / of the key's own
-       (review round 3): it is looked for both as written and with those taken off. */
-    const stripped = raw.replace(/[_/]+$/, '');
-    for (const head of stripped === raw ? [raw] : [raw, stripped]) for (let q = 0; q + OPENING_LEN <= head.length; q += 1) {
+    const [runFrom] = runs[r];
+    /* The opening is looked for in the run as written and in each variant a piece is tried as (glue taken off),
+       so a key's own last _ or / is kept in one and italics or a label are gone in another. */
+    for (const head of runs[r][3]) for (let q = 0; q + OPENING_LEN <= head.length; q += 1) {
       const cands = knownByOpening.get(head.slice(q, q + OPENING_LEN));
       if (!cands) continue;
       const opening = head.slice(q);
@@ -297,6 +302,7 @@ function wordSkippingSpans(text) {
       for (const f of live) {
         const bound = 4 * f.length;
         let reached = new Set([opening.length]);
+        let movedAt = -1;   // where this walk first matched a piece after its opening
         for (let s = r + 1; s < runs.length; s += 1) {
           const [, sTo, , pieces, piecesCost] = runs[s];
           if (nonSpaceBefore[sTo] - nonSpaceBefore[from] > bound) break;
@@ -310,13 +316,14 @@ function wordSkippingSpans(text) {
               if (!f.startsWith(piece, p)) continue;
               if (p + piece.length === f.length) { done = true; break; }
               next.add(p + piece.length);
+              if (movedAt < 0) movedAt = runs[s][0];
             }
             if (done) break;
           }
           if (done) {
             const k = `${sTo} ${f}`;
             if (!completed.has(k)) completed.set(k, { f, to: sTo, starts: [] });
-            completed.get(k).starts.push(from);
+            completed.get(k).starts.push({ from, movedAt: movedAt < 0 ? runs[s][0] : movedAt });
             break;
           }
           reached = next;
@@ -335,7 +342,7 @@ function wordSkippingSpans(text) {
      end, keeping the latest start seen for the two most recent DIFFERENT forms, answer each "did another form
      complete between this start and the latest one" in constant time. */
   const all = [...completed.values()];
-  for (const c of all) c.latest = c.starts.reduce((m, st) => (st > m ? st : m), -1);
+  for (const c of all) c.latest = c.starts.reduce((m, st) => (st.from > m ? st.from : m), -1);
   const byEnd = [...all].sort((a, b) => a.to - b.to);
   const withRivals = all.filter((c) => c.starts.length > 1).sort((a, b) => a.latest - b.latest);
   let best = { at: -1, f: null }, second = { at: -1, f: null }, i = 0;
@@ -348,7 +355,10 @@ function wordSkippingSpans(text) {
       else if (o.latest > second.at) second = { at: o.latest, f: o.f };
     }
     const sibling = c.f !== best.f ? best.at : second.at;
-    for (const from of c.starts) if (from !== c.latest && sibling < from) spans.push([from, c.to]);
+    /* An earlier start is an abandoned try only if it got somewhere: its walk matched a piece before the latest
+       start. A bare mention of the opening ("every key begins sk-ant-api03-") matched nothing there, and keeping
+       it would mask the explanation between the mention and the key. */
+    for (const { from, movedAt } of c.starts) if (from !== c.latest && sibling < from && movedAt < c.latest) spans.push([from, c.to]);
   }
   return spans;
 }
