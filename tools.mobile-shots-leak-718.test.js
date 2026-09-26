@@ -28,6 +28,24 @@ test('#718 leak guard: OpenAI / Anthropic, Gemini and Grok keys are each caught'
   assert.equal(hitsIn('key xai-ABCDEFGHIJKLMNOPQRSTUV').length, 1);
 });
 
+test('#718 leak guard: GitHub tokens are caught (each kind), and near misses are not', () => {
+  const tail36 = 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8';
+  for (const prefix of ['ghp_', 'gho_', 'ghu_', 'ghs_', 'ghr_']) {
+    assert.equal(hitsIn('token ' + prefix + tail36).length, 1, prefix);
+  }
+  assert.equal(hitsIn('token github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz').length, 1, 'github_pat_');
+  // Near misses: too short, no underscore, the bare words.
+  assert.deepEqual(hitsIn('ghp_short gh_' + tail36 + ' ghx_' + tail36 + ' github_pat_ github_pat_abc'), []);
+});
+
+test('#718 leak guard: Stripe secret and restricted keys are caught (each kind), and near misses are not', () => {
+  for (const prefix of ['sk_live_', 'sk_test_', 'rk_live_', 'rk_test_']) {
+    assert.equal(hitsIn('key ' + prefix + '51HxAbCdEfGhIjKlMn').length, 1, prefix);
+  }
+  // Near misses: the publishable key (pk_, not a secret), a too-short tail, the bare prefix.
+  assert.deepEqual(hitsIn('pk_live_51HxAbCdEfGhIjKlMn sk_live_short sk_live_ rk_prod_51HxAbCdEfGhIjKlMn'), []);
+});
+
 test('#718 leak guard: this Mac\'s home path is caught in any case', () => {
   const home = os.homedir();
   // The home check itself, not the user-name check that also matches a path containing the login.
