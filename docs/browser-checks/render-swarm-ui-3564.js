@@ -276,6 +276,18 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     chk(!!s33 && s33.v === '3%' && s33.aria === '3% of your weekly allowance'
       && s33.sub === 'Choose how much of your weekly allowance this swarm can use in one day.',
     'S33 calibrated: the limit is a % of the weekly allowance, 3% by default, with Josh\'s words (#3946)', JSON.stringify(s33));
+    // S33b (#3946 review): the account list changes under the slider without a repaint (it can be refilled with no
+    // change event). Create sends nothing, shows the slider in the unit it now has, and says why; S33 below is the
+    // control, the same button with the unit in step.
+    const s33saved = await page.evaluate(() => { const k = CREATE_ACCOUNTS.map((x) => x.weeklyTokensPerPoint); CREATE_ACCOUNTS.forEach((x) => { x.weeklyTokensPerPoint = null; }); return k; });
+    createBody = null;
+    await page.evaluate(() => document.getElementById('create-go').click());
+    await page.waitForTimeout(800);
+    const s33b = await page.evaluate(() => ({ mode: document.getElementById('create-swarm-cap').dataset.mode, msg: document.getElementById('create-msg').textContent }));
+    chk(!createBody && s33b.mode === 'tok' && /changed with the account/.test(s33b.msg),
+      'S33b the unit changed under the slider: nothing is sent, the slider shows tokens, and the page says why (#3946)', JSON.stringify({ s33b, createBody }));
+    await page.evaluate((k) => { CREATE_ACCOUNTS.forEach((x, i) => { x.weeklyTokensPerPoint = k[i]; }); swarmCreatePaint(); }, s33saved);
+    await waitFor(page, () => document.getElementById('create-swarm-cap').dataset.mode === 'pct', null, 8000);
     await page.fill('#create-swarm-cap', '5');
     await page.dispatchEvent('#create-swarm-cap', 'input');
     createBody = null;

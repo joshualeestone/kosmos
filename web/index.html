@@ -43195,6 +43195,14 @@ document.getElementById('create-go').addEventListener('click', async () => {
     pjFieldBad('create-label', 'create-label-err', 'Say what this agent does. One or two words.');
     return;
   }
+  /* #3946: a swarm's daily limit slider is read in the unit it is showing. If the chosen account changed under
+     it (its list can be refilled without a change event), repaint and let the person see the new unit first,
+     rather than send a percent as millions of tokens or the other way round. */
+  if (createKind() === 'swarm' && document.getElementById('create-swarm-cap').dataset.mode !== (swarmCreateTokensPerPoint() ? 'pct' : 'tok')) {
+    swarmCreatePaint();
+    msg.textContent = 'The daily usage limit changed with the account. Check it, then create the swarm.';
+    return;
+  }
 
   CREATING = true;
   document.getElementById('create-go').disabled = true;
