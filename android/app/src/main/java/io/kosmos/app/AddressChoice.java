@@ -7,14 +7,18 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
- * Which of the person's own addresses the app opens full screen (kosmos #2854).
+ * Which of the person's own addresses the app opens, and whether full screen (kosmos #2854).
  *
  * The sign-in page (login.kosmosplus.com) is the only thing holding the session, so it hands
- * the app three values when the person taps "Open my Kosmos": the address they chose, every
- * address on their account (/v1/account/me `addresses`), and the short-lived handoff token.
- * Anything can fire that intent, so every host is checked here with the same one-label rule as
- * the iOS app (PushBridgeLogic.isMacHost) and the board's sw.js: exactly one RFC 1123 label
- * directly under the coordinator's domain, never the coordinator's own host.
+ * the app four values when the person taps "Open my Kosmos": the address they chose, every
+ * address on their account (/v1/account/me `addresses`), the short-lived handoff token, and the
+ * nonce this app put in the page's launch URL (HandoffNonce).
+ *
+ * Anything can fire that intent: a web page in Chrome after a tap, or another installed app.
+ * So every host is checked with the same one-label rule as the iOS app
+ * (PushBridgeLogic.isMacHost) and the board's sw.js, and the address is made a TRUSTED origin
+ * (no URL bar) only when the nonce matches the one this app issued. Without it the address still
+ * opens, with Chrome's URL bar showing where it is, which is no more than a plain link can do.
  *
  * Pure Java with no Android types, so the rule runs as a plain JVM unit test.
  */
@@ -22,7 +26,10 @@ final class AddressChoice {
 
     /** The URL the TWA opens: https://name.kosmosplus.com/#kst=token. */
     final String target;
-    /** Origins handed to setAdditionalTrustedOrigins: the chosen one first, then the rest. */
+    /**
+     * Origins for setAdditionalTrustedOrigins: the chosen one first, then the rest. Empty when
+     * the intent did not carry this app's nonce, so nothing is trusted and the URL bar shows.
+     */
     final List<String> trustedOrigins;
 
     private AddressChoice(String target, List<String> trustedOrigins) {
@@ -37,14 +44,18 @@ final class AddressChoice {
     /**
      * Null means "do not open an address": the app opens the sign-in page instead. That covers
      * no choice at all (an account with no Mac), a missing or malformed token, a chosen host that
-     * fails the rule, and a chosen host that is not among the account's addresses.
+     * fails the rule, and a chosen host missing from the account's list (the page always sends
+     * the list, so an intent without one did not come from the page).
      *
      * @param coordinatorHost the verified front door, e.g. login.kosmosplus.com
      * @param chosen the address the person tapped, a bare host
-     * @param addresses every address on the account; may be empty when the page sends none
+     * @param addresses every address on the account
      * @param token the handoff token for the chosen address
+     * @param issuedNonce the nonce this app last put in the page's launch URL, or null
+     * @param givenNonce the nonce the intent carried, or null
      */
-    static AddressChoice choose(String coordinatorHost, String chosen, List<String> addresses, String token) {
+    static AddressChoice choose(String coordinatorHost, String chosen, List<String> addresses,
+                                String token, String issuedNonce, String givenNonce) {
         String pick = macHost(chosen, coordinatorHost);
         if (pick == null || token == null || !TOKEN.matcher(token).matches()) return null;
 
@@ -59,12 +70,12 @@ final class AddressChoice {
                 else if (!hosts.contains(h)) hosts.add(h);
             }
         }
-        // When the page sends the account's list, the choice must be on it: a chosen host the
-        // account does not have is somebody else's intent, not the person's tap.
-        if (addresses != null && !addresses.isEmpty() && !listed) return null;
+        if (!listed) return null;
 
         List<String> origins = new ArrayList<>();
-        for (String h : hosts) origins.add("https://" + h);
+        if (HandoffNonce.matches(issuedNonce, givenNonce)) {
+            for (String h : hosts) origins.add("https://" + h);
+        }
         return new AddressChoice("https://" + pick + "/#kst=" + token, origins);
     }
 

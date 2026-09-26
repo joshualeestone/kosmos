@@ -23,7 +23,9 @@ import com.google.androidbrowserhelper.trusted.TwaLauncher;
  * (kosmos-relay #161). Nothing per-user is built into the app.
  *
  * Exported because Chrome delivers the intent. Anything else can deliver one too, so every value
- * goes through AddressChoice; a rejected one opens the sign-in page, never the given URL.
+ * goes through AddressChoice: a rejected one opens the sign-in page, never the given URL, and
+ * an address is trusted full screen only when the intent carries the nonce KosmosLauncherActivity
+ * gave the sign-in page (HandoffNonce).
  */
 public class OpenAddressActivity extends Activity {
 
@@ -31,6 +33,7 @@ public class OpenAddressActivity extends Activity {
     static final String EXTRA_ADDRESS = "address";
     static final String EXTRA_ADDRESSES = "addresses";   // comma-separated hosts
     static final String EXTRA_TOKEN = "kst";
+    static final String EXTRA_NONCE = "nonce";
 
     private TwaLauncher launcher;
 
@@ -46,17 +49,23 @@ public class OpenAddressActivity extends Activity {
                 getString(R.string.hostName),
                 in.getStringExtra(EXTRA_ADDRESS),
                 AddressChoice.split(in.getStringExtra(EXTRA_ADDRESSES)),
-                in.getStringExtra(EXTRA_TOKEN));
+                in.getStringExtra(EXTRA_TOKEN),
+                getSharedPreferences(KosmosLauncherActivity.PREFS, MODE_PRIVATE)
+                        .getString(KosmosLauncherActivity.PREF_NONCE, null),
+                in.getStringExtra(EXTRA_NONCE));
 
         TrustedWebActivityIntentBuilder builder = new TrustedWebActivityIntentBuilder(
                 Uri.parse(choice != null ? choice.target : getString(R.string.launchUrl)));
-        if (choice != null) builder.setAdditionalTrustedOrigins(choice.trustedOrigins);
+        if (choice != null && !choice.trustedOrigins.isEmpty()) {
+            builder.setAdditionalTrustedOrigins(choice.trustedOrigins);
+        }
         // The same system-bar colours LauncherActivity reads from the manifest metadata.
         builder.setColorScheme(CustomTabsIntent.COLOR_SCHEME_SYSTEM)
                 .setDefaultColorSchemeParams(bars(R.color.status_bar_color, R.color.navigation_bar_color))
                 .setColorSchemeParams(CustomTabsIntent.COLOR_SCHEME_DARK,
                         bars(R.color.status_bar_color_dark, R.color.navigation_bar_color_dark));
 
+        // With no browser that supports a TWA, TwaLauncher opens a Custom Tab, URL bar and all.
         launcher = new TwaLauncher(this);
         launcher.launch(builder, null, null, this::finish);
     }

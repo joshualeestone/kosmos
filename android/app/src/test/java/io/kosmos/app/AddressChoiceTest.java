@@ -20,6 +20,8 @@ public class AddressChoiceTest {
     private static final String COORD = "login.kosmosplus.com";
     private static final String TOKEN = "KST1.eyJhIjoxfQ.c2ln-_";
     private static final List<String> NONE = Collections.emptyList();
+    private static final String N = "0123456789abcdef0123456789abcdef";   // the issued nonce
+    private static final List<String> HERS = Collections.singletonList("hers.kosmosplus.com");
 
     private static String host(String h) {
         return AddressChoice.macHost(h, COORD);
@@ -91,30 +93,30 @@ public class AddressChoiceTest {
     // ---- choosing the address: 0, 1 or several ----
 
     @Test public void noAddressOpensTheSignInPage() {
-        assertNull(AddressChoice.choose(COORD, null, NONE, TOKEN));
-        assertNull(AddressChoice.choose(COORD, "", NONE, TOKEN));
-        assertNull(AddressChoice.choose(COORD, null, null, TOKEN));
+        assertNull(AddressChoice.choose(COORD, null, NONE, TOKEN, N, N));
+        assertNull(AddressChoice.choose(COORD, "", NONE, TOKEN, N, N));
+        assertNull(AddressChoice.choose(COORD, null, null, TOKEN, N, N));
     }
 
     @Test public void oneAddressOpensItAndTrustsOnlyIt() {
         AddressChoice c = AddressChoice.choose(COORD, "hers.kosmosplus.com",
-                Collections.singletonList("hers.kosmosplus.com"), TOKEN);
+                Collections.singletonList("hers.kosmosplus.com"), TOKEN, N, N);
         assertNotNull(c);
         assertEquals("https://hers.kosmosplus.com/#kst=" + TOKEN, c.target);
         assertEquals(Collections.singletonList("https://hers.kosmosplus.com"), c.trustedOrigins);
     }
 
-    @Test public void oneAddressWithNoListStillOpens() {
-        AddressChoice c = AddressChoice.choose(COORD, "hers.kosmosplus.com", NONE, TOKEN);
-        assertNotNull(c);
-        assertEquals(Collections.singletonList("https://hers.kosmosplus.com"), c.trustedOrigins);
+    @Test public void aChoiceWithNoListIsRefused() {
+        // The page always sends the account's list, so an intent without one is not the page.
+        assertNull(AddressChoice.choose(COORD, "hers.kosmosplus.com", NONE, TOKEN, N, N));
+        assertNull(AddressChoice.choose(COORD, "hers.kosmosplus.com", null, TOKEN, N, N));
     }
 
     @Test public void severalAddressesOpenTheChosenOneAndTrustAllValidOnes() {
         AddressChoice c = AddressChoice.choose(COORD, "studio.kosmosplus.com",
                 Arrays.asList("home.kosmosplus.com", "studio.kosmosplus.com",
                         "evil.example.com", "Home.kosmosplus.com", "xn--hrs-8cd.kosmosplus.com"),
-                TOKEN);
+                TOKEN, N, N);
         assertNotNull(c);
         assertEquals("https://studio.kosmosplus.com/#kst=" + TOKEN, c.target);
         // The chosen one first; the bad entries dropped; the duplicate (by case) once.
@@ -124,14 +126,46 @@ public class AddressChoiceTest {
 
     @Test public void aChoiceNotOnTheAccountIsRefused() {
         assertNull(AddressChoice.choose(COORD, "someone-else.kosmosplus.com",
-                Arrays.asList("home.kosmosplus.com", "studio.kosmosplus.com"), TOKEN));
+                Arrays.asList("home.kosmosplus.com", "studio.kosmosplus.com"), TOKEN, N, N));
     }
 
     @Test public void aForeignChoiceIsRefusedEvenWhenTheListIsGood() {
         assertNull(AddressChoice.choose(COORD, "evil.example.com",
-                Collections.singletonList("home.kosmosplus.com"), TOKEN));
+                Collections.singletonList("home.kosmosplus.com"), TOKEN, N, N));
         assertNull(AddressChoice.choose(COORD, "login.kosmosplus.com",
-                Collections.singletonList("login.kosmosplus.com"), TOKEN));
+                Collections.singletonList("login.kosmosplus.com"), TOKEN, N, N));
+    }
+
+    // ---- the nonce: trusted full screen only for this app's own sign-in page ----
+
+    @Test public void withoutThisAppsNonceTheAddressOpensButIsNotTrusted() {
+        String[][] cases = {
+            { N, null },                                  // intent carried none (another page or app)
+            { N, "" },
+            { N, "fedcba9876543210fedcba9876543210" },    // someone else's value
+            { null, N },                                  // this app issued none (older launch)
+            { N, N.toUpperCase(java.util.Locale.ROOT) },  // wrong shape
+            { N, N + "0" },
+        };
+        for (String[] c : cases) {
+            AddressChoice ch = AddressChoice.choose(COORD, "hers.kosmosplus.com", HERS, TOKEN, c[0], c[1]);
+            assertNotNull(ch);
+            assertEquals("https://hers.kosmosplus.com/#kst=" + TOKEN, ch.target);
+            assertEquals("trusted without a matching nonce: " + c[1], NONE, ch.trustedOrigins);
+        }
+    }
+
+    @Test public void theMatchingNonceTrustsTheAddress() {
+        AddressChoice ch = AddressChoice.choose(COORD, "hers.kosmosplus.com", HERS, TOKEN, N, N);
+        assertEquals(Collections.singletonList("https://hers.kosmosplus.com"), ch.trustedOrigins);
+    }
+
+    @Test public void aFreshNonceIs32HexAndMatchesOnlyItself() {
+        String a = HandoffNonce.fresh();
+        String b = HandoffNonce.fresh();
+        assertEquals(true, a.matches("[0-9a-f]{32}"));
+        assertEquals(true, HandoffNonce.matches(a, a));
+        assertEquals(false, HandoffNonce.matches(a, b));
     }
 
     // ---- the handoff token ----
@@ -141,9 +175,9 @@ public class AddressChoiceTest {
                 repeat('a', 4097) };
         for (String t : bad) {
             assertNull("should refuse token: " + t,
-                    AddressChoice.choose(COORD, "hers.kosmosplus.com", NONE, t));
+                    AddressChoice.choose(COORD, "hers.kosmosplus.com", HERS, t, N, N));
         }
-        assertNotNull(AddressChoice.choose(COORD, "hers.kosmosplus.com", NONE, repeat('a', 4096)));
+        assertNotNull(AddressChoice.choose(COORD, "hers.kosmosplus.com", HERS, repeat('a', 4096), N, N));
     }
 
     // ---- the page's comma list ----

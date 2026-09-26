@@ -4,8 +4,8 @@ This is the Android store shell for Kosmos. It is a **Trusted Web Activity
 (TWA)**: a thin, Google-blessed native app that opens Kosmos full-screen with no
 browser chrome, starting at the Kosmos+ sign-in page (`login.kosmosplus.com`). Almost all of it
 comes from `androidbrowserhelper` (a launcher activity and a notification
-delegation service) plus a few configuration values. The one piece of app code is
-`OpenAddressActivity` and its address rule, which open the person's own board full
+delegation service) plus a few configuration values. The app code is
+`KosmosLauncherActivity`, `OpenAddressActivity` and the address rule, which open the person's own board full
 screen after sign-in (see "Opening your own Kosmos" below).
 
 The reasoning for *why a TWA* (rather than a from-scratch native client or a
@@ -228,13 +228,18 @@ following a link there from the sign-in page would show Chrome's URL bar.
 So the sign-in page hands the address to the app instead. When it runs inside this
 app and the person taps "Open my Kosmos", it gets its usual short-lived handoff token
 and navigates to an `intent://` link for this package (scheme `kosmos-open`, extras
-`address`, `addresses`, `kst`). `OpenAddressActivity` receives it and launches a new
+`address`, `addresses`, `kst`, `nonce`). `OpenAddressActivity` receives it and launches a new
 TWA at `https://<name>.kosmosplus.com/#kst=<token>` with
 `setAdditionalTrustedOrigins` listing that address (and the account's other valid
 addresses). Chrome then verifies each one against its own
 `/.well-known/assetlinks.json`, which every Mac serves since kosmos-relay #161.
 
-Any app can fire that intent, so `AddressChoice` checks every host with the same
+Any web page or app can fire that intent, so the app binds it to its own launch:
+`KosmosLauncherActivity` puts a fresh per-launch nonce in the sign-in page's launch
+URL (`#kosmos-app=<hex>`), the page sends it back, and only a matching nonce makes the
+address a trusted origin. Without one the address still opens, with the URL bar. The
+page hands off only when it holds a nonce, so an older app keeps the web behaviour.
+`AddressChoice` also checks every host with the same
 one-label rule as the iOS app and the board's `sw.js`: exactly one RFC 1123 label
 directly under the coordinator's domain, ASCII only, no punycode, never the
 coordinator itself. A chosen address that fails, or is not among the account's

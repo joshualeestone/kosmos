@@ -22,7 +22,7 @@
             android:resource="@string/assetStatements" />
 
         <activity
-            android:name="com.google.androidbrowserhelper.trusted.LauncherActivity"
+            android:name=".KosmosLauncherActivity"
             android:exported="true">
 
             <meta-data
@@ -78,13 +78,13 @@
 
         <!-- #2854: opens the person's own address full screen. The sign-in page, running in
              the TWA above, hands the address here with an intent:// link to this package
-             (scheme kosmos-open, extras address / addresses / kst) when "Open my Kosmos" is
-             tapped. Exported because Chrome delivers it; OpenAddressActivity checks every
-             host, and anything it rejects opens the sign-in page instead. -->
+             (scheme kosmos-open, extras address / addresses / kst / nonce) when "Open my
+             Kosmos" is tapped. Exported because Chrome delivers it, so any page or app can
+             fire it: OpenAddressActivity checks every host, and trusts an address full screen
+             only when the nonce matches the one KosmosLauncherActivity gave the page. -->
         <activity
             android:name=".OpenAddressActivity"
             android:exported="true"
-            android:excludeFromRecents="true"
             android:theme="@style/KosmosLauncherTheme">
 
             <intent-filter>
