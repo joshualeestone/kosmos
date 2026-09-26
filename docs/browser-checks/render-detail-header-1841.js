@@ -163,9 +163,44 @@ function chk(ok, label, extra) {
       openDetail(real.sessionName);
       const long = el.style.getPropertyValue('--dname-size').trim();
       const longClipped = el.scrollHeight > el.clientHeight;
+      // #3385 follow-up: past the 0.55rem floor the ellipsis is the designed fallback (this 51-letter
+      // name reaches it in the 220px column), so it may be cut only AT the floor.
+      const longCut = el.scrollWidth > el.clientWidth + 1;
+      // And a long name that fits above the floor FITS WHOLE: measured before the fix, this 40-letter
+      // one was cut with an ellipsis at 10.7px (one proportional step undershot, the font drawing small
+      // text relatively wider).
+      showTab('agents');
+      LAST[0] = { ...real, name: 'Maximiliana Montgomery-Featherstonehaugh' };
+      openDetail(real.sessionName);
+      const mid = el.style.getPropertyValue('--dname-size').trim();
+      const midCut = el.scrollWidth > el.clientWidth + 1;
       LAST[0] = real; openDetail(real.sessionName);   // restore (panel back on detail, Beatrix)
-      return { short, long, shortClipped, longClipped };
+      return { short, long, shortClipped, longClipped, longCut, mid, midCut };
     });
+    chk(shrink.midCut === false && parseFloat(shrink.mid) > 0.55 && (shrink.longCut === false || shrink.long === '0.550rem'),
+      'Part 5 (#3385 follow-up): a long name that can fit above the floor fits whole (no ellipsis); only a name past the floor is cut', JSON.stringify(shrink));
+    /* #3385 follow-up: on a phone the Talk view draws the name at a fixed 1.125rem, which overrode the
+       fit, so a long name was cut at 18px. It shrinks there too now, and a short one keeps 18px. */
+    await page.setViewportSize({ width: 412, height: 900 });
+    await page.waitForTimeout(300);
+    const phone = await page.evaluate(() => {
+      const el = document.getElementById('d-name');
+      const real = LAST[0];
+      showTab('agents');
+      LAST[0] = { ...real, name: 'Maximilian Alexander Thornbury-Whitfield the Third' };
+      openDetail(real.sessionName);
+      const talk = !document.getElementById('d-sec-talk').hidden;
+      const longPx = parseFloat(getComputedStyle(el).fontSize);
+      const longCut = el.scrollWidth > el.clientWidth + 1;
+      showTab('agents');
+      LAST[0] = real; openDetail(real.sessionName);
+      const shortPx = parseFloat(getComputedStyle(el).fontSize);
+      return { talk, longPx, longCut, shortPx };
+    });
+    await page.setViewportSize({ width: 1400, height: 950 });
+    await page.waitForTimeout(300);
+    chk(phone.talk && phone.longCut === false && phone.longPx < 18 && phone.shortPx === 18,
+      'Part 5 (#3385 follow-up): on a phone Talk view a long name shrinks to fit (no ellipsis) and a short one keeps the compact 18px', JSON.stringify(phone));
     chk(shrink.short === '1.5rem', 'Part 5 (#3385): a short name keeps the base 1.5rem size on a cold open', shrink.short);
     chk(parseFloat(shrink.long) > 0 && parseFloat(shrink.long) < 1.5, 'Part 5 (#3385): a long name shrinks below the base size on a COLD open (fit runs after the panel is shown)', shrink.long);
     chk(shrink.shortClipped === false && shrink.longClipped === false,

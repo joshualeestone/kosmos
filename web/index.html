@@ -9491,8 +9491,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dtext { align-items: flex-start; gap: 4px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dnamerow {
     flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 8px; row-gap: 2px; }
-  /* font-size, not --dname-size: the fit-to-width script writes --dname-size inline on #d-name. */
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-name.dname { font-size: 1.125rem; }
+  /* 1.125rem here, not the 1.5rem base, so a short name is the phone's compact size. But the fit's
+     --dname-size wins when it is SMALLER (#3385 follow-up): a fixed size here overrode the fit, so a
+     long name was cut with an ellipsis at 18px on a phone instead of shrinking to fit. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-name.dname { font-size: min(1.125rem, var(--dname-size, 1.125rem)); }
   /* One compact identity row: the "no name was chosen" note and the full-size state badge are
      Profile's to explain; here the state stays, smaller. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .detail-meta .dmeta-note { display: none; }
@@ -29764,16 +29766,26 @@ async function sendTalk(text, attachment) {
    the CSS fallback do not drift as three separate literals. */
 const DNAME_BASE_REM = 1.5;
 const DNAME_MIN_REM = 0.55;
+/* #3385 follow-up (Mona Lisa's visual closeout, 2026-09-26): ONE proportional step did not fit. The
+   system font draws small text relatively WIDER (optical sizing), so a 40-letter name scaled by the
+   width ratio still measured 240px in a 220px column and was cut with an ellipsis at 10.7px, well
+   above the floor. So it measures again at the size it set and corrects, a few times, from the size
+   the name is actually DRAWN at (a phone view may draw it smaller than the base, see the Talk rule). */
 function fitDetailName() {
   const el = document.getElementById('d-name');
   if (!el) return;
   el.style.setProperty('--dname-size', DNAME_BASE_REM + 'rem');   // measure at the base size
   const row = el.closest('.dnamerow') || el.parentElement;
   const avail = row ? row.clientWidth : 0;
-  const natural = el.scrollWidth;                     // full nowrap width at the base size
-  if (avail > 0 && natural > avail) {
-    const scaled = Math.max(DNAME_MIN_REM, DNAME_BASE_REM * (avail / natural));   // rem; floor keeps it readable, ellipsis catches the rest
-    el.style.setProperty('--dname-size', scaled.toFixed(3) + 'rem');
+  if (!(avail > 0) || el.scrollWidth <= avail) return;   // no layout yet, or it fits at the base size
+  const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const floorPx = DNAME_MIN_REM * rootPx;
+  for (let i = 0; i < 6 && el.scrollWidth > avail; i += 1) {
+    const drawn = parseFloat(getComputedStyle(el).fontSize) || (DNAME_BASE_REM * rootPx);
+    if (drawn <= floorPx) break;   // at the floor: the ellipsis catches the rest
+    // A hair under the exact ratio, so rounding cannot leave it a pixel over.
+    const next = Math.max(floorPx, drawn * (avail / el.scrollWidth) * 0.99);
+    el.style.setProperty('--dname-size', (next / rootPx).toFixed(3) + 'rem');
   }
 }
 
@@ -30677,6 +30689,9 @@ function detailGo(section, opts) {
     if (!CURRENT || CURRENT !== shownFor) return;
     const fresh = LAST.find((x) => x && x.sessionName === CURRENT.sessionName);
     if (fresh) renderAvatarSwarmOnly(fresh);
+    /* #3385 follow-up: the name's size is measured per section too. On a phone the Talk view draws
+       the name smaller (1.125rem) than Profile does, so a fit measured in one is wrong in the other. */
+    if (typeof fitDetailName === 'function') fitDetailName();
   });
 }
 /* #718: the height a phone can actually see, for the chat-first layout (the 40rem
