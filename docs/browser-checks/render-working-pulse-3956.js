@@ -11,7 +11,8 @@
  *   - watched across three five-second polls, a rebuilt card continues the pulse instead of
  *     snapping back to the plain surface;
  *   - the idle card does not pulse;
- *   - a list row and a project member box carry the same animation
+ *   - a list row (also in the one-screen folded layout) and a project member box carry the same animation;
+ *   - in the dark theme the working ground still swings toward green
  *     (read from elements placed in the real page, so the page's own stylesheet decides);
  *   - under prefers-reduced-motion nothing pulses and the working card keeps its static ground.
  * Control: the same readings on the idle card show the instrument can see "no pulse".
@@ -158,6 +159,29 @@ async function placeSiblings(page) {
           chk(s.name === 'working-pulse', `${engineName}: ${sel} (working) carries the same pulse`, s.name);
         }
         chk((await anim(page, '[data-pulse3956="lrow-idle"]')).name === 'none', `${engineName}: control: an idle list row does not pulse`);
+        /* The one-screen layout folds the list and re-declares the row's ground (its own rule). The
+           pulse must still apply there and the wash must still be drawn under it. */
+        const folded = await page.evaluate(() => {
+          const html = document.documentElement, body = document.body;
+          const before = { layout: html.getAttribute('data-layout'), cls: body.className };
+          html.setAttribute('data-layout', 'consolidated');
+          body.classList.add('consolidated', 'fold-a');
+          const el = document.querySelector('[data-pulse3956="lrow"]');
+          const cs = getComputedStyle(el);
+          const out = { name: cs.animationName, wash: /gradient/.test(cs.backgroundImage) };
+          if (before.layout === null) html.removeAttribute('data-layout'); else html.setAttribute('data-layout', before.layout);
+          body.className = before.cls;
+          return out;
+        });
+        chk(folded.name === 'working-pulse' && folded.wash, `${engineName}: the one-screen (folded) list row pulses over its wash`, JSON.stringify(folded));
+
+        /* Dark theme: the pulse mixes into the dark surface, so it must still swing there. */
+        await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+        const dark = [];
+        for (let k = 0; k < 9; k++) { dark.push(lean(await ground(page, '.acard.working'))); await page.waitForTimeout(450); }
+        await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
+        chk(Math.max(...dark) - Math.min(...dark) > 2, `${engineName}: in the dark theme the working ground still swings toward green`, `green lean ${Math.min(...dark).toFixed(1)}..${Math.max(...dark).toFixed(1)}`);
+
         await ctx.close();
 
         /* --- reduced motion --- */

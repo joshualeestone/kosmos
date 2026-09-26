@@ -8,8 +8,8 @@ off under prefers-reduced-motion.
 ## Decision
 - One animation, `working-pulse`, 3.6s ease-in-out infinite, on background-color only: the layer
   UNDER the static --wash-working gradient moves from --k-surface to color-mix(surface 90%, #2f7d5a).
-  Deepest point ~ twice today's wash (light: 255 -> 234,242,239). Works in every theme because it
-  mixes into the theme's own surface.
+  Deepest point ~ twice today's wash (light: 255 -> 234,242,239). Measured swinging in light and
+  dark; the Kosmos+ navy surface uses the same token and is NOT measured.
 - Josh's "10% or 15% increase" read as percentage points of green, low end (10), because he also
   said "not crazy, super dark". A relative 10% of a .10 wash would be invisible.
 - Phase: the 5s poll rebuilds cards and a new element's animation starts at 0%, which snapped the
@@ -33,3 +33,9 @@ off under prefers-reduced-motion.
   animationstart-only pin -> chromium RED (5.50), webkit green.
 - Mapped checks re-run green: render-dm-badges-2863, render-no-conflict-3729, render-stale-auth-1930.
 - Contrast: dark ink on the greenest ground is ~16:1.
+
+## Challenge-loop iteration 2 (deferred, with reason)
+- Observer scope (whole document): kept. Its callback work is proportional to the nodes the page
+  itself just added (classList checks, plus a querySelectorAll inside each added subtree), which
+  the page already paid to build; scoping it to the three containers would miss surfaces added
+  later. Moved above the first tick() so the first render is pinned by it too.

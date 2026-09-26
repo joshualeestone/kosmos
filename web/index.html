@@ -2237,7 +2237,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 /* #3956 (Josh, 2026-09-26): "the green was glowing to a slightly darker green and back ... not
    fast, very gradual ... a 10% or 15% increase". Every working-green ground (grid card, list row
    and its one-screen variant, project member box) runs these keyframes, kept in phase by
-   pinWorkingPulse beside setInterval(tick). It moves only the layer UNDER the static
+   pinWorkingPulse, set up just before the first tick(). It moves only the layer UNDER the static
    wash, from the surface to the surface with 10% green mixed in. No JS timer. Its cost is a
    repaint of each working box per frame (background-color is not a compositor property). Off
    for reduced motion, which keeps the static wash. */
@@ -59483,14 +59483,7 @@ firstRunBoot(PARAMS.get('first-run') === '1', Number(PARAMS.get('fr-step')) || 1
 
 /* #3641 (Josh, 2026-09-24): the corner version marker was removed; the version lives in
    Settings > Updates (#build), painted just below. */
-/* 🔑 BEFORE THE FIRST POLL, not after it. The whole point of baking the version
-   is that it is readable when no poll will ever succeed, and painting it from
-   `tick()` alone would have kept the empty line on exactly the machine this was
-   written for. */
-paintBuildLine(null);
-tick();
-setInterval(tick, 5000);
-/* #3956: every working pulse runs on ONE clock. The poll above rebuilds the grid, the list and the
+/* #3956: every working pulse runs on ONE clock. The poll below rebuilds the grid, the list and the
    project members, and a rebuilt element starts its CSS animation at 0% (the plain surface), so
    the green snapped away mid-pulse every five seconds. Pinning each working-pulse animation's
    start to the document timeline's origin gives a rebuilt card the same phase as the one it
@@ -59522,6 +59515,13 @@ if (typeof MutationObserver === 'function' && document.documentElement) {
 document.addEventListener('animationstart', (e) => {
   if (e.animationName === 'working-pulse') pinWorkingPulse(e.target);
 });
+/* 🔑 BEFORE THE FIRST POLL, not after it. The whole point of baking the version
+   is that it is readable when no poll will ever succeed, and painting it from
+   `tick()` alone would have kept the empty line on exactly the machine this was
+   written for. */
+paintBuildLine(null);
+tick();
+setInterval(tick, 5000);
 /* #3124: age the freshness stamp on its own ~1s cadence, independent of when
    polls land, so a board that goes quiet ages visibly instead of freezing on
    the last "just now". A helper nothing calls is the defect this file is written
