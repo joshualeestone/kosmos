@@ -7726,12 +7726,18 @@ const server = http.createServer((req, res) => {
            Google subscription gets its own row, from agystatus's LAST confident answer (a live check
            costs a prompt on the person's subscription, so it is never run per repaint). No folder:
            agy keeps its own sign-in, so the row's actions are its own (Sign in again, Remove). */
+        /* provider 'antigravity', NOT 'google': a 'google' row is a Gemini API KEY to every key path
+           on the page (the create menu, the account list sent with a new agent, the move picker, the
+           guided setup's key row), and this row has no key. Grouped under Gemini by providerName.
+           signed_in_unverified: a remembered answer, not a live one, so the muted "Signed in" Grok's
+           subscription row uses. Listed only while agy is still installed. */
         const agy = require('./engine/agystatus');
-        const agyLast = agy.offered() ? agy.lastKnown() : null;
+        const agyInst = agy.offered() ? agy.installed() : null;
+        const agyLast = agyInst && agyInst.installed ? agy.lastKnown() : null;
         const agySub = agyLast && agyLast.signedIn ? [{
-          provider: 'google', providerName: 'Gemini', dir: null, label: null, name: null, isDefault: false,
+          provider: 'antigravity', providerName: 'Gemini', dir: null, label: null, name: null, isDefault: false,
           email: agy.activeEmail(), authMode: 'antigravity', keyTail: null,
-          connection: { state: 'connected', checkedLive: false, checkedAt: agyLast.at },
+          connection: { state: 'connected', checkedLive: false, checkedAt: agyLast.at, badge: 'signed_in_unverified' },
         }] : [];
         sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok] });
       })
@@ -7803,23 +7809,25 @@ const server = http.createServer((req, res) => {
       sendJson(res, r.ok ? 200 : 400, r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
       return;
     }
-    if (sub === '/code') {
+    /* Code, Show and Stop name the sign-in they mean (the id start() answered), so one tab never
+       stops or types into a sign-in another tab started since. */
+    if (sub === '/code' || sub === '/show' || sub === '/stop') {
       readBody(req).then((raw) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
-        const r = signin.code(body && body.code);
-        sendJson(res, r.ok ? 200 : 400, r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
+        const id = body && typeof body.id === 'string' ? body.id : '';
+        if (sub === '/code') {
+          const r = signin.code(body && body.code, id);
+          sendJson(res, r.ok ? 200 : 400, r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
+          return;
+        }
+        if (sub === '/stop') { const r = signin.stop(id); sendJson(res, r.ok ? 200 : 409, r.ok ? r : { ...r, error: r.because }); return; }
+        signin.show(id)
+          .then((r) => sendJson(res, r.ok ? 200 : 400, r.ok ? r : { ...r, error: r.because }))
+          .catch(() => sendJson(res, 500, { ok: false, error: 'Kosmos could not open the sign-in window' }));
       }).catch(() => sendJson(res, 400, { ok: false, error: 'we could not read that request' }));
       return;
     }
-    if (sub === '/show') {
-      req.resume();
-      signin.show()
-        .then((r) => sendJson(res, r.ok ? 200 : 400, r.ok ? r : { ...r, error: r.because }))
-        .catch(() => sendJson(res, 500, { ok: false, error: 'Kosmos could not open the sign-in window' }));
-      return;
-    }
-    if (sub === '/stop') { req.resume(); sendJson(res, 200, signin.stop()); return; }
     req.resume();
     sendJson(res, 404, { error: 'there is nothing at that address' });
     return;

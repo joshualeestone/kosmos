@@ -43,3 +43,14 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 - /api/accounts appends a row for it (provider google, authMode 'antigravity', dir null, the Google email from ~/.gemini/google_accounts.json "active" if present) while it is offered and last known signed in.
 - The row: the email (or "Google subscription"), "Google subscription, through Antigravity on this computer", Signed in, Sign in again (Add a provider on Google Gemini straight to the hidden sign-in) and Remove (two presses; POST /api/antigravity/forget; Kosmos stops listing it and Antigravity stays signed in, said in its title, since agy has no sign-out command Kosmos can call).
 - Not shown: the plan tier Josh saw in agy ("Antigravity Starter Quota"). Kosmos has no readable source for it yet; showing a guess would be worse than not showing it.
+
+## Review round 2 (decided, 12:45 to 13:20)
+- The subscription row is provider 'antigravity' (grouped under Gemini by providerName), and the page's acctProvider names any authMode 'antigravity' row 'antigravity' too. Rejected: keeping 'google' and filtering authMode at each key path (five sites today, and the next key path would not know to filter). Weakest premise: a consumer outside the page that lists /api/accounts by provider; the only one found is the agents' own instructions (engine/connections.js), updated.
+- agy is asked whether it is signed in at most 3 times a sign-in (MAX_CHECKS), at once after the setup screens, after 8 s on any other unknown screen (so Sign in again on an agy already signed in finishes), and while stuck only when the screen changed and 8 s since the last ask. Stuck never flips back by itself.
+- Each key once on the terms (Down only after the marker moved), a missing Done is shown (stuck), not ended.
+- The code screen still showing 15 s after a code: back to the paste box with "did not take that code".
+- Only a missing tmux session is agy exiting; a slow tmux is tried on the next tick.
+- start() answers an id; code, show and stop must name it (409 otherwise), and a screen following a sign-in stops following when the id changes.
+- The row shows the muted signed_in_unverified "Signed in" (a remembered answer), only while agy is installed; Remove arms like Disconnect (danger style, aria-label, blur disarms); its hover says it comes back on Kosmos's next check.
+- The tmux server starts with -f /dev/null and the agy path is shell-quoted.
+- Not done (nit N1): no browser check renders the Settings row itself; web.agy-row-3998.test.js executes the page's own key-path functions on it instead.

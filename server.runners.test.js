@@ -248,13 +248,18 @@ test('#3568/#3998: POST /api/antigravity/signin and /install answer through the 
       const o2 = await req('/api/antigravity/signin', { method: 'POST' });
       assert.equal(o2.status, 200, o2.body);
       assert.equal(json(o2).state, 'starting');
-      assert.ok(calls.some((c) => c.startsWith('new-session -d -s agy-signin') && c.endsWith(bin)), 'agy was not started in the hidden session: ' + calls.join(' | '));
+      const id = json(o2).id;
+      assert.match(String(id), /^[0-9a-f]{16}$/, 'start did not name its sign-in');
+      assert.ok(calls.some((c) => c.startsWith('-f /dev/null new-session -d -s agy-signin') && c.endsWith("exec '" + bin + "'")), 'agy was not started in the hidden session: ' + calls.join(' | '));
       const s1 = await req('/api/antigravity/signin');
       assert.equal(json(s1).state, 'starting');
       assert.equal(json(s1).folder, undefined, 'the folder must not reach the screen');
-      const c1 = await req('/api/antigravity/signin/code', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1' }) });
+      const c1 = await req('/api/antigravity/signin/code', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1', id }) });
       assert.equal(c1.status, 400, 'a code was accepted before Antigravity asked for one');
-      const x = await req('/api/antigravity/signin/stop', { method: 'POST' });
+      const stopAs = (who) => req('/api/antigravity/signin/stop', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: who }) });
+      assert.equal((await stopAs('0000000000000000')).status, 409, 'another sign-in\'s Stop ended this one');
+      assert.equal(json(await req('/api/antigravity/signin')).state, 'starting');
+      const x = await stopAs(id);
       assert.equal(x.status, 200);
       assert.equal(json(await req('/api/antigravity/signin')).state, 'stopped');
       assert.equal((await req('/api/antigravity/signin/nowhere', { method: 'POST' })).status, 404);
@@ -274,16 +279,22 @@ test('#3998: /api/accounts lists the Gemini subscription from the last confident
   const dir = path.join(SANDBOX, 'agylast'); fs.mkdirSync(dir, { recursive: true });
   agystatus.setLastFileForTests(() => path.join(dir, 'last.json'));
   const rows = async () => (json(await req('/api/accounts')).accounts || []).filter((a) => a.authMode === 'antigravity');
+  const bin = path.join(dir, 'agy');
+  process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = bin;
   try {
     assert.deepEqual(await rows(), [], 'CONTROL: no row before any sign-in');
     agystatus.remember({ installed: true, signedIn: true });
+    assert.deepEqual(await rows(), [], 'a row was listed for an Antigravity that is not installed');
+    fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
     const r = await rows();
     assert.equal(r.length, 1, 'a signed-in subscription has no account row');
-    assert.equal(r[0].provider, 'google');
+    assert.equal(r[0].provider, 'antigravity', 'a \'google\' row is an API key to every key path on the page');
+    assert.equal(r[0].providerName, 'Gemini');
     assert.equal(r[0].dir, null, 'the row must not point at a key folder');
     assert.equal(r[0].connection.state, 'connected');
+    assert.equal(r[0].connection.badge, 'signed_in_unverified', 'a remembered answer was shown as a live green Signed in');
     const f = await req('/api/antigravity/forget', { method: 'POST' });
     assert.equal(f.status, 200);
     assert.deepEqual(await rows(), [], 'forget left the row');
-  } finally { agystatus.forget(); }
+  } finally { agystatus.forget(); delete process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN; }
 });

@@ -174,9 +174,9 @@ test('#3998: Sign in with Subscription walks not installed -> Install -> Sign in
   const f = agyFlow({
     '/api/antigravity/check': [{ installed: false, signedIn: false }],
     '/api/antigravity/install': [{ ok: true, installed: true }],
-    'POST /api/antigravity/signin': [{ ok: true, state: 'starting' }],
-    'GET /api/antigravity/signin': [{ state: 'starting' }, { state: 'code', url: 'https://accounts.google.com/o/oauth2/auth?x=1' },
-      { state: 'code', url: 'https://accounts.google.com/o/oauth2/auth?x=1' }, { state: 'setup', step: 'terms' }, { state: 'done' }],
+    'POST /api/antigravity/signin': [{ ok: true, id: 'a1b2c3d4e5f60718', state: 'starting' }],
+    'GET /api/antigravity/signin': [{ id: 'a1b2c3d4e5f60718', state: 'starting' }, { id: 'a1b2c3d4e5f60718', state: 'code', url: 'https://accounts.google.com/o/oauth2/auth?x=1' },
+      { id: 'a1b2c3d4e5f60718', state: 'code', url: 'https://accounts.google.com/o/oauth2/auth?x=1' }, { id: 'a1b2c3d4e5f60718', state: 'setup', step: 'terms' }, { id: 'a1b2c3d4e5f60718', state: 'done' }],
     '/api/antigravity/signin/code': [{ ok: true, state: 'checking' }],
   });
   await f.FR_AGY_SUB.start();
@@ -194,7 +194,8 @@ test('#3998: Sign in with Subscription walks not installed -> Install -> Sign in
   assert.equal(f.el('fr-gemini-sub-page').attrs.href, 'https://accounts.google.com/o/oauth2/auth?x=1', 'no way back to Google\'s page');
   f.el('fr-gemini-sub-paste').value = '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v-TZgGLs9n';
   await f.FR_AGY_SUB.sendCode();
-  assert.deepEqual(f.bodies.find(([p]) => p === '/api/antigravity/signin/code'), ['/api/antigravity/signin/code', JSON.stringify({ code: '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v-TZgGLs9n' })]);
+  assert.deepEqual(f.bodies.find(([p]) => p === '/api/antigravity/signin/code'), ['/api/antigravity/signin/code', JSON.stringify({ code: '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v-TZgGLs9n', id: 'a1b2c3d4e5f60718' })],
+    'the code did not name the sign-in it is for (another tab\'s sign-in could take it)');
   await f.settle(() => f.ready());
   assert.match(f.view().text, /^Ready\./);
   assert.equal(f.view().button, '');
@@ -212,17 +213,19 @@ test('#3998: Settings ends a signed-in Gemini subscription on the gold connected
 test('#3998: a failed or stuck hidden sign-in says why, offers the window only when stuck, and leaving stops it', async () => {
   const f = agyFlow({
     '/api/antigravity/check': [{ installed: true, signedIn: null }],
-    'POST /api/antigravity/signin': [{ ok: true }],
-    'GET /api/antigravity/signin': [{ state: 'stuck', because: 'x' }, { state: 'stuck', because: 'x' }],
+    'POST /api/antigravity/signin': [{ ok: true, id: 'feedc0de00000001' }],
+    'GET /api/antigravity/signin': [{ id: 'feedc0de00000001', state: 'stuck', because: 'Kosmos could not find the Done button on Antigravity\'s terms' }],
     '/api/antigravity/signin/stop': [{ ok: true }],
   });
   await f.FR_AGY_SUB.start();
   assert.equal(f.view().button, 'Sign in with Google');
   await f.FR_AGY_SUB.start();
   await f.settle(() => !f.el('fr-gemini-sub-show-row').hidden);
-  assert.match(f.view().text, /does not recognise/);
-  f.FR_AGY_SUB.leave();
+  f.FR_AGY_SUB.leave();   // first, so a failed assertion below never leaves the follow loop running
+  assert.match(f.view().text, /^Kosmos could not find the Done button on Antigravity's terms\. Show the sign-in window/);
   assert.ok(f.posts.includes('/api/antigravity/signin/stop'), 'leaving the step left the hidden sign-in running');
+  assert.deepEqual(f.bodies.find(([p]) => p === '/api/antigravity/signin/stop'), ['/api/antigravity/signin/stop', JSON.stringify({ id: 'feedc0de00000001' })],
+    'Stop did not name its own sign-in, so it could end another tab\'s');
   const g = agyFlow({ '/api/antigravity/check': [{ installed: true, signedIn: null }], 'POST /api/antigravity/signin': [{ ok: true }],
     'GET /api/antigravity/signin': [{ state: 'failed', because: 'Antigravity asked to trust a folder Kosmos did not choose, so Kosmos stopped the sign-in' }] });
   await g.FR_AGY_SUB.start(); await g.FR_AGY_SUB.start();
@@ -327,4 +330,17 @@ test('#3568: a saved Gemini-by-subscription create pick waits for the installed 
   const next = PAGE.slice(at, at + 600);
   assert.match(next, /if \(pref && pref\.provider === 'antigravity'\) \{\s*await agyAsk\(\);[\s\S]{0,160}if \(gen !== EXTRAS_GEN \|\| CREATE_PROVIDER_TOUCHED\) return;/);
   assert.ok(PAGE.lastIndexOf('async function loadCreateExtras', at) > PAGE.lastIndexOf('\nfunction ', at), 'the restore must sit inside the async loadCreateExtras');
+});
+
+test('#3998: a sign-in another tab started since is not this step\'s to follow', async () => {
+  const f = agyFlow({
+    '/api/antigravity/check': [{ installed: true, signedIn: null }],
+    'POST /api/antigravity/signin': [{ ok: true, id: 'aaaaaaaaaaaaaaaa' }],
+    'GET /api/antigravity/signin': [{ id: 'bbbbbbbbbbbbbbbb', state: 'code', url: 'https://accounts.google.com/o/oauth2/auth?x=2' }],
+  });
+  await f.FR_AGY_SUB.start(); await f.FR_AGY_SUB.start();
+  await f.settle(() => /somewhere else/.test(f.view().text));
+  assert.match(f.view().text, /^A sign-in started somewhere else, so this one stopped\./);
+  assert.equal(f.el('fr-gemini-sub-paste-row').hidden, true, 'this step offered to paste a code into another tab\'s sign-in');
+  assert.equal(f.view().button, 'Sign in with Google');
 });

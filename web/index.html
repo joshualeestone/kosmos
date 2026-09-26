@@ -21487,9 +21487,12 @@ function orderProviderOptions(selectId) {
   sorted.forEach((o) => sel.appendChild(o));
   sel.value = chosen;
 }
-/* The menu's provider id for an account row: 'openai' | 'google' | 'xai' | 'anthropic'. */
+/* The menu's provider id for an account row: 'openai' | 'google' | 'xai' | 'anthropic', or
+   'antigravity' for the Gemini subscription row (#3998). That row has no key: naming it here keeps it
+   out of every key path ('google' is a Gemini API key) and out of the Claude fallback below. */
 function acctProvider(a) {
   const p = a && typeof a.provider === 'string' ? a.provider.toLowerCase() : '';
+  if (p === 'antigravity' || (a && a.authMode === 'antigravity')) return 'antigravity';
   return Object.prototype.hasOwnProperty.call(ACCT_KEYED_ROUTE, p) ? p : 'anthropic';
 }
 /* #3566: the screen's word for a keyed provider id ('openai' -> 'OpenAI'). */
@@ -21925,15 +21928,18 @@ async function paintAccounts() {
        sign-in, so the row has no folder and none of a key row's actions: Sign in again (the hidden
        sign-in) and Remove (Kosmos stops listing it; Antigravity stays signed in on this computer). */
     if (a && a.authMode === 'antigravity') {
-      const when = a.connection && a.connection.checkedAt ? ' (last confirmed ' + new Date(a.connection.checkedAt).toLocaleString() + ')' : '';
+      /* A remembered answer, not a live one (a live check costs a prompt on the subscription): the
+         muted "Signed in" of signed_in_unverified, as Grok's subscription row shows. */
+      const when = a.connection && a.connection.checkedAt ? ' Kosmos last confirmed it ' + new Date(a.connection.checkedAt).toLocaleString() + '.' : '';
+      const why = 'Antigravity was signed in to Google the last time Kosmos checked.' + when + ' It confirms itself the next time an agent on it runs.';
       return '<div class="acct-box" data-agy-row="1"><div class="acct-box-top"><div class="acct-who"><b>' + esc(a.email || 'Google subscription') + '</b>'
         + '<span class="acct-tag"> Google subscription, through Antigravity on this computer</span></div>'
-        + '<span class="acct-connected" title="' + esc('Signed in' + when) + '"><span class="dot" aria-hidden="true"></span>Signed in</span></div>'
+        + '<span class="acct-unknown" title="' + esc(why) + '"><span class="dot" aria-hidden="true"></span>Signed in</span></div>'
         + '<div class="acct-actions">'
         + '<button class="acct-reauth" type="button" data-agy-reauth="1" aria-label="Sign in again to the Google subscription" '
         + 'title="' + esc('Signs in to Google again through Antigravity, the same way as adding it.') + '">Sign in again</button>'
-        + '<button class="acct-reauth" type="button" data-agy-forget="1" aria-label="Remove the Google subscription from Kosmos" '
-        + 'title="' + esc('Kosmos stops listing it here. Antigravity stays signed in on this computer; its agents keep working.') + '">Remove</button>'
+        + '<button class="acct-reauth acct-remove" type="button" data-agy-forget="1" aria-label="Remove the Google subscription from Kosmos" '
+        + 'title="' + esc('Kosmos stops listing it here. Antigravity stays signed in on this computer and its agents keep working, so it comes back the next time Kosmos checks Antigravity.') + '">Remove</button>'
         + '</div></div>';
     }
     /* #540: an OpenAI account signed in with a key has no email; codex's
@@ -22352,9 +22358,18 @@ async function paintAccounts() {
     btn.addEventListener('click', () => acctGeminiSignInAgain());
   }
   for (const btn of box.querySelectorAll('[data-agy-forget]')) {
+    /* Two presses, like Disconnect: the first arms (danger style, and the name a screen reader
+       hears says the same as the button, WCAG 2.5.3), the second removes; leaving the button disarms. */
+    const REST_LABEL = 'Remove the Google subscription from Kosmos';
+    const arm = (on) => {
+      btn.dataset.armed = on ? '1' : '';
+      btn.textContent = on ? 'Remove?' : 'Remove';
+      btn.classList.toggle('armed', on);
+      btn.setAttribute('aria-label', on ? 'Remove? ' + REST_LABEL : REST_LABEL);
+    };
+    btn.addEventListener('blur', () => { if (!btn.disabled) arm(false); });
     btn.addEventListener('click', async () => {
-      // Two presses, like Disconnect: the first arms and says what it does, the second removes.
-      if (btn.dataset.armed !== '1') { btn.dataset.armed = '1'; btn.textContent = 'Remove?'; return; }
+      if (btn.dataset.armed !== '1') { arm(true); return; }
       btn.disabled = true;
       try { await fetch('/api/antigravity/forget', { method: 'POST' }); } catch { /* the repaint shows where it stands */ }
       paintAccounts();
@@ -25216,10 +25231,11 @@ function agySubDriver(pre, onReady) { return {
   gen: 0,          // bumped when the row closes: an answer for a closed row writes nothing (review round 1)
   next: 'check',   // what the step's button does next: 'install' Antigravity, 'open' its sign-in, or 'check'
   signing: false,  // #3998: a hidden Antigravity sign-in this step started and has not finished
+  signinId: '',    // #3998: which sign-in that is, so this step never stops or types into another tab's
   leave() {
     this.gen += 1; this.busy = false; this.next = 'check';
     // A sign-in nobody is watching any more ends, rather than waiting out its half hour.
-    if (this.signing) { this.signing = false; this.post('/api/antigravity/signin/stop'); }
+    if (this.signing) { this.signing = false; this.post('/api/antigravity/signin/stop', { id: this.signinId }); }
     this.rows(false, false);
   },
   /* #3998: the paste box (with "Open Google's page again") and the last-resort window button. */
@@ -25237,9 +25253,16 @@ function agySubDriver(pre, onReady) { return {
       let st = null;
       try { st = await (await fetch('/api/antigravity/signin', { cache: 'no-store' })).json(); } catch { st = null; }
       if (!live()) return;
+      if (st && st.id && st.id !== this.signinId) {
+        // Another tab started a sign-in since: that one is its to follow, not this step's.
+        this.signing = false; this.rows(false, false); this.next = 'open';
+        this.say('A sign-in started somewhere else, so this one stopped.', 'Sign in with Google', false);
+        return;
+      }
       const state = st && st.state;
       if (state === 'code') {
-        this.say("Google's sign-in is open in your browser. Sign in there, then copy the code Google shows and paste it below.", '', false);
+        // A code Antigravity did not take comes back here with the reason (#3998 review round 2).
+        this.say(st.because ? frCap(st.because) : "Google's sign-in is open in your browser. Sign in there, then copy the code Google shows and paste it below.", '', false);
         this.rows(true, false, st.url || '');
         if (!focused) { const i = this.el('paste'); if (i) i.focus(); focused = true; }
       } else if (state === 'checking' || state === 'setup') {
@@ -25248,7 +25271,7 @@ function agySubDriver(pre, onReady) { return {
           : "Finishing Antigravity's setup. Kosmos leaves Google's optional data sharing off; you can change that later in Antigravity's settings.", '', false);
       } else if (state === 'stuck') {
         this.rows(false, true);
-        this.say('Antigravity is showing a step Kosmos does not recognise. Show the sign-in window to finish it yourself.', '', false);
+        this.say(frCap((st && st.because) || 'Antigravity is showing a step Kosmos does not recognise') + '. Show the sign-in window to finish it yourself.', '', false);
       } else if (state === 'done') {
         this.signing = false; this.rows(false, false);
         this.next = 'check';
@@ -25274,13 +25297,13 @@ function agySubDriver(pre, onReady) { return {
     if (!v) { this.say("Paste the code from Google's page first.", '', false); return; }
     let r = null;
     try {
-      r = await (await fetch('/api/antigravity/signin/code', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: v }) })).json();
+      r = await (await fetch('/api/antigravity/signin/code', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: v, id: this.signinId }) })).json();
     } catch { r = null; }
     if (r && r.ok) { if (i) i.value = ''; this.rows(false, false); this.say('Checking the code with Google…', '', false); return; }
     this.say(frCap((r && r.error) || 'Kosmos could not pass the code on just now') + '.', '', false);
   },
   async showWindow() {
-    const r = await this.post('/api/antigravity/signin/show');
+    const r = await this.post('/api/antigravity/signin/show', { id: this.signinId });
     if (!(r && r.ok)) this.say(frCap((r && r.error) || 'Kosmos could not open the sign-in window') + '.', '', false);
   },
   wire() {
@@ -25310,8 +25333,9 @@ function agySubDriver(pre, onReady) { return {
       if (to) { if (to !== cancel && !to.hasAttribute('tabindex')) to.setAttribute('tabindex', '-1'); to.focus(); }
     }
   },
-  async post(path) {
-    try { return await (await fetch(path, { method: 'POST' })).json(); } catch { return null; }
+  async post(path, body) {
+    const init = body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : { method: 'POST' };
+    try { return await (await fetch(path, init)).json(); } catch { return null; }
   },
   async start() {
     if (this.busy) return;
@@ -25331,7 +25355,7 @@ function agySubDriver(pre, onReady) { return {
           this.say(frCap((started && started.error) || "We could not start Antigravity's sign-in just now") + '.', refused ? 'Check again' : 'Sign in with Google', false);
           return;
         }
-        this.signing = true;
+        this.signing = true; this.signinId = String(started.id || '');
         this.say("Opening Google's sign-in in your browser…", '', false);
         this.follow(mine);
         return;
@@ -38364,7 +38388,8 @@ function acctMoveWorld(a, accounts) {
     : ({ codex: 'openai', gemini: 'google', grok: 'xai' })[a && a.runner] || '';
   const isCodex = keyedProvider === 'openai';
   const isKeyed = !!keyedProvider;
-  const isOwnProviderRow = (x) => !!(x && keyedProvider && String(x.provider || '').toLowerCase() === keyedProvider);
+  /* #3998: the Gemini subscription row (authMode 'antigravity') has no account to move onto. */
+  const isOwnProviderRow = (x) => !!(x && keyedProvider && x.authMode !== 'antigravity' && String(x.provider || '').toLowerCase() === keyedProvider);
   const acct = a && a.account;
   /* An OpenAI row is only a valid MOVE destination when it is BOTH offerable and
      signed in -- the same two gates the sibling create/switch OpenAI picker applies
