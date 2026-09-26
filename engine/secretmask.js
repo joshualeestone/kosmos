@@ -222,8 +222,14 @@ function fragmentsIn(text) {
     /* The whole run, however long (review round 20: a cap left a fragment past it unread): one Set lookup per
        position, so the cost stays linear in the reply. */
     const run = m[0];
-    for (let i = 0; i + FRAGMENT_LEN <= run.length; i += 1) {
-      if (knownGrams.has(run.slice(i, i + FRAGMENT_LEN))) { spans.push([m.index, m.index + run.length]); break; }
+    /* #3995: and the run with - _ + / = taken out, for a fragment grouped with them (Lm3p/Rt6w/Xy9k). */
+    const bare = run.replace(/[-_+/=]+/g, '');
+    for (const r of bare === run ? [run] : [run, bare]) {
+      let found = false;
+      for (let i = 0; i + FRAGMENT_LEN <= r.length; i += 1) {
+        if (knownGrams.has(r.slice(i, i + FRAGMENT_LEN))) { found = true; break; }
+      }
+      if (found) { spans.push([m.index, m.index + run.length]); break; }
     }
   }
   return spans;
@@ -427,6 +433,8 @@ function pieceVariants(run) {
   /* A key's chunks joined by its own separators, licence-key style (Qw8e-Rt2y), with words between the groups
      (review round 14): the run is tried with every - and _ taken out as well, one piece of the key. */
   for (const v of [...out]) if (/[^-_][-_]+[^-_]/.test(v)) out.add(v.replace(/[-_]+/g, ''));
+  /* #3995: and with + / = taken out too, for chunks grouped with those (Rt6wXy9k=Hb2nWc4d). */
+  for (const v of [...out]) if (/[^-_+/=][-_+/=]+[^-_+/=]/.test(v)) out.add(v.replace(/[-_+/=]+/g, ''));
   /* A label joined by a hyphen (chunk-2-Rt2mNp9b, review round 15): each tail after a - or _, up to four, and
      only tails of OPENING_LEN or more (a shorter one, "Wor" of pi03-Wor, is coincidence, not a piece). */
   /* Taken from the END (review round 17): the piece is the last part, so a label with many hyphens
@@ -553,10 +561,13 @@ function wordSkippingSpans(text) {
         const via = new Map();   // position -> { s: the run that reached it, prev: the position before }
         let best = opening.length;
         let finished = false;
+        /* #3995: reach is counted from the last run a piece matched in, not from the opening: pieces spread past
+           four times the key's length in all (each with a sentence after it) left the later ones unread. */
+        let lastAt = from;
         for (let s = r + 1; s < runs.length; s += 1) {
           const [, sTo] = runs[s];
           const [pieces, piecesCost] = varsOf(s);
-          if (nonSpaceBefore[sTo] - nonSpaceBefore[from] > bound) break;
+          if (nonSpaceBefore[sTo] - nonSpaceBefore[lastAt] > bound) break;
           let done = false;
           const next = new Set(reached);
           /* Each start position, with the reached position it came from: a piece matched past a skipped
@@ -571,6 +582,7 @@ function wordSkippingSpans(text) {
               const end = q + piece.length;
               if (end === f.length) { done = true; doneFrom = { s, prev: p, start: q }; break; }
               next.add(end);
+              lastAt = runs[s][0];
               if (!via.has(end)) via.set(end, { s, prev: p, start: q });
               if (end > best) best = end;
               if (movedAt < 0) movedAt = runs[s][0];
@@ -796,6 +808,13 @@ function maskFresh(text) {
     if (!words) { hit('split_search_limit'); return { text: UNCHECKED, fired: report() }; }
     for (const s of words) spans.push(s);
     for (const s of fragmentsIn(original)) spans.push(s);
+    /* #3995: and with the characters no key uses deleted, except whitespace: a held password with symbols in it,
+       given without its opening (Lm3p#Rt6w$Xy9k), is cut by them into runs under FRAGMENT_LEN. Whitespace stays,
+       so words are not joined across it. */
+    const unpunct = deleting(original, identity, /[^A-Za-z0-9_+/=\s-]+/g, (m) => [m.index, m.index + m[0].length]);
+    if (unpunct.str !== original) {
+      for (const s of fragmentsIn(unpunct.str)) spans.push([unpunct.map[s[0]], unpunct.map[s[1] - 1] + 1]);
+    }
     /* And in a copy with only single-character spacing closed up (review round 25): a key spaced one character
        at a time WITH words between its chunks ("Z q 8 v L m 3 p then w X y 9 ...") is neither. Not the copy above,
        which also joins line breaks and would carry a span into the next line's words. Only when the copy differs,

@@ -1308,3 +1308,33 @@ test('#3935 a key with - before its note, and a key glued with : on a line with 
     assert.equal(mask(t).text, t);
   } finally { setKnownSecrets([]); fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('#3995 a held key grouped with / + or =, spread past the reach limit, or cut by symbols without its opening is masked', () => {
+  const held = j('Zq8vLm3p', 'Rt6wXy9k', 'Hb2nWc4d');
+  const pw = j('Zq8v!Lm3p', '#Rt6w$Xy9k');
+  const long = j('Qm4tZr8wLp2x', 'Nc6vHb9yKd3sFg7j');
+  setKnownSecrets([held, pw, long]);
+  try {
+    const four = held.match(/.{4}/g);
+    const filler = ' which is the part you copy from the settings page of your account and paste into the box ';
+    const cases = [
+      ['grouped with /', `Key: ${four.join('/')} done`, four],
+      ['grouped with +', `Key: ${four.join('+')} done`, four],
+      ['grouped with =', `Key: ${four.join('=')} done`, four],
+      ['no opening, grouped', `the rest is ${four.slice(1, 5).join('/')}`, four.slice(1, 5)],
+      ['short = groups with words between', `Start ${four[0]}${four[1]} then ${four[2]}=${four[3]} then ${four[4]}=${four[5]} end`, four],
+      ['symbols, no opening', 'The end is Lm3p#Rt6w$Xy9k', ['Lm3p', 'Rt6w', 'Xy9k']],
+      ['pieces past the reach limit', long.match(/.{7}/g).map((c) => c + filler).join(''), long.match(/.{7}/g)],
+    ];
+    for (const [name, input, pieces] of cases) {
+      const r = mask(input);
+      for (const piece of pieces) assert.ok(!r.text.includes(piece), `${name}: the piece ${piece} survived: ${r.text}`);
+      assert.ok(r.text.includes(MASK), `${name}: nothing masked`);
+    }
+    /* Ordinary text with the same characters is left alone. */
+    const plain = 'See https://example.com/docs/api/v2 and note that 1/2 + 3 = 4, a+b=c, and/or TCP/IP. The end is near!';
+    assert.equal(mask(plain).text, plain);
+    const spread = 'Qm4tZr8' + filler + 'nothing else here' + filler.repeat(3);
+    assert.ok(mask(spread).text.includes('nothing else here'), 'one piece alone swallowed the text after it');
+  } finally { setKnownSecrets([]); }
+});
