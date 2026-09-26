@@ -199,12 +199,12 @@ if (args[0] === 'devices') {
 if (args[0] === 'retire' && mode.includes('hung-retire')) { const until = Date.now() + 15000; while (Date.now() < until) { /* wait */ } }
 // A definite refusal: Kosmos+ answered, and it will not retire this key.
 // The tunnel's own sentences for a retire (crates/tunnel coordinator.rs signed_request).
-if (args[0] === 'retire' && mode.includes('retire-refused')) { process.stderr.write('Kosmos+ refused this Mac: this Mac was retired; set Kosmos up again to give it a new key (HTTP 401 on /v1/mac/retire)\\n'); process.exit(1); }
-if (args[0] === 'retire' && mode.includes('retire-down')) { process.stderr.write('Kosmos+ unreachable for /v1/mac/retire: connection refused\\n'); process.exit(1); }
-if (args[0] === 'retire' && mode.includes('retire-429')) { process.stderr.write('Kosmos+ refused this Mac: too many requests; wait a minute (HTTP 429 on /v1/mac/retire)\\n'); process.exit(1); }
+if (args[0] === 'retire' && mode.includes('retire-refused')) { process.stderr.write('Error: Kosmos+ refused this Mac: this Mac was retired; set Kosmos up again to give it a new key (HTTP 401 on /v1/mac/retire)\\n'); process.exit(1); }
+if (args[0] === 'retire' && mode.includes('retire-down')) { process.stderr.write('Error: Kosmos+ unreachable for /v1/mac/retire: connection refused\\n'); process.exit(1); }
+if (args[0] === 'retire' && mode.includes('retire-429')) { process.stderr.write('Error: Kosmos+ refused this Mac: too many requests; wait a minute (HTTP 429 on /v1/mac/retire)\\n'); process.exit(1); }
 // A gateway's error page: the tunnel prints the raw body, many lines, when it is not the API's JSON.
 if (args[0] === 'retire' && mode.includes('retire-502html')) { process.stderr.write('Error: Kosmos+ answered 502 for /v1/mac/retire: <html>\\n<head><title>502 Bad Gateway</title></head>\\n<body>Bad Gateway</body>\\n</html>\\n'); process.exit(1); }
-if (args[0] === 'retire' && mode.includes('retire-5xx')) { process.stderr.write('Kosmos+ answered 503 for /v1/mac/retire: unavailable\\n'); process.exit(1); }
+if (args[0] === 'retire' && mode.includes('retire-5xx')) { process.stderr.write('Error: Kosmos+ answered 503 for /v1/mac/retire: unavailable\\n'); process.exit(1); }
 // A retire that worked prints the coordinator's answer, as the real one does.
 if (args[0] === 'retire') { console.log(JSON.stringify({ retired: true })); process.exit(0); }
 if (args[0] === 'run') {
@@ -1546,6 +1546,7 @@ test('#3827: after a Sign out, a stale Try again at the same name does not switc
   const stale = await remote.signinRegister('hers');
   assert.equal(stale.ok, false, 'a Try again with no session undid the Sign out');
   assert.equal(remote.read().on, false, 'the switch came back on');
+  assert.match(stale.because, /already signed in as hers\.kosmos\.invalid; turn Kosmos. on/, 'a set-up Mac was sent back to the code steps: ' + stale.because);
 });
 
 test('#3827: the Settings setup gets the same stranded-name answer', async () => {
@@ -1682,6 +1683,32 @@ test('#3827: the Settings setup also keeps a half identity whose retire got no a
     process.stderr.write = orig;
     delete process.env.FAKE_TUNNEL_MODE;
     delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    remote.setOn(false);
+    await remote.forget();
+  }
+});
+
+test('#3827: a Settings setup in flight blocks the in-app register, turning on and the device verbs', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  process.env.FAKE_TUNNEL_MODE = 'slow-setup';
+  try {
+    await remote.setupStart('her@example.com');
+    const setting = remote.setupComplete('123456', 'hers');
+    await remote.signinStart('her@example.com').catch(() => null);
+    for (const [label, step] of [
+      ['register', () => remote.signinRegister('theirs')],
+      ['on', () => remote.setOn(true)],
+      ['relay', () => remote.setRelay('127.0.0.1:9555')],
+      ['allow', () => remote.deviceAllow('dev-1', 'iPhone')],
+      ['second reset', () => remote.secondReset()],
+    ]) {
+      const r = await step();
+      assert.equal(r.ok, false, label + ' ran beside a Settings setup still out');
+      assert.match(r.because, /still signing in/, label);
+    }
+    assert.equal((await setting).ok, true, 'fixture: the Settings setup finished');
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
     remote.setOn(false);
     await remote.forget();
   }

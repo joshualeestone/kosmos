@@ -1424,6 +1424,12 @@ async function signinRegister(name) {
   // certificate takes about a minute) finishes, clears the session and is set up;
   // a Try again at the same name is answered above, not sent to the code steps.
   if (!signinSession || typeof signinSession.token !== 'string') {
+    // Already set up at exactly this name, switched off, no sign-in running (a
+    // stale Try again, a board restart): the code steps would change nothing.
+    const have = enrolled() ? address() : null;
+    if (have && have.split('.')[0] === name) {
+      return { ok: false, because: 'this computer is already signed in as ' + have + '; turn Kosmos+ on in Settings to be reachable' };
+    }
     return { ok: false, because: 'finish the code steps first' };
   }
   secureStateDir();
