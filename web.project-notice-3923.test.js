@@ -69,6 +69,12 @@ function rows(verdicts) {
     board.restore();
   }
 }
+/** The whole real project (as the page's PROJECTS holds it) for the verdicts given. */
+function projectWith(verdicts) {
+  const agents = rows(verdicts);
+  const p = projects.readAll()[projects.readAll().length - 1];
+  return { id: p.id, agents };
+}
 // The words a person reads: the decorative (aria-hidden) hazard mark is not one of them.
 const text = (html) => html.replace(/<span class="haz" aria-hidden="true">!<\/span>/, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -112,7 +118,8 @@ test('#3923: several agents: the header counts, each row carries its own why and
   }));
   assert.match(text(html), /^Three agents do not have this project’s folder\./);
   assert.equal((html.match(/class="pnrow"/g) || []).length, 3, 'one row per failing agent; the told one says nothing');
-  assert.equal((html.match(/Try again/g) || []).length, 1, 'only leo (Wait) gets a button');
+  assert.equal((html.match(/data-pn-retry=/g) || []).length, 1, 'only leo (Wait) gets a button');
+  assert.match(html, /aria-label="Try again for leo"/, 'each button names its agent for a screen reader');
   assert.match(html, /<span class="pnwho">leo<\/span><span class="pnwhy">We could not write to its instructions\./);
   assert.match(html, /<span class="pnwho">casey<\/span><span class="pnwhy">Kosmos only keeps instructions for agents it made, and casey came from somewhere else\./);
   assert.doesNotMatch(html, /bob/);
@@ -164,4 +171,61 @@ test('#3923: names are escaped', () => {
   const html = pjNotice([{ ...real, name: '<img src=x>' }]);
   assert.doesNotMatch(html, /<img/);
   assert.match(html, /&lt;img src=x&gt;/);
+});
+
+/* The Try again listener, run as the page has it, against a stand-in page. */
+function retryHandler(state) {
+  const sig = "document.getElementById('pj-one-notice').addEventListener('click', ";
+  const at = PAGE.indexOf(sig);
+  assert.ok(at > 0, 'the Try again listener moved; re-anchor');
+  const body = PAGE.slice(at + sig.length, PAGE.indexOf('\n});', at) + 2).replace(/PJ_CURRENT/g, 'state.PJ_CURRENT');
+  // eslint-disable-next-line no-new-func
+  return new Function('state', 'document', 'fetch', 'loadProjects', 'PROJECTS', 'PJ_NOTICE_TRIED', 'window', 'CSS',
+    'return ' + body + ';')(state, state.document, state.fetch, state.loadProjects, state.PROJECTS, state.tried, {}, undefined);
+}
+function standIn(project, { rowAfter = true, switchTo = null } = {}) {
+  const log = [];
+  const btn = { dataset: { pnRetry: project.agents[0].sessionName }, disabled: false, closest() { return this; } };
+  const again = { focus() { log.push('focus:again'); } };
+  const attrs = {};
+  const heading = { focus() { log.push('focus:heading'); }, hasAttribute: (k) => k in attrs, setAttribute: (k, v) => { attrs[k] = v; } };
+  const box = { __lastLive: 'x', querySelector: () => (rowAfter ? again : null) };
+  const state = {
+    PJ_CURRENT: project.id, PROJECTS: [project], tried: new Map(), log, btn, attrs,
+    document: { getElementById: () => box, querySelector: () => heading },
+    fetch: async (url, opts) => { log.push('fetch:' + opts.method + ' ' + url + ' disabled=' + btn.disabled); if (switchTo) state.PJ_CURRENT = switchTo; return {}; },
+    loadProjects: async () => { log.push('load live=' + box.__lastLive); },
+  };
+  return state;
+}
+
+test('#3923: Try again re-tells with ?retell=1, repaints, marks the answer, and puts focus back', async () => {
+  const project = projectWith({ leo: 'we could not write to its instructions' });
+  const st = standIn(project);
+  await retryHandler(st)({ target: st.btn });
+  assert.deepEqual(st.log, [
+    'fetch:POST /api/project/' + encodeURIComponent(project.id) + '/agent/leo?retell=1 disabled=true',
+    'load live=null',
+    'focus:again',
+  ]);
+  assert.equal(st.btn.disabled, false, 'the button stays dead after the repaint');
+  assert.equal(st.tried.get('leo'), 'we could not write to its instructions', 'the answer before the retry is remembered');
+});
+
+test('#3923: when the row is gone focus goes to the Members heading; after a project switch it goes nowhere', async () => {
+  const project = projectWith({ leo: 'we could not write to its instructions' });
+  const gone = standIn(project, { rowAfter: false });
+  await retryHandler(gone)({ target: gone.btn });
+  assert.equal(gone.log[gone.log.length - 1], 'focus:heading');
+  assert.equal(gone.attrs.tabindex, '-1', 'the heading must be focusable to take focus');
+
+  const moved = standIn(project, { switchTo: 'another-project' });
+  await retryHandler(moved)({ target: moved.btn });
+  assert.ok(!moved.log.some((l) => l.startsWith('focus:')), 'focus moved into a project the person had left: ' + moved.log);
+  assert.equal(moved.btn.disabled, false);
+
+  // CONTROL: a click that is not on a Try again does nothing at all.
+  const idle = standIn(project);
+  await retryHandler(idle)({ target: { closest: () => null } });
+  assert.deepEqual(idle.log, []);
 });

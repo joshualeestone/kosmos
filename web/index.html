@@ -43716,8 +43716,8 @@ function pjToldLine(told) {
   // for the expected thing earns no space on a page a person lives on.
   // The told sentence and its conditional hedge retired together; silence
   // claims nothing, which is why it is the honest form of success here.
-  // FAILURE still speaks below -- interim until the project notice is
-  // drawn (exit dependency tracked on Splinter's board).
+  // FAILURE still speaks here, for the Settings members list only: the project page says it in
+  // the project notice (#3923).
   if (told.state === 'could_not') {
     return 'We could not update this agent about this folder: ' + esc(told.because || 'we could not write to its instructions') + '.';
   }
@@ -43772,14 +43772,14 @@ function pjNoticeRow(m, solo) {
   const hit = PJ_NOTICE.find(([re]) => re.test(because));
   if (!hit) {
     // Unknown cause: its own sentence and one honest retry.
-    return { shape: 'wait', why: pjSentence(because) || 'We could not update ' + (solo ? name : 'it') + '.', fix: '', name, key: m.sessionName };
+    return { shape: 'wait', why: pjSentence(because) || 'We could not update ' + (solo ? name : 'it') + '.', fix: '', name, key: m.sessionName, because };
   }
   const [, shape, why, fix] = hit;
-  return { shape, why: why(solo ? name : null, name), fix: fix ? fix(name) : '', name, key: m.sessionName };
+  return { shape, why: why(solo ? name : null, name), fix: fix ? fix(name) : '', name, key: m.sessionName, because };
 }
 /* The row's sentence after a Try again that did not change the answer. */
-function pjNoticeStill(r, because) {
-  return PJ_NOTICE_TRIED.get(r.key) === because ? ' It still did not work.' : '';
+function pjNoticeStill(r) {
+  return PJ_NOTICE_TRIED.get(r.key) === r.because ? ' It still did not work.' : '';
 }
 
 /** The whole notice: '' when every agent has the folder. */
@@ -43796,11 +43796,11 @@ function pjNotice(roster) {
   const head = solo
     ? esc(rows[0].name) + ' does not have this project\u2019s folder.'
     : (PJ_NOTICE_COUNT[rows.length] || String(rows.length)) + ' agents do not have this project\u2019s folder.';
-  const body = rows.map((r, i) => '<div class="pnrow">'
+  const body = rows.map((r) => '<div class="pnrow">'
     + (solo ? '' : '<span class="pnwho">' + esc(r.name) + '</span>')
-    + '<span class="pnwhy">' + esc(r.why + pjNoticeStill(r, String(failing[i].told.because || ''))) + (r.fix ? ' <b class="pnfix">' + esc(r.fix) + '</b>' : '') + '</span>'
+    + '<span class="pnwhy">' + esc(r.why + pjNoticeStill(r)) + (r.fix ? ' <b class="pnfix">' + esc(r.fix) + '</b>' : '') + '</span>'
     + (r.shape === 'wait' || r.shape === 'retry'
-      ? '<button class="qopt" type="button" data-pn-retry="' + esc(r.key) + '">Try again</button>' : '')
+      ? '<button class="qopt" type="button" data-pn-retry="' + esc(r.key) + '" aria-label="' + esc('Try again for ' + r.name) + '">Try again</button>' : '')
     + '</div>').join('');
   return '<span class="haz" aria-hidden="true">!</span><div class="pn-b"><b>' + head + '</b>' + body + '</div>';
 }
@@ -47408,9 +47408,7 @@ function paintOneProject() {
   // agent's only project even when archived -- is stated THERE now; the
   // pack's pjone rebuild decides whether the detail itself says it too.
 
-  // Identical verdicts across a 2+ roster are said once, below the list,
-  // instead of once per member (the three-identical-sentences weight the
-  // pack comparison surfaced). Mixed or singleton rosters keep per-member.
+  // #3923: every verdict is said once, in the project notice above the list; the rows say none.
   const roster = p.agents || [];
   /* #176's room half, painted from the SAME roster the members column is drawn
      from a line below, so the two cannot disagree about who is on the project.
@@ -53282,21 +53280,23 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
   const btn = e.target && e.target.closest ? e.target.closest('[data-pn-retry]') : null;
   if (!btn || !PJ_CURRENT) return;
   const key = btn.dataset.pnRetry;
+  const project = PJ_CURRENT;   // a switch while this runs must not move focus into another project
   const box = document.getElementById('pj-one-notice');
   btn.disabled = true;
   let before = '';
   try {
-    const p = (PROJECTS || []).find((x) => x && x.id === PJ_CURRENT);
+    const p = (PROJECTS || []).find((x) => x && x.id === project);
     const m = p ? (p.agents || []).find((a) => a && a.sessionName === key) : null;
     before = String((m && m.told && m.told.because) || '');
   } catch { /* no remembered answer: nothing is marked as "still" */ }
   try {
-    await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/agent/' + encodeURIComponent(key) + '?retell=1', { method: 'POST' });
+    await fetch('/api/project/' + encodeURIComponent(project) + '/agent/' + encodeURIComponent(key) + '?retell=1', { method: 'POST' });
   } catch { /* the repaint below shows where it stands */ }
   PJ_NOTICE_TRIED.set(key, before);
   box.__lastLive = null;   // repaint even when the answer is word for word the same
   await loadProjects();
   btn.disabled = false;
+  if (PJ_CURRENT !== project) return;
   const again = box.querySelector('[data-pn-retry="' + (window.CSS && CSS.escape ? CSS.escape(key) : key) + '"]');
   const heading = document.querySelector('.pjcard-members > .dlab');
   if (again) again.focus();
