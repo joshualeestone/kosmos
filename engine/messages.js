@@ -408,7 +408,11 @@ function externalPost(projectId, { from, fromKind, text }) {
     from: externalName(from, EXTERNAL_FROM_MAX),
     fromKind: fromKind === 'agent' ? 'agent' : 'person',
     external: true,
-    text: String(text == null ? '' : text).replace(/\t/g, ' ').replace(EXTERNAL_CONTROL, '').replace(/[\u202a-\u202e\u2066-\u2069]/g, '').slice(0, EXTERNAL_TEXT_MAX),
+    // Every format character goes (\p{Cf}: bidi controls, LRM/RLM, zero-widths,
+    // soft hyphen, BOM), as from names; newlines stay. A family emoji built with
+    // zero-width joiners shows as its separate parts, a fair price for words
+    // from outside.
+    text: String(text == null ? '' : text).replace(/\t/g, ' ').replace(EXTERNAL_CONTROL, '').replace(/\p{Cf}/gu, '').slice(0, EXTERNAL_TEXT_MAX),
     at: new Date().toISOString(),
   };
   if (!row.text.trim() || !rowShaped(row)) return null;

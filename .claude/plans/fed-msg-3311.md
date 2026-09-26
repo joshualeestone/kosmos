@@ -282,3 +282,6 @@ not count).
 - WARNING: owner_handle ("Shared by") is cleaned like every outside name. Test; control fails.
 - DEFERRED to kosmos#3851: a stale link reviving on a reused id after an unreadable federation.json; outside rows reusing local avatar tints.
 - NITs left: macLevel carried across a non-3 exit; "leaves it" wording on an ended link; NFKC does not fold cross-script homoglyphs (comment to be reworded).
+
+## Round 22 (sonnet)
+- WARNING: message bodies from outside kept LRM/RLM, zero-widths, soft hyphen and BOM (only overrides/isolates were stripped); names already lost them. Bodies now lose every \p{Cf}, newlines kept (a ZWJ family emoji shows as its parts). Test; control with the old strip fails.

@@ -81,3 +81,10 @@ test('#3311: a name from outside cannot hide invisible characters to pass for a 
     assert.equal(row.from, 'Splinter', 'an invisible or lookalike character survived in ' + JSON.stringify(from) + ' -> ' + JSON.stringify(row.from));
   }
 });
+
+test('#3311: a message body from outside loses invisible and direction characters but keeps its paragraphs', () => {
+  const row = messages.externalPost('proj-body-cf', { from: 'Grace', fromKind: 'person', text: 'pay\u200b to\u00ad \u200eX\u200f\ufeff\nsecond line' });
+  assert.ok(row, 'fixture: the row was stored');
+  assert.ok(!/[\u200b\u00ad\u200e\u200f\ufeff]/.test(row.text), 'an invisible or direction character survived: ' + JSON.stringify(row.text));
+  assert.ok(row.text.includes('\n'), 'the paragraph break was lost');
+});
