@@ -168,8 +168,7 @@ while "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; do
       # (supervisor.adopt-grok-3953.test.js runs this against every name it accepts).
       if [[ "$pane_cmd" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
         || [ "$pane_cmd" = claude ] || [ "$pane_cmd" = claude.exe ] || [ "$pane_cmd" = node ] \
-        || [ "$pane_cmd" = codex ] || [ "$pane_cmd" = codex.exe ] || [ "$pane_cmd" = agy ] \
-        || [ "$pane_cmd" = grok-native ] || [ "$pane_cmd" = grok ] || [ "$pane_cmd" = grok.exe ]; then
+        || [ "$pane_cmd" = codex ] || [ "$pane_cmd" = codex.exe ] || [ "$pane_cmd" = agy ] || [ "$pane_cmd" = grok-native ] || [ "$pane_cmd" = grok ] || [ "$pane_cmd" = grok.exe ]; then
         alive=1
       fi
     done <<EOF
