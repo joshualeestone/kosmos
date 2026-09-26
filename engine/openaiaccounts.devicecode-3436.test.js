@@ -205,9 +205,10 @@ test('the win32 device-code sign-in waits 14 minutes; a browser sign-in keeps 5'
 test('the watchdog uses the longer wait only for a win32 device sign-in', async (t) => {
   // Short stand-ins for the two waits, restored after, so the arm runs in well under a second.
   const BROWSER_WAIT_MS = 150;
+  const DEVICE_WAIT_MS = 60 * 1000;
   /* The device wait is long here on purpose: a stand-in slow to print must fail on the wait below
      (naming 'starting'), never on this watchdog, whose error text is the same as the browser one. */
-  openai.setChatgptTimers({ timeout: BROWSER_WAIT_MS, deviceTimeout: 60 * 1000 });
+  openai.setChatgptTimers({ timeout: BROWSER_WAIT_MS, deviceTimeout: DEVICE_WAIT_MS });
   t.after(() => openai.setChatgptTimers({ timeout: 5 * 60 * 1000, deviceTimeout: 14 * 60 * 1000 }));
   const startedAt = Date.now();
   const win = startWithStandin({ say: MEASURED_DEVICE_OUT, platform: 'win32', mode: 'browser' }).r;
@@ -220,9 +221,10 @@ test('the watchdog uses the longer wait only for a win32 device sign-in', async 
     await waitFor(win.sessionId, (x) => x.state === 'awaiting-code' || x.state === 'error');
     const m = await waitFor(mac.sessionId, (x) => x.state === 'error');
     assert.equal(m.error, 'the OpenAI sign-in timed out');
-    /* Read now. The Windows watchdog was armed before the Mac one, and node fires timers of the same
-       length in the order they were set, so had Windows been given the browser wait it would already
-       have errored by the time the Mac one did. Staying in awaiting-code means the device wait. */
+    /* Read now. Both watchdogs were armed within a millisecond of each other (two synchronous
+       starts), and the Mac error is seen through waitFor's 25ms poll, so had Windows been given the
+       browser wait it would already have errored too, in either start order (measured both ways).
+       Staying in awaiting-code means the device wait. */
     const w = openai.chatgptLoginStatus(win.sessionId);
     assert.equal(w.state, 'awaiting-code', 'the Windows device sign-in was timed out on the browser wait ('
       + JSON.stringify(w.error || null) + ', ' + (Date.now() - startedAt) + 'ms after start)');

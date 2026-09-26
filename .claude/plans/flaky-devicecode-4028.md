@@ -15,8 +15,9 @@ Reproduced: a stand-in that prints 400ms late fails the old test with actual 'st
 
 ## Change (test only)
 - Wait for the Windows session to reach awaiting-code (or error) before anything else.
-- Then read it as soon as the Mac one has errored: the Windows watchdog was armed first, and node
-  fires same-length timers in the order set, so a browser-wait Windows would already be in error.
+- Then read it as soon as the Mac one has errored: both watchdogs are armed within a millisecond
+  (two synchronous starts) and the Mac error is observed through a 25ms poll, so a browser-wait
+  Windows would already be in error, in either start order (the reviewer measured both).
 - The device wait in this test is 60s (was 5s), so a slow stand-in fails on the wait for its code,
   naming 'starting', never on a watchdog whose error text matches the browser one.
 - The failure message carries the session's error, so a real timeout names itself.
@@ -40,3 +41,10 @@ test's 5s device wait, which failed with a message blaming the browser wait; now
 - NIT: the 3 x 150ms settle's comment gave the wrong reason for certainty --> removed; the reason
   (timer order) is stated. NIT: the test bounds the device wait below by ~150ms, not at its value;
   the value is pinned by the chatgptLoginTimeoutMs test. Kept.
+
+## Iteration 2 (sonnet)
+- Confirmed: old test 16/16 failures at 4x parallel load, new 20/20 passes; the engine
+  perturbation reds 28/28, including with the two starts swapped.
+- WARNING: the comment credited timer ARM ORDER; the margin is the 25ms poll against a sub-ms gap
+  between the starts, and order does not matter --> comment and plan corrected.
+- NIT: DEVICE_WAIT_MS named. NIT: plan-name timestamp, the repo's prevailing form; kept.
