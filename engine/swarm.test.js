@@ -604,6 +604,12 @@ test('#3946: limitFromAllowance and rederiveLimits keep the token limit in step 
   assert.equal(swarm.settingsOf(store.pct).dailyAllowancePct, 3, 'the % was lost in the rewrite');
 });
 
+test('#3946: a stopped swarm\'s card carries its account\'s calibration, so it keeps its % on screen', () => {
+  const p = swarm.birthProfile({ dailyTokenLimit: 3e6, dailyAllowancePct: 3 });
+  assert.equal(swarm.offlineCardField(p, { tokensPerPoint: 1e6 }).allowanceCalibrated, true);
+  assert.equal(swarm.offlineCardField(p).allowanceCalibrated, false, 'CONTROL: no calibration given reads uncalibrated');
+});
+
 test('#3946: cardField carries the % and whether the account is calibrated', () => {
   const f = swarm.cardField(swarm.birthProfile({ dailyTokenLimit: 3e6, dailyAllowancePct: 3 }), () => null, Date.now(), null, { tokensPerPoint: 1e6 + 0.4 });
   assert.equal(f.dailyAllowancePct, 3);

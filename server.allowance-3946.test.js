@@ -68,6 +68,9 @@ test('#3946 PUT: a % on a calibrated account is its tokens at once; uncalibrated
   const su = swarm.settingsOf(store.readProfile('uncal'));
   assert.deepEqual([su.dailyAllowancePct, su.dailyTokenLimit], [4, 1000], 'an uncalibrated account got a token number from nowhere');
   assert.equal((await put('/api/agent/cal/swarm', { dailyAllowancePct: 50 })).status, 400);
+  // A % sent with a token number: on a calibrated account the tokens are the account's, not the ones sent.
+  assert.equal((await put('/api/agent/cal/swarm', { dailyAllowancePct: 5, dailyTokenLimit: 1 })).status, 200);
+  assert.equal(swarm.settingsOf(store.readProfile('cal')).dailyTokenLimit, 5e6, 'a token number sent with a % was kept');
 });
 
 test('#3946 sweep: the account\'s tokens today over the figure\'s movement re-derive a % swarm\'s limit', () => {

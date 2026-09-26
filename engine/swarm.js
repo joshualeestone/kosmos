@@ -435,8 +435,8 @@ function cardField(profile, transcriptFor, now = Date.now(), owns = null, calibr
    no transcript. Without it a stopped swarm reached the board with no `swarm` field and was drawn as a
    plain agent (Mona Lisa, review of #3690). The daily-limit sweep never sees these rows: it reads the
    running roster only. Null for an ordinary agent. */
-function offlineCardField(profile) {
-  return cardField(profile, () => null);
+function offlineCardField(profile, calibration = null) {
+  return cardField(profile, () => null, undefined, null, calibration);
 }
 
 /** The settings after a pause for `because` ("limit" or "stopped") at `now`. */

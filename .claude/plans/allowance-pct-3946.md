@@ -17,8 +17,12 @@ held to, and puts it on screen.
 - It is trusted only when the figure moved at least MIN_POINTS today. Before that,
   the last trusted value is used, and it is stored per account and kept for up to a week.
 - Which way the errors run, stated per error rather than as one direction:
-  - Use outside Kosmos (claude.ai, another computer) moves the figure with no Kosmos
-    tokens behind it, so a point looks cheaper: the swarm pauses early.
+  - Use outside Kosmos (claude.ai, another computer, another Kosmos world on the same
+    account) moves the figure with no Kosmos tokens behind it, so a point looks cheaper:
+    the swarm pauses early. This one is NOT small or bounded: on an account used mostly
+    outside Kosmos, a point can look many times cheaper than it is, and a "3%" swarm can
+    pause far sooner than 3% of the week. Accepted because it is the direction Josh asked
+    for ("a very low percentage"); no floor is invented for it.
   - The figure is a whole number, so the points moved can be under-read by up to one.
     Tokens are divided by points + 1, which leans the same way (early).
   - A figure that lags the tokens (the provider updates it later than Kosmos counts)

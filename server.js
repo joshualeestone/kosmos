@@ -4243,7 +4243,16 @@ const server = http.createServer((req, res) => {
                 profile,
                 /* #3564: a swarm that is not running is still a swarm (its settings, unmeasured), so the
                    screen offers its On/Off and not the provider switch create refuses for a swarm. */
-                swarm: (() => { try { return require('./engine/swarm').offlineCardField(profile); } catch { return null; } })(),
+                swarm: (() => {
+                  try {
+                    const sw = require('./engine/swarm');
+                    if (!sw.settingsOf(profile)) return null;
+                    /* #3946: its account's calibration too, so a stopped % swarm keeps its % on screen. */
+                    let cal = null;
+                    try { cal = require('./engine/allowance').readCalibration(require('./engine/status').claudeAccountDirOf(k.name)); } catch { cal = null; }
+                    return sw.offlineCardField(profile, cal);
+                  } catch { return null; }
+                })(),
                 plannedModelName: plannedFor({ sessionName: k.name, isNamedOurs: true }),
                 /* #149/#150: same field the roster rows carry, same meaning.
                    A stopped agent with no launch file is exactly the state
@@ -5364,8 +5373,9 @@ const server = http.createServer((req, res) => {
         const problem = swarm.patchProblem(body);
         if (problem) { sendJson(res, 400, { ok: false, because: problem }); return; }
         /* #3946: a new share of the weekly allowance takes effect now on a calibrated account,
-           not a minute later at the next sweep; uncalibrated, the token limit stands. */
-        if (body.dailyAllowancePct && !('dailyTokenLimit' in body)) {
+           not a minute later at the next sweep, and its tokens are the account's, whatever
+           token number came with it; uncalibrated, the token limit stands. */
+        if (Number.isInteger(body.dailyAllowancePct)) {
           let cal = null;
           try { cal = require('./engine/allowance').readCalibration(require('./engine/status').claudeAccountDirOf(name)); } catch { cal = null; }
           const t = swarm.limitFromAllowance(body.dailyAllowancePct, cal);
