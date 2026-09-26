@@ -3,6 +3,11 @@
 /**
  * The top-left toast, in the state where an update landed behind an open tab.
  *
+ * #3955 (Josh, 2026-09-26: "It looks terrible and it's gigantic ... it says 'You're looking at the
+ * previous version.' That doesn't make sense"; Mona Lisa's mock): both update states are now one
+ * small chip with one action. The page-is-old state reads "Reload to finish updating" and never
+ * says "Kosmos updated" while the old page is on screen; the offer reads "An update is available".
+ *
  * 🛑 JOSH ASKED FOR THIS IN HIS OWN WORDS, 2026-08-22: "maybe if we push an
  * update we still pop the message at the top left to say, Kosmos has been
  * updated. Refresh your browser to install it". The wording moved because by
@@ -27,7 +32,7 @@ function toast({ baked, served, offer, updating = false, later = null, engine = 
     querySelector: () => (baked === undefined ? null : { getAttribute: () => baked }),
   };
   new Function('document', 'esc', 'UPDATING_NOW', 'SERVED_VERSION', 'updateLaterSuppresses', 'UPD_CONFIRM_OPENER', 'OFFER', 'ENGINE_STALE',
-    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'renderUpdateToast'])
+    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'updateSafeReload', 'renderUpdateToast'])
     + '\nrenderUpdateToast(OFFER);')(doc, (x) => String(x), updating, served, (v) => later === v, null, offer, engine);
   return { html: slot.innerHTML, v: slot.dataset.v, listeners };
 }
@@ -51,9 +56,10 @@ test('a board running older engine code than the disk says so, and outranks both
 
 test('a page older than the running Kosmos says so, and offers the one thing that fixes it', () => {
   const t = toast({ baked: '0.2.75', served: '0.2.76' });
-  assert.match(t.html, /Kosmos updated/);
-  assert.match(t.html, /You are looking at the previous version/);
-  assert.match(t.html, /ut-reload/);
+  assert.match(t.html, /Reload to finish updating/);
+  assert.match(t.html, /id="ut-reload">Reload</);
+  /* #3955: "Kosmos updated" over the old page read as done, and "previous version" as nonsense. */
+  assert.doesNotMatch(t.html, /Kosmos updated|previous version/, 'the old page claimed the update was done');
 });
 
 test('it does not say install, and it does not say refresh your browser', () => {
@@ -73,24 +79,29 @@ test('one action: no Later and nothing to close', () => {
   assert.equal((t.html.match(/<button/g) || []).length, 1);
 });
 
-test('it carries no version number, and the shipped toast still does', () => {
-  /* 📌 "You are looking at the previous version" is true and actionable without
-     one, and both numbers are on the Settings line for anybody who wants them. */
+test('#3955: neither chip carries a version number (the confirm and Settings name it)', () => {
   const stale = toast({ baked: '0.2.75', served: '0.2.76' });
   assert.ok(!/0\.2\.7[56]/.test(stale.html));
   const offer = toast({ baked: '0.2.76', served: '0.2.76', offer: { version: '0.2.77' } });
-  assert.match(offer.html, /Kosmos 0\.2\.77/, 'the offer stopped naming the version it is offering');
+  assert.match(offer.html, /An update is available/);
+  assert.ok(!/0\.2\.77/.test(offer.html), 'the chip grew a version number back');
 });
 
-test('the two states are one component in two tones', () => {
+test('#3955: the offer is one small chip with one action, Update (no Later)', () => {
+  const offer = toast({ baked: '0.2.76', served: '0.2.76', offer: { version: '0.2.77' } });
+  assert.equal((offer.html.match(/<button/g) || []).length, 1);
+  assert.match(offer.html, /id="ut-install">Update</);
+  assert.doesNotMatch(offer.html, /ut-later|Later/);
+});
+
+test('#3955: both states are the one chip component (Mona Lisa\'s mock A and B)', () => {
   const stale = toast({ baked: '0.2.75', served: '0.2.76' });
   const offer = toast({ baked: '0.2.76', served: '0.2.76', offer: { version: '0.2.77' } });
-  assert.match(stale.html, /class="utoast stale"/);
-  assert.match(offer.html, /class="utoast"/);
-  /* The tone is a variable on the component, not a second component. */
+  assert.match(stale.html, /^<div class="uchip" role="status">/);
+  assert.match(offer.html, /^<div class="uchip" role="status">/);
+  assert.match(PAGE, /\.uchip \{ display: inline-flex;[^}]*height: 30px;/, 'the chip is not the small one-line shape');
+  // The engine state keeps its own (unchanged) look.
   assert.match(PAGE, /\.utoast\.stale \{ --utone: var\(--label-2\); \}/);
-  assert.match(PAGE, /:root:not\(\[data-theme="light"\]\) \.utoast\.stale \{ --utone: var\(--label-2\); \}/);
-  assert.match(PAGE, /:root\[data-theme="dark"\] \.utoast\.stale \{ --utone: var\(--label-2\); \}/);
 });
 
 test('when both are true, the reload state wins', () => {
@@ -99,8 +110,8 @@ test('when both are true, the reload state wins', () => {
      compounds the staleness rather than resolving it, and the person would be
      acting on a screen already wrong about what it is. */
   const t = toast({ baked: '0.2.75', served: '0.2.76', offer: { version: '0.2.77' } });
-  assert.match(t.html, /Kosmos updated/);
-  assert.ok(!/Update available/.test(t.html), 'it offered an install from a page that is already behind');
+  assert.match(t.html, /Reload to finish updating/);
+  assert.ok(!/update is available/.test(t.html), 'it offered an install from a page that is already behind');
 });
 
 test('an install in flight owns the slot', () => {
@@ -127,10 +138,45 @@ test('the same page is not repainted every five seconds', () => {
     querySelector: () => ({ getAttribute: () => '0.2.75' }),
   };
   const run = new Function('document', 'esc', 'UPDATING_NOW', 'SERVED_VERSION', 'updateLaterSuppresses', 'ENGINE_STALE',
-    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'renderUpdateToast'])
+    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'updateSafeReload', 'renderUpdateToast'])
     + '\nreturn renderUpdateToast;')(doc, (x) => String(x), false, '0.2.76', () => false, null);
   run(null);
   slot.innerHTML = 'MARKED';
   run(null);
   assert.equal(slot.innerHTML, 'MARKED', 'the toast repainted itself over an unchanged state');
+});
+
+/* #3955: the page reloads itself, but only when that cannot lose anything. */
+function safeReload({ hidden = true, served = '0.2.76', sending = {}, drafts = {}, textareas = [], modal = false, already = null } = {}) {
+  const store = { 'kosmos-auto-reloaded': already };
+  let reloaded = 0;
+  const doc = { hidden, querySelectorAll: (sel) => (sel === 'textarea' ? textareas.map((v) => ({ value: v })) : []) };
+  const ss = { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = v; } };
+  const win = { location: { reload: () => { reloaded += 1; } } };
+  const got = new Function('document', 'sessionStorage', 'window', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
+    'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen',
+    page.liftAll(SCRIPT, ['updateSafeReload']) + '\nreturn updateSafeReload(' + JSON.stringify(served) + ');')(
+    doc, ss, win, !!sending.talk, !!sending.pj, sending.reply || null, !!sending.term,
+    drafts.talk || {}, drafts.term || {}, drafts.pj || {}, drafts.room || {}, () => modal);
+  return { got, reloaded, store };
+}
+
+test('#3955: an old page in the background with nothing in hand reloads itself, once per version', () => {
+  const r = safeReload();
+  assert.equal(r.got, true);
+  assert.equal(r.reloaded, 1);
+  assert.equal(r.store['kosmos-auto-reloaded'], '0.2.76');
+  assert.equal(safeReload({ already: '0.2.76' }).reloaded, 0, 'a board that keeps serving an old page would make a reload loop');
+  assert.equal(safeReload({ already: '0.2.75' }).reloaded, 1, 'CONTROL: a newer version reloads again');
+});
+
+test('#3955: it never reloads a page someone is looking at, sending from, typing in, or reading a window over', () => {
+  assert.equal(safeReload({ hidden: false }).reloaded, 0, 'reloaded the page in front of the person');
+  assert.equal(safeReload({ sending: { talk: true } }).reloaded, 0, 'reloaded mid-send');
+  assert.equal(safeReload({ sending: { reply: { project: 'p', id: 1 } } }).reloaded, 0, 'reloaded mid-reply');
+  assert.equal(safeReload({ drafts: { talk: { april: 'half a thought' } } }).reloaded, 0, 'lost a draft');
+  assert.equal(safeReload({ drafts: { room: { p: { text: 'draft' } } } }).reloaded, 0, 'lost a room draft');
+  assert.equal(safeReload({ textareas: ['typed but not parked'] }).reloaded, 0, 'lost words in a box');
+  assert.equal(safeReload({ modal: true }).reloaded, 0, 'reloaded under an open window');
+  assert.equal(safeReload({ drafts: { talk: { april: '   ' } }, textareas: [''] }).reloaded, 1, 'CONTROL: blank drafts are not words');
 });

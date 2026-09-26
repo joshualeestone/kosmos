@@ -171,15 +171,15 @@ test('#3529: the unknown arm shows nothing, and still clears through the helper 
   assert.equal(el.innerHTML, first, 'the banner came back empty after the unknown arm cleared it');
 });
 
-test('#655: the updated-itself line lives in the header\'s notice slot in the toast\'s shape, and the row has no Not-running tile (#653)', () => {
+test('#655/#3955: the "Kosmos updated to X" line is gone (the update window replaced it), and the row has no Not-running tile (#653)', () => {
   const fs2 = require('node:fs');
   const page = fs2.readFileSync(require('node:path').join(__dirname, 'web', 'index.html'), 'utf8');
-  const slot = page.slice(page.indexOf('<div id="unote-slot">'), page.indexOf('<div id="uoffline-slot">'));
-  assert.match(slot, /<div class="utoast stale" id="newsbar" role="status" hidden>/, 'the news line is not in the header slot in the toast shape');
-  /* #655 + Josh 2026-08-24 16:50: the whole line is the link now (click to
-     see what changed), so newsbar-link WRAPS newsbar-text; the X closes it. */
-  assert.match(slot, /id="newsbar-link"[\s\S]*id="newsbar-text"[\s\S]*id="newsbar-ok"/, 'the line lost its text, link or dismiss');
-  assert.match(slot, /class="newsx"/, 'the dismiss is not the X');
+  /* #3955 (Josh: "Kosmos updated to 6.94 ... I never cleared it out"): the lingering line and its
+     slots are gone; after an update the "Kosmos has been updated" window says it once and clears. */
+  for (const id of ['newsbar', 'newsbar-link', 'newsbar-text', 'newsbar-ok', 'unews-slot', 'unote-slot']) {
+    assert.equal((page.match(new RegExp('id="' + id + '"', 'g')) || []).length, 0, '#' + id + ' is still in the page');
+  }
+  assert.doesNotMatch(page, /Kosmos updated to ' \+/, 'a painter still writes the old line');
   assert.equal((page.match(/class="newsbar"/g) || []).length, 0, 'the old full-width bar is still in the page');
   assert.equal((page.match(/id="st-off-tile"/g) || []).length, 0, 'the Not-running tile is still in the stats row');
   assert.doesNotMatch(page.slice(page.lastIndexOf('<script>')), /getElementById\('st-off/, 'a painter still writes the removed tile');

@@ -7760,42 +7760,14 @@ test("the update card's states are mutually exclusive, and the line is blank onl
 });
 
 test('the finish line names what actually landed, and only when something did', () => {
-  const src = pageFnSource('updatedNoteOnce');
-  const run = (stored, nowVersion) => {
-    const slot = { innerHTML: '' };
-    const store = { v: stored };
-    const clicks = {};
-    const sandbox = {
-      sessionStorage: {
-        getItem: () => store.v,
-        removeItem: () => { store.v = null; },
-      },
-      document: {
-        getElementById: (id) => (id === 'unote-slot' ? slot
-          : { addEventListener: (ev, fn) => { clicks[id] = fn; } }),
-      },
-      esc: (x) => String(x),
-    };
-    // eslint-disable-next-line no-new-func
-    new Function('sessionStorage', 'document', 'esc',
-      'let UPDATED_NOTE_DONE = false;\n' + src + '\nupdatedNoteOnce(arguments[3]);')(
-      sandbox.sessionStorage, sandbox.document, sandbox.esc, nowVersion);
-    return { slot, store };
-  };
-  // Version changed: the note names the version now installed.
-  const changed = run('0.1.8', '0.1.9');
-  assert.ok(changed.slot.innerHTML.includes('You are on Kosmos 0.1.9.'),
-    'the finish line does not name the landed version');
-  assert.ok(changed.slot.innerHTML.includes('Updated.'));
-  // No change: an installer that found nothing to do did not update
-  // anything, and saying so would be the stale label at the finish line.
-  const same = run('0.1.9', '0.1.9');
-  assert.equal(same.slot.innerHTML, '', 'an unchanged version still claimed Updated');
-  // No note stored: nothing renders.
-  const none = run(null, '0.1.9');
-  assert.equal(none.slot.innerHTML, '', 'a reload with no install note grew a toast');
-  // The note is consumed either way (no repeat on the next reload).
-  assert.equal(changed.store.v, null, 'the note survived its own rendering');
+  /* #3955: the finish line is now the "Kosmos has been updated" window, which names the version
+     running and opens only when that version is not the one recorded as seen: an installer that
+     found nothing to do changes no version and opens nothing. Its rules are pinned in
+     web.whatsnew-3955.test.js; here, that the old note is gone rather than showing twice. */
+  const fs2 = require('node:fs');
+  const page = fs2.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  assert.doesNotMatch(page, /function updatedNoteOnce|id="unote-slot"|Updated\.<\/b><small>You are on Kosmos/);
+  assert.match(page, /'Version ' \+ version/, 'the window does not name the version');
 });
 
 test('the check route is POST-only, and Check now clears the Later note before asking', async () => {
@@ -13588,6 +13560,24 @@ test('whats-new: first sight is silent-recordable, a change is reported, garbage
     body: JSON.stringify({ version: '<script>' }) });
   assert.equal(r.status, 400);
   assert.equal(JSON.parse((await req('/api/whats-new')).body).seen, '0.5.09', 'a refused write still changed the record');
+});
+
+test('#3955: /api/whats-new serves the release highlights only when web/whats-new.json is for the running version', async (t) => {
+  const whatsnew = require('./engine/whatsnew');
+  const os2 = require('node:os');
+  const fs2 = require('node:fs');
+  const dir = fs2.mkdtempSync(nodePath.join(os2.tmpdir(), 'wn-route-'));
+  const file = nodePath.join(dir, 'whats-new.json');
+  whatsnew.setFileForTests(file);
+  t.after(() => { whatsnew.setFileForTests(null); fs2.rmSync(dir, { recursive: true, force: true }); });
+  const current = JSON.parse((await req('/api/whats-new')).body).current;
+  const h = [{ icon: 'spark', title: 'A thing', line: 'It does a thing.' }];
+  fs2.writeFileSync(file, JSON.stringify({ version: current, highlights: h }));
+  assert.deepEqual(JSON.parse((await req('/api/whats-new')).body).highlights, h, 'this version\'s highlights were not served');
+  fs2.writeFileSync(file, JSON.stringify({ version: '0.0.1', highlights: h }));
+  assert.equal(JSON.parse((await req('/api/whats-new')).body).highlights, null, 'last release\'s text was served');
+  fs2.writeFileSync(file, JSON.stringify({ version: current, highlights: [{ icon: 'rocket', title: 'x', line: 'y' }] }));
+  assert.equal(JSON.parse((await req('/api/whats-new')).body).highlights, null, 'a file the window cannot draw was served');
 });
 
 /* ------------------------------------------------------------------------- *

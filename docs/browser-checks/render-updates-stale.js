@@ -141,7 +141,7 @@ function chk(ok, label, extra) {
          saw the new meta, before any press. The sentence names no control on
          purpose; this pins that the two surfaces agree on staleness. */
       const toast = await pg.$eval('#utoast-slot', (el) => el.innerText).catch(() => '');
-      chk(/Kosmos updated/.test(toast) && /Reload/.test(toast), 'stale: before the press, the top-left toast already offers the reload', JSON.stringify(toast));
+      chk(/Reload to finish updating/.test(toast) && /Reload/.test(toast), 'stale: before the press, the top-left chip already offers the reload', JSON.stringify(toast));
     }
     if (state === 'stale') {
       /* The stale press RELOADS (dataset.act='reload' -> location.reload()), so it

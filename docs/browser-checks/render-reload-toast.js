@@ -2,7 +2,8 @@
 
 /**
  * The reload toast, rendered in both tones beside the one it must not look
- * like (#270).
+ * like (#270). #3955: both are now the one-line update chip, and this also
+ * opens the "Kosmos has been updated" window (tiles, focus, Tab, Escape, seen).
  *
  * 🔑 THE CLAIM IS A COMPARISON, so both states are captured in one run: the
  * shipped offer toast is red and earns it, and the reload state must read as
@@ -93,45 +94,102 @@ function over(fg, bg) {
       }, [state]);
       await pg.waitForTimeout(250);
 
-      const el = await pg.$('.utoast');
-      chk(Boolean(el), theme + '/' + state + ': the toast is drawn');
+      // #3955 (Mona Lisa's mock A and B): both states are the one-line chip with one gold action.
+      const el = await pg.$('.uchip');
+      chk(Boolean(el), theme + '/' + state + ': the chip is drawn');
       if (!el) continue;
       const box = await el.boundingBox();
-      chk(Boolean(box && box.width > 150 && box.height > 20), theme + '/' + state + ': it has real size',
+      chk(Boolean(box && box.width > 150 && box.height >= 24 && box.height <= 34), theme + '/' + state + ': it is one small line',
         box ? Math.round(box.width) + 'x' + Math.round(box.height) : 'none');
 
       const seen = await pg.evaluate(() => {
-        const t = document.querySelector('.utoast');
+        const t = document.querySelector('.uchip');
         const cs = getComputedStyle(t);
-        const title = getComputedStyle(t.querySelector('.utxt b'));
-        const small = getComputedStyle(t.querySelector('.utxt small'));
+        const b = t.querySelector('button');
+        const bs = getComputedStyle(b);
         return {
-          border: cs.borderTopColor, bg: cs.backgroundColor,
-          title: title.color, titleSize: title.fontSize,
-          small: small.color, text: t.innerText,
+          bg: cs.backgroundColor, text: cs.color, words: t.innerText,
+          btnBg: bs.backgroundColor, btnText: bs.color,
           buttons: t.querySelectorAll('button').length,
         };
       });
       const bg = rgb(seen.bg);
-      const border = rgb(seen.border);
-      const title = rgb(seen.title);
-      const small = rgb(seen.small);
-      chk(ratio(over(border, bg), bg.c) >= 3, theme + '/' + state + ': the border clears 3:1',
-        ratio(over(border, bg), bg.c).toFixed(2));
-      chk(ratio(over(title, bg), bg.c) >= 4.5, theme + '/' + state + ': the title clears 4.5:1',
-        ratio(over(title, bg), bg.c).toFixed(2));
-      chk(ratio(over(small, bg), bg.c) >= 4.5, theme + '/' + state + ': the sentence clears 4.5:1',
-        ratio(over(small, bg), bg.c).toFixed(2));
-
+      const text = rgb(seen.text);
+      const btnBg = rgb(seen.btnBg);
+      const btnText = rgb(seen.btnText);
+      chk(ratio(over(text, bg), bg.c) >= 4.5, theme + '/' + state + ': the words clear 4.5:1',
+        ratio(over(text, bg), bg.c).toFixed(2));
+      chk(ratio(over(btnText, btnBg), btnBg.c) >= 4.5, theme + '/' + state + ': the action\'s words clear 4.5:1 on its gold',
+        ratio(over(btnText, btnBg), btnBg.c).toFixed(2));
+      chk(seen.buttons === 1, theme + '/' + state + ': one action and no dismiss', String(seen.buttons));
       if (state === 'stale') {
-        chk(seen.buttons === 1, theme + ': one action and no dismiss', String(seen.buttons));
-        chk(/Kosmos updated/.test(seen.text) && !/Install/i.test(seen.text),
-          theme + ': it does not tell them to install what is installed');
+        chk(/Reload to finish updating/.test(seen.words) && !/Kosmos updated|previous version|Install/i.test(seen.words),
+          theme + ': it asks for the reload and never calls the old page updated', seen.words);
       } else {
-        chk(seen.buttons === 2, theme + ': the shipped toast still has Later and Install', String(seen.buttons));
+        chk(/An update is available/.test(seen.words) && !/9\.9\.9|Later/.test(seen.words),
+          theme + ': the offer is one line with no version and no Later', seen.words);
       }
       await pg.screenshot({ path: path.join(OUT, 'toast-' + state + '-' + theme + '.png'), clip: { x: 0, y: 0, width: 700, height: 130 } });
     }
+    /* #3955 (Mona Lisa's mock C): "Kosmos has been updated", opened the way whatsNewCheck opens it,
+       with four highlights, then with none. The window is made on open and removed on close. */
+    await pg.evaluate(() => { document.getElementById('utoast-slot').innerHTML = ''; });
+    const HL = [
+      { icon: 'swarm', title: 'Swarms', line: 'One agent brings in helpers when parts of a task can run at once.' },
+      { icon: 'tasks', title: 'Subtasks', line: 'Break a task into smaller ones, and see them fold under it.' },
+      { icon: 'phone', title: 'Kosmos on your phone', line: 'Chat with your agents from anywhere with Kosmos+.' },
+      { icon: 'list', title: 'A cleaner Tasks view', line: 'All your tasks in one list, without the extra box around them.' },
+    ];
+    await pg.evaluate((hl) => { document.getElementById('klink').focus(); wnOpen('0.6.98', hl); }, HL);   // eslint-disable-line no-undef
+    await pg.waitForTimeout(250);
+    const wn = await pg.evaluate(() => {
+      const back = document.getElementById('whatsnew');
+      const box = back && back.querySelector('.wn-box');
+      const r = box && box.getBoundingClientRect();
+      return back ? {
+        shown: !back.hidden, dim: getComputedStyle(back).backgroundColor, title: box.querySelector('#wn-title').textContent,
+        ver: box.querySelector('#wn-ver').textContent, tiles: box.querySelectorAll('.wn-tile').length,
+        icons: box.querySelectorAll('.wn-tile svg').length, focus: document.activeElement && document.activeElement.id,
+        centred: r && Math.abs((r.left + r.width / 2) - innerWidth / 2) < 4, more: box.querySelector('#wn-more').getAttribute('href'),
+        rel: box.querySelector('#wn-more').getAttribute('rel'),
+      } : null;
+    });
+    chk(Boolean(wn && wn.shown), theme + ': the update window opens', JSON.stringify(wn));
+    if (wn) {
+      chk(wn.title === 'Kosmos has been updated' && wn.ver === 'Version 0.6.98', theme + ': it says Kosmos has been updated, and the version', wn.title + ' / ' + wn.ver);
+      chk(wn.tiles === 4 && wn.icons === 4, theme + ': four highlight tiles, each with its icon', wn.tiles + ' tiles, ' + wn.icons + ' icons');
+      chk(wn.focus === 'wn-ok' && wn.centred, theme + ': focus on Got it, the card centred over the dimmed app', JSON.stringify({ focus: wn.focus, centred: wn.centred, dim: wn.dim }));
+      chk(wn.more === 'https://installkosmos.com/versions#v0-6-98' && wn.rel === 'noreferrer noopener', theme + ': "See everything that changed" goes to this version on the site', wn.more);
+    }
+    await pg.screenshot({ path: path.join(OUT, 'whatsnew-' + theme + '.png') });
+    // Tab stays inside the window, both ways.
+    await pg.keyboard.press('Tab');
+    let at = await pg.evaluate(() => document.activeElement && document.activeElement.id);
+    await pg.keyboard.press('Tab');
+    const wrapped = await pg.evaluate(() => document.activeElement && document.activeElement.id);
+    chk(at === 'wn-more' && wrapped === 'wn-ok', theme + ': Tab stays inside the window', at + ' then ' + wrapped);
+    await pg.keyboard.press('Shift+Tab');
+    at = await pg.evaluate(() => document.activeElement && document.activeElement.id);
+    chk(at === 'wn-more', theme + ': Shift+Tab stays inside it too', at);
+    // Escape closes it, focus goes back, and the version is recorded as seen on the board.
+    await pg.keyboard.press('Escape');
+    await pg.waitForTimeout(400);
+    const after = await pg.evaluate(async () => ({
+      gone: !document.getElementById('whatsnew'), focus: document.activeElement && document.activeElement.id,
+      seen: (await (await fetch('/api/whats-new', { cache: 'no-store' })).json()).seen,
+    }));
+    chk(after.gone && after.focus === 'klink', theme + ': Escape closes it and focus goes back where it was', JSON.stringify(after));
+    chk(after.seen === '0.6.98', theme + ': closing records the version as seen, so it does not show again', String(after.seen));
+    // Without highlights (a hotfix): the title and version alone, no empty grid.
+    await pg.evaluate(() => wnOpen('0.6.99', null));   // eslint-disable-line no-undef
+    await pg.waitForTimeout(200);
+    const bare = await pg.evaluate(() => ({ tilesHidden: document.getElementById('wn-tiles').hidden, ver: document.getElementById('wn-ver').textContent }));
+    chk(bare.tilesHidden && bare.ver === 'Version 0.6.99', theme + ': with no highlights, the title and the version alone', JSON.stringify(bare));
+    if (theme === 'light') await pg.screenshot({ path: path.join(OUT, 'whatsnew-bare-light.png') });
+    await pg.click('#wn-ok');
+    await pg.waitForTimeout(200);
+    chk(!(await pg.$('#whatsnew')), theme + ': Got it closes it');
+
     chk(errs.length === 0, theme + ': no console errors', errs.join(' | '));
     await pg.close();
   }

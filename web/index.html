@@ -11098,22 +11098,6 @@ window.kosmosMeasureScrollbarWidth();
   </div>
 </div>
 
-<!-- #3955: "Kosmos has been updated", once per version (Mona Lisa's mock C). whatsNewCheck decides
-     when; the tiles come from web/whats-new.json through /api/whats-new. The mark is the app's own
-     icon. -->
-<div class="rm-back" id="whatsnew" hidden>
-  <div class="wn-box" role="dialog" aria-modal="true" aria-labelledby="wn-title" aria-describedby="wn-ver">
-    <img class="wn-mark" src="/icons/kosmos-192.png" alt="" width="52" height="52">
-    <h2 class="wn-title" id="wn-title">Kosmos has been updated</h2>
-    <div class="wn-ver" id="wn-ver"></div>
-    <ul class="wn-tiles" id="wn-tiles" aria-label="What is new" hidden></ul>
-    <div class="wn-acts">
-      <button type="button" class="wn-ok" id="wn-ok">Got it</button>
-      <a class="wn-more" id="wn-more" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener">See everything that changed</a>
-    </div>
-  </div>
-</div>
-
 <!-- #3495 (Josh, 2026-09-23): the shared Kosmos Plus gate modal. showPlusGate(kind) opens it with
      the kind's copy - "join" for the Join-an-external-project tab, "connect" for the grayed
      Add-external person/agent buttons (one modal, two messages: #3495 items 3-5). The behaviour
@@ -31952,9 +31936,27 @@ function wnIcon(key) {
 }
 let WN_OPENER = null;
 let WN_VERSION = null;
+/* Made when it is shown and removed when it closes, like the update overlay (.upd-back): the body's
+   direct children are the consolidated grid's rows (web.consolidated-980), and a window seen once per
+   version is not worth a permanent one. The mark is the app's own icon. */
+const WN_HTML = '<div class="wn-box" role="dialog" aria-modal="true" aria-labelledby="wn-title" aria-describedby="wn-ver">'
+  + '<img class="wn-mark" src="/icons/kosmos-192.png" alt="" width="52" height="52">'
+  + '<h2 class="wn-title" id="wn-title">Kosmos has been updated</h2>'
+  + '<div class="wn-ver" id="wn-ver"></div>'
+  + '<ul class="wn-tiles" id="wn-tiles" aria-label="What is new" hidden></ul>'
+  + '<div class="wn-acts"><button type="button" class="wn-ok" id="wn-ok">Got it</button>'
+  + '<a class="wn-more" id="wn-more" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener">See everything that changed</a></div>'
+  + '</div>';
 function wnOpen(version, highlights) {
-  const back = document.getElementById('whatsnew');
-  if (!back) return;
+  let back = document.getElementById('whatsnew');
+  if (!back) {
+    back = document.createElement('div');
+    back.className = 'rm-back';
+    back.id = 'whatsnew';
+    back.innerHTML = WN_HTML;
+    document.body.appendChild(back);
+    wnWire(back);
+  }
   WN_VERSION = version;
   document.getElementById('wn-ver').textContent = 'Version ' + version;
   const tiles = document.getElementById('wn-tiles');
@@ -31965,13 +31967,12 @@ function wnOpen(version, highlights) {
   tiles.classList.toggle('one', list.length === 1);
   document.getElementById('wn-more').href = 'https://installkosmos.com/versions#v' + version.replace(/\./g, '-');
   WN_OPENER = document.activeElement;
-  back.hidden = false;
   document.getElementById('wn-ok').focus();
 }
 function wnClose() {
   const back = document.getElementById('whatsnew');
-  if (!back || back.hidden) return;
-  back.hidden = true;
+  if (!back) return;
+  back.remove();
   const v = WN_VERSION;
   WN_VERSION = null;
   // Recorded on close, so a reload before it was read shows it again rather than never.
@@ -31981,22 +31982,19 @@ function wnClose() {
   WN_OPENER = null;
   if (to && typeof to.focus === 'function' && document.contains(to)) to.focus();
 }
-function wnWire() {
-  const back = document.getElementById('whatsnew');
-  if (!back) return;
-  document.getElementById('wn-ok').addEventListener('click', wnClose);
+function wnWire(back) {
+  back.querySelector('#wn-ok').addEventListener('click', wnClose);
   back.addEventListener('click', (e) => { if (e.target === back) wnClose(); });
   back.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { e.preventDefault(); wnClose(); return; }
     if (e.key !== 'Tab') return;
     // Two things to press; Tab stays between them while the window is up.
-    const f = [document.getElementById('wn-ok'), document.getElementById('wn-more')];
+    const f = [back.querySelector('#wn-ok'), back.querySelector('#wn-more')];
     const at = f.indexOf(document.activeElement);
     if (e.shiftKey && at <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
     else if (!e.shiftKey && at === f.length - 1) { e.preventDefault(); f[0].focus(); }
   });
 }
-wnWire();
 async function whatsNewCheck() {
   try {
     const res = await fetch('/api/whats-new', { cache: 'no-store' });

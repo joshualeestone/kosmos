@@ -1,8 +1,9 @@
 /* Drive-through of the update toast + confirm: the toast renders from a
    published newer version, clears the header controls, opens the drawn
    confirm with the exact frozen copy, used to surface the route's from-source
-   refusal, and Later remembers per version. Sandboxed server + local release
-   host. */
+   refusal, and a stored Later still quiets its version. #3955: the toast is
+   now the one-line chip "An update is available" with Update. Sandboxed
+   server + local release host. */
 require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const { spawn } = require('node:child_process');
 const http = require('node:http');
@@ -119,19 +120,19 @@ const RELPORT = freePort();
     if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
 
     // The first status tick pokes the release host; the second renders the
-    // verdict. Wait for the UPDATE toast: the page's stale notice shares the
-    // class (.utoast.stale) and sits beside it, so every read here names the
-    // update one.
-    await p.waitForSelector('.utoast:not(.stale)', { state: 'visible', timeout: 20000 });
-    const txt = await p.locator('.utoast:not(.stale) .utxt').textContent();
-    if (!/Update available/.test(txt) || !/Kosmos 9\.9\.9/.test(txt)) die('toast text wrong: ' + txt);
+    // verdict. Wait for the update chip (#3955): the engine-stale notice keeps the
+    // .utoast.stale look, so every read here names the chip.
+    await p.waitForSelector('.uchip', { state: 'visible', timeout: 20000 });
+    // #3955 (Mona Lisa's mock A): one line, no version number, one action.
+    const txt = (await p.locator('.uchip').innerText()).replace(/\s+/g, ' ').trim();
+    if (txt !== 'An update is available Update') die('chip text wrong: ' + txt);
 
     // In the flow beside the mark; the checks below prove no overlap with the header controls either way.
     // #3051: the agent-status stamp (#checked) moved off the header row into the user
     // menu, so it is no longer a header-row peer the toast could collide with or re-space;
     // it is dropped from this check's geometry set (measuring a hidden element is vacuous).
     const boxes = {};
-    for (const [k, sel] of [['toast', '.utoast:not(.stale)'], ['newagent', '#new-agent']]) {
+    for (const [k, sel] of [['toast', '.uchip'], ['newagent', '#new-agent']]) {
       boxes[k] = await p.locator(sel).boundingBox();
     }
     const overlap = (a, c) => a && c && a.x < c.x + c.width && c.x < a.x + a.width && a.y < c.y + c.height && c.y < a.y + a.height;
@@ -141,7 +142,7 @@ const RELPORT = freePort();
     // header's left group, in line beside the mark, not floating anywhere.
     // Without this pin, the clear-of-controls checks pass any placement.
     const placement = await p.evaluate(() => {
-      const t = document.querySelector('.utoast:not(.stale)');
+      const t = document.querySelector('.uchip');
       const k = document.getElementById('klink');
       const inLeft = !!t.closest('.headleft');
       const tb = t.getBoundingClientRect();
@@ -175,10 +176,9 @@ const RELPORT = freePort();
     }
     await p.screenshot({ path: path.join(OUT, 'update-toast.png') });
 
-    // The toast's Install is GOLD (the pack's action colour): the neutral
-    // .uacts button rule outweighed the gold class once, silently.
+    // The chip's Update is GOLD (the pack's action colour; the neutral button rule outweighed it once, silently).
     const goldBg = await p.locator('#ut-install').evaluate((el) => getComputedStyle(el).backgroundColor);
-    if (goldBg !== 'rgb(227, 179, 65)') die('toast Install lost the gold: ' + goldBg);
+    if (goldBg !== 'rgb(227, 179, 65)') die('the chip\'s Update lost the gold: ' + goldBg);
 
     // Install opens the confirm with the frozen copy, word for word.
     await p.click('#ut-install');
@@ -212,17 +212,18 @@ const RELPORT = freePort();
        board is an installed layout on purpose, where Update would start a
        real install. Update is not pressed here. */
 
-    // Not now closes; Later hides and remembers the version.
+    // Not now closes. #3955: the chip has no Later; a Later pressed on an older page (a note in this
+    // browser) still quiets its version for its window, which is the reading kept below.
     await p.click('#uc-no');
     if (await p.isVisible('#updconfirm')) die('Not now did not close the confirm');
-    await p.click('#ut-later');
-    if (await p.isVisible('.utoast:not(.stale)')) die('Later did not hide the toast');
-    const remembered = await laterVersion(p);
-    if (remembered !== '9.9.9') die('Later did not remember the version: ' + remembered);
-
-    // ...and it STAYS hidden across the next ticks.
+    if (await p.isVisible('#ut-later')) die('the chip grew a Later button back');
+    await p.evaluate(() => localStorage.setItem('kosmos-update-later', JSON.stringify({ v: '9.9.9', at: Date.now() })));
+    await p.reload({ waitUntil: 'networkidle' });
+    if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
     await p.waitForTimeout(6000);
-    if (await p.isVisible('.utoast:not(.stale)')) die('the toast came back after Later');
+    if (await p.isVisible('.uchip')) die('a Later note for this version did not quiet the chip');
+    const remembered = await laterVersion(p);
+    if (remembered !== '9.9.9') die('the Later note was lost: ' + remembered);
 
     // Later is per VERSION (Mona Lisa's three facts, #780): a note left for an
     // older release does not silence a newer one...
@@ -233,10 +234,10 @@ const RELPORT = freePort();
     await p.evaluate(() => localStorage.setItem('kosmos-update-later', '9.9.8'));
     await p.reload({ waitUntil: 'networkidle' });
     if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
-    await p.waitForSelector('.utoast:not(.stale)', { state: 'visible', timeout: 20000 });
+    await p.waitForSelector('.uchip', { state: 'visible', timeout: 20000 });
     // ...and Check for Update clears the note, through the real button.
-    await p.click('#ut-later');
-    if ((await laterVersion(p)) !== '9.9.9') die('Later did not re-note the current version');
+    await p.evaluate(() => localStorage.setItem('kosmos-update-later', JSON.stringify({ v: '9.9.9', at: Date.now() })));
+    if ((await laterVersion(p)) !== '9.9.9') die('the Later note did not take');
     // While an update is on offer the footer's button reads Update, so the
     // fake host now says the running version is latest and the page asks
     // (the same TTL-bypassing route the button uses); the offer withdraws
@@ -259,9 +260,9 @@ const RELPORT = freePort();
     await p.evaluate(async () => { await fetch('/api/update/check', { method: 'POST' }).then((r) => r.text()); });
     await p.reload({ waitUntil: 'networkidle' });
     if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
-    await p.waitForSelector('.utoast:not(.stale)', { state: 'visible', timeout: 20000 });
+    await p.waitForSelector('.uchip', { state: 'visible', timeout: 20000 });
     const mboxes = {};
-    for (const [k, sel] of [['toast', '.utoast:not(.stale)'], ['newagent', '#new-agent'], ['burger', '.burger']]) {
+    for (const [k, sel] of [['toast', '.uchip'], ['newagent', '#new-agent'], ['burger', '.burger']]) {
       const loc = p.locator(sel).first();
       mboxes[k] = (await loc.count()) && await loc.isVisible() ? await loc.boundingBox() : null;
     }
@@ -272,7 +273,7 @@ const RELPORT = freePort();
     await p.screenshot({ path: path.join(OUT, 'update-toast-375.png') });
 
     if (errs.length) die('page errors: ' + errs.join(' | '));
-    console.log('TOAST DRIVE OK: render, geometry clear of header controls, frozen copy verbatim, opens on Not now, Update never pressed, Later per version and back for a newer one and cleared by Check for Update, 0 page errors; shots in ' + OUT);
+    console.log('TOAST DRIVE OK: the one-line chip (#3955), geometry clear of header controls, frozen copy verbatim, opens on Not now, Update never pressed, a stored Later per version and back for a newer one and cleared by Check for Update, 0 page errors; shots in ' + OUT);
   } finally {
     await b.close();
     srv.kill();

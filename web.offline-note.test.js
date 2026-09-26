@@ -197,12 +197,12 @@ test('a page with no version or no host still says the part it holds', () => {
   assert.match(slotAfter([true], { host: null }).innerHTML, /not answering on this computer/);
 });
 
-test('it has its own slot, so it cannot overwrite the post-update note', () => {
-  /* Both can be true at once, and in that order: a person who updates and then
-     loses the server should see the update note explaining the outage. */
-  assert.match(PAGE, /<div id="unote-slot"><\/div>/);
+test('it has its own slot, so it cannot overwrite the update chip', () => {
+  /* Both can be true at once, and in that order: a person who updates and then loses the server.
+     #3955: the post-update note is now the "Kosmos has been updated" window, so the chip's slot
+     (#utoast-slot) is the one this must not share. */
   assert.match(PAGE, /<div id="uoffline-slot"><\/div>/);
-  assert.ok(PAGE.indexOf('id="unote-slot"') < PAGE.indexOf('id="uoffline-slot"'));
+  assert.ok(PAGE.indexOf('id="utoast-slot"') < PAGE.indexOf('id="uoffline-slot"'));
   assert.match(PAGE, /#uoffline-slot:empty \{ display: none; \}|#uoffline-slot:empty/);
 });
 
