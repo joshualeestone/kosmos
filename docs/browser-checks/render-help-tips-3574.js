@@ -389,10 +389,23 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
           ringed: !!hr && Math.abs(hr.left + 4 - br.left) <= 1 && Math.abs(hr.top + 4 - br.top) <= 1,
           dim: document.documentElement.classList.contains('tip-dimming'),
           cls: ['up', 'down', 'left', 'right', 'flat'].find((k) => c.classList.contains(k)),
-          overArea: a.left < br.right && a.right > br.left && a.top < br.bottom && a.bottom > br.top };
+          overArea: a.left < br.right && a.right > br.left && a.top < br.bottom && a.bottom > br.top,
+          // How far into the area the card reaches, and which real controls it sits on (kosmos#2624, below).
+          depth: Math.max(0, Math.min(a.bottom, br.bottom) - Math.max(a.top, br.top)), areaH: br.height,
+          onControls: [...document.querySelectorAll('button, a[href], input, textarea, select, [role=tab], [contenteditable=true]')]
+            .filter((e) => { if (e.closest('#tipcard') || e.closest('[hidden]')) return false; const q = e.getBoundingClientRect(); return q.width && q.height && q.left < a.right && q.right > a.left && q.top < a.bottom && q.bottom > a.top; })
+            .map((e) => (e.closest('.apphead') ? 'HEADER ' : '') + (e.id ? '#' + e.id : e.tagName.toLowerCase() + '.' + String(e.className).split(' ')[0])) };
       }, want35[i][0]));
     }
-    const bad35 = got35.filter((g, i) => g.step !== (i + 1) + ' of 4' || g.title !== want35[i][1] || g.body !== want35[i][2] || !g.ringed || !g.dim || g.cls === 'flat' || g.overArea);
+    /* kosmos#2624: "none covered" means the engine's own rule (tipPlace, 0.6.93: a tip must never sit on a real
+       control) as well as the area itself. Before #2624 the Conversation card went ABOVE its column, onto the tab bar
+       (it sat on both tab buttons, y 14..160, measured), and this check could not see that because it looked only at
+       the area. So no step may sit on a HEADER control (reds that placement), and no card may overlap its own area
+       (strict again since #3920 put a window-filling target's card beside it). A card that stays off its area may
+       still sit on a neighbour's control when every place does (the engine picks the one covering least; Members,
+       over the Files card, does this on main too). depth/areaH/onControls stay as diagnostics in the output. */
+    const bad35 = got35.filter((g, i) => g.step !== (i + 1) + ' of 4' || g.title !== want35[i][1] || g.body !== want35[i][2] || !g.ringed || !g.dim || g.cls === 'flat'
+      || g.onControls.some((c) => c.startsWith('HEADER ')) || g.overArea);
     chk(got35.length === 4 && bad35.length === 0, 'T35 a project\'s tips walk its four areas, each ringed and pointed at, none covered', JSON.stringify(bad35.length ? bad35 : got35.map((g) => g.title)));
     // T35b (#3920): a target that fills the window (the Conversation column under #2624's taller header) leaves no room
     // above or below and side columns narrower than the card. The card must go BESIDE it, narrowed to the room there,

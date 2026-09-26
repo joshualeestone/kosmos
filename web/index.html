@@ -1303,6 +1303,30 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
 .apphead header { display: grid; grid-template-columns: 1fr auto 1fr;
                   align-items: center; gap: 24px; padding-bottom: 14px; }
 .apphead .tabs { margin: 0; justify-content: center; }
+/* kosmos#2624 (Josh): the top header is PIXEL-STABLE across views. "Flipping between
+   views must not jitter or shift by a single pixel." #2282 put one header on every view
+   but did not hold its geometry, and the served 0.6.95 build measured the controls
+   33px lower in the tab view than in consolidated at 1440px, 92px lower at 1100px:
+   - the tab view's header sat inside .apphead's 24px top padding, consolidated's is
+     flush with 8px (Josh's #1303 "no band across the top");
+   - both views CENTRED the controls in a row that also holds the update and login
+     notices (#unews-slot, #login-adv-slot), which wrap tall in the tab view because the
+     centred tabs squeeze them. So a notice appearing moved the controls in either view.
+   The fix, only where the views can be switched (960px and up, layoutConsolidated's
+   floor): the tab view adopts consolidated's flush 8px top, both views TOP-align the row
+   so a tall notice grows the bar downward instead of pushing the controls, and the tab
+   view's bottom padding makes its bottom rule land where consolidated's does (y=50).
+   Measured after, both widths, notices on and off: K mark top 8, switcher and You 9,
+   rule at 50, in both views. render-tophead-stable-2624 pins it. Below 960px there is
+   only the tab view, so nothing there can jump and it keeps its own spacing. */
+@media (min-width: 960px) {
+  body:not(.consolidated) > .apphead { padding-top: 0; }
+  body:not(.consolidated) > .apphead header { padding-top: 8px; padding-bottom: 4px; }
+  .apphead header, .apphead .headleft { align-items: flex-start; }
+  /* The K mark is 34px tall and these are 32px: 1px centres them on it, which is where
+     the centred row used to put them when no notice was showing. */
+  .apphead .headleft > .worldsw, .apphead header > .headright { margin-top: 1px; }
+}
 .appright { display: flex; align-items: center; gap: 14px; justify-content: flex-end; }
 .burger { width: 40px; height: 40px; border-radius: 10px; cursor: pointer;
           border: 1px solid var(--k-rule); background: var(--k-surface);
@@ -4108,7 +4132,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      screen, not separate tab screens) -- matching the mock's 2-column consolidated
      header (left cluster + right cluster). */
   html[data-layout="consolidated"] body.consolidated > .apphead header {
-    display: flex; align-items: center; justify-content: space-between; gap: var(--space-5);
+    /* flex-start, not center: kosmos#2624, see the .apphead block near the top. */
+    display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-5);
     padding: 8px var(--space-8); min-height: 0; margin: 0;
     background: var(--k-bg); border-bottom: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated > .apphead h1,

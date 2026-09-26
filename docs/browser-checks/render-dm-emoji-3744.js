@@ -249,7 +249,14 @@ const FX = {
       /* Review pass 2: shorter still. The panel is either fully between the sticky header and the
          window's bottom edge, or closed when there is no room for it; never hanging off the window
          or tucked under the header. 260 is the height a fixed minimum used to push it off. */
-      for (const h of [260, 200, 160]) {
+      /* kosmos#2624: which height is "too short" depends on how tall the sticky header is
+         at that height (it scrolls away as the window shrinks), so no single height is
+         pinned as the closed case. The invariant below holds at EVERY height, and the
+         close branch must fire at one of them at least: 120 is short enough for both the
+         pre-#2624 header and the flush one (#2624 made the bar 26px shorter, which gave
+         the panel room at 160). */
+      const closedAt = [];
+      for (const h of [260, 200, 160, 120]) {
         await page.setViewportSize({ width: 1200, height: h });
         await page.waitForTimeout(100);
         await page.evaluate(() => { document.getElementById('d-say').scrollIntoView({ block: 'end' }); pjEmojiOpen('agent'); });
@@ -267,9 +274,10 @@ const FX = {
         const closed = !tiny.open && tiny.expanded === 'false';
         chk(inside || closed, `${t} at 1200x${h} the panel is wholly between the header and the window's edge, or closed`, JSON.stringify(tiny));
         if (h === 260) chk(inside, `${t} at 1200x260 there is room, so it is open and whole`, JSON.stringify(tiny));
-        if (h === 160) chk(closed, `${t} at 1200x160 there is no room for it, so it is closed, not hidden under the header`, JSON.stringify(tiny));
+        if (closed) closedAt.push(h);
         await page.evaluate(() => pjEmojiClose('agent'));
       }
+      chk(closedAt.length > 0, `${t} at the shortest window tested there is no room for it, so it is closed, not hidden under the header`, 'closed at: ' + (closedAt.join(', ') || 'none'));
       // Review pass 3: in a window short enough to cap the panel, its grid scrolls to the very end
       // and stays there, so the last emoji can be reached (re-placing on its own scroll once pulled
       // it back to about the middle).
