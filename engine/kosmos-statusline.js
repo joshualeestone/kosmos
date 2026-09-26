@@ -38,7 +38,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const FILE = 'kosmos-weekly.json';
+/* Rows of history kept, one per forward step of the weekly figure: enough for
+   the calibration to see more than one week, and a bound on the file's size. */
 const HISTORY_MAX = 400;
+/* Two readings are the same week when their reset times are within this many
+   seconds. Weeks reset seven days apart, so a day separates "the same reset,
+   stamped slightly differently by two sessions" from "the next week" with room
+   on both sides. */
+const SAME_WEEK_TOLERANCE_SECONDS = 86400;
 
 /** The seven-day reading from a statusline payload, or null. Validated, not
  *  presence-checked: a present field of the wrong shape is worse than none. */
@@ -59,10 +66,7 @@ function record(dir, reading, now) {
   let cur = null;
   try { cur = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* absent or unreadable: start fresh */ }
   if (cur && typeof cur.usedPct === 'number' && typeof cur.resetsAt === 'number') {
-    /* Same week when the reset times are within a day of each other: weeks are seven
-       days apart, and this keeps two sessions' slightly different reset stamps from
-       reading as a new week and stepping the figure backwards. */
-    const sameWeek = Math.abs(reading.resetsAt - cur.resetsAt) < 86400;
+    const sameWeek = Math.abs(reading.resetsAt - cur.resetsAt) < SAME_WEEK_TOLERANCE_SECONDS;
     if (sameWeek ? reading.usedPct <= cur.usedPct : reading.resetsAt < cur.resetsAt) return false;
   }
   const history = cur && Array.isArray(cur.history) ? cur.history.slice(-(HISTORY_MAX - 1)) : [];
@@ -96,4 +100,4 @@ if (require.main === module) {
   process.exitCode = 0;
 }
 
-module.exports = { FILE, HISTORY_MAX, weeklyOf, record, main };
+module.exports = { FILE, HISTORY_MAX, SAME_WEEK_TOLERANCE_SECONDS, weeklyOf, record, main };
