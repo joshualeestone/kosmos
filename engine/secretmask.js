@@ -202,6 +202,10 @@ function normalisedCopy(text) {
    over about 4x the value), or thousands of held values sharing an opening that the reply repeats. Measured
    well inside it: a 50,000-character reply with five held Anthropic keys and 400 sk-ant-api03- mentions. */
 const WORD_WALK_BUDGET = 250000;
+/* A comparison is charged by the characters it can read, one unit per 16 (review round 6): an opening or a
+   piece can be up to WORD_WALK_MAX_FORM long, and counting comparisons alone let 2,000 held values sharing a
+   1,000-character prefix cost two seconds under the budget. An ordinary opening or piece is one unit. */
+const chunksOf = (len) => Math.max(1, Math.ceil(len / 16));
 /* A piece as written can carry key characters that are not the key's (review round 1): a label joined
    with = (part2=Ab3d), markdown italics (_Ab3d_), a trailing slash. Each run is tried as written and with
    those taken off. */
@@ -218,7 +222,10 @@ function wordSkippingSpans(text) {
   if (!knownByOpening.size) return [];
   let budget = WORD_WALK_BUDGET;
   const runs = [];
-  for (const m of text.matchAll(/[A-Za-z0-9_+/=-]+/g)) runs.push([m.index, m.index + m[0].length, m[0], pieceVariants(m[0])]);
+  for (const m of text.matchAll(/[A-Za-z0-9_+/=-]+/g)) {
+    const variants = pieceVariants(m[0]);
+    runs.push([m.index, m.index + m[0].length, m[0], variants, variants.reduce((n, v) => n + chunksOf(v.length), 0)]);
+  }
   if (runs.length < 2) return [];
   /* nonSpaceBefore[i]: non-whitespace characters in text[0, i), so any span's count is one subtraction.
      Built on the first opening found, so a reply with none pays nothing for it. */
@@ -237,7 +244,7 @@ function wordSkippingSpans(text) {
     let g = byOpening.get(opening);
     if (g) return g;
     /* Charged: each distinct opening scans every form under its 4-character index once (review round 3). */
-    if ((budget -= cands.length) < 0) return null;
+    if ((budget -= cands.length * chunksOf(opening.length)) < 0) return null;
     g = { byNext: new Map(), maxLen: 0 };
     for (const f of cands) {
       /* The whole form inside one run is contiguous: the ordinary known_secret pass masks it. */
@@ -255,10 +262,10 @@ function wordSkippingSpans(text) {
     /* The opening may carry italics or a slash after it (_Ab3d_), or end in a _ or / of the key's own
        (review round 3): it is looked for both as written and with those taken off. */
     const stripped = raw.replace(/[_/]+$/, '');
-    for (const run of stripped === raw ? [raw] : [raw, stripped]) for (let q = 0; q + OPENING_LEN <= run.length; q += 1) {
-      const cands = knownByOpening.get(run.slice(q, q + OPENING_LEN));
+    for (const head of stripped === raw ? [raw] : [raw, stripped]) for (let q = 0; q + OPENING_LEN <= head.length; q += 1) {
+      const cands = knownByOpening.get(head.slice(q, q + OPENING_LEN));
       if (!cands) continue;
-      const opening = run.slice(q);
+      const opening = head.slice(q);
       const group = groupsFor(opening, cands);
       if (!group) return null;
       const { byNext, maxLen } = group;
@@ -282,11 +289,11 @@ function wordSkippingSpans(text) {
         const bound = 4 * f.length;
         let reached = new Set([opening.length]);
         for (let s = r + 1; s < runs.length; s += 1) {
-          const [, sTo, , pieces] = runs[s];
+          const [, sTo, , pieces, piecesCost] = runs[s];
           if (nonSpaceBefore[sTo] - nonSpaceBefore[from] > bound) break;
           let done = false;
           const next = new Set(reached);
-          if ((budget -= reached.size * pieces.length) < 0) return null;
+          if ((budget -= reached.size * piecesCost) < 0) return null;
           for (const p of reached) {
             for (const piece of pieces) {
               if (!f.startsWith(piece, p)) continue;

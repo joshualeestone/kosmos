@@ -560,3 +560,20 @@ test('#3935 a held PEM key does not start a walk at every markdown rule (review 
     assert.equal(r.text, reply, `an ordinary reply with markdown rules was changed or withheld: ${JSON.stringify(r.fired)}`);
   } finally { setKnownSecrets([]); }
 });
+
+test('#3935 a comparison is charged by its length: held values sharing a long prefix cannot run long under the budget (review round 6)', () => {
+  let x = 7; const rnd = (n) => { let o = ''; for (let k = 0; k < n; k += 1) { x = (x * 1103515245 + 12345) % 2147483648; o += 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'[x % 57]; } return o; };
+  const prefix = rnd(1000);
+  setKnownSecrets(Array.from({ length: 2000 }, () => prefix + rnd(20)));
+  try {
+    /* Near misses: each run matches the shared prefix for 999 characters, then diverges on a key character, so
+       each is a distinct opening. Most of what this reply still costs is the separator copies' search
+       (knownFormsIn, #3938), the same with or without the word walk, so only the walk's outcome is asserted. */
+    const reply = Array.from({ length: 120 }, (_, i) => `${prefix.slice(0, 999)}Z${i}`).join(' ');
+    let r;
+    const ms = cpuMillisecondsOf(() => { r = mask(reply); });
+    /* Charged by length, two such openings spend the budget (the budget is WORD_WALK_BUDGET in secretmask.js);
+       counted per comparison only, all 120 ran to the end, 1.5 to 2.4 seconds on the reviewer's machine. */
+    assert.equal(r.text, WITHHELD, `the long comparisons were not charged (${Math.round(ms)}ms)`);
+  } finally { setKnownSecrets([]); }
+});
