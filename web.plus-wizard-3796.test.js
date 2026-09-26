@@ -97,6 +97,7 @@ test('#3842 the suggestion generator: 8 characters, never a look-alike, and not 
   for (let i = 0; i < 500; i++) { const n = gen(); assert.match(n, /^[abcdefghjkmnpqrstuvwxyz23456789]{8}$/, n); seen.add(n); }
   assert.equal(seen.size, 500, 'the generator repeats');
   assert.match(SCRIPT, /plusNamePrefill\('plus-si-name', 'plus-si-name-suggested'\);/, 'the wizard chooser is not prefilled');
-  assert.match(SCRIPT, /plusNamePrefill\('plus-name'\);/, 'the enrol flow is not prefilled');
-  assert.match(SCRIPT, /if \(typeof plusNamePrefill === 'function'\) plusNamePrefill\('plus-name'\);/, 'the enrol prefill is unguarded (the code-box harness runs a slice without it)');
+  assert.match(SCRIPT, /if \(typeof plusNamePrefill === 'function'\) plusNamePrefill\('plus-name', 'plus-name-suggested'\);/, 'the enrol flow is not prefilled with its note (or unguarded: the code-box harness runs a slice without it)');
+  assert.match(HTML, /id="plus-name"[^>]*aria-describedby="plus-name-suggested"/);
+  assert.match(HTML, /id="plus-si-name"[^>]*aria-describedby="plus-si-name-suggested"/);
 });

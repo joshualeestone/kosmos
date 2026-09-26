@@ -15415,7 +15415,7 @@ window.kosmosMeasureScrollbarWidth();
           <label class="flabel" for="plus-si-name">Choose your Kosmos+ address</label>
           <p class="fhint">3 to 32 letters, numbers or hyphens. <span id="plus-si-name-count" aria-live="polite">0/32</span></p>
           <p class="fhint" id="plus-si-name-suggested" hidden>We picked a private one. Type over it to choose your own.</p>
-          <input class="tk-inp plus-si-wide" id="plus-si-name" type="text" maxlength="32" autocomplete="off" autocapitalize="none">
+          <input class="tk-inp plus-si-wide" id="plus-si-name" type="text" maxlength="32" autocomplete="off" autocapitalize="none" aria-describedby="plus-si-name-suggested">
         </div>
         <div class="frow">
           <button class="btn uprime" type="button" id="plus-si-register-go">Finish signing in</button>
@@ -15512,7 +15512,8 @@ window.kosmosMeasureScrollbarWidth();
           <div class="field">
             <label class="flabel" for="plus-name">A name for your address</label>
             <p class="fhint">3 to 32 letters, numbers or hyphens.</p>
-            <input class="tk-inp" id="plus-name" type="text" maxlength="32" autocomplete="off" autocapitalize="none">
+            <input class="tk-inp" id="plus-name" type="text" maxlength="32" autocomplete="off" autocapitalize="none" aria-describedby="plus-name-suggested">
+            <p class="fhint" id="plus-name-suggested" hidden>We picked a private one. Type over it to choose your own.</p>
           </div>
           <div class="frow" style="margin-top:8px;">
             <button class="btn uprime" type="button" id="plus-confirm">Confirm</button>
@@ -35854,7 +35855,7 @@ for (const id of ['plus-si-name', 'plus-name']) {
   const el = typeof document !== 'undefined' && document.getElementById ? document.getElementById(id) : null;
   if (el && el.addEventListener) el.addEventListener('input', () => {
     const c = plusNameClean(el.value); if (el.value !== c) el.value = c; plusNameCount();
-    const note = document.getElementById('plus-si-name-suggested'); if (note && id === 'plus-si-name') note.hidden = true;
+    const note = document.getElementById(id === 'plus-si-name' ? 'plus-si-name-suggested' : 'plus-name-suggested'); if (note) note.hidden = true;
   });
 }
 /* #3796 addendum 8: the name step, one of two ways. With the account's address known, no field at all;
@@ -36122,7 +36123,7 @@ document.getElementById('plus-send-code').addEventListener('click', async () => 
     await res.text().catch(() => '');
     sent.textContent = PLUS_CODE_WORDS.sent(email);
     document.getElementById('plus-code-row').hidden = false;
-    if (typeof plusNamePrefill === 'function') plusNamePrefill('plus-name');   // #3842: the enrol flow's field starts with a suggestion too (typeof: page-test slices lack it)
+    if (typeof plusNamePrefill === 'function') plusNamePrefill('plus-name', 'plus-name-suggested');   // #3842: the enrol flow's field starts with a suggestion too (typeof: page-test slices lack it)
     document.getElementById('plus-code').focus();
   } catch (err) {
     sent.textContent = (err && err.name === 'AbortError') ? PLUS_CODE_WORDS.slow(email) : PLUS_CODE_WORDS.refused('this computer could not reach the sign-in service');
