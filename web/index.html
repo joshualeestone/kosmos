@@ -29908,8 +29908,9 @@ function fitDetailName() {
    not made yet is the empty state. The stamp skips a repaint when nothing changed, and the epoch
    and agent re-check stop a late answer painting one agent's files under another's name.
    #3757 (Josh, 0.6.94): an agent with no files shows no Files section at all ("let's not show
-   this section"); with files, the list is the first AGENT_FILES_SHOWN and View All appears only
-   when there are more ("a View All if we exceeded the number that we display"). A folder of its
+   this section"); with files, the list is the first AGENT_FILES_SHOWN. View All appeared only when
+   there were more; #3994 (Josh, 2026-09-26) shows it with any file, even one ("even if there is
+   only one file so that you can easily get to the open finder button"). A folder of its
    own that is missing, or none at all (404), is no files too. A read that FAILED is not "no
    files", so it keeps the section and says so. */
 const AGENT_FILES_SHOWN = 10;   // as many as the project page's Files list shows
@@ -29981,7 +29982,9 @@ async function paintAgentFiles(sessionName) {
   }
   msg.textContent = '';
   for (const f of files) list.append(agentFileRow(f));
-  if (all) all.hidden = !(Number(body.total) > files.length);
+  // #3994 (Josh, 11:18 and again 16:14 on 0.6.99): View All whenever there is a file, even one,
+  // because it is the way to the Files screen and its Open in Finder button.
+  if (all) all.hidden = false;
 }
 /* #3757: the Files screen, reached from View All: every file (up to the route's own cap), with
    Open in Finder, which moved here from the sidebar. */

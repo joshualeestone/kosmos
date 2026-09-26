@@ -9,8 +9,9 @@
  *  - an agent with files shows one row per file, newest first, with a date and a size, and NO
  *    "Open in Finder" there (#3757: it moved to the Files screen),
  *  - #3757: an agent with no files shows no Files section at all (no empty sentence),
- *  - #3757: View All shows, at the right of the "Files" header, only when there are more files
- *    than the list shows (10); it opens the Files screen, which lists them all with Open in Finder,
+ *  - #3757: View All shows at the right of the "Files" header and opens the Files screen, which lists
+ *    them all with Open in Finder; #3994: it shows with ANY file, even one (Una), not only when there
+ *    are more than the list shows (10),
  *  - clicking a row reaches the opener with that file (the opener is stubbed, nothing opens),
  *  - "Open in Finder" makes the folder on first use and reaches the opener with it,
  *  - #3757: the nav's labels are the agent title's size (#d-meta), and its boxes are shorter,
@@ -55,7 +56,12 @@ function chk(ok, label, extra) {
     fleet.agent('april', { state: 'idle', displayName: 'April', role: 'a researcher' }),
     fleet.agent('mikey', { state: 'idle', displayName: 'Mikey', role: 'a bookkeeper' }),
     fleet.agent('rex', { state: 'idle', displayName: 'Rex', role: 'an archivist' }),
+    fleet.agent('una', { state: 'idle', displayName: 'Una', role: 'a planner' }),
   ]);
+  // #3994: Una has saved exactly ONE file, Josh's case on 0.6.99: View All must still show.
+  const unaFiles = dmfiles.filesDir('una');
+  fs.mkdirSync(unaFiles, { recursive: true });
+  fs.writeFileSync(path.join(unaFiles, 'only-one.txt'), 'u');
   // Rex has saved more than the list shows (10), so his list gets View All.
   const rexFiles = dmfiles.filesDir('rex');
   fs.mkdirSync(rexFiles, { recursive: true });
@@ -122,7 +128,7 @@ function chk(ok, label, extra) {
       await openAgent(page, 'april');
       const a = await page.evaluate(read);
       chk(a.visible, `${tag} the Files block is on screen`, JSON.stringify(a));
-      chk(!a.finder && !a.all, `${tag} #3757: no Open in Finder in the sidebar, and no View All when every file is listed`, JSON.stringify(a));
+      chk(!a.finder && a.all, `${tag} #3757/#3994: no Open in Finder in the sidebar, and View All although every file is listed`, JSON.stringify(a));
       chk(a.below && a.overlap, `${tag} the Files block sits directly under the four-pack, in its column`, JSON.stringify({ below: a.below, overlap: a.overlap }));
       chk(JSON.stringify(a.rows.map((r) => r.name)) === JSON.stringify(['report.pdf', 'older-notes.md']), `${tag} April's files are listed newest first`, JSON.stringify(a.rows));
       chk(a.rows.length > 0 && /·/.test(a.rows[0].meta) && /\d+(\.\d+)?\s?(B|KB|MB)$/.test(a.rows[0].meta), `${tag} a row shows a date and a size`, JSON.stringify(a.rows[0]));
@@ -188,6 +194,28 @@ function chk(ok, label, extra) {
         fs.rmSync(made, { recursive: true, force: true }); // the other passes start from "no folder" again
       }
       await page2.close();
+
+      // #3994 (Josh, 16:14 on 0.6.99): ONE file, and View All still shows and leads to Open in Finder.
+      const page1 = await browser.newPage({ viewport: { width, height: 950 }, colorScheme: theme });
+      await openAgent(page1, 'una');
+      const one = await page1.evaluate(() => {
+        const vis = (n) => !!(n && (n.offsetWidth || n.offsetHeight || n.getClientRects().length));
+        return { rows: document.querySelectorAll('#d-files-list .pj-doc').length, all: vis(document.getElementById('d-files-all')),
+          text: ((document.getElementById('d-files-all') || {}).textContent || '').trim() };
+      });
+      chk(one.rows === 1 && one.all && one.text === 'View All', `${tag} #3994: one file, and View All shows`, JSON.stringify(one));
+      if (one.all) {
+        await page1.click('#d-files-all');
+        await page1.waitForFunction(() => document.querySelectorAll('#d-filesall-list .pj-doc').length === 1, null, { timeout: 5000 }).catch(() => {});
+        const oneSc = await page1.evaluate(() => {
+          const vis = (n) => !!(n && (n.offsetWidth || n.offsetHeight || n.getClientRects().length));
+          return { screen: vis(document.getElementById('d-sec-files')), rows: document.querySelectorAll('#d-filesall-list .pj-doc').length,
+            finder: vis(document.getElementById('d-files-finder')) };
+        });
+        chk(oneSc.screen && oneSc.rows === 1 && oneSc.finder, `${tag} #3994: View All with one file opens the Files screen, with Open in Finder`, JSON.stringify(oneSc));
+        if (theme === 'light' && width === 1400) await shot(page1, '3994-one-file-files-screen');
+      }
+      await page1.close();
 
       // #3757: more files than the list shows: ten rows, View All at the right of the header, and
       // View All opens the Files screen with every file and Open in Finder.
