@@ -14,12 +14,14 @@
 # A shell that only mentions those names (a watcher loop, a grep) does not count: the match is
 # on the command, a shell running the script. These do not count either:
 #   - a process with a `node --test` ancestor (a unit test's fixture);
-#   - a process whose cwd or script sits under $TMPDIR/kt<digits>/ (tools/run-tests.sh's
-#     sandbox; some fixtures there detach from node --test, so the path marks them);
+#   - a process whose cwd or script sits in a kt<digits> folder directly under a temp dir
+#     (tools/run-tests.sh's sandbox, ${TMPDIR:-/tmp}/kt$$: .../T/ on macOS, or /tmp); some
+#     fixtures there detach from node --test, so the path marks them;
 #   - a process that has already exited;
 #   - with --except-cwd DIR, a run in DIR or below it (your own).
 # --quiet: print nothing on stdout, not even the CLEAR/BUSY verdict; read the exit code.
-# --twice: clear only if two reads, KOSMOS_HG_TWICE_SECONDS apart (default 60), are both clear.
+# --twice: clear only if two reads, KOSMOS_HG_TWICE_SECONDS apart (default 60, whole seconds;
+#   anything else is exit 2), are both clear.
 # Every candidate is printed with the reason it counts or does not.
 #
 # Seams for tests (tools.heavy-gate-3805.test.js):
@@ -53,18 +55,22 @@ while [ $# -gt 0 ]; do
     *) echo "heavy-gate: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
+case "${KOSMOS_HG_TWICE_SECONDS:-60}" in
+  ''|*[!0-9]*) echo "heavy-gate: KOSMOS_HG_TWICE_SECONDS must be whole seconds (got '${KOSMOS_HG_TWICE_SECONDS}'); reading as do-not-start" >&2; exit 2 ;;
+esac
 # An empty or missing directory must never exclude everything (an empty prefix matches every cwd).
 if [ "$EXCEPT_SET" = 1 ]; then
   if [ -z "$EXCEPT" ] || [ ! -d "$EXCEPT" ]; then
-    echo "heavy-gate: --except-cwd needs an existing directory (got '${EXCEPT}'); reading as busy" >&2
+    echo "heavy-gate: --except-cwd needs an existing directory (got '${EXCEPT}'); reading as do-not-start" >&2
     exit 2
   fi
   EXCEPT="$(cd "$EXCEPT" && pwd -P)"
 fi
 
 say() { [ "$QUIET" = 1 ] || printf '%s\n' "$*"; }
-# A seam left set in an agent's shell would skip the real checks, so say so every time.
-[ -n "${KOSMOS_HG_CLAIM+x}${KOSMOS_HG_SNAPSHOT:+x}" ] && say "(test seam active: KOSMOS_HG_CLAIM or KOSMOS_HG_SNAPSHOT is set)"
+# A seam left set in an agent's shell would skip the real checks, so say so every time, on
+# stderr, so --quiet does not hide it.
+[ -n "${KOSMOS_HG_CLAIM+x}${KOSMOS_HG_SNAPSHOT:+x}" ] && echo "(test seam active: KOSMOS_HG_CLAIM or KOSMOS_HG_SNAPSHOT is set)" >&2
 
 claim_line() {
   if [ -n "${KOSMOS_HG_CLAIM+x}" ]; then printf '%s\n' "$KOSMOS_HG_CLAIM"; return; fi
@@ -98,16 +104,23 @@ live_snapshot() {
 
 # The script a shell command runs. ps loses argument boundaries, so a path with a space arrives
 # split: any word ENDING in a heavy script path counts (fail toward busy); otherwise the first
-# argument after the shell's own options (for a bare release.sh). A -c command string is not a
-# script run (it only mentions the name): prints nothing. Runs in a subshell with globbing off,
+# argument after the shell's own options and their values (-o/-O NAME, --rcfile FILE), for a
+# bare release.sh. A command string (-c, or c inside combined flags like -lc) is not a script
+# run (it only mentions the name): prints nothing. Runs in a subshell with globbing off,
 # so a `*` in a command line stays one literal word.
 script_of() (
   set -f
-  first=1; lead=""
+  first=1; lead=""; skip=0
   for w in $1; do
     if [ "$first" = 1 ]; then first=0; continue; fi
     if [ -z "$lead" ]; then
-      case "$w" in -c) exit 0 ;; -*) continue ;; esac
+      if [ "$skip" = 1 ]; then skip=0; continue; fi
+      case "$w" in
+        --rcfile|--init-file|[-+]o|[-+]O) skip=1; continue ;;
+        --*) continue ;;
+        -*c*) exit 0 ;;
+        -*|+*) continue ;;
+      esac
       lead="$w"
     fi
     case "$w" in */tools/release.sh|*/tools/browser-checks.sh|tools/release.sh|tools/browser-checks.sh)
@@ -132,6 +145,18 @@ has_test_runner() (
   exit 1
 )
 
+# True if the path is in tools/run-tests.sh's sandbox: a kt<digits> folder directly under
+# .../T (macOS TMPDIR), /tmp, or this shell's own $TMPDIR.
+KT_RE='(^|/)(T|tmp)/kt[0-9]+(/|$)'
+in_kt_sandbox() {
+  [[ "$1" =~ $KT_RE ]] && return 0
+  local t="${TMPDIR:-}"; t="${t%/}"
+  [ -n "$t" ] || return 1
+  case "$1" in "$t"/kt*) ;; *) return 1 ;; esac
+  local rest="${1#"$t"/kt}"; rest="${rest%%/*}"
+  [ -n "$rest" ] && [ -z "${rest//[0-9]/}" ]
+}
+
 # Reads snapshot lines on stdin; prints one verdict line each; prints COUNTED=<n> last.
 classify() {
   local pid cwd cmd anc w1 base script n=0 why
@@ -143,7 +168,7 @@ classify() {
     script="$(script_of "$cmd")"
     case "$script" in
       */tools/release.sh|*/tools/browser-checks.sh|tools/release.sh|tools/browser-checks.sh) ;;
-      release.sh|browser-checks.sh) case "$cwd" in */tools|"") ;; *) script="" ;; esac ;;
+      release.sh|browser-checks.sh|./release.sh|./browser-checks.sh) case "$cwd" in */tools|"") ;; *) script="" ;; esac ;;
       *) script="" ;;
     esac
     if [ -z "$script" ]; then say "  ignore $pid: mentions the name but does not run it ($cmd)"; continue; fi
@@ -151,7 +176,7 @@ classify() {
     has_test_runner "$anc" && why="a unit-test fixture (node --test ancestor)"
     [ -z "$why" ] && [ "$cwd" = "<exited>" ] && why="already exited"
     if [ -z "$why" ]; then
-      case "$cwd $script" in */T/kt[0-9]*/*) why="a unit-test fixture (run-tests.sh sandbox)" ;; esac
+      if in_kt_sandbox "$cwd" || in_kt_sandbox "$script"; then why="a unit-test fixture (run-tests.sh sandbox)"; fi
     fi
     if [ -z "$why" ] && [ -n "$EXCEPT" ] && [ -n "$cwd" ]; then
       case "$cwd" in "$EXCEPT"|"$EXCEPT"/*) why="your own run (--except-cwd)" ;; esac

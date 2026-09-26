@@ -32,7 +32,7 @@ function run(lines, { claim = FREE, args = [], env = {}, shell = 'bash', cwd } =
     env: { ...process.env, KOSMOS_HG_SNAPSHOT: snap, KOSMOS_HG_CLAIM: claim, KOSMOS_HG_TWICE_SECONDS: '0', ...env },
   });
   fs.rmSync(dir, { recursive: true, force: true });
-  return { code: r.status, out: r.stdout + r.stderr };
+  return { code: r.status, out: r.stdout + r.stderr, stdout: r.stdout, stderr: r.stderr };
 }
 const realRun = (cwd = WORK, anc = 'zsh') => ['101', cwd, 'bash tools/browser-checks.sh', anc];
 
@@ -191,6 +191,8 @@ test('live (opt-in, KOSMOS_HG_LIVE=1): a real release.sh outside any test ancest
   assert.match(mine.stdout, new RegExp('ignore ' + pid + ': your own run'), mine.stdout);
 });
 
+/* This one runs the real who-has-the-box.sh, which (like any consult) sweeps a dead or expired
+   claim in the real run-markers folder: the one place the default suite touches live state. */
 test('the real reservation line is one of the two wordings the tool reads', () => {
   const env = { ...process.env, KOSMOS_HG_SNAPSHOT: path.join(os.tmpdir(), 'hg-empty-' + process.pid) };
   fs.writeFileSync(env.KOSMOS_HG_SNAPSHOT, '');
@@ -238,11 +240,47 @@ test('--twice takes two reads when the first is clear, and stops at a busy first
 test('--quiet prints nothing and answers by exit code alone (control: without it, the verdict is printed)', () => {
   const busy = run([realRun()], { args: ['--quiet'] });
   assert.equal(busy.code, 1);
-  assert.equal(busy.out, '');
+  assert.equal(busy.stdout, '');
   const clear = run([], { args: ['--quiet'] });
   assert.equal(clear.code, 0);
-  assert.equal(clear.out, '');
-  assert.match(run([realRun()]).out, /heavy-gate: BUSY/);
+  assert.equal(clear.stdout, '');
+  assert.match(run([realRun()]).stdout, /heavy-gate: BUSY/);
+  /* The seam warning is on stderr, so --quiet cannot hide a seam left set. */
+  assert.match(busy.stderr, /test seam active/);
+});
+
+test('combined flags with c (-lc, -ec) are a command string, a mention (control: -l alone runs the script)', () => {
+  const r = run([
+    ['501', WORK, 'bash -lc pgrep -f tools/release.sh', 'zsh'],
+    ['502', WORK, 'sh -ec grep x tools/browser-checks.sh', 'zsh'],
+  ]);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /ignore 501: mentions/);
+  assert.match(r.out, /ignore 502: mentions/);
+  assert.equal(run([['503', WORK, 'bash -l tools/release.sh 0.6.9', 'zsh']]).code, 1);
+});
+
+test('./release.sh and an option value before a bare name still count from tools/ (control: outside tools/ a bare name is a mention)', () => {
+  const tools = WORK + '/tools';
+  const dot = run([['601', tools, 'bash ./release.sh 0.6.9', 'zsh']]);
+  assert.equal(dot.code, 1, dot.out);
+  const opt = run([['602', tools, 'bash -o pipefail release.sh 0.6.9', 'zsh']]);
+  assert.equal(opt.code, 1, opt.out);
+  assert.equal(run([['603', WORK, 'bash ./release.sh 0.6.9', 'zsh']]).code, 0);
+});
+
+test('the sandbox under /tmp (TMPDIR unset) is a fixture too, and only kt plus digits (controls: ktx, kt9release)', () => {
+  const r = run([['701', '/private/tmp/kt4242/x', 'bash tools/release.sh 0.6.9', 'zsh']]);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /run-tests\.sh sandbox/);
+  assert.equal(run([['702', '/private/tmp/ktx/x', 'bash tools/release.sh 0.6.9', 'zsh']]).code, 1);
+  assert.equal(run([['703', '/private/var/folders/ab/T/kt9release/x', 'bash tools/release.sh 0.6.9', 'zsh']]).code, 1);
+});
+
+test('a KOSMOS_HG_TWICE_SECONDS that is not whole seconds is exit 2, never a quick double read (control: 0 is fine)', () => {
+  const r = run([], { args: ['--twice'], env: { KOSMOS_HG_TWICE_SECONDS: 'abc' } });
+  assert.equal(r.code, 2, r.out);
+  assert.equal(run([], { args: ['--twice'] }).code, 0);
 });
 
 test('smoke: against the live Mac it gives an answer (0 or 1), never a usage error', () => {
