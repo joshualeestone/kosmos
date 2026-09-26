@@ -81,7 +81,7 @@ async function open(browser, opts) {
       // #3829 addendum (Josh 20:00): off Kosmos Plus the top card is a one-line notice with Review; its button is thumb-size too.
       chk(ask.hoverNone && ask.buttons.length >= 1 && ask.buttons.every((b) => b.h >= 44), '[allow/touch] the notice\'s button is at least 44px tall', JSON.stringify(ask.buttons));
       // On Kosmos Plus the full cards sit above the panel; their Allow and Deny keep the 44px (#718).
-      const inPanel = await page.evaluate(() => {
+      const inPanel = await phone.evaluate(() => {
         showTab('settings'); settingsGo('plus'); paintAsk();
         const box = document.getElementById('plus-asks');
         if (!box || box.hidden) return { error: 'the request did not show above the Kosmos Plus panel' };
@@ -90,7 +90,7 @@ async function open(browser, opts) {
       chk(Array.isArray(inPanel) && inPanel.length >= 2 && inPanel.every((b) => b.h >= 44), '[allow/touch] every Allow / Deny above the Kosmos Plus panel is at least 44px tall', JSON.stringify(inPanel));
       // Review (#3829): with the connected panel NOT showing (not enrolled, or mid sign-in) there is nothing to sit
       // above, so the full cards stay in the top card and the in-panel slot is empty.
-      const noFlow = await page.evaluate(() => {
+      const noFlow = await phone.evaluate(() => {
         const flow = document.getElementById('plus-flow');
         const was = flow.hidden; flow.hidden = true; paintAsk();
         const out = { panel: document.getElementById('plus-asks').hidden, card: document.getElementById('askcard').hidden,
