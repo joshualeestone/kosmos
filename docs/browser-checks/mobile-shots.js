@@ -114,13 +114,13 @@ const SCREENS = [
     await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
     await page.waitForSelector('button.vt[data-layout="list"][aria-pressed="true"][aria-label="Show agents as a list"]', { timeout: 5000 });
   } },
-  { name: 'agent-page', owner: 'Raiden', go: async (page) => {
-    await at(page, '?agent=ada');
+  { name: 'agent-page', owner: 'Raiden', go: async (page, data) => {
+    await at(page, '?agent=' + data.chatAgent);
     await page.waitForSelector('#panel-detail', { state: 'visible', timeout: 5000 });
   } },
   // Scorpion: an agent's chat.
-  { name: 'agent-chat', owner: 'Scorpion', go: async (page) => {
-    await at(page, '?agent=ada');
+  { name: 'agent-chat', owner: 'Scorpion', go: async (page, data) => {
+    await at(page, '?agent=' + data.chatAgent);
     await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
   } },
@@ -132,15 +132,15 @@ const SCREENS = [
     await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
     await page.evaluate(() => { const r = document.querySelector('#pj-room'); if (r) r.scrollIntoView({ block: 'start' }); });
   } },
-  { name: 'ask-waiting', owner: 'Kano', go: async (page) => {
+  { name: 'ask-waiting', owner: 'Kano', go: async (page, data) => {
     // The board re-renders cards on its tick, so scroll inside the page.
-    await page.waitForSelector('.acard[data-agent="cleo"]', { timeout: 5000 });
-    await page.evaluate(() => document.querySelector('.acard[data-agent="cleo"]').scrollIntoView({ block: 'start' }));
+    await page.waitForSelector(`.acard[data-agent="${data.askAgent}"]`, { timeout: 5000 });
+    await page.evaluate((a) => document.querySelector(`.acard[data-agent="${a}"]`).scrollIntoView({ block: 'start' }), data.askAgent);
   } },
   /* Where a push tap lands: the needs-you agent's page, shot once it has
      settled (the conversation scrolls to the top after load). */
-  { name: 'push-landing', owner: 'Kano', go: async (page) => {
-    await at(page, '?tab=detail&agent=cleo');
+  { name: 'push-landing', owner: 'Kano', go: async (page, data) => {
+    await at(page, '?tab=detail&agent=' + data.askAgent);
     await page.waitForSelector('#panel-detail', { state: 'visible', timeout: 5000 });
     await page.waitForTimeout(1600);
   } },
@@ -183,24 +183,24 @@ const SCREENS = [
     await at(page, '?first-run=1');
     await page.waitForSelector('#firstrun', { state: 'visible', timeout: 5000 });
   } },
-  { name: 'agent-files', owner: 'unowned', go: async (page) => {
-    await at(page, '?tab=detail&agent=ada');
+  { name: 'agent-files', owner: 'unowned', go: async (page, data) => {
+    await at(page, '?tab=detail&agent=' + data.chatAgent);
     await page.waitForSelector('#d-files-list .pj-doc', { state: 'visible', timeout: 8000 });
     await page.evaluate(() => document.getElementById('d-files').scrollIntoView({ block: 'start' }));
   } },
-  { name: 'agent-files-all', owner: 'unowned', go: async (page) => {
-    await at(page, '?tab=detail&agent=ada');
+  { name: 'agent-files-all', owner: 'unowned', go: async (page, data) => {
+    await at(page, '?tab=detail&agent=' + data.chatAgent);
     await page.waitForSelector('#d-files-all', { state: 'visible', timeout: 8000 });
     await page.click('#d-files-all');
     await page.waitForSelector('#d-filesall-list .pj-doc', { state: 'visible', timeout: 5000 });
   } },
-  { name: 'agent-profile', owner: 'unowned', go: async (page) => {
-    await at(page, '?tab=detail&agent=ada');
+  { name: 'agent-profile', owner: 'unowned', go: async (page, data) => {
+    await at(page, '?tab=detail&agent=' + data.chatAgent);
     await page.locator('#d-nav button[data-go="profile"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-sec-profile', { state: 'visible', timeout: 5000 });
   } },
-  { name: 'agent-instructions', owner: 'unowned', go: async (page) => {
-    await at(page, '?tab=detail&agent=ada');
+  { name: 'agent-instructions', owner: 'unowned', go: async (page, data) => {
+    await at(page, '?tab=detail&agent=' + data.chatAgent);
     await page.locator('#d-nav button[data-go="instr"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-sec-instr', { state: 'visible', timeout: 5000 });
   } },
@@ -268,17 +268,24 @@ const LONG_REPLY = 'Here is the plan for tomorrow, in order. First I will finish
    buying the app see. Same claims as the sample, so every screen's `go` works
    unchanged; four agents, each in a state a customer should see (two working,
    one needing you, one idle), nothing stopped and nothing overlong. */
-/* Cleo first: the board lists cards in this order, and the agent waiting on
-   you is the one the first store shot must show above the fold. */
+/* The board lists agents by id, alphabetically (engine/status.js), and the agent
+   waiting on you is the one the first store shot must show above the fold, so
+   the asker's id sorts first. */
 const STORE_AGENTS = [
   { claim: 'cleo', title: '', name: 'Cleo', role: 'Project manager' },
-  { claim: 'ada', title: '⠋ Writing the product copy for the spring catalogue', name: 'Ada', role: 'Writer' },
-  { claim: 'basil', title: '⠙ Comparing supplier prices for the linen range', name: 'Basil', role: 'Researcher' },
-  { claim: 'dmitri', title: '', name: 'Dmitri', role: 'Bookkeeper' },
+  { claim: 'dana', title: '⠋ Writing the product copy for the spring catalogue', name: 'Dana', role: 'Writer' },
+  { claim: 'eli', title: '⠙ Comparing supplier prices for the linen range', name: 'Eli', role: 'Researcher' },
+  { claim: 'farah', title: '', name: 'Farah', role: 'Bookkeeper' },
 ];
 const DATA_SETS = {
   sample: {
     agents: AGENTS,
+    chatAgent: 'ada',   // the DM, files and profile screens
+    askAgent: 'cleo',   // the needs-you question and the push landing
+    projectAgents: ['ada', 'basil', 'cleo'],
+    room: [['cleo', [], 'Kick-off: the catalogue goes to print on the 3rd. Ada has copy, Basil has research, I have the printer.'],
+      ['basil', [], 'Competitor prices are in the shared sheet, tab "March". Two of them undercut us on the linen range by about 8%.'],
+      ['ada', ['cleo'], 'Copy for pages 1-8 is done. Pages 9-12 need the new photos before I can caption them, so I am parked on those until Thursday.']],
     chat: [
       ['you', 'Morning Ada. What is left on the catalogue?'],
       ['ada', 'Morning! Three things, and none of them are blocked.'],
@@ -290,15 +297,21 @@ const DATA_SETS = {
   },
   store: {
     agents: STORE_AGENTS,
+    chatAgent: 'dana',
+    askAgent: 'cleo',
+    projectAgents: ['dana', 'eli', 'cleo'],
+    room: [['cleo', [], 'Kick-off: the catalogue goes to print on the 3rd. Dana has copy, Eli has research, I have the printer.'],
+      ['eli', [], 'Competitor prices are in the shared sheet, tab "March". Two of them undercut us on the linen range by about 8%.'],
+      ['dana', ['cleo'], 'Copy for pages 1 to 8 is done. Pages 9 to 12 need the new photos before I can caption them, so I am parked on those until Thursday.']],
     chat: [
-      ['you', 'Morning Ada. How is the catalogue copy coming along?'],
-      ['ada', 'Pages 1 to 8 are written and checked against the price sheet.'],
+      ['you', 'Morning Dana. How is the catalogue copy coming along?'],
+      ['dana', 'Pages 1 to 8 are written and checked against the price sheet.'],
       ['you', 'Great. What is left?'],
-      ['ada', 'Pages 9 to 12 need the new photos before I can caption them. The shoot is on Thursday, so I will have the full draft to you on Friday morning.'],
+      ['dana', 'Pages 9 to 12 need the new photos before I can caption them. The shoot is on Thursday, so I will have the full draft to you on Friday morning.'],
       ['you', 'Perfect, thank you.'],
     ],
     ask: 'The printer sent two quotes for the catalogue: $1,240 in five working days, or $1,610 in two. Shall I accept the cheaper one?',
-    secondProject: { name: 'Quarterly accounts', agents: ['dmitri'], description: 'Close the quarter and send the accounts to the accountant.' },
+    secondProject: { name: 'Quarterly accounts', agents: ['farah'], description: 'Close the quarter and send the accounts to the accountant.' },
     projectDescription: 'Get the spring catalogue written, priced, photographed and to the printer by the 3rd.',
     /* A Mac that is set up, which the empty sandbox is not: each agent gets a
        launch job and its own folder with instructions, and your messages were
@@ -308,7 +321,7 @@ const DATA_SETS = {
     setUp: true,
     askInProject: true,
     /* Made from the screen, as a person makes a project, so the room does not open on
-       "Made by an agent or another program". And Ada's replies already read: the chat
+       "Made by an agent or another program". And the chat agent's replies already read: the chat
        screen marks them read on the board, so otherwise whichever theme is shot first
        shows an unread count and the other does not. */
     madeOnScreen: true,
@@ -342,7 +355,7 @@ function seedFiles(roots) {
   fs.writeFileSync(path.join(roots.DATA, 'fake-screen'), fleet.SCREEN && fleet.SCREEN.idle ? fleet.SCREEN.idle : 'Worked for 1m 02s\n> \n');
   const store = require(path.join(REPO, 'engine', 'store'));
   for (const a of AGENTS) {
-    const role = a.claim === 'ada' && LEAK_CONTROL === 'page' ? a.role + ', ' + PLANTED_EMAIL : a.role;
+    const role = a.claim === DATA.chatAgent && LEAK_CONTROL === 'page' ? a.role + ', ' + PLANTED_EMAIL : a.role;
     store.writeProfile(a.claim, { displayName: a.name, role });
   }
   require(path.join(REPO, 'engine', 'firstrun')).complete();
@@ -355,7 +368,7 @@ function seedFiles(roots) {
   const landed = (r, what) => { if (r && r.recorded === false) throw new Error('the seed could not write ' + what + ': ' + r.because); };
   DATA.chat.forEach(([who, text], i) => {
     const mine = who === 'you' ? (DATA.setUp ? { delivery: { state: 'placed' } } : {}) : { from: who };
-    landed(chat.appendMessage(chat.DIRECT, 'ada', { text, at: stamp(i + 1), ...mine }), "Ada's chat");
+    landed(chat.appendMessage(chat.DIRECT, DATA.chatAgent, { text, at: stamp(i + 1), ...mine }), 'the DM');
   });
   if (DATA.setUp) {
     const create = require(path.join(REPO, 'engine', 'create'));
@@ -375,7 +388,7 @@ function seedFiles(roots) {
   /* Ada's Files folder, for the agent-files screens: more rows than the
      agent page shows (AGENT_FILES_SHOWN, 10, so View All appears), one with
      a long name. */
-  const adaFiles = require(path.join(REPO, 'engine', 'dmfiles')).filesDir('ada');
+  const adaFiles = require(path.join(REPO, 'engine', 'dmfiles')).filesDir(DATA.chatAgent);
   fs.mkdirSync(adaFiles, { recursive: true });
   const fileNames = ['catalogue-copy-pages-1-to-8-final-reviewed-by-cleo.docx', 'prices.xlsx', 'photographer-brief.pdf',
     'notes.md', 'cover.png', 'linen-range.csv', 'spring-2026-print-schedule.pdf', 'draft-2.docx',
@@ -385,7 +398,7 @@ function seedFiles(roots) {
     const t = new Date(t0 + i * 60e3);
     fs.utimesSync(path.join(adaFiles, f), t, t);
   });
-  landed(require(path.join(REPO, 'engine', 'selfreport')).record('cleo', {
+  landed(require(path.join(REPO, 'engine', 'selfreport')).record(DATA.askAgent, {
     state: 'needs_you', because: DATA.ask,
   }), "Cleo's needs-you state");
 }
@@ -483,22 +496,20 @@ async function seed(base, roots) {
     if (!r.ok) throw new Error('seed ' + p + ' answered ' + r.status);
     return r.json().catch(() => ({}));
   };
-  const made = await post('/api/projects', { name: 'Launch the spring catalogue', agents: ['ada', 'basil', 'cleo'],
+  const made = await post('/api/projects', { name: 'Launch the spring catalogue', agents: DATA.projectAgents,
     ...(DATA.projectDescription ? { description: DATA.projectDescription } : {}) });
   const pid = made.project && made.project.id;
   if (!pid) throw new Error('seed: the board made no project');
   for (const s2 of ['Draft the product copy for every page', 'Check the prices against the spreadsheet', 'Book the photographer']) {
-    await post('/api/project/' + pid + '/tasks', { sentence: s2, who: 'ada' });
+    await post('/api/project/' + pid + '/tasks', { sentence: s2, who: DATA.chatAgent });
   }
   await post('/api/projects', DATA.secondProject);
   const t0 = Date.now() - 1800e3;
   const stamp = (min) => new Date(t0 + min * 60e3).toISOString();
   const lines = [
-    { kind: 'post', id: 'm1', project: pid, from: 'cleo', to: [], text: 'Kick-off: the catalogue goes to print on the 3rd. Ada has copy, Basil has research, I have the printer.', at: stamp(1), outcomes: {} },
-    { kind: 'post', id: 'm2', project: pid, from: 'basil', to: [], text: 'Competitor prices are in the shared sheet, tab "March". Two of them undercut us on the linen range by about 8%.', at: stamp(4), outcomes: {} },
-    { kind: 'post', id: 'm3', project: pid, from: 'ada', to: ['cleo'], text: 'Copy for pages 1-8 is done. Pages 9-12 need the new photos before I can caption them, so I am parked on those until Thursday.', at: stamp(9), outcomes: {} },
-    { kind: 'reaction', project: pid, of: 'm3', emoji: '👍', op: 'add', from: 'cleo', at: stamp(10) },
-    { kind: 'reaction', project: pid, of: 'm2', emoji: '🔥', op: 'add', from: 'ada', at: stamp(11) },
+    ...DATA.room.map(([from, to, text], i) => ({ kind: 'post', id: 'm' + (i + 1), project: pid, from, to, text, at: stamp([1, 4, 9][i]), outcomes: {} })),
+    { kind: 'reaction', project: pid, of: 'm3', emoji: '👍', op: 'add', from: DATA.askAgent, at: stamp(10) },
+    { kind: 'reaction', project: pid, of: 'm2', emoji: '🔥', op: 'add', from: DATA.chatAgent, at: stamp(11) },
   ];
   /* The log lives in the store's own root (engine/messages.js: store.ROOT, which is
      DATA/<app>), not at the top of DATA: written there, the room showed no posts at all. */
@@ -506,12 +517,12 @@ async function seed(base, roots) {
   fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
   /* The store set's question names its project, as an agent on a project would, so it
      lights that project rather than counting as a needs-you with no project. */
-  if (DATA.dmRead) await post('/api/agent/ada/seen');
+  if (DATA.dmRead) await post('/api/agent/' + DATA.chatAgent + '/seen');
   if (DATA.askInProject) {
-    const r = require(path.join(REPO, 'engine', 'selfreport')).record('cleo', { state: 'needs_you', because: DATA.ask, project: pid });
+    const r = require(path.join(REPO, 'engine', 'selfreport')).record(DATA.askAgent, { state: 'needs_you', because: DATA.ask, project: pid });
     if (r && r.recorded === false) throw new Error('the seed could not write Cleo\'s needs-you state: ' + r.because);
   }
-  return { projectId: pid };
+  return { projectId: pid, chatAgent: DATA.chatAgent, askAgent: DATA.askAgent };
 }
 
 /* Before ANY screenshot: a sealed board must have no accounts at all. The page

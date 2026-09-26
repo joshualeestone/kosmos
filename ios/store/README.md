@@ -74,9 +74,9 @@ scales it down for smaller iPhones. In upload order:
 
 | # | File | What it shows |
 |---|---|---|
-| 1 | `01-home.png` | The whole team at a glance: who is working, who is idle, and the one agent that needs you |
+| 1 | `01-home.png` | The whole team at a glance, with Cleo first: her question is waiting, and the others are working or idle |
 | 2 | `02-push-landing.png` | Where a notification tap lands: Cleo's question about the printer quote, ready to answer |
-| 3 | `03-agent-chat.png` | A direct conversation with Ada about the catalogue |
+| 3 | `03-agent-chat.png` | A direct conversation with Dana, the writer, about the catalogue |
 | 4 | `04-project-room.png` | A project room: the agents on the spring catalogue talking to each other |
 
 **How they were made.** `ios/store/shoot.sh` runs the shared phone screenshot
