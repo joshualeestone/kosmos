@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: swarm-copy-3946
-diff_hash: 45afae22208f2a3e7bea139986abf0af200f831a530dba9348c2f53dd6aeeb3f
+diff_hash: e7d05e7c6a62cb6c42767b95655466b2d1294ac98cac664e43efa7653eb516e2
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-26T13:53:16Z
+timestamp: 2026-09-26T14:26:22Z
 iterations: 3
 converged: true
 ---
@@ -53,3 +53,7 @@ Also found by the runs, not the reviews: the item-13 panel move collapsed the ph
 | 6 | 2 | BLOCKER | stale mark on a reopened form | FIXED |
 | 7 | 2 | WARNING | clip id collision | FIXED |
 | 8 | 3 | WARNING | comment cited a missing test | FIXED |
+
+### After review: found by looking at the shots
+- [WARNING] on the grid card a working helper's gold ring was drawn OUTSIDE its circle and crossed the gap into the next one, so the cluster read as cut circles; S3b measured unlit circles only and could not see it --> FIXED (the ring sits inside the circle edge). S3b now lights every helper and measures each circle's drawn extent; it reds on the old outside ring at every count (measured).
+Validation clean at e7d05e7c.
