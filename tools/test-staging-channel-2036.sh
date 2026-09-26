@@ -42,6 +42,11 @@ GATE="bash $STUB"
 AGENT_STUB="$T/stub-agent-gate.sh"; printf '#!/usr/bin/env bash\nprintf "agent-gate-arg1:%%s\\n" "${1:-}"\nexit "${AGENT_RC_WANT:-0}"\n' > "$AGENT_STUB"; chmod +x "$AGENT_STUB"
 export KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AGENT_STUB"
 export AGENT_RC_WANT=0
+# #2036 (after #3827): a THIRD gate, the first Kosmos+ sign-in record. Stubbed too, defaulting to
+# PASS; it prints the snapshot it was handed so a case can check it is a copy of the pointer.
+PLUS_STUB="$T/stub-plus-gate.sh"; printf '#!/usr/bin/env bash\nprintf "plus-gate-arg1:%%s\\n" "${1:-}"\n[ -f "${1:-}" ] && printf "plus-gate-version:%%s\\n" "$(sed -n "s/.*\\"version\\": *\\"\\([^\\"]*\\)\\".*/\\1/p" "$1" | head -1)"\nexit "${PLUS_RC_WANT:-0}"\n' > "$PLUS_STUB"; chmod +x "$PLUS_STUB"
+export KOSMOS_PROMOTE_PLUS_GATE_CMD="bash $PLUS_STUB"
+export PLUS_RC_WANT=0
 
 # ---- publish-staging-pointer ----
 S="$(make_site)"
@@ -196,6 +201,24 @@ out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=3 bash "$PRO
 Sap="$(make_site)"; bash "$PUBLISH" "$Sap" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=0 bash "$PROMOTE" "$Sap" 17777 2>&1)"; rc=$?
 [ "$rc" = 0 ] && has "$out" "agent-gate-arg1:17777" && pass "promote: forwards [port] to the agent gate too" || bad "promote agent-gate port-forward (rc=$rc, out=$out)"
+
+# ---- the THIRD (first Kosmos+ sign-in) gate, #2036 after #3827 ----
+# fail (1) -> refuse, never forceable.
+Sp1="$(make_site)"; bash "$PUBLISH" "$Sp1" >/dev/null 2>&1
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=1 bash "$PROMOTE" "$Sp1" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "first Kosmos+ sign-in gate FAILED" && [ ! -f "$Sp1/dist/latest.json" ] && pass "promote: plus gate 1 -> refuse, no promote" || bad "promote plus-gate-1 (rc=$rc, out=$out)"
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=1 bash "$PROMOTE" "$Sp1" --force 2>&1)"; rc=$?
+[ "$rc" = 1 ] && [ ! -f "$Sp1/dist/latest.json" ] && pass "promote: plus gate 1 is NOT forceable" || bad "promote plus-gate-1-force (rc=$rc, out=$out)"
+# no record (2) -> HOLD; --force promotes on a hand check.
+Sp2="$(make_site)"; bash "$PUBLISH" "$Sp2" >/dev/null 2>&1
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=2 bash "$PROMOTE" "$Sp2" 2>&1)"; rc=$?
+[ "$rc" = 2 ] && has "$out" "HOLDING" && [ ! -f "$Sp2/dist/latest.json" ] && pass "promote: plus gate 2 (no record) -> HOLD, no promote" || bad "promote plus-gate-2 (rc=$rc, out=$out)"
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=2 bash "$PROMOTE" "$Sp2" --force 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ -f "$Sp2/dist/latest.json" ] && pass "promote: plus gate 2 + --force -> promote on hand check" || bad "promote plus-gate-2-force (rc=$rc, out=$out)"
+# pass (0) -> promote, and the gate was handed the SNAPSHOT (a copy of the staging pointer).
+Sp0="$(make_site)"; bash "$PUBLISH" "$Sp0" >/dev/null 2>&1
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=0 bash "$PROMOTE" "$Sp0" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && has "$out" "first Kosmos+ sign-in gate PASSED" && has "$out" "plus-gate-version:9.9.9" && [ -f "$Sp0/dist/latest.json" ] && pass "promote: plus gate passes on the snapshot -> promote" || bad "promote plus-gate-0 (rc=$rc, out=$out)"
 
 # THE RACE: the staging pointer changes while a gate runs (a new staging publish lands mid-promote).
 # promote-channel.sh reads every field from ONE snapshot and refuses when the live pointer no longer
