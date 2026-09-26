@@ -25269,8 +25269,10 @@ function agySubDriver(pre, onReady) { return {
         this.rows(true, false, st.url || '');
         /* Focus the box when it appears, and again only when a code comes back refused (the box was
            emptied on the send): never on every poll, or Tab could never leave it (round 6). */
-        const reason = st.because || '';
-        if (focusedFor === null || reason !== focusedFor) { const i = this.el('paste'); if (i) i.focus(); focusedFor = reason; }
+        /* Keyed on how many codes Antigravity has refused, not on the words: a second refusal reads the
+           same as the first and must bring the cursor back too (round 7). */
+        const refusalMark = String(st.refusals || 0) + '|' + (st.because || '');
+        if (focusedFor === null || refusalMark !== focusedFor) { const i = this.el('paste'); if (i) i.focus(); focusedFor = refusalMark; }
       } else if (state === 'checking' || state === 'setup') {
         this.rows(false, false);
         this.say(state === 'checking' ? 'Checking the code with Google…'
