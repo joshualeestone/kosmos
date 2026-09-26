@@ -4,7 +4,7 @@
  * #4038 (Josh, 2026-09-26: "Change picture for an agent doesn't seem to be working"): the agent page's Change picture
  * button is never a silent no-op. Reproduced on the live board: on an untied agent the visible button stayed live
  * while its hidden input was disabled, so the click opened nothing and said nothing. setWritesOffered is tested with
- * the real function in server.test.js; this pins the withdrawn arm, the click guard and the same-file reset.
+ * the real function in server.test.js; this pins the withdrawn arm, the named reason and the same-file reset.
  *
  *   node --test web.avatar-4038.test.js
  */
@@ -22,24 +22,14 @@ test('the withdrawn arm disables the visible button with its hidden input', () =
   assert.match(m[1], /'d-file-btn'/, 'the withdrawn arm left Change picture live over a disabled input');
 });
 
-test('the button says why when its input is disabled, and otherwise opens the picker', () => {
-  const start = PAGE.indexOf("document.getElementById('d-file-btn').addEventListener('click', () => {");
-  assert.ok(start > -1, 'the click handler moved; update this test');
-  const body = PAGE.slice(start, PAGE.indexOf('\n});', start));
-  const run = (inputDisabled) => {
-    const els = { 'd-file': { disabled: inputDisabled, clicked: 0, click() { this.clicked += 1; } }, 'd-msg': { textContent: '' } };
-    let handler = null;
-    const document = { getElementById: (id) => (id === 'd-file-btn' ? { addEventListener: (_, fn) => { handler = fn; } } : els[id]) };
-    new Function('document', body + '\n});')(document);
-    handler();
-    return els;
-  };
-  const off = run(true);
-  assert.equal(off['d-file'].clicked, 0);
-  assert.match(off['d-msg'].textContent, /cannot be changed from here/, 'a click on a disabled input said nothing');
-  const on = run(false);
-  assert.equal(on['d-file'].clicked, 1, 'CONTROL: a live input was not clicked');
-  assert.equal(on['d-msg'].textContent, '');
+test('the disabled button points at the sentence that says why', () => {
+  /* A natively disabled button fires no click and leaves the tab order, so the reason cannot be a click message:
+     it is the page's #d-untied / #d-withdrawn sentence, which the button names for assistive tech. */
+  const m = PAGE.match(/<button[^>]*id="d-file-btn"[^>]*>/);
+  assert.ok(m, 'the Change picture button moved; update this test');
+  const ids = ((m[0].match(/aria-describedby="([^"]*)"/) || [])[1] || '').split(/\s+/);
+  assert.ok(ids.includes('d-untied') && ids.includes('d-withdrawn'), 'the button does not name the reason: ' + m[0]);
+  for (const id of ids) assert.match(PAGE, new RegExp('<p id="' + id + '"'), 'aria-describedby names a missing element: ' + id);
 });
 
 test('the input is cleared on every change, so the same file can be chosen again', () => {

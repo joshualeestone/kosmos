@@ -10808,7 +10808,7 @@ window.kosmosMeasureScrollbarWidth();
          figure earlier tonight: three surfaces, one job, and the ones nobody
          was editing stayed behind. -->
     <div class="frow">
-      <button class="btn sav-btn" type="button" id="d-file-btn">Change picture</button>
+      <button class="btn sav-btn" type="button" id="d-file-btn" aria-describedby="d-untied d-withdrawn">Change picture</button>
       <!-- "Remove picture", not "Remove": a bare verb beside "Change picture"
              reads as removing the AGENT until you have pressed it (#406). (This
              page also has a "Remove <name>" control, in the Advanced section since
@@ -32391,7 +32391,7 @@ function setWritesOffered(a, tied) {
   // left behind.
   /* #4038 (Josh, 09-26: "Change picture ... doesn't seem to be working"): the VISIBLE button goes with the hidden input.
      It was left out, so on an untied card it stayed live and its .click() on the disabled input did nothing: no
-     picker, no message. Disabled, it sits under the #d-untied sentence that says why. */
+     picker, no message. Disabled, it names the page's sentence that says why (aria-describedby). */
   const controls = ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save'];
   for (const id of controls) {
     const el = document.getElementById(id);
@@ -42951,14 +42951,7 @@ document.getElementById('create-avatar-btn').addEventListener('click', () => {
    `change` handler untouched: `.click()` on a file input fires `change` exactly
    as a direct click does, so nothing about how the file is read changes. */
 document.getElementById('d-file-btn').addEventListener('click', () => {
-  /* #4038: never a silent no-op. Disabled with the input (setWritesOffered), so this is a guard: say why. */
-  const input = document.getElementById('d-file');
-  if (input.disabled) {
-    const msg = document.getElementById('d-msg');
-    if (msg) msg.textContent = 'This picture cannot be changed from here: see the note on this page.';
-    return;
-  }
-  input.click();
+  document.getElementById('d-file').click();
 });
 document.getElementById('you-file-btn').addEventListener('click', () => {
   document.getElementById('you-file').click();
