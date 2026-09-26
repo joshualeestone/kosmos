@@ -44117,8 +44117,8 @@ function paintProjectTasks(p) {
     /* #3861 part 2: the parent's "2/5", and what a subtask is part of when the indent cannot say. */
     const sub = t.subtasks && t.subtasks.total > 0 ? t.subtasks : null;
     const subLabel = sub ? sub.done + ' of ' + sub.total + ' subtasks done' : '';
-    const chip = sub ? '<span class="tsk-chip" title="' + esc(subLabel) + '" aria-label="' + esc(subLabel) + '">' + sub.done + '/' + sub.total
-      + (sub.done === sub.total ? ', all subtasks done' : '') + '</span>' : '';
+    const chip = sub ? '<span class="tsk-chip" title="' + esc(subLabel) + '">' + sub.done + '/' + sub.total
+      + (sub.done === sub.total ? ', all subtasks done' : '<span class="vh"> subtasks done</span>') + '</span>' : '';
     const partOf = crumb && t.parent != null
       ? '<span class="tkcard-part-of">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
     return '<button class="tkcard' + (t.closedAt ? ' closed' : '') + (depth ? ' sub' + depth : '') + '" type="button" data-task="' + n + '">'
@@ -44309,7 +44309,7 @@ function tskRow(t, at) {
   const chip = !sub ? ''
     : place.kids
       ? '<button type="button" class="tsk-chip" data-fold="' + esc(tskKey(t)) + '" aria-expanded="' + !folded + '" aria-label="' + esc(chipLabel + (folded ? '. Show them' : '. Hide them')) + '" title="' + esc(chipLabel) + '"><span class="car" aria-hidden="true">\u25be</span>' + sub.done + '/' + sub.total + '</button>'
-      : '<span class="tsk-chip" title="' + esc(chipLabel) + '" aria-label="' + esc(chipLabel) + '">' + sub.done + '/' + sub.total + '</span>';
+      : '<span class="tsk-chip" title="' + esc(chipLabel) + '">' + sub.done + '/' + sub.total + '<span class="vh"> subtasks done</span></span>';
   /* Every subtask closed, the parent still open: say so and offer Close. Closing the last child
      never closes the parent (nothing cascades, engine/tasks.js); the person decides here. */
   const allDone = sub && sub.done === sub.total && t.state !== 'closed'
@@ -44918,10 +44918,13 @@ function tkPaintSubtasks(p, t, closed) {
   const done = (x) => (x.progress ? Boolean(x.progress.closed) : Boolean(x.closedAt));
   const list = document.getElementById('tk-subs');
   if (list) {
-    list.innerHTML = kids.length ? kids.map((x) => '<button class="tksub' + (done(x) ? ' done' : '') + '" type="button" data-sub="' + Number(x.number) + '">'
+    /* Change-guarded like the project column (TK_LIST_HTML): the poll repaints this page, and an
+       unconditional write would take a keyboard user's focus off a subtask every tick. */
+    const html = kids.length ? kids.map((x) => '<button class="tksub' + (done(x) ? ' done' : '') + '" type="button" data-sub="' + Number(x.number) + '">'
       + '<span class="tksub-n">#' + Number(x.number) + '</span><span class="tksub-t">' + esc(x.sentence) + '</span>'
       + '<span class="tksub-s">' + (done(x) ? 'Done' : 'Open') + '</span></button>').join('')
       : '<p class="dhint" style="margin:0;">None yet. Break this task into smaller ones, each with its own page.</p>';
+    if (list.innerHTML !== html) list.innerHTML = html;
   }
   const all = document.getElementById('tk-subs-done');
   if (all) all.hidden = !(kids.length && kids.every(done) && !closed);
@@ -45421,7 +45424,11 @@ function ntAimAt(p) {
 function ntFillParents(p, keep) {
   const sel = document.getElementById('nt-parent');
   if (!sel) return;
-  const was = keep ? sel.value : '';
+  /* The options carry the project they were built for (a task number means nothing in another
+     project, and the dialog's own project switch keeps the words, so `keep` alone cannot tell),
+     and whether the pick came from "+ Add subtask" (a preset belongs to that press, not to the
+     draft, so a plain New task after it starts at None). */
+  const was = keep && sel.dataset.for === p.id && sel.dataset.preset !== '1' ? sel.value : '';
   const open = (p.tasks || []).filter((x) => x && !(x.progress ? x.progress.closed : x.closedAt));
   const preset = NT_PARENT != null ? (p.tasks || []).find((x) => x && x.number === NT_PARENT) : null;
   if (preset && !open.includes(preset)) open.push(preset);
@@ -45430,6 +45437,8 @@ function ntFillParents(p, keep) {
     + open.map((x) => '<option value="' + Number(x.number) + '">#' + Number(x.number) + ' ' + esc(x.sentence) + '</option>').join('');
   sel.value = preset ? String(preset.number) : was;
   if (sel.selectedIndex === -1) sel.selectedIndex = 0;
+  sel.dataset.for = p.id;
+  sel.dataset.preset = preset ? '1' : '';
 }
 function leaveNewTask() {
   document.getElementById('nt-modal').hidden = true;
@@ -45449,6 +45458,8 @@ document.getElementById('nt-proj').addEventListener('change', (e) => {
   ntAimAt(p);
 });
 document.getElementById('nt-back').addEventListener('click', leaveNewTask);
+// #3861 part 2: a Part of the person picks themselves is part of their draft, even after a preset.
+document.getElementById('nt-parent').addEventListener('change', (e) => { e.target.dataset.preset = ''; });
 // Create is held down until the one required thing exists (pack: disabled).
 document.getElementById('nt-what').addEventListener('input', () => {
   // No project to file it to (the Tasks view with none made yet): Create stays down whatever is typed.
