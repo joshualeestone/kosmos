@@ -10,18 +10,18 @@
  * so the UI PR goes red at merge time, before any cut.
  *
  * WHAT IT READS, stated so nobody over-trusts it:
- *   - the page: every quoted '/api/' literal in web/index.html's CODE (comments skipped), whether it
- *     is a fetch( argument or goes through a helper, a table or a `url:` field. A dynamic piece (`' + x + '`, `${x}`) becomes one placeholder segment, and a query
- *     string is dropped. A fetch whose URL is not a literal from its first character (a variable,
- *     a helper) is NOT read, and neither is one whose tail is a variable (`'/task/' + id + url`);
- *     both are counted and printed so a drop is visible.
+ *   - the page: every quoted '/api/' literal in web/index.html's CODE (JS and HTML comments are
+ *     skipped; a literal only compared against is not a call), plus /api URLs in markup built
+ *     inside JS strings (src=, href=, action=). Dynamic pieces become placeholders; a query glued
+ *     on without '/' is dropped.
+ *   - NOT read, and COUNTED with a ceiling: a fetch whose URL is a variable, and a URL with a
+ *     variable tail. NOT read and NOT counted: a helper called with a variable URL.
  *   - the board: '/api/...' literals the server COMPARES the path to (=== / case), startsWith
- *     prefixes, and regex literals containing \/api\/, all outside comments. A page path is served if it equals a literal, or a regex matches it.
- *   - a placeholder segment counts as served when SOME value makes it a route (a board literal with
- *     any segment there, a number, or a regex's enumerated word). Permissive, so a per-provider route the
- *     page reaches with a name the board lacks is not caught.
- *   - NOT the method. A GET page calling a POST-only route passes here; the board then answers
- *     "no such endpoint" at run time. The 0.6.96 defect was a route that did not exist at all.
+ *     prefixes, and regex literals containing \/api\/, all outside comments and strings.
+ *   - KNOWN LIMITS (each pinned by a test): a placeholder segment is served by any sibling route
+ *     (had the page built '/api/federation/' + kind, a missing invite would pass); and a board
+ *     route with a free segment (`/api/project/<id>`) serves any NEW literal of that shape.
+ *   - NOT the HTTP method. The 0.6.96 defect was a route that did not exist at all.
  *
  *   node --test web.api-routes-3957.test.js
  */
@@ -39,13 +39,14 @@ const SERVED_ELSEWHERE = {
 };
 
 /* Measured 2026-09-26 on main. Growth reds; shrinking is fine (lower these when it happens). */
-const UNREAD_CEILING = 20;
+const UNREAD_CEILING = 19;
 const UNREADABLE_CEILING = 1;
 
-/* A lexical mask over a source text: CODE, COMMENT, STRING (inside a string literal), START (the
-   opening quote of one) and REGEX (a regex literal). One pass, so a quote inside a comment, a `//` inside a string, and a
-   template literal spanning lines are each classified by what they really are. A template's
-   `${...}` is treated as part of the string (an /api call INSIDE an interpolation is not read). */
+/* A lexical mask over a source text: CODE, COMMENT (JS and HTML), STRING (inside a string literal),
+   START (the opening quote of one) and REGEX (a regex literal). Templates are followed through their
+   `${...}` at any depth, so a nested template cannot desynchronise it, and an /api literal inside an
+   interpolation is CODE and is read. Measured against acorn at the time of writing: every '/api/'
+   string and template literal in both files classified START. */
 const CODE = 0; const COMMENT = 1; const STRING = 2; const START = 3; const REGEX = 4;
 /* Can a `/` at i open a regex literal? Yes after an operator, an opening bracket, a comma, a colon,
    a semicolon, `return`/`typeof`-style keywords, or at the start of a line; no after a value
@@ -60,47 +61,121 @@ function regexCanStart(src, i) {
 }
 function lexMask(src) {
   const mask = new Uint8Array(src.length);
-  let i = 0;
-  while (i < src.length) {
-    const c = src[i];
-    if (c === "'" || c === '"' || c === '`') {
-      mask[i] = START;
-      let j = i + 1;
-      while (j < src.length && src[j] !== c) {
-        if (c !== '`' && src[j] === '\n') break; // a quote/double-quote string ends at a line break
-        if (src[j] === '\\') { mask[j] = STRING; j += 1; }
+  /* Scan CODE from i. With `inInterp`, stop at the `}` that closes a template's `${`, tracking brace
+     depth, and return its index; otherwise run to the end. Recursive through templates, so a
+     template inside an interpolation inside a template is followed at any depth. */
+  function code(i, inInterp) {
+    let depth = 0;
+    while (i < src.length) {
+      const c = src[i];
+      if (inInterp && c === '{') { depth += 1; i += 1; continue; }
+      if (inInterp && c === '}') { if (depth === 0) return i; depth -= 1; i += 1; continue; }
+      if (c === '`') { i = template(i); continue; }
+      if (c === "'" || c === '"') {
+        mask[i] = START;
+        let j = i + 1;
+        while (j < src.length && src[j] !== c && src[j] !== '\n') {
+          if (src[j] === '\\') { mask[j] = STRING; j += 1; }
+          if (j < src.length) mask[j] = STRING;
+          j += 1;
+        }
         if (j < src.length) mask[j] = STRING;
-        j += 1;
-      }
-      if (j < src.length) mask[j] = STRING;
-      i = j + 1;
-    } else if (c === '/' && src[i + 1] === '*') {
-      const e = src.indexOf('*/', i + 2);
-      const end = e < 0 ? src.length : e + 2;
-      mask.fill(COMMENT, i, end);
-      i = end;
-    } else if (c === '/' && src[i + 1] === '/') {
-      const e = src.indexOf('\n', i);
-      const end = e < 0 ? src.length : e;
-      mask.fill(COMMENT, i, end);
-      i = end;
-    } else if (c === '/' && regexCanStart(src, i)) {
-      /* A regex literal: skipped whole (outside a character class a `/` ends it), so a quote or a
-         backtick inside one, /['"`]/, cannot open a phantom string that swallows the file. */
-      let j = i + 1;
-      let inClass = false;
-      for (; j < src.length && src[j] !== '\n'; j += 1) {
-        const d = src[j];
-        if (d === '\\') { j += 1; continue; }
-        if (inClass) { if (d === ']') inClass = false; continue; }
-        if (d === '[') { inClass = true; continue; }
-        if (d === '/') break;
-      }
-      mask.fill(REGEX, i, Math.min(j + 1, src.length));
-      i = j + 1;
-    } else i += 1;
+        i = j + 1;
+      } else if (c === '/' && src[i + 1] === '*') {
+        const e = src.indexOf('*/', i + 2);
+        const end = e < 0 ? src.length : e + 2;
+        mask.fill(COMMENT, i, end);
+        i = end;
+      } else if (c === '/' && src[i + 1] === '/') {
+        const e = src.indexOf('\n', i);
+        const end = e < 0 ? src.length : e;
+        mask.fill(COMMENT, i, end);
+        i = end;
+      } else if (c === '<' && src.startsWith('<!--', i)) {
+        /* An HTML comment in the page's markup: prose, like a JS comment. */
+        const e = src.indexOf('-->', i + 4);
+        const end = e < 0 ? src.length : e + 3;
+        mask.fill(COMMENT, i, end);
+        i = end;
+      } else if (c === '/' && regexCanStart(src, i)) {
+        /* A regex literal: skipped whole (outside a character class a `/` ends it), so a quote or a
+           backtick inside one, /['"`]/, cannot open a phantom string that swallows the file. */
+        let j = i + 1;
+        let inClass = false;
+        for (; j < src.length && src[j] !== '\n'; j += 1) {
+          const d = src[j];
+          if (d === '\\') { j += 1; continue; }
+          if (inClass) { if (d === ']') inClass = false; continue; }
+          if (d === '[') { inClass = true; continue; }
+          if (d === '/') break;
+        }
+        mask.fill(REGEX, i, Math.min(j + 1, src.length));
+        i = j + 1;
+      } else i += 1;
+    }
+    return i;
   }
+  /* A template literal from its opening backtick; returns the index after its closing one. Its
+     `${...}` interpolations are CODE, scanned by code(), so nesting cannot desynchronise the mask. */
+  function template(i) {
+    mask[i] = START;
+    let j = i + 1;
+    while (j < src.length && src[j] !== '`') {
+      if (src[j] === '\\') { mask[j] = STRING; mask[j + 1] = STRING; j += 2; continue; }
+      if (src[j] === '$' && src[j + 1] === '{') {
+        mask[j] = STRING; mask[j + 1] = STRING;
+        const close = code(j + 2, true);
+        if (close < src.length) mask[close] = STRING;
+        j = close + 1;
+        continue;
+      }
+      mask[j] = STRING;
+      j += 1;
+    }
+    if (j < src.length) mask[j] = STRING;
+    return j + 1;
+  }
+  code(0, false);
   return mask;
+}
+
+/* Skip one dynamic piece of a URL expression (`encodeURIComponent(name)`, `a ? b : c`) with a
+   paren-balanced scan, to the next top-level `+ '` (resumed, next = that quote) or the argument's
+   end. A pattern that stopped at the first `)` lost the suffix of nearly every call and collapsed
+   them into one path. `openEnded`: another dynamic piece follows (`+ id + suffixVar`), so the tail
+   is only known at run time. */
+function skipDynamic(src, i) {
+  let depth = 0;
+  let openEnded = false;
+  for (let j = i; j < src.length && j < i + 600; j += 1) {
+    const c = src[j];
+    if (c === '(' || c === '[' || c === '{') depth += 1;
+    else if (c === ')' || c === ']' || c === '}') { if (depth === 0) break; depth -= 1; }
+    else if (c === ',' && depth === 0) break;
+    else if (c === "'" || c === '"' || c === '`') {
+      if (depth === 0) break;
+      const close = src.indexOf(c, j + 1);
+      if (close < 0) break;
+      j = close;
+    } else if (c === '+' && depth === 0) {
+      const after = src.slice(j + 1).match(/^\s*/)[0].length;
+      const nc = src[j + 1 + after];
+      if (nc === "'" || nc === '"') return { resumed: true, next: j + 1 + after, openEnded };
+      openEnded = true;
+    }
+  }
+  return { resumed: false, next: i, openEnded };
+}
+
+/* Normalise a read URL (placeholders as \u0000) into an example path, or null if it is not /api. */
+function finish(path) {
+  if (!path.startsWith('/api/')) return null;
+  path = path.split('?')[0];
+  /* A dynamic piece glued on WITHOUT a `/` before it (`'/api/folders' + qs`) is a query or a
+     suffix, not a path segment: the path ends where it starts. */
+  const glued = path.search(/[^/\u0000]\u0000/);
+  if (glued > -1) path = path.slice(0, glued + 1);
+  return path.replace(/\u0000+/g, 'x');
 }
 
 /** The /api paths the page reaches, as concrete example paths with dynamic parts filled in. */
@@ -109,11 +184,11 @@ function pagePaths(src) {
   const unreadable = new Set(); // a variable tail: counted and printed, never checked
   let unread = 0;
   /* fetch( calls whose URL is not a literal at all: counted, since they cannot be read. */
-  for (const f of src.matchAll(/fetch\(\s*(.)/g)) if (!"'\"`".includes(f[1])) unread += 1;
+  const mask = lexMask(src);
+  for (const f of src.matchAll(/fetch\(\s*(.)/g)) if (mask[f.index] === CODE && !"'\"`".includes(f[1])) unread += 1;
   /* Every quoted '/api/' literal in CODE, not only fetch( arguments: the page also reaches the
      board through helpers (a post wrapper, a table of endpoints, a `url:` field), and a UI merged
      ahead of its route through one of those is the same defect. Comments are skipped. */
-  const mask = lexMask(src);
   const re = /['"`]\/api\//g;
   let m;
   while ((m = re.exec(src))) {
@@ -142,42 +217,54 @@ function pagePaths(src) {
         if (!plus) break;
         i += plus[0].length;
         if (src[i] === "'" || src[i] === '"') continue;
-        /* A dynamic piece (`encodeURIComponent(name)`, `a ? b : c`): skip it with a paren-balanced
-           scan to the next top-level `+ '`, or stop at the argument's end. A pattern that stopped
-           at the first `)` lost the suffix of nearly every call and collapsed them into one path. */
         path += '\u0000';
-        let depth = 0;
-        let j = i;
-        let resumed = false;
-        for (; j < src.length && j < i + 600; j += 1) {
-          const c = src[j];
-          if (c === '(' || c === '[' || c === '{') depth += 1;
-          else if (c === ')' || c === ']' || c === '}') { if (depth === 0) break; depth -= 1; }
-          else if (c === ',' && depth === 0) break;
-          else if (c === "'" || c === '"' || c === '`') {
-            if (depth === 0) break;
-            const close = src.indexOf(c, j + 1);
-            if (close < 0) break;
-            j = close;
-          } else if (c === '+' && depth === 0) {
-            const after = src.slice(j + 1).match(/^\s*/)[0].length;
-            const nc = src[j + 1 + after];
-            if (nc === "'" || nc === '"') { i = j + 1 + after; resumed = true; break; }
-            openEnded = true; // `+ id + suffixVar`: whatever follows is only known at run time
-          }
-        }
-        if (!resumed) break;
+        const d = skipDynamic(src, i);
+        if (d.openEnded) openEnded = true;
+        if (!d.resumed) break;
+        i = d.next;
       }
     }
     if (!path.startsWith('/api/')) continue;
     if (openEnded) { unreadable.add(path.split('?')[0].replace(/\u0000+/g, 'x') + '...'); continue; }
-    path = path.split('?')[0];
-    /* A dynamic piece glued on WITHOUT a `/` before it (`'/api/folders' + qs`) is a query or a
-       suffix, not a path segment: the path ends where it starts. */
-    const glued = path.search(/[^/\u0000]\u0000/);
-    if (glued > -1) path = path.slice(0, glued + 1);
-    path = path.replace(/\u0000+/g, 'x');
-    out.add(path);
+    out.add(finish(path));
+  }
+  /* MARKUP built inside JS strings: `'<img src="/api/agent/' + name + '/avatar">'`. The URL's own
+     quote is inside the JS string, so the loop above does not see it as a string start. Read from
+     `/api/` to the attribute's closing quote, crossing `' + expr + '` and `${...}` joins. */
+  for (const a of src.matchAll(/(?:src|href|action)=(\\?["'])\/api\//g)) {
+    const at = a.index + a[0].length - 5;
+    if (mask[at] !== STRING) continue; // raw markup was read above; a comment is not a request
+    const attrQ = a[1].slice(-1);
+    let k = at - 1;
+    while (k > 0 && mask[k] !== START) k -= 1;
+    const jsQ = src[k];
+    let path = '';
+    let open = false;
+    let i = at;
+    for (;;) {
+      let j = i;
+      while (j < src.length && src[j] !== attrQ && src[j] !== jsQ && src[j] !== '\\' && !(src[j] === '$' && src[j + 1] === '{') && src[j] !== '\n') j += 1;
+      path += src.slice(i, j);
+      if (src[j] === '$' && src[j + 1] === '{') {
+        path += '\u0000';
+        let depth = 0; let e = j + 2;
+        for (; e < src.length; e += 1) { if (src[e] === '{') depth += 1; else if (src[e] === '}') { if (depth === 0) break; depth -= 1; } }
+        i = e + 1; continue;
+      }
+      if (src[j] === jsQ && jsQ !== attrQ) {
+        const plus = src.slice(j + 1, j + 400).match(/^\s*\+\s*/);
+        if (!plus) break;
+        path += '\u0000';
+        const d = skipDynamic(src, j + 1 + plus[0].length);
+        if (d.openEnded) open = true;
+        if (!d.resumed) break;
+        i = d.next + 1; continue;
+      }
+      break;
+    }
+    if (open) { unreadable.add(path.split('?')[0].replace(/\u0000+/g, 'x') + '...'); continue; }
+    const f = finish(path);
+    if (f) out.add(f);
   }
   return { paths: [...out].sort(), unread, unreadable: [...unreadable].sort() };
 }
@@ -262,10 +349,11 @@ test('#3957: every /api path the page fetches is served by a board route', () =>
   const { paths, unread, unreadable } = basePage();
   const board = baseBoard();
   console.log(`page paths read: ${paths.length}; fetches not read (URL not a literal): ${unread}; with a variable tail, NOT checked: ${unreadable.length} (${unreadable.join(', ')}); board literals ${board.literals.size}, prefixes ${board.prefixes.length}, regexes ${board.regexes.length}`);
-  /* A FLOOR near today's count (186), not a token one: a lexer slip that mis-reads a region drops
-     real calls SILENTLY (one did, 193 -> 171, taking the federation routes with it), and a floor of
-     50 could not see it. Lower it only when the page genuinely loses calls. */
-  assert.ok(paths.length >= 170, `the extractor read ${paths.length} paths (floor 170); a region of the page is being mis-read, not the page shrinking`);
+  /* A FLOOR close under today's count (185), not a token one: a lexer slip that mis-reads a region
+     drops real calls SILENTLY (one did during development, taking the federation routes with it),
+     and only a floor this tight can see a slip of more than a handful. Lower it only when the page
+     genuinely loses calls, in the same change. */
+  assert.ok(paths.length >= 180, `the extractor read ${paths.length} paths (floor 180); a region of the page is being mis-read, not the page shrinking`);
   assert.ok(board.regexes.length >= 40, 'the board extractor found almost no route regexes (' + board.regexes.length + '); it is broken, not the board');
   /* CEILINGS, not just a printout: a green log is read by nobody. A new fetch whose URL is a variable,
      or a new variable-tailed one, cannot be checked here, so it has to be a deliberate change: make
@@ -327,4 +415,22 @@ test('#3957 control: a `//` inside a multi-line template literal does not hide a
 test('#3957 control: a comparison quoted inside a board LOG STRING is not a route', () => {
   const board = boardRoutes(SERVER + "\nconsole.log(\"deprecated path === '/api/oldthing-not-real-3957', ignoring\");\n");
   assert.equal(served('/api/oldthing-not-real-3957', board), false);
+});
+
+test('#3957 control: a nested template inside an interpolation does not desynchronise the lexer', () => {
+  const planted = pagePaths(PAGE + "\nconst help3957 = `${ok ? `see https://kosmos.example/help` : ''}\n  and more`;\nfetch('/api/brand-new-missing-3957', { method: 'POST' });\n").paths;
+  assert.ok(planted.includes('/api/brand-new-missing-3957'), 'the call after a nested template was lost');
+});
+
+test('#3957 control: a request in markup built inside a JS string is read', () => {
+  const planted = pagePaths(PAGE + "\nconst pic3957 = '<img src=\"/api/brand-new-markup-3957/' + encodeURIComponent(n) + '/pic?v=1\">';\n").paths;
+  assert.ok(planted.includes('/api/brand-new-markup-3957/x/pic'), 'a markup URL was not read: ' + planted.filter((q) => q.includes('3957')));
+});
+
+test('#3957 KNOWN LIMIT, pinned: a board route with a free segment serves any new literal of that shape', () => {
+  /* The board serves `/api/project/<id>`; so a page call to a NEW literal `/api/project/templates`
+     reads as served even though no templates route exists. Statically, a literal segment and an id
+     look the same. If this starts failing, the matcher got stricter: update the header, CLAUDE.md
+     and this test together. */
+  assert.equal(served('/api/project/templates-3957', baseBoard()), true);
 });

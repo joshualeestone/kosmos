@@ -248,11 +248,11 @@ from a night in this codebase, kosmos#2616.)
    `engine/create.launch-refuse-3605.test.js`.
 
 7. **A page `/api` call needs its board route in the same change.** `web.api-routes-3957.test.js`
-   reads every quoted `/api/` literal in `web/index.html`'s code and refuses one that no route in
-   `server.js` serves (kosmos#3957: 0.6.96 shipped a page calling `/api/federation/invite` before
-   the route merged). It does not check the HTTP method, a URL built from a variable, or a
-   variable path segment named by a sibling route; its header says which, and it caps the unread
-   counts so they cannot grow unnoticed.
+   reads the `/api/` literals in `web/index.html`'s code (and in markup built in JS strings) and
+   refuses one that no route in `server.js` serves (kosmos#3957: 0.6.96 shipped a page calling
+   `/api/federation/invite` before the route merged). Its header lists what it cannot see: the
+   HTTP method, a URL built from a variable (counted under a ceiling when it is a `fetch`), a
+   variable segment a sibling route fills, and a new literal a free-segment route happens to match.
 
 ### This list is intentionally incomplete
 

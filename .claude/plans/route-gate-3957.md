@@ -16,19 +16,13 @@ and needs no runtime flag.
   outside services) to learn only what reading the code already says.
 - A runtime feature flag on the UI: one more thing to forget, and it hides the gap.
 
-## What it reads, and does not (also in the test's header)
-- Page: fetch( with a literal '/api/' first argument; dynamic pieces become placeholders; a query
-  glued on without '/' is dropped. NOT read: a URL that is a variable (20 today), or one with a
-  variable tail (1 today, printed by name).
-- Board: '/api/...' literals, startsWith prefixes, regex literals (scanned by hand: a `[^/]` class
-  broke the naive pattern, which found 4 of 55).
-- A placeholder is served if SOME value makes it a route: any single segment of a literal, a number
-  (ids are `(\d+)`), or a regex's enumerated word. Permissive: a per-provider route the page reaches
-  with a name the board lacks is not caught.
-- NOT the HTTP method.
+## What it reads, and does not
+The test's header is the current statement (it has changed each iteration; see below). In short:
+page /api literals in code and in JS-built markup; board literals compared to the path, prefixes,
+and route regexes; not the method; two permissive matcher limits, each pinned by a test.
 
 ## Verification
-- Green on main: 139 paths read, all served.
+- Green on main: 185 paths read, all served (iteration 0 read 139, several of them junk).
 - Controls in the test: a planted missing route is caught; the invite route renamed away is caught.
 - HISTORY: run against 07a786f9a (the page + board that shipped the bug), it reds naming exactly
   /api/federation/invite, /join, /verify; with 81f1eed5c's server.js it is green.
@@ -59,3 +53,13 @@ and needs no runtime flag.
   The paths floor is 170, near today's 186, so a silent drop like that one reds.
 - Base parses memoized; CLAUDE.md gains convention 7 for this gate.
 - History re-run: red on exactly /api/federation/invite, /join, /verify at 07a786f9a.
+
+## Challenge-loop iteration 3
+- The lexer follows `${...}` to any depth (a recursive code/template scan), so a nested template
+  cannot desynchronise it; an /api literal inside an interpolation is now read. HTML comments are
+  comments. Control added for the nested case.
+- The floor is 180 (today 185): the old 170 sat UNDER the 171 of the slip its own comment cited.
+- JS-built markup (src=, href=, action= inside a string) is read; control added.
+- The free-segment board limit (`/api/project/<id>` serves a new `/api/project/templates`) is
+  documented in the header and CLAUDE.md and pinned by a test, alongside the placeholder limit.
+- The unread fetch count ignores comments (19; ceiling lowered to match).
