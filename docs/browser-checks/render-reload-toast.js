@@ -59,9 +59,19 @@ function over(fg, bg) {
   return fg.c.map((v, i) => v * fg.a + bg.c[i] * (1 - fg.a));
 }
 
+/* #3955: this check opens and closes the update window, which records a version as seen on the
+   board it shares with later checks. Record the board's OWN version as seen, before each pass and
+   at the end, so no page load here or after meets the window by accident. */
+async function seenIsCurrent() {
+  const got = await (await fetch(URL + '/api/whats-new', { cache: 'no-store' })).json();
+  await (await fetch(URL + '/api/whats-new/seen', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ version: got.current }) })).text();
+}
+
 (async () => {
   const b = await chromium.launch({ headless: process.env.HEADED === '0' });
   for (const theme of ['light', 'dark']) {
+    await seenIsCurrent();
     const pg = await b.newPage({ viewport: { width: 1400, height: 700 }, colorScheme: theme });
     const errs = [];
     pg.on('pageerror', (e) => errs.push(e.message));
@@ -197,6 +207,7 @@ function over(fg, bg) {
     await pg.close();
   }
   await b.close();
+  await seenIsCurrent();
   console.log(fail.length ? '\nFAILED: ' + fail.join(', ') : '\nall good');
   process.exit(fail.length ? 1 : 0);
 })();

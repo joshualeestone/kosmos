@@ -367,9 +367,10 @@ if kosmos_versions_entry_norm_or_die "b" 1000000000 "" >/dev/null 2>&1; then fai
 # label looks exactly like one that was never there, and the failures just blend into
 # step 1's bucket. Every other rationale on this branch is pinned by an arm; this was the
 # one that was not.
-n="$(grep -c 'step "== 1b' "$HERE/release.sh")"
+# #3955 added step 1b-ii beside it; the count is of the 1b label itself ("1b." then a space).
+n="$(grep -c 'step "== 1b\. ' "$HERE/release.sh")"
 if [ "$n" -eq 1 ]; then pass "the 1b step label exists, so step 1 refusals stay countable"; else fail "the 1b label is missing or duplicated (found $n); step 1 versions refusals would blend into step 1's bucket"; fi
-lbl="$(grep -n 'step "== 1b' "$HERE/release.sh" | head -1 | cut -d: -f1)"
+lbl="$(grep -n 'step "== 1b\. ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
 div="$(grep -n 'local main has commits' "$HERE/release.sh" | head -1 | cut -d: -f1)"
 call="$(grep -nE '^kosmos_versions_entry_gate(_or_pending)? ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
 if [ -n "$lbl" ] && [ -n "$div" ] && [ -n "$call" ] && [ "$lbl" -gt "$div" ] && [ "$lbl" -lt "$call" ]; then

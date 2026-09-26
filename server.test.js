@@ -7759,7 +7759,7 @@ test("the update card's states are mutually exclusive, and the line is blank onl
   }
 });
 
-test('the finish line names what actually landed, and only when something did', () => {
+test('#3955: the old finish-line note is gone; the update window names the version (its rules: web.whatsnew-3955.test.js)', () => {
   /* #3955: the finish line is now the "Kosmos has been updated" window, which names the version
      running and opens only when that version is not the one recorded as seen: an installer that
      found nothing to do changes no version and opens nothing. Its rules are pinned in

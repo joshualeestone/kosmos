@@ -2,8 +2,8 @@
 /**
  * #3955: when the "Kosmos has been updated" window opens. It opens once per version, after the new
  * version is on screen: not on a fresh install (installed, not updated), not over an old page (the
- * chip says Reload first), not for a version already seen. The window itself is drawn by a real
- * browser in docs/browser-checks/render-update-notices-3955.js.
+ * chip says Reload first), not for a version already seen, and not for a move DOWN (a rollback).
+ * The window itself is drawn by a real browser in docs/browser-checks/render-reload-toast.js.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -21,7 +21,7 @@ async function check({ current = '0.6.98', seen = '0.6.97', baked = '0.6.98', hi
     if (opts && opts.method === 'POST') { posts.push([url, opts.body]); return { ok: true, text: async () => '' }; }
     return { ok: true, json: async () => ({ current, seen, highlights }) };
   };
-  const run = new Function('fetch', 'bakedVersion', 'wnOpen', page.liftAll(SCRIPT, ['whatsNewCheck']) + '\nreturn whatsNewCheck();');
+  const run = new Function('fetch', 'bakedVersion', 'wnOpen', page.liftAll(SCRIPT, ['wnNewer', 'whatsNewCheck']) + '\nreturn whatsNewCheck();');
   await run(fetchStub, () => baked, (v, h) => opened.push([v, h]));
   await new Promise((r) => setImmediate(r));
   return { posts, opened };
@@ -57,4 +57,11 @@ test('#3955: closing records the version as seen, and the window is the pack\'s 
   assert.match(close, /JSON\.stringify\(\{ version: v \}\)/);
   assert.match(PAGE, /role="dialog" aria-modal="true" aria-labelledby="wn-title"/);
   assert.match(PAGE, /target="_blank" rel="noreferrer noopener">See everything that changed</);
+});
+
+test('#3955: a rollback (or a switch to an older version) is recorded quietly, never announced as new', async () => {
+  const r = await check({ current: '0.6.97', seen: '0.6.98' });
+  assert.deepEqual(r.opened, [], 'a rollback was announced as "Kosmos has been updated"');
+  assert.deepEqual(r.posts, [['/api/whats-new/seen', JSON.stringify({ version: '0.6.97' })]]);
+  assert.deepEqual((await check({ current: '0.6.10', seen: '0.6.9', baked: '0.6.10' })).opened.length, 1, 'CONTROL: 0.6.10 is newer than 0.6.9 (numbers, not text)');
 });

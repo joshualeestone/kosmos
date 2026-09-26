@@ -18673,9 +18673,17 @@ function paintLoginAdvisories(advs) {
 }
 
 /* #3955: reload an old page by itself, but only when that cannot lose anything: the window is in the
-   background, nothing is on its way, no composer holds a word, and no window is open over the page.
-   Otherwise the chip waits for the person's Reload. Once per board version per tab, so a board that
-   keeps serving an old page can never make a reload loop. */
+   background, nothing is on its way, no composer holds a word, no file waits to be sent, nothing the
+   person TYPED is still in a field, and no window is open over the page. Otherwise the chip waits for
+   the person's Reload. Once per board version per tab, so a board that keeps serving an old page can
+   never make a reload loop.
+   Typed, not filled (review round 1): the page fills many boxes itself (an agent's instructions, a
+   project's description), and those are not the person's unsaved words; every field the person has
+   typed into is remembered here (UPDATE_TYPED), and one still holding words blocks the reload. */
+const UPDATE_TYPED = new Set();
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('input', (e) => { const t = e.target; if (t && 'value' in t) UPDATE_TYPED.add(t); }, true);
+}
 function updateSafeReload(servedVersion) {
   try {
     if (!document.hidden || !servedVersion) return false;
@@ -18686,7 +18694,9 @@ function updateSafeReload(servedVersion) {
     const drafted = (m) => !!m && Object.values(m).some((v) => (typeof v === 'string' ? v : (v && v.text) || '').trim());
     if ([typeof TALK_DRAFTS !== 'undefined' && TALK_DRAFTS, typeof TERM_DRAFTS !== 'undefined' && TERM_DRAFTS,
       typeof PJ_DRAFTS !== 'undefined' && PJ_DRAFTS, typeof PJ_ROOM_DRAFTS !== 'undefined' && PJ_ROOM_DRAFTS].some(drafted)) return false;
-    if ([...document.querySelectorAll('textarea')].some((t) => t.value.trim())) return false;
+    if ([...UPDATE_TYPED].some((t) => t.isConnected !== false && String(t.value || '').trim())) return false;
+    const attached = typeof ATTACH_PENDING !== 'undefined' && ATTACH_PENDING;
+    if (attached && Object.values(attached).some((m) => m && Object.values(m).some((v) => Array.isArray(v) ? v.length : !!v))) return false;
     if (typeof tipModalOpen === 'function' && tipModalOpen()) return false;
     sessionStorage.setItem('kosmos-auto-reloaded', servedVersion);
     window.location.reload();
@@ -31945,7 +31955,7 @@ const WN_HTML = '<div class="wn-box" role="dialog" aria-modal="true" aria-labell
   + '<div class="wn-ver" id="wn-ver"></div>'
   + '<ul class="wn-tiles" id="wn-tiles" aria-label="What is new" hidden></ul>'
   + '<div class="wn-acts"><button type="button" class="wn-ok" id="wn-ok">Got it</button>'
-  + '<a class="wn-more" id="wn-more" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener">See everything that changed</a></div>'
+  + '<a class="wn-more" id="wn-more" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener">See everything that changed<span class="vh"> (opens in your browser)</span></a></div>'
   + '</div>';
 function wnOpen(version, highlights) {
   let back = document.getElementById('whatsnew');
@@ -31985,15 +31995,33 @@ function wnClose() {
 function wnWire(back) {
   back.querySelector('#wn-ok').addEventListener('click', wnClose);
   back.addEventListener('click', (e) => { if (e.target === back) wnClose(); });
-  back.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { e.preventDefault(); wnClose(); return; }
-    if (e.key !== 'Tab') return;
-    // Two things to press; Tab stays between them while the window is up.
-    const f = [back.querySelector('#wn-ok'), back.querySelector('#wn-more')];
-    const at = f.indexOf(document.activeElement);
-    if (e.shiftKey && at <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
-    else if (!e.shiftKey && at === f.length - 1) { e.preventDefault(); f[0].focus(); }
-  });
+}
+/* On the document, like the page's other dialogs (review round 1): Escape and Tab must work even
+   when focus has slipped to the body behind the window (a click on its text), and focus that lands
+   outside is brought back in. Each does nothing while the window is not up. */
+document.addEventListener('keydown', (e) => {
+  const back = document.getElementById('whatsnew');
+  if (!back) return;
+  if (e.key === 'Escape') { e.preventDefault(); wnClose(); return; }
+  if (e.key !== 'Tab') return;
+  // Two things to press; Tab stays between them while the window is up.
+  const f = [back.querySelector('#wn-ok'), back.querySelector('#wn-more')];
+  const at = f.indexOf(document.activeElement);
+  if (at === -1) { e.preventDefault(); f[0].focus(); return; }
+  if (e.shiftKey && at === 0) { e.preventDefault(); f[f.length - 1].focus(); }
+  else if (!e.shiftKey && at === f.length - 1) { e.preventDefault(); f[0].focus(); }
+});
+document.addEventListener('focusin', (e) => {
+  const back = document.getElementById('whatsnew');
+  if (back && !back.contains(e.target)) { const ok = back.querySelector('#wn-ok'); if (ok) ok.focus(); }
+});
+/* Is `a` a later version than `b` (x.y.z)? null when either is not one. */
+function wnNewer(a, b) {
+  const pa = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(a || ''));
+  const pb = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(b || ''));
+  if (!pa || !pb) return null;
+  for (let i = 1; i <= 3; i++) if (+pa[i] !== +pb[i]) return +pa[i] > +pb[i];
+  return false;
 }
 async function whatsNewCheck() {
   try {
@@ -32010,6 +32038,9 @@ async function whatsNewCheck() {
     }).then((r) => r.text()).catch(() => { /* tried again next load */ });
     if (!got.seen) { record(); return; }          // a fresh install: installed, not updated
     if (got.seen === got.current) return;
+    /* Only a move UP is an update (review round 1): a rollback or a channel switch to an older
+       version is recorded quietly, never announced as new with the old version's highlights. */
+    if (wnNewer(got.current, got.seen) !== true) { record(); return; }
     const baked = bakedVersion();
     if (baked && baked !== got.current) return;   // an old page: the chip says Reload first
     wnOpen(got.current, got.highlights);

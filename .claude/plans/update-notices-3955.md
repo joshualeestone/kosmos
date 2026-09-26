@@ -15,8 +15,16 @@ Card #3955 (Josh, #admin, 2026-09-26 08:11). Design: Mona Lisa's mock on card-sh
 - **Automatic reload, only when it cannot lose anything:** the page is in the background (document.hidden), no message is being sent and no composer holds a draft, and no dialog is open. Otherwise the chip waits for the person. Rejected: reloading a visible page mid-glance.
 - **The window's source of truth.** /api/whats-new already records "seen" per version on the board (seen-version.json, survives restarts and browsers); it now also carries the highlights from web/whats-new.json when that file's version equals the running version, else none. The page shows the window only when its own baked version equals the board's (never over an old page), the board's version is not the one recorded as seen, and a version has been seen before (a fresh install records silently, as the news line did).
 - **Highlights file:** `web/whats-new.json` `{"version":"X.Y.Z","highlights":[{"icon","title","line"}]}`; 1 to 5; icon one of swarm, tasks, phone, list, chat, shield, spark (drawn by the app); title up to about 40 characters, line one sentence up to about 120; no em dashes. A suite test enforces the shape of the committed file. The server validates again at read time and serves nothing it cannot draw.
-- **Cut guard:** tools/whats-new-check.js (node, pure) checks the file against the version; release.sh runs it as step 1c, right after the versions entry (1b) and before anything is built or bumped. KOSMOS_CUT_NO_WHATS_NEW=1 skips it and prints that the release will show only the title. docs/releasing.md gets the line. The guard lands only while no cut is running.
+- **Cut guard:** tools/whats-new-check.js (node, pure) checks the file against the version; release.sh runs it as step 1b-ii, right after the versions entry (1b) and before anything is built or bumped. KOSMOS_CUT_NO_WHATS_NEW=1 skips it and prints that the release will show only the title. docs/releasing.md gets the line. The guard lands only while no cut is running.
 - **This change ships no highlights file** for a past version: the operator writes it for the cut it ships in (Baron's 0.6.98 at the earliest).
+
+## Review round 1 (decided)
+- Step label: the versions-entry test counted every `step "== 1b`; it now counts the 1b label itself (`1b. `), so 1b-ii keeps its natural name.
+- The automatic reload no longer scans every textarea (the page fills many itself, so it would almost never fire); it remembers every field the person typed into and waits while one holds words, and also while a file is attached but not sent.
+- The window's Escape and Tab listen on the document, and focus that lands outside is brought back in.
+- Only a move UP opens the window: a rollback or a switch to an older channel records the version quietly.
+- The browser check that opens the window records the board's own version as seen before and after, so checks sharing its board never meet the window.
+- "See everything that changed" says it opens in the browser; the cut check names the file it read.
 
 ## Tests
 - The chip's two states and its one button; the stale chip never says "Kosmos updated"; engine-stale still first.

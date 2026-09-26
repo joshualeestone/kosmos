@@ -147,17 +147,20 @@ test('the same page is not repainted every five seconds', () => {
 });
 
 /* #3955: the page reloads itself, but only when that cannot lose anything. */
-function safeReload({ hidden = true, served = '0.2.76', sending = {}, drafts = {}, textareas = [], modal = false, already = null } = {}) {
+function safeReload({ hidden = true, served = '0.2.76', sending = {}, drafts = {}, typed = [], attached = null, modal = false, already = null } = {}) {
   const store = { 'kosmos-auto-reloaded': already };
   let reloaded = 0;
-  const doc = { hidden, querySelectorAll: (sel) => (sel === 'textarea' ? textareas.map((v) => ({ value: v })) : []) };
+  const doc = { hidden };
+  // Fields the person typed into (the page's own 'input' listener collects them), with what they hold now.
+  const typedSet = new Set(typed.map((v) => ({ value: v, isConnected: true })));
   const ss = { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = v; } };
   const win = { location: { reload: () => { reloaded += 1; } } };
   const got = new Function('document', 'sessionStorage', 'window', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
-    'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen',
+    'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen', 'UPDATE_TYPED', 'ATTACH_PENDING',
     page.liftAll(SCRIPT, ['updateSafeReload']) + '\nreturn updateSafeReload(' + JSON.stringify(served) + ');')(
     doc, ss, win, !!sending.talk, !!sending.pj, sending.reply || null, !!sending.term,
-    drafts.talk || {}, drafts.term || {}, drafts.pj || {}, drafts.room || {}, () => modal);
+    drafts.talk || {}, drafts.term || {}, drafts.pj || {}, drafts.room || {}, () => modal, typedSet,
+    attached || { room: {}, agent: {} });
   return { got, reloaded, store };
 }
 
@@ -170,13 +173,18 @@ test('#3955: an old page in the background with nothing in hand reloads itself, 
   assert.equal(safeReload({ already: '0.2.75' }).reloaded, 1, 'CONTROL: a newer version reloads again');
 });
 
-test('#3955: it never reloads a page someone is looking at, sending from, typing in, or reading a window over', () => {
+test('#3955: it never reloads a page someone is looking at, sending from, typing in, attaching to, or reading a window over', () => {
+  /* Typed, not filled (review round 1): the page fills boxes itself (an agent's instructions), and
+     only fields the person typed into count; the page collects those with one 'input' listener. */
+  assert.match(SCRIPT, /document\.addEventListener\('input', \(e\) => \{ const t = e\.target; if \(t && 'value' in t\) UPDATE_TYPED\.add\(t\); \}, true\);/);
+  assert.doesNotMatch(page.liftAll(SCRIPT, ['updateSafeReload']), /querySelectorAll\('textarea'\)/, 'every filled textarea blocks the reload again');
   assert.equal(safeReload({ hidden: false }).reloaded, 0, 'reloaded the page in front of the person');
   assert.equal(safeReload({ sending: { talk: true } }).reloaded, 0, 'reloaded mid-send');
   assert.equal(safeReload({ sending: { reply: { project: 'p', id: 1 } } }).reloaded, 0, 'reloaded mid-reply');
   assert.equal(safeReload({ drafts: { talk: { april: 'half a thought' } } }).reloaded, 0, 'lost a draft');
   assert.equal(safeReload({ drafts: { room: { p: { text: 'draft' } } } }).reloaded, 0, 'lost a room draft');
-  assert.equal(safeReload({ textareas: ['typed but not parked'] }).reloaded, 0, 'lost words in a box');
+  assert.equal(safeReload({ typed: ['a task comment, half typed'] }).reloaded, 0, 'lost words typed into a field');
+  assert.equal(safeReload({ attached: { room: { p1: [{ name: 'a.png' }] }, agent: {} } }).reloaded, 0, 'lost a file waiting to be sent');
   assert.equal(safeReload({ modal: true }).reloaded, 0, 'reloaded under an open window');
-  assert.equal(safeReload({ drafts: { talk: { april: '   ' } }, textareas: [''] }).reloaded, 1, 'CONTROL: blank drafts are not words');
+  assert.equal(safeReload({ drafts: { talk: { april: '   ' } }, typed: ['', '  '] }).reloaded, 1, 'CONTROL: blank drafts and emptied fields are not words');
 });
