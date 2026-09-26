@@ -7094,133 +7094,6 @@ test('the SINGULAR frame is pinned too, and composes every reason cleanly', () =
   }
 });
 
-test('identical roster verdicts collapse to one group line, and only then', () => {
-  const shared = pageFunction('pjSharedTold',
-    TOLD_PRELUDE + pageFnSource('pjToldLine') + '\n' + pageFnSource('pjToldGroupLine'));
-
-  const cn = (because, becauseGroup) => ({ told: { state: 'could_not', because, becauseGroup } });
-  const told = () => ({ told: { state: 'told' } });
-
-  // Collapses: same state, same because, 2+ members. The reason in the
-  // group line is the ENGINE'S PLURAL SIBLING (becauseGroup), never the
-  // singular spliced into a plural frame -- "any of them … this agent"
-  // read as a contradiction (her ruling).
-  const g = shared([
-    cn('it has no folder of its own on this computer yet', 'none of them has a folder of its own on this computer yet'),
-    cn('it has no folder of its own on this computer yet', 'none of them has a folder of its own on this computer yet'),
-    cn('it has no folder of its own on this computer yet', 'none of them has a folder of its own on this computer yet')]);
-  assert.ok(g.startsWith('We could not update these agents about this folder'),
-    'three identical could_not verdicts did not collapse: ' + g);
-  assert.ok(g.includes('none of them has a folder of its own on this computer yet'),
-    'the group sentence did not carry the plural sibling: ' + g);
-  /* ⚠️ RE-POINTED. This read /this agent has no folder/, which the frame
-     ruling deleted from the tree, so it could not have failed even if the
-     singular did leak. Its two neighbours above were re-pointed in that commit
-     and this one was not. The singular for this row is the literal below. */
-  assert.ok(!g.includes('it has no folder of its own on this computer yet'),
-    'the singular because leaked into the plural frame: ' + g);
-
-  // No plural sibling (unmapped because): NO collapse at all. Collapsing
-  // suppresses the per-member rows, and a group line that names no reason
-  // would then have LOST the reason entirely (iteration 3) -- repeated
-  // sentences are weight, a vanished reason is a lie of omission.
-  const gf = shared([cn('some unmapped sentence'), cn('some unmapped sentence')]);
-  assert.equal(gf, '',
-    'unmapped-identical reasons collapsed and lost their per-member rows: ' + gf);
-
-  // The reasonless sentence itself stays as pjToldGroupLine's defensive
-  // arm for a razed could_not (no because at all) reached directly.
-  const gline = pageFunction('pjToldGroupLine', TOLD_PRELUDE);
-  assert.equal(gline({ state: 'could_not' }),
-    'We could not update these agents about this folder.',
-    'the defensive reasonless arm changed or vanished');
-
-  /**
-   * 🛑 EVERY PLURAL COMPOSED THROUGH THE FRAME, not one of them. Eight of the
-   * nine were defective when only one had been rendered, which is why this
-   * asserts the whole set rather than a sample: a frame naming ADD made a
-   * REMOVE reason false outright, and a frame naming a noun made every value
-   * carrying that noun say it twice.
-   *
-   * ⚠️ The rule INVERTED when the frame changed, and an earlier version of
-   * this comment survived the inversion and sat directly above the new one
-   * stating the opposite. See the block below for what the properties are
-   * now; there is one comment here, not two, on purpose.
-   */
-  /* ⚠️ THE PAIRS COME FROM THE ENGINE'S MAP, read out of its source, not from
-     a list written here. A copy of the map in this file would compose the
-     copy through the frame and pass while the real map said something else
-     (a check containing a copy cannot fail). The keys are parsed and the
-     values come back from `groupBecause` itself. */
-  const projSrc = fs.readFileSync(nodePath.join(__dirname, 'engine', 'projects.js'), 'utf8');
-  const mapBody = projSrc.slice(projSrc.indexOf('const GROUP_BECAUSE = new Map(['),
-    projSrc.indexOf(']);', projSrc.indexOf('const GROUP_BECAUSE = new Map([')));
-  const singulars = [...mapBody.matchAll(/^\s*\['([^']+)',$/gm)].map((m) => m[1]);
-  /* ⚠️ THE PROPERTY INVERTED WHEN THE FRAME CHANGED, and the inversion is the
-     lesson. The frame used to name `instructions`, so the rule was "exactly
-     once" and the values were trimmed to satisfy it. That trim removed the
-     only noun telling a reader what `them` meant, and the frame ALSO asserted
-     a file some reasons deny exists. The frame names the AGENTS now, which is
-     the one thing true in every arm, and `instructions` lives in the values
-     where it has a referent. So the rule is AT MOST once, and the frame itself
-     is pinned, because "at most once" alone would pass a frame that named the
-     noun again while every value happened to omit it. */
-  const FRAME_NOUN = /instructions/g;
-  const frame = shared([cn('x', 'a plural'), cn('x', 'a plural')]);
-  assert.match(frame, /^We could not update these agents about this folder: /,
-    'the group frame changed; re-render all nine values against it before trusting this test');
-  assert.doesNotMatch(frame.split(': ')[0], /instructions/,
-    'the frame names `instructions` again, which makes it the antecedent for every pronoun after it');
-  for (const singular of singulars) {
-    const plural = require('./engine/projects').groupBecause(singular);
-    assert.ok(plural, 'a key parsed out of GROUP_BECAUSE does not map: ' + singular);
-    const line = shared([cn(singular, plural), cn(singular, plural)]);
-    assert.ok(line, 'two identical verdicts did not collapse for: ' + singular);
-    assert.ok((line.match(FRAME_NOUN) || []).length <= 1,
-      'the group line says "instructions" more than once: ' + line);
-    assert.doesNotMatch(line, /so nothing was written|we left them alone/,
-      'the value re-states an outcome the frame already carries: ' + line);
-    /* ⚠️ AIMED AT THE VALUE, NOT THE LINE. Against the line this could never
-       fail: the `startsWith` above pins the frame verbatim, so a frame naming
-       ADD is already caught before this runs. Measured by putting the old
-       frame back -- the startsWith fired and this did not. Against the VALUE
-       it holds something nothing else does: a reason that names the operation
-       it belongs to, when one of them is a removal and the frame cannot know
-       which. */
-    assert.doesNotMatch(plural, /was not added|were not added|added to/,
-      'a plural reason names ADD, and the reason set spans add and remove: ' + plural);
-  }
-  // CONTROL: the loop above ran over a non-empty set. An empty expectPlural
-  // would satisfy all three assertions vacuously, which is the failure this
-  // whole test exists to prevent, one level down.
-  assert.ok(singulars.length >= 9,
-    'CONTROL: only ' + singulars.length + ' pairs parsed out of GROUP_BECAUSE; the scan is not seeing the whole map');
-
-  // The group line lands in the page as raw HTML (paintOneProject), so a
-  // markup-carrying plural form must arrive ESCAPED, not verbatim-dangerous.
-  const gx = shared([cn('x', 'a <b>note</b> & more'), cn('x', 'a <b>note</b> & more')]);
-  assert.ok(gx.includes('a &lt;b&gt;note&lt;/b&gt; &amp; more'),
-    'the group reason was not escaped: ' + gx);
-  assert.ok(!gx.includes('<b>note</b>'),
-    'raw markup from a group reason survived into the group line');
-
-  // Success says NOTHING (ruled 2026-08-18): an all-told roster has no
-  // sentence to say and nothing to collapse.
-  assert.equal(shared([told(), told()]), '',
-    'an all-told roster grew a group sentence; success is silent now');
-
-  // Does NOT collapse: mixed states.
-  assert.equal(shared([told(), cn('x')]), '', 'mixed states collapsed');
-  // Does NOT collapse: same state, different because (the string-equality
-  // key is what keeps the group claim exactly as true as the rows).
-  assert.equal(shared([cn('disk full'), cn('permission denied')]), '',
-    'different becauses collapsed into one sentence');
-  // Does NOT collapse: singleton (its line belongs on its row).
-  assert.equal(shared([cn('x')]), '', 'a singleton roster grew a group line');
-  // Does NOT collapse: nothing to say.
-  assert.equal(shared([{ told: {} }, { told: {} }]), '', 'empty verdicts collapsed');
-});
-
 test('a member row says when the agent has NOT picked the project up yet', () => {
   /**
    * 🛑 THE GAP THIS CLOSES, and it is why the row says anything at all. An
@@ -7340,15 +7213,6 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
   } finally {
     board.restore();
   }
-
-  // The positive collapse, on PRODUCED rows: two members synced the same
-  // way carry the identical verdict, so the real field shapes (not the
-  // hand-built negatives above) exercise the group line too.
-  const sharedOnProduced = pageFunction('pjSharedTold',
-    TOLD_PRELUDE + pageFnSource('pjToldLine') + '\n' + pageFnSource('pjToldGroupLine'))(roster);
-  assert.ok(sharedOnProduced,
-    'two identically-synced produced members did not collapse (told states: '
-    + roster.map((r) => (r.told || {}).state).join(', ') + ')');
 
   // Pre-control: the real row must have a verdict to suppress, whichever
   // state the sandbox create produced, or both assertions below are vacuous.
@@ -7772,17 +7636,19 @@ test('the receipt pill borders have dark twins (the trio that missed the #71 pas
     'CONTROL: insideDark claims the light rule is in a dark block; the measurer is broken');
 });
 
-test('the group line is wired into paintOneProject, not just extractable', () => {
-  // The function-level tests stay green if the append is dropped, which
-  // would leave every verdict suppressed and stated NOWHERE -- the
-  // merge-only wiring class. Pin the wiring at source level, with a
-  // control that the CSS the literal targets still exists.
+test('the project notice is wired into paintOneProject, not just extractable', () => {
+  // #3923: every member row suppresses its verdict, so if the notice were not painted the
+  // verdicts would be stated NOWHERE -- the merge-only wiring class. Pin the wiring at source
+  // level (the notice is built, written to its box, and the box shown only when non-empty),
+  // with a control that the box and its CSS still exist.
   const src = pageFnSource('paintOneProject');
-  assert.ok(src.includes('pjSharedTold('), 'paintOneProject no longer consults pjSharedTold');
-  assert.ok(src.includes('pj-told-group'), 'paintOneProject no longer emits the pj-told-group line');
+  assert.ok(/const notice = pjNotice\(roster, p\.id\);/.test(src), 'paintOneProject no longer builds the notice for this project');
+  assert.ok(/setIfChanged\(noticeBox, notice\);/.test(src), 'the notice is not written into its region');
+  assert.ok(!/noticeBox\.hidden/.test(src), 'the live region is hidden again: a notice written into a hidden region is not announced on its first appearance');
+  assert.ok(src.includes("getElementById('pj-one-notice')"), 'paintOneProject paints a different box');
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  assert.ok(raw.includes('.pj-members .pj-told-group {'),
-    'CONTROL: the .pj-told-group CSS rule is gone, so the emitted class styles nothing');
+  assert.ok(raw.includes('<div id="pj-one-notice" role="status" aria-live="polite"></div>'), 'CONTROL: the notice region is gone from the page, or is hidden');
+  assert.ok(raw.includes('.pnotice {'), 'CONTROL: the .pnotice CSS rule is gone');
 });
 
 /* ---------------------------------------------------------------------------
@@ -15095,5 +14961,117 @@ test('#3679: /api/reply and the project-thread DM route refuse a stored form pas
     messagesEngine.setRunner(null);
     chatEngine.resetForTests();
     board.restore();
+  }
+});
+
+test('#3923: Try again (?retell=1) re-tells a current member and never re-adds one that left', async () => {
+  const dir = mkTemp('aw-retell-');
+  const made = await req('/api/projects', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'Retell Fixture', folder: dir, agents: [] }),
+  });
+  assert.equal(made.status, 200, 'the fixture project was not created');
+  const id = JSON.parse(made.body).project.id;
+  const agentsOf = () => (require('./engine/projects').readAll().find((p) => p.id === id) || {}).agents || [];
+
+  // A notice painted before the agent left: the retry must not put it back.
+  const stale = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
+  assert.equal(stale.status, 409, stale.body);
+  assert.match(stale.body, /that agent is not on this project/);
+  assert.deepEqual(agentsOf(), [], 'a retell added an agent that was not on the project');
+
+  // CONTROL: the same retell for a current member goes through and adds nothing new.
+  const add = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo', { method: 'POST' });
+  assert.equal(add.status, 200, add.body);
+  const toldAt = () => (((require('./engine/projects').readAll().find((p) => p.id === id) || {}).told || {}).leo || {}).at;
+  const at0 = toldAt();
+  await new Promise((r) => setTimeout(r, 5));
+  const retell = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
+  assert.equal(retell.status, 200, retell.body);
+  assert.deepEqual(agentsOf(), ['leo']);
+  // (Whether a retry speaks is checked by the stubbed arms below; leo is not running in the sandbox.)
+  assert.ok(at0 && toldAt() > at0, 'the retell recorded no fresh verdict: ' + at0 + ' -> ' + toldAt());
+
+  // A retell on a project that does not exist is a 404, like every sibling path.
+  const nowhere = await req('/api/project/no-such-project/agent/leo?retell=1', { method: 'POST' });
+  assert.equal(nowhere.status, 404, nowhere.body);
+
+  /* A retry that WRITES the block is the join the running agent never got: the stored TOLD
+     reads as "told it on its screen" (toldOverride), so the line must actually be typed.
+     A retry that changed nothing must not repeat it (the CONTROL arm). */
+  const eng = require('./engine/projects');
+  const realSync = eng.syncAgent;
+  const realSpeak = eng.speakOfMembership;
+  const spoke = [];
+  try {
+    eng.speakOfMembership = (who, proj, kind) => { spoke.push([who, proj && proj.id, kind]); return { state: 'told' }; };
+    eng.syncAgent = () => ({ state: eng.TOLD.TOLD, because: null, changed: true, added: [id] });
+    const wrote = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
+    assert.equal(wrote.status, 200, wrote.body);
+    assert.deepEqual(spoke, [['leo', id, 'listed']], 'a retry that wrote the block did not tell the running agent');
+    assert.deepEqual(JSON.parse(wrote.body).said, { state: 'told' });
+    // The write changed the block, but by adding ANOTHER project: this one is not news to the agent.
+    eng.syncAgent = () => ({ state: eng.TOLD.TOLD, because: null, changed: true, added: ['some-other-project'] });
+    const other = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
+    assert.equal(other.status, 200, other.body);
+    assert.equal(spoke.length, 1, 'a retry announced this project when the write added a different one');
+    // ...and when that other project is real and leo is on it, THAT one is announced (its stored TOLD
+    // reads as told on its screen too), under alsoSaid, while this project's `said` stays null.
+    const madeTwo = await req('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Retell Other', folder: mkTemp('aw-retell-two-'), agents: ['leo'] }) });
+    assert.equal(madeTwo.status, 200, madeTwo.body);
+    const id2 = JSON.parse(madeTwo.body).project.id;
+    eng.syncAgent = () => ({ state: eng.TOLD.TOLD, because: null, changed: true, added: [id2] });
+    const both = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
+    assert.equal(both.status, 200, both.body);
+    assert.deepEqual(spoke[spoke.length - 1], ['leo', id2, 'listed'], 'the other newly written project was not announced');
+    assert.equal(JSON.parse(both.body).said, null);
+    assert.deepEqual(Object.keys(JSON.parse(both.body).alsoSaid), [id2]);
+    spoke.length = 1;
+    // Left while the retry ran (the sync took the block out): never announced as a join.
+    eng.syncAgent = () => {
+      const all = eng.readAll();
+      for (const p of all) if (p.id === id) p.agents = (p.agents || []).filter((a) => a !== 'leo');
+      eng.writeAll(all);
+      return { state: eng.TOLD.TOLD, because: null, changed: true, added: [id] };
+    };
+    const left = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
+    assert.equal(left.status, 200, left.body);
+    assert.equal(spoke.length, 1, 'an agent that left mid-retry was told it had been put on the project');
+    { const all = eng.readAll(); for (const p of all) if (p.id === id) p.agents = ['leo']; eng.writeAll(all); }
+    eng.syncAgent = () => ({ state: eng.TOLD.TOLD, because: null, changed: false, added: [] });
+    const same = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
+    assert.equal(same.status, 200, same.body);
+    assert.equal(spoke.length, 1, 'a retry that changed nothing typed the line again');
+    eng.syncAgent = () => ({ state: eng.TOLD.COULD_NOT, because: 'we could not write to its instructions', changed: false, added: [id] });
+    const failed = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
+    assert.equal(failed.status, 200, failed.body);
+    assert.equal(spoke.length, 1, 'a retry that could not write typed a line claiming it had');
+    /* The agent-made bound: a process past sixty retries an hour is refused with the count and a
+       Retry-After; the screen (sec-fetch-site) is never refused. */
+    eng.syncAgent = () => ({ state: eng.TOLD.TOLD, because: null, changed: false, added: [] });
+    let refused = null;
+    for (let i = 0; i < eng.MEMBERS_PER_HOUR + 5 && !refused; i++) {
+      const r = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
+      if (r.status === 429) refused = r;
+      else assert.equal(r.status, 200, r.body);
+    }
+    assert.ok(refused, 'agent-made retries were never bounded');
+    assert.match(refused.body, /pausing agent-made retries/);
+    assert.ok(JSON.parse(refused.body).retry_after_secs > 0, 'a refusal that does not say when retries lift');
+    const screen = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST', headers: { 'sec-fetch-site': 'same-origin' } });
+    assert.equal(screen.status, 200, 'the screen was refused a retry: ' + screen.body);
+    // A store that cannot be read is ours to say (500), never "the agent left" or "still did not work".
+    const realReadAll = eng.readAll;
+    eng.readAll = () => { throw Object.assign(new Error('unreadable'), { code: 'UNREADABLE' }); };
+    try {
+      const broken = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST', headers: { 'sec-fetch-site': 'same-origin' } });
+      assert.equal(broken.status, 500, broken.body);
+    } finally { eng.readAll = realReadAll; }
+  } finally {
+    eng.syncAgent = realSync;
+    eng.speakOfMembership = realSpeak;
+    require('./server').resetRetellForTests();
   }
 });

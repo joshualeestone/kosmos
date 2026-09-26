@@ -854,6 +854,8 @@ const readConnectionsShelf = inflight.collapse(() => {
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
 const projects = require('./engine/projects');
+/* #3923: when each agent-made Try again (`?retell=1`) happened, for its own hourly bound. */
+const RETELL_RECENT = [];
 const { accountProblemOf } = require('./engine/accountproblem'); // #3723
 const federation = require('./engine/federation');
 /* #3311: one room seat per federated project. What arrives is recorded in the
@@ -15280,11 +15282,85 @@ const server = http.createServer((req, res) => {
     // remove both no-op on a repeat, and the pane line below must not be
     // typed twice for one fact (#304).
     let moved = false;
+    let storeUnread = false;   // #3923: a retell answers 500 for this, never "current member"
     try {
       const before = projects.readAll().find((p) => p && p.id === id);
       const on = !!(before && (before.agents || []).includes(name));
       moved = req.method === 'POST' ? !on : on;
-    } catch { moved = false; }
+    } catch { moved = false; storeUnread = true; }
+    /* #3923: `?retell=1` is the project notice's Try again: re-tell a CURRENT member, never
+       re-add one. For a POST, `moved` above is exactly "not a member now", so a notice
+       painted before the agent left gets 409 and nothing is written or typed. A current
+       member is never passed to addAgent (a leave landing between the read above and the
+       write must not be undone), and it moves no membership, so the valve does not apply. */
+    if (req.method === 'POST' && new URL(req.url, ROUTING_BASE).searchParams.get('retell') === '1') {
+      if (storeUnread) { sendJson(res, 500, { error: 'we cannot read your projects right now' }); return; }
+      if (moved) {
+        // A missing project answers 404 like every sibling path; a member that left, 409.
+        // A store we cannot read is ours (500), as on the sibling path below: never "the agent left".
+        let exists;
+        try { exists = projects.readAll().some((p) => p && p.id === id); } catch {
+          sendJson(res, 500, { error: 'we cannot read your projects right now' });
+          return;
+        }
+        if (!exists) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+        sendJson(res, 409, { error: 'that agent is not on this project' });   // true whether it left or never joined
+        return;
+      }
+      /* A retry writes the agent's instruction file but moves no membership, so memberValve (which
+         counts membership changes) never sees it. Bounded on its own, for agent-made calls only, at
+         the same sixty an hour: the screen is never valved, like every sibling path here. Unlike
+         memberValve this count lives in memory and a board restart empties it; accepted, because a
+         retry rewrites one agent's file with what it should already say and moves no membership. */
+      if (!isViaScreen(req)) {
+        const now = Date.now();
+        while (RETELL_RECENT.length && now - RETELL_RECENT[0] >= 3600 * 1000) RETELL_RECENT.shift();
+        if (RETELL_RECENT.length >= projects.MEMBERS_PER_HOUR) {
+          const secs = Math.max(1, Math.ceil((RETELL_RECENT[0] + 3600 * 1000 - now) / 1000));
+          const mins = Math.max(1, Math.ceil(secs / 60));
+          res.setHeader('retry-after', String(secs));
+          sendJson(res, 429, { error: 'agents have asked Kosmos to try again ' + RETELL_RECENT.length + ' times in the last hour, so Kosmos is pausing agent-made retries for '
+            + mins + (mins === 1 ? ' minute' : ' minutes') + '; the person can still press Try again on the screen', retry_after_secs: secs });
+          return;
+        }
+        RETELL_RECENT.push(now);
+      }
+      let told;
+      try {
+        told = projects.syncAgent(name, roster);
+      } catch (err) {
+        // A fixed sentence: the raw message can carry a file path and an error code, which is not
+        // something to put in front of the person with a Try again beside it.
+        console.error('[kosmos] #3923 retell ' + name + ': ' + String((err && err.message) || err));
+        told = { state: projects.TOLD.COULD_NOT, because: 'we could not write to its instructions' };
+      }
+      let retold = null;
+      try { retold = projects.get(id, roster); } catch { retold = null; }
+      /* ⚠️ A retry that puts THIS project into the block makes `toldOverride` read the stored TOLD
+         as "told it on its screen". So the running agent is told on its screen, with the "listed"
+         line: the add path may already have typed the join line (it does whatever the write did),
+         so this says what is newly true rather than announcing the join twice (#304). Only when this project was newly
+         written (`added`, not `changed`: the same write may add or drop some other project), and
+         only while the agent is still on it: a leave landing mid-request must not be announced
+         as a join. A no-op retry repeats nothing (#304). */
+      /* Every project the write newly added is announced, not only this one: an earlier failed add
+         elsewhere is stored on each of the agent's projects, so pressing Try again here can be what
+         finally writes that other project in, and its stored TOLD reads as "told it on its screen"
+         too. `said` stays this project's answer; `alsoSaid` carries the others by id. */
+      let said = null;
+      const alsoSaid = {};
+      const added = (told && told.state === projects.TOLD.TOLD && Array.isArray(told.added)) ? told.added : [];
+      for (const pid of added) {
+        let proj = null;
+        try { proj = pid === id ? retold : projects.get(pid, roster); } catch { proj = null; }
+        const on = !!(proj && (proj.agents || []).some((a) => a && (a.sessionName || a) === name));
+        if (!on) continue;
+        const one = projects.speakOfMembership(name, proj, 'listed', roster);
+        if (pid === id) said = one; else alsoSaid[pid] = one;
+      }
+      sendJson(res, 200, { project: retold, told, said, alsoSaid, agentsUnreadable: roster === null });
+      return;
+    }
     /* The membership valve (#803, extended): a process past sixty membership
        changes an hour across projects is refused the WRITE with the count
        and the minutes; the screen is never valved (a person building a team
@@ -16963,6 +17039,7 @@ if (require.main === module) {
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
+  resetRetellForTests: () => { RETELL_RECENT.length = 0; }, // #3923: the agent-made retry bound, emptied between tests
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
   federateOut, // #3311: what leaves this computer for a federated room, exported so the agent arm is tested
