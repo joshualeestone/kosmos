@@ -660,7 +660,7 @@ test('#3296/#3391: an imported gemini/grok agent starts as its OWN runner, and n
    started and no job is written. */
 test('#3568: an imported antigravity agent reaches installJob as antigravity and, with the flag off, is not started', () => {
   const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY;
-  delete process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  process.env.AGENT_WORKFORCE_ANTIGRAVITY = '0';
   writeRecord([importEntry('agyimp', { runner: 'antigravity' })]);
   const trust = require('./trust');
   const realTrust = trust.trustFolder;

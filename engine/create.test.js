@@ -4224,12 +4224,23 @@ test('#3391: a Grok agent is created on the grok runner, recorded, with the righ
     'the auto (empty) Grok model must carry a real label');
 });
 
-/* #3568: the Antigravity runner (Google's agy), OFF unless AGENT_WORKFORCE_ANTIGRAVITY=1. */
+/* #3568: the Antigravity runner (Google's agy), ON unless AGENT_WORKFORCE_ANTIGRAVITY=0 (Josh, 2026-09-25). */
 function withAgyFlag(on, fn) {
   const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY;
-  if (on) process.env.AGENT_WORKFORCE_ANTIGRAVITY = '1'; else delete process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  if (on) process.env.AGENT_WORKFORCE_ANTIGRAVITY = '1'; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = '0';
   try { return fn(); } finally { if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = was; }
 }
+test('#3568: Gemini on a Google subscription is ON by default: unset means on, only 0 turns it off', () => {
+  const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  try {
+    delete process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+    assert.equal(create.antigravityEnabled(), true, 'unset must mean on (Josh, 2026-09-25 20:57)');
+    process.env.AGENT_WORKFORCE_ANTIGRAVITY = '0';
+    assert.equal(create.antigravityEnabled(), false, 'CONTROL: 0 turns it off');
+    process.env.AGENT_WORKFORCE_ANTIGRAVITY = '1';
+    assert.equal(create.antigravityEnabled(), true);
+  } finally { if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = was; }
+});
 test('#3568: with the flag off, an Antigravity create is refused as an unknown provider, exactly as before', () => {
   recorder();
   create.setDryRun(false);

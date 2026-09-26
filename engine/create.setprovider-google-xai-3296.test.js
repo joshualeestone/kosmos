@@ -228,7 +228,7 @@ test('#3568: switching to Antigravity is refused with the flag off and allowed w
   const name = born('sw-agy', 'claude');
   const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY;
   try {
-    delete process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+    process.env.AGENT_WORKFORCE_ANTIGRAVITY = '0';
     const off = create.setProvider(name, 'antigravity', { ...BINS, antigravityBin: AGY_BIN });
     assert.equal(off.outcome, create.OUTCOME.REFUSED);
     assert.match(off.because, /pick a provider/);

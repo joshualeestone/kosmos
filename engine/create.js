@@ -859,14 +859,14 @@ function providerLabel(provider) {
   if (provider === 'antigravity') return 'Antigravity'; // #3568
   return 'Anthropic';
 }
-/* #3568: the Antigravity runner (Google's agy) is built but OFF until an operator opts in with
-   AGENT_WORKFORCE_ANTIGRAVITY=1: its launch was measured signed in once (2026-09-25), but Kosmos
-   cannot read what it is doing yet and the board does not name it. Read at call time so a test
-   can flip it. Checked by every route that sets one up: createAgentInner, setProvider, installJob
+/* #3568: the Antigravity runner (Google's agy): Gemini on a Google subscription. ON by default
+   since Josh's ruling (2026-09-25 20:57, "We don't need googles permission");
+   AGENT_WORKFORCE_ANTIGRAVITY=0 turns it off. Its launch was measured signed in (2026-09-25).
+   Read at call time so a test can flip it. Checked by every route that sets one up: createAgentInner, setProvider, installJob
    (which backfill, repair, connect and an import's first start all reach) and connect's provider
    hint in engine/discover.js. Recognising a running agy pane does not depend on it. */
 function antigravityEnabled() {
-  return process.env.AGENT_WORKFORCE_ANTIGRAVITY === '1';
+  return process.env.AGENT_WORKFORCE_ANTIGRAVITY !== '0';
 }
 /* #3296/#3391: the ONE provider-named "unknown account" refusal, shared by the switch
    path and createAgentInner's per-provider create arms, so a new provider does not add
