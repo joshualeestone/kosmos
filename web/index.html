@@ -4373,6 +4373,23 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   html[data-layout="consolidated"] body.consolidated.fold-a { grid-template-columns: 48px minmax(0, 1fr); }
   html[data-layout="consolidated"] body.consolidated.fold-a .railhead#rail-agents { flex-direction: column; margin-left: 0; }
   html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents .railacts { flex-direction: column; }
+  /* #3948: the project notice sits in the Agents rail head (a body child of its own would overrun the 38
+     pre-rail rows), so the head wraps and the notice takes the whole line under the name and the +.
+     Folded, the rail is a 48px strip of letters with no room for a sentence, and a notice squeezed into it
+     reads as noise; it goes with the name. ⚠️ That also silences it while folded, the same as the rows'
+     names are silent there. Unfolding shows it again; it is not re-announced (its text has not changed). */
+  /* ⚠️ row-gap 0: the notice is always a line of its own (flex-basis 100%), even empty, and the head's 6px
+     gap would sit between the lines and make this head 6px taller than the Projects head with nothing to
+     say. Its room comes from its own padding, only while it has content. Unfolded only: folded, the head
+     is a column and that same gap spaces the fold arrow from the +. */
+  html[data-layout="consolidated"] body.consolidated .railhead#rail-agents { flex-wrap: wrap; }
+  html[data-layout="consolidated"] body.consolidated:not(.fold-a) .railhead#rail-agents { row-gap: 0; }
+  /* A wrapping head breaks lines at each item's full width before shrinking any, so the name could no
+     longer squeeze and the + could drop to a line of its own in a 200px rail. A 0 basis on the name's
+     group keeps the name and the + on one line, as before the head wrapped. */
+  html[data-layout="consolidated"] body.consolidated:not(.fold-a) .railhead#rail-agents > .lead { flex: 1 1 0; }
+  html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn { flex: 0 0 100%; min-width: 0; }
+  html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents > .alist-pjn { display: none; }
   /* #980: SCOPED to the agents rail -- unscoped, folding agents also hid
      the PROJECTS label two columns over (Josh's "they jump around all over
      the place" family: a fold on one rail visibly rearranging the other). */
@@ -6956,6 +6973,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    the person must do. No bar down the left (Josh has ruled those out). #pj-one-notice is the live
    region and stays in the page, empty and unstyled, so a notice written into it is announced the
    first time too; the visible box is the .pnotice drawn inside it. */
+/* #3948: the rail's copy of the project notice (consolidated layout). Room above it only while it has
+   something to say; the region itself is never hidden (a live region must stay in the tree to be heard).
+   Its place in the rail head is set with the consolidated rules (the head wraps, the notice takes a line). */
+.alist-pjn:not(:empty) { padding: 6px 0 2px; }
 .pnotice { display: flex; gap: 10px; align-items: flex-start; padding: 13px 15px; border-radius: 10px;
   background: var(--k-sunk, rgba(20,22,26,.05)); border: 1px solid var(--k-rule); margin: 0 0 12px; }
 .pn-b { flex: 1 1 auto; min-width: 0; }
@@ -16318,6 +16339,15 @@ window.kosmosMeasureScrollbarWidth();
   <span class="railacts">
     <button class="fold plus" type="button" id="rail-agents-new" aria-label="New agent" title="New agent">+</button>
   </span>
+  <!-- #3948: the consolidated layout hides the Members card (#3218), so #3923's project notice lives here too,
+       at the foot of the Agents rail head, straight above the list whose top group IS the open project's
+       members. Inside the head rather than a body child of its own because the consolidated grid's 38
+       pre-rail rows are full (web.consolidated-980.test.js), and inside the head it shares the head's row.
+       Painted by paintRailPjNotice only while a project is open in the consolidated layout, so one notice
+       speaks at a time. Never hidden itself: only its content comes and goes, so a screen reader hears it
+       arrive (the same rule as #pj-one-notice). -->
+  <div id="alist-pj-notice" class="alist-pjn" role="status" aria-live="polite"></div>
+  <div id="alist-pj-notice-said" class="vh" role="status" aria-live="polite"></div>
 </div>
 <div class="alist" id="alist" hidden></div>
 <!-- #520, piece three: the person, bottom left of the agents rail, in the
@@ -19585,6 +19615,19 @@ function openAddMemberModal() {
   if (sel) sel.focus();
 }
 
+/* #3948: the Agents rail's copy of the project notice, for the consolidated layout (which hides the
+   Members card and its #pj-one-notice). Called by paintAgentList (every poll and on opening a project),
+   by loadProjects (a project read), and by showTab (a layout switch, including the resize re-check), so leaving the consolidated layout
+   empties it at once rather than at the next poll. Same roster as paintOneProject, so pjNotice's pruning
+   of the retry marks agrees between the two. */
+function paintRailPjNotice() {
+  const rn = document.getElementById('alist-pj-notice');
+  if (!rn) return;
+  const op = (document.body.classList.contains('consolidated') && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
+  setIfChanged(rn, op ? pjNotice(op.agents || [], op.id) : '');
+  const rs = document.getElementById('alist-pj-notice-said');
+  if (rs && rs.dataset.pj && (!op || rs.dataset.pj !== String(op.id))) { rs.textContent = ''; rs.dataset.pj = ''; }
+}
 /* #3218/#3387: paint the single Agents list (#alist) from the last board sample (LAST). Called by
    tick() every poll AND by pjMarkOpen() the instant a project opens or closes, so the grouping tracks
    PJ_CURRENT without a ~5s lag. In the CONSOLIDATED view with a project open, that project's agents
@@ -19600,6 +19643,11 @@ function paintAgentList() {
   const lim = new URLSearchParams(location.search).get('limit');
   const src = (LAST || []).filter((a) => !(a && a.isGuide === true));
   const shown = lim ? src.slice(0, Number(lim)) : src;
+  /* #3948: the project notice (#3923) in the consolidated layout, where the Members card is hidden: the
+     same pjNotice from the same roster (p.agents) the tab layout paints, above this list; empty when no
+     project is open or in the tab layout (its own notice speaks there). Before the empty-board return, so
+     leaving the project always clears it. */
+  paintRailPjNotice();
   if (!shown.length) { setAgentsGrouped(false); alist.innerHTML = boardEmpty(); return; }
   const openProj = (layoutConsolidated() && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
   const inProj = (openProj && Array.isArray(openProj.agents))
@@ -20540,6 +20588,8 @@ function showTab(tab) {
   document.getElementById('rail-agents').hidden = !cons;
   document.getElementById('rail-projects').hidden = !cons;
   document.getElementById('rail-me').hidden = !cons;
+  // #3948: the rail's project notice follows the layout now, not at the next poll.
+  if (typeof paintRailPjNotice === 'function') paintRailPjNotice();
   if (cons) {
     paintRailMe();
   }
@@ -36886,6 +36936,30 @@ function askClock(unix) {
   return unix ? new Date(unix * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
 }
 function askEsc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+/* #3978: the rows are written only when their shape changes (setLive), so a poll that changes nothing
+   leaves the Allow / Deny buttons, and keyboard focus on them, in place; they were rebuilt every 5
+   seconds. The one thing that does change on its own, how long ago, is a span carrying its time, filled
+   here in place. aria-live="off" on the span is meant to make it its own, silent region, so the minute
+   tick is not announced while a new or changed request still is. ⚠️ Not measured with a screen reader:
+   where one reads the card's region instead (role=status is atomic), the whole card is read once a
+   minute, which is still far quieter than the old rewrite every 5 seconds. */
+function askAgoSpan(unix) { return '<span data-ask-ago="' + (Number(unix) || 0) + '" aria-live="off"></span>'; }
+function askWrite(el, html) {
+  if (!el) return;
+  /* A real change still rewrites the rows (a request crossing the hour fades, an answer lands): the
+     button that had focus is found again by what it does and for whom, and focus goes back to it. */
+  const a = document.activeElement;
+  const had = a && el.contains(a) && a.dataset ? { ask: a.dataset.ask || '', id: a.dataset.id || '' } : null;
+  setLive(el, html);
+  if (had && !el.contains(document.activeElement)) {
+    const back = Array.from(el.querySelectorAll('[data-ask]')).find((b) => b.dataset.ask === had.ask && (b.dataset.id || '') === had.id);
+    if (back) back.focus();
+  }
+  for (const s of el.querySelectorAll('[data-ask-ago]')) {
+    const t = askAgo(Number(s.dataset.askAgo) || 0);
+    if (s.textContent !== t) s.textContent = t;
+  }
+}
 function askLive() { return ASK.devices.filter((d) => !ASK.done[d.device_id]); }
 async function pollAsk() {
   let r = null;
@@ -36929,13 +37003,12 @@ function paintAsk() {
   const title = document.getElementById('ask-title');
   const lead = document.getElementById('ask-lead');
   if (!onPlus) {
-    document.getElementById('ask-rows').innerHTML = '';
-    if (hide) return;
+    if (hide) { askWrite(document.getElementById('ask-rows'), ''); return; }
     title.textContent = '';
     lead.hidden = true;
     const n = live.length;
-    document.getElementById('ask-rows').innerHTML = '<div class="asknote"><span>' + (n === 1 ? askEsc(askKind(live[0])) + ' is asking to use this Kosmos.' : n + ' devices are asking to use this Kosmos.') +
-      '</span><button class="btn uprime" type="button" data-ask="open">Review</button></div>';
+    askWrite(document.getElementById('ask-rows'), '<div class="asknote"><span>' + (n === 1 ? askEsc(askKind(live[0])) + ' is asking to use this Kosmos.' : n + ' devices are asking to use this Kosmos.') +
+      '</span><button class="btn uprime" type="button" data-ask="open">Review</button></div>');
     return;
   }
   if (!anything) return;
@@ -36961,10 +37034,10 @@ function paintAsk() {
        how long ago, the code LARGE (it is what the person checks against the device in their hand), one
        sentence, Allow / Deny. A request older than an hour is faded. No paragraphs, no "Not now". */
     const stale = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
-    const again = d.denied_at ? ' You said no to this ' + askEsc(kind) + ' ' + askAgo(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
+    const again = d.denied_at ? ' You said no to this ' + askEsc(kind) + ' ' + askAgoSpan(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
     const say = d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
     return '<div class="askreq' + (stale ? ' stale' : '') + '"><div class="askdev">' + askIcon(kind) + '</div>' +
-      '<div class="askwho"><b>' + askEsc(kind) + '</b><span>' + askEsc(askAgo(d.first_seen)) + '</span></div>' +
+      '<div class="askwho"><b>' + askEsc(kind) + '</b>' + askAgoSpan(d.first_seen) + '</div>' +
       (d.code ? '<div class="askcode"><span class="vh">code </span>' + askEsc(d.code) + '</div>' : '') +
       '<p class="asksay">' + say + again + (e && e.state === 'error' ? ' ' + askEsc(e.because) : '') + '</p>' +
       '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + askEsc(kind) + (d.code ? ', code ' + askEsc(d.code) : '') + '">Allow</button>' +
@@ -36972,9 +37045,8 @@ function paintAsk() {
   };
   for (const d of rows) { seen.add(d.device_id); out.push(render(d, ASK.done[d.device_id])); }
   for (const id of doneIds) { if (!seen.has(id)) out.push(render(ASK.done[id].device, ASK.done[id])); }
-  document.getElementById(inPanel ? 'plus-ask-rows' : 'ask-rows').innerHTML = out.join('');
-  if (inPanel) document.getElementById('ask-rows').innerHTML = '';
-  else document.getElementById('plus-ask-rows').innerHTML = '';
+  askWrite(document.getElementById(inPanel ? 'plus-ask-rows' : 'ask-rows'), out.join(''));
+  askWrite(document.getElementById(inPanel ? 'ask-rows' : 'plus-ask-rows'), '');
 }
 async function askAct(act, id) {
   const d = ASK.devices.find((x) => x.device_id === id) || (ASK.done[id] && ASK.done[id].device);
@@ -36993,6 +37065,9 @@ async function askAct(act, id) {
     const said = res ? await res.json().catch(() => null) : null;
     ASK.done[id] = { state: 'error', at: Date.now(), device: d, because: plusWords((said && said.error) || 'We could not save that. Try again.') };
   }
+  /* #3978: a retry that fails with the same words would be an identical write, which setLive skips: no
+     announcement and no sign the press did anything. Forget the last write so the answer is said again. */
+  for (const rid of ['ask-rows', 'plus-ask-rows']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
   paintAsk();
   paintDevices();
 }
@@ -45670,6 +45745,8 @@ async function loadProjects() {
   }
   paintProjects();
   if (PJ_CURRENT) paintOneProject();
+  // #3948: the rail's copy of the project notice follows this read too, not the next agents poll.
+  paintRailPjNotice();
   /* ⚠️ THE THIRD OPEN SURFACE. paintOneProject repaints the project view;
      the task page is a separate view off the same record and would otherwise
      hold whatever it was painted with when it opened -- including a "Mark as
@@ -53964,12 +54041,16 @@ async function addMemberToProject(who, msg) {
    refuses rather than re-adds an agent that has left). Success says nothing: the repaint drops
    the row. The same answer again says so on the row, and so does a retry that got no answer. Focus returns to the row's new button, or
    to the Members heading when the row is gone, since the repaint replaces the pressed button. */
-document.getElementById('pj-one-notice').addEventListener('click', async (e) => {
+/* #3948: one handler for both notices (the Members card's in the tab layout, the Agents rail's in the
+   consolidated one); `box` is the notice that was clicked, and `rail` picks that notice's own success line,
+   repaint and focus fallback. */
+async function pjNoticeRetryClick(e) {
   const btn = e.target && e.target.closest ? e.target.closest('[data-pn-retry]') : null;
   if (!btn || !PJ_CURRENT) return;
   const key = btn.dataset.pnRetry;
   const project = PJ_CURRENT;   // a switch while this runs must not move focus into another project
-  const box = document.getElementById('pj-one-notice');
+  const box = e.currentTarget;
+  const rail = box.id === 'alist-pj-notice';
   btn.disabled = true;
   let before = '';
   let name = key;   // the display name, for the success line (the row is gone by then)
@@ -54010,10 +54091,13 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
   // A read that landed but FAILED (offline) paints no project view, so the row's mark would wait for
   // the connection to come back: paint it from the projects already loaded.
   if (PJ_READ_FAILED) paintOneProject();
+  // The rail's notice is otherwise painted at the next poll.
+  if (rail) paintRailPjNotice();
   // Success empties the row, which a screen reader does not announce: say it in words. Only on the
   // board's own "told" verdict: a retry that came back with a different reason may leave a row with
   // no button, which is not success. Said whether or not focus is put back below.
-  const said = document.getElementById('pj-one-notice-said');
+  // In the consolidated layout the Members card (and its success line) is hidden, so the rail has its own.
+  const said = document.getElementById(rail ? 'alist-pj-notice-said' : 'pj-one-notice-said');
   if (said) {
     // Emptied, then written a frame later, so the same sentence twice (leo fixed again) is announced
     // again; tagged with its project so a switch clears it (paintOneProject).
@@ -54030,7 +54114,10 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
   if (now && now !== document.body && !box.contains(now)) return;
   // Compared as data, not built into a selector, so no session name can break the lookup.
   const again = Array.from(box.querySelectorAll('[data-pn-retry]')).find((b) => b.dataset.pnRetry === key) || null;
-  const heading = document.querySelector('.pjcard-members > .dlab');
+  // In the rail, the rail's own name: the Members heading is hidden there, and landing on a named heading
+  // tells a screen reader where focus went. It reads "Project Members" while the project's members head
+  // the list, and "Agents" when they do not (an empty board, a failed status read); both name the rail.
+  const heading = rail ? document.querySelector('#rail-agents .railname') : document.querySelector('.pjcard-members > .dlab');
   // The row's own button, else the next row's (keyboard users keep their place in the notice), else
   // the Members heading.
   const next = again || box.querySelector('[data-pn-retry]');
@@ -54043,7 +54130,9 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
     }
     heading.focus();
   }
-});
+}
+document.getElementById('pj-one-notice').addEventListener('click', pjNoticeRetryClick);
+{ const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNoticeRetryClick); }
 document.getElementById('pj-one-add-go').addEventListener('click', async () => {
   // #2429 (Josh, 0.6.45): once the member is added there is nothing more to do in the
   // modal, so CLOSE it on success -- and close BEFORE the board refresh, so the picker's
