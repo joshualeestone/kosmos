@@ -37315,7 +37315,9 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   const go = document.getElementById(PLUS_SI_OTP_GO[id]);
   const trySend = () => {
     const code = el.value.replace(/\D/g, '');
-    if (code.length < 6) { lastSent = ''; queued = false; return; }
+    // Deleting a digit forgets the last code, but not while it is still being checked: retyping the
+    // same digit then (the usual "did it go?" gesture) queued the same code for a second, wasted try.
+    if (code.length < 6) { if (!go || !go.disabled) lastSent = ''; queued = false; return; }
     if (code === lastSent) return;
     if (!go || go.disabled) { queued = true; return; }
     queued = false;
@@ -37340,15 +37342,17 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   // Any press of the step's button (by hand, or by the sixth digit) records what it sent, so a code the
   // person sent themselves is not sent again by itself, and the answer's selection finds it.
   /* Any press of the step's button records what it sent. And a press BY HAND on the exact code already
-     sent and answered does nothing but put the person back in the field with it selected: it would only
-     spend another try on a code the server has refused (the button stays for a new code). After a
-     network failure ("could not reach", "has not answered") the same code was never tried, so it goes.
+     sent and REFUSED does nothing but put the person back in the field with it selected: it would only
+     spend another try on a code the server has judged wrong (the button stays for a new code). Only the
+     coordinator's own wrong-code words count ("code is not right", "not what the app shows", "not the one
+     we texted"); any other answer (a network failure, "give it a minute", a 500, a cooldown) never judged
+     the code, so it goes. Should those words change, this fails open: a wasted try, never a dead button.
      Capture phase, so this runs before the step's own click handler. */
   if (go) go.addEventListener('click', (e) => {
     const c = el.value.replace(/\D/g, '');
     if (c.length !== 6) return;
     const said = (document.getElementById('plus-signin-msg') || {}).textContent || '';
-    if (!sendingNow && c === lastSent && !/could not reach|has not answered/i.test(said)) {
+    if (!sendingNow && c === lastSent && /\bcode is not (right|what the app shows|the one we texted)/i.test(said)) {
       e.stopImmediatePropagation(); e.preventDefault();
       el.focus();
       try { el.setSelectionRange(0, el.value.length); } catch { /* not a text input */ }
@@ -37357,7 +37361,9 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
     }
     lastSent = c; queued = false;
   }, true);
-  PLUS_SI_OTP_BOX[id] = { drop: () => { queued = false; } };
+  // Send again: a code waiting for the button is for the old code, and the check in flight is thrown
+  // away unjudged, so its code is forgotten as sent (a hand press or a retype may send it again).
+  PLUS_SI_OTP_BOX[id] = { drop: () => { queued = false; lastSent = ''; } };
   /* Fixing one digit: in a complete code a typed digit REPLACES the digit after the caret (the box
      that is outlined), rather than being inserted and pushing the last digit off the end, which made
      a different six-digit code and sent it. With the caret at the end, it starts the code again. */
@@ -37491,7 +37497,7 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   // A touch that never focused (a swipe that started here) must not leave the flag set for a later Tab.
   // Long enough for a real tap, whose focus can follow pointerup, to be seen as a tap.
   for (const ev of ['pointerup', 'pointercancel', 'blur']) el.addEventListener(ev, () => setTimeout(() => { byPointer = false; }, 400));
-  el.addEventListener('focus', () => { prevValue = el.value; if (digits() < 6) lastSent = ''; if (!byPointer) place(); byPointer = false; paint(); });
+  el.addEventListener('focus', () => { prevValue = el.value; hadDigits = digits(); if (digits() < 6) lastSent = ''; if (!byPointer) place(); byPointer = false; paint(); });
   el.addEventListener('click', paint);
   for (const ev of ['blur', 'keyup', 'select', 'scroll']) el.addEventListener(ev, paint);
   // The outline follows the caret as it moves, a held arrow key included.

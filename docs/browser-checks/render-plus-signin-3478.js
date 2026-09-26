@@ -795,6 +795,30 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.waitForTimeout(400);
       chk(/could not reach/i.test(dropMsg) && wrongSends === b2cBefore + 1,
         `[${k}] #3942 after a dropped request, Verify pressed on the same code does send it`, JSON.stringify({ dropMsg, sent: wrongSends - b2cBefore }));
+      /* Round 10 review: an answer that never JUDGED the code (a 500 "try again", "give it a minute")
+         must not make the code unsendable by hand; only the coordinator's wrong-code words hold it back. */
+      verifyAnswer = { status: 500, body: { error: 'the coordinator said no (500): try again' } };
+      await page.evaluate(() => plusSiMsg(''));
+      await pasteCode('676767');                     // auto-sent, answered "try again"
+      await page.waitForTimeout(400);
+      const r10aBefore = wrongSends;
+      await page.click('#plus-si-code-go');
+      await page.waitForTimeout(400);
+      verifyAnswer = { status: 400, body: { error: 'the coordinator said no (401): that code is not right' } };
+      chk(wrongSends === r10aBefore + 1, `[${k}] #3942 after an answer that did not judge the code (a 500), Verify pressed by hand sends it again`, String(wrongSends - r10aBefore));
+      /* Round 10 review: deleting and retyping the last digit WHILE the code is being checked (the "did it
+         go?" gesture) must not queue the same code for a second, wasted try. */
+      verifyDelay = 800;
+      await page.evaluate(() => plusSiMsg(''));
+      const r10bBefore = wrongSends;
+      await pasteCode('454545');                     // sent; its answer (wrong) is 0.8s away
+      await page.waitForTimeout(100);
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.focus(); i.setSelectionRange(6, 6); });
+      await page.keyboard.press('Backspace');
+      await page.keyboard.type('5');                 // the same code again, while it is in flight
+      await page.waitForTimeout(1800);
+      verifyDelay = 0;
+      chk(wrongSends === r10bBefore + 1, `[${k}] #3942 the same code retyped while it is being checked is sent once, not queued again`, String(wrongSends - r10bBefore));
       /* Web round 6 (measured there, same code here): a click near the RIGHT edge of a box in a full code
          lands on that box (the text caret alone put it on the next one); and text that arrives with no
          cancelable beforeinput (set and announced by an input event) is searched like a paste. */
