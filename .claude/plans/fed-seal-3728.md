@@ -101,3 +101,6 @@ Tests (engine/fedseal.test.js):
 - Checked sound: edges are only active or revoked; a hello racing a delete re-reads; a resent hello is answered only from its own invite; every ownerHello throw lands in sealStep's catch.
 
 ## Round 8 review (sonnet): NO FINDINGS, converged
+
+## Validation (first run)
+9935 tests, 1 failed: engine.reachable.test.js flagged `fedseal.newKeyPair` as exported, tested and reachable from nowhere. It is a test seam (a test plays the other board); excused there by name with that reason, and its doc no longer claims a production use it does not have.

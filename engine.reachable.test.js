@@ -35,6 +35,7 @@ const EXCUSED = {
   setDryRun: 'test seam: keeps suites off real panes',
   setClaudeProbe: 'test seam: injects the claude -p liveness probe so tests do not spawn a real claude (#1916)',
   resetForTests: 'test seam',
+  newKeyPair: 'test seam (#3728): engine/fedseal.js makes a fresh X25519 pair so a test can play the OTHER board (owner or member) against this one; production uses the one sealingKey() from the key file. A board never needs a second identity.',
   underTest: 'test-only export (#988): engine/updating.js exports its test-context predicate for its own arms; production inlines the check. Named here rather than passing by luck: it otherwise survives only by colliding with ping/feedbacksend (notify.js, a third definer, was deleted in #2623)',
   agePartWritesForTests: 'test seam: ages the parts records instead of shortening the hour (#803)',
   ageMemberChangesForTests: 'test seam: ages the membership records instead of shortening the hour (#803)',

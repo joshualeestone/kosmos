@@ -91,7 +91,7 @@ function sealingKey() {
   return { pub: j.x, privateKey };
 }
 
-/** A key pair for tests and for a board that holds more than one identity. */
+/** A fresh key pair: a test seam, so a test can play the other board (excused in engine.reachable.test.js). */
 function newKeyPair() {
   const { publicKey, privateKey } = crypto.generateKeyPairSync('x25519');
   return { pub: publicKey.export({ format: 'jwk' }).x, privateKey };
