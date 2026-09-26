@@ -16,8 +16,7 @@
  *     on without '/' is dropped.
  *   - NOT read, and COUNTED with a ceiling: a fetch whose URL is a variable, and a URL with a
  *     variable tail. The ceilings are NET counts (removing one and adding another passes). NOT read
- *     and NOT counted: a helper called with a variable URL, and a URL split before its first
- *     segment ('/api' + '/x'). A URL that is itself a template is read with its `${}` flattened.
+ *     and NOT counted: a helper called with a variable URL. (A URL split at '/api' + '/x' IS read.) A URL that is itself a template is read with its `${}` flattened.
  *   - the board: '/api/...' literals (either quote) in any code comparison (=== / case; every one on
  *     main is path dispatch, but the test does not check the left-hand side), startsWith prefixes
  *     (pinned at zero), and ANCHORED regex literals mentioning \/api, outside comments and strings.
@@ -227,7 +226,7 @@ function pagePaths(src) {
   /* Every quoted '/api/' literal in CODE, not only fetch( arguments: the page also reaches the
      board through helpers (a post wrapper, a table of endpoints, a `url:` field), and a UI merged
      ahead of its route through one of those is the same defect. Comments are skipped. */
-  const re = /['"`]\/api\//g;
+  const re = /['"`]\/api(?:\/|['"`])/g; // also a bare '/api' literal that `+` joins to its next segment
   let m;
   while ((m = re.exec(src))) {
     const at = m.index;
@@ -595,4 +594,9 @@ test('#3957 control: an anchored wildcard guard regex is not a route, and is cou
 test('#3957 control: a path suffix glued on without a slash is counted, not dropped', () => {
   const r = pagePaths(inScript("fetch('/api/accounts' + (on ? '/pause-3957' : '/resume-3957'));"));
   assert.ok(r.unreadable.length > basePage().unreadable.length, 'a glued path suffix vanished without being counted');
+});
+
+test('#3957 control: a URL split at /api (\'/api\' + \'/x\') is read', () => {
+  const planted = pagePaths(inScript("fetch('/api' + '/newroute-missing-3957');")).paths;
+  assert.ok(planted.includes('/api/newroute-missing-3957'), 'a split /api literal was invisible');
 });
