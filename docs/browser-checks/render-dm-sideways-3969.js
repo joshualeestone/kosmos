@@ -6,7 +6,7 @@
  * conversation was 0px and the message box below the screen; at 740x360 (past the 40rem phone block)
  * the chat sat under the whole profile, about 900px down a scrolling page. On the REAL page, a phone
  * held sideways (touch, landscape, at most 30rem tall, narrower than 56rem) at 640x360, 740x360, 667x375 and
- * 852x393, light and dark (from 56rem, a 932x430 Pro Max, the side-by-side layout already fits the chat):
+ * 852x393, light and dark (from 56rem, a 932x430 Pro Max, keeps the side-by-side layout, asserted separately below):
  *   - the page does not scroll, and there is no sideways scroll;
  *   - at least MIN_THREAD_PX of the conversation is on screen, and the message box and Post are on screen;
  *   - the Profile tab is on screen and a 44px target (the rest of the agent is one tap away);
@@ -38,6 +38,9 @@ const MIN_THREAD_PX = 50;
 const MIN_TAP_PX = 44;
 const SIDEWAYS = [[640, 360], [740, 360], [667, 375], [852, 393]];   // from 56rem (a 932x430 Pro Max) the side-by-side layout already fits the chat
 const PORTRAIT = [[375, 667], [393, 852]];
+/* The card's fourth size, a 932x430 Pro Max held sideways, is past the 56rem ceiling, so it keeps the side-by-side
+   layout. Asserted, not assumed: the conversation has room and the message box and Post are on screen. */
+const WIDE_SIDEWAYS = [[932, 430]];
 
 const at = (i) => new Date(Date.now() - (60 - i) * 60e3).toISOString();
 const FX = { messages: Array.from({ length: 12 }, (_, i) => (i % 2 ? { at: at(i), text: 'message ' + i + ' from the person', delivery: { state: 'placed' } } : { from: 'april', at: at(i), text: 'reply ' + i + ' from the agent' })), olderCount: 0, presence: 'on', asking: false };
@@ -95,6 +98,16 @@ function measure() {
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
         await ctx.close();
       }
+      for (const [w, h] of WIDE_SIDEWAYS) for (const theme of ['light', 'dark']) {
+        const t = `[${eng} ${w}x${h} sideways, side-by-side layout ${theme}]`;
+        const { ctx, page, errs } = await open(browser, eng, w, h, theme, true);
+        const m = await page.evaluate(measure);
+        chk(m.docH <= m.vis + 1 && m.docW <= m.vw, `${t} the page does not scroll, down or sideways`, JSON.stringify({ docH: m.docH, vis: m.vis, docW: m.docW, vw: m.vw }));
+        chk(m.shownThread >= MIN_THREAD_PX, `${t} at least ${MIN_THREAD_PX}px of the conversation is on screen`, `shown=${m.shownThread}`);
+        chk(m.composer, `${t} the message box and Post are on screen`, JSON.stringify(m));
+        chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+        await ctx.close();
+      }
       for (const [w, h] of PORTRAIT) {
         const t = `[${eng} ${w}x${h} portrait]`;
         const { ctx, page, errs } = await open(browser, eng, w, h, 'light', true);
@@ -115,7 +128,7 @@ function measure() {
       await browser.close();
     }
   }
-  const EXPECTED_PER_ENGINE = 46;   // 8 sideways runs x 5, 2 portrait x 2, 2 mouse
+  const EXPECTED_PER_ENGINE = 54;   // 8 sideways runs x 5, 2 wide-sideways runs x 4, 2 portrait x 2, 2 mouse
   const want = EXPECTED_PER_ENGINE * (process.env.ENGINES || 'chromium').split(',').length;
   if (RAN !== want) { console.log(`FAIL  ran ${RAN} checks, expected ${want}`); fail.push('check count'); }
   console.log(fail.length ? `\n${fail.length} FAILED` : `\nALL PASS (${RAN} checks)`);
