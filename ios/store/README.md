@@ -18,9 +18,9 @@ These are listed roughly in the order they would stop a submission.
    with sign-in. The privacy page now says to email hello@installkosmos.com to
    have an account deleted. That is a real route, but Apple asks for deletion
    to start inside the app, so an email address alone is not expected to pass.
-2. **The App Privacy answers** in `privacy-label.md` are yours to submit. Six
-   items are marked UNSURE there. The one that most needs a ruling is whether
-   to declare Purchase History (my reading is no).
+2. **The App Privacy answers** in `privacy-label.md` are yours to submit. Five
+   items are marked UNSURE there. Purchase History is declared, matching the
+   Google Play draft, even though nothing is bought in the app.
 3. **Approve and Deny on a notification are hidden (kosmos #3870, merged in
    #3974).** They were registered but did nothing, so the first submission
    ships without them and the listing does not mention them. The card stays
