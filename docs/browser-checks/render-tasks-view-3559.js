@@ -288,10 +288,23 @@ function chk(ok, label, extra) {
           const t = document.querySelector('#tsk-tiles [data-tile="decision"]');
           const probe = document.createElement('span'); probe.style.color = 'var(--danger)'; document.getElementById('panel-tasks').appendChild(probe);
           const danger = getComputedStyle(probe).color; probe.remove();
+          /* Review round 10: its group heading too (it had kept a red dot at zero). */
+          const h = [...document.querySelectorAll('#tsk-groups .tsk-grp h3')].find((x) => /Needs Your Decision/.test(x.textContent));
           return { n: Number(t.querySelector('.num').textContent), red: getComputedStyle(t.querySelector('.num')).color === danger,
-            redDot: getComputedStyle(t.querySelector('.tsk-dot')).backgroundColor === danger };
+            redDot: getComputedStyle(t.querySelector('.tsk-dot')).backgroundColor === danger,
+            head: h ? h.textContent : null, headRedDot: h ? getComputedStyle(h.querySelector('.tsk-dot')).backgroundColor === danger : null };
         });
-        chk(zero.n === 0 && !zero.red && !zero.redDot, `${tag} a zero Needs Your Decision is not red, its dot included`, JSON.stringify(zero));
+        chk(zero.n === 0 && !zero.red && !zero.redDot && zero.head !== null && !zero.headRedDot, `${tag} a zero Needs Your Decision is not red, its dot and its heading's dot included`, JSON.stringify(zero));
+        /* And unreadable with nothing listed: the group says it cannot tell, never "Nothing here" (review round 10). */
+        const unknownEmpty = await page.evaluate(() => {
+          TSK.rosterUnknown = true; tskPaint();
+          const sec = document.querySelector('#tsk-groups .tsk-grp[data-unknown]');
+          const out = { sec: !!sec, text: sec ? sec.textContent : '' };
+          TSK.rosterUnknown = false; tskPaint();
+          return out;
+        });
+        chk(unknownEmpty.sec && /cannot tell/.test(unknownEmpty.text) && !/Nothing here/.test(unknownEmpty.text) && /\?/.test(unknownEmpty.text),
+          `${tag} with the agents unreadable and nothing listed, the decision group says it cannot tell`, JSON.stringify(unknownEmpty));
         /* Review round 9: when the server could not read the agents (rosterUnreadable), the tile says it cannot tell
            rather than 0, and is not red. Driven through the page's own flag and painter, with the search cleared so
            the data still holds Max's question: the tile would be red with a 1 if the flag were ignored. */
@@ -301,13 +314,17 @@ function chk(ok, label, extra) {
           const t = document.querySelector('#tsk-tiles [data-tile="decision"]');
           const probe = document.createElement('span'); probe.style.color = 'var(--danger)'; document.getElementById('panel-tasks').appendChild(probe);
           const danger = getComputedStyle(probe).color; probe.remove();
+          const h = [...document.querySelectorAll('#tsk-groups .tsk-grp h3')].find((x) => /Needs Your Decision/.test(x.textContent));
           const out = { num: t.querySelector('.num').textContent, n: t.dataset.n, red: getComputedStyle(t.querySelector('.num')).color === danger,
-            label: t.getAttribute('aria-label') || '' };
+            label: t.getAttribute('aria-label') || '',
+            headCount: h ? h.querySelector('.count').textContent : null, headRedDot: h ? getComputedStyle(h.querySelector('.tsk-dot')).backgroundColor === danger : null,
+            why: h ? h.parentNode.querySelector('.why').textContent : '' };
           TSK.rosterUnknown = false; tskPaint();
           out.after = document.querySelector('#tsk-tiles [data-tile="decision"] .num').textContent;
           return out;
         });
-        chk(unknown.num === '?' && unknown.n === 'unknown' && !unknown.red && /cannot tell/.test(unknown.label) && unknown.after === '1',
+        chk(unknown.num === '?' && unknown.n === 'unknown' && !unknown.red && /cannot tell/.test(unknown.label) && unknown.after === '1'
+          && unknown.headCount === '?' && unknown.headRedDot === false && /cannot tell/.test(unknown.why),
           `${tag} with the agents unreadable, Needs Your Decision says it cannot tell (not 0, not red)`, JSON.stringify(unknown));
         await page.fill('#tsk-search', 'podcast');
         /* Its own clear button: shown with text, clears and hides again. */

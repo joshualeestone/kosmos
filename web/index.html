@@ -45186,6 +45186,12 @@ const TSK_GROUPS = [
 ];
 const TSK_WINDOWS = [['24h', 1], ['48h', 2], ['1 week', 7], ['1 month', 30], ['All', 0]];
 const TSK_BYS = [['status', 'Status'], ['project', 'Project']];
+/* The dot a group wears, on its tile and its heading alike (review round 10: the heading had kept red at zero).
+   Needs Your Decision is red only when there is something to act on and Kosmos could read the agents. */
+const TSK_DECISION_UNKNOWN = 'Kosmos could not read your agents just now, so it cannot tell whether one is waiting on you.';
+function tskDot(g, n) {
+  return g.k === 'decision' && (!n || TSK.rosterUnknown) ? 'var(--tsk-nobody)' : g.c;
+}
 const TSK = { data: null, error: null, proj: null, projHint: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '', needs: null, rosterUnknown: false, closedOpen: false, fold: new Set() };
 TSK_READY = true;
 const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
@@ -45474,11 +45480,11 @@ function tskPaint() {
   document.getElementById('tsk-tiles').innerHTML = !TSK.data ? '' : TSK_GROUPS.map((g) => {
     const n = scoped.filter((t) => t.state === g.k).length;
     /* A zero Needs Your Decision takes a neutral dot too: nothing to act on, nothing red (post-rebase review). */
-    const dot = g.k === 'decision' && !n ? 'var(--tsk-nobody)' : g.c;
+    const dot = tskDot(g, n);
     /* Review round 9: when the server could not read the agents, a 0 here would say nobody needs the person
        when nobody could look. The tile says it cannot tell, and stays neutral. */
     if (g.k === 'decision' && TSK.rosterUnknown) {
-      const why = 'Kosmos could not read your agents just now, so it cannot tell whether one is waiting on you.';
+      const why = TSK_DECISION_UNKNOWN;
       return '<button type="button" class="tsk-tile" data-tile="decision" data-n="unknown" aria-pressed="' + (TSK.tile === g.k) + '" style="--tsk-c:var(--tsk-nobody)" title="' + esc(why) + '" aria-label="' + esc(g.l + ': cannot tell. ' + why) + '">'
         + '<span class="num">?</span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span></button>';
     }
@@ -45520,7 +45526,11 @@ function tskPaint() {
   } else {
     groups.innerHTML = TSK_GROUPS.filter((g) => !TSK.tile || TSK.tile === g.k).map((g) => {
       const ts = sorted.filter((t) => t.state === g.k);
-      const head = '<h3><span class="tsk-dot" style="--tsk-c:' + g.c + '"></span>' + esc(g.l) + '<span class="count">' + ts.length + '</span></h3><p class="why">' + esc(g.why) + '</p>';
+      /* Review round 10: the heading says what its tile says. A zero decision group takes the neutral dot, and
+         with the agents unreadable it says it cannot tell, never "0" and never "Nothing here". */
+      const unknown = g.k === 'decision' && TSK.rosterUnknown;
+      const head = '<h3><span class="tsk-dot" style="--tsk-c:' + tskDot(g, ts.length) + '"></span>' + esc(g.l) + '<span class="count">' + (unknown ? '?' : ts.length) + '</span></h3><p class="why">' + esc(unknown ? TSK_DECISION_UNKNOWN : g.why) + '</p>';
+      if (unknown && !ts.length) return '<section class="tsk-grp" data-unknown="1">' + head + '</section>';
       /* Completed is always the fold: finished work is reachable, not in the way. */
       if (g.k === 'closed') {
         /* #3949: picked from its tile, Completed opens: the person asked to see exactly these. */
