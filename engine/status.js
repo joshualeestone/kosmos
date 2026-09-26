@@ -4361,7 +4361,9 @@ function swarmField(profile, agentName, exactSession) {
       return belongs && cwd != null ? belongs(cwd) : null;
     };
     let calibration = null;
-    try { calibration = require('./allowance').readCalibration(claudeAccountDirOf(agentName)); } catch { calibration = null; }
+    if (swarm.settingsOf(profile)) {
+      try { calibration = require('./allowance').readCalibration(claudeAccountDirOf(agentName)); } catch { calibration = null; }
+    }
     return swarm.cardField(profile, () => transcriptFor(agentName, exactSession), undefined, owns, calibration);
   } catch { return null; }
 }

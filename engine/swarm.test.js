@@ -583,6 +583,8 @@ test('#3946: limitFromAllowance and rederiveLimits keep the token limit in step 
     tokens: swarm.birthProfile({ dailyTokenLimit: 1000 }),
     near: swarm.birthProfile({ dailyTokenLimit: 3010000, dailyAllowancePct: 3 }),
     uncal: swarm.birthProfile({ dailyTokenLimit: 1000, dailyAllowancePct: 3 }),
+    paused: (() => { const b = swarm.birthProfile({ dailyTokenLimit: 1000, dailyAllowancePct: 3 });
+      return { ...b, swarm: { ...b.swarm, active: false, pausedBecause: 'limit', pausedAt: new Date().toISOString(), pausedAtLimit: 1000 } }; })(),
   };
   const writes = [];
   const deps = {
@@ -590,8 +592,10 @@ test('#3946: limitFromAllowance and rederiveLimits keep the token limit in step 
     writeProfile: (n, patch) => { writes.push([n, patch.swarm.dailyTokenLimit]); store[n] = { ...store[n], ...patch }; },
     calibrationFor: (n) => (n === 'uncal' ? null : { tokensPerPoint: 1e6 }),
   };
-  const did = swarm.rederiveLimits([{ name: 'pct' }, { name: 'tokens' }, { name: 'near' }, { name: 'uncal' }], deps);
-  assert.deepEqual(writes, [['pct', 3e6]], 'only the % swarm off by more than the slack was rewritten');
+  const did = swarm.rederiveLimits([{ name: 'pct' }, { name: 'tokens' }, { name: 'near' }, { name: 'uncal' }, { name: 'paused' }], deps);
+  assert.deepEqual(writes, [['pct', 3e6]], 'only the ACTIVE % swarm off by more than the slack was rewritten');
+  // A paused swarm keeps the limit it paused at, so switching it back on today still holds (applyPatch).
+  assert.ok(swarm.applyPatch(store.paused, { active: true }).limitOverrideDay, 'a paused swarm lost its switch-back-on override');
   assert.deepEqual(did, [{ name: 'pct', from: 1000, to: 3e6 }]);
   assert.equal(swarm.settingsOf(store.pct).dailyAllowancePct, 3, 'the % was lost in the rewrite');
 });

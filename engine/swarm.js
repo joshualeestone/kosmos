@@ -506,7 +506,9 @@ function rederiveLimits(rows, deps) {
     if (!c || !c.name) continue;
     try {
       const s = settingsOf(deps.readProfile(c.name));
-      if (!s || !s.dailyAllowancePct) continue;
+      /* Paused: left alone, so the limit it paused at is still the limit when it is switched back on
+         (applyPatch's override compares the two). */
+      if (!s || !s.dailyAllowancePct || !s.active) continue;
       const want = limitFromAllowance(s.dailyAllowancePct, deps.calibrationFor(c.name));
       if (!want) continue;
       const have = s.dailyTokenLimit;
