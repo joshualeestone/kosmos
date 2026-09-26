@@ -1802,7 +1802,9 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    screen. clip, not hidden: it cuts the sideways overflow without making the box
    a scroller, so overflow-y stays visible and the callouts above the top ring
    still show. render-orgchart-phone-718 puts a long callout on the rightmost node
-   and fails if the page widens. */
+   and fails if the page widens. clip needs iOS 16 / Safari 16 (the iOS app's own
+   floor is 16.0); an older Safari ignores it and a long name can widen the page
+   there, as it did before this change. */
 .orgwrap { margin-top: 8px; overflow-x: clip; }
 /* #718: a fleet too big to fit a phone even with its rings brought in (orgFit)
    scrolls inside the chart's own box, never the whole page sideways. Only then
@@ -26438,6 +26440,7 @@ let ORG_DRAG_MOVED = false;   // the last pointer sequence on the map was a drag
 let ORG_POS = new Map(); // last positions by key, so a repaint does not snap back
 let ORG_SIZE = 0;        // the canvas ORG_POS was measured on (#718: a new width rescales them)
 let ORG_VIEW_W = 0;      // the chart box's width at the last paint (#718: width changes, a scrolled chart's centre)
+let ORG_SCROLL_X = 0;    // the box's scroll as the person left it at that width (#718; see the scroll listener)
 /* #718: the chart box back to a plain one (no sideways scroll, no scroll padding,
    not a focusable region) wherever the chart is cleared instead of painted: an
    empty board, and a poll that failed. */
@@ -26608,14 +26611,14 @@ function paintOrg() {
   }
   const { placed, maxR } = orgPlace(orgTreeOf(agents));
   // #718: fit the width it is given (see orgFit); the rings come in, the nodes do not shrink.
-  const fit = orgFit(maxR, wrap.clientWidth);
+  const viewW = wrap.clientWidth;   // one read: the fit and the scroll logic below agree on the width
+  const fit = orgFit(maxR, viewW);
   if (fit.k < 1) for (const spot of placed.values()) spot.r *= fit.k;
   const size = fit.size;
   /* #718: what changed since the last paint. Only a change in the box's width is
      acted on here: a new agent growing a desktop chart keeps its positions as
      before, and the 5s poll repainting at the same width touches neither the
      positions nor the scroll (writing scrollLeft mid-pan stops a finger's scroll). */
-  const viewW = wrap.clientWidth;
   const widthChanged = ORG_VIEW_W > 0 && viewW !== ORG_VIEW_W;
   const f = widthChanged && ORG_SIZE > 0 ? size / ORG_SIZE : 1;
   /* Positions kept from a canvas of another size (a phone turned sideways, a
@@ -26634,7 +26637,7 @@ function paintOrg() {
      the difference on each side. Otherwise the scroll is left alone. */
   const wasWide = wrap.classList.contains('orgscroll');
   const scrollTo = !wide ? null : !wasWide ? (size - viewW) / 2
-    : widthChanged ? (wrap.scrollLeft + ORG_VIEW_W / 2) * f - viewW / 2
+    : widthChanged ? (ORG_SCROLL_X + ORG_VIEW_W / 2) * f - viewW / 2
     : size !== sizeWas && sizeWas > 0 ? wrap.scrollLeft + (size - sizeWas) / 2 : null;
   if (viewW > 0) ORG_VIEW_W = viewW;
   wrap.classList.toggle('orgscroll', wide);
@@ -26652,6 +26655,7 @@ function paintOrg() {
     orgmapEl.style.width = size + 'px';
     orgmapEl.style.height = size + 'px';
     wrap.scrollLeft = Math.round(scrollTo);
+    ORG_SCROLL_X = wrap.scrollLeft;
   }
   /**
    * 🔑 CENTRED ON THE DRAWING, NOT ON THE HUB, and this is the change that does
@@ -27007,6 +27011,14 @@ function orgResizeRepaint() {
   });
 }
 window.addEventListener('resize', orgResizeRepaint);
+/* #718: where the person left the scroll, recorded only while the box is the width
+   it was painted at. A box that gets wider clamps its scroll to the new, smaller
+   maximum (and fires scroll) before the repaint runs, so reading scrollLeft then
+   would re-centre from the clamped value, not from where they were. */
+document.getElementById('orgview').addEventListener('scroll', (e) => {
+  const wrap = e.currentTarget;
+  if (wrap.clientWidth === ORG_VIEW_W) ORG_SCROLL_X = wrap.scrollLeft;
+}, { passive: true });
 
 let BOARD_LAYOUT = 'grid';
 function boardApplyVisibility(onAgents) {
