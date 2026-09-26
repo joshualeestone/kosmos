@@ -84,13 +84,15 @@ test('#718: paintOrg sizes the chart by orgFit from its own width, and squeezes 
 });
 
 test('#718: a width change repaints the chart, and a too-big chart scrolls in its own box', () => {
-  assert.match(SCRIPT, /function orgResizeRepaint\(\) \{\s*if \(ORG_RESIZE_RAF\) return;\s*ORG_RESIZE_RAF = requestAnimationFrame\(\(\) => \{[\s\S]{0,300}paintOrg\(\);/);
+  assert.match(SCRIPT, /function orgResizeRepaint\(\) \{\s*if \(ORG_RESIZE_RAF\) return;\s*ORG_RESIZE_RAF = requestAnimationFrame\(\(\) => \{[\s\S]{0,600}paintOrg\(\);/);
   assert.match(SCRIPT, /window\.addEventListener\('resize', orgResizeRepaint\);/);
+  // Compared with the width the chart was last painted at, not one remembered by the handler.
+  assert.match(SCRIPT, /if \(wrap\.clientWidth === ORG_VIEW_W\) return;\s*paintOrg\(\);/);
 });
 
 test('#718: a chart wider than its box lets a finger scroll the box, and the drag box is the fit margin', () => {
   const paint = SCRIPT.slice(SCRIPT.indexOf('function paintOrg'), SCRIPT.indexOf('function orgLiveStart'));
-  assert.match(paint, /const wide = size > wrap\.clientWidth;/);
+  assert.match(paint, /const wide = viewW > 0 && size > viewW;/);
   assert.match(paint, /classList\.toggle\('orgwide', wide\)/);
   // touch-action: none on the chart would block the box's own scroll on every point of it.
   assert.match(PAGE, /\.orgmap\.orgwide \{ touch-action: pan-x pan-y; \}/);
@@ -105,7 +107,10 @@ test('#718: a chart wider than its box lets a finger scroll the box, and the dra
 
 test('#718: positions from a canvas of another width are carried across in proportion', () => {
   const paint = SCRIPT.slice(SCRIPT.indexOf('function paintOrg'), SCRIPT.indexOf('function orgLiveStart'));
-  assert.match(paint, /const f = ORG_SIZE > 0 \? size \/ ORG_SIZE : 1;/);
+  assert.match(paint, /const f = widthChanged && ORG_SIZE > 0 \? size \/ ORG_SIZE : 1;/);
+  // The scroll is written the first time the box scrolls and when its width changes, never on a
+  // same-width repaint (the 5s poll): a write mid-pan stops a finger's scroll.
+  assert.match(paint, /: widthChanged \? \(wrap\.scrollLeft \+ ORG_VIEW_W \/ 2\) \* f - viewW \/ 2 : null;/);
   assert.match(paint, /for \(const p of ORG_POS\.values\(\)\) \{ p\.x \*= f; p\.y \*= f; \}/);
   assert.doesNotMatch(paint, /ORG_POS = new Map\(\)/, 'a width change throws the positions away again');
 });

@@ -30,7 +30,9 @@
  * wider than its box (scrollLeft does not move). The "does not clip" arms red when
  * the box scrolls for every chart; the deep "held at the top edge" arm reds without the
  * scrolling box's top padding; the centred arm reds without the centring; the narrowed
- * arm reds when the old scroll offset is kept across a width change.
+ * arm reds when the old scroll offset is kept across a width change; the
+ * same-width repaint arm reds when every repaint writes the scroll; the turned-
+ * while-hidden arm reds when the resize handler remembers its own width.
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -152,6 +154,24 @@ function measure(page) {
           chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));
           await ctx.close();
         }
+        // Turned while the chart was hidden: portrait on the chart, open an agent, turn to
+        // landscape, come back (the chart paints wide), turn to portrait again. The chart must
+        // repaint for that last turn, or the page scrolls sideways again until the next poll.
+        {
+          const tag = `[${engine} turned while hidden]`;
+          const ctx = await browser.newContext({ viewport: { width: 667, height: 375 }, hasTouch: true, isMobile: true });
+          const page = await ctx.newPage();
+          await toOrg(page, URL);
+          await page.setViewportSize({ width: 375, height: 667 }); await page.waitForTimeout(500);
+          await page.evaluate(() => openDetail(LAST.find((a) => a.sessionName).sessionName)); await page.waitForTimeout(300);
+          await page.setViewportSize({ width: 667, height: 375 }); await page.waitForTimeout(500);
+          await page.evaluate(() => showTab('agents')); await page.waitForTimeout(500);
+          const shown = await page.evaluate(() => !document.getElementById('orgview').hidden);
+          await page.setViewportSize({ width: 375, height: 667 }); await page.waitForTimeout(500);
+          const m = await measure(page);
+          chk(shown && m.pageW <= m.vw, `${tag} back in portrait, the page does not scroll sideways`, `chart shown=${shown}, page ${m.pageW}px on a ${m.vw}px screen, chart ${m.mapW}px`);
+          await ctx.close();
+        }
         // Desktop: the square fits, so the chart is the natural one, exactly as before.
         const ctx = await browser.newContext({ viewport: { width: 1400, height: 950 } });
         const page = await ctx.newPage();
@@ -212,6 +232,20 @@ function measure(page) {
           const c = Math.round((r.scrollW - r.clientW) / 2);
           chk(r.clientW < box.clientW && Math.abs(r.left - c) <= 2, `${tag} narrowed to 360, the chart stays centred in its box`, `box ${box.clientW} -> ${r.clientW}px, scrollLeft ${r.left}, centre ${c}`);
         }
+        // The board repaints every 5s at the same width. That repaint must not write the box's
+        // scroll: a write mid-pan stops a finger's scroll. Count writes through a spy on the box.
+        {
+          const r = await page.evaluate(() => {
+            const w = document.getElementById('orgview');
+            const desc = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollLeft');
+            let writes = 0;
+            Object.defineProperty(w, 'scrollLeft', { configurable: true, get() { return desc.get.call(this); }, set(v) { writes += 1; desc.set.call(this, v); } });
+            paintOrg(); ORG_HTML = null; paintOrg();   // the guarded repaint, then a forced full one
+            delete w.scrollLeft;
+            return { writes };
+          });
+          chk(r.writes === 0, `${tag} a repaint at the same width leaves the box's scroll alone`, `scrollLeft writes: ${r.writes}`);
+        }
         // The scrolling box clips vertically too. The worst case for a callout is a node held
         // at the top of the drag box: drag the topmost node up past it (mouse, so the drag is
         // not given over to a pan) and measure while it is still held there.
@@ -247,14 +281,17 @@ function measure(page) {
             return { x: Math.round(wrap.left + wrap.width / 2),
               y: Math.round(Math.min(Math.max(b.top + b.height / 2, 1), innerHeight - 1)) };
           });
-          let left = opened; let why = '';
+          // Baseline read HERE, after everything above that moves the scroll (the narrowed arm
+          // re-centres it, scrollIntoView can shift it), so only the swipe can change it.
+          const before = await page.evaluate(() => document.getElementById('orgview').scrollLeft);
+          let left = before; let why = '';
           try {
             const cdp = await ctx.newCDPSession(page);
             await cdp.send('Input.synthesizeScrollGesture', { x: r.x, y: r.y, xDistance: -150, yDistance: 0, gestureSourceType: 'touch', speed: 800 });
             await page.waitForTimeout(300);
             left = await page.evaluate(() => document.getElementById('orgview').scrollLeft);
           } catch (err) { why = ' (the swipe itself failed: ' + (err && err.message ? err.message.split('\n')[0] : err) + ')'; }
-          chk(left !== opened, `${tag} a touch swipe across the chart scrolls its box`, `scrollLeft ${opened} -> ${left} at ${r.x},${r.y}${why}`);
+          chk(left !== before, `${tag} a touch swipe across the chart scrolls its box`, `scrollLeft ${before} -> ${left} at ${r.x},${r.y}${why}`);
         } else {
           console.log(`INFO  ${tag} touch swipe arm is Chromium only (no gesture path here); touch-action is checked above`);
         }

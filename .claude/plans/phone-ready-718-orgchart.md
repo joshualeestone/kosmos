@@ -93,3 +93,17 @@ and a phone has no hover: a tap opens the agent. Changing that is a design call 
   for exactly that reason). New arm: narrowed 375 -> 360 while scrolling; control keeping the old offset fails.
 - Not done: a tabindex on the scrolling box. Tabbing to a node already scrolls it into view.
 - Fixed 77/77 (Chromium + WebKit).
+
+## Challenge loop, iteration 5
+- The swipe arm had become vacuous: iteration 4's narrowed arm moves the scroll first, so `left !== opened`
+  held without any swipe. Baseline now read right before the gesture; control re-measured (no touch rule:
+  62 -> 62, fails).
+- Every paint while scrolling wrote scrollLeft, including the 5s poll at the same width, which stops a pan in
+  progress. The scroll is now written only the first time the box scrolls and when its width changes. Same-
+  width repaint arm counts writes through a spy: 0; control writing every time: 2.
+- The resize handler compared against a width only it recorded, which went stale while the chart was hidden:
+  turn to landscape on an agent page, return, turn back, and the repaint was skipped (page 420px, the #718 bug
+  itself). It now compares with ORG_VIEW_W, which every paint records. New arm; control fails.
+- Positions are rescaled only when the box's width changed, so a new agent growing a desktop chart keeps its
+  positions as before. A box with no width is never "wide".
+- Fixed 81/81 (Chromium + WebKit).
