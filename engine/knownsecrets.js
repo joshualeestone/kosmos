@@ -42,14 +42,7 @@ function valuesIn(text, out) {
     out.add(t);
     const value = assignedValue(t);
     if (value) out.add(value);
-    /* A comment line is not walked by the mask (#3935 review round 27), so a key written bare in one is held on its
-       own here (review round 28): each token of 12 characters or more with both a letter and a digit. A name
-       (CF_API_TOKEN) has no digit, and prose has neither shape. */
-    if (/^#/.test(t)) {
-      for (const tok of t.replace(/^#+/, '').split(/[\s,;]+/)) {
-        if (tok.length >= 12 && /[A-Za-z]/.test(tok) && /[0-9]/.test(tok)) out.add(tok.replace(/^["'`]|["'`.]$/g, ''));
-      }
-    }
+    for (const tok of keyTokens(t)) out.add(tok);
   }
 }
 
@@ -68,6 +61,28 @@ function assignedValue(line) {
   if (!m) return null;
   const value = m[1].trim().replace(/^["']|["']$/g, '');
   return value || null;
+}
+
+/* The key-shaped tokens of a line with spaces in it (#3935 review rounds 28 and 29). The mask does not walk such a
+   line (a comment, a YAML line, prose: walking it masked the same words in a guide's sentence), so a key inside it
+   is held on its own here: "# rotated: Zq8v...", "token:Zq8v...", "note Zq8v...". Names being assigned are taken
+   out first. A token is cut at spaces , ; :
+   and an = that is not padding; it counts with 12 characters or more, 4 letters or more and a digit, when it is
+   not a URL or path (//) and not made of words (the mask's own test). A name (CF_API_TOKEN) has no digit; a
+   timestamp (2026-09-25T11) has one letter. */
+function keyTokens(line) {
+  if (typeof line !== 'string' || !/\s/.test(line.trim())) return [];
+  const { madeOfWords } = require('./secretmask');
+  const out = [];
+  /* A name being assigned (r2_secret_access_key:, API_KEY=, "webhook_url_v2":) is public, not a token. */
+  const names = /(^|[\s,;{#])["']?[A-Za-z_][A-Za-z0-9_.-]*["']?\s*[:=](?!=)/g;
+  for (const raw of line.trim().replace(names, '$1 ').split(/[\s,;:]+|=(?=[^=\s])/)) {
+    const tok = raw.replace(/^[#"'`([{<]+|["'`)\]}>.,]+$/g, '');
+    if (tok.length < 12 || tok.includes('//') || (tok.match(/[A-Za-z]/g) || []).length < 4 || !/[0-9]/.test(tok)) continue;
+    if (madeOfWords(tok)) continue;
+    out.push(tok);
+  }
+  return out;
 }
 
 function walk(dir, out, depth = 0) {
@@ -107,4 +122,4 @@ function collect({ dataRoot = null, home = null } = {}) {
   return [...out].filter((v) => v.length >= 12);
 }
 
-module.exports = { collect, KEY_FILES, assignedValue };
+module.exports = { collect, KEY_FILES, assignedValue, keyTokens };

@@ -70,8 +70,11 @@ function setKnownSecrets(values) {
   const forms = new Set();
   const heldValues = [];   // the values taken, as trimmed: the same set the forms and the fragment index come from
   const walkable = new Set();   // forms of values that are not NAME=value lines
-  /* In sorted order (review round 27): past MAX_KNOWN_VALUES the same set in another order keeps the same values. */
-  for (const v of [...list].sort()) {
+  /* In sorted order (review round 27): past MAX_KNOWN_VALUES the same set in another order keeps the same values.
+     Bare values first (review round 29): a key on its own is what the walk needs, and a line or a file only stands
+     in for the values held from it, so those are the ones the cap drops. */
+  const rank = (v) => (/\s/.test(v.trim()) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(v.trim()) ? 1 : 0);
+  for (const v of [...list].sort((x, y) => rank(x) - rank(y) || (x < y ? -1 : x > y ? 1 : 0))) {
     const k = v.trim();
     if (k.length < MIN_VALUE_LEN) continue;
     /* A bound on the work every reply pays (review round 1 measured 545ms per reply at 20,000 values). */
@@ -186,13 +189,13 @@ function isEnvLine(v, heldSet) {
    file, whose second and later NAMES would otherwise sit inside a walked value, review round 25). A line under
    MIN_VALUE_LEN is not held, and is not a key by this file's measure. */
 function envLike(v, heldSet) {
-  /* A comment line (review round 27: "# Cloudflare API token, DNS edit scope" masked the same words in a guide's
-     sentence). Masked whole if a reply quotes it, never walked or sliced. */
-  if (/^#/.test(v)) return true;
-  if (isEnvLine(v, heldSet)) return true;
-  if (!/\n/.test(v)) return false;
-  const lines = v.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
-  return lines.some((x) => isEnvLine(x, heldSet)) && lines.every((x) => x.length < MIN_VALUE_LEN || heldSet.has(x) || /^#/.test(x));
+  /* A value with spaces in it: a comment, a YAML line, prose, a whole file (review rounds 27 to 29: walking it
+     masked the same words in a guide's sentence, and each special case left a hole). Masked whole if a reply quotes
+     it, never walked or sliced; the collector holds every key-shaped token in it on its own
+     (knownsecrets.keyTokens) and each assignment's value (assignedValue). A value with no space is walked, whatever
+     its first character. */
+  if (/\s/.test(v)) return true;
+  return isEnvLine(v, heldSet);
 }
 /* Values shorter than this are not held, so a short word is never taken for a key. */
 const MIN_VALUE_LEN = 12;
@@ -882,4 +885,4 @@ function describeFired(fired) {
 
 /* For tests: the fragment index's size and stride, and how many times the held set was rebuilt. */
 function fragmentIndexStats() { return { size: knownGrams.size, stride: fragmentStride, keyStride, builds: indexBuilds }; }
-module.exports = { MASK, WITHHELD, UNCHECKED, mask, describeFired, setKnownSecrets, knownSecretCount, fragmentIndexStats };
+module.exports = { MASK, WITHHELD, UNCHECKED, mask, describeFired, setKnownSecrets, knownSecretCount, fragmentIndexStats, madeOfWords };

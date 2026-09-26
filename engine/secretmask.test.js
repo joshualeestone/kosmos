@@ -447,9 +447,12 @@ test('#3935 the look-ahead is charged per run visited, so repeating a held value
   setKnownSecrets([atCap]);
   try {
     const reply = `${atCap.slice(0, 6)} x y z `.repeat(10000);
+    /* The median of three runs (review round 29: two loaded full-suite runs measured 605 and 626ms, and it passed at
+       200 to 250ms alone at load 25). The reply is past the cache's text limit, so each run is fresh. */
     let r;
-    const ms = cpuMillisecondsOf(() => { r = mask(reply); });
-    assert.ok(ms < 600, `a ${reply.length}-character reply repeating a held value's opening cost ${Math.round(ms)}ms of CPU`);
+    const runs = [0, 1, 2].map(() => cpuMillisecondsOf(() => { r = mask(reply); })).sort((x, y) => x - y);
+    const ms = runs[1];
+    assert.ok(ms < 600, `a ${reply.length}-character reply repeating a held value's opening cost ${Math.round(ms)}ms of CPU (median of ${runs.map(Math.round).join(', ')})`);
     /* The charge is what decides it (raising WORD_WALK_BUDGET in secretmask.js changes this test's answer): 10,000 openings each looking ahead over hundreds of runs spend the budget,
        and the reply is withheld whole. That is the stated price of the bound on a reply built this way
        (it holds no key); uncharged, the scan ran to the end instead. */
@@ -1081,13 +1084,15 @@ test('#3935 a whole env file held: its later variable NAMES stay readable, every
   } finally { setKnownSecrets([]); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('#3935 a NAME=value line whose value fell past the cap is searched itself, so the value is still found (review round 25)', () => {
-  const value = 'Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v';
-  const filler = Array.from({ length: 1999 }, (_, i) => `filler-value-${String(i).padStart(6, '0')}-xyz`);
-  setKnownSecrets([...filler, `API_SECRET=${value}`, value]);   // the 2,001st, the value alone, is past MAX_KNOWN_VALUES
+test('#3935 past the value cap, a key held on its own survives before lines that stand in for it (review rounds 25 and 29)', () => {
+  /* Lowercase-leading, so plain string order would put it after the filler and drop it (review round 29: the old
+     version of this test could not fail once values were sorted). */
+  const value = 'zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v';
+  const filler = Array.from({ length: 2000 }, (_, i) => `API_FILLER_${String(i).padStart(6, '0')}=xyz`);
+  setKnownSecrets([...filler, `API_SECRET=${value}`, value]);
   try {
-    const r = mask('Zq then 8vLm3pRt6wXy9kHb2n ok');
-    assert.ok(!r.text.includes('8vLm3pRt6wXy9kHb2n'), r.text);
+    const out = mask('First zq8vLm3p then Rt6wXy9k then Hb2nWc4d then Pq7sTu5v done').text;
+    assert.ok(!out.includes('zq8vLm3p') && !out.includes('Rt6wXy9k') && !out.includes('Pq7sTu5v'), out);
   } finally { setKnownSecrets([]); }
 });
 
@@ -1188,4 +1193,23 @@ test('#3935 a prose line in a secrets folder ("Note: see the wiki ...") is not r
   assert.equal(assignedValue('r2_secret_access_key: Qw8eRt2yUi9oPa3s'), 'Qw8eRt2yUi9oPa3s');
   assert.equal(assignedValue('  "webhook_url_v2": "Mn4bVc7xZa1sDf3g",'), 'Mn4bVc7xZa1sDf3g');
   assert.equal(assignedValue('# OLD_API_KEY=Zq8vLm3pRt6wXy9kHb2n'), 'Zq8vLm3pRt6wXy9kHb2n');
+});
+
+test('#3935 lines with spaces are not walked, their key-shaped tokens are; a bare value starting with # is walked (review round 29)', () => {
+  const knownsecrets = require('./knownsecrets');
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'km-3935-29-'));
+  const glued = 'Zq8vLm3pRt6wXy9kHb2nWc4d'; const pw = '#PqzRtLmWxKvBnHs';
+  try {
+    fs.mkdirSync(path.join(root, 'secrets'));
+    fs.writeFileSync(path.join(root, 'secrets', 'notes.txt'), `# token:${glued}\n# Created 2026-09-25T11:54:00Z for kosmos#3935, see https://github.com/joshualeestone/kosmos/issues/3935\n`);
+    fs.writeFileSync(path.join(root, 'secrets', 'pw'), pw);
+    setKnownSecrets(knownsecrets.collect({ dataRoot: root, home: root }));
+    const a = mask(`First ${glued.slice(0, 8)} then ${glued.slice(8, 16)} then ${glued.slice(16)} done`).text;
+    assert.ok(!a.includes(glued.slice(8, 16)) && !a.includes(glued.slice(16)), a);
+    const b = mask('First PqzRtLmW then xKvBnHs done').text;
+    assert.ok(!b.includes('PqzRtLmW'), b);
+    /* Controls: a timestamp and an issue URL from the same comment stay readable in prose. */
+    for (const t of ['The token was created at 2026-09-25T11:54:00Z.', 'Details are in https://github.com/joshualeestone/kosmos/issues/3935 today.']) assert.equal(mask(t).text, t);
+  } finally { setKnownSecrets([]); fs.rmSync(root, { recursive: true, force: true }); }
 });
