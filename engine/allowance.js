@@ -147,4 +147,73 @@ function readWeekly(accountDir, now = Date.now()) {
   return { usedPct: reading.usedPct, resetsAt: reading.resetsAt, at: j.at, history };
 }
 
-module.exports = { MARKER, scriptPath, stableNode, commandFor, isOurs, ensureStatusLine, readWeekly };
+/* ---- The calibration (#3946 item 10): tokens per point of the weekly figure ----
+
+   Kosmos cannot see the weekly allowance as a number of tokens; the provider does
+   not publish it. What it can see is the figure MOVE while Kosmos's own agents on
+   that account spend tokens it counts. Tokens counted today, divided by the points
+   the figure moved today, is how many tokens one point of this account's week is
+   worth. A swarm's "3% a day" is then 3 times that.
+
+   Use outside Kosmos (claude.ai, another computer) moves the figure with no Kosmos
+   tokens behind it, so a point looks CHEAPER than it is and the swarm pauses early,
+   never late. The same holds for the day's first tokens before the figure's first
+   reading: they are counted, so the baseline is taken only from a reading made
+   BEFORE today, never from today's first one (which would leave those tokens
+   uncounted in points and make a point look dearer, pausing late). */
+
+/* Points the figure must have moved today before a day's numbers are trusted: one
+   point is a whole-number step of the provider's rounding, too coarse to divide by. */
+const MIN_CALIBRATION_POINTS = 2;
+/* A stored calibration older than this is not used: it describes a week that is over. */
+const CALIBRATION_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
+const CALIBRATION_FILE = 'kosmos-weekly-calibration.json';
+
+/**
+ * Points the weekly figure moved since `dayStart` (epoch ms), or null when there is
+ * no baseline: the figure must have a reading from BEFORE dayStart in the same week.
+ */
+function pointsSince(weekly, dayStart) {
+  if (!weekly || !Array.isArray(weekly.history)) return null;
+  const sameWeek = (r) => Math.abs(r[2] - weekly.resetsAt) < statusline.SAME_WEEK_TOLERANCE_SECONDS;
+  const before = weekly.history.filter((r) => r[0] < dayStart && sameWeek(r));
+  if (!before.length) return null;
+  const base = before[before.length - 1][1];
+  return Math.max(0, weekly.usedPct - base);
+}
+
+/** The stored calibration for an account, or null when there is none young enough. */
+function readCalibration(accountDir, now = Date.now()) {
+  if (typeof accountDir !== 'string') return null;
+  let j;
+  try { j = JSON.parse(fs.readFileSync(path.join(accountDir, CALIBRATION_FILE), 'utf8')); } catch { return null; }
+  if (!j || typeof j.tokensPerPoint !== 'number' || !Number.isFinite(j.tokensPerPoint) || j.tokensPerPoint <= 0) return null;
+  if (typeof j.at !== 'number' || !(now - j.at < CALIBRATION_MAX_AGE_MS) || j.at > now) return null;
+  return { tokensPerPoint: j.tokensPerPoint, at: j.at };
+}
+
+/**
+ * Update an account's calibration from today's numbers and return the one to use:
+ * today's, when the figure moved at least MIN_CALIBRATION_POINTS since a baseline
+ * from before today; otherwise the last stored one (readCalibration); otherwise null.
+ * `tokensToday` is every Kosmos agent's tokens on this account since `dayStart`,
+ * counted the way the swarm limit counts them (swarm.meter). Never throws.
+ */
+function calibrate(accountDir, tokensToday, { now = Date.now(), dayStart } = {}) {
+  try {
+    const weekly = readWeekly(accountDir, now);
+    const points = Number.isFinite(dayStart) ? pointsSince(weekly, dayStart) : null;
+    if (points !== null && points >= MIN_CALIBRATION_POINTS && Number.isFinite(tokensToday) && tokensToday > 0) {
+      const next = { tokensPerPoint: tokensToday / points, at: now };
+      const file = path.join(accountDir, CALIBRATION_FILE);
+      const tmp = file + '.' + process.pid + '.new';
+      try { fs.writeFileSync(tmp, JSON.stringify(next) + '\n'); fs.renameSync(tmp, file); }
+      catch { try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ } }
+      return next;
+    }
+  } catch { /* fall through to what is stored */ }
+  return readCalibration(accountDir, now);
+}
+
+module.exports = { MARKER, scriptPath, stableNode, commandFor, isOurs, ensureStatusLine, readWeekly,
+  MIN_CALIBRATION_POINTS, CALIBRATION_MAX_AGE_MS, CALIBRATION_FILE, pointsSince, readCalibration, calibrate };

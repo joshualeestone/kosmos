@@ -28,6 +28,16 @@ const projects = require('./projects');
 const MIN_HELPERS = 2;
 const MAX_HELPERS = 10;
 const DEFAULT_HELPERS = 3;
+/* #3946 item 10: a daily limit as a share of the account's weekly allowance, in whole
+   percent. Josh: "a very low percentage, like 3%". Twenty is a week's allowance in five
+   days, which is already more than one swarm should take. */
+const ALLOWANCE_PCT_MIN = 1;
+const ALLOWANCE_PCT_MAX = 20;
+const ALLOWANCE_PCT_DEFAULT = 3;
+/* A re-derived token limit is written only when it moves by more than this share, so a
+   calibration that drifts a little does not rewrite the profile every minute. */
+const REDERIVE_SLACK = 0.02;
+const allowancePctOk = (v) => Number.isInteger(v) && v >= ALLOWANCE_PCT_MIN && v <= ALLOWANCE_PCT_MAX;
 /* A helper whose file has not moved for this long is not counted as working even if
    it never finished (a killed session leaves a file that never ends). */
 const ACTIVE_WINDOW_MS = 10 * 60 * 1000;
@@ -50,23 +60,30 @@ const END = projects.SWARM_END;
  * (the default applies); `dailyTokenLimit` is required: a swarm runs up to many
  * times the tokens of one agent, and a limit is how the person stays in charge.
  */
-function createProblem({ provider, maxHelpers, dailyTokenLimit } = {}) {
+function createProblem({ provider, maxHelpers, dailyTokenLimit, dailyAllowancePct } = {}) {
   const prov = provider === undefined || provider === null || provider === '' ? 'anthropic' : String(provider);
   if (prov !== 'anthropic') return 'swarms run on Claude for now';
   if (maxHelpers !== undefined && maxHelpers !== null && !(Number.isInteger(maxHelpers) && maxHelpers >= MIN_HELPERS && maxHelpers <= MAX_HELPERS)) {
     return `the most helpers at once has to be a whole number from ${MIN_HELPERS} to ${MAX_HELPERS}`;
   }
   if (!(Number.isInteger(dailyTokenLimit) && dailyTokenLimit > 0)) return 'set a daily token limit for the swarm';
+  if (dailyAllowancePct !== undefined && dailyAllowancePct !== null && !allowancePctOk(dailyAllowancePct)) {
+    return `the daily usage limit has to be a whole percent from ${ALLOWANCE_PCT_MIN} to ${ALLOWANCE_PCT_MAX}`;
+  }
   return null;
 }
 
 /** The profile fields a new swarm is born with. */
-function birthProfile({ maxHelpers, dailyTokenLimit }) {
+function birthProfile({ maxHelpers, dailyTokenLimit, dailyAllowancePct }) {
   return {
     kind: 'swarm',
     swarm: {
       maxHelpers: Number.isInteger(maxHelpers) ? maxHelpers : DEFAULT_HELPERS,
       dailyTokenLimit,
+      /* The share of the weekly allowance the person chose, or null when the limit was set in
+         tokens. dailyTokenLimit stays the enforced number; the sweep re-derives it from this
+         whenever the account is calibrated (rederiveLimits). */
+      dailyAllowancePct: allowancePctOk(dailyAllowancePct) ? dailyAllowancePct : null,
       active: true,
       pausedBecause: null,
       pausedAt: null,
@@ -83,6 +100,7 @@ function settingsOf(profile) {
   return {
     maxHelpers: Number.isInteger(s.maxHelpers) && s.maxHelpers >= MIN_HELPERS && s.maxHelpers <= MAX_HELPERS ? s.maxHelpers : DEFAULT_HELPERS,
     dailyTokenLimit: Number.isInteger(s.dailyTokenLimit) && s.dailyTokenLimit > 0 ? s.dailyTokenLimit : null,
+    dailyAllowancePct: allowancePctOk(s.dailyAllowancePct) ? s.dailyAllowancePct : null,
     active: s.active !== false,
     pausedBecause: s.active === false && PAUSED_BECAUSE.includes(s.pausedBecause) ? s.pausedBecause : null,
     pausedAt: s.active === false && typeof s.pausedAt === 'string' ? s.pausedAt : null,
@@ -106,6 +124,10 @@ function patchProblem(patch) {
       }
     } else if (k === 'dailyTokenLimit') {
       if (!(Number.isInteger(patch.dailyTokenLimit) && patch.dailyTokenLimit > 0)) return 'the daily token limit has to be a whole number above zero';
+    } else if (k === 'dailyAllowancePct') {
+      if (!(patch.dailyAllowancePct === null || allowancePctOk(patch.dailyAllowancePct))) {
+        return `the daily usage limit has to be a whole percent from ${ALLOWANCE_PCT_MIN} to ${ALLOWANCE_PCT_MAX}`;
+      }
     } else if (k === 'active') {
       if (typeof patch.active !== 'boolean') return 'active has to be true or false';
     } else {
@@ -125,8 +147,10 @@ function applyPatch(profile, patch, now = Date.now()) {
   const cur = settingsOf(profile);
   const next = { ...cur };
   if ('maxHelpers' in patch) next.maxHelpers = patch.maxHelpers;
-  const newLimit = 'dailyTokenLimit' in patch && patch.dailyTokenLimit !== cur.dailyTokenLimit;
+  const newLimit = ('dailyTokenLimit' in patch && patch.dailyTokenLimit !== cur.dailyTokenLimit)
+    || ('dailyAllowancePct' in patch && patch.dailyAllowancePct !== cur.dailyAllowancePct);
   if ('dailyTokenLimit' in patch) next.dailyTokenLimit = patch.dailyTokenLimit;
+  if ('dailyAllowancePct' in patch) next.dailyAllowancePct = patch.dailyAllowancePct;
   if (newLimit) next.limitOverrideDay = null;
   if ('active' in patch) {
     /* Only TODAY's limit pause earns the override; one left over from yesterday is simply lifted. */
@@ -377,7 +401,7 @@ function meter(transcriptPath, now = Date.now(), owns = null) {
  * The `swarm` field of a board card, or null for an ordinary agent. `transcriptFor`
  * is a function so an ordinary agent never pays for resolving its transcript.
  */
-function cardField(profile, transcriptFor, now = Date.now(), owns = null) {
+function cardField(profile, transcriptFor, now = Date.now(), owns = null, calibration = null) {
   const s = settingsOf(profile);
   if (!s) return null;
   let t = null;
@@ -391,6 +415,12 @@ function cardField(profile, transcriptFor, now = Date.now(), owns = null) {
     activeHelpers: m.activeHelpers,
     tokensToday: m.tokensToday,
     dailyTokenLimit: s.dailyTokenLimit,
+    /* #3946: the share of the weekly allowance chosen (null when set in tokens), and whether
+       this account's weekly allowance can be read as tokens at all. A screen offers the %
+       slider only when it can; otherwise it stays in tokens and shows no percentage. */
+    dailyAllowancePct: s.dailyAllowancePct,
+    allowanceCalibrated: Boolean(calibration && calibration.tokensPerPoint > 0),
+    tokensPerPoint: calibration && calibration.tokensPerPoint > 0 ? Math.round(calibration.tokensPerPoint) : null,
     active: s.active,
     pausedBecause: s.pausedBecause,
     /* (lead + helpers) / lead, today: what "up to about N times one agent" really is.
@@ -456,6 +486,38 @@ function sweepOnce(rows, deps, now = Date.now()) {
   return did;
 }
 
+/** The token limit a share of the weekly allowance is worth on a calibrated account. */
+function limitFromAllowance(pct, calibration) {
+  if (!allowancePctOk(pct) || !calibration || !(calibration.tokensPerPoint > 0)) return null;
+  return Math.max(1, Math.round(pct * calibration.tokensPerPoint));
+}
+
+/**
+ * Keep each swarm's enforced token limit in step with its chosen share of the weekly
+ * allowance (#3946). For a swarm with a dailyAllowancePct on a calibrated account, the
+ * token limit becomes pct x tokens-per-point when it has moved by more than REDERIVE_SLACK.
+ * The limit-override day and pause state are kept, so a swarm switched back on over its
+ * limit today stays on. `deps`: readProfile, writeProfile, calibrationFor(name).
+ * Never throws; returns what it changed.
+ */
+function rederiveLimits(rows, deps) {
+  const did = [];
+  for (const c of Array.isArray(rows) ? rows : []) {
+    if (!c || !c.name) continue;
+    try {
+      const s = settingsOf(deps.readProfile(c.name));
+      if (!s || !s.dailyAllowancePct) continue;
+      const want = limitFromAllowance(s.dailyAllowancePct, deps.calibrationFor(c.name));
+      if (!want) continue;
+      const have = s.dailyTokenLimit;
+      if (have && Math.abs(want - have) / have <= REDERIVE_SLACK) continue;
+      deps.writeProfile(c.name, { swarm: { ...s, dailyTokenLimit: want } });
+      did.push({ name: c.name, from: have, to: want });
+    } catch { /* one swarm's trouble does not stop the others */ }
+  }
+  return did;
+}
+
 function resetForTests({ perCallBytes } = {}) {
   fileCache.clear();
   ownerCache.clear();
@@ -463,7 +525,8 @@ function resetForTests({ perCallBytes } = {}) {
 }
 
 module.exports = {
-  MIN_HELPERS, MAX_HELPERS, DEFAULT_HELPERS, ACTIVE_WINDOW_MS, STOP_REPEAT_MS, READ_CHUNK_BYTES, READ_PER_CALL_BYTES, PAUSED_BECAUSE, START, END,
+  MIN_HELPERS, MAX_HELPERS, DEFAULT_HELPERS, ALLOWANCE_PCT_MIN, ALLOWANCE_PCT_MAX, ALLOWANCE_PCT_DEFAULT, REDERIVE_SLACK,
+  limitFromAllowance, rederiveLimits, ACTIVE_WINDOW_MS, STOP_REPEAT_MS, READ_CHUNK_BYTES, READ_PER_CALL_BYTES, PAUSED_BECAUSE, START, END,
   createProblem, birthProfile, settingsOf, patchProblem, applyPatch, pausedSentence,
   blockBody, tellLead, tokensOf, meter, cardField, offlineCardField, pausedFor, sweepRows, sweepOnce, startOfDay, resetForTests,
 };

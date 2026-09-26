@@ -3923,7 +3923,7 @@ function createAgentInner(opts) {
   const kind = opts && opts.kind !== undefined && opts.kind !== null && opts.kind !== '' ? String(opts.kind) : 'agent';
   if (kind !== 'agent' && kind !== 'swarm') return { outcome: OUTCOME.REFUSED, because: 'pick Agent or Swarm', steps };
   if (kind === 'swarm') {
-    const swarmProblem = require('./swarm').createProblem({ provider, maxHelpers: opts.maxHelpers, dailyTokenLimit: opts.dailyTokenLimit });
+    const swarmProblem = require('./swarm').createProblem({ provider, maxHelpers: opts.maxHelpers, dailyTokenLimit: opts.dailyTokenLimit, dailyAllowancePct: opts.dailyAllowancePct });
     if (swarmProblem) return { outcome: OUTCOME.REFUSED, because: swarmProblem, field: 'swarm', steps };
   }
   if (provider === 'antigravity') {
@@ -5311,7 +5311,7 @@ function createAgentInner(opts) {
        outline): never inferred from what happens to be running in a pane. */
     profile.provider = provider;
     /* #3564: a swarm's kind and settings, from birth (engine/swarm.js). */
-    if (kind === 'swarm') Object.assign(profile, require('./swarm').birthProfile({ maxHelpers: opts.maxHelpers, dailyTokenLimit: opts.dailyTokenLimit }));
+    if (kind === 'swarm') Object.assign(profile, require('./swarm').birthProfile({ maxHelpers: opts.maxHelpers, dailyTokenLimit: opts.dailyTokenLimit, dailyAllowancePct: opts.dailyAllowancePct }));
     /* Which revision of the working rules this agent was born with (#539),
        beside the id for the same reason the provider is: recorded at the
        moment it is true, never inferred later from file contents a person

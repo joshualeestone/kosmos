@@ -39,7 +39,7 @@ test('#3564 createProblem: Claude only, 2-10 helpers, a daily limit required', (
 test('#3564 settings: born active with the default count; a patch is checked key by key; switching on clears the reason', () => {
   const born = swarm.birthProfile({ dailyTokenLimit: 5000 });
   assert.equal(born.kind, 'swarm');
-  assert.deepEqual(swarm.settingsOf(born), { maxHelpers: swarm.DEFAULT_HELPERS, dailyTokenLimit: 5000, active: true, pausedBecause: null, pausedAt: null, pausedAtLimit: null, limitOverrideDay: null });
+  assert.deepEqual(swarm.settingsOf(born), { maxHelpers: swarm.DEFAULT_HELPERS, dailyTokenLimit: 5000, dailyAllowancePct: null, active: true, pausedBecause: null, pausedAt: null, pausedAtLimit: null, limitOverrideDay: null });
   assert.equal(swarm.settingsOf({ role: 'pm' }), null, 'an ordinary agent has no swarm settings');
   for (const bad of [null, [], {}, { maxHelpers: 11 }, { dailyTokenLimit: 0 }, { active: 'no' }, { other: 1 }]) {
     assert.ok(swarm.patchProblem(bad), JSON.stringify(bad) + ' was accepted');
@@ -207,7 +207,7 @@ test('#3564 cardField: null for an ordinary agent; for a swarm, settings + meter
     ['s/subagents/agent-a.jsonl', [asst(today(9), U(170, 0), 'end_turn')], NOW - 60000],
   ]);
   const f = swarm.cardField(swarm.birthProfile({ maxHelpers: 4, dailyTokenLimit: 9999 }), () => path.join(dir, 's.jsonl'), NOW);
-  assert.deepEqual(f, { metered: true, maxHelpers: 4, activeHelpers: 0, tokensToday: 270, dailyTokenLimit: 9999, active: true, pausedBecause: null, helperTokenRatio: 2.7 });
+  assert.deepEqual(f, { metered: true, maxHelpers: 4, activeHelpers: 0, tokensToday: 270, dailyTokenLimit: 9999, dailyAllowancePct: null, allowanceCalibrated: false, tokensPerPoint: null, active: true, pausedBecause: null, helperTokenRatio: 2.7 });
   const none = swarm.cardField(swarm.birthProfile({ maxHelpers: 4, dailyTokenLimit: 9999 }), () => null, NOW);
   assert.equal(none.metered, false, 'a swarm whose transcript was not found reads as measured');
   assert.equal(none.tokensToday, 0);
@@ -552,4 +552,54 @@ test('#3564 Stop now sends NO key to an agent on the trust dialog (one Escape th
       assert.ok(tmux.calls.some((a) => a[0] === 'send-keys'), 'CONTROL: keys reach an idle lead');
     });
   } finally { chat.setRunner(null); }
+});
+
+/* #3946 item 10: a daily limit as a share of the weekly allowance. */
+test('#3946: the % setting is checked, born, patched, and counts as a new limit', () => {
+  for (const bad of [0, 21, 2.5, '3']) assert.match(swarm.createProblem({ dailyTokenLimit: 1000, dailyAllowancePct: bad }), /whole percent from 1 to 20/, String(bad));
+  assert.equal(swarm.createProblem({ dailyTokenLimit: 1000, dailyAllowancePct: 3 }), null);
+  assert.equal(swarm.settingsOf(swarm.birthProfile({ dailyTokenLimit: 1000, dailyAllowancePct: 3 })).dailyAllowancePct, 3);
+  assert.equal(swarm.settingsOf(swarm.birthProfile({ dailyTokenLimit: 1000, dailyAllowancePct: 99 })).dailyAllowancePct, null);
+  assert.equal(swarm.patchProblem({ dailyAllowancePct: 5 }), null);
+  assert.equal(swarm.patchProblem({ dailyAllowancePct: null }), null, 'going back to tokens is allowed');
+  assert.match(swarm.patchProblem({ dailyAllowancePct: 30 }), /whole percent/);
+  // Changing the % after a limit pause is a new limit: the override for today is not kept.
+  const NOW = new Date(2026, 8, 25, 9, 0, 0).getTime();
+  const base = swarm.settingsOf(swarm.birthProfile({ dailyTokenLimit: 1000, dailyAllowancePct: 3 }));
+  const paused = { ...swarm.birthProfile({ dailyTokenLimit: 1000, dailyAllowancePct: 3 }), swarm: swarm.pausedFor(base, 'limit', NOW - 60000) };
+  const on = swarm.applyPatch(paused, { active: true }, NOW);
+  assert.ok(on.limitOverrideDay, 'CONTROL: switching on with the same limit holds for today');
+  const onAndMoved = swarm.applyPatch({ ...paused, swarm: on }, { dailyAllowancePct: 4 }, NOW);
+  assert.equal(onAndMoved.limitOverrideDay, null, 'a new % kept the override');
+  assert.equal(onAndMoved.dailyAllowancePct, 4);
+});
+
+test('#3946: limitFromAllowance and rederiveLimits keep the token limit in step with the % on a calibrated account', () => {
+  assert.equal(swarm.limitFromAllowance(3, { tokensPerPoint: 1e6 }), 3e6);
+  assert.equal(swarm.limitFromAllowance(3, null), null, 'no calibration is no number');
+  assert.equal(swarm.limitFromAllowance(0, { tokensPerPoint: 1e6 }), null);
+  const store = {
+    pct: swarm.birthProfile({ dailyTokenLimit: 1000, dailyAllowancePct: 3 }),
+    tokens: swarm.birthProfile({ dailyTokenLimit: 1000 }),
+    near: swarm.birthProfile({ dailyTokenLimit: 3010000, dailyAllowancePct: 3 }),
+    uncal: swarm.birthProfile({ dailyTokenLimit: 1000, dailyAllowancePct: 3 }),
+  };
+  const writes = [];
+  const deps = {
+    readProfile: (n) => store[n],
+    writeProfile: (n, patch) => { writes.push([n, patch.swarm.dailyTokenLimit]); store[n] = { ...store[n], ...patch }; },
+    calibrationFor: (n) => (n === 'uncal' ? null : { tokensPerPoint: 1e6 }),
+  };
+  const did = swarm.rederiveLimits([{ name: 'pct' }, { name: 'tokens' }, { name: 'near' }, { name: 'uncal' }], deps);
+  assert.deepEqual(writes, [['pct', 3e6]], 'only the % swarm off by more than the slack was rewritten');
+  assert.deepEqual(did, [{ name: 'pct', from: 1000, to: 3e6 }]);
+  assert.equal(swarm.settingsOf(store.pct).dailyAllowancePct, 3, 'the % was lost in the rewrite');
+});
+
+test('#3946: cardField carries the % and whether the account is calibrated', () => {
+  const f = swarm.cardField(swarm.birthProfile({ dailyTokenLimit: 3e6, dailyAllowancePct: 3 }), () => null, Date.now(), null, { tokensPerPoint: 1e6 + 0.4 });
+  assert.equal(f.dailyAllowancePct, 3);
+  assert.equal(f.allowanceCalibrated, true);
+  assert.equal(f.tokensPerPoint, 1e6);
+  assert.equal(swarm.cardField(swarm.birthProfile({ dailyTokenLimit: 3e6 }), () => null).allowanceCalibrated, false);
 });

@@ -10145,7 +10145,8 @@ window.kosmosMeasureScrollbarWidth();
           <div class="swbar" aria-hidden="true"><i id="d-swarm-bar"></i></div>
           <div class="swnums"><span id="d-swarm-today"></span><span id="d-swarm-limit"></span></div>
           <p class="dhint" id="d-swarm-hint">Pauses itself at the limit and tells you. Resets at midnight.</p>
-          <label class="swlab" for="d-swarm-cap" style="margin-top:8px">Daily limit</label>
+          <label class="swlab" for="d-swarm-cap" style="margin-top:8px">Daily usage limit</label>
+          <p class="dhint" id="d-swarm-cap-sub" hidden>Choose how much of your weekly allowance this swarm can use in one day.</p>
           <div class="swrow"><input type="range" id="d-swarm-cap" min="1" max="20" step="1"><span class="swval" id="d-swarm-cap-v"></span></div>
         </div>
         <p class="fmsg" id="d-swarm-msg" role="status" aria-live="polite"></p>
@@ -13278,7 +13279,10 @@ window.kosmosMeasureScrollbarWidth();
         <p class="swwarn" id="create-swarm-warn" role="note"><span class="i" aria-hidden="true">!</span><span></span></p>
       </div>
       <div class="field">
-        <label class="flabel" for="create-swarm-cap">Daily limit</label>
+        <label class="flabel" for="create-swarm-cap">Daily usage limit</label>
+        <!-- #3946 item 9: Josh's subtext, shown only while the slider is in % of the weekly allowance (the
+             chosen Claude account is calibrated). In tokens, no allowance is mentioned. -->
+        <p class="dhint" id="create-swarm-cap-sub" hidden>Choose how much of your weekly allowance this swarm can use in one day.</p>
         <div class="swrow"><input type="range" id="create-swarm-cap" min="1" max="20" step="1" value="6"><span class="swval" id="create-swarm-cap-v"></span></div>
         <p class="dhint">This swarm pauses when it reaches its daily limit and resumes the next day. You can change the limit anytime.</p>
       </div>
@@ -40892,6 +40896,7 @@ function applyCreateProviderUI() {
    on OpenAI -- the one new trigger beyond the provider change (Mona Lisa's design). */
 document.getElementById('create-account').addEventListener('change', () => {
   if (document.getElementById('create-provider').value === 'openai') paintOpenaiCreateModel();
+  swarmCreatePaint(); // #3946: the daily usage limit is in % only for an account whose allowance is calibrated
 });
 document.getElementById('create-provider').addEventListener('change', () => {
   CREATE_PROVIDER_TOUCHED = true; // #2097: a manual pick or an import's explicit set
@@ -41692,11 +41697,25 @@ function swarmPagePaint(a, { force = false } = {}) {
      exact number until the person moves it (a 2,500,000 limit is not shown as 3,000,000). No limit: no slider. */
   const capR = document.getElementById('d-swarm-cap');
   capR.closest('.swrow').hidden = !cap;
+  /* #3946 items 9 and 10: on an account whose weekly allowance can be read as tokens, the limit is set as a % of
+     it (the swarm's own %, or the nearest % its token limit is worth); otherwise it stays in tokens and no
+     allowance is mentioned. */
+  const perPoint = sw.allowanceCalibrated ? Number(sw.tokensPerPoint) : 0;
+  const pctMode = perPoint > 0;
+  document.getElementById('d-swarm-cap-sub').hidden = !(cap && pctMode);
+  capR.dataset.mode = pctMode ? 'pct' : 'tok';
   if (cap && (force || document.activeElement !== capR) && SWARM_BUSY !== who) {
-    capR.max = String(Math.max(20, Math.ceil(cap / 1000000)));
-    capR.value = String(Math.max(1, Math.round(cap / 1000000)));
-    document.getElementById('d-swarm-cap-v').textContent = cap.toLocaleString('en-US');
-    capR.setAttribute('aria-valuetext', cap.toLocaleString('en-US') + ' tokens a day');
+    if (pctMode) {
+      const pct = Number(sw.dailyAllowancePct) || Math.min(20, Math.max(1, Math.round(cap / perPoint)));
+      capR.min = '1'; capR.max = '20'; capR.value = String(pct);
+      document.getElementById('d-swarm-cap-v').textContent = pct + '%';
+      capR.setAttribute('aria-valuetext', pct + '% of your weekly allowance');
+    } else {
+      capR.max = String(Math.max(20, Math.ceil(cap / 1000000)));
+      capR.value = String(Math.max(1, Math.round(cap / 1000000)));
+      document.getElementById('d-swarm-cap-v').textContent = cap.toLocaleString('en-US');
+      capR.setAttribute('aria-valuetext', cap.toLocaleString('en-US') + ' tokens a day');
+    }
   }
 }
 /* The page's cluster, repainted with the panel so the lit circles follow the helpers. */
@@ -41745,14 +41764,19 @@ document.addEventListener('change', async (e) => {
         ? pjSentence('saved, but it is still working to its old number: ' + (b.told.because || 'it did not answer') + '. Move the slider to try again')
         : ''));
   }
-  if (t.id === 'd-swarm-cap') await swarmSend(base, 'PUT', { dailyTokenLimit: Number(t.value) * 1000000 });
+  if (t.id === 'd-swarm-cap') {
+    await swarmSend(base, 'PUT', t.dataset.mode === 'pct'
+      ? { dailyAllowancePct: Number(t.value) }
+      : { dailyTokenLimit: Number(t.value) * 1000000, dailyAllowancePct: null });
+  }
 });
 /* On body, not document: web.found-scale.test.js reads the FIRST document input listener as the found-list filter. */
 document.body.addEventListener('input', (e) => {
   if (e.target && e.target.id === 'd-swarm-cap') {
-    const t = (Number(e.target.value) * 1000000).toLocaleString('en-US');
+    const pct = e.target.dataset.mode === 'pct';
+    const t = pct ? e.target.value + '%' : (Number(e.target.value) * 1000000).toLocaleString('en-US');
     document.getElementById('d-swarm-cap-v').textContent = t;
-    e.target.setAttribute('aria-valuetext', t + ' tokens a day');
+    e.target.setAttribute('aria-valuetext', pct ? t + ' of your weekly allowance' : t + ' tokens a day');
   }
   if (e.target && e.target.id === 'd-swarm-max' && CURRENT) {
     document.getElementById('d-swarm-max-v').textContent = e.target.value;
@@ -41855,6 +41879,14 @@ function swarmProviderGate(sel, { fresh = false } = {}) {
     if (was !== null) CREATE_PROVIDER_TOUCHED = was;
   }
 }
+/* The chosen Claude account's tokens per point of its weekly figure (#3946), or null when its allowance cannot
+   be read as tokens. The account is the create form's picker value (a dir), or the default when it is empty. */
+function swarmCreateTokensPerPoint() {
+  const want = (document.getElementById('create-account') || {}).value || '';
+  const row = CREATE_ACCOUNTS.find((x) => x && acctProvider(x) === 'anthropic' && (want ? x.dir === want : x.isDefault));
+  const k = row ? Number(row.weeklyTokensPerPoint) : 0;
+  return k > 0 ? k : null;
+}
 function swarmCreatePaint() {
   const box = document.getElementById('create-kind');
   if (!box) return;
@@ -41864,9 +41896,18 @@ function swarmCreatePaint() {
   const max = Number(document.getElementById('create-swarm-max').value) || 3;
   document.getElementById('create-swarm-max-v').textContent = String(max);
   document.getElementById('create-swarm-max').setAttribute('aria-valuetext', max + ' helpers at most');
-  const capWords = (Number(document.getElementById('create-swarm-cap').value) * 1000000).toLocaleString('en-US');
-  document.getElementById('create-swarm-cap-v').textContent = capWords;
-  document.getElementById('create-swarm-cap').setAttribute('aria-valuetext', capWords + ' tokens a day');
+  /* #3946 items 9 and 10: the limit is a % of the weekly allowance when the chosen Claude account's allowance
+     can be read as tokens (calibrated), and stays in tokens otherwise, with no percentage shown. The slider is
+     re-ranged only when the mode changes, so a value the person set is kept while they stay in one mode. */
+  const capR = document.getElementById('create-swarm-cap');
+  const perPoint = swarmCreateTokensPerPoint();
+  const mode = perPoint ? 'pct' : 'tok';
+  if (capR.dataset.mode !== mode) { capR.dataset.mode = mode; capR.min = '1'; capR.max = '20'; capR.value = mode === 'pct' ? '3' : '6'; }
+  document.getElementById('create-swarm-cap-sub').hidden = mode !== 'pct';
+  const capV = Number(capR.value);
+  const capWords = mode === 'pct' ? capV + '% of your weekly allowance' : (capV * 1000000).toLocaleString('en-US') + ' tokens a day';
+  document.getElementById('create-swarm-cap-v').textContent = mode === 'pct' ? capV + '%' : (capV * 1000000).toLocaleString('en-US');
+  capR.setAttribute('aria-valuetext', capWords);
   document.querySelector('#create-swarm-warn span:last-child').innerHTML = swarmWarnWords(max, null);
   /* #3946 item 7, Josh's words; "up to N" follows the slider so the sentence is true at any setting. */
   document.getElementById('create-swarm-explain').textContent = `The lead agent brings in up to ${max} helpers when parts of a task can be done at the same time. Otherwise, it works alone.`;
@@ -43011,6 +43052,7 @@ async function loadCreateExtras() {
     CREATE_ACCOUNTS_KNOWN = known;
     CREATE_ACCOUNTS_FAILED = !known;
     fillCreateAccounts();
+    swarmCreatePaint(); // #3946: the accounts' calibration decides whether the daily usage limit is in %
     /* #3566: a Gemini/Grok pick made against an earlier visit's list can be turned off by this
        read (the account is gone, or the read failed); leaving it selected would post a create
        with no account. Fall back to the form's default provider and say which of the two it was. */
@@ -43269,7 +43311,14 @@ document.getElementById('create-go').addEventListener('click', async () => {
         if (createKind() === 'swarm') {
           b.kind = 'swarm';
           b.maxHelpers = Number(document.getElementById('create-swarm-max').value);
-          b.dailyTokenLimit = Number(document.getElementById('create-swarm-cap').value) * 1000000;
+          const capR = document.getElementById('create-swarm-cap');
+          const perPoint = swarmCreateTokensPerPoint();
+          if (capR.dataset.mode === 'pct' && perPoint) {
+            b.dailyAllowancePct = Number(capR.value);
+            b.dailyTokenLimit = Math.max(1, Math.round(b.dailyAllowancePct * perPoint));
+          } else {
+            b.dailyTokenLimit = Number(capR.value) * 1000000;
+          }
           /* #3946 item 5: the picker shows for a swarm now (Claude only, the rest greyed), so its model and
              account travel like an agent's; the provider is Claude whatever the menu held. */
           b.provider = 'anthropic';

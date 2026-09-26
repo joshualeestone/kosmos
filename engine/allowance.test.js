@@ -337,3 +337,52 @@ test('setup tells the person about the status line only when one was really adde
   assert.equal(run(null).stdout, '', 'setup claimed a status line it did not add');
   assert.equal(run({ type: 'command', command: 'bash mine.sh' }).stdout, '', 'setup claimed somebody else\'s status line as ours');
 });
+
+/* #3946 part 2: the calibration, tokens per point of the weekly figure. */
+function weeklyFile(dir, usedPct, resetsAt, history) {
+  fs.writeFileSync(path.join(dir, statusline.FILE), JSON.stringify({ usedPct, resetsAt, at: history[history.length - 1][0], history }));
+}
+const DAY = 24 * 3600 * 1000;
+
+test('calibration: tokens today over points moved since a reading from before today, stored for later', () => {
+  const dir = freshDir();
+  const now = Date.now();
+  const dayStart = now - 6 * 3600 * 1000;
+  weeklyFile(dir, 44, FUTURE, [[dayStart - 3600e3, 40, FUTURE], [now - 60e3, 44, FUTURE]]);
+  const got = allowance.calibrate(dir, 4e6, { now, dayStart });
+  assert.equal(got.tokensPerPoint, 1e6);
+  assert.deepEqual(allowance.readCalibration(dir, now), { tokensPerPoint: 1e6, at: now });
+});
+
+test('calibration: no reading from before today is no calibration, not a guess', () => {
+  const dir = freshDir();
+  const now = Date.now();
+  const dayStart = now - 6 * 3600 * 1000;
+  weeklyFile(dir, 44, FUTURE, [[dayStart + 60e3, 40, FUTURE], [now - 60e3, 44, FUTURE]]);
+  assert.equal(allowance.pointsSince(allowance.readWeekly(dir, now), dayStart), null);
+  assert.equal(allowance.calibrate(dir, 4e6, { now, dayStart }), null);
+});
+
+test('calibration: a day that moved too little keeps the stored one; last week\'s baseline is never used', () => {
+  const dir = freshDir();
+  const now = Date.now();
+  const dayStart = now - 6 * 3600 * 1000;
+  weeklyFile(dir, 44, FUTURE, [[dayStart - 3600e3, 40, FUTURE], [now - 60e3, 44, FUTURE]]);
+  allowance.calibrate(dir, 4e6, { now, dayStart });
+  weeklyFile(dir, 41, FUTURE, [[dayStart - 3600e3, 40, FUTURE], [now - 60e3, 41, FUTURE]]);
+  assert.equal(allowance.calibrate(dir, 9e9, { now, dayStart }).tokensPerPoint, 1e6, 'one point replaced the stored calibration');
+  const other = freshDir();
+  weeklyFile(other, 5, FUTURE, [[dayStart - 3600e3, 90, FUTURE - 7 * 86400], [now - 60e3, 5, FUTURE]]);
+  assert.equal(allowance.pointsSince(allowance.readWeekly(other, now), dayStart), null, 'a reading from the previous week was a baseline');
+});
+
+test('calibration: a stored one older than a week, or from the future, is not used', () => {
+  const dir = freshDir();
+  const now = Date.now();
+  fs.writeFileSync(path.join(dir, allowance.CALIBRATION_FILE), JSON.stringify({ tokensPerPoint: 1e6, at: now - allowance.CALIBRATION_MAX_AGE_MS - 1 }));
+  assert.equal(allowance.readCalibration(dir, now), null);
+  fs.writeFileSync(path.join(dir, allowance.CALIBRATION_FILE), JSON.stringify({ tokensPerPoint: 1e6, at: now + DAY }));
+  assert.equal(allowance.readCalibration(dir, now), null);
+  fs.writeFileSync(path.join(dir, allowance.CALIBRATION_FILE), JSON.stringify({ tokensPerPoint: -5, at: now }));
+  assert.equal(allowance.readCalibration(dir, now), null);
+});
