@@ -34,7 +34,7 @@ const INBOUND_WINDOW_MS = 60000;
 /* A day's budget per project (per ROOM, shared by every member of it; the
    sender is unattested, so it cannot be per peer) on top of the minute's: every stored row is kept in
    memory and scanned by the room and unread reads, so a peer sending at the
-   minute's limit all day must not be able to grow them without end. 2 MiB of
+   minute's limit all day must not grow them faster than a day's budget. 2 MiB of
    words a day is far above any conversation. A calendar (UTC) day's: when a
    seat's day starts it is seeded from what the log already holds for that room
    today (deps.externalKeptOn), so a restart (an update, a crash) does not start
@@ -43,7 +43,8 @@ const INBOUND_WINDOW_MS = 60000;
    engine/messages.js (dropping rows there changes the nudge sweep). */
 const INBOUND_BYTES_PER_DAY = 2 * 1024 * 1024;
 /* And rows a day per room: every row is held in memory and scanned on every
-   read, so tiny messages at the minute's limit must not grow it without end. */
+   read, so tiny messages at the minute's limit must not grow it faster than
+   this per UTC day (bounded per day, not in total: see the budget above). */
 const INBOUND_ROWS_PER_DAY = 2000;
 /* The connector's limit on one stdin line (kosmos-relay fedroom MAX_POST, the
    relay's frame bound). */

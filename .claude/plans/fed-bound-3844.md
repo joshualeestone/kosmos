@@ -23,3 +23,6 @@ Card: kosmos#3844 (deferred from the #3311 federation review, round 19).
 ## Round 2 review (sonnet): 2 NITs
 - [NIT] the seat-shape comment did not name inday. FIXED: it names inbound and inday and their fields.
 - [NIT] the externalKeptOn test computed bytes with .length on ASCII only. FIXED: a multibyte name and word, expected via Buffer.byteLength (so a .length implementation would fail).
+
+## Round 3 review (opus): 1 NIT
+- [NIT] two older budget comments still said rows cannot grow "without end", which the recorded trade contradicts. FIXED: both say bounded per UTC day, not in total.
