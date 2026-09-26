@@ -272,7 +272,7 @@ test('#3568: an Antigravity agent\'s page says there is no account to move it to
     ${grab('async function paintAccountPicker(')}
     return paintAccountPicker;
   `)({ getElementById: (id) => els[id] }, () => { fetched += 1; return new Promise(() => {}); }, [], false);
-  await paint({ runner: 'antigravity', account: null, sessionName: 'gem' });
+  await paint(require('./test-support/fleet').agent('gem', { runner: 'antigravity' }));   // a real card, not a hand-built one
   assert.equal(els['d-account-msg'].textContent, 'It runs on your Google subscription through Antigravity, so there is no account to move it to.');
   assert.equal(els['d-account'].disabled, true);
   assert.equal(els['d-account-go'].disabled, true);
