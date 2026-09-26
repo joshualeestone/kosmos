@@ -59511,12 +59511,14 @@ function pinWorkingPulseIn(node) {
     for (const el of node.querySelectorAll('.working, .pjm-working')) pinWorkingPulse(el);
   }
 }
-new MutationObserver((records) => {
-  for (const r of records) {
-    if (r.type === 'attributes') pinWorkingPulseIn(r.target);
-    else for (const n of r.addedNodes) pinWorkingPulseIn(n);
-  }
-}).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+if (typeof MutationObserver === 'function' && document.documentElement) {
+  new MutationObserver((records) => {
+    for (const r of records) {
+      if (r.type === 'attributes') pinWorkingPulseIn(r.target);
+      else for (const n of r.addedNodes) pinWorkingPulseIn(n);
+    }
+  }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+}
 document.addEventListener('animationstart', (e) => {
   if (e.animationName === 'working-pulse') pinWorkingPulse(e.target);
 });
