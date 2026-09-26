@@ -49,6 +49,7 @@
 const { spawn } = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const runners = require('./runners');
@@ -214,6 +215,40 @@ function firstLine(file) {
   try { return String(fs.readFileSync(file, 'utf8')).split(/\r?\n/)[0].trim() || null; } catch { return null; }
 }
 
+/* The auth type that means "use GEMINI_API_KEY" (geminisettings.AUTH_TYPE, the Mac's value). */
+const KEY_AUTH = 'gemini-api-key';
+
+/* The auth type a gemini settings file chooses, or null (absent, unreadable, or unset). */
+function selectedAuth(file) {
+  try {
+    const s = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const t = s && s.security && s.security.auth && s.security.auth.selectedType;
+    return typeof t === 'string' && t ? t : null;
+  } catch { return null; }
+}
+
+/* The Kosmos-owned gemini home for an account whose own settings choose a Google login: under
+   the board's data, one per account. Null if the data root cannot be named (the turn then runs
+   in the account's home and, with NO_BROWSER, fails loudly instead). */
+function defaultKeyHome(configDir) {
+  try {
+    const label = configDir ? path.basename(String(configDir)).replace(/[^A-Za-z0-9._-]/g, '_') : 'default';
+    return path.join(require('./store').ROOT, 'gemini-key-home', label);
+  } catch { return null; }
+}
+
+/* Make <home>/.gemini/settings.json choose the key. Only ever a home Kosmos owns. True when it
+   is in place. Never throws. */
+function pinKeyAuth(home) {
+  const file = path.join(home, '.gemini', 'settings.json');
+  if (selectedAuth(file) === KEY_AUTH) return true;
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ security: { auth: { selectedType: KEY_AUTH } } }, null, 2) + '\n');
+    return true;
+  } catch { return false; }
+}
+
 /**
  * The environment for a Gemini or Grok turn, from the one win32launch.childEnv built
  * (token, `kosmos` on PATH, child markers stripped, the account dir in the runner's own
@@ -222,7 +257,7 @@ function firstLine(file) {
  * @param {'gemini'|'grok'} runner
  * @param {object} base        the childEnv result
  * @param {string|null} configDir  the account dir (null: the default account)
- * @param {object} [deps]      seams: { geminiAccounts, grokAccounts, doorDir }
+ * @param {object} [deps]      seams: { geminiAccounts, grokAccounts, doorDir, homeDir, keyHome }
  */
 function turnEnv(runner, base, configDir, deps) {
   const d = deps || {};
@@ -240,6 +275,32 @@ function turnEnv(runner, base, configDir, deps) {
     const key = firstLine(mod.keyFile(dir));
     if (key) env.GEMINI_API_KEY = key;
     else if (door) env.GEMINI_API_KEY = door;
+    /* 🛑 AN AGENT GIVEN A KEY USES THE KEY, AND NEVER SITS WAITING ON A GOOGLE LOGIN. gemini
+       takes its auth type from settings.json BEFORE it looks at GEMINI_API_KEY, and the
+       default account's settings are the person's own ~/.gemini: anyone who once chose
+       "Login with Google" in the gemini CLI has selectedType oauth-personal there. MEASURED
+       (gemini 0.61.0, this box, 2026-09-26): with that setting and a key in the env, a
+       headless turn ignores the key and stops at "Opening authentication page in your
+       browser. Do you want to continue? [Y/n]" on a stdin we never write to, with no
+       timeout, so the agent looks alive and never answers. For an agent WITH a key:
+         - a settings file that chose something else sends this agent to a home of Kosmos's
+           own that pins the key. The person's file is never edited (geminisettings.js's
+           never-clobber rule). A system or workspace settings file cannot do this: gemini
+           ignores a system file a user can write, and takes no auth from a workspace (both
+           measured).
+         - NO_BROWSER, so a path we did not foresee exits at once (41, "Manual authorization
+           is required ...") instead of waiting on that prompt.
+       An agent with NO key is left exactly as it was: the person's own Google login in the
+       gemini CLI stays theirs to use. */
+    if (env.GEMINI_API_KEY) {
+      env.NO_BROWSER = 'true';
+      const home = env.GEMINI_CLI_HOME || d.homeDir || os.homedir();
+      const chosen = selectedAuth(path.join(home, '.gemini', 'settings.json'));
+      if (chosen && chosen !== KEY_AUTH) {
+        const keyHome = d.keyHome !== undefined ? d.keyHome : defaultKeyHome(configDir);
+        if (keyHome && pinKeyAuth(keyHome)) env.GEMINI_CLI_HOME = keyHome;
+      }
+    }
     return env;
   }
   if (runner === 'grok') {
