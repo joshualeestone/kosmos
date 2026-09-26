@@ -234,8 +234,10 @@ test('#3769 an ordinary 40KB table or list with 2000 held values costs little (r
   setKnownSecrets(Array.from({ length: 2000 }, (_, i) => `held-value-${String(i).padStart(8, '0')}-xyz`));
   try {
     const table = Array.from({ length: 800 }, (_, i) => `| Setting number ${i} | Choose AI Models |\n- item text here\n* another bullet`).join('\n').slice(0, 40000);
-    assert.equal(mask(table).text, table, 'an ordinary table was changed');
-    const ms = cpuMillisecondsOf(() => mask(table));
+    /* Timed on the first call (review round 25): a second call is a cache hit. */
+    let first = null;
+    const ms = cpuMillisecondsOf(() => { first = mask(table); });
+    assert.equal(first.text, table, 'an ordinary table was changed');
     assert.ok(ms < 400, `an ordinary table cost ${Math.round(ms)}ms of CPU`);
     const withKey = `${table.slice(0, 20000)} held-value-00001234-xyz ${table.slice(20000)}`;
     assert.ok(!mask(withKey).text.includes('held-value-00001234'), 'CONTROL: a held value inside the same table was not masked');
@@ -1037,5 +1039,47 @@ test('#3935 the same held set in another order keeps its index; a different set 
     setKnownSecrets(values.slice(1));
     assert.equal(fragmentIndexStats().builds, before + 1, 'a changed set was not rebuilt');
     assert.equal(mask('First Zq8vLm3p then Rt6wXy9k then Hb2nWc4dPq7sTu5v done').text, 'First Zq8vLm3p then Rt6wXy9k then Hb2nWc4dPq7sTu5v done');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a key spaced one character at a time WITH words between its chunks is masked (review round 25)', () => {
+  setKnownSecrets(['Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v']);
+  try {
+    const out = mask('First Z q 8 v L m 3 p R t 6 then w X y 9 k H b 2 n W c then 4 d P q 7 s T u 5 v done').text;
+    assert.ok(out.startsWith('First ') && out.endsWith(' done') && !/w X y 9 k H b 2/.test(out) && !/4 d P q 7 s T/.test(out), out);
+    const frag = mask('Look: 6 w X y 9 k H b 2 n W c ok').text;
+    assert.ok(!/X y 9 k H b/.test(frag), frag);
+    /* Control: ordinary spelled-out letters are not a key. */
+    const t = 'Spell it: I am a person who likes a b c d e f g h i j k tea';
+    assert.equal(mask(t).text, t);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a whole env file held: its later variable NAMES stay readable, every value is still masked (review round 25)', () => {
+  const knownsecrets = require('./knownsecrets');
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'km-3935-'));
+  const a = 'Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v'; const b = 'Qw8eRt2yUi9oPa3sDf6gHj1kLz5xCv0b';
+  try {
+    fs.mkdirSync(path.join(root, 'secrets'));
+    fs.writeFileSync(path.join(root, 'secrets', 'cf.env'), `CF_API_TOKEN=${a}\nGH_PAT_TOKEN=${b}\n`);
+    setKnownSecrets(knownsecrets.collect({ dataRoot: root, home: root }));
+    for (const name of ['CF_API_TOKEN', 'GH_PAT_TOKEN']) {
+      const t = `The variable is ${name}, set it in the file.`;
+      assert.equal(mask(t).text, t, name);
+    }
+    const out = mask('First Qw8eRt2y then Ui9oPa3s then Df6gHj1k then Lz5xCv0b done').text;
+    assert.ok(!out.includes('Ui9oPa3s') && !out.includes('Lz5xCv0b'), out);
+    assert.ok(!mask(`here: CF_API_TOKEN=${a}\nGH_PAT_TOKEN=${b}\n`).text.includes(b), 'the whole file showed');
+  } finally { setKnownSecrets([]); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('#3935 a NAME=value line whose value fell past the cap is searched itself, so the value is still found (review round 25)', () => {
+  const value = 'Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v';
+  const filler = Array.from({ length: 1999 }, (_, i) => `filler-value-${String(i).padStart(6, '0')}-xyz`);
+  setKnownSecrets([...filler, `API_SECRET=${value}`, value]);   // the 2,001st, the value alone, is past MAX_KNOWN_VALUES
+  try {
+    const r = mask('Zq then 8vLm3pRt6wXy9kHb2n ok');
+    assert.ok(!r.text.includes('8vLm3pRt6wXy9kHb2n'), r.text);
   } finally { setKnownSecrets([]); }
 });

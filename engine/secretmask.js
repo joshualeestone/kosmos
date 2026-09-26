@@ -57,30 +57,34 @@ function setKnownSecrets(values) {
   const list = Array.isArray(values) ? values.filter((v) => typeof v === 'string') : [];
   /* Sorted (review round 24): the files are read in directory order, which need not repeat, and the same set in
      another order is still the same set. The index itself is built from the list as given. */
-  const signature = `${list.length}\u0000${[...list].sort().join('\u0000')}`;
+  /* A hash of the sorted list as JSON (review round 25): a join on a separator collided when a value held that
+     separator, and kept a copy of every held file. */
+  const signature = require('crypto').createHash('sha256').update(JSON.stringify([...list].sort())).digest('hex');
   if (signature === knownSignature) return;
   knownSignature = signature;
   indexBuilds += 1;
   maskCache.clear();
+  maskCacheChars = 0;
   const forms = new Set();
   const heldValues = [];   // the values taken, as trimmed: the same set the forms and the fragment index come from
   const walkable = new Set();   // forms of values that are not NAME=value lines
-  let taken = 0;
-  for (const v of Array.isArray(values) ? values : []) {
-    if (typeof v !== 'string') continue;
+  for (const v of list) {
     const k = v.trim();
-    if (k.length < 12) continue;
+    if (k.length < MIN_VALUE_LEN) continue;
     /* A bound on the work every reply pays (review round 1 measured 545ms per reply at 20,000 values). */
-    if (taken >= MAX_KNOWN_VALUES) break;
-    taken += 1;
+    if (heldValues.length >= MAX_KNOWN_VALUES) break;
     heldValues.push(k);
+  }
+  const heldSet = new Set(heldValues);
+  notWalked = new Set(heldValues.filter((k) => envLike(k, heldSet)));
+  for (const k of heldValues) {
     const buf = Buffer.from(k, 'utf8');
     const hex = buf.toString('hex');
     const spaced = hex.match(/../g).join(' ');
-    /* A whole NAME=value line held from a secrets file (review rounds 21 and 22): its NAME is public, and walking
-       it, or any encoding of it, would mask the name in a reply that only mentions it. Its forms are still masked
-       whole; the value is held on its own, and walked from there. */
-    const env = isEnvLine(k);
+    /* A whole NAME=value line held from a secrets file, or a whole env file (review rounds 21, 22 and 25): its
+       NAMES are public, and walking it, or any encoding of it, would mask a name in a reply that only mentions it.
+       Its forms are still masked whole; each value is held on its own, and walked from there. */
+    const env = notWalked.has(k);
     for (const f of [k, hex, hex.toUpperCase(), spaced, spaced.toUpperCase(), buf.toString('base64'), buf.toString('base64').replace(/=+$/, ''), buf.toString('base64url')]) {
       forms.add(f);
       if (!env) walkable.add(f);
@@ -107,7 +111,7 @@ function setKnownSecrets(values) {
     /* A key given WITHOUT its public prefix (review round 15): a reply that leaves out sk-ant-api03- and splits
        the rest by words starts no walk from the prefix, so the part after the last - or _ in the first 16
        characters is walked as a form of its own. */
-    const cut = Math.max(w.lastIndexOf('-', 15), w.lastIndexOf('_', 15));
+    const cut = publicHeadCut(w);
     if (cut > 0) addWalked(w.slice(cut + 1), walked);
   }
   /* Every FRAGMENT_LEN-character slice of each held value as given (not its encodings, which would multiply the
@@ -115,12 +119,12 @@ function setKnownSecrets(values) {
   const sliced = [];
   let slices = 0;
   for (const v of heldValues) {
-    if (isEnvLine(v)) continue;
+    if (notWalked.has(v)) continue;
     const w = v.replace(NOT_KEY_CHARS, '');
     if (w.length < FRAGMENT_LEN || w.length > WORD_WALK_MAX_FORM || madeOfWords(w)) continue;
     /* Not the public prefix (sk-ant-api03 is itself 12 characters, and the whole guide names it): slices start
        after the last - or _ in the first 16 characters, as the prefix-less walk does. */
-    let from = Math.max(w.lastIndexOf('-', 15), w.lastIndexOf('_', 15)) + 1;
+    let from = publicHeadCut(w) + 1;
     /* A URL's scheme, host and path are public (review round 23: a held webhook's com/api/webhooks slices masked a
        guide's placeholder URL), so a URL-shaped value is sliced only after its last /, where its token sits. */
     if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(v)) from = Math.max(from, w.lastIndexOf('/') + 1);
@@ -154,16 +158,39 @@ let fragmentStride = 1;
    own (the same NAME=value test, then trimmed and unquoted), long enough to be held here (review round 23). Padded
    base64 (Zq8vLm3pRt6wXy9kHb2nWc4dQ1==) has the same shape, but its "value" is the padding, never held: that is a
    secret, not a line, and it is walked like any other. */
-function isEnvLine(v) {
+function isEnvLine(v, heldSet) {
   const m = /^[A-Za-z_][A-Za-z0-9_]*=(.*)$/.exec(v);
   if (!m) return false;
-  return m[1].trim().replace(/^["']|["']$/g, '').length >= 12;
+  const value = m[1].trim().replace(/^["']|["']$/g, '');
+  /* Only when that value is really held (review round 25): past MAX_KNOWN_VALUES it may not be, and then the line
+     is the only way to walk it. */
+  return value.length >= MIN_VALUE_LEN && (!heldSet || heldSet.has(value));
 }
+/* A held value not walked or sliced: a NAME=value line, or a whole file of lines each held on its own (an env
+   file, whose second and later NAMES would otherwise sit inside a walked value, review round 25). A line under
+   MIN_VALUE_LEN is not held, and is not a key by this file's measure. */
+function envLike(v, heldSet) {
+  if (isEnvLine(v, heldSet)) return true;
+  if (!/\n/.test(v)) return false;
+  const lines = v.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+  return lines.some((x) => isEnvLine(x, heldSet)) && lines.every((x) => x.length < MIN_VALUE_LEN || heldSet.has(x));
+}
+/* Values shorter than this are not held, so a short word is never taken for a key. */
+const MIN_VALUE_LEN = 12;
+/* A key's public head (sk-ant-api03-, ghp_) ends at the last - or _ within this many characters. */
+const PUBLIC_HEAD_MAX = 16;
+/* Where a held value's public head ends: the index of that last - or _, or -1 when it has none (review round 25:
+   one rule for the prefix-less walk, the fragment slices and the repeated-opening check). */
+function publicHeadCut(w) {
+  return Math.max(w.lastIndexOf('-', PUBLIC_HEAD_MAX - 1), w.lastIndexOf('_', PUBLIC_HEAD_MAX - 1));
+}
+let notWalked = new Set();
 let knownGrams = new Set();
+const FRAGMENT_RUN = new RegExp(`[A-Za-z0-9_+/=-]{${FRAGMENT_LEN},}`, 'g');
 function fragmentsIn(text) {
   const spans = [];
   if (!knownGrams.size) return spans;
-  for (const m of text.matchAll(/[A-Za-z0-9_+/=-]{12,}/g)) {
+  for (const m of text.matchAll(FRAGMENT_RUN)) {
     /* A run that is itself words (a webhook URL's com/api/webhooks/, which a guide names) is ordinary text. */
     if (madeOfWords(m[0])) continue;
     /* The whole run, however long (review round 20: a cap left a fragment past it unread): one Set lookup per
@@ -176,7 +203,7 @@ function fragmentsIn(text) {
   return spans;
 }
 function addWalked(w, walked) {
-  if (w.length < 12 || w.length > WORD_WALK_MAX_FORM || walked.has(w) || madeOfWords(w)) return;
+  if (w.length < MIN_VALUE_LEN || w.length > WORD_WALK_MAX_FORM || walked.has(w) || madeOfWords(w)) return;
   /* An opening with no letter or digit (a PEM key's -----BEGIN) would start a walk at every markdown rule
      (review round 5). Such a value is still masked whole, and across lines by the separator copies. */
   if (!/[A-Za-z0-9]/.test(w.slice(0, OPENING_LEN))) return;
@@ -290,14 +317,16 @@ function normalisedCopy(text) {
      cost of ordinary lists is paid down below instead, by searching the copy only for what could match. */
   cur = deleting(cur.str, cur.map, /[A-Za-z0-9_+/=-]((?:[ \t]*\r?\n){1,3}[ \t>|*`]*)(?=[A-Za-z0-9_+/=-])/g,
     (m) => [m.index + 1, m.index + m[0].length]);
-  /* A run of nine or more single characters, each followed by one space ("s k - a n t ..."), and not
-     "I am a person": every space inside the run goes. */
-  cur = deleting(cur.str, cur.map, /(?<!\S)(?:\S ){8,}\S(?!\S)/g, (m) => {
+  return unspaced(cur.str, cur.map);
+}
+/* A run of nine or more single characters, each followed by one space ("s k - a n t ..."), and not
+   "I am a person": every space inside the run goes. */
+function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) {
+  return deleting(text, map, /(?<!\S)(?:\S ){8,}\S(?!\S)/g, (m) => {
     const spans = [];
     for (let i = 1; i < m[0].length; i += 2) spans.push([m.index + i, m.index + i + 1]);
     return spans;
   });
-  return cur;
 }
 /*
  * #3935: a HELD value whose pieces have WORDS between them (a row label, another filled column, a bullet's
@@ -339,12 +368,13 @@ function normalisedCopy(text) {
    matters is mentions per character, and every adversarial test still ends at it within its CPU bound. At this
    budget an exhausted search costs about 1 to 1.3 seconds (review round 23, 50,000-character replies), and a
    1,440-character reply naming sk-ant-api03- 20 times about 50 to 280ms; mask() caches results, so a stored reply
-   served on every poll pays that once per held set, not per read.
-   Earlier measurement:
-   well inside it: a 50,000-character reply with five held Anthropic keys and 400 sk-ant-api03- mentions. Measured
+   served on every poll pays that once per held set, not per read. Earlier measurements (review round 13): well
+   inside it, a 50,000-character reply with five held Anthropic keys and 400 sk-ant-api03- mentions. Measured
    reaching it (review round 13): ten held Anthropic keys and a 36,000-character reply repeating a paragraph that
    names sk-ant-api03- 200 times, withheld; whether it trips depends on the keys' random next characters. */
 const WORD_WALK_BUDGET = 1250000;
+/* How many tails after, and heads before, a - or _ one run offers as pieces (review rounds 15 to 19). */
+const PIECE_VARIANTS_MAX = 4;
 /* How far a split value may spread: its pieces within this many times its length, counted in characters that are
    not spaces. One constant for the separator copies and the word walk (review round 24), so their reach cannot
    drift apart. */
@@ -376,13 +406,13 @@ function pieceVariants(run) {
   /* Taken from the END (review round 17): the piece is the last part, so a label with many hyphens
      (my-long-label-name-Rt2mNp9b) still offers it within the four. */
   let tails = 0;
-  for (let k = trimmed.length - 1 - OPENING_LEN; k > 0 && tails < 4; k -= 1) {
+  for (let k = trimmed.length - 1 - OPENING_LEN; k > 0 && tails < PIECE_VARIANTS_MAX; k -= 1) {
     if (trimmed[k] === '-' || trimmed[k] === '_') { out.add(trimmed.slice(k + 1)); tails += 1; }
   }
   /* And the heads before a - or _, from the START, up to four (review round 19): a label glued AFTER the piece
      (Zq8vLm3p-part1, Zq8vLm3p_a), as = is already handled on both sides. */
   let heads = 0;
-  for (let k = OPENING_LEN; k < trimmed.length - 1 && heads < 4; k += 1) {
+  for (let k = OPENING_LEN; k < trimmed.length - 1 && heads < PIECE_VARIANTS_MAX; k += 1) {
     if (trimmed[k] === '-' || trimmed[k] === '_') { out.add(trimmed.slice(0, k)); heads += 1; }
   }
   out.delete('');
@@ -566,7 +596,7 @@ function wordSkippingSpans(text) {
        mention), but a repeated opening that is not public (review round 23: "Here Qw8eRt2y, I mean Qw8eRt2y then
        ...") leaves the key's first characters readable. So an earlier start's opening run is masked on its own
        when it holds PARTIAL_MIN characters or more past the value's public head that are not words. */
-    const cut = Math.max(c.f.lastIndexOf('-', 15), c.f.lastIndexOf('_', 15));
+    const cut = publicHeadCut(c.f);
     const head = cut > 0 ? c.f.slice(0, cut + 1) : '';
     for (const { from, movedAt, matched } of c.starts) {
       if (from === latest || movedAt < latest || !matched.length) continue;
@@ -650,14 +680,23 @@ function looksRandom(run) {
    searched again on each poll. Cleared whenever the held set changes; bounded, oldest out first. */
 const MASK_CACHE_MAX = 1000;
 const MASK_CACHE_TEXT_MAX = 65536;
+/* And by characters held, texts and results together (review round 25: 1,000 entries of 64K each is 128MB). */
+const MASK_CACHE_CHARS_MAX = 4000000;
+let maskCacheChars = 0;
 const maskCache = new Map();
 function mask(text) {
   if (typeof text !== 'string' || !text || text.length > MASK_CACHE_TEXT_MAX) return maskFresh(text);
   const hit = maskCache.get(text);
   if (hit) return { text: hit.text, fired: hit.fired.map((f) => ({ ...f })) };
   const out = maskFresh(text);
-  if (maskCache.size >= MASK_CACHE_MAX) maskCache.delete(maskCache.keys().next().value);
+  const cost = text.length + out.text.length;
+  while (maskCache.size && (maskCache.size >= MASK_CACHE_MAX || maskCacheChars + cost > MASK_CACHE_CHARS_MAX)) {
+    const [oldest, was] = maskCache.entries().next().value;
+    maskCacheChars -= oldest.length + was.text.length;
+    maskCache.delete(oldest);
+  }
   maskCache.set(text, { text: out.text, fired: out.fired.map((f) => ({ ...f })) });
+  maskCacheChars += cost;
   return out;
 }
 function maskFresh(text) {
@@ -714,6 +753,18 @@ function maskFresh(text) {
     if (!words) { hit('split_search_limit'); return { text: UNCHECKED, fired: report() }; }
     for (const s of words) spans.push(s);
     for (const s of fragmentsIn(original)) spans.push(s);
+    /* And in a copy with only single-character spacing closed up (review round 25): a key spaced one character
+       at a time WITH words between its chunks ("Z q 8 v L m 3 p then w X y 9 ...") is neither. Not the copy above,
+       which also joins line breaks and would carry a span into the next line's words. Only when the copy differs,
+       so an ordinary reply pays nothing more; its own budget, withheld the same way. */
+    const spacedCopy = unspaced(original);
+    if (spacedCopy.str !== original) {
+      const back = (sp) => [spacedCopy.map[sp[0]], spacedCopy.map[sp[1] - 1] + 1];
+      const wordsN = wordSkippingSpans(spacedCopy.str);
+      if (!wordsN) { hit('split_search_limit'); return { text: UNCHECKED, fired: report() }; }
+      for (const s of wordsN) spans.push(back(s));
+      for (const s of fragmentsIn(spacedCopy.str)) spans.push(back(s));
+    }
   }
   if (norm !== original) {
     /* A match in the copy counts only if no match of the same pattern in the text itself is the same
