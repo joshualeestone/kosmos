@@ -7794,7 +7794,9 @@ const server = http.createServer((req, res) => {
     const sub = pathname.slice('/api/antigravity/signin'.length);
     if (sub === '' && req.method === 'GET') { sendJson(res, 200, signin.status()); return; }
     if (req.method !== 'POST') { sendJson(res, 405, { error: 'that is not something this address does' }); return; }
-    if (!agy.offered()) { req.resume(); sendJson(res, 400, { ok: false, error: 'Gemini on a Google subscription is not offered on this computer' }); return; }
+    // Only STARTING needs the subscription to be offered: Stop and Show must work on a sign-in already
+    // running, whatever changed since.
+    if (sub === '' && !agy.offered()) { req.resume(); sendJson(res, 400, { ok: false, error: 'Gemini on a Google subscription is not offered on this computer' }); return; }
     if (sub === '') {
       req.resume();
       const r = signin.start();

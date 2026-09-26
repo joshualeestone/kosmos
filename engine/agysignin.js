@@ -28,6 +28,7 @@ const SESSION = 'agy-signin';
 const TICK_MS = 1000;
 const STUCK_MS = 8000;          // an unrecognised screen this long is shown, not guessed at
 const GIVE_UP_MS = 30 * 60000;  // a sign-in nobody finishes ends by itself
+const SAME_SCREEN_MS = 20000;   // a recognised screen that does not move on this long is stuck too
 
 /* The words each screen shows (agy 1.2.11, Josh's screenshots of 2026-09-26). Matched on the text
    of the screen with the ANSI styling already stripped by capture-pane -p. */
@@ -41,8 +42,23 @@ const SCREENS = {
 
 /* ---- seams a test replaces -------------------------------------------------------------- */
 function tmuxBin() { return require('./create').binPaths().tmuxBin; }
-let tmux = (args) => execFileSync(tmuxBin(), ['-L', socket()].concat(args), { encoding: 'utf8', timeout: 5000 });
-let openFile = (file, done) => execFile('/usr/bin/open', [file], { timeout: 15000 }, (err) => done(err));
+/* Both real side effects go through the live-execution gate (CLAUDE.md convention 3): a test that
+   forgot its seam throws instead of driving a real agy; production warns and fails closed. */
+function live(file, args) {
+  const gate = require('./live-execution');
+  if (gate.liveExecutionAllowed()) return true;
+  gate.refuseOrWarn('agysignin', file, args);
+  return false;
+}
+let tmux = (args) => {
+  const full = ['-L', socket()].concat(args);
+  if (!live(tmuxBin(), full)) throw new Error('live execution is off');
+  return execFileSync(tmuxBin(), full, { encoding: 'utf8', timeout: 5000 });
+};
+let openFile = (file, done) => {
+  if (!live('/usr/bin/open', [file])) { done(new Error('live execution is off')); return; }
+  execFile('/usr/bin/open', [file], { timeout: 15000 }, (err) => done(err));
+};
 let confirmSignedIn = () => require('./agystatus').check();
 let agyBin = () => require('./agystatus').installed();
 let now = () => Date.now();
@@ -104,19 +120,30 @@ function tick() {
   if (now() - S.startedAt > GIVE_UP_MS) { end('failed', 'the sign-in was not finished, so Kosmos stopped it'); return; }
   const text = screen();
   if (text === null) {
-    // The session is gone: agy exited. Signed in or not is agy's own answer.
-    S.busy = true;
+    // The session is gone: agy exited. Signed in or not is agy's own answer. The answer is for THIS
+    // session only: a Stop and a new Sign in while it was out must not be ended by it.
+    const mine = S;
+    mine.busy = true;
     Promise.resolve(confirmSignedIn()).then((r) => {
-      S.busy = false;
+      mine.busy = false;
+      if (S !== mine) return;
       if (r && r.signedIn === true) end('done');
       else end('failed', 'Antigravity closed before the sign-in finished');
-    }, () => { S.busy = false; end('failed', 'Antigravity closed before the sign-in finished'); });
+    }, () => { mine.busy = false; if (S === mine) end('failed', 'Antigravity closed before the sign-in finished'); });
+    return;
+  }
+  /* A recognised screen that stays the same this long is stuck too (a changed default, a cursor
+     that is not where Kosmos expects): the code screen is exempt, it waits for the person. */
+  const name = Object.keys(SCREENS).find((k) => SCREENS[k].test(text)) || null;
+  if (name !== S.screen) { S.screen = name; S.screenSince = now(); S.pressed = false; }
+  else if (name && name !== 'code' && now() - S.screenSince > SAME_SCREEN_MS) {
+    S.state = 'stuck'; S.because = 'Antigravity is showing a step Kosmos does not recognise';
     return;
   }
   const seen = (name) => SCREENS[name].test(text);
   if (seen('menu')) {
     // "> 1. Google OAuth" is the default choice; press Enter only when it is the marked one.
-    if (/Google OAuth/.test(markedLine(text)) && S.step !== 'menu') { S.step = 'menu'; keys('Enter'); }
+    if (/Google OAuth/.test(markedLine(text)) && !S.pressed) { S.step = 'menu'; S.pressed = true; keys('Enter'); }
     S.lastSeen = now();
     return;
   }
@@ -139,13 +166,13 @@ function tick() {
       return;
     }
     S.state = 'setup'; S.step = 'trust';
-    if (/Yes/.test(markedLine(text))) keys('Enter');
+    if (/Yes/.test(markedLine(text)) && !S.pressed) { S.pressed = true; keys('Enter'); }
     S.lastSeen = now();
     return;
   }
   if (seen('theme')) {
     S.state = 'setup'; S.step = 'theme';
-    keys('Enter');   // its default scheme
+    if (!S.pressed) { S.pressed = true; keys('Enter'); }   // its default scheme
     S.lastSeen = now();
     return;
   }
@@ -159,13 +186,14 @@ function tick() {
   // Not a screen Kosmos knows. After the code and the setup screens, this is agy's own ready
   // screen: ask agy whether it is signed in. Before that, give it a moment, then show it.
   if (S.step === 'terms' || S.step === 'trust' || S.step === 'theme' || S.state === 'checking') {
-    S.busy = true; S.state = 'checking';
+    const mine = S;
+    mine.busy = true; mine.state = 'checking';
     Promise.resolve(confirmSignedIn()).then((r) => {
-      S.busy = false;
-      if (!S) return;
+      mine.busy = false;
+      if (S !== mine || !mine.timer) return;   // a session that has ended, or been replaced, is not touched
       if (r && r.signedIn === true) end('done');
-      else if (now() - S.lastSeen > STUCK_MS) { S.state = 'stuck'; S.because = 'Antigravity is showing a step Kosmos does not recognise'; }
-    }, () => { S.busy = false; });
+      else if (now() - mine.lastSeen > STUCK_MS) { mine.state = 'stuck'; mine.because = 'Antigravity is showing a step Kosmos does not recognise'; }
+    }, () => { mine.busy = false; });
     return;
   }
   if (now() - S.lastSeen > STUCK_MS && S.state !== 'stuck') {
@@ -213,7 +241,7 @@ function show() {
     const file = path.join(S.folder, 'show-sign-in.command');
     const q = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
     try {
-      fs.writeFileSync(file, '#!/bin/sh\nexec ' + q(tmuxBin()) + ' -L ' + socket() + ' attach -t ' + SESSION + '\n', { mode: 0o700 });
+      fs.writeFileSync(file, '#!/bin/sh\nexec ' + q(tmuxBin()) + ' -L ' + q(socket()) + ' attach -t ' + SESSION + '\n', { mode: 0o700 });
     } catch { resolve({ ok: false, because: 'Kosmos could not open the sign-in window' }); return; }
     openFile(file, (err) => resolve(err ? { ok: false, because: 'Kosmos could not open the sign-in window' } : { ok: true }));
   });

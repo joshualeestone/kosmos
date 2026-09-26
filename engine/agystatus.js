@@ -106,13 +106,15 @@ function lastKnown() {
 function forget() { try { fs.rmSync(lastFile(), { force: true }); } catch { /* none */ } }
 /* The Google account agy is signed in as, if its account file names one (~/.gemini/google_accounts.json,
    "active"). Read-only; null when absent or unreadable. */
+let accountsFile = () => path.join(os.homedir(), '.gemini', 'google_accounts.json');
 function activeEmail() {
   try {
-    const j = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.gemini', 'google_accounts.json'), 'utf8'));
+    const j = JSON.parse(fs.readFileSync(accountsFile(), 'utf8'));
     return j && typeof j.active === 'string' && /^[^\s@]+@[^\s@]+$/.test(j.active) ? j.active : null;
   } catch { return null; }
 }
 function setLastFileForTests(fn) { lastFile = fn; }
+function setAccountsFileForTests(fn) { accountsFile = fn; }
 
 /* #3998: signing in is engine/agysignin.js (agy's interactive sign-in run out of sight); the old
    open-it-in-Terminal path is gone. */
@@ -175,4 +177,4 @@ function setRunnerForTests(fn) { runAgy = fn; }
 
 REAL.runAgy = runAgy; REAL.runInstall = runInstall;
 module.exports = { resetForTests, allowSandboxInstallForTests, installed, installedForScreen, offered, check, install, setRunnerForTests, setInstallerForTests, PROMPT, INSTALL_URL,
-  remember, lastKnown, forget, activeEmail, setLastFileForTests };
+  remember, lastKnown, forget, activeEmail, setLastFileForTests, setAccountsFileForTests };

@@ -25079,7 +25079,13 @@ async function acctGeminiSignInAgain() {
   openAcctAdd(); acctPick('google');
   const pick = document.getElementById('acct-gemini-pick');
   for (let i = 0; i < 30 && pick.hidden; i++) await new Promise((r) => setTimeout(r, 100));
-  if (pick.hidden) return;   // not offered here after all: the dialog already says so
+  if (pick.hidden) {
+    // Not offered here after all (or the availability read did not answer): say so rather than nothing.
+    const m = document.getElementById('acct-gemini-sub-code');
+    const step = document.getElementById('acct-gemini-sub-step');
+    if (m && step) { step.hidden = false; m.hidden = false; m.textContent = 'Gemini on a Google subscription is not available on this computer just now.'; }
+    return;
+  }
   pick.hidden = true;
   const step = document.getElementById('acct-gemini-sub-step');
   step.hidden = false;
@@ -25401,8 +25407,10 @@ const FR_AGY_SUB = agySubDriver('fr-gemini-sub-', () => {
 }).wire();
 /* #3874: Settings, Add a provider. Ready records the signed-in fact every screen reads (the create
    hint, the guided setup's Gemini row on its next paint), but paints nothing of first run's. */
-const ACCT_AGY_SUB = agySubDriver('acct-gemini-sub-', () => {
+const ACCT_AGY_SUB = agySubDriver('acct-gemini-sub-', async () => {
   FR_AGY_READY = true;
+  // The new Gemini subscription row appears behind the dialog, as GPT's and Grok's successes do.
+  await paintAccounts();
   /* #3998 (Josh, 11:34: "This success message is different than the way we're displaying all of our
      other success messages"): the same gold connected box GPT and Grok end on. */
   acctShowSuccess('your Google subscription', frCheckRow({ state: 'ok', title: 'Gemini is connected',
