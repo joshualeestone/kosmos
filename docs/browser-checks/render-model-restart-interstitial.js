@@ -5,7 +5,8 @@
  * restarts, then the confirm dialog reduces to one line naming the provider. Since #2716 the
  * app sends the wake hello itself, so that line is "Restarted on <provider>. Waking them..."
  * while the hello is pending; render-autohello-switch-2716.js covers how it resolves (to the
- * confirmation, or to "Say hello to <agent> to reactivate them on <provider>.").
+ * finished "Ready: <agent> is on <what>.", or to "<agent> is on <what>. Send them a message to wake
+ * them."). #4008: the waiting line carries the Sweep loader, and Done is not gold until it finishes.
  *
  * #2692 (Josh, design channel 2026-09-10): the interstitial's mark is now the BRANDED K
  * LOADER (the big K made of dots that gathers and opens back to the circle, startKLoader),

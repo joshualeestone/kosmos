@@ -32697,6 +32697,8 @@ document.getElementById('doc-go').addEventListener('click', async () => {
              does not land the line in another agent's dialog. */
           msg.textContent = 'Added and restarted. Waking ' + who2 + '…';
           const forAgent = plan.sessionName;
+          // #4008: the Sweep loader in front of the waiting line; the report's textContent write replaces it.
+          if (CURRENT && CURRENT.sessionName === forAgent && msg.isConnected && typeof msg.insertAdjacentHTML === 'function') msg.insertAdjacentHTML('afterbegin', WAKE_SPIN_HTML);
           // The open-agent guard (CURRENT.sessionName === forAgent) AND isConnected,
           // the same pair the rst-go site uses: the first keeps a late resolution
           // from landing in another agent's dialog, the second makes a write to a
@@ -35298,12 +35300,17 @@ document.getElementById('d-start-agent').addEventListener('click', async () => {
        agent (rst-go, trust-and-restart, the stale-instructions notice) landing
        while the hello is in flight; `say` additionally no-ops if the panel was
        switched or reopened (the epoch guard). */
+    // #4008: started from the job's model, so an earlier switch's record no longer speaks for it.
+    if (typeof SWITCHED_MODEL !== 'undefined') delete SWITCHED_MODEL[name];
     say('Started ' + shown + '. Waking them…');
     // #4008: the Sweep loader in front of the waiting line; the next `say` replaces the whole line.
     if (onPanel() && sm && typeof sm.insertAdjacentHTML === 'function') sm.insertAdjacentHTML('afterbegin', WAKE_SPIN_HTML);
     await sendWakeHello(name, token, say,
       'Started ' + shown + ', and said hello to wake them.',
       'Started ' + shown + '. Say ‘hello’ to wake them.');
+    /* #4008: a newer start or restart of this agent supersedes the hello without a report, and the
+       waiting line (now with a moving loader) would then look busy forever. Settle it on what is known. */
+    if (onPanel() && sm && sm.textContent === 'Started ' + shown + '. Waking them…') sm.textContent = 'Started ' + shown + '.';
     /* The agent is running now, so Start no longer applies: hide the BUTTON (the
        common restart keeps the row present -- state 'restarting' then a live state
        -- so the poll's withdrawn->reappear arm does not fire, and there is no
@@ -35442,6 +35449,8 @@ document.getElementById('rst-go').addEventListener('click', async () => {
     /* Immediate feedback, BEFORE the tick round-trip below, matching the doctrine
        site and the synchronous write this replaced: on the detail page the note
        stays connected through tick, so it must not sit blank during that fetch. */
+    // #4008: a restart starts from the job's model, so an earlier switch's record no longer speaks for it.
+    if (typeof SWITCHED_MODEL !== 'undefined') delete SWITCHED_MODEL[name];
     showNote('Restarted. Waking them…');
     // #4008: the Sweep loader in front of the waiting line (same guard as showNote); the next showNote
     // replaces the whole line.
@@ -37997,7 +38006,10 @@ async function paintModelPicker(a) {
      hypothetical one.
      🔑 The durable fix is the engine handing us the model KEY beside the name,
      or the two tables becoming one. Raised, not silently papered over. */
-  const runningName = modelLine(a);
+  /* #4008: the same name Runs on shows: a switch's result until the live reading catches up, or the
+     menu would offer "change to Opus 5.5" to an agent Runs on says is already on it. */
+  const switchedTo = (typeof SWITCHED_MODEL !== 'undefined' && SWITCHED_MODEL[a.sessionName] && cardStOf(a).pres === 'on') ? SWITCHED_MODEL[a.sessionName] : '';
+  const runningName = switchedTo || modelLine(a);
   const currentModel = CREATE_MODELS.find((m) => m.label === runningName) || null;
   const head = currentModel
     ? ''
@@ -39688,6 +39700,8 @@ async function changeProviderNow(say) {
     }
   }
   const forAgent = CURRENT.sessionName;
+  // #4008: a provider switch makes any earlier model switch's record stale (another runner's names).
+  if (typeof SWITCHED_MODEL !== 'undefined') delete SWITCHED_MODEL[forAgent];
   go.disabled = true;
   sel.disabled = true;
   /* The picker is part of this row's in-flight state too, and was the one control of three
@@ -39751,9 +39765,9 @@ async function changeProviderNow(say) {
     SWITCH_ACCT_SAID = '';
     /* #2463 follow-up (Mona): on a real restart the dialog reduces to one line naming the
        provider it landed on, exactly as changeModelNow does. #2716: that line is "Restarted
-       on <provider>. Waking them..." while the app sends the wake hello, and resolves to the
-       confirmation or to "Say hello to <agent> to reactivate them on <provider>." (see
-       autoHelloOnSwitchRestart). The engine's fuller sentence still stands on the section line behind the dialog
+       on <provider>. Waking them..." (with the Sweep loader, #4008) while the app sends the wake
+       hello, and resolves to "Ready: <agent> is on <what>." or, when the hello does not land, to
+       "<agent> is on <what>. Send them a message to wake them." (see autoHelloOnSwitchRestart). The engine's fuller sentence still stands on the section line behind the dialog
        (msg.textContent above). `partial` (saved, could not restart) and any failure keep the
        engine's exact words AND render at once (ok=false), because those are different facts
        and must not sit behind the K as though the restart happened. The reduced line is the
@@ -40513,6 +40527,8 @@ async function changeModelNow(say) {
      use: switching agents mid-flight must not land this answer on another
      agent's panel. */
   const forAgent = CURRENT.sessionName;
+  // #4008: a new change makes any earlier switch's record stale, whatever this one's outcome.
+  if (typeof SWITCHED_MODEL !== 'undefined') delete SWITCHED_MODEL[forAgent];
   go.disabled = true;
   sel.disabled = true;
   msg.textContent = 'Changing…';
@@ -40562,7 +40578,22 @@ async function changeModelNow(say) {
        newest transcript, and until the restarted session writes one that is the OLD session's. The
        engine has just said the agent started again on the new model, so the page says so until the
        transcript catches up (runsOnLine). */
-    if (restarted && wantLabel && typeof SWITCHED_MODEL !== 'undefined') SWITCHED_MODEL[forAgent] = wantLabel;
+    /* Claude runners only: for them the picker's label and the live reading's name are the same words
+       (paintModelPicker already matches them), so the record is dropped once they agree. */
+    if (restarted && wantLabel && typeof SWITCHED_MODEL !== 'undefined' && providerOf(CURRENT) === 'anthropic') {
+      SWITCHED_MODEL[forAgent] = wantLabel;
+      /* And say it NOW: Runs on is otherwise painted only when the agent's page opens, so it would keep
+         the old model behind this dialog and after Done (round 1). Only the name and its lead change; the
+         account in brackets is untouched. Through the DOM, so a stub element (the lifted unit test) skips it. */
+      const drun = document.getElementById('d-runson');
+      const bold = drun && typeof drun.querySelector === 'function' ? drun.querySelector('b') : null;
+      if (bold) {
+        bold.textContent = wantLabel;
+        const lead = bold.previousSibling;
+        if (lead && lead.nodeType === 3) lead.textContent = 'Right now: ';
+        else drun.insertBefore(document.createTextNode('Right now: '), bold);
+      }
+    }
     sel.value = '';
     await tick();
     /**
@@ -43198,9 +43229,9 @@ async function autoHelloAfterRestart(name, report, saidText, manualText, deliver
 /* #2716: the changeDialog twin of the restart-modal auto-hello. After a model
    (changeModelNow) or provider (changeProviderNow) switch restarts the agent, the dialog
    paints a waiting line ("Restarted on <provider>. Waking them..."), sends the wake
-   'hello' through the same helper, and then resolves the line: to "Reactivated on
-   <provider>, and said hello to wake <agent>." if the hello was placed, or to the manual
-   "Say hello to <agent> to reactivate them on <provider>." if it was not. So the dialog
+   'hello' through the same helper, and then resolves the line (#4008): to "Ready: <agent> is
+   on <what>." if the hello was placed, or to "<agent> is on <what>. Send them a message to
+   wake them." if it was not, and finishes the dialog (see below). So the dialog
    never tells a person to do by hand what the app is already doing, and never claims a
    greeting that did not land. The restart and start flows already work this way.
 
@@ -43240,7 +43271,8 @@ function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine, waiting
     const keep = document.getElementById('chg-keep');
     if (keep && !keep.hidden) {
       if (keep.classList) keep.classList.add('uprime');
-      try { keep.focus(); } catch { /* the line stands on its own */ }
+      // Only if it is not there already (say's render focused it): a second focus re-announces the button.
+      try { if (document.activeElement !== keep) keep.focus(); } catch { /* the line stands on its own */ }
     }
   };
   let mine = null;

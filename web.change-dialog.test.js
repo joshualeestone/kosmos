@@ -81,8 +81,8 @@ test('a successful change is said in the dialog with Done; a saved-but-not-resta
   /* #768-batch: on a real restart the dialog reduces to one line naming the provider
      (Mara has no codex runner -> Claude). #2716: since the app now sends the wake hello
      itself, that line says so while it is pending ("Waking them..."); the helper, a no-op
-     here, resolves it to the confirmation or to "Say hello to Mara to reactivate them on
-     Claude." The engine's fuller sentence still stands on the section line behind the
+     here, resolves it to "Ready: Mara is on <model>." or, #4008, "Mara is on <model>. Send them a
+     message to wake them." The engine's fuller sentence still stands on the section line behind the
      dialog. */
   assert.equal(got.msg, 'Restarted on Claude. Waking them…');
   assert.equal(got.keep.textContent, 'Done'); assert.equal(got.keep.hidden, false);

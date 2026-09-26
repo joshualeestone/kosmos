@@ -283,6 +283,8 @@ function initStub() {
     const sel = document.getElementById('d-model');
     sel.innerHTML = '<option value="opus5">Claude Opus 5</option>';
     sel.value = 'opus5';
+    // #4008: Runs on as the agent's page painted it before the switch (openDetail's shape).
+    document.getElementById('d-runson').innerHTML = 'Right now: <b>Claude Sonnet 5</b> (hello@example.com)';
     const dgo = document.getElementById('d-model-go');
     dgo.disabled = false;
     dgo.click();
@@ -298,7 +300,8 @@ function initStub() {
     // focus, and the line leads with a check.
     const out = { helloAt, msg: msg.textContent, threads: window.__posted.filter((x) => /\/thread$/.test(x.url)).length,
       title: document.getElementById('chg-title').textContent, gold: keep.classList.contains('uprime'), focused: document.activeElement === keep,
-      check: !!msg.querySelector('svg.wake-done'), keepText: keep.textContent };
+      check: !!msg.querySelector('svg.wake-done'), keepText: keep.textContent,
+      runsOn: document.getElementById('d-runson').textContent };
     window.__kosmosRestartHoldMs = undefined;
     keep.click();
     return out;
@@ -309,6 +312,8 @@ function initStub() {
     s11.threads === 1 && s11.msg === 'Ready: April is on Claude Opus 5.', 'threads=' + s11.threads + ' msg=' + JSON.stringify(s11.msg));
   check('#4008 real model switch: the finished dialog titles what happened, leads with a check, and Done is the gold button with the focus',
     s11.title === 'Changed to Claude Opus 5' && s11.check && s11.gold && s11.focused && s11.keepText === 'Done', JSON.stringify(s11));
+  check('#4008 real model switch: Runs on behind the dialog reads the new model (the account kept), not the old session\'s',
+    s11.runsOn === 'Right now: Claude Opus 5 (hello@example.com)', JSON.stringify(s11.runsOn));
 
   // ---- Arm 11b: the REAL provider-switch path, same timing relationship ----
   // changeProviderNow has its own call site and an extra awaited accounts refresh, so it
