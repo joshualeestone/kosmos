@@ -37266,6 +37266,7 @@ function plusSiCodeFromPaste(text) {
   const named = six.filter((x) => /\bcode\b/i.test(x.before));   // the word, so not "zipcode" or "barcode"
   return named.length === 1 ? named[0].d : '';
 }
+const PLUS_SI_OTP_BOX = {};   // per code field: { drop } for plusSiRequestCode (Send again)
 const PLUS_SI_OTP_GO = { 'plus-si-code-in': 'plus-si-code-go', 'plus-si-second-in': 'plus-si-second-go', 'plus-si-enrol-code': 'plus-si-enrol-confirm-go' };
 for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code']) {
   const el = document.getElementById(id);
@@ -37310,6 +37311,7 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
      a digit forgets the last code, so retyping it on purpose sends it again. */
   let lastSent = '';
   let queued = false;   // a code completed while the button was busy, waiting for it
+  let sendingNow = false;   // the sixth digit pressing the button, as opposed to a press by hand
   const go = document.getElementById(PLUS_SI_OTP_GO[id]);
   const trySend = () => {
     const code = el.value.replace(/\D/g, '');
@@ -37318,7 +37320,8 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
     if (!go || go.disabled) { queued = true; return; }
     queued = false;
     lastSent = code;
-    go.click();
+    sendingNow = true;
+    try { go.click(); } finally { sendingNow = false; }
   };
   /* When the button comes back: send a code that was waiting for it, but only while this step is
      still on screen (a code finished after the answer moved the sign-in on must not go to a step the
@@ -37336,7 +37339,25 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   if (go && typeof MutationObserver === 'function') new MutationObserver(freed).observe(go, { attributes: true, attributeFilter: ['disabled'] });
   // Any press of the step's button (by hand, or by the sixth digit) records what it sent, so a code the
   // person sent themselves is not sent again by itself, and the answer's selection finds it.
-  if (go) go.addEventListener('click', () => { const c = el.value.replace(/\D/g, ''); if (c.length === 6) { lastSent = c; queued = false; } });
+  /* Any press of the step's button records what it sent. And a press BY HAND on the exact code already
+     sent and answered does nothing but put the person back in the field with it selected: it would only
+     spend another try on a code the server has refused (the button stays for a new code). After a
+     network failure ("could not reach", "has not answered") the same code was never tried, so it goes.
+     Capture phase, so this runs before the step's own click handler. */
+  if (go) go.addEventListener('click', (e) => {
+    const c = el.value.replace(/\D/g, '');
+    if (c.length !== 6) return;
+    const said = (document.getElementById('plus-signin-msg') || {}).textContent || '';
+    if (!sendingNow && c === lastSent && !/could not reach|has not answered/i.test(said)) {
+      e.stopImmediatePropagation(); e.preventDefault();
+      el.focus();
+      try { el.setSelectionRange(0, el.value.length); } catch { /* not a text input */ }
+      paint();
+      return;
+    }
+    lastSent = c; queued = false;
+  }, true);
+  PLUS_SI_OTP_BOX[id] = { drop: () => { queued = false; } };
   /* Fixing one digit: in a complete code a typed digit REPLACES the digit after the caret (the box
      that is outlined), rather than being inserted and pushing the last digit off the end, which made
      a different six-digit code and sent it. With the caret at the end, it starts the code again. */
@@ -37504,6 +37525,9 @@ async function plusSiRequestCode(btn) {
      does, and its button is freed here, since a stale answer never frees it. */
   if (btn && btn.id === 'plus-si-code-resend') {
     PLUS_SI_EPOCH += 1;
+    // A code typed while that check was running was waiting for the button: it is for the OLD code,
+    // so it is dropped, not sent the moment the button is freed below.
+    if (typeof PLUS_SI_OTP_BOX !== 'undefined' && PLUS_SI_OTP_BOX['plus-si-code-in']) PLUS_SI_OTP_BOX['plus-si-code-in'].drop();
     const verify = document.getElementById('plus-si-code-go');
     if (verify) verify.disabled = false;
   }
