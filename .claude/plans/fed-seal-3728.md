@@ -45,7 +45,21 @@ Tests (engine/fedseal.test.js):
   - Legacy: unchanged.
 - **Controls, each failing by name:** no sealing on post; no downgrade refusal; the owner answering any hello.
 
-## Step 2d onward (next)
+## Step 2d (done): a revoked member is rotated out
+- The hello names the member's edge under its MAC, and the owner pins the key and edge together.
+- On each ensureAll pass (the same single edges request), when the coordinator reports a pinned member's edge as not active, the room moves to epoch+1. The new key goes, sealed, only to the remaining pinned members, and the revoked one is unpinned.
+- The rotate is re-sent on every connect, so a member that missed it catches up; a member ignores an epoch it already holds and takes a rotate only from the pinned owner.
+- **Decided:** an edge the coordinator does not list is NOT taken as revoked, because a partial answer must not lock a member out.
+- **Tests:** rotate-out (the rest open the next key, the revoked member opens nothing, posts move to the new epoch, a reconnect re-sends); an absent edge is not revoked; a member takes a rotate only from the pinned owner. The edge is covered by the MAC.
+- **Controls, each failing by name:** the revoked member kept; an absent edge treated as revoked; no re-send on connect.
+
+## Step 2e (done): no stale keys; an unsealed room says so
+- Deleting a project forgets its room keys, and creating one clears any left on its id (the #3851 shape, for keys).
+- A join with a code from an older owner (no second half) posts a room note: "This shared room is not sealed end to end ...".
+- Tests and controls fail by name.
+
+## Open questions for review
+- The relay still sees who posts when and how much (metadata). Only content is sealed; this is stated in the card's v1 limits.
 - invite: the board makes `s`, stores it beside the invite, and shows `<code>.<s>`.
 - join: the board splits the code, verifies with the first half only, and keeps `s`.
 - seat: on connect the member posts key-hello. The owner checks it, pins the key, and replies key-share. The member opens it and pins the owner.

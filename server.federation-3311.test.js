@@ -316,3 +316,29 @@ test('#3728: a join with a second half makes a sealed member room that holds s a
   assert.equal(j.status, 200, JSON.stringify(j.json));
   assert.deepEqual(fedseal.roomState(j.json.id), { role: 'member', s, peer: null, epoch: null, keys: {} });
 });
+
+test('#3728: deleting a sealed project forgets its room keys, and a new project of the same id starts with none', async () => {
+  const fedseal = require('./engine/fedseal');
+  const r = await post('/api/projects', { name: 'Sealed Reuse', federation_ref: 'ref-sealed-reuse' }, SCREEN);
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  fedseal.setRoomState(r.json.id, { role: 'owner', peers: { someone: { s: 'x', edge: 'e' } }, epoch: 0, keys: { 0: fedseal.randomSecret() } });
+  const d = await fetch(base + '/api/project/' + encodeURIComponent(r.json.id), { method: 'DELETE', headers: SCREEN });
+  assert.equal(d.status, 200);
+  assert.equal(fedseal.roomState(r.json.id), null, 'the room keys outlived the project');
+  // Left behind anyway (say the delete could not write): the next project of that id clears it.
+  fedseal.setRoomState(r.json.id, { role: 'owner', peers: {}, epoch: 0, keys: { 0: fedseal.randomSecret() } });
+  const again = await post('/api/projects', { name: 'Sealed Reuse', federation_ref: 'ref-sealed-reuse-2' }, SCREEN);
+  assert.equal(again.json.id, r.json.id, 'fixture: the id is reused');
+  assert.equal(fedseal.roomState(again.json.id), null, 'a new project inherited old room keys');
+});
+
+test('#3728: a join with a code from an older owner (no second half) says in the room that it is not sealed', async () => {
+  const fedseal = require('./engine/fedseal');
+  const v = await post('/api/federation/verify', { code: 'ROLLBACK' }, SCREEN);
+  assert.equal(v.status, 200, JSON.stringify(v.json));
+  const j = await post('/api/federation/join', { edge_id: 'edge-rb', agents: [] }, SCREEN);
+  assert.equal(j.status, 200, JSON.stringify(j.json));
+  assert.equal(fedseal.roomState(j.json.id), null, 'an unsealed join was given seal state');
+  const rows = require('./engine/messages').record().rows.filter((m) => m.project === j.json.id);
+  assert.ok(rows.some((m) => /not sealed end to end/.test(m.text || '')), 'the room did not say it is unsealed: ' + JSON.stringify(rows.map((m) => m.text)));
+});
