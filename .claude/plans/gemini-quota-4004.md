@@ -96,6 +96,14 @@ message after the reset works (item 4 with no restart). The board read the quest
   (neutral words, no reset time). The API-key layouts ([Switch, Stop], [Keep trying, Switch, Stop]) are tested.
   Each piece perturbed red, including the card-name to pane-name join.
 
+- Review round 12 (Opus): converged, NITs only, recorded here rather than changed:
+  - The 15-minute window can call a later, unrelated error a usage limit (the person sends a message after the reset
+    and it fails for another reason): at most 15 minutes, right after a real limit, in words that stay true.
+  - The future-timestamp guard in answeredRecently is untested (defensive only).
+  - A status.js comment still says "a Gemini agent on its daily quota" for an arm that covers any Google usage limit.
+  - WINDOWS IS NOT COVERED by this card's reading: a Windows Gemini agent has no screen text for it to read (its
+    headless turns exit at once on a daily cap, measured by Homer on the card), so nothing here changes Windows.
+
 ## Weakest premise
 - Matching Gemini's words on screen: a future CLI can reword them. The reading then falls back to today's behaviour
   (unknown/idle), and the sweep presses nothing, since it needs the question recognised.
