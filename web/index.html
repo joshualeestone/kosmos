@@ -18558,34 +18558,14 @@ let SERVED_VERSION = null;
 let ENGINE_STALE = null;
 
 /**
- * The top-left toast, in two states that share a slot and share nothing else.
- *
- *   Update available   red     a version you do NOT have        Later · Install
- *   Kosmos updated     grey    a version you HAVE, that this
- *                              page does not                    Reload
- *
- * 🔑 THE TONE IS THE ONLY VISUAL DIFFERENCE AND IT CARRIES THE ARGUMENT (Mona
- * Lisa, #270). The red earns its alarm on the first: a version you have not got
- * is a thing to decide about. A stale page is not a problem, it is a fact with
- * a one-click fix, and rendering it in the same red spends the alarm on the
- * less alarming of the two.
- *
- * ⚠️ ONE ACTION, NO LATER AND NO CLOSE. `Later` on the shipped toast defers an
- * install, which is a real change to the machine and worth deferring. Here
- * there is nothing to defer: dismissing would not make the page current, so the
- * button would lie about what it did and the sentence would still be true the
- * moment it vanished. It clears itself on reload, which makes it a state rather
- * than a notice, and states are not dismissible.
- *
- * 🛑 WHEN BOTH ARE TRUE, THE RELOAD STATE WINS, and this is the case that only
- * appeared when it was drawn: page 0.2.75, server 0.2.76, 0.2.77 published.
- * Installing 0.2.77 from a 0.2.75 page compounds the staleness rather than
- * resolving it, and the person would be acting on a screen already wrong about
- * what it is.
- *
- * 📌 NO VERSION NUMBER IN THE SENTENCE. "You are looking at the previous
- * version" is true and actionable without one, and both numbers are on the
- * Settings line for anybody who wants them.
+ * The update notices in the header's #utoast-slot (#3955, Mona Lisa's mock A and B). One small chip,
+ * one line and one gold action, in two states:
+ *   - "An update is available" + Update, when a newer Kosmos is published (the confirm names it);
+ *   - "Reload to finish updating" + Reload, when Kosmos updated under this open page. It never says
+ *     "Kosmos updated" while the old page is on screen, and the page reloads itself when that cannot
+ *     lose anything (updateSafeReload).
+ * The engine-changed-on-disk state keeps its own .utoast shape and outranks both (#338). After an update,
+ * "Kosmos has been updated" is the window whatsNewCheck opens, not a line here.
  */
 /**
  * #2055: the board notice for a silently-aborting update. Angel's engine half
@@ -32068,7 +32048,9 @@ async function whatsNewCheck() {
     if (!Array.isArray(got.highlights) || !got.highlights.length) { record(); return; }
     /* Held while the first-run tour is on screen (Mona Lisa's design review): the tour is the
        person's current task, and this can wait for it to close. */
-    for (let i = 0; i < 3600 && typeof TIP_OPEN !== 'undefined' && TIP_OPEN; i++) await new Promise((r) => setTimeout(r, 1000));
+    // A real deadline (round 7): a background tab slows timers, so counting ticks is not an hour.
+    const until = Date.now() + 3600000;
+    while (Date.now() < until && typeof TIP_OPEN !== 'undefined' && TIP_OPEN) await new Promise((r) => setTimeout(r, 1000));
     // A tour still open after an hour: recorded quietly rather than opened over it (round 6).
     if (typeof TIP_OPEN !== 'undefined' && TIP_OPEN) { record(); return; }
     /* Recorded as seen when it OPENS (round 6): two tabs reloaded by the same update must not both show

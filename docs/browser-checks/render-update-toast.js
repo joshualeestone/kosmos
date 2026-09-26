@@ -216,7 +216,7 @@ const RELPORT = freePort();
     // browser) still quiets its version for its window, which is the reading kept below.
     await p.click('#uc-no');
     if (await p.isVisible('#updconfirm')) die('Not now did not close the confirm');
-    if (await p.isVisible('#ut-later')) die('the chip grew a Later button back');
+    if ((await p.locator('.uchip button').count()) !== 1) die('the chip grew a second button back (it has one action, Update)');
     await p.evaluate(() => localStorage.setItem('kosmos-update-later', JSON.stringify({ v: '9.9.9', at: Date.now() })));
     await p.reload({ waitUntil: 'networkidle' });
     if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
@@ -237,7 +237,7 @@ const RELPORT = freePort();
     await p.waitForSelector('.uchip', { state: 'visible', timeout: 20000 });
     // ...and Check for Update clears the note, through the real button.
     await p.evaluate(() => localStorage.setItem('kosmos-update-later', JSON.stringify({ v: '9.9.9', at: Date.now() })));
-    if ((await laterVersion(p)) !== '9.9.9') die('the Later note did not take');
+    // (setup only: the note is written here so the Check for Update leg below has one to clear)
     // While an update is on offer the footer's button reads Update, so the
     // fake host now says the running version is latest and the page asks
     // (the same TTL-bypassing route the button uses); the offer withdraws

@@ -333,6 +333,20 @@ function git_sandbox(version, { diverge = 'none' } = {}) {
      and returns 0, which reads as "did not refuse". */
   fs.cpSync(path.join(__dirname, 'tools', 'lib'), path.join(dir, 'tools', 'lib'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'sandbox', version }, null, 2));
+  /* #3955: step 1b-ii checks web/whats-new.json with tools/whats-new-check.js (and engine/whatsnew.js);
+     the sandbox carries both and a committed highlights file for the version being cut, so the arms
+     past step 1 exercise that check in place rather than dying on a missing module. */
+  fs.copyFileSync(path.join(__dirname, 'tools', 'whats-new-check.js'), path.join(dir, 'tools', 'whats-new-check.js'));
+  fs.mkdirSync(path.join(dir, 'engine'), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, 'engine', 'whatsnew.js'), path.join(dir, 'engine', 'whatsnew.js'));
+  fs.mkdirSync(path.join(dir, 'web'), { recursive: true });
+  // For the version the arms CUT: the next patch of `version` (0.6.02 -> 0.6.03), padding kept.
+  const parts = String(version).split('.');
+  const last = parts[parts.length - 1];
+  parts[parts.length - 1] = String(Number(last) + 1).padStart(last.length, '0');
+  const cutVersion = parts.join('.');
+  fs.writeFileSync(path.join(dir, 'web', 'whats-new.json'), JSON.stringify({ version: cutVersion,
+    highlights: [{ icon: 'spark', title: 'A sandbox highlight', line: 'Here so the cut reaches the step under test.' }] }));
   /* The site check runs before the guard, so the arms need one to get past it.
      ⚠️ IT LIVES OUTSIDE THE REPO, which is both what the real thing is (a
      separate chaoskosmos-site checkout) and what keeps these arms honest: with

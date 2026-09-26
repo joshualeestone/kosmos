@@ -243,3 +243,14 @@ test('#3955 round 5: a box that is hidden but still holds typed words blocks the
     false, false, null, false, {}, {}, {}, {}, () => false, new Set([kept]), { room: {}, agent: {} });
   assert.equal(reloaded, 0, 'a New task draft kept in a hidden dialog was reloaded away');
 });
+
+test('#3955 round 7: the reload reads a rich-text box by its words (textContent)', () => {
+  const src = page.liftAll(SCRIPT, ['updateSafeReload']);
+  const box = { isContentEditable: true, textContent: 'a rich-text draft', value: undefined, isConnected: true };
+  let reloaded = 0;
+  new Function('document', 'sessionStorage', 'window', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
+    'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen', 'UPDATE_TYPED', 'ATTACH_PENDING', src + '\nreturn updateSafeReload("0.2.76");')(
+    { hidden: true }, { getItem: () => null, setItem() {} }, { location: { reload: () => { reloaded += 1; } } },
+    false, false, null, false, {}, {}, {}, {}, () => false, new Set([box]), { room: {}, agent: {} });
+  assert.equal(reloaded, 0, 'a rich-text draft was reloaded away');
+});

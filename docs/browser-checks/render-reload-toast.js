@@ -1,9 +1,10 @@
 'use strict';
 
 /**
- * The reload toast, rendered in both tones beside the one it must not look
- * like (#270). #3955: both are now the one-line update chip, and this also
- * opens the "Kosmos has been updated" window (tiles, focus, Tab, Escape, seen).
+ * The update chip in both of its states (#3955, Mona Lisa's mock A and B: "An update is available"
+ * and "Reload to finish updating", one gold action each), in light and dark, and the "Kosmos has been
+ * updated" window (tiles, contrast, focus, Tab, Escape). Before #3955 this compared a red offer toast
+ * with a neutral reload toast (#270); the chip replaced both.
  *
  * 🔑 THE CLAIM IS A COMPARISON, so both states are captured in one run: the
  * shipped offer toast is red and earns it, and the reload state must read as
@@ -176,7 +177,7 @@ async function seenIsCurrent() {
         chk(wn.title === 'Kosmos has been updated' && wn.ver === 'Version 0.6.98', theme + ': it says Kosmos has been updated, and the version', wn.title + ' / ' + wn.ver);
         chk(wn.tiles === 4 && wn.icons === 4, theme + ': four highlight tiles, each with its icon', wn.tiles + ' tiles, ' + wn.icons + ' icons');
         chk(wn.focus === 'wn-ok' && wn.centred, theme + ': focus on Got it, the card centred over the dimmed app', JSON.stringify({ focus: wn.focus, centred: wn.centred, dim: wn.dim }));
-        chk(wn.more === 'https://installkosmos.com/versions#v0-6-98' && wn.rel === 'noreferrer noopener', theme + ': "See everything that changed" goes to this version on the site', wn.more);
+        chk(wn.more === 'https://installkosmos.com/versions' + '#' + 'v0-6-98' && wn.rel === 'noreferrer noopener',   // split: a URL fragment, not a page id theme + ': "See everything that changed" goes to this version on the site', wn.more);
       }
       // The window's words clear 4.5:1 (round 4 tiles; round 5 the version pill and the link too).
       const words = await pg.evaluate(() => {

@@ -52,7 +52,11 @@ Card #3955 (Josh, #admin, 2026-09-26 08:11). Design: Mona Lisa's mock on card-sh
 - The cut checks the highlights twice again (reverses round 5): release.sh itself documents the shared checkout moving mid-cut, so 2b-ii checks the frozen tree; a refusal there leaves the bump pushed, like a step 7 versions-entry refusal. The test counts the calls over the whole file.
 - A contenteditable box counts as a words box (read by its text).
 - A tour still open after an hour: the version is recorded quietly, no window over it.
-- Seen is recorded when the window OPENS (reverses the record-on-close choice): two tabs reloaded by one update must not both show it. Accepted cost: a reload before reading it does not show it again.
+- Seen is recorded when the window OPENS (reverses the record-on-close choice), so a second tab that loads after the first opened it does not show it. Best effort: two tabs that read /api/whats-new in the same moment can both show it once. Accepted cost: a reload before reading it does not show it again.
+
+## Review round 7 (decided)
+- The suite: tools.release-gate.test.js's git sandbox carries the whats-new check, its engine module and a highlights file for the version its arms cut; browser-check selectors (a URL fragment split, the removed Later asserted by button count); reason-grep sites 177.
+- The tour wait uses a real one-hour deadline (a background tab slows timers). Stale comments rewritten (renderUpdateToast's, render-reload-toast's header and README row).
 
 ## Tests
 - The chip's two states and its one button; the stale chip never says "Kosmos updated"; engine-stale still first.
