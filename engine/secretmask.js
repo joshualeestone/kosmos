@@ -115,6 +115,10 @@ const SKIPPABLE = new Set(['-', '_']);
 /* How many of them in a row a reply may drop at one split (review round 12: a doubled "--" or "__" is common
    in a base64url form, and skipping only one let such a key through whole). A cap keeps the walk bounded. */
 const SKIP_RUN = 3;
+/* The characters a partial try must match after its opening, in non-word pieces of OPENING_LEN or more, before its
+   pieces are masked (review round 11): enough that coincidence in ordinary text is out of reach, and less than
+   any key's length, so a try that gave half a key away is still caught. */
+const PARTIAL_MIN = 8;
 /* The positions a piece may start from at p: p itself, and past each of up to SKIP_RUN separators there. */
 function skipsFrom(f, p) {
   const out = [p];
@@ -203,7 +207,7 @@ function normalisedCopy(text) {
  *
  * Not covered: pieces out of order or reversed; an opening piece shorter than four characters; a held value
  * made only of words and numbers (see madeOfWords); a partial try whose pieces after the opening come to fewer
- * than 8 characters in runs of OPENING_LEN or more that are not themselves words or numbers (such a try is left
+ * than PARTIAL_MIN characters in runs of OPENING_LEN or more that are not themselves words or numbers (such a try is left
  * alone, and one that does reach 8 is masked piece by piece, its public prefix included); glue other than _ + - or / at either end and a label joined
  * with = on either side (glue in the middle of a run, say); a held form over WORD_WALK_MAX_FORM characters; and a key split
  * across two replies (the mask is per message).
@@ -236,6 +240,9 @@ function pieceVariants(run) {
     const first = trimmed.indexOf('=');
     if (first > 0) out.add(trimmed.slice(0, first));
   }
+  /* A key's chunks joined by its own separators, licence-key style (Qw8e-Rt2y), with words between the groups
+     (review round 14): the run is tried with every - and _ taken out as well, one piece of the key. */
+  for (const v of [...out]) if (/[^-_][-_]+[^-_]/.test(v)) out.add(v.replace(/[-_]+/g, ''));
   out.delete('');
   return [...out];
 }
@@ -363,7 +370,7 @@ function wordSkippingSpans(text) {
                public scheme and host (https, discord, com) are words, and a reply naming them is not a try. */
             if (at - step.prev >= OPENING_LEN && !madeOfWords(f.slice(step.prev, at))) { found.push(step.s); after += at - step.prev; }
           }
-          if (after >= 8) {
+          if (after >= PARTIAL_MIN) {
             spans.push([from, runs[r][1]]);
             for (const s2 of found) spans.push([runs[s2][0], runs[s2][1]]);
           }
@@ -478,7 +485,8 @@ function mask(text) {
        (Qw8e-Rt2y-Ui9o-...), is one run to both copies above, so it was never joined. This copy drops - and _
        too. A held form containing either cannot occur in it, so only forms without them are ever found here. */
     const noSeps = deleting(original, identity, /[^A-Za-z0-9+/=]+/g, (m) => [m.index, m.index + m[0].length]);
-    for (const copy of [allKeyChars, longRuns, noSeps]) {
+    /* With no - or _ in the text the third copy is the first one again: not searched twice (review round 14). */
+    for (const copy of noSeps.str === allKeyChars.str ? [allKeyChars, longRuns] : [allKeyChars, longRuns, noSeps]) {
       if (copy.str === original) continue;
       for (const f of knownFormsIn(copy.str)) {
         let at = copy.str.indexOf(f);

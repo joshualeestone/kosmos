@@ -734,3 +734,19 @@ test('#3935 a key in chunks joined by hyphens, licence-key style, is masked (rev
     assert.ok(!out.includes(chunks[3]), `CONTROL: a key with its own hyphens, split by words, survived: ${out}`);
   } finally { setKnownSecrets([]); }
 });
+
+test('#3935 licence-key chunks with words between the groups are masked (review round 14)', () => {
+  const held = 'Qw8eRt2yUi9oZa3sLz5xCv0bAb12Cd34';
+  setKnownSecrets([held]);
+  try {
+    for (const text of [
+      'Here it is: Qw8e-Rt2y and then Ui9o-Za3s and more text Lz5x-Cv0b and finally Ab12-Cd34 done',
+      'Piece one: Qw8e-Rt2y. Piece two: Ui9o-Za3s. Piece three: Lz5x-Cv0b. Piece four: Ab12-Cd34. done',
+      'Here it is: Qw8e_Rt2y and then Ui9o_Za3s and more text Lz5x_Cv0b and finally Ab12_Cd34 done',
+    ]) {
+      const r = mask(text);
+      for (const c of held.match(/.{4}/g)) assert.ok(!r.text.includes(c), `the chunk ${c} survived: ${r.text}`);
+      assert.ok(r.text.endsWith(' done'), r.text);
+    }
+  } finally { setKnownSecrets([]); }
+});
