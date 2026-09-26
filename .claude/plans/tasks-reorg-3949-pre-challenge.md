@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: tasks-reorg-3949
-diff_hash: ef3d6c02e8bf7acf5b77449bc6fec46dd585fdda2393a1026d8e8b3f26591368
+diff_hash: e965b16b8185c2f2c3e84ec6e44ceafd00c62466dc5aafec45009422371ba717
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-26T15:16:59Z
-iterations: 8
+timestamp: 2026-09-26T16:24:48Z
+iterations: 12
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 8 (6 before the rebase onto origin/main a4007bb, 2 after)
-**Converged:** Yes (iteration 8 raised only the already-deferred overcount WARNING and NITs)
-**Total findings:** 33 (3 BLOCKERs, 14 WARNINGs, 3 CONVENTIONs, 21 NITs; counts include the two validation-gate failures after round 1)
-**Fixed:** 25 | **Deferred:** 8 | **Asked (awaiting user):** 0
+**Iterations:** 12 (6 before the rebase onto origin/main a4007bb, 2 after it, 4 after Mona's design review)
+**Converged:** Yes (iteration 12 raised NITs only, all already deferred or pre-existing)
+**Total findings:** 51 (5 BLOCKERs, 20 WARNINGs, 3 CONVENTIONs, 34 NITs; counts include the two validation-gate failures after round 1)
+**Fixed:** 36 | **Deferred:** 13 | **Decided (kept, reasoning recorded):** 2 | **Asked (awaiting user):** 0
 
 ### Per-Iteration Breakdown
 
@@ -96,11 +96,48 @@ converged: true
 **New findings:** 0 BLOCKERs, 0 new WARNINGs, 0 CONVENTIONs, NITs only
 **Converged:** the one WARNING raised was iteration 7's deferred overcount (deduplicated); no new actionable findings.
 
+#### Design review (Mona Lisa, PR #3983, approve), applied before iteration 9
+- Labels "Project:", "Created:", "Group by:", "Sort:" in ordinary case; "All projects" with no count; the Nobody yet chip dropped inside status groups (f030bb3). At 390 each pair still wraps (about 370px needed in 296px); wrapping accepted per the review.
+
+#### Iteration 9
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 4 NITs
+- [WARNING] an unreadable roster painted "0 Needs Your Decision" as a fact --> FIXED (e4ca1fa): rosterUnreadable from the route; the tile shows "?" with its reason, neutral
+- [WARNING] Created: can hide a pending decision --> DECIDED, kept: every tile counts inside the same filters; the red attention elsewhere is unfiltered (reasoning in the plan)
+- [NIT] misplaced tskVisible comment, stale All projects count comments --> FIXED (e4ca1fa)
+- [NIT] a test comment overclaimed "real producer states" --> FIXED (e4ca1fa)
+- [NIT] Completed fold reopens while its tile is picked --> DEFERRED (as iteration 7)
+- [NIT] a finished task with no agent says "Nobody yet" --> DEFERRED: pre-existing
+
+#### Iteration 10
+**Reviewer model:** sonnet
+**New findings:** 2 BLOCKERs, 1 WARNING (repeat), 0 CONVENTIONs, 0 NITs
+- [BLOCKER] the decision group heading kept a red dot at zero --> FIXED (0e6c947): tskDot, one rule for tile and heading
+- [BLOCKER] with the agents unreadable the heading said "0" and "Nothing here" under a "?" tile --> FIXED (0e6c947)
+- [WARNING] counts tasks, not questions --> deduplicated (settled by Mona's review)
+
+#### Iteration 11
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 3 NITs
+- [WARNING] "your go-ahead" promised a trust wait this roster never carries --> DECIDED (950983f): copy no longer promises it; the rule and the gap are documented as projects.js does
+- [WARNING] the unreadable roster was tested only with a hand-set flag --> FIXED (950983f): a server arm with a throwing pane source, and a browser arm through page.route and tskLoad
+- [WARNING] the All projects check had weakened --> FIXED (950983f): every project option's count equals what picking it shows
+- [NIT] a failed reload kept a stale baseline --> FIXED (950983f): the next tick reads again
+- [NIT] Completed fold reopens --> DEFERRED (as before)
+- [NIT] other tiles do not caveat an unreadable roster --> DEFERRED: the decision tile and group carry it
+
+#### Iteration 12
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 3 NITs (all deduplicated or pre-existing: the task-count granularity, the Completed fold, a heading's textContent with no space before its count, as on main)
+**Converged:** no new actionable findings.
+
 ### Final validation (6j)
 - First run: one unrelated test (tools.plus-signin-2036, a timeout) failed under load; it passes 18/18 alone.
 - Second and third runs: the browser-check surface gate flagged render-chip-filters-3423.js for a `data-attn` token. The only change is a comment. That check was re-run headless (20 pass) and excused with a per-check trailer (ac5ff2e; the first trailer, ffab89d, omitted `.js`).
 - Pre-rebase final run on ac5ff2e: PASSED (hash cb009ecffb47), subdir audit passed.
-- Post-rebase final run on d6c646f: PASSED (validation rc=0, subdir audit rc=0), 2026-09-26 10:13 CDT. origin/main has since moved 8 commits with no conflict (merge-tree clean), so the three-dot diff and this hash are unchanged.
+- Post-rebase final run on d6c646f: PASSED (validation rc=0, subdir audit rc=0), 2026-09-26 10:13 CDT.
+- Runs on f030bb3 and e4ca1fa were stopped when later fixes replaced those commits (never read as results).
+- Final run on 950983f: PASSED (validation rc=0, subdir audit rc=0), 2026-09-26 11:24 CDT. origin/main has moved since with no conflict (merge-tree clean).
 
 ### Final Ledger
 
@@ -120,14 +157,22 @@ converged: true
 | 12 | 5 | WARNING | web/index.html tskNeedsSig | SELF | third copy | DEFERRED | #3410 painters inline |
 | 13 | 7 | WARNING | engine/tasks.js waitingOnPerson | SELF | counts tasks not questions | DEFERRED | Mona's review (#3949) |
 | 14 | 7 | WARNING | web/index.html tile painter | SELF | red dot at zero | FIXED | d6c646f |
+| 15 | 9 | WARNING | server.js + web/index.html | SELF | unreadable roster read as 0 | FIXED | e4ca1fa |
+| 16 | 9 | WARNING | web/index.html tiles | SELF | Created: hides a decision | DECIDED | plan: same filters for every tile |
+| 17 | 10 | BLOCKER | web/index.html group heading | SELF | red dot at zero | FIXED | 0e6c947 |
+| 18 | 10 | BLOCKER | web/index.html group heading | SELF | "0" when unreadable | FIXED | 0e6c947 |
+| 19 | 11 | WARNING | web/index.html TSK_GROUPS copy | SELF | "your go-ahead" never reachable | DECIDED | 950983f copy + documented gap |
+| 20 | 11 | WARNING | tests | SELF | unreadable roster only hand-set | FIXED | 950983f |
+| 21 | 11 | WARNING | render-alltasks.js | SELF | #1346 check weakened | FIXED | 950983f |
 
 ### Outstanding questions (ASKED, still unresolved when the run ended)
 - none
 
 ### NITs (non-blocking, across all iterations)
-- label punctuation (1, 3); knownIds note (5); failure-message wording, markup indentation, 761-1000px band (6)
+- label punctuation (1, 3; settled by Mona); knownIds note (5); failure-message wording, markup indentation, 761-1000px band (6); Completed fold reopening (7, 9, 11, 12); a finished task with no agent says Nobody yet (9); heading textContent (12)
 
 ### Strengths (across all iterations)
 - Every tile count comes from engine state, and Built but waiting is left out (#3951) rather than guessed (all iterations)
 - The real rule is exercised end to end with real asking agents, and every fix has a mutation that turns its test red (3 to 6)
-- Browser checks run headless before and after on the same fixture: tasks-view 147, alltasks 29, subtasks 49, render-tasks OK, chip-filters 20
+- Browser checks run headless before and after on the same fixture: tasks-view 163, alltasks 31, subtasks 49, render-tasks OK, chip-filters 20
+- The unreadable-roster path is tested from both ends of the wire (9 to 11)
