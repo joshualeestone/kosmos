@@ -17,7 +17,7 @@ showed first at the 0.6.99 cut's step 3.
   with a control that the old `true` reads as cancelling main, pins each group to github.ref (a
   group shared with PRs would let a PR run cancel main's), and a control that every workflow whose
   PARSED YAML (ruby, as tools/test-browser-checks-workflow.sh does) pushes to main is in its list.
-  The detector is tested on 8 spellings that push to main and 6 that do not; it skips where ruby
+  The detector is tested on 15 spellings that push to main and 12 that do not; it skips where ruby
   is absent (the per-file pins still run).
 
 ## Iteration 1 (sonnet)
@@ -35,7 +35,7 @@ showed first at the 0.6.99 cut's step 3.
 
 ## Weakest premise
 A red commit superseded while PENDING never runs on its own; the red still shows at the head,
-but bisecting may need a manual dispatch.
+but bisecting means `yarn test` locally at that sha (none of the three has a manual trigger).
 
 ## Iteration 2 (opus)
 - WARNING: the push-to-main detector (a regex) missed 6 of 7 YAML spellings --> it reads the parsed
@@ -54,3 +54,13 @@ but bisecting may need a manual dispatch.
   when ruby is missing (reasoned from source, not measured: stripping ruby off PATH was not
   permitted on this machine).
 - NIT: a comment line left unwrapped by iteration 2 --> rewrapped.
+
+## Iteration 4 (opus)
+- WARNING: YAML.load_file refused anchors (Psych 4), so any workflow using one would red this test
+  with a parser error --> aliases, Date and Symbol allowed (a scratch anchors.yml now parses).
+- NITs, all fixed: each group must be `<own-prefix>-${{ github.ref }}` and prefixes distinct (a
+  shared group reds); the group is read with comments stripped; `**/` matches zero directories, `\`
+  escapes, a leading `?`/`+` is literal; the plan's counts; bisect is a local `yarn test` (no manual
+  trigger exists); CI=false is not CI and a broken ruby is named as broken; ios.yml is in the
+  positive control.
+- CONVENTION: descriptive names (PINNED_WORKFLOWS, branchFilterToRegex, pushesToMain, ...).
