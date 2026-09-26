@@ -43,7 +43,9 @@
  * reach between a face and the box; the edge-callout arm reds when a squeezed
  * chart centres an edge node's callout; the hub arm reds when the hub is
  * clamped by a node's margin; the mid-drag arm reds when a resize or a poll repaints
- * under a live drag, or when the release does not catch up with the new width.
+ * under a live drag, or when the release does not catch up with the new width;
+ * the failed-poll-mid-drag arm reds when the drag hold outlives its node and the
+ * chart never draws again.
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -270,6 +272,35 @@ function measure(page) {
           const after = await page.evaluate(() => Math.round(document.getElementById('orgmap').getBoundingClientRect().width));
           chk(mid.connected && after < p0.size, `${tag} the dragged node stays on the page, and the chart repaints at the new width on release`,
             `connected mid-drag: ${mid.connected}; chart ${p0.size} -> ${after}px after release`);
+          await ctx.close();
+        }
+        // A poll that fails mid-drag clears the chart out from under the pointer, so the release
+        // never reaches the map. The hold must not outlive the node it holds for: once polls come
+        // back, the chart draws again.
+        {
+          const tag = `[${engine} poll failed mid-drag]`;
+          const ctx = await browser.newContext({ viewport: { width: 393, height: 852 } });
+          const page = await ctx.newPage();
+          await toOrg(page, URL);
+          const p0 = await page.evaluate(() => { const n = document.querySelector('#orgmap .onode'); n.scrollIntoView({ block: 'center' });
+            const r = n.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+          await page.mouse.move(p0.x, p0.y);
+          await page.mouse.down();
+          for (let i = 1; i <= 4; i++) await page.mouse.move(p0.x + i * 6, p0.y + i * 6);
+          await page.evaluate(() => { window.__realFetch2 = window.fetch;
+            window.fetch = function (u) { if (String(u).includes('/api/status')) return Promise.reject(new TypeError('offline (check)')); return window.__realFetch2.apply(this, arguments); }; });
+          await page.waitForTimeout(6500);   // one failed 5s poll: the chart is cleared
+          const cleared = await page.evaluate(() => document.querySelectorAll('#orgmap .onode').length);
+          await page.evaluate(() => { window.fetch = window.__realFetch2; });
+          await page.mouse.move(p0.x + 60, p0.y + 60);
+          await page.mouse.up();
+          let drawn = 0;
+          for (let i = 0; i < 16 && drawn < NAMES.length; i++) {
+            await page.waitForTimeout(500);
+            drawn = await page.evaluate(() => document.querySelectorAll('#orgmap .onode').length);
+          }
+          chk(cleared === 0 && drawn === NAMES.length, `${tag} the chart draws again once polls recover`,
+            `nodes while failing: ${cleared}; after recovery: ${drawn} of ${NAMES.length}`);
           await ctx.close();
         }
         // Desktop: the square fits, so the chart is the natural one, exactly as before.
