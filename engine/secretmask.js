@@ -600,7 +600,8 @@ function wordSkippingSpans(text) {
               if (!via.has(end)) via.set(end, { s, prev: p, start: q });
               /* Only a piece that takes the walk further than it has been, of OPENING_LEN or more and not words,
                  extends its reach (#3995 review round 1): a one-character "a" matching again let a walk from every
-                 mention of sk-ant-api03- creep to the end of the reply. */
+                 mention of sk-ant-api03- creep to the end of the reply. Measured from the START of that piece's run,
+                 which is at or before the piece, so the gap it allows is never longer than stated. */
               if (end > best) {
                 best = end;
                 if (piece.length >= OPENING_LEN && !madeOfWords(piece)) lastAt = runs[s][0];
@@ -834,7 +835,9 @@ function maskFresh(text) {
     const unpunct = deleting(original, identity, /[^A-Za-z0-9_+/=\s-]+/g, (m) => [m.index, m.index + m[0].length]);
     if (unpunct.str !== original) {
       /* Only the runs of the TEXT that hold a matching slice's characters are masked (review round 1): the whole
-         joined run took a JSON object, a CSV row or a URL glued to the key with it. */
+         joined run took a JSON object, a CSV row or a URL glued to the key with it. This copy is made for nearly
+         every reply (ordinary punctuation), and costs about 65ms on 50,000 characters of it (review round 2),
+         linear, and inside the budget the word walk states above. */
       const isKeyChar = (c) => /[A-Za-z0-9_+/=-]/.test(c);
       const seen = new Set();
       for (const [a, b] of fragmentSlicesIn(unpunct.str)) {

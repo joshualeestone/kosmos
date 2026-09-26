@@ -42,6 +42,14 @@ Card: #3995 (filed from #3935's review rounds 27, 29 and 34). Refs #3995, does n
   and walked form keep its own separators). Named in the file's "Not covered" list. What would change it: indexing a
   separator-stripped form too, which doubles the index for licence-style keys; a follow-up if it is ever seen.
 
+## Review round 2 (Sonnet), what changed
+- No leak or false mask found; probes of the three mechanisms and ordinary punctuation-heavy text agreed.
+- The reach anchor is the start of the last real piece's run (at or before the piece): conservative, now said in
+  the comment.
+- Deferred: the unpunctuated copy costs about 65ms more on a 50,000-character punctuation-heavy reply (+30%),
+  linear and inside the stated budget; recorded in the comment. What would change it: a reply the extra pass
+  pushes over the budget, or a measured cost on the board's real message sizes that matters.
+
 ## Tests
 - engine/secretmask.test.js "#3995 ...": every case above, plus ordinary text with / + = (URLs, arithmetic,
   and/or) left alone, and one piece alone not swallowing the text after it. Red on origin/main's secretmask.js.
