@@ -7766,11 +7766,14 @@ const server = http.createServer((req, res) => {
           })));
         const unverifiedSub = (a) => {
           if (!(a.authMode === 'subscription' && a.connection && a.connection.state === 'connected')) return a;
-          const r = subChecks.get(a.dir);   // a `live` answer never reaches here: it is recorded, so the row is working
+          const r = subChecks.get(a.dir);
           const because = r ? r.because : a.connection.because;
           return { ...a, connection: { ...a.connection, because, badge: 'signed_in_unverified', liveVerdict: r ? r.verdict : null,
             ...(r && r.verdict === 'pending' ? { liveCheckPending: true } : {}) } };
         };
+        /* Judged at the time AFTER the Grok wait (review round 8): an answer that arrived during the wait is dated
+           then, and against the earlier nowMs it read as from the future, so not fresh, and the row stayed amber. */
+        const grokNow = Date.now();
         const grok = grokRows.map((a) => {
           const agentObs = a.dir ? obsByGrokDir.get(a.dir) : null;
           /* Grok REFUSING the sign-in in this read outranks an earlier check's green (review round 1). Only a refusal:
@@ -7784,7 +7787,7 @@ const server = http.createServer((req, res) => {
             checkLiveState: a.connection && a.connection.state,
             observedOutcome: obs.outcome,
             observedAt: obs.at,
-            now: nowMs,
+            now: grokNow,
             freshMs: freshWindow,
           });
           if (v.badge !== 'working') return unverifiedSub(a);

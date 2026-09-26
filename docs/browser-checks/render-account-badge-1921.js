@@ -285,7 +285,11 @@ const ACCOUNTS = [
     listAnswer = [{ ...row, connection: { ...row.connection, liveVerdict: 'expired', because: 'Grok renews this sign-in the next time it runs, so it cannot be checked until then' } }];
     await paintAccounts();
     const expTitle = (document.querySelector('#set-accounts .acct-box .acct-unverified') || { title: '' }).title;
-    return { expiredSays, expiredTitle, listsAfterExpired, green, focused, whileBusy, afterBusy: lists, expTitle, msgAfter, rowsBefore, rowsAfterFail };
+    // Round 8: a Grok check still under way does not point at Check now either.
+    listAnswer = [{ ...row, connection: { ...row.connection, liveVerdict: 'pending', liveCheckPending: true, because: 'Checking this sign-in now' } }];
+    await paintAccounts();
+    const pendTitle = (document.querySelector('#set-accounts .acct-box .acct-unverified') || { title: '' }).title;
+    return { expiredSays, expiredTitle, listsAfterExpired, green, focused, whileBusy, afterBusy: lists, expTitle, pendTitle, msgAfter, rowsBefore, rowsAfterFail };
   }, { row: grokRow, sub: ACCOUNTS.find((a) => a.email === 'sub@example.com') });
 
   await browser.close();
@@ -297,6 +301,7 @@ const ACCOUNTS = [
   if (!/renews this sign-in/.test(clicks.expTitle) || /Check now/.test(clicks.expTitle)) problems.push('#3997: an expired key\'s title points at Check now: ' + JSON.stringify(clicks.expTitle));
   if (!/^Removed test@example\.com/.test(clicks.msgAfter || '')) problems.push('#3997: a follow-up read wiped the message line: ' + JSON.stringify(clicks.msgAfter));
   if (!(clicks.rowsBefore >= 2 && clicks.rowsAfterFail === clicks.rowsBefore)) problems.push('#3997: a failed follow-up read replaced the list: ' + JSON.stringify({ before: clicks.rowsBefore, after: clicks.rowsAfterFail }));
+  if (!/Checking this sign-in now/.test(clicks.pendTitle) || /Check now/.test(clicks.pendTitle)) problems.push('#3997: a Grok check under way points its title at Check now: ' + JSON.stringify(clicks.pendTitle));
   if (!clicks.green) problems.push('#3997: Check now answering connected did not repaint the row green: ' + JSON.stringify(clicks));
   if (!clicks.focused) problems.push('#3997: the busy arm could not mark a Check now in flight, so it tested nothing: ' + JSON.stringify(clicks));
   if (clicks.whileBusy !== 1) problems.push('#3997: a follow-up rebuilt the list while a Check now was in flight: ' + JSON.stringify(clicks));

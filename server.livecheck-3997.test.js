@@ -203,6 +203,18 @@ test('#3997 round 7: a slow Grok check does not hold the list; the row says it i
   assert.equal(calls, 1, 'the next read asked xAI again instead of using the answer it got');
 });
 
+test('#3997 round 8: a Grok answer that arrives DURING the wait makes the very first read green', async () => {
+  codexsigninlive.setRunner(async () => ({ ok: false }));
+  grokSignIn(3 * 3600 * 1000);
+  for (const delay of [0, 60, 120]) {   // all inside the 200ms wait this file sets
+    grokAccounts.resetSubscriptionLiveForTest();
+    observed._clearForTest();
+    grokAccounts.setFetcher(async () => { await new Promise((r) => setTimeout(r, delay)); return { status: 200 }; });
+    const row = (await accounts()).find((a) => a.provider === 'xai');
+    assert.equal(row.connection.badge, 'working', 'an answer after ' + delay + 'ms did not turn the first read green: ' + JSON.stringify(row.connection));
+  }
+});
+
 test('#3997 round 7: deadIsNewer: a dead answer newer than an agent success wins, an older one or a live one does not', async () => {
   codexsigninlive.setRunner(async () => ({ ok: true, stdout: DOC('warning') }));
   const before = Date.now() - 1000;

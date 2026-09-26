@@ -92,6 +92,14 @@ Design and measurements are on the card (comment 5849157780).
   of the same kind.
 - deadIsNewer unit-tested, and its call pinned (see round 6). Each perturbed red.
 
+## Review round 8 (Opus), what changed
+- A Grok answer that arrived DURING the wait was dated after the read's clock (nowMs), so it read as not fresh and a
+  confirmed sign-in painted amber with no follow-up read: exactly the card's complaint. Grok rows are now judged at
+  the time after the wait. Tested with answers at 0/60/120ms inside a 200ms wait (120ms was red on the old clock).
+- A Grok check under way does not point its title at Check now (badge check arm). Comments say "a sign-in" (ChatGPT or
+  Grok) for the follow-up reads.
+- Deferred NIT: the Grok answer cache keeps one entry per renewed key (a few a day per account).
+
 ## Decided
 - Pill text stays a short "Signed in" (Josh 6.68, #3136); the reason is in the title.
 - A 401 from Grok is "not confirmed" (amber), never red: grok may renew the key on its next run.

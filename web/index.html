@@ -21923,7 +21923,7 @@ function accountGroupsHtml(list, rowHtml) {
 let acctSayTimer = null;
 function acctCancelSay() { if (acctSayTimer) { clearTimeout(acctSayTimer); acctSayTimer = null; } }
 
-/* #3997: how often, and how many times, the list is read again while a ChatGPT sign-in's free check is still under way.
+/* #3997: how often, and how many times, the list is read again while a sign-in's free check (ChatGPT or Grok) is still under way.
    A healthy check answers within a second or two; a dead or slow one takes up to about 20 seconds (codex's own
    handshake timeout), so the reads continue until nothing is pending or the count runs out. */
 const ACCT_FOLLOWUP = { ms: 3500, max: 6 };
@@ -22001,7 +22001,7 @@ async function paintAccounts(opts) {
     return;
   }
   accountsRead(list);
-  /* #3997: a ChatGPT sign-in whose free check is still under way is read again a few seconds on, so it turns green
+  /* #3997: a sign-in (ChatGPT or Grok) whose free check is still under way is read again a few seconds on, so it turns green
      (or says what is wrong) without the person doing anything; bounded by ACCT_FOLLOWUP.max, never a loop. */
   if (followUp < ACCT_FOLLOWUP.max && list.some((a) => a && a.connection && a.connection.liveCheckPending)) acctFollowUp(followUp + 1);
   if (!followUp) {
