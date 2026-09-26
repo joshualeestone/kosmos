@@ -54,3 +54,34 @@ test('#3734 a guide whose instructions the person reworded is left alone', () =>
   assert.deepEqual(sa.refreshGuideRole({ name: 'guideb', isGuide: () => true }), { changed: false });
   assert.equal(fs.readFileSync(file, 'utf8'), edited);
 });
+
+/* #3947: an existing guide still carries the "say so the first time" paragraph; replace it once. */
+const BORN_3034 = ['# You are Josh', '', '## Who you are', '', ...roles.WHO_YOU_ARE_LINES_BEFORE_3947, '', '## How you work', '',
+  '- Answer the question they asked, briefly, then offer the one next step.', ''].join('\n');
+
+test('#3947 an existing guide\'s first-answer AI note paragraph is replaced once, and nothing else moves', () => {
+  const file = seed('guidec', BORN_3034);
+  assert.deepEqual(sa.refreshGuideRole({ name: 'guidec', isGuide: () => true }), { changed: true });
+  const after = fs.readFileSync(file, 'utf8');
+  assert.doesNotMatch(after, /you say so the first time you talk to someone/, 'the old paragraph survived');
+  assert.equal(after, BORN_3034.replace(roles.WHO_YOU_ARE_LINES_BEFORE_3947.join('\n'), roles.WHO_YOU_ARE_LINES.join('\n')));
+  assert.deepEqual(sa.refreshGuideRole({ name: 'guidec', isGuide: () => true }), { changed: false }, 'a second run changed it again');
+});
+
+test('#3947 a guide born before #3734 gets both paragraphs replaced in one write', () => {
+  const both = BEFORE.replace('## How you work', ['## Who you are', '', ...roles.WHO_YOU_ARE_LINES_BEFORE_3947, '', '## How you work'].join('\n'));
+  const file = seed('guided', both);
+  assert.deepEqual(sa.refreshGuideRole({ name: 'guided', isGuide: () => true }), { changed: true });
+  const after = fs.readFileSync(file, 'utf8');
+  assert.doesNotMatch(after, /never create agents/);
+  assert.doesNotMatch(after, /you say so the first time you talk to someone/);
+  assert.ok(after.includes(roles.WHO_YOU_ARE_LINES.join('\n')));
+  assert.ok(after.includes(roles.MAKE_AGENTS_LINES.join('\n')));
+});
+
+test('#3947 a guide whose "Who you are" paragraph the person reworded is left alone', () => {
+  const edited = BORN_3034.replace('whenever they seem to think otherwise', 'whenever they seem confused');
+  const file = seed('guidee', edited);
+  assert.deepEqual(sa.refreshGuideRole({ name: 'guidee', isGuide: () => true }), { changed: false });
+  assert.equal(fs.readFileSync(file, 'utf8'), edited);
+});

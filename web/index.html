@@ -58992,11 +58992,12 @@ async function asbPoll(force) {
   else if (heard > ASB.heard && !ASB.dot) { ASB.dot = true; ASB.dotTimed = true; ASB.heardAt = Date.now(); }   // timed once, when the dot lights
   asbPaint();
 }
-/* #3738 (Josh 08:51, verbatim): one opening message, always the first guide bubble. */
+/* #3738 (Josh 08:51, verbatim): one opening message, always the first guide bubble.
+   #3947 (Josh, 2026-09-26 07:41, verbatim): the words. Same line as GUIDE_GREETING in engine/roles.js. */
 function asbOpening() {
   const open = document.createElement('div');
   open.className = 'asp-m him asp-open';
-  open.textContent = 'Hi, I\'m Josh\'s AI guide. Ask me anything about setting up Kosmos.';
+  open.textContent = 'Hi I\'m Josh, an AI Assistant to help you get your Kosmos setup. What can I help you with?';
   return open;
 }
 function asbPaintThread(rows, session) {

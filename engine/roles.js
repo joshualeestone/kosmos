@@ -7,10 +7,14 @@ const defaults = require('./defaults');
    instructions tell the guide to read it). One name, defined once, here. */
 const PAGE_FILE = 'kosmos-page.md';
 
-/* #3034: the words that say the setup guide is an AI, not Josh typing live. ONE copy:
-   the role's label and opening line below are built from it, and setup-assistant.js
-   re-exports it for the bubble's tag under the name. */
+/* #3034: the short tag that marks the setup guide as an AI version of Josh. ONE copy:
+   setup-assistant.js re-exports it and names the guide's purpose with it. */
 const GUIDE_TAG = "Josh's AI";
+/* #3947 (Josh, 2026-09-26 07:41, verbatim wording): the guide's opening line. It is the one
+   place the chat says the guide is an AI, so the guide no longer volunteers that in its first
+   answer. ONE copy here; the bubble in web/index.html shows the same words (roles.test.js pins
+   the two together) and the role's firstAction is this line. */
+const GUIDE_GREETING = "Hi I'm Josh, an AI Assistant to help you get your Kosmos setup. What can I help you with?";
 /* #3739 (Josh, 2026-09-25 08:51): the guide's title everywhere it shows. */
 const GUIDE_TITLE = 'Kosmos Guide';
 
@@ -48,6 +52,28 @@ const HANDS_OFF_LINES_BEFORE_3734 = [
   '- You never change their settings yourself, and you never create agents for',
   '  them. You show them how, so they learn their way around. If they ask you',
   '  to do it for them, say so kindly and walk them through it instead.',
+];
+/* #3947: the "Who you are" paragraph. Before #3947 it told the guide to say it is an AI the first
+   time it talks to someone; the opening greeting says that now (Josh, 2026-09-26 07:41: "I don't
+   want its first real answer to be ... quick note first: I'm the AI guide inside Kosmos"). It
+   still never claims to be a person when asked. An existing guide still carries the old
+   paragraph, so setup-assistant.refreshGuideRole replaces it with this one. */
+const WHO_YOU_ARE_LINES = [
+  'You speak as the builder: "I built Kosmos, let me help you get set up." You',
+  'know why each part is there, and you enjoy showing it. The chat already',
+  'opened by saying you are an AI, so do not start your answers with a note',
+  'about it: go straight to helping. If someone asks you directly whether you',
+  'are a person, tell them honestly that you are an AI. Never claim to be the',
+  'real person, never promise that Josh will read something or get back to',
+  'them, and never speak for him on anything beyond how Kosmos works.',
+];
+const WHO_YOU_ARE_LINES_BEFORE_3947 = [
+  'You speak as the builder: "I built Kosmos, let me help you get set up." You',
+  'know why each part is there, and you enjoy showing it. But you are an AI,',
+  'not Josh typing live, and you say so the first time you talk to someone and',
+  'whenever they seem to think otherwise. Never claim to be the real person,',
+  'never promise that Josh will read something or get back to them, and never',
+  'speak for him on anything beyond how Kosmos works.',
 ];
 /* #3769 (Josh, 2026-09-25 11:54: "We need to make sure the helper agent doesn't give out any
    passwords or keys or anything"): the setup guide's rule about secrets. Its heading is the marker
@@ -1321,8 +1347,9 @@ const ROLES = [
      (engine/setup-assistant.js). Josh, 2026-09-14: "pre-building a helper agent
      for them with a set of instructions on how to set up and get the most out of
      Kosmos." Josh, 2026-09-24 16:05: "I think i want to use my avatar and play off
-     the fact that I built it and will help them", so it speaks as the builder and
-     says plainly that it is an AI, so nobody thinks he is typing live. Also 16:05:
+     the fact that I built it and will help them", so it speaks as the builder. Its
+     opening greeting says it is an AI (#3947, Josh 2026-09-26 07:41, which replaced
+     the #3034 "say so the first time" rule; it still never claims to be a person). Also 16:05:
      context-aware, so it is told which screen the person is on (PAGE_FILE, written
      by engine/pagecontext.js). Hands-off, and no summary files (NO_SUMMARY below):
      Renet's two recommendations on #3034, standing unless Josh says otherwise. */
@@ -1331,7 +1358,7 @@ const ROLES = [
     menu: false,
     label: GUIDE_TITLE,
     blurb: 'An AI version of the person who built Kosmos, here to help a new user set it up',
-    firstAction: `Hi, this is ${GUIDE_TAG}. I built Kosmos, and I am here to help you set it up. Ask me anything, or say "where do I start?"`,
+    firstAction: GUIDE_GREETING,
     instructions: [
       'You are **{{NAME}}**, the Kosmos Guide. You are an AI version of Josh, the',
       'person who built Kosmos.',
@@ -1342,12 +1369,7 @@ const ROLES = [
       '',
       '## Who you are',
       '',
-      'You speak as the builder: "I built Kosmos, let me help you get set up." You',
-      'know why each part is there, and you enjoy showing it. But you are an AI,',
-      'not Josh typing live, and you say so the first time you talk to someone and',
-      'whenever they seem to think otherwise. Never claim to be the real person,',
-      'never promise that Josh will read something or get back to them, and never',
-      'speak for him on anything beyond how Kosmos works.',
+      ...WHO_YOU_ARE_LINES,
       '',
       'You are patient and plain-spoken, you would rather give one clear next step',
       'than a tour, and you never make anyone feel slow for asking. You are honest',
@@ -1455,5 +1477,5 @@ function instructionsFor(key, name) {
   return `${role.instructions.split('{{NAME}}').join(String(name))}\n`;
 }
 
-module.exports = { ROLES, byKey, instructionsFor, PAGE_FILE, GUIDE_TAG, GUIDE_TITLE, NO_SUMMARY, SETUP_HANDS_OFF, HANDS_OFF_LINES,
-  SETUP_MAKES_AGENTS, MAKE_AGENTS_LINES, HANDS_OFF_LINES_BEFORE_3734, GUIDE_SECRETS_HEADING, GUIDE_SECRET_LINES };
+module.exports = { ROLES, byKey, instructionsFor, PAGE_FILE, GUIDE_TAG, GUIDE_GREETING, GUIDE_TITLE, NO_SUMMARY, SETUP_HANDS_OFF, HANDS_OFF_LINES,
+  SETUP_MAKES_AGENTS, MAKE_AGENTS_LINES, HANDS_OFF_LINES_BEFORE_3734, WHO_YOU_ARE_LINES, WHO_YOU_ARE_LINES_BEFORE_3947, GUIDE_SECRETS_HEADING, GUIDE_SECRET_LINES };

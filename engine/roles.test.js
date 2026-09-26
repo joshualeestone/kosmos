@@ -37,7 +37,11 @@ test('#3034: the setup guide speaks as the builder, says it is an AI, follows th
   const flat = roles.instructionsFor('setup', 'Josh').replace(/\s+/g, ' ');
   assert.match(flat, /an AI version of Josh, the person who built Kosmos/);
   assert.match(flat, /I built Kosmos, let me help you get set up/);
-  assert.match(flat, /you are an AI, not Josh typing live, and you say so/);
+  // #3947 (Josh, 2026-09-26 07:41): the greeting says it is an AI; the first answer does not repeat it,
+  // and it is still honest when asked directly.
+  assert.doesNotMatch(flat, /you say so the first time you talk to someone/, 'the guide is still told to open with an AI note');
+  assert.match(flat, /do not start your answers with a note about it: go straight to helping/);
+  assert.match(flat, /asks you directly whether you are a person, tell them honestly that you are an AI/);
   assert.match(flat, /Never claim to be the real person/);
   // Hands-off is NOT pinned as a product rule (Josh has not ruled; Mona's mock is hands-on).
   // Pinned only: the one switch alone decides whether the line is there.
@@ -65,9 +69,20 @@ test('#3034: the setup guide speaks as the builder, says it is an AI, follows th
   assert.equal(require('./status').identityFromText(roles.instructionsFor('setup', 'Josh')).role, roles.GUIDE_TITLE,
     'the card would parse a different title from the instructions');
   assert.doesNotMatch(flat, /Kosmos setup guide/, 'the long title survived in the instructions');
-  // One copy of the tag (review round 2): the opening line is built from roles.GUIDE_TAG, and setup-assistant
-  // re-exports that same value for the bubble.
-  assert.ok(role.firstAction.includes(roles.GUIDE_TAG));
+  // One copy of the tag (review round 2): setup-assistant re-exports the same value.
   assert.equal(require('./setup-assistant').GUIDE_TAG, roles.GUIDE_TAG, 'two copies of the AI tag drifted');
-  assert.match(role.firstAction, /Josh's AI\. I built Kosmos/, 'the opening line does not say it is an AI');
+  // #3947: Josh's words, verbatim, are the opening line, and the bubble shows the same line.
+  assert.equal(roles.GUIDE_GREETING, "Hi I'm Josh, an AI Assistant to help you get your Kosmos setup. What can I help you with?");
+  assert.equal(role.firstAction, roles.GUIDE_GREETING);
+  const web = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  const shown = web.match(/open\.className = 'asp-m him asp-open';\s*open\.textContent = '((?:[^'\\]|\\.)*)';/);
+  assert.ok(shown, 'the bubble\'s opening line was not found in web/index.html');
+  assert.equal(shown[1].replace(/\\(.)/g, '$1'), roles.GUIDE_GREETING, 'the bubble and the role say different opening lines');
+});
+
+test('#3947: the old "say so the first time" paragraph is gone from new guides and is what refreshGuideRole looks for', () => {
+  const roles = require('./roles');
+  const text = roles.instructionsFor('setup', 'Josh');
+  assert.ok(text.includes(roles.WHO_YOU_ARE_LINES.join('\n')), 'the current paragraph is not in a new guide\'s instructions');
+  assert.ok(!text.includes(roles.WHO_YOU_ARE_LINES_BEFORE_3947.join('\n')), 'a new guide is still born with the old paragraph');
 });

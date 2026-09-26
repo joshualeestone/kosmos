@@ -16372,7 +16372,8 @@ function start(port = PORT) {
       }, Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) : 60 * 60 * 1000); // the env is the test seam only
       if (feedbackSweep && typeof feedbackSweep.unref === 'function') feedbackSweep.unref();
       /* #3734: an existing guide's instructions still say it never creates agents; say what it may do now.
-         Once, at start; a no-op when the paragraph is not there. */
+         #3947: and still tell it to open its first answer with an AI note the greeting now covers.
+         Once, at start; a no-op when neither paragraph is there. */
       try { setupAssistant.refreshGuideRole(); } catch { /* best-effort */ }
       /* #3769: an existing guide gets the secrets section and its folder's deny rules, once, at start. */
       try { setupAssistant.refreshGuideGuards(); } catch { /* best-effort */ }
