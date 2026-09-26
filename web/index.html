@@ -16983,7 +16983,10 @@ const PRESSAY = {
 /* #3410 (Mona Lisa's look): a lost connection Kosmos has given up on needs the person, so it wears
    needs_you's card, not the quiet paused one it keeps while Kosmos is still reconnecting.
    Kept on ONE line: web.needsyou-dealarm-2808.test.js and server.test.js slice it to the newline. */
-function cardStOf(a) { if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
+/* #4006: a restart that did not come back is red (st attn) but NOT online: nothing is running, so the presence is
+   off, which also keeps "Start this agent" offered (refreshStartAffordance shows it for presence off). */
+const CARD_ST_FAILED_RESTART = Object.freeze({ st: 'attn', pres: 'off' });
+function cardStOf(a) { if (a && a.state === 'needs_you' && a.disruption && a.disruption.failed === true) return CARD_ST_FAILED_RESTART; if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
 /* #2019: the state's word. For every state but 'restarting' it is the static
    STATE_COPY entry. For 'restarting' the word names the CAUSE (present-continuous,
    no blame), so the person knows WHY their agent went quiet, and it is computed

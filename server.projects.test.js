@@ -1100,6 +1100,21 @@ test('an agent the board calls "Needs you" hands the thread the question region'
     });
 });
 
+test('#4006: a restart that did not come back reads needs_you but its thread does not claim a question', async () => {
+  reset();
+  const disruption = require('./engine/disruption');
+  await withThread(fleet.agent('zeta', { state: 'stopped' }), [said('')], async ({ project }) => {
+    disruption.begin('zeta', 'restart');
+    disruption.fail('zeta', null);
+    try {
+      const body = json(await req(`/api/project/${project.id}/thread/zeta`));
+      assert.equal(body.agent.state, 'needs_you', 'precondition: the failed restart reads needs_you');
+      assert.equal(body.asking, false, 'the thread claims the agent is asking');
+      assert.equal(body.questionBecause, null, 'the thread says it is waiting on an answer');
+    } finally { disruption.clear('zeta'); }
+  });
+});
+
 test('with Engineering mode off the served window is the truth in words, and the QUESTION still flows', async () => {
   const restoreEng = withEngMode(false);
   reset();

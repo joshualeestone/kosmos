@@ -137,9 +137,10 @@ function read(sessionName) {
  * `active()` returning null hands off to the timeout path, it does not end the
  * state. `active` still self-heals the IN-PROGRESS animation; the timeout path
  * self-heals when the pane returns live (the caller clears the record then).
- * #4006: a FAILED record carries `failed` through both, and does not end with the
- * window: it lasts until status clears it (the agent is running again), a new
- * `begin` replaces it, or the agent is removed, deleted or created again.
+ * #4006: a FAILED record carries `failed` through both (active() still returns null
+ * past the window; the RECORD persists, and the snapshot's read() fallback picks it
+ * up): it lasts until status clears it (the agent is running again), a new `begin`
+ * replaces it, or the agent is removed, deleted or created again.
  */
 function active(sessionName, windowMs) {
   const r = read(sessionName);
