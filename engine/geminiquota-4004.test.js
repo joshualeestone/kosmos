@@ -70,6 +70,9 @@ test('#4004 CONTROLS: the words in tool output, a quoted dialog, a newer turn, a
   // Another pane's quota ERROR in a working agent's tool output, spinner and composer below it.
   const quotedErr = ['✦ Checking the other agent', '│ ✕ [API Error: You have exhausted your daily quota on this model.]', '│', '⠏ Thinking (esc to cancel, 4s)', ' *   Type your message or @path/to/file'].join('\n');
   assert.notEqual(status.classify(gem, quotedErr).state, 'rate_limited', 'a quoted quota error read as this agent\'s limit');
+  // The spinner alone (no "esc to cancel" text) is enough to say it is working.
+  const spinOnly = quotedErr.replace('⠏ Thinking (esc to cancel, 4s)', '⠏ Thinking');
+  assert.notEqual(status.classify(gem, spinOnly).state, 'rate_limited', 'a spinner under a quoted error was not seen');
   // A grep that prints the phrase is not Gemini's error line.
   const grep = ['✦ Searching', 'engine/status.js:1590: const GEMINI_QUOTA_ERROR = /exhausted your daily quota/', ' *   Type your message or @path/to/file'].join('\n');
   assert.notEqual(status.classify(gem, grep).state, 'rate_limited', 'grep output read as the daily limit');
