@@ -107,3 +107,16 @@ and a phone has no hover: a tap opens the agent. Changing that is a design call 
 - Positions are rescaled only when the box's width changed, so a new agent growing a desktop chart keeps its
   positions as before. A box with no width is never "wide".
 - Fixed 81/81 (Chromium + WebKit).
+
+## Post-rebase challenge loop (rebased on origin/main 2026-09-26; gate-list conflict only)
+- A callout is laid out while hidden (opacity 0). With realistic names, the rightmost node's callout ran past
+  the screen and widened the page again (measured 406px at 375, 414 at 393, 424 at 412, 433 at 430). The
+  fixture's short names could not show it. `.orgwrap { overflow-x: clip }`: cuts the sideways overflow without
+  making the box a scroller, so callouts above the top ring still show. Weakest part: a callout shown by
+  keyboard focus on a node at the right edge of a phone-width chart is cut at the box edge. New arm with a
+  long callout at every phone size; control without the clip fails all four.
+- A touch that starts on a node of a chart wider than its box no longer starts a drag (it jittered the node a
+  few pixels before the browser cancelled the pointer for the pan). Pinned by the unit test only: Playwright
+  cannot drive the pointer sequence a real pan produces.
+- ORG_VIEW_W is not recorded from a zero-width box.
+- Fixed 89/89 (Chromium + WebKit).
