@@ -11743,6 +11743,50 @@ test('a task records who added it and how; 30 agent-made tasks in an hour all la
   assert.equal(r.status, 200, 'the valve caught the person, which is the one participant it must never touch');
 });
 
+test('#3959: agent task messages default to the same 500-an-hour breaker (the operator override still wins)', () => {
+  assert.equal(process.env.AGENT_WORKFORCE_TASK_MSG_CAP, undefined, 'PRECONDITION: this file sets no override');
+  const { TASK_MSG_CAP_PER_HOUR, taskMsgCapFrom } = require('./server');
+  assert.equal(TASK_MSG_CAP_PER_HOUR, 500);
+  // How an operator's value is read: unset, empty and blank mean "not set" (the default);
+  // 0 is a deliberate off; a fraction rounds down; nonsense falls back to the default.
+  const cases = [[undefined, 500], ['', 500], ['  ', 500], ['0', 0], ['2', 2], ['2.5', 2], ['0.5', 0], ['750', 750],
+    ['-1', 500], ['abc', 500], [' 7 ', 7], ['0x10', 500], ['1e3', 500]];
+  for (const [raw, want] of cases) assert.equal(taskMsgCapFrom(raw), want, 'AGENT_WORKFORCE_TASK_MSG_CAP=' + JSON.stringify(raw));
+});
+
+test('#3959: the shared breaker, directly: the window, a limit of 0, and a limit that is not a number', () => {
+  const { runawayRefusal, AGENT_RUNAWAY_PER_HOUR, AGENT_RUNAWAY_WINDOW_MS } = require('./engine/runaway');
+  assert.equal(AGENT_RUNAWAY_WINDOW_MS, 3600000);
+  const what = { noun: 'part changes', did: 'made', pausing: 'agent-made parts', again: 'make part changes', screen: 'make them' };
+  const now = Date.parse('2026-09-26T13:00:00Z');
+  // A limit of 0 refuses even with nothing on the books, and never quotes more than the hour.
+  const zero = runawayRefusal([], what, { now, limit: 0 });
+  assert.ok(zero, 'a limit of 0 allowed a write');
+  assert.equal(zero.retryAfterSecs, 3600);
+  assert.match(zero.because, /agents have made 0 part changes in the last hour, which is at or over the limit of 0 an hour/);
+  // A limit that is not a number, or is negative, falls back to the production breaker.
+  const times = Array.from({ length: 3 }, (_, i) => now - i);
+  for (const bad of [NaN, -1, Infinity]) {
+    assert.equal(runawayRefusal(times, what, { now, limit: bad }), null, 'limit ' + bad + ' was not read as ' + AGENT_RUNAWAY_PER_HOUR);
+  }
+  // A write exactly an hour old is still counted; one a millisecond older is not.
+  assert.ok(runawayRefusal([now - AGENT_RUNAWAY_WINDOW_MS], what, { now, limit: 1 }), 'a write exactly an hour old was dropped');
+  assert.equal(runawayRefusal([now - AGENT_RUNAWAY_WINDOW_MS - 1], what, { now, limit: 1 }), null, 'a write older than the hour was counted');
+});
+
+test('#3959: the shared breaker rounds a fractional limit down instead of quoting NaN minutes', () => {
+  const { runawayRefusal } = require('./engine/runaway');
+  const now = Date.parse('2026-09-26T13:00:00Z');
+  const times = [now - 50 * 60000, now - 40 * 60000, now - 30 * 60000];
+  const r = runawayRefusal(times, { noun: 'task messages', did: 'sent', pausing: 'agent task messages', again: 'send task messages', screen: 'send them' }, { now, limit: 2.5 });
+  assert.ok(r, 'three in the hour at a limit of 2.5 (read as 2) did not refuse');
+  assert.equal(Number.isFinite(r.retryAfterSecs), true, 'retryAfterSecs is ' + r.retryAfterSecs);
+  assert.doesNotMatch(r.because, /NaN/);
+  assert.match(r.because, /limit of 2 an hour/);
+  // With 3 on the books and a limit of 2, the SECOND oldest (40 min ago) is the one whose leaving opens it.
+  assert.match(r.because, /again in about 20 minutes;/, r.because);
+});
+
 test('the agent runaway breaker: 500 an hour, shared, and it says when it lifts (#3959)', () => {
   assert.equal(AGENT_RUNAWAY_PER_HOUR, 500, 'the production breaker moved; Josh ruled the limit is a runaway stop only');
   const now = Date.parse('2026-09-26T13:00:00Z');
@@ -13975,6 +14019,9 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
     });
     assert.equal(r0.status, 200, r0.body);
 
+    // #3959: the parts valve is the 500-an-hour breaker in production; this test pins its
+    // interplay with the twelve-an-hour paging allowance, so it runs the valve at twelve too.
+    require('./engine/tasks').setPartsLimitForTests(12);
     // Twelve process-originated (no sec-fetch-site: a curl, not a browser)
     // part assignments should each page the pane -- the cap is 12/hour.
     let placed = 0;
@@ -14025,6 +14072,7 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
     });
     assert.equal(r14.status, 200, r14.body);
   } finally {
+    require('./engine/tasks').setPartsLimitForTests();
     chatEngine.setRunner(null);
     board.restore();
   }
@@ -14032,8 +14080,8 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
 
 /* #3959 review round 4: once the shared paging allowance is spent, EVERY agent-made
    assignment route says the assignee was not told, not only task create. Twelve task
-   assignments spend it (tasks are no longer capped at twelve), so the part routes are
-   still open (their own valve counts parts, not tasks) and must answer could_not. */
+   assignments spend it (tasks are no longer capped at twelve); the part routes stay open
+   because their own valve is the 500-an-hour breaker, and must answer could_not. */
 test('#3959: with the paging allowance spent by tasks, part add and part reassign say the assignee was not told', async () => {
   const chatEngine = require('./engine/chat');
   const projectsEngine3959 = require('./engine/projects');
@@ -14058,12 +14106,9 @@ test('#3959: with the paging allowance spent by tasks, part add and part reassig
       if ((JSON.parse(r.body).heard || {}).state === 'placed') placed += 1;
     }
     assert.equal(placed, 12, 'PRECONDITION: twelve task assignments were typed, spending the allowance');
-    /* An assigned agent task also counts as a part write, so the parts valve (#803, also 12)
-       is spent too. Age those writes past the hour to reopen it; the paging allowance is
-       in memory and does not age with them, so it stays spent. */
-    // The valve counts across ALL projects, and earlier tests in this file made parts too.
-    for (const q of projectsEngine3959.readAll()) require('./engine/tasks').agePartWritesForTests(q.id, 3700);
-    assert.equal(require('./engine/tasks').partValve().refused, false, 'PRECONDITION: the parts valve is open again');
+    // The parts valve (the 500-an-hour breaker) is nowhere near its limit, so the part routes
+    // below are refused only if this change is wrong, never by that valve.
+    assert.equal(require('./engine/tasks').partValve().refused, false, 'PRECONDITION: the parts valve is open');
     const before = sends.length;
     // Add a part with an assignee: it lands, nobody is typed to, and the answer says so.
     const rAdd = await api('/task/1/parts', { sentence: 'Buy bread', who: 'theo' });
