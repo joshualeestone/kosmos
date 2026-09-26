@@ -20,7 +20,9 @@
  * ⚠️ WEAKEST PART: "the frame" is `body` or a `.apphead` rule (not a descendant of
  * either). Padding that lands on some other wrapper is correct and would read red
  * here; widen FRAME rather than delete the test. A padding value it does not know
- * (a calc() around the inset, say) also reads red; widen INSET for that.
+ * (a calc() around the inset, say) also reads red; widen INSET for that. It checks that
+ * a side's inset is in a padding declaration, not that it sits in that side's position of
+ * a shorthand, and the logical properties (padding-block, padding-inline) read red.
  */
 
 const test = require('node:test');
@@ -61,7 +63,7 @@ function unpaddedSides(page) {
   if (!/viewport-fit\s*=\s*cover/i.test(vp)) return [];
   const decls = frameRules(page).join(';');
   return SIDES.filter((side) => !new RegExp(
-    `padding(-${side})?\\s*:[^;]*${INSET(side)}`).test(decls));
+    `(^|[;{\\s])padding(-${side})?\\s*:[^;]*${INSET(side)}`).test(decls));
 }
 
 test('the four inset variables exist and read the real inset', () => {
@@ -116,4 +118,12 @@ test('control: the house fallback form and raw env() count; a descendant of the 
   assert.deepEqual(unpaddedSides(child), SIDES);
   const upper = PAGE.replace(/(<meta\s+name="viewport"\s+content=")([^"]*)"/, '$1$2, viewport-fit=Cover"').replace(STRIP, '0px');
   assert.deepEqual(unpaddedSides(upper), SIDES);
+});
+
+test('control: a property that only ends in padding (scroll-padding-top) is not frame padding', () => {
+  const opted = PAGE.replace(/(<meta\s+name="viewport"\s+content=")([^"]*)"/, '$1$2, viewport-fit=cover"');
+  const bare = opted.replace(STRIP, '0px');
+  const scroll = bare.replace('</style>',
+    'body { scroll-padding-top: var(--safe-top); scroll-padding-right: var(--safe-right); scroll-padding-bottom: var(--safe-bottom); scroll-padding-left: var(--safe-left); }\n</style>');
+  assert.deepEqual(unpaddedSides(scroll), SIDES);
 });
