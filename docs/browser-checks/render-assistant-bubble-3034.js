@@ -466,7 +466,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.waitForTimeout(150);
     chk((await bubble(page)).hide, 'B7c two idle closes in quick succession offer to hide, even with the save still in flight (#3947)');
     await page.unroute('**/api/settings');
-    await page.waitForTimeout(1700);   // the delayed save lands before the next arm resets the count
+    await page.waitForTimeout(2500);   // the 1500ms-delayed save lands, with room, before the next arm
     // X on the offer is "not now": it closes, and is not another close to count.
     await page.click('#asp-x');
     await page.waitForTimeout(300);
