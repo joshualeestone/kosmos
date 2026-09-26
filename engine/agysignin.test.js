@@ -40,7 +40,6 @@ function setup(flow) {
     confirmSignedIn: async () => ({ signedIn: fs.existsSync(log) && /(^|\n)ready\n/.test(fs.readFileSync(log, 'utf8')) }),
   });
   const cleanup = () => {
-    signin.stop();
     try { execFileSync(TMUX, ['-L', process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET, 'kill-server'], { stdio: 'ignore' }); } catch { /* none */ }
     signin.resetForTests();
     require('./live-execution').resetForTests();
@@ -86,7 +85,7 @@ test('#3998: agy asking to trust any folder but Kosmos\'s own ends the sign-in, 
     const { id } = t.signin.start();
     await until(() => t.signin.status().state === 'code', 15000, 'the code step');
     t.signin.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v-TZgGLs9n', id);
-    await until(() => t.signin.status().state === 'failed', 25000, 'the refusal');
+    await until(() => t.signin.status().state === 'stuck', 25000, 'the refusal');
     assert.match(t.signin.status().because, /trust a folder Kosmos did not choose/);
     assert.doesNotMatch(t.logText(), /^trust:/m, 'Kosmos answered the trust question for the home folder');
   } finally { t.cleanup(); }
@@ -428,7 +427,7 @@ test('#3998 round 4: the screen drawn LAST wins over words an earlier screen lef
   assert.equal(s.markedLine('> 1. Google OAuth\n...\n  Previous\n> [Done]\n'), '> [Done]', 'the marker read was the old screen\'s');
 });
 
-test('#3998 round 4: the tmux socket is this board\'s own, so two boards never share a sign-in', () => {
+test('#3998 round 4: the tmux socket name has its shape (one per macOS account since round 8)', () => {
   const s = require('./agysignin');
   const was = process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET;
   delete process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET;
@@ -644,5 +643,56 @@ test('#3998 round 10: a blank redraw does not count as a new screen (no second E
     st.screen = '   \n'; s.tickForTests();
     st.screen = THEME; s.tickForTests();
     assert.deepEqual(st.sent, ['Enter'], 'the colour screen got a second Enter after a blank frame');
+  } finally { s.resetForTests(); }
+});
+
+/* ---- review round 12 --------------------------------------------------------------------- */
+test('#3998 round 12: a half-drawn frame does not re-arm a key (no second Enter onto the next screen)', () => {
+  const s = require('./agysignin');
+  const TERMS_DONE = TERMS('[Done]');
+  const st = scripted(s, TERMS_DONE);
+  try {
+    s.start();
+    s.tickForTests();                                  // Enter on [Done]
+    st.screen = 'Terms of Serv';                       // caught mid-redraw: matches no screen
+    s.tickForTests();
+    st.screen = TERMS_DONE;                            // captured once more before agy moves on
+    s.tickForTests();
+    assert.deepEqual(st.sent, ['Enter'], 'a second Enter went out and could answer the trust question unchecked');
+    const THEME = 'Choose your color scheme\n> terminal\n';
+    const st2 = scripted(s, THEME);
+    s.start();
+    s.tickForTests(); st2.screen = 'Choose your co'; s.tickForTests(); st2.screen = THEME; s.tickForTests();
+    assert.deepEqual(st2.sent, ['Enter'], 'the colour screen got a second Enter after a partial frame');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 12: a folder Kosmos did not choose is left to the person (shown), never trusted and never pressed', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'Accessing workspace:\n\n/Users/someone\n\nDo you trust the contents of this project?\n\n> Yes, I trust this folder\n');
+  try {
+    s.start();
+    s.tickForTests();
+    assert.equal(s.status().state, 'stuck', 'a trust mismatch ended a sign-in Google may already have saved');
+    assert.match(s.status().because, /left that question to you/);
+    assert.deepEqual(st.sent, [], 'Kosmos answered the trust question for a folder it did not choose');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 12: the folder is read without a box border, and "~" means the home folder', () => {
+  const s = require('./agysignin');
+  assert.equal(s.trustFolder('Accessing workspace:\n\n│ /Users/joshua/Kosmos │\n'), '/Users/joshua/Kosmos');
+  assert.equal(s.trustFolder('Accessing workspace: ~/Kosmos\n'), path.join(os.homedir(), 'Kosmos'));
+  assert.equal(s.trustFolder('Accessing workspace:\n\n/Users/joshua\n'), '/Users/joshua', 'CONTROL: a plain path reads as it is');
+});
+
+test('#3998 round 12: a code is typed after clearing agy\'s line (a half-sent earlier try is not doubled)', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, CODE_SCREEN);
+  try {
+    const { id } = s.start();
+    s.tickForTests();
+    assert.equal(s.code(CODE, id).ok, true);
+    assert.equal(st.sent[0], 'C-u', 'the line was not cleared before the code');
   } finally { s.resetForTests(); }
 });

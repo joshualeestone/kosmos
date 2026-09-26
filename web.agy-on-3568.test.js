@@ -450,8 +450,8 @@ test('#3998 round 11: Sign in again waits for the availability read, and refuses
   const at = PAGE.indexOf('async function acctGeminiSignInAgain(');
   assert.notEqual(at, -1);
   const src = PAGE.slice(at, PAGE.indexOf('\n}\n', at) + 2);
-  const run = async (offered, askAnswers) => {
-    const els = {};
+  const run = async (offered, askAnswers, dialogOpen = true) => {
+    const els = { 'acct-add-modal': { hidden: !dialogOpen } };
     const el = (id) => (els[id] || (els[id] = { id, hidden: true, textContent: '', attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, hasAttribute(k) { return k in this.attrs; }, focus() {} }));
     const state = { AGY_OFFERED: null, started: 0 };
     const sub = { next: 'check', start: () => { state.started += 1; } };
@@ -469,4 +469,6 @@ test('#3998 round 11: Sign in again waits for the availability read, and refuses
   assert.match(no.els['acct-gemini-sub-code'].textContent, /not available on this computer/);
   const silent = await run(null, false);
   assert.equal(silent.state.started, 0, 'Sign in again started before the availability read answered');
+  const closed = await run(true, true, false);
+  assert.equal(closed.state.started, 0, 'Sign in again started a hidden sign-in after the dialog was closed (round 12)');
 });

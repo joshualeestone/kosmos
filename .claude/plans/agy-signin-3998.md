@@ -92,3 +92,9 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 - The row's hover says what is true of it: Kosmos does not recheck it by itself; Sign in again checks it. Weakest premise: a revoked Google sign-in shows as signed in until the next Sign in again (ageing the row is a possible follow-up).
 - A blank redraw frame is not a new screen (no second key); a second Continue press while a code is out is ignored; tmux's path is looked up once per sign-in; tests use their own temp folders.
 - Left: the session name is one per account (two boards signing in at once on one account could drive each other's session; the trust check fails closed).
+
+## Review rounds 11 and 12 (decided)
+- Sign in again waits for the availability read itself (up to 3 s), refuses where the subscription is not offered, and starts nothing if the dialog was closed or switched meanwhile.
+- Only a different KNOWN screen is a new screen: a blank or half-drawn frame keeps the last known one, so a key is never sent twice (a second Enter on the terms could otherwise answer the trust question unchecked).
+- A folder Kosmos did not choose is left to the person (stuck, window offered) instead of ending a sign-in Google may already have saved; still never trusted, never pressed. The folder is read without a box border, and "~" means the home folder.
+- A code is typed after C-u, so a half-sent earlier try is cleared, not doubled.

@@ -25358,9 +25358,14 @@ let ACCT_GEMINI_PRESS = 0;
 async function acctGeminiSignInAgain() {
   openAcctAdd(); acctPick('google');
   const pick = document.getElementById('acct-gemini-pick');
+  const visit = typeof ACCT_APIKEY_GEN !== 'undefined' ? ACCT_APIKEY_GEN : null;
   /* Wait for the availability read itself (up to 3 s), not for a DOM attribute nothing sets on the
      negative path (review round 11): only a subscription offered here is signed in again. */
   await Promise.race([Promise.resolve(agyAsk()).catch(() => {}), new Promise((r) => setTimeout(r, 3000))]);
+  /* Closed, or switched to another provider, while it waited (round 12): start nothing out of sight. */
+  const modal = document.getElementById('acct-add-modal');
+  if ((visit !== null && visit !== ACCT_APIKEY_GEN) || (modal && modal.hidden)
+    || (typeof ACCT_APIKEY_WHICH !== 'undefined' && ACCT_APIKEY_WHICH !== 'google')) return;
   if (AGY_OFFERED !== true) {
     // Not offered here after all (or the availability read did not answer): say so rather than nothing.
     const m = document.getElementById('acct-gemini-sub-code');

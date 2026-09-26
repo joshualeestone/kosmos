@@ -71,7 +71,7 @@ function screenOf(text) {
 }
 
 /* ---- seams a test replaces -------------------------------------------------------------- */
-/* Looked up once and kept (round 10): binPaths() resolves every runner, and this runs several times a second. */
+/* Looked up once and kept (round 10): binPaths() resolves every runner, and this runs every tick. */
 let tmuxBinCached = null;
 function tmuxBin() { return tmuxBinCached || (tmuxBinCached = require('./create').binPaths().tmuxBin); }
 /* Both real side effects go through the live-execution gate (CLAUDE.md convention 3): a test that
@@ -147,9 +147,14 @@ function trustFolder(text) {
   const lines = String(text).split('\n').map((l) => l.trim());
   const at = lines.findIndex((l) => /^Accessing workspace:/.test(l));
   if (at < 0) return null;
-  const inline = lines[at].replace(/^Accessing workspace:\s*/, '');
+  // A box border or a "~" around the path (round 12) is not part of it.
+  const clean = (l) => {
+    const t = String(l).replace(/^[\s\u2500-\u257f|]+|[\s\u2500-\u257f|]+$/g, '');
+    return t.startsWith('~/') || t === '~' ? path.join(require('node:os').homedir(), t.slice(1)) : t;
+  };
+  const inline = clean(lines[at].replace(/^Accessing workspace:\s*/, ''));
   if (inline) return inline;
-  return lines.slice(at + 1).find((l) => l) || null;
+  return lines.slice(at + 1).map(clean).find((l) => l) || null;
 }
 function shq(v) { return "'" + String(v).replace(/'/g, "'\\''") + "'"; }
 function samePath(a, b) {
@@ -199,7 +204,11 @@ function step() {
   const name = screenOf(text);
   /* A blank frame caught mid-redraw is not a new screen (round 10): it must not clear `pressed` and
      send the same key again when the screen comes back. */
-  const changed = name !== S.screen && !(name === null && !String(text).trim());
+  /* Only a DIFFERENT KNOWN screen is a new screen (round 12): a frame Kosmos does not recognise (a
+     blank or half-drawn redraw) leaves the last known one in place, so when that screen is drawn
+     again its key is not sent again (a second Enter on the terms could land on the trust question
+     and answer it without the folder check). Time on an unknown screen is its own clock below. */
+  const changed = name !== null && name !== S.screen;
   if (changed) {
     S.screen = name; S.screenSince = now(); S.pressed = false; S.downFrom = null; S.moves = 0;
     if (name) {
@@ -253,8 +262,9 @@ function step() {
   if (seen('trust')) {
     const folder = trustFolder(text);
     if (!folder || !samePath(folder, S.folder)) {
-      // Never trust any folder but Kosmos's own sign-in folder.
-      end('failed', 'Antigravity asked to trust a folder Kosmos did not choose, so Kosmos stopped the sign-in');
+      /* Never trust any folder but Kosmos's own sign-in folder. Shown rather than ended (round 12): the
+         Google sign-in may already be saved, and the person can answer this one in the window. */
+      if (S.state !== 'stuck') { S.state = 'stuck'; S.because = 'Antigravity asked to trust a folder Kosmos did not choose, so Kosmos left that question to you'; }
       return;
     }
     S.state = 'setup'; S.step = 'trust'; S.because = null;
@@ -391,7 +401,8 @@ function code(value, id) {
      prompt spent on the subscription). */
   const now_ = screen();
   if (typeof now_ !== 'string' || screenOf(now_) !== 'code') return { ok: false, because: 'Antigravity is not waiting for a code' };
-  try { keys('-l', '--', v); keys('Enter'); } catch { return { ok: false, because: 'Kosmos could not pass the code to Antigravity' }; }
+  // C-u first (round 12): a code left half-sent by an earlier failed try is cleared, not doubled.
+  try { keys('C-u'); keys('-l', '--', v); keys('Enter'); } catch { return { ok: false, because: 'Kosmos could not pass the code to Antigravity' }; }
   S.state = 'checking'; S.step = 'code-sent'; S.because = null; S.lastSeen = now(); S.codeSentAt = now();
   return { ok: true };
 }
