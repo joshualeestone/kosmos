@@ -9310,8 +9310,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 #plus-signin-msg:empty { display: none; }
 #plus-state2 .plus-si-lead + .frow { margin-top: 1rem; }   /* a button under a one-line lead gets room (the #3796 landing) */
 @media (max-width: 640px) { .plus-val { grid-template-columns: 1fr; } }
-/* #718 CHAT FIRST ON A PHONE (the 40rem here is repeated in trackVisibleViewportHeight's
-   matchMedia; change both together) (Josh 2026-09-24: "make sure the designs fit well on mobile"; Liu Kang
+/* #718 CHAT FIRST ON A PHONE (the query here is repeated in trackVisibleViewportHeight's
+   matchMedia; change both together; #3969 added a phone held sideways: a touchscreen in landscape
+   no taller than 30rem and narrower than 56rem, which is past 40rem wide and used to get the tall wide
+   layout; from 56rem the side-by-side layout already fits) (Josh 2026-09-24: "make sure the designs fit well on mobile"; Liu Kang
    decided the build 2026-09-24 22:30 CDT). Below 40rem, with Direct Message the shown section, the
    agent page used to stack the whole identity column (88px avatar, name, state, five big nav tiles,
    Files) above the conversation, so a phone opened a chat and saw the conversation two screens down
@@ -9329,7 +9331,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    Other sections, tablets (40rem to 56rem) and desktop keep their layout.
    Stated weakest part: verified in Playwright Chromium and WebKit with a simulated smaller visual
    viewport, not on a device; WebKit is an engine approximation, not Safari or WKWebView. */
-@media (max-width: 40rem) {
+@media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) {
     display: flex; flex-direction: column; padding-bottom: 0;
     height: var(--kosmos-visible-height, 100dvh); }
@@ -9525,6 +9527,17 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-sec-instr button,
   #d-sec-skills :is(input, textarea, select, button) { min-height: 44px; }
   #d-rename-hint { max-width: none; }
+}
+/* #3969: a phone held sideways is short (360 to 430px), and the chat-first layout above still left the
+   conversation 0px at 640x360 with the composer below the screen. On a short sideways touchscreen, in
+   the chat, the "All agents" link and the search row step aside (the app bar and the tabs still reach
+   everything; search is back upright). */
+@media (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
+  #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box .d-talk-caprow { display: none; }
+  /* The agent's header is one slim line: name and state, no avatar (it is on Profile). */
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .dav-wrap { display: none; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead { padding: 2px 0 2px 6px; margin-bottom: 4px; }
 }
 /* #718 (Raiden's table, row 4): the same two fields on ANY touchscreen, not only a portrait phone. A
    phone turned sideways (667 to 932 wide) or a tablet is past the 40rem block above, where the search
@@ -30645,8 +30658,8 @@ function detailGo(section, opts) {
      handled: unobserved (no iOS simulator on this Mac), on Johnny's simulator checklist. */
   // The controls that count as typing; the CSS block's :is(...) list is the same, pinned by render-dm-chatfirst-718.
   const KOSMOS_TYPING_SELECTOR = '#d-say, #d-send, #d-emoji-btn, #d-emoji button';
-  // Same breakpoint as the CSS block "#718 CHAT FIRST ON A PHONE"; change both together.
-  const PHONE_WIDTH = window.matchMedia('(max-width: 40rem)');
+  // Same query as the CSS block "#718 CHAT FIRST ON A PHONE" (a narrow screen, or a phone held sideways, #3969); change both together.
+  const PHONE_WIDTH = window.matchMedia('(max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem)');
   viewport.addEventListener('resize', () => {
     write();
     const talk = document.getElementById('d-sec-talk');
