@@ -99,7 +99,7 @@ function ensureStatusLine(settingsPath, opts) {
   if ([node, script, accountDir].some((p) => reporthook.unsafeForCommand(p, plat))) {
     return { wired: false, because: 'the statusline command path contains characters we will not embed in a command' };
   }
-  if (reporthook.ephemeralMismatch(settingsPath, [node, script])) {
+  if (reporthook.ephemeralMismatch(settingsPath, [node, script, accountDir])) {
     return { wired: false, because: 'a statusline command path is under the temp root, which is ephemeral, so it was not written into the durable settings file' };
   }
   const read = reporthook.readSettings(settingsPath);
@@ -108,7 +108,11 @@ function ensureStatusLine(settingsPath, opts) {
   const want = commandFor(node, script, accountDir);
   const cur = data.statusLine;
   if (cur !== undefined && cur !== null) {
-    if (!isOurs(cur)) return { wired: false, because: 'this account already has its own status line, so it was left alone' };
+    if (!isOurs(cur)) {
+      return { wired: false, because: cur && typeof cur === 'object'
+        ? 'this account already has its own status line, so it was left alone'
+        : 'the status line setting in that file is not the shape we expect, so it was left alone' };
+    }
     if (cur.type === 'command' && cur.command === want) return { wired: true, changed: false };
     /* Ours, but aimed at another copy (an older install, a moved node): the
        #1467 lesson from reporthook.js, repoint rather than call it wired.

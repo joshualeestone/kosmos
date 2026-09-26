@@ -103,6 +103,12 @@ test('the refusals: Windows, no script, an unsafe path, an ephemeral path into a
   const link = path.join(freshDir(), 'settings.json');
   fs.symlinkSync(path.join(SANDBOX, 'nowhere-3946.json'), link);
   assert.match(allowance.ensureStatusLine(link).because, /link pointing at nothing/);
+  const odd = path.join(freshDir(), 'settings.json');
+  fs.writeFileSync(odd, JSON.stringify({ statusLine: 'text' }));
+  assert.match(allowance.ensureStatusLine(odd).because, /not the shape we expect/);
+  const durableSettings = path.join(path.sep, 'nonexistent-durable-3946b', 'settings.json');
+  assert.match(allowance.ensureStatusLine(durableSettings, { accountDir: path.join(os.tmpdir(), 'cut', 'acct') }).because, /ephemeral/,
+    'an ephemeral account dir was allowed into a durable settings file');
   assert.equal(fs.existsSync(p), false, 'a refusal wrote a file');
 });
 
@@ -231,6 +237,11 @@ function runSetupBlock({ withAllowance }) {
     if (!withAllowance && f === 'allowance.js') continue;
     fs.copyFileSync(path.join(__dirname, f), path.join(eng, f));
   }
+  /* The installed runtime, where an installed bundle keeps it, so stableNode takes the
+     branch real machines take. A copy of this node, so it runs. */
+  fs.mkdirSync(path.join(kh, 'runtime', 'bin'), { recursive: true });
+  fs.copyFileSync(process.execPath, path.join(kh, 'runtime', 'bin', 'node'));
+  fs.chmodSync(path.join(kh, 'runtime', 'bin', 'node'), 0o755);
   fs.mkdirSync(path.join(kh, 'app', 'bin'), { recursive: true });
   fs.copyFileSync(path.join(__dirname, '..', 'install', 'kosmos-report-hook.sh'), path.join(kh, 'app', 'bin', 'kosmos-report-hook.sh'));
   const home = path.join(root, 'home');
@@ -238,6 +249,7 @@ function runSetupBlock({ withAllowance }) {
   const r = spawnSync(NODE, ['-', kh], { input: setupHookProgram(), encoding: 'utf8',
     env: { ...process.env, AGENT_WORKFORCE_HOME: home, AGENT_WORKFORCE_DATA: path.join(root, 'data') } });
   const settings = path.join(home, '.claude', 'settings.json');
+  r.kh = kh;
   return { r, data: fs.existsSync(settings) ? readJson(settings) : null };
 }
 
@@ -247,6 +259,8 @@ test('setup.sh wires the default account with the report hooks AND the statuslin
   assert.ok(data && data.hooks && Array.isArray(data.hooks.Stop), 'the report hooks were not wired');
   assert.ok(allowance.isOurs(data.statusLine), 'the statusline was not wired: ' + JSON.stringify(data && data.statusLine));
   assert.match(data.statusLine.command, /app\/engine\/kosmos-statusline\.js/, 'the command does not name the bundle copy');
+  assert.ok(data.statusLine.command.startsWith('"' + path.join(fs.realpathSync(r.kh), 'runtime', 'bin', 'node') + '"'),
+    'an installed bundle did not bake its own runtime node: ' + data.statusLine.command);
 });
 
 test('setup.sh: a statusline that cannot be wired does not change the hooks\' answer', () => {
