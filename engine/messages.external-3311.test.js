@@ -107,11 +107,11 @@ test('#3311: an outside name or body cut at its limit never ends in half a chara
 });
 
 test('#3844: externalKeptOn counts one room\'s outside rows on one UTC day, charged as stored', () => {
-  const today = new Date().toISOString().slice(0, 10);
-  const before = messages.externalKeptOn('proj-kept', today);
-  assert.deepStrictEqual(before, { rows: 0, bytes: 0 }, 'fixture: an empty room');
-  messages.externalPost('proj-kept', { from: 'Ada', fromKind: 'person', text: 'hello' });
-  messages.externalPost('proj-kept', { from: 'Ada', fromKind: 'person', text: 'again' });
+  const first = messages.externalPost('proj-kept', { from: 'Ada', fromKind: 'person', text: 'hello' });
+  const second = messages.externalPost('proj-kept', { from: 'Ada', fromKind: 'person', text: 'again' });
+  // The day the rows were stamped with, not the clock read separately (a run across midnight UTC).
+  const today = first.at.slice(0, 10);
+  assert.strictEqual(second.at.slice(0, 10), today, 'fixture: both rows on one day');
   messages.externalPost('proj-other', { from: 'Bob', fromKind: 'person', text: 'not this room' });
   // Another day's row in the same room does not count toward today.
   fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'external', id: 'x-old', project: 'proj-kept', from: 'Ada',

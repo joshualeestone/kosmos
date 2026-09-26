@@ -492,8 +492,11 @@ function externalPost(projectId, { from, fromKind, text }) {
 
 /* kosmos#3844: what one room has already KEPT from outside on one UTC day
    ('YYYY-MM-DD'), read from the log itself, so a seat's day budget survives a
-   board restart. Charged the way fedseats charges: the stored words plus the
-   stored name. null when the log cannot be read (the caller then counts from
+   board restart. Charged as STORED (the words and name after externalPost cleans
+   and cuts them), which is never more than fedseats charged live (the raw words
+   plus the cut name, and a refused row is charged but never stored). So a
+   restart can only give back bytes that were never kept: what is stored stays
+   within the day. null when the log cannot be read (the caller then counts from
    zero, the send path's fail-open trade). */
 function externalKeptOn(projectId, day) {
   const r = record();
