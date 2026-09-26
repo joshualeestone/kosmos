@@ -125,6 +125,8 @@ function initStub() {
       const msg = document.getElementById('chg-msg');
       back.hidden = false;
       msg.textContent = sd || 'Restarted on OpenAI. Waking them…';
+      // #4008: a fresh dialog's Done: shown, and plain (changeDialog resets the gold on every open).
+      const kp = document.getElementById('chg-keep'); kp.hidden = false; kp.classList.remove('uprime');
       // The call site builds the manual and waiting lines once and passes both in.
       autoHelloOnSwitchRestart('april', 'April', 'OpenAI', 'April is on OpenAI. Send them a message to wake them.', 'Restarted on OpenAI. Waking them…');
     }, { n: readyAfter, tr: threadResp, sd: seed, hd: hold || 300 });
@@ -134,6 +136,8 @@ function initStub() {
     await page.waitForTimeout(settleMs || 1000);
     return page.evaluate(() => ({
       msg: document.getElementById('chg-msg').textContent,
+      gold: document.getElementById('chg-keep').classList.contains('uprime'),
+      check: !!document.querySelector('#chg-msg svg.wake-done'),
       threadCalls: window.__posted.filter((p) => /\/api\/agent\/[^/]+\/thread$/.test(p.url) && p.method === 'POST').length,
     }));
   }
@@ -147,6 +151,9 @@ function initStub() {
   const s2 = await run({ readyAfter: 2, threadResp: { recorded: true, delivery: { state: 'unconfirmed', because: 'x' } } });
   check('unconfirmed: the hello WAS posted (helper ran, not a silent no-op)', s2.threadCalls === 1, 'calls=' + s2.threadCalls);
   check('unconfirmed: chg-msg resolves to the manual reactivate line (no false confirmation)', s2.msg === MANUAL, JSON.stringify(s2.msg));
+  // #4008 (round 2): the wait is over either way, so Done turns gold; only the placed hello earns the check.
+  check('#4008 a hello that did not land still finishes the dialog (Done gold) but shows NO check', s2.gold && !s2.check, JSON.stringify({ gold: s2.gold, check: s2.check }));
+  check('#4008 CONTROL: a placed hello finishes with Done gold AND the check', s1.gold && s1.check, JSON.stringify({ gold: s1.gold, check: s1.check }));
 
   // ---- Arm 3: stays restarting (timeout) -> manual line ----
   const s3 = await run({ readyAfter: 'inf' });

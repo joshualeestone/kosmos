@@ -17347,6 +17347,12 @@ function acctParenthetical(a) {
    restarted session writes one, that is the OLD session's, so Runs on said "Right now: <the old model>"
    behind the dialog that had just changed it. Held until the live reading agrees (the caller clears it). */
 const SWITCHED_MODEL = {};
+/* #4008 (round 2): the ONE place that decides whether a switch's record still speaks for an agent: it
+   exists and the agent is running. Runs on and the model picker both read it, so the two cannot disagree
+   about which model the agent is on. ⚠️ It reads cardStOf, so a test lifting a caller must lift that too. */
+function switchedModelFor(a) {
+  return (a && SWITCHED_MODEL[a.sessionName] && cardStOf(a).pres === 'on') ? SWITCHED_MODEL[a.sessionName] : '';
+}
 /* ⚠️ `switched` IS A PARAMETER, NOT A READ OF SWITCHED_MODEL, so this function stays liftable (the suite
    runs it on its own). Used only while the agent is running: a stopped agent's line is the job's. */
 function runsOnLine(a, switched) {
@@ -30098,7 +30104,7 @@ function openDetail(sessionName, section, fromProject) {
      takes over again. */
   const switchedTo = (typeof SWITCHED_MODEL !== 'undefined' && SWITCHED_MODEL[a.sessionName]) || '';
   if (switchedTo && a.modelName && modelLine({ modelName: a.modelName }) === switchedTo) delete SWITCHED_MODEL[a.sessionName];
-  const runs = runsOnLine(a, (typeof SWITCHED_MODEL !== 'undefined' && SWITCHED_MODEL[a.sessionName]) || '');   // read by the Runs-on box below (#3385: the title line no longer reads it)
+  const runs = runsOnLine(a, typeof switchedModelFor === 'function' ? switchedModelFor(a) : '');   // read by the Runs-on box below (#3385: the title line no longer reads it)
   /* #684: "shown by its machine name" only read as English to someone who had
      read the code (the first-run journey walk hit it in minute two). The fact
      it carries -- nobody chose a name, so the one on screen is the internal
@@ -35302,7 +35308,9 @@ document.getElementById('d-start-agent').addEventListener('click', async () => {
        switched or reopened (the epoch guard). */
     // #4008: started from the job's model, so an earlier switch's record no longer speaks for it.
     if (typeof SWITCHED_MODEL !== 'undefined') delete SWITCHED_MODEL[name];
-    say('Started ' + shown + '. Waking them…');
+    // #4008: built once, so the settle check below compares against exactly what was painted.
+    const startWaiting = 'Started ' + shown + '. Waking them…';
+    say(startWaiting);
     // #4008: the Sweep loader in front of the waiting line; the next `say` replaces the whole line.
     if (onPanel() && sm && typeof sm.insertAdjacentHTML === 'function') sm.insertAdjacentHTML('afterbegin', WAKE_SPIN_HTML);
     await sendWakeHello(name, token, say,
@@ -35310,7 +35318,7 @@ document.getElementById('d-start-agent').addEventListener('click', async () => {
       'Started ' + shown + '. Say ‘hello’ to wake them.');
     /* #4008: a newer start or restart of this agent supersedes the hello without a report, and the
        waiting line (now with a moving loader) would then look busy forever. Settle it on what is known. */
-    if (onPanel() && sm && sm.textContent === 'Started ' + shown + '. Waking them…') sm.textContent = 'Started ' + shown + '.';
+    if (onPanel() && sm && sm.textContent === startWaiting) sm.textContent = 'Started ' + shown + '.';
     /* The agent is running now, so Start no longer applies: hide the BUTTON (the
        common restart keeps the row present -- state 'restarting' then a live state
        -- so the poll's withdrawn->reappear arm does not fire, and there is no
@@ -38008,7 +38016,7 @@ async function paintModelPicker(a) {
      or the two tables becoming one. Raised, not silently papered over. */
   /* #4008: the same name Runs on shows: a switch's result until the live reading catches up, or the
      menu would offer "change to Opus 5.5" to an agent Runs on says is already on it. */
-  const switchedTo = (typeof SWITCHED_MODEL !== 'undefined' && SWITCHED_MODEL[a.sessionName] && cardStOf(a).pres === 'on') ? SWITCHED_MODEL[a.sessionName] : '';
+  const switchedTo = typeof switchedModelFor === 'function' ? switchedModelFor(a) : '';
   const runningName = switchedTo || modelLine(a);
   const currentModel = CREATE_MODELS.find((m) => m.label === runningName) || null;
   const head = currentModel
