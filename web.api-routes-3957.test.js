@@ -328,7 +328,7 @@ function boardRoutes(src) {
   }
   /* A PREFIX only where the board itself tests one with startsWith, and never the bare '/api/':
      that is the "no such endpoint" catch-all, and counting it would serve every path. */
-  const prefixes = [...src.matchAll(/startsWith\('(\/api\/[A-Za-z0-9/_.-]+)'\)/g)].filter((m) => inCode(m.index)).map((m) => m[1]);
+  const prefixes = [...src.matchAll(/startsWith\((['"])(\/api\/[A-Za-z0-9/_.-]+)\1\)/g)].filter((m) => inCode(m.index)).map((m) => m[2]);
   /* Route regexes: every REGEX span the lexer found (so a `[^/]` class or an alternation right
      after the anchor, /^\/api(?:\/a|\/b)\//, is read whole) whose source mentions \/api. */
   const regexes = [];
@@ -342,7 +342,8 @@ function boardRoutes(src) {
     const flags = (src.slice(e).match(/^[gimsuy]*/) || [''])[0];
     /* A ROUTE regex is anchored at both ends (all 55 today): an unanchored one mentioning \/api is a
        guard (`/^\/api\/federation\//.test(pathname) && !authed`), and would serve everything under it. */
-    if (lit.slice(1, last).endsWith('$')) {
+    const body = lit.slice(1, last);
+    if (body.startsWith('^') && body.endsWith('$')) {
       try { regexes.push(new RegExp(lit.slice(1, last), flags.replace('g', ''))); } catch { /* not a regex after all */ }
     }
     i = e;
@@ -514,4 +515,10 @@ test('#3957 control: an unanchored guard regex is not a route', () => {
 test('#3957 control: template URLs with host text or two interpolations first, srcset, and inline handlers are read', () => {
   const planted = pagePaths(PAGE + "\nfetch(`http://127.0.0.1:${port}/api/p2-missing-3957`);\nfetch(`${a}${b}/api/p3-missing-3957`);\n<button onclick=\"fetch('/api/p1-missing-3957')\">x</button>\nconst s3957 = '<img srcset=\"/api/p4-missing-3957/' + n + '/x 2x\">';\n").paths;
   for (const p of ['/api/p2-missing-3957', '/api/p3-missing-3957', '/api/p1-missing-3957', '/api/p4-missing-3957/x/x']) assert.ok(planted.includes(p), p + ' was not read');
+});
+
+test('#3957 control: a regex anchored at one end only is not a route, and a double-quoted prefix is seen', () => {
+  const board = boardRoutes(SERVER + "\nif (/\\/api\\/end-anchor-only-3957$/.test(pathname)) {}\nif (pathname.startsWith(\"/api/dq-prefix-3957\")) {}\n");
+  assert.equal(served('/api/end-anchor-only-3957', board), false);
+  assert.ok(board.prefixes.includes('/api/dq-prefix-3957'), 'a double-quoted startsWith prefix went unseen');
 });
