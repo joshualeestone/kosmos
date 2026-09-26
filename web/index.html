@@ -3409,10 +3409,11 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    version of, this was made with Ai"): a status is a round DOT beside its label, and the
    browser check asserts no element here carries a coloured left border.
    The status colours: red (--danger) for Needs Your Decision (#3949), grey for unassigned, gold for
-   assigned but not started, the working green for in progress, a quiet grey for completed -- the
-   app's existing meanings, no new palette. */
+   assigned but not started, the working green for in progress, the mention blue for built but waiting (#3951), a
+   quiet grey for completed -- the app's existing meanings, no new palette. */
 #panel-tasks { --tsk-c: var(--k-ink-2); --tsk-nobody: var(--k-ink-2); --tsk-assigned: var(--gold-deep); --tsk-working: var(--ok);
   --tsk-decision: var(--danger);
+  --tsk-built: var(--pj-mention);
   --tsk-closed: color-mix(in srgb, var(--k-ink-2) 55%, var(--k-rule));
   --tsk-wash: color-mix(in srgb, var(--gold) 14%, var(--k-surface)); color: var(--k-ink); }
 /* #3949: one column, the full width (the Projects rail is gone; its choice is the dropdown). */
@@ -3510,6 +3511,9 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tksub.done .tksub-t { color: var(--k-ink-2); text-decoration: line-through; }
 .tksubs-done { margin: 10px 0 0; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .tsk-row .meta button:hover { text-decoration: underline; text-decoration-color: var(--gold); }
+/* #3951: "Not built yet" on a built row, a quiet text action like the row's other buttons. */
+.tsk-row .tsk-unbuild { border: 0; background: none; padding: 0 0 0 4px; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer; }
+.tsk-row .tsk-unbuild:hover { text-decoration: underline; text-decoration-color: var(--gold); }
 .tsk-row .why { font-size: .8125rem; color: var(--k-ink-2); margin-top: 4px; }
 .tsk-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 120px; }
 .tsk-who { display: inline-flex; align-items: center; gap: 6px; font: 600 .8125rem var(--font-ui); color: var(--k-ink); padding: 2px 9px;
@@ -14715,9 +14719,10 @@ window.kosmosMeasureScrollbarWidth();
 <!-- #3559 (Josh, 2026-09-24): Tasks is a top-level view beside Agents and Projects, every
      task across every project. Mona's mock (chaoskosmos-site tasks-view-3559 248c953, the dot
      revision) plus Josh's search box. Groups are WHERE THE WORK IS, derived by the engine
-     (tasks.taskState) and only those it can prove (since #3949: Needs Your Decision, In progress,
-     Assigned but not started, Unassigned, Completed). Built-but-waiting and categories need
-     evidence no task stores yet (#3951), so they are not drawn at all rather than guessed. No
+     (tasks.taskState) and only those it can prove (Josh's six since #3951: Needs Your Decision, In
+     progress, Assigned but not started, Unassigned, Built but waiting, Completed). Built but waiting
+     is a task's own builtAt (kosmos task built); categories need evidence no task stores yet, so they
+     are not drawn at all rather than guessed. No
      coloured left bars anywhere (Josh, 12:52): the status mark is a round dot beside the label. -->
 <!-- #3949 (Josh, 2026-09-26): no left Projects column; the body takes the full width. Projects is a
      dropdown on one line with Created:, the search is about half as wide with the open-task count to its
@@ -45963,11 +45968,11 @@ document.getElementById('pj-alltasks').addEventListener('click', () => openProje
    Every task on every project, grouped by WHERE THE WORK IS. The engine derives each task's
    `state` (tasks.taskState, from the same claim the project card shows); this code renders it
    and never computes it. Only the groups the engine can prove exist here (#3949 added Needs Your
-   Decision, from the roster); built-but-waiting and categories wait for evidence no task stores yet
-   (#3951, and Mona's weakest-premise note on #3559), so they are not drawn at all rather than guessed. */
+   Decision, from the roster; #3951 Built but waiting, from a task's builtAt); categories wait for evidence no
+   task stores yet (Mona's weakest-premise note on #3559), so they are not drawn at all rather than guessed. */
 /* #3949 (Josh, 2026-09-26): one label per group, no byline, in his order. Needs Your Decision is red, the
    only group the person acts on; the engine's `decision` state (tasks.waitingOnPerson) fills it. "Built but
-   waiting" is not drawn: no task stores it yet (#3951). */
+   waiting" is the engine's `built` state (#3951: tasks.setBuilt, from `kosmos task built`). */
 const TSK_GROUPS = [
   { k: 'decision', l: 'Needs Your Decision', c: 'var(--tsk-decision)',
     /* Not "your go-ahead" (review round 11): a trust wait never reaches the tasks route's roster today (the
@@ -45979,6 +45984,10 @@ const TSK_GROUPS = [
     why: 'An agent has these, and what it reports does not name them yet. Old ones here are worth a nudge.' },
   { k: 'nobody', l: 'Unassigned', c: 'var(--tsk-nobody)',
     why: 'Open and unassigned. Give these to an agent, or close the ones that no longer matter.' },
+  /* #3951: the fifth of Josh's six tiles. An agent marked the task built (`kosmos task built`); the person closes it once it is
+     live, which clears the mark. */
+  { k: 'built', l: 'Built but waiting', c: 'var(--tsk-built)',
+    why: 'An agent marked these built. They are waiting to be released or checked; close each one once it is live.' },
   { k: 'closed', l: 'Completed', c: 'var(--tsk-closed)', why: 'Finished and closed.' },
 ];
 const TSK_WINDOWS = [['24h', 1], ['48h', 2], ['1 week', 7], ['1 month', 30], ['All', 0]];
@@ -46162,6 +46171,16 @@ function tskRow(t, at) {
     : notReported && t.claim.about
       ? '<div class="why">' + esc(tskAgentName(t.claim.about)) + ' ' + notReported + '.</div>'
       : t.claim.because ? '<div class="why">We cannot tell whether it started: ' + esc(t.claim.because) + '.</div>' : '';
+  /* #3951: a built row says who marked it and what is left, the agent's own words. */
+  /* On any marked open task, not only in the Built group (review round 5: a built task whose agent needs the person
+     sits under Needs Your Decision, and still says who marked it and offers the undo). */
+  const builtLine = !t.builtAt || t.state === 'closed' ? ''
+    : '<div class="why">Marked built' + (t.builtByPerson ? ' by you' : t.builtBy ? ' by ' + esc(tskAgentName(t.builtBy)) : '')
+      /* An empty ago (a time ahead of this device's clock) leaves no stray space before the colon (review round 11). */
+      + (t.builtAt && agoWords(Date.now() - Date.parse(t.builtAt)) ? ' ' + esc(agoWords(Date.now() - Date.parse(t.builtAt))) : '')
+      + (t.builtNote ? ': ' + esc(t.builtNote) : '')
+      /* Review round 1: the person can take a mistaken mark off without closing the task. */
+      + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(t.projectName) + ' not built yet">Not built yet</button></div>';
   return '<div class="tsk-row' + (on ? ' sel' : '') + (place.depth ? ' d' + place.depth : '') + '" data-key="' + esc(tskKey(t)) + '">'
     + '<input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
     /* The row no longer repeats its state in a status group (the heading says it), so there the
@@ -46176,7 +46195,7 @@ function tskRow(t, at) {
     + (moved && moved !== added ? '<span>last activity ' + esc(moved) + '</span>' : '')
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + chip + allDone
-    + '</div>' + cannot + '</div>'
+    + '</div>' + cannot + builtLine + '</div>'
     + '<div class="tsk-side">' + whoHtml
     /* Said once per row (Mona): inside a status group the heading already names the state, so the
        row's state line shows only when grouping by project, where it is information. */
@@ -46430,6 +46449,33 @@ async function tskCloseParent(key) {
   msg.focus();
   tskLoad();
 }
+/* #3951 (review round 1): take the built mark off one task, from the screen. The task stays open. */
+async function tskUnbuild(key) {
+  if (TSK.busy) return;
+  const said = document.getElementById('tsk-msg');
+  const i = key.lastIndexOf('#');
+  const projectId = key.slice(0, i);
+  const number = Number(key.slice(i + 1));
+  TSK.busy = true;
+  try {
+    const r = await fetch('/api/project/' + encodeURIComponent(projectId) + '/task/' + number + '/built', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clear: true }),
+    });
+    const body = await r.json().catch(() => ({}));
+    /* Only "stays open" when it does: the task may have been closed since the row was drawn (review round 2). */
+    said.textContent = r.ok && body.task
+      ? (body.changed === false ? 'Task ' + number + ' was not marked built.'
+        : 'Task ' + number + ' is no longer marked built.' + (body.task.closedAt ? '' : ' It stays open.'))
+      : asSentence(body.error || 'the mark was not taken off');
+  } catch {
+    said.textContent = 'We could not reach Kosmos, so the mark is still there.';
+  } finally {
+    TSK.busy = false;
+  }
+  said.tabIndex = -1;
+  said.focus();
+  tskLoad();
+}
 async function tskBulkClose() {
   if (TSK.busy || !TSK.sel.size) return;
   const msg = document.getElementById('tsk-msg');
@@ -46478,7 +46524,7 @@ async function tskBulkClose() {
    same control: an agent's button repeats on every row it holds, and a row and its checkbox share a
    key. The dropdowns (#3949: project, Created:, Group by, Sort) keep their own focus, since a repaint
    replaces only their options. */
-const TSK_FOCUS_KEYS = ['data-fold', 'data-close-parent', 'data-open-task', 'data-open-project', 'data-agent', 'data-tile', 'data-proj', 'data-key'];
+const TSK_FOCUS_KEYS = ['data-fold', 'data-close-parent', 'data-unbuild', 'data-open-task', 'data-open-project', 'data-agent', 'data-tile', 'data-proj', 'data-key'];
 function tskFocusMark(el) {
   const panel = document.getElementById('panel-tasks');
   if (!el || !panel || !panel.contains(el)) return null;
@@ -46517,6 +46563,7 @@ document.getElementById('panel-tasks').addEventListener('click', (e) => {
   if ((b = el('[data-tile]'))) { TSK.tile = TSK.tile === b.dataset.tile ? null : b.dataset.tile; tskPaintKeepingFocus(b); return; }
   if ((b = el('[data-fold]'))) { const k = b.dataset.fold; if (TSK.fold.has(k)) TSK.fold.delete(k); else TSK.fold.add(k); tskPaintKeepingFocus(b); return; }
   if ((b = el('[data-close-parent]'))) { tskCloseParent(b.dataset.closeParent); return; }
+  if ((b = el('[data-unbuild]'))) { tskUnbuild(b.dataset.unbuild); return; }
   if ((b = el('[data-open-task]'))) { tskOpenTask(b.dataset.openTask); return; }
   if ((b = el('[data-open-project]'))) { tskOpenProject(b.dataset.openProject); return; }
   if ((b = el('[data-agent]'))) { openDetail(b.dataset.agent); return; }
@@ -46641,7 +46688,11 @@ function paintTaskPage() {
 
   document.getElementById('tk-project').textContent = p.name;
   document.getElementById('tk-added').textContent = tkAdded(t);
-  document.getElementById('tk-state').textContent = tkStateWord(t);
+  /* #3951 (review round 4): the task page says the mark too, not only the Tasks tab: who marked it built and what
+     is left. Closing clears it, so a closed task never says it. */
+  const builtWho = t.builtByPerson ? 'you' : (t.builtBy ? tkMemberName(p, t.builtBy) : '');
+  document.getElementById('tk-state').textContent = tkStateWord(t)
+    + (t.builtAt && !t.closedAt ? ', marked built' + (builtWho ? ' by ' + builtWho : '') + (t.builtNote ? ': ' + t.builtNote : '') : '');
   /* #768: the due date. `document.activeElement` guard so the five-second poll
      does not yank the value out from under someone mid-edit (the same reason the
      Prompter interval paint checks it). Empty input means no due date. */
@@ -46804,6 +46855,10 @@ function tkActPhrase(ev, p) {
     case 'said': { const who = nameOf(ev.who); return (who ? who + ': ' : '') + (ev.text || ''); }
     case 'closed': return 'Marked done';
     case 'reopened': return 'Put back';
+    /* #3951: who marked it built and what was left; and why the mark went. */
+    case 'built': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' marked it built' : 'Marked built') + (ev.note ? ': ' + ev.note : ''); }
+    case 'unbuilt': { if (ev.reason === 'new work') return 'No longer built: there is new work on it';
+      const who = ev.person ? 'You' : nameOf(ev.by); return who ? who + ' took the built mark off' : 'Built mark taken off'; }
     default: return String(ev.kind);
   }
 }

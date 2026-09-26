@@ -1782,6 +1782,22 @@ function taskMessageValveRecord() {
   taskMessageSends.push(Date.now());
 }
 
+/* #3951 (review round 5): the built route's own breaker, the same runaway breaker as task messages and parts (#4019,
+   500 an hour shared by all agents unless AGENT_WORKFORCE_BUILT_MARK_CAP says otherwise; 0 switches agent marks off),
+   counted only for a PROCESS mark that changed something. A repeat of the same mark records nothing and is not
+   counted; the person is never valved. Its own counter, so marks and messages do not starve each other. */
+const BUILT_MARK_CAP_PER_HOUR = taskMsgCapFrom(process.env.AGENT_WORKFORCE_BUILT_MARK_CAP);
+let builtMarks = [];
+function builtMarkRefusal(now = Date.now()) {
+  builtMarks = builtMarks.filter((t) => t >= now - AGENT_RUNAWAY_WINDOW_MS);
+  if (BUILT_MARK_CAP_PER_HOUR === 0) {
+    return { because: 'agent built marks are switched off on this computer (AGENT_WORKFORCE_BUILT_MARK_CAP is 0); the person can still take a mark off from the screen', retryAfterSecs: null };
+  }
+  const r = runawayRefusal(builtMarks, { noun: 'built marks', did: 'made', pausing: 'agent built marks', again: 'mark tasks built',
+    screen: 'take a mark off' }, { now, limit: BUILT_MARK_CAP_PER_HOUR });
+  return r && { because: r.because, retryAfterSecs: r.retryAfterSecs };
+}
+
 // #3485: the community feed's flood valve, a sliding window like the task valve
 // above but PER AGENT (keyed on the authenticated identity), not fleet-wide. The
 // submit routes are board-token gated (fleet agents only, not the public), but a
@@ -13705,8 +13721,9 @@ const server = http.createServer((req, res) => {
                         roster read and one commitments reading per agent for
                         the whole request
          waitingOnPerson tasks.waitingOnPerson: its agent needs the person about it (#3949)
-         state          tasks.taskState: closed / nobody / decision / working / assigned
+         state          tasks.taskState: closed / decision / built / nobody / working / assigned
          lastActivityAt the newest transcript event, else created/closed
+       A task's own builtAt / builtBy / builtNote (#3951, set by POST .../built) ride every row as stored.
        Added fields only, and only on ?view=tasks, which also leaves out archived
        projects' tasks (the view does not list them) except the one `withArchived` names. */
     const roster = safeRoster();
@@ -15134,6 +15151,84 @@ const server = http.createServer((req, res) => {
         sendJson(res, code, { error: msg || 'we could not change what that task is part of' });
       }
     }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #3951: mark a task built, waiting to ship (Josh's "Built but waiting" tile), or take the mark off. Body
+     { note?, clear?, from_pane? }. Who marked it: the screen is the person (builtByPerson); a process is named by its agent token
+     (a token that does not resolve is refused, as the message route does) or else its pane. The pane name is
+     advisory, as on the message route: a local process can claim any pane, so the builder it names is a label, not
+     a proof (an enforcing board still needs the board token to reach this at all). An identified agent may mark or
+     clear only tasks in projects it is on (any task there: membership is per project, as for task messages), and
+     only the screen changes the person's own mark, clearing or re-marking (review rounds 5 and 7). A
+     process the board cannot name (no token, no known pane) is not held to membership: it is refused nothing the
+     message route would refuse it, it is valved, and it is recorded as builtBy null (review round 6); its mark frees
+     no agent (review round 11). The real
+     boundary is the board token, and the person's own mark rests on the screen posture (isViaScreen), advisory
+     as on the bulk-close route: a local process that claims to be the screen is taken at its word (review round 13). A
+     process is valved (builtMarkRefusal, the runaway breaker); the same mark again records nothing and is not counted. Marking a closed
+     task is refused (409); clearing one is a no-op answered `changed: false` (review round 10), since closing
+     already cleared the mark. The block is not re-synced: the mark changes nothing on an agent's instructions list. */
+  const taskBuilt = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/built$/);
+  if (taskBuilt && req.method === 'POST') {
+    const id = decodeSegment(taskBuilt[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || '{}'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      const viaScreen = isViaScreen(req, body);
+      const roster = safeRoster();
+      if (roster === null && presentedAgentToken(req, body)) {
+        sendJson(res, 503, { error: 'we could not check which agents are running, so the task was not marked' });
+        return;
+      }
+      const tokenSender = senderFromAgentToken(req, body, roster);
+      if (tokenSender && !tokenSender.ok) { sendJson(res, 403, { error: tokenSender.because }); return; }
+      const fromPane = typeof body.from_pane === 'string' ? body.from_pane : '';
+      /* A pane nobody could look up is not an unnamed caller (review round 11): say so, as for a token. */
+      if (roster === null && fromPane && !viaScreen) {
+        sendJson(res, 503, { error: 'we could not check which agents are running, so the task was not marked' });
+        return;
+      }
+      /* The pane as /api/post resolves it (review round 13): the CLI sends tmux's %N, which no roster target equals;
+         messages.resolveSender asks tmux for its session and ties it to a card. A pane that does not resolve leaves
+         the caller unnamed. */
+      const byPane = !tokenSender && fromPane ? messages.resolveSender(fromPane, roster) : null;
+      const card = tokenSender ? tokenSender.card : (byPane && byPane.ok ? byPane.card : null);
+      const by = viaScreen ? null : ((card && card.sessionName) || null);
+      if (!viaScreen) {
+        /* Membership first, so a non-member hears why, not the breaker (review round 15). */
+        const proj = projects.readAll().find((x) => x.id === id) || null;   // the stored record: agents are names
+        if (card && proj && !(proj.agents || []).includes(card.sessionName)) {
+          sendJson(res, 403, { error: 'that agent is not on this project, so it cannot mark its tasks' });
+          return;
+        }
+        const refused = builtMarkRefusal();
+        if (refused) {
+          if (refused.retryAfterSecs !== null) res.setHeader('retry-after', String(refused.retryAfterSecs));
+          sendJson(res, 429, { error: refused.because, ...(refused.retryAfterSecs !== null ? { retry_after_secs: refused.retryAfterSecs } : {}) });
+          return;
+        }
+      }
+      /* The person's own mark is changed only from the screen, in either direction (review round 7: a process could
+         re-mark it as its own and then clear that), checked inside the write (review round 9). The person is a flag,
+         not a name, so an agent named "operator" is not the person. */
+      const as = { by, person: viaScreen, refusePersonMark: !viaScreen };
+      const out = body.clear === true
+        ? tasks.clearBuilt(id, taskBuilt[2], as)
+        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? body.note : '' });
+      if (!out.ok) {
+        const code = out.person ? 403 : out.closed ? 409 : out.code === 'UNREADABLE' ? 500
+          : (/no project by that name|no task by that number/.test(out.because) ? 404 : 400);
+        sendJson(res, code, { error: out.because });
+        return;
+      }
+      if (!viaScreen && out.changed) builtMarks.push(Date.now());
+      sendJson(res, 200, { task: out.task, changed: out.changed === true });
+    }).catch((err) => {
+      sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
+    });
     return;
   }
 
