@@ -176,9 +176,12 @@ async function open(browser, opts) {
       await page.waitForTimeout(waitMs);
       const r = await page.evaluate(() => {
         const panel = document.getElementById('panel-detail'); const talk = document.getElementById('d-sec-talk');
+        const box = document.getElementById('d-talk-box');
         return { detailShown: !!(panel && !panel.hidden && panel.offsetParent), tab: (typeof URL_TAB !== 'undefined') ? URL_TAB : null,
           current: (typeof CURRENT !== 'undefined' && CURRENT) ? CURRENT.sessionName : null,
-          talkTop: talk ? Math.round(talk.getBoundingClientRect().top) : null, scrollY: Math.round(window.scrollY) };
+          talkTop: talk ? Math.round(talk.getBoundingClientRect().top) : null, scrollY: Math.round(window.scrollY),
+          docH: document.documentElement.scrollHeight, vh: window.innerHeight,
+          boxBottom: box ? Math.round(box.getBoundingClientRect().bottom) : null };
       });
       await page.close();
       return r;
@@ -186,7 +189,12 @@ async function open(browser, opts) {
     const present = await fromLink([BASE], 2000);
     // In the top quarter of the screen, not exactly 0: a short page scrolls only as far as it goes
     // (measured: scrollY at its maximum left the section 24px down, fully in view).
-    chk(present.detailShown && present.current === BASE.sessionName && present.scrollY > 0 && present.talkTop >= 0 && present.talkTop <= 667 / 4,
+    // Two shapes land on the conversation: the page scrolled so Talk is in the top quarter, or the
+    // chat-first phone layout (#718, mobile-chatfirst-718), where the page is exactly the screen and
+    // the whole talk box is already on it without scrolling.
+    const scrolledTo = present.scrollY > 0 && present.talkTop >= 0 && present.talkTop <= 667 / 4;
+    const wholeScreen = present.docH <= present.vh + 1 && present.talkTop >= 0 && present.boxBottom !== null && present.boxBottom <= present.vh + 1;
+    chk(present.detailShown && present.current === BASE.sessionName && (scrolledTo || wholeScreen),
       '[link/phone] a page load with ?tab=detail&agent= lands on that agent\'s conversation', JSON.stringify(present));
     const missing = await fromLink([], 11000);
     // The board home is the agents tab. (The address loses agent= at boot anyway, before the
