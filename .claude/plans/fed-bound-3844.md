@@ -26,3 +26,6 @@ Card: kosmos#3844 (deferred from the #3311 federation review, round 19).
 
 ## Round 3 review (opus): 1 NIT
 - [NIT] two older budget comments still said rows cannot grow "without end", which the recorded trade contradicts. FIXED: both say bounded per UTC day, not in total.
+
+## Round 4 review (sonnet): 1 NIT, not taken; converged
+- [NIT] the restart test's assertion message "a restart gave the room a fresh day" reads as the opposite of what the test proves. NO CHANGE: an assertion message describes the FAILURE (what happened if it fires), the convention across this file ("a seat started for a project nobody joined", "the stale link was kept"); if it fires, a restart did give the room a fresh day. No other finding: converged.
