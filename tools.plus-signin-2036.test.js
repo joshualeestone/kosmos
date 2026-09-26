@@ -92,6 +92,7 @@ function fakeBoard(opts = {}) {
       if (req.url === '/') return send(200, {});
       if (req.headers['x-kosmos-board-token'] !== 'tok') return send(401, { error: 'no token' });
       if (req.url === '/api/remote') return send(200, { enrolled: state.enrolled, on: state.on, status: { state: state.up ? 'up' : 'off' } });
+      if (req.url === '/api/remote/signin-start' && opts.startHangs) return;   // never answers
       if (req.url === '/api/remote/signin-start') return opts.startFails ? send(400, { error: 'coordinator down' }) : send(200, { ok: true, stage: 'code_sent' });
       if (req.url === '/api/remote/signin-cancel') return send(200, { ok: true });
       if (req.url === '/api/remote/signin-verify') {
@@ -326,5 +327,18 @@ test('#2036: a register that times out after finishing on the board is recorded 
     assert.match(step(got, 'register').detail, /no answer from the board/);
     assert.ok(b.calls.some((c) => c.url === '/api/remote/forget'), 'a register that timed out left its Mac');
     assert.strictEqual(b.state.enrolled, false);
+  } finally { b.server.closeAllConnections(); b.server.close(); }
+});
+
+test('#2036: a signin-start that times out is setup: the earlier record stands and the half sign-in is cancelled', async () => {
+  const dir = tmp(); const e = Object.assign(env(dir), { KOSMOS_PLUS_CALL_MS: '300' }); const ptr = pointerFile(dir);
+  record.write(good(), e);
+  const b = await fakeBoard({ startHangs: true });
+  try {
+    const r = await runner(['start', '--pointer', ptr, '--port', String(b.port)], e);
+    assert.strictEqual(r.code, 2, r.out);
+    assert.match(r.out, /nothing recorded/);
+    assert.strictEqual(rec(e).result, 'pass', 'a slow coordinator replaced the build\'s record with a fail');
+    assert.ok(b.calls.some((c) => c.url === '/api/remote/signin-cancel'));
   } finally { b.server.closeAllConnections(); b.server.close(); }
 });

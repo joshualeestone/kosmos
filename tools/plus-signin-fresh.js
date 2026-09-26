@@ -47,6 +47,8 @@ const DEFAULT_SEED = 'josh+kosmos-seed@book.io';
 const CALL_MS = Number(process.env.KOSMOS_PLUS_CALL_MS) || 15 * 1000;
 /* The engine bounds a register at five minutes plus up to a minute clearing a half identity. */
 const REGISTER_MS = Number(process.env.KOSMOS_PLUS_REGISTER_MS) || 7 * 60 * 1000;
+/* The engine's forget waits for a register in flight, then signed calls, then the retire: about 8 minutes at worst. */
+const FORGET_MS = Number(process.env.KOSMOS_PLUS_FORGET_MS) || 9 * 60 * 1000;
 /* How long the tunnel may take to report up after the register. */
 const UP_MS = Number(process.env.KOSMOS_PLUS_UP_MS) || 120 * 1000;
 const UP_POLL_MS = Number(process.env.KOSMOS_PLUS_UP_POLL_MS) || 2000;
@@ -141,6 +143,8 @@ async function start(a) {
   if (st.json.enrolled === true) setup('this board already holds a Kosmos+ identity: a FIRST sign-in cannot be tested here (forget it first, or use a fresh board)');
   const steps = [{ id: 'fresh', result: 'pass' }];
   const s = await b.post('/api/remote/signin-start', { email: seed });
+  // No answer is setup, not a refusal: it must not replace this build's record (review round 5).
+  if (s.status === 0) { await b.post('/api/remote/signin-cancel', {}); setup('signin-start: ' + String(s.json.error) + '; try again'); }
   if (s.status !== 200) {
     steps.push({ id: 'start', result: 'fail', detail: String(s.json.error || s.status) });
     return finishRecord(ptr, identity, seed, 'NONE', steps);
@@ -240,10 +244,11 @@ async function finish(a) {
   // Forget whenever a register was TRIED: one that timed out here may still have finished on the
   // board, and the engine's forget also retires a half-registered identity.
   if (registerTried) {
-    const f = await b.post('/api/remote/forget', {}, REGISTER_MS);
+    const f = await b.post('/api/remote/forget', {}, FORGET_MS);
     const nothing = f.status === 200 && f.json.retired !== true && /nothing to retire/i.test(String(f.json.because || ''));
     steps.push(f.status === 200 && f.json.retired === true ? { id: 'forget', result: 'pass' }
       : nothing ? { id: 'forget', result: 'pass', detail: 'the register wrote nothing, so there was nothing to retire' }
+      : f.status === 0 ? { id: 'forget', result: 'fail', detail: 'no answer from the board to the forget; the retire may still complete: check the seed account' }
       : { id: 'forget', result: 'fail', detail: 'the throwaway registration was not retired: ' + String((f.json && (f.json.because || f.json.error)) || f.status) });
   } else {
     await b.post('/api/remote/signin-cancel', {});

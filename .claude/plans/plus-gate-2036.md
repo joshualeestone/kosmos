@@ -58,3 +58,8 @@ Whether a staging pass is MANDATORY before every prod cut (#2036's item 1) is st
 
 ## Round 4 review (sonnet): 1 BLOCKER, taken
 - [BLOCKER] round 3's "a timeout is setup" path also caught a REGISTER that timed out, exiting before the forget: a register that finished on the board after the client gave up left a Mac, with nothing recorded. FIXED: once a register was tried, a timeout is a recorded register FAIL ("a Mac may have been registered anyway") and the forget still runs; the setup exit applies only before any register. Test (a register that finishes on the board but never answers: fail recorded, forget called, board not enrolled); control fails by name.
+
+## Round 5 review (opus): 1 WARNING, 1 NIT, both taken
+- [WARNING] a signin-start that timed out was recorded as an unforceable FAIL that replaced the build's record. FIXED: no answer from signin-start is setup (the half sign-in cancelled, nothing recorded). Test (the earlier PASS stands); control fails by name.
+- [NIT] the forget was bounded at the register's 7 minutes though the engine's forget can take about 8, so a slow retire read as "not retired". FIXED: its own 9-minute bound, and no answer is worded "the retire may still complete: check the seed account".
+- The reviewer traced every exit of `finish`: setup throws all come before `registerTried`, refused steps are recorded, and the forget runs after any register.
