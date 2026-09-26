@@ -67,16 +67,17 @@ fs.writeFileSync(LAUNCH_TMUX, [
   '#!/bin/bash',
   'case "$1" in',
   '  has-session) exit 1 ;;',
-  '  show-environment) printf "PATH=/usr/bin:/bin\\n"; exit 0 ;;',
+  // Answers ONLY `show-environment -g PATH`, and only when SERVER_PATH is set, so a wrong lookup reads as no PATH.
+  '  show-environment) if [ "$2" = -g ] && [ "$3" = PATH ] && [ -n "${SERVER_PATH:-}" ]; then printf "%s\\n" "$SERVER_PATH"; exit 0; fi; exit 1 ;;',
   '  new-session) printf "%s\\n" "$*" >> "$REC"; exit 0 ;;',
   '  *) exit 0 ;;',
   'esac',
 ].join('\n') + '\n', { mode: 0o755 });
 
-function launch(runner) {
+function launch(runner, serverPath = 'PATH=/usr/bin:/bin') {
   const rec = nodePath.join(SANDBOX, `launch-${runner}-${Math.random().toString(36).slice(2)}.txt`);
   const r = spawnSync('/bin/bash', [SUP, `a-${runner}`, SANDBOX, '/usr/bin/true', LAUNCH_TMUX, '', runner === 'claude' ? '' : 'm', runner], {
-    env: { PATH: process.env.PATH, HOME: SANDBOX, AGENT_WORKFORCE_HOME: SANDBOX, REC: rec },
+    env: { PATH: process.env.PATH, HOME: SANDBOX, AGENT_WORKFORCE_HOME: SANDBOX, REC: rec, SERVER_PATH: serverPath },
     encoding: 'utf8', timeout: 20000,
   });
   return { r, rec: fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '' };
@@ -90,6 +91,15 @@ test('#3953: a Grok, Gemini or Codex pane gets node on its PATH, after the serve
     assert.ok(/new-session/.test(out.rec), `the ${runner} arm did not launch: ${out.r.stderr}`);
     assert.ok(out.rec.includes(`-e PATH=/usr/bin:/bin:${nodeDir} `),
       `a ${runner} pane's report bridge cannot find node: ${out.rec}`);
+  }
+});
+
+test('#3953: with no PATH on the server (none set, unset with -PATH, or no server), the pane gets this script\'s PATH plus node', () => {
+  const nodeDir = nodePath.dirname(spawnSync('/bin/bash', ['-c', 'command -v node'], { encoding: 'utf8' }).stdout.trim());
+  for (const serverPath of ['', '-PATH']) {
+    const out = launch('grok', serverPath);
+    assert.ok(out.rec.includes(`-e PATH=${process.env.PATH}:${nodeDir} `),
+      `server PATH ${JSON.stringify(serverPath)}: the pane did not fall back to the supervisor's PATH plus node: ${out.rec}`);
   }
 });
 

@@ -59,3 +59,6 @@ The #3391 comments and a chat fixture said grok "fronts as node"; that premise w
 ## Checks
 - engine/status.test.js #3953 (isAgentSession both names, crashed, stray, rank); server.test.js #3953 (a real
   /api/status card through the page's boardCanSeeIt, with a crashed control). Each half perturbed: red.
+- supervisor.adopt-grok-3953.test.js: the real supervisor adopts a live pane for every isGrokCommand name (crashed
+  control is killed); codex/gemini/grok panes get node appended to the server PATH, and fall back to the
+  supervisor's PATH when the server has none; a Claude pane's PATH is untouched.
