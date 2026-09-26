@@ -22,7 +22,7 @@ enum NotificationCategories {
                 identifier: agentPermission,
                 actions: [],
                 intentIdentifiers: [],
-                options: [.customDismissAction]
+                options: []
             ),
         ]
     }

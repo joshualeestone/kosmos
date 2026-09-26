@@ -17,8 +17,8 @@ Card: kosmos #3870 (part of #718). Decision by Liu Kang, reversible, Josh can ov
   plain notification.
 
 ## Validation
-- `bash ios/LogicTests/run.sh`: VERDICT: PASS 226/226.
-- Negative control: a copy with an APPROVE_ACTION button restored fails 2 of 226.
+- `bash ios/LogicTests/run.sh`: VERDICT: PASS 225/225.
+- Negative control: a copy with an APPROVE_ACTION button restored fails 1 of 225.
 - `swiftc -typecheck` of ios/Kosmos/*.swift against the iPhoneSimulator 26.5 SDK: clean.
 
 ## Weakest part

@@ -22,8 +22,9 @@ surface as buildable stubs (#718) are both here now. Full context on the cards
   `@UIApplicationDelegateAdaptor`. `Kosmos/NotificationCategories.swift` holds
   the one category, with **no action buttons** (#3870): Approve and Deny were
   registered but nothing carried the choice to the board, so they are hidden
-  until approving from a notification is built for real. A tap opens the agent. The device token is registered with
-  the coordinator (see "Push" below). The `aps-environment` entitlement is in
+  until approving from a notification is built for real. A tap opens the
+  agent. The device token is registered with the coordinator (see "Push"
+  below). The `aps-environment` entitlement is in
   `Kosmos.entitlements`; the APNs auth key (.p8) lives on the coordinator, not
   in the app.
 - `Kosmos/BiometricAuth.swift`: Face ID / Touch ID unlock, gated behind
@@ -130,8 +131,9 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
 
 ### Tests that run without a simulator
 
-`LogicTests/run.sh` compiles the Foundation-only files (`PushBridgeLogic.swift`,
-`PushRegistrar.swift`, `ShellLogic.swift`, `NotificationCategories.swift`) for macOS with the tests and runs them. It ends with one
+`LogicTests/run.sh` compiles the UIKit-free files (`PushBridgeLogic.swift`,
+`PushRegistrar.swift`, `ShellLogic.swift`, `NotificationCategories.swift`) for
+macOS with the tests and runs them. It ends with one
 `VERDICT:` line; no verdict line means the run did not finish. Pass a directory
 to run the suite against a modified copy of those files (how the suite was
 shown able to fail). CI runs it, plus a simulator-SDK build, in

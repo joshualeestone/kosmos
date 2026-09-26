@@ -2,7 +2,8 @@ import UIKit
 import UserNotifications
 
 // Encapsulates the notification surface: authorization, APNs registration,
-// notification categories/actions, and foreground/response handling. Kept
+// registering the categories (NotificationCategories), and foreground/response
+// handling. Kept
 // separate from AppDelegate so the behavior is testable and the delegate stays a
 // thin forwarder.
 final class PushNotificationManager: NSObject, ObservableObject {
