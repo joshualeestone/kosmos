@@ -91,6 +91,27 @@ const SCENARIOS = {
   },
 };
 
+/* #3841: the wizard's separation on its real navy card, measured in the page (see the arms below). */
+function WIZ_SEP() {
+          const STOPS = [[27, 44, 80], [15, 29, 56]];
+  const parse = (c) => { const m = /rgba?\(([^)]+)\)/.exec(c || ''); if (!m) return null; const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number); return { rgb: p.slice(0, 3), a: p.length > 3 ? p[3] : 1 }; };
+  const over = (c, bg) => c.rgb.map((v, i) => Math.round(v * c.a + bg[i] * (1 - c.a)));
+  const lum = (rgb) => { const f = rgb.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2]; };
+  const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  const worst = (colors) => { let w = Infinity; for (const c of colors) { const q = parse(c); if (!q) return 0; for (const st of STOPS) w = Math.min(w, ratio(over(q, st), st)); } return w; };
+  const card = document.getElementById('plus-state2');
+  const fields = [...card.querySelectorAll('input.tk-inp')].map((i) => ({ id: i.id, r: worst([getComputedStyle(i).borderTopColor]) }));
+  const sec = [...card.querySelectorAll('.btn:not(.uprime)')].map((b) => ({ id: b.id, r: worst([getComputedStyle(b).borderTopColor]) }));
+  /* Review: the FACE and the EDGE are measured apart. Taking the better of the two let a button whose
+     fill matched the card pass on its 1px edge alone. */
+  const prim = [...card.querySelectorAll('.btn.uprime')].map((b) => {
+    const cs = getComputedStyle(b);
+    const fill = (cs.backgroundImage.match(/rgba?\([^)]+\)/g) || []).concat(parse(cs.backgroundColor) && parse(cs.backgroundColor).a > 0 ? [cs.backgroundColor] : []);
+    return { id: b.id, r: worst(fill.length ? fill : ['rgba(0,0,0,0)']), edge: worst([cs.borderTopColor]) };
+  });
+  return { fields, sec, prim };
+}
+
 async function openPlusState1(page) {
   await page.route('**/api/remote', (route, req) => {
     const m = req.method();
@@ -239,6 +260,21 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(r.wiz === 7 && r.n - r.wiz === 3, `[${key}] #3796 CONTROL: 7 wizard inputs and 3 enrol-flow inputs (${theme})`, r.wiz + '/' + (r.n - r.wiz));
         chk(r.bad.length === 0, `[${key}] #3596/#3796 wizard inputs are light on #16223e, enrol-flow inputs #14161a on #ffffff (${theme})`, r.bad.join(' | '));
         chk(r.gap >= 8, `[${key}] #3596 a gap separates the email field from "Email me a code" (${theme})`, String(r.gap));
+        /* #3841 (plus-rf-3796's review): render-fields cannot measure the wizard on its real ground (the navy
+           card is scoped to body.plus-active and paints a gradient), so THIS check measures separation there:
+           each wizard field's border, the secondary button's stroke, and every primary button's fill and edge,
+           composited over BOTH of the card's gradient stops (#1b2c50, #0f1d38), at least 1.1:1 (render-fields'
+           bar). A restyle that sets any of them to the card's own colour turns this red. */
+        const sep = await page.evaluate(WIZ_SEP);
+        const low = (xs) => xs.filter((x) => !(x.r >= 1.1)).map((x) => x.id + '=' + (x.r || 0).toFixed(2));
+        chk(sep.fields.length === 7 && low(sep.fields).length === 0, `[${key}] #3841 every wizard field's border separates it from the navy card (${theme})`, sep.fields.length + ' ' + low(sep.fields).join(' '));
+        chk(sep.sec.length >= 1 && low(sep.sec).length === 0, `[${key}] #3841 the secondary button's stroke separates it from the navy card (${theme})`, sep.sec.map((x) => x.id + '=' + x.r.toFixed(2)).join(' '));
+        // The card named seven; addenda 4 and 9 added Start over (timed out) and Done (the landing). Every one counts.
+        const named = ['plus-signin-code', 'plus-si-code-go', 'plus-si-second-go', 'plus-si-enrol-totp', 'plus-si-phone-go', 'plus-si-enrol-confirm-go', 'plus-si-register-go'];
+        const primIds = sep.prim.map((x) => x.id);
+        chk(named.every((id) => primIds.includes(id)) && low(sep.prim).length === 0, `[${key}] #3841 every primary button's FACE stands off the navy card (${theme})`, primIds.length + ' ' + low(sep.prim).join(' '));
+        const lowEdge = sep.prim.filter((x) => !(x.edge >= 1.1)).map((x) => x.id + '=' + (x.edge || 0).toFixed(2));
+        chk(lowEdge.length === 0, `[${key}] #3841 every primary button's edge stands off the navy card (${theme})`, lowEdge.join(' '));
       }
       if (key === 'existing-2fa') {
         await page.evaluate((v) => { if (v === null) document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', v); }, themeBefore);
@@ -391,6 +427,30 @@ const visible = (page, sel) => page.evaluate((s) => {
 
       chk(errs.length === 0, `[${key}] no page errors`, errs.join(' | '));
       await page.close();
+    }
+    /* #3841 (review): the same separation, in WebKit too. The card's colours come back through
+       getComputedStyle, and gradient serialisation is exactly what can differ between engines. */
+    {
+      let wk = null;
+      try { wk = await require('playwright').webkit.launch({ headless: process.env.HEADED === '0' }); }
+      catch (e) { chk(false, '[webkit] #3841 WebKit could not start: ' + (e && e.message ? e.message.split('\n')[0] : e)); }
+      if (wk) {
+        try {
+          const page = await wk.newPage({ viewport: { width: 1400, height: 950 } });
+          page.__url = URL;
+          await openPlusState1(page);
+          await page.click('#plus-signin-top');
+          await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
+          for (const theme of ['light', 'dark']) {
+            await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
+            const sep = await page.evaluate(WIZ_SEP);
+            const low = (xs, k) => xs.filter((x) => !(x[k] >= 1.1)).map((x) => x.id + '=' + (x[k] || 0).toFixed(2));
+            chk(sep.fields.length === 7 && !low(sep.fields, 'r').length && sep.sec.length >= 1 && !low(sep.sec, 'r').length, `[webkit] #3841 field borders and the secondary stroke separate on the navy card (${theme})`, low(sep.fields, 'r').concat(low(sep.sec, 'r')).join(' '));
+            chk(sep.prim.length >= 7 && !low(sep.prim, 'r').length && !low(sep.prim, 'edge').length, `[webkit] #3841 primary faces and edges separate on the navy card (${theme})`, low(sep.prim, 'r').concat(low(sep.prim, 'edge')).join(' '));
+          }
+          await page.close();
+        } finally { await wk.close(); }
+      }
     }
     /* #3796 (review): Sign out while work is still in flight. The engine side is engine/remote.test.js; this
        is what the person SEES. (1) A verify that answers AFTER Sign out must not move the next sign-in to a
