@@ -1577,6 +1577,28 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
 /* ANCHORED to the start of a row (after only Codex's own lead-in mark), so the sentence has to OPEN
    the row the way Codex prints it. An answer or a tool line that merely mentions the phrase (an agent
    working on this very feature, or a search result) does not count. */
+/* #4004: Gemini CLI (0.61.0, measured 2026-09-26 against a fake 429 in a real tmux pane) on a daily quota.
+   While it waits, its ProQuotaDialog is on screen ("Usage limit reached for <model>." over "1. Keep trying /
+   2. Stop"), and it waits there forever: an unattended agent looks idle, or unknown, and nothing says why.
+   After Stop, it is back at its prompt under "✕ [API Error: You have exhausted your daily quota on this model.]".
+   Rows may carry the dialog's box border (│), so it is stripped before matching. */
+const GEMINI_QUOTA_DIALOG = /^Usage limit reached for\b/i;
+const GEMINI_QUOTA_OPTION = /^(?:[●○>]\s*)?\d+\.\s+(?:Keep trying|Stop)\s*$/i;
+const GEMINI_QUOTA_ERROR = /exhausted your daily quota\b/i;
+const GEMINI_LIMIT_ROWS = 14;
+function geminiRow(r) { return String(r).replace(/^[\s│]+|[\s│]+$/g, ''); }
+/* The dialog is up (its message and at least one of its options in the last rows), or the quota error is the
+   newest thing on screen (nothing the person or the agent said after it: Gemini echoes a message as "> ..."). */
+function geminiQuotaReading(paneText) {
+  const rows = String(paneText || '').split('\n').map(geminiRow).filter((r) => r).slice(-GEMINI_LIMIT_ROWS);
+  const msg = rows.find((r) => GEMINI_QUOTA_DIALOG.test(r));
+  if (msg && rows.some((r) => GEMINI_QUOTA_OPTION.test(r))) return { dialog: true, evidence: msg };
+  let at = -1;
+  rows.forEach((r, i) => { if (GEMINI_QUOTA_ERROR.test(r)) at = i; });
+  if (at < 0) return null;
+  if (rows.slice(at + 1).some((r) => /^>\s+\S/.test(r) || /^✦/.test(r))) return null;   // a newer turn since
+  return { dialog: false, evidence: rows[at].replace(/^[✕x]\s*/, '') };
+}
 const CODEX_LIMIT_MARKERS = Object.freeze([
   /^\s*(?:[•■]\s*)?You['’]ve hit your usage limit/i,
   /^\s*(?:[•■]\s*)?Your workspace is out of credits/i,
@@ -3666,6 +3688,23 @@ function classify(pane, paneText) {
   }
   if (paneText === null) {
     return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'we could not read its screen' };
+  }
+  /* #4004: a Gemini agent on its daily quota, waiting on the Keep trying / Stop question or back at its prompt
+     under the quota error. Firm (Gemini's own words), like Codex's limit line. `quotaDialog` tells the sweep that
+     answers Stop that the question is up. */
+  if (pane.runner === 'gemini') {
+    const q = geminiQuotaReading(paneText);
+    if (q) {
+      return {
+        state: STATE.RATE_LIMITED,
+        confidence: CONFIDENCE.SCRAPED,
+        because: q.dialog ? 'its screen says its Google daily limit is used up, and it is waiting on Keep trying or Stop'
+          : 'its screen says its Google daily limit is used up',
+        evidence: q.evidence,
+        limitFrom: 'gemini',
+        quotaDialog: q.dialog,
+      };
+    }
   }
 
   const tail = paneText.split('\n').slice(-25).join('\n');
@@ -6262,7 +6301,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     /* #3723: except Codex's own limit message against an AUTOMATIC report. Codex's bridge reports
        idle at the end of every turn, and a turn that failed on the limit still ends, so that report
        is the machine noticing the turn ended, not evidence the account works. */
-    const autoOverCodexLimit = scraped.limitFrom === 'codex' && reported.by === 'auto';
+    const autoOverCodexLimit = (scraped.limitFrom === 'codex' || scraped.limitFrom === 'gemini') && reported.by === 'auto';   // #4004: Gemini's bridge ends a failed turn with idle too
     if (freshRl && !autoOverCodexLimit) {
       const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity);
       return { ...answer, conflict: 'its screen shows a usage limit, but it is still reporting, so it may be working through it' };
@@ -7625,7 +7664,7 @@ module.exports = {
   // first time a marker is added here. The card that says "Needs you" and the
   // thread that shows the question must never be able to disagree.
   NEEDS_YOU_MARKERS,
-  CODEX_NEEDS_YOU_MARKERS, CODEX_LIMIT_MARKERS,
+  CODEX_NEEDS_YOU_MARKERS, CODEX_LIMIT_MARKERS, geminiQuotaReading, capturePane,   // #4004: chat re-reads a pane before a key
   ALL_NEEDS_YOU_MARKERS,
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the

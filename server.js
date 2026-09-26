@@ -16392,6 +16392,23 @@ function start(port = PORT) {
       });
       const connlostSweep = setInterval(connlostTick, Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) : 60 * 1000); // the env is the test seam only
       if (connlostSweep && typeof connlostSweep.unref === 'function') connlostSweep.unref();
+      /* #4004: a Gemini agent frozen on its daily-quota question (Keep trying / Stop) is answered Stop
+         (engine/geminiquota.js -> chat.answerGeminiQuotaStop, which re-reads the pane first). Same gating as
+         the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
+         AGENT_WORKFORCE_GEMINI_QUOTA_OFF=1, own ~1-min timer, unref'd, best-effort. */
+      const geminiQuota = require('./engine/geminiquota');
+      const GEMINI_QUOTA_BOOK = new Map();
+      const geminiQuotaSweep = setInterval(() => {
+        if (!liveExecution.liveExecutionAllowed() || process.env.AGENT_WORKFORCE_GEMINI_QUOTA_OFF === '1') return;
+        try {
+          geminiQuota.sweepOnce({
+            roster: safeRoster(), book: GEMINI_QUOTA_BOOK, now: Date.now(),
+            answer: (session, roster) => chat.answerGeminiQuotaStop(session, roster),
+            log: (r) => process.stdout.write(`gemini-quota: ${r.name} (${r.session}) ${r.answered ? 'answered Stop' : 'not answered'} - ${r.because}\n`),
+          });
+        } catch { /* best-effort, like the sweeps above */ }
+      }, Number(process.env.AGENT_WORKFORCE_GEMINI_QUOTA_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_GEMINI_QUOTA_MS) : 60 * 1000); // the env is the test seam only
+      if (geminiQuotaSweep && typeof geminiQuotaSweep.unref === 'function') geminiQuotaSweep.unref();
       /* #3723: tell the person's project manager, once per incident, that an agent is stopped by its
          account (engine/accountnotify.js). Same gating as the sweeps above: inert under `node --test`
          and before the live-execution opt-in, operator brake AGENT_WORKFORCE_ACCOUNT_NOTIFY_OFF=1,
