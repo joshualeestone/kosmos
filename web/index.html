@@ -44739,13 +44739,16 @@ function paintTaskPage() {
 function tkActPhrase(ev, p) {
   const nameOf = (sn) => (sn ? tkMemberName(p, sn) : null);
   switch (ev.kind) {
-    case 'created': { const who = nameOf(ev.who); return who ? 'Created and given to ' + who : 'Created'; }
+    case 'created': { const who = nameOf(ev.who); return (who ? 'Created and given to ' + who : 'Created') + (ev.parent ? ', under task ' + ev.parent : ''); }
     case 'assigned': { const who = nameOf(ev.who); return who ? who + ' put on a part' : 'A part left with nobody on it'; }
     case 'part-added': return 'A part added' + (ev.sentence ? ': ' + ev.sentence : '');
     case 'part-closed': return 'A part marked done';
     case 'part-reopened': return 'A part put back';
     case 'due-set': return ev.dueDate ? 'Due date set to ' + ev.dueDate : 'Due date set';
     case 'due-cleared': return 'Due date cleared';
+    // #3861: a task put under another task on its project, or taken out from under one.
+    case 'parent-set': return ev.parent ? 'Put under task ' + ev.parent : 'Put under another task';
+    case 'parent-cleared': return 'Taken out from under its task';
     // #768: a free-text message recorded via the composer. `who` is optional (a
     // message typed on the board carries none today; the field is honoured now so
     // an authored message reads correctly when two-way delivery lands later). The

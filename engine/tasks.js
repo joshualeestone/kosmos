@@ -117,6 +117,8 @@ function parentProblem(p, n, parent) {
   if (typeof want !== 'number' || !Number.isSafeInteger(want) || want < 1) {
     return 'the task this is part of has to be a task number on this project';
   }
+  // A CLOSED task is a valid parent on purpose: nothing cascades, so filing a follow-up under
+  // finished work is allowed rather than refused.
   if (!byNumber(p, want)) return 'there is no task ' + want + ' on this project to put this under';
   if (n !== null && n !== undefined && want === Number(n)) return 'a task cannot be part of itself';
   // Walk UP from the proposed parent. Reaching this task means the parent already sits under
@@ -769,7 +771,23 @@ function allTasks(everyProject) {
   /* #3559: a caller that already read the store passes that snapshot, so the
      rows and anything it joins onto them come from ONE read. */
   for (const p of (Array.isArray(everyProject) ? everyProject : projects.readAll()) || []) {
+    /* #3861: one pass per project builds number -> task and parent -> children, so every
+       row's parent and subtask count is a lookup. Calling parentOf/subtaskProgress per row
+       re-scans the project for each task, which grows with the square of its tasks. The same
+       rules as parentOf: a parent counts only when it is a different task that exists here. */
+    const byNum = new Map();
+    for (const t of p.tasks || []) if (t && typeof t.number === 'number') byNum.set(t.number, t);
+    const upOf = (t) => (t && Number.isSafeInteger(t.parent) && t.parent !== t.number && byNum.has(t.parent) ? t.parent : null);
+    const kids = new Map();
     for (const t of p.tasks || []) {
+      const up = upOf(t);
+      if (up === null) continue;
+      if (!kids.has(up)) kids.set(up, []);
+      kids.get(up).push(t);
+    }
+    for (const t of p.tasks || []) {
+      const up = upOf(t);
+      const under = kids.get(t && t.number) || [];
       out.push(Object.assign({}, t, {
         projectId: p.id,
         projectName: p.name,
@@ -784,9 +802,9 @@ function allTasks(everyProject) {
         /* #3861: the parent AS READ (null when the stored number is not a task here), its
            sentence for the child's breadcrumb, and the "2 of 5" for a parent. On the row so the
            screen never re-derives them, for the reason isClosed is. */
-        parent: parentOf(p, t),
-        parentSentence: parentOf(p, t) ? (byNumber(p, parentOf(p, t)).sentence || null) : null,
-        subtasks: subtaskProgress(p, t.number),
+        parent: up,
+        parentSentence: up === null ? null : (byNum.get(up).sentence || null),
+        subtasks: { done: under.filter((k) => progressOf(k).closed).length, total: under.length },
       }));
     }
   }

@@ -29,6 +29,16 @@ Splinter's build calls are on the card. Owner: April. Two PRs.
 - engine/projects.js blockBody: one taught line per project: big work is one task with its pieces
   under it via `--parent`.
 
+## Decisions from review
+
+- A closed task is a valid parent (nothing cascades; a follow-up can be filed under finished work).
+- The /parent route has no rate valve, like /due: it pages nobody and a same-value write records
+  nothing.
+- allTasks indexes each project once (number -> task, parent -> children) so rows stay linear.
+- The task page's activity list phrases parent-set / parent-cleared / created-under (in this PR,
+  since the engine starts recording them here).
+- `--parent=N` is refused on both CLIs; the Mac strips leading zeros so it says what Windows says.
+
 ## PR 2 (next branch): the Tasks view UI
 
 Nested rows (two visible levels, deeper flatten under level 2 with a breadcrumb), a progress chip,

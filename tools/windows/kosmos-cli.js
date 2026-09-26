@@ -541,6 +541,7 @@ async function taskAdd(ctx, args) {
   let parent = null;
   const words = [];
   for (let i = 0; i < rest.length; i += 1) {
+    if (rest[i].startsWith('--parent=')) { ctx.err('Write it as --parent <task-number>, with a space.'); return 2; }
     if (rest[i] === '--parent') {
       const n = rest[i + 1];
       if (typeof n !== 'string' || !/^[0-9]+$/.test(n)) { ctx.err('--parent needs a task number, from: kosmos task list <project-id>.'); return 2; }

@@ -14757,8 +14757,9 @@ const server = http.createServer((req, res) => {
   /* #3861: put a task under another task on the same project, or out from under one.
      Body { parent: <task number> | null }. tasks.setParent refuses a parent that is not a task
      here, the task itself, or one already under it (a loop), inside the write, as a 400; the
-     answer is never a 200 that stored nothing. A process may do this (agents make subtasks);
-     it moves no pane and assigns nobody, so it is not valved beyond task creation's own. */
+     answer is never a 200 that stored nothing. A process may do this (agents make subtasks).
+     This route has no rate valve, like the /due route beside it: it pages no pane and gives
+     the task to nobody, and a same-value write records nothing. */
   const taskParent = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/parent$/);
   if (taskParent && req.method === 'POST') {
     const id = decodeSegment(taskParent[1]);

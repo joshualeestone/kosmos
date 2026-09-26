@@ -2197,6 +2197,8 @@ cmd_task() {
           case "$_a" in ''|*[!0-9]*) say "--parent needs a task number, from: kosmos task list <project-id>."; exit 2 ;; esac
           _want=2
         elif [ "$_a" = "--parent" ]; then _want=1
+        else
+          case "$_a" in --parent=*) say "Write it as --parent <task-number>, with a space."; exit 2 ;; esac
         fi
       done
       [ "$_want" != 1 ] || { say "--parent needs a task number, from: kosmos task list <project-id>."; exit 2; } ;;
@@ -2252,6 +2254,8 @@ cmd_task() {
         if [ "$_arg" = "--parent" ]; then _next=1; continue; fi
         detail="${detail:+$detail }$_arg"
       done
+      # Leading zeros off, so "007" is said back as task 7 (the Windows command does the same).
+      if [ -n "$parent" ]; then parent=$(printf '%s' "$parent" | sed 's/^0*//'); parent="${parent:-0}"; fi
       local esc_sentence esc_detail esc_pane
       esc_sentence=$(printf '%s' "$sentence" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
       esc_detail=$(printf '%s' "$detail" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')

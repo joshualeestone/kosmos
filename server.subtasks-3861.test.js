@@ -123,6 +123,7 @@ test('Windows `task add` refuses a bad --parent before reaching the board, and a
   assert.equal((await win(['task', 'add', projectId, 'x', '--parent'])).code, 2);
   assert.equal((await win(['task', 'add', projectId, 'x', '--parent', 'two'])).code, 2);
   assert.equal((await win(['task', 'add', projectId, '--parent', '3'])).code, 2);
+  assert.equal((await win(['task', 'add', projectId, 'x', '--parent=3'])).code, 2, '--parent=3 must be refused, never folded into the detail');
   const r = await win(['task', 'add', projectId, 'x', '--parent', '999']);
   assert.equal(r.code, 1);
   assert.match(r.err, /no task 999/);
@@ -154,7 +155,7 @@ function mac(args) {
 test('Mac `task add ... --parent <n>` makes a subtask, a leading-zero number included', async () => {
   const r = await mac(['task', 'add', projectId, 'Book the room', 'some', '--parent', '00' + top, 'detail']);
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, new RegExp('under task 00' + top));
+  assert.match(r.out, new RegExp('under task ' + top + '\\.'), 'the leading zeros should be gone, as on Windows');
   const made = (await rows()).find((t) => t.sentence === 'Book the room');
   assert.ok(made, 'the task was not made: ' + r.out);
   assert.equal(made.parent, top);
@@ -165,6 +166,8 @@ test('Mac `task add` refuses a bad --parent before the board, and a refused pare
   assert.equal((await mac(['task', 'add', projectId, 'x', '--parent'])).code, 2);
   assert.equal((await mac(['task', 'add', projectId, 'x', '--parent', 'two'])).code, 2);
   assert.equal((await mac(['task', 'add', projectId, '--parent', '3'])).code, 2);
+  assert.equal((await mac(['task', 'add', projectId, 'x', '--parent=3'])).code, 2, '--parent=3 must be refused, never folded into the detail');
+  assert.equal((await mac(['task', 'add', projectId, 'x', '--parent', '0'])).code, 1, 'zero is sent and refused by the board');
   const r = await mac(['task', 'add', projectId, 'x', '--parent', '999']);
   assert.equal(r.code, 1);
   assert.match(r.out, /no task 999/);
