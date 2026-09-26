@@ -92,9 +92,9 @@ test('#3946 sweep: the account\'s tokens today over the figure\'s movement re-de
     ];
     did = calibrateSwarmAllowances(roster, now);
   } finally { board.restore(); }
-  assert.deepEqual(did, [{ name: 'hive', from: 1000, to: 2250000 }], JSON.stringify(did));
-  assert.equal(allowance.readCalibration(dir, now).tokensPerPoint, 750000);
-  assert.equal(swarm.settingsOf(store.readProfile('hive')).dailyTokenLimit, 2250000);
+  assert.deepEqual(did, [{ name: 'hive', from: 1000, to: 1800000 }], JSON.stringify(did));
+  assert.equal(allowance.readCalibration(dir, now).tokensPerPoint, 600000);
+  assert.equal(swarm.settingsOf(store.readProfile('hive')).dailyTokenLimit, 1800000);
 });
 
 test('#3946 /api/accounts says which Claude account is calibrated', async () => {

@@ -155,12 +155,10 @@ function readWeekly(accountDir, now = Date.now()) {
    the figure moved today, is how many tokens one point of this account's week is
    worth. A swarm's "3% a day" is then 3 times that.
 
-   Use outside Kosmos (claude.ai, another computer) moves the figure with no Kosmos
-   tokens behind it, so a point looks CHEAPER than it is and the swarm pauses early,
-   never late. The same holds for the day's first tokens before the figure's first
-   reading: they are counted, so the baseline is taken only from a reading made
-   BEFORE today, never from today's first one (which would leave those tokens
-   uncounted in points and make a point look dearer, pausing late). */
+   The figure is a whole number, so the points it moved can be under-read by up to
+   one; tokens are divided by points + 1 (calibrate's test pins it). The baseline is
+   taken only from a reading made BEFORE today, never from today's first one, which
+   would leave the day's first tokens counted with no points behind them. */
 
 /* Points the figure must have moved today before a day's numbers are trusted: one
    point is a whole-number step of the provider's rounding, too coarse to divide by. */
@@ -189,13 +187,14 @@ function readCalibration(accountDir, now = Date.now()) {
   try { j = JSON.parse(fs.readFileSync(path.join(accountDir, CALIBRATION_FILE), 'utf8')); } catch { return null; }
   if (!j || typeof j.tokensPerPoint !== 'number' || !Number.isFinite(j.tokensPerPoint) || j.tokensPerPoint <= 0) return null;
   if (typeof j.at !== 'number' || !(now - j.at < CALIBRATION_MAX_AGE_MS) || j.at > now) return null;
-  return { tokensPerPoint: j.tokensPerPoint, at: j.at };
+  return { tokensPerPoint: j.tokensPerPoint, points: Number.isFinite(j.points) ? j.points : 0, at: j.at };
 }
 
 /**
  * Update an account's calibration from today's numbers and return the one to use:
  * today's, when the figure moved at least MIN_CALIBRATION_POINTS since a baseline
- * from before today; otherwise the last stored one (readCalibration); otherwise null.
+ * from before today and at least as many points as the stored one rests on; otherwise
+ * the last stored one (readCalibration); otherwise null.
  * `tokensToday` is every Kosmos agent's tokens on this account since `dayStart`,
  * counted the way the swarm limit counts them (swarm.meter). Never throws.
  */
@@ -203,8 +202,11 @@ function calibrate(accountDir, tokensToday, { now = Date.now(), dayStart } = {})
   try {
     const weekly = readWeekly(accountDir, now);
     const points = Number.isFinite(dayStart) ? pointsSince(weekly, dayStart) : null;
-    if (points !== null && points >= MIN_CALIBRATION_POINTS && Number.isFinite(tokensToday) && tokensToday > 0) {
-      const next = { tokensPerPoint: tokensToday / points, at: now };
+    const stored = readCalibration(accountDir, now);
+    /* A day's estimate replaces the stored one only once it rests on at least as many points. */
+    const enough = points !== null && points >= MIN_CALIBRATION_POINTS && (!stored || points >= stored.points);
+    if (enough && Number.isFinite(tokensToday) && tokensToday > 0) {
+      const next = { tokensPerPoint: tokensToday / (points + 1), points, at: now };
       const file = path.join(accountDir, CALIBRATION_FILE);
       const tmp = file + '.' + process.pid + '.new';
       try { fs.writeFileSync(tmp, JSON.stringify(next) + '\n'); fs.renameSync(tmp, file); }

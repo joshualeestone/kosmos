@@ -41698,18 +41698,22 @@ function swarmPagePaint(a, { force = false } = {}) {
   const capR = document.getElementById('d-swarm-cap');
   capR.closest('.swrow').hidden = !cap;
   /* #3946 items 9 and 10: on an account whose weekly allowance can be read as tokens, the limit is set as a % of
-     it (the swarm's own %, or the nearest % its token limit is worth); otherwise it stays in tokens and no
-     allowance is mentioned. */
+     it: the swarm's own %, or "about" the % its token limit is worth when that is on the slider's 1 to 20 scale.
+     Otherwise it stays in tokens and no allowance is mentioned. The mode changes only with the value, so a
+     slider being dragged in tokens is never sent as a %. */
   const perPoint = sw.allowanceCalibrated ? Number(sw.tokensPerPoint) : 0;
-  const pctMode = perPoint > 0;
-  document.getElementById('d-swarm-cap-sub').hidden = !(cap && pctMode);
-  capR.dataset.mode = pctMode ? 'pct' : 'tok';
+  const chosenPct = Number.isInteger(sw.dailyAllowancePct) && sw.dailyAllowancePct >= 1 && sw.dailyAllowancePct <= 20 ? sw.dailyAllowancePct : null;
+  const worthPct = perPoint > 0 && cap ? Math.round(cap / perPoint) : 0;
+  const pctMode = perPoint > 0 && (chosenPct !== null || (worthPct >= 1 && worthPct <= 20));
   if (cap && (force || document.activeElement !== capR) && SWARM_BUSY !== who) {
+    document.getElementById('d-swarm-cap-sub').hidden = !pctMode;
+    capR.dataset.mode = pctMode ? 'pct' : 'tok';
     if (pctMode) {
-      const pct = Number(sw.dailyAllowancePct) || Math.min(20, Math.max(1, Math.round(cap / perPoint)));
+      const pct = chosenPct !== null ? chosenPct : worthPct;
+      const words = (chosenPct !== null ? '' : 'about ') + pct + '%';
       capR.min = '1'; capR.max = '20'; capR.value = String(pct);
-      document.getElementById('d-swarm-cap-v').textContent = pct + '%';
-      capR.setAttribute('aria-valuetext', pct + '% of your weekly allowance');
+      document.getElementById('d-swarm-cap-v').textContent = words;
+      capR.setAttribute('aria-valuetext', words + ' of your weekly allowance');
     } else {
       capR.max = String(Math.max(20, Math.ceil(cap / 1000000)));
       capR.value = String(Math.max(1, Math.round(cap / 1000000)));

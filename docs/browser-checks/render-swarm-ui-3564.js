@@ -398,6 +398,28 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     for (let i = 0; i < 20 && !find((q) => q.body.dailyAllowancePct === 7); i++) await page.waitForTimeout(100);
     chk(!!find((q) => q.method === 'PUT' && q.body.dailyAllowancePct === 7 && !('dailyTokenLimit' in q.body)),
       'S34 moving it sends PUT { dailyAllowancePct: 7 } and no token number', JSON.stringify(sent.slice(-2)));
+    // S34b: a limit set in tokens on a calibrated account shows "about" the % it is worth, never a % as if chosen.
+    crewSwarm = { ...crewSwarm, dailyTokenLimit: 3000000, dailyAllowancePct: null, allowanceCalibrated: true, tokensPerPoint: 1000000 };
+    await page.evaluate(() => document.getElementById('d-swarm-cap').blur());
+    chk(await waitFor(page, () => document.getElementById('d-swarm-cap-v').textContent === 'about 3%', null, 8000),
+      'S34b a token limit worth 3% shows as about 3%', await page.evaluate(() => document.getElementById('d-swarm-cap-v').textContent));
+    // S34c: worth more than the slider's 20%, it stays in tokens rather than claiming 20%.
+    crewSwarm = { ...crewSwarm, dailyTokenLimit: 50000000 };
+    chk(await waitFor(page, () => document.getElementById('d-swarm-cap-v').textContent === '50,000,000'
+      && document.getElementById('d-swarm-cap').dataset.mode === 'tok' && document.getElementById('d-swarm-cap-sub').hidden, null, 8000),
+      'S34c a token limit worth 50% stays in tokens, with no allowance words', await page.evaluate(() => document.getElementById('d-swarm-cap-v').textContent));
+    // S34d: the account becomes calibrated while the person holds the token slider: the mode does not change under
+    // them, so their token choice is not sent as a %. CONTROL: once they let go, it does change.
+    crewSwarm = { ...crewSwarm, dailyTokenLimit: 6000000, allowanceCalibrated: false, tokensPerPoint: null };
+    await waitFor(page, () => document.getElementById('d-swarm-cap-v').textContent === '6,000,000', null, 8000);
+    await page.focus('#d-swarm-cap');
+    crewSwarm = { ...crewSwarm, allowanceCalibrated: true, tokensPerPoint: 1000000 };
+    chk(await waitFor(page, () => !!SWARM_ROW && SWARM_ROW.swarm.allowanceCalibrated === true, null, 15000), 'S34d precondition: the page has the calibrated row');
+    chk(await page.evaluate(() => document.getElementById('d-swarm-cap').dataset.mode === 'tok'),
+      'S34d the mode stays tokens while the slider is held', await page.evaluate(() => document.getElementById('d-swarm-cap').dataset.mode));
+    await page.evaluate(() => document.getElementById('d-swarm-cap').blur());
+    chk(await waitFor(page, () => document.getElementById('d-swarm-cap').dataset.mode === 'pct' && document.getElementById('d-swarm-cap-v').textContent === 'about 6%', null, 8000),
+      'S34d CONTROL: let go, it becomes about 6%', await page.evaluate(() => document.getElementById('d-swarm-cap-v').textContent));
     crewSwarm = { ...crewSwarm, dailyTokenLimit: 6000000, dailyAllowancePct: null, allowanceCalibrated: false, tokensPerPoint: null };
     await page.evaluate(() => document.getElementById('d-swarm-cap').blur());
     await waitFor(page, () => document.getElementById('d-swarm-cap-v').textContent === '6,000,000', null, 8000);

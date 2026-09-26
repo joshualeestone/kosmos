@@ -16,8 +16,17 @@ held to, and puts it on screen.
   kosmos-weekly.json's history).
 - It is trusted only when the figure moved at least MIN_POINTS today. Before that,
   the last trusted value is used, and it is stored per account and kept for up to a week.
-- Errors fail safe: use outside Kosmos moves the figure with no Kosmos tokens behind
-  it, so each point looks cheaper and the swarm pauses early, never late.
+- Which way the errors run, stated per error rather than as one direction:
+  - Use outside Kosmos (claude.ai, another computer) moves the figure with no Kosmos
+    tokens behind it, so a point looks cheaper: the swarm pauses early.
+  - The figure is a whole number, so the points moved can be under-read by up to one.
+    Tokens are divided by points + 1, which leans the same way (early).
+  - A figure that lags the tokens (the provider updates it later than Kosmos counts)
+    makes a point look dearer: late. So does an agent that switched accounts today,
+    whose tokens on the old account are counted against the new one. Neither is
+    bounded here; the daily re-measure and the points rule below keep them to a day.
+- A new day's estimate replaces the stored one only once it rests on at least as many
+  points, so a noisy 2-point morning does not overwrite a 15-point day.
 
 ## The setting
 
