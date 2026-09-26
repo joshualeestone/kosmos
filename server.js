@@ -13802,7 +13802,7 @@ const server = http.createServer((req, res) => {
         // Only the page sends federation_ref (the create screen that minted the
         // invites); a process caller's is ignored.
         if (fedRef) {
-          try { federation.recordLink(made.id, { role: 'owner', ref: fedRef }); federationLinked = true; }
+          try { federation.recordLink(made.id, { role: 'owner', ref: fedRef, project_created: made.createdAt }); federationLinked = true; }
           catch (err) {
             try { projects.remove(made.id); } catch { /* reported below either way */ }
             sendJson(res, 500, { error: 'We could not record this shared project on this computer, so it was not made. Try again. ('
@@ -14610,7 +14610,7 @@ const server = http.createServer((req, res) => {
         // of where it came from; take it back out rather than leave that behind.
         try {
           federation.recordLink(made.id, { role: 'member', edge_id: snap.edge_id, owner_handle: snap.owner_handle,
-            project_name: snap.project_name, project_desc: snap.project_desc });
+            project_name: snap.project_name, project_desc: snap.project_desc, project_created: made.createdAt });
         } catch (err) {
           try { projects.remove(made.id); } catch { /* reported below either way */ }
           throw err;
@@ -15924,6 +15924,7 @@ fedseats.configure({
   recordExternal: (projectId, msg) => messages.externalPost(projectId, msg),
   enrolled: () => remote.enrolled(),
   projectExists: (projectId) => { try { return !!projects.get(projectId, []); } catch { return true; } },
+  projectCreatedAt: (projectId) => { try { const p = projects.get(projectId, []); return p ? (p.createdAt || null) : null; } catch { return undefined; } },
   note: (projectId, text) => messages.roomNote(projectId, text),
 });
 

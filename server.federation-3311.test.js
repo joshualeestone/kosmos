@@ -98,6 +98,8 @@ test('verify then join makes the project from the coordinator snapshot, not the 
   const link = federation.linkFor(j.json.id);
   assert.equal(link.role, 'member');
   assert.equal(link.edge_id, 'edge-77');
+  // #3851: stamped with the project it was made for, so a later project of the same id cannot inherit it.
+  assert.equal(link.project_created, made.createdAt);
 
   // The snapshot is spent: joining again with the same edge is refused.
   const again = await post('/api/federation/join', { edge_id: 'edge-77', agents: [] }, SCREEN);
@@ -134,7 +136,8 @@ test('creating a project with the ref its invites were minted with records the o
   const r = await post('/api/projects', { name: 'Owned Club', federation_ref: 'ref-owner-1' }, SCREEN);
   assert.equal(r.status, 200, JSON.stringify(r.json));
   assert.equal(r.json.federationLinked, true);
-  assert.deepEqual(federation.linkFor(r.json.id), { role: 'owner', ref: 'ref-owner-1' });
+  const owned = projects.readAll().find((p) => p.id === r.json.id);
+  assert.deepEqual(federation.linkFor(r.json.id), { role: 'owner', ref: 'ref-owner-1', project_created: owned.createdAt });
 
   const plain = await post('/api/projects', { name: 'Plain Club' }, SCREEN);
   assert.equal(plain.json.federationLinked, undefined, 'no ref, no link and no claim of one');

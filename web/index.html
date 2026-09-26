@@ -5666,6 +5666,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* #3311: a message from outside this Kosmos keeps the agent bubble's fill and adds
    a dashed edge and an External tag, so it is never read as one of your agents. */
 .msg.ext .msg-bd { outline: 1px dashed var(--k-rule); outline-offset: -1px; }
+/* #3851: an outside sender's avatar is outside the local tint space (a local agent's
+   is drawn from its name, and the outside name is only the sender's claim). */
+.msg-av.ext-av { background: transparent; color: var(--label-2); border: 1px dashed var(--label-2); box-sizing: border-box; }
 .msg-ext-tag { font: 600 .6875rem var(--font-ui); text-transform: uppercase; letter-spacing: .04em;
   color: var(--label-2); border: 1px solid var(--k-rule); border-radius: 999px; padding: 0 6px; vertical-align: 1px; }
 .msg-ext-tx { white-space: normal; overflow-wrap: anywhere; }
@@ -48888,7 +48891,10 @@ function pjRoomRow(m, p, hideHeader) {
     const whenX = pjWhen(m.at) || '';
     /* data-mid like every other room row (#3743): the unread edge finds its rows by it. */
     return '<div class="msg ext" data-mid="' + esc(String(m.id || m.at || '')) + '">'
-      + '<div class="msg-av" aria-hidden="true" style="background:' + discTint(whoX) + ';color:' + discInk(whoX) + '">' + esc(initials(whoX)) + '</div>'
+      /* #3851: never the name's tint. `from` is the sender's own claim, and a tint drawn
+         from it would match a local agent of the same name; an outside sender gets one
+         neutral, dashed disc instead. */
+      + '<div class="msg-av ext-av" aria-hidden="true">' + esc(initials(whoX)) + '</div>'
       + '<div class="msg-b"><div class="msg-bd">'
       + '<b class="msg-nm">' + esc(whoX) + '</b> <span class="msg-ext-tag">' + tagX + '</span>'
       + '<div class="msg-ext-tx">' + esc(m.text || '').replace(/\n/g, '<br>') + '</div>'

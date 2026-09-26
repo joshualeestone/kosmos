@@ -71,6 +71,10 @@ let deps = null;
  *   enrolled() -> bool            optional; no seat is started on a Mac that is
  *                                 not connected to Kosmos+ (a dev board, a test)
  *   projectExists(projectId)      optional; a removed project gets no seat
+ *   projectCreatedAt(projectId)   optional; the project's createdAt, null when it
+ *                                 has none, undefined when it cannot be read. A
+ *                                 link stamped for another project of the same id
+ *                                 gets no seat (#3851)
  *   note(projectId, text)         optional; Kosmos's own line in the room, used to
  *                                 say a post did not go out or messages were dropped
  */
@@ -318,6 +322,27 @@ async function ensure(projectId, edges) {
     stop(projectId);
     try { federation.forgetLink(projectId); } catch { /* retried on the next check */ }
     return null;
+  }
+  /* #3851: a link names its project by id, and ids are reused (a slug). A link
+     left behind by a removed project (its forget failed while federation.json
+     was unreadable) must not give a NEW local project of the same id a seat:
+     every post in it would leave this Mac with no join ever made. So a link
+     carries the createdAt of the project it was made for, and a mismatch is a
+     stale link, forgotten here. A link from before the stamp is stamped on
+     first sight (weakest point: a reuse that happened before this shipped is
+     stamped as if it were the original). Unknown (undefined) decides nothing. */
+  if (typeof deps.projectCreatedAt === 'function') {
+    const born = deps.projectCreatedAt(projectId);
+    if (typeof born === 'string' && born) {
+      if (typeof link.project_created !== 'string') {
+        try { federation.recordLink(projectId, Object.assign({}, link, { project_created: born })); } catch { /* stamped on the next check */ }
+      } else if (link.project_created !== born) {
+        stop(projectId);
+        try { federation.forgetLink(projectId); } catch { /* retried on the next check */ }
+        console.error('#3851: a shared-project link was left from an earlier project with the id ' + JSON.stringify(projectId) + '; it is dropped, and the project here stays local');
+        return null;
+      }
+    }
   }
   let s = seats.get(projectId);
   if (link.ended) {

@@ -10,7 +10,9 @@
  *     characters and creates no element (a message from outside must not be able
  *     to draw on the page);
  *   - line breaks in the words survive as <br>;
- *   - the tag is visible (a non-transparent colour with a border).
+ *   - the tag is visible (a non-transparent colour with a border);
+ *   - (#3851) the avatar is never the name's tint: an outside "Bob" is not drawn in
+ *     the colour a local Bob gets, and carries the dashed outside disc.
  *
  * WHY A BROWSER. The row is HTML built in the page and styled by the page's CSS;
  * only a browser can say the payload stayed inert and the tag is actually drawn.
@@ -73,6 +75,9 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
           pwned: window.__pwned || 0,
           tagColor: cs ? cs.color : '',
           tagBorder: cs ? cs.borderTopStyle : '',
+          avBg: rows[1] ? getComputedStyle(rows[1].querySelector('.msg-av')).backgroundColor : '',
+          avBorder: rows[1] ? getComputedStyle(rows[1].querySelector('.msg-av')).borderTopStyle : '',
+          localBg: (() => { const d = document.createElement('div'); d.style.background = discTint('Bob'); document.body.appendChild(d); const c = getComputedStyle(d).backgroundColor; d.remove(); return c; })(),
         };
       });
       ok(t + ' pjRoomRow is on the page', !r.missing);
@@ -85,6 +90,8 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       ok(t + ' a line break survives', r.brs === 1, String(r.brs));
       ok(t + ' the words are shown as text', r.text.includes('<script>'), r.text);
       ok(t + ' the tag is drawn', r.tagColor && r.tagColor !== 'rgba(0, 0, 0, 0)' && r.tagBorder === 'solid', JSON.stringify({ c: r.tagColor, b: r.tagBorder }));
+      ok(t + ' #3851: the outside avatar is not the tint a local agent of that name gets', r.avBg !== r.localBg, JSON.stringify({ av: r.avBg, local: r.localBg }));
+      ok(t + ' #3851: the outside avatar is the dashed outside disc', r.avBorder === 'dashed', r.avBorder);
       await page.close();
     }
   } finally {
