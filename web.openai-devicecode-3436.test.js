@@ -48,7 +48,8 @@ test('a read code is shown in a copy row with a Copy button', () => {
   assert.equal(row[1], 'Q7RT-4KXWZ', 'the text Copy takes is not exactly the code');
   // The boxes sit ABOVE the Copy row (round 1: inside its scrolling cell a phone showed 3 of 9).
   assert.equal((v.html.match(/class="devcode-cell"/g) || []).length, 9, 'not one box per character');
-  assert.ok(v.html.indexOf('class="devcode-fit"') < v.html.indexOf('fr-cmd-row'), 'the boxes are not above the Copy row');
+  const fit = v.html.indexOf('class="devcode-fit"');
+  assert.ok(fit >= 0 && fit < v.html.indexOf('fr-cmd-row'), 'the boxes are not above the Copy row');
 });
 
 test('the address beside the code is host and path only, and only from an https link', () => {

@@ -51,6 +51,11 @@ the manual-copy fallback selects an invisible element; the contrast walk ignores
 applies today); the non-Windows OpenAI device branches have no arm; faint box borders on navy (characters 11.6:1);
 the font stack is written out; the 360px arms do not collect page errors.
 
+## Review round 4 (Sonnet), what changed
+- Three comments still gave the card's old order (code before the sentence); corrected.
+- The plus-panel check asserts the approval code's spoken label ("V R, D 6"; red without it); the "above the Copy
+  row" unit assertion can no longer pass with the boxes missing.
+
 ## Weakest premise
 - A provider whose code has no dash is one group, which cannot break: 10cqw fits five characters in its box, so a
   longer undashed code shrinks rather than wraps. Every code seen so far has a dash (xAI 4-4, OpenAI 4-5, GitHub 4-4).
