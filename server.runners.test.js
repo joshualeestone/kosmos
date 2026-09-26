@@ -219,3 +219,35 @@ test('#3568: with agy installed, the check is signed in on "ok" and could-not-co
     assert.match(r.because, /may need signing in/);
   } finally { delete process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN; }
 });
+
+test('#3568: POST /api/antigravity/open and /install answer through the real routes, with their reasons', async () => {
+  if (process.platform !== 'darwin') return;
+  const agystatus = require('./engine/agystatus');
+  const dir = path.join(SANDBOX, 'agyroutes'); fs.mkdirSync(dir, { recursive: true });
+  const bin = path.join(dir, 'agy');
+  process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = bin;
+  try {
+    // Not installed: open refuses with its reason, and install runs the installer.
+    let ran = 0;
+    agystatus.setInstallerForTests((done) => { ran += 1; fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 }); done(null); });
+    const o1 = await req('/api/antigravity/open', { method: 'POST' });
+    assert.equal(o1.status, 400);
+    assert.match(json(o1).error, /not installed/);
+    const i1 = await req('/api/antigravity/install', { method: 'POST' });
+    assert.equal(i1.status, 200, i1.body);
+    assert.deepEqual(json(i1), { ok: true, installed: true });
+    assert.equal(ran, 1);
+    // Installed: open opens it.
+    let opened = null;
+    agystatus.setOpenerForTests((b, done) => { opened = b; done(null); });
+    const o2 = await req('/api/antigravity/open', { method: 'POST' });
+    assert.equal(o2.status, 200);
+    assert.equal(opened, bin);
+    // CONTROL: a failed install is a 400 with its reason, not a 200.
+    fs.rmSync(bin, { force: true });
+    agystatus.setInstallerForTests((done) => done(new Error('curl: (6)')));
+    const i2 = await req('/api/antigravity/install', { method: 'POST' });
+    assert.equal(i2.status, 400);
+    assert.match(json(i2).error, /did not finish/);
+  } finally { delete process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN; }
+});

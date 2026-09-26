@@ -294,7 +294,9 @@ function check(name, pass, detail) {
       enabled.every(([t]) => /anthropic|openai|gemini|grok/i.test(t))
         && enabled.some(([t]) => /anthropic/i.test(t))
         && enabled.some(([t]) => /openai/i.test(t))
-        && seen.providers.length === 8,
+        // #3568: nine with Google Gemini (Google subscription), gated on Antigravity being installed
+        // (off in this check's sandbox, which has no agy); its name matches /gemini/ above.
+        && seen.providers.length === 9,
       `${enabled.length} of ${seen.providers.length} selectable: ${enabled.map((x) => x[0]).join(', ')}`);
     /* #3566: the loose check above cannot see the gate break (a gate that always offers
        Gemini/Grok passes it). This one compares each against what the page's own account

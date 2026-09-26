@@ -856,7 +856,9 @@ function providerLabel(provider) {
   if (provider === 'openai') return 'OpenAI';
   if (provider === 'google') return 'Gemini';
   if (provider === 'xai') return 'Grok';
-  if (provider === 'antigravity') return 'Antigravity'; // #3568
+  // #3568: the name the person picked in the menu, not the program's; board labels that name the
+  // program ("an Antigravity agent", "signs in to Antigravity") say Antigravity on purpose.
+  if (provider === 'antigravity') return 'Gemini (Google subscription)';
   return 'Anthropic';
 }
 /* #3568: the Antigravity runner (Google's agy): Gemini on a Google subscription. ON by default

@@ -68,7 +68,8 @@ function checkOnce() {
 }
 const shared = inflight.collapse(checkOnce);
 
-/** { installed, signedIn: true | null, because? }: null means "could not confirm", never "signed out". */
+/** { installed, signedIn, because? }: signedIn is true; false only when agy is not installed; null when
+    it could not be confirmed, never a guessed "signed out". */
 function check() { return shared(); }
 
 /* Open agy once, in Terminal, so it can sign in. Google's docs (antigravity.google/docs/cli/install):
@@ -93,21 +94,34 @@ function openForSignIn() {
    URL is fixed and the script is saved to a private temp file and run by bash, not piped, so a failed
    download fails the install instead of running half a script. */
 const INSTALL_URL = 'https://antigravity.google/cli/install.sh';
+const INSTALL_MS = 300000;
 let runInstall = (done) => {
   let dir;
   try { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-agy-install-')); } catch (e) { done(e); return; }
   const script = path.join(dir, 'install.sh');
   const clean = () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } };
-  execFile('/usr/bin/curl', ['-fsSL', '--proto', '=https', '-o', script, INSTALL_URL], { timeout: 60000 }, (err) => {
+  execFile('/usr/bin/curl', ['-fsSL', '--proto', '=https', '-o', script, INSTALL_URL], { timeout: 60000, killSignal: 'SIGKILL' }, (err) => {
     if (err) { clean(); done(err); return; }
-    execFile('/bin/bash', [script], { cwd: dir, timeout: 300000, env: { ...process.env, HOME: os.homedir() } }, (err2) => { clean(); done(err2); });
+    execFile('/bin/bash', [script], { cwd: dir, timeout: INSTALL_MS, killSignal: 'SIGKILL', env: { ...process.env, HOME: os.homedir() } }, (err2) => { clean(); done(err2); });
   });
 };
 function installOnce() {
   return new Promise((resolve) => {
     if (process.platform !== 'darwin') { resolve({ ok: false, because: 'Kosmos can install Antigravity on a Mac only' }); return; }
     if (installed().installed) { resolve({ ok: true, installed: true }); return; }
+    /* A hard cap of our own, as check() has (review round 2): an installer child that holds stdout
+       would keep execFile's callback from firing, and an unsettled install would hold every later one. */
+    let done = false;
+    const cap = setTimeout(() => {
+      if (done) return;
+      done = true;
+      const now = installed();
+      resolve(now.installed ? { ok: true, installed: true }
+        : { ok: false, installed: false, because: 'Google\'s Antigravity installer took too long, so we stopped waiting' });
+    }, 60000 + INSTALL_MS + 10000);
     runInstall((err) => {
+      if (done) return;
+      done = true; clearTimeout(cap);
       const now = installed();
       resolve(now.installed ? { ok: true, installed: true }
         : { ok: false, installed: false, because: err ? 'Google\'s Antigravity installer did not finish, so nothing changed' : 'the installer finished but Antigravity was not found where it installs' });

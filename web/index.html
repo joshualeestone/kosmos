@@ -24573,8 +24573,10 @@ const FR_AGY_SUB = {
   next: 'check',   // what the step's button does next: 'install' Antigravity, 'open' its sign-in, or 'check'
   leave() { this.gen += 1; this.busy = false; this.next = 'check'; },
   el(part) { return document.getElementById('fr-gemini-sub-' + part); },
-  say(text, button, about) {
+  say(text, button, about, done) {
     const code = this.el('code'); if (code) { code.textContent = text; code.hidden = !text; }
+    // Stop is there for the whole step, like Grok's, except once it is ready (review round 2).
+    const stop = this.el('cancel-row'); if (stop) stop.hidden = !!done;
     const go = this.el('go'); if (go) { go.textContent = button || ''; go.hidden = !button; }
     const row = this.el('open-row'); const a = this.el('open');
     if (row && a) {
@@ -24613,6 +24615,11 @@ const FR_AGY_SUB = {
           this.say(((got && got.error) || 'We could not install Antigravity just now') + '.', 'Try again', true);
           return;
         }
+        /* Freshly installed means not signed in yet, so go straight to the sign-in step rather than
+           spending a check on it (review round 2: a signed-out check may itself open a browser). */
+        this.next = 'open';
+        this.say('Antigravity is installed. Open it once to sign in with your Google account.', 'Open Antigravity to sign in', false);
+        return;
       }
       this.say('Checking Antigravity on this computer…', '', false);
       const r = await this.post('/api/antigravity/check');
@@ -24627,7 +24634,7 @@ const FR_AGY_SUB = {
           + 'Kosmos can install it for you: it is a download from Google.', 'Install Antigravity', true);
       } else if (r.signedIn === true) {
         this.next = 'check';
-        this.say('Ready. Gemini runs on your Google subscription on this computer: pick Google Gemini (Google subscription) when you create an agent.', '', false);
+        this.say('Ready. Gemini runs on your Google subscription on this computer: pick Google Gemini (Google subscription) when you create an agent.', '', false, true);
       } else {
         this.next = 'open';
         this.say("Antigravity is on this computer but we could not confirm it is signed in. Open it once to sign in with your Google account.",
@@ -24893,6 +24900,11 @@ const FR_GROK_SUB = grokSubDriver({
     try { await frPaintKeyed(); }   // a fresh read: the Grok answer alone would repaint Gemini as not connected
     catch { msg.textContent += ' ' + FR_GROK_REPAINT_FAILED; }
   },
+});
+document.getElementById('fr-gemini-sub-cancel').addEventListener('click', () => {
+  // #3568, as Grok's below: back to the choice, so the key is one press away.
+  FR_AGY_SUB.leave();
+  frKeyedShowPick('google');
 });
 document.getElementById('fr-grok-sub-cancel').addEventListener('click', () => {
   // Like GPT's Stop (frOpenaiShowPick): back to the choice, so the key is one press away.

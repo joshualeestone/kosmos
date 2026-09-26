@@ -4308,7 +4308,7 @@ test('#3568: the provider and runner maps round-trip antigravity, and it is a no
   assert.equal(create.runnerProvider('antigravity'), 'antigravity');
   assert.equal(create.isNonClaudeRunner('antigravity'), true);
   assert.equal(create.briefFilename('antigravity'), 'AGENTS.md');
-  assert.equal(create.providerLabel('antigravity'), 'Antigravity');
+  assert.equal(create.providerLabel('antigravity'), 'Gemini (Google subscription)');   // the menu's word (review round 2)
 });
 test('#3568: the supervisor launches agy with its documented auto-approve flag, and --model only when one is set', () => {
   const script = supervisorText();
