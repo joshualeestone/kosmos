@@ -204,16 +204,26 @@ test('the win32 device-code sign-in waits 14 minutes; a browser sign-in keeps 5'
 
 test('the watchdog uses the longer wait only for a win32 device sign-in', async (t) => {
   // Short stand-ins for the two waits, restored after, so the arm runs in well under a second.
-  openai.setChatgptTimers({ timeout: 150, deviceTimeout: 5000 });
+  const BROWSER_WAIT_MS = 150;
+  openai.setChatgptTimers({ timeout: BROWSER_WAIT_MS, deviceTimeout: 5000 });
   t.after(() => openai.setChatgptTimers({ timeout: 5 * 60 * 1000, deviceTimeout: 14 * 60 * 1000 }));
+  const startedAt = Date.now();
   const win = startWithStandin({ say: MEASURED_DEVICE_OUT, platform: 'win32', mode: 'browser' }).r;
   const mac = startWithStandin({ say: 'https://auth.openai.com/oauth/authorize?x=1\n', platform: 'darwin', mode: 'browser' }).r;
   assert.equal(win.ok && mac.ok, true);
   try {
+    /* #4028: the Windows stand-in is a whole node process, and under load it can take longer than
+       the browser wait just to print. Read before then, its state is still 'starting', and the old
+       single read failed with a message blaming the browser wait. Wait for its code first. */
+    await waitFor(win.sessionId, (x) => x.state === 'awaiting-code' || x.state === 'error');
     const m = await waitFor(mac.sessionId, (x) => x.state === 'error');
     assert.equal(m.error, 'the OpenAI sign-in timed out');
+    /* Then read Windows only once ITS browser wait would certainly have fired (three of them past
+       its start), so staying in awaiting-code can only mean it is on the longer device wait. */
+    const settle = startedAt + 3 * BROWSER_WAIT_MS - Date.now();
+    if (settle > 0) await new Promise((r) => setTimeout(r, settle));
     const w = openai.chatgptLoginStatus(win.sessionId);
-    assert.equal(w.state, 'awaiting-code', 'the Windows device sign-in was timed out on the browser wait');
+    assert.equal(w.state, 'awaiting-code', 'the Windows device sign-in was timed out on the browser wait (' + JSON.stringify(w.error || null) + ')');
   } finally { openai.cancelChatgptLogin(win.sessionId); openai.cancelChatgptLogin(mac.sessionId); }
 });
 
