@@ -16,20 +16,25 @@ for the wrong reason, a timeout instead of the answer they test.
 Real use is unaffected: tools/test-install.sh passes ${KOSMOS_SELFTEST_TIMEOUT:-10}.
 
 ## Change
-- tools/test-app-port-selftest.sh: QUICK_T=30 for the four answering arms; T=2 stays for the two hanging
-  arms (their 124 is under test). A quick answer returns when it exits, so the longer bound costs nothing
+- tools/test-app-port-selftest.sh: QUICK_T=30 for the answering arms; the two hanging arms keep a short
+  bound (their 124 is under test), raised from 2s to 5s in review round 3. A quick answer returns when it exits, so the longer bound costs nothing
   on an idle Mac.
 
 - Review round 1: the hanging arm's reap check passed with nothing to reap when the kill landed before
   the stub forked (a launcher-only-kill regression went green with a slow fork). The stub now writes a
   marker once it has forked; if a 2s run misses it, the arm runs once more at 10s, and it FAILS rather
   than passes without the marker. The BEHIND answering bundles are also run raw, asserting rc 0 and their
-  answer, so their premise arms fail on the answer, not a timeout. A quick answer is timed (<= 20s), which
-  is what makes QUICK_T free. wait_gone polls up to ~20s.
+  answer, so their premise arms fail on the answer, not a timeout. The first quick answer is timed against
+  a ceiling below QUICK_T (two-thirds of it), the one check that catches a bound always waited out; the
+  other QUICK_T arms are not timed. wait_gone polls up to ~20s.
 - Review round 2: the reap line now reports "never-forked" (a FAIL) when the marker is missing, instead
   of a PASS for a reap never exercised. Baron Draxum (the test's author) asked for a control that the
   quick arm hands back the command's own nonzero rc and stdout, not 124: a stub that prints "broke" and
   exits 3 must come back as 3:broke (a bounded_run that drops the rc fails it, measured).
+- Review round 3: the hanging arms' bound is 5s, not 2 (the same 124, and a slow start is much less likely
+  to miss the fork or to hit the #3859 setpgrp window, which would HANG the test rather than fail it);
+  the timing ceiling is derived from QUICK_T so it cannot be silently disarmed; the rerun bound is named.
+  Re-measured: a bound always waited out and a launcher-only kill both still fail.
 
 ## Measured
 - On main's test with the answering stub made to take 3s (standing in for a loaded start): 3 FAIL, the
@@ -42,5 +47,6 @@ Real use is unaffected: tools/test-install.sh passes ${KOSMOS_SELFTEST_TIMEOUT:-
   which would change product code to fix a test's bound). Weakest premise: that nothing else in the
   test waits on another process; the reproduction shows the bound alone accounts for the card's failure.
 - Not here: bounded_run can hang if its bound expires before perl's setpgrp (product code, found in
-  review round 1). Filed as #3859.
+  review round 1). Filed as #3859. Residual in this test until then: a Mac starved for more than 5s
+  before perl's setpgrp would hang the self-test (a stuck CI job at its 30-minute cap), not fail it.
 - Card offered to Baron Draxum (the test's author) first; his session could not answer.

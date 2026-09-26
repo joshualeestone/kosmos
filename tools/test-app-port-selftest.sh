@@ -17,9 +17,13 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/apst-test.XXXXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 fails=0
-T=2                 # short bound: fast, and a real hang is caught quickly
+T=5                 # the bound for bundles that HANG: short, so a real hang is caught quickly.
+                    # 5s, not 2 (#3854 review): a 124 at 5s tests the same thing, and a start
+                    # that is slow under load is much less likely to miss the fork, or to be
+                    # killed before perl's setpgrp (the bounded_run race filed as #3859).
+RERUN_T=10          # one rerun of a hang arm whose stub had not forked by T
 QUICK_T=30          # #3854: the bound for bundles that ANSWER. bounded_run polls once a
-                    # second, so under T=2 perl + bash startup on a loaded Mac (load 7-12)
+                    # second, so under a 2s bound perl + bash startup on a loaded Mac (load 7-12)
                     # was killed at 124 about 1 run in 6. A quick answer returns as soon as it
                     # exits, so a generous bound costs nothing when the Mac is idle. Only the
                     # HANGING arms keep T: their 124 is the thing under test.
@@ -34,7 +38,7 @@ check() {  # check <name> <expected> <actual>
   else echo "FAIL  $1 (expected $2, got $3)"; fails=$((fails + 1)); fi
 }
 
-# wait_gone <pgrep-pattern>: the group-kill lands asynchronously, so poll (up to ~5s)
+# wait_gone <pgrep-pattern>: the group-kill lands asynchronously, so poll (up to ~20s)
 # for our (unique) marker to disappear rather than assuming a fixed delay; echo the
 # final match count (0 = reaped).
 wait_gone() {
@@ -80,10 +84,10 @@ chmod +x "$bhang"
 # BEHIND-EXIT: predates the flag and exits immediately with no port.
 bexit="$tmp/behind-exit"; printf '#!/bin/bash\nexit 0\n' > "$bexit"; chmod +x "$bexit"
 
-# BEHIND-WRONG: answers the flag but with the WRONG port (a bundle that regressed the value).
 # FAILING: answers the flag but exits nonzero with its own words. bounded_run must hand
 # back THAT rc and stdout, not 124 (Baron Draxum, #3854): passthrough, not a timeout.
 failing="$tmp/failing"; printf '#!/bin/bash\necho broke\nexit 3\n' > "$failing"; chmod +x "$failing"
+# BEHIND-WRONG: answers the flag but with the WRONG port (a bundle that regressed the value).
 bwrong="$tmp/behind-wrong"; printf '#!/bin/bash\necho 9999\nexit 0\n' > "$bwrong"; chmod +x "$bwrong"
 
 # --- bounded_run bounds a hanging bundle AND takes its FORKED child with it --------
@@ -96,7 +100,7 @@ hang_arm() {  # hang_arm <bound>: sets rc and elapsed
   elapsed=$(( $(date +%s) - start ))
 }
 hang_arm "$T"
-[ -f "$FORKED" ] || { wait_gone "sleep $FORK" >/dev/null; hang_arm 10; }
+[ -f "$FORKED" ] || { wait_gone "sleep $FORK" >/dev/null; hang_arm "$RERUN_T"; }
 check "the hanging stub forked before the kill (so the reap below is real)" yes "$([ -f "$FORKED" ] && echo yes || echo no)"
 check "bounded_run returns 124 on a hanging bundle" 124 "$rc"
 # The completion itself proves no-hang (a broken bound would hang this test). A generous
@@ -120,7 +124,8 @@ check "bounded_run returns a quick command's stdout" 16180 "$out"
 out="$(bounded_run "$QUICK_T" "$failing" --kosmos-app-port-selftest 501)"; rc=$?
 check "bounded_run returns a failing command's own rc and stdout, not 124" "3:broke" "$rc:$out"
 # A quick answer returns when it exits, not at the bound: this is what makes QUICK_T free.
-if [ "$quick" -le 20 ]; then check "a quick answer returns before the bound" ok ok
+QUICK_CEIL=$((QUICK_T * 2 / 3))   # below QUICK_T, so a bound that is always waited out fails
+if [ "$quick" -le "$QUICK_CEIL" ]; then check "a quick answer returns before the bound" ok ok
 else check "a quick answer returns before the bound" ok "WAITED-${quick}s"; fi
 # The BEHIND answering bundles really ANSWER (rc 0) rather than time out, so the premise
 # arms below fail them for their answer, not for a timeout (#3854 review).
