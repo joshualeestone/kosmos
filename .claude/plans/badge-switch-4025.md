@@ -37,3 +37,10 @@ Card #4025 (follow-up to #3996). The Dock badge cannot be turned off today: macO
 - main.swift's comment names this switch; the browser check's header no longer claims to pin the row's place (web.settings-nav.test.js does).
 - validation #2's one red (tools.plus-signin-2036, a timing test this branch does not touch) is 19/19 alone: machine contention.
 - Round 4: the surface gate (#2518) matched a local variable named msg and the id wb-msg against two chat checks' 'msg' token; renamed wbMsg / wb-note. render-win32-board-copy.js now names the App icon box among its Windows-hidden surfaces (and the tmux box selector excludes it).
+
+## Review round 5 (decided)
+- A save whose answer was lost re-reads with WB_SAVING still set (readWaitingBadge, split out of paintWaitingBadge), so a second click or a Settings repaint waits for it; the "could not save" note shows only when the switch is up. The race test has a 5 s timeout, so a regression fails instead of hanging.
+- A test pins that paintSettings calls paintWaitingBadge (without it the switch would stay hidden for good).
+- A failed read that hides the switch under the keyboard moves focus to its sentence (tabindex -1), which now says to open Settings again to retry.
+- render-waiting-badge-4025 joins the CI browser-check allowlist (hermetic, DOM state only).
+- validation #4's one red was the openaiaccounts device-code watchdog timing test (contention; untouched by this branch).

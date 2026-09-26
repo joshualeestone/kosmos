@@ -15458,7 +15458,7 @@ window.kosmosMeasureScrollbarWidth();
           <p class="dhint" style="margin:2px 0 0;">In the Kosmos app, the icon in the Dock shows how many things are waiting on you: agents that need you and unread messages. On by default.</p></div>
         <button class="toggle" id="wb-toggle" role="switch" aria-label="Show the waiting count on the Kosmos icon" hidden><i></i></button>
       </div>
-      <p class="dhint" id="wb-note" role="status"></p>
+      <p class="dhint" id="wb-note" role="status" tabindex="-1"></p>
     </section>
     <section class="dbox">
       <h3 class="dlab">Sounds</h3>
@@ -21134,6 +21134,11 @@ let WB_EPOCH = 0;
 let WB_SAVING = false;
 async function paintWaitingBadge() {
   if (WB_SAVING) return;   // a save in flight paints the board's answer itself; a repaint now could read the old value
+  await readWaitingBadge();
+}
+/* The read itself, for paintWaitingBadge and for a save whose answer was lost (round 5: that re-read
+   runs with WB_SAVING still set, so a second click or a Settings repaint waits for it). */
+async function readWaitingBadge() {
   const mine = ++WB_EPOCH;
   const wbMsg = document.getElementById('wb-note');
   try {
@@ -21147,8 +21152,13 @@ async function paintWaitingBadge() {
     if (wbMsg) wbMsg.textContent = '';
   } catch {
     if (mine !== WB_EPOCH) return;
+    /* The switch hides; if the keyboard was on it, the sentence under it takes focus (round 5), so
+       focus never falls to the page behind. */
+    const tog = document.getElementById('wb-toggle');
+    const hadFocus = !!tog && typeof document !== 'undefined' && document.activeElement === tog;
     paintSwitch('wb-toggle', null);
-    if (wbMsg) wbMsg.textContent = 'We could not read this setting just now.';
+    if (wbMsg) wbMsg.textContent = 'We could not read this setting just now. Open Settings again to retry.';
+    if (hadFocus && wbMsg && typeof wbMsg.focus === 'function') wbMsg.focus();
   }
 }
 async function saveWaitingBadge() {
@@ -21168,10 +21178,9 @@ async function saveWaitingBadge() {
   } catch {
     if (mine === WB_EPOCH) {
       /* Re-read (round 3): the board may have stored it and only the answer was lost, so the switch
-         draws what the board holds, then says the save did not come back. */
-      WB_SAVING = false;
-      await paintWaitingBadge();
-      if (wbMsg) wbMsg.textContent = 'We could not save that just now. Try again in a moment.';
+         draws what the board holds, then says the save did not come back. WB_SAVING stays set. */
+      await readWaitingBadge();
+      if (wbMsg && document.getElementById('wb-toggle') && !document.getElementById('wb-toggle').hidden) wbMsg.textContent = 'We could not save that just now. Try again in a moment.';
     }
   } finally { WB_SAVING = false; }
 }

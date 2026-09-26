@@ -13,14 +13,14 @@ const page = require('./test-support/page');
 
 const HTML = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(HTML);
-const FNS = page.liftAll(SCRIPT, ['paintWaitingBadge', 'saveWaitingBadge']);
+const FNS = page.liftAll(SCRIPT, ['paintWaitingBadge', 'readWaitingBadge', 'saveWaitingBadge']);
 
 function harness(fetchImpl) {
   const tog = { hidden: true, attrs: {}, getAttribute(k) { return this.attrs[k] === undefined ? null : this.attrs[k]; },
     hasAttribute(k) { return this.attrs[k] !== undefined; } };
-  const msg = { textContent: '' };
+  const msg = { textContent: '', focus() { document.activeElement = msg; } };
   const el = { 'wb-toggle': tog, 'wb-note': msg };
-  const document = { getElementById: (id) => el[id] || null };
+  const document = { getElementById: (id) => el[id] || null, activeElement: null };
   const paintSwitch = (id, on) => {
     const t = el[id];
     if (on === null || on === undefined) { delete t.attrs['aria-checked']; t.hidden = true; return; }
@@ -28,7 +28,7 @@ function harness(fetchImpl) {
   };
   const make = new Function('document', 'fetch', 'paintSwitch',
     'let WB_EPOCH = 0; let WB_SAVING = false;\n' + FNS + '\nreturn { paintWaitingBadge, saveWaitingBadge };');
-  return { tog, msg, api: make(document, fetchImpl, paintSwitch) };
+  return { tog, msg, document, api: make(document, fetchImpl, paintSwitch) };
 }
 
 test('#4025: the switch ships hidden and unchecked in the markup, inside Settings', () => {
@@ -120,4 +120,44 @@ test('#4025: a repaint while a save is in flight does not draw over it', async (
   assert.equal(reads, 1, 'a repaint read the board while the save was in flight');
   release(); await saving;
   assert.equal(h.tog.getAttribute('aria-checked'), 'false', 'the save\'s answer was thrown away');
+});
+
+test('#4025 round 5: a click during a lost-answer re-read waits, so the switch never shows what the board does not hold', { timeout: 5000 }, async () => {
+  let stored = true;
+  let releaseRead;
+  let posts = 0;
+  let slowRead = false;
+  const h = harness(async (url, opts) => {
+    if (opts && opts.method === 'POST') {
+      posts += 1;
+      if (posts === 1) throw new Error('connection reset');   // not stored, answer lost
+      stored = JSON.parse(opts.body).waitingBadge;
+      return { ok: true, json: async () => ({ ok: true, waitingBadge: stored }) };
+    }
+    if (slowRead) await new Promise((r) => { releaseRead = r; });
+    return { ok: true, json: async () => ({ waitingBadge: stored }) };
+  });
+  await h.api.paintWaitingBadge();
+  slowRead = true;
+  const first = h.api.saveWaitingBadge();   // fails, then re-reads slowly
+  await new Promise((r) => setImmediate(r));
+  await h.api.saveWaitingBadge();           // a second click during the re-read
+  await h.api.paintWaitingBadge();          // and a Settings repaint
+  assert.equal(posts, 1, 'a second save started while the first was still re-reading');
+  slowRead = false; releaseRead(); await first;
+  assert.equal(h.tog.getAttribute('aria-checked'), String(stored), 'the switch shows a position the board does not hold');
+});
+
+test('#4025 round 5: opening Settings paints the switch (the hook is wired)', () => {
+  const body = page.liftAll(SCRIPT, ['paintSettings']);
+  assert.match(body, /\bpaintWaitingBadge\(\)/, 'paintSettings no longer loads the App icon switch, so it would stay hidden');
+});
+
+test('#4025 round 5: a failed read with the keyboard on the switch moves focus to the sentence, not the page behind', async () => {
+  const h = harness(async () => ({ ok: false, json: async () => ({}) }));
+  h.tog.attrs['aria-checked'] = 'true'; h.tog.hidden = false;
+  h.document.activeElement = h.tog;
+  await h.api.paintWaitingBadge();
+  assert.equal(h.tog.hidden, true, 'CONTROL: the switch hid');
+  assert.equal(h.document.activeElement, h.msg, 'focus stayed on a hidden switch (it falls to the page behind)');
 });
