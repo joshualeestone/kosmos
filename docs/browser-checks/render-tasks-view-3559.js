@@ -195,8 +195,10 @@ function chk(ok, label, extra) {
          #3880 had removed it only in the consolidated column. The tiles keep their own border (asserted below). */
       const tabFrame = await page.evaluate(() => { const cs = getComputedStyle(document.querySelector('#panel-tasks .tsk-view'));
         const tile = getComputedStyle(document.querySelector('#tsk-tiles .tsk-tile'));
-        return { w: cs.borderTopWidth, style: cs.borderTopStyle, r: cs.borderTopLeftRadius, tileBorder: tile.borderTopWidth }; });
-      chk((tabFrame.w === '0px' || tabFrame.style === 'none') && tabFrame.r === '0px' && tabFrame.tileBorder !== '0px',
+        const side = (k) => cs['border' + k + 'Style'] === 'none' || cs['border' + k + 'Width'] === '0px';
+        return { sides: ['Top', 'Right', 'Bottom', 'Left'].every(side), r: cs.borderTopLeftRadius, outline: cs.outlineStyle,
+          shadow: cs.boxShadow, tileBorder: tile.borderTopWidth }; });
+      chk(tabFrame.sides && tabFrame.r === '0px' && tabFrame.outline === 'none' && tabFrame.shadow === 'none' && tabFrame.tileBorder !== '0px',
         `${tag} the tab view has no outer frame; the tiles keep their own border`, JSON.stringify(tabFrame));
       /* #3949/#3951 (Josh): six single-label tiles in his order; Completed is a tile and still the fold below. */
       chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['decision', 'working', 'assigned', 'nobody', 'built', 'closed']), `${tag} the tiles are Josh's six groups in his order, each from a recorded state`, JSON.stringify(a.tiles.map((t) => t.k)));
