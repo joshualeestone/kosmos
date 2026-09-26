@@ -10,13 +10,15 @@
  *   - "Set them to start at login" is at least 44px tall;
  *   - a tap on an empty part of a card (grid) and of a row (list), away from its name
  *     and any button, opens that agent, so the 16px name is not the target;
- *   - the page is no wider than the screen;
- * and at desktop width (1280) the button keeps its old height.
+ *   - the page is no wider than the screen, in both layouts;
+ * and at desktop width (1280) the button keeps its old height (the same with any min-height
+ * taken away). The tab layout only: the consolidated layout does not show #restart-wrap.
  *
  * Controls, measured: on main's page the button arm reds at every phone size in both
  * engines (34px) and the rest stay green (they pin the reason the names are left alone). With
  * the board's click handler opening an agent only from its name, both tap arms red at all
- * four sizes.
+ * four sizes. With the button rule not limited to phone width, the desktop arm reds (44px
+ * drawn, 34 with no min-height).
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -38,7 +40,8 @@ process.env.AGENT_WORKFORCE_CONFIG_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 
 process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-hp-launch-'));
 process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-hp-projects-'));
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
-process.env.AGENT_WORKFORCE_DRY_RUN = '1';   // the survival button writes launchd jobs; never here
+// The survival button writes launchd jobs. This check never clicks it, and LAUNCH above is a
+// temp dir, which is what keeps a run off this Mac's real login items.
 
 let pw;
 try { pw = require('playwright'); }
@@ -135,10 +138,10 @@ function emptySpot(page, sel) {
             const bh = await btn.evaluate((b) => Math.round(b.getBoundingClientRect().height * 10) / 10);
             chk(bh >= 44, `${tag} "Set them to start at login" is at least 44px tall`, `${bh}px`);
           }
-          const pageW = await page.evaluate(() => document.documentElement.scrollWidth);
-          chk(pageW <= w, `${tag} the page is no wider than the screen`, `page ${pageW}px`);
           for (const [layout, sel, what] of [['grid', '#grid .acard[data-agent="ada"]', 'card'], ['list', '#alist .lrow[data-agent="ada"]', 'row']]) {
             await home(page, URL, layout);
+            const pageW = await page.evaluate(() => document.documentElement.scrollWidth);
+            chk(pageW <= w, `${tag} the page is no wider than the screen (${layout})`, `page ${pageW}px`);
             const spot = await emptySpot(page, sel);
             if (spot.error) { chk(false, `${tag} a tap on an empty part of an agent's ${what} opens it`, spot.error); continue; }
             await page.touchscreen.tap(spot.x, spot.y);
@@ -158,8 +161,17 @@ function emptySpot(page, sel) {
           const page = await ctx.newPage();
           await home(page, URL, 'grid');
           const btn = await page.waitForSelector(SURVIVAL, { state: 'visible', timeout: 8000 }).catch(() => null);
-          const bh = btn ? await btn.evaluate((b) => Math.round(b.getBoundingClientRect().height * 10) / 10) : null;
-          chk(bh !== null && bh < 44, `${tag} "Set them to start at login" keeps its desktop height`, `${bh}px`);
+          // Its height as drawn, then with any min-height taken away: equal means no phone rule reached it.
+          const hOf = () => btn.evaluate((b) => Math.round(b.getBoundingClientRect().height * 10) / 10);
+          const bh = btn ? await hOf() : null;
+          let bare = null;
+          if (btn) {
+            const t = await page.addStyleTag({ content: '#restart-wrap .btn{min-height:0!important}' });
+            await page.waitForTimeout(50);
+            bare = await hOf();
+            await t.evaluate((n) => n.remove());
+          }
+          chk(bh !== null && bh === bare, `${tag} "Set them to start at login" keeps its desktop height`, `${bh}px drawn, ${bare}px with no min-height`);
           await ctx.close();
         }
       } finally {
