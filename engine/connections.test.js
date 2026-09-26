@@ -47,7 +47,10 @@ test('#1034/#3566: it names the providers that can be connected today and says t
   /* #3566: Gemini and Grok are connectable with a key, and must not be in the
      coming-soon list. Read as one line, because the block wraps sentences. */
   const flat = body.replace(/\s+/g, ' ');
-  assert.match(flat, /Google Gemini and xAI Grok can be\s+connected too: Gemini with an API key, Grok with an API key or an xAI\s+subscription/);
+  assert.match(flat, /Google Gemini and xAI Grok can be\s+connected too: Gemini with an API key or a Google subscription, Grok with\s+an API key or an xAI subscription/);
+  // #3568: how Gemini's subscription is set up is said, with Google's own installer.
+  assert.match(flat, /Gemini on a Google subscription runs on Google's Antigravity/);
+  assert.match(flat, /https:\/\/antigravity\.google\/cli\/install\.sh/);
   /* #3713: Kosmos installs Gemini's and Grok's terminal agents on a Mac and on Windows, so the
      guide must not tell an agent they have to be there already, which would send a person off
      to install one. */

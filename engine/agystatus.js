@@ -62,6 +62,22 @@ const shared = inflight.collapse(checkOnce);
 /** { installed, signedIn: true | null, because? }: null means "could not confirm", never "signed out". */
 function check() { return shared(); }
 
+/* Open agy once, in Terminal, so it can sign in. Google's docs (antigravity.google/docs/cli/install):
+   started locally without a saved session, "The CLI automatically launches your local default web
+   browser. Sign in using your approved account credentials." So Kosmos types nothing into it; the
+   person signs in in the browser and presses Check again. macOS only (agy is refused on Windows). */
+let openTerminal = (bin, done) => execFile('/usr/bin/open', ['-a', 'Terminal', bin], { timeout: 15000 }, (err) => done(err));
+function openForSignIn() {
+  return new Promise((resolve) => {
+    if (process.platform !== 'darwin') { resolve({ ok: false, because: 'Kosmos can open Antigravity for you on a Mac only' }); return; }
+    const inst = installed();
+    if (!inst.installed) { resolve({ ok: false, because: 'Antigravity is not installed on this Mac' }); return; }
+    openTerminal(inst.bin, (err) => resolve(err
+      ? { ok: false, because: 'we could not open Terminal; open Antigravity yourself by typing agy in Terminal' }
+      : { ok: true }));
+  });
+}
+function setOpenerForTests(fn) { openTerminal = fn; }
 function setRunnerForTests(fn) { runAgy = fn; }
 
-module.exports = { installed, check, setRunnerForTests, PROMPT };
+module.exports = { installed, check, openForSignIn, setRunnerForTests, setOpenerForTests, PROMPT };

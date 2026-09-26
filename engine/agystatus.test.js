@@ -63,3 +63,21 @@ test('two asks at once share one check (it costs a prompt on the person\'s subsc
   assert.equal(a.signedIn, true);
   assert.equal(b.signedIn, true);
 }));
+
+test('opening agy for sign-in: runs open -a Terminal on the agy found, and refuses when it is missing', () => withFakeAgy(async (bin) => {
+  if (process.platform !== 'darwin') return;
+  let opened = null;
+  agystatus.setOpenerForTests((b, done) => { opened = b; done(null); });
+  assert.deepEqual(await agystatus.openForSignIn(), { ok: true });
+  assert.equal(opened, bin);
+  agystatus.setOpenerForTests((b, done) => done(new Error('no Terminal')));
+  const r = await agystatus.openForSignIn();
+  assert.equal(r.ok, false);
+  assert.match(r.because, /type agy|typing agy/);
+  // CONTROL: missing agy is refused before anything is opened.
+  process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = bin + '-gone/agy';
+  opened = null;
+  agystatus.setOpenerForTests((b, done) => { opened = b; done(null); });
+  assert.equal((await agystatus.openForSignIn()).ok, false);
+  assert.equal(opened, null);
+}));

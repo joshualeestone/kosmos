@@ -42,6 +42,13 @@ subscription, only now that it is true.
   the browser without Kosmos typing into it. Not measured: the only agy here is Josh's, signed in, and
   it will not be signed out. Measure on the second Mac Mini before the release notes advertise it.
 
+- Settings' Add a provider still offers Gemini by key only (rejected here: a second driver and screen
+  in this branch). The create/switch option works once agy is installed, since agy opens Google's
+  sign-in on the agent's first start; its off hint says "Needs Google's Antigravity" and the agents'
+  guide gives Google's installer. The Settings button is #3874.
+- Kosmos shows Google's installer command rather than running a `curl | bash` itself (rejected: the
+  board running a vendor script unasked).
+
 ## Not in this card
 - Reading what an Antigravity agent is doing (status) and its auth-failed copy: #3568's PR 2.
 - Windows: agy is refused there today.

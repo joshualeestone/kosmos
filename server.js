@@ -7677,6 +7677,15 @@ const server = http.createServer((req, res) => {
     sendJson(res, 200, require('./engine/agystatus').installed());
     return;
   }
+  /* #3568: open agy once in Terminal so it launches Google's sign-in in the browser (its documented
+     first-run behaviour). Only on a press; Kosmos types nothing into it. */
+  if (pathname === '/api/antigravity/open' && req.method === 'POST') {
+    req.resume();
+    require('./engine/agystatus').openForSignIn()
+      .then((r) => sendJson(res, r.ok ? 200 : 400, r.ok ? r : { ...r, error: r.because }))
+      .catch(() => sendJson(res, 500, { ok: false, error: 'we could not open Antigravity just now' }));
+    return;
+  }
   if (pathname === '/api/antigravity/check' && req.method === 'POST') {
     req.resume();
     require('./engine/agystatus').check()

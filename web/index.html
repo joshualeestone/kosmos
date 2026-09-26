@@ -12102,7 +12102,7 @@ window.kosmosMeasureScrollbarWidth();
                   </div>
                 </div>
                 <div id="fr-gemini-sub-step" hidden class="fr-confirm" role="group" aria-labelledby="fr-gemini-sub-t">
-                  <p class="fr-confirm-t" id="fr-gemini-sub-t"><b>Sign in with your Google subscription.</b> Kosmos opens Google's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</p>
+                  <p class="fr-confirm-t" id="fr-gemini-sub-t"><b>Sign in with your Google subscription.</b> Gemini on a subscription runs on Google's Antigravity, which signs in with Google in your browser; Kosmos never sees your password. Your agents then run on your own subscription, on this computer.</p>
                   <div class="frow" style="margin-top:12px;">
                     <button class="btn uprime" id="fr-gemini-sub-go" type="button">Sign in with Google</button>
                   </div>
@@ -21028,7 +21028,7 @@ function paintAgyOption(sel, current) {
   const on = AGY_INSTALLED === true || current === 'antigravity';
   opt.disabled = !on;
   if (on) delete opt.dataset.off;
-  else opt.dataset.off = AGY_INSTALLED === false ? 'Set up in AI Models' : 'Checking Antigravity';
+  else opt.dataset.off = AGY_INSTALLED === false ? "Needs Google's Antigravity" : 'Checking Antigravity';
 }
 function agyAsk() {
   if (AGY_INSTALLED !== null || AGY_ASKING) return;
@@ -24560,7 +24560,49 @@ const FR_KEYED = { google: { pre: 'gemini' }, xai: { pre: 'grok' } };
    Angel's Antigravity sign-in (#3568) and does not exist yet. The choice (Sign in with
    Subscription / Use an API key) is offered only where a start exists, so wiring Gemini is one
    function here and nothing else: no flag that could show a button with nothing behind it. */
-const KEYED_SUB_START = { google: null, xai: () => FR_GROK_SUB.start() };
+/* #3568: Gemini's subscription is Google's Antigravity CLI (agy). It signs in inside its own window
+   (Google's docs: started without a saved session it opens the default browser to sign in), so the
+   step is: check agy (installed? signed in?), and either say it is ready, show Google's installer, or
+   open agy once in Terminal for the sign-in and offer Check again. Nothing is typed into agy. */
+const FR_AGY_SUB = {
+  busy: false,
+  el(part) { return document.getElementById('fr-gemini-sub-' + part); },
+  say(text, button, docs) {
+    const code = this.el('code'); if (code) { code.textContent = text; code.hidden = !text; }
+    const go = this.el('go'); if (go) { go.textContent = button || ''; go.hidden = !button; }
+    const row = this.el('open-row'); const a = this.el('open');
+    if (row && a) {
+      row.hidden = !docs;
+      if (docs) { a.href = 'https://antigravity.google/docs/cli/install/'; a.textContent = "Open Google's install page"; }
+    }
+  },
+  async start() {
+    if (this.busy) return;
+    this.busy = true;
+    this.say('Checking Antigravity on this Mac…', '', false);
+    let r = null;
+    try { r = await (await fetch('/api/antigravity/check', { method: 'POST' })).json(); } catch { r = null; }
+    if (r && typeof r.installed === 'boolean') { AGY_INSTALLED = r.installed; paintAgyOption(document.getElementById('create-provider'), ''); }
+    if (!r || r.installed === null) {
+      this.say('We could not check Antigravity just now.', 'Check again', false);
+    } else if (r.installed === false) {
+      this.say("Gemini on your Google subscription runs on Google's Antigravity, which is not on this Mac yet. "
+        + 'Install it by pasting this into Terminal: curl -fsSL https://antigravity.google/cli/install.sh | bash. Then press Check again.',
+        'Check again', true);
+    } else if (r.signedIn === true) {
+      this.say('Ready. Gemini runs on your Google subscription on this Mac: pick Google Gemini (Google subscription) when you create an agent.', '', false);
+    } else {
+      let opened = null;
+      try { opened = await (await fetch('/api/antigravity/open', { method: 'POST' })).json(); } catch { opened = null; }
+      this.say(opened && opened.ok
+        ? 'Antigravity opened in Terminal and will open Google\'s sign-in in your browser. Sign in there with your Google account, then press Check again.'
+        : ((opened && opened.error) || 'Open Terminal and type agy to sign in to Antigravity') + '. Then press Check again.',
+        'Check again', false);
+    }
+    this.busy = false;
+  },
+};
+const KEYED_SUB_START = { google: () => FR_AGY_SUB.start(), xai: () => FR_GROK_SUB.start() };
 const keyedSubReady = (which) => typeof KEYED_SUB_START[which] === 'function';
 let FR_KEYED_GEN = 0;   // an answer, a finished download or an Add from an earlier opening changes nothing
 const frK = (which, part) => document.getElementById('fr-' + FR_KEYED[which].pre + '-' + part);

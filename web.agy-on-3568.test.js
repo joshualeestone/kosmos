@@ -57,7 +57,7 @@ test('#3568: the option turns on only when agy is installed, and says why when i
   api.set(false);
   api.paintAgyOption(m, '');
   assert.equal(m.opt('antigravity').disabled, true);
-  assert.equal(m.opt('antigravity').dataset.off, 'Set up in AI Models');
+  assert.equal(m.opt('antigravity').dataset.off, "Needs Google's Antigravity");
   api.set(true);
   api.paintAgyOption(m, '');
   assert.equal(m.opt('antigravity').disabled, false, 'installed must turn it on');
