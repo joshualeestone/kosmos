@@ -21921,6 +21921,21 @@ async function paintAccounts() {
      is a property of the list, and a row cannot see it on its own. */
   const acctQual = accountQualifiers(list);
   const acctRowHtml = (a) => {
+    /* #3998 (Josh, 11:34): Gemini on the Google subscription is its own row. agy keeps its own
+       sign-in, so the row has no folder and none of a key row's actions: Sign in again (the hidden
+       sign-in) and Remove (Kosmos stops listing it; Antigravity stays signed in on this computer). */
+    if (a && a.authMode === 'antigravity') {
+      const when = a.connection && a.connection.checkedAt ? ' (last confirmed ' + new Date(a.connection.checkedAt).toLocaleString() + ')' : '';
+      return '<div class="acct-box" data-agy-row="1"><div class="acct-box-top"><div class="acct-who"><b>' + esc(a.email || 'Google subscription') + '</b>'
+        + '<span class="acct-tag"> Google subscription, through Antigravity on this computer</span></div>'
+        + '<span class="acct-connected" title="' + esc('Signed in' + when) + '"><span class="dot" aria-hidden="true"></span>Signed in</span></div>'
+        + '<div class="acct-actions">'
+        + '<button class="acct-reauth" type="button" data-agy-reauth="1" aria-label="Sign in again to the Google subscription" '
+        + 'title="' + esc('Signs in to Google again through Antigravity, the same way as adding it.') + '">Sign in again</button>'
+        + '<button class="acct-reauth" type="button" data-agy-forget="1" aria-label="Remove the Google subscription from Kosmos" '
+        + 'title="' + esc('Kosmos stops listing it here. Antigravity stays signed in on this computer; its agents keep working.') + '">Remove</button>'
+        + '</div></div>';
+    }
     /* #540: an OpenAI account signed in with a key has no email; codex's
        own `login status` names it by the key's last characters, so the row
        does the same. Never the key. */
@@ -22332,6 +22347,19 @@ async function paintAccounts() {
     });
   }
   /* #3391 part 2: the Grok subscription sign-in again, aimed at this account. */
+  /* #3998: the Gemini subscription row's two actions. */
+  for (const btn of box.querySelectorAll('[data-agy-reauth]')) {
+    btn.addEventListener('click', () => acctGeminiSignInAgain());
+  }
+  for (const btn of box.querySelectorAll('[data-agy-forget]')) {
+    btn.addEventListener('click', async () => {
+      // Two presses, like Disconnect: the first arms and says what it does, the second removes.
+      if (btn.dataset.armed !== '1') { btn.dataset.armed = '1'; btn.textContent = 'Remove?'; return; }
+      btn.disabled = true;
+      try { await fetch('/api/antigravity/forget', { method: 'POST' }); } catch { /* the repaint shows where it stands */ }
+      paintAccounts();
+    });
+  }
   for (const btn of box.querySelectorAll('[data-grok-reauth]')) {
     btn.addEventListener('click', () => {
       const row = list.find((x) => String(x.dir) === btn.dataset.grokReauth);
@@ -25044,6 +25072,22 @@ function acctGeminiShow(which) {
 /* The last press on the choice stands: a CLI read still out when Sign in with Google is pressed acts
    on nothing. */
 let ACCT_GEMINI_PRESS = 0;
+/* #3998: Sign in again on the Gemini subscription row: Add a provider on Google Gemini, straight to
+   the hidden sign-in (not the check, which would only say it is already signed in). The choice
+   appears once the availability read answers, so this waits for it (up to 3 s) rather than racing. */
+async function acctGeminiSignInAgain() {
+  openAcctAdd(); acctPick('google');
+  const pick = document.getElementById('acct-gemini-pick');
+  for (let i = 0; i < 30 && pick.hidden; i++) await new Promise((r) => setTimeout(r, 100));
+  if (pick.hidden) return;   // not offered here after all: the dialog already says so
+  pick.hidden = true;
+  const step = document.getElementById('acct-gemini-sub-step');
+  step.hidden = false;
+  if (!step.hasAttribute('tabindex')) step.setAttribute('tabindex', '-1');
+  step.focus();
+  ACCT_AGY_SUB.next = 'open';
+  ACCT_AGY_SUB.start();
+}
 document.getElementById('acct-gemini-pick-sub').addEventListener('click', () => {
   ACCT_GEMINI_PRESS += 1;
   // Straight to the check, like Grok's pick: no second screen asking to sign in.
