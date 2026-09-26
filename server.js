@@ -7920,7 +7920,9 @@ const server = http.createServer((req, res) => {
      prompt on the person's subscription, so a screen calls it only on a press, and concurrent presses
      share one run. signedIn is true, false (not installed) or null (could not confirm). */
   if (pathname === '/api/antigravity' && req.method === 'GET') {
-    sendJson(res, 200, require('./engine/agystatus').installedForScreen());
+    // Its own try (#3998 review round 15): the board has no process-level handler for a throw here.
+    try { sendJson(res, 200, require('./engine/agystatus').installedForScreen()); }
+    catch { sendJson(res, 500, { error: 'we could not check Antigravity just now' }); }
     return;
   }
   /* #3568: install agy with Google's own installer, on a Confirm press (as Kosmos installs every
@@ -7947,8 +7949,8 @@ const server = http.createServer((req, res) => {
      command Kosmos can call), and the row's copy says so. */
   if (pathname === '/api/antigravity/forget' && req.method === 'POST') {
     req.resume();
-    require('./engine/agystatus').forget();
-    sendJson(res, 200, { ok: true });
+    try { require('./engine/agystatus').forget(); sendJson(res, 200, { ok: true }); }
+    catch { sendJson(res, 500, { ok: false, error: 'we could not forget that just now' }); }
     return;
   }
   if (pathname.startsWith('/api/antigravity/signin')) {
@@ -7956,7 +7958,10 @@ const server = http.createServer((req, res) => {
     const agy = require('./engine/agystatus');
     const sub = pathname.slice('/api/antigravity/signin'.length);
     if (!['', '/code', '/show', '/stop'].includes(sub)) { req.resume(); sendJson(res, 404, { error: 'there is nothing at that address' }); return; }
-    if (sub === '' && req.method === 'GET') { sendJson(res, 200, signin.status()); return; }
+    if (sub === '' && req.method === 'GET') {
+      try { sendJson(res, 200, signin.status()); } catch { sendJson(res, 500, { error: 'we could not read the sign-in just now' }); }
+      return;
+    }
     if (req.method !== 'POST') { req.resume(); sendJson(res, 405, { error: 'that is not something this address does' }); return; }
     /* A request naming a sign-in that has ended or been replaced is a conflict (409) on every
        route, so a screen can tell it apart from a refused code. */
@@ -7966,7 +7971,14 @@ const server = http.createServer((req, res) => {
     if (sub === '' && !agy.offered()) { req.resume(); sendJson(res, 400, { ok: false, error: 'Gemini on a Google subscription is not offered on this computer' }); return; }
     if (sub === '') {
       req.resume();
-      const r = signin.start();
+      /* A throw while starting (finding tmux resolves every runner's path) must not take the board
+         down for everyone (review round 15): the board has no process-level uncaughtException handler.
+         The live-execution gate's test-process throw is not caught here: it must stay loud in tests. */
+      let r;
+      try { r = signin.start(); } catch (e) {
+        if (require('./engine/live-execution').inTestProcess() && /for real inside a test/.test(String(e && e.message))) throw e;
+        sendJson(res, 500, { ok: false, error: 'Kosmos could not start Antigravity\'s sign-in just now' }); return;
+      }
       sendJson(res, r.ok ? 200 : 400, r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
       return;
     }

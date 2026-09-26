@@ -89,8 +89,12 @@ function live(file, args) {
 }
 let tmux = (args) => {
   const full = ['-L', socket()].concat(args);
-  if (!live(tmuxBin(), full)) throw new Error('live execution is off');
-  return execFileSync(tmuxBin(), full, { encoding: 'utf8', timeout: 5000 });
+  /* Finding tmux is Kosmos's own work, not agy's (round 15): a failure there is marked, so the screen
+     reader takes it as "try again", never as agy exiting. */
+  let bin;
+  try { bin = tmuxBin(); } catch (e) { const x = new Error('Kosmos could not find tmux: ' + (e && e.message)); x.kosmosInternal = true; throw x; }
+  if (!live(bin, full)) throw new Error('live execution is off');
+  return execFileSync(bin, full, { encoding: 'utf8', timeout: 5000 });
 };
 let openFile = (file, done) => {
   if (!live('/usr/bin/open', [file])) { done(new Error('live execution is off')); return; }
@@ -123,7 +127,7 @@ function status() {
 function screen() {
   try { return tmux(['capture-pane', '-p', '-J', '-t', SESSION]); } catch { /* is it gone, or slow? */ }
   try { tmux(['has-session', '-t', SESSION]); return undefined; } catch (e) {
-    return e && (e.code === 'ETIMEDOUT' || e.signal) ? undefined : null;
+    return e && (e.code === 'ETIMEDOUT' || e.signal || e.kosmosInternal) ? undefined : null;
   }
 }
 function keys(...k) { tmux(['send-keys', '-t', SESSION].concat(k)); }

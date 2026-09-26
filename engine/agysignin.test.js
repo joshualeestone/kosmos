@@ -750,3 +750,18 @@ test('#3998 round 14: right after the code, an unknown screen is not asked about
     assert.equal(s.status().state, 'stuck');
   } finally { s.resetForTests(); }
 });
+
+test('#3998 round 15: a failure finding tmux (Kosmos\'s own work) is "try again", never agy exiting', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, CODE_SCREEN);
+  try {
+    const { id } = s.start();
+    s.tickForTests();
+    assert.equal(s.code(CODE, id).ok, true);
+    const inner = Object.assign(new Error('Kosmos could not find tmux'), { kosmosInternal: true });
+    s.setForTests({ tmux: () => { throw inner; } });
+    for (let i = 0; i < 4; i++) { s.tickForTests(); await settle(); }
+    assert.equal(st.checks, 0, 'a tmux lookup failure spent an ask as if agy had exited');
+    assert.notEqual(s.status().state, 'failed', 'a tmux lookup failure ended the sign-in as agy closing');
+  } finally { s.resetForTests(); }
+});

@@ -301,3 +301,20 @@ test('#3998: /api/accounts lists the Gemini subscription from the last confident
     assert.deepEqual(await rows(), [], 'forget left the row');
   } finally { agystatus.forget(); agystatus.setLastFileForTests(null); delete process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN; }
 });
+
+test('#3998 round 15: a throw while starting the sign-in is a 500, not a board that goes down', async () => {
+  if (process.platform !== 'darwin') return;
+  const signin = require('./engine/agysignin');
+  const agystatus = require('./engine/agystatus');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-start-throw-'));
+  const bin = path.join(dir, 'agy'); fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = bin;
+  signin.setForTests({ folderRoot: () => dir, tmux: () => { throw new Error('binPaths blew up'); } });
+  try {
+    assert.equal(agystatus.installed().installed, true, 'CONTROL: agy reads as installed, so start reaches tmux');
+    const r = await req('/api/antigravity/signin', { method: 'POST' });
+    assert.ok(r.status === 400 || r.status === 500, 'the start answered ' + r.status);
+    const alive = await req('/api/antigravity/signin');
+    assert.equal(alive.status, 200, 'the board did not answer after the throw');
+  } finally { signin.resetForTests(); delete process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN; fs.rmSync(dir, { recursive: true, force: true }); }
+});

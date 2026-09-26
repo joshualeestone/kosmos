@@ -109,3 +109,7 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 - The trust folder read is the LAST "Accessing workspace:" on screen (whose Yes is marked), the newest-wins rule.
 - An unknown screen is asked about only after a setup screen (theme, terms, trust) showed Google took the code; agy exiting after the code is still asked.
 - The subscription row's "why" is also in visually hidden text (a title is mouse-only).
+
+## Review round 15 (decided)
+- The sign-in start route (and the GET state, /api/antigravity GET and /forget routes beside it) catch a synchronous throw and answer 500: the board has no process-level handler. The live-execution gate's test-process throw stays loud.
+- A failure finding tmux (Kosmos's own work) is marked and read as "try again", never as agy exiting.
