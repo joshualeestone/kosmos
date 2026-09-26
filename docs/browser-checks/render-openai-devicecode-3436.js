@@ -100,6 +100,8 @@ async function arm(browser, { platform, where, start, status, width }) {
       boxText: code ? [...code.querySelectorAll('.devcode-cell')].map((c) => c.textContent).join('') : '',
       boxDashes: code ? code.querySelectorAll('.devcode-dash').length : 0,
       boxNote: !!(code && code.querySelector('.devcode-note')),
+      // The Copy cell holds the code as text only, hidden to the eye (else the code shows twice, review round 5).
+      copyHidden: (() => { const e = code && code.querySelector('.fr-cmd-row .fr-cmd'); if (!e) return false; const cs = getComputedStyle(e); return cs.position === 'absolute' && /rect\(0px,? 0px,? 0px,? 0px\)/.test(cs.clip); })(),
       boxInside: !!code && [...code.querySelectorAll('.devcode-cell')].every((c) => c.getBoundingClientRect().right <= code.getBoundingClientRect().right + 0.5 && c.getBoundingClientRect().width >= 20),
       how: how ? how.textContent.replace(/\s+/g, ' ').trim() : null,
       openText: open ? open.textContent.trim() : null,
@@ -166,6 +168,7 @@ async function arm(browser, { platform, where, start, status, width }) {
     if (r.goShown) problems.push(name + ': a second Sign in with ChatGPT button is still on screen after the sign-in started');
     if (r.boxText !== CODE.replace(/-/g, '') || r.boxDashes !== (CODE.match(/-/g) || []).length) problems.push(name + ': #3952 the code is not drawn one box per character, grouped as OpenAI prints it: ' + JSON.stringify({ boxText: r.boxText, boxDashes: r.boxDashes }));
     if (r.boxNote) problems.push(name + ': #3952 xAI\'s "terminal" line is on an OpenAI screen');
+    if (!r.copyHidden) problems.push(name + ': #3952 the Copy cell shows the code as text beside the boxes (shown twice)');
     if (!r.hasCopy) problems.push(name + ': no Copy button beside the code');
     else if (!/^(Copied|Select it and copy)$/.test(r.copySays || '')) problems.push(name + ': pressing Copy gave no answer: ' + JSON.stringify(r.copySays));
     if (!/^Kosmos opens OpenAI.s sign-in page in your browser and shows you a short code/.test(r.how || '')) problems.push(name + ': the explainer is not the Windows sentence: ' + JSON.stringify(r.how));

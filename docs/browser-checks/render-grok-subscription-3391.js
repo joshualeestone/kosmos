@@ -108,7 +108,7 @@ const chk = (ok, label, extra) => {
     const rects = cells.map((c) => c.getBoundingClientRect());
     const note = host && host.querySelector('.devcode-note');
     return { cells: cells.length, dashes: row ? row.querySelectorAll('.devcode-dash').length : 0,
-      text: cells.map((c) => c.textContent).join(''), label: row ? row.getAttribute('aria-label') : null,
+      text: cells.map((c) => c.textContent).join(''), label: row ? row.getAttribute('aria-label') : null, role: row ? row.getAttribute('role') : null,
       oneRow: rects.length > 0 && rects.every((b) => Math.abs(b.top - rects[0].top) < 1),
       minW: rects.length ? Math.min(...rects.map((b) => b.width)) : 0, minH: rects.length ? Math.min(...rects.map((b) => b.height)) : 0,
       note: note ? note.textContent : '',
@@ -127,7 +127,7 @@ const chk = (ok, label, extra) => {
     await page.setViewportSize({ width: 1100, height: 1000 }); await page.waitForTimeout(150);
     return b;
   };
-  const boxesOk = (b, text, label) => b.cells === text.length && b.dashes === 1 && b.text === text && b.label === label
+  const boxesOk = (b, text, label) => b.cells === text.length && b.dashes === 1 && b.text === text && b.label === label && b.role === 'img'
     && b.copied === text.slice(0, 4) + '-' + text.slice(4) && b.oneRow && b.minW >= 24 && b.minH >= 30 && /xAI's page says "terminal": it means this code here in Kosmos\./.test(b.note);
   const G = (id) => q((i) => { const e = document.getElementById(i); return e ? { hidden: e.hidden, text: e.textContent, disabled: e.disabled, href: e.getAttribute('href') } : null; }, id);
 
@@ -185,6 +185,11 @@ const chk = (ok, label, extra) => {
   const setBoxes = await boxesIn('acct-grok-sub-code');
   chk(boxesOk(setBoxes, 'QWERTYUI', 'Q W E R, T Y U I'), '#3952 Settings: the code in big boxes on one row, 4 - 4, with the "terminal" line', JSON.stringify(setBoxes));
   if (process.env.SHOTS) await page.locator('#acct-grok-sub-code').screenshot({ path: require('node:path').join(process.env.SHOTS, 'grok-code-settings.png') });
+  // The code line is not redrawn by a poll while the code is unchanged, so a person's selection in it survives.
+  await q(() => { window.__dc = document.querySelector('#acct-grok-sub-code .devcode'); });
+  await tick();
+  const kept = await q(() => !!window.__dc && document.querySelector('#acct-grok-sub-code .devcode') === window.__dc);
+  chk(kept, '#3952 a poll does not redraw an unchanged code (a selection in it survives, review round 5)');
   const setPhone = await atPhone('acct-grok-sub-code');
   chk(narrowOk(setPhone, 'QWERTYUI'), '#3952 Settings at 360px: every box inside its box, groups whole (review round 1)', JSON.stringify(setPhone));
 

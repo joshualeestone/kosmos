@@ -24976,14 +24976,19 @@ function grokSubDriver(o) {
   }).catch(() => { /* the engine's watchdog ends it regardless */ });
   function reset() {
     for (const k of ['openRow', 'code', 'cancelRow']) { const e = el(k); if (e) e.hidden = true; }
-    const c = el('code'); if (c) c.textContent = '';   // clears the #3952 boxes too
+    const c = el('code'); if (c) { c.textContent = ''; c.__devKey = ''; }   // clears the #3952 boxes too
     const g = el('go'); if (g) { g.disabled = false; g.hidden = false; }   // #3731: hidden while a pick-started sign-in ran
   }
   function show(out) {
     const a = el('open');
     if (a && out.authUrl) { a.href = out.authUrl; el('openRow').hidden = false; }
     const c = el('code');
-    if (c && out.userCode) { c.hidden = false; c.innerHTML = devCodeHtml('On that page, confirm this code:', out.userCode, DEVCODE_XAI_NOTE); }   // #3952
+    /* #3952: drawn only when the code changes. The poll calls this every 1.2s, and a redraw each time dropped any
+       selection in it; Grok's code has no Copy button, so selecting it is how a person copies it (review round 5). */
+    if (c && out.userCode) {
+      c.hidden = false;
+      if (c.__devKey !== out.userCode) { c.innerHTML = devCodeHtml('On that page, confirm this code:', out.userCode, DEVCODE_XAI_NOTE); c.__devKey = out.userCode; }
+    }
   }
   function leave() {
     gen += 1;

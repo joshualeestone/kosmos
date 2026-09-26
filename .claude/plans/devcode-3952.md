@@ -9,8 +9,8 @@ similar graphical fashion so that it visually matches ... Oh crap, I have to ent
   screen reader gets the code once, in groups, from the row's label.
 - Grok (Settings and first run, one shared driver): the boxes plus "xAI's page says "terminal": it means this code
   here in Kosmos."
-- OpenAI device code: Settings and first run painters, and the Windows device markup (boxes inside the .fr-cmd the
-  Copy button reads, so Copy is unchanged).
+- OpenAI device code: Settings and first run painters, and the Windows device markup (boxes on their own row above
+  the Copy row, whose .fr-cmd keeps the code as hidden text, so Copy is unchanged).
 - Connections (GitHub, Vercel and the other device doors): the same boxes instead of large plain text.
 - The "Open the sign-in page" button and "Stop this sign-in" are untouched.
 
@@ -55,6 +55,12 @@ the font stack is written out; the 360px arms do not collect page errors.
 - Three comments still gave the card's old order (code before the sentence); corrected.
 - The plus-panel check asserts the approval code's spoken label ("V R, D 6"; red without it); the "above the Copy
   row" unit assertion can no longer pass with the boxes missing.
+
+## Review round 5 (Opus), what changed
+- The Windows arms assert the Copy cell is hidden to the eye (the code otherwise shows twice; red without the rule).
+- Grok's code line is drawn only when the code changes: the 1.2s poll redrew it and dropped any selection, and
+  selecting is how a person copies Grok's code (no Copy button). Pre-existing, fixed here because this card is about
+  that line. The Grok check asserts the boxes' role="img".
 
 ## Weakest premise
 - A provider whose code has no dash is one group, which cannot break: 10cqw fits five characters in its box, so a
