@@ -1024,6 +1024,7 @@ async function main() {
       // shared `.pj-minus` row, not the retired `.drop` button) without
       // moving it off this screen again, so the selector below follows it.
       //
+      // (#3923: the failed tell now renders in the project notice, measured in its own pass below.)
       // ⚠️ `.pj-told` STAYS HERE AND STAYS RED, deliberately. It did NOT move to
       // another screen; it moved to a STATE. pjToldLine returns a non-empty
       // string only when told.state === 'could_not' ("success says nothing",
@@ -1123,20 +1124,26 @@ async function main() {
     await page.waitForTimeout(200);
     await page.click('[data-project="quarterclose"]');
     await page.waitForTimeout(400);
+    /* #3923: the failed tell now speaks in the project notice (Mona's design) above the
+       members list, not as a `.pj-told` line on the member's row, so its headline and its
+       reason are what get measured. */
     const toldEls = await page.evaluate(() => {
       const bgOf = window.__kbg;
       const out = [];
-      const sel = '#pj-one-view .pj-told';
-      const el = document.querySelector(sel);
-      if (!el || !el.offsetParent) { out.push({ sel, missing: true }); return out; }
-      /* Asserted, not merely found: an empty `.pj-told` would measure fine and
-         mean nothing, and the whole point of this element is that it SPEAKS. */
-      if (!(el.textContent || '').trim()) {
-        out.push({ sel, wrongElement: '(empty)', expected: 'a reason' });
-        return out;
+      for (const [sel, expected] of [['#pj-one-view .pnotice .pn-b > b', 'this project\u2019s folder'],
+                                     ['#pj-one-view .pnotice .pnwhy', '']]) {
+        const el = document.querySelector(sel);
+        if (!el || !el.offsetParent) { out.push({ sel, missing: true }); continue; }
+        /* Asserted, not merely found: an empty element would measure fine and mean
+           nothing, and the whole point of the notice is that it SPEAKS. */
+        const said = (el.textContent || '').trim();
+        if (!said || (expected && !said.includes(expected))) {
+          out.push({ sel, wrongElement: said || '(empty)', expected: expected || 'a reason' });
+          continue;
+        }
+        const cs = getComputedStyle(el);
+        out.push({ sel, fg: cs.color, bg: bgOf(el), size: parseFloat(cs.fontSize), weight: cs.fontWeight });
       }
-      const cs = getComputedStyle(el);
-      out.push({ sel, fg: cs.color, bg: bgOf(el), size: parseFloat(cs.fontSize), weight: cs.fontWeight });
       return out;
     });
     for (const e of [...listEls, ...badFolderEls, ...els, ...settingsEls, ...toldEls]) {

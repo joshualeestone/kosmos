@@ -6954,6 +6954,22 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* The one-verdict-for-the-roster line: same voice as .pj-told, but it sits
    as its own flex child below the member cards, not inside one of them. */
 .pj-members .pj-told-group { display: block; font: var(--text-caption) var(--font-ui); color: var(--label-2); margin: 0; }
+/* #3923: the project notice (Mona Lisa's design, project-notice-mock.html). Appears only while
+   an agent on the project could not be given its folder; one row per agent, each shaped by what
+   the person must do. No bar down the left (Josh has ruled those out). */
+.pnotice { display: flex; gap: 10px; align-items: flex-start; padding: 13px 15px; border-radius: 10px;
+  background: var(--k-sunk, rgba(20,22,26,.05)); border: 1px solid var(--k-rule); margin: 0 0 12px; }
+.pnotice[hidden] { display: none; }
+.pn-b { flex: 1 1 auto; min-width: 0; }
+.pn-b > b { font-size: .9375rem; display: block; color: var(--k-ink); }
+.pnrow { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin-top: 7px; }
+.pnrow + .pnrow { border-top: 1px solid var(--k-rule); padding-top: 7px; }
+.pnwho { flex: 0 0 auto; min-width: 3.5rem; font-size: .875rem; font-weight: 650; color: var(--k-ink); }
+.pnwhy { flex: 1 1 14rem; min-width: 0; font-size: .875rem; line-height: 1.5; color: var(--k-ink-2); }
+.pnfix { color: var(--k-ink); font-weight: 600; }
+.pnotice .qopt { font: inherit; font-size: .8125rem; font-weight: 600; color: var(--k-ink); background: var(--k-surface);
+  border: 1px solid var(--k-rule); border-radius: 8px; padding: .4em .9em; cursor: pointer; white-space: nowrap; flex: 0 0 auto; }
+.pnotice .qopt:disabled { cursor: default; opacity: .6; }
 .pj-member.unseen { border-style: dashed; }
 /* --- the thread --------------------------------------------------------- */
 /* Same as #pj-one-add above: dressed by the shared `select` rule, widthed by
@@ -13705,6 +13721,8 @@ window.kosmosMeasureScrollbarWidth();
       <!-- Josh, 2026-09-10 (#2711 item 14): the column heading is just
            "Members" now. "Project members" restated the page it sits on. -->
       <h3 class="dlab">Members</h3>
+      <!-- #3923: the project notice, painted by pjNotice() only while something is wrong. -->
+      <div id="pj-one-notice" class="pnotice" role="status" hidden></div>
       <div id="pj-one-agents" class="pj-members"></div>
       <!-- ⚠️ The picker hides behind the button, not the other way round: the
            resting state of the box is the members, and "+ Add Member" (the
@@ -43754,6 +43772,71 @@ function pjToldGroupLine(told) {
 }
 
 /**
+ * #3923: the project notice (Mona Lisa's design). The variable is what the person must do,
+ * not the kind of failure: WAIT (a button only), ACT (a sentence only), RETRY (act, then a
+ * button), EXPLAIN (a sentence saying nothing can be done yet). A "Try again" is offered only
+ * where pressing it can work. Keyed on the engine's EXACT singular becauses (the same keys as
+ * projects.js GROUP_BECAUSE); an unknown one is treated as WAIT with the engine's own sentence,
+ * because an unknown cause is what one honest retry is for.
+ * `solo` is the agent's name when the notice is about one agent (the sentence names it), null
+ * in a row of several (the name is beside it).
+ */
+const PJ_NOTICE = [
+  [/^we could not write to its instructions$/, 'wait', (n) => n ? 'We could not write to ' + n + '\u2019s instructions.' : 'We could not write to its instructions.'],
+  [/^we could not check which agents are running$/, 'wait', () => 'We could not check which agents are running.'],
+  [/^it has no instructions file yet, and we will not create one$/, 'act', (n) => (n ? n + ' has' : 'It has') + ' no instructions file, and Kosmos will not create one.',
+    (name) => 'Give ' + name + ' some instructions and it will pick this up next time.'],
+  [/^its instructions contain \d+ Kosmos project blocks/, 'act', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions hold more than one Kosmos project section, so Kosmos cannot tell which is its own.',
+    (name) => 'Leave one Kosmos project section in ' + name + '\u2019s instructions and it will pick this up next time.'],
+  [/^taking this out would leave its instructions almost empty$/, 'act', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are too short for Kosmos to change safely.',
+    (name) => 'Add to ' + name + '\u2019s instructions and it will pick this up next time.'],
+  [/^its instructions are already at the size limit$/, 'act', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are already at the size limit.',
+    (name) => 'Shorten ' + name + '\u2019s instructions and it will pick this up next time.'],
+  [/^we could not find an agent with exactly this name on this computer$/, 'retry', (n) => 'Kosmos cannot match ' + (n || 'it') + ' to a session on this computer.',
+    (name) => 'Start ' + name + ', then try again.'],
+  [/^something is running under this name, but we cannot tell that it is this agent$/, 'retry', (n) => 'Something is running under ' + (n ? n + '\u2019s' : 'its') + ' name, but Kosmos cannot tell that it is ' + (n || 'the same agent') + '.',
+    (name) => 'Restart ' + name + ' from Kosmos, then try again.'],
+  [/^it has no folder of its own on this computer yet$/, 'explain', (n, name) => n
+    ? 'Kosmos only keeps instructions for agents it made. ' + n + ' came from somewhere else, so Kosmos has nowhere to write.'
+    : 'Kosmos only keeps instructions for agents it made, and ' + name + ' came from somewhere else.'],
+  [/^it keeps its instructions somewhere we cannot safely change$|^its worker folder /, 'explain', (n) => (n || 'It') + ' keeps its instructions somewhere Kosmos will not change, so Kosmos has nowhere to write.'],
+];
+const PJ_NOTICE_COUNT = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
+
+/** One agent's row, or null when nothing is wrong (success and not_tried say nothing). */
+function pjNoticeRow(m, solo) {
+  const told = (m && m.told) || {};
+  if (told.state !== 'could_not') return null;
+  const because = String(told.because || '');
+  const name = String((m && m.name) || (m && m.sessionName) || 'this agent');
+  const hit = PJ_NOTICE.find(([re]) => re.test(because));
+  if (!hit) {
+    // Unknown cause: its own sentence and one honest retry.
+    return { shape: 'wait', why: pjSentence(because) || 'We could not update ' + (solo ? name : 'it') + '.', fix: '', name, key: m.sessionName };
+  }
+  const [, shape, why, fix] = hit;
+  return { shape, why: why(solo ? name : null, name), fix: fix ? fix(name) : '', name, key: m.sessionName };
+}
+
+/** The whole notice: '' when every agent has the folder. */
+function pjNotice(roster) {
+  const failing = (roster || []).filter((m) => m && m.told && m.told.state === 'could_not');
+  if (!failing.length) return '';
+  const solo = failing.length === 1;
+  const rows = failing.map((m) => pjNoticeRow(m, solo)).filter(Boolean);
+  const head = solo
+    ? esc(rows[0].name) + ' does not have this project\u2019s folder.'
+    : (PJ_NOTICE_COUNT[rows.length] || String(rows.length)) + ' agents do not have this project\u2019s folder.';
+  const body = rows.map((r) => '<div class="pnrow">'
+    + (solo ? '' : '<span class="pnwho">' + esc(r.name) + '</span>')
+    + '<span class="pnwhy">' + esc(r.why) + (r.fix ? ' <b class="pnfix">' + esc(r.fix) + '</b>' : '') + '</span>'
+    + (r.shape === 'wait' || r.shape === 'retry'
+      ? '<button class="qopt" type="button" data-pn-retry="' + esc(r.key) + '">Try again</button>' : '')
+    + '</div>').join('');
+  return '<span class="haz" aria-hidden="true">!</span><div class="pn-b"><b>' + head + '</b>' + body + '</div>';
+}
+
+/**
  * How a member reads.
  *
  * ⚠️ `present: false` is NOT rendered as anything reassuring and NOT dropped.
@@ -47365,10 +47448,14 @@ function paintOneProject() {
      #2882: pass this project's id so the room's working signal is scoped to work
      attributable to THIS project (see paintRoomBusy). */
   paintRoomBusy(roster.map((a) => (a && a.sessionName) || a), p.id);
-  const sharedTold = pjSharedTold(roster);
+  /* #3923: an agent that could not be given the folder is said once, in the project notice
+     above the list (Mona's design), not on its row: every member row passes suppressTold. */
+  const notice = pjNotice(roster);
+  const noticeBox = document.getElementById('pj-one-notice');
+  setIfChanged(noticeBox, notice);
+  noticeBox.hidden = !notice;
   setIfChanged(document.getElementById('pj-one-agents'), roster.length
-    ? roster.map((m) => pjMember(m, !!sharedTold, true, true)).join('')
-      + (sharedTold ? '<p class="pj-told-group">' + sharedTold + '</p>' : '')
+    ? roster.map((m) => pjMember(m, true, true, true)).join('')
     : '<p class="fhint">No agents on this project yet.</p>');
 
   paintFreeAgentPicker(p, document.getElementById('pj-one-add'), document.getElementById('pj-one-add-go'));
@@ -53203,6 +53290,19 @@ document.getElementById('pj-create').addEventListener('click', async () => {
  * refresh is the CALLER's now -- the modal handler closes FIRST, then refreshes a hidden
  * picker (no visible flash); the settings-door caller refreshes in place as before.
  */
+/* #3923: "Try again" on the project notice re-tells that one agent. Re-adding an existing member
+   changes no membership (the route's `moved` is false, so nothing is typed into its window) and
+   runs the same sync, which records a fresh verdict. Success says nothing: the repaint drops the
+   row. A failure repaints with whatever the engine now says. */
+document.getElementById('pj-one-notice').addEventListener('click', async (e) => {
+  const btn = e.target && e.target.closest ? e.target.closest('[data-pn-retry]') : null;
+  if (!btn || !PJ_CURRENT) return;
+  btn.disabled = true;
+  try {
+    await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/agent/' + encodeURIComponent(btn.dataset.pnRetry), { method: 'POST' });
+  } catch { /* the repaint below shows where it stands */ }
+  loadProjects();
+});
 async function addMemberToProject(who, msg) {
   if (!who || !PJ_CURRENT) return false;
   msg.textContent = '';
