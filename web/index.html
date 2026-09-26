@@ -24675,7 +24675,7 @@ const KEYED_SUB_START = { google: () => FR_AGY_SUB.start(), xai: () => FR_GROK_S
 /* #3568: Gemini's subscription only where it can run (a Mac, runner on); AGY_OFFERED is read before
    the choice is shown (frKeyedConnect). */
 const keyedSubReady = (which) => typeof KEYED_SUB_START[which] === 'function'
-  && (which !== 'google' || (AGY_OFFERED !== false && servedPlatform() !== 'win32'));   // agy runs on a Mac only
+  && (which !== 'google' || (AGY_OFFERED !== false && !onWindows()));   // agy runs on a Mac only
 let FR_KEYED_GEN = 0;   // an answer, a finished download or an Add from an earlier opening changes nothing
 const frK = (which, part) => document.getElementById('fr-' + FR_KEYED[which].pre + '-' + part);
 const frKeyedPanels = (which) => ['confirm', 'pick', 'sub-step', 'flow'].map((part) => frK(which, part)).filter(Boolean);
