@@ -61,7 +61,11 @@ test('#3996: only the board\'s own page can hand over a count, and the page hand
   assert.notEqual(at, -1);
   const proxy = SRC.slice(at, SRC.indexOf('\n}\n', at));
   assert.match(proxy, /weak var owner: AppDelegate\?/, 'the handler holds the app strongly (a cycle)');
-  assert.match(proxy, /message\.frameInfo\.isMainFrame, host == "127\.0\.0\.1" \|\| host == "localhost"/, 'any frame or site could set the badge');
+  assert.match(proxy, /guard message\.frameInfo\.isMainFrame, let owner else \{ return \}/, 'a subframe could set the badge');
+  assert.match(proxy, /owner\.isBoardOrigin\(host: origin\.host, port: origin\.port\)/, 'the origin is not checked');
+  const board = body('func isBoardOrigin(host: String, port: Int) -> Bool');
+  assert.match(board, /host == "127\.0\.0\.1" && port == mine/, 'another local service on another port could set the badge');
+  assert.match(SRC, /private static var badgeSettingAnswer/, 'the badge setting is asked on every update');
   const page = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
   assert.match(page, /window\.webkit\.messageHandlers\.kosmosBadge;\n\s+if \(h && typeof c\.waiting === 'number'\) h\.postMessage\(c\.waiting\);/,
     'the page does not hand the count over');

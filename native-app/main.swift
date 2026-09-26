@@ -1002,14 +1002,16 @@ func tokenizedBoardURL(_ urlString: String) -> URL? {
 
 /* #3996: the page's waiting count, handed to the app. A separate object held WEAKLY to the app:
    WKUserContentController keeps its handlers alive, and holding the AppDelegate there would be a
-   cycle. Only the board's own page is heard: the main frame, on this computer. */
+   cycle. Only the board's own page is heard: the main frame at the board's own address and port
+   (the app loads nothing else there, but a main frame could be sent to another local service). */
 final class BadgeMessageProxy: NSObject, WKScriptMessageHandler {
     weak var owner: AppDelegate?
     init(_ owner: AppDelegate) { self.owner = owner }
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        let host = message.frameInfo.securityOrigin.host
-        guard message.frameInfo.isMainFrame, host == "127.0.0.1" || host == "localhost" else { return }
-        owner?.pageSaidWaiting(message.body)
+        guard message.frameInfo.isMainFrame, let owner else { return }
+        let origin = message.frameInfo.securityOrigin
+        guard owner.isBoardOrigin(host: origin.host, port: origin.port) else { return }
+        owner.pageSaidWaiting(message.body)
     }
 }
 
@@ -2316,6 +2318,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }.resume()
     }
 
+    /// Whether a page origin is this app's board (127.0.0.1 on the resolved port), for BadgeMessageProxy.
+    func isBoardOrigin(host: String, port: Int) -> Bool {
+        guard let mine = resolvedPort else { return false }
+        return host == "127.0.0.1" && port == mine
+    }
+
     /// The page's own count (#3996), handed over by BadgeMessageProxy after every board poll.
     func pageSaidWaiting(_ body: Any) {
         lastPageBadgeAt = Date()
@@ -2357,10 +2365,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
        the badge shows; if Kosmos ever asks, turning badges off there will hide it. An in-app off
        switch is a follow-up card. UNUserNotificationCenter needs a real bundle, so a bare binary
        (a selftest, the prototype build) skips the question. */
+    /* Asked at most every five minutes (the setting almost never changes, and a badge update runs
+       every few seconds): the last answer is kept and handed on in between. */
+    private static var badgeSettingAnswer: (allowed: Bool, at: Date)?
     static func badgesAllowed(_ done: @escaping (Bool) -> Void) {
         guard Bundle.main.bundleIdentifier != nil else { done(true); return }
+        if let last = badgeSettingAnswer, Date().timeIntervalSince(last.at) < 300 { done(last.allowed); return }
         UNUserNotificationCenter.current().getNotificationSettings { settings in
-            done(settings.badgeSetting != .disabled)
+            let allowed = settings.badgeSetting != .disabled
+            DispatchQueue.main.async { badgeSettingAnswer = (allowed, Date()) }
+            done(allowed)
         }
     }
 
