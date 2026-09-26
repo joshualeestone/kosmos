@@ -792,15 +792,15 @@ async function setupComplete(code, name) {
   // Tracked like the in-app register (Forget waits for it; nothing else starts
   // beside it), bounded the same, and a half identity is retired first.
   const running = (async () => {
-    await clearHalfIdentity();
-    return setupRun([
+    const stranded = await clearHalfIdentity();
+    return explainStranded(await setupRun([
       'setup', 'complete',
       '--coordinator', COORDINATOR(),
       '--email', settings.email,
       '--code', String(code),
       '--name', name,
       '--state-dir', STATE_DIR(),
-    ], null, registerTimeoutMs());
+    ], null, registerTimeoutMs()), stranded);
   })();
   registerInFlight = running;
   let result;
@@ -1264,16 +1264,28 @@ const registerTimeoutMs = () => {
 // coordinator accepted it. It is registered there, so registering again would strand
 // it (or meet "already owns the name"); Forget retires it.
 const halfRegistered = () => !enrolled() && ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(STATE_DIR(), f)));
+/* Retires a half identity before a new register. Answers why the retire failed
+   (the coordinator may still hold that earlier attempt), or null. */
 async function clearHalfIdentity() {
-  if (!halfRegistered()) return;
+  if (!halfRegistered()) return null;
   const r = await setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, registerTimeoutMs());
   if (!r.ok) process.stderr.write('remote: an unfinished earlier sign-in could not be retired at Kosmos+ (' + r.because + '); its address may show on the account page until it is removed there\n');
   try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* the register writes it again */ }
   secureStateDir();
+  return r.ok ? null : (r.because || 'no reason given');
+}
+/* After a half identity could not be retired, a "name taken" answer is most
+   likely this computer's own earlier attempt, not another Mac: say so, and
+   what to do, instead of letting it read as someone else's name. */
+function explainStranded(result, stranded) {
+  if (!stranded || !result || result.ok || !/\(409\)|already (has|owns) that name/i.test(String(result.because || ''))) return result;
+  return { ...result, because: result.because + '. It may be this computer\'s own earlier sign-in, which could not be removed from your Kosmos+ account (' + stranded + '): remove it on your account page, or choose another name' };
 }
 function busy() {
-  if (registerInFlight) return { ok: false, because: 'this computer is still signing in; give it a minute' };
+  // Forgetting first: while a Forget waits on a register both are true, and the
+  // Forget is what the person just asked for.
   if (forgetting) return { ok: false, because: 'this computer is being forgotten; try again in a moment' };
+  if (registerInFlight) return { ok: false, because: 'this computer is still signing in; give it a minute' };
   return null;
 }
 /* #3827: signing in IS asking to be reachable, so a successful register switches
@@ -1334,9 +1346,9 @@ async function signinRegister(name) {
   const running = (async () => {
     // An earlier register that stopped after the coordinator accepted it (key and
     // id, no certificate) is retired first, so this one does not strand it.
-    await clearHalfIdentity();
-    return setupRun(['signin', 'register', '--coordinator', COORDINATOR(),
-      '--name', name, '--state-dir', STATE_DIR()], token, registerTimeoutMs());
+    const stranded = await clearHalfIdentity();
+    return explainStranded(await setupRun(['signin', 'register', '--coordinator', COORDINATOR(),
+      '--name', name, '--state-dir', STATE_DIR()], token, registerTimeoutMs()), stranded);
   })();
   registerInFlight = running;
   let r;

@@ -148,6 +148,7 @@ if (args[0] === 'signin') {
     if (!token) { process.stderr.write('no session token on stdin\\n'); process.exit(1); }
     const name = flag('--name');
     if (name === 'taken') { process.stderr.write('the coordinator said no (409): a Mac on this account already has that name\\n'); process.exit(1); }
+    if (mode.includes('register-409')) { process.stderr.write('the coordinator said no (409): a Mac on this account already has that name\\n'); process.exit(1); }
     // #3827: a register that is still out when Sign out or Forget lands (busy wait: no timers here).
     // A register killed mid-certificate: the Mac's key and id are written, then it hangs.
     if (mode.includes('partial-register')) {
@@ -1274,6 +1275,58 @@ test('#3827: a half identity that cannot be retired is logged, and the new regis
     assert.ok(logged.some((l) => /could not be retired/.test(l)), 'the failed retire of the half identity was silent: ' + JSON.stringify(logged));
   } finally {
     process.stderr.write = orig;
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    remote.setOn(false);
+  }
+});
+
+test('#3827: after a half identity could not be retired, "name taken" says it may be this computer\'s own earlier sign-in', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  process.env.FAKE_TUNNEL_MODE = 'partial-register';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  const orig = process.stderr.write;
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const killed = await remote.signinRegister('hers');
+    assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
+    process.env.FAKE_TUNNEL_MODE = 'hung-retire,register-409';
+    process.stderr.write = () => true;
+    const again = await remote.signinRegister('hers');
+    process.stderr.write = orig;
+    assert.equal(again.ok, false, 'fixture: the coordinator still holds the name');
+    assert.match(again.because, /own earlier sign-in/, 'a stranded attempt read as another Mac\'s name: ' + again.because);
+    // Control inside the test: with the retire working, a 409 is left as it is.
+    process.env.FAKE_TUNNEL_MODE = 'register-409';
+    const plain = await remote.signinRegister('hers');
+    assert.equal(plain.ok, false);
+    assert.doesNotMatch(plain.because, /own earlier sign-in/, 'a plain 409 was blamed on this computer');
+  } finally {
+    process.stderr.write = orig;
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    remote.setOn(false);
+  }
+});
+
+test('#3827: the Settings setup also retires a half identity before it registers', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  process.env.FAKE_TUNNEL_MODE = 'partial-register';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const killed = await remote.signinRegister('hers');
+    assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
+    delete process.env.FAKE_TUNNEL_MODE;
+    await remote.setupStart('her@example.com');
+    fs.rmSync(RECORD, { force: true });
+    const done = await remote.setupComplete('123456', 'hers');
+    assert.equal(done.ok, true, 'the Settings setup hit a dead end: ' + done.because);
+    const calls = recorded().map((c) => (c[0] === 'setup' || c[0] === 'signin' ? c[0] + ' ' + c[1] : c[0]));
+    assert.ok(calls.indexOf('retire') >= 0 && calls.indexOf('retire') < calls.indexOf('setup complete'), 'the half identity was not retired before the Settings setup: ' + JSON.stringify(calls));
+  } finally {
     delete process.env.FAKE_TUNNEL_MODE;
     delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
     remote.setOn(false);

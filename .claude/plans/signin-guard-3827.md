@@ -53,3 +53,9 @@ Weakest premise: Forget can now take up to the register bound (60s) when a regis
 - WARNING: the `forgetting` branch was untested. Test: with a registered Mac and a hung retire, a Forget in progress refuses start, verify, second, enrol, confirm, register and the Settings setup with "being forgotten" (no register out, so only that branch can refuse). Control (busy() ignores forgetting) fails.
 - WARNING: clearHalfIdentity's failed-retire log was untested. Test: a killed register leaves a half identity, the retire hangs past its bound, the line is logged and the new register still succeeds. Control (log removed) fails.
 - NIT: enrolled() now says why mac_key is not listed.
+
+## Round 7 review (sonnet)
+- WARNING: after a half identity could not be retired, the new register's 409 ("a Mac on this account already has that name") read as another Mac's name, when it is most likely this computer's own stranded attempt. clearHalfIdentity now answers why its retire failed; a 409 after that says it may be this computer's own earlier sign-in and what to do (remove it on the account page, or another name). Test with a 409 mode in the fake; an in-test control shows a plain 409 is left alone; mutation control (explainStranded a no-op) fails by name.
+- WARNING: setupComplete's half-identity retire was untested. Test: a killed in-app register, then the Settings setup retires before `setup complete`. Control (no retire there) fails by name.
+- NIT: busy() now says "being forgotten" first: while a Forget waits on a register both are true, and Forget is what the person asked for.
+- NIT (no change): forget's `address` is null for a half-registered Mac. Nothing reads it: server.js relays it and no page consumes it (searched web/ and bin/).
