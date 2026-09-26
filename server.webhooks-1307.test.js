@@ -63,9 +63,12 @@ test.after(() => {
   fs.rmSync(SANDBOX, { recursive: true, force: true });
 });
 
-const api = async (p, { method = 'GET', body, token = TOK } = {}) => {
+/* The settings screen's calls: a browser sends Sec-Fetch-Site, which is how the board tells the
+   person's page from an agent (isViaScreen). `screen: false` is an agent's call. */
+const api = async (p, { method = 'GET', body, token = TOK, screen = true } = {}) => {
   const headers = { 'content-type': 'application/json' };
   if (token) headers['x-kosmos-board-token'] = token;
+  if (screen) headers['sec-fetch-site'] = 'same-origin';
   const res = await fetch(base + p, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   return { status: res.status, json: await res.json().catch(() => null) };
 };
@@ -291,4 +294,50 @@ test('the open-task ceiling holds under concurrent calls (counted next to the wr
     assert.deepEqual(codes.slice().sort(), [201, 429, 429], JSON.stringify(codes));
     assert.equal(projects.get(p.id).tasks.filter((t) => t.addedVia === 'webhook').length, 1);
   } finally { HOOK_RATE.openMax = old; }
+});
+
+test('only the person makes, renames or deletes a webhook; an agent (no screen) is refused, and may list names', async () => {
+  const made = await api(P(), { method: 'POST', body: { name: 'Person made' } });
+  const id = made.json.webhook.id;
+  const before = (await api(P())).json.webhooks.length;
+  assert.equal((await api(P(), { method: 'POST', body: {}, screen: false })).status, 403);
+  assert.equal((await api(P() + '/' + id + '/name', { method: 'POST', body: { name: 'x' }, screen: false })).status, 403);
+  assert.equal((await api(P() + '/' + id, { method: 'DELETE', screen: false })).status, 403);
+  const after = await api(P(), { screen: false });
+  assert.equal(after.status, 200, 'listing is open');
+  assert.equal(after.json.webhooks.length, before, 'nothing was made or deleted');
+  assert.equal(after.json.webhooks.find((h) => h.id === id).name, 'Person made', 'nothing was renamed');
+});
+
+test('a call whose body was still arriving when its webhook was deleted adds nothing', async () => {
+  const http = require('node:http');
+  const made = await api(P(), { method: 'POST', body: { name: 'Held' } });
+  const u = new URL(made.json.url);
+  const before = projects.get(projectId).tasks.length;
+  const body = JSON.stringify({ title: 'held past the delete' });
+  let done;
+  const status = new Promise((r) => { done = r; });
+  const req = http.request({ host: u.hostname, port: u.port, path: u.pathname, method: 'POST', agent: false,
+    headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) } },
+  (res) => { res.resume(); res.on('end', () => done(res.statusCode)); });
+  req.write(body.slice(0, 5));
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal((await api(P() + '/' + made.json.webhook.id, { method: 'DELETE' })).status, 200);
+  req.end(body.slice(5));
+  assert.equal(await status, 404);
+  assert.equal(projects.get(projectId).tasks.length, before);
+});
+
+test('the part route refuses an agent giving a webhook task out, end to end; the screen can', async () => {
+  const p = projects.create({ name: 'Route give' });
+  projects.addAgent(p.id, 'ada', [{ sessionName: 'ada' }]);
+  const made = await api(`/api/project/${encodeURIComponent(p.id)}/webhooks`, { method: 'POST', body: {} });
+  const n = (await call(made.json.url, { title: 'outside words' })).json.task;
+  const route = `/api/project/${encodeURIComponent(p.id)}/task/${n}/part/1/who`;
+  const agent = await api(route, { method: 'POST', body: { who: 'ada' }, screen: false });
+  assert.equal(agent.status, 400);
+  assert.match(agent.json.error, /from the screen, by a person/);
+  assert.ok(!require('./engine/tasks').whoOf(projects.get(p.id).tasks.find((t) => t.number === n)).length, 'nobody was put on it');
+  const person = await api(route, { method: 'POST', body: { who: 'ada' } });
+  assert.equal(person.status, 200, JSON.stringify(person.json));
 });

@@ -15022,6 +15022,9 @@ const server = http.createServer((req, res) => {
     if (!owner || (owner.createdAt || null) !== hook.projectMade) { nope(); return; }
     const tooOften = hookRateProblem(hook.id, hook.projectId);
     if (tooOften) { sendJson(res, 429, { error: tooOften }); return; }
+    /* A caller gets ten seconds to send its (at most 16 KB) body. Without a limit a held-open
+       request sits past its checks for minutes, and could land after the webhook was deleted. */
+    req.setTimeout(10000, () => { try { req.destroy(); } catch { /* already gone */ } });
     readBody(req, HOOK_BODY_MAX).then((buf) => {
       const text = buf.toString('utf8');
       let parsed;
@@ -15040,9 +15043,13 @@ const server = http.createServer((req, res) => {
          ⚠️ Counted HERE, from a fresh read, with nothing asynchronous between the count and
          tasks.create (both synchronous): counted before the body arrived, concurrent calls would
          each see the same count and all pass. */
+      /* And checked AGAIN now the body is here: the webhook may have been deleted, or its project
+         deleted and the id reused, while the body was arriving. Both reads are synchronous and
+         cheap (verify is cached), and nothing asynchronous follows them before the write. */
+      if (!webhooks.verify(hookCall[1], hookCall[2])) { nope(); return; }
       let fresh = null;
       try { fresh = projects.get(hook.projectId); } catch { fresh = null; }
-      if (!fresh) { nope(); return; }
+      if (!fresh || (fresh.createdAt || null) !== hook.projectMade) { nope(); return; }
       const waiting = (fresh.tasks || []).filter((t) => t && t.addedVia === 'webhook' && !tasks.progressOf(t).closed).length;
       if (waiting >= HOOK_RATE.openMax) {
         sendJson(res, 429, { error: 'this project already has ' + HOOK_RATE.openMax + ' open tasks from webhooks; close some first' });
@@ -15054,12 +15061,21 @@ const server = http.createServer((req, res) => {
       } catch (err) {
         const msg = String((err && err.message) || '');
         if (/no project by that name/.test(msg)) { nope(); return; }
-        sendJson(res, (err && err.code === 'UNREADABLE') ? 500 : 400, { error: msg || 'we could not add that task' });
+        /* Busy or unreadable is OUR state and worth retrying: a 4xx would tell a sender like Zapier
+           to drop the event for good. */
+        const ours = (err && err.code === 'UNREADABLE') || /busy|exclusive access/i.test(msg);
+        sendJson(res, ours ? 503 : 400, { error: msg || 'we could not add that task' });
         return;
       }
       webhooks.touch(hook.id);
       sendJson(res, 201, { task: made && made.number });
-    }).catch(() => sendJson(res, 413, { error: 'that is too big for a task; keep it under 16 KB' }));
+    }).catch((err) => {
+      /* readBody destroys the socket on an oversized body, so this 413 usually never arrives (the
+         caller sees the connection close); anything else thrown above is a 500, not "too big". */
+      if (res.headersSent) return;
+      const big = /too large/.test(String((err && err.message) || ''));
+      try { sendJson(res, big ? 413 : 500, { error: big ? 'that is too big for a task; keep it under 16 KB' : 'we could not add that task' }); } catch { /* socket gone */ }
+    });
     return;
   }
 
@@ -15079,11 +15095,21 @@ const server = http.createServer((req, res) => {
       sendJson(res, /no webhook by that id/.test(msg) ? 404 : ((err && err.code === 'UNREADABLE') || /busy|exclusive access/.test(msg) ? 503 : 400), { error: msg || fallback });
     };
     const made0 = project.createdAt || null;
+    /* Making, renaming and deleting are the person's, from the screen (the same advisory check as
+       the board's other person-only settings). An agent must not mint a webhook, which would hand
+       it a way in for outside text the person never saw, nor delete the person's. Listing, which
+       shows names only, is open to any board-token caller. */
+    const personOnly = () => {
+      if (isViaScreen(req)) return false;
+      sendJson(res, 403, { error: 'only you can change webhooks, from the project settings' });
+      return true;
+    };
     if (hookList && req.method === 'GET') {
       try { sendJson(res, 200, { webhooks: webhooks.list(project.id, made0) }); } catch (err) { fail(err, 'we could not read the webhooks'); }
       return;
     }
     if (hookList && req.method === 'POST') {
+      if (personOnly()) return;
       readBody(req, 4096).then((raw) => {
         let body = {};
         try { body = JSON.parse(raw.toString('utf8') || '{}') || {}; } catch { body = {}; }
@@ -15095,6 +15121,7 @@ const server = http.createServer((req, res) => {
       return;
     }
     if (hookOne && hookOne[3] && req.method === 'POST') {
+      if (personOnly()) return;
       readBody(req, 4096).then((raw) => {
         let body = {};
         try { body = JSON.parse(raw.toString('utf8') || '{}') || {}; } catch { body = {}; }
@@ -15103,6 +15130,7 @@ const server = http.createServer((req, res) => {
       return;
     }
     if (hookOne && !hookOne[3] && req.method === 'DELETE') {
+      if (personOnly()) return;
       try { webhooks.remove(project.id, hookOne[2], made0); sendJson(res, 200, { ok: true }); } catch (err) { fail(err, 'we could not delete that webhook'); }
       return;
     }

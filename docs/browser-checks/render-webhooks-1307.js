@@ -20,7 +20,7 @@
  *   node docs/browser-checks/render-webhooks-1307.js            # headed
  *   HEADED=0 node docs/browser-checks/render-webhooks-1307.js   # headless
  */
-require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
+require('./lib-sandbox-home.js'); // #3675: never read the host computer's real accounts
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -80,6 +80,9 @@ function chk(ok, label, extra) {
       if (theme === 'light' && width === 1280) {
         await page.click('#pjs-hook-add');
         await page.waitForSelector('#pjs-hook-url', { timeout: 8000 });
+        /* Making one is followed by a fresh read of the list; read focus after THAT lands, since a
+           repaint is what could take the link out from under the person. */
+        await page.waitForLoadState('networkidle');
         const made = await page.evaluate(() => ({
           name: (document.querySelector('[data-hook-name]') || {}).value,
           url: document.getElementById('pjs-hook-url').value,

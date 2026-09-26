@@ -30,7 +30,8 @@ function fnSource(name) {
     else if (SCRIPT[k] === '}') { depth -= 1; if (depth === 0) { end = k + 1; break; } }
   }
   assert.ok(end > -1, 'could not find the end of ' + name);
-  return SCRIPT.slice(start, end);
+  // Keep an `async` in front, or an awaiting function lifts as a syntax error.
+  return (SCRIPT.slice(Math.max(0, start - 6), start) === 'async ' ? 'async ' : '') + SCRIPT.slice(start, end);
 }
 
 /* A box whose innerHTML is kept as a string, with just enough querySelector(All) for
@@ -110,4 +111,30 @@ test('pjsHooksPaint keeps a half-typed name through a repaint; an untouched row 
   const inputs = box.querySelectorAll('input[data-hook-name]');
   assert.equal(inputs.find((i) => i.dataset.hookName === 'aaaaaaaaaaaaaaaa').value, 'One, half ty');
   assert.equal(inputs.find((i) => i.dataset.hookName === 'bbbbbbbbbbbbbbbb').value, 'Two');
+});
+
+test('pjsHooksOpen: a read that lacks the webhook whose link is showing keeps that row (and its link)', async () => {
+  const box = stubBox();
+  const msg = { textContent: '' };
+  const document = { getElementById: (id) => (id === 'pjs-hooks' ? box : id === 'pjs-hooks-msg' ? msg : null), activeElement: null };
+  const CSS = { escape: (s) => String(s) };
+  let answer = [];
+  const fetch = async () => ({ ok: true, json: async () => ({ webhooks: answer }) });
+  // eslint-disable-next-line no-new-func
+  const pg = new Function('document', 'CSS', 'fetch',
+    fnSource('esc') + fnSource('agoWords') + fnSource('asSentence') + fnSource('pjsHooksUrl') + fnSource('pjsHooksWhen')
+    + fnSource('pjsHooksPaint') + fnSource('pjsHooksOpen')
+    + 'const PJS_HOOKS = { projectId: "p", list: [], reveal: null, confirm: null, gen: 0 };'
+    + 'return { pjsHooksOpen, PJS_HOOKS };')(document, CSS, fetch);
+  const older = { id: 'aaaaaaaaaaaaaaaa', name: 'Webhook 1', createdAt: null, lastUsedAt: null };
+  const fresh = { id: 'bbbbbbbbbbbbbbbb', name: 'Webhook 2', createdAt: null, lastUsedAt: null };
+  pg.PJS_HOOKS.list = [older, fresh];
+  pg.PJS_HOOKS.reveal = { id: fresh.id, url: 'http://127.0.0.1:1/hooks/bbbbbbbbbbbbbbbb/SECRET' };
+  answer = [older]; // the server answered before Webhook 2 was written
+  await pg.pjsHooksOpen({ id: 'p' });
+  assert.deepEqual(pg.PJS_HOOKS.list.map((h) => h.id), [older.id, fresh.id]);
+  assert.ok(box.innerHTML.includes('SECRET'), 'its link is still on screen');
+  pg.PJS_HOOKS.reveal = null;
+  await pg.pjsHooksOpen({ id: 'p' });
+  assert.deepEqual(pg.PJS_HOOKS.list.map((h) => h.id), [older.id], 'control: with no link showing, the read is taken as it is');
 });

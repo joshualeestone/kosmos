@@ -378,6 +378,7 @@
 .pjs-hook-reveal code { font-family: var(--font-mono); font-size: .8125rem; }
 .pjs-hook-confirm { margin-top: 8px; font-size: .875rem; }
 .tkcard-from { display: block; font-size: .75rem; color: var(--k-ink-2); margin-top: 2px; }
+/* .tsk-from sits in a Tasks row's meta line and takes that line's span style on purpose. */
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -46377,7 +46378,12 @@ function paintProjectSettings(p) {
    Done or opens ANOTHER project's settings (reopening this project's settings still shows it, so a
    link not yet copied is not lost to a stray click); nothing else ever shows it again.
    Every change bumps PJS_HOOKS.gen, so a list read still in flight cannot land afterwards and
-   replace the list with one that lacks a just-made webhook (and with it the only copy of its link). */
+   replace the list with one that lacks a just-made webhook (and with it the only copy of its link),
+   and every change that succeeds ends with a fresh read (pjsHooksAfter), so a read it discarded
+   is replaced rather than lost. A read always keeps the row whose link is showing. */
+function pjsHooksAfter(projectId) {
+  if (PJS_HOOKS.projectId === projectId) pjsHooksOpen({ id: projectId });
+}
 const PJS_HOOKS = { projectId: null, list: [], reveal: null, confirm: null, gen: 0 };
 function pjsHooksUrl(id) { return '/api/project/' + encodeURIComponent(PJS_HOOKS.projectId) + '/webhooks' + (id ? '/' + id : ''); }
 async function pjsHooksOpen(p) {
@@ -46399,7 +46405,12 @@ async function pjsHooksOpen(p) {
       msg.textContent = asSentence(body.error || 'we could not read this project’s webhooks just now');
       PJS_HOOKS.list = [];
     } else {
-      PJS_HOOKS.list = body.webhooks;
+      /* The row whose link is showing is never dropped by a read: a read the server answered
+         before that webhook was written would otherwise take the only copy of its link with it. */
+      const list = body.webhooks.slice();
+      const r = PJS_HOOKS.reveal;
+      if (r && !list.some((h) => h.id === r.id)) { const keep = PJS_HOOKS.list.find((h) => h.id === r.id); if (keep) list.push(keep); }
+      PJS_HOOKS.list = list;
     }
   } catch {
     if (mine !== PJS_HOOKS.gen) return;
@@ -46417,9 +46428,11 @@ function pjsHooksPaint() {
   const box = document.getElementById('pjs-hooks');
   if (!box) return;
   /* A repaint (Delete, Keep it, Done, a fresh read) keeps a name someone is half-way through
-     typing in any row, and the focus if it was in a name box. */
+     typing in any row, and the focus if it was in a name box or on the link just made (the read
+     that follows making one must not take the link out from under the person copying it). */
   const typed = new Map();
   let focusedName = null;
+  const onLink = !!document.activeElement && document.activeElement.id === 'pjs-hook-url';
   box.querySelectorAll('input[data-hook-name]').forEach((i) => {
     const h = PJS_HOOKS.list.find((x) => x.id === i.dataset.hookName);
     if (h && i.value !== h.name) typed.set(i.dataset.hookName, i.value);
@@ -46448,6 +46461,7 @@ function pjsHooksPaint() {
   }).join('');
   typed.forEach((v, id) => { const i = box.querySelector('input[data-hook-name="' + CSS.escape(id) + '"]'); if (i) i.value = v; });
   if (focusedName) { const i = box.querySelector('input[data-hook-name="' + CSS.escape(focusedName) + '"]'); if (i) i.focus(); }
+  if (onLink) { const u = document.getElementById('pjs-hook-url'); if (u) { u.focus(); u.select(); } }
 }
 async function pjsHooksSend(url, method, body) {
   const r = await fetch(url, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -46472,6 +46486,7 @@ async function pjsHookAdd() {
     pjsHooksPaint();
     const url = document.getElementById('pjs-hook-url');
     if (url) { url.focus(); url.select(); }
+    pjsHooksAfter(forProject);
   } catch (e) {
     msg.textContent = asSentence(e.message);
   } finally { btn.disabled = false; }
@@ -46492,6 +46507,7 @@ async function pjsHookRename(id, name) {
     const del = row && row.querySelector('[data-hook-delete]');
     if (input && document.activeElement !== input) input.value = h.name;
     if (del) del.setAttribute('aria-label', 'Delete ' + h.name);
+    pjsHooksAfter(PJS_HOOKS.projectId);
   } catch (e) {
     msg.textContent = asSentence(e.message);
     /* Put back only this row's name, for the same reason as above. */
@@ -46510,6 +46526,7 @@ async function pjsHookDelete(id) {
     if (PJS_HOOKS.reveal && PJS_HOOKS.reveal.id === id) PJS_HOOKS.reveal = null;
     PJS_HOOKS.confirm = null;
     msg.textContent = 'Deleted ' + (h ? h.name : 'the webhook') + '. Its link no longer works.';
+    pjsHooksAfter(PJS_HOOKS.projectId);
   } catch (e) {
     msg.textContent = asSentence(e.message);
   }
