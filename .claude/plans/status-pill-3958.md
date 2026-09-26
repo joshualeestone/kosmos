@@ -48,7 +48,7 @@ empty or two-message thread nothing on the agent page is rebuilt; the unfurl cac
 ## Verification
 - docs/browser-checks/render-thread-steady-3966.js, chromium + webkit, 8/8; raw-markup compare
   reds it on both engines (224/224 nodes replaced).
-- web.thread-shape-3966.test.js (5): shape equality across time words, real changes still repaint,
+- web.thread-shape-3966.test.js (6): shape equality across time words, real changes still repaint,
   source pins on both painters, every thread time written through pjWhenLive.
 - web.thread-scroll.test.js brings the two helpers across (it loads setThread by itself).
 
@@ -72,3 +72,26 @@ exact trigger in his thread is inferred.
 - NITs: the #3966 helpers moved below pjWhenPart (they had split it from its docblock); two comments
   that quoted the old raw compare; setLive refreshes times only when the markup has one.
 - render-agentdm-3414.js (maps msg-t) re-run green on this branch: surface trailer on the commit.
+
+## Challenge-loop iteration 5 (after merging main)
+- The screen-said evidence (#d-said) and the Sign in again button (#d-reauth) moved into
+  paintDetailState: painted only on open they froze while the pill went live, so a page opened on
+  a working agent that hit auth_failed showed the state with no remedy beside it.
+- paintRoom's gate is an if/else. The text-write guards the review suggested for #d-task and the
+  said label were NOT kept: existing tests pin those exact lines.
+- render-signin-visible-3892.js (arrived with the merge; maps d-task) re-run green: trailer.
+
+# #3991 on the same branch: the tab view's project Members get the ring and the dot
+## Finding (measured)
+Not a regression: the tab view (#pj-one-agents, pjMember) drew neither in 0.6.90 or on main; the
+paint call is identical in both and no pickaxe finds a ring or dot rule for .pj-face / .pj-member.
+The ones Josh saw are the consolidated layout's (lrow: lrowRing + the .lav::after dot).
+## Fix
+pjMember draws lrowRing off the LIVE board card (member rows carry no context) and a dot class
+from lrow's own rule (not running or a stopped pill = grey, unknown = hollow, else green; a member
+the board cannot see keeps its "?" badge). CSS scoped to the tab view's #pj-one-agents; the ring
+sits outside the full-size photo.
+## Verification
+docs/browser-checks/render-member-ring-3991.js (chromium + webkit); ring removed / dot rule removed
+each red their arms. My first dot rule keyed on `running === false` alone and gave a stopped
+member a green dot (its card says running:true, state:stopped); the check caught it.
