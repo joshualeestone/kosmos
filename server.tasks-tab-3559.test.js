@@ -76,6 +76,8 @@ test('GET /api/tasks: every row carries state, claim and lastActivityAt, derived
   // The pre-existing fields are untouched (the project View-all door reads them).
   assert.equal(body.count, body.tasks.length);
   assert.ok(body.tasks.every((t) => t.projectId === p.id && typeof t.isClosed === 'boolean'));
+  // #3949 review round 9: the roster was read, so the page may trust a false waitingOnPerson.
+  assert.equal(body.rosterUnreadable, false);
 });
 
 test('GET /api/tasks: without ?view=tasks the rows carry none of the Tasks view\'s costly fields', async () => {

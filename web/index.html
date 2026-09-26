@@ -3416,8 +3416,8 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-tile .lab { font-size: .8125rem; font-weight: 650; }
 /* #3949 (Josh): Needs Your Decision is red, the only tile the person acts on; at zero there is nothing to act on,
    so it is drawn like the others. */
-.tsk-tile[data-tile="decision"]:not([data-n="0"]) { border-color: color-mix(in srgb, var(--danger) 45%, var(--k-rule)); }
-.tsk-tile[data-tile="decision"]:not([data-n="0"]) .num, .tsk-tile[data-tile="decision"]:not([data-n="0"]) .lab { color: var(--danger); }
+.tsk-tile[data-tile="decision"]:not([data-n="0"]):not([data-n="unknown"]) { border-color: color-mix(in srgb, var(--danger) 45%, var(--k-rule)); }
+.tsk-tile[data-tile="decision"]:not([data-n="0"]):not([data-n="unknown"]) .num, .tsk-tile[data-tile="decision"]:not([data-n="0"]):not([data-n="unknown"]) .lab { color: var(--danger); }
 .tsk-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--tsk-c); margin-right: 6px; vertical-align: 1px; flex: none; }
 .tsk-grp { margin-top: 24px; }
 .tsk-grp h3 { font-size: 1.0625rem; margin: 0; display: flex; align-items: center; gap: 3px; }
@@ -45186,7 +45186,7 @@ const TSK_GROUPS = [
 ];
 const TSK_WINDOWS = [['24h', 1], ['48h', 2], ['1 week', 7], ['1 month', 30], ['All', 0]];
 const TSK_BYS = [['status', 'Status'], ['project', 'Project']];
-const TSK = { data: null, error: null, proj: null, projHint: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '', needs: null, closedOpen: false, fold: new Set() };
+const TSK = { data: null, error: null, proj: null, projHint: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '', needs: null, rosterUnknown: false, closedOpen: false, fold: new Set() };
 TSK_READY = true;
 const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
 /* The name the board prints for an agent (its roster card's `name`; a card has no `displayName`
@@ -45299,6 +45299,7 @@ async function tskLoad(arrival) {
       /* Archived projects are set aside: their tasks are not in this view (the rails tuck archived
          projects away too), except the one a project door scoped us to (#3703; tskVisible). */
       TSK.data = body.tasks;
+      TSK.rosterUnknown = body.rosterUnreadable === true;
       /* A ticked task that has since closed or gone cannot stay ticked. */
       const open = new Set(TSK.data.filter((t) => t.state !== 'closed').map(tskKey));
       TSK.sel.forEach((k) => { if (!open.has(k)) TSK.sel.delete(k); });
@@ -45414,8 +45415,6 @@ function taskNest(rows, keyOf, parentKeyOf, folded) {
   for (const t of rows) walk(t, 0);
   return out;
 }
-/* What the view lists: every task except an archived project's, unless that project is the one
-   in scope (its own View-all door, #3703). Unarchiving brings them back on the next read. */
 /* #3949: a dropdown's options are rewritten only when they change, so a background repaint that changes
    nothing (a load, the roster) does not close or reset one the person has open. A read that changes a
    project's open count does rewrite the project list's options; its value is kept in step either way. */
@@ -45423,6 +45422,8 @@ function tskOptions(sel, html, value) {
   if (sel.dataset.opts !== html) { sel.innerHTML = html; sel.dataset.opts = html; }
   if (sel.value !== value) sel.value = value;
 }
+/* What the view lists: every task except an archived project's, unless that project is the one
+   in scope (its own View-all door, #3703). Unarchiving brings them back on the next read. */
 function tskVisible(all, proj) {
   return (all || []).filter((t) => !t.projectArchived || t.projectId === proj);
 }
@@ -45445,10 +45446,9 @@ function tskPaint() {
      project a door just asked for (#3703). */
   if (TSK.data && TSK.proj && !projMap.has(TSK.proj)) TSK.proj = null;
   const projectsList = [...projMap.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
-  /* "All tasks" counts what clicking it shows: every task but an archived project's, even while a
-     door has us scoped to that archived project (#1346: a count agrees with its destination). */
   /* #3949: the project picker is this dropdown at every width (the left rail is gone). Each option keeps
-     the rail's open count, so it still agrees with what picking it shows (#1346). */
+     the rail's open count of that project's tasks, whatever Created: and the search hide (#1346 held it
+     equal to what picking it shows with neither set). */
   const sel = document.getElementById('tsk-projsel');
   if (sel) {
     /* Mona's design review: a count here sat under "N open tasks across M projects" and read as a number
@@ -45475,6 +45475,13 @@ function tskPaint() {
     const n = scoped.filter((t) => t.state === g.k).length;
     /* A zero Needs Your Decision takes a neutral dot too: nothing to act on, nothing red (post-rebase review). */
     const dot = g.k === 'decision' && !n ? 'var(--tsk-nobody)' : g.c;
+    /* Review round 9: when the server could not read the agents, a 0 here would say nobody needs the person
+       when nobody could look. The tile says it cannot tell, and stays neutral. */
+    if (g.k === 'decision' && TSK.rosterUnknown) {
+      const why = 'Kosmos could not read your agents just now, so it cannot tell whether one is waiting on you.';
+      return '<button type="button" class="tsk-tile" data-tile="decision" data-n="unknown" aria-pressed="' + (TSK.tile === g.k) + '" style="--tsk-c:var(--tsk-nobody)" title="' + esc(why) + '" aria-label="' + esc(g.l + ': cannot tell. ' + why) + '">'
+        + '<span class="num">?</span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span></button>';
+    }
     return '<button type="button" class="tsk-tile" data-tile="' + g.k + '" data-n="' + n + '" aria-pressed="' + (TSK.tile === g.k) + '" style="--tsk-c:' + dot + '">'
       + '<span class="num">' + n + '</span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span></button>';
   }).join('');

@@ -155,7 +155,7 @@ test('#3949 waitingOnPerson: the holding agent needs the person, about this task
   assert.equal(tasks.waitingOnPerson(on(here, { closedAt: '2026-09-01T00:00:00Z' }), [here]), false, 'a closed task waits on nobody');
   assert.equal(tasks.waitingOnPerson(on(here, { who: null }), [here]), false, 'an unassigned task has no agent to wait');
   assert.equal(tasks.waitingOnPerson(on(here), null), false);
-  /* The two needs that are about the agent itself, not a project: a real card in those producer states. */
+  /* The two needs that are about the agent itself, not a project: a real fleet card with its state set by hand to each (the producers need a live pane to reach them). */
   const trust = Object.assign({}, busy, { state: 'needs_trust' });
   assert.equal(tasks.waitingOnPerson(on(busy), [trust]), true, 'a trust wait is about the agent itself');
   const gaveUp = Object.assign({}, busy, { state: 'connection_lost', reconnect: { phase: 'gave_up' } });

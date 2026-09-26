@@ -13632,7 +13632,9 @@ const server = http.createServer((req, res) => {
         lastActivityAt: tasks.lastActivityOf(t.projectId, t),
       });
     });
-    sendJson(res, 200, { tasks: rows, count: rows.length, project: projectScope });
+    /* #3949 (review round 9): with no roster, waitingOnPerson cannot see a question, so the page must not
+       read its "false" as "nobody needs you". It says it could not tell. */
+    sendJson(res, 200, { tasks: rows, count: rows.length, project: projectScope, rosterUnreadable: !Array.isArray(roster) });
     return;
   }
 

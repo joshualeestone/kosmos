@@ -90,7 +90,7 @@ test('#3949 only the groups the engine can prove are defined, in Josh\'s order, 
   assert.doesNotMatch(m[1], /Built but waiting|Waiting on you|Done, check it/, 'an unprovable group is drawn (#3951)');
   assert.match(m[1], /k: 'decision', l: 'Needs Your Decision', c: 'var\(--tsk-decision\)'/);
   assert.match(PAGE, /--tsk-decision: var\(--danger\);/, 'Needs Your Decision is not red');
-  assert.match(PAGE, /\.tsk-tile\[data-tile="decision"\]:not\(\[data-n="0"\]\) \.num/, 'a zero Needs Your Decision is still red');
+  assert.match(PAGE, /\.tsk-tile\[data-tile="decision"\]:not\(\[data-n="0"\]\):not\(\[data-n="unknown"\]\) \.num/, 'a zero or unknown Needs Your Decision is still red');
   assert.match(SCRIPT, /data-tile="' \+ g\.k \+ '" data-n="' \+ n \+ '"/, 'the tile does not carry its count for the style');
 });
 

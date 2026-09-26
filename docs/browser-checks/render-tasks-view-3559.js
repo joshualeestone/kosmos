@@ -292,6 +292,24 @@ function chk(ok, label, extra) {
             redDot: getComputedStyle(t.querySelector('.tsk-dot')).backgroundColor === danger };
         });
         chk(zero.n === 0 && !zero.red && !zero.redDot, `${tag} a zero Needs Your Decision is not red, its dot included`, JSON.stringify(zero));
+        /* Review round 9: when the server could not read the agents (rosterUnreadable), the tile says it cannot tell
+           rather than 0, and is not red. Driven through the page's own flag and painter, with the search cleared so
+           the data still holds Max's question: the tile would be red with a 1 if the flag were ignored. */
+        const unknown = await page.evaluate(() => {
+          document.getElementById('tsk-search').value = ''; TSK.q = '';
+          TSK.rosterUnknown = true; tskPaint();
+          const t = document.querySelector('#tsk-tiles [data-tile="decision"]');
+          const probe = document.createElement('span'); probe.style.color = 'var(--danger)'; document.getElementById('panel-tasks').appendChild(probe);
+          const danger = getComputedStyle(probe).color; probe.remove();
+          const out = { num: t.querySelector('.num').textContent, n: t.dataset.n, red: getComputedStyle(t.querySelector('.num')).color === danger,
+            label: t.getAttribute('aria-label') || '' };
+          TSK.rosterUnknown = false; tskPaint();
+          out.after = document.querySelector('#tsk-tiles [data-tile="decision"] .num').textContent;
+          return out;
+        });
+        chk(unknown.num === '?' && unknown.n === 'unknown' && !unknown.red && /cannot tell/.test(unknown.label) && unknown.after === '1',
+          `${tag} with the agents unreadable, Needs Your Decision says it cannot tell (not 0, not red)`, JSON.stringify(unknown));
+        await page.fill('#tsk-search', 'podcast');
         /* Its own clear button: shown with text, clears and hides again. */
         const clr = await page.evaluate(() => !document.getElementById('tsk-qclear').hidden);
         chk(clr, `${tag} the search's clear button shows once there is text`);
