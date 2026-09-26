@@ -388,7 +388,7 @@ test('#3878: a refusal after the token was withheld names the host, not the toke
     fp.setTransport(null);
     const r = await fp.pull(path.join(SB, 'd-withheld'), { token: 'tok' });
     assert.equal(r.ok, false);
-    assert.match(r.because, /token withheld from host localhost/);
+    assert.match(r.because, /blob GET HTTP 403, token withheld from host localhost\)/);
     assert.doesNotMatch(r.because, /refused although/, 'the token was never sent, so it must not be blamed');
   } finally {
     if (savedApi === undefined) delete process.env.AGENT_WORKFORCE_BLOB_API; else process.env.AGENT_WORKFORCE_BLOB_API = savedApi;
@@ -409,7 +409,7 @@ test('#3878: reports listed from a PUBLIC blob store say the token is the old st
   const r = await fp.pull(path.join(SB, 'd-public'), { token: 'tok' });
   assert.equal(r.ok, true);
   assert.equal(r.fromPublicStore, true);
-  assert.match(fp.summaryLines(r).join('\n'), /came from a PUBLIC blob store.*refile vercel-blob-feedback/);
+  assert.match(fp.summaryLines(r).join('\n'), /listed from a PUBLIC blob store.*refile vercel-blob-feedback/);
   // Control: the private store's host carries no such note.
   fp.setTransport({
     list: async () => [{ url: 'https://abc.private.blob.vercel-storage.com/feedback/a.json' }],
@@ -418,4 +418,15 @@ test('#3878: reports listed from a PUBLIC blob store say the token is the old st
   const r2 = await fp.pull(path.join(SB, 'd-private'), { token: 'tok' });
   assert.equal(r2.fromPublicStore, false);
   assert.doesNotMatch(fp.summaryLines(r2).join('\n'), /PUBLIC/);
+});
+
+test('#3878: a pull that FAILS on a public-store listing still carries the wrong-store hint', async () => {
+  fp.setTransport({
+    list: async () => [{ url: 'https://abc.public.blob.vercel-storage.com/feedback/a.json' }],
+    get: async () => { throw new Error('blob GET HTTP 404'); },
+  });
+  const r = await fp.pull(path.join(SB, 'd-public-fail'), { token: 'tok' });
+  assert.equal(r.ok, false);
+  assert.equal(r.fromPublicStore, true);
+  assert.match(r.because, /listed from a PUBLIC blob store.*refile vercel-blob-feedback/);
 });
