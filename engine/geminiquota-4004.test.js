@@ -107,6 +107,10 @@ test('#4004: the 3-option variant (Switch to <model> / Upgrade / Stop) is the qu
   assert.equal(c.quotaDialog, true, JSON.stringify(c));
   assert.equal(status.geminiStopKey(three), '3', 'the key for Stop was not read off the 3-option question');
   assert.equal(status.geminiStopKey(DIALOG), '2');
+  // CONTROL: the same box with no Stop among its options is not the question Kosmos can answer.
+  const noStop = DIALOG.replace('│   2. Stop                                        │', '│   2. Wait                                        │');
+  assert.notEqual(noStop, DIALOG, 'the fixture edit did not apply');
+  assert.notEqual(status.classify(gem, noStop).quotaDialog, true, 'a quota box with no Stop option read as the question');
 });
 
 test('#4004: the question on screen stands over a fresh report the agent filed itself (it cannot be working through it)', () => {
@@ -164,6 +168,7 @@ test('#4004: the card and the manager are told in plain words, with the reset an
   const d = status.classify(gem, DIALOG);
   const q = accountProblemOf({ name: 'Gem', runner: 'gemini', state: 'rate_limited', because: d.because, limitFrom: d.limitFrom, quotaDialog: d.quotaDialog });
   assert.match(q.text, /reached a Google usage limit/);
+  assert.doesNotMatch(q.text, /Kosmos is answering/, 'it claims an answer the sweep may be switched off from giving');
   assert.doesNotMatch(q.text, /midnight|free daily/);
   // CONTROL: another Gemini usage limit (not the daily one) keeps the general wording.
   const other = accountProblemOf({ name: 'Gem', runner: 'gemini', state: 'rate_limited', because: 'its screen mentions a usage limit', limitFrom: null });
