@@ -24,9 +24,14 @@ test('#3960: the table names a key page for each provider that takes an API key,
   for (const [provider, url] of Object.entries(KEY_PAGES)) {
     assert.match(url, /^https:\/\/[a-z0-9.-]+\/\S+$/, provider + ': ' + url);
   }
-  // The addresses checked live on 2026-09-26 (see the table's comment).
-  assert.equal(KEY_PAGES.google, 'https://aistudio.google.com/apikey');
-  assert.equal(KEY_PAGES.claude, 'https://platform.claude.com/settings/keys');
+  // The addresses checked on 2026-09-26 (see the table's comment): pinned, so a change is deliberate.
+  // OpenAI's and xAI's are the least certain (bot-checked, taken from their own docs), so pinned too.
+  assert.deepEqual(KEY_PAGES, {
+    google: 'https://aistudio.google.com/apikey',
+    xai: 'https://console.x.ai/team/default/api-keys',
+    openai: 'https://platform.openai.com/api-keys',
+    claude: 'https://platform.claude.com/settings/keys',
+  });
 });
 
 /** The id of the nearest element before `at` whose id names a flow or a step. */
@@ -66,11 +71,15 @@ test('#3960: every API-key box has a Get a key link beside it', () => {
 
 test('#3960: no key-page address is written anywhere but the table', () => {
   const { KEY_PAGES } = keyPages();
-  const at = PAGE.indexOf('const KEY_PAGES = {');
-  const tableEnd = PAGE.indexOf('};', at);
+  // The table's region starts at its own comment (which names addresses too) and ends with it.
+  const at = PAGE.indexOf('/* #3960 (Josh, 2026-09-26');
+  const tableEnd = PAGE.indexOf('};', PAGE.indexOf('const KEY_PAGES = {'));
+  assert.ok(at > 0 && tableEnd > at, 'the table moved; re-anchor');
   const outside = PAGE.slice(0, at) + PAGE.slice(tableEnd);
-  // The domains too, not only today's exact URLs, so an old hard-coded link cannot hide.
-  for (const needle of [...Object.values(KEY_PAGES), 'aistudio.google.com', 'console.x.ai', 'platform.openai.com/api-keys', 'settings/keys']) {
+  // Every provider's key-page domain, not only today's exact URLs, so an old hard-coded link cannot
+  // hide (OpenAI's other pages live on platform.openai.com too, so that one is a key-page PATH).
+  for (const needle of [...Object.values(KEY_PAGES), 'aistudio.google.com', 'console.x.ai', 'platform.openai.com/api-keys',
+    'platform.openai.com/settings', 'console.anthropic.com', 'platform.claude.com']) {
     assert.equal(outside.includes(needle), false, needle + ' is written outside the table');
   }
   // CONTROL: the scan reads the page (the table itself does hold them).
@@ -79,10 +88,15 @@ test('#3960: no key-page address is written anywhere but the table', () => {
 
 test('#3960: keyPageLink points a link at the table, and hides it for a provider with none', () => {
   const { KEY_PAGES, keyPageLink } = keyPages();
-  const el = () => ({ hidden: false, attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } });
+  const el = () => { const said = { textContent: ' (opens the key page in your browser)' };
+    return { hidden: false, attrs: {}, said, setAttribute(k, v) { this.attrs[k] = v; }, querySelector: () => said }; };
   const g = el();
   keyPageLink(g, 'google');
   assert.deepEqual([g.hidden, g.attrs.href], [false, KEY_PAGES.google]);
+  assert.equal(g.said.textContent, ' (opens Google’s key page in your browser)', 'the screen-reader text does not name the provider');
+  const x = el();
+  keyPageLink(x, 'xai');
+  assert.equal(x.said.textContent, ' (opens xAI’s key page in your browser)');
   const none = el();
   keyPageLink(none, null);
   assert.deepEqual([none.hidden, none.attrs.href], [true, '#'], 'a link with nowhere to go was left showing');

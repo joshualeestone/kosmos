@@ -742,6 +742,10 @@ let failed = 0;
   await p.click('#acct-apikey-go');
   await p.waitForTimeout(150);
   await p.selectOption('#acct-provider-pick', 'xai');
+  // #3960: the shared key box's link followed the pick to xAI's key page (not left on Google's).
+  const xKey = await p.evaluate(() => { const a = document.getElementById('acct-apikey-getkey');
+    return { href: a && a.getAttribute('href'), want: typeof KEY_PAGES === 'object' ? KEY_PAGES.xai : null, google: typeof KEY_PAGES === 'object' ? KEY_PAGES.google : null }; });
+  say('#3960 picking Grok moves the shared Get a key link to xAI\'s key page', !!xKey.want && xKey.href === xKey.want && xKey.href !== xKey.google, JSON.stringify(xKey));
   await p.waitForTimeout(150);
   release();
   await p.waitForTimeout(600);

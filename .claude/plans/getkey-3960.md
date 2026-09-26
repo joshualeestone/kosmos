@@ -11,3 +11,10 @@ Every place Kosmos asks for a provider's API key (Settings > AI Models > Add a p
 - Settings style: #2234's quiet help link (`.acct-help a.btn-quiet`), with "(opens the key page in your browser)" for screen readers; first run keeps its existing Get a key buttons.
 - Tests: web.getkey-3960.test.js (the table; every key box has its link in the same step; no key-page address anywhere but the table; the applier; the shared box's wiring). render-accounts-openai asserts the Settings OpenAI and Gemini links in a real page.
 - Windows: the same page ships; Homer confirms on the card.
+
+## Review round 1
+- The shared Gemini/Grok link is now asserted in a real page to follow the pick (Grok -> xAI's page, not Google's), and the Anthropic link is asserted in render-claude-connect-choice-2433.
+- The #3960 block sits above the #2338/#3566 comments, so those still describe the code under them.
+- Screen-reader text names the provider ("opens Google's key page in your browser"); the first-run buttons carry it too.
+- Tests pin all four addresses and scan for every provider's key-page domain outside the table.
+- Accepted: the first-run buttons ship `href="#"` until the page script sets them (a page whose script failed is already broken); a literal fallback would be a second copy of the table.

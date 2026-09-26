@@ -123,6 +123,9 @@ function check(name, pass, detail) {
       keyIsPassword: keyField.type === 'password',
       keyFieldSized: sized(keyField),
       addIsPrimary: /\buprime\b/.test(addBtn.className),
+      // #3960: a "Get a key" link to Anthropic's key page, read from the page's own table.
+      getKey: (() => { const a = document.getElementById('acct-claude-getkey');
+        return { shown: vis(a), href: a && a.getAttribute('href'), want: typeof KEY_PAGES === 'object' ? KEY_PAGES.claude : null }; })(),
     };
 
     // 3. Choose the subscription flow: sub step shows, picker + key hide.
@@ -229,6 +232,9 @@ function check(name, pass, detail) {
     r.keyStep.keyStepVisible && r.keyStep.pickHidden && r.keyStep.subHidden
       && r.keyStep.keyIsPassword && r.keyStep.keyFieldSized && r.keyStep.addIsPrimary,
     JSON.stringify(r.keyStep));
+  check('#3960 the Anthropic key box has a Get a key link to its key page',
+    r.keyStep.getKey.shown && !!r.keyStep.getKey.want && r.keyStep.getKey.href === r.keyStep.getKey.want,
+    JSON.stringify(r.keyStep.getKey));
   // 3. sub step
   check('"Sign in with your subscription" reveals the browser-OAuth step, hiding the picker and key step',
     r.subStep.subVisible && r.subStep.pickHidden && r.subStep.keyHidden
