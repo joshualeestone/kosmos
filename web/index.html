@@ -20211,10 +20211,13 @@ async function tick() {
     document.getElementById('orgmap').innerHTML = '';
     ORG_HTML = null;
     orgBoxPlain(true);
-    // #718 state 3: the note carries its own Sign in button.
-    if (BOARD_SIGNED_OUT) document.getElementById('orgnote').innerHTML = esc(SIGNED_OUT_SENTENCE)
-      + ' <button class="btn" type="button" data-device-signin>Sign in</button>';
-    else document.getElementById('orgnote').textContent = BOARD_NEEDS_SIGNIN ? SIGNIN_SENTENCE
+    /* #718 state 3: the note carries its own Sign in button, written only when it changes so
+       the five-second poll does not rebuild the button under a keyboard's focus. */
+    const orgNote = document.getElementById('orgnote');
+    if (BOARD_SIGNED_OUT) {
+      const h = esc(ORG_SIGNED_OUT_SENTENCE) + ' <button class="btn" type="button" data-device-signin>Sign in</button>';
+      if (orgNote.innerHTML !== h) orgNote.innerHTML = h;
+    } else orgNote.textContent = BOARD_NEEDS_SIGNIN ? SIGNIN_SENTENCE
       : 'We cannot read the agents right now, so this is not drawn. It is not saying there are none.';
     /* The tiles are claims too. Left alone they hold last-success numbers
        beside "we cannot see them" -- concrete headline counts asserting a
@@ -27732,6 +27735,7 @@ let BOARD_SIGNED_OUT = false;
 function relaySignedOut(status, body) {
   return status === 401 && !!body && body.signed_out === true;
 }
+const ORG_SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos. Your Mac and your agents are fine.';
 const SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos, so it cannot see your agents or projects. Your Mac and your agents are fine. Sign in again from the Agents or Projects page.';
 function deviceSignedOutHtml() {
   return '<div class="pj-empty boardfail">'
@@ -41525,6 +41529,9 @@ document.getElementById('new-agent').addEventListener('click', () => openCreate(
    listener bound to the node would be thrown away on the next tick. */
 document.addEventListener('click', (e) => {
   if (e.target.closest('[data-board-new]')) { openCreate(); return; }
+  /* #718 state 3: a reload is a navigation, which the relay answers with its sign-in page;
+     after signing in it sends the person back to the board. */
+  if (e.target.closest('[data-device-signin]')) { location.reload(); return; }
   /* Retry is the same act the stamp's own refresh performs: ask again. It does
      NOT clear BOARD_LOOK_FAILED first -- clearing it here would flip the box to
      "no agents yet" for the length of one request, which is the exact
@@ -41542,9 +41549,6 @@ document.addEventListener('click', (e) => {
      node: on a failure the box's markup is unchanged, so the change guard can
      legitimately skip it and a permanently disabled button would be worse
      than an inert one. */
-  /* #718 state 3: a reload is a navigation, which the relay answers with its sign-in page;
-     after signing in it sends the person back to the board. */
-  if (e.target.closest('[data-device-signin]')) { location.reload(); return; }
   const retry = e.target.closest('[data-board-retry]');
   if (retry) {
     if (retry.disabled) return;

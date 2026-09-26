@@ -97,12 +97,12 @@ test('a server that ANSWERED with a refusal is not "not answering": the note pai
     // The catch branch repaints the board's failure state; everything it
     // touches beyond the note is a stub, so the only thing measured here is
     // the one call this test is about.
-    await new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN', 'setNavBadge', 'ringNewAgentMessages', 'setAgentsGrouped', 'orgBoxPlain',
-      `${page.lift(SCRIPT, 'tick')}\nreturn tick();`)(
+    await new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN', 'BOARD_SIGNED_OUT', 'setNavBadge', 'ringNewAgentMessages', 'setAgentsGrouped', 'orgBoxPlain',
+      `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'tick')}\nreturn tick();`)(
       (down) => painted.push(down),
       fetchImpl,
       { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] },
-      0, () => '', () => {}, null, null, false, () => {}, () => {}, () => {}, () => {}, // #3301: ringNewAgentMessages / #3387: setAgentsGrouped / #718: orgBoxPlain no-ops (tick calls them; not under test here)
+      0, () => '', () => {}, null, null, false, false, () => {}, () => {}, () => {}, () => {}, // #3301: ringNewAgentMessages / #3387: setAgentsGrouped / #718: orgBoxPlain no-ops (tick calls them; not under test here)
     );
     return painted;
   };
@@ -127,11 +127,12 @@ test('#2023: BOARD_NEEDS_SIGNIN does not latch -- a non-403 outcome after a 403 
      body is non-strict, so a bare assignment creates the global. */
   const stub = () => ({ dataset: {}, innerHTML: '', className: '', textContent: '', hidden: true, closest: () => null, querySelector: () => null, querySelectorAll: () => [] });
   let fetchImpl;
-  const tick = new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'SIGNIN_SENTENCE', 'setNavBadge', 'ringNewAgentMessages', 'setAgentsGrouped', 'orgBoxPlain',
-    `${page.lift(SCRIPT, 'tick')}\nreturn tick;`)(
-    () => {}, (...a) => fetchImpl(...a), { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] }, 0, () => '', () => {}, null, null, page.liftConst(SCRIPT, 'SIGNIN_SENTENCE'), () => {}, () => {}, () => {}, () => {}, // #3301: ringNewAgentMessages / #3387: setAgentsGrouped / #718: orgBoxPlain no-ops (tick calls them; not under test here)
+  const tick = new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'SIGNIN_SENTENCE', 'ORG_SIGNED_OUT_SENTENCE', 'esc', 'setNavBadge', 'ringNewAgentMessages', 'setAgentsGrouped', 'orgBoxPlain',
+    `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'tick')}\nreturn tick;`)(
+    () => {}, (...a) => fetchImpl(...a), { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] }, 0, () => '', () => {}, null, null, page.liftConst(SCRIPT, 'SIGNIN_SENTENCE'), page.liftConst(SCRIPT, 'ORG_SIGNED_OUT_SENTENCE'), (x) => String(x), () => {}, () => {}, () => {}, () => {}, // #3301: ringNewAgentMessages / #3387: setAgentsGrouped / #718: orgBoxPlain no-ops (tick calls them; not under test here)
   );
   delete globalThis.BOARD_NEEDS_SIGNIN;
+  delete globalThis.BOARD_SIGNED_OUT;
   const status403 = () => Promise.resolve({ ok: false, status: 403, json: () => Promise.resolve({ error: 'this board belongs to the account that started it' }) });
   const status500 = () => Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: 'we could not read tmux' }) });
   const throws = () => Promise.reject(new TypeError('Failed to fetch'));
@@ -143,7 +144,30 @@ test('#2023: BOARD_NEEDS_SIGNIN does not latch -- a non-403 outcome after a 403 
   assert.equal(globalThis.BOARD_NEEDS_SIGNIN, true, 'a second 403 did not re-set the flag');
   fetchImpl = throws; await tick();
   assert.equal(globalThis.BOARD_NEEDS_SIGNIN, false, 'the flag stuck TRUE across a genuine outage -- the latch #2023/#268 forbid (signin over not-answering)');
+  /* #718 state 3: the relay's signed-out flag, through the same real tick, the same way:
+     401 signed_out -> 500 -> 401 signed_out -> network throw. A sticky true would draw
+     "Sign in again" over "not answering". */
+  const relay401 = () => Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({ signed_out: true, error: 'this device is not signed in to this Mac' }) });
+  fetchImpl = relay401; await tick();
+  assert.equal(globalThis.BOARD_SIGNED_OUT, true, "the relay's signed-out 401 did not set the flag");
+  assert.equal(globalThis.BOARD_NEEDS_SIGNIN, false, 'a 401 set the board-token (403) flag');
+  fetchImpl = status500; await tick();
+  assert.equal(globalThis.BOARD_SIGNED_OUT, false, 'a genuine 500 after the relay 401 left the signed-out flag true');
+  fetchImpl = relay401; await tick();
+  assert.equal(globalThis.BOARD_SIGNED_OUT, true, 'a second relay 401 did not re-set the flag');
+  fetchImpl = throws; await tick();
+  assert.equal(globalThis.BOARD_SIGNED_OUT, false, 'the signed-out flag stuck TRUE across a genuine outage (sign-in over not-answering)');
   delete globalThis.BOARD_NEEDS_SIGNIN;
+  delete globalThis.BOARD_SIGNED_OUT;
+});
+
+test("#718 state 3: only the relay's explicit signed_out:true counts as signed out", () => {
+  const relaySignedOut = new Function(`${page.lift(SCRIPT, 'relaySignedOut')}\nreturn relaySignedOut;`)();
+  assert.equal(relaySignedOut(401, { signed_out: true }), true);
+  assert.equal(relaySignedOut(401, { error: 'unauthorized' }), false, 'a bare 401 is not proof that signing in fixes it');
+  assert.equal(relaySignedOut(401, { signed_out: 'true' }), false, 'a string is not the relay field');
+  assert.equal(relaySignedOut(401, null), false, 'an unparseable body is not signed out');
+  assert.equal(relaySignedOut(403, { signed_out: true }), false, 'the board-token 403 has its own state');
 });
 
 test('a poll that works clears it in the same paint', () => {
