@@ -46,7 +46,8 @@ const AFTER_STOP = [
   ' *   Type your message or @path/to/file',
   ' workspace (/directory)                         sandbox            /model',
 ].join('\n');
-const [gem] = status.parsePanes('gemq\t0.0\tnode\t0\tgemq\tgemini\t');
+/* A Gemini pane tied by its claim (fixture discipline: the line is built from PANE_COLUMNS, never hand-typed). */
+const [gem] = status.parsePanes(fleet.line(fleet.agent('gemq', { ours: 'claim', runner: 'gemini', command: 'node', state: 'idle' })));
 
 test('#4004: the quota question reads rate_limited, waiting on a question, with Gemini\'s own words', () => {
   const c = status.classify(gem, DIALOG);
@@ -91,7 +92,7 @@ test('#4004 CONTROLS: the words in tool output, a quoted dialog, a newer turn, a
   const filler = Array.from({ length: 14 }, (_, i) => `  line ${i + 1} of the agent's own output`).join('\n');
   const scrolled = AFTER_STOP.replace(composerAt, filler + '\n' + composerAt);
   assert.notEqual(status.classify(gem, scrolled).state, 'rate_limited', 'an error scrolled out of the last rows still read as the limit');
-  const [claude] = status.parsePanes('cl\t0.0\t2.1.283\t0\tcl\t\t');
+  const [claude] = status.parsePanes(fleet.line(fleet.agent('cl', { ours: 'claim', command: '2.1.283', state: 'idle' })));
   const c = status.classify(claude, DIALOG);
   assert.notEqual(c.quotaDialog, true, 'a Claude pane was read with Gemini\'s quota rule');
 });
@@ -147,8 +148,8 @@ test('#4004: after Kosmos answered Stop, Google\'s own words (any) at the left e
 });
 
 test('#4004: the sweep remembers only answers that were given', () => {
-  const dialog = status.classify(gem, DIALOG);
-  const roster = [{ sessionName: 'gemq', runner: 'gemini', state: dialog.state, quotaDialog: dialog.quotaDialog }];
+  const roster = boardCards([['gemq', DIALOG]]).filter((c) => c.sessionName === 'gemq');
+  assert.equal(roster.length, 1);
   const now = Date.now();
   geminiquota.sweepOnce({ roster, answer: () => ({ ok: false, because: 'no' }), book: new Map(), now });
   assert.equal(geminiquota.answeredRecently('gemq', now), false, 'a failed answer was remembered as given');
@@ -265,16 +266,20 @@ test('#4004: the card and the manager are told in plain words, with the reset an
   assert.doesNotMatch(other.text, /daily limit for/);
 });
 
+/* The board's own cards (fixture discipline: never hand-built), for a fleet of Gemini panes. */
+function boardCards(specs) {
+  const board = fleet.install(specs.map(([name, screen]) => fleet.agent(name, { state: 'rate_limited', runner: 'gemini', command: 'node', screen })));
+  try { return status.snapshot().agents; } finally { board.restore(); }
+}
+
 test('#4004 sweep: answers only a Gemini card waiting on the question, and not twice within a minute', () => {
   const calls = [];
   const answer = (s) => { calls.push(s); return { ok: true, key: '2' }; };
-  const dialog = status.classify(gem, DIALOG);
-  const after = status.classify(gem, AFTER_STOP);
-  const roster = [
-    { sessionName: 'gemq', runner: 'gemini', state: dialog.state, because: dialog.because, quotaDialog: dialog.quotaDialog },
-    { sessionName: 'gemdone', runner: 'gemini', state: after.state, because: after.because, quotaDialog: after.quotaDialog },
-    { sessionName: 'cx', runner: 'codex', state: 'rate_limited', because: dialog.because, quotaDialog: true },
-  ];
+  const cards = boardCards([['gemq', DIALOG], ['gemdone', AFTER_STOP], ['cx', DIALOG]]);
+  const byName = (n) => cards.find((c) => c.sessionName === n);
+  assert.equal(byName('gemq').quotaDialog, true, 'CONTROL: the board reads the question on gemq');
+  // The same card on another runner: the sweep answers Gemini's question only for a Gemini agent.
+  const roster = [byName('gemq'), byName('gemdone'), { ...byName('cx'), runner: 'codex' }];
   const book = new Map();
   geminiquota.sweepOnce({ roster, answer, book, now: 1e6 });
   assert.deepEqual(calls, ['gemq']);
