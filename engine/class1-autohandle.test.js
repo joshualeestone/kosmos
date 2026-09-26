@@ -315,6 +315,8 @@ test('#4006: a by:auto needs_you on a NON-Claude agent is never restarted; a Cla
     const plan = planClass1Handle(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', runner }), [], Date.now());
     assert.equal(plan.act, 'none', `a ${runner} agent was planned for a restart: ${plan.because}`);
   }
+  // A card that could not say what it runs (runner null, a paneless row) fails closed.
+  assert.equal(planClass1Handle(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', runner: null }), [], Date.now()).act, 'none', 'an unknown runner was restarted');
   // CONTROL: the same wait on a Claude agent (no runner, or 'claude') is still handled.
   for (const runner of [undefined, '', 'claude']) {
     const plan = planClass1Handle(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', runner }), [], Date.now());

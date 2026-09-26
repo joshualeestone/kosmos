@@ -120,10 +120,9 @@ function reportFor(event) {
   if (!event || typeof event !== 'object') return null;
   const state = STATE_FOR_EVENT[event.hook_event_name];
   if (!state) return null; // an unobserved event is ignored, never guessed at
-  /* The last words for the card (idle), or the reason a needs_you requires. For
-     needs_you the route REFUSES an empty note (selfreport.js: a needs_you/blocked
-     must carry a reason/on/owner), so a Notification with no message would be
-     dropped -- fall back to a plain, honest sentence so the red still lands. */
+  /* The last words for the card (idle). The needs_you arm below has no event mapped to it
+     since #4006; it keeps its non-empty fallback (the route refuses a needs_you with no
+     reason) so remapping an event later cannot send an empty one. */
   let text = '';
   if (state === 'idle') {
     /* Grok's Stop payload carries the last assistant message as `lastAssistantMessage`

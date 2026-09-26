@@ -40,7 +40,7 @@ const os = require('node:os');
    says which events fire it. All are grok's native (claude-shaped) event names,
    measured firing in an interactive pane. */
 const HOOK_EVENTS = Object.freeze([
-  'SessionStart', 'UserPromptSubmit', 'Notification', 'Stop',
+  'SessionStart', 'UserPromptSubmit', 'Stop',   // no Notification (#4006: the bridge ignores it)
   'StopCancelled', 'StopFailure', 'SessionEnd',
 ]);
 

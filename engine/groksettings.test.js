@@ -159,7 +159,6 @@ test('a dangling symlink is refused rather than replaced', () => {
 test('the bridge maps each grok lifecycle event to the right state', () => {
   assert.equal(bridge.reportFor({ hook_event_name: 'SessionStart', source: 'new' }).state, 'started');
   assert.equal(bridge.reportFor({ hook_event_name: 'UserPromptSubmit', prompt: 'hi' }).state, 'working');
-  assert.equal(bridge.reportFor({ hook_event_name: 'Notification', message: 'needs edit' }).state, 'needs_you');
   assert.equal(bridge.reportFor({ hook_event_name: 'Stop', reason: 'end_turn', lastAssistantMessage: 'done' }).state, 'idle');
   assert.equal(bridge.reportFor({ hook_event_name: 'StopCancelled', reason: 'user_interrupt' }).state, 'idle');
   assert.equal(bridge.reportFor({ hook_event_name: 'StopFailure', reason: 'api_error' }).state, 'idle');
@@ -169,16 +168,16 @@ test('the bridge maps each grok lifecycle event to the right state', () => {
 test('the bridge ignores an unmapped event rather than guessing', () => {
   assert.equal(bridge.reportFor({ hook_event_name: 'PreToolUse', tool_name: 'run_terminal_command' }), null);
   assert.equal(bridge.reportFor({ hook_event_name: 'PostToolUse' }), null);
+  // #4006: Notification is ignored too; under --always-approve it is the turn-end wait, not a permission prompt.
+  assert.equal(bridge.reportFor({ hook_event_name: 'Notification', message: 'Waiting for your next prompt' }), null);
   assert.equal(bridge.reportFor({}), null);
   assert.equal(bridge.reportFor(null), null);
 });
 
-test('idle carries the last words (lastAssistantMessage); needs_you always carries a non-empty reason', () => {
+test('idle carries the last words (lastAssistantMessage)', () => {
   assert.equal(bridge.reportFor({ hook_event_name: 'Stop', lastAssistantMessage: 'the answer' }).text, 'the answer');
   assert.equal(bridge.reportFor({ hook_event_name: 'Stop' }).text, '', 'an interrupted/failed turn carries no last words, which is correct');
   assert.equal(bridge.reportFor({ hook_event_name: 'StopCancelled' }).text, '');
-  assert.ok(bridge.reportFor({ hook_event_name: 'Notification' }).text.length > 0);
-  assert.equal(bridge.reportFor({ hook_event_name: 'Notification', message: 'confirm exec' }).text, 'confirm exec');
 });
 
 test('buildBody carries auto:true for every state and reads from_pane from env (#1456)', () => {

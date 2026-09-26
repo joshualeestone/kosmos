@@ -128,8 +128,14 @@ function planClass1Handle(standing, attempts, now, opts) {
      something else, and restarting it only throws away its conversation: on 2026-09-26 a grok
      agent's ordinary "Waiting for your next prompt" was restarted, and the restart did not come
      back. Only a Claude agent (no runner, or 'claude') is ever eligible. */
-  const runner = standing && typeof standing.runner === 'string' ? standing.runner : '';
-  if (runner && runner !== 'claude') {
+  const runner = standing ? standing.runner : undefined;
+  /* null is a card that could not say what it runs (a paneless win32/remote row): fail closed, since a
+     restart on the wrong runner cannot be undone. undefined (a standing built without a card) keeps the
+     pre-#4006 behaviour for existing callers. */
+  if (runner === null) {
+    return { act: 'none', because: 'the agent\'s runner is not known, so it is not restarted for a Claude Code trust prompt' };
+  }
+  if (typeof runner === 'string' && runner && runner !== 'claude') {
     return { act: 'none', because: `a ${runner} agent has no Claude Code trust prompt to clear, so it is never restarted for one` };
   }
 
@@ -311,7 +317,9 @@ function standingFromAgent(agent, isTrustDialogEvidence) {
   // session -> card by:null + evidence -> handled), which the earlier defense-in-depth test
   // (a by:'agent' + evidence card, a shape status.js cannot produce) did not.
   const by = (rawBy === 'auto' || (trustDialogScrape && !rawBy)) ? 'auto' : rawBy;
-  return { found: true, state: agent && agent.state, by, runner: (agent && typeof agent.runner === 'string') ? agent.runner : '' };
+  /* The card's runner as the card says it: a string, or null for a row that could not say (see planClass1Handle). */
+  const runner = agent && typeof agent.runner === 'string' ? agent.runner : (agent && agent.runner === null ? null : '');
+  return { found: true, state: agent && agent.state, by, runner };
 }
 
 /*
