@@ -274,8 +274,9 @@ function heardBy(projectId, t, who, sentence, roster) {
   }
   let title = projectId;
   try { const rec = projects.readAll().find((x) => x && x.id === projectId); if (rec && rec.name) title = rec.name; } catch { /* the id will do */ }
+  /* #1307: a webhook task's words are marked as outside text, here where they reach the agent. */
   const line = '[Kosmos: you were given task ' + t.number + ' in "' + String(title).replace(/[\r\n"]/g, ' ') + '": '
-    + String(sentence || '').replace(/[\r\n]/g, ' ') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
+    + tasks.webhookMark(t) + String(sentence || '').replace(/[\r\n]/g, ' ') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
     + '" in what you report (every project numbers from 1, so the name matters; #779); the room is: kosmos post ' + projectId + ']';
   let sent;
   try { sent = chat.deliver(name, line, roster); }
@@ -819,7 +820,7 @@ const tasks = require('./engine/tasks');
 /* #1307: a project's webhooks (engine/webhooks.js). */
 const webhooks = require('./engine/webhooks');
 const HOOK_BODY_MAX = 16 * 1024;
-const HOOK_RATE = { perMinute: 30, perProjectHour: 120, openMax: 200, seen: new Map(), byProject: new Map() };
+const HOOK_RATE = { perMinute: 30, perProjectHour: 120, openMax: 200, bodyMs: 10000, seen: new Map(), byProject: new Map() };
 /* 🛑 NO SHARED CAP IN FRONT OF VERIFY, on purpose. A bucket every /hooks/ call counts toward is a
    lever any local program (another account on this computer included) can pull to silence every
    real webhook with garbage. Instead a wrong guess is made cheap: verify reads a cached copy of the
@@ -835,6 +836,9 @@ function hookRateProblem(id, projectId, now = Date.now()) {
   const hour = (HOOK_RATE.byProject.get(projectId) || []).filter((t) => now - t < 3600000);
   HOOK_RATE.seen.set(id, recent);
   HOOK_RATE.byProject.set(projectId, hour);
+  // Keys with nothing recent go, so deleted webhooks and projects do not stay in memory forever.
+  for (const [k, v] of HOOK_RATE.seen) if (k !== id && !v.some((t) => now - t < 60000)) HOOK_RATE.seen.delete(k);
+  for (const [k, v] of HOOK_RATE.byProject) if (k !== projectId && !v.some((t) => now - t < 3600000)) HOOK_RATE.byProject.delete(k);
   if (recent.length >= HOOK_RATE.perMinute) return 'this webhook was called too often; try again in a minute';
   if (hour.length >= HOOK_RATE.perProjectHour) return 'this project has had ' + HOOK_RATE.perProjectHour + ' tasks from webhooks in the last hour; try again later';
   recent.push(now);
@@ -15022,10 +15026,11 @@ const server = http.createServer((req, res) => {
     if (!owner || (owner.createdAt || null) !== hook.projectMade) { nope(); return; }
     const tooOften = hookRateProblem(hook.id, hook.projectId);
     if (tooOften) { sendJson(res, 429, { error: tooOften }); return; }
-    /* A caller gets ten seconds to send its (at most 16 KB) body. Without a limit a held-open
-       request sits past its checks for minutes, and could land after the webhook was deleted. */
-    req.setTimeout(10000, () => { try { req.destroy(); } catch { /* already gone */ } });
-    readBody(req, HOOK_BODY_MAX).then((buf) => {
+    /* A caller gets ten seconds IN ALL to send its (at most 16 KB) body. A plain timer, armed once:
+       req.setTimeout is an IDLE timeout that resets on every chunk, so a caller trickling a byte
+       at a time would hold the socket open for the server's five-minute default. */
+    const deadline = setTimeout(() => { try { req.destroy(); } catch { /* already gone */ } }, HOOK_RATE.bodyMs);
+    readBody(req, HOOK_BODY_MAX).finally(() => clearTimeout(deadline)).then((buf) => {
       const text = buf.toString('utf8');
       let parsed;
       try { parsed = JSON.parse(text); } catch { parsed = undefined; }
@@ -15098,9 +15103,10 @@ const server = http.createServer((req, res) => {
     /* Making, renaming and deleting are the person's, from the screen (the same advisory check as
        the board's other person-only settings). An agent must not mint a webhook, which would hand
        it a way in for outside text the person never saw, nor delete the person's. Listing, which
-       shows names only, is open to any board-token caller. */
-    const personOnly = () => {
-      if (isViaScreen(req)) return false;
+       shows names only, is open to any board-token caller. Checked AFTER the body is read, like
+       the other person-only routes, so an agent token carried in the body counts too. */
+    const personOnly = (body) => {
+      if (isViaScreen(req, body)) return false;
       sendJson(res, 403, { error: 'only you can change webhooks, from the project settings' });
       return true;
     };
@@ -15109,10 +15115,10 @@ const server = http.createServer((req, res) => {
       return;
     }
     if (hookList && req.method === 'POST') {
-      if (personOnly()) return;
       readBody(req, 4096).then((raw) => {
         let body = {};
         try { body = JSON.parse(raw.toString('utf8') || '{}') || {}; } catch { body = {}; }
+        if (personOnly(body)) return;
         let made;
         try { made = webhooks.create(project.id, typeof body.name === 'string' ? body.name : undefined, made0); } catch (err) { fail(err, 'we could not make a webhook'); return; }
         const url = 'http://127.0.0.1:' + req.socket.localPort + '/hooks/' + made.hook.id + '/' + made.secret;
@@ -15121,16 +15127,16 @@ const server = http.createServer((req, res) => {
       return;
     }
     if (hookOne && hookOne[3] && req.method === 'POST') {
-      if (personOnly()) return;
       readBody(req, 4096).then((raw) => {
         let body = {};
         try { body = JSON.parse(raw.toString('utf8') || '{}') || {}; } catch { body = {}; }
+        if (personOnly(body)) return;
         try { sendJson(res, 200, { webhook: webhooks.rename(project.id, hookOne[2], body.name, made0) }); } catch (err) { fail(err, 'we could not rename that webhook'); }
       }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
       return;
     }
     if (hookOne && !hookOne[3] && req.method === 'DELETE') {
-      if (personOnly()) return;
+      if (personOnly(undefined)) return; // a DELETE carries no body
       try { webhooks.remove(project.id, hookOne[2], made0); sendJson(res, 200, { ok: true }); } catch (err) { fail(err, 'we could not delete that webhook'); }
       return;
     }

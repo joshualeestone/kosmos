@@ -112,6 +112,8 @@ function view(h) {
 function nameProblem(name) {
   if (typeof name !== 'string' || !name.trim()) return 'give the webhook a name';
   if (name.trim().length > NAME_MAX) return 'a webhook name can be up to ' + NAME_MAX + ' characters';
+  // One line of plain text: the name is written into agents' instructions and task lines.
+  if (/[\u0000-\u001f\u007f]/.test(name)) return 'a webhook name is one line, with no special characters';
   return null;
 }
 
