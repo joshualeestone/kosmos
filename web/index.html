@@ -26613,6 +26613,11 @@ function orgFit(maxR, avail) {
 function paintOrg() {
   const wrap = document.getElementById('orgview');
   if (!wrap || wrap.hidden) return;
+  /* #718: never under a live drag, from any caller (the 5s poll, a resize): a repaint
+     rebuilds the nodes and ORG_LIVE, and the drag would go on moving a node no longer
+     on the page. The drag's release calls orgResizeRepaint, and the next poll draws
+     anything else that changed. */
+  if (ORG_LIVE && ORG_LIVE.dragging) return;
   /* ⚠️ THE SAME SLICE THE OTHER TWO LAYOUTS DRAW. `?limit=N` exists so a board
      can be shrunk for a screenshot, and a third view that ignored it would
      draw fourteen nodes beside a three-card grid -- two pictures of one fleet
