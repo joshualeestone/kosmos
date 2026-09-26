@@ -58835,16 +58835,16 @@ function asbLayerEnsure() {
     +   '<div class="asp-th" id="asp-th"></div><p class="dmbusy asp-busy" id="asp-busy" hidden></p><span class="vh" id="asp-live" aria-live="polite"></span><span class="vh" id="asp-live-busy" aria-live="polite"></span>'
     +   '<div class="asp-note"></div>'   /* its words are asbPaint's, one copy (#3738) */
     +   '<div class="asp-msg" id="asp-msg" role="status"></div>'
-    +   '<div class="asp-ask" id="asp-ask" hidden><b>Close the assistant?</b>'
+    +   '<div class="asp-ask" id="asp-ask" role="group" aria-labelledby="asp-ask-q" hidden><b id="asp-ask-q">Close the assistant?</b>'
     +     '<button type="button" class="pri" id="asp-close-now">Close for now</button>'
     /* #3758 (Josh 2026-09-25 11:07): his words, verbatim. */
     +     '<button type="button" id="asp-close-off">Close forever</button>'
     +     '<small>You can turn it back on under Settings&nbsp;&gt;&nbsp;Computer</small></div>'   /* held together, so the path does not break */
     /* #3947 (Josh, 2026-09-26 08:13): the second open-and-close with nothing sent offers to hide it for good. */
-    +   '<div class="asp-ask" id="asp-hide" hidden><b>Hide the guide for good?</b>'
+    +   '<div class="asp-ask" id="asp-hide" role="group" aria-labelledby="asp-hide-q" hidden><b id="asp-hide-q">Hide the guide for good?</b>'
     +     '<button type="button" class="pri" id="asp-hide-yes">Hide it</button>'
     +     '<button type="button" id="asp-hide-no">Keep it</button>'
-    +     '<small>You can bring it back in Settings&nbsp;&gt;&nbsp;Computer</small></div>'
+    +     '<small>You can turn it back on under Settings&nbsp;&gt;&nbsp;Computer</small></div>'   /* Josh's words for this (#3758) */
     +   '<form class="asp-in" id="asp-in"><textarea id="asp-say" rows="1" aria-label="Ask about Kosmos" placeholder="Ask about Kosmos\u2026"></textarea>'
     +   '<button type="submit" id="asp-send" aria-label="Send">&uarr;</button></form>'
     + '</div>';
@@ -59168,6 +59168,15 @@ function asbFold() {
    and then closed was using it, not hunting for the way to get rid of it, while a draft left from an earlier visit
    is not typing now (review round 1). */
 const ASB_SAVE_FAILED = 'We could not save that just now. Try again in a moment.';
+/* #3947: the idle-close count and the "Keep it" answer, kept in this page's storage. A count that is lost (storage
+   cleared, a private window) only means one more close before the offer, so it does not need the board; the switch
+   that actually hides the guide is the board's (Hide it = Close forever). Every read and write is guarded: storage
+   can refuse, and then nothing is counted and the chat simply closes. */
+const ASB_IDLE_KEY = 'kosmos.asb.idle-closes.v1';
+const ASB_KEPT_KEY = 'kosmos.asb.kept.v1';
+function asbIdleGet() { try { const n = Number(localStorage.getItem(ASB_IDLE_KEY)); return Number.isInteger(n) && n > 0 ? n : 0; } catch { return 0; } }
+function asbIdleSet(n) { try { localStorage.setItem(ASB_IDLE_KEY, String(n)); } catch { /* not counted: see above */ } }
+function asbKept() { try { return localStorage.getItem(ASB_KEPT_KEY) === '1'; } catch { return false; } }
 /* Trimmed both sides (review round 2): a stray space is not typing, while a half-written word still is. */
 function asbDidNothing() {
   const say = document.getElementById('asp-say');
@@ -59181,55 +59190,47 @@ function asbX() {
   if (ASB.setting && ASB.setting.asked !== true) { ASB.asking = true; asbPaint(); document.getElementById('asp-close-now').focus(); return; }
   /* #3947 (Josh, 2026-09-26 08:13, verbatim): "If I click on the assistant and hit the X on him and haven't typed
      a message, and I do that twice, then it should prompt me to close the agent forever because, as a user, I'm
-     trying to get rid of it". This replaces the 09-25 rule that asked on EVERY such close. Opens that end with
-     nothing sent are counted in the board's settings, so the count survives a restart; a sent message sets it
-     back to 0 (asbSend). The second one offers to hide it, unless they already answered "Keep it". */
-  if (ASB.setting && didNothing && ASB.setting.kept !== true) {   // after Keep it there is nothing to count toward
-    const idle = (ASB.setting.idleCloses || 0) + 1;
+     trying to get rid of it". This replaces the 09-25 rule that asked on EVERY such close. Closes with nothing
+     typed are counted until something is sent (asbSend); the second offers to hide it, unless they answered
+     "Keep it". */
+  if (didNothing && !asbKept()) {
+    const idle = asbIdleGet() + 1;
     if (idle >= 2) { ASB.offering = true; asbPaint(); document.getElementById('asp-hide-yes').focus(); return; }
-    ASB.setting.idleCloses = idle;   // now, not when the save answers: a quick second close must see it
-    asbSaveSetting({ idleCloses: idle });   // best-effort: a lost count only means one more close before the offer
+    asbIdleSet(idle);
   }
   asbFold();
 }
-/* #3947: "Hide it" is the same switch as Close forever; "Keep it" is not asked again. Either way the count restarts. */
+/* #3947: "Hide it" is the same board switch as Close forever; "Keep it" is remembered and not offered again. */
 async function asbHideChoice(hide) {
-  const ok = await asbSaveSetting(hide ? { on: false, idleCloses: 0 } : { kept: true, idleCloses: 0 });
   const msg = document.getElementById('asp-msg');
-  if (!ok) { msg.textContent = ASB_SAVE_FAILED; return; }
+  if (hide) {
+    if (!(await asbSaveSetting({ on: false }))) { msg.textContent = ASB_SAVE_FAILED; return; }
+  } else {
+    try { localStorage.setItem(ASB_KEPT_KEY, '1'); } catch { /* not remembered: it may be offered again */ }
+  }
   if (msg.textContent === ASB_SAVE_FAILED) msg.textContent = '';   // an earlier failed try is not left standing
+  asbIdleSet(0);
   ASB.offering = false;
   asbFold();
   asbPaintSetting();
   if (hide) asbFocusPage();
 }
-/* #3947: the page's saves go one at a time, in the order they were made (an idle close's count, then a send's
-   reset). Each patch sets absolute values, so the order they reach the board decides what it keeps; in order, the
-   board and the page end on the same value, and every answer is applied. */
-let ASB_SAVES = Promise.resolve();
-/* A save that never answers must not hold every later one (the Settings switch included) behind it. `let`, as the
-   test seam: a browser check shortens it. */
-let ASB_SAVE_TIMEOUT_MS = 10000;
-function asbSaveSetting(patch) {
-  const run = async () => {
-    const ac = new AbortController(), cut = setTimeout(() => ac.abort(), ASB_SAVE_TIMEOUT_MS);   // not AbortSignal.timeout: Safari before 16 lacks it
-    try {
-      const r = await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ setupAssistant: patch }), signal: ac.signal });
-      const body = await r.json();
-      if (r.ok && body && body.setupAssistant) { ASB.setting = body.setupAssistant; return true; }
-    } catch { /* said below */ } finally { clearTimeout(cut); }
-    return false;
-  };
-  const done = ASB_SAVES.then(run);
-  ASB_SAVES = done;   // run never rejects, and times out, so one bad save cannot hold the rest
-  return done;
+async function asbSaveSetting(patch) {
+  try {
+    const r = await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ setupAssistant: patch }) });
+    const body = await r.json();
+    if (r.ok && body && body.setupAssistant) { ASB.setting = body.setupAssistant; return true; }
+  } catch { /* said below */ }
+  return false;
 }
 async function asbCloseChoice(forGood) {
-  /* #3947: a first X on an opening where nothing was sent is also the first of the two that lead to the offer. */
-  const ok = await asbSaveSetting(forGood ? { asked: true, on: false } : (asbDidNothing() ? { asked: true, idleCloses: 1 } : { asked: true }));
+  const idleNow = asbDidNothing();   // read before the save: the answer arrives after the box may have changed
+  const ok = await asbSaveSetting(forGood ? { asked: true, on: false } : { asked: true });
   const msg = document.getElementById('asp-msg');
   if (!ok) { msg.textContent = ASB_SAVE_FAILED; return; }
   if (msg.textContent === ASB_SAVE_FAILED) msg.textContent = '';
+  /* #3947: a first X on an opening where nothing was typed is also the first of the two that lead to the offer. */
+  if (!forGood && idleNow && !asbKept()) asbIdleSet(1);
   ASB.asking = false;
   asbFold();
   asbPaintSetting();
@@ -59246,7 +59247,7 @@ async function asbSend() {
   const msg = document.getElementById('asp-msg');
   const text = say.value.trim();
   if (text) ASB.sentThisOpen = true;   // #3034: an attempt to send is using it, whatever the answer
-  if (text && ASB.setting && ASB.setting.idleCloses) { ASB.setting.idleCloses = 0; asbSaveSetting({ idleCloses: 0 }); }   // #3947: using it restarts the count
+  if (text) asbIdleSet(0);   // #3947: an attempt to send is using it, so the count starts again
   if (asbIsHosted()) { if (text && !ASB.sending) await asbHostedSend(text); return; }
   /* In the fallback, the board is asked again before each message (Josh: on the next message, not continuously):
      still failing, the backup answers; answering again, it goes to the guide as usual. */

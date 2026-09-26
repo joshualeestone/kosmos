@@ -31,23 +31,22 @@ Card: joshualeestone/kosmos#3947 (Josh, #admin, 2026-09-26 07:41 CDT).
 ## Item 5 (Josh, 2026-09-26 08:13, added to the card)
 "If I click on the assistant and hit the X on him and haven't typed a message, and I do that twice, then it should
 prompt me to close the agent forever."
-- The setup-assistant setting gains `idleCloses` (a whole number, 0..100) and `kept` (boolean), validated by the type
-  of each default; the server settings test and the SETTING unit tests pin the new shape.
-- Page: an opening that ends in X with nothing sent (the existing asbDidNothing rule) is counted in the board's
-  settings, so it survives a restart. The second offers "Hide the guide for good?" (Hide it / Keep it, "You can bring
-  it back in Settings > Computer"). Hide it = the existing forever-off switch (on:false). Keep it = kept:true, never
-  offered again. A sent message sets the count to 0. The very first X keeps its one-time Close for now / Close forever
-  question; answering "Close for now" on an idle opening counts as the first.
+- An opening that ends in X with nothing typed (the existing asbDidNothing rule) is counted. The second offers
+  "Hide the guide for good?" (Hide it / Keep it, "You can turn it back on under Settings > Computer", Josh's #3758
+  words, the same line as the first-X ask). Hide it = the board's existing forever-off switch (on:false). Keep it is
+  remembered and nothing more is counted. An attempt to send resets the count. X on the offer is "not now": it
+  closes and counts nothing more, so the next idle close offers again. The very first X keeps its one-time Close for
+  now / Close forever question; "Close for now" on an idle opening counts as the first.
 - This REPLACES the 09-25 rule that asked on every idle close (Josh's 08:13 ruling is newer).
-- Browser check B7c rewritten: first idle close counts and just closes; second offers; Keep it; Hide it; a send
-  resets. Threshold and send-reset each perturbed: red.
-- Settings saves from the page go one at a time, in order, so what the board keeps matches the page (review:
-  absolute patches racing on the wire). After Keep it nothing is counted. X on the offer is "not now": it closes,
-  the board keeps the count before it, so the next idle close offers again (deliberate: they answered neither).
-  Escape folds without counting (Josh's words are about the X; reversible if keyboard users should count too).
-- Decided: "Keep it" never asks again (the card allowed "or at most much later"); simplest, and the Settings switch
-  still turns it off. Weakest premise: that Josh did not see the old every-idle-close ask; if he did and still wants
-  this, the count is what he asked for either way.
+- WHERE THE COUNT LIVES, decided after review rounds 2 to 7: first built in the board's settings (two new keys),
+  which needed ordered saves, a timeout, and still could not keep the board and the page in step when a save timed
+  out. Moved to the page's storage (`kosmos.asb.idle-closes.v1`, `kosmos.asb.kept.v1`, every access guarded): a lost
+  count only means one more close before the offer, so it needs no board; the switch that hides the guide stays the
+  board's. The board setting is back to its two keys, unchanged from main. Weakest premise: the card says the count
+  "persists across app restarts"; page storage does, except where it is cleared or refused, where the cost is one
+  extra close.
+- Escape folds without counting (Josh's words are about the X; reversible).
+- Browser check B7c covers each arm, including storage that refuses; each rule perturbed red.
 
 ## Rejected
 - Serving the greeting to the page from the engine (a new API field): more surface than a pinned literal for one line.
