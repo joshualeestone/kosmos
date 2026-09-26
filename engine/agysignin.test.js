@@ -427,3 +427,19 @@ test('#3998 round 4: the tmux socket is this board\'s own, so two boards never s
     assert.match(s.socket(), /^kosmos-agy-signin-[0-9a-f]{10}$/);
   } finally { if (was !== undefined) process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET = was; }
 });
+
+test('#3998 round 5: once the window is shown, a code from another tab is refused, not typed', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, CODE_SCREEN);
+  s.setForTests({ openFile: (f, done) => done(null) });
+  try {
+    const { id } = s.start();
+    s.tickForTests();
+    assert.equal(s.status().state, 'code');
+    assert.deepEqual(await s.show(id), { ok: true });
+    const r = s.code(CODE, id);
+    assert.equal(r.ok, false);
+    assert.match(r.because, /window is open now/);
+    assert.deepEqual(st.sent, [], 'a code was typed into the window the person is driving');
+  } finally { s.resetForTests(); }
+});
