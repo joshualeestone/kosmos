@@ -192,8 +192,10 @@ async function finish(a) {
       const c = await b.post('/api/remote/signin-confirm-enrol', { code: totp(e.json.secret) });
       if (c.status !== 200) { fail('second', c); throw new Error('second'); }
       answer = c.json;
-    } else if (v.json.stage !== 'session') {
-      steps.push({ id: 'second', result: 'fail', detail: 'unexpected stage ' + JSON.stringify(v.json.stage) });
+    } else {
+      // The coordinator requires a second step (require_second): a sign-in that skips it
+      // straight to a session is the anomaly, never a pass (review round 2).
+      steps.push({ id: 'second', result: 'fail', detail: v.json.stage === 'session' ? 'no second step was asked for after the code' : 'unexpected stage ' + JSON.stringify(v.json.stage) });
       throw new Error('second');
     }
     steps.push({ id: 'second', result: 'pass' });

@@ -46,3 +46,6 @@ Whether a staging pass is MANDATORY before every prod cut (#2036's item 1) is st
 - [NIT] a failed start recorded placement OTHER though no email was sent. FIXED: NONE.
 - [NIT] an older record for this sha stood beside a new attempt. FIXED: start deletes it. Test.
 - [NIT] the first-run TOTP secret went to a temp dir a reboot clears, which would lock the seed. FIXED: ~/.cache/claude-handoffs, mode 600, with a stated consequence. Test.
+
+## Round 2 review (sonnet): 1 WARNING, taken
+- [WARNING] a verify that answered `session` directly let `second` record a pass with no second-factor check (a coordinator regression dropping require_second would pass the gate). FIXED: any stage other than `second` or `enrol_second_factor` after the code, `session` included, fails `second` ("no second step was asked for after the code"); nothing is registered. Test; control (session accepted) fails by name.

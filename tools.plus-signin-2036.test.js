@@ -246,3 +246,15 @@ test('#2036: the seed\'s first run enrols an authenticator and keeps its secret 
     assert.strictEqual(fs.statSync(f).mode & 0o777, 0o600);
   } finally { b.server.close(); }
 });
+
+test('#2036: a sign-in that skips the second step straight to a session is recorded as a fail, never a pass', async () => {
+  const dir = tmp(); const e = env(dir); const ptr = pointerFile(dir);
+  const b = await fakeBoard({ stage: 'session' });
+  try {
+    const r = await both(b, e, ptr, ['--code', '123456', '--placement', 'INBOX']);
+    assert.strictEqual(r.code, 1, r.out);
+    const got = rec(e);
+    assert.deepStrictEqual(step(got, 'second'), { id: 'second', result: 'fail', detail: 'no second step was asked for after the code' });
+    assert.ok(!b.calls.some((c) => c.url === '/api/remote/signin-register'), 'it registered without a second step');
+  } finally { b.server.close(); }
+});
