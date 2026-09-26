@@ -690,6 +690,8 @@ async function forget() {
   signinEpoch += 1;
   signinSession = null;
   forgetting = true;
+  // Offline now, not after the wait: the person asked to be forgotten.
+  stopChild();
   forgetInFlight = (async () => {
     try {
       if (registerInFlight) await registerInFlight;
@@ -718,7 +720,7 @@ async function forgetNow() {
   if (canRetire) {
     const r = await retireHere();
     retired = r.ok === true;
-    because = r.ok ? null : r.because;
+    because = r.ok ? null : retireReason(r);
   }
   try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* best effort; enrolled() re-reads */ }
   try { fs.rmSync(STATUS_FILE(), { force: true }); } catch { /* stale is worse than absent */ }
@@ -813,9 +815,12 @@ async function setupComplete(code, name) {
   secureStateDir();
   // Tracked like the in-app register (Forget waits for it; nothing else starts
   // beside it), bounded the same, and a half identity is retired first.
+  const epoch = signinEpoch;
+  const before = macIdHere();
   const running = (async () => {
     const half = await clearHalfIdentity();
     if (half && half.kept) return KEPT_HALF(half.kept);
+    if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
     return explainStranded(await setupRun([
       'setup', 'complete',
       '--coordinator', COORDINATOR(),
@@ -828,10 +833,9 @@ async function setupComplete(code, name) {
   registerInFlight = running;
   // A Forget or Sign out that lands while this waits: the Settings page must not
   // be told it is set up, and nothing here may bring the tunnel up.
-  const epoch = signinEpoch;
   let result;
   try { result = await running; } finally { if (registerInFlight === running) registerInFlight = null; }
-  if (epoch !== signinEpoch) return cancelledAfter(result);
+  if (epoch !== signinEpoch) return cancelledAfter(result, before);
   if (result.ok) ensure(localPort);
   // fed gate: cache the coordinator standing if this setup response carried one.
   if (result.ok && result.data && typeof result.data === 'object') fedSetStanding(result.data.standing);
@@ -871,8 +875,16 @@ function pendingDevices() {
     answer is reported as such rather than guessed at. */
 function parseSaid(result) {
   if (!result.ok) return result;
-  try { return { ok: true, because: null, data: JSON.parse(result.said) }; }
-  catch { return { ok: false, because: 'the tunnel program answered in a shape we could not read' }; }
+  // The answer is the program's last JSON line. A fresh register prints its
+  // certificate line first ("certificate for ... written to ..."), so the whole
+  // of stdout is not JSON; reading all of it made every first sign-in read as a
+  // failure while the Mac was in fact registered (#3827).
+  const lines = String(result.said || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].startsWith('{')) continue;
+    try { return { ok: true, because: null, data: JSON.parse(lines[i]) }; } catch { break; }
+  }
+  return { ok: false, because: 'the tunnel program answered in a shape we could not read' };
 }
 function deviceArgs(verb, id, withCoordinator) {
   const args = ['devices', verb];
@@ -1091,10 +1103,13 @@ const SIGNIN_CANCELLED = { ok: false, because: 'the sign-in was cancelled' };
    still succeeded, the Mac now has an identity the person asked to leave: the
    switch goes off (it may have been on before the sign-in) and no tunnel runs,
    so the ensure tick cannot bring it online. */
-function cancelledAfter(result) {
+const macIdHere = () => { try { return fs.readFileSync(path.join(STATE_DIR(), 'mac_id'), 'utf8').trim() || null; } catch { return null; } };
+function cancelledAfter(result, before) {
   // What is on disk, not only what the program said: a register killed by its
-  // bound after it wrote the identity reports a failure and is still set up.
-  if ((result && result.ok) || enrolled()) {
+  // bound after it wrote the identity reports a failure and is still set up. But
+  // only a NEW identity: a register that failed and changed nothing leaves a Mac
+  // that was on, on.
+  if ((result && result.ok) || (enrolled() && macIdHere() !== before)) {
     try { write({ on: false }); } catch { /* status says what happened */ }
     stopChild();
   }
@@ -1321,6 +1336,14 @@ const halfRegistered = () => !enrolled()
   // The certificate is tls.crt; the tunnel writes tls.key first, so a kill between
   // the two leaves a key and no certificate, which is still half registered.
   && !fs.existsSync(path.join(STATE_DIR(), 'tls.crt'));
+/* Why a retire failed, in one line a person can read: the tunnel's "Kosmos+ ..."
+   line, not setupRun's last stderr line (a gateway's HTML page ends "</html>"),
+   without "Error: " and without a raw body after ": <". */
+function retireReason(r) {
+  const lines = String((r && r.stderr) || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  const line = lines.find((l) => /Kosmos\+ /.test(l)) || String((r && r.because) || 'no reason given');
+  return line.replace(/^Error:\s*/, '').replace(/:\s*<[\s\S]*$/, '').slice(0, 200);
+}
 /* The one retire of this Mac at Kosmos+, signed with its own key. */
 const retireHere = () => setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, retireTimeoutMs());
 // 408 and 429 are "not now", not "no": retried like a server error.
@@ -1342,12 +1365,12 @@ async function clearHalfIdentity() {
   const transient = r.ok ? null : String((r.stderr || '') + '\n' + (r.because || '')).split('\n').find((l) => RETIRE_TRANSIENT.test(l));
   if (transient) {
     process.stderr.write('remote: an unfinished earlier sign-in could not be retired at Kosmos+ yet (' + transient.trim() + '); kept, so a retry can\n');
-    return { kept: transient.trim().slice(0, 200) };
+    return { kept: retireReason(r) };
   }
   if (!r.ok) process.stderr.write('remote: an unfinished earlier sign-in could not be retired at Kosmos+ (' + r.because + '); its address may show on the account page until it is removed there\n');
   try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* the register writes it again */ }
   secureStateDir();
-  return r.ok ? null : { stranded: r.because || 'no reason given' };
+  return r.ok ? null : { stranded: retireReason(r) };
 }
 /* The register's answer when a half identity was kept for a retry. */
 const KEPT_HALF = (why) => ({ ok: false, because: 'an earlier sign-in on this computer could not be removed from your Kosmos+ account yet (' + why + '); try again in a moment' });
@@ -1437,11 +1460,15 @@ async function signinRegister(name) {
   // waiting on the connector must not be followed by this turning Kosmos+ on.
   const epoch = signinEpoch;
   const token = signinSession.token;
+  const before = macIdHere();
   const running = (async () => {
     // An earlier register that stopped after the coordinator accepted it (key and
     // id, no certificate) is retired first, so this one does not strand it.
     const half = await clearHalfIdentity();
     if (half && half.kept) return KEPT_HALF(half.kept);
+    // A Sign out or Forget during that retire (up to a minute): the register has
+    // not been sent yet, so it is not sent at all.
+    if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
     return explainStranded(await setupRun(['signin', 'register', '--coordinator', COORDINATOR(),
       '--name', name, '--state-dir', STATE_DIR()], token, registerTimeoutMs()), half, name);
   })();
@@ -1452,14 +1479,15 @@ async function signinRegister(name) {
   // A cancel after the coordinator accepted the register cannot undo it: the Mac is
   // registered and the next paint shows the switch OFF, which is the truth. What a
   // cancel must never do is let this switch it on.
-  if (epoch !== signinEpoch) return cancelledAfter(r);
+  if (epoch !== signinEpoch) return cancelledAfter(r, before);
   if (!r.ok) return r;
   signinSession = null;   // the token is spent; it must not linger in this process
   /* #3827 (Josh's live test: registered, then the relay never heard from this Mac): ensure() starts the
      tunnel only when switched ON, and nothing set it, so the pane showed "Turn on" and the wizard's
      "connecting" was false. Signing in IS asking to be reachable; turning off stays one press away.
      Unless the person pressed that off while this register was out: that stands. */
-  if (offEpoch === offAt) turnOnAfterSignin();
+  const switchedOn = offEpoch === offAt;
+  if (switchedOn) turnOnAfterSignin();
   ensure(localPort);
   const d = r.data && typeof r.data === 'object' ? r.data : {};
   fedSetStanding(d.standing);   // fed gate: SET (or clear) standing from this fresh register
@@ -1468,6 +1496,9 @@ async function signinRegister(name) {
     address: typeof d.address === 'string' ? d.address : address(),
     name: typeof d.name === 'string' ? d.name : name,
     standing: typeof d.standing === 'string' ? d.standing : '',
+    // False when the person turned Kosmos+ off while this was out: the page must
+    // not say "connecting" about a switch that is off.
+    switchedOn,
   } };
 }
 

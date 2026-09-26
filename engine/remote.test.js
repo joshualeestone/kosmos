@@ -152,6 +152,7 @@ if (args[0] === 'signin') {
     if (name === 'taken') { process.stderr.write('the coordinator said no (409): a Mac on this account already has that name\\n'); process.exit(1); }
     // The coordinator's own sentences, as the tunnel prints them (setup.rs: "Kosmos+ said no (<code>): <words>").
     if (mode.includes('register-409')) { process.stderr.write('Kosmos+ said no (409): The name ' + name + ' is already in use by a Mac on this account, at ' + name + '.kosmos.invalid. If that is this Mac, it is already signed in. If it is a different Mac, turn it off there first, or pick another name.\\n'); process.exit(1); }
+    if (mode.includes('slow-fail')) { const until = Date.now() + 2500; while (Date.now() < until) { /* wait */ } process.stderr.write('Kosmos+ said no (409): that name is taken\\n'); process.exit(1); }
     if (mode.includes('register-taken')) { process.stderr.write('Kosmos+ said no (409): that name is taken\\n'); process.exit(1); }
     // #3827: a register that is still out when Sign out or Forget lands (busy wait: no timers here).
     // A register killed mid-certificate: the Mac's key and id are written, then it hangs.
@@ -178,6 +179,8 @@ if (args[0] === 'signin') {
     }
     fs.writeFileSync(path.join(dir, 'address'), name + '.kosmos.invalid\\n');
     fs.writeFileSync(path.join(dir, 'stdin-token'), token);
+    // As the real one does on a fresh register (setup.rs fetch_certificate), before its JSON.
+    console.log('certificate for ' + name + '.kosmos.invalid written to ' + path.join(dir, 'tls.crt') + ' (key stayed here)');
     console.log(JSON.stringify({ stage: 'registered', mac_id: 'mac-fake', name: name, address: name + '.kosmos.invalid', standing: 'good', kept_certificate: false }));
     process.exit(0);
   }
@@ -197,6 +200,7 @@ if (args[0] === 'devices') {
 }
 // #3827: a retire that hangs (a dead network).
 if (args[0] === 'retire' && mode.includes('hung-retire')) { const until = Date.now() + 15000; while (Date.now() < until) { /* wait */ } }
+if (args[0] === 'retire' && mode.includes('slow-retire')) { const until = Date.now() + 2500; while (Date.now() < until) { /* wait */ } }
 // A definite refusal: Kosmos+ answered, and it will not retire this key.
 // The tunnel's own sentences for a retire (crates/tunnel coordinator.rs signed_request).
 if (args[0] === 'retire' && mode.includes('retire-refused')) { process.stderr.write('Error: Kosmos+ refused this Mac: this Mac was retired; set Kosmos up again to give it a new key (HTTP 401 on /v1/mac/retire)\\n'); process.exit(1); }
@@ -218,6 +222,17 @@ if (args[0] === 'run') {
 `, { mode: 0o755 });
 
 const remote = require('./remote');
+
+/* Wait until the fake has been asked to register, so a cancel lands while the
+   register is out at the coordinator, not before it was sent (#3827). */
+async function registerSent() {
+  const until = Date.now() + 5000;
+  while (Date.now() < until) {
+    if (recorded().some((c) => c[0] === 'signin' && c[1] === 'register')) return;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error('fixture: the register was never sent');
+}
 
 function recorded() {
   try { return fs.readFileSync(RECORD, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse); }
@@ -1064,8 +1079,9 @@ test('#3827: Forget waits for a register in flight, retires it once, and leaves 
   try {
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
-    const racing = remote.signinRegister('hers');
     fs.rmSync(RECORD, { force: true });
+    const racing = remote.signinRegister('hers');
+    await registerSent();
     const got = await remote.forget();
     const reg = await racing;
     assert.equal(reg.ok, false, 'the register reported signed in while the Mac was being forgotten');
@@ -1483,8 +1499,10 @@ test('#3827: turning Kosmos+ on, or changing the relay, waits for a register tha
     const relay = remote.setRelay('127.0.0.1:9555');
     assert.equal(relay.ok, false, 'the relay was changed beside a register still out');
     assert.equal(remote.setOn(false).ok, true, 'turning off must never wait');
-    assert.equal((await racing).ok, true, 'fixture: the register succeeded');
+    const done = await racing;
+    assert.equal(done.ok, true, 'fixture: the register succeeded');
     assert.equal(remote.read().on, false, 'the register switched Kosmos+ back on after the person turned it off');
+    assert.equal(done.data.switchedOn, false, 'the answer said connecting about a switch that is off');
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
     remote.setOn(false);
@@ -1518,7 +1536,9 @@ test('#3827: a Sign out during a register leaves Kosmos+ off even when it was on
     assert.equal(remote.setOn(true).ok, true, 'fixture: switched on before signing in');
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
+    fs.rmSync(RECORD, { force: true });
     const racing = remote.signinRegister('hers');
+    await registerSent();
     remote.signinCancel();
     const late = await racing;
     assert.match(late.because, /cancelled/);
@@ -1600,7 +1620,9 @@ test('#3827: a Sign out lands on a register killed after it wrote the identity: 
     assert.equal(remote.setOn(true).ok, true, 'fixture: switched on before signing in');
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
+    fs.rmSync(RECORD, { force: true });
     const racing = remote.signinRegister('hers');
+    await registerSent();
     remote.signinCancel();
     const late = await racing;
     assert.match(late.because, /cancelled/);
@@ -1729,6 +1751,78 @@ test('#3827: a Settings setup in flight blocks the in-app register, turning on a
       assert.match(r.because, /still signing in/, label);
     }
     assert.equal((await setting).ok, true, 'fixture: the Settings setup finished');
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    remote.setOn(false);
+    await remote.forget();
+  }
+});
+
+test('#3827: a fresh register whose tunnel prints its certificate line first is still read as signed in', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const r = await remote.signinRegister('hers');
+  assert.equal(r.ok, true, 'a real first sign-in read as a failure: ' + r.because);
+  assert.equal(r.data.address, 'hers.kosmos.invalid');
+  assert.equal(remote.read().on, true, 'signed in, but Kosmos+ was not switched on (the #3827 symptom)');
+  await remote.forget();
+});
+
+test('#3827: a Sign out during the half-identity retire means the register is never sent', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    process.env.FAKE_TUNNEL_MODE = 'partial-register';
+    assert.equal((await remote.signinRegister('hers')).ok, false, 'fixture: the register was killed by its bound');
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000';
+    process.env.FAKE_TUNNEL_MODE = 'slow-retire';
+    fs.rmSync(RECORD, { force: true });
+    const racing = remote.signinRegister('hers');
+    await new Promise((r) => setTimeout(r, 300));
+    remote.signinCancel();
+    const late = await racing;
+    assert.match(late.because, /cancelled/);
+    assert.ok(recorded().some((c) => c[0] === 'retire'), 'fixture: the retire ran');
+    assert.ok(!recorded().some((c) => c[0] === 'signin' && c[1] === 'register'), 'a register was sent after the person signed out');
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    remote.setOn(false);
+    await remote.forget();
+  }
+});
+
+test('#3827: a Forget whose retire meets a gateway error page says why in one readable line', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  process.env.FAKE_TUNNEL_MODE = 'retire-502html';
+  try {
+    const got = await remote.forget();
+    assert.equal(got.retired, false);
+    assert.match(got.because, /Kosmos\+ answered 502 for \/v1\/mac\/retire/, got.because);
+    assert.doesNotMatch(got.because, /<\/?html|Error:/, 'the answer carried the raw page: ' + got.because);
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+});
+
+test('#3827: a Sign out during a register that then fails leaves a Mac that was on, on', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered and on');
+  process.env.FAKE_TUNNEL_MODE = 'slow-fail';
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const racing = remote.signinRegister('other');
+    remote.signinCancel();
+    const late = await racing;
+    assert.match(late.because, /cancelled/);
+    assert.equal(remote.read().on, true, 'a register that changed nothing switched a working Mac off');
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
     remote.setOn(false);
