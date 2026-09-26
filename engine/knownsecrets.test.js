@@ -41,3 +41,36 @@ test('#3769 collect reads the board token, the secrets folder and every account 
 test('#3769 collect never throws on a missing or unreadable place', () => {
   assert.deepEqual(collect({ dataRoot: '/nonexistent/kosmos', home: '/nonexistent/home' }), []);
 });
+
+test('#3935 assignedValue: the value a secrets-file line assigns to a public name, or null', () => {
+  const { assignedValue } = require('./knownsecrets');
+  const cases = [
+    ['CF_API_TOKEN=AbCdEf123456ZzYy', 'AbCdEf123456ZzYy'],
+    ['export CF_API_TOKEN=AbCdEf123456ZzYy', 'AbCdEf123456ZzYy'],
+    ['CF_API_TOKEN=AbCdEf123456ZzYy # rotated', 'AbCdEf123456ZzYy'],
+    ['PASS="my long pass phrase 9"', 'my long pass phrase 9'],
+    ['r2_secret_access_key: Qw8eRt2yUi9oPa3s', 'Qw8eRt2yUi9oPa3s'],
+    ['  "webhook_url_v2": "Mn4bVc7xZa1sDf3g",', 'Mn4bVc7xZa1sDf3g'],
+    ['# OLD_API_KEY=Zq8vLm3pRt6wXy9kHb2n', 'Zq8vLm3pRt6wXy9kHb2n'],
+    ['Note: see the wiki for full setup details', null],
+    ['Zq8vLm3pRt6wXy9kHb2nWc4dQ1==', null],   // padding is not a value
+    ['https://discord.com/api/webhooks/1/abc', null],
+  ];
+  for (const [line, want] of cases) assert.equal(assignedValue(line), want, line);
+});
+
+test('#3935 keyTokens: every key-shaped token of a line with spaces, and no names, words, timestamps or URLs', () => {
+  const { keyTokens } = require('./knownsecrets');
+  const cases = [
+    ['AbCdEfGh12345678: rotated last week, keep until Friday', ['AbCdEfGh12345678']],   // the secret before its note
+    ['# rotated: PqzRtLmWxKvBnHsUvWyZaBcDe (keep until Friday)', ['PqzRtLmWxKvBnHsUvWyZaBcDe']],   // all letters
+    ['# token:Zq8vLm3pRt6wXy9kHb2n', ['Zq8vLm3pRt6wXy9kHb2n']],
+    ['note Zq8vLm3pRt6wXy9kHb2nWc4dQ1=', ['Zq8vLm3pRt6wXy9kHb2nWc4dQ1=']],
+    ['r2_secret_access_key: Qw8eRt2yUi9oPa3s', ['Qw8eRt2yUi9oPa3s']],
+    ['# Cloudflare API token, DNS edit scope', []],
+    ['Set CF_API_TOKEN and Configuration here', []],
+    ['# Created 2026-09-25T11:54:00Z see https://x.io/a1b2c3d4e5f6g7', []],
+    ['NoSpacesHereAbCd1234', []],   // a line with no space is walked whole by the mask, not split here
+  ];
+  for (const [line, want] of cases) assert.deepEqual(keyTokens(line), want, line);
+});

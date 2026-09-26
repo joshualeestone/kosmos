@@ -892,4 +892,4 @@ function describeFired(fired) {
 
 /* For tests: the fragment index's size and stride, and how many times the held set was rebuilt. */
 function fragmentIndexStats() { return { size: knownGrams.size, stride: fragmentStride, keyStride, builds: indexBuilds }; }
-module.exports = { MASK, WITHHELD, UNCHECKED, mask, describeFired, setKnownSecrets, knownSecretCount, fragmentIndexStats, madeOfWords };
+module.exports = { MASK, WITHHELD, UNCHECKED, mask, describeFired, setKnownSecrets, knownSecretCount, fragmentIndexStats, madeOfWords, MIN_VALUE_LEN };

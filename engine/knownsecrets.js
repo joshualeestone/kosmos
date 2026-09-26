@@ -74,17 +74,22 @@ function assignedValue(line) {
    timestamp (2026-09-25T11) has one letter. */
 function keyTokens(line) {
   if (typeof line !== 'string' || !/\s/.test(line.trim())) return [];
-  const { madeOfWords } = require('./secretmask');
+  const { madeOfWords, MIN_VALUE_LEN } = require('./secretmask');
+  /* Key-shaped (review round 32): MIN_VALUE_LEN or more, four letters, not a URL or path, not made of words, and a
+     digit, or else both cases with no - _ . in it (an all-letter key, PqzRtLmWxKvBnHs...; a name like CF_API_TOKEN
+     has separators, a word like Configuration is made of words). */
+  const isKey = (tok) => tok.length >= MIN_VALUE_LEN && !tok.includes('//') && (tok.match(/[A-Za-z]/g) || []).length >= 4
+    && (/[0-9]/.test(tok) || (!/[-_.]/.test(tok) && /[a-z]/.test(tok) && /[A-Z]/.test(tok))) && !madeOfWords(tok);
   const out = [];
-  /* A name being assigned (r2_secret_access_key:, API_KEY=, "webhook_url_v2":) is public, not a token. */
-  /* An = counts only with a value after it (review round 31: a single-padded base64 key, Zq8v...Q1=, ended in = and
-     was removed as a name). */
-  const names = /(^|[\s,;{#])["']?[A-Za-z_][A-Za-z0-9_.-]*["']?\s*(?::|=(?![=\s]|$))/g;
-  for (const raw of line.trim().replace(names, '$1 ').split(/[\s,;:]+|=(?=[^=\s])/)) {
+  /* A name being assigned (r2_secret_access_key:, API_KEY=, "webhook_url_v2":) is public, not a token. An = counts
+     only with a value after it (review round 31: a single-padded base64 key, Zq8v...Q1=, ended in = and was removed
+     as a name). A "name" that is itself key-shaped with no - _ . in it is the secret with a note after it
+     (AbCdEfGh12345678: rotated last week, review round 32), and is kept. */
+  const names = /(^|[\s,;{#])["']?([A-Za-z_][A-Za-z0-9_.-]*)["']?\s*(?::|=(?![=\s]|$))/g;
+  const stripped = line.trim().replace(names, (m, lead, name) => (isKey(name) && !/[-_.]/.test(name) ? `${lead}${name} ` : `${lead} `));
+  for (const raw of stripped.split(/[\s,;:]+|=(?=[^=\s])/)) {
     const tok = raw.replace(/^[#"'`([{<]+|["'`)\]}>.,]+$/g, '');
-    if (tok.length < 12 || tok.includes('//') || (tok.match(/[A-Za-z]/g) || []).length < 4 || !/[0-9]/.test(tok)) continue;
-    if (madeOfWords(tok)) continue;
-    out.push(tok);
+    if (isKey(tok)) out.push(tok);
   }
   return out;
 }

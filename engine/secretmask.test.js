@@ -1274,3 +1274,18 @@ test('#3935 a text over the cache limit is cached by its hash, and not past a ch
     assert.equal(mask(t).text, t, 'a cleared set still served the cached long result');
   } finally { setKnownSecrets([]); }
 });
+
+test('#3935 a secret written before its note, or with no digit, on a line with spaces is masked (review round 32)', () => {
+  const knownsecrets = require('./knownsecrets');
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'km-3935-32-'));
+  try {
+    fs.mkdirSync(path.join(root, 'secrets'));
+    fs.writeFileSync(path.join(root, 'secrets', 'notes.txt'), 'AbCdEfGh12345678: rotated last week, keep until Friday\n# rotated: PqzRtLmWxKvBnHsUvWyZaBcDe (keep until Friday)\n');
+    setKnownSecrets(knownsecrets.collect({ dataRoot: root, home: root }));
+    assert.ok(!mask('The value is AbCdEfGh12345678 ok').text.includes('AbCdEfGh1234'));
+    const out = mask('First PqzRtLmW then xKvBnHsU then vWyZaBcDe done').text;
+    assert.ok(!out.includes('xKvBnHsU') && !out.includes('vWyZaBcDe'), out);
+    assert.equal(mask('It was rotated last week, keep it until Friday.').text, 'It was rotated last week, keep it until Friday.');
+  } finally { setKnownSecrets([]); fs.rmSync(root, { recursive: true, force: true }); }
+});
