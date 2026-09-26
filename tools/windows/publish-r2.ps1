@@ -113,6 +113,9 @@ if ($FakeDir) { [Console]::Error.WriteLine("publish-r2: TEST TRANSPORT: the buck
 $ServedBase = $ServedBase.TrimEnd('/')   # a trailing slash names the same place
 if ($ServedBase -cne 'https://installkosmos.com/dist' -and -not $KeyPrefix) { Refuse "-ServedBase is for tests and needs -KeyPrefix; users are served from https://installkosmos.com/dist" }
 if ($KeyPrefix -and $ServedBase -match '^https?://([a-z0-9-]+\.)*installkosmos\.com(/|:|$)' -and -not $FakeDir) { Refuse "-KeyPrefix needs a -ServedBase that serves that prefix; otherwise the checks after writing would read prod's objects" }
+# The served base must END in the prefix it serves (iteration 24), or the checks after writing
+# read un-prefixed objects and can pass on bytes this run never wrote.
+if ($KeyPrefix -and -not $FakeDir -and -not ($ServedBase -clike "*/$($KeyPrefix.TrimEnd('/'))")) { Refuse "-ServedBase $ServedBase must end in the -KeyPrefix it serves ($($KeyPrefix.TrimEnd('/')))" }
 
 # ---------- hashing and signing -----------------------------------------------------------------
 $Utf8 = New-Object Text.UTF8Encoding $false
@@ -385,15 +388,23 @@ function Touch-Lock {
 # write once the lock is not this run's, but it must not abort half-way either, so it answers
 # instead of refusing. $true: the lock is still ours (and refreshed); $false: skip the write.
 function Test-LockStillOurs {
-  if (-not $script:LockEtag) { return $false }
+  if (-not $script:LockEtag) { $script:LockLostNote = "SKIPPED, this run no longer holds publish.lock: check the bucket"; return $false }
   $key = "${KeyPrefix}publish.lock"
   $body = $Utf8.GetBytes("$($script:LockHead) touched=$(Stamp)`n")
   $r = Invoke-R2 -Soft -Method PUT -Key $key -Body $body -PayloadSha (Sha256-Bytes $body) -ContentType 'text/plain; charset=utf-8' -Extra @{ 'if-match' = $script:LockEtag; 'cache-control' = 'no-cache' }
   if ($r.Status -eq 200 -and $r.ETag) { $script:LockEtag = $r.ETag; return $true }
-  if ($r.Status -eq 412) { $script:LockEtag = '' }
+  # Say what actually happened (iteration 24): only a 412 means another run took the lock; a
+  # network error or a 5xx means this run could not CONFIRM it, which is a different thing to
+  # go and check.
+  if ($r.Status -eq 412) {
+    $script:LockEtag = ''
+    $script:LockLostNote = "SKIPPED, this run's publish.lock was taken by another run before it (another run may be writing): check the bucket"
+  } else {
+    $script:LockLostNote = "SKIPPED, this run could not confirm it still holds publish.lock (status $($r.Status)), so it did not write: check the bucket"
+  }
   return $false
 }
-$LockLostNote = "SKIPPED, this run's publish.lock was lost before it (another run may be writing): check the bucket"
+$LockLostNote = "SKIPPED, this run's publish.lock was lost before it: check the bucket"
 function Unlock-Publish {
   if (-not $script:LockEtag) { return }
   $etag = $script:LockEtag; $script:LockEtag = ''
@@ -495,10 +506,11 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
       try { $pkg = $r.ReadToEnd() | ConvertFrom-Json } catch { Refuse "$ZipPath has an unreadable app/package.json" } finally { $r.Dispose() }
       if ($pkg.PSObject.Properties.Name -contains 'version') { $baked = [string]$pkg.version }
     }
-    if (-not $Version) {
-      if (-not $baked) { Refuse "$ZipPath has no version in app/package.json (pass -Version)" }
-      $Version = $baked
-    } elseif ($baked -and $baked -cne $Version) { Refuse "-Version $Version is not the version this zip was built as ($baked)" }
+    # Always checked (iteration 24): a zip with no baked version cannot be shown to be the
+    # version it would be published as, so -Version alone is not accepted for it.
+    if (-not $baked) { Refuse "$ZipPath has no version in app/package.json, so its version cannot be checked; rebuild it with tools/build-kosmos-windows.sh" }
+    if (-not $Version) { $Version = $baked }
+    elseif ($baked -cne $Version) { Refuse "-Version $Version is not the version this zip was built as ($baked)" }
     # The launcher must BE the committed, signed Kosmos.exe (#3677): a validly signed exe from
     # anyone else, or an older launcher, is not the one we ship.
     # A zip with two entries of one name: the check below would read the first while Explorer

@@ -479,7 +479,7 @@ undo_setup; printf 'run=thief mode=promote started=2026-09-25T20:00:00Z host=PC2
 KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT kosmos-win-x64.zip.sha256|kosmos-win-x64.zip|$TMP/theirs.zip
 PUT kosmos-win-x64.zip.sha256|publish.lock|$TMP/thief2.lock" promote; rc=$?
 _after_theft=$(awk '/^PUT kosmos-win-x64\.zip\.sha256 /{f=1; next} f && /^(PUT|DELETE) / && !/ publish\.lock /' "$FAKE/.calls")
-if [ "$rc" -eq 1 ] && grep -qF "publish.lock was lost before it" "$TMP/out" && [ -z "$_after_theft" ] && cmp -s "$FAKE/publish.lock" "$TMP/thief2.lock"; then pass "an undo whose lock was stolen skips every restore and says so, and keeps the other lock"
+if [ "$rc" -eq 1 ] && grep -qF "publish.lock was taken by another run before it" "$TMP/out" && [ -z "$_after_theft" ] && cmp -s "$FAKE/publish.lock" "$TMP/thief2.lock"; then pass "an undo whose lock was stolen skips every restore and says so, and keeps the other lock"
 else fail "undo after lock theft: rc=$rc writes-after=[$_after_theft] $(tail -1 "$TMP/out")"; fi
 rm -f "$FAKE/publish.lock"; undo_setup
 # A refusal after the lock is taken still removes it.
