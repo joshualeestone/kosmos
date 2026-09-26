@@ -1,3 +1,4 @@
+// Browser-check-surface: acct-openai-getkey acct-apikey-getkey
 'use strict';
 /**
  * #540: an OpenAI account, added from the Accounts page with a pasted key
@@ -96,6 +97,10 @@ let failed = 0;
   await p.click('#acct-openai-pick-key');
   await p.waitForTimeout(200);
   say('choosing "Use an API key" reveals the key form', await p.isVisible('#acct-openai-key-step'));
+  // #3960: the key box has a "Get a key" link to OpenAI's key page, read from the page's own table.
+  const oaKey = await p.evaluate(() => { const a = document.getElementById('acct-openai-getkey');
+    return { shown: !!(a && a.offsetParent), href: a && a.getAttribute('href'), want: typeof KEY_PAGES === 'object' ? KEY_PAGES.openai : null }; });
+  say('#3960 the OpenAI key box has a Get a key link to its key page', oaKey.shown && !!oaKey.want && oaKey.href === oaKey.want, JSON.stringify(oaKey));
   say('the key field is a password field', (await p.getAttribute('#acct-openai-key', 'type')) === 'password');
   await p.fill('#acct-openai-key', 'sk-proj-walkwalkwalkwalkwalkWALK');
   /* 🛑 A UNIQUE LABEL PER ATTEMPT, BECAUSE THE RETRY COULD NEVER PASS AND
@@ -718,6 +723,10 @@ let failed = 0;
       && (await p.isHidden('#acct-gemini-flow')) && (await p.isHidden('#acct-keyed-install')));
   const head = (await p.innerText('#acct-apikey-head')).trim();
   say('#3566 the key step names Gemini and Google', /Gemini/.test(head) && /Google/.test(head), head);
+  // #3960: the shared key box's "Get a key" follows the provider picked: Google's key page for Gemini.
+  const gKey = await p.evaluate(() => { const a = document.getElementById('acct-apikey-getkey');
+    return { shown: !!(a && a.offsetParent), href: a && a.getAttribute('href'), want: typeof KEY_PAGES === 'object' ? KEY_PAGES.google : null }; });
+  say('#3960 the Gemini key box has a Get a key link to Google\'s key page', gKey.shown && !!gKey.want && gKey.href === gKey.want, JSON.stringify(gKey));
   say('#3566 the key field is a password field', (await p.getAttribute('#acct-apikey-key', 'type')) === 'password');
   await p.click('#acct-apikey-go');
   await p.waitForTimeout(150);
@@ -734,6 +743,11 @@ let failed = 0;
   await p.click('#acct-apikey-go');
   await p.waitForTimeout(150);
   await p.selectOption('#acct-provider-pick', 'xai');
+  // #3960: the shared key box's link followed the pick to xAI's key page (not left on Google's).
+  const xKey = await p.evaluate(() => { const a = document.getElementById('acct-apikey-getkey');
+    const vh = a && a.querySelector('.vh');
+    return { href: a && a.getAttribute('href'), said: vh ? vh.textContent : null, want: typeof KEY_PAGES === 'object' ? KEY_PAGES.xai : null, google: typeof KEY_PAGES === 'object' ? KEY_PAGES.google : null }; });
+  say('#3960 picking Grok moves the shared Get a key link to xAI\'s key page', !!xKey.want && xKey.href === xKey.want && xKey.href !== xKey.google && /xAI/.test(xKey.said || ''), JSON.stringify(xKey));
   await p.waitForTimeout(150);
   release();
   await p.waitForTimeout(600);

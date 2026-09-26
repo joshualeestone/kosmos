@@ -11538,6 +11538,7 @@ window.kosmosMeasureScrollbarWidth();
                aria-label="API key" placeholder="API key">
         <button class="linkish" id="acct-apikey-show" type="button" aria-pressed="false">Show</button>
       </div>
+      <p class="acct-help" style="margin:8px 0 0;"><a class="btn-quiet" id="acct-apikey-getkey" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></p>
       <div class="frow" style="margin-top:8px;">
         <input type="text" id="acct-apikey-name" autocomplete="off" maxlength="40"
                aria-label="A name for this account (optional)" placeholder="A name, if you want one">
@@ -11626,6 +11627,7 @@ window.kosmosMeasureScrollbarWidth();
                  aria-label="Anthropic API key" placeholder="sk-ant-…">
           <button class="linkish" id="acct-claude-show" type="button" aria-pressed="false">Show</button>
         </div>
+        <p class="acct-help" style="margin:8px 0 0;"><a class="btn-quiet" id="acct-claude-getkey" data-keypage="claude" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></p>
         <!-- Add has its own row under both fields (kosmos#978), where it reads as the
              action for the FORM rather than for whichever input it is touching. -->
         <div class="frow" style="margin-top:8px;">
@@ -11723,6 +11725,7 @@ window.kosmosMeasureScrollbarWidth();
                aria-label="OpenAI API key" placeholder="sk-…">
         <button class="linkish" id="acct-openai-show" type="button" aria-pressed="false">Show</button>
       </div>
+      <p class="acct-help" style="margin:8px 0 0;"><a class="btn-quiet" id="acct-openai-getkey" data-keypage="openai" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></p>
       <!-- 🛑 ADD IS NOT ON THE NAME'S ROW ANY MORE (kosmos#978). Josh read this
            form as "Add a name" rather than "activate this key", and the layout
            told him so: the rows were [key][Show] then [name][Add], so the only
@@ -12534,7 +12537,7 @@ window.kosmosMeasureScrollbarWidth();
                 </div>
                 <div id="fr-openai-flow" hidden class="fr-confirm">
                   <p class="fr-confirm-t" id="fr-openai-key-t">Download complete. You will need an OpenAI API key to finish. A key is a bit like a password that OpenAI issues for this computer. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
-                  <div class="frow"><a class="btn" id="fr-openai-getkey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key</a></div>
+                  <div class="frow"><a class="btn" id="fr-openai-getkey" data-keypage="openai" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></div>
                   <!-- 🛑 NO PROMISE ABOUT THE KEY ON THIS SCREEN. Josh, 2026-08-27:
                        "We don't need this line at all for the openAI."
                        ⭐ HE REMOVED THE CLAIM RATHER THAN WORDING IT. Ice Cream Kitty
@@ -12612,7 +12615,7 @@ window.kosmosMeasureScrollbarWidth();
                 </div>
                 <div id="fr-gemini-flow" hidden class="fr-confirm">
                   <p class="fr-confirm-t" id="fr-gemini-key-t">Download complete. You will need a Google API key to finish. A key is a bit like a password that Google issues for this computer. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
-                  <div class="frow"><a class="btn" id="fr-gemini-getkey" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Get a key</a></div>
+                  <div class="frow"><a class="btn" id="fr-gemini-getkey" data-keypage="google" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></div>
                   <p class="fr-confirm-t" id="fr-gemini-key-back" style="margin-top:8px;">Then come back and paste it here.</p>
                   <div class="frow">
                     <input type="password" id="fr-gemini-key" autocomplete="new-password" spellcheck="false"
@@ -12660,7 +12663,7 @@ window.kosmosMeasureScrollbarWidth();
                 </div>
                 <div id="fr-grok-flow" hidden class="fr-confirm">
                   <p class="fr-confirm-t" id="fr-grok-key-t">Download complete. You will need an xAI API key to finish. A key is a bit like a password that xAI issues for this computer. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
-                  <div class="frow"><a class="btn" id="fr-grok-getkey" href="https://console.x.ai/" target="_blank" rel="noopener">Get a key</a></div>
+                  <div class="frow"><a class="btn" id="fr-grok-getkey" data-keypage="xai" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></div>
                   <p class="fr-confirm-t" id="fr-grok-key-back" style="margin-top:8px;">Then come back and paste it here.</p>
                   <div class="frow">
                     <input type="password" id="fr-grok-key" autocomplete="new-password" spellcheck="false"
@@ -24708,6 +24711,30 @@ document.getElementById('acct-openai-go').addEventListener('click', async () => 
     go.disabled = false;
   }
 });
+/* #3960 (Josh, 2026-09-26: "put a link to that if people select a Gemini key so they know where
+   to go to generate one"): where each provider issues API keys. ONE table, read by every "Get a key"
+   link (Settings and first run), so a moved page is one edit. Checked live 2026-09-26: Google's
+   sends a signed-out visitor through sign-in and back; Anthropic's old console address now forwards
+   to platform.claude.com, so the final address is used; OpenAI's and xAI's sit behind a bot check
+   and are the addresses their own docs give. */
+const KEY_PAGES = {
+  google: 'https://aistudio.google.com/apikey',
+  xai: 'https://console.x.ai/team/default/api-keys',
+  openai: 'https://platform.openai.com/api-keys',
+  claude: 'https://platform.claude.com/settings/keys',
+};
+/* Who issues each key, for the link's screen-reader text ("opens Google's key page"). */
+const KEY_PAGE_WHO = { google: 'Google', xai: 'xAI', openai: 'OpenAI', claude: 'Anthropic' };
+/** Point one "Get a key" link at a provider's key page, or hide it for a provider with none. */
+function keyPageLink(el, provider) {
+  if (!el) return;
+  const url = KEY_PAGES[provider] || '';
+  el.hidden = !url;
+  el.setAttribute('href', url || '#');
+  const said = el.querySelector && el.querySelector('.vh');
+  if (said) said.textContent = url ? ' (opens ' + KEY_PAGE_WHO[provider] + '\u2019s key page in your browser)' : ' (opens the key page in your browser)';
+}
+document.querySelectorAll('[data-keypage]').forEach((el) => keyPageLink(el, el.dataset.keypage));
 /* #2338: the picker's two choices. */
 /* #3566: Gemini and Grok, connected with a pasted API key. ONE step for both, keyed on
    the picked option, because the two engine routes are one helper parameterised by
@@ -24783,6 +24810,7 @@ function acctApikeyShow(which) {
     const m = document.getElementById('acct-apikey-msg'); if (m) m.textContent = '';
   }
   ACCT_APIKEY_WHICH = p ? which : null;
+  keyPageLink(document.getElementById('acct-apikey-getkey'), ACCT_APIKEY_WHICH);   // #3960
   acctKeyedInstallHide();
   /* #3731 (card item 5): never a key box, or Grok's choice, before the software is known to be
      here. Both stay hidden until /api/runners answers; an answer that does not say "present"

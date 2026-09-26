@@ -1,3 +1,4 @@
+// Browser-check-surface: fr-gemini-getkey fr-grok-getkey fr-openai-getkey
 'use strict';
 /**
  * kosmos#3658 (Josh, 2026-09-24 17:46), rebuilt for #3731 (Josh, 2026-09-25, testing 0.6.94):
@@ -213,11 +214,16 @@ const chk = (ok, label, extra) => {
   const gk = await q(() => {
     return { pick: !document.getElementById('fr-gemini-pick').hidden, key: !document.getElementById('fr-gemini-flow').hidden,
       head: document.getElementById('fr-gemini-key-t').textContent, href: document.getElementById('fr-gemini-getkey').getAttribute('href'),
+      want: typeof KEY_PAGES === 'object' ? KEY_PAGES.google : null,
       focus: document.activeElement && document.activeElement.id };
   });
-  chk(!gk.pick && gk.key && /^Download complete\. You will need a Google API key to finish\./.test(gk.head) && /aistudio\.google\.com/.test(gk.href)
+  chk(!gk.pick && gk.key && /^Download complete\. You will need a Google API key to finish\./.test(gk.head) && !!gk.want && gk.href === gk.want
       && gk.focus === 'fr-gemini-key',
-    '#3731 Gemini\'s key step is GPT\'s, with its words, link and focus', JSON.stringify(gk));
+    '#3731 Gemini\'s key step is GPT\'s, with its words, link (#3960: the key-page table\'s address) and focus', JSON.stringify(gk));
+  // #3960: GPT's own first-run "Get a key" carries the table's address on the real page (not the "#" its markup ships with).
+  const ok = await q(() => ({ href: document.getElementById('fr-openai-getkey').getAttribute('href'),
+    want: typeof KEY_PAGES === 'object' ? KEY_PAGES.openai : null }));
+  chk(!!ok.want && ok.href === ok.want, '#3960 GPT\'s first-run Get a key goes to OpenAI\'s key page', JSON.stringify(ok));
   await shot('3731-2-gemini-key-step');
 
   // Grok: the install, then GPT's choice, under Grok's row; Gemini's panels close.
@@ -289,9 +295,10 @@ const chk = (ok, label, extra) => {
     document.getElementById('fr-grok-pick-key').click();
     await new Promise((r) => setTimeout(r, 50));
     return { key: !document.getElementById('fr-grok-flow').hidden, head: document.getElementById('fr-grok-key-t').textContent,
-      href: document.getElementById('fr-grok-getkey').getAttribute('href'), step: !document.getElementById('fr-grok-sub-step').hidden };
+      href: document.getElementById('fr-grok-getkey').getAttribute('href'), step: !document.getElementById('fr-grok-sub-step').hidden,
+      want: typeof KEY_PAGES === 'object' ? KEY_PAGES.xai : null };
   });
-  chk(toKey.key && !toKey.step && /^Download complete\. You will need an xAI API key to finish\./.test(toKey.head) && /console\.x\.ai/.test(toKey.href),
+  chk(toKey.key && !toKey.step && /^Download complete\. You will need an xAI API key to finish\./.test(toKey.head) && !!toKey.want && toKey.href === toKey.want,
     '#3731 "Use an API key" shows GPT\'s key step for Grok', JSON.stringify(toKey));
 
   const empty = await q(async () => {
