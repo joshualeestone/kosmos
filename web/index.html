@@ -19866,7 +19866,8 @@ async function tick() {
      * The honest thing to say here is smaller: this agent is not on the board
      * any more, so nothing on this screen should offer to change it.
      */
-    for (const id of ['d-file', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save', 'd-start-agent']) {
+    /* #4038: 'd-file-btn' with 'd-file': the visible button called .click() on the disabled hidden input, a silent no-op. */
+    for (const id of ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save', 'd-start-agent']) {
       const el = document.getElementById(id);
       if (el) el.disabled = true;
     }
@@ -32388,7 +32389,10 @@ function setWritesOffered(a, tied) {
   //
   // Skipping the LOAD was never enough: nothing clears what the previous card
   // left behind.
-  const controls = ['d-file', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save'];
+  /* #4038 (Josh, 09-26: "Change picture ... doesn't seem to be working"): the VISIBLE button goes with the hidden input.
+     It was left out, so on an untied card it stayed live and its .click() on the disabled input did nothing: no
+     picker, no message. Disabled, it sits under the #d-untied sentence that says why. */
+  const controls = ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save'];
   for (const id of controls) {
     const el = document.getElementById(id);
     if (el) el.disabled = !tied;
@@ -33185,6 +33189,9 @@ document.getElementById('detail-back').addEventListener('click', () => {
 
 document.getElementById('d-file').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0];
+  /* #4038: cleared at once, so choosing the SAME file again (after a failure, or to redo it) fires change again; left
+     set, the second choice of that file was another silent no-op. */
+  e.target.value = '';
   if (!f || !CURRENT) return;
   const msg = document.getElementById('d-msg');
   // Same capture-and-recheck as the instruction save. Without it, uploading a
@@ -42944,7 +42951,14 @@ document.getElementById('create-avatar-btn').addEventListener('click', () => {
    `change` handler untouched: `.click()` on a file input fires `change` exactly
    as a direct click does, so nothing about how the file is read changes. */
 document.getElementById('d-file-btn').addEventListener('click', () => {
-  document.getElementById('d-file').click();
+  /* #4038: never a silent no-op. Disabled with the input (setWritesOffered), so this is a guard: say why. */
+  const input = document.getElementById('d-file');
+  if (input.disabled) {
+    const msg = document.getElementById('d-msg');
+    if (msg) msg.textContent = 'This picture cannot be changed from here: see the note on this page.';
+    return;
+  }
+  input.click();
 });
 document.getElementById('you-file-btn').addEventListener('click', () => {
   document.getElementById('you-file').click();
