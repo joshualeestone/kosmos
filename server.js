@@ -252,6 +252,16 @@ function heardBudgetAllows() {
 function heardBudgetRecord() {
   heardBudgetLog.push(Date.now());
 }
+/* #3959: what an agent-made assignment answers when the allowance above is spent: the
+   work landed but its assignee was NOT typed to. Left undefined, `heard` reads as "no
+   assignee". Undefined only when there is genuinely nobody named. */
+function heardBudgetSkipped(who) {
+  const name = typeof who === 'string' && who.trim() ? who.trim() : null;
+  if (!name) return undefined;
+  return { who: name, state: chat.DELIVERY.COULD_NOT,
+    because: 'agents have used the hourly allowance for typing into agent screens (' + HEARD_BUDGET_MAX
+      + ' an hour, shared by all agents), so ' + name + ' was not told on screen; the work is on their list' };
+}
 // Test-only, same shape as chatEngine.resetForTests()/messagesEngine.resetForTests():
 // heardBudgetLog is in-memory and module-scoped, so without this, one test's
 // spent budget silently carries into the next test in the same file.
@@ -362,6 +372,8 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner } = {}) 
     const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partId)) || {}).sentence;
     heard = heardBy(projectId, out.task, who, sentence, r);
     if (heard && heard.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord();
+  } else if (out.changed) {
+    heard = heardBudgetSkipped(who); // only a process reaches here: screen and assigner always pass
   }
   if (assigner && out.changed && !(heard && heard.state !== chat.DELIVERY.COULD_NOT)) {
     // Only if it is still ours: the pane line took time, and somebody may have taken the part since.
@@ -14900,13 +14912,8 @@ const server = http.createServer((req, res) => {
             // attempts at an unreachable agent must not exhaust the shared
             // hour for every other project's legitimate placements.
             if (heard && heard.state === chat.DELIVERY.PLACED && !viaScreen) heardBudgetRecord();
-          } else if (typeof made.who === 'string' && made.who.trim()) {
-            /* #3959: the task landed but the assignee's pane was not typed into. Say so,
-               so the calling agent knows; left undefined, it reads as "no assignee". */
-            heard = { who: made.who.trim(), state: chat.DELIVERY.COULD_NOT,
-              because: 'agents have used the hourly allowance for typing into agent screens ('
-                + HEARD_BUDGET_MAX + ' an hour, shared by all agents), so ' + made.who.trim()
-                + ' was not told on screen; the task is on their list' };
+          } else {
+            heard = heardBudgetSkipped(made.who);
           }
           sendJson(res, 200, { task: made, told, heard });
         } catch (err) {
@@ -15196,6 +15203,8 @@ const server = http.createServer((req, res) => {
         if (screen || heardBudgetAllows()) {
           heard = heardBy(id, out.task, body && body.who, newPart && newPart.sentence, roster);
           if (heard && heard.state === chat.DELIVERY.PLACED && !screen) heardBudgetRecord();
+        } else {
+          heard = heardBudgetSkipped(body && body.who);
         }
         sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task, roster), heard });
       } catch (err) {

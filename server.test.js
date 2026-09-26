@@ -14092,7 +14092,7 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
     assert.ok(heardTask, 'a skipped nudge left heard undefined, which reads as no assignee');
     assert.equal(heardTask.state, 'could_not');
     assert.equal(heardTask.who, 'mara');
-    assert.match(heardTask.because, /hourly allowance .*12 an hour, shared by all agents.*on their list/);
+    assert.match(heardTask.because, /hourly allowance .*12 an hour, shared by all agents.*the work is on their list/);
     assert.equal(sends.length, before, 'CONTROL: nothing was typed for the task once the allowance was spent');
     // The screen is never valved: the person adds one right now, and it is heard.
     const r14 = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
@@ -14111,6 +14111,70 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
    unconfirmed) to an unreachable agent -- so a run of failed attempts spent
    the same shared budget a real placement does, and could exhaust it for
    every other project's legitimate ones. Now only a real 'placed' spends it. */
+/* #3959 review round 4: once the shared paging allowance is spent, EVERY agent-made
+   assignment route says the assignee was not told, not only task create. Twelve task
+   assignments spend it (tasks are no longer capped at twelve), so the part routes are
+   still open (their own valve counts parts, not tasks) and must answer could_not. */
+test('#3959: with the paging allowance spent by tasks, part add and part reassign say the assignee was not told', async () => {
+  const chatEngine = require('./engine/chat');
+  const projectsEngine3959 = require('./engine/projects');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' }), fleet.agent('theo', { state: 'idle' })]);
+  const sends = [];
+  try {
+    resetHeardBudgetForTests();
+    chatEngine.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chatEngine.setDryRun(false);
+    const pdir = nodePath.join(SANDBOX, 'p3959-heard'); fs.mkdirSync(pdir, { recursive: true });
+    const p = projectsEngine3959.create({ name: 'Heard check 3959', folder: pdir, agents: ['mara', 'theo'], roster: board.agents });
+    const api = (path, body) => req('/api/project/' + encodeURIComponent(p.id) + path, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    let placed = 0;
+    for (let i = 0; i < 12; i += 1) {
+      const r = await api('/tasks', { sentence: 'Errand ' + i, who: 'mara' });
+      assert.equal(r.status, 200, r.body);
+      if ((JSON.parse(r.body).heard || {}).state === 'placed') placed += 1;
+    }
+    assert.equal(placed, 12, 'PRECONDITION: twelve task assignments were typed, spending the allowance');
+    /* An assigned agent task also counts as a part write, so the parts valve (#803, also 12)
+       is spent too. Age those writes past the hour to reopen it; the paging allowance is
+       in memory and does not age with them, so it stays spent. */
+    // The valve counts across ALL projects, and earlier tests in this file made parts too.
+    for (const q of projectsEngine3959.readAll()) require('./engine/tasks').agePartWritesForTests(q.id, 3700);
+    assert.equal(require('./engine/tasks').partValve().refused, false, 'PRECONDITION: the parts valve is open again');
+    const before = sends.length;
+    // Add a part with an assignee: it lands, nobody is typed to, and the answer says so.
+    const rAdd = await api('/task/1/parts', { sentence: 'Buy bread', who: 'theo' });
+    assert.equal(rAdd.status, 200, rAdd.body);
+    const hAdd = JSON.parse(rAdd.body).heard;
+    assert.ok(hAdd, 'part add left heard undefined with an assignee named');
+    assert.equal(hAdd.state, 'could_not');
+    assert.equal(hAdd.who, 'theo');
+    assert.match(hAdd.because, /hourly allowance/);
+    // Reassign that part: same answer.
+    const parts = (projectsEngine3959.readAll().find((x) => x.id === p.id).tasks[0].parts || []);
+    const partId = parts[parts.length - 1].id;
+    const rWho = await api('/task/1/part/' + partId + '/who', { who: 'mara' });
+    assert.equal(rWho.status, 200, rWho.body);
+    const hWho = JSON.parse(rWho.body).heard;
+    assert.ok(hWho, 'part reassign left heard undefined with an assignee named');
+    assert.equal(hWho.state, 'could_not');
+    assert.equal(hWho.who, 'mara');
+    // A part with NOBODY named still answers no heard at all.
+    const rNone = await api('/task/1/parts', { sentence: 'Unassigned' });
+    assert.equal(rNone.status, 200, rNone.body);
+    assert.equal(JSON.parse(rNone.body).heard, undefined, 'a part with no assignee claimed someone was not told');
+    assert.equal(sends.length, before, 'CONTROL: nothing was typed once the allowance was spent');
+  } finally {
+    resetHeardBudgetForTests(); // this test spent it; later tests must not inherit that
+    chatEngine.setRunner(null);
+    board.restore();
+  }
+});
+
 test('#761 round 6: failed deliveries do not spend the shared pane-notify budget', async () => {
   const chatEngine = require('./engine/chat');
   const projectsEngine761e = require('./engine/projects');

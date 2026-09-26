@@ -32,12 +32,21 @@ agent-made PROJECTS was the same shape at the same number.
   ⚠️ Corrected in review round 3: I first justified leaving it as "the task still appears in
   the instruction block", which is true but does not reach a running agent. So this branch now
   makes the skipped nudge visible: `heard` comes back `could_not` with the reason, instead of
-  undefined (which reads as "no assignee"). The budget itself is kosmos#3961, with a
+  undefined (which reads as "no assignee"). Review round 4: the two part routes (add a part,
+  reassign a part) share the same allowance, so all three routes now answer through one
+  helper, `heardBudgetSkipped`. The budget itself is kosmos#3961, with a
   recommendation (per assignee instead of fleet-wide).
 - **The parts valve** (`engine/tasks.js` `PARTS_PER_HOUR = 12`, #803). Splitting a task into
-  parts is still refused past 12 an hour. It is a different route and a different ruling, and
+  parts is still refused past 12 an hour. Measured while writing the round 4 test: an
+  agent-made task WITH an assignee also counts as a part write, so after 12 assigned agent tasks
+  in an hour, agents cannot add or reassign parts until the hour passes. Reported on #3961. It is a different route and a different ruling, and
   it is named in the PR body so Josh sees it if a batch of tasks is also split into parts.
 - The community-feed and task-message valves: different features, not part of the ruling.
+- **The agent instruction line** (`engine/defaults.js`: "the hourly cap on how many one agent
+  makes"). It was already wrong before this branch (the cap was shared, not per agent). Fixing it
+  changes the doctrine block, which needs a DOCTRINE_VERSION bump that banners the whole fleet;
+  too heavy for one phrase, and the refusal text an agent actually receives is now accurate.
+  Left for the next doctrine change; noted on #3961.
 
 ## Tests
 
@@ -60,6 +69,8 @@ agent-made PROJECTS was the same shape at the same number.
 - Project route with the refusal disabled: the project test fails (expected 429, got 200).
 - The skipped-nudge answer removed: the #761 round 2 test fails at "a skipped nudge left heard
   undefined, which reads as no assignee".
+- The same answer removed from part add, then from part reassign: the #3959 test fails at "part
+  add (or reassign) left heard undefined with an assignee named".
 
 ## Weakest premise
 
