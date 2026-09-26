@@ -32,7 +32,7 @@ land(){ # <path> <subject>
   mkdir -p "$T/other/$(dirname "$1")"; echo "$RANDOM$RANDOM" >> "$T/other/$1"
   g -C "$T/other" add -A; g -C "$T/other" commit -q -m "$2"; g -C "$T/other" push -q origin main
 }
-reset_origin(){ g -C "$T/relay" push -q -f origin "$BUILT:refs/heads/main"; }
+reset_origin(){ g -C "$T/relay" push -q -f origin "${BUILT}:refs/heads/main"; }
 check_rc(){ unset KOSMOS_ALLOW_STALE_TUNNEL; connector_currency_check "$B" "$T/relay" 2>"$T/err"; }
 
 # 1. current: origin main is the commit the connector was built from
@@ -104,8 +104,8 @@ if check_rc; then bad "a connector with no .commit was accepted"
 else grep -q "connector_provenance: no $B.commit" "$T/err" && ok "a missing .commit refuses through the provenance check" || bad "wrong reason with no sidecar: $(cat "$T/err")"; fi
 
 # 11. the release wires it before the bump
-awk '/step "== 1d\. the Plus connector is current/{s=1} s&&/connector_currency_check/{print "wired"; exit} /step "== 2\. the version/{exit}' tools/release.sh | grep -q wired \
-  && ok "release.sh runs connector_currency_check in step 1d, before step 2's bump" || bad "release.sh does not run the check in 1d before the bump"
+awk '/step "== 1d\. the Plus connector is current/{s=1} s&&/connector_currency_check/{c=1} s&&c&&/\|\| exit 1/{print "wired"; exit} /step "== 2\. the version/{exit}' tools/release.sh | grep -q wired \
+  && ok "release.sh runs connector_currency_check in step 1d with || exit 1, before step 2's bump" || bad "release.sh does not run the check in 1d before the bump"
 
 echo "---"
 [ "$FAILS" = 0 ] && echo "connector-currency: all checks passed" || { echo "connector-currency: $FAILS FAILED"; exit 1; }

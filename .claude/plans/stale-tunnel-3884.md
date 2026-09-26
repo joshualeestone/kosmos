@@ -14,10 +14,12 @@ Card: kosmos#3884. 0.6.95 bundled a tunnel built at 19:00 from e2d5fbd; relay #1
 - Putting it in build-kosmos-bundle.sh: that also runs outside cuts (install harness builds), where a network fetch would be a new failure mode.
 
 ## Weakest premise
+Time of check vs use: 1d checks before the suite; step 4 bundles the same path much later. A relay merge or a connector swap in between is not re-checked (accepted; the window is one cut).
+
 Cargo.lock is conservative: a coordinator-only dependency bump also changes it and asks for a rebuild. That costs a rebuild, and the override covers a deliberate exception. If it proves noisy, narrow it to the tunnel's `cargo tree`.
 
 ## Tests
-`tools/test-connector-currency-3884.sh` (wired into test:shell): 14 checks, all against a throwaway relay repo with a bare origin, no network.
+`tools/test-connector-currency-3884.sh` (wired into test:shell): 17 checks, all against a throwaway relay repo with a bare origin, no network.
 - current; coordinator-only change passes
 - tunnel change refuses and names that commit (not the coordinator one)
 - override (exactly 1) proceeds and lists what it skips
@@ -32,3 +34,7 @@ Agent1s' prebuilt connector is e2d5fbd and is STALE by this rule (relay #145 HST
 ## Review 1
 - WARNING fixed: `git fetch origin main` updates only FETCH_HEAD when the clone's refspec does not cover main, leaving a stale origin/main (false green). Now an explicit refspec `+refs/heads/main:refs/remotes/origin/main`, with GIT_TERMINAL_PROMPT=0. Test arm: a narrowed refspec on a non-main checkout, red-checked against the old fetch.
 - NITs fixed: the build script is an input; tests-only paths are excluded (tested both ways); a shallow clone gets its own refusal message.
+
+## Review 2
+- WARNING fixed: the input list was a word-split string; under zsh it became one pathspec that matched nothing, so a stale connector read CURRENT (fail open). Now an array expanded as "${CONNECTOR_TUNNEL_INPUTS[@]}". The test now also runs under zsh (a zsh-unsafe `$BUILT:refs` fixed too).
+- NITs fixed: the rebuild hint says pull main first; the wiring arm requires `|| exit 1`; plan count 17; time-of-check premise stated.
