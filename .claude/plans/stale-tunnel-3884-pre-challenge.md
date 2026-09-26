@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: stale-tunnel-3884
-diff_hash: 8ba9e5339cf939cfcc718d564eeccb4cac584abf423a031d936c132c159de3d5
+diff_hash: 52ef1c1c18ae0ee536ae6f2d6ea8ead99775312174ff580150257642e2031e66
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-26T07:39:20Z
@@ -17,6 +17,9 @@ converged: true
 **Validation (this HEAD, rebased onto origin/main):** tools/test-connector-currency-3884.sh 17/17 under bash AND zsh; test-connector-provenance 0 failures; bash -n tools/release.sh ok.
 
 ### Per-Iteration Breakdown
+
+#### After the PR opened
+- [WARNING] CI: three tools.release-gate.test.js arms stopped at the new step 1d (their sandbox has no connector or relay) --> FIXED (a current relay + connector fixture, so the check RUNS and passes); full yarn test 9736/0 + test:shell green locally
 
 #### Iteration 1
 **New findings:** 0 BLOCKERs, 1 WARNING, 5 NITs
