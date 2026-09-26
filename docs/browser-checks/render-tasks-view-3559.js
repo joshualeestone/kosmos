@@ -164,8 +164,8 @@ function chk(ok, label, extra) {
       await page.waitForFunction(() => document.querySelectorAll('#tsk-tiles .tsk-tile').length > 0 && document.querySelectorAll('#tsk-groups .tsk-row').length > 0, null, { timeout: 8000 });
       const a = await page.evaluate(read);
       chk(a.visible, `${tag} the Tasks page is on screen`);
-      /* #3880's control: the tab view KEEPS its outer frame (the rail sits inside it); only the
-         consolidated column drops it (asserted below), so a rule that removed it everywhere fails here. */
+      /* #3880's control: the tab view KEEPS its outer frame (Josh scoped #3880 to the consolidated
+         view); only the column drops it (asserted below), so a rule that removed it everywhere fails here. */
       const tabFrame = await page.evaluate(() => { const cs = getComputedStyle(document.querySelector('#panel-tasks .tsk-view')); return { w: cs.borderTopWidth, r: cs.borderTopLeftRadius }; });
       chk(tabFrame.w === '1px' && tabFrame.r === '14px', `${tag} the tab view keeps its outer frame (#3880 is the consolidated view only)`, JSON.stringify(tabFrame));
       /* Closed is not a tile (Mona's look review of #3701): tiles are the open work; Closed stays the fold. */
@@ -347,11 +347,12 @@ function chk(ok, label, extra) {
          The tiles keep their own borders. */
       const frame = await page.evaluate(() => {
         const cs = getComputedStyle(document.querySelector('#panel-tasks .tsk-view'));
-        const tile = getComputedStyle(document.querySelector('#tsk-tiles .tsk-tile'));
-        return { w: cs.borderTopWidth, r: cs.borderTopLeftRadius, bg: cs.backgroundColor, tileW: tile.borderTopWidth };
+        const t = document.querySelector('#tsk-tiles .tsk-tile');
+        const tile = t ? getComputedStyle(t) : null;
+        return { w: cs.borderTopWidth, r: cs.borderTopLeftRadius, bg: cs.backgroundColor, tileW: tile ? tile.borderTopWidth : null };
       });
       chk(frame.w === '0px' && frame.r === '0px' && /rgba\(0, 0, 0, 0\)|transparent/.test(frame.bg), '[consolidated] the view has no outer rounded box (#3880)', JSON.stringify(frame));
-      chk(frame.tileW !== '0px', '[consolidated] the tiles keep their own border', JSON.stringify(frame));
+      chk(frame.tileW !== null && frame.tileW !== '0px', '[consolidated] the tiles keep their own border', JSON.stringify(frame));
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'tasks-from-consolidated.png'), fullPage: false });
       /* From consolidated Kosmos+ settings, Tasks takes the Plus chrome down (#3599's rule). */
       const plus = await page.evaluate(() => {
