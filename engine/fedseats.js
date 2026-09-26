@@ -155,12 +155,15 @@ function onEvent(projectId, line) {
     // #3728: key frames are the room's handshake, never a row.
     if (typeof ev.data.t === 'string' && ev.data.t.startsWith('key-')) { onKeyFrame(projectId, s, ev.data); return; }
     const sealed = roomSeal(projectId);
-    if (sealed === undefined) { noteOnce(projectId, s, 'sealUnreadable', 'A message from the external project was not shown: this computer cannot read its sealed-rooms record right now.'); return; }
+    const sealedRoom = sealed === undefined ? undefined : isSealedRoom(sealed, safeLink(projectId));
+    if (sealedRoom === undefined) { noteOnce(projectId, s, 'sealUnreadable', 'A message from the external project was not shown: this computer cannot read its sealed-rooms record right now.'); return; }
     if (fedseal.isSealed(ev.data)) {
-      const opened = hasKey(sealed) && s.room ? fedseal.open(sealed.keys, s.room, ev.data) : null;
+      const now = Date.now();
+      const opened = hasKey(sealed) && s.room ? fedseal.open(acceptedKeys(sealed, now), s.room, ev.data) : null;
       if (!opened) { noteOnce(projectId, s, 'unopened', 'A sealed message arrived that this computer could not open, so it was not shown.'); return; }
-      ev.data = opened;
-    } else if (isSealedRoom(sealed)) {
+      if (!freshMessage(s, opened, now)) { noteOnce(projectId, s, 'replay', 'A sealed message arrived again or too late, so it was not shown a second time.'); return; }
+      ev.data = opened.m;
+    } else if (sealedRoom) {
       // No downgrade: once a room is sealed, words sent in the clear are not shown.
       noteOnce(projectId, s, 'unsealed', 'A message arrived unsealed in this sealed room, so it was not shown.');
       return;
@@ -379,8 +382,17 @@ function linkFor(projectId) {
 
 /* ---- #3728: sealing ---- */
 
-/** This room's seal state, null for a room that does not seal (a project from before
-    sealing, or a join whose code had no second half), undefined when the record
+/* A sealed message older than this, or seen before, is a replay and is not shown
+   (the relay carries messages live, so an honest one is seconds old). Seen ids are
+   kept per seat run; one hour of ids is at most the minute budget times 60. */
+const REPLAY_WINDOW_MS = 60 * 60 * 1000;
+const FUTURE_SKEW_MS = 5 * 60 * 1000;
+/* After a rotation, the previous epoch still opens for this long (a message sealed
+   just before it, still in flight), then never again: a revoked member cannot keep
+   posting under the key it was rotated out of. */
+const EPOCH_GRACE_MS = 10 * 60 * 1000;
+
+/** This room's seal state, null for a room with none, undefined when the record
     cannot be read (then nothing is sent or shown: we cannot tell). */
 function roomSeal(projectId) {
   try { return fedseal.roomState(projectId); } catch { return undefined; }
@@ -388,9 +400,34 @@ function roomSeal(projectId) {
 function hasKey(st) {
   return !!st && !!st.keys && Number.isInteger(st.epoch) && typeof st.keys[st.epoch] === 'string';
 }
-/** A member's room is sealed from the join (it holds s); an owner's once it has a key. */
-function isSealedRoom(st) {
-  return !!st && (st.role === 'member' || hasKey(st));
+/** Sealed: a member's room from the join (it holds s); an owner's from the first
+    sealing invite for its project, key or no key yet, so an owner whose members'
+    hellos never arrive (a relay dropping them) still never speaks in the clear.
+    undefined when that cannot be read. */
+function isSealedRoom(st, link) {
+  if (st && st.role === 'member') return true;
+  if (hasKey(st)) return true;
+  if (link && link.role === 'owner' && typeof link.ref === 'string') {
+    try { return fedseal.isSealedRef(link.ref); } catch { return undefined; }
+  }
+  return false;
+}
+/** The epochs this board opens now: the current one, and the one before it for
+    EPOCH_GRACE_MS after a rotation. */
+function acceptedKeys(st, now) {
+  const keys = { [st.epoch]: st.keys[st.epoch] };
+  const prev = st.epoch - 1;
+  if (prev >= 0 && typeof st.keys[prev] === 'string' && Number.isFinite(st.rotatedAt) && now - st.rotatedAt < EPOCH_GRACE_MS) keys[prev] = st.keys[prev];
+  return keys;
+}
+/** Whether an opened message is fresh: inside the window and not seen before. */
+function freshMessage(s, opened, now) {
+  if (now - opened.at > REPLAY_WINDOW_MS || opened.at - now > FUTURE_SKEW_MS) return false;
+  s.seen = s.seen || new Map();
+  if (s.seen.has(opened.id)) return false;
+  s.seen.set(opened.id, opened.at);
+  if (s.seen.size > 4096) for (const [id, at] of s.seen) if (now - at > REPLAY_WINDOW_MS) s.seen.delete(id);
+  return true;
 }
 function noteOnce(projectId, s, key, text) {
   s.sealNoted = s.sealNoted || {};
@@ -404,12 +441,23 @@ function sendFrame(s, frame) {
   if (Buffer.byteLength(line) > MAX_POST_LINE) return false;
   try { s.child.stdin.write(line + '\n'); return true; } catch { return false; }
 }
-/** Member, on each connect until it holds the room key: say hello with this board's key. */
+/** One sealing step at a time per project: a hello and a rotation both read, await and
+    write the room's state, and neither may overwrite the other's pin or key. */
+const sealChains = new Map();
+function sealStep(projectId, fn) {
+  const prev = sealChains.get(projectId) || Promise.resolve();
+  const next = prev.then(fn, fn).catch((err) => {
+    console.error('#3728: a sealing step for ' + JSON.stringify(projectId) + ' did not finish: ' + String((err && err.message) || err));
+  });
+  sealChains.set(projectId, next);
+  return next;
+}
+/** Member, until it holds the room key: say hello with this board's key (on each
+    connect and on each ensureAll pass, so a hello the relay dropped is said again). */
 function sayHello(projectId, s) {
   const st = roomSeal(projectId);
   if (!st || st.role !== 'member' || hasKey(st) || !s.room) return;
-  const link = safeLink(projectId);
-  try { sendFrame(s, fedseal.helloFrame(st.s, fedseal.sealingKey(), s.room, link && link.edge_id)); } catch (err) {
+  try { sendFrame(s, fedseal.helloFrame(st.s, st.code, fedseal.sealingKey(), s.room)); } catch (err) {
     noteOnce(projectId, s, 'noKey', 'This computer could not use its sealing key, so this shared room cannot open yet: ' + String((err && err.message) || err));
   }
 }
@@ -425,65 +473,79 @@ function sendRotates(projectId, s) {
     try { sendFrame(s, fedseal.rotateFrame(me, pub, st.keys[st.epoch], st.epoch, s.room)); } catch { /* the next connect sends it again */ }
   }
 }
-/** Owner: a pinned member whose edge the coordinator now reports as not active has
-    been revoked. The room moves to a new key that only the remaining members get, so
-    the revoked member cannot read anything posted after (it keeps what it read). */
-async function rotateForRevoked(projectId, link, edges) {
-  const st = roomSeal(projectId);
-  if (!hasKey(st) || st.role !== 'owner') return false;
-  const peers = st.peers || {};
-  if (!Object.values(peers).some((p) => p && typeof p.edge === 'string')) return false;
-  let r;
-  try { r = await (edges ? edges() : deps.macRequest('POST', MAC_EDGES, {})); } catch { return false; }
-  if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_owner)) return false;
-  const status = new Map(r.data.as_owner.filter((e) => e && e.project_ref === link.ref).map((e) => [e.id, e.status]));
-  // Only an edge the coordinator names as no longer active counts; an edge it does not
-  // list is not taken as revoked (a partial answer must not lock a member out).
-  const gone = Object.keys(peers).filter((pub) => peers[pub] && status.has(peers[pub].edge) && status.get(peers[pub].edge) !== 'active');
-  if (!gone.length) return false;
-  const epoch = st.epoch + 1;
-  const keep = {};
-  for (const pub of Object.keys(peers)) if (!gone.includes(pub)) keep[pub] = peers[pub];
-  fedseal.setRoomState(projectId, Object.assign({}, st, { peers: keep, epoch, keys: Object.assign({}, st.keys, { [epoch]: fedseal.randomSecret() }) }));
-  const s = seats.get(projectId);
-  if (s) sendRotates(projectId, s);
-  return true;
+/** Owner: a pinned member whose edge the coordinator reports as not active has been
+    revoked. The room moves to a new key only the remaining members get, so the revoked
+    member cannot read anything posted after (it keeps what it read). The edge was
+    bound at pin time from the coordinator's own list (the invite the member redeemed),
+    never from anything the member said. */
+function rotateForRevoked(projectId, link, edges) {
+  return sealStep(projectId, async () => {
+    const first = roomSeal(projectId);
+    if (!hasKey(first) || first.role !== 'owner' || !Object.keys(first.peers || {}).length) return false;
+    let r;
+    try { r = await (edges ? edges() : deps.macRequest('POST', MAC_EDGES, {})); } catch { return false; }
+    if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_owner)) return false;
+    const status = new Map(r.data.as_owner.filter((e) => e && e.project_ref === link.ref).map((e) => [e.id, e.status]));
+    const st = roomSeal(projectId);   // re-read: a hello may have pinned someone during the await
+    if (!hasKey(st) || st.role !== 'owner') return false;
+    const peers = st.peers || {};
+    // Only an edge the coordinator names as no longer active counts; an edge it does not
+    // list is not taken as revoked (a partial answer must not lock a member out).
+    const gone = Object.keys(peers).filter((pub) => peers[pub] && status.has(peers[pub].edge) && status.get(peers[pub].edge) !== 'active');
+    if (!gone.length) return false;
+    const epoch = st.epoch + 1;
+    const keep = {};
+    for (const pub of Object.keys(peers)) if (!gone.includes(pub)) keep[pub] = peers[pub];
+    fedseal.setRoomState(projectId, Object.assign({}, st, {
+      peers: keep, epoch, rotatedAt: Date.now(), keys: Object.assign({}, st.keys, { [epoch]: fedseal.randomSecret() }),
+    }));
+    const s = seats.get(projectId);
+    if (s) sendRotates(projectId, s);
+    return true;
+  });
 }
-
+/** Owner: a member's hello. A pinned member is answered again from its own invite. A
+    new one is pinned only when its hello checks against an invite this board made AND
+    the coordinator lists an active edge redeemed from that invite; that edge (not one
+    the member names) is what a later revoke is matched on. One key per invite. */
+async function ownerHello(projectId, s, link, frame, me) {
+  let st = roomSeal(projectId);
+  if (st === undefined) return;
+  const pinned = (st && st.peers) || {};
+  if (typeof frame.pub === 'string' && Object.prototype.hasOwnProperty.call(pinned, frame.pub)) {
+    const p = pinned[frame.pub];
+    if (!hasKey(st) || !fedseal.checkHello(p.s, p.code, frame, s.room)) return;
+    sendFrame(s, fedseal.shareFrame(p.s, p.code, me, frame.pub, st.keys[st.epoch], st.epoch, s.room));
+    return;
+  }
+  const inv = fedseal.pendingInvites(link.ref).find((c) => fedseal.checkHello(c.s, c.code, frame, s.room));
+  if (!inv || Object.values(pinned).some((p) => p && p.invite === inv.invite)) return;
+  let r;
+  try { r = await deps.macRequest('POST', MAC_EDGES, {}); } catch { return; }
+  if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_owner)) return;
+  const edge = r.data.as_owner.find((e) => e && e.project_ref === link.ref && e.invite_id === inv.invite && e.status === 'active');
+  if (!edge) return;
+  st = roomSeal(projectId);   // re-read after the await
+  if (st === undefined) return;
+  const peers = (st && st.peers) || {};
+  if (Object.prototype.hasOwnProperty.call(peers, frame.pub) || Object.values(peers).some((p) => p && p.invite === inv.invite)) return;
+  if (!hasKey(st)) st = { role: 'owner', peers: {}, epoch: 0, keys: { 0: fedseal.randomSecret() } };
+  st = Object.assign({}, st, { peers: Object.assign({}, peers, { [frame.pub]: { s: inv.s, code: inv.code, invite: inv.invite, edge: edge.id } }) });
+  fedseal.setRoomState(projectId, st);
+  fedseal.spendInvite(link.ref, inv.s);
+  sendFrame(s, fedseal.shareFrame(inv.s, inv.code, me, frame.pub, st.keys[st.epoch], st.epoch, s.room));
+}
 function onKeyFrame(projectId, s, frame) {
   const link = safeLink(projectId);
   if (!link || !s.room) return;
   let me;
   try { me = fedseal.sealingKey(); } catch { return; }
+  if (frame.t === 'key-hello' && link.role === 'owner') { sealStep(projectId, () => ownerHello(projectId, s, link, frame, me)); return; }
   try {
-    if (frame.t === 'key-hello' && link.role === 'owner') {
-      let st = roomSeal(projectId);
-      if (st === undefined) return;
-      const peers = st && st.peers ? st.peers : {};
-      // A member already pinned (its share was lost to a reconnect): answer again, with its own s.
-      let pub = null;
-      let sUsed = null;
-      if (typeof frame.pub === 'string' && Object.prototype.hasOwnProperty.call(peers, frame.pub)) {
-        sUsed = peers[frame.pub].s;
-        pub = fedseal.checkHello(sUsed, frame, s.room);
-      } else {
-        for (const cand of fedseal.inviteSecretsFor(link.ref)) {
-          pub = fedseal.checkHello(cand, frame, s.room);
-          if (pub) { sUsed = cand; break; }
-        }
-      }
-      if (!pub) return;   // not for any code this board gave out: ignore, say nothing
-      if (!hasKey(st)) st = { role: 'owner', peers: {}, epoch: 0, keys: { 0: fedseal.randomSecret() } };
-      st.peers = Object.assign({}, st.peers, { [pub]: { s: sUsed, edge: typeof frame.edge === 'string' ? frame.edge : null } });
-      fedseal.setRoomState(projectId, st);
-      fedseal.spendInviteSecret(link.ref, sUsed);
-      sendFrame(s, fedseal.shareFrame(sUsed, me, pub, st.keys[st.epoch], st.epoch, s.room));
-      return;
-    }
     if (frame.t === 'key-share' && link.role === 'member') {
       const st = roomSeal(projectId);
       if (!st || st.role !== 'member' || hasKey(st)) return;
-      const got = fedseal.openShare(st.s, me, frame, s.room);
+      const got = fedseal.openShare(st.s, st.code, me, frame, s.room);
       if (!got) return;   // another member's share, or not genuine
       fedseal.setRoomState(projectId, Object.assign({}, st, { peer: got.ownerPub, epoch: got.epoch, keys: { [got.epoch]: got.roomKey } }));
       say(projectId, 'This shared room is sealed: only the computers in it can read its messages.');
@@ -493,9 +555,9 @@ function onKeyFrame(projectId, s, frame) {
       const st = roomSeal(projectId);
       if (!hasKey(st) || !st.peer) return;
       const got = fedseal.openRotate(me, st.peer, frame, s.room);
-      if (!got || Object.prototype.hasOwnProperty.call(st.keys, got.epoch)) return;
+      if (!got || Object.prototype.hasOwnProperty.call(st.keys, got.epoch) || got.epoch <= st.epoch) return;
       const keys = Object.assign({}, st.keys, { [got.epoch]: got.roomKey });
-      fedseal.setRoomState(projectId, Object.assign({}, st, { keys, epoch: Math.max(st.epoch, got.epoch) }));
+      fedseal.setRoomState(projectId, Object.assign({}, st, { keys, epoch: got.epoch, rotatedAt: Date.now() }));
     }
   } catch (err) {
     // A record that cannot be written: the handshake is retried on the next connect.
@@ -610,7 +672,13 @@ async function ensureAll() {
   for (const id of Object.keys(links)) {
     try { await ensure(id, edges); } catch { /* one project's seat never blocks another's */ }
   }
-  // #3728: a revoked member of a sealed room is rotated out (the same one edges request).
+  // #3728: a member still waiting for the room key says hello again (a dropped hello is
+  // not a lost room), and a revoked member of a sealed room is rotated out (the same
+  // one edges request).
+  for (const id of Object.keys(links)) {
+    const seat = seats.get(id);
+    if (seat && seat.status === 'connected') { try { sayHello(id, seat); } catch { /* next pass */ } }
+  }
   for (const id of Object.keys(links)) {
     const link = links[id];
     if (!link || link.role !== 'owner') continue;
@@ -642,13 +710,17 @@ function post(projectId, { from, kind, text }) {
   let payload = { from: clean(from, 80) || 'someone', kind: kind === 'agent' ? 'agent' : 'person', text: String(text || '') };
   // #3728: a sealed room's posts leave this Mac only sealed.
   const sealed = roomSeal(projectId);
-  if (sealed === undefined) {
+  const link = safeLink(projectId);
+  const sealedRoom = sealed === undefined ? undefined : isSealedRoom(sealed, link);
+  if (sealedRoom === undefined) {
     say(projectId, 'That message stayed on this computer: it cannot read its sealed-rooms record right now, so it cannot tell whether this room is sealed.');
     return false;
   }
-  if (isSealedRoom(sealed)) {
+  if (sealedRoom) {
     if (!hasKey(sealed) || !s.room) {
-      say(projectId, 'That message stayed on this computer: this shared room is sealed, and the owner\'s computer has not shared its key yet. Nothing is sent until it has.');
+      say(projectId, link && link.role === 'owner'
+        ? 'That message stayed on this computer: this shared room is sealed, and no member\'s computer has joined with its key yet. Nothing is sent until one has.'
+        : 'That message stayed on this computer: this shared room is sealed, and the owner\'s computer has not shared its key yet. Nothing is sent until it has.');
       return false;
     }
     try { payload = fedseal.seal(sealed.keys[sealed.epoch], sealed.epoch, s.room, payload); } catch {

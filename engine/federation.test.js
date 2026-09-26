@@ -19,7 +19,7 @@ function stubRemote(answer) {
 }
 
 test('invite signs the Mac route with the page fields and returns only the code and expiry', async () => {
-  const remote = stubRemote({ ok: true, data: { code: 'CODE123', expires_at: 99, extra: 'x' } });
+  const remote = stubRemote({ ok: true, data: { code: 'CODE123', expires_at: 99, invite_id: 'inv-123', extra: 'x' } });
   const out = await federation.invite(remote, { project_ref: 'ref-1', project_name: 'Book Club', project_desc: 'monthly', invited_kind: 'agent' });
   // #3728: the coordinator's code plus this board's second half, which is kept here for the project.
   assert.strictEqual(out.status, 200);
@@ -27,7 +27,8 @@ test('invite signs the Mac route with the page fields and returns only the code 
   assert.strictEqual(out.body.expires_at, 99);
   const m = /^CODE123\.([A-Za-z0-9_-]{43})$/.exec(out.body.code);
   assert.ok(m, 'the code has no second half: ' + out.body.code);
-  assert.deepStrictEqual(require('./fedseal').inviteSecretsFor('ref-1'), [m[1]], 'the second half was not kept for the project');
+  assert.deepStrictEqual(require('./fedseal').pendingInvites('ref-1'), [{ s: m[1], code: 'CODE123', invite: 'inv-123' }], 'the invite was not kept for the project');
+  assert.strictEqual(require('./fedseal').isSealedRef('ref-1'), true, 'the project was not marked sealed');
   assert.deepStrictEqual(remote.calls, [{ method: 'POST', route: '/v1/mac/federation/invite',
     body: { project_ref: 'ref-1', project_name: 'Book Club', project_desc: 'monthly', invited_kind: 'agent' } }]);
 });
@@ -53,7 +54,7 @@ test('verify returns the owner snapshot and remembers it for join', async () => 
   assert.strictEqual(out.status, 200);
   assert.strictEqual(out.body.edge_id, 'edge-9');
   assert.deepStrictEqual(remote.calls[0], { method: 'POST', route: '/v1/mac/federation/verify', body: { code: 'CODE123' } });
-  assert.deepStrictEqual(federation.joinSnapshot('edge-9'), { seal_s: null, edge_id: 'edge-9', project_name: 'Book Club', project_desc: null, owner_handle: 'reader' });
+  assert.deepStrictEqual(federation.joinSnapshot('edge-9'), { seal_s: null, seal_code: null, edge_id: 'edge-9', project_name: 'Book Club', project_desc: null, owner_handle: 'reader' });
   assert.strictEqual(federation.joinSnapshot('edge-unknown'), null, 'an edge this board never verified has no snapshot');
   federation.forgetSnapshot('edge-9');
   assert.strictEqual(federation.joinSnapshot('edge-9'), null);
@@ -67,6 +68,7 @@ test('#3728: verify sends only the coordinator\'s half, keeps the second half fo
   assert.deepStrictEqual(remote.calls[0].body, { code: 'CODE123' }, 'the second half reached the coordinator');
   assert.ok(!JSON.stringify(out.body).includes(s), 'the second half was returned to the page');
   assert.strictEqual(federation.joinSnapshot('edge-seal').seal_s, s);
+  assert.strictEqual(federation.joinSnapshot('edge-seal').seal_code, 'CODE123', 'the coordinator\'s half was not kept for the handshake');
   federation.forgetSnapshot('edge-seal');
 });
 
@@ -138,7 +140,7 @@ test('the link record round-trips and refuses to overwrite a file it cannot read
 });
 
 test('an invite description longer than a project may have is refused before anything is signed', async () => {
-  const remote = stubRemote({ ok: true, data: { code: 'x', expires_at: 1 } });
+  const remote = stubRemote({ ok: true, data: { code: 'x', expires_at: 1, invite_id: 'inv-x' } });
   const long = await federation.invite(remote, { project_ref: 'r', project_name: 'n', project_desc: 'x'.repeat(1001), invited_kind: 'person' });
   assert.strictEqual(long.status, 400);
   assert.strictEqual(remote.calls.length, 0, 'nothing was signed');
@@ -153,7 +155,7 @@ test('verify bounds what the coordinator sends before it is kept or recorded', a
   assert.strictEqual(out.body.project_name.length, federation.NAME_MAX, 'the project name was not bounded');
   assert.strictEqual(out.body.project_desc.length, federation.DESC_MAX, 'the description was not bounded');
   assert.strictEqual(out.body.owner_handle.length, federation.HANDLE_MAX, 'the owner handle was not bounded');
-  assert.deepStrictEqual(federation.joinSnapshot('edge-big'), { seal_s: null, ...out.body }, 'the kept snapshot is not the bounded one');
+  assert.deepStrictEqual(federation.joinSnapshot('edge-big'), { seal_s: null, seal_code: null, ...out.body }, 'the kept snapshot is not the bounded one');
   federation.forgetSnapshot('edge-big');
 });
 
@@ -164,4 +166,12 @@ test('#3311: an outside project description keeps its paragraphs but loses bidi 
   assert.ok(out.body.project_desc.includes('\n'), 'the paragraph break was lost');
   assert.ok(!/[\u202e\u200b\u0007]/.test(out.body.project_desc), 'a bidi, invisible or control character survived: ' + JSON.stringify(out.body.project_desc));
   federation.forgetSnapshot('edge-desc');
+});
+
+test('#3728: an invite is not made sealable without the coordinator\'s invite id (a member that could never be revoked)', async () => {
+  const remote = stubRemote({ ok: true, data: { code: 'OLDCOORD', expires_at: 5 } });
+  const out = await federation.invite(remote, { project_ref: 'ref-old', project_name: 'n', invited_kind: 'person' });
+  assert.strictEqual(out.status, 502);
+  assert.match(out.body.error, /older than this Kosmos/);
+  assert.deepStrictEqual(require('./fedseal').pendingInvites('ref-old'), [], 'an unrevocable invite was kept');
 });

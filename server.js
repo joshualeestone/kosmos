@@ -14631,7 +14631,7 @@ const server = http.createServer((req, res) => {
            share arrives. A code without one (an owner on an older Kosmos) joins unsealed,
            as before, and the room says so when it connects. */
         if (snap.seal_s) {
-          try { fedseal.setRoomState(made.id, { role: 'member', s: snap.seal_s, peer: null, epoch: null, keys: {} }); }
+          try { fedseal.setRoomState(made.id, { role: 'member', s: snap.seal_s, code: snap.seal_code, peer: null, epoch: null, keys: {} }); }
           catch (err) {
             try { federation.forgetLink(made.id); } catch { /* reported below either way */ }
             try { projects.remove(made.id); } catch { /* reported below either way */ }

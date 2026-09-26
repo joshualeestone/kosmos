@@ -70,3 +70,15 @@ Tests (engine/fedseal.test.js):
 - No forward secrecy.
 - A member could forge another member's `from`.
 - One seat per member account.
+
+## Round 1 review (opus, crypto-focused): 2 BLOCKERs, 3 WARNINGs, 4 NITs, all taken
+- [BLOCKER] an owner's room was unsealed until the first hello, so a relay that drops hellos kept the owner posting and showing plaintext. FIXED: a project is sealed for good from its first sealing invite (`sealedRefs`). The owner holds posts ("no member's computer has joined with its key yet") and refuses plaintext inbound. Control fails by name.
+- [BLOCKER] a member chose its own edge in the hello, so it could name a fake edge (or a colleague's) and survive revocation. FIXED with a coordinator change (kosmos-relay#163): the invite answers with `invite_id`. The board keeps `{ s, code, invite }`, and a hello that checks against an invite is pinned to the edge the COORDINATOR lists as redeemed from that invite. Nothing in the hello names an edge now; a pinned edge never changes; one key per invite. An invite with no `invite_id` (an older coordinator) is not made sealable at all. Control (edge taken from the member) fails by name.
+- [WARNING] a hello processed while a rotation awaited the coordinator was erased by the rotation's stale write. FIXED: hellos and rotations run one at a time per project (sealStep), and the rotation re-reads state after its await. Control (neither) fails by name.
+- [WARNING] replays: an old sealed message could be replayed, and old epochs opened forever, so a revoked member could keep posting under the old key. FIXED: every seal carries { id, at }. A message seen before, over an hour old or more than 5 minutes in the future is not shown. The previous epoch opens only for 10 minutes after a rotation. Controls fail by name. Seen ids are per seat run; a replay across a board restart inside the hour is the residual (stated).
+- [WARNING] the room id binding comes from the coordinator. ADDRESSED: the hello and share MACs also bind the coordinator's code half, which both boards hold. Messages keep the room id as AAD; the room key is per room and random, so a coordinator that reused a room id still could not make one room's messages open in another.
+- [NIT] a fixed .tmp name could keep a wider mode. FIXED: a unique O_EXCL temp at 600, chmod, fsync, then rename. Test.
+- [NIT] random 96-bit nonces under one key. STATED in the module (about 2^32 messages per epoch, far past the inbound budget).
+- [NIT] one pair key for share and rotate. FIXED: separate HKDF info per purpose. Test: a share's ciphertext presented as a rotate does not open.
+- [NIT] no test for the owner-side downgrade. ADDED (see the first BLOCKER).
+- Also: a member still waiting for a key says hello again on each ensureAll pass (a dropped hello is not a lost room). Control fails by name.
