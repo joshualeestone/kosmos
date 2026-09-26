@@ -115,3 +115,14 @@ test('a grok WORKING pane with a STALE session completion records NOTHING (self-
   assert.equal(observed.read(observed.PROVIDER.XAI, 'grokstale'), null,
     'a stale completion kept greening the sign-in -- the permanent green over a possibly-dead credential this arm avoids: ' + JSON.stringify(observed.all()));
 });
+
+test('#3953: a Grok pane read BEFORE its runner tag lands is still Grok: no Claude ok, and the card says grok', () => {
+  // The pane's command alone says Grok (grok-native, the Mac pane's real command). Before #3953 such a pane was
+  // classified stopped and never reached the observation arms; now it is read as running, so both must know it.
+  writeGrokSession('grokuntagged', Date.now() - 30 * 1000);
+  const board = fleet.install([fleet.agent('grokuntagged', { runner: '', command: 'grok-native', state: 'working' })]);
+  assert.equal(board.card('grokuntagged').state, 'working', 'fixture is not WORKING, so the assertion is vacuous');
+  assert.equal(board.card('grokuntagged').runner, 'grok', 'an untagged Grok pane was reported to the page as another runner');
+  assert.equal(observed.read(observed.PROVIDER.ANTHROPIC, 'grokuntagged'), null,
+    'an untagged Grok pane recorded a Claude-account ok: ' + JSON.stringify(observed.all()));
+});

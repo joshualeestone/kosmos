@@ -24,6 +24,11 @@ The #3391 comments and a chat fixture said grok "fronts as node"; that premise w
   one"; a running one skips the Claude running check and goes on to the existing screen read.
 - The false "fronts as node" comment is removed; the chat fixture uses `grok-native`.
 
+- Third copy of the rule: `bin/agent-supervisor.sh`'s live-agent allowlist had no Grok names either, so any
+  supervisor re-run against a live Grok agent killed it as crashed (review iteration 2). Grok names added;
+  `supervisor.adopt-grok-3953.test.js` runs the real script over every name isGrokCommand accepts, with a crashed
+  control. The snapshot's isGrokPane and the card's `runner` also fall back to the command, as agy's do.
+
 ## Decided
 - Keep the screen read for a running Grok pane rather than returning UNKNOWN (as Antigravity does): the chat tests
   rely on an idle Grok pane, and Grok's own reports (grok-report-bridge) override the screen anyway.
@@ -36,6 +41,10 @@ The #3391 comments and a chat fixture said grok "fronts as node"; that premise w
 ## Weakest premise
 - That Josh's grok stayed up. If it did not, the screen still says "has not come up", but the board now says
   "Grok is not running for this one" instead of blaming Claude. Only a served build on a Mac with a Grok sign-in shows it.
+
+- Grok screens now reach the Claude screen read for the first time. Two real grok 1.0.41 screens (idle prompt,
+  device sign-in) classify unknown, not stopped / auth_failed / needs_you, and a test pins that; other Grok screens
+  (a rate limit, an error) have not been captured.
 
 ## Checks
 - engine/status.test.js #3953 (isAgentSession both names, crashed, stray, rank); server.test.js #3953 (a real
