@@ -38,7 +38,9 @@
  * keyboard arm reds when the scrolling box cannot take focus; the ring-added arm
  * reds when a same-width growth leaves the scroll where it was; the failed-poll
  * arm reds when the failure path leaves the scrolling box's classes or the
- * emptied map's size behind; the note arm reds when the status note scrolls away.
+ * emptied map's size behind; the note arm reds when the status note scrolls away;
+ * the dragged-to-the-edge arm reds when the drag box leaves less than a glow's
+ * reach between a face and the box (ORG_PAD_MIN 30: face 8px from the edge).
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -168,6 +170,29 @@ function measure(page) {
           });
           chk(!longCo.error && longCo.calloutRight > longCo.vw && longCo.pageW <= longCo.vw,
             `${tag} a long name and role over the rightmost node do not widen the page`, JSON.stringify(longCo));
+          // A face's working / needs-you glow reaches about 20px past it (6px spread, 16px blur).
+          // The layout keeps faces clear of the edge by itself; a node DRAGGED to the edge stops
+          // at the drag box (ORG_PAD_MIN), which must leave room for the glow inside the box.
+          if (w === 375) {
+            const lead = await page.evaluate(() => {
+              const n = [...document.querySelectorAll('#orgmap .onode')].sort((x, y) => x.getBoundingClientRect().left - y.getBoundingClientRect().left)[0];
+              n.scrollIntoView({ block: 'center' });
+              const r = n.getBoundingClientRect();
+              return { a: n.getAttribute('data-agent'), x: r.left + r.width / 2, y: r.top + r.height / 2 };
+            });
+            await page.mouse.move(lead.x, lead.y);
+            await page.mouse.down();
+            for (let i = 1; i <= 10; i++) await page.mouse.move(lead.x - i * 15, lead.y);
+            await page.waitForTimeout(100);
+            const g = await page.evaluate((a) => {
+              const f = document.querySelector('#orgmap .onode[data-agent="' + a + '"] .face').getBoundingClientRect();
+              const wr = document.getElementById('orgview').getBoundingClientRect();
+              return { faceLeftInBox: Math.round(f.left - wr.left) };
+            }, lead.a);
+            await page.mouse.up();
+            await page.waitForTimeout(300);
+            chk(g.faceLeftInBox >= 20 - 1, `${tag} a node dragged to the edge keeps its glow inside the box`, JSON.stringify(g) + ' (glow reach 20)');
+          }
           // A tap on a face opens that agent (the chart's own click handler).
           const target = m.nodes.find((n) => n.agent);
           if (target) {
@@ -315,8 +340,10 @@ function measure(page) {
           const held = await measure(page);
           const heldAt = await page.evaluate((a) => Math.round(document.querySelector('#orgmap .onode[data-agent="' + a + '"]').getBoundingClientRect().top
             - document.getElementById('orgmap').getBoundingClientRect().top), top.a);
+          // Held at the top of the drag box: face top = ORG_PAD_MIN less the face's radius (22).
+          const edge = await page.evaluate(() => ORG_PAD_MIN - 22);
           await page.mouse.up();
-          chk(heldAt <= 10 && held.clipped.length === 0,
+          chk(heldAt <= edge + 2 && held.clipped.length === 0,
             `${tag} a node held at the top edge keeps its name callout inside the scrolling box`,
             `${top.a} face top at ${heldAt}px of the chart; cut off: ${JSON.stringify(held.clipped)}`);
         }
