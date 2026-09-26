@@ -22161,7 +22161,8 @@ async function paintAccounts() {
       /* A remembered answer, not a live one (a live check costs a prompt on the subscription): the
          muted "Signed in" of signed_in_unverified, as Grok's subscription row shows. */
       const when = a.connection && a.connection.checkedAt ? ' Kosmos last confirmed it ' + new Date(a.connection.checkedAt).toLocaleString() + '.' : '';
-      const why = 'Antigravity was signed in to Google the last time Kosmos checked.' + when + ' It confirms itself the next time an agent on it runs.';
+      // True of this row (round 10): nothing rechecks it by itself; Sign in again does.
+      const why = 'Antigravity was signed in to Google the last time Kosmos checked.' + when + ' Kosmos does not recheck it by itself; Sign in again checks it.';
       return '<div class="acct-box" data-agy-row="1"><div class="acct-box-top"><div class="acct-who"><b>' + esc(a.email || 'Google subscription') + '</b>'
         + '<span class="acct-tag"> Google subscription, through Antigravity on this computer</span></div>'
         + '<span class="acct-unknown" title="' + esc(why) + '"><span class="dot" aria-hidden="true"></span>Signed in</span></div>'
@@ -25553,6 +25554,10 @@ function agySubDriver(pre, onReady) { return {
         // "checking" is also Kosmos asking Antigravity whether it is signed in (round 9): the code only after one was sent.
         this.say(state === 'checking' ? (st.step === 'code-sent' ? 'Checking the code with Google…' : 'Checking with Antigravity…')
           : "Finishing Antigravity's setup. Kosmos leaves Google's optional data sharing off; you can change that later in Antigravity's settings.", '', false);
+      } else if (state === 'stuck' && st.shown && st.showFailed) {
+        // The window did not open: say so and offer it again (round 10).
+        this.rows(false, true);
+        this.say('Kosmos could not open the sign-in window. Try Show the sign-in window again, or Stop.', '', false);
       } else if (state === 'stuck' && st.shown) {
         // The window is open and the person drives it: no second Show (each would open another window).
         this.rows(false, false);
@@ -25581,12 +25586,15 @@ function agySubDriver(pre, onReady) { return {
     }
   },
   async sendCode() {
+    if (this.sendingCode) return;   // a second press while the first is out (round 10)
     const i = this.el('paste'); const v = i ? i.value.trim() : '';
     if (!v) { this.say("Paste the code from Google's page first.", '', false); return; }
+    this.sendingCode = true;
     let r = null;
     try {
       r = await (await fetch('/api/antigravity/signin/code', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: v, id: this.signinId }) })).json();
     } catch { r = null; }
+    this.sendingCode = false;
     if (r && r.ok) { this.codeError = ''; if (i) i.value = ''; this.rows(false, false); this.say('Checking the code with Google…', '', false); return; }
     this.codeError = frCap((r && r.error) || 'Kosmos could not pass the code on just now') + '.';
     this.say(this.codeError, '', false);

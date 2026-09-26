@@ -84,3 +84,11 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 - The tmux socket is named after the macOS account's home, not the Kosmos folder: one agy sign-in per account, so a switch between Kosmoses cannot orphan it. The remembered row stays per Kosmos (it is that Kosmos's last check); weakest premise: after a switch, the other Kosmos shows the row only once it has checked agy itself.
 - An unconfirmed ready screen says the sign-in could not be confirmed. Kosmos's own refusal of a paste shows before Antigravity's older reason.
 - agystatus.test.js sandboxes the data root before requiring anything; scripted engine tests use their own temp folders.
+
+## Review rounds 9 and 10 (decided)
+- Every check's promise chain ends in a .catch (nothing a callback throws escapes; the board has no process handler).
+- agy is asked whether it is signed in only after the person's code went in (steps code-sent, theme, terms, trust) or when the person drives the shown window: a signed-out agy asked may open a Google page of its own. agy exiting before a code ends the sign-in as not finished, without asking.
+- A window that failed to open (not a timeout) is said, and Show is offered again; Kosmos still presses nothing once Show was asked for.
+- The row's hover says what is true of it: Kosmos does not recheck it by itself; Sign in again checks it. Weakest premise: a revoked Google sign-in shows as signed in until the next Sign in again (ageing the row is a possible follow-up).
+- A blank redraw frame is not a new screen (no second key); a second Continue press while a code is out is ignored; tmux's path is looked up once per sign-in; tests use their own temp folders.
+- Left: the session name is one per account (two boards signing in at once on one account could drive each other's session; the trust check fails closed).

@@ -128,15 +128,19 @@ test('#3998: a check that answers after its sign-in was stopped and restarted ne
   let release;
   const gate = new Promise((r) => { release = r; });
   const killed = [];
+  let screenNow = 'Your browser should open automatically. If not:\n\nPaste the authorization code:\n';
   s.setForTests({
     agyBin: () => ({ installed: true, bin: '/bin/true' }),
-    folderRoot: () => os.tmpdir(),
-    tmux: (args) => { if (args[0] === 'capture-pane') return null; if (args[0] === 'kill-session') killed.push(args.join(' ')); return ''; },
+    folderRoot: () => fs.mkdtempSync(path.join(os.tmpdir(), 'agy-stale-')),
+    tmux: (args) => { if (args[0] === 'capture-pane') return screenNow; if (args[0] === 'kill-session') killed.push(args.join(' ')); return ''; },
     confirmSignedIn: () => gate,   // the FIRST session's check hangs until released
   });
   try {
     const first = s.start();
     assert.equal(first.ok, true);
+    s.tickForTests();              // the code screen
+    assert.equal(s.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v', first.id).ok, true);   // a code went in
+    screenNow = null;
     s.tickForTests();              // the session looks gone: its check starts and waits
     s.stop(first.id);              // the person stops it...
     assert.equal(s.start().ok, true);   // ...and signs in again
@@ -156,7 +160,7 @@ test('#3998: a recognised screen that does not move on becomes stuck (a changed 
   const sent = [];
   s.setForTests({
     agyBin: () => ({ installed: true, bin: '/bin/true' }),
-    folderRoot: () => os.tmpdir(),
+    folderRoot: () => fs.mkdtempSync(path.join(os.tmpdir(), 'agy-t-')),
     now: () => t0,
     // The menu with the cursor NOT on Google OAuth: Kosmos must not press Enter, and must not wait forever.
     tmux: (args) => { if (args[0] === 'capture-pane') return 'Select login method:\n  1. Google OAuth\n> 2. Use a Google Cloud project\n'; if (args[0] === 'send-keys') sent.push(args.slice(3).join(' ')); return ''; },
@@ -259,14 +263,17 @@ test('#3998 W3: a code agy did not take goes back to asking for one', () => {
 
 test('#3998 W4: a Stop while agy is asked (after it exited) stays stopped', async () => {
   const s = require('./agysignin');
-  const st = scripted(s, null);
+  const st = scripted(s, 'Your browser should open automatically. If not:\n\nhttps://accounts.google.com/o/oauth2/auth?x=1\n\nPaste the authorization code:\n');
   st.answer = { signedIn: true };
   try {
     const { id } = s.start();
-    st.hasSession = false;
-    s.tickForTests();                 // the session is gone: agy is asked
-    s.stop(id);
+    s.tickForTests();
+    assert.equal(s.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v', id).ok, true);   // a code went in: agy may be signed in now
+    st.hasSession = false; st.captureThrows = new Error('gone');
+    s.tickForTests();                 // the session is gone: agy is asked (on the next turn)
+    s.stop(id);                       // ...and the person stops it meanwhile
     await settle();
+    assert.equal(st.checks, 1, 'CONTROL: agy was asked (after a code, it may have signed in)');
     assert.equal(s.status().state, 'stopped', 'the answer overwrote the person\'s Stop');
   } finally { s.resetForTests(); }
 });
@@ -330,7 +337,7 @@ test('#3998 C3: with the live-execution gate closed, a start that would run tmux
   const s = require('./agysignin');
   s.resetForTests();
   require('./live-execution').resetForTests();
-  s.setForTests({ agyBin: () => ({ installed: true, bin: '/bin/true' }), folderRoot: () => os.tmpdir() });
+  s.setForTests({ agyBin: () => ({ installed: true, bin: '/bin/true' }), folderRoot: () => fs.mkdtempSync(path.join(os.tmpdir(), 'agy-t-')) });
   try {
     assert.throws(() => s.start(), /for real inside a test/);
     assert.equal(s.status().state, 'idle');
@@ -579,5 +586,63 @@ test('#3998 round 8: an unconfirmed ready screen says the sign-in could not be c
     s.tickForTests(); await settle();
     assert.equal(s.status().state, 'stuck');
     assert.match(s.status().because, /could not confirm the sign-in/);
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 10: agy exiting before any code went in ends the sign-in without asking (no second Google page)', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'Select login method:\n> 1. Google OAuth\n');
+  st.answer = { signedIn: false };
+  try {
+    s.start();
+    s.tickForTests();
+    st.hasSession = false; st.captureThrows = new Error('gone');
+    s.tickForTests(); await settle();
+    assert.equal(st.checks, 0, 'a signed-out agy was asked (it may open a Google page of its own)');
+    assert.equal(s.status().state, 'failed');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 10: an unknown screen after the menu, before a code, is shown without asking', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'Select login method:\n> 1. Google OAuth\n');
+  try {
+    s.start();
+    s.tickForTests();                       // the menu: a known screen, Enter
+    st.screen = 'Something new after the menu';
+    for (let i = 0; i < 12; i++) { st.t += 1000; s.tickForTests(); await settle(); }
+    assert.equal(st.checks, 0, 'agy was asked before a code went in');
+    assert.equal(s.status().state, 'stuck');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 10: a window that failed to open is said, and can be asked for again', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'Something Kosmos does not know');
+  const failed = Object.assign(new Error('open: no application'), { code: 1 });
+  s.setForTests({ openFile: (f, done) => done(failed) });
+  try {
+    const { id } = s.start();
+    for (let i = 0; i < 12; i++) { st.t += 1000; s.tickForTests(); await settle(); }
+    const r = await s.show(id);
+    assert.equal(r.ok, false);
+    assert.equal(s.status().showFailed, true, 'a window that did not open was reported as open');
+    assert.equal(s.status().shown, true, 'CONTROL: Kosmos still presses nothing (the safe way to be wrong)');
+    s.setForTests({ openFile: (f, done) => done(null) });
+    assert.equal((await s.show(id)).ok, true);
+    assert.equal(s.status().showFailed, undefined, 'a window that did open still reads as failed');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 10: a blank redraw does not count as a new screen (no second Enter)', () => {
+  const s = require('./agysignin');
+  const THEME = 'Choose your color scheme\n> terminal\n';
+  const st = scripted(s, THEME);
+  try {
+    s.start();
+    s.tickForTests();
+    st.screen = '   \n'; s.tickForTests();
+    st.screen = THEME; s.tickForTests();
+    assert.deepEqual(st.sent, ['Enter'], 'the colour screen got a second Enter after a blank frame');
   } finally { s.resetForTests(); }
 });

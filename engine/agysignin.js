@@ -41,6 +41,9 @@ const CODE_RETRY_MS = 20000;    // the code screen still showing this long after
    asks at most this many times, however long it sits on a screen Kosmos does not know. */
 const MAX_CHECKS = 3;
 const UNKNOWN = 'Antigravity is showing a step Kosmos does not recognise';
+/* The steps after the person's code went in: only from here can agy be signed in, so only from here is
+   it asked (a signed-out agy asked "are you signed in" may open a second Google page). */
+const AFTER_CODE = Object.freeze(['code-sent', 'theme', 'terms', 'trust']);
 
 /* The words each screen shows (agy 1.2.11, Josh's screenshots of 2026-09-26). Matched on the text
    of the screen with the ANSI styling already stripped by capture-pane -p. */
@@ -68,7 +71,9 @@ function screenOf(text) {
 }
 
 /* ---- seams a test replaces -------------------------------------------------------------- */
-function tmuxBin() { return require('./create').binPaths().tmuxBin; }
+/* Looked up once and kept (round 10): binPaths() resolves every runner, and this runs several times a second. */
+let tmuxBinCached = null;
+function tmuxBin() { return tmuxBinCached || (tmuxBinCached = require('./create').binPaths().tmuxBin); }
 /* Both real side effects go through the live-execution gate (CLAUDE.md convention 3): a test that
    forgot its seam throws instead of driving a real agy; production warns and fails closed. */
 function live(file, args) {
@@ -103,6 +108,7 @@ function status() {
   if (S.url) out.url = S.url;
   if (S.because) out.because = S.because;
   if (S.shown) out.shown = true;   // the window is the person's now; the panel says so
+  if (S.showFailed) out.showFailed = true;   // it did not open: the panel offers it again
   if (S.refusals) out.refusals = S.refusals;
   return out;
 }
@@ -175,6 +181,10 @@ function step() {
     // The session is gone: agy exited. Signed in or not is agy's own answer. The answer is for THIS
     // session only: a Stop and a new Sign in while it was out must not be ended by it.
     // Not counted against MAX_CHECKS: it happens once at most, since the sign-in ends right after it.
+    /* Before a code went in, agy cannot have signed in, and asking a signed-out agy may open a Google
+       page of its own (round 10): it ends as not finished without asking. A window the person drove
+       may have finished it, so that one is asked. */
+    if (!S.shown && !AFTER_CODE.includes(S.step)) { end('failed', 'Antigravity closed before the sign-in finished'); return; }
     const mine = S;
     mine.busy = true;
     Promise.resolve().then(() => confirmSignedIn()).then((r) => {   // a throw is a rejection, so busy is always cleared
@@ -187,7 +197,9 @@ function step() {
   }
   if (text === undefined) return;
   const name = screenOf(text);
-  const changed = name !== S.screen;
+  /* A blank frame caught mid-redraw is not a new screen (round 10): it must not clear `pressed` and
+     send the same key again when the screen comes back. */
+  const changed = name !== S.screen && !(name === null && !String(text).trim());
   if (changed) {
     S.screen = name; S.screenSince = now(); S.pressed = false; S.downFrom = null; S.moves = 0;
     if (name) {
@@ -282,7 +294,9 @@ function step() {
      open a Google page of its own, and a second page while the person signs in on the first hands
      them the wrong code. An already signed-in agy is its ready screen (readyCheck), and a window the
      person drives may still be asked about. */
-  const mayAsk = S.seenKnown || S.shown;
+  /* Round 10: not merely "a known screen was seen" (the menu counts, before any code): only once the
+     code has gone in or the setup screens are under way, or the person drives the window. */
+  const mayAsk = S.shown || AFTER_CODE.includes(S.step);
   const ask = mayAsk && S.checks < MAX_CHECKS && (S.state === 'stuck'
     ? text !== S.stuckText && now() - S.lastCheckAt > STUCK_MS   // a redrawing screen does not spend them all at once
     : settled || now() - S.lastSeen > STUCK_MS);
@@ -331,6 +345,7 @@ const NOT_CONFIRMED = 'Kosmos could not confirm the sign-in with Antigravity jus
 /** Start a sign-in (ending any earlier one). */
 function start() {
   if (S) end('stopped');
+  tmuxBinCached = null;   // looked up again for each sign-in (the person may have installed tmux since)
   const inst = agyBin();
   if (!inst || !inst.installed) return { ok: false, because: 'Antigravity is not installed on this computer' };
   /* The live-execution gate is checked here, OUTSIDE the try below, so a test that forgot its seam
@@ -393,7 +408,11 @@ function show(id) {
     /* From here the person drives, set BEFORE the window opens (round 6): `open` can time out after
        Terminal has come up, and pressing nothing is the safe way to be wrong. Stop still works. */
     S.shown = true;
+    const mine = S;
     openFile(file, (err) => {
+      /* An `open` that failed outright (not a timeout, which may have opened Terminal anyway) opened
+         nothing: the panel says so and offers it again rather than claiming a window (round 10). */
+      if (S === mine) mine.showFailed = !!err && !err.killed && !err.signal;
       resolve(err ? { ok: false, because: 'Kosmos could not open the sign-in window' } : { ok: true });
     });
   });
