@@ -268,3 +268,27 @@ test('a link in words from outside is never fetched when the room is read', asyn
   }
   assert.equal(calls.filter(([, u]) => String(u).includes('tracker.example')).length, 0, JSON.stringify(calls));
 });
+
+test('a post in a shared room while the link record cannot be read stays here and says so', async () => {
+  const f = path.join(require('./engine/store').ROOT, federation.FILE);
+  const before = fs.readFileSync(f, 'utf8');
+  const sent = children[0].written.length;
+  const orig = console.error;
+  console.error = () => {};
+  fs.writeFileSync(f, '{ not json');
+  try {
+    federateOut(pid, { id: 'p-unread', from: 'you', text: 'still here?' }, true);
+  } finally {
+    console.error = orig;
+    fs.writeFileSync(f, before);
+  }
+  assert.equal(children[0].written.length, sent, 'nothing was sent');
+  const said = messages.record().rows.filter((m) => m.kind === 'note' && m.project === pid && /cannot be read right now/.test(m.text));
+  assert.equal(said.length, 1, 'the post stayed here without a word');
+  // A room with no seat says nothing: the record cannot say it is shared.
+  const other = projects.create({ name: 'Local While Unreadable' }).id;
+  console.error = () => {};
+  fs.writeFileSync(f, '{ not json');
+  try { federateOut(other, { id: 'p-unread-2', from: 'you', text: 'hi' }, true); } finally { console.error = orig; fs.writeFileSync(f, before); }
+  assert.equal(messages.record().rows.filter((m) => m.kind === 'note' && m.project === other).length, 0);
+});

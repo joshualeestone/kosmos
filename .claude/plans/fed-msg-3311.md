@@ -290,3 +290,7 @@ not count).
 - WARNING: variation selectors (U+FE00-FE0F, U+E0100-E01EF) and blank letters (U+3164 etc.) survived \\p{Cf}+NFKC in names and bodies. Stripped now (externalname.js INVISIBLE, used by both). Test; control fails.
 - WARNING: joinedProjectName now also removes [ and ], so a bracket marker cannot reach membership lines or instruction files. (Not yet pinned by its own test.)
 - NOT YET DONE: federateOut silent when federation.json is unreadable; list(agent) matching external rows by from; NITs (post to a dead stdin between exit and close; shared header while ended; the Shared-by comment).
+
+## Round 23 follow-ups
+- The bracket removal in joinedProjectName is now pinned: a BRACKET fixture (ASCII and fullwidth brackets, which NFKC folds to ASCII) joins and no bracket survives; control (brackets out of JOIN_NAME_QUOTES) fails "a bracket survived".
+- federateOut and an unreadable federation.json: it was logged (round 13) but the room said nothing. A room with a running seat is shared whatever the record says, so its post now leaves a note in the room ("cannot be read right now"); a room with no seat says nothing (the record cannot say it is shared). Test; control (note removed) fails by name.

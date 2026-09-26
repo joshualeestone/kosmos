@@ -15857,7 +15857,15 @@ function joinedProjectName(ownerName) {
 function federateOut(projectId, delivery, operator) {
   if (!delivery || !delivery.id) return;
   let linked = false;
-  try { linked = !!federation.linkFor(projectId); } catch (err) { linked = false; fedseats.logUnreadable(err); }
+  try { linked = !!federation.linkFor(projectId); } catch (err) {
+    fedseats.logUnreadable(err);
+    // The record cannot say whether this room is shared, but a seat running for
+    // it can: that room is, and its post must not stay here without a word.
+    if (fedseats.statusOf(projectId)) {
+      messages.roomNote(projectId, 'That post stayed on this computer: the shared-project record cannot be read right now, so nothing is sent to the external project until it can.');
+    }
+    return;
+  }
   if (!linked) return;
   const text = typeof delivery.text === 'string' ? delivery.text : '';
   if (!text.trim()) {
