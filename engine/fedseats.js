@@ -124,6 +124,7 @@ function onEvent(projectId, line) {
     setStatus(projectId, 'connected'); s.connectedAt = Date.now(); s.macNoted = false;
     // #3728: the room id both ends share (the coordinator derives it per project); it is bound into every seal.
     s.room = typeof ev.room === 'string' && ev.room ? ev.room : null;
+    s.behind = null;
     sayHello(projectId, s);
     sendRotates(projectId, s);
     return;
@@ -161,12 +162,13 @@ function onEvent(projectId, line) {
       const now = Date.now();
       // A member seeing a newer epoch than its own missed a rotation: until the owner's
       // re-send arrives it holds its posts (a revoked member may still hold its key).
-      if (sealed && sealed.role === 'member' && hasKey(sealed) && ev.data.epoch > sealed.epoch) {
-        s.behindEpoch = Math.max(s.behindEpoch || 0, ev.data.epoch);
-      }
+      // Only the NEXT epoch counts (rotations advance one at a time), and only for
+      // BEHIND_HOLD_MS: the envelope's epoch is unauthenticated until it opens.
+      const aheadByOne = sealed && sealed.role === 'member' && hasKey(sealed) && ev.data.epoch === sealed.epoch + 1;
       const opened = hasKey(sealed) && s.room ? fedseal.open(acceptedKeys(sealed, now), s.room, ev.data) : null;
-      if (!opened && s.behindEpoch > (sealed && Number.isInteger(sealed.epoch) ? sealed.epoch : -1)) {
-        noteOnce(projectId, s, 'behind', 'This computer is behind on this shared room\'s key, so a message could not be read yet. It is waiting for the owner\'s computer to send the new key, and holds its own posts until then.');
+      if (!opened && aheadByOne) {
+        s.behind = { epoch: ev.data.epoch, until: now + BEHIND_HOLD_MS };
+        noteOnce(projectId, s, 'behind', 'This computer is behind on this shared room\'s key, so a message could not be read yet. It is waiting for the owner\'s computer to send the new key, and holds its own posts for a few minutes meanwhile.');
         return;
       }
       if (!opened && !sealed) {
@@ -410,6 +412,11 @@ const FUTURE_SKEW_MS = 5 * 60 * 1000;
    just before it, still in flight), then never again: a revoked member cannot keep
    posting under the key it was rotated out of. */
 const EPOCH_GRACE_MS = 10 * 60 * 1000;
+/* How long a member holds its posts after seeing a message sealed one epoch ahead of
+   its own (it missed a rotation; the owner re-sends each pass). The epoch on an
+   envelope cannot be checked before it opens, so a forged one must cost no more than
+   this pause, which is no more than a relay can do anyway by dropping frames. */
+const BEHIND_HOLD_MS = 3 * 60 * 1000;
 
 /** This room's seal state, null for a room with none, undefined when the record
     cannot be read (then nothing is sent or shown: we cannot tell). */
@@ -752,7 +759,7 @@ function post(projectId, { from, kind, text }) {
     return false;
   }
   if (sealedRoom) {
-    if (hasKey(sealed) && s.behindEpoch > sealed.epoch) {
+    if (hasKey(sealed) && s.behind && s.behind.epoch > sealed.epoch && Date.now() < s.behind.until) {
       say(projectId, 'That message stayed on this computer: it is behind on this shared room\'s key and is waiting for the owner\'s computer to send the new one.');
       return false;
     }

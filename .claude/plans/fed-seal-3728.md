@@ -60,7 +60,7 @@ Tests (engine/fedseal.test.js):
 
 ## Stated limits (v1)
 - The relay still sees metadata: who posts, when and how much. Only content is sealed.
-- A relay that suppresses every newer-epoch frame to one member can keep that member on the old key; once the member sees any newer epoch it holds its posts (round 5).
+- A relay that suppresses every newer-epoch frame to one member can keep that member on the old key. A member that sees a message one epoch ahead holds its posts for up to 3 minutes (round 5, bounded in round 6); a forged envelope costs at most that pause, no more than a relay can do by dropping frames.
 
 ## Round 1 review (opus, crypto-focused): 2 BLOCKERs, 3 WARNINGs, 4 NITs, all taken
 - [BLOCKER] an owner's room was unsealed until the first hello, so a relay that drops hellos kept the owner posting and showing plaintext. FIXED: a project is sealed for good from its first sealing invite (`sealedRefs`). The owner holds posts ("no member's computer has joined with its key yet") and refuses plaintext inbound. Control fails by name.
@@ -91,3 +91,6 @@ Tests (engine/fedseal.test.js):
 - [NIT] openRotate's doc omitted rotatedAt. FIXED.
 - [NIT] the plan quoted copy the code does not use, and an "open questions" section asked nothing. FIXED: the quote, and the section is now "Stated limits (v1)".
 - Checked sound by the reviewer: a replayed older rotate is ignored; the owner's rotatedAt persists across restarts; a rotatedAt of 0 means no grace (fails closed); skew in either direction cannot extend the window.
+
+## Round 6 review (sonnet): 1 BLOCKER, taken
+- [BLOCKER] round 5's hold read the envelope's epoch before it opened (unauthenticated), so one forged envelope with a huge epoch silenced a member's posting for good (until a board restart). FIXED: only an envelope exactly one epoch ahead counts (rotations advance by one), the hold lasts at most BEHIND_HOLD_MS (3 minutes, about two re-send passes), and a reconnect clears it. Tests: a forged huge epoch holds nothing; a forged next epoch holds for at most 3 minutes; the genuine catch-up test still passes. Control fails by name.
