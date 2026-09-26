@@ -22165,7 +22165,8 @@ async function paintAccounts() {
       const why = 'Antigravity was signed in to Google the last time Kosmos checked.' + when + ' Kosmos does not recheck it by itself; Sign in again checks it.';
       return '<div class="acct-box" data-agy-row="1"><div class="acct-box-top"><div class="acct-who"><b>' + esc(a.email || 'Google subscription') + '</b>'
         + '<span class="acct-tag"> Google subscription, through Antigravity on this computer</span></div>'
-        + '<span class="acct-unknown" title="' + esc(why) + '"><span class="dot" aria-hidden="true"></span>Signed in</span></div>'
+        // The why is also in the text a screen reader reads (round 14): a title alone is mouse-only.
+        + '<span class="acct-unknown" title="' + esc(why) + '"><span class="dot" aria-hidden="true"></span>Signed in<span class="vh"> (' + esc(why) + ')</span></span></div>'
         + '<div class="acct-actions">'
         + '<button class="acct-reauth" type="button" data-agy-reauth="1" aria-label="Sign in again to the Google subscription" '
         + 'title="' + esc('Signs in to Google again through Antigravity, the same way as adding it.') + '">Sign in again</button>'

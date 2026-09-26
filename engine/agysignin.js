@@ -44,6 +44,11 @@ const UNKNOWN = 'Antigravity is showing a step Kosmos does not recognise';
 /* The steps after the person's code went in: only from here can agy be signed in, so only from here is
    it asked (a signed-out agy asked "are you signed in" may open a second Google page). */
 const AFTER_CODE = Object.freeze(['code-sent', 'theme', 'terms', 'trust']);
+/* When a screen Kosmos does not know may be asked about (round 14): only once a setup screen has shown
+   Google took the code. Just after the code, agy may still be trading it with Google, or refusing it,
+   and a signed-out agy asked may open a second Google page. (agy EXITING after the code is still asked:
+   AFTER_CODE above.) */
+const ASK_STEPS = Object.freeze(['theme', 'terms', 'trust']);
 
 /* The words each screen shows (agy 1.2.11, Josh's screenshots of 2026-09-26). Matched on the text
    of the screen with the ANSI styling already stripped by capture-pane -p. */
@@ -145,7 +150,9 @@ function markedLine(text) {
 /* The folder the trust screen names (the line after "Accessing workspace:"). */
 function trustFolder(text) {
   const lines = String(text).split('\n').map((l) => l.trim());
-  const at = lines.findIndex((l) => /^Accessing workspace:/.test(l));
+  // The LAST prompt on screen (round 14): the one whose "Yes" the marker is on (the newest-wins rule).
+  let at = -1;
+  lines.forEach((l, i) => { if (/^Accessing workspace:/.test(l)) at = i; });
   if (at < 0) return null;
   // A box border or a "~" around the path (round 12) is not part of it.
   const clean = (l) => {
@@ -171,9 +178,13 @@ function tick() {
   try {
     step();
     if (mine) mine.keyFailures = 0;
-  } catch {
+  } catch (e) {
     if (!mine || S !== mine || !mine.timer) return;
-    mine.pressed = false; mine.downFrom = null;
+    /* Only a failure that proves the key never went out re-arms it (round 14). A timeout says nothing
+       about delivery (tmux may have sent it), and a second Enter could land on the next screen: the
+       screen is then left to the same-screen rule, which shows it if nothing moved. */
+    const unknownDelivery = !!e && (e.code === 'ETIMEDOUT' || !!e.signal);
+    if (!unknownDelivery) { mine.pressed = false; mine.downFrom = null; }
     mine.keyFailures = (mine.keyFailures || 0) + 1;
     if (mine.keyFailures >= MAX_KEY_FAILURES) { mine.state = 'stuck'; mine.because = 'Kosmos could not reach Antigravity\'s sign-in just now'; }
   }
@@ -309,7 +320,7 @@ function step() {
      person drives may still be asked about. */
   /* Round 10: not merely "a known screen was seen" (the menu counts, before any code): only once the
      code has gone in or the setup screens are under way, or the person drives the window. */
-  const mayAsk = S.shown || AFTER_CODE.includes(S.step);
+  const mayAsk = S.shown || ASK_STEPS.includes(S.step);
   const ask = mayAsk && S.checks < MAX_CHECKS && (S.state === 'stuck'
     ? text !== S.stuckText && now() - S.lastCheckAt > STUCK_MS   // a redrawing screen does not spend them all at once
     : settled || now() - S.lastSeen > STUCK_MS);

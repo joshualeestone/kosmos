@@ -103,3 +103,9 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 - A test process is recognised two ways before the real remembered sign-in could be touched: execArgv's --test and the test runner's NODE_TEST_CONTEXT (bulletin runtime-self-detection-is-version-dependent).
 - agy is taken as exited only after two missing-session readings in a row (one failed has-session can be a hiccup).
 - The final .catch of an ask marks the sign-in stuck rather than leaving the state stale.
+
+## Review round 14 (decided)
+- Only a failure that proves a key never went out (a spawn error) re-arms it; a timeout (delivery unknown) does not, and the same-screen rule shows a screen that did not move.
+- The trust folder read is the LAST "Accessing workspace:" on screen (whose Yes is marked), the newest-wins rule.
+- An unknown screen is asked about only after a setup screen (theme, terms, trust) showed Google took the code; agy exiting after the code is still asked.
+- The subscription row's "why" is also in visually hidden text (a title is mouse-only).

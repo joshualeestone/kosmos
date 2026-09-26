@@ -79,7 +79,7 @@ test('#3998: the whole sign-in runs hidden: menu, code from Kosmos, colour, term
   } finally { t.cleanup(); }
 });
 
-test('#3998: agy asking to trust any folder but Kosmos\'s own ends the sign-in, untrusted', { skip }, async () => {
+test('#3998: agy asking to trust any folder but Kosmos\'s own is left to the person, untrusted', { skip }, async () => {
   const t = setup('wrong-folder');
   try {
     const { id } = t.signin.start();
@@ -354,7 +354,8 @@ test('#3998 round 3: a key tmux could not send never throws out of the loop; it 
   const real = st;
   s.setForTests({ tmux: (args) => {
     if (args[0] === 'capture-pane') return real.screen;
-    if (args[0] === 'send-keys') { if (failing > 0) { failing -= 1; const e = new Error('spawnSync tmux ETIMEDOUT'); e.code = 'ETIMEDOUT'; throw e; } real.sent.push(args.slice(3).join(' ')); }
+    // A spawn failure (EAGAIN): the key provably never went out, so it is pressed again (round 14).
+    if (args[0] === 'send-keys') { if (failing > 0) { failing -= 1; const e = new Error('spawnSync tmux EAGAIN'); e.code = 'EAGAIN'; throw e; } real.sent.push(args.slice(3).join(' ')); }
     return '';
   } });
   try {
@@ -698,5 +699,54 @@ test('#3998 round 12: a code is typed after clearing agy\'s line (a half-sent ea
     s.tickForTests();
     assert.equal(s.code(CODE, id).ok, true);
     assert.equal(st.sent[0], 'C-u', 'the line was not cleared before the code');
+  } finally { s.resetForTests(); }
+});
+
+/* ---- review round 14 --------------------------------------------------------------------- */
+test('#3998 round 14: a key whose send timed out is not pressed again (it may have gone out)', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, TERMS('[Done]'));
+  let failing = 1;
+  s.setForTests({ tmux: (args) => {
+    if (args[0] === 'capture-pane') return st.screen;
+    if (args[0] === 'send-keys') { st.sent.push(args.slice(3).join(' ')); if (failing > 0) { failing -= 1; const e = new Error('spawnSync tmux ETIMEDOUT'); e.code = 'ETIMEDOUT'; throw e; } }
+    return '';
+  } });
+  try {
+    s.start();
+    s.tickForTests();                  // Enter goes out, then the call times out
+    s.tickForTests();                  // agy has not redrawn yet: still the terms, [Done] marked
+    assert.deepEqual(st.sent, ['Enter'], 'a second Enter went out and could land on the trust question');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 14: with two trust prompts on screen, the folder read is the LAST one (whose Yes is marked)', () => {
+  const s = require('./agysignin');
+  const text = 'Accessing workspace:\n\n/tmp/kosmos/agy-signin\n\nDo you trust the contents of this project?\n\n  Yes, I trust this folder\n'
+    + 'Accessing workspace:\n\n/Users/joshua\n\nDo you trust the contents of this project?\n\n> Yes, I trust this folder\n';
+  assert.equal(s.trustFolder(text), '/Users/joshua', 'the folder read was the first prompt\'s, not the one the Yes belongs to');
+  const st = scripted(s, '');
+  st.screen = 'Accessing workspace:\n\n' + path.join(st.root, 'agy-signin') + '\n\nDo you trust the contents of this project?\n\n  Yes\n'
+    + 'Accessing workspace:\n\n/Users/joshua\n\nDo you trust the contents of this project?\n\n> Yes, I trust this folder\n';
+  try {
+    s.start();
+    s.tickForTests();
+    assert.deepEqual(st.sent, [], 'Yes was pressed for the home folder because an older prompt named Kosmos\'s own');
+    assert.equal(s.status().state, 'stuck');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 14: right after the code, an unknown screen is not asked about (agy may still be signed out)', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, CODE_SCREEN);
+  st.answer = { signedIn: false };
+  try {
+    const { id } = s.start();
+    s.tickForTests();
+    assert.equal(s.code(CODE, id).ok, true);
+    st.screen = 'Signing in with Google...';
+    for (let i = 0; i < 12; i++) { st.t += 1000; s.tickForTests(); await settle(); }
+    assert.equal(st.checks, 0, 'agy was asked while it may still be signed out (a second Google page)');
+    assert.equal(s.status().state, 'stuck');
   } finally { s.resetForTests(); }
 });

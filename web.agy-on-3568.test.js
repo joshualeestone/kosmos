@@ -227,10 +227,10 @@ test('#3998: a failed or stuck hidden sign-in says why, offers the window only w
   assert.deepEqual(f.bodies.find(([p]) => p === '/api/antigravity/signin/stop'), ['/api/antigravity/signin/stop', JSON.stringify({ id: 'feedc0de00000001' })],
     'Stop did not name its own sign-in, so it could end another tab\'s');
   const g = agyFlow({ '/api/antigravity/check': [{ installed: true, signedIn: null }], 'POST /api/antigravity/signin': [{ ok: true }],
-    'GET /api/antigravity/signin': [{ state: 'failed', because: 'Antigravity asked to trust a folder Kosmos did not choose, so Kosmos stopped the sign-in' }] });
+    'GET /api/antigravity/signin': [{ state: 'failed', because: 'Antigravity closed before the sign-in finished' }] });
   await g.FR_AGY_SUB.start(); await g.FR_AGY_SUB.start();
-  await g.settle(() => /did not choose/.test(g.view().text));
-  assert.match(g.view().text, /^Antigravity asked to trust a folder Kosmos did not choose/);
+  await g.settle(() => /closed before/.test(g.view().text));
+  assert.match(g.view().text, /^Antigravity closed before the sign-in finished/);
   assert.equal(g.view().button, 'Sign in with Google', 'a failed sign-in offers it again');
   assert.equal(g.el('fr-gemini-sub-show-row').hidden, true);
 });
