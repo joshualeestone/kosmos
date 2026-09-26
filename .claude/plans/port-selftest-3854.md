@@ -2,7 +2,8 @@
 
 ## Finished looks like
 tools/test-app-port-selftest.sh passes on a loaded Mac: the arms where a bundle ANSWERS get a bound that
-starting a process under load cannot exceed, and the arms where a bundle HANGS still time out at 2s.
+starting a process under load cannot exceed, and the arms where a bundle HANGS still time out at a short
+bound (T, 5s).
 
 ## Why
 Ice Cream Kitty measured 5 pass / 1 fail at load 7-12, and it failed two unrelated full validations.
@@ -25,7 +26,7 @@ Real use is unaffected: tools/test-install.sh passes ${KOSMOS_SELFTEST_TIMEOUT:-
 
 - Review round 1: the hanging arm's reap check passed with nothing to reap when the kill landed before
   the stub forked (a launcher-only-kill regression went green with a slow fork). The stub now writes a
-  marker once it has forked; if a 2s run misses it, the arm runs once more at 10s, and it FAILS rather
+  marker once it has forked; if a run at the short bound (2s then, 5s now) misses it, the arm runs once more at 10s, and it FAILS rather
   than passes without the marker. The BEHIND answering bundles are also run raw, asserting rc 0 and their
   answer, so their premise arms fail on the answer, not a timeout. The first quick answer is timed against
   a ceiling below QUICK_T (two-thirds of it), the one check that catches a bound always waited out; the
@@ -38,6 +39,10 @@ Real use is unaffected: tools/test-install.sh passes ${KOSMOS_SELFTEST_TIMEOUT:-
   to miss the fork or to hit the #3859 setpgrp window, which would HANG the test rather than fail it);
   the timing ceiling is derived from QUICK_T so it cannot be silently disarmed; the rerun bound is named.
   Re-measured: a bound always waited out and a launcher-only kill both still fail.
+- Review round 5: the marker proved the fork, not that the child had exec'd the `sleep` the reap check
+  searched for, so a launcher-only kill landing in that window passed the reap line. The stub now writes
+  the child's PID and the reap check polls that PID. The EXIT trap kills this run's own stub sleeps, so a
+  red run does not leave them for years.
 
 ## Measured
 - On main's test with the answering stub made to take 3s (standing in for a loaded start): 3 FAIL, the
@@ -54,4 +59,7 @@ Real use is unaffected: tools/test-install.sh passes ${KOSMOS_SELFTEST_TIMEOUT:-
   before perl's setpgrp would hang the self-test (a stuck CI job at its 30-minute cap), not fail it.
 - Residual, far smaller than the original: the quick-answer timing check fails if starting a stub takes
   longer than its ceiling (20s at QUICK_T=30). The card's flake came from a 2s window at load 7-12.
+- Accepted: a bounded_run latency regression under 20s (a slower poll, a short fixed delay) now passes the
+  quick arms, which a 2s bound used to catch. Real callers allow 10s, so one between 10 and 20s would be
+  missed here; the timing check still catches a bound that is waited out.
 - Card offered to Baron Draxum (the test's author) first; his session could not answer.

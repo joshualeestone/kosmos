@@ -5,7 +5,7 @@
 #
 # Drives tools/lib/app-port-selftest.sh against stub bundles, so the detection is provable
 # without a real macOS bundle. A real control: it asserts detect-current AND detect-behind,
-# that bounded_run returns 124 within the bound (if it ever hung, THIS TEST would hang --
+# that bounded_run returns 124 within a generous ceiling (if it ever hung, THIS TEST would hang --
 # the #955 regression), and that a FORKED grandchild does not survive the kill -- which a
 # naive kill-the-launcher WOULD leak, so this arm reds a regression to launcher-only kill.
 set -uo pipefail
@@ -15,7 +15,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib/app-port-selftest.sh"
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/apst-test.XXXXXXXX")"
-trap 'rm -rf "$tmp"' EXIT
+# On a red run (a real regression) the stub's sleeps would live for years: take this run's
+# own, and only this run's (their markers carry $$), on the way out.
+trap 'pkill -f "sleep 955[23]$$\$" 2>/dev/null; rm -rf "$tmp"' EXIT
 fails=0
 T=5                 # the bound for bundles that HANG: short, so a real hang is caught quickly.
                     # 5s, not 2 (#3854 review): a 124 at 5s tests the same thing, and a start
@@ -69,14 +71,16 @@ chmod +x "$cur"
 # BEHIND-HANG: predates the flag, so it starts the app for EVERYTHING (the real bug). It
 # FORKS a child before becoming the launcher, so a launcher-only kill would orphan the
 # child -- exactly the leak the group-kill exists to prevent.
-# It writes FORKED once the child exists (#3854 review): under load the kill can land
-# before the fork, and then "no child left" would pass with nothing ever to reap.
+# It writes the child's PID to FORKED once it has forked (#3854 review): under load the kill
+# can land before the fork, and then "no child left" would pass with nothing ever to reap.
+# The PID, not the command line, is what the reap check follows: a child killed or orphaned
+# before it has exec'd `sleep` has no such command line yet, but it has its PID.
 bhang="$tmp/behind-hang"
 FORKED="$tmp/forked"
 cat > "$bhang" <<EOF
 #!/bin/bash
 sleep $FORK &
-echo forked > "$FORKED"
+echo \$! > "$FORKED"
 exec sleep $LAUNCH
 EOF
 chmod +x "$bhang"
@@ -92,7 +96,7 @@ bwrong="$tmp/behind-wrong"; printf '#!/bin/bash\necho 9999\nexit 0\n' > "$bwrong
 
 # --- bounded_run bounds a hanging bundle AND takes its FORKED child with it --------
 # The arm is only a test of the reap if the stub forked before the kill. Under load a
-# 2s bound can land first; then run it once more with a bound the start cannot miss.
+# $T-second bound can land first; then run it once more with a bound the start cannot miss.
 hang_arm() {  # hang_arm <bound>: sets rc and elapsed
   rm -f "$FORKED"
   local start; start=$(date +%s)
@@ -100,8 +104,8 @@ hang_arm() {  # hang_arm <bound>: sets rc and elapsed
   elapsed=$(( $(date +%s) - start ))
 }
 hang_arm "$T"
-[ -f "$FORKED" ] || { wait_gone "sleep $FORK" >/dev/null; hang_arm "$RERUN_T"; }
-check "the hanging stub forked before the kill (so the reap below is real)" yes "$([ -f "$FORKED" ] && echo yes || echo no)"
+[ -s "$FORKED" ] || { wait_gone "sleep $FORK" >/dev/null; hang_arm "$RERUN_T"; }
+check "the hanging stub forked before the kill (so the reap below is real)" yes "$([ -s "$FORKED" ] && echo yes || echo no)"
 check "bounded_run returns 124 on a hanging bundle" 124 "$rc"
 # The completion itself proves no-hang (a broken bound would hang this test). A generous
 # ceiling well under the 999s hang catches a far-too-slow bound without flaking on load.
@@ -109,10 +113,16 @@ if [ "$elapsed" -le 60 ]; then check "bounded_run did not hang (bounded)" ok ok
 else check "bounded_run did not hang (bounded)" ok "SLOW-${elapsed}s"; fi
 # The FORKED child (not the launcher) is the real test: a naive kill "$pid" reaps the
 # launcher but ORPHANS this; only kill -- -"$pid" (the group) reaps it. So this arm reds
-# a regression back to a launcher-only kill. Poll for our unique marker to disappear.
+# a regression back to a launcher-only kill. Poll the child's PID until it is gone.
 # Only a child that existed can be reaped: without the marker this line fails too, rather
 # than reading PASS for a reap that was never exercised (#3854 review round 2).
-if [ -f "$FORKED" ]; then reaped="$(wait_gone "sleep $FORK")"; else reaped="never-forked"; fi
+pid_gone() {  # pid_gone <pid>: 0 once the process is gone (polls ~20s, like wait_gone)
+  for _ in $(seq 1 40); do kill -0 "$1" 2>/dev/null || return 0; sleep 0.5; done
+  return 1
+}
+if [ -s "$FORKED" ]; then
+  if pid_gone "$(cat "$FORKED")"; then reaped=0; else reaped=1; fi
+else reaped="never-forked"; fi
 check "the FORKED child is reaped by the group-kill (not orphaned)" 0 "$reaped"
 
 # --- bounded_run returns a quick command's output and rc --------------------------
@@ -140,8 +150,9 @@ kosmos_app_selftest_current "$bhang" 16180 "$T";        check "a BEHIND (hanging
 kosmos_app_selftest_current "$bexit" 16180 "$QUICK_T";  check "a BEHIND (exit, no port) bundle is behind" 1 "$?"
 kosmos_app_selftest_current "$bwrong" 16180 "$QUICK_T"; check "a bundle answering the WRONG port is behind" 1 "$?"
 
-# The CURRENT premise check exits fast on the real flag (starts no app, forks nothing),
-# and every BEHIND arm above was group-killed. Prove nothing leaked across the whole run.
+# The CURRENT premise check exits fast on the real flag (starts no app, forks nothing).
+# A backstop across the whole run: no child of ours that reached its `sleep` survives (the
+# PID-keyed reap above is the check that does not depend on when a child exec'd).
 check "no selftest child leaked across the run" 0 "$(wait_gone "sleep $FORK")"
 
 echo "---"
