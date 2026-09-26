@@ -42,7 +42,8 @@
  * the dragged-to-the-edge arm reds when the drag box leaves less than a glow's
  * reach between a face and the box; the edge-callout arm reds when a squeezed
  * chart centres an edge node's callout; the hub arm reds when the hub is
- * clamped by a node's margin.
+ * clamped by a node's margin; the mid-drag arm reds when a resize repaints under
+ * a live drag, or when the release does not catch up with the new width.
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -244,6 +245,29 @@ function measure(page) {
           await page.setViewportSize({ width: 375, height: 667 }); await page.waitForTimeout(500);
           const m = await measure(page);
           chk(shown && m.pageW <= m.vw, `${tag} back in portrait, the page does not scroll sideways`, `chart shown=${shown}, page ${m.pageW}px on a ${m.vw}px screen, chart ${m.mapW}px`);
+          await ctx.close();
+        }
+        // Turned mid-drag: a repaint would rebuild the nodes under the pointer and the drag would
+        // go on moving one that is no longer on the page. The repaint waits for the release.
+        {
+          const tag = `[${engine} resized mid-drag]`;
+          const ctx = await browser.newContext({ viewport: { width: 393, height: 852 } });
+          const page = await ctx.newPage();
+          await toOrg(page, URL);
+          const p0 = await page.evaluate(() => { const n = document.querySelector('#orgmap .onode'); window.__dragged = n; n.scrollIntoView({ block: 'center' });
+            const r = n.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, size: Math.round(document.getElementById('orgmap').getBoundingClientRect().width) }; });
+          await page.mouse.move(p0.x, p0.y);
+          await page.mouse.down();
+          for (let i = 1; i <= 4; i++) await page.mouse.move(p0.x + i * 6, p0.y + i * 6);
+          await page.setViewportSize({ width: 375, height: 852 });
+          await page.waitForTimeout(500);
+          const mid = await page.evaluate(() => ({ connected: window.__dragged.isConnected }));
+          await page.mouse.move(p0.x + 40, p0.y + 40);
+          await page.mouse.up();
+          await page.waitForTimeout(600);
+          const after = await page.evaluate(() => Math.round(document.getElementById('orgmap').getBoundingClientRect().width));
+          chk(mid.connected && after < p0.size, `${tag} the dragged node stays on the page, and the chart repaints at the new width on release`,
+            `connected mid-drag: ${mid.connected}; chart ${p0.size} -> ${after}px after release`);
           await ctx.close();
         }
         // Desktop: the square fits, so the chart is the natural one, exactly as before.
