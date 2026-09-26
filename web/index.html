@@ -29971,6 +29971,37 @@ function paintDetailState(card) {
      split Josh reported was the pill against the DM line on this same page, and a card one
      poll behind resolves on the next sample. */
   const a = workingSampleIsStale(card) ? { ...card, state: 'idle' } : card;
+  /* #3958 (review): the screen-said evidence and the re-auth button follow the poll with the
+     pill. Painted FIRST, so a missing #d-task or #d-state cannot stop them. Painted only by openDetail they froze while the pill went live, so a page opened on a
+     working agent that then hit auth_failed said so in the pill with no "Sign in again" beside it. */
+  /* ⚠️ TEXT, NEVER MARKUP. This is pane content: whatever happens to be on
+     somebody's terminal, on its way to a product surface. `textContent` is the
+     escape, and the engine has already trimmed and capped it. */
+  const said = document.getElementById('d-said');
+  const saidLab = document.getElementById('d-said-lab');
+  if (said) {
+    const line = String(a.stateEvidence || '').trim();
+    if (said.textContent !== line) said.textContent = line;
+    said.hidden = !line;
+    /* The label follows the quote exactly, or an empty agent page keeps a
+       stranded "Its screen said:" with nothing under it. */
+    if (saidLab) {
+      /* `a.name`, which is what the heading two lines up uses. My first version
+         called a `dispName()` that DOES NOT EXIST -- it would have thrown the
+         moment a rate-limited agent's page opened, and every text-matching test
+         passed over it because a regex cannot call a function. */
+      saidLab.textContent = line ? a.name + '\u2019s screen said:' : '';
+      saidLab.hidden = !line;
+    }
+  }
+  /* kosmos#1918: the reachable remedy for a broken sign-in. The evidence quote
+     above may name "/login", which has no surface in this product; this button is
+     that surface. Shown ONLY when the state is auth_failed, so a healthy agent
+     never sees a control it does not need, and hidden again the moment the state
+     is anything else. The click (wired once below) opens Settings -> Accounts,
+     the existing re-auth surface. */
+  const reauthBtn = document.getElementById('d-reauth');
+  if (reauthBtn) reauthBtn.hidden = a.state !== 'auth_failed';
   const copy = stateCopyOf(a);
   /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
      class, `GLYPH` the mark, `stateCopyOf` the word (the shared wrapper over
@@ -30018,37 +30049,6 @@ function paintDetailState(card) {
   if (!dtask) return;
   dtask.textContent = taskLine(a, { noQuote: true });
   dtask.hidden = !dtask.textContent || (a.state === 'needs_you');
-  /* #3958 (review): the screen-said evidence and the re-auth button follow the poll with the
-     pill. Painted only by openDetail they froze while the pill went live, so a page opened on a
-     working agent that then hit auth_failed said so in the pill with no "Sign in again" beside it. */
-  /* ⚠️ TEXT, NEVER MARKUP. This is pane content: whatever happens to be on
-     somebody's terminal, on its way to a product surface. `textContent` is the
-     escape, and the engine has already trimmed and capped it. */
-  const said = document.getElementById('d-said');
-  const saidLab = document.getElementById('d-said-lab');
-  if (said) {
-    const line = String(a.stateEvidence || '').trim();
-    if (said.textContent !== line) said.textContent = line;
-    said.hidden = !line;
-    /* The label follows the quote exactly, or an empty agent page keeps a
-       stranded "Its screen said:" with nothing under it. */
-    if (saidLab) {
-      /* `a.name`, which is what the heading two lines up uses. My first version
-         called a `dispName()` that DOES NOT EXIST -- it would have thrown the
-         moment a rate-limited agent's page opened, and every text-matching test
-         passed over it because a regex cannot call a function. */
-      saidLab.textContent = line ? a.name + '\u2019s screen said:' : '';
-      saidLab.hidden = !line;
-    }
-  }
-  /* kosmos#1918: the reachable remedy for a broken sign-in. The evidence quote
-     above may name "/login", which has no surface in this product; this button is
-     that surface. Shown ONLY when the state is auth_failed, so a healthy agent
-     never sees a control it does not need, and hidden again the moment the state
-     is anything else. The click (wired once below) opens Settings -> Accounts,
-     the existing re-auth surface. */
-  const reauthBtn = document.getElementById('d-reauth');
-  if (reauthBtn) reauthBtn.hidden = a.state !== 'auth_failed';
 }
 
 function openDetail(sessionName, section, fromProject) {
@@ -32589,7 +32589,11 @@ function setLive(el, html) {
      (the project member panel #pj-msgs flashed every few seconds the way the agent thread did).
      Markup with no live time has a shape identical to itself, so every other caller is unchanged. */
   const shape = threadShape(html);
-  if (el.__lastLive === shape) { if (html.indexOf('mwhen') > -1) refreshWhens(el); return; }
+  if (el.__lastLive === shape) {
+    if (html.indexOf('mwhen') > -1) refreshWhens(el);
+    if (html.indexOf('lring') > -1) refreshRings(el, html);
+    return;
+  }
   el.__lastLive = shape;
   el.innerHTML = html;
 }
@@ -51091,9 +51095,27 @@ function pjWhenLive(at) {
   const said = pjWhen(at);
   return said ? '<span class="mwhen" data-at="' + esc(String(at)) + '">' + esc(said) + '</span>' : '';
 }
-/** A thread's markup with every live time's words blanked: what decides a rewrite. */
+/** A thread's markup with every live time's words blanked, and (#3991) every memory ring's arc: what
+    decides a rewrite. The arc moves with each percent a working agent uses, and a member column
+    rebuilt for that would be the same flash this function exists to stop. */
 function threadShape(html) {
-  return String(html).replace(/(<span class="mwhen" data-at="[^"]*">)[^<]*(<\/span>)/g, '$1$2');
+  return String(html)
+    .replace(/(<span class="mwhen" data-at="[^"]*">)[^<]*(<\/span>)/g, '$1$2')
+    .replace(/<svg class="lring"[\s\S]*?<\/svg>/g, (ring) => ring.replace(/stroke-dasharray="[^"]*"/g, 'stroke-dasharray=""'));
+}
+/** #3991: bring every memory ring arc under `root` to the one in `html`, pairing the rings in order,
+    and only when both have the same rings (a different set is a shape change and rewrites anyway). */
+function refreshRings(root, html) {
+  if (!root || typeof root.querySelectorAll !== 'function' || typeof document === 'undefined') return;
+  const t = document.createElement('template');
+  t.innerHTML = html;
+  const fresh = t.content.querySelectorAll('.lring .gf');
+  const cur = root.querySelectorAll('.lring .gf');
+  if (fresh.length !== cur.length) return;
+  cur.forEach((el, i) => {
+    const want = fresh[i].getAttribute('stroke-dasharray');
+    if (el.getAttribute('stroke-dasharray') !== want) el.setAttribute('stroke-dasharray', want);
+  });
 }
 /** Bring every live time under `root` up to now, touching only the ones whose words changed. */
 function refreshWhens(root) {

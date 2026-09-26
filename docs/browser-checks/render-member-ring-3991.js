@@ -4,14 +4,16 @@
  * #3991 (Josh, 2026-09-26): "we lost the context ring and green dot indicator on the tab view of
  * project, project members".
  *
- * Boots a sandboxed board with a project of three members: working, idle and stopped. Every card
- * is given a memory reading on /api/status, so a ring has something to draw. It opens the project
+ * Boots a sandboxed board with a project of members in several states; the working and the stopped
+ * one are given a memory reading on /api/status, so a ring has something to draw. It opens the project
  * in the TAB view (not the consolidated layout) and, on chromium and webkit, checks each member row:
  *   - a memory ring (.lring) is drawn around the face, its arc the card's percent;
  *   - the presence dot is drawn: green for the working and idle members, grey for the stopped one;
  *   - the stopped member (not running) gets the grey dot, not a green one.
  *   - for EVERY member (working, idle, stopped, needs-you, auth-failed), the dot matches the
  *     consolidated row's rule computed in the page from the page's own boardMods and cardStOf.
+ *   - when the working member's reading climbs, the ring's arc follows IN PLACE: no member node is
+ *     replaced (a rebuilt column for a 1% tick would be #3966's flash again).
  * Control: with the context reading removed for one member, that member has NO ring, so the ring
  * is not drawn unconditionally.
  *
@@ -149,6 +151,23 @@ const PERCENT = { beatrix: 42, dora: 71 };
         const greenDot = !!z && /\bpjd\b/.test(z.dot) && !/pjd-(unk|off)/.test(z.dot);
         chk(!!z && !z.wash && !greenDot,
           `${engineName}: an untied pane (a stranger holding the name) does not get a green dot`, JSON.stringify(z));
+        /* The reading climbs: the arc must follow without the column being rebuilt. */
+        const before = await page.evaluate(() => {
+          let n = 0;
+          for (const e of document.querySelectorAll('#pj-one-agents *')) { e.__ring3991 = true; n += 1; }
+          const arc = document.querySelector('#pj-one-agents .pj-member[data-agent="beatrix"] .lring .gf');
+          return { n, dash: arc ? arc.getAttribute('stroke-dasharray') : null };
+        });
+        PERCENT.beatrix = 57;
+        await page.waitForTimeout(12000);
+        const after = await page.evaluate(() => {
+          const all = [...document.querySelectorAll('#pj-one-agents *')];
+          const arc = document.querySelector('#pj-one-agents .pj-member[data-agent="beatrix"] .lring .gf');
+          return { fresh: all.filter((e) => !e.__ring3991).length, dash: arc ? arc.getAttribute('stroke-dasharray') : null };
+        });
+        PERCENT.beatrix = 42;
+        chk(after.dash && parseFloat(after.dash) > parseFloat(before.dash), `${engineName}: a climbing reading moves the ring's arc`, `${before.dash} -> ${after.dash}`);
+        chk(after.fresh === 0, `${engineName}: the climb patches the arc in place (no member node rebuilt)`, `fresh=${after.fresh} of ${before.n}`);
         chk(errs.length === 0, `${engineName}: no page errors`, errs.join(' | '));
         await ctx.close();
       } finally {

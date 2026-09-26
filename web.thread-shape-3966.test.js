@@ -96,7 +96,7 @@ test('#3966: every thread timestamp is written through pjWhenLive', () => {
 test('#3966: setLive (the project member panel #pj-msgs, and the room\'s writer) also compares by shape', () => {
   const setLive = pageFnSource('setLive');
   assert.match(setLive, /const shape = threadShape\(html\);/);
-  assert.match(setLive, /if \(el\.__lastLive === shape\) \{ if \(html\.indexOf\('mwhen'\) > -1\) refreshWhens\(el\); return; \}/);
+  assert.match(setLive, /if \(el\.__lastLive === shape\) \{\n\s*if \(html\.indexOf\('mwhen'\) > -1\) refreshWhens\(el\);\n\s*if \(html\.indexOf\('lring'\) > -1\) refreshRings\(el, html\);\n\s*return;\n\s*\}/);
   assert.doesNotMatch(setLive, /el\.__lastLive === html/, 'the raw compare rebuilt #pj-msgs on every minute tick');
   const verdict = pageFnSource('pjVerdict');
   assert.match(verdict, /const whenLive = pjWhenLive\(m\.at\);/, 'the member panel\'s time must be a live span');
