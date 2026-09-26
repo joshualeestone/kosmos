@@ -713,6 +713,7 @@ function createSigninHost() {
 module.exports = {
   createSigninHost, setSpawn, setBrowserOpener, setPortFinder, signinLineForClaudeFile,
   signinLinkToOpen, parseListeningLoopbackPorts, listeningLoopbackPorts, openInDefaultBrowser, NO_OP_OPENER,
+  UNSAFE_ON_COMMAND_LINE,   // also guards the OpenAI device page openaiaccounts opens with openInDefaultBrowser
   SIGNIN_ARGS, SIGNIN_OUTPUT_LIMIT_CHARS, STDERR_TAIL_LINES, SENT_FRAGMENT_MIN_CHARS,
   REDACTION_MARKER,
   normaliseSignInText, redactSecrets, createTextKeeper,

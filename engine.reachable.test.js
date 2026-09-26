@@ -21,6 +21,7 @@ const path = require('node:path');
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
   setRunner: 'test seam: injects the tmux runner',
+  _setNofollowForTest: 'test seam (#1777 item 3): engine/instructions.js drops O_NOFOLLOW to simulate win32, so a Mac can see the refuseSymlinkTarget hand check doing the work on the CLAUDE.md.previous backup. With the kernel flag present, deleting that check is silent.',
   setChannel: 'test seam (#570 7c-4): engine/chat.js\'s twin of setRunner for Windows agents, injecting the supervisor-channel sayer so a suite never reaches a real agent pipe. Clearing it re-arms dry-run, the same interlock as setRunner.',
   setSpawn: 'test seam (#570): injects engine/win32launch.js\'s spawn, so a suite never starts a real agent and a Mac can drive the win32 arm. Named here rather than passing by luck: "setSpawn" is unique to that file, while its siblings (setRunner, setAnchorer) escape only by colliding with other files\' seams.',
   superviseStreaming: 'engine/win32supervisor.js (#570 7c-1): the supervisor that HOLDS a streaming agent\'s pipes -- the other half of launchStreaming, and the thing that will carry delivery. Unwired for the same reason and on the same card: the Scheduled Task still runs supervise(), and swapping the entry point is slice 7c-2. Landed with its own arms first because the properties that matter here (a death is one death; the throttle limps; every restart is a --resume, never a fresh id) are cheaper to pin now than to debug through a task later.',
@@ -34,6 +35,7 @@ const EXCUSED = {
   setPauser: 'test seam: observes the codex Enter gap without sleeping (#571)',
   setDryRun: 'test seam: keeps suites off real panes',
   setClaudeProbe: 'test seam: injects the claude -p liveness probe so tests do not spawn a real claude (#1916)',
+  setChatgptBrowserOpener: 'test seam (0.6.96 OpenAI sign-in): engine/openaiaccounts.js records the device page it would open, so a suite never starts a real browser and a Mac can drive the win32 arm',
   resetForTests: 'test seam',
   newKeyPair: 'test seam (#3728): engine/fedseal.js makes a fresh X25519 pair so a test can play the OTHER board (owner or member) against this one; production uses the one sealingKey() from the key file. A board never needs a second identity.',
   underTest: 'test-only export (#988): engine/updating.js exports its test-context predicate for its own arms; production inlines the check. Named here rather than passing by luck: it otherwise survives only by colliding with ping/feedbacksend (notify.js, a third definer, was deleted in #2623)',

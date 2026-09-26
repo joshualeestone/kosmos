@@ -28,21 +28,23 @@ function extract(name, endAnchor) {
 }
 
 /* --- acctOpenaiChoose: the picker reveals exactly the chosen flow ---------- */
-function chooseFn() {
+function chooseFn({ liveSession = null } = {}) {
   const src = extract('acctOpenaiChoose', '\nfunction acctOpenaiSubView');
   const els = {
     'acct-openai-pick': { hidden: null },
     'acct-openai-key-step': { hidden: null },
-    'acct-openai-sub-step': { hidden: null },
+    'acct-openai-sub-step': { hidden: null, attrs: {}, hasAttribute(n) { return n in this.attrs; }, setAttribute(n, v) { this.attrs[n] = v; }, focus() { this.focused = true; } },
     'acct-openai-msg': { textContent: 'a stale error from a prior sign-in' },
     'acct-openai-key': { focus() { this.focused = true; } },
-    'acct-openai-sub-go': { focus() { this.focused = true; } },
+    'acct-openai-sub-go': { hidden: false, focus() { this.focused = true; } },
   };
-  // acctOpenaiChoose('sub') calls acctOpenaiSubReset (defined elsewhere); spy on it
-  // so the extracted function runs in isolation and we can assert idempotent entry.
-  const spy = { reset: 0 };
+  // acctOpenaiChoose('sub') calls acctOpenaiSubReset and acctOpenaiSubStart (defined
+  // elsewhere); spy on them so the extracted function runs in isolation and we can
+  // assert idempotent entry and that the sign-in starts at once.
+  const spy = { reset: 0, start: 0 };
   // eslint-disable-next-line no-new-func
-  const fn = new Function('document', 'acctOpenaiSubReset', src + '; return acctOpenaiChoose;')({ getElementById: (id) => els[id] || null }, () => { spy.reset += 1; });
+  const fn = new Function('document', 'acctOpenaiSubReset', 'acctOpenaiSubStart', 'ACCT_OPENAI_SUB_SESSION', src + '; return acctOpenaiChoose;')(
+    { getElementById: (id) => els[id] || null }, () => { spy.reset += 1; }, () => { spy.start += 1; }, liveSession);
   return { fn, els, spy };
 }
 
@@ -62,8 +64,21 @@ test('choosing the subscription flow shows the sub step and hides the picker and
   assert.equal(els['acct-openai-pick'].hidden, true, 'the picker stayed up after a choice was made');
   assert.equal(els['acct-openai-sub-step'].hidden, false, 'the subscription flow did not open when it was chosen');
   assert.equal(els['acct-openai-key-step'].hidden, true, 'the key flow opened even though the subscription flow was chosen');
-  assert.equal(els['acct-openai-sub-go'].focused, true, 'the Sign in button did not take focus');
   assert.equal(spy.reset, 1, 'entering the subscription step did not reset its affordances (entry is not idempotent)');
+  /* Reported by Josh on Windows 0.6.96: this step used to show a second "Sign in with
+     ChatGPT" button, so the person pressed the same button twice. Choosing the flow now
+     starts the sign-in itself, hides the repeat button, and puts focus on the step. */
+  assert.equal(spy.start, 1, 'choosing Sign in with ChatGPT did not start the sign-in; the person has to press it a second time');
+  assert.equal(els['acct-openai-sub-go'].hidden, true, 'the repeat Sign in with ChatGPT button is still on screen');
+  assert.equal(els['acct-openai-sub-step'].focused, true, 'focus did not move to the sign-in step');
+});
+
+test('choosing the subscription flow while a sign-in is live does not start a second one', () => {
+  const { fn, els, spy } = chooseFn({ liveSession: 'live-session-id' });
+  fn('sub');
+  assert.equal(els['acct-openai-sub-step'].hidden, false);
+  assert.equal(spy.start, 0, 'a second sign-in was started over a live one');
+  assert.equal(spy.reset, 0, 'the live sign-in\'s link and code were cleared');
 });
 
 /* --- acctOpenaiSubView: every contract state maps, terminals stop the poll -- */
@@ -150,7 +165,8 @@ test('acctOpenaiSubReset returns the sub-step to rest and re-enables the button'
     'acct-openai-sub-open-row': { hidden: false },
     'acct-openai-sub-cancel-row': { hidden: false },
     'acct-openai-sub-code': { hidden: false, textContent: 'code 1234' },
-    'acct-openai-sub-go': { disabled: true },
+    'acct-openai-sub-go': { disabled: true, hidden: true },
+    'acct-openai-sub-open': { href: 'https://auth.openai.com/codex/device', setAttribute(n, v) { this[n] = v; } },
   };
   // eslint-disable-next-line no-new-func
   const fn = new Function('document', src + '; return acctOpenaiSubReset;')({ getElementById: (id) => els[id] || null });
@@ -160,6 +176,9 @@ test('acctOpenaiSubReset returns the sub-step to rest and re-enables the button'
   assert.equal(els['acct-openai-sub-code'].hidden, true, 'the device code row stayed visible');
   assert.equal(els['acct-openai-sub-code'].textContent, '', 'the device code text was not cleared');
   assert.equal(els['acct-openai-sub-go'].disabled, false, 'the Sign-in button was left stuck disabled');
+  // 0.6.96: the button is the retry now that entry hides it, and no dead link is left behind.
+  assert.equal(els['acct-openai-sub-go'].hidden, false, 'no Sign-in button to retry with after a sign-in ended');
+  assert.equal(els['acct-openai-sub-open'].href, '#', 'the hidden open-page link still points at an ended sign-in');
 });
 
 test('a start with no sessionId does not strand a disabled button', () => {

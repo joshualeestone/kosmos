@@ -880,6 +880,30 @@ fi
 # check one day old.
 run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 
+# --- #718: the phone screenshot harness -----------------------------------
+# It boots its OWN throwaway board (temp HOME and data roots, fake tmux), so no
+# board above is needed. The slice is the frame and the accounts page at the
+# smallest phone, both engines; nav-menu and agents-list fail if their control
+# is gone, and --strict makes horizontal overflow on these screens red. The
+# full sweep (16 shots per screen) is a by-hand tool, not a gate.
+run_one "mobile-shots" node docs/browser-checks/mobile-shots.js --out "$RUN_DIR/mobile-shots" \
+  --screens home,nav-menu,agents-list,settings-accounts --sizes se --themes light --strict
+# The leak guard's two arms, each of which MUST stop the run with exit 3 AND
+# with its own arm's message: a signed-in account planted in the sandboxed home
+# must be stopped by the accounts preflight ("the throwaway board lists"), and
+# an address planted in an agent's role by the page scan ("this screen shows
+# real data"). Exit 3 alone is not enough: the preflight firing first would
+# pass the page arm without the page scan ever running.
+for _arm in account:'the throwaway board lists' page:'this screen shows real data'; do
+  run_one "mobile-shots-leak-${_arm%%:*}" bash -c 'out=$(MSHOTS_LEAK_CONTROL="$1" node docs/browser-checks/mobile-shots.js --out "$3" \
+      --screens home --sizes se --themes light --engines chromium 2>&1); rc=$?; printf "%s\n" "$out"
+    case "$rc:$out" in
+      3:*"$2"*) echo "leak control $1: stopped with exit 3 by its own guard, as it must"; exit 0 ;;
+    esac
+    echo "FAIL  leak control $1: exit $rc, expected 3 with \"$2\": its guard did not fire"; exit 1' \
+    _ "${_arm%%:*}" "${_arm#*:}" "$RUN_DIR/mobile-shots-leak-${_arm%%:*}"
+done
+
 # --- 3. render-thread: the send-capable thread, on the fixture server --------
 # #540: a board with a stand-in codex, so the add-an-OpenAI-account flow can
 # run for real with no real key. HOME is the sandbox too, so the account it

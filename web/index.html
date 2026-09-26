@@ -9364,16 +9364,65 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
     padding: 6px 0 6px 6px; max-height: calc(0.18 * var(--kosmos-visible-height, 100dvh));
     overflow: hidden auto; }
   /* Top-aligned, not centred: a centred row taller than its cap spills above the scroll box, where
-     no scroll can reach (the name and Start this agent were cut off). An action further down the
-     notes (Start this agent, Sign in again) is reached by scrolling this block; a roomier cap for
-     them was tried and left an iPhone SE no conversation at all. */
+     no scroll can reach (the name and Start this agent were cut off). Start this agent comes before
+     the notes and stays in view; Sign in again, the last note, is pinned to this block's bottom edge
+     (#3892, below). A cap roomier for every agent was tried and left an iPhone SE no conversation. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dav-wrap,
   #panel-detail:has(#d-sec-talk:not([hidden])) .dav-wrap .detail-av { width: 40px; height: 40px; flex-basis: 40px; }
+  /* #3892: Sign in again must never hide. It is how a person recovers an agent whose sign-in stopped, and it
+     comes last in the notes (after the usage-limit quote), so on every phone size it sat below this block's
+     fold with nothing showing the block scrolls. On the phone chat it is pinned to the bottom edge of the
+     capped block, over the notes on the page's own ground, with a fade above it that says the block goes on;
+     the DOM order (so the keyboard and screen-reader order) is unchanged. Start this agent comes before the
+     notes and stays in view without this. :not([hidden]), or display would override the hidden attribute.
+     The whole 44px row is the target (the words stay at the left), which suits a thumb. The ground is the
+     plain page ground, so it is not dimmed while the help tour dims the page (the tour rarely covers this). */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-reauth:not([hidden]) {
+    position: sticky; bottom: 0; z-index: 1; display: flex; align-items: center; width: 100%;
+    min-height: 44px; background: var(--k-bg); box-shadow: 0 -10px 8px -2px var(--k-bg);
+    /* The fade reaches 16px above the button (10px offset + 8px blur - 2px spread); this gap keeps the
+       quote's last line clear of it once the block is scrolled to its end. */
+    margin-top: 16px; }
+  /* The shared ring is drawn 2px OUTSIDE (.linkish:focus-visible); the block scrolls and has no right padding,
+     so that ring was clipped at its edge. Inside the button here, fully visible. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-reauth:not([hidden]):focus-visible { outline-offset: -3px; }
+  /* A defence only: Start this agent shows for an agent that is off, and a stopped sign-in counts as on, so
+     today the two never show together. If they ever do, the name row, Start and a pinned 44px Sign in again
+     need about 150px, more than an SE's 120px cap, so the cap has a 152px floor (an SE gives up 32px;
+     larger phones are already past it). The case that does happen, a swarm agent whose sign-in stopped,
+     has its own floor below. The header steps aside while typing, so writing gets the room back. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-start-wrap:not([hidden])) {
+    max-height: max(calc(0.18 * var(--kosmos-visible-height, 100dvh)), min(152px, calc(0.3 * var(--kosmos-visible-height, 100dvh)))); }
+  /* A swarm agent whose sign-in stopped: the name row, Stop now and a pinned 44px Sign in again share the
+     block, and Stop now carries its warning (it says work is dropped), up to 116px on an SE. The floor is
+     tall enough that Stop now is never under the pinned button and scrolling brings the whole warning into
+     view above it and its fade (116 + 16 + 44 + padding). The conversation gives up about 70px on an SE and
+     at most 37px on larger phones, only in this state, when the agent cannot answer anyway. Both floors are
+     held to 30% of the visible height, which leaves every portrait phone its full floor (30% of an SE's
+     667px is 200px) and keeps a phone held sideways (360px tall) its conversation; there the warning may
+     need a scroll past the button (sideways phones are outside #718's sizes). */
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) {
+    max-height: max(calc(0.18 * var(--kosmos-visible-height, 100dvh)), min(190px, calc(0.3 * var(--kosmos-visible-height, 100dvh)))); }
+  /* The floor is measured for a one-line name row; a long name, or a task sentence that wraps, would push
+     Stop now back under the pinned button. So for a swarm agent whose sign-in stopped (not for the defensive
+     Start case, which never happens today) the row stays one line: the task sentence is
+     not shown (the state badge, "Sign-in isn't working", and the pinned Sign in again already say it), nor
+     the role (both are on Profile; with the role beside it the name was squeezed to "A.." on an SE), the
+     state badge keeps its size, and the name takes the rest (a short name whole; a long one ellipsized, it
+     is on Profile in full). */
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) .dnamerow { flex-wrap: nowrap; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) #d-task { display: none; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) #d-meta { display: none; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) #d-name { min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) .detail-state { flex: none; }
   /* A swarm agent (#3564) on the phone chat keeps only Active/Paused and Stop now in the header;
      they come before the notes, so they sit at the top of the capped block, on screen. The helper
      and daily-limit sliders stay on Profile. */
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox ~ .swbox { display: none; }
-  /* Stop now acts at once, so its explanation stays visible in full (it says work is dropped). */
+  /* Stop now acts at once, so its explanation is never cut short (it says work is dropped). It can sit below
+     the capped block's fold (an SE shows part of it on first view); while a swarm agent's sign-in has
+     stopped, the pinned Sign in again (#3892) also lies over it until the block is scrolled, and scrolling
+     brings the whole of it into view above the pinned button. */
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel #d-swarm-stop-hint { margin: 4px 0 0; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel { gap: 0; margin-top: 4px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox { padding: 4px 8px; }
@@ -9460,6 +9509,22 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   /* 16px or iOS zooms the page when the search box takes focus (as for the composer above). */
   #d-talk-box #d-talk-search { font-size: 16px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back { margin: 4px 0 0; min-height: 44px; }
+  /* #718 row 7: the agent Files surfaces need phone-sized touch targets without changing the
+     shared project file rows or desktop geometry. Talk still hides #d-files above; Profile and
+     the other agent sections keep this short list, and View All opens #d-sec-files. */
+  :is(#d-files, #d-sec-files) .pj-doc { min-height: 44px; }
+  #d-files-all { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
+  #d-files-back { display: inline-flex; align-items: center; min-height: 44px; }
+  /* #718 rows 2 and 3: keep the agent's Profile and Instructions forms readable without
+     iOS focus zoom, and give their actions a phone-sized target. The desktop percentage
+     widths stay above; only the phone lets the long Name help use the form's width. */
+  #d-sec-profile :is(input:not([type="file"]), select),
+  #d-sec-instr textarea,
+  #d-sec-skills :is(input, textarea, select) { font-size: 16px; }
+  #d-sec-profile :is(input:not([type="file"]), select, button),
+  #d-sec-instr button,
+  #d-sec-skills :is(input, textarea, select, button) { min-height: 44px; }
+  #d-rename-hint { max-width: none; }
 }
 /* #718 (Raiden's table, row 4): the same two fields on ANY touchscreen, not only a portrait phone. A
    phone turned sideways (667 to 932 wide) or a tablet is past the 40rem block above, where the search
@@ -11524,10 +11589,11 @@ window.kosmosMeasureScrollbarWidth();
         <!-- The sign-in page opens on its own once you start; this link opens it
              again if the browser did not, or on a remote Mac where there is no
              browser to open. Device mode shows a code to type on that page.
-             #3436: on Windows the sign-in is always device mode, and this button is
-             how the page opens (codex's own browser pop landed behind Kosmos). -->
+             #3436: on Windows the sign-in is always device mode. Since 0.6.96 the
+             engine opens the page itself once the code arrives, and this link (reading
+             "Open the sign-in page again" there) brings it back if it landed behind. -->
         <div class="frow" id="acct-openai-sub-open-row" hidden style="margin-top:8px;">
-          <a class="btn" id="acct-openai-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a>
+          <a class="btn" id="acct-openai-sub-open" href="#" target="_blank" rel="noopener" data-win-copy="openaiSubOpen">Open the sign-in page</a>
         </div>
         <p class="dhint" id="acct-openai-sub-code" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
         <!-- The way out is a button, at button size, on the step it belongs to
@@ -12352,7 +12418,7 @@ window.kosmosMeasureScrollbarWidth();
                     <button class="btn uprime" id="fr-openai-sub-go" type="button">Sign in with ChatGPT</button>
                   </div>
                   <div class="frow" id="fr-openai-sub-open-row" hidden style="margin-top:8px;">
-                    <a class="btn" id="fr-openai-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a>
+                    <a class="btn" id="fr-openai-sub-open" href="#" target="_blank" rel="noopener" data-win-copy="openaiSubOpen">Open the sign-in page</a>
                   </div>
                   <p class="dhint" id="fr-openai-sub-code" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
                   <div class="frow" id="fr-openai-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="fr-openai-sub-cancel" type="button">Stop this sign-in</button></div>
@@ -16381,8 +16447,14 @@ function windowsCopyTable() {
        codex's own browser window opened behind Kosmos. The explainer on both sign-in
        steps, the line above the code, and the line above codex's own words when the
        code could not be picked out. */
-    openaiSubHow: 'Kosmos shows you a link and a short code. Open the link, sign in to OpenAI, and type the code there. Kosmos never sees your password. Your agents then run on your own subscription, on this computer.',
+    /* 0.6.96 (Josh): Kosmos now opens the page itself, so the explainer says so; the link
+       below is the way back to it if the browser window lands behind; and the line above
+       the code names the address, so the screen still makes sense if the person has to
+       go and find the browser. %ADDR% is filled in by openaiSubDeviceMarkup. */
+    openaiSubHow: 'Kosmos opens OpenAI&rsquo;s sign-in page in your browser and shows you a short code to type there. Kosmos never sees your password. Your agents then run on your own subscription, on this computer.',
+    openaiSubOpen: 'Open the sign-in page again',
     openaiSubCodeLead: 'On that page, enter this code:',
+    openaiSubCodeLeadAt: 'In your browser, go to %ADDR% and enter this code:',
     openaiSubRawLead: 'We could not pick out the code, so here is what OpenAI&rsquo;s sign-in says to do:',
     /* The manual update offer's folder button (W-25). */
     updateOpenFolder: 'Open my Kosmos folder',
@@ -22869,11 +22941,22 @@ function acctOpenaiChoose(which) {
   if (sub) sub.hidden = which !== 'sub';
   if (which === 'key') { const k = document.getElementById('acct-openai-key'); if (k) k.focus(); }
   else {
+    /* A sign-in already running (a second entry while one is live) keeps its link, code
+       and way out on screen; starting another would orphan the first. */
+    if (ACCT_OPENAI_SUB_SESSION) return;
     /* Enter the subscription step at its resting state -- a prior aborted sign-in
        could have left the open-page link / device code / cancel row showing with
        no live session, so reset before revealing (makes entry idempotent). */
     acctOpenaiSubReset();
-    const b = document.getElementById('acct-openai-sub-go'); if (b) b.focus();
+    /* Reported by Josh on Windows 0.6.96 (the Settings twin of first run's #3335): start
+       the OpenAI sign-in IMMEDIATELY. This step used to repeat the paragraph and show a
+       second "Sign in with ChatGPT" button, so the person pressed the same button twice.
+       The button is hidden here; acctOpenaiSubStart re-shows it if the start fails, and
+       acctOpenaiSubReset re-shows it when a sign-in ends without connecting, so a retry
+       is always there. A reauth ("Sign in again") enters through here too. */
+    const g = document.getElementById('acct-openai-sub-go'); if (g) g.hidden = true;
+    if (sub) { if (!sub.hasAttribute('tabindex')) sub.setAttribute('tabindex', '-1'); sub.focus(); }
+    acctOpenaiSubStart();
   }
 }
 /* #2338: map a subscription status state to what the panel should show. Pure,
@@ -22901,7 +22984,11 @@ function acctOpenaiSubView(state) {
    "Copied" under the person's click). A Mac runs browser mode and never reaches this. */
 function openaiSubDeviceMarkup(out) {
   if (out && out.userCode) {
-    return { key: 'code:' + out.userCode, html: windowsCopy('openaiSubCodeLead')
+    /* 0.6.96: name the address beside the code (host and path, no scheme), so the screen
+       says where to type it even when the browser came up behind Kosmos. */
+    const addr = openaiSubDeviceAddress(out.authUrl);
+    const lead = addr ? windowsCopy('openaiSubCodeLeadAt').replace('%ADDR%', '<b>' + esc(addr) + '</b>') : windowsCopy('openaiSubCodeLead');
+    return { key: 'code:' + out.userCode + '@' + addr, html: lead
       + '<span class="fr-cmd-row oa-devrow"><code class="fr-cmd oa-devcode">' + esc(out.userCode) + '</code>'
       + '<button class="btn-quiet fr-copy" type="button" data-copy-command>' + windowsCopy('copyLabel') + '</button></span>' };
   }
@@ -22910,6 +22997,14 @@ function openaiSubDeviceMarkup(out) {
       + '<span class="fr-cmd-row"><code class="fr-cmd">' + esc(out.instructions) + '</code></span>' };
   }
   return { key: '', html: '' };
+}
+/* The address to show beside the code: "auth.openai.com/codex/device" from an https link,
+   '' for anything else (nothing is shown rather than a strange string). */
+function openaiSubDeviceAddress(authUrl) {
+  let u;
+  try { u = new URL(String(authUrl || '')); } catch { return ''; }
+  if (u.protocol !== 'https:') return '';
+  return u.host + u.pathname.replace(/\/+$/, '');
 }
 /* Settings and first run both paint through this; `ids` names that screen's open link,
    its row, and the code line. */
@@ -25501,8 +25596,14 @@ function acctOpenaiSubReset() {
   });
   const code = document.getElementById('acct-openai-sub-code');
   if (code) code.textContent = '';
+  /* 0.6.96: the open-page link goes back to pointing nowhere, so a hidden link from an
+     ended sign-in cannot be revealed or clicked with a dead address on it. */
+  const openA = document.getElementById('acct-openai-sub-open');
+  if (openA) openA.setAttribute('href', '#');
+  /* The Sign-in button is the retry once a sign-in ends without connecting; entry
+     (acctOpenaiChoose) hides it again because it starts the sign-in itself. */
   const go = document.getElementById('acct-openai-sub-go');
-  if (go) go.disabled = false;
+  if (go) { go.hidden = false; go.disabled = false; }
 }
 /* #2338: poll the sign-in until a terminal state. The pure acctOpenaiSubView maps
    each state to what to show and whether to stop; this wrapper only fetches and
@@ -25569,10 +25670,13 @@ async function acctOpenaiSubConnected(account) {
   await paintAccounts();
   acctShowSuccess(email ? 'your ChatGPT subscription (' + email + ')' : 'your ChatGPT subscription', goldBox);
 }
-document.getElementById('acct-openai-sub-go').addEventListener('click', async (e) => {
-  const go = e.currentTarget;
+/* 0.6.96: the subscription sign-in start, extracted from the Sign-in button's handler so
+   choosing "Sign in with ChatGPT" (acctOpenaiChoose('sub')) runs it at once, the way
+   first run's frOpenaiSubStart does since #3335. The button still calls it for a retry. */
+async function acctOpenaiSubStart() {
+  const go = document.getElementById('acct-openai-sub-go');
   const msg = document.getElementById('acct-openai-msg');
-  go.disabled = true;
+  if (go) go.disabled = true;
   if (msg) msg.textContent = 'Starting the sign-in…';
   try {
     const res = await fetch('/api/accounts/openai/subscription/start', {
@@ -25601,10 +25705,13 @@ document.getElementById('acct-openai-sub-go').addEventListener('click', async (e
     acctOpenaiSubShowStart(out);
     acctOpenaiSubWatch();
   } catch (err) {
-    go.disabled = false;
+    /* The sign-in did not start. On the immediate path the button is hidden, so show it
+       again to leave a retry, and say why. */
+    if (go) { go.hidden = false; go.disabled = false; }
     if (msg) msg.textContent = String((err && err.message) || 'We could not start that sign-in.');
   }
-});
+}
+document.getElementById('acct-openai-sub-go').addEventListener('click', () => acctOpenaiSubStart());
 document.getElementById('acct-openai-sub-cancel').addEventListener('click', async () => {
   acctOpenaiSubStop();
   const id = ACCT_OPENAI_SUB_SESSION;
@@ -55674,7 +55781,10 @@ function frOpenaiSubShowStart(out) {
 function frOpenaiSubReset() {
   ['fr-openai-sub-open-row', 'fr-openai-sub-cancel-row', 'fr-openai-sub-code'].forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = true; });
   const code = document.getElementById('fr-openai-sub-code'); if (code) code.textContent = '';
-  const go = document.getElementById('fr-openai-sub-go'); if (go) go.disabled = false;
+  // 0.6.96: mirror acctOpenaiSubReset -- no dead link left behind, and the Sign-in button
+  // is back as the retry (frOpenaiChoose hides it again after this, since it starts itself).
+  const openA = document.getElementById('fr-openai-sub-open'); if (openA) openA.setAttribute('href', '#');
+  const go = document.getElementById('fr-openai-sub-go'); if (go) { go.hidden = false; go.disabled = false; }
 }
 /* #2621: fully ABANDON an in-flight first-run ChatGPT sign-in -- stop its poll, drop the
    session, and reset the sub-step affordances. Called wherever the sub flow is left with a

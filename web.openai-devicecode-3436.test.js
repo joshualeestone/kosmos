@@ -30,17 +30,32 @@ function build(doc) {
   // eslint-disable-next-line no-new-func
   return new Function('document',
     page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS) + '\n'
-    + lift('esc') + '\n' + lift('openaiSubDeviceMarkup') + '\n' + lift('openaiSubPaintDevice')
-    + '\nreturn { openaiSubDeviceMarkup, openaiSubPaintDevice, windowsCopyTable };')(doc);
+    + lift('esc') + '\n' + lift('openaiSubDeviceMarkup') + '\n' + lift('openaiSubDeviceAddress') + '\n' + lift('openaiSubPaintDevice')
+    + '\nreturn { openaiSubDeviceMarkup, openaiSubDeviceAddress, openaiSubPaintDevice, windowsCopyTable };')(doc);
 }
 
 test('a read code is shown in a copy row with a Copy button', () => {
   const { openaiSubDeviceMarkup } = build(undefined);
   const v = openaiSubDeviceMarkup({ state: 'awaiting-code', authUrl: 'https://auth.openai.com/codex/device', userCode: 'Q7RT-4KXWZ' });
-  assert.equal(v.key, 'code:Q7RT-4KXWZ');
-  assert.match(v.html, /^On that page, enter this code:/);
+  assert.equal(v.key, 'code:Q7RT-4KXWZ@auth.openai.com/codex/device');
+  /* 0.6.96: the line names the address, so the screen makes sense even when the browser
+     came up behind Kosmos and the person has to go and find it. */
+  assert.match(v.html, /^In your browser, go to <b>auth\.openai\.com\/codex\/device<\/b> and enter this code:/);
   assert.match(v.html, /<span class="fr-cmd-row oa-devrow"><code class="fr-cmd oa-devcode">Q7RT-4KXWZ<\/code><button class="btn-quiet fr-copy" type="button" data-copy-command>Copy<\/button><\/span>/,
     'the code is not in the row the shared Copy handler reads (.fr-cmd-row / .fr-cmd / data-copy-command)');
+});
+
+test('the address beside the code is host and path only, and only from an https link', () => {
+  const { openaiSubDeviceMarkup, openaiSubDeviceAddress } = build(undefined);
+  assert.equal(openaiSubDeviceAddress('https://auth.openai.com/codex/device/'), 'auth.openai.com/codex/device');
+  assert.equal(openaiSubDeviceAddress('https://auth.openai.com/codex/device?x=1#y'), 'auth.openai.com/codex/device');
+  for (const bad of ['http://auth.openai.com/codex/device', 'javascript:alert(1)', 'not a url', '', null, undefined]) {
+    assert.equal(openaiSubDeviceAddress(bad), '', 'showed an address for ' + JSON.stringify(bad));
+  }
+  // No link yet: the code still shows, with the plain lead line and no address.
+  const v = openaiSubDeviceMarkup({ state: 'awaiting-code', userCode: 'Q7RT-4KXWZ' });
+  assert.equal(v.key, 'code:Q7RT-4KXWZ@');
+  assert.match(v.html, /^On that page, enter this code:/);
 });
 
 test('with no code, codex\'s own words are shown, escaped, and nothing is invented', () => {
@@ -99,11 +114,14 @@ test('the Windows explainer is on both sign-in steps, and the new copy has no em
   const { windowsCopyTable } = build(undefined);
   const t = windowsCopyTable();
   assert.equal((HTML.match(/<span data-win-copy="openaiSubHow">/g) || []).length, 2);
-  for (const k of ['openaiSubHow', 'openaiSubCodeLead', 'openaiSubRawLead']) {
+  for (const k of ['openaiSubHow', 'openaiSubOpen', 'openaiSubCodeLead', 'openaiSubCodeLeadAt', 'openaiSubRawLead']) {
     assert.equal(typeof t[k], 'string', k + ' is missing from the Windows copy table');
     assert.ok(!/—|&mdash;/.test(t[k]), k + ' carries an em dash');
   }
-  assert.match(t.openaiSubHow, /link and a short code/);
+  assert.match(t.openaiSubHow, /^Kosmos opens OpenAI&rsquo;s sign-in page in your browser and shows you a short code/);
+  // 0.6.96: the link is the way back to the page Kosmos already opened.
+  assert.equal(t.openaiSubOpen, 'Open the sign-in page again');
+  assert.equal((HTML.match(/data-win-copy="openaiSubOpen">Open the sign-in page<\/a>/g) || []).length, 2, 'both open links keep the Mac words and carry the Windows key');
   // The Mac sentence is still the markup's own text.
   assert.equal((HTML.match(/<span data-win-copy="openaiSubHow">Kosmos opens OpenAI's sign-in in your browser and never sees your password\./g) || []).length, 2);
 });

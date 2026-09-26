@@ -253,6 +253,38 @@ test('a planted backup symlink cannot redirect the write out of the root', (t) =
   }
 });
 
+test('#1777: with no O_NOFOLLOW (win32), the backup still refuses a planted symlink', (t) => {
+  // The arm above passes on macOS whether or not the hand check exists, because the
+  // KERNEL refuses via O_NOFOLLOW first. On win32 that flag is undefined and OR-ing it
+  // in does nothing, so there the lstat hand check is the whole defence, and a Mac can
+  // only see it by dropping the flag. Measured: with the flag dropped and the
+  // refuseSymlinkTarget call deleted, the file outside the root is overwritten.
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-prevlink-w32-'));
+  const target = path.join(outside, 'target.txt');
+  fs.writeFileSync(target, 'A FILE OUTSIDE THE ROOT THAT MUST NOT BE TOUCHED');
+  const file = makeAgent('prevlinkwin32', 'the original instructions for this agent');
+  try {
+    fs.symlinkSync(target, `${file}.previous`);
+  } catch {
+    fs.rmSync(outside, { recursive: true, force: true });
+    t.skip('symlinks are unavailable on this filesystem');
+    return;
+  }
+  instructions._setNofollowForTest(undefined);
+  try {
+    const got = instructions.write('prevlinkwin32', 'a replacement set of instructions here');
+    assert.equal(fs.readFileSync(target, 'utf8'), 'A FILE OUTSIDE THE ROOT THAT MUST NOT BE TOUCHED',
+      'without O_NOFOLLOW the backup followed a symlink out of the workers root (#1777 item 3)');
+    assert.equal(got.keptPrevious, false, 'claimed to keep a version it could not write');
+    assert.equal(fs.readFileSync(file, 'utf8'), 'a replacement set of instructions here',
+      'a refused backup must not block the save');
+  } finally {
+    instructions._setNofollowForTest();
+    fs.rmSync(`${file}.previous`, { force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 test('a fifo at the backup path cannot wedge the save', (t) => {
   // ⚠️ `O_NOFOLLOW` closed the symlink route at this path and left the fifo
   // one open. Opening a fifo for WRITING blocks until a reader appears, so a

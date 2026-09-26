@@ -31,6 +31,18 @@ const crypto = require('node:crypto');
 const store = require('./store');
 const { transcriptForSession, sessionStartedAtFromTmux } = require('./status');
 const workerfile = require('./workerfile');
+const { refuseSymlinkTarget } = require('./securewrite');
+
+/* The backup write's symlink guard, kept behind a seam (#1777 item 3). `O_NOFOLLOW` is
+   UNDEFINED on win32 and `X | undefined === X`, so the flag alone would silently vanish on the
+   platform we ship to. The protection there is `refuseSymlinkTarget`, an lstat hand check that
+   runs on every platform; the kernel flag is the atomic half where it exists. The seam lets a
+   test drop the kernel flag, which is the only way a Mac can see that the hand check is doing
+   the work: with the flag present, the kernel refuses first and deleting the call is silent. */
+const KERNEL_NOFOLLOW = fs.constants.O_NOFOLLOW;
+let NOFOLLOW = KERNEL_NOFOLLOW;
+/** Test only: simulate a platform without O_NOFOLLOW (win32). Pass nothing to restore. */
+function _setNofollowForTest(v) { NOFOLLOW = arguments.length ? v : KERNEL_NOFOLLOW; }
 
 /**
  * Where worker instruction files live.
@@ -805,9 +817,16 @@ function write(agent, text, expectedVersion, exactSession, by) {
         // time on this branch that a guard added to make something safer opened
         // a new hole: the fix for the fix deserves the suspicion, not less of
         // it. `O_TRUNC` is applied after the type check for the same reason.
+        //
+        // 🛑 AND THE FLAG IS NOT THE WHOLE GUARD. On win32 `O_NOFOLLOW` is undefined and
+        // OR-ing it in is a silent no-op, so there the lstat hand check below is the entire
+        // symlink defence (#1777 item 3, the same shape as securewrite's #1776 fix). It runs
+        // on every platform, called with `undefined` on purpose. Its throw lands in the catch
+        // below: the backup is refused and not claimed, and the save goes ahead.
+        refuseSymlinkTarget(`${file}.previous`, undefined);
         pfd = fs.openSync(
           `${file}.previous`,
-          fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
+          fs.constants.O_WRONLY | fs.constants.O_CREAT | (NOFOLLOW || 0) | fs.constants.O_NONBLOCK,
           mode,
         );
         const pstat = fs.fstatSync(pfd);
@@ -976,4 +995,5 @@ module.exports = {
   get ROOT() { return rootDir(); },
   FILENAME, MAX_BYTES, MIN_CHARS, STALENESS, ABSENT, UNREADABLE,
   fileFor, registryKey, sessionStartedAt, staleness, compare, versionOf, read, write, renameIn, wroteBy,
+  _setNofollowForTest,
 };

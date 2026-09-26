@@ -387,9 +387,8 @@ test('#3391: a send to a GROK pane waits at least the codex gap between the past
   // runner === 'grok'), so an idle grok pane is addressable without a screen match.
   // It gets the CODEX_ENTER_GAP_MS floor for the same #571 reason gemini does: a
   // composer that can take an immediate Enter as part of a large paste must not race it.
-  // Grok fronts as `node` (status.js: "grok fronts as node too"), recognized by the
-  // @kosmos_runner tag, so the fixture's process is node with the grok runner tag.
-  withFleet([fleet.agent('grokll', { state: 'idle', runner: 'grok', command: 'node' })], (board) => {
+  // #3953: grok is a native binary, and a Mac pane reads `grok-native` (measured, grok 1.0.41).
+  withFleet([fleet.agent('grokll', { state: 'idle', runner: 'grok', command: 'grok-native' })], (board) => {
     const tmux = arm([ok(), ok()]);
     chat.setPauser((ms) => { tmux.calls.push(['<pause>', ms]); });
     const verdict = chat.deliver('grokll', 'answer with: direct works', board.agents);

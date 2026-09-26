@@ -1258,7 +1258,17 @@ test('the startup script, actually run, hands the pane its account and its board
     const minted = passed.filter((v) => v.startsWith('KOSMOS_AGENT_TOKEN='));
     assert.equal(minted.length, 1, `${label}: expected exactly one sender token in the pane env: ` + JSON.stringify(passed));
     assert.match(minted[0], /^KOSMOS_AGENT_TOKEN=[0-9a-f]{64}$/, `${label}: the token is not the 32-byte hex the supervisor validates`);
-    const rest = passed.filter((v) => !v.startsWith('KOSMOS_AGENT_TOKEN='));
+    /* #3953: a codex pane is also handed PATH, with the node its report bridge needs appended to the
+       server's PATH. Asserted here by name and shape, then set aside so the exact set below still holds. */
+    const paths = passed.filter((v) => v.startsWith('PATH='));
+    if ((b.runner || 'claude') === 'codex') {
+      const nodeDir = require('path').dirname(require('child_process').execFileSync('/bin/bash', ['-c', 'command -v node'], { encoding: 'utf8' }).trim());
+      assert.equal(paths.length, 1, `${label}: expected one PATH for the codex pane: ` + JSON.stringify(passed));
+      assert.ok(paths[0].endsWith(':' + nodeDir), `${label}: the codex pane's PATH does not end with node's directory: ${paths[0]}`);
+    } else {
+      assert.equal(paths.length, 0, `${label}: a claude pane was handed a PATH: ` + JSON.stringify(passed));
+    }
+    const rest = passed.filter((v) => !v.startsWith('KOSMOS_AGENT_TOKEN=') && !v.startsWith('PATH='));
     /* ⚠️ #1160 ADDS A FOURTH, FOR CLAUDE ONLY, and it is written into the
        expected SET rather than filtered out of it. The exactness is this
        assertion's whole value -- it is what says nothing UNEXPECTED reaches a
@@ -1363,7 +1373,12 @@ test('the startup script, actually run, hands the pane its account and its board
            concrete default path), a deliberate always-on rider on the codex arm like HOME is for
            claude. Excluded here, pinned present by the codex positive check below. Claude panes
            never carry it (the block is codex-arm-only), so this exclusion is codex-scoped. */
-        && !(!isClaude && /^CODEX_HOME=/.test(v)));
+        && !(!isClaude && /^CODEX_HOME=/.test(v))
+        /* #3953: on the codex arm PATH rides ALWAYS too (the server's PATH with node's directory
+           appended, for the report bridge). Codex-scoped, and pinned present just below. */
+        && !(!isClaude && /^PATH=/.test(v)));
+      assert.equal(passed.some((v) => /^PATH=/.test(v)), !isClaude,
+        `${label}: PATH ${isClaude ? 'reached a claude pane' : 'stopped reaching the codex pane'}: ` + JSON.stringify(r.newSession));
       assert.deepEqual(notToken, [],
         `${label}: a variable that is not set was still passed into the pane: ` + JSON.stringify(r.newSession));
       assert.ok(passed.includes('KOSMOS_WORLD='),
