@@ -86,7 +86,33 @@ const shared = inflight.collapse(checkOnce);
 
 /** { installed, signedIn, because? }: signedIn is true; false only when agy is not installed; null when
     it could not be confirmed, never a guessed "signed out". */
-function check() { return shared(); }
+function check() { return shared().then((r) => { remember(r); return r; }); }
+
+/* #3998: the LAST answer, so Settings can show the subscription as an account row without spending
+   a prompt on every repaint. Saved beside the sign-in folder, so a board restart keeps it. Only a
+   confident answer is kept: signedIn true, or false because agy is not installed; "could not
+   confirm" (null) leaves the last one standing. */
+let lastFile = () => path.join(require('./store').ROOT, 'agy-signin', 'last.json');
+function remember(r) {
+  if (!r || (r.signedIn !== true && !(r.signedIn === false && r.installed === false))) return;
+  const rec = { signedIn: r.signedIn === true, at: new Date().toISOString() };
+  try { fs.mkdirSync(path.dirname(lastFile()), { recursive: true, mode: 0o700 }); fs.writeFileSync(lastFile(), JSON.stringify(rec), { mode: 0o600 }); } catch { /* best effort */ }
+}
+/** { signedIn, at } from the last confident answer, or null if there has been none. */
+function lastKnown() {
+  try { const r = JSON.parse(fs.readFileSync(lastFile(), 'utf8')); return r && typeof r.signedIn === 'boolean' ? r : null; } catch { return null; }
+}
+/** Forget it (Remove on the account row): Kosmos stops listing it; agy's own sign-in is untouched. */
+function forget() { try { fs.rmSync(lastFile(), { force: true }); } catch { /* none */ } }
+/* The Google account agy is signed in as, if its account file names one (~/.gemini/google_accounts.json,
+   "active"). Read-only; null when absent or unreadable. */
+function activeEmail() {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.gemini', 'google_accounts.json'), 'utf8'));
+    return j && typeof j.active === 'string' && /^[^\s@]+@[^\s@]+$/.test(j.active) ? j.active : null;
+  } catch { return null; }
+}
+function setLastFileForTests(fn) { lastFile = fn; }
 
 /* #3998: signing in is engine/agysignin.js (agy's interactive sign-in run out of sight); the old
    open-it-in-Terminal path is gone. */
@@ -148,4 +174,5 @@ function resetForTests() { runAgy = REAL.runAgy; runInstall = REAL.runInstall; s
 function setRunnerForTests(fn) { runAgy = fn; }
 
 REAL.runAgy = runAgy; REAL.runInstall = runInstall;
-module.exports = { resetForTests, allowSandboxInstallForTests, installed, installedForScreen, offered, check, install, setRunnerForTests, setInstallerForTests, PROMPT, INSTALL_URL };
+module.exports = { resetForTests, allowSandboxInstallForTests, installed, installedForScreen, offered, check, install, setRunnerForTests, setInstallerForTests, PROMPT, INSTALL_URL,
+  remember, lastKnown, forget, activeEmail, setLastFileForTests };
