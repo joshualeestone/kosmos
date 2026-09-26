@@ -29,6 +29,12 @@ held to, and puts it on screen.
     makes a point look dearer: late. So does an agent that switched accounts today,
     whose tokens on the old account are counted against the new one. Neither is
     bounded here; the daily re-measure and the points rule below keep them to a day.
+- A step of the figure first seen just after midnight (use late the night before, shown at the
+  next status line) counts as today's points with no tokens behind it: early, and largest in the
+  morning. Accepted and named, not corrected: the figure has no timestamp of its own to correct by.
+- The day's token count only grows: it is kept with the calibration for that day, so an agent
+  stopped mid-day (it leaves the roster) or a meter that restarted cannot lower it, and a count not
+  read in full this tick changes nothing.
 - A new day's estimate replaces the stored one only once it rests on at least as many
   points, so a noisy 2-point morning does not overwrite a 15-point day. Past three days
   old, any qualifying day replaces it, so one heavy day does not hold until it expires

@@ -152,6 +152,8 @@ function applyPatch(profile, patch, now = Date.now()) {
   const newLimit = 'dailyTokenLimit' in patch && patch.dailyTokenLimit !== cur.dailyTokenLimit;
   if ('dailyTokenLimit' in patch) next.dailyTokenLimit = patch.dailyTokenLimit;
   if ('dailyAllowancePct' in patch) next.dailyAllowancePct = patch.dailyAllowancePct;
+  /* A token limit set on its own is a limit in tokens: the % goes, or the next sweep would put it back. */
+  else if ('dailyTokenLimit' in patch) next.dailyAllowancePct = null;
   if (newLimit) next.limitOverrideDay = null;
   if ('active' in patch) {
     /* Only TODAY's limit pause earns the override; one left over from yesterday is simply lifted. */

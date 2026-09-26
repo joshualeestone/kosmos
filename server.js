@@ -2550,12 +2550,19 @@ function calibrateSwarmAllowances(roster, now = Date.now(), tokensFor = null) {
     if (!dir) continue;
     try { dir = fs.realpathSync(dir); } catch { /* not there yet: its own spelling */ }
     dirOf.set(c.sessionName, dir);
+    /* A count not read to its end this time (metered false with tokens behind it, or a meter call that ran
+       out of its read budget) leaves the account's number unknown for this tick: NaN, so calibrate keeps
+       what it has. An agent with no transcript today counts zero. */
     let n = 0;
-    if (c.swarm && Number.isFinite(c.swarm.tokensToday)) n = c.swarm.tokensToday;
+    if (c.swarm && Number.isFinite(c.swarm.tokensToday)) n = c.swarm.metered === false && c.swarm.tokensToday > 0 ? NaN : c.swarm.tokensToday;
+    else if (tokensFor) { try { n = tokensFor(c.sessionName); } catch { n = NaN; } }
     else {
-      try { n = tokensFor ? tokensFor(c.sessionName) : swarmMod.meter(status.transcriptFor(c.sessionName), now, status.ownsFor(c.sessionName)).tokensToday; } catch { n = 0; }
+      try {
+        const file = status.transcriptFor(c.sessionName);
+        if (file) { const m = swarmMod.meter(file, now, status.ownsFor(c.sessionName)); n = m.complete ? m.tokensToday : NaN; }
+      } catch { n = NaN; }
     }
-    tokens.set(dir, (tokens.get(dir) || 0) + (Number.isFinite(n) ? n : 0));
+    tokens.set(dir, (tokens.has(dir) ? tokens.get(dir) : 0) + n);
   }
   const cal = new Map();
   for (const [dir, n] of tokens) {

@@ -352,7 +352,7 @@ test('calibration: tokens today over (points moved + 1) since a reading from bef
   const got = allowance.calibrate(dir, 4e6, { now, dayStart });
   // 4 points measured can be just under 5 real ones (the figure is a whole number): 4e6 / 5.
   assert.equal(got.tokensPerPoint, 8e5);
-  assert.deepEqual(allowance.readCalibration(dir, now), { tokensPerPoint: 8e5, points: 4, at: now });
+  assert.deepEqual(allowance.readCalibration(dir, now), { tokensPerPoint: 8e5, points: 4, tokens: 4e6, day: dayStart, at: now });
 });
 
 test('calibration: no reading from before today is no calibration, not a guess', () => {
@@ -398,6 +398,27 @@ test('calibration: a stored one older than CALIBRATION_REPLACE_AGE_MS is replace
   assert.equal(allowance.calibrate(dir, 8e6, { now, dayStart }).tokensPerPoint, 1e6, 'CONTROL: a young 15-point one was replaced by 3 points');
   fs.writeFileSync(path.join(dir, allowance.CALIBRATION_FILE), JSON.stringify({ tokensPerPoint: 1e6, points: 15, at: now - allowance.CALIBRATION_REPLACE_AGE_MS - 3600e3 }));
   assert.equal(allowance.calibrate(dir, 8e6, { now, dayStart }).tokensPerPoint, 2e6, 'an old 15-point one held off a qualifying day');
+});
+
+test('calibration: the day\'s token count only grows (an agent stopped mid-day does not lower it); an unread count changes nothing', () => {
+  const dir = freshDir();
+  const now = Date.now();
+  const dayStart = now - 6 * 3600 * 1000;
+  weeklyFile(dir, 44, FUTURE, [[dayStart - 3600e3, 40, FUTURE], [now - 60e3, 44, FUTURE]]);
+  assert.equal(allowance.calibrate(dir, 10e6, { now, dayStart }).tokensPerPoint, 2e6);
+  // An agent left the roster: the same day's count reads lower, the points have not moved.
+  assert.equal(allowance.calibrate(dir, 5e6, { now: now + 60e3, dayStart }).tokensPerPoint, 2e6, 'a smaller count the same day lowered it');
+  // CONTROL: a larger count is taken.
+  assert.equal(allowance.calibrate(dir, 15e6, { now: now + 120e3, dayStart }).tokensPerPoint, 3e6, 'CONTROL: a larger count was not taken');
+  // A count not read in full (NaN) keeps the stored one and writes nothing.
+  const before = fs.statSync(path.join(dir, allowance.CALIBRATION_FILE)).mtimeMs;
+  assert.equal(allowance.calibrate(dir, NaN, { now: now + 180e3, dayStart }).tokensPerPoint, 3e6);
+  assert.equal(allowance.readCalibration(dir, now + 180e3).at, now + 120e3, 'an unread count rewrote the calibration');
+  assert.equal(fs.statSync(path.join(dir, allowance.CALIBRATION_FILE)).mtimeMs, before);
+  // Yesterday's count is not carried into a new day.
+  const nextDay = dayStart + DAY;
+  weeklyFile(dir, 50, FUTURE, [[nextDay - 3600e3, 44, FUTURE], [nextDay + 3600e3, 50, FUTURE]]);
+  assert.equal(allowance.calibrate(dir, 7e6, { now: nextDay + 3600e3, dayStart: nextDay }).tokensPerPoint, 1e6, 'yesterday\'s count was carried into today');
 });
 
 test('calibration: a stored one older than a week, or from the future, is not used', () => {

@@ -90,7 +90,7 @@ test('#3946 sweep: the account\'s tokens today over the figure\'s movement re-de
     const hive = board.card('hive');
     assert.ok(hive.swarm, 'the lead\'s real card carries no swarm field');
     const roster = [
-      { ...hive, swarm: { ...hive.swarm, tokensToday: 3e6 } },
+      { ...hive, swarm: { ...hive.swarm, tokensToday: 3e6, metered: true } },   // measured in full
       board.card('other'),   // no transcript here: it counts nothing, and must not throw
     ];
     did = calibrateSwarmAllowances(roster, now);
@@ -117,6 +117,25 @@ test('#3946 sweep: an account with no swarm on it is still calibrated, so its fi
   } finally { board.restore(); }
   assert.deepEqual(did, [], 'no swarm, nothing to re-derive');
   assert.equal(allowance.readCalibration(dir, now).tokensPerPoint, 1e6, 'an account with no swarm was not calibrated');
+});
+
+test('#3946 sweep: an account whose count was not read in full this tick is left as it was', () => {
+  const dir = account('acct-partial');
+  const now = Date.now();
+  const dayStart = swarm.startOfDay(now);
+  fs.writeFileSync(path.join(dir, statusline.FILE), JSON.stringify({ usedPct: 44, resetsAt: FUTURE, at: now - 1000,
+    history: [[dayStart - 3600e3, 40, FUTURE], [now - 1000, 44, FUTURE]] }));
+  lead('partial-a', { role: 'pm' }, dir);
+  lead('partial-b', { role: 'pm' }, dir);
+  const fleetMod = require('./test-support/fleet');
+  const board = fleetMod.install([fleetMod.agent('partial-a', { state: 'idle' }), fleetMod.agent('partial-b', { state: 'idle' })]);
+  try {
+    const cards = [board.card('partial-a'), board.card('partial-b')];
+    calibrateSwarmAllowances(cards, now, (n) => (n === 'partial-a' ? 5e6 : NaN));
+    assert.equal(allowance.readCalibration(dir, now), null, 'a partly read account was calibrated from half its count');
+    calibrateSwarmAllowances(cards, now, (n) => (n === 'partial-a' ? 5e6 : 0));
+    assert.equal(allowance.readCalibration(dir, now).tokensPerPoint, 1e6, 'CONTROL: read in full, it is calibrated');
+  } finally { board.restore(); }
 });
 
 test('#3946 claudeAccountDirOf: the job\'s account, the default home when it names none, null for no job or another runner', () => {

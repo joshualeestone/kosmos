@@ -573,12 +573,17 @@ test('#3946: the % setting is checked, born, patched, and a new limit only when 
   const onAndMoved = swarm.applyPatch({ ...paused, swarm: on }, { dailyAllowancePct: 4, dailyTokenLimit: 4000 }, NOW);
   assert.equal(onAndMoved.limitOverrideDay, null, 'a new % worth new tokens kept the override');
   assert.equal(onAndMoved.dailyAllowancePct, 4);
+  // A token limit set on its own is a limit in tokens: the % goes, or the next sweep would restore it.
+  const tokensOnly = swarm.applyPatch(paused, { dailyTokenLimit: 5000 }, NOW);
+  assert.equal(tokensOnly.dailyAllowancePct, null, 'a token limit on its own kept the %');
+  assert.equal(swarm.applyPatch(paused, { dailyTokenLimit: 5000, dailyAllowancePct: 5 }, NOW).dailyAllowancePct, 5, 'CONTROL: tokens with a % keep it');
   const pctOnly = swarm.applyPatch({ ...paused, swarm: on }, { dailyAllowancePct: 4 }, NOW);
   assert.equal(pctOnly.limitOverrideDay, on.limitOverrideDay, 'a % that changed no tokens dropped the override');
   assert.equal(pctOnly.dailyTokenLimit, 1000);
 });
 
 test('#3946: limitFromAllowance and rederiveLimits keep the token limit in step with the % on a calibrated account', () => {
+  const PAUSED_AT = new Date(2026, 8, 25, 9, 0, 0).getTime();   // one fixed day, so the override arm cannot straddle midnight
   assert.equal(swarm.limitFromAllowance(3, { tokensPerPoint: 1e6 }), 3e6);
   assert.equal(swarm.limitFromAllowance(3, null), null, 'no calibration is no number');
   assert.equal(swarm.limitFromAllowance(0, { tokensPerPoint: 1e6 }), null);
@@ -588,7 +593,7 @@ test('#3946: limitFromAllowance and rederiveLimits keep the token limit in step 
     near: swarm.birthProfile({ dailyTokenLimit: 3010000, dailyAllowancePct: 3 }),
     uncal: swarm.birthProfile({ dailyTokenLimit: 1000, dailyAllowancePct: 3 }),
     paused: (() => { const b = swarm.birthProfile({ dailyTokenLimit: 1000, dailyAllowancePct: 3 });
-      return { ...b, swarm: { ...b.swarm, active: false, pausedBecause: 'limit', pausedAt: new Date().toISOString(), pausedAtLimit: 1000 } }; })(),
+      return { ...b, swarm: { ...b.swarm, active: false, pausedBecause: 'limit', pausedAt: new Date(PAUSED_AT).toISOString(), pausedAtLimit: 1000 } }; })(),
   };
   const writes = [];
   const deps = {
@@ -599,7 +604,7 @@ test('#3946: limitFromAllowance and rederiveLimits keep the token limit in step 
   const did = swarm.rederiveLimits([{ name: 'pct' }, { name: 'tokens' }, { name: 'near' }, { name: 'uncal' }, { name: 'paused' }], deps);
   assert.deepEqual(writes, [['pct', 3e6]], 'only the ACTIVE % swarm off by more than the slack was rewritten');
   // A paused swarm keeps the limit it paused at, so switching it back on today still holds (applyPatch).
-  assert.ok(swarm.applyPatch(store.paused, { active: true }).limitOverrideDay, 'a paused swarm lost its switch-back-on override');
+  assert.ok(swarm.applyPatch(store.paused, { active: true }, PAUSED_AT + 60000).limitOverrideDay, 'a paused swarm lost its switch-back-on override');
   assert.deepEqual(did, [{ name: 'pct', from: 1000, to: 3e6 }]);
   assert.equal(swarm.settingsOf(store.pct).dailyAllowancePct, 3, 'the % was lost in the rewrite');
 });

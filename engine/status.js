@@ -4345,7 +4345,7 @@ function claudeAccountDirOf(agentName) {
   if (!job) return null;
   if (job.runner && job.runner !== 'claude') return null;
   if (typeof job.configDir === 'string' && job.configDir) return job.configDir;
-  try { return path.join(require('./accounts').HOME_FOR_TEST, '.claude'); } catch { return null; }
+  try { return path.join(require('./accounts').homeDir(), '.claude'); } catch { return null; }
 }
 
 /* #3564: the card's `swarm` field. The transcript is resolved only for a swarm. `owns` tells

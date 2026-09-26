@@ -189,7 +189,8 @@ function readCalibration(accountDir, now = Date.now()) {
   try { j = JSON.parse(fs.readFileSync(path.join(accountDir, CALIBRATION_FILE), 'utf8')); } catch { return null; }
   if (!j || typeof j.tokensPerPoint !== 'number' || !Number.isFinite(j.tokensPerPoint) || j.tokensPerPoint <= 0) return null;
   if (typeof j.at !== 'number' || !(now - j.at < CALIBRATION_MAX_AGE_MS) || j.at > now) return null;
-  return { tokensPerPoint: j.tokensPerPoint, points: Number.isFinite(j.points) ? j.points : 0, at: j.at };
+  return { tokensPerPoint: j.tokensPerPoint, points: Number.isFinite(j.points) ? j.points : 0,
+    tokens: Number.isFinite(j.tokens) ? j.tokens : null, day: Number.isFinite(j.day) ? j.day : null, at: j.at };
 }
 
 /**
@@ -199,7 +200,8 @@ function readCalibration(accountDir, now = Date.now()) {
  * stored one is older than CALIBRATION_REPLACE_AGE_MS); otherwise
  * the last stored one (readCalibration); otherwise null.
  * `tokensToday` is every Kosmos agent's tokens on this account since `dayStart`,
- * counted the way the swarm limit counts them (swarm.meter). Never throws.
+ * counted the way the swarm limit counts them (swarm.meter), or NaN when a count was not
+ * read in full this time (nothing is updated then). Never throws.
  */
 function calibrate(accountDir, tokensToday, { now = Date.now(), dayStart } = {}) {
   try {
@@ -210,8 +212,14 @@ function calibrate(accountDir, tokensToday, { now = Date.now(), dayStart } = {})
        once the stored one is older than CALIBRATION_REPLACE_AGE_MS. */
     const enough = points !== null && points >= MIN_CALIBRATION_POINTS
       && (!stored || points >= stored.points || now - stored.at > CALIBRATION_REPLACE_AGE_MS);
-    if (enough && Number.isFinite(tokensToday) && tokensToday > 0) {
-      const next = { tokensPerPoint: tokensToday / (points + 1), points, at: now };
+    /* Tokens counted today only grow: an agent stopped or removed mid-day drops out of the roster, and a
+       meter that restarted reads less than it had, but neither un-spends what the figure already moved for.
+       So the day's count is the most it has been (kept with the calibration, for today only). */
+    const sameDay = stored && stored.day === dayStart && Number.isFinite(stored.tokens);
+    const counted = Number.isFinite(tokensToday) ? Math.max(tokensToday, sameDay ? stored.tokens : 0) : NaN;
+    if (enough && counted > 0) {
+      const next = { tokensPerPoint: counted / (points + 1), points, tokens: counted, day: dayStart, at: now };
+      if (sameDay && stored.points === points && stored.tokens === counted) return stored;   // nothing moved: no write
       const file = path.join(accountDir, CALIBRATION_FILE);
       const tmp = file + '.' + process.pid + '.new';
       try { fs.writeFileSync(tmp, JSON.stringify(next) + '\n'); fs.renameSync(tmp, file); }
