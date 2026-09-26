@@ -15,8 +15,10 @@ Reproduced: a stand-in that prints 400ms late fails the old test with actual 'st
 
 ## Change (test only)
 - Wait for the Windows session to reach awaiting-code (or error) before anything else.
-- Read it only once its own browser wait would certainly have fired (3 x 150ms past start), so
-  staying in awaiting-code can only mean the device wait.
+- Then read it as soon as the Mac one has errored: the Windows watchdog was armed first, and node
+  fires same-length timers in the order set, so a browser-wait Windows would already be in error.
+- The device wait in this test is 60s (was 5s), so a slow stand-in fails on the wait for its code,
+  naming 'starting', never on a watchdog whose error text matches the browser one.
 - The failure message carries the session's error, so a real timeout names itself.
 
 ## Evidence
@@ -27,4 +29,14 @@ Reproduced: a stand-in that prints 400ms late fails the old test with actual 'st
 
 ## Weakest premise
 The first wait is bounded by waitFor's 8s default: a stand-in that cannot print in 8s still fails,
-now with a "timeout; last {...}" message naming the state.
+with a "timeout; last {...}" message naming the state. (Before iteration 1 the real bound was the
+test's 5s device wait, which failed with a message blaming the browser wait; now 60s.)
+
+## Iteration 1 (opus)
+- Confirmed independently: old test 13/16 failures at load ~15, new 0/16; the engine perturbation
+  (win32 on the browser wait) still reds.
+- WARNING: the real bound was the 5s device wait, whose error text is the browser one --> 60s, the
+  message carries elapsed time, the premise corrected.
+- NIT: the 3 x 150ms settle's comment gave the wrong reason for certainty --> removed; the reason
+  (timer order) is stated. NIT: the test bounds the device wait below by ~150ms, not at its value;
+  the value is pinned by the chatgptLoginTimeoutMs test. Kept.
