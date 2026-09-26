@@ -181,7 +181,8 @@ async function open(browser, opts) {
           current: (typeof CURRENT !== 'undefined' && CURRENT) ? CURRENT.sessionName : null,
           talkTop: talk ? Math.round(talk.getBoundingClientRect().top) : null, scrollY: Math.round(window.scrollY),
           docH: document.documentElement.scrollHeight, vh: window.innerHeight,
-          boxBottom: box ? Math.round(box.getBoundingClientRect().bottom) : null };
+          boxBottom: box ? Math.round(box.getBoundingClientRect().bottom) : null,
+          boxW: box ? Math.round(box.getBoundingClientRect().width) : 0, boxH: box ? Math.round(box.getBoundingClientRect().height) : 0 };
       });
       await page.close();
       return r;
@@ -193,7 +194,10 @@ async function open(browser, opts) {
     // chat-first phone layout (#718, mobile-chatfirst-718), where the page is exactly the screen and
     // the whole talk box is already on it without scrolling.
     const scrolledTo = present.scrollY > 0 && present.talkTop >= 0 && present.talkTop <= 667 / 4;
-    const wholeScreen = present.docH <= present.vh + 1 && present.talkTop >= 0 && present.boxBottom !== null && present.boxBottom <= present.vh + 1;
+    // A hidden or collapsed box has an all-zero rect, which would pass the edge tests (Kano), so it
+    // must have a real size too.
+    const wholeScreen = present.docH <= present.vh + 1 && present.talkTop >= 0 && present.boxW > 0 && present.boxH > 0
+      && present.boxBottom !== null && present.boxBottom <= present.vh + 1;
     chk(present.detailShown && present.current === BASE.sessionName && (scrolledTo || wholeScreen),
       '[link/phone] a page load with ?tab=detail&agent= lands on that agent\'s conversation', JSON.stringify(present));
     const missing = await fromLink([], 11000);
