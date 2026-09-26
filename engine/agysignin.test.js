@@ -490,3 +490,37 @@ test('#3998 round 6: between setup screens, an unknown frame is not asked about 
     assert.equal(s.status().state, 'done');
   } finally { s.resetForTests(); }
 });
+
+test('#3998 round 7: a Down that tmux could not send does not spend the terms screen\'s moves', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, TERMS('Previous'));
+  let fail = 3;
+  s.setForTests({ tmux: (args) => {
+    if (args[0] === 'capture-pane') return st.screen;
+    if (args[0] === 'send-keys') { if (fail > 0) { fail -= 1; throw new Error('tmux busy'); } st.sent.push(args.slice(3).join(' ')); }
+    return '';
+  } });
+  try {
+    s.start();
+    for (let i = 0; i < 3; i++) s.tickForTests();   // three hiccups
+    s.tickForTests();                                // then it goes out
+    assert.deepEqual(st.sent, ['Down'], 'CONTROL: one Down reached agy');
+    st.screen = TERMS('[ ] Yes, I agree'); s.tickForTests();
+    st.screen = TERMS('[Done]'); s.tickForTests();
+    assert.deepEqual(st.sent, ['Down', 'Down', 'Enter'], 'the hiccups used up the moves before Done was reached');
+    assert.notEqual(s.status().state, 'stuck');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 7: a second refused code is counted, so the page can bring the cursor back again', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, CODE_SCREEN);
+  try {
+    const { id } = s.start();
+    s.tickForTests();
+    s.code(CODE, id); st.t += 21000; s.tickForTests();
+    assert.equal(s.status().refusals, 1);
+    s.code(CODE, id); st.t += 21000; s.tickForTests();
+    assert.equal(s.status().refusals, 2, 'a second refusal with the same words looked like the first');
+  } finally { s.resetForTests(); }
+});

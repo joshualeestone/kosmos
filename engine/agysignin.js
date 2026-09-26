@@ -103,6 +103,7 @@ function status() {
   if (S.url) out.url = S.url;
   if (S.because) out.because = S.because;
   if (S.shown) out.shown = true;   // the window is the person's now; the panel says so
+  if (S.refusals) out.refusals = S.refusals;
   return out;
 }
 
@@ -219,7 +220,8 @@ function step() {
     if (S.pressed) return;
     if (/\[Done\]/.test(on)) { S.pressed = true; keys('Enter'); return; }
     if (S.downFrom !== null && S.downFrom !== undefined && on === S.downFrom) return;   // the last Down has not landed yet
-    if (S.moves < 4) { S.downFrom = on; S.moves += 1; keys('Down'); return; }
+    // The move counts only once the key went out (round 7): a tmux hiccup must not spend the budget.
+    if (S.moves < 4) { keys('Down'); S.downFrom = on; S.moves += 1; return; }
     // Shown, not ended: the person can still finish it in the window, or stop.
     S.state = 'stuck'; S.because = 'Kosmos could not find the Done button on Antigravity\'s terms';
     return;
@@ -248,6 +250,7 @@ function step() {
       // copied short). Ask again rather than wait here for half an hour.
       S.state = 'code'; S.step = 'code';
       S.because = 'Antigravity did not take that code. Copy the newest code from Google\'s page and paste it again.';
+      S.refusals = (S.refusals || 0) + 1;   // the same words twice are two refusals (the page refocuses on each)
     } else if (S.state !== 'code' && S.state !== 'checking') { S.state = 'code'; S.step = 'code'; S.because = null; }
     const u = urlFrom(text);
     if (u) S.url = u;
