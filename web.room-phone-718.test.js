@@ -91,6 +91,11 @@ test('on a touchscreen only a tap (or focus) opens the room reaction bar, never 
   assert.match(t, /#pj-room \.msg\.rxn-below \.rxn-quick \{ bottom: auto; top: calc\(100% \+ 4px\); \}/, 'and below it where the thread top would cut it');
   assert.match(html, /document\.addEventListener\('pointerdown', \(e\) => \{\n  if \(!RXN_SHOW_POST\) return;[^\n]*\n  const room = document\.getElementById\('pj-room'\);/, 'outside taps close on pointerdown (iOS sends no click to a document listener for plain content)');
   assert.match(t, /#pj-room \.msg:not\(\.you\) \.rxn-quick \{ right: auto; left: 0; \}/, 'an agent bar starts at its bubble, not past the thread edge');
+  // #718: the DM's open row, likewise, above its neighbours but under the DM's sticky composer bar.
+  const dmLift = t.match(/#d-dmthread \.msg\.rxn-show \.msg-b, #d-dmthread \.msg\.rxn-below \.msg-b \{ z-index: (\d+); \}/);
+  const dmBar = html.match(/#d-talk-box \.dmbar \{ position: sticky; bottom: 0; z-index: (\d+); \}/);
+  assert.ok(dmLift && dmBar, 'the DM open-row lift and the DM sticky composer rule are both found');
+  assert.ok(Number(dmLift[1]) >= 1 && Number(dmLift[1]) < Number(dmBar[1]), 'DM lift ' + dmLift[1] + ' vs DM composer ' + dmBar[1]);
 });
 
 test('the tap listener is registered before the data-open-agent one, which must stay last', () => {
@@ -98,6 +103,10 @@ test('the tap listener is registered before the data-open-agent one, which must 
   // The data-open-agent listener itself (its code, not the comment above it).
   const last = html.indexOf("const t = e.target && e.target.closest ? e.target.closest('[data-open-agent]') : null;");
   assert.ok(tap > 0 && last > 0 && tap < last, 'tap listener at ' + tap + ', last listener at ' + last);
+  // #718: the handler is now a named function registered on both threads, so the line above only finds
+  // its body; the REGISTRATION below is the assertion that carries the ordering.
+  const reg = html.indexOf("for (const id of rxnHosts()) document.getElementById(id).addEventListener('click', pjRxnTap);");
+  assert.ok(reg > 0 && reg < last, 'tap registration at ' + reg + ', last listener at ' + last);
 });
 
 test("your own bubble's room cap repeats the base bubble cap (78ch), pinned", () => {
