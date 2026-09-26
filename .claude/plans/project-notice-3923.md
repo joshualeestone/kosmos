@@ -148,3 +148,15 @@ page. Try again re-tells that agent and the notice updates.
 - The retell 409 says "that agent is not on this project", true whether it left or never joined.
 - Already recorded: DELETE ...?retell=1 (round 15). Noted: render-projects' real Try again uses one
   slot of the agent-made bound only when the browser is not the screen; a browser press is the screen.
+
+## Review round 17
+- A retry the board answered "told" is never marked "still" (a failed follow-up read repainted the
+  old reason with "It still did not work." while the status line said it worked). Tested.
+- The success line is emptied and written a frame later, so the same sentence twice is announced
+  twice; it is tagged with its project and cleared when another project paints.
+- Unknown cause row: "Kosmos does not know why. It may work on another try." (no longer repeats
+  the headline).
+- `changed` and `added` describe one write and are not stored in the told record.
+- render-projects waits for the answer AND the focus; stale comments fixed.
+- Accepted: two rows pressed at once can re-enable the second's button on the first's repaint (a
+  second press sends one extra harmless retry).

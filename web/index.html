@@ -43784,7 +43784,7 @@ function pjNoticeRow(m, solo) {
     // Unknown cause: its own sentence and one honest retry. Not a system error's own words, though:
     // one carrying a file path or an error code (EACCES, ENOENT...) is not a sentence for the person.
     const raw = /(^|\s)E[A-Z]{2,}\b|\/(Users|home|private|var|tmp)\/|[A-Za-z]:\\/.test(because);
-    return { shape: 'wait', why: (!raw && pjSentence(because)) || 'Kosmos could not update ' + (solo ? name + '\u2019s' : 'its') + ' instructions.', fix: '', name, key: m.sessionName, because };
+    return { shape: 'wait', why: (!raw && pjSentence(because)) || 'Kosmos does not know why. It may work on another try.', fix: '', name, key: m.sessionName, because };
   }
   const [, shape, why, fix] = hit;
   return { shape, why: why(solo ? name : null, name), fix: fix ? fix(name) : '', name, key: m.sessionName, because };
@@ -47445,6 +47445,9 @@ function paintOneProject() {
   const noticeBox = document.getElementById('pj-one-notice');
   // The region is never hidden (see the CSS note): only its content comes and goes.
   setIfChanged(noticeBox, notice);
+  // A success line from another project is not about this one.
+  { const said = document.getElementById('pj-one-notice-said');
+    if (said && said.dataset.pj && said.dataset.pj !== String(p.id)) { said.textContent = ''; said.dataset.pj = ''; } }
   setIfChanged(document.getElementById('pj-one-agents'), roster.length
     ? roster.map((m) => pjMember(m, true, true, true)).join('')
     : '<p class="fhint">No agents on this project yet.</p>');
@@ -53333,7 +53336,9 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
   // One mark per retry: an answered one says "still", an unanswered one says it did not go through.
   PJ_NOTICE_TRIED.delete(mark);
   PJ_NOTICE_MISSED.delete(mark);
-  if (!left) (reached ? PJ_NOTICE_TRIED : PJ_NOTICE_MISSED).set(mark, before);
+  // A retry the board answered "told" is not "still": a stale repaint (a read that failed afterwards)
+  // must not say it failed while the status line says it worked.
+  if (!left && !told) (reached ? PJ_NOTICE_TRIED : PJ_NOTICE_MISSED).set(mark, before);
   box.__lastLive = null;   // repaint even when the answer is word for word the same
   // A newer read that overtook this one also started after the retry, so its data answers the
   // retry too: the mark stands. One more read gives this handler a paint of its own to focus on.
@@ -53348,7 +53353,16 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
   // board's own "told" verdict: a retry that came back with a different reason may leave a row with
   // no button, which is not success. Said whether or not focus is put back below.
   const said = document.getElementById('pj-one-notice-said');
-  if (said) said.textContent = told ? 'Kosmos updated ' + (name || key) + '\u2019s instructions.' : '';
+  if (said) {
+    // Emptied, then written a frame later, so the same sentence twice (leo fixed again) is announced
+    // again; tagged with its project so a switch clears it (paintOneProject).
+    said.textContent = '';
+    said.dataset.pj = told ? String(project) : '';
+    if (told) {
+      const line = 'Kosmos updated ' + (name || key) + '\u2019s instructions.';
+      requestAnimationFrame(() => { if (said.dataset.pj === String(project)) said.textContent = line; });
+    }
+  }
   // Only put focus back if it is still where the press left it (the page, or this notice); a
   // person who has moved on keeps their place.
   const now = document.activeElement;

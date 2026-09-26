@@ -164,7 +164,7 @@ test('#3923: an unknown cause is one honest retry with the engine\'s own sentenc
   const { pjNotice } = notice();
   // A system error's own words (an error code, a path) never reach the person.
   for (const raw of ["EACCES: permission denied, open '/Users/josh/x.json'", 'ENOSPC: no space left on device', "could not open C:\\Users\\x"]) {
-    assert.equal(text(pjNotice(rows({ leo: raw }))), 'Kosmos could not update leo’s instructions for this project. Kosmos could not update leo’s instructions. Try again', 'raw text reached the notice: ' + raw);
+    assert.equal(text(pjNotice(rows({ leo: raw }))), 'Kosmos could not update leo’s instructions for this project. Kosmos does not know why. It may work on another try. Try again', 'raw text reached the notice: ' + raw);
   }
   assert.equal(text(pjNotice(rows({ leo: 'the disk is full' }))), 'Kosmos could not update leo’s instructions for this project. The disk is full. Try again');
 });
@@ -263,8 +263,8 @@ function retryHandler(state) {
   assert.ok(at > 0, 'the Try again listener moved; re-anchor');
   const body = PAGE.slice(at + sig.length, PAGE.indexOf('\n});', at) + 2).replace(/PJ_CURRENT/g, 'state.PJ_CURRENT').replace(/PJ_READ_FAILED/g, 'state.PJ_READ_FAILED');
   // eslint-disable-next-line no-new-func
-  return new Function('state', 'document', 'fetch', 'loadProjects', 'paintOneProject', 'PROJECTS', 'PJ_NOTICE_TRIED', 'PJ_NOTICE_MISSED', 'window', 'CSS',
-    pageFn('const pjNoticeKey').split('\n')[0] + '\nreturn ' + body + ';')(state, state.document, state.fetch, state.loadProjects, state.paintOneProject, state.PROJECTS, state.tried, state.missed, {}, undefined);
+  return new Function('state', 'document', 'fetch', 'loadProjects', 'paintOneProject', 'PROJECTS', 'PJ_NOTICE_TRIED', 'PJ_NOTICE_MISSED', 'window', 'CSS', 'requestAnimationFrame',
+    pageFn('const pjNoticeKey').split('\n')[0] + '\nreturn ' + body + ';')(state, state.document, state.fetch, state.loadProjects, state.paintOneProject, state.PROJECTS, state.tried, state.missed, {}, undefined, (fn) => { state.frames.push(fn); });
 }
 function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false, refused = false, status = null, overtaken = false, focusedElsewhere = false, focusedInside = false, readFails = false, toldState = null, otherRow = false } = {}) {
   // The board's verdict on the retry: told when the row went, could_not when it stayed (unless a test says otherwise).
@@ -281,11 +281,11 @@ function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false
   const other = { focus() { log.push('focus:other'); }, dataset: { pnRetry: 'somebody-else' } };
   const buttons = () => [...(rowAfter ? [again] : []), ...(otherRow ? [other] : [])];
   const box = { __lastLive: 'x', querySelectorAll: () => buttons(), querySelector: () => buttons()[0] || null, contains: (el) => el === inside };
-  const said = { textContent: 'stale' };
+  const said = { textContent: 'stale', dataset: {} };
   const body = { id: 'body' };
   const elsewhere = { id: 'composer' };
   const state = {
-    PJ_CURRENT: project.id, PROJECTS: [project], tried: new Map(), missed: new Map(), log, btn, attrs, onBlur, said,
+    PJ_CURRENT: project.id, PROJECTS: [project], tried: new Map(), missed: new Map(), log, btn, attrs, onBlur, said, frames: [],
     document: { getElementById: (id) => (id === 'pj-one-notice-said' ? said : box), querySelector: () => heading, body,
       get activeElement() { return focusedElsewhere ? elsewhere : (focusedInside ? inside : body); } },
     fetch: async (url, opts) => { log.push('fetch:' + opts.method + ' ' + url + ' disabled=' + btn.disabled); if (switchTo) state.PJ_CURRENT = switchTo; if (fetchFails) throw new Error('offline'); const ok = !refused && !status; return { ok, status: status || (refused ? 500 : 200), json: async () => ({ told: { state: verdict } }) }; },
@@ -319,7 +319,15 @@ test('#3923: when the row is gone focus goes to the Members heading; after a pro
   await retryHandler(gone)({ target: gone.btn });
   assert.equal(gone.log[gone.log.length - 1], 'focus:heading');
   assert.equal(gone.attrs.tabindex, '-1', 'the heading must be focusable to take focus');
+  assert.equal(gone.said.textContent, '', 'the line is emptied first, so the same sentence twice is announced twice');
+  gone.frames.forEach((fn) => fn());
   assert.equal(gone.said.textContent, 'Kosmos updated leo’s instructions.', 'a retry that worked was silent to a screen reader');
+  assert.equal(gone.said.dataset.pj, project.id, 'the success line is not tagged with its project');
+  assert.equal(gone.tried.has(project.id + '\nleo'), false, 'a retry the board answered told was marked "still"');
+  // Told, then the follow-up read FAILS (a stale repaint of the old reason): never "It still did not work".
+  const toldDark = standIn(project, { rowAfter: false, readFails: true });
+  await retryHandler(toldDark)({ target: toldDark.btn });
+  assert.equal(toldDark.tried.has(project.id + '\nleo') || toldDark.missed.has(project.id + '\nleo'), false, 'a told retry was marked as failed');
   // The row stays with a new reason that has no button: NOT success, nothing announced.
   const buttonless = standIn(project, { rowAfter: false, toldState: 'could_not' });
   await retryHandler(buttonless)({ target: buttonless.btn });
@@ -381,4 +389,12 @@ test('#3923: when the row is gone focus goes to the Members heading; after a pro
   const idle = standIn(project);
   await retryHandler(idle)({ target: { closest: () => null } });
   assert.deepEqual(idle.log, []);
+});
+
+test('#3923: switching project clears a success line that belongs to another project', () => {
+  const at = PAGE.indexOf('function paintOneProject(');
+  assert.ok(at > 0, 'paintOneProject moved; re-anchor');
+  const body = PAGE.slice(at, PAGE.indexOf('\n}\n', at));
+  assert.match(body, /said\.dataset\.pj && said\.dataset\.pj !== String\(p\.id\)\) \{ said\.textContent = ''; said\.dataset\.pj = ''; \}/,
+    'paintOneProject does not clear another project\'s success line');
 });

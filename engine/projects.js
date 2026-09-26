@@ -150,7 +150,8 @@ const GROUP_BECAUSE = new Map([
    * removed the only thing telling a reader what `them` meant, so the
    * property was real and optimising for it made the copy worse.
    *
-   * 🛑 EDIT THE FRAME AND YOU MUST RE-RENDER ALL NINE. They are written to
+   * 🛑 EDIT THE FRAME AND YOU MUST RE-RENDER EVERY ROW. (#3923: no page draws the
+   * group line any more; the notice's coverage test reads this map.) They were written to
    * sit after "We could not update these agents about this folder: " and
    * nowhere else. The KEYS are the engine's verbatim singulars and are
    * authored at call sites in this file, `you.js` and `workerfile.js`.
@@ -2892,7 +2893,9 @@ function syncAgent(sessionName, roster) {
   const all = readAll();
   for (const p of all) {
     if (!(p.agents || []).includes(key)) continue;
-    p.told = { ...(p.told || {}), [key]: { ...verdict, at: new Date().toISOString() } };
+    // `changed` and `added` describe this one write (#3923), not a standing fact: not stored.
+    const { changed: _c, added: _a, ...stored } = verdict;
+    p.told = { ...(p.told || {}), [key]: { ...stored, at: new Date().toISOString() } };
   }
   writeAll(all);
   return verdict;

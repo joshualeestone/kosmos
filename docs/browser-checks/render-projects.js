@@ -1101,7 +1101,9 @@ async function main() {
        with `claudebot`, which has no folder on this machine, so its tell comes
        back could_not and the project notice carries the sentence (#3923).
        ⚠️ It is a DIFFERENT failure from the missing-folder pass below. A failed
-       tell is "we could not write to its instructions"; a missing folder is
+       tell here is "we could not find an agent with exactly this name on this
+       computer" (or, with claudebot running, "it has no instructions file yet");
+       a missing folder is
        "the folder is gone". One does not imply the other, which is why this is
        its own pass rather than folded into that one. */
     /* ⚠️ OUT OF SETTINGS FIRST. The pass above leaves the page on the settings
@@ -1145,7 +1147,10 @@ async function main() {
       if (!btn) return { missing: true };
       await btn.focus();
       await btn.click();
-      await page.waitForFunction(() => /It still did not work\./.test((document.getElementById('pj-one-notice') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => {});
+      // Both the answer AND the focus: the handler places focus after its own read, which a background
+      // refresh can overtake, so waiting only for the text could read focus too early.
+      await page.waitForFunction(() => /It still did not work\./.test((document.getElementById('pj-one-notice') || {}).textContent || '')
+        && !!(document.activeElement && document.activeElement.matches && document.activeElement.matches('#pj-one-notice [data-pn-retry]')), null, { timeout: 8000 }).catch(() => {});
       return page.evaluate(() => {
         const box = document.getElementById('pj-one-notice');
         const a = document.activeElement;
