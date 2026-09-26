@@ -195,7 +195,8 @@ require('./engine/remove').setRunner(null);
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { start, server, pathOf, decodeSegment, resetHeardBudgetForTests } = require('./server');
+const { start, server, pathOf, decodeSegment, resetHeardBudgetForTests,
+  AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests } = require('./server');
 const fleet = require('./test-support/fleet');
 
 let base;
@@ -11761,7 +11762,7 @@ test('policies over the wire, plural (#685): named adds, refused collisions, ren
 // Agent-made tasks (#485: #327's recorded-and-valved shape, extended)
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('a task records who added it and how, and agent-made tasks hit the twelve-an-hour valve', async () => {
+test('a task records who added it and how; 30 agent-made tasks in an hour all land, and only the runaway breaker refuses (#3959)', async () => {
   const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
   const maraPane = (board.agents.find((a) => a.sessionName === 'mara') || {}).target;
   assert.ok(maraPane, 'the fixture no longer exposes a pane target; restate this setup');
@@ -11806,20 +11807,40 @@ test('a task records who added it and how, and agent-made tasks hit the twelve-a
   assert.equal(t.addedBy, null, 'an unvouched process was given a name');
   assert.equal(t.addedVia, 'process');
 
-  // The valve: by the thirteenth process-made task in the hour, 429 with a
-  // sentence; the count spans projects, and two are already on the books.
-  let refused = null;
-  for (let i = 0; i < 14 && !refused; i += 1) {
+  // #3959: no working limit. Thirty more agent-made tasks in the same hour ALL land
+  // (the old valve refused the thirteenth). Two are already on the books, so 32 in all.
+  for (let i = 0; i < 30; i += 1) {
     const rr = await req('/api/project/' + pjId + '/tasks', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sentence: 'Loop ' + i }),
+      body: JSON.stringify({ sentence: 'Batch ' + i }),
     });
-    if (rr.status === 429) refused = rr;
+    assert.equal(rr.status, 200, 'agent-made task #' + (i + 3) + ' in the hour was refused: ' + rr.body);
   }
-  assert.ok(refused, 'fourteen process-made tasks never hit the valve');
-  assert.match(JSON.parse(refused.body).error, /pausing agent-made tasks/);
-  assert.match(JSON.parse(refused.body).error, /from the screen/, 'the refusal does not tell the person their own path is open');
+  // The runaway breaker still works through this route. It is 500 in production (pinned in
+  // its own test); lowered here to 40 so the trip needs 8 more, not 468.
+  setAgentRunawayLimitForTests(40);
+  let refused = null;
+  let landed = 0;
+  try {
+    for (let i = 0; i < 10 && !refused; i += 1) {
+      const rr = await req('/api/project/' + pjId + '/tasks', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sentence: 'Loop ' + i }),
+      });
+      if (rr.status === 429) refused = rr; else { assert.equal(rr.status, 200, rr.body); landed += 1; }
+    }
+  } finally { setAgentRunawayLimitForTests(); }
+  assert.ok(refused, 'the breaker never tripped at its limit');
+  assert.equal(landed, 8, 'the breaker tripped at the wrong count: 32 were on the books and the limit was 40');
+  const why = JSON.parse(refused.body).error;
+  assert.equal(typeof JSON.parse(refused.body).retry_after_secs, 'number', 'the 429 carries no retry_after_secs');
+  assert.match(why, /pausing agent-made tasks/);
+  assert.match(why, /limit of 40 an hour/, 'the refusal does not name the limit');
+  assert.match(why, /shared by all agents/, 'the refusal does not say the limit is shared');
+  assert.match(why, /again in about \d+ minutes?/, 'the refusal does not say when it resets');
+  assert.match(why, /from the screen/, 'the refusal does not tell the person their own path is open');
 
   // The screen is never valved: the person can still add one right now.
   r = await req('/api/project/' + pjId + '/tasks', {
@@ -11828,6 +11849,35 @@ test('a task records who added it and how, and agent-made tasks hit the twelve-a
     body: JSON.stringify({ sentence: 'Person, after the valve' }),
   });
   assert.equal(r.status, 200, 'the valve caught the person, which is the one participant it must never touch');
+});
+
+test('the agent runaway breaker: 500 an hour, shared, and it says when it lifts (#3959)', () => {
+  assert.equal(AGENT_RUNAWAY_PER_HOUR, 500, 'the production breaker moved; Josh ruled the limit is a runaway stop only');
+  const now = Date.parse('2026-09-26T13:00:00Z');
+  const min = 60000;
+  // 499 in the hour: allowed. 500: refused.
+  const spread = (n, oldestAgoMin) => Array.from({ length: n }, (_, i) => now - oldestAgoMin * min + i);
+  assert.equal(agentRunawayRefusal(spread(499, 50), 'tasks', now, 500), null, '499 were refused');
+  const refused = agentRunawayRefusal(spread(500, 50), 'tasks', now, 500);
+  assert.ok(refused, '500 in the hour did not trip the breaker');
+  const why = refused.because;
+  assert.equal(refused.retryAfterSecs, 600, 'the wait in seconds does not match the sentence');
+  assert.match(why, /^agents have made 500 tasks in the last hour/);
+  assert.match(why, /at or over the limit of 500 an hour shared by all agents together/);
+  // The oldest counted one was made 50 minutes ago, so it leaves the hour in 10.
+  assert.match(why, /again in about 10 minutes;/, why);
+  // Past the limit, the slot opens when enough of the OLDEST have left: 502 on the books,
+  // the third oldest (48 minutes ago) is the one whose leaving brings it under 500.
+  const over = [now - 50 * min, now - 49 * min, now - 48 * min, ...spread(499, 10)];
+  assert.match(agentRunawayRefusal(over, 'projects', now, 500).because, /made 502 projects.*again in about 12 minutes;/);
+  // Records older than an hour, or with no readable time, are not counted.
+  const stale = [...spread(499, 50), now - 61 * min, NaN, undefined];
+  assert.equal(agentRunawayRefusal(stale, 'tasks', now, 500), null, 'an out-of-hour or undated record was counted');
+  // Never "0 minutes": the soonest it says is one minute, in the singular.
+  assert.match(agentRunawayRefusal(spread(500, 59.99), 'tasks', now, 500).because, /about 1 minute;/);
+  // A record dated in the future never quotes more than the hour.
+  const skew = agentRunawayRefusal([...spread(499, 50), now + 30 * min], 'tasks', now, 500);
+  assert.equal(skew.retryAfterSecs <= 3600, true, 'a future-dated record quoted a wait past the hour');
 });
 
 test('the fence infostring becomes a source line when it is path-shaped (#121)', () => {
@@ -14062,6 +14112,20 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
     const stored = require('./engine/projects').readAll().find((x) => x.id === p.id);
     assert.equal((stored.tasks[0].parts || []).some((x) => x.sentence === 'Course 13'), false, 'the write landed over the cap');
     assert.equal(sends.length, before, 'CONTROL: nothing new was typed once the valve tripped');
+    // #3959: the paging allowance is spent, but agent-made TASKS are no longer capped at
+    // twelve, so one lands. Its assignee is NOT typed to, and the answer says so rather
+    // than leaving `heard` out (which reads as "no assignee").
+    const rTask = await req('/api/project/' + encodeURIComponent(p.id) + '/tasks', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sentence: 'Book the caterer', who: 'mara' }),
+    });
+    assert.equal(rTask.status, 200, rTask.body);
+    const heardTask = JSON.parse(rTask.body).heard;
+    assert.ok(heardTask, 'a skipped nudge left heard undefined, which reads as no assignee');
+    assert.equal(heardTask.state, 'could_not');
+    assert.equal(heardTask.who, 'mara');
+    assert.match(heardTask.because, /hourly allowance .*12 an hour, shared by all agents.*the work is on their list/);
+    assert.equal(sends.length, before, 'CONTROL: nothing was typed for the task once the allowance was spent');
     // The screen is never valved: the person adds one right now, and it is heard.
     const r14 = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
       method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
@@ -14069,6 +14133,70 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
     });
     assert.equal(r14.status, 200, r14.body);
   } finally {
+    chatEngine.setRunner(null);
+    board.restore();
+  }
+});
+
+/* #3959 review round 4: once the shared paging allowance is spent, EVERY agent-made
+   assignment route says the assignee was not told, not only task create. Twelve task
+   assignments spend it (tasks are no longer capped at twelve), so the part routes are
+   still open (their own valve counts parts, not tasks) and must answer could_not. */
+test('#3959: with the paging allowance spent by tasks, part add and part reassign say the assignee was not told', async () => {
+  const chatEngine = require('./engine/chat');
+  const projectsEngine3959 = require('./engine/projects');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' }), fleet.agent('theo', { state: 'idle' })]);
+  const sends = [];
+  try {
+    resetHeardBudgetForTests();
+    chatEngine.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chatEngine.setDryRun(false);
+    const pdir = nodePath.join(SANDBOX, 'p3959-heard'); fs.mkdirSync(pdir, { recursive: true });
+    const p = projectsEngine3959.create({ name: 'Heard check 3959', folder: pdir, agents: ['mara', 'theo'], roster: board.agents });
+    const api = (path, body) => req('/api/project/' + encodeURIComponent(p.id) + path, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    let placed = 0;
+    for (let i = 0; i < 12; i += 1) {
+      const r = await api('/tasks', { sentence: 'Errand ' + i, who: 'mara' });
+      assert.equal(r.status, 200, r.body);
+      if ((JSON.parse(r.body).heard || {}).state === 'placed') placed += 1;
+    }
+    assert.equal(placed, 12, 'PRECONDITION: twelve task assignments were typed, spending the allowance');
+    /* An assigned agent task also counts as a part write, so the parts valve (#803, also 12)
+       is spent too. Age those writes past the hour to reopen it; the paging allowance is
+       in memory and does not age with them, so it stays spent. */
+    // The valve counts across ALL projects, and earlier tests in this file made parts too.
+    for (const q of projectsEngine3959.readAll()) require('./engine/tasks').agePartWritesForTests(q.id, 3700);
+    assert.equal(require('./engine/tasks').partValve().refused, false, 'PRECONDITION: the parts valve is open again');
+    const before = sends.length;
+    // Add a part with an assignee: it lands, nobody is typed to, and the answer says so.
+    const rAdd = await api('/task/1/parts', { sentence: 'Buy bread', who: 'theo' });
+    assert.equal(rAdd.status, 200, rAdd.body);
+    const hAdd = JSON.parse(rAdd.body).heard;
+    assert.ok(hAdd, 'part add left heard undefined with an assignee named');
+    assert.equal(hAdd.state, 'could_not');
+    assert.equal(hAdd.who, 'theo');
+    assert.match(hAdd.because, /hourly allowance/);
+    // Reassign that part: same answer.
+    const parts = (projectsEngine3959.readAll().find((x) => x.id === p.id).tasks[0].parts || []);
+    const partId = parts[parts.length - 1].id;
+    const rWho = await api('/task/1/part/' + partId + '/who', { who: 'mara' });
+    assert.equal(rWho.status, 200, rWho.body);
+    const hWho = JSON.parse(rWho.body).heard;
+    assert.ok(hWho, 'part reassign left heard undefined with an assignee named');
+    assert.equal(hWho.state, 'could_not');
+    assert.equal(hWho.who, 'mara');
+    // A part with NOBODY named still answers no heard at all.
+    const rNone = await api('/task/1/parts', { sentence: 'Unassigned' });
+    assert.equal(rNone.status, 200, rNone.body);
+    assert.equal(JSON.parse(rNone.body).heard, undefined, 'a part with no assignee claimed someone was not told');
+    assert.equal(sends.length, before, 'CONTROL: nothing was typed once the allowance was spent');
+  } finally {
+    resetHeardBudgetForTests(); // this test spent it; later tests must not inherit that
     chatEngine.setRunner(null);
     board.restore();
   }

@@ -294,7 +294,8 @@ function nextPartId(parts) {
 }
 
 /* The parts valve (#803). tasks.create and projects.create sit behind a
-   persisted twelve-an-hour refusal of process-originated writes; addPart and
+   persisted refusal of process-originated writes (twelve an hour until #3959
+   made it a 500-an-hour runaway breaker; this valve kept its 12); addPart and
    assignPart did not, so a looping process could make unlimited parts and
    reassign them without bound, each one rewriting instruction files through
    tellEveryoneOn. It looked metered because its neighbours were. Persisted
