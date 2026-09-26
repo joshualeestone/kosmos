@@ -133,7 +133,7 @@ check "the FORKED child is reaped by the group-kill (not orphaned)" 0 "$reaped"
 # hang, rather than hanging this test (which would be the #955 shape all over again).
 rcf="$tmp/rc-3859"; rm -f "$rcf"
 ( KOSMOS_BOUNDED_RUN_SETPGRP_DELAY=4 bounded_run "$T" "$bhang" --kosmos-app-port-selftest 501 >/dev/null 2>&1
-  echo "$?" > "$rcf" ) &
+  echo "$?" > "$rcf.tmp"; mv "$rcf.tmp" "$rcf" ) &
 wd=$!
 for _ in $(seq 1 40); do [ -f "$rcf" ] && break; sleep 0.5; done
 if [ -f "$rcf" ]; then
@@ -147,6 +147,32 @@ else
   check "bound expiring before setpgrp: returns 124, does not hang (#3859)" 124 "HUNG-20s"
 fi
 check "nothing leaked when the bound beat setpgrp (#3859)" 0 "$(wait_gone "sleep $LAUNCH")"
+
+# --- a bundle that IGNORES SIGTERM is still bounded (review of #3859) ---------------
+# All the kills used to be TERM. A bundle that traps TERM kept running and the wait hung.
+# The stub ignores TERM and hangs; bounded_run must still return 124 (KILL after ~2s),
+# under the same 20s watchdog as the arm above.
+bterm="$tmp/behind-ignores-term"
+cat > "$bterm" <<EOF
+#!/bin/bash
+trap '' TERM
+exec sleep $LAUNCH
+EOF
+chmod +x "$bterm"
+rcf2="$tmp/rc-3859-term"; rm -f "$rcf2"
+( bounded_run "$T" "$bterm" --kosmos-app-port-selftest 501 >/dev/null 2>&1
+  echo "$?" > "$rcf2.tmp"; mv "$rcf2.tmp" "$rcf2" ) &
+wd2=$!
+for _ in $(seq 1 40); do [ -f "$rcf2" ] && break; sleep 0.5; done
+if [ -f "$rcf2" ]; then
+  wait "$wd2" 2>/dev/null
+  check "a bundle ignoring SIGTERM is still bounded: 124, no hang" 124 "$(cat "$rcf2")"
+else
+  pkill -KILL -f "sleep $LAUNCH\$" 2>/dev/null
+  kill "$wd2" 2>/dev/null; wait "$wd2" 2>/dev/null
+  check "a bundle ignoring SIGTERM is still bounded: 124, no hang" 124 "HUNG-20s"
+fi
+check "nothing leaked from the TERM-ignoring bundle" 0 "$(wait_gone "sleep $LAUNCH")"
 
 # --- bounded_run returns a quick command's output and rc --------------------------
 start=$(date +%s)

@@ -21,6 +21,10 @@ Kill in three steps: the group, then the leader, then the group again.
 The card suggested `group || leader`. That leaves exactly that window open, so it
 was not used as written.
 
+Then, from review 1, a fourth step. All the kills are SIGTERM, and a bundle that
+traps or ignores TERM would still hang the `wait`, the same #955 shape by another
+route. So after about 2s of grace, the group and the leader get SIGKILL.
+
 A test seam, `KOSMOS_BOUNDED_RUN_SETPGRP_DELAY`, holds perl before `setpgrp` so
 the self-test can hit the window on purpose. When unset it costs nothing.
 
@@ -40,4 +44,10 @@ microseconds wide and is not exercised by any test. It is argued, not measured.
 
 - Against the old kill (steps 2 and 3 removed, in a scratch copy), the arm reports
   `HUNG-20s` and the suite fails.
-- With the fix, all 12 checks pass.
+- With the fix, all checks pass.
+
+A second arm uses a stub that ignores SIGTERM. It must return 124 under the same
+watchdog. With step 4 removed (scratch copy) it reports `HUNG-20s`.
+
+The rc file each arm polls for is written to a temporary name and moved into
+place, so the poller can never read it half-written.
