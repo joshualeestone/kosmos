@@ -8516,6 +8516,32 @@ test('the Runs on line says which tense it is in, and a live model always wins',
     'the guard against "Claude Claude" did not reach the planned branch');
 });
 
+/* #4008 (Josh 2026-09-26): after a model switch Runs on said "Right now: Claude Sonnet 5" behind the
+   dialog that had just changed it to Opus 5.5, because the live reading comes from the newest transcript
+   and that is the OLD session's until the restarted one writes. The page passes the switched-to model in
+   (a parameter, so this stays liftable) while the agent is running; a stopped agent's line is the job's. */
+test('#4008: a just-switched model is Runs on\'s "Right now" until the live reading catches up', () => {
+  const tables = pageFnSource('modelLine') + '\n' + pageConstSource('CARD_ST') + '\n' + pageFnSource('cardStOf');
+  const runsOnLine = pageFunction('runsOnLine', tables);
+  assert.deepEqual(runsOnLine({ modelName: 'Claude Sonnet 5', state: 'working' }, 'Claude Opus 5.5'),
+    { lead: 'Right now: ', name: 'Claude Opus 5.5' },
+    'a running agent just switched to Opus 5.5 still read "Right now" as the old session\'s model');
+  // CONTROL: with no switch passed, the live reading wins as before (the old model here).
+  assert.deepEqual(runsOnLine({ modelName: 'Claude Sonnet 5', state: 'working' }, ''),
+    { lead: 'Right now: ', name: 'Claude Sonnet 5' });
+  assert.deepEqual(runsOnLine({ modelName: 'Claude Sonnet 5', state: 'working' }),
+    { lead: 'Right now: ', name: 'Claude Sonnet 5' }, 'the one-argument call (every other caller) changed');
+  // A STOPPED agent's future is its job's, switch or no switch.
+  assert.deepEqual(runsOnLine({ modelName: 'Claude Sonnet 5', plannedModelName: 'Claude Opus 5.5', state: 'stopped' }, 'Claude Opus 5.5'),
+    { lead: 'Will start on ', name: 'Claude Opus 5.5' });
+  // And the page clears the record once the live reading agrees (the paint site), so it cannot pin a
+  // model that a later change outside Kosmos replaced: pinned by the source, since the paint site is not
+  // liftable on its own.
+  const src = fs.readFileSync(require('node:path').join(__dirname, 'web', 'index.html'), 'utf8');
+  assert.match(src, /if \(switchedTo && a\.modelName && modelLine\(\{ modelName: a\.modelName \}\) === switchedTo\) delete SWITCHED_MODEL\[a\.sessionName\];/,
+    'the switched model is no longer dropped once the live reading agrees');
+});
+
 /**
  * A top-level tab click lands at the top of that section.
  *
