@@ -197,6 +197,8 @@ function chk(ok, label, extra) {
       chk(!a.rail && a.selShown, `${tag} no left Projects column; the project dropdown is there`, JSON.stringify({ rail: a.rail, sel: a.selShown }));
       chk(!a.hint, `${tag} the tile hint is gone`);
       /* On a phone-width window each pair may wrap onto two lines; above it they share one (Josh: "the same line"). */
+      /* The pairs wrap only by flex-wrap (no breakpoint): measured at 390 each pair wraps, at 760 each fits, so 480
+         splits the widths this check drives and asserts nothing about widths it does not. */
       const oneRow = width > 480;
       chk(a.filtersAbove && (!oneRow || a.filtersRow) && a.createdLabel === 'Created:', `${tag} Project and Created: are dropdowns above the tiles${oneRow ? ', on one row' : ''}`, JSON.stringify({ above: a.filtersAbove, row: a.filtersRow, label: a.createdLabel }));
       chk(a.underBelow && (!oneRow || a.underRow), `${tag} Group by and Sort are dropdowns under the tiles${oneRow ? ', on one row' : ''}`, JSON.stringify({ below: a.underBelow, row: a.underRow }));

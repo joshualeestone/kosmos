@@ -276,10 +276,10 @@ const say = (n, cond, note) => {
     const railAllBefore = await p.evaluate(allCount);
     await p.selectOption('#tsk-projsel', '');
     await p.waitForTimeout(200);
-    const railAllAfter = await p.evaluate((src) => ({
-      badge: new Function('return ' + src)()(),
+    const railAllAfter = await p.evaluate(() => ({
+      badge: Number((document.querySelector('#tsk-projsel option[value=""]').textContent.match(/\((\d+)\)$/) || [])[1]),
       openRows: Number((document.getElementById('tsk-sub').textContent.match(/^(\d+) open/) || [])[1]),
-    }), allCount.toString());
+    }));
     /* #1346 on the picker: while scoped to an archived project, "All projects" counts what picking it shows. */
     say('the dropdown\'s All projects count agrees with its destination, even from an archived door',
       railAllBefore === railAllAfter.badge && railAllAfter.badge === railAllAfter.openRows, JSON.stringify({ railAllBefore, ...railAllAfter }));
