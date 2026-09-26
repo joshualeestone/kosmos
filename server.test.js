@@ -11735,7 +11735,7 @@ test('policies over the wire, plural (#685): named adds, refused collisions, ren
 // Agent-made tasks (#485: #327's recorded-and-valved shape, extended)
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('a task records who added it and how, and agent-made tasks hit the twelve-an-hour valve', async () => {
+test('a task records who added it and how; 30 agent-made tasks in an hour all land, and only the runaway breaker refuses (#3959)', async () => {
   const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
   const maraPane = (board.agents.find((a) => a.sessionName === 'mara') || {}).target;
   assert.ok(maraPane, 'the fixture no longer exposes a pane target; restate this setup');
@@ -11780,20 +11780,40 @@ test('a task records who added it and how, and agent-made tasks hit the twelve-a
   assert.equal(t.addedBy, null, 'an unvouched process was given a name');
   assert.equal(t.addedVia, 'process');
 
-  // The valve: by the thirteenth process-made task in the hour, 429 with a
-  // sentence; the count spans projects, and two are already on the books.
-  let refused = null;
-  for (let i = 0; i < 14 && !refused; i += 1) {
+  // #3959: no working limit. Thirty more agent-made tasks in the same hour ALL land
+  // (the old valve refused the thirteenth). Two are already on the books, so 32 in all.
+  for (let i = 0; i < 30; i += 1) {
     const rr = await req('/api/project/' + pjId + '/tasks', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sentence: 'Loop ' + i }),
+      body: JSON.stringify({ sentence: 'Batch ' + i }),
     });
-    if (rr.status === 429) refused = rr;
+    assert.equal(rr.status, 200, 'agent-made task #' + (i + 3) + ' in the hour was refused: ' + rr.body);
   }
-  assert.ok(refused, 'fourteen process-made tasks never hit the valve');
-  assert.match(JSON.parse(refused.body).error, /pausing agent-made tasks/);
-  assert.match(JSON.parse(refused.body).error, /from the screen/, 'the refusal does not tell the person their own path is open');
+  // The runaway breaker still works through this route. It is 500 in production (pinned in
+  // its own test); lowered here to 40 so the trip needs 8 more, not 468.
+  const { setAgentRunawayLimitForTests } = require('./server');
+  setAgentRunawayLimitForTests(40);
+  let refused = null;
+  let landed = 0;
+  try {
+    for (let i = 0; i < 10 && !refused; i += 1) {
+      const rr = await req('/api/project/' + pjId + '/tasks', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sentence: 'Loop ' + i }),
+      });
+      if (rr.status === 429) refused = rr; else { assert.equal(rr.status, 200, rr.body); landed += 1; }
+    }
+  } finally { setAgentRunawayLimitForTests(); }
+  assert.ok(refused, 'the breaker never tripped at its limit');
+  assert.equal(landed, 8, 'the breaker tripped at the wrong count: 32 were on the books and the limit was 40');
+  const why = JSON.parse(refused.body).error;
+  assert.match(why, /pausing agent-made tasks/);
+  assert.match(why, /limit of 40 an hour/, 'the refusal does not name the limit');
+  assert.match(why, /shared by all agents/, 'the refusal does not say the limit is shared');
+  assert.match(why, /again in about \d+ minutes?/, 'the refusal does not say when it resets');
+  assert.match(why, /from the screen/, 'the refusal does not tell the person their own path is open');
 
   // The screen is never valved: the person can still add one right now.
   r = await req('/api/project/' + pjId + '/tasks', {
@@ -11802,6 +11822,31 @@ test('a task records who added it and how, and agent-made tasks hit the twelve-a
     body: JSON.stringify({ sentence: 'Person, after the valve' }),
   });
   assert.equal(r.status, 200, 'the valve caught the person, which is the one participant it must never touch');
+});
+
+test('the agent runaway breaker: 500 an hour, shared, and it says when it lifts (#3959)', () => {
+  const { AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal } = require('./server');
+  assert.equal(AGENT_RUNAWAY_PER_HOUR, 500, 'the production breaker moved; Josh ruled the limit is a runaway stop only');
+  const now = Date.parse('2026-09-26T13:00:00Z');
+  const min = 60000;
+  // 499 in the hour: allowed. 500: refused.
+  const spread = (n, oldestAgoMin) => Array.from({ length: n }, (_, i) => now - oldestAgoMin * min + i);
+  assert.equal(agentRunawayRefusal(spread(499, 50), 'tasks', now, 500), null, '499 were refused');
+  const why = agentRunawayRefusal(spread(500, 50), 'tasks', now, 500);
+  assert.ok(why, '500 in the hour did not trip the breaker');
+  assert.match(why, /^agents have made 500 tasks in the last hour/);
+  assert.match(why, /limit of 500 an hour shared by all agents together/);
+  // The oldest counted one was made 50 minutes ago, so it leaves the hour in 10.
+  assert.match(why, /again in about 10 minutes;/, why);
+  // Past the limit, the slot opens when enough of the OLDEST have left: 502 on the books,
+  // the third oldest (48 minutes ago) is the one whose leaving brings it under 500.
+  const over = [now - 50 * min, now - 49 * min, now - 48 * min, ...spread(499, 10)];
+  assert.match(agentRunawayRefusal(over, 'projects', now, 500), /made 502 projects.*again in about 12 minutes;/);
+  // Records older than an hour, or with no readable time, are not counted.
+  const stale = [...spread(499, 50), now - 61 * min, NaN, undefined];
+  assert.equal(agentRunawayRefusal(stale, 'tasks', now, 500), null, 'an out-of-hour or undated record was counted');
+  // Never "0 minutes": the soonest it says is one minute, in the singular.
+  assert.match(agentRunawayRefusal(spread(500, 59.99), 'tasks', now, 500), /about 1 minute;/);
 });
 
 test('the fence infostring becomes a source line when it is path-shaped (#121)', () => {

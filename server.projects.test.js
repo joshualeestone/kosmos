@@ -92,7 +92,7 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = require('node:path').join(require('n
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server } = require('./server');
+const { start, server, setAgentRunawayLimitForTests } = require('./server');
 const projects = require('./engine/projects');
 /* win32-board-copy: the reveal routes below assert the Mac opener (/usr/bin/open), so
    the file states that platform; the Windows arm is engine/projects.win32-reveal.test.js. */
@@ -3154,16 +3154,29 @@ test('a project records who asked for it, and a process runaway is paused while 
   const made1 = JSON.parse(r1.body).project.made;
   assert.equal(made1.via, 'process');
   assert.equal(made1.by, null);
-  /* The valve: after twelve process-made projects in the hour, the
-     thirteenth is refused with a sentence, and the screen still works. */
-  for (let i = 0; i < 11; i += 1) {
+  /* #3959: no working limit. Thirty more process-made projects in the hour all land
+     (the old valve refused the thirteenth); with r1 that is 31 on the books. */
+  for (let i = 0; i < 30; i += 1) {
     const r = await bare('Loop ' + i);
-    assert.equal(r.status, 200, 'the valve fired early on #' + i + ': ' + r.body);
+    assert.equal(r.status, 200, 'agent-made project #' + (i + 2) + ' in the hour was refused: ' + r.body);
   }
-  const refused = await bare('One Too Many');
+  /* The runaway breaker still trips through this route: 500 in production (pinned in its
+     own test), lowered to 33 here, so two more land and the third is refused. The screen
+     still works after it. */
+  setAgentRunawayLimitForTests(33);
+  let refused;
+  try {
+    assert.equal((await bare('Just Under A')).status, 200);
+    assert.equal((await bare('Just Under B')).status, 200);
+    refused = await bare('One Too Many');
+  } finally { setAgentRunawayLimitForTests(); }
   assert.equal(refused.status, 429, refused.body);
-  assert.match(JSON.parse(refused.body).error, /pausing agent-made projects/);
-  assert.match(JSON.parse(refused.body).error, /from the screen/, 'the refusal does not say the person still can');
+  const why = JSON.parse(refused.body).error;
+  assert.match(why, /pausing agent-made projects/);
+  assert.match(why, /limit of 33 an hour/, 'the refusal does not name the limit');
+  assert.match(why, /shared by all agents/, 'the refusal does not say the limit is shared');
+  assert.match(why, /again in about \d+ minutes?/, 'the refusal does not say when it resets');
+  assert.match(why, /from the screen/, 'the refusal does not say the person still can');
   const stillScreen = await post('/api/projects', { name: 'Person Again' });
   assert.equal(stillScreen.status, 200, 'the valve reached the person, the one participant it exists to protect');
   // The record survives in the store, not only the response.

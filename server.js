@@ -258,6 +258,35 @@ function heardBudgetRecord() {
 function resetHeardBudgetForTests() {
   heardBudgetLog.length = 0;
 }
+/* #3959: agent-made TASKS and PROJECTS have no working limit, only a runaway breaker.
+   It was twelve an hour (#327, #485), which stopped real work: Josh had agents add a
+   batch of tasks and every agent was refused after the twelfth (09-26). The breaker
+   exists only so a looping agent cannot make thousands, so it sits far above any real
+   batch. It counts every agent together (one shared count per kind, across all
+   projects), from the records themselves, so it survives a restart. The screen is
+   never counted or refused. */
+const AGENT_RUNAWAY_PER_HOUR = 500;
+let agentRunawayLimit = AGENT_RUNAWAY_PER_HOUR;
+// Test-only: lets a route test trip the breaker without making 500 records.
+// Called with no argument it restores the real limit.
+function setAgentRunawayLimitForTests(n) {
+  agentRunawayLimit = Number.isInteger(n) && n > 0 ? n : AGENT_RUNAWAY_PER_HOUR;
+}
+/* `times` are the creation times (ms) of the agent-made records of one kind. Returns
+   null to allow, or the refusal sentence: the limit, that it is shared by every agent,
+   and when the next one is allowed (when the oldest counted record leaves the hour). */
+function agentRunawayRefusal(times, noun, now = Date.now(), limit = agentRunawayLimit) {
+  const hourAgo = now - 3600000;
+  const recent = times.filter((t) => Number.isFinite(t) && t >= hourAgo).sort((a, b) => a - b);
+  if (recent.length < limit) return null;
+  // Below the limit again once enough of the oldest have aged out of the hour.
+  const freesAt = recent[recent.length - limit] + 3600000;
+  const mins = Math.max(1, Math.ceil((freesAt - now) / 60000));
+  return 'agents have made ' + recent.length + ' ' + noun + ' in the last hour, which reaches the limit of '
+    + limit + ' an hour shared by all agents together (a safety stop for an agent stuck in a loop), so Kosmos is pausing agent-made '
+    + noun + '. Agents can make ' + noun + ' again in about ' + mins + ' minute' + (mins === 1 ? '' : 's')
+    + '; the person can still make them from the screen';
+}
 // `sentence` is explicit, never read off `t`: a part's own sentence is
 // never the task's top-level one (a task with parts drops `who`/keeps one
 // `sentence` at the top, and a part given a `who` must be heard for the
@@ -13754,19 +13783,13 @@ const server = http.createServer((req, res) => {
         const paneCard = !viaScreen && typeof body.from_pane === 'string'
           ? (Array.isArray(roster) ? roster.find((c) => c && c.target === body.from_pane) : null)
           : null;
-        /* The runaway bound (#327 q2): a looping process can create projects
-           as fast as it can curl, and nothing else limits API writes. Twelve
-           process-made projects in an hour is far past any brief and far
-           under any loop. The SCREEN is never valved -- the person is the
-           one participant this exists to protect, the room valve's own rule. */
+        /* The runaway breaker (#327 q2, #3959): a looping process can create projects
+           as fast as it can curl. Only a loop is stopped; see agentRunawayRefusal.
+           The SCREEN is never valved. */
         if (!viaScreen) {
-          const hourAgo = Date.now() - 3600000;
-          const recent = projects.readAll().filter((p) => p && p.made && p.made.via === 'process'
-            && Number.isFinite(Date.parse(p.made.at)) && Date.parse(p.made.at) >= hourAgo).length;
-          if (recent >= 12) {
-            sendJson(res, 429, { error: 'agents have made ' + recent + ' projects in the last hour, so Kosmos is pausing agent-made projects; the person can still make them from the screen' });
-            return;
-          }
+          const refusal = agentRunawayRefusal(projects.readAll()
+            .filter((p) => p && p.made && p.made.via === 'process').map((p) => Date.parse(p.made.at)), 'projects');
+          if (refusal) { sendJson(res, 429, { error: refusal }); return; }
         }
         const made = projects.create({ name: body.name, folder: body.folder, agents: body.agents, roster, description: body.description,
           // #2458: the parent chosen on the create page (blank/absent = top-level).
@@ -14835,18 +14858,17 @@ const server = http.createServer((req, res) => {
         const paneCard = !viaScreen && typeof body.from_pane === 'string'
           ? (Array.isArray(roster) ? roster.find((c) => c && c.target === body.from_pane) : null)
           : null;
-        /* The runaway bound, #327's twelve-an-hour extended here: a task
-           carries an assignee, so a looping process would not just litter,
-           it would command. Counted across ALL projects, and the SCREEN is
+        /* The runaway breaker (#327, #485, #3959): a task carries an assignee, so a
+           looping process would not just litter, it would command. Counted across ALL
+           projects; only a loop is stopped (see agentRunawayRefusal). The SCREEN is
            never valved -- the person is who this protects. */
         if (!viaScreen) {
-          const hourAgo = Date.now() - 3600000;
-          const recent = projects.readAll().reduce((n, p) => n + ((p && p.tasks) || []).filter((t) => t && t.addedVia === 'process'
-            && Number.isFinite(Date.parse(t.createdAt)) && Date.parse(t.createdAt) >= hourAgo).length, 0);
-          if (recent >= 12) {
-            sendJson(res, 429, { error: 'agents have made ' + recent + ' tasks in the last hour, so Kosmos is pausing agent-made tasks; the person can still make them from the screen' });
-            return;
+          const times = [];
+          for (const p of projects.readAll()) {
+            for (const t of ((p && p.tasks) || [])) if (t && t.addedVia === 'process') times.push(Date.parse(t.createdAt));
           }
+          const refusal = agentRunawayRefusal(times, 'tasks');
+          if (refusal) { sendJson(res, 429, { error: refusal }); return; }
         }
         try {
           const made = tasks.create(id, { sentence: body.sentence, detail: body.detail, who: body.who,
@@ -16907,6 +16929,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
   federateOut, // #3311: what leaves this computer for a federated room, exported so the agent arm is tested
