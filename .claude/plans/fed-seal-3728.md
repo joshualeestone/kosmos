@@ -99,3 +99,5 @@ Tests (engine/fedseal.test.js):
 - [WARNING] the round-6 hold re-armed on every forged next-epoch envelope, so a member (or the relay) sending one every ~3 minutes silenced others indefinitely; and the connector's `connected` after each ticket renewal cleared a genuine hold. FIXED: the hold arms at most once per epoch the member holds (s.behindArmedAt), and is no longer cleared on connect. Test: repeated forged envelopes at the same own epoch pause posting once, for at most 3 minutes. Control (re-arm allowed) fails by name.
 - [WARNING] ahead-by-exactly-one missed a member two rotations behind, which then kept posting under a key the revoked members hold. FIXED: any epoch ahead counts (safe now that the hold is bounded once per own epoch). Test: a genuine two-rotations-behind member holds its posts. Control (+1 only) fails by name.
 - Checked sound: edges are only active or revoked; a hello racing a delete re-reads; a resent hello is answered only from its own invite; every ownerHello throw lands in sealStep's catch.
+
+## Round 8 review (sonnet): NO FINDINGS, converged
