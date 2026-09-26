@@ -484,8 +484,14 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     // Storage that refuses: nothing is counted, and x simply closes (never an error, never the offer).
     await fresh(0, false);
     await page.evaluate(() => { window.__lsSet = Storage.prototype.setItem; Storage.prototype.setItem = () => { throw new Error('refused'); }; });
-    for (let i = 0; i < 2; i++) { await page.click('#asb'); await page.click('#asp-x'); await page.waitForTimeout(250); }
-    const refused = await bubble(page);
+    // Stop at the first close that did not close: a throw inside x leaves the chat open and hides the bubble, so the
+    // next click would only time out; this way that defect fails under this check's own name.
+    let refused = null;
+    for (let i = 0; i < 2; i++) {
+      await page.click('#asb'); await page.click('#asp-x'); await page.waitForTimeout(250);
+      refused = await bubble(page);
+      if (refused.panel || !refused.bubble) break;
+    }
     await page.evaluate(() => { Storage.prototype.setItem = window.__lsSet; });
     chk(!refused.panel && !refused.hide && refused.bubble, 'B7c with storage refusing, idle closes just close', JSON.stringify(refused));
     // Hide it: the same board switch as Close forever.
