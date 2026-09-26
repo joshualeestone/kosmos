@@ -223,12 +223,15 @@ function normalisedCopy(text) {
  * non-whitespace characters from the first piece, which is what stops two far-apart words from
  * swallowing a reply. Returns [from, to) spans in the text, first piece to last.
  *
- * Not covered: pieces out of order or reversed; an opening piece shorter than four characters; a held value
- * made only of words and numbers (see madeOfWords); a partial try whose pieces after the opening come to fewer
- * than PARTIAL_MIN characters in runs of OPENING_LEN or more that are not themselves words or numbers (such a try is left
- * alone, and one that does reach 8 is masked piece by piece, its public prefix included); glue other than _ + - or / at either end and a label joined
- * with = on either side (glue in the middle of a run, say); a held form over WORD_WALK_MAX_FORM characters; and a key split
- * across two replies (the mask is per message).
+ * Not covered:
+ *  - pieces out of order or reversed;
+ *  - an opening piece shorter than OPENING_LEN characters;
+ *  - a held value madeOfWords takes for words and numbers;
+ *  - a partial try (one that never completes) with under PARTIAL_MIN characters after its opening, counted in
+ *    non-word pieces of OPENING_LEN or more; a try that reaches it is masked piece by piece;
+ *  - glue in the middle of a run other than - or _ between chunks and a label joined with = or a hyphen;
+ *  - a held form over WORD_WALK_MAX_FORM characters;
+ *  - a key split across two replies (the mask is per message).
  */
 /* The most checks one reply may cost the walk. A reply that needs more is not searched to the end:
    wordSkippingSpans returns null and mask() withholds the whole message, because a search cut short is one
@@ -264,11 +267,11 @@ function pieceVariants(run) {
   for (const v of [...out]) if (/[^-_][-_]+[^-_]/.test(v)) out.add(v.replace(/[-_]+/g, ''));
   /* A label joined by a hyphen (chunk-2-Rt2mNp9b, review round 15): each tail after a - or _, up to four, and
      only tails of OPENING_LEN or more (a shorter one, "Wor" of pi03-Wor, is coincidence, not a piece). */
+  /* Taken from the END (review round 17): the piece is the last part, so a label with many hyphens
+     (my-long-label-name-Rt2mNp9b) still offers it within the four. */
   let tails = 0;
-  for (let i = trimmed.indexOf('-'), j = 0; j < 2; j += 1, i = trimmed.indexOf('_')) {
-    for (let k = i; k > 0 && trimmed.length - k - 1 >= OPENING_LEN && tails < 4; k = trimmed.indexOf(j === 0 ? '-' : '_', k + 1)) {
-      out.add(trimmed.slice(k + 1)); tails += 1;
-    }
+  for (let k = trimmed.length - 1 - OPENING_LEN; k > 0 && tails < 4; k -= 1) {
+    if (trimmed[k] === '-' || trimmed[k] === '_') { out.add(trimmed.slice(k + 1)); tails += 1; }
   }
   out.delete('');
   return [...out];
@@ -359,16 +362,20 @@ function wordSkippingSpans(text) {
           if (nonSpaceBefore[sTo] - nonSpaceBefore[from] > bound) break;
           let done = false;
           const next = new Set(reached);
+          /* Each start position, with the reached position it came from: a piece matched past a skipped
+             separator links back to where the walk had got to, not to the skip (review round 17: linking to the
+             skip broke the trace back, and every piece before it was left readable). */
           const at = [];
-          for (const p of reached) for (const q of skipsFrom(f, p)) at.push(q);
+          for (const p of reached) for (const q of skipsFrom(f, p)) at.push([q, p]);
           if ((budget -= at.length * piecesCost) < 0) return null;
-          for (const p of at) {
+          for (const [q, p] of at) {
             for (const piece of pieces) {
-              if (!f.startsWith(piece, p)) continue;
-              if (p + piece.length === f.length) { done = true; doneFrom = { s, prev: p }; break; }
-              next.add(p + piece.length);
-              if (!via.has(p + piece.length)) via.set(p + piece.length, { s, prev: p });
-              if (p + piece.length > best) best = p + piece.length;
+              if (!f.startsWith(piece, q)) continue;
+              const end = q + piece.length;
+              if (end === f.length) { done = true; doneFrom = { s, prev: p, start: q }; break; }
+              next.add(end);
+              if (!via.has(end)) via.set(end, { s, prev: p, start: q });
+              if (end > best) best = end;
               if (movedAt < 0) movedAt = runs[s][0];
             }
             if (done) break;
@@ -399,7 +406,7 @@ function wordSkippingSpans(text) {
             const step = via.get(at);
             /* Only a piece that is not made of words or numbers counts (review round 13): a URL-shaped held value's
                public scheme and host (https, discord, com) are words, and a reply naming them is not a try. */
-            if (at - step.prev >= OPENING_LEN && !madeOfWords(f.slice(step.prev, at))) { found.push(step.s); after += at - step.prev; }
+            if (at - step.start >= OPENING_LEN && !madeOfWords(f.slice(step.start, at))) { found.push(step.s); after += at - step.start; }
           }
           if (after >= PARTIAL_MIN) {
             spans.push([from, runs[r][1]]);

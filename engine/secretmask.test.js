@@ -800,3 +800,30 @@ test('#3935 a retry within reach of an abandoned try: the prose between them sta
     assert.ok(out.includes('Sorry, again:'), `the prose between the two tries was masked: ${out}`);
   } finally { setKnownSecrets([]); }
 });
+
+test('#3935 pieces given without the key\'s own separators at several splits: every piece is masked (review round 17)', () => {
+  const anth = j('sk-ant-', 'api03-', 'Ab3dEf7hIj-Kl9mNo2pQr_St4uVw6xYz-Ab1cDe5fGh8iJk0lMn');
+  const five = 'Qw8eRt2yZm-Ui9oPa3sXc-Df4gHj5kVb-Zx7cVb1nMq-Lk3jHg6fDs';
+  const cases = [
+    [anth, 'Key: sk-ant-api03 then Ab3dEf7hIj then Kl9mNo2pQr then St4uVw6xYz and so on.', ['Ab3dEf7hIj', 'Kl9mNo2pQr', 'St4uVw6xYz']],
+    [five, 'Here: Qw8eRt2yZm then Ui9oPa3sXc then Df4gHj5kVb then Zx7cVb1nMq, and the rest later.', ['Qw8eRt2yZm', 'Ui9oPa3sXc', 'Df4gHj5kVb', 'Zx7cVb1nMq']],
+    [five, 'First Qw8eRt2yZm then Ui9oPa3sXc then Df4gHj5kVb oops. Sorry, again: Qw8eRt2yZm Ui9oPa3sXc Df4gHj5kVb Zx7cVb1nMq Lk3jHg6fDs done.', ['Qw8eRt2yZm', 'Ui9oPa3sXc', 'Df4gHj5kVb', 'Zx7cVb1nMq', 'Lk3jHg6fDs']],
+  ];
+  for (const [held, text, pieces] of cases) {
+    setKnownSecrets([held]);
+    try {
+      const out = mask(text).text;
+      for (const piece of pieces) assert.ok(!out.includes(piece), `the piece ${piece} survived: ${out}`);
+    } finally { setKnownSecrets([]); }
+  }
+});
+
+test('#3935 a label with many hyphens before a piece still offers the piece (review round 17)', () => {
+  const held = j('sk-ant-', 'api03-', 'Qx7vRt2mNp9bKd4sLw8zYh3cFj6gTa1e');
+  setKnownSecrets([held]);
+  try {
+    /* Six hyphens before a piece: more than the four tails, so only tails taken from the end reach it. */
+    const out = mask('first sk-ant-api03-Qx7v then a-very-long-label-name-here-Rt2mNp9b then yet-another-long-label-name-here-Kd4sLw8z then Yh3cFj6gTa1e').text;
+    for (const c of ['Rt2mNp9b', 'Kd4sLw8z', 'Yh3cFj6gTa1e']) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+  } finally { setKnownSecrets([]); }
+});
