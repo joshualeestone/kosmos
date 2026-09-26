@@ -24663,6 +24663,12 @@ const FR_AGY_SUB = {
         this.say('Ready. Gemini runs on your Google subscription on this computer: pick Google Gemini (Google subscription) when you create an agent.', '', false, true);
         FR_AGY_READY = true;
         frPaintKeyed();   // the row reads Connected and the step offers Next (review round 3)
+        /* Not dependent on the accounts read (review round 9: frPaintKeyed returns early if it fails). */
+        { const b = document.getElementById('fr-gemini-connect');
+          if (b) { b.innerHTML = '<span aria-hidden="true">✓</span> Connected'; b.disabled = true; if (b.classList) b.classList.add('is-connected'); if (b.setAttribute) b.setAttribute('aria-label', 'Gemini is connected'); } }
+        if (typeof FR_STEP !== 'undefined' && FR_STEP === 5 && !(typeof FR !== 'undefined' && FR && FR.subscription && FR.subscription.state === 'connected')) {
+          frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) }, null);
+        }
       } else {
         this.next = 'open';
         this.say("Antigravity is on this computer but we could not confirm it is signed in. Open it once to sign in with your Google account.",
