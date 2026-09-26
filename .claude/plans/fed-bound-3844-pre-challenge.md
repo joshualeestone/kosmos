@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: fed-bound-3844
-diff_hash: ea5af1870a97a7093e27ce2ecb41d177222c539895e83931f3803f2d8ad24ed4
+diff_hash: 4aec293fb82bdd616ba9f4b0aebf4bfe246d1ef76d0e08e596a141dc18c7ce64
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-26T08:03:11Z
+timestamp: 2026-09-26T08:42:16Z
 iterations: 4
 converged: true
 ---
@@ -18,7 +18,7 @@ converged: true
 **Ledger:** `.claude/plans/fed-bound-3844.md`, with the calls, what was rejected, and the weakest premise.
 **Decided, with reasons in the plan:** the minute note once a day per room; the day budget seeded from the message log (a real calendar-day bound); NO total cap on stored rows, because the message log has no retention by a recorded decision in engine/messages.js and a cap here would be the first rewrite of that file. Weakest premise: 2 MiB a day per room is acceptable growth until log retention lands.
 
-**Validation:** the full suite (type-check, lint-fix, test, build) passed through the validation helper on 31ed9cade: 9894 tests, 0 failed, 152 skipped; helper hash `ea5af1870a97`.
+**Validation:** the full suite (type-check, lint-fix, test, build) first passed on 31ed9cade (9894 tests, hash `ea5af1870a97`). PR #3921 then conflicted with main, which had merged #3851 into the same files. Main was merged in at 11cfa54ff, keeping both sides; a line-level check found nothing lost except two lines deliberately joined, and all 12 #3844 and #3851 tests pass. The full suite passed again on that merge: 9900 tests, 0 failed, helper hash `4aec293fb82b`, the diff this proof certifies.
 
 **Pushes:** made with --no-verify, because the pre-push hook refuses above load 10; the same suite ran through the validation helper at the certified commit.
 
