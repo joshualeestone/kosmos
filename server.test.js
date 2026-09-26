@@ -11862,6 +11862,26 @@ test('#3959: agent task messages default to the same 500-an-hour breaker (the op
   for (const [raw, want] of cases) assert.equal(taskMsgCapFrom(raw), want, 'AGENT_WORKFORCE_TASK_MSG_CAP=' + JSON.stringify(raw));
 });
 
+test('#3959: the shared breaker, directly: the window, a limit of 0, and a limit that is not a number', () => {
+  const { runawayRefusal, AGENT_RUNAWAY_PER_HOUR, AGENT_RUNAWAY_WINDOW_MS } = require('./engine/runaway');
+  assert.equal(AGENT_RUNAWAY_WINDOW_MS, 3600000);
+  const what = { noun: 'part changes', did: 'made', pausing: 'agent-made parts', again: 'make part changes', screen: 'make them' };
+  const now = Date.parse('2026-09-26T13:00:00Z');
+  // A limit of 0 refuses even with nothing on the books, and never quotes more than the hour.
+  const zero = runawayRefusal([], what, { now, limit: 0 });
+  assert.ok(zero, 'a limit of 0 allowed a write');
+  assert.equal(zero.retryAfterSecs, 3600);
+  assert.match(zero.because, /agents have made 0 part changes in the last hour, which is at or over the limit of 0 an hour/);
+  // A limit that is not a number, or is negative, falls back to the production breaker.
+  const times = Array.from({ length: 3 }, (_, i) => now - i);
+  for (const bad of [NaN, -1, Infinity]) {
+    assert.equal(runawayRefusal(times, what, { now, limit: bad }), null, 'limit ' + bad + ' was not read as ' + AGENT_RUNAWAY_PER_HOUR);
+  }
+  // A write exactly an hour old is still counted; one a millisecond older is not.
+  assert.ok(runawayRefusal([now - AGENT_RUNAWAY_WINDOW_MS], what, { now, limit: 1 }), 'a write exactly an hour old was dropped');
+  assert.equal(runawayRefusal([now - AGENT_RUNAWAY_WINDOW_MS - 1], what, { now, limit: 1 }), null, 'a write older than the hour was counted');
+});
+
 test('#3959: the shared breaker rounds a fractional limit down instead of quoting NaN minutes', () => {
   const { runawayRefusal } = require('./engine/runaway');
   const now = Date.parse('2026-09-26T13:00:00Z');

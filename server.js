@@ -275,7 +275,7 @@ function resetHeardBudgetForTests() {
    batch. It counts every agent together (one shared count per kind, across all
    projects), from the records themselves, so it survives a restart. The screen is
    never counted or refused. */
-const { AGENT_RUNAWAY_PER_HOUR, runawayRefusal } = require('./engine/runaway');
+const { AGENT_RUNAWAY_PER_HOUR, AGENT_RUNAWAY_WINDOW_MS, runawayRefusal } = require('./engine/runaway');
 let agentRunawayLimit = AGENT_RUNAWAY_PER_HOUR;
 // Test-only: lets a route test trip the breaker without making 500 records.
 // Called with no argument it restores the real limit.
@@ -1709,7 +1709,7 @@ let TASK_MSG_CAP_PER_HOUR = taskMsgCapFrom(process.env.AGENT_WORKFORCE_TASK_MSG_
 function setTaskMsgCapForTests(n) {
   TASK_MSG_CAP_PER_HOUR = n === undefined ? taskMsgCapFrom(process.env.AGENT_WORKFORCE_TASK_MSG_CAP) : n;
 }
-const TASK_MSG_WINDOW_MS = 3600000;
+const TASK_MSG_WINDOW_MS = AGENT_RUNAWAY_WINDOW_MS; // the breaker's own window
 let taskMessageSends = [];
 /* null to allow, or { because, retryAfterSecs }. The sentence names the limit, that it is shared
    by all agents, and when it lifts; a cap of 0 says the messages are switched off instead. */

@@ -302,13 +302,13 @@ function nextPartId(parts) {
    the same way the task valve is: in the records themselves (a part carries
    how and when it was added, and how and when it was last moved), so a
    restart does not open the valve. The SCREEN is never valved. */
-const { AGENT_RUNAWAY_PER_HOUR, runawayRefusal } = require('./runaway');
+const { AGENT_RUNAWAY_PER_HOUR, AGENT_RUNAWAY_WINDOW_MS, runawayRefusal } = require('./runaway');
 // #3959: was 12 an hour; now the shared runaway breaker (engine/runaway.js), like task creation.
 const PARTS_PER_HOUR = AGENT_RUNAWAY_PER_HOUR;
 let partsLimit = PARTS_PER_HOUR;
 // Test-only: a test trips the valve without making 500 part changes. No argument restores it.
 function setPartsLimitForTests(n) { partsLimit = Number.isInteger(n) && n > 0 ? n : PARTS_PER_HOUR; }
-const HOUR_MS = 3600000;
+const HOUR_MS = AGENT_RUNAWAY_WINDOW_MS; // the breaker's own window, so the count and the refusal agree
 /* #3595: 'assigner' is the Kosmos Assigner's own write. It is its own provenance so the process
    parts valve (which counts 'process' only) never charges agents for it, nor blames them for it. */
 function viaOf(made) {
