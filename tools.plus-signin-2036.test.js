@@ -94,16 +94,24 @@ function fakeBoard(opts = {}) {
       if (req.url === '/api/remote') return send(200, { enrolled: state.enrolled, on: state.on, status: { state: state.up ? 'up' : 'off' } });
       if (req.url === '/api/remote/signin-start') return opts.startFails ? send(400, { error: 'coordinator down' }) : send(200, { ok: true, stage: 'code_sent' });
       if (req.url === '/api/remote/signin-cancel') return send(200, { ok: true });
-      if (req.url === '/api/remote/signin-verify') return send(200, { ok: true, stage: opts.stage || 'second', account_address: opts.verifyAddress });
+      if (req.url === '/api/remote/signin-verify') {
+        if (opts.verifyHangs) return;   // never answers: the runner's own timeout must end it
+        return send(200, { ok: true, stage: opts.stage || 'second', account_address: opts.verifyAddress, second_kind: opts.secondKind });
+      }
       if (req.url === '/api/remote/signin-second') return send(200, { ok: true, stage: 'session', account_address: opts.secondAddress });
       if (req.url === '/api/remote/signin-enrol') return send(200, { secret: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', otpauth: 'otpauth://x' });
       if (req.url === '/api/remote/signin-confirm-enrol') return send(200, { ok: true, stage: 'session' });
       if (req.url === '/api/remote/signin-register') {
         if (opts.registerFails) { state.enrolled = true; return send(400, { error: 'register broke half way' }); }   // the files were written
+        if (opts.registerRefusedClean) return send(400, { error: 'finish the code steps first' });   // nothing written
         state.enrolled = true; state.on = opts.switchOn !== false; state.up = state.on;
         return send(200, { ok: true, name: 'x' });
       }
-      if (req.url === '/api/remote/forget') { state.enrolled = false; state.on = false; state.up = false; return send(200, { ok: true, retired: true }); }
+      if (req.url === '/api/remote/forget') {
+        const had = state.enrolled;
+        state.enrolled = false; state.on = false; state.up = false;
+        return send(200, had ? { ok: true, retired: true } : { ok: true, retired: false, because: 'this computer was not set up for Plus, so there was nothing to retire' });
+      }
       send(404, {});
     });
   });
@@ -172,16 +180,18 @@ test('#2036: a board that is not the staged build is refused, and nothing is rec
   } finally { b.server.close(); }
 });
 
-test('#2036: a board that already holds a Kosmos+ identity is refused, and an older record for this build is cleared', async () => {
+test('#2036: a board that already holds a Kosmos+ identity is refused, and an earlier FAIL for this build still stands', async () => {
   const dir = tmp(); const e = env(dir); const ptr = pointerFile(dir);
-  record.write(good(), e);
+  const failed = good(); failed.result = 'fail'; failed.steps = passSteps().map((s) => (s.id === 'up' ? { id: 'up', result: 'fail', detail: 'switch OFF' } : s));
+  record.write(failed, e);
   const b = await fakeBoard({ enrolled: true });
   try {
     const r = await runner(['start', '--pointer', ptr, '--port', String(b.port)], e);
     assert.strictEqual(r.code, 2);
     assert.match(r.out, /already holds a Kosmos\+ identity/);
     assert.ok(!b.calls.some((c) => c.url === '/api/remote/signin-start'));
-    assert.ok(!fs.existsSync(record.recordPath(SHA, e)), 'an earlier pass stood beside a new attempt');
+    assert.strictEqual(rec(e).result, 'fail', 'a refused attempt deleted the earlier record');
+    assert.strictEqual(runGate(e.KOSMOS_PLUS_VERIFY_DIR, ptr).status, 1, 'a second start turned a refusal into a HOLD');
   } finally { b.server.close(); }
 });
 
@@ -256,5 +266,50 @@ test('#2036: a sign-in that skips the second step straight to a session is recor
     const got = rec(e);
     assert.deepStrictEqual(step(got, 'second'), { id: 'second', result: 'fail', detail: 'no second step was asked for after the code' });
     assert.ok(!b.calls.some((c) => c.url === '/api/remote/signin-register'), 'it registered without a second step');
+  } finally { b.server.close(); }
+});
+
+test('#2036: while an attempt is in flight the gate HOLDs over an old pass, but an old FAIL still refuses', () => {
+  const dir = tmp(); const ptr = pointerFile(dir);
+  const env0 = { KOSMOS_PLUS_VERIFY_DIR: dir };
+  record.write(good(), env0);
+  fs.writeFileSync(record.recordPath(SHA, env0).replace(/\.json$/, '.progress.json'), '{}');
+  let r = runGate(dir, ptr);
+  assert.strictEqual(r.status, 2, 'an old pass stood for an attempt in flight: ' + r.stdout);
+  assert.match(r.stdout, /in flight/);
+  const failed = good(); failed.result = 'fail'; failed.steps = passSteps().map((s) => (s.id === 'up' ? { id: 'up', result: 'fail' } : s));
+  record.write(failed, env0);
+  r = runGate(dir, ptr);
+  assert.strictEqual(r.status, 1, 'an attempt in flight turned a refusal into a HOLD');
+});
+
+test('#2036: a board call that times out, or a seed whose second step is a text, is setup: nothing recorded', async () => {
+  let dir = tmp(); let e = Object.assign(env(dir), { KOSMOS_PLUS_CALL_MS: '300' }); let ptr = pointerFile(dir);
+  let b = await fakeBoard({ verifyHangs: true });
+  try {
+    const r = await both(b, e, ptr, ['--code', '123456', '--placement', 'INBOX']);
+    assert.strictEqual(r.code, 2, r.out);
+    assert.match(r.out, /nothing recorded/);
+    assert.ok(!fs.existsSync(record.recordPath(SHA, e)), 'a timeout was recorded as a build failure');
+  } finally { b.server.closeAllConnections(); b.server.close(); }
+  dir = tmp(); e = env(dir); ptr = pointerFile(dir);
+  b = await fakeBoard({ secondKind: 'sms' });
+  try {
+    const r = await both(b, e, ptr, ['--code', '123456', '--placement', 'INBOX']);
+    assert.strictEqual(r.code, 2, r.out);
+    assert.match(r.out, /not an authenticator/);
+    assert.ok(!fs.existsSync(record.recordPath(SHA, e)));
+  } finally { b.server.close(); }
+});
+
+test('#2036: a register refused before it wrote anything does not claim a throwaway Mac was left', async () => {
+  const dir = tmp(); const e = env(dir); const ptr = pointerFile(dir);
+  const b = await fakeBoard({ registerRefusedClean: true });
+  try {
+    const r = await both(b, e, ptr, ['--code', '123456', '--placement', 'INBOX']);
+    assert.strictEqual(r.code, 1, r.out);
+    const got = rec(e);
+    assert.strictEqual(step(got, 'register').result, 'fail');
+    assert.deepStrictEqual(step(got, 'forget'), { id: 'forget', result: 'pass', detail: 'the register wrote nothing, so there was nothing to retire' });
   } finally { b.server.close(); }
 });

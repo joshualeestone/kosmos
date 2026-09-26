@@ -22,9 +22,12 @@
  *        The first ever run enrols the seed's authenticator instead and writes its secret to a
  *        mode-600 file under ~/.cache/claude-handoffs for `/add-secret --migrate` (never shown).
  *
- * A SETUP mistake (no code read, KOSMOS_SEED_TOTP unset, the wrong board on the port) exits 2 and
- * records nothing: it says nothing about the build. Only the board or coordinator refusing a step
- * records a FAIL, which the gate refuses on.
+ * A SETUP problem (no code read, KOSMOS_SEED_TOTP unset, the wrong board on the port, a seed whose
+ * second step is not an authenticator, a board call that timed out) exits 2 and records nothing.
+ * A refused step records a FAIL, which the gate refuses on. A refusal that was the operator's own
+ * mistake (a stale or mistyped code, an old authenticator secret) is cleared by running start and
+ * finish again: the new attempt's record REPLACES this build's record when it finishes. An earlier
+ * record is never deleted before then, so an abandoned attempt cannot turn a refusal into a HOLD.
  *
  * THE SEED: josh+kosmos-seed@book.io (#1591's decision): a plus address on the mailbox the Gmail
  * connector already reads, not a new mailbox (#3751). Override with --seed. The Resend key is
@@ -41,7 +44,7 @@ const crypto = require('node:crypto');
 const record = require('./lib/plus-signin-record');
 
 const DEFAULT_SEED = 'josh+kosmos-seed@book.io';
-const CALL_MS = 15 * 1000;
+const CALL_MS = Number(process.env.KOSMOS_PLUS_CALL_MS) || 15 * 1000;
 /* The engine bounds a register at five minutes plus up to a minute clearing a half identity. */
 const REGISTER_MS = 7 * 60 * 1000;
 /* How long the tunnel may take to report up after the register. */
@@ -133,8 +136,6 @@ async function start(a) {
   const ptr = pointerFields(a.pointer || setup('--pointer is required'));
   const { b, identity } = await boardFor(a, ptr);
   const seed = a.seed || DEFAULT_SEED;
-  // A new attempt for this build: whatever an earlier attempt left is not this attempt's result.
-  try { fs.rmSync(record.recordPath(ptr.sha256), { force: true }); } catch { /* none */ }
   const st = await b.get('/api/remote');
   if (st.status !== 200) setup('the board did not answer /api/remote on port ' + boardPort(a.port));
   if (st.json.enrolled === true) setup('this board already holds a Kosmos+ identity: a FIRST sign-in cannot be tested here (forget it first, or use a fresh board)');
@@ -147,7 +148,7 @@ async function start(a) {
   steps.push({ id: 'start', result: 'pass' });
   fs.mkdirSync(path.dirname(progressPath(ptr.sha256)), { recursive: true });
   fs.writeFileSync(progressPath(ptr.sha256), JSON.stringify({ ...ptr, identity, seed, steps, startedAt: new Date().toISOString() }));
-  console.log('plus-signin-fresh: a code was sent to ' + seed + '. Read it with the Gmail connector (to:' + seed + ' from:kosmosplus.com newer_than:1h),');
+  console.log('plus-signin-fresh: a code was sent to ' + seed + ' at ' + new Date().toISOString() + '. Read the NEWEST message after that time with the Gmail connector (to:' + seed + ' from:kosmosplus.com newer_than:1h),');
   console.log('  note its label (INBOX / SPAM / OTHER), then run: finish --pointer ' + a.pointer + ' --code <code> --placement <label>');
   return 0;
 }
@@ -168,21 +169,29 @@ async function finish(a) {
   const seed = prog.seed;
   const steps = prog.steps.concat([{ id: 'code', result: 'pass' }]);
   let registerTried = false;
-  const fail = (id, r) => steps.push({ id, result: 'fail', detail: String((r && r.json && r.json.error) || (r && r.status) || r) });
+  // No answer at all (a timeout) says nothing about the build: cancel, record nothing.
+  const fail = async (id, r) => {
+    if (r && r.status === 0) { await b.post('/api/remote/signin-cancel', {}); setup(id + ': ' + String(r.json.error) + '; try again'); }
+    steps.push({ id, result: 'fail', detail: String((r && r.json && r.json.error) || (r && r.status) || r) });
+  };
   try {
     const v = await b.post('/api/remote/signin-verify', { email: seed, code });
-    if (v.status !== 200) { fail('verify', v); throw new Error('verify'); }
+    if (v.status !== 200) { await fail('verify', v); throw new Error('verify'); }
     steps.push({ id: 'verify', result: 'pass' });
     let answer = v.json;
     if (v.json.stage === 'second') {
+      if (v.json.second_kind && v.json.second_kind !== 'totp') {
+        await b.post('/api/remote/signin-cancel', {});
+        setup('the seed account\'s second step is ' + JSON.stringify(v.json.second_kind) + ', not an authenticator this procedure can answer');
+      }
       const secret = process.env.KOSMOS_SEED_TOTP;
       if (!secret) { await b.post('/api/remote/signin-cancel', {}); setup('KOSMOS_SEED_TOTP is not set (secrets-map.sh value kosmos-seed-totp)'); }
       const r = await b.post('/api/remote/signin-second', { code: totp(secret) });
-      if (r.status !== 200) { fail('second', r); throw new Error('second'); }
+      if (r.status !== 200) { await fail('second', r); throw new Error('second'); }
       answer = r.json;
     } else if (v.json.stage === 'enrol_second_factor') {
       const e = await b.post('/api/remote/signin-enrol', { kind: 'totp' });
-      if (e.status !== 200 || typeof e.json.secret !== 'string') { fail('second', e); throw new Error('second'); }
+      if (e.status !== 200 || typeof e.json.secret !== 'string') { await fail('second', e); throw new Error('second'); }
       // The seed's authenticator secret, somewhere that survives a reboot, never printed.
       const dir = path.join(os.homedir(), '.cache', 'claude-handoffs');
       fs.mkdirSync(dir, { recursive: true });
@@ -190,7 +199,7 @@ async function finish(a) {
       fs.writeFileSync(out, 'KOSMOS_SEED_TOTP=' + e.json.secret + '\n', { mode: 0o600 });
       console.log('plus-signin-fresh: the seed account had no second step; enrolled an authenticator. File its secret now (the seed is locked without it): /add-secret --migrate ' + out);
       const c = await b.post('/api/remote/signin-confirm-enrol', { code: totp(e.json.secret) });
-      if (c.status !== 200) { fail('second', c); throw new Error('second'); }
+      if (c.status !== 200) { await fail('second', c); throw new Error('second'); }
       answer = c.json;
     } else {
       // The coordinator requires a second step (require_second): a sign-in that skips it
@@ -205,7 +214,7 @@ async function finish(a) {
     const name = owned ? owned.split('.')[0] : 'kseed-' + ptr.sha256.slice(0, 8);
     registerTried = true;
     const reg = await b.post('/api/remote/signin-register', { name }, REGISTER_MS);
-    if (reg.status !== 200) { fail('register', reg); throw new Error('register'); }
+    if (reg.status !== 200) { await fail('register', reg); throw new Error('register'); }
     steps.push({ id: 'register', result: 'pass' });
     const st = await b.get('/api/remote');
     if (!(st.status === 200 && st.json.enrolled === true)) { steps.push({ id: 'enrolled', result: 'fail', detail: 'the board does not report itself enrolled after register' }); throw new Error('enrolled'); }
@@ -229,7 +238,10 @@ async function finish(a) {
   // board, and the engine's forget also retires a half-registered identity.
   if (registerTried) {
     const f = await b.post('/api/remote/forget', {}, REGISTER_MS);
-    steps.push(f.status === 200 && f.json.retired === true ? { id: 'forget', result: 'pass' } : { id: 'forget', result: 'fail', detail: 'the throwaway registration was not retired: ' + String((f.json && (f.json.because || f.json.error)) || f.status) });
+    const nothing = f.status === 200 && f.json.retired !== true && /nothing to retire/i.test(String(f.json.because || ''));
+    steps.push(f.status === 200 && f.json.retired === true ? { id: 'forget', result: 'pass' }
+      : nothing ? { id: 'forget', result: 'pass', detail: 'the register wrote nothing, so there was nothing to retire' }
+      : { id: 'forget', result: 'fail', detail: 'the throwaway registration was not retired: ' + String((f.json && (f.json.because || f.json.error)) || f.status) });
   } else {
     await b.post('/api/remote/signin-cancel', {});
   }
