@@ -812,7 +812,8 @@ function pendingDevices() {
     }));
   return { devices, snapshot: raw !== null, email: settings.email || '' };
 }
-/* The tunnel's answer is its LAST line of stdout, one line of JSON. Other lines
+/* The tunnel's answer is its last line of stdout that starts with "{", one line
+   of JSON. Other lines
    can come before it: a fresh register prints its certificate line first
    ("certificate for ... written to ...", kosmos-relay setup.rs fetch_certificate),
    and most verbs log to stdout (tracing's default writer). Parsing all of stdout

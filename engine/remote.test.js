@@ -164,7 +164,7 @@ if (args[0] === 'signin') {
     }
     fs.writeFileSync(path.join(dir, 'address'), name + '.kosmos.invalid\\n');
     fs.writeFileSync(path.join(dir, 'stdin-token'), token);
-    // A re-register that kept its certificate (setup.rs certificate_survives): JSON only.
+    // The kept-certificate answer shape (setup.rs certificate_survives): JSON only, no certificate line.
     if (name === 'kept') { console.log(JSON.stringify({ stage: 'registered', mac_id: 'mac-fake', name: name, address: name + '.kosmos.invalid', standing: 'good', kept_certificate: true })); process.exit(0); }
     // As the real one does on a fresh register (kosmos-relay setup.rs fetch_certificate): the
     // certificate line first, then the JSON answer.
@@ -1144,7 +1144,7 @@ test('#3827: the tunnel answer is its last JSON line, and only that line', () =>
   assert.equal(pick('{\n  "stage": "registered"\n}'), null, 'pretty-printed JSON is not read line by line into something else');
 });
 
-test('#3827: a re-register that kept its certificate (JSON only) is read as signed in too', async () => {
+test('#3827: a register whose answer is JSON only (the kept-certificate shape) is read as signed in too', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   await remote.signinStart('her@example.com');
   await remote.signinVerify('her@example.com', '111111');

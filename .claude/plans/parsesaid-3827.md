@@ -25,3 +25,7 @@ The wider #3827 hardening (single-flight register and Forget, half identities, c
 - WARNING: nothing pinned the assumption that the tunnel never logs a JSON-shaped line to stdout (its tracing uses the default human-readable format; no .json() anywhere in crates/tunnel). Stated at lastJsonLine with the file it depends on; the matching note beside tracing_subscriber::fmt() in kosmos-relay main.rs goes with that repo's next change (kosmos#3827 comment).
 - NIT: the macRequest test used GET, which the real tunnel refuses (check_mac_request); now POST like every real caller.
 - NIT: lastJsonLine returned an unused `ok`; it returns { value } or null.
+
+## Round 3 review (opus): no BLOCKER, no WARNING
+- NIT: lastJsonLine's comment opened "its LAST line of stdout", stricter than the code (the last line that starts with "{"); reworded so nobody "fixes" the skip loop to match it.
+- NIT: the "kept" test is a first register that imitates the kept-certificate answer shape (afterEach wipes the state dir), not a re-register; title and fixture comment say so.
