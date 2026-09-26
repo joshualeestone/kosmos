@@ -270,6 +270,10 @@ const RELPORT = freePort();
       if (overlap(mboxes.toast, mboxes[k])) die('mobile: toast overlaps ' + k + ' ' + JSON.stringify(mboxes));
     }
     if (mboxes.toast.x < 0 || mboxes.toast.y < 0) die('mobile: toast off-screen ' + JSON.stringify(mboxes.toast));
+    // #3955: nor past the right edge, and the page does not scroll sideways because of it.
+    const edge = await p.evaluate(() => ({ vw: document.documentElement.clientWidth, sw: document.documentElement.scrollWidth }));
+    if (mboxes.toast.x + mboxes.toast.width > edge.vw) die('mobile: the chip runs past the right edge ' + JSON.stringify({ toast: mboxes.toast, edge }));
+    if (edge.sw > edge.vw) die('mobile: the page scrolls sideways ' + JSON.stringify(edge));
     await p.screenshot({ path: path.join(OUT, 'update-toast-375.png') });
 
     if (errs.length) die('page errors: ' + errs.join(' | '));

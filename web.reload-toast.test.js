@@ -188,3 +188,18 @@ test('#3955: it never reloads a page someone is looking at, sending from, typing
   assert.equal(safeReload({ modal: true }).reloaded, 0, 'reloaded under an open window');
   assert.equal(safeReload({ drafts: { talk: { april: '   ' } }, typed: ['', '  '] }).reloaded, 1, 'CONTROL: blank drafts and emptied fields are not words');
 });
+
+test('#3955 round 2: a field removed from the page is let go, and holds no words', () => {
+  const src = page.liftAll(SCRIPT, ['updateSafeReload']);
+  assert.match(src, /if \(t\.isConnected === false\) UPDATE_TYPED\.delete\(t\);/, 'removed fields pile up in UPDATE_TYPED for the life of the tab');
+  const gone = { value: 'typed, then the box was closed', isConnected: false };
+  const typed = new Set([gone]);
+  let reloaded = 0;
+  const got = new Function('document', 'sessionStorage', 'window', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
+    'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen', 'UPDATE_TYPED', 'ATTACH_PENDING', src + '\nreturn updateSafeReload("0.2.76");')(
+    { hidden: true }, { getItem: () => null, setItem() {} }, { location: { reload: () => { reloaded += 1; } } },
+    false, false, null, false, {}, {}, {}, {}, () => false, typed, { room: {}, agent: {} });
+  assert.equal(got, true);
+  assert.equal(reloaded, 1, 'a closed box\'s words blocked the reload');
+  assert.equal(typed.size, 0, 'the removed field was kept');
+});

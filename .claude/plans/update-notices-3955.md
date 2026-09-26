@@ -26,6 +26,12 @@ Card #3955 (Josh, #admin, 2026-09-26 08:11). Design: Mona Lisa's mock on card-sh
 - The browser check that opens the window records the board's own version as seen before and after, so checks sharing its board never meet the window.
 - "See everything that changed" says it opens in the browser; the cut check names the file it read.
 
+## Review round 2 (decided)
+- Below 480px the chip may wrap to two lines rather than run off the right edge; the 375px check asserts its right edge and that the page does not scroll sideways.
+- Fields removed from the page are let go from the typed set (and hold no words).
+- The window's document-level keys and focus backstop stand aside while another window is open over it.
+- Left: the one-shot whats-new read at load has no retry (as the old news line); an unused `.utxt small a` rule predates this change.
+
 ## Tests
 - The chip's two states and its one button; the stale chip never says "Kosmos updated"; engine-stale still first.
 - Safe reload: reloads when hidden and idle; not when visible, sending, drafting, or a dialog is open.

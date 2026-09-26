@@ -1213,6 +1213,12 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   font: inherit; font-size: .78rem; font-weight: 700; cursor: pointer; }
 .uchip button:hover { background: var(--gold); }
 .uchip button:focus-visible { outline: 2px solid var(--label); outline-offset: 2px; }
+/* Narrow screens (review round 2): the chip may wrap to two lines rather than run off the right edge. */
+@media (max-width: 480px) {
+  .uchip { white-space: normal; height: auto; min-height: 30px; padding: 3px 4px 3px 10px; max-width: 100%; }
+  .uchip .uchip-t { flex: 1 1 auto; min-width: 0; }
+  .uchip button { flex: none; }
+}
 /* #3955: "Kosmos has been updated" (mock C): a centred card over the dimmed app, tiles two by two. */
 .wn-box { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; text-align: center;
   background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: 22px;
@@ -18694,7 +18700,8 @@ function updateSafeReload(servedVersion) {
     const drafted = (m) => !!m && Object.values(m).some((v) => (typeof v === 'string' ? v : (v && v.text) || '').trim());
     if ([typeof TALK_DRAFTS !== 'undefined' && TALK_DRAFTS, typeof TERM_DRAFTS !== 'undefined' && TERM_DRAFTS,
       typeof PJ_DRAFTS !== 'undefined' && PJ_DRAFTS, typeof PJ_ROOM_DRAFTS !== 'undefined' && PJ_ROOM_DRAFTS].some(drafted)) return false;
-    if ([...UPDATE_TYPED].some((t) => t.isConnected !== false && String(t.value || '').trim())) return false;
+    for (const t of [...UPDATE_TYPED]) if (t.isConnected === false) UPDATE_TYPED.delete(t);   // a removed field holds nothing (and is let go)
+    if ([...UPDATE_TYPED].some((t) => String(t.value || '').trim())) return false;
     const attached = typeof ATTACH_PENDING !== 'undefined' && ATTACH_PENDING;
     if (attached && Object.values(attached).some((m) => m && Object.values(m).some((v) => Array.isArray(v) ? v.length : !!v))) return false;
     if (typeof tipModalOpen === 'function' && tipModalOpen()) return false;
@@ -31999,9 +32006,13 @@ function wnWire(back) {
 /* On the document, like the page's other dialogs (review round 1): Escape and Tab must work even
    when focus has slipped to the body behind the window (a click on its text), and focus that lands
    outside is brought back in. Each does nothing while the window is not up. */
+/* Another window opened over this one (an update confirm, first run) owns the keys and focus. */
+function wnCovered() {
+  return !!document.querySelector('.rm-back:not(#whatsnew):not([hidden]), .fr-back:not([hidden]), .upd-back');
+}
 document.addEventListener('keydown', (e) => {
   const back = document.getElementById('whatsnew');
-  if (!back) return;
+  if (!back || wnCovered()) return;
   if (e.key === 'Escape') { e.preventDefault(); wnClose(); return; }
   if (e.key !== 'Tab') return;
   // Two things to press; Tab stays between them while the window is up.
@@ -32013,7 +32024,7 @@ document.addEventListener('keydown', (e) => {
 });
 document.addEventListener('focusin', (e) => {
   const back = document.getElementById('whatsnew');
-  if (back && !back.contains(e.target)) { const ok = back.querySelector('#wn-ok'); if (ok) ok.focus(); }
+  if (back && !wnCovered() && !back.contains(e.target)) { const ok = back.querySelector('#wn-ok'); if (ok) ok.focus(); }
 });
 /* Is `a` a later version than `b` (x.y.z)? null when either is not one. */
 function wnNewer(a, b) {
