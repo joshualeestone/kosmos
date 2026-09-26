@@ -133,7 +133,11 @@ function onEvent(projectId, line) {
     // `from` is whatever the other Mac wrote: only a string counts. String() on an
     // object whose toString is not a function throws, here, where nothing catches.
     const fromRaw = typeof ev.data.from === 'string' ? ev.data.from : '';
-    const size = Buffer.byteLength(ev.data.text) + Buffer.byteLength(fromRaw);
+    // Charged for what is KEPT: the name is cut to 80 before it is stored, so its
+    // raw length must not spend the room's budget (a padded name would use up the
+    // day while storing nothing).
+    const fromKept = clean(fromRaw, 80) || 'someone outside';
+    const size = Buffer.byteLength(ev.data.text) + Buffer.byteLength(fromKept);
     s.inbound.count += 1;
     s.inbound.bytes += size;
     if (s.inbound.count > INBOUND_PER_WINDOW || s.inbound.bytes > INBOUND_BYTES_PER_WINDOW) {
@@ -152,7 +156,7 @@ function onEvent(projectId, line) {
     // has nothing above it to catch it and would take the board down.
     try {
       deps.recordExternal(projectId, {
-        from: clean(fromRaw, 80) || 'someone outside',
+        from: fromKept,
         fromKind: ev.data.kind === 'agent' ? 'agent' : 'person',
         text: ev.data.text,
       });

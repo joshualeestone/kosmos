@@ -601,3 +601,17 @@ test('#3311: output from a stopped seat never lands in a new seat that reuses th
   assert.strictEqual(h.recorded.length, before + 1, 'the current seat\'s message was dropped');
   fedseats.stop('proj-reuse');
 });
+
+test('a padded sender name is charged for what is kept, not its raw length', async () => {
+  federation.recordLink('proj-padname', { role: 'member', edge_id: 'edge-padname' });
+  const h = harness();
+  await fedseats.ensure('proj-padname');
+  // 10 x 60 KiB of name would be 600 KiB against a 64 KiB minute; only 80
+  // characters of each are ever stored, so all ten are kept and nothing is noted.
+  const pad = 'P'.repeat(60 * 1024);
+  for (let i = 0; i < 10; i++) say(h.spawned[0], { event: 'message', data: { from: pad, kind: 'person', text: 'x' } });
+  await tick();
+  assert.strictEqual(h.recorded.length, 10, 'a padded name spent the room budget: ' + h.recorded.length + ' of 10 kept');
+  assert.strictEqual(h.notes.length, 0);
+  assert.strictEqual(h.recorded[0].from.length, 80);
+});

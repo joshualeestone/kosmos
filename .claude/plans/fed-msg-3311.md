@@ -305,3 +305,7 @@ not count).
 - WARNING: words with an attached file went out and the file silently stayed here. federateOut now reads the stored row: when the words were sent and it carried files, the room says "The words went to the external project; the attached file stayed on this computer." Test (with a no-file post that says nothing); control fails by name.
 - NIT: project_desc was cut by code unit and kept variation selectors / blank letters: now byCodePoint and INVISIBLE, like names and bodies.
 - NIT: "the room view keeps local posts in sight" only found the newest row. It now writes a local note before the 45-message flood and asserts it is still in the view.
+
+## Round 26 (sonnet)
+- WARNING: the inbound minute and day budgets were charged on the raw `from`, which is cut to 80 characters before it is stored, so a peer padding names to ~60 KiB could spend the room's day (2 MiB) in about 34 messages while storing almost nothing, and every real message was then refused for the run. Now charged on the name as kept (clean(from, 80)). Test: ten 60 KiB names in one minute are all kept, no note; control (raw length) keeps 1 of 10 and fails by name.
+- NIT (accepted, no change): federation.js's cache keys on mtime + size with no content seam, unlike messages.js. The only writers (recordLink/forgetLink) clear the in-process cache themselves; the key matters only for an out-of-process rewrite at the same size in the same millisecond.
