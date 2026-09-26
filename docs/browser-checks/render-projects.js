@@ -1024,17 +1024,8 @@ async function main() {
       // shared `.pj-minus` row, not the retired `.drop` button) without
       // moving it off this screen again, so the selector below follows it.
       //
-      // ⚠️ `.pj-told` STAYS HERE AND STAYS RED, deliberately. It did NOT move to
-      // another screen; it moved to a STATE. pjToldLine returns a non-empty
-      // string only when told.state === 'could_not' ("success says nothing",
-      // ruled 2026-08-18), and this fixture is a HEALTHY project, so the element
-      // cannot render here. Measuring it needs a fixture with a FAILED TELL,
-      // which is NOT the missing-folder fixture below: a failed tell is "we
-      // could not write to its instructions", and a missing folder does not
-      // necessarily produce one. No such fixture exists yet.
-      // Not deleted, because this check's own rule is that a miss is RECORDED
-      // rather than skipped. A red saying "this failure state is unmeasured" is
-      // worth more than a green saying nothing.
+      // #3923: a failed tell no longer renders on this list as `.pj-told`; it is the project notice,
+      // measured in its own pass below on the fixture that produces one ("Quarter close").
       // 🛑 `#pj-one-view .flabel` USED TO BE IN THIS LIST AND IT WAS THE SAME
       // BUG AS THE HEADING ONE, one loop lower and considerably worse. When the
       // three column headers moved from `.flabel` to the pack's `.dlab`, this
@@ -1100,16 +1091,19 @@ async function main() {
       }
       return out;
     });
-    /* ⚠️ `.pj-told` MEASURED WHERE IT RENDERS, which is a project whose tell
+    /* ⚠️ THE FAILED TELL MEASURED WHERE IT RENDERS (the project notice since #3923; it was
+       the row's `.pj-told` before), which is a project whose tell
        FAILED. It sat in the healthy-project list above and was red for two
        reasons at once: the element only exists when `told.state` is
        `could_not`, and this fixture's healthy project has no such member.
        Mona Lisa traced it and could not confirm a failed-tell fixture existed.
        One does, and this check already makes it: "Quarter close" is created
        with `claudebot`, which has no folder on this machine, so its tell comes
-       back could_not and the member row carries the sentence.
+       back could_not and the project notice carries the sentence (#3923).
        ⚠️ It is a DIFFERENT failure from the missing-folder pass below. A failed
-       tell is "we could not write to its instructions"; a missing folder is
+       tell here is "we could not find an agent with exactly this name on this
+       computer" (or, with claudebot running, "it has no instructions file yet");
+       a missing folder is
        "the folder is gone". One does not imply the other, which is why this is
        its own pass rather than folded into that one. */
     /* ⚠️ OUT OF SETTINGS FIRST. The pass above leaves the page on the settings
@@ -1123,22 +1117,54 @@ async function main() {
     await page.waitForTimeout(200);
     await page.click('[data-project="quarterclose"]');
     await page.waitForTimeout(400);
+    /* #3923: the failed tell now speaks in the project notice (Mona's design) above the
+       members list, not as a `.pj-told` line on the member's row, so its headline and its
+       reason are what get measured. */
     const toldEls = await page.evaluate(() => {
       const bgOf = window.__kbg;
       const out = [];
-      const sel = '#pj-one-view .pj-told';
-      const el = document.querySelector(sel);
-      if (!el || !el.offsetParent) { out.push({ sel, missing: true }); return out; }
-      /* Asserted, not merely found: an empty `.pj-told` would measure fine and
-         mean nothing, and the whole point of this element is that it SPEAKS. */
-      if (!(el.textContent || '').trim()) {
-        out.push({ sel, wrongElement: '(empty)', expected: 'a reason' });
-        return out;
+      for (const [sel, expected] of [['#pj-one-view .pnotice .pn-b > b', 'instructions for this project'],
+                                     ['#pj-one-view .pnotice .pnwhy', '']]) {
+        const el = document.querySelector(sel);
+        if (!el || !el.offsetParent) { out.push({ sel, missing: true }); continue; }
+        /* Asserted, not merely found: an empty element would measure fine and mean
+           nothing, and the whole point of the notice is that it SPEAKS. */
+        const said = (el.textContent || '').trim();
+        if (!said || (expected && !said.includes(expected))) {
+          out.push({ sel, wrongElement: said || '(empty)', expected: expected || 'a reason' });
+          continue;
+        }
+        const cs = getComputedStyle(el);
+        out.push({ sel, fg: cs.color, bg: bgOf(el), size: parseFloat(cs.fontSize), weight: cs.fontWeight });
       }
-      const cs = getComputedStyle(el);
-      out.push({ sel, fg: cs.color, bg: bgOf(el), size: parseFloat(cs.fontSize), weight: cs.fontWeight });
       return out;
     });
+    /* #3923: Try again pressed for real on this fixture. Its agent is not running, so the board
+       re-tells, gets the same answer, and the row must say so ("It still did not work."), keep
+       focus on its own Try again, and announce no success on the hidden status line. */
+    const retry = await (async () => {
+      const btn = await page.$('#pj-one-notice [data-pn-retry]');
+      if (!btn) return { missing: true };
+      await btn.focus();
+      await btn.click();
+      // Both the answer AND the focus: the handler places focus after its own read, which a background
+      // refresh can overtake, so waiting only for the text could read focus too early.
+      await page.waitForFunction(() => /It still did not work\./.test((document.getElementById('pj-one-notice') || {}).textContent || '')
+        && !!(document.activeElement && document.activeElement.matches && document.activeElement.matches('#pj-one-notice [data-pn-retry]')), null, { timeout: 8000 }).catch(() => {});
+      return page.evaluate(() => {
+        const box = document.getElementById('pj-one-notice');
+        const a = document.activeElement;
+        return {
+          still: /It still did not work\./.test(box.textContent || ''),
+          focusOnRetry: !!(a && a.matches && a.matches('#pj-one-notice [data-pn-retry]')),
+          said: (document.getElementById('pj-one-notice-said') || {}).textContent || '',
+        };
+      });
+    })();
+    if (retry.missing || !retry.still || !retry.focusOnRetry || retry.said) {
+      contrastFails += 1;
+      console.log(`  FAIL  #3923 Try again on a stopped agent: expected "It still did not work.", focus on its Try again and no success line (${scheme}), got ${JSON.stringify(retry)}`);
+    }
     for (const e of [...listEls, ...badFolderEls, ...els, ...settingsEls, ...toldEls]) {
       if (e.missing) {
         contrastFails += 1;
@@ -1392,7 +1418,10 @@ async function main() {
       // changed once already.
       const members = await page.evaluate(() => {
         const list = document.getElementById('pj-one-agents');
-        const h = list && list.previousElementSibling;
+        // #3923: the project notice sits between the heading and the list when something is wrong.
+        let h = list && list.previousElementSibling;
+        // #3923 put the notice region and its screen-reader line between the heading and the list.
+        while (h && (h.id === 'pj-one-notice' || h.id === 'pj-one-notice-said')) h = h.previousElementSibling;
         return {
           heading: h ? h.textContent : null,
           headingTag: h ? h.tagName : null,

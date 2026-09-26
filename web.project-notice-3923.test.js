@@ -1,0 +1,400 @@
+'use strict';
+/**
+ * #3923: the project notice (Mona Lisa's design, project-notice-mock.html). One notice above the
+ * members list while an agent could not be given the project's folder, shaped by what the person
+ * must do: WAIT (the reason and Try again), RETRY (the reason, a fix ending "then try again", and
+ * Try again), EXPLAIN (a sentence saying there is nothing to do). Success and not_tried say nothing.
+ *
+ * The member rows are REAL: the fleet fixture's agents, put on a project by the projects engine
+ * and read back through its own `list()`, with the verdicts set in the stored project record
+ * (what `syncAgent` writes). Fixture discipline: no hand-built row.
+ */
+const os = require('node:os');
+const fs = require('node:fs');
+const nodePath = require('node:path');
+
+// ⚠️ SANDBOX FIRST, BEFORE ANY REQUIRE: the engine and the fixture read their roots at require time.
+const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-notice-3923-'));
+process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_PROJECTS = nodePath.join(SANDBOX, 'projects');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fleet = require('./test-support/fleet');
+const projects = require('./engine/projects');
+
+test.after(() => { fleet.restore(); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+
+const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+const ENGINE = fs.readFileSync(nodePath.join(__dirname, 'engine', 'projects.js'), 'utf8');
+
+/** The page's own function source, by its declaration. */
+function pageFn(sig) {
+  const at = PAGE.indexOf(sig);
+  assert.ok(at > 0, sig + ' is gone from the page');
+  return PAGE.slice(at, PAGE.indexOf('\n}', at) + 2);
+}
+/** The notice code as the page has it, with the page's own esc and pjSentence. */
+function notice() {
+  const at = PAGE.indexOf('const PJ_NOTICE = [');
+  const end = PAGE.indexOf('/**\n * How a member reads.', at);
+  assert.ok(at > 0 && end > at, 'the notice code moved; re-anchor');
+  // eslint-disable-next-line no-new-func
+  return new Function(pageFn('function esc(') + '\n' + pageFn('function pjSentence(') + '\n'
+    + PAGE.slice(at, end) + '\nreturn { pjNotice, PJ_NOTICE, PJ_NOTICE_TRIED, PJ_NOTICE_MISSED };')();
+}
+
+let projectCount = 0;
+/** Real member rows, one per name, each with the verdict given (a because, or a state). */
+function rows(verdicts) {
+  const names = Object.keys(verdicts);
+  const board = fleet.install(names.map((n) => fleet.agent(n, { state: 'idle' })));
+  try {
+    const dir = nodePath.join(SANDBOX, 'p' + (++projectCount));
+    fs.mkdirSync(dir, { recursive: true });
+    const made = projects.create({ name: 'Notice ' + projectCount, folder: dir, agents: names, roster: board.agents });
+    const all = projects.readAll();
+    const p = all.find((x) => x.id === made.id);
+    p.told = {};
+    for (const [n, v] of Object.entries(verdicts)) {
+      p.told[n] = (v === 'told' || v === 'not_tried') ? { state: v, because: null } : { state: 'could_not', because: v };
+    }
+    projects.writeAll(all);
+    return projects.list(board.agents).find((x) => x.id === made.id).agents;
+  } finally {
+    board.restore();
+  }
+}
+/** The whole real project (as the page's PROJECTS holds it) for the verdicts given. */
+function projectWith(verdicts) {
+  const agents = rows(verdicts);
+  const p = projects.readAll()[projects.readAll().length - 1];
+  return { id: p.id, agents };
+}
+// The words a person reads: the decorative (aria-hidden) hazard mark is not one of them.
+const text = (html) => html.replace(/<span class="haz" aria-hidden="true">!<\/span>/, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+test('#3923: nothing wrong says nothing (success and not_tried included)', () => {
+  const { pjNotice } = notice();
+  assert.equal(pjNotice([]), '');
+  assert.equal(pjNotice(rows({ leo: 'told', april: 'not_tried' })), '');
+});
+
+test('#3923: each shape as the design draws it (Wait, Act then retry twice, Explain), one agent each', () => {
+  const { pjNotice } = notice();
+  const wait = pjNotice(rows({ leo: 'we could not write to its instructions' }));
+  assert.equal(text(wait), 'Kosmos could not update leo’s instructions for this project. Saving did not work this time. It may work on another try. Try again');
+  assert.match(wait, /data-pn-retry="leo"/);
+
+  const act = pjNotice(rows({ april: 'it has no instructions file yet, and we will not create one' }));
+  assert.equal(text(act), 'Kosmos could not update april’s instructions for this project. april has no instructions file, and Kosmos will not create one. Give april some instructions, then try again. Try again');
+  // A fix the person makes, then a retry: nothing else re-tells the agent, so the button is how it is picked up.
+  assert.match(act, /data-pn-retry="april"/, 'a change-something row must offer Try again after the fix');
+  assert.match(act, /<b class="pnfix">Give april/);
+
+  const retry = pjNotice(rows({ mikey: 'we could not find an agent with exactly this name on this computer' }));
+  assert.equal(text(retry), 'Kosmos could not update mikey’s instructions for this project. Kosmos cannot find mikey running on this computer. Start mikey, then try again. Try again');
+
+  const explain = pjNotice(rows({ casey: 'it has no folder of its own on this computer yet' }));
+  assert.equal(text(explain), 'Kosmos could not update casey’s instructions for this project. Kosmos has no folder for casey on this computer, so it has nowhere to write.');
+  // The other Explain: a file Kosmos will not write through (a link, an unreadable file). A name, then its possessive.
+  assert.equal(text(pjNotice(rows({ casey: 'it keeps its instructions somewhere we cannot safely change' }))),
+    'Kosmos could not update casey’s instructions for this project. casey’s instructions live somewhere Kosmos cannot safely change, so Kosmos has nowhere to write.');
+  assert.doesNotMatch(explain, /Try again|pnfix/, 'Explain prescribes nothing');
+
+  // A file the reader refuses is Explain too: pressing again reads the same file the same way.
+  const unreadable = pjNotice(rows({ leo: 'its instruction file is not UTF-8 text, so editing it here would corrupt it' }));
+  assert.doesNotMatch(unreadable, /Try again/);
+  assert.match(text(unreadable), /leo’s instructions are in a file Kosmos cannot safely change/);
+});
+
+test('#3923: several agents: the header counts, each row carries its own why and only its own button', () => {
+  const { pjNotice } = notice();
+  const html = pjNotice(rows({
+    leo: 'we could not write to its instructions',
+    bob: 'told',
+    april: 'it has no instructions file yet, and we will not create one',
+    casey: 'it has no folder of its own on this computer yet',
+  }));
+  assert.match(text(html), /^Kosmos could not update 3 agents’ instructions for this project\./);
+  assert.equal((html.match(/class="pnrow"/g) || []).length, 3, 'one row per failing agent; the told one says nothing');
+  assert.equal((html.match(/data-pn-retry=/g) || []).length, 2, 'leo (Wait) and april (fix, then retry) get a button; casey (Explain) does not');
+  assert.doesNotMatch(html, /data-pn-retry="casey"/);
+  assert.match(html, /aria-label="Try again for leo"/, 'each button names its agent for a screen reader');
+  assert.match(html, /<span class="pnwho">leo<\/span><span class="pnwhy">Saving did not work this time\. It may work on another try\./);
+  assert.match(html, /<span class="pnwho">casey<\/span><span class="pnwhy">Kosmos has no folder for casey on this computer, so it has nowhere to write\./);
+  assert.doesNotMatch(html, /bob/);
+});
+
+test('#3923: a Try again that came back with the same answer says so on the row, and only then', () => {
+  const { pjNotice, PJ_NOTICE_TRIED } = notice();
+  const r = rows({ leo: 'we could not write to its instructions' });
+  assert.doesNotMatch(pjNotice(r, 'p1'), /still did not work/, 'CONTROL: not before a retry');
+  PJ_NOTICE_TRIED.set('p1\nleo', 'we could not write to its instructions');
+  assert.match(text(pjNotice(r, 'p1')), /Saving did not work this time\. It may work on another try\. It still did not work\./);
+  // Another project painting (where leo is fine) does not forget it here.
+  pjNotice(rows({ leo: 'told' }), 'p2');
+  assert.match(text(pjNotice(r, 'p1')), /It still did not work\./, 'browsing another project forgot the retry here');
+  // The answer changes (some other re-tell) and later comes back: no retry happened, so no "still".
+  pjNotice(rows({ leo: 'its instructions are already at the size limit' }), 'p1');
+  assert.doesNotMatch(pjNotice(r, 'p1'), /still did not work/, 'a mark outlived a changed answer and came back with it');
+  // A different answer after the retry is new information, not "still".
+  assert.doesNotMatch(pjNotice(rows({ leo: 'its instructions are already at the size limit' }), 'p1'), /still did not work/);
+});
+
+test('#3923: a Try again that got no answer says it did not go through, and a later answered one replaces that', () => {
+  const { pjNotice, PJ_NOTICE_TRIED, PJ_NOTICE_MISSED } = notice();
+  const r = rows({ leo: 'we could not write to its instructions' });
+  assert.doesNotMatch(pjNotice(r, 'p1'), /did not go through/, 'CONTROL: not before a retry');
+  PJ_NOTICE_MISSED.set('p1\nleo', 'we could not write to its instructions');
+  assert.match(text(pjNotice(r, 'p1')), /Saving did not work this time\. It may work on another try\. Trying again did not go through, so this is still the earlier answer\./);
+  assert.doesNotMatch(pjNotice(r, 'p1'), /still did not work/, 'an unanswered retry claimed to have been tried');
+  // A changed answer ends the mark, as for an answered retry.
+  pjNotice(rows({ leo: 'its instructions are already at the size limit' }), 'p1');
+  assert.equal(PJ_NOTICE_MISSED.has('p1\nleo'), false, 'a missed mark outlived a changed answer');
+  PJ_NOTICE_TRIED.set('p1\nleo', 'we could not write to its instructions');
+  assert.match(text(pjNotice(r, 'p1')), /It still did not work\./);
+});
+
+test('#3923: an unknown cause is one honest retry with the engine\'s own sentence', () => {
+  const { pjNotice } = notice();
+  // A system error's own words (an error code, a path) never reach the person.
+  for (const raw of ["EACCES: permission denied, open '/Users/josh/x.json'", 'ENOSPC: no space left on device', "could not open C:\\Users\\x"]) {
+    assert.equal(text(pjNotice(rows({ leo: raw }))), 'Kosmos could not update leo’s instructions for this project. Kosmos does not know why. It may work on another try. Try again', 'raw text reached the notice: ' + raw);
+  }
+  assert.equal(text(pjNotice(rows({ leo: 'the disk is full' }))), 'Kosmos could not update leo’s instructions for this project. The disk is full. Try again');
+});
+
+test('#3923: every could_not sentence the engine names has a shape (none falls through to the generic retry)', () => {
+  const { PJ_NOTICE } = notice();
+  const at = ENGINE.indexOf('const GROUP_BECAUSE = new Map([');
+  const end = ENGINE.indexOf(']);', at);
+  assert.ok(at > 0 && end > at, 'GROUP_BECAUSE moved; re-anchor');
+  // Each entry opens `['<singular>',` whether its value is on the same line or the next.
+  const keys = [...ENGINE.slice(at, end).matchAll(/\[\s*'([^']+)',\s*'/g)].map((m) => m[1]);
+  const rowsInMap = (ENGINE.slice(at, end).match(/\[\s*'/g) || []).length;
+  assert.equal(keys.length, rowsInMap, 'CONTROL: the scan read every row of the engine map');
+  assert.ok(keys.length >= 9, 'CONTROL: the engine map has its rows (found ' + keys.length + ')');
+  // The other could_not sentences tellAgent can return: the N-blocks one, and the reader's own
+  // refusals it passes through for a file it cannot safely edit (workerfile.js, instructions.js).
+  keys.push('its instructions contain 2 Kosmos project blocks, so we cannot tell which is ours and did not change anything',
+    'its worker folder is a link, so we do not read through it',
+    'its instruction file is not UTF-8 text, so editing it here would corrupt it',
+    'its instruction file is not one we can read',
+    'its instruction file could not be read',
+    'we cannot get at its instruction file to read it',
+    'that file is not inside the workers folder',
+    'that is not a name we can look up');
+  for (const because of keys) {
+    assert.ok(PJ_NOTICE.some(([re]) => re.test(because)), 'no shape for: ' + because);
+  }
+});
+
+test('#3923: the instruction writer\'s editor-worded refusals reach the notice in Kosmos\'s own words', () => {
+  const { PJ_NOTICE } = notice();
+  const { tellWriteBecause } = projects;
+  // Every refusal write() throws, read from its source, so a new one cannot slip through verbatim.
+  const src = fs.readFileSync(nodePath.join(__dirname, 'engine', 'instructions.js'), 'utf8');
+  const at = src.indexOf('\nfunction write(');
+  assert.ok(at > 0, 'write() moved; re-anchor');
+  const body = src.slice(at, src.indexOf('\n}\n', at));
+  const thrown = [...body.matchAll(/new Error\('([^']+)'\)/g)].map((m) => m[1]);
+  assert.ok(thrown.some((t) => /changed since you opened them/.test(t)) && thrown.some((t) => /open it by hand/.test(t)),
+    'CONTROL: the scan reads the editor-worded refusals: ' + thrown.join(' | '));
+  // Length and size are translated before this in tellAgent (their own tests). The backup's two
+  // checks are caught inside write() (a backup never blocks the save), so they never reach a caller.
+  for (const raw of thrown.filter((t) => !/cannot be this short|larger than an instruction file|^not a regular file$|also known by another name/.test(t))) {
+    const because = tellWriteBecause(raw);
+    assert.doesNotMatch(because, /reload|open it by hand|you opened/, 'editor wording reached a project verdict: ' + because);
+    assert.ok(PJ_NOTICE.some(([re]) => re.test(because)), 'no shape for the writer refusal: ' + raw + ' -> ' + because);
+    // A verdict saved before this translation existed still holds the raw sentence: it gets the same row.
+    const rawHit = PJ_NOTICE.find(([re]) => re.test(raw));
+    const newHit = PJ_NOTICE.find(([re]) => re.test(because));
+    assert.ok(rawHit && rawHit === newHit, 'an old saved verdict reads differently from a new one: ' + raw);
+  }
+  // CONTROL: an unknown message still passes through, to the generic retry.
+  assert.equal(tellWriteBecause('the disk is full'), 'the disk is full');
+});
+
+test('#3923: every refusal the instruction reader can pass through has a shape (read from the source)', () => {
+  const { PJ_NOTICE } = notice();
+  // tellAgent passes the reader's own `because` through for a file it cannot safely edit. Read
+  // those sentences from the reader's files, so a new one cannot fall through to the generic retry
+  // unnoticed.
+  const found = [];
+  for (const f of ['workerfile.js', 'instructions.js']) {
+    const src = fs.readFileSync(nodePath.join(__dirname, 'engine', f), 'utf8');
+    // Single-quoted sentences and template ones alike; a template's `${...}` stands in as "X".
+    for (const m of src.matchAll(/because:\s*(?:'([^']+)'|`([^`]+)`)/g)) {
+      const said = (m[1] || m[2]).replace(/\$\{[^}]*\}/g, 'X');
+      if (/instruction file|workers folder|worker folder|name we can look up/.test(said)) found.push(said);
+    }
+  }
+  assert.ok(found.length >= 5, 'CONTROL: the scan reads the reader refusals (found ' + found.length + ')');
+  assert.ok(found.some((b) => b.startsWith('its worker folder ')), 'CONTROL: the scan reads template sentences too (the worker-folder refusal)');
+  // Not tellAgent's path: two staleness verdicts (the file changed since the agent started) and
+  // the identity-line rename's own refusal. Everything else here can reach a project verdict.
+  // And the reader's missing-file sentence: tellAgent replaces it with its own ('it has no instructions
+  // file yet, and we will not create one', shaped above), so it never reaches a project verdict.
+  const reasons = found.filter((b) => !/edited since this agent started|last edited|that name cannot go in|^it has no instruction file yet$/.test(b));
+  assert.ok(found.includes('it has no instruction file yet'), 'CONTROL: the excluded missing-file sentence is still one the reader says; re-check the exclusion');
+  for (const because of reasons) {
+    assert.ok(PJ_NOTICE.some(([re]) => re.test(because)), 'no shape for the reader refusal: ' + because);
+  }
+});
+
+test('#3923: names are escaped', () => {
+  const { pjNotice } = notice();
+  // The page's own esc, given a name no fleet agent can carry: the row's shape is otherwise real.
+  const [real] = rows({ leo: 'we could not write to its instructions' });
+  const html = pjNotice([{ ...real, name: '<img src=x>' }]);
+  assert.doesNotMatch(html, /<img/);
+  assert.match(html, /&lt;img src=x&gt;/);
+});
+
+/* The Try again listener, run as the page has it, against a stand-in page. */
+function retryHandler(state) {
+  const sig = "document.getElementById('pj-one-notice').addEventListener('click', ";
+  const at = PAGE.indexOf(sig);
+  assert.ok(at > 0, 'the Try again listener moved; re-anchor');
+  const body = PAGE.slice(at + sig.length, PAGE.indexOf('\n});', at) + 2).replace(/PJ_CURRENT/g, 'state.PJ_CURRENT').replace(/PJ_READ_FAILED/g, 'state.PJ_READ_FAILED');
+  // eslint-disable-next-line no-new-func
+  return new Function('state', 'document', 'fetch', 'loadProjects', 'paintOneProject', 'PROJECTS', 'PJ_NOTICE_TRIED', 'PJ_NOTICE_MISSED', 'window', 'CSS', 'requestAnimationFrame',
+    pageFn('const pjNoticeKey').split('\n')[0] + '\nreturn ' + body + ';')(state, state.document, state.fetch, state.loadProjects, state.paintOneProject, state.PROJECTS, state.tried, state.missed, {}, undefined, (fn) => { state.frames.push(fn); });
+}
+function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false, refused = false, status = null, overtaken = false, focusedElsewhere = false, focusedInside = false, readFails = false, toldState = null, otherRow = false } = {}) {
+  // The board's verdict on the retry: told when the row went, could_not when it stayed (unless a test says otherwise).
+  const verdict = toldState || (rowAfter ? 'could_not' : 'told');
+  const log = [];
+  const btn = { dataset: { pnRetry: project.agents[0].sessionName }, disabled: false, closest() { return this; } };
+  const again = { focus() { log.push('focus:again'); } };
+  const attrs = {};
+  const onBlur = [];
+  const heading = { focus() { log.push('focus:heading'); }, hasAttribute: (k) => k in attrs, setAttribute: (k, v) => { attrs[k] = v; },
+    removeAttribute: (k) => { delete attrs[k]; }, addEventListener: (type, fn) => { if (type === 'blur') onBlur.push(fn); } };
+  again.dataset = { pnRetry: project.agents[0].sessionName };
+  const inside = { id: 'a-button-in-the-notice' };
+  const other = { focus() { log.push('focus:other'); }, dataset: { pnRetry: 'somebody-else' } };
+  const buttons = () => [...(rowAfter ? [again] : []), ...(otherRow ? [other] : [])];
+  const box = { __lastLive: 'x', querySelectorAll: () => buttons(), querySelector: () => buttons()[0] || null, contains: (el) => el === inside };
+  const said = { textContent: 'stale', dataset: {} };
+  const body = { id: 'body' };
+  const elsewhere = { id: 'composer' };
+  const state = {
+    PJ_CURRENT: project.id, PROJECTS: [project], tried: new Map(), missed: new Map(), log, btn, attrs, onBlur, said, frames: [],
+    document: { getElementById: (id) => (id === 'pj-one-notice-said' ? said : box), querySelector: () => heading, body,
+      get activeElement() { return focusedElsewhere ? elsewhere : (focusedInside ? inside : body); } },
+    fetch: async (url, opts) => { log.push('fetch:' + opts.method + ' ' + url + ' disabled=' + btn.disabled); if (switchTo) state.PJ_CURRENT = switchTo; if (fetchFails) throw new Error('offline'); const ok = !refused && !status; return { ok, status: status || (refused ? 500 : 200), json: async () => ({ told: { state: verdict } }) }; },
+    loadProjects: async () => { log.push('load live=' + box.__lastLive); state.PJ_READ_FAILED = readFails; return !overtaken; },
+    paintOneProject: () => { log.push('paint live=' + box.__lastLive); },
+  };
+  return state;
+}
+
+test('#3923: Try again re-tells with ?retell=1, repaints, marks the answer, and puts focus back', async () => {
+  const project = projectWith({ leo: 'we could not write to its instructions' });
+  const st = standIn(project);
+  await retryHandler(st)({ target: st.btn });
+  assert.deepEqual(st.log, [
+    'fetch:POST /api/project/' + encodeURIComponent(project.id) + '/agent/leo?retell=1 disabled=true',
+    'load live=null',
+    'focus:again',
+  ]);
+  assert.equal(st.btn.disabled, false, 'the button must be re-enabled after the repaint');
+  assert.equal(st.said.textContent, '', 'CONTROL: a row that is still there announces no success');
+  // Focus still inside the notice (the pressed button was replaced): it is put back.
+  const kept = standIn(project, { focusedInside: true });
+  await retryHandler(kept)({ target: kept.btn });
+  assert.equal(kept.log[kept.log.length - 1], 'focus:again', 'focus left inside the notice was not put back');
+  assert.equal(st.tried.get(project.id + '\nleo'), 'we could not write to its instructions', 'the answer before the retry is remembered');
+});
+
+test('#3923: when the row is gone focus goes to the Members heading; after a project switch it goes nowhere', async () => {
+  const project = projectWith({ leo: 'we could not write to its instructions' });
+  const gone = standIn(project, { rowAfter: false });
+  await retryHandler(gone)({ target: gone.btn });
+  assert.equal(gone.log[gone.log.length - 1], 'focus:heading');
+  assert.equal(gone.attrs.tabindex, '-1', 'the heading must be focusable to take focus');
+  assert.equal(gone.said.textContent, '', 'the line is emptied first, so the same sentence twice is announced twice');
+  gone.frames.forEach((fn) => fn());
+  assert.equal(gone.said.textContent, 'Kosmos updated leo’s instructions.', 'a retry that worked was silent to a screen reader');
+  assert.equal(gone.said.dataset.pj, project.id, 'the success line is not tagged with its project');
+  assert.equal(gone.tried.has(project.id + '\nleo'), false, 'a retry the board answered told was marked "still"');
+  // Told, then the follow-up read FAILS (a stale repaint of the old reason): never "It still did not work".
+  const toldDark = standIn(project, { rowAfter: false, readFails: true });
+  await retryHandler(toldDark)({ target: toldDark.btn });
+  assert.equal(toldDark.tried.has(project.id + '\nleo') || toldDark.missed.has(project.id + '\nleo'), false, 'a told retry was marked as failed');
+  // The row stays with a new reason that has no button: NOT success, nothing announced.
+  const buttonless = standIn(project, { rowAfter: false, toldState: 'could_not' });
+  await retryHandler(buttonless)({ target: buttonless.btn });
+  assert.equal(buttonless.said.textContent, '', 'a failed retry was announced as an update');
+  // The pressed row went and another row still has a Try again: focus moves there, not to the heading.
+  const onward = standIn(project, { rowAfter: false, otherRow: true });
+  await retryHandler(onward)({ target: onward.btn });
+  assert.equal(onward.log[onward.log.length - 1], 'focus:other', 'focus skipped the next row\'s Try again');
+  gone.onBlur.forEach((fn) => fn());
+  assert.equal('tabindex' in gone.attrs, false, 'the heading stayed focusable after focus left it');
+
+  const moved = standIn(project, { switchTo: 'another-project' });
+  await retryHandler(moved)({ target: moved.btn });
+  assert.ok(!moved.log.some((l) => l.startsWith('focus:')), 'focus moved into a project the person had left: ' + moved.log);
+  assert.equal(moved.btn.disabled, false);
+
+  // A retry that never got an answer marks nothing as "still": it is marked as not gone through.
+  const offline = standIn(project, { fetchFails: true });
+  await retryHandler(offline)({ target: offline.btn });
+  assert.equal(offline.tried.has(project.id + '\nleo'), false, 'a failed request was recorded as a retry that did not work');
+  assert.equal(offline.missed.get(project.id + '\nleo'), 'we could not write to its instructions', 'an offline retry left the row looking untouched');
+  assert.equal(offline.btn.disabled, false);
+  // So does one the board refused (a 500 or 429 is not an answer about the agent).
+  const refused = standIn(project, { refused: true });
+  await retryHandler(refused)({ target: refused.btn });
+  assert.equal(refused.tried.has(project.id + '\nleo'), false);
+  assert.equal(refused.missed.get(project.id + '\nleo'), 'we could not write to its instructions');
+  // Offline both ways: the re-read fails too, so the handler paints the mark from what is loaded.
+  const dark = standIn(project, { fetchFails: true, readFails: true });
+  await retryHandler(dark)({ target: dark.btn });
+  assert.ok(dark.log.includes('paint live=null'), 'an offline retry left the row unpainted: ' + dark.log);
+  assert.ok(!offline.log.some((l) => l.startsWith('paint')), 'CONTROL: a read that worked paints through loadProjects, not here');
+  // The agent left (409): an answer, not a failure, so no "did not go through" on a row that is leaving.
+  for (const status of [409, 404]) {
+    const gone = standIn(project, { status });
+    await retryHandler(gone)({ target: gone.btn });
+    assert.equal(gone.missed.has(project.id + '\nleo') || gone.tried.has(project.id + '\nleo'), false, 'a ' + status + ' was marked as a failed retry');
+  }
+  // CONTROL: an answered retry is marked tried, not missed.
+  const answered = standIn(project);
+  await retryHandler(answered)({ target: answered.btn });
+  assert.equal(answered.missed.has(project.id + '\nleo'), false);
+
+  // Overtaken twice: the newer reads answer the retry too, so the mark stands; no read of its own
+  // landed, so no focus is placed. (Overtaken once, the second read lands and focuses: the first case.)
+  const over = standIn(project, { overtaken: true });
+  await retryHandler(over)({ target: over.btn });
+  assert.equal(over.log.filter((l) => l.startsWith('load')).length, 2, 'an overtaken read is read once more');
+  assert.ok(!over.log.some((l) => l.startsWith('focus:')), 'focus placed without a paint of its own: ' + over.log);
+  assert.equal(over.tried.get(project.id + '\nleo'), 'we could not write to its instructions', 'the still-mark was dropped');
+  assert.equal(over.btn.disabled, false);
+
+  // Focus is not taken back from someone who has moved on.
+  const away = standIn(project, { focusedElsewhere: true });
+  await retryHandler(away)({ target: away.btn });
+  assert.ok(!away.log.some((l) => l.startsWith('focus:')), 'focus was pulled back from where the person moved it');
+
+  // CONTROL: a click that is not on a Try again does nothing at all.
+  const idle = standIn(project);
+  await retryHandler(idle)({ target: { closest: () => null } });
+  assert.deepEqual(idle.log, []);
+});
+
+test('#3923: switching project clears a success line that belongs to another project', () => {
+  const at = PAGE.indexOf('function paintOneProject(');
+  assert.ok(at > 0, 'paintOneProject moved; re-anchor');
+  const body = PAGE.slice(at, PAGE.indexOf('\n}\n', at));
+  assert.match(body, /said\.dataset\.pj && said\.dataset\.pj !== String\(p\.id\)\) \{ said\.textContent = ''; said\.dataset\.pj = ''; \}/,
+    'paintOneProject does not clear another project\'s success line');
+});

@@ -5,7 +5,8 @@
  * restarts, then the confirm dialog reduces to one line naming the provider. Since #2716 the
  * app sends the wake hello itself, so that line is "Restarted on <provider>. Waking them..."
  * while the hello is pending; render-autohello-switch-2716.js covers how it resolves (to the
- * confirmation, or to "Say hello to <agent> to reactivate them on <provider>.").
+ * finished "Ready: <agent> is on <what>.", or to "<agent> is on <what>. Send them a message to wake
+ * them."). #4008: the waiting line carries the Sweep loader, and Done is not gold until it finishes.
  *
  * #2692 (Josh, design channel 2026-09-10): the interstitial's mark is now the BRANDED K
  * LOADER (the big K made of dots that gathers and opens back to the circle, startKLoader),
@@ -204,6 +205,11 @@ function check(name, pass, detail) {
     await sleep(400); // past the 300ms hold
     const reducedText = msg.textContent;
     const modelDone = /^Restarted on Claude\. Waking them…$/.test(reducedText) && keep.textContent === 'Done';
+    /* #4008 (Josh): the waiting line carries OUR loader, the Sweep dots (.spin.spin-sweep, eight <i>),
+       decorative to a screen reader, and not the .kspin mark; Done stays plain until the wake finishes. */
+    const wsp = msg.querySelector('.spin.spin-sweep');
+    const wakeSpin = { sweep: !!wsp, dots: wsp ? wsp.querySelectorAll('i').length : 0, hidden: !!wsp && wsp.getAttribute('aria-hidden') === 'true',
+      noKspin: !msg.querySelector('.kspin'), doneNotGoldYet: !keep.classList.contains('uprime') };
     // The success render detached the canvas (msg.textContent replaced the interstitial), so the
     // real loader's rAF loop bails on its next frame. It was connected during busy and is not now.
     const modelCanvasDetachedAfter = modelCanvasConnectedDuringBusy && !!modelCanvas && !modelCanvas.isConnected;
@@ -275,7 +281,7 @@ function check(name, pass, detail) {
       && !/on Claude/i.test(providerAnthReducedText) && keep.textContent === 'Done';
     if (!back.hidden) keep.click();
 
-    return { holdFloor, cycleMs, detachedPainted, modelCanvasDetachedAfter, busyShown, stillHeld, rendered, failFast, plainWorking, curAfterSet, modelBusy, reducedText, modelDone,
+    return { wakeSpin, holdFloor, cycleMs, detachedPainted, modelCanvasDetachedAfter, busyShown, stillHeld, rendered, failFast, plainWorking, curAfterSet, modelBusy, reducedText, modelDone,
       providerBusy, providerReducedText, providerDone,
       providerAnthBusy, providerAnthReducedText, providerAnthConsistent };
   });
@@ -301,6 +307,8 @@ function check(name, pass, detail) {
     r.modelBusy && r.modelBusy.noPulsingIcon, JSON.stringify(r.modelBusy));
   check('MODEL: after the hold the dialog reduces to "Restarted on <provider>. Waking them..." (#2716: the app sends the hello)',
     r.modelDone, JSON.stringify((r.reducedText || '').slice(0, 90)));
+  check('#4008 MODEL: "Waking them..." carries the Sweep loader (eight dots, hidden from screen readers, not the .kspin mark), and Done is not gold yet',
+    r.wakeSpin && r.wakeSpin.sweep && r.wakeSpin.dots === 8 && r.wakeSpin.hidden && r.wakeSpin.noKspin && r.wakeSpin.doneNotGoldYet, JSON.stringify(r.wakeSpin));
   check('PROVIDER: the provider switch shows the branded K-loader "Setting up OpenAI" interstitial (canvas present and painting, pulsing .kspin gone), not plain "Working…"',
     r.providerBusy && r.providerBusy.settingUp && r.providerBusy.hasLoaderCanvas && r.providerBusy.loaderPainted && r.providerBusy.noPulsingIcon && r.providerBusy.noReducedYet, JSON.stringify(r.providerBusy));
   check('PROVIDER: after the hold the provider dialog reduces to "Restarted on OpenAI. Waking them..."',

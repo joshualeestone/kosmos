@@ -89,7 +89,8 @@ function isClass1(standing) {
  * PURE decision. Given an agent's standing report, its prior handle timestamps
  * (ms since epoch, most recent last), and the current time, decide what to do.
  *
- * @param {object} standing  the result of selfreport.read(name).
+ * @param {object} standing  the result of selfreport.read(name), or standingFromAgent(card), which adds
+ *   `runner` (#4006: a non-Claude runner, or null for unknown, plans 'none').
  * @param {number[]} attempts  ms timestamps of prior auto-handles for THIS agent.
  * @param {number} now  ms.
  * @param {{maxAttempts?:number, windowMs?:number}} [opts]
@@ -122,6 +123,21 @@ function planClass1Handle(standing, attempts, now, opts) {
     // exactly as it is. A class-2 real question reaching here and being handled
     // would silently drop a blocking request and stall the fleet.
     return { act: 'none', because: 'not a standing by:auto needs_you (class-1) wait' };
+  }
+  /* #4006: the handle clears CLAUDE CODE's folder-trust / bypass prompt. Another runner has no
+     such prompt (create.trustAgentFolder is already a no-op for grok), so its by:auto needs_you is
+     something else, and restarting it only throws away its conversation: on 2026-09-26 a grok
+     agent's ordinary "Waiting for your next prompt" was restarted, and the restart did not come
+     back. Only a Claude agent (no runner, or 'claude') is ever eligible. */
+  const runner = standing ? standing.runner : undefined;
+  /* null is a card that could not say what it runs (a paneless win32/remote row): fail closed, since a
+     restart on the wrong runner cannot be undone. undefined (a standing built without a card) keeps the
+     pre-#4006 behaviour for existing callers. */
+  if (runner === null) {
+    return { act: 'none', because: 'the agent\'s runner is not known, so it is not restarted for a Claude Code trust prompt' };
+  }
+  if (typeof runner === 'string' && runner && runner !== 'claude') {
+    return { act: 'none', because: `a ${runner} agent has no Claude Code trust prompt to clear, so it is never restarted for one` };
   }
 
   // Resolve the attempt history, biasing EVERY corrupt shape toward escalate (never
@@ -302,7 +318,9 @@ function standingFromAgent(agent, isTrustDialogEvidence) {
   // session -> card by:null + evidence -> handled), which the earlier defense-in-depth test
   // (a by:'agent' + evidence card, a shape status.js cannot produce) did not.
   const by = (rawBy === 'auto' || (trustDialogScrape && !rawBy)) ? 'auto' : rawBy;
-  return { found: true, state: agent && agent.state, by };
+  /* The card's runner as the card says it: a string, or null for a row that could not say (see planClass1Handle). */
+  const runner = agent && typeof agent.runner === 'string' ? agent.runner : (agent && agent.runner === null ? null : '');
+  return { found: true, state: agent && agent.state, by, runner };
 }
 
 /*

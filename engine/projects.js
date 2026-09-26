@@ -137,6 +137,9 @@ const TOLD = {
  * same commit and left this one standing, which is the class this file keeps
  * producing: the newest sentence is the least examined one.
  */
+/* #3923: no page reads `becauseGroup` any more (the project notice replaced the group line), but
+   this map stays: it is the list of every could_not sentence the engine authors, and the notice's
+   coverage test reads it so a new sentence cannot reach the screen without a notice row. */
 const GROUP_BECAUSE = new Map([
   /**
    * ⚠️ THE FRAME NAMES THE AGENTS, so these values carry `instructions`
@@ -147,7 +150,8 @@ const GROUP_BECAUSE = new Map([
    * removed the only thing telling a reader what `them` meant, so the
    * property was real and optimising for it made the copy worse.
    *
-   * 🛑 EDIT THE FRAME AND YOU MUST RE-RENDER ALL NINE. They are written to
+   * 🛑 EDIT THE FRAME AND YOU MUST RE-RENDER EVERY ROW. (#3923: no page draws the
+   * group line any more; the notice's coverage test reads this map.) They were written to
    * sit after "We could not update these agents about this folder: " and
    * nowhere else. The KEYS are the engine's verbatim singulars and are
    * authored at call sites in this file, `you.js` and `workerfile.js`.
@@ -177,6 +181,8 @@ const GROUP_BECAUSE = new Map([
     'we could not check which agents are running'],
   ['it keeps its instructions somewhere we cannot safely change',
     'they keep their instructions somewhere we cannot safely change'],
+  ['its instructions changed while we were writing to them',
+    'their instructions changed while we were writing to them'],
   ['taking this out would leave its instructions almost empty',
     'taking this out would leave their instructions almost empty'],
   ['its instructions are already at the size limit',
@@ -1356,6 +1362,22 @@ const LIST_MAX_SCAN = 2000;
 const LIST_SKIP_DIRS = new Set(['node_modules', 'venv', 'env', '__pycache__', 'dist', 'build', 'target', 'Pods', 'DerivedData']);
 
 /**
+ * #3965 (Josh, 2026-09-26): a name that is an app's scratch file, never the person's work, and so
+ * never listed. Dot-names (`.DS_Store`, LibreOffice's `.~lock.*#`, `.git`) were already hidden;
+ * this adds Microsoft Office's owner file (`~$report.docx`, the "~$on (Grok A..." 162 B row Josh
+ * saw in an agent's Files), Word's save-time temp files (`~WRL0001.tmp`, `~WRD0002.tmp`), the macOS
+ * custom-folder-icon file (`Icon` followed by a carriage return) and Windows' folder files
+ * (`Thumbs.db`, `desktop.ini`). Applied to folders too, so a folder with such a name is not walked.
+ */
+const SCRATCH_PREFIXES = ['.', '~$'];
+const SCRATCH_NAMES = new Set(['Icon\r']);
+const SCRATCH_PATTERN = /^(?:~WR[A-Z]\d+\.tmp|thumbs\.db|desktop\.ini)$/i;
+function isScratchName(name) {
+  const n = String(name || '');
+  return SCRATCH_PREFIXES.some((p) => n.startsWith(p)) || SCRATCH_NAMES.has(n) || SCRATCH_PATTERN.test(n);
+}
+
+/**
  * The files in a project's folder, newest first.
  *
  * ⚠️ FILES ONLY, AND SUBFOLDERS WALKED WITH BOUNDS (#2245; this was top-level only
@@ -1363,7 +1385,7 @@ const LIST_SKIP_DIRS = new Set(['node_modules', 'venv', 'env', '__pycache__', 'd
  * a place a person and their agents both write into, so an UNBOUNDED walk would
  * turn "the last ten documents" into a crawl of somebody's whole working tree: the
  * walk is capped in depth and in entries read, and skips dependency, cache and build-output trees.
- * Directories, dotfiles and anything that is not a regular file are left out — a
+ * Directories, scratch names (isScratchName: dotfiles, Office ~$ files and the like) and anything that is not a regular file are left out — a
  * symlink (file or folder) is not listed or entered, because the thing it points at
  * is what would open and this list would be naming the wrong file.
  *
@@ -1387,7 +1409,7 @@ function listFiles(folder, limit, opts) {
      `/` as the separator (on Windows too), and openFile accepts exactly that shape.
      Bounded three ways, because this runs on every panel poll:
        - depth: LIST_MAX_DEPTH folders below the project folder;
-       - noise: dot-entries and LIST_SKIP_DIRS (dependency, cache and build-output trees an
+       - noise: scratch names (isScratchName) and LIST_SKIP_DIRS (dependency, cache and build-output trees an
          agent's tooling makes; a thousand node_modules files are not "files in this project");
        - cost: at most LIST_MAX_SCAN entries read BELOW the top level. The top level is
          read in full and does not count, as it always was. Past the budget the walk stops
@@ -1401,7 +1423,7 @@ function listFiles(folder, limit, opts) {
   /* BREADTH-FIRST, so shallower files are reached before deeper ones when the budget runs out. */
   const queue = [{ abs: state.real, rel: '', depth: 0 }];
   const take = (ent, abs, rel, depth) => {
-    if (ent.name.startsWith('.')) return;
+    if (isScratchName(ent.name)) return;
     const relName = rel ? rel + '/' + ent.name : ent.name;
     // ⚠️ isFile()/isDirectory() on the DIRENT, so a symlink is excluded without a
     // second stat: withFileTypes reports the link itself, which is what we want here.
@@ -1486,8 +1508,9 @@ function listFiles(folder, limit, opts) {
  *   1. The name must have the SHAPE listFiles produces: a bare filename, or (#2245)
  *      a RELATIVE path of plain segments joined by `/`. Refused outright rather than
  *      trimmed: an absolute path, a backslash, an empty segment (`a//b`, a leading or
- *      trailing `/`), a `.` or `..` segment, and any segment starting with `.` (the
- *      list never shows a hidden entry, so a caller never legitimately has one).
+ *      trailing `/`), a `.` or `..` segment, and any segment the list hides
+ *      (isScratchName: a dot-name, an Office `~$` file and the like, #3965), because the
+ *      list never shows a hidden entry, so a caller never legitimately has one.
  *      This gate only narrows the string. It is NOT what stops an escape: gate 3 is.
  *   2. The project's folder must be READABLE, by the same folderState every
  *      other folder-touching route already goes through.
@@ -1503,7 +1526,7 @@ function openFile(folder, name, where = 'this project') {
   if (!given) return { ok: false, because: 'no file was named' };
   const segs = given.split('/');
   if (given.includes('\\') || path.isAbsolute(given) || path.win32.isAbsolute(given)
-      || segs.some((s) => s === '' || s.startsWith('.'))) {
+      || segs.some((s) => s === '' || isScratchName(s))) {
     return { ok: false, because: 'that is not a file in ' + where };
   }
   const state = folderState(folder);
@@ -2535,6 +2558,31 @@ function oneLine(value) {
   return neutralise(collapsed);
 }
 
+/* The part of a project's line that names it by id, shared by the line and by `projectsInBlock`
+   (#3923), so "which projects does this file's block list" reads the same text the block writes. */
+function projectPostKey(id) {
+  return ` post ${oneLine(String(id))} "your message"`;
+}
+/** The project ids from `ids` that the managed block of `text` lists (none when there is no single block). */
+function projectsInBlock(text, ids) {
+  const src = String(text == null ? '' : text);
+  const at = findBlock(src);
+  if (!at || at.ambiguous) return [];
+  const block = src.slice(at.start, at.end);
+  return ids.filter((id) => block.includes(projectPostKey(id) + '`'));
+}
+/** Whether a block exists that carries NO post line of the current shape at all: an older-format
+    block (before this line, or with another command shown), whose projects cannot be read, so `added`
+    must not treat everything as new. Decided by the line's SHAPE, not by today's ids: a current-format
+    block that lists only projects the agent has since left is readable, and a project newly written
+    into it is news. */
+function blockUnreadable(text, ids) {
+  const src = String(text == null ? '' : text);
+  const at = findBlock(src);
+  if (!at || at.ambiguous || !ids.length) return false;
+  return !/ post \S+ "your message"`/.test(src.slice(at.start, at.end));
+}
+
 function blockBody(projects, sessionName) {
   // ⚠️ Never reached with an empty list any more -- `tellAgent` REMOVES the
   // block instead of writing a placeholder. Kept as a guard rather than
@@ -2583,7 +2631,7 @@ function blockBody(projects, sessionName) {
       : `\n  - No tasks set for this project yet. Add one with \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` (use this, not a hand-rolled task-board file)`)
       + subtaskLine;
     const head = `- **${oneLine(p.name)}**: \`${oneLine(p.folder)}\`` + (p.id
-      ? `\n  - Post to everyone on it: \`${cliShown} post ${oneLine(String(p.id))} "your message"\``
+      ? `\n  - Post to everyone on it: \`${cliShown}${projectPostKey(p.id)}\``
         + taskLine
       : '');
     const mine = (sessionName && Array.isArray(p.tasks))
@@ -2723,7 +2771,7 @@ function tellAgent(sessionName, projects, roster) {
     // a corrected command (the PATH fix) would otherwise reach only
     // newborn agents. The heal itself is in healColleagues below.
     const next = healColleagues(withProjects);
-    if (next === current.text) return { state: TOLD.TOLD, because: null, changed: false };
+    if (next === current.text) return { state: TOLD.TOLD, because: null, changed: false, added: [] };
     /* Why, in the reader's words, for the stale marker (#323): the projects
        changed, or only the colleagues list was healed. Never the two fused. */
     const why = withProjects !== (current.text || '')
@@ -2735,7 +2783,15 @@ function tellAgent(sessionName, projects, roster) {
     /* `changed` is about the PROJECTS half only: a colleagues heal rewrites the
        file without the agent's project world moving, and speaking to a running
        agent about that would be noise (#304). */
-    return { state: TOLD.TOLD, because: null, changed: withProjects !== (current.text || '') };
+    /* `added`: the projects this write put in the block that were not in it before (#3923). A
+       retry must announce only these: `changed` is true for ANY edit of the block, including one
+       that adds some other project or takes one out. */
+    const ids = projects.map((p) => p.id).filter((id) => id != null);
+    const had = projectsInBlock(current.text, ids);
+    // An older-format block whose projects cannot be read: nothing is claimed as new (announcing a
+    // project the agent has been on for weeks is worse than saying nothing).
+    const added = blockUnreadable(current.text, ids) ? [] : projectsInBlock(next, ids).filter((id) => !had.includes(id));
+    return { state: TOLD.TOLD, because: null, changed: withProjects !== (current.text || ''), added };
   } catch (err) {
     // ⚠️ A length refusal is OUR doing here, not the person's. Taking our block
     // back out can push a file under the editor's minimum, and forwarding that
@@ -2751,9 +2807,25 @@ function tellAgent(sessionName, projects, roster) {
           // limit, and telling somebody their file is too big for a write they
           // did not ask for aims the complaint at the wrong person.
           ? 'its instructions are already at the size limit'
-          : (raw || 'we could not write to its instructions')),
+          : tellWriteBecause(raw)),
     };
   }
+}
+
+/* #3923: the writer's refusals are worded for the person at the instruction EDITOR ("reload
+   before saving", "open it by hand"). Here nobody opened anything: Kosmos was writing on their
+   behalf, and those words reached the project notice as instructions nobody could follow. The
+   same facts in this module's own voice, so every screen that reads the verdict says them right. */
+const TELL_WRITE_BECAUSE = [
+  // Somebody saved the file between our read and our write: nothing was lost and a retry reads it fresh.
+  [/changed since you opened them/, 'its instructions changed while we were writing to them'],
+  [/cannot safely replace/, 'it keeps its instructions somewhere we cannot safely change'],
+  [/there is no agent by that name to write to|that is not a folder/, 'it has no folder of its own on this computer yet'],
+  [/could not be saved/, 'we could not write to its instructions'],
+];
+function tellWriteBecause(raw) {
+  const hit = TELL_WRITE_BECAUSE.find(([re]) => re.test(String(raw || '')));
+  return hit ? hit[1] : (raw || 'we could not write to its instructions');
 }
 
 /**
@@ -2798,6 +2870,17 @@ function membershipLine(project, kind) {
   if (kind === 'left') {
     return 'Kosmos took you off the project "' + name + '". Do not post to its room any more; your instructions no longer list it.';
   }
+  /* #3923: a Try again that finally wrote the project into the file. The join line may already
+     have been typed when the agent was added (the add path types it whatever the write did), so
+     this says what is newly true, that the instructions now list it, rather than announcing the
+     join a second time (#304). */
+  if (kind === 'listed') {
+    const lfolder = project && project.folder ? ' Its folder is `' + oneLine(project.folder) + '`.' : '';
+    const lroom = project && project.id
+      ? ' Post to everyone on it with: ' + kosmosCliShown() + ' post ' + oneLine(String(project.id)) + ' "your message".'
+      : '';
+    return 'Your instructions now list the project "' + name + '".' + lfolder + lroom;
+  }
   if (kind === 'removed') {
     return 'The project "' + name + '" was removed from Kosmos. Your instructions no longer list it; do not post to its room.';
   }
@@ -2827,7 +2910,9 @@ function syncAgent(sessionName, roster) {
   const all = readAll();
   for (const p of all) {
     if (!(p.agents || []).includes(key)) continue;
-    p.told = { ...(p.told || {}), [key]: { ...verdict, at: new Date().toISOString() } };
+    // `changed` and `added` describe this one write (#3923), not a standing fact: not stored.
+    const { changed: _c, added: _a, ...stored } = verdict;
+    p.told = { ...(p.told || {}), [key]: { ...stored, at: new Date().toISOString() } };
   }
   writeAll(all);
   return verdict;
@@ -2871,7 +2956,7 @@ function toldOverride(verdict, sessionName, known) {
 }
 
 module.exports = {
-  joinTaskClaims, swarmOffIn, swarmOffSet, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride,
+  joinTaskClaims, swarmOffIn, swarmOffSet, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, andList,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,

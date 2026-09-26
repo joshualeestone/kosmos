@@ -2081,6 +2081,65 @@ test('a stale colleagues block heals on syncAgent; a file without one is not gro
     'a file with no colleagues block was grown one by a projects write');
 });
 
+test('#3923: syncAgent reports which projects the write newly put in the block, and only those', () => {
+  reset();
+  agent('mara', '# Mara\n\nHer own words, long enough to be a real instruction file.\n');
+  const R = cards([fleet.agent('mara', { state: 'working' })]);
+  const one = projects.create({ name: 'First', folder: folder('added-one'), agents: ['mara'] });
+  const first = projects.syncAgent('mara', R);
+  assert.equal(first.state, projects.TOLD.TOLD, 'first verdict: ' + first.because);
+  assert.deepEqual(first.added, [one.id], 'the first write did not report its project as added');
+  // A second project: the write changes the block, but only the new one is added.
+  const two = projects.create({ name: 'Second', folder: folder('added-two'), agents: ['mara'] });
+  const second = projects.syncAgent('mara', R);
+  assert.equal(second.changed, true, 'CONTROL: the second write changed the block');
+  assert.deepEqual(second.added, [two.id], 'a project already in the block was reported as added again');
+  // Nothing new: no write, nothing added.
+  const same = projects.syncAgent('mara', R);
+  assert.deepEqual([same.changed, same.added], [false, []]);
+});
+
+test('#3923: the retry line says the instructions now list the project, never a second join', () => {
+  const line = projects.membershipLine({ id: 'q1', name: 'Quarter close', folder: '/tmp/qc' }, 'listed');
+  assert.match(line, /^Your instructions now list the project "Quarter close"\. Its folder is `\/tmp\/qc`\. Post to everyone on it with: .* post q1 "your message"\.$/);
+  assert.doesNotMatch(line, /put you on/, 'the retry line announced the join again');
+  assert.match(projects.membershipLine({ id: 'q1', name: 'Quarter close' }, 'joined'), /^Kosmos put you on the project/, 'CONTROL: the join line is unchanged');
+});
+
+test('#3923: a current-format block that lists only a project the agent left still reports the new one', () => {
+  reset();
+  agent('pia', '# Pia\n\nHer own words, long enough to be a real instruction file.\n');
+  const R = cards([fleet.agent('pia', { state: 'working' })]);
+  const a = projects.create({ name: 'Left', folder: folder('left-a'), agents: ['pia'] });
+  assert.deepEqual(projects.syncAgent('pia', R).added, [a.id], 'CONTROL: the first block lists A');
+  // The store moves on without a successful write (as when writes failed): off A, on B.
+  const b = projects.create({ name: 'Joined', folder: folder('joined-b'), agents: [] });
+  const all = projects.readAll();
+  for (const p of all) {
+    if (p.id === a.id) p.agents = [];
+    if (p.id === b.id) p.agents = ['pia'];
+  }
+  projects.writeAll(all);
+  const v = projects.syncAgent('pia', R);
+  assert.equal(v.state, projects.TOLD.TOLD, 'verdict: ' + v.because);
+  assert.deepEqual(v.added, [b.id], 'a block listing only a departed project was read as an old format');
+});
+
+test('#3923: a block in an older format (no post line) claims nothing as newly added', () => {
+  reset();
+  agent('ivo', '# Ivo\n\nHis own words, long enough to be a real instruction file.\n');
+  const R = cards([fleet.agent('ivo', { state: 'working' })]);
+  const one = projects.create({ name: 'Old', folder: folder('old-format'), agents: ['ivo'] });
+  assert.deepEqual(projects.syncAgent('ivo', R).added, [one.id], 'CONTROL: a fresh block reports its project');
+  // Rewrite the block as an older version wrote it: the project line without the post line.
+  const file = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'ivo', 'CLAUDE.md');
+  const text = fs.readFileSync(file, 'utf8').split('\n').filter((l) => !l.includes(' post ')).join('\n');
+  fs.writeFileSync(file, text);
+  const again = projects.syncAgent('ivo', R);
+  assert.equal(again.changed, true, 'CONTROL: the rewrite restores the post line, so the block changed');
+  assert.deepEqual(again.added, [], 'a project the old block already listed was claimed as newly added');
+});
+
 test('a colleagues marker pair cannot ride a project field into the block', () => {
   // tellAgent heals the colleagues block now, so a smuggled pair is an
   // injection path into the heal (ambiguate it off, or hand it a span

@@ -247,9 +247,9 @@ let engineLook = { at: 0, staleSince: null };
    the tasks themselves (#3959) now land up to a 500-an-hour breaker. What the valve
    protects is one pane from being flooded, so that is what it counts: how many times
    agents typed into THIS assignee's screen this hour. A fleet-wide ceiling of
-   AGENT_RUNAWAY_PER_HOUR (#3959's number) stays behind it. Today the task breaker and
-   the parts valve already hold agent-made pages near that number, so the ceiling only
-   bites if one of those is raised: it is the backstop that keeps this bounded then. */
+   AGENT_RUNAWAY_PER_HOUR (#3959's number) stays behind it. The task breaker and the
+   parts valve (#4019) each allow that many agent-made writes an hour, so together they
+   allow twice it; this ceiling holds the pages TYPED from all of them to one such number. */
 const heardBudgetLog = new Map(); // heardKey(assignee, roster): the pane's session name -> times typed to, oldest first
 const HEARD_BUDGET_WINDOW_MS = 3600000;
 const HEARD_PER_AGENT_MAX = 30;
@@ -320,32 +320,19 @@ function spendHeardBudgetForTests(who, n, roster) {
    batch. It counts every agent together (one shared count per kind, across all
    projects), from the records themselves, so it survives a restart. The screen is
    never counted or refused. */
-const AGENT_RUNAWAY_PER_HOUR = 500;
-const AGENT_RUNAWAY_WINDOW_MS = 3600000;
+const { AGENT_RUNAWAY_PER_HOUR, AGENT_RUNAWAY_WINDOW_MS, runawayRefusal } = require('./engine/runaway');
 let agentRunawayLimit = AGENT_RUNAWAY_PER_HOUR;
 // Test-only: lets a route test trip the breaker without making 500 records.
 // Called with no argument it restores the real limit.
 function setAgentRunawayLimitForTests(n) {
   agentRunawayLimit = Number.isInteger(n) && n > 0 ? n : AGENT_RUNAWAY_PER_HOUR;
 }
-/* `times` are the creation times (ms) of the agent-made records of one kind. Returns
-   null to allow, or { because, retryAfterSecs }: the sentence (the limit, that it is shared
-   by every agent, and when the next one is allowed) and the same wait in seconds, which the
-   routes send as retry-after the way the part routes do. */
+/* `times` are the creation times (ms) of the agent-made records of one kind (`noun`: 'tasks' or
+   'projects'). Returns null to allow, or { because, retryAfterSecs } from the shared breaker
+   (engine/runaway.js); the routes send the seconds as retry-after. */
 function agentRunawayRefusal(times, noun, now = Date.now(), limit = agentRunawayLimit) {
-  const hourAgo = now - AGENT_RUNAWAY_WINDOW_MS;
-  const recent = times.filter((t) => Number.isFinite(t) && t >= hourAgo).sort((a, b) => a - b);
-  if (recent.length < limit) return null;
-  // Below the limit again once enough of the oldest have aged out of the hour.
-  const freesAt = recent[recent.length - limit] + AGENT_RUNAWAY_WINDOW_MS;
-  // Capped at the window: a record dated in the future (clock skew) must not quote a longer wait.
-  const retryAfterSecs = Math.min(AGENT_RUNAWAY_WINDOW_MS / 1000, Math.max(1, Math.ceil((freesAt - now) / 1000)));
-  const mins = Math.max(1, Math.ceil(retryAfterSecs / 60));
-  const because = 'agents have made ' + recent.length + ' ' + noun + ' in the last hour, which is at or over the limit of '
-    + limit + ' an hour shared by all agents together (a safety stop for an agent stuck in a loop), so Kosmos is pausing agent-made '
-    + noun + '. Agents can make ' + noun + ' again in about ' + mins + ' minute' + (mins === 1 ? '' : 's')
-    + '; the person can still make them from the screen';
-  return { because, retryAfterSecs };
+  const r = runawayRefusal(times, { noun, did: 'made', pausing: 'agent-made ' + noun, again: 'make ' + noun, screen: 'make them' }, { now, limit });
+  return r && { because: r.because, retryAfterSecs: r.retryAfterSecs };
 }
 // `sentence` is explicit, never read off `t`: a part's own sentence is
 // never the task's top-level one (a task with parts drops `who`/keeps one
@@ -899,6 +886,8 @@ const readConnectionsShelf = inflight.collapse(() => {
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
 const projects = require('./engine/projects');
+/* #3923: when each agent-made Try again (`?retell=1`) happened, for its own hourly bound. */
+const RETELL_RECENT = [];
 const { accountProblemOf } = require('./engine/accountproblem'); // #3723
 const federation = require('./engine/federation');
 /* #3311: one room seat per federated project. What arrives is recorded in the
@@ -1747,19 +1736,42 @@ function policySummaries(r) {
    never wrongly blocks one) -- unlike the task-CREATION valve, which counts persisted
    tasks because those must survive a restart. CAP process task-messages per hour,
    fleet-wide, matching the task-creation valve's spirit. */
-/* `>= 0`, not `|| 30`: an operator who sets the cap to 0 to silence agent
-   task-messages entirely means 0, and `Number("0") || 30` would give 30 -- the
-   same env-0 footgun this file already guards against elsewhere with a range check. */
-const TASK_MSG_CAP_PER_HOUR = (() => {
-  const n = Number(process.env.AGENT_WORKFORCE_TASK_MSG_CAP);
-  return Number.isFinite(n) && n >= 0 ? n : 30;
-})();
-const TASK_MSG_WINDOW_MS = 3600000;
+/* #3959: the default was 30 an hour; it is now the shared runaway breaker (engine/runaway.js).
+   An operator's AGENT_WORKFORCE_TASK_MSG_CAP still wins. Read by taskMsgCapFrom:
+     - a whole number of 0 or more is the cap, and 0 means agent task messages are switched off
+       (so `>= 0`, never `|| default`, which would turn a deliberate 0 into the default);
+     - a fraction is rounded down (2.5 is 2), since the cap counts whole messages;
+     - unset, empty or blank means NOT SET and gives the default. Before #3959 an empty value read
+       as 0 (Number('') is 0) and switched messages off; blank is now treated like unset, on
+       purpose, so clearing the variable restores the default rather than silencing agents;
+     - anything else (negative, not a number) gives the default. */
+function taskMsgCapFrom(raw) {
+  const s = raw === undefined || raw === null ? '' : String(raw).trim();
+  // Plain decimal only: '0x10' or '1e3' are not a cap an operator means, so they give the default.
+  if (!/^\d+(\.\d+)?$/.test(s)) return AGENT_RUNAWAY_PER_HOUR;
+  return Math.floor(Number(s));
+}
+let TASK_MSG_CAP_PER_HOUR = taskMsgCapFrom(process.env.AGENT_WORKFORCE_TASK_MSG_CAP);
+// Test-only: set the cap for a test and restore it (no argument restores the environment's value).
+function setTaskMsgCapForTests(n) {
+  // Read like an operator's value, so a test cannot reach a cap production could never hold.
+  TASK_MSG_CAP_PER_HOUR = taskMsgCapFrom(n === undefined ? process.env.AGENT_WORKFORCE_TASK_MSG_CAP : n);
+}
+const TASK_MSG_WINDOW_MS = AGENT_RUNAWAY_WINDOW_MS; // the breaker's own window
 let taskMessageSends = [];
-function taskMessageValveTripped() {
-  const cutoff = Date.now() - TASK_MSG_WINDOW_MS;
-  taskMessageSends = taskMessageSends.filter((t) => t >= cutoff);
-  return taskMessageSends.length >= TASK_MSG_CAP_PER_HOUR;
+/* null to allow, or { because, retryAfterSecs }. The sentence names the limit, that it is shared
+   by all agents, and when it lifts; a cap of 0 says the messages are switched off instead. */
+function taskMessageRefusal(now = Date.now()) {
+  taskMessageSends = taskMessageSends.filter((t) => t >= now - TASK_MSG_WINDOW_MS);
+  if (TASK_MSG_CAP_PER_HOUR === 0) {
+    // No retry time: waiting does not help while the cap is 0, so none is offered. It stays a 429,
+    // not a 403, on purpose: both kosmos CLIs print the error text either way, and a 403 reads as
+    // "your token was refused", which would send the agent to fix its sign-in instead.
+    return { because: 'agent task messages are switched off on this computer (AGENT_WORKFORCE_TASK_MSG_CAP is 0); the person can still send from the screen', retryAfterSecs: null };
+  }
+  const r = runawayRefusal(taskMessageSends, { noun: 'task messages', did: 'sent',
+    pausing: 'agent task messages', again: 'send task messages', screen: 'send them' }, { now, limit: TASK_MSG_CAP_PER_HOUR });
+  return r && { because: r.because, retryAfterSecs: r.retryAfterSecs };
 }
 function taskMessageValveRecord() {
   taskMessageSends.push(Date.now());
@@ -2596,7 +2608,7 @@ function isSetupGuide(name) {
 function guideMasked(who, text) {
   if (typeof text !== 'string' || !isSetupGuide(who)) return text;
   const out = require('./engine/secretmask').mask(text);
-  if (out.fired.length) console.error(`#3769: masked ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
+  if (out.fired.length) console.error(`#3769: caught ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
   return out.text;
 }
 
@@ -2614,7 +2626,7 @@ function guideMaskedRows(rows, wholeThread) {
     if (!m || typeof m.text !== 'string') return m;
     if (!wholeThread && !isGuide(m.from)) return m;
     const out = require('./engine/secretmask').mask(m.text);
-    if (out.fired.length) console.error(`#3769: masked ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
+    if (out.fired.length) console.error(`#3769: caught ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
     return { ...m, text: out.text };
   });
 }
@@ -5082,7 +5094,7 @@ const server = http.createServer((req, res) => {
   /* #3614 items 1, 2, 4: the agent page's Files list, for files an agent makes for the person in a
      Direct Message. The folder is dmfiles.filesDir(name) (Renet's module, item 3), read through
      the same engine functions as a project's documents: listFiles (top level only here, via
-     maxDepth 0, no dotfiles, no symlinks, newest first, a stamp), openFile (a bare name or, since
+     maxDepth 0, no scratch names (isScratchName), no symlinks, newest first, a stamp), openFile (a bare name or, since
      #2245, a relative path; the target must resolve inside the folder), revealFolder (Finder, or File Explorer on Windows). A Files folder that does not
      exist yet is the EMPTY state, not an error: nothing has been saved there. */
   const agentFiles = pathname.match(/^\/api\/agent\/([^/]+)\/files(?:\/(open|reveal))?$/);
@@ -13682,7 +13694,8 @@ const server = http.createServer((req, res) => {
                         this" / has not said / could not tell, with why), one
                         roster read and one commitments reading per agent for
                         the whole request
-         state          tasks.taskState: closed / nobody / working / assigned
+         waitingOnPerson tasks.waitingOnPerson: its agent needs the person about it (#3949)
+         state          tasks.taskState: closed / nobody / decision / working / assigned
          lastActivityAt the newest transcript event, else created/closed
        Added fields only, and only on ?view=tasks, which also leaves out archived
        projects' tasks (the view does not list them) except the one `withArchived` names. */
@@ -13713,13 +13726,18 @@ const server = http.createServer((req, res) => {
       if (about) {
         claim = { claimed: null, because: 'we could not read what its agent reports', about, neverReported: false };
       }
+      /* #3949: Needs Your Decision, from the same roster read (the engine's rule, tasks.waitingOnPerson). */
+      const waitingOnPerson = tasks.waitingOnPerson(t, roster);
       return Object.assign({}, t, {
         claim,
-        state: tasks.taskState(Object.assign({}, t, { claim })),
+        waitingOnPerson,
+        state: tasks.taskState(Object.assign({}, t, { claim, waitingOnPerson })),
         lastActivityAt: tasks.lastActivityOf(t.projectId, t),
       });
     });
-    sendJson(res, 200, { tasks: rows, count: rows.length, project: projectScope });
+    /* #3949 (review round 9): with no roster, waitingOnPerson cannot see a question, so the page must not
+       read its "false" as "nobody needs you". It says it could not tell. */
+    sendJson(res, 200, { tasks: rows, count: rows.length, project: projectScope, rosterUnreadable: !Array.isArray(roster) });
     return;
   }
 
@@ -15135,8 +15153,14 @@ const server = http.createServer((req, res) => {
          spam a task's people. Counted for PROCESS senders only; the operator is
          never valved (the person driving is the remedy, not the hazard -- the same
          posture as the task-creation and room valves). */
-      if (!viaScreen && taskMessageValveTripped()) {
-        sendJson(res, 429, { error: 'agents have sent many task messages in the last hour, so Kosmos is pausing agent task messages; the person can still send from the screen' });
+      const msgRefusal = viaScreen ? null : taskMessageRefusal();
+      if (msgRefusal) {
+        if (msgRefusal.retryAfterSecs !== null) {
+          res.setHeader('retry-after', String(msgRefusal.retryAfterSecs));
+          sendJson(res, 429, { error: msgRefusal.because, retry_after_secs: msgRefusal.retryAfterSecs });
+        } else {
+          sendJson(res, 429, { error: msgRefusal.because });
+        }
         return;
       }
       try {
@@ -15236,9 +15260,9 @@ const server = http.createServer((req, res) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       const screen = isViaScreen(req, body);
-      /* The parts valve (#803): the WRITE is refused for a process past
-         twelve part changes an hour, counted across projects from the
-         records themselves; the screen is never valved. The sentence says
+      /* The parts valve (#803): the WRITE is refused for a process past the
+         shared runaway limit (engine/runaway.js, #3959), counted across projects
+         from the records themselves; the screen is never valved. The sentence says
          the number and when it lifts, and the header says it too. */
       if (!screen) {
         const v = tasks.partValve();
@@ -15317,11 +15341,85 @@ const server = http.createServer((req, res) => {
     // remove both no-op on a repeat, and the pane line below must not be
     // typed twice for one fact (#304).
     let moved = false;
+    let storeUnread = false;   // #3923: a retell answers 500 for this, never "current member"
     try {
       const before = projects.readAll().find((p) => p && p.id === id);
       const on = !!(before && (before.agents || []).includes(name));
       moved = req.method === 'POST' ? !on : on;
-    } catch { moved = false; }
+    } catch { moved = false; storeUnread = true; }
+    /* #3923: `?retell=1` is the project notice's Try again: re-tell a CURRENT member, never
+       re-add one. For a POST, `moved` above is exactly "not a member now", so a notice
+       painted before the agent left gets 409 and nothing is written or typed. A current
+       member is never passed to addAgent (a leave landing between the read above and the
+       write must not be undone), and it moves no membership, so the valve does not apply. */
+    if (req.method === 'POST' && new URL(req.url, ROUTING_BASE).searchParams.get('retell') === '1') {
+      if (storeUnread) { sendJson(res, 500, { error: 'we cannot read your projects right now' }); return; }
+      if (moved) {
+        // A missing project answers 404 like every sibling path; a member that left, 409.
+        // A store we cannot read is ours (500), as on the sibling path below: never "the agent left".
+        let exists;
+        try { exists = projects.readAll().some((p) => p && p.id === id); } catch {
+          sendJson(res, 500, { error: 'we cannot read your projects right now' });
+          return;
+        }
+        if (!exists) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+        sendJson(res, 409, { error: 'that agent is not on this project' });   // true whether it left or never joined
+        return;
+      }
+      /* A retry writes the agent's instruction file but moves no membership, so memberValve (which
+         counts membership changes) never sees it. Bounded on its own, for agent-made calls only, at
+         the same sixty an hour: the screen is never valved, like every sibling path here. Unlike
+         memberValve this count lives in memory and a board restart empties it; accepted, because a
+         retry rewrites one agent's file with what it should already say and moves no membership. */
+      if (!isViaScreen(req)) {
+        const now = Date.now();
+        while (RETELL_RECENT.length && now - RETELL_RECENT[0] >= 3600 * 1000) RETELL_RECENT.shift();
+        if (RETELL_RECENT.length >= projects.MEMBERS_PER_HOUR) {
+          const secs = Math.max(1, Math.ceil((RETELL_RECENT[0] + 3600 * 1000 - now) / 1000));
+          const mins = Math.max(1, Math.ceil(secs / 60));
+          res.setHeader('retry-after', String(secs));
+          sendJson(res, 429, { error: 'agents have asked Kosmos to try again ' + RETELL_RECENT.length + ' times in the last hour, so Kosmos is pausing agent-made retries for '
+            + mins + (mins === 1 ? ' minute' : ' minutes') + '; the person can still press Try again on the screen', retry_after_secs: secs });
+          return;
+        }
+        RETELL_RECENT.push(now);
+      }
+      let told;
+      try {
+        told = projects.syncAgent(name, roster);
+      } catch (err) {
+        // A fixed sentence: the raw message can carry a file path and an error code, which is not
+        // something to put in front of the person with a Try again beside it.
+        console.error('[kosmos] #3923 retell ' + name + ': ' + String((err && err.message) || err));
+        told = { state: projects.TOLD.COULD_NOT, because: 'we could not write to its instructions' };
+      }
+      let retold = null;
+      try { retold = projects.get(id, roster); } catch { retold = null; }
+      /* ⚠️ A retry that puts THIS project into the block makes `toldOverride` read the stored TOLD
+         as "told it on its screen". So the running agent is told on its screen, with the "listed"
+         line: the add path may already have typed the join line (it does whatever the write did),
+         so this says what is newly true rather than announcing the join twice (#304). Only when this project was newly
+         written (`added`, not `changed`: the same write may add or drop some other project), and
+         only while the agent is still on it: a leave landing mid-request must not be announced
+         as a join. A no-op retry repeats nothing (#304). */
+      /* Every project the write newly added is announced, not only this one: an earlier failed add
+         elsewhere is stored on each of the agent's projects, so pressing Try again here can be what
+         finally writes that other project in, and its stored TOLD reads as "told it on its screen"
+         too. `said` stays this project's answer; `alsoSaid` carries the others by id. */
+      let said = null;
+      const alsoSaid = {};
+      const added = (told && told.state === projects.TOLD.TOLD && Array.isArray(told.added)) ? told.added : [];
+      for (const pid of added) {
+        let proj = null;
+        try { proj = pid === id ? retold : projects.get(pid, roster); } catch { proj = null; }
+        const on = !!(proj && (proj.agents || []).some((a) => a && (a.sessionName || a) === name));
+        if (!on) continue;
+        const one = projects.speakOfMembership(name, proj, 'listed', roster);
+        if (pid === id) said = one; else alsoSaid[pid] = one;
+      }
+      sendJson(res, 200, { project: retold, told, said, alsoSaid, agentsUnreadable: roster === null });
+      return;
+    }
     /* The membership valve (#803, extended): a process past sixty membership
        changes an hour across projects is refused the WRITE with the count
        and the minutes; the screen is never valved (a person building a team
@@ -16294,8 +16392,10 @@ function start(port = PORT) {
          #3087 (the launch shim re-writes trust+bypass every relaunch); this is the live
          handle for a prompt that surfaces ANYWAY (a relaunch before #3087, a
          create-before-shim race, or a #2173 config divergence). Each tick reads the
-         RECONCILED roster and, for every agent whose reconciled state is needs_you AND was
-         self-reported by:'auto', writes the folder-trust key + restarts it
+         RECONCILED roster and, for every CLAUDE agent (#4006: a card whose runner is another
+         runner, or unknown, is never restarted; only Claude Code has this prompt) whose
+         reconciled state is needs_you AND was self-reported by:'auto', writes the folder-trust
+         key + restarts it
          (class1autohandle.sweepOnce -> the SAME create.trustAgentFolder + remove.restart
          the manual /trust-and-restart button uses; NO send-keys - a mis-fired keystroke
          into a real conversation is the whole hazard), so the relaunch clears it and the
@@ -17001,6 +17101,9 @@ module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX: AGENT_RUNAWAY_PER_HOUR, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
+  get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker); read it when needed, a destructured copy goes stale after setTaskMsgCapForTests
+  taskMsgCapFrom, setTaskMsgCapForTests, // #3959: how the operator's value is read, and the test seam
+  resetRetellForTests: () => { RETELL_RECENT.length = 0; }, // #3923: the agent-made retry bound, emptied between tests
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
   federateOut, // #3311: what leaves this computer for a federated room, exported so the agent arm is tested

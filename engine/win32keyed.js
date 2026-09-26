@@ -49,6 +49,7 @@
 const { spawn } = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const runners = require('./runners');
@@ -214,6 +215,57 @@ function firstLine(file) {
   try { return String(fs.readFileSync(file, 'utf8')).split(/\r?\n/)[0].trim() || null; } catch { return null; }
 }
 
+/* The auth type that means "use GEMINI_API_KEY" (geminisettings.AUTH_TYPE, the Mac's value). */
+const KEY_AUTH = 'gemini-api-key';
+
+/* The auth type a gemini settings file chooses, or null (absent, unreadable, or unset). */
+function selectedAuth(file) {
+  try {
+    const s = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const t = s && s.security && s.security.auth && s.security.auth.selectedType;
+    return typeof t === 'string' && t ? t : null;
+  } catch { return null; }
+}
+
+/* The Kosmos-owned gemini home for an account whose own settings choose a Google login: under
+   the board's data, one per account. Null if the data root cannot be named (the turn then runs
+   in the account's home and, with NO_BROWSER, fails loudly instead). */
+function defaultKeyHome(configDir) {
+  try {
+    const label = configDir ? path.basename(String(configDir)).replace(/[^A-Za-z0-9._-]/g, '_') : 'default';
+    return path.join(require('./store').ROOT, 'gemini-key-home', label);
+  } catch { return null; }
+}
+
+/* The report bridge a gemini agent's hooks run: create.js's own path (the STABLE supportDir
+   copy installSupervisor keeps current), so the key home and the birth write name one file.
+   Null if it cannot be named; the turn then runs without hooks, as it did before #4012. */
+function defaultBridge() {
+  try { return require('./create').geminiBridgePath(); } catch { return null; }
+}
+
+/* Make <home>/.gemini/settings.json choose the key. Only ever a home Kosmos owns. True when it
+   is in place. Never throws.
+   🛑 #4012: AND WIRE THE REPORT HOOKS THERE. create.js writes the five report hooks into the
+   account's own home at birth, but a turn sent here reads THIS file instead, so without them the
+   agent never reported a thing. The home is Kosmos-owned, so the merge is safe; it runs on every
+   turn (not only when the pin is first written) so a home pinned before this fix heals, and
+   geminisettings.ensurePrepared is idempotent, so an unchanged file is not rewritten. Best
+   effort: a hook that cannot be written costs a report, never the turn. */
+function pinKeyAuth(home, bridge) {
+  const file = path.join(home, '.gemini', 'settings.json');
+  if (selectedAuth(file) !== KEY_AUTH) {
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify({ security: { auth: { selectedType: KEY_AUTH } } }, null, 2) + '\n');
+    } catch { return false; }
+  }
+  if (bridge) {
+    try { require('./geminisettings').ensurePrepared(file, bridge); } catch { /* a missed hook costs a report */ }
+  }
+  return true;
+}
+
 /**
  * The environment for a Gemini or Grok turn, from the one win32launch.childEnv built
  * (token, `kosmos` on PATH, child markers stripped, the account dir in the runner's own
@@ -222,7 +274,8 @@ function firstLine(file) {
  * @param {'gemini'|'grok'} runner
  * @param {object} base        the childEnv result
  * @param {string|null} configDir  the account dir (null: the default account)
- * @param {object} [deps]      seams: { geminiAccounts, grokAccounts, doorDir }
+ * @param {object} [deps]      seams: { geminiAccounts, grokAccounts, doorDir, homeDir, keyHome,
+ *                             bridge (the gemini report bridge path; null: no hooks) }
  */
 function turnEnv(runner, base, configDir, deps) {
   const d = deps || {};
@@ -230,6 +283,10 @@ function turnEnv(runner, base, configDir, deps) {
   /* childEnv writes CLAUDE_CONFIG_DIR for any named account, a Claude variable a Gemini or
      Grok agent has no use for (and Grok's claude-compat layer reads). */
   delete env.CLAUDE_CONFIG_DIR;
+  /* #4012: every turn here is a whole headless session, so the report bridges must not read its
+     SessionStart/SessionEnd as the agent starting and stopping (bin/gemini-report-bridge.js and
+     bin/grok-report-bridge.js, reportFor). Only this per-turn path sets it; the Mac pane never does. */
+  env.KOSMOS_PER_TURN = '1';
   const doorDir = d.doorDir !== undefined ? d.doorDir : (() => {
     try { return require('./tokendoor').DIR; } catch { return null; }
   })();
@@ -240,6 +297,33 @@ function turnEnv(runner, base, configDir, deps) {
     const key = firstLine(mod.keyFile(dir));
     if (key) env.GEMINI_API_KEY = key;
     else if (door) env.GEMINI_API_KEY = door;
+    /* 🛑 AN AGENT GIVEN A KEY USES THE KEY, AND NEVER SITS WAITING ON A GOOGLE LOGIN. gemini
+       takes its auth type from settings.json BEFORE it looks at GEMINI_API_KEY, and the
+       default account's settings are the person's own ~/.gemini: anyone who once chose
+       "Login with Google" in the gemini CLI has selectedType oauth-personal there. MEASURED
+       (gemini 0.61.0, this box, 2026-09-26): with that setting and a key in the env, a
+       headless turn ignores the key and stops at "Opening authentication page in your
+       browser. Do you want to continue? [Y/n]" on a stdin we never write to, with no
+       timeout, so the agent looks alive and never answers. For an agent WITH a key:
+         - a settings file that chose something else sends this agent to a home of Kosmos's
+           own that pins the key. The person's file is never edited (geminisettings.js's
+           never-clobber rule). A system or workspace settings file cannot do this: gemini
+           ignores a system file a user can write, and takes no auth from a workspace (both
+           measured).
+         - NO_BROWSER, so a path we did not foresee exits at once (41, "Manual authorization
+           is required ...") instead of waiting on that prompt.
+       An agent with NO key is left exactly as it was: the person's own Google login in the
+       gemini CLI stays theirs to use. */
+    if (env.GEMINI_API_KEY) {
+      env.NO_BROWSER = 'true';
+      const home = env.GEMINI_CLI_HOME || d.homeDir || os.homedir();
+      const chosen = selectedAuth(path.join(home, '.gemini', 'settings.json'));
+      if (chosen && chosen !== KEY_AUTH) {
+        const keyHome = d.keyHome !== undefined ? d.keyHome : defaultKeyHome(configDir);
+        const bridge = d.bridge !== undefined ? d.bridge : defaultBridge();
+        if (keyHome && pinKeyAuth(keyHome, bridge)) env.GEMINI_CLI_HOME = keyHome;
+      }
+    }
     return env;
   }
   if (runner === 'grok') {

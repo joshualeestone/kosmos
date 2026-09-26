@@ -304,8 +304,26 @@ const TRUST_ROW = 'Quick safety check: Is this a project you created or one you 
 const isTrustDialogEvidence = (e) => typeof e === 'string' && /^Quick safety check:/.test(e);
 
 test('standingFromAgent: a by:auto card maps to a class-1 standing', () => {
-  assert.deepEqual(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto' }), { found: true, state: 'needs_you', by: 'auto' });
+  assert.deepEqual(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto' }), { found: true, state: 'needs_you', by: 'auto', runner: '' });
+  assert.equal(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', runner: 'grok' }).runner, 'grok', 'the card\'s runner is carried to the plan');
 });
+
+test('#4006: a by:auto needs_you on a NON-Claude agent is never restarted; a Claude one still is', () => {
+  // Josh's Grok agent, 2026-09-26: an ordinary "Waiting for your next prompt" reached here as needs_you by:auto,
+  // and the handler restarted it (and the restart did not come back). Only Claude Code has the trust prompt.
+  for (const runner of ['grok', 'gemini', 'codex', 'antigravity']) {
+    const plan = planClass1Handle(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', runner }), [], Date.now());
+    assert.equal(plan.act, 'none', `a ${runner} agent was planned for a restart: ${plan.because}`);
+  }
+  // A card that could not say what it runs (runner null, a paneless row) fails closed.
+  assert.equal(planClass1Handle(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', runner: null }), [], Date.now()).act, 'none', 'an unknown runner was restarted');
+  // CONTROL: the same wait on a Claude agent (no runner, or 'claude') is still handled.
+  for (const runner of [undefined, '', 'claude']) {
+    const plan = planClass1Handle(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', runner }), [], Date.now());
+    assert.equal(plan.act, 'trust-and-restart', `a Claude agent (runner ${JSON.stringify(runner)}) is no longer handled`);
+  }
+});
+
 test('standingFromAgent: a TRUST-DIALOG scrape (no by:auto self-report) IS class-1', () => {
   // The folder-trust dialog is not a PermissionRequest, so stateReportedBy is null; the live
   // screen evidence is the only signal, and it must still count as class-1.

@@ -122,7 +122,7 @@ async function ask({ messages, page } = {}, deps = {}) {
     /* #3769: the hosted assistant is the setup guide too, so its reply is masked here, on the board,
        whatever the coordinator did (engine/secretmask.js). Logs which kinds fired, never the value. */
     const masked = secretmask.mask(b.reply);
-    if (masked.fired.length) console.error(`#3769: masked ${secretmask.describeFired(masked.fired)} in the hosted setup assistant's reply`);
+    if (masked.fired.length) console.error(`#3769: caught ${secretmask.describeFired(masked.fired)} in the hosted setup assistant's reply`);
     return { ok: true, reply: masked.text, remaining: Number.isInteger(b.remaining) ? b.remaining : null };
   }
   return {

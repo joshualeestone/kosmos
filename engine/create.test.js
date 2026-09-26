@@ -4218,11 +4218,13 @@ test('#3391: a Grok agent is created on the grok runner, recorded, with the righ
   const hookPath = nodePath.join(create.defaultAgentGrokHome(), 'hooks', 'kosmos-report-bridge.json');
   assert.ok(fs.existsSync(hookPath), 'the grok agent got no report-hook file');
   const s = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
-  for (const ev of ['SessionStart', 'UserPromptSubmit', 'Notification', 'Stop', 'StopCancelled', 'StopFailure', 'SessionEnd']) {
+  for (const ev of ['SessionStart', 'UserPromptSubmit', 'Stop', 'StopCancelled', 'StopFailure', 'SessionEnd']) {
     const defs = s.hooks[ev];
     assert.ok(Array.isArray(defs) && defs.some((d) => d.hooks.some((h) => h.command.includes('grok-report-bridge'))),
       `the ${ev} report hook was not wired`);
   }
+  // #4006: no Notification hook: under --always-approve it is the turn-end wait, and it got quiet agents restarted.
+  assert.equal(s.hooks.Notification, undefined, 'a grok agent was born with a Notification report hook');
   // A Claude model catalogue key cannot be written into a grok launch (cross-vendor guard).
   const badModel = create.setModel(name, 'opus');
   assert.equal(badModel.outcome, create.OUTCOME.REFUSED);

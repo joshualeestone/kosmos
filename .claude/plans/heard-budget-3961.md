@@ -14,9 +14,9 @@ every other agent's assignments for the rest of the hour.
   what the valve protects, one pane from being flooded.
 - A fleet-wide ceiling stays behind it, read from #3959's AGENT_RUNAWAY_PER_HOUR (the
   same number, one constant). It does not refuse or persist the way #3959's breaker
-  does; it only stops the typing. Today the task breaker and the parts valve already
-  hold agent-made pages near that number, so the ceiling is a backstop for when one
-  of them is raised.
+  does; it only stops the typing. Since #4019 the task breaker and the parts valve
+  each allow that many agent-made writes an hour, so together they allow twice it;
+  the ceiling holds the pages typed from all of them to one such number.
 - The skip answer names which limit it hit. The per-agent sentence says the
   agent was already told N times this hour; the ceiling's sentence says agents
   were stopped.

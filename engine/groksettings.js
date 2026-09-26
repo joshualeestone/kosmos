@@ -40,7 +40,7 @@ const os = require('node:os');
    says which events fire it. All are grok's native (claude-shaped) event names,
    measured firing in an interactive pane. */
 const HOOK_EVENTS = Object.freeze([
-  'SessionStart', 'UserPromptSubmit', 'Notification', 'Stop',
+  'SessionStart', 'UserPromptSubmit', 'Stop',   // no Notification (#4006: the bridge ignores it)
   'StopCancelled', 'StopFailure', 'SessionEnd',
 ]);
 
@@ -54,34 +54,59 @@ const MARKER = 'grok-report-bridge';
    posix shell form `node "<bridge>"` -- the analog of geminisettings.commandFor.
    `node` rather than an absolute runtime: the pane that launched grok has node on
    PATH by construction (the report bridge is a #!/usr/bin/env node script and the
-   fleet runs node), and the pane inherits that PATH for the hook. */
-function commandFor(bridgePath) {
+   fleet runs node), and the pane inherits that PATH for the hook.
+
+   win32 (#4010): grok 1.0.41 runs a hook through whichever Windows shell it detects
+   on THAT box (read from the binary: GROK_SHELL, else pwsh, else Git Bash, else
+   powershell.exe; cmd only by override), so no one quoting style is right: bash needs
+   no `&`, PowerShell needs `&` before a quoted path, cmd reads neither's quotes. The
+   win32 form is therefore two UNQUOTED forward-slash paths, `<node> <bridge>`, which
+   all four read the same way (measured on Windows 11: Git Bash, powershell.exe and
+   cmd each ran it with the JSON payload intact on stdin). Unquoted means a path with
+   a space or any shell character cannot be carried, so unsafeForCommand's win32 arm
+   is an ALLOWLIST and such a path is refused (degrades to scraping, today's state).
+   The node is ABSOLUTE, the node doing the wiring (the bundled runtime\node.exe on an
+   install, as reporthook.js and geminisettings.js use): a Windows turn gets no #3971
+   PATH append and a Windows box usually has no system node. `platform` and `node`
+   are injectable so both forms are testable on any host. */
+function commandFor(bridgePath, opts) {
+  const o = opts || {};
+  if ((o.platform || process.platform) === 'win32') {
+    const fwd = (p) => String(p).replace(/\\/g, '/');
+    return fwd(o.node || process.execPath) + ' ' + fwd(bridgePath);
+  }
   return 'node "' + bridgePath + '"';
 }
 
 /* Refuse a bridge path carrying a character that would break out of, or execute
-   inside, the double-quoted shell command. LOAD-BEARING: the command is a shell
-   string. Same set and reasoning as geminisettings.unsafeForCommand. A non-string is
-   unsafe rather than throwing. */
-function unsafeForCommand(s) {
+   inside, the shell command. LOAD-BEARING: the command is a shell string.
+   posix: the path rides in a double-quoted sh string; same set and reasoning as
+   geminisettings.unsafeForCommand's posix arm.
+   win32: the path rides UNQUOTED through a shell we do not choose (commandFor), so
+   this is an allowlist, not a blocklist: letters and digits in any script, and
+   `_ . - : \ /`. A space, quote, `$`, `%`, `&`, parenthesis, tilde or anything else
+   is refused. A backslash is allowed (commandFor turns it into `/`); refusing it was
+   #4010. A non-string is unsafe rather than throwing. */
+function unsafeForCommand(s, plat) {
   if (typeof s !== 'string') return true;
+  if ((plat || process.platform) === 'win32') return !/^[\p{L}\p{N}_.:\\/-]+$/u.test(s);
   return /["\\$`\r\n]/.test(s);
 }
 
 /* One event's definition: a single command hook running the bridge. The shape
    matches grok's hook schema (`{ hooks: [{ type, command }] }` under an event name),
    identical to Claude Code's and gemini's. */
-function definitionFor(bridgePath) {
-  return { hooks: [{ type: 'command', command: commandFor(bridgePath) }] };
+function definitionFor(bridgePath, opts) {
+  return { hooks: [{ type: 'command', command: commandFor(bridgePath, opts) }] };
 }
 
 /* The full desired content of our hook file: the top-level `hooks` object grok reads
    from a `$GROK_HOME/hooks/*.json` file, with every event in HOOK_EVENTS wired to the
    bridge. This fully defines our file (no merge), so equality against it is the
    idempotence test. Exported for the test. */
-function desiredContent(bridgePath) {
+function desiredContent(bridgePath, opts) {
   const hooks = {};
-  for (const event of HOOK_EVENTS) hooks[event] = [definitionFor(bridgePath)];
+  for (const event of HOOK_EVENTS) hooks[event] = [definitionFor(bridgePath, opts)];
   return { hooks };
 }
 
@@ -97,10 +122,18 @@ function entryIsOurs(entry) {
  * expected shape, because the caller (create.js at birth) fails soft: a hook file it
  * could not prepare costs the agent a self-report, not its existence, which is the
  * pre-#3391 world, not a corruption.
+ * `opts` ({ platform, node }) picks the command form, see commandFor; both default
+ * to this process.
  */
-function ensurePrepared(hookFilePath, bridgePath) {
+function ensurePrepared(hookFilePath, bridgePath, opts) {
+  const o = opts || {};
+  const plat = o.platform || process.platform;
+  /* On win32 the command carries a second path, the absolute node (commandFor), so
+     it is vetted and checked for ephemerality with the bridge. Null elsewhere. */
+  const node = plat === 'win32' ? (o.node || process.execPath) : null;
+  const cmdOpts = { platform: plat, node };
   if (!bridgePath) return { prepared: false, because: 'the grok report bridge is not on this machine' };
-  if (unsafeForCommand(bridgePath)) {
+  if (unsafeForCommand(bridgePath, plat) || (node !== null && unsafeForCommand(node, plat))) {
     return { prepared: false, because: 'the bridge path contains characters we will not embed in a command' };
   }
   /* #1582 class (from geminisettings/reporthook): a durable file must not be pointed
@@ -115,7 +148,8 @@ function ensurePrepared(hookFilePath, bridgePath) {
     let realTmp = rawTmp;
     try { realTmp = fs.realpathSync(rawTmp); } catch { /* keep the raw value */ }
     const underRoot = (p, root) => typeof p === 'string' && (p === root || p.startsWith(root + path.sep));
-    const bridgeEphemeral = underRoot(bridgePath, rawTmp) || underRoot(bridgePath, realTmp);
+    const ephemeral = (p) => underRoot(p, rawTmp) || underRoot(p, realTmp);
+    const bridgeEphemeral = ephemeral(bridgePath) || (node !== null && ephemeral(node));
     const fileDurable = typeof hookFilePath === 'string'
       && !underRoot(hookFilePath, rawTmp) && !underRoot(hookFilePath, realTmp);
     if (bridgeEphemeral && fileDurable) {
@@ -133,7 +167,7 @@ function ensurePrepared(hookFilePath, bridgePath) {
     catch { /* truly absent */ }
   }
 
-  const desired = desiredContent(bridgePath);
+  const desired = desiredContent(bridgePath, cmdOpts);
   const wantText = JSON.stringify(desired, null, 2) + '\n';
 
   /* Read the existing file. The only question is whether it already holds exactly

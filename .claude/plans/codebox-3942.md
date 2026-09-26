@@ -1,0 +1,234 @@
+# #3942: code entry as one big box per digit, in-app half (Josh, 2026-09-26 06:42)
+
+## Finished looks like
+- The in-app Kosmos+ sign-in's three code fields (the email code, the second-step code, and the
+  set-up confirm code) are six big boxes. One paste (spaces and hyphens included) fills every box;
+  the sixth digit presses the step's own button, once; the button stays for anyone who clicks.
+- Kosmos+ styling (the wizard's navy field and #7ea0f0 focus blue), not a Muse copy.
+- Keyboard and accessibility: the ONE real input keeps its label, inputmode="numeric" and
+  autocomplete="one-time-code" (a phone offers the SMS code); the boxes are drawn behind it and are
+  aria-hidden, so a screen reader reads an ordinary text field.
+- The web half (login.kosmosplus.com, coordinator signin.html) is kosmos-relay branch codebox-3942.
+
+## Calls
+- Boxes behind one input, not six inputs: paste, autofill, Backspace and screen readers then work
+  natively; six inputs need a paste splitter, focus hopping, and still confuse autofill.
+- (Superseded in review round 1, see below.) First version: auto-submit on the step from five digits to six, so a complete
+  code after a wrong-code answer is not re-sent until it changes; focus re-reads the count because
+  plusSiClear clears fields without an input event.
+- Typing always continues at the end (caret moved to the end on focus and click): the common code
+  box behaviour, and it keeps one digit per box.
+- The input is exactly the boxes' width and its text scroll is reset (the spacing after the sixth
+  digit would scroll it); the wrapper uses overflow: clip, because a hidden-overflow box still
+  scrolls to show a focused child. Both measured by browser-check arms that fail without them.
+- Not changed: the Claude account sign-in code (acct-code: not a Kosmos+ six-digit code) and the
+  older Plus address form (plus-code: a name field follows it, so auto-submit would be wrong).
+
+## Tests
+- docs/browser-checks/render-plus-signin-3478.js: #3796's compact-field assertion becomes #3942's
+  six big boxes; the first scenario pastes "123 456" and counts exactly one verify; no-sideways-
+  scroll at five digits and six; every fill now relies on auto-submit (no click), so reaching the
+  next step is the auto-submit; the input-colour check reads the boxes' fill under a boxed field.
+- web.lost-phone.test.js runs this stretch of top-level code on stub elements: a field with no
+  parent is skipped.
+
+## Review round 1 (app side, measured): the auto-submit rule
+- Auto-submit is "six digits that are not the code last sent", not "the step from five to six":
+  after a wrong code the field stayed full, so a new code pasted over it was never sent. A code
+  completed while a request is in flight goes when the button is free (its disabled attribute is
+  watched). Deleting a digit, or focusing a field that is not full (the page clears fields without
+  an input event), forgets the last code.
+- A paste carrying a whole code replaces the field (no splice of typed digits and pasted ones, no
+  paste dropped by a full field); focusing a full field selects the whole code.
+- A screen reader is told, before it happens, that the sixth digit checks the code (WCAG 3.2.2);
+  forced-colours mode gives the current box a thick Highlight edge.
+- Not taken: widening the input past its boxes so the caret never scrolls it. The phone check
+  flags that overhang on narrow screens; the scroll reset is kept, and a check arm fails without it.
+
+## Review round 1 (web side, measured)
+- The row scales to its width: a fixed-size row clipped the sixth box at 320 to 375px in both
+  engines. An .otp-fit wrapper is the size container; font-size min(1.75rem, 9cqw) keeps six boxes
+  plus gaps (about 10.9em of monospace) inside it; the 1.75rem stands where container units are
+  missing. signin-phone.browser.mjs now asserts, on every phone size and a 320-wide pass, that all
+  six boxes sit inside their row with digits of at least 18px (it fails without the scaling).
+- (Superseded in round 2, see below.) First code-finder: a standalone six digits; it still picked
+  dates and phone numbers, measured.
+- The input handler waits for an input method to commit; autofill keeps the digits' ink colour.
+
+## Review round 2 (app side, measured): fixing one digit
+- The outlined box follows the caret (selectionStart), not the digit count: Home or a click to fix
+  one digit lights that box; a selected full code lights the first box (typing replaces from there).
+- Arriving in the field (Tab, or the page moving focus there) still selects a full code or puts the
+  caret at the end; a click inside a field that already has focus is left alone, so a mouse or
+  touch user can put the caret on one digit. (A call, reversible: the alternative, re-selecting on
+  every click, left mouse users no way to fix one digit.)
+- App: Send again clears the old code from the boxes (the web page already did). Not covered by the
+  browser check (its only resend answers with a cooldown); reasoned from the handler.
+- plusSiClear carries a note that clearing the fields before re-enabling the buttons is load-bearing
+  for the auto-submit's button watch.
+
+## Review round 2 (web side, measured)
+- After a wrong code, still in the field, the refused code is selected when the button comes back,
+  so typing the right code replaces it (before: a full field with the caret at its end refused every
+  keystroke, and blurring in the check hid it). The checks now test this with no blur.
+- The paste code-finder is one function (app: plusSiCodeFromPaste, web: codeFromPaste) with unit
+  tests: a run of exactly six digits (single spaces or hyphens inside), so dates, phone numbers and
+  order numbers are not codes; two six-digit runs, the one after "code", else nothing. With no one
+  code, the paste inserts NOTHING (the browser's own paste kept the first six digits of any number
+  and sent them); a short run of digits alone still pastes. A paste resets the last code sent (an
+  intent to send, e.g. after a network failure).
+- The button watch sends only a code that was waiting on the button (queued), and only while its
+  step is on screen, so a code finished after a success cannot go to a step the person has left.
+- Sizing: 7.5vw before the cqw line for browsers without container units (Safari before 16);
+  8.6cqw rather than 9 (WebKit's monospace runs wider, measured 2px over at 9). The phone check now
+  measures the row against its container (.otp-fit), not the screen, so it fails at 375 as well as
+  320 without the scaling (measured).
+
+## Review round 3 (app side, measured)
+- Fixing one digit: in a complete code, a typed digit REPLACES the digit after the caret (the
+  outlined box) instead of inserting and pushing the last digit off, which made a different code and
+  sent it. At the end of a full code, a digit starts the code again. Checked with distinct digits
+  (314159 -> 317159; inserting gives 317415), since repeated digits hid the difference.
+- App only: below 40rem, a settings-wide rule set every input to 16px (so iOS does not zoom on
+  focus) and outranked the boxed input, pulling the digits off their boxes. The boxed input is
+  also listed with #panel-settings in front; checked at 520px wide.
+- The outline follows the caret on selectionchange (a held arrow key); an input method's finished
+  word is cleaned on compositionend.
+- App check: a code finished while an answer is in flight is sent when the button frees, once.
+
+## Review round 4 (app) and round 3 (web)
+- A seventh digit that arrives by a way beforeinput does not catch (an input method, a keyboard's
+  replacement text, or a browser without beforeinput) removes the digit AFTER the caret, so the
+  replace-one-digit behaviour holds everywhere (checked: 123456 with 9 put in after the 3 is 123956).
+- A pointer arriving in the field places the caret where it lands (a first tap on one digit);
+  Tab or the page arriving still selects a full code. The outline repaints just after the pointer.
+- Font floor clamp(1.125rem, ...): the digits never go below 18px and grow with the person's text
+  size preference.
+- The "code" window for two six-digit runs is 40 characters.
+- Checks: forced-colours current-box edge; WebKit boxes fit and match at 1400 and 390px (app);
+  a code waiting on the button is dropped when a right code moves the sign-in on (app); a final
+  quiet period after the last send (web).
+- Accepted, not changed: typing over a selected RANGE of two or more digits deletes the range and
+  inserts one digit (five digits left, nothing sent; recoverable). Real Android monospace is not
+  measured (the test browsers are desktop builds); the row has margin (8.6cqw) and a floor.
+
+## Review round 5 (app) and round 4 (web), measured
+- WEB: Enter pressed after the sixth digit sent the code sent it again (a second try for one typo),
+  or, after a right code, landed in the next step's empty field with "The code is six digits.".
+  codeBoxes adds its Enter listener before the page's and stops an Enter on the code just sent, or
+  on an empty field focus has just moved to. (The app has no Enter handler and no form: not
+  affected.) The web error lines are role="alert", since the refusal now comes with focus left in
+  the field.
+- Text arriving at once WITHOUT a paste event (a drop, dictation, a keyboard's clipboard chip,
+  replacement text) goes through the same finder as a paste (beforeinput), so an email line with a
+  date no longer sends the date. A few digits pasted into a full code overwrite from the caret
+  instead of being spliced and cut. A refused paste says so on the status or error line.
+- The finder accepts more separators (any space, two spaces, a dot, a dash with spaces), treats a
+  full stop plus space as a sentence end, and matches "code" as a word only.
+- Sizing is fit-first: font-size min(1.75rem, 8.6cqw) (vw before it for old browsers). A rem floor
+  pushed the row out of its card at larger text sizes (measured at 150% and 200%), and any floor
+  that still fits adds nothing, so the row is as big as its card allows, up to 1.75rem. The app's
+  boxed input also resets the phone-width min-height: 44px that set the digits low.
+- The seventh-digit rule applies only when the field held six; a letter typed mid-code keeps the
+  caret; the pointer flag resets on pointerup/pointercancel/blur; the box spacing is by margin
+  (flex gap is missing in Safari before 14.5); past a full code the first box is outlined (where
+  the next digit goes); beforeinput acts only on cancelable events.
+- Checks: the no-code paste asserts the page cancelled it; the web scroll arm is measured at six
+  digits; Enter after the sixth digit; a short paste into a full code; an email line without a
+  paste; 320px height and 150% text fit (app); a 150% text phone pass (web, EXPECTED updated).
+
+## Review round 6 (app) and round 5 (web)
+- A seventh digit arriving by the fallback path with the caret at the very END of a full code
+  starts the code again (as typing does), rather than being dropped.
+- WEB: after a NETWORK failure (nothing reached the server) the step's handler calls the code
+  box's forget(), so Enter, held back only for a code the server has answered, retries it (the
+  Enter guard had swallowed it; measured, with a check arm that fails without the fix). A
+  wrong-code answer still holds Enter back, so it cannot spend a second try.
+- Focus is visible without the script: every box brightens while the field has focus
+  (:focus-within), under the script's outline of the current box.
+- WEB: the dash range in the regexes is written as \u2010-\u2015, not raw glyphs.
+
+## Review round 7 (app), measured
+- A few digits put over a SELECTED full code (the page selects a refused code) replace the
+  selection, as anywhere else: the fit test counts digits outside the selection. Overwriting from
+  the selection's start made a code nobody entered (111111 selected, paste 12: 121111) and sent
+  it. A selection too small for the paste takes nothing and says so. Check arm fails without it.
+- A paste resets the last code sent only when no check is in flight, so pasting the same code
+  twice during a check sends it once (it sent twice, measured).
+- The finder's spaces are horizontal only: a line break ends a code ("482913" then "10 minutes"
+  on the next line is a code).
+- A refusal on the status or error line clears when the person changes the code; the touch flag
+  waits 400ms so a real tap, whose focus can follow pointerup, places the caret.
+- Test data spells special characters by code point, so no test file carries a literal dash.
+- Not taken: a visible auto-submit notice. The Verify button stays on screen for anyone who waits
+  for it, and the screen stays as quiet as Josh asked; screen readers are told in advance.
+
+## Review round 11 (app, sonnet): decided, not missed
+- A hand press is held back only on the coordinator's wrong-GUESS words ("code is not right" / "not what
+  the app shows" / "not the one we texted"). A used-up code ("stopped working after too many wrong
+  guesses") and "no code is live" are also judged answers but are NOT held back: re-sending them costs a
+  round trip and repeats the same message, and burns no guess (signin.rs re-checks a UsedUp or absent code
+  without counting). Rejected: widening the list, because every phrase added is one more way a transient
+  answer could be mistaken for a judgement and leave a dead button. Weakest premise: that the coordinator
+  keeps not counting those re-checks; if it ever does, add those phrases.
+- Correction to the 3cebb85 commit message: its arms covered bullets 1 and 3 (the judged-wrong guard, the
+  retype during a check), not 1 and 2. drop() forgetting the code and focus re-reading hadDigits got
+  their arms in the round-11 commit.
+
+## Review rounds 8 to 10 (recorded late, at round 12's request; the calls were made at the time)
+- Round 8: Send again while a code is being checked makes that check's answer stale (PLUS_SI_EPOCH),
+  so its "not right" or the timed-out panel cannot land on the fresh step. Rejected: letting the answer
+  land and clearing it later (it would flash). Weakest premise: that the resend always changes the code;
+  if the coordinator ever re-sends the same code, the stale answer was about the live code.
+- Round 9: Send again drops a code typed during that check (it was for the old code); a hand press on
+  the unchanged code just answered does not resend it but selects it in the field. Rejected: disabling
+  Verify after a refusal (it is also the button for a new code).
+- Round 10: that hold-back applies only to the coordinator's wrong-guess words (see round 11), because
+  a 500 / "give it a minute" / cooldown never judged the code and holding it back left a dead button.
+  Deleting a digit during a check does not forget the code, so retyping it does not queue a second try.
+
+## Review round 12 (app, opus)
+- Pasting the exact code the server just judged wrong is held back like a hand press (selected, the
+  status line said again). Deleting a digit and typing it back stays the deliberate way to resend it:
+  rejected holding that back too, because it would leave no way at all to retry a code the person is
+  sure of (the plan's original design). Weakest premise: that a re-paste is a mistake, not a deliberate
+  retry; the deliberate path above covers it.
+- Send again keeps Verify BUSY until the new code's request answers: freed at once, the old code in the
+  boxes could be sent alongside the new-code request and count as a wrong guess against the new code, or
+  answer "not right" on the fresh step. On success the boxes are cleared, then Verify is freed; when no new
+  code is made (a refusal or cooldown), Verify is freed for the old code, which drop() already forgot.
+- A held-back press re-writes the status line so a screen reader hears why.
+
+## Web review round 10 (opus), applies to both halves
+- FIXED: the held press re-announced the refusal by blanking the status/error line for 50ms, and the
+  guards read that line, so a second press inside those 50ms (a double-click) sent the refused code.
+  The line is now changed by adding or removing a zero-width space: spoken again, never empty.
+- ACCEPTED (NIT): a stale verify answer can free the button while a fresh check is running (round 7's
+  decision, a narrow window: the old request must outlast Send again and the new code's first check).
+  Rejected: per-request sequence numbers on all three handlers, for a double-press-in-a-rare-window.
+  What would change my mind: a slow-network report of a code sent twice.
+- ACCEPTED (NIT): when Send again makes no new code, a code typed during the wait goes at once and its
+  send clears the "no new code" message. That code is the old one, which is back in play (round 12).
+
+## Web review rounds 11 and 12 (opus), applied to both halves where shared
+- FIXED (web only, round 11): Enter on a refused code was swallowed silently; it now calls holdRefused()
+  like the button. (The app has no separate Enter guard: its Enter presses Verify, which holds.)
+- FIXED (both, round 12): the hold re-read the status/error line at each press, and the box's own
+  messages ("We could not find one six-digit code in that.", "Those digits do not fit the code.")
+  overwrite that line, after which the refused code went. The refused code is now REMEMBERED (heldCode)
+  when its answer lands, in freed(), and held only while it is still lastSent; any send clears it.
+  Rejected: suppressing the box's messages while a refusal shows (the person still needs to know their
+  paste had no code in it).
+- ACCEPTED (NIT, web round 11): a trailing zero-width space can ride along when the error text is copied.
+- ACCEPTED (NIT, web round 12): the hold listener is capture-phase on the button itself; engines older than
+  the 2021 DOM change run target listeners in the order they were added, so there the step's handler runs
+  first and the hold fails open (one wasted try, never a dead button), the behaviour before this card.
+
+## Web review rounds 13 and 14 (web only; the app already behaves this way)
+- FIXED (round 13): a check in flight when the person went back for a different email left Sign in
+  disabled into the next attempt. newAttempt() now frees every code step's button and drops all three
+  boxes. (The app: Start over and Sign out run plusSiClear, which already frees every button.)
+- FIXED (round 14): that made the round-10 NIT reachable by a new path, so it is now fixed rather than
+  accepted: an older attempt's answer touches NOTHING, the button included (the new attempt freed it). A
+  deletion in six places, not per-request sequence numbers. The resending flag this made dead is gone.
+  (The app's handlers already return on a stale answer before freeing the button.)

@@ -1,0 +1,162 @@
+# Plan: kosmos#3923, the project notice (Mona Lisa's design)
+
+## Finished looks like
+On a project page, while any member's told state is could_not, one notice under the Members heading
+names what is wrong, shaped by what the person must do (Wait: the reason and Try again; Act then retry:
+the reason, a fix ending "then try again", and Try again; Explain: a sentence saying nothing can be done
+yet), one row
+per agent when several, using the person's names, with no left bar. Nothing renders when every agent
+has the folder (success and not_tried say nothing). The per-row interim line is gone from the project
+page. Try again re-tells that agent and the notice updates.
+
+## Measured before building (main at the worktree base)
+- pjToldLine's interim sentence ("We could not update this agent about this folder: ...") renders on
+  the member row, or once below the list via pjSharedTold; none of the design's copy is served.
+- The becauses tellAgent returns (engine/projects.js; GROUP_BECAUSE keys plus the N-blocks and worker
+  folder ones). No re-sync route exists; POST /api/project/:id/agent/:name on an existing member
+  changes nothing (moved=false, no pane line) and re-runs syncAgent, recording a fresh verdict.
+- docs/browser-checks/render-projects.js measures the failed tell on the "Quarter close" fixture.
+
+## Change
+1. web/index.html: .pnotice CSS (from the mock, .qopt scoped to it, no left bar); #pj-one-notice above
+   #pj-one-agents; PJ_NOTICE (exact-because regexes to shape and copy), pjNoticeRow, pjNotice;
+   paintOneProject paints the notice and passes suppressTold to every row; a Try again handler.
+2. web.project-notice-3923.test.js: each shape, several agents, unknown cause, escaping, and every
+   engine because has a shape.
+3. render-projects.js measures the notice's headline and reason instead of the row's .pj-told.
+
+## Decided
+- Settings' members list keeps its per-member line for now (pjToldLine and its tests stay, used there).
+  Rejected: a second notice in Settings in this change. Weakest premise: people check Settings for this;
+  the project page is where the design puts it.
+- Copy for the reasons the mock does not draw (N blocks, too short, size limit, the ambiguous name, a
+  folder Kosmos will not change) follows the mock's pattern: the reason in plain words, the fix in ink.
+- Try again posts the member route with `?retell=1`: a current member is re-told, never re-added
+  (409 if it left, 404 if the project is gone, 500 if the store cannot be read). When the write
+  newly lists a project, the running agent is told on its screen with the "listed" line (see
+  review rounds 9, 13 and 15); a retry that changes nothing types nothing.
+  A same-answer retry says "It still did not work." on its row; the button re-enables and focus returns.
+- The consolidated layout hides the whole Members card (#3218/#3305), so the notice does not show there;
+  that was already true of the old line. Not changed here.
+- pjSharedTold, pjToldGroupLine, their CSS and tests are removed (dead once the notice replaced the
+  group line). pjToldLine stays: the Settings members list still uses it.
+
+- Act rows no longer promise a time Kosmos picks the fix up (superseded in review round 5, below):
+  each is "..., then try again." with a Try again button.
+
+## Verified checks
+- render-projects and render-project-members-3387 pass through tools/browser-checks.sh with the notice in the Members card (the second is surface-mapped to pjcard-members; the notice adds a sibling and changes nothing it asserts).
+
+## Review round 5
+- The Act fixes no longer promise a time Kosmos picks the fix up: three wordings in a row were false
+  (another agent's membership change does not re-tell this one). The four "change something" rows are
+  now Act then retry ("..., then try again." with Try again), which is Mona's own third shape: the
+  retry fails before the fix and works after it, and nothing else re-tells the agent. #3932 (automatic
+  re-tell) becomes a nice-to-have.
+- Try again no longer paints twice (a role=status notice announced twice); "still" is marked only for a
+  read that landed, and an overtaken read places no focus.
+
+## Review round 7
+- Try again places focus only if it is still on the page body or in the notice; a newer read that
+  overtook this one keeps the still-mark (it also started after the retry) and one more read gives the
+  handler its own paint to focus on.
+- The no-folder Explain says what is missing ("Kosmos has no folder for X on this computer"), true for a
+  connected agent and for a Kosmos-made one whose folder was deleted.
+- Kept deliberately: engine becauseGroup (still on /api/projects; no page reader now). Removing it is
+  an engine change with its own test, outside this card.
+
+## Review round 9
+- Try again that WRITES the block now types the same join line an add types into the running agent,
+  because the stored TOLD is read as "told it on its screen" (toldOverride). A retry that changed
+  nothing, or could not write, types nothing. The retell path never calls addAgent (a leave landing
+  mid-request cannot be undone) and skips the membership valve (it moves no membership).
+- A Try again with no answer (offline, a board error, a refusal) says on its row that it did not go
+  through, instead of leaving the row looking untouched.
+- The instruction writer's editor-worded refusals ("reload before saving", "open it by hand") are
+  translated in tellAgent into Kosmos's own sentences, with notice shapes and a plural row, read from
+  write()'s source by a test so a new refusal cannot pass through verbatim.
+- (Superseded in round 11: the headline changed, see below.)
+- The Members heading drops its temporary tabindex when focus leaves it.
+
+## Review round 10
+- The notice region is announced on first appearance; the reader's missing-file sentence (never a
+  project verdict) is dropped and excluded in the scan with a control.
+
+## Review round 11
+- A retry announces the join only for a project the write newly put in the block (`added`, from
+  `projectsInBlock`, which reads the same post line the block writes), and only while the agent is
+  still on it. `changed` alone also fired for a write that added a different project.
+- Headline is now "Kosmos could not update X's instructions for this project." (plural, in digits like the board's other counts: "... 3
+  agents' instructions ..."). The old one claimed the folder was missing, which is false when an
+  earlier update landed, and used "folder" in two senses beside the no-folder row. Mona's copy; she
+  can override. The generic write row no longer repeats it ("The change did not save. It may work on
+  another try.").
+- Verdicts saved before tellWriteBecause keep the editor's wording; the notice matches those raw
+  sentences to the same rows (tested against write()'s own throws).
+- An offline retry whose re-read also fails paints the "did not go through" mark from the loaded
+  projects instead of waiting for the connection.
+- #pj-one-notice is a permanent, unhidden live region; the visible .pnotice is drawn inside it, so a
+  first appearance is announced (content inserted into an existing region).
+- "cannot match X to a session" is now "cannot find X running on this computer".
+
+## Review round 12
+- Agent-made Try again calls are bounded on their own (sixty an hour, 429 with retry_after_secs),
+  since they write the instruction file but move no membership and memberValve never sees them. The
+  screen is never refused, like every sibling path.
+- A 409 (the agent left) is an answer, not a failed retry: the row goes, so nothing is marked.
+
+## Review round 13
+- A retry announces EVERY project its write newly added while the agent is on it (`alsoSaid` by id),
+  not only the one in the URL: an earlier failed add elsewhere is stored on all the agent's projects.
+- A block in an older format (no post line for any listed project) claims nothing as newly added.
+- The retell catch stores a fixed sentence and logs the raw error; the notice's unknown-cause row
+  never shows text carrying an error code or a file path.
+- A retry that worked says so to a screen reader ("Kosmos updated X's instructions.", a visually
+  hidden status line), since an emptied notice announces nothing.
+- Save row reads "Saving did not work this time. It may work on another try."
+- Consolidated layout (Members card hidden, so no notice there): follow-up #3948.
+- The agent-made retry bound resets between tests (resetRetellForTests).
+
+## Review round 14
+- BLOCKER fixed: render-projects' Members-heading lookup skips back over BOTH regions round 13 put
+  before the list (#pj-one-notice and #pj-one-notice-said); it would have read the empty sr-only
+  line. Lesson: a browser check that passed before a markup change is not verified after it; the
+  two checks are re-run on this commit before the PR.
+- "casey's instructions live somewhere Kosmos cannot safely change" (a name then its possessive),
+  now pinned by a test.
+- The retell existence check answers 500 for an unreadable store, never "the agent left".
+- The retry bound is in memory and a restart empties it; accepted and said in the comment.
+- 404 (project gone) is an answer like 409.
+
+## Review round 15
+- The success line is said only on the board's own "told" verdict: a retry that came back with a
+  new reason that has no button left a row on screen and was announced as an update. Tested with a
+  stand-in that models the verdict, and a row-stays-button-gone case.
+- A retry that writes the project in types "Your instructions now list the project X" (kind
+  `listed`), not a second "Kosmos put you on the project": the add path types the join line whatever
+  its write did (#304).
+- An older-format block is decided by the SHAPE of its post lines, not by today's ids, so a block
+  listing only a project the agent has left still reports the new one (tested).
+- An unreadable store answers 500 on a retell from the pre-read too (tested).
+- Focus after a successful retry goes to the next row's Try again before the heading.
+- render-projects now presses Try again for real on its stopped-agent fixture and asserts "It still
+  did not work.", focus kept on the button, and no success line.
+- "Kosmos could not check which agents are running." (one voice).
+- Declined: a 400 for DELETE ...?retell=1 (no caller sends it).
+
+## Review round 16
+- The retell 409 says "that agent is not on this project", true whether it left or never joined.
+- Already recorded: DELETE ...?retell=1 (round 15). Noted: render-projects' real Try again uses one
+  slot of the agent-made bound only when the browser is not the screen; a browser press is the screen.
+
+## Review round 17
+- A retry the board answered "told" is never marked "still" (a failed follow-up read repainted the
+  old reason with "It still did not work." while the status line said it worked). Tested.
+- The success line is emptied and written a frame later, so the same sentence twice is announced
+  twice; it is tagged with its project and cleared when another project paints.
+- Unknown cause row: "Kosmos does not know why. It may work on another try." (no longer repeats
+  the headline).
+- `changed` and `added` describe one write and are not stored in the told record.
+- render-projects waits for the answer AND the focus; stale comments fixed.
+- Accepted: two rows pressed at once can re-enable the second's button on the first's repaint (a
+  second press sends one extra harmless retry).

@@ -81,8 +81,8 @@ test('a successful change is said in the dialog with Done; a saved-but-not-resta
   /* #768-batch: on a real restart the dialog reduces to one line naming the provider
      (Mara has no codex runner -> Claude). #2716: since the app now sends the wake hello
      itself, that line says so while it is pending ("Waking them..."); the helper, a no-op
-     here, resolves it to the confirmation or to "Say hello to Mara to reactivate them on
-     Claude." The engine's fuller sentence still stands on the section line behind the
+     here, resolves it to "Ready: Mara is on <model>." or, #4008, "Mara is on <model>. Send them a
+     message to wake them." The engine's fuller sentence still stands on the section line behind the
      dialog. */
   assert.equal(got.msg, 'Restarted on Claude. Waking them…');
   assert.equal(got.keep.textContent, 'Done'); assert.equal(got.keep.hidden, false);
@@ -144,16 +144,18 @@ test('#2716: both switch dialogs wire autoHelloOnSwitchRestart on a real restart
   for (const fn of ['changeModelNow', 'changeProviderNow']) {
     const body = lift(page.scriptOf(CURRENT_PAGE), 'async function ' + fn + '(');
     // Both require `say`: with no dialog there is no line to confirm.
-    assert.match(body, /if \(restarted && say\) autoHelloOnSwitchRestart\(forAgent, switchShown, provName, switchManual, switchWaiting\);/,
-      fn + ' no longer wires autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual, switchWaiting) on a real restart');
+    // #4008: two more arguments, what the agent is on now and the finished dialog's title.
+    assert.match(body, /if \(restarted && say\) autoHelloOnSwitchRestart\(forAgent, switchShown, provName, switchManual, switchWaiting, [^,]+, '(?:Changed|Switched) to ' \+ [^)]+\);/,
+      fn + ' no longer wires autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual, switchWaiting, onWhat, doneTitle) on a real restart');
     /* And the waiting line the helper's content check compares against is the SAME string
        passed to say/tell -- built once as switchWaiting and handed to both -- so a reword
        cannot silently break the content match. Pin both shared constructions. */
-    assert.match(body, /const switchManual = 'Say hello to ' \+ switchShown \+ ' to reactivate them on ' \+ provName \+ '\.';/,
+    // #4008: the manual line says plainly what to do ("X is on Y. Send them a message to wake them.").
+    assert.match(body, /const switchManual = switchShown \+ ' is on ' \+ (?:onWhat|provName) \+ '\. Send them a message to wake them\.';/,
       fn + ' no longer builds the manual line once as switchManual for the helper');
     assert.match(body, /const switchWaiting = 'Restarted on ' \+ provName \+ '\. Waking them…';/,
       fn + ' no longer builds the waiting line once as switchWaiting to share with say/tell and the helper');
-    assert.match(body, /(?:tell|say)\(restarted \? switchWaiting :/,
-      fn + ' no longer paints switchWaiting on a real restart');
+    assert.match(body, /(?:tell|say)\(restarted \? switchWaiting : \(out\.because \|\| '[A-Za-z]+\.'\), restarted, restarted\);/,
+      fn + ' no longer paints switchWaiting, with the #4008 waking loader, on a real restart');
   }
 });
