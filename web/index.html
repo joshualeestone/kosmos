@@ -1171,9 +1171,6 @@ html { scroll-padding-top: 132px; }
 .utoast .udot { width: 8px; height: 8px; border-radius: 50%; background: var(--utone); flex: 0 0 8px; }
 .utoast .utxt b { display: block; font-size: .8125rem; line-height: 1.3; color: var(--utone); }
 .utoast .utxt small { font-size: .6875rem; color: var(--label-2); }
-.utoast .newsupd { color: inherit; text-decoration: none; }
-.utoast .newsupd:hover b { text-decoration: underline; text-underline-offset: 2px; }
-.utoast .uacts .newsx { font-size: 1.1rem; line-height: 1; }
 /* #655: the news line's link and dismiss, in the toast's own ink and on one line. */
 .utoast .utxt small a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .utoast .uacts button { white-space: nowrap; }
@@ -1204,6 +1201,41 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime,
 .dbox .btn.uprime { background: var(--gold-bright); border-color: var(--gold-bright); color: #14161a; }
 button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .dbox .btn.uprime:hover { background: var(--gold); border-color: var(--gold); color: #14161a; }
+/* #3955: the update chip (Mona Lisa's mock A and B): one line and one gold action, beside the Kosmos
+   switcher in the same slot the old boxes used. Small on purpose (Josh: "It looks terrible and it's
+   gigantic"). */
+.uchip { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 4px 0 12px; border-radius: 999px;
+  background: color-mix(in srgb, var(--gold-bright) 16%, var(--bg-elevated));
+  border: 1px solid color-mix(in srgb, var(--gold-bright) 55%, transparent);
+  font-size: .8125rem; font-weight: 600; white-space: nowrap; color: var(--label); }
+.uchip .udot { width: 7px; height: 7px; border-radius: 50%; background: var(--gold-bright); flex: 0 0 7px; }
+.uchip button { height: 24px; border: 0; border-radius: 999px; padding: 0 12px; background: var(--gold-bright); color: #14161a;
+  font: inherit; font-size: .78rem; font-weight: 700; cursor: pointer; }
+.uchip button:hover { background: var(--gold); }
+.uchip button:focus-visible { outline: 2px solid var(--label); outline-offset: 2px; }
+/* #3955: "Kosmos has been updated" (mock C): a centred card over the dimmed app, tiles two by two. */
+.wn-box { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; text-align: center;
+  background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: 22px;
+  box-shadow: 0 24px 60px rgba(20, 18, 14, .22); padding: 32px 32px 26px; }
+.wn-mark { display: block; width: 52px; height: 52px; border-radius: 14px; margin: 0 auto; }
+.wn-title { margin: 16px 0 4px; font-size: 1.5rem; letter-spacing: -.01em; color: var(--label); }
+.wn-ver { display: inline-block; margin: 0 0 22px; padding: 3px 10px; border-radius: 999px; background: var(--bg);
+  border: 1px solid var(--border-strong); font-size: .8125rem; font-weight: 600; color: var(--label-2); }
+.wn-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; text-align: left; list-style: none; margin: 0; padding: 0; }
+.wn-tiles.one { grid-template-columns: minmax(0, 320px); justify-content: center; }
+.wn-tile { display: flex; gap: 12px; align-items: flex-start; background: var(--bg); border: 1px solid var(--border-strong);
+  border-radius: 14px; padding: 14px; }
+.wn-ico { flex: none; width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--gold-bright) 20%, var(--bg-elevated)); color: var(--gold-edge); }
+.wn-words b { display: block; font-size: .9375rem; margin: 1px 0 2px; color: var(--label); }
+.wn-words span { display: block; font-size: .84rem; line-height: 1.4; color: var(--label-2); }
+.wn-acts { margin-top: 24px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.wn-ok { height: 42px; min-width: 180px; border: 0; border-radius: 12px; background: var(--gold-bright); color: #14161a;
+  font: inherit; font-weight: 700; font-size: .9375rem; cursor: pointer; }
+.wn-ok:hover { background: var(--gold); }
+.wn-ok:focus-visible, .wn-more:focus-visible { outline: 2px solid var(--label); outline-offset: 3px; }
+.wn-more { color: var(--label-2); font-size: .84rem; text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 560px) { .wn-tiles { grid-template-columns: 1fr; } .wn-box { padding: 24px 18px 20px; } }
 /* ⚠️ THE `.dbox` HALVES ARE NOT DECORATION, and the button they save is the one
    Josh named. `#d-send` (Send, on an agent) is a `.btn.uprime` INSIDE a `.dbox`,
    and the dialog skin above sets both a transparent fill (`.dbox .btn`, 0-2-0)
@@ -1315,7 +1347,7 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
    - the tab view's header sat inside .apphead's 24px top padding, consolidated's is
      flush with 8px (Josh's #1303 "no band across the top");
    - both views CENTRED the controls in a row that also holds the update and login
-     notices (#unews-slot, #login-adv-slot), which wrap tall in the tab view because the
+     notices (the update notices, #login-adv-slot), which wrap tall in the tab view because the
      centred tabs squeeze them. So a notice appearing moved the controls in either view.
    The fix, only where the views can be switched (960px and up, layoutConsolidated's
    floor): the tab view adopts consolidated's flush 8px top, both views TOP-align the row
@@ -1698,7 +1730,7 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#utoast-slot:empty, #unote-slot:empty, #uabort-slot:empty, #unews-slot:empty, #uoffline-slot:empty { display: none; }
+#utoast-slot:empty, #uabort-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* #1704 slice-3: the multiple-Kosmos switcher beside the K mark. A disclosure
    button showing the active world's name, opening a menu of the person's worlds
@@ -4146,7 +4178,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      scrollable -- the update notice was sliced through the middle with
      its status dot off-screen.
      ⚠️ AND IT CLIPPED EXACTLY WHAT THE COMMENT ABOVE PROMISES STAYS
-     VISIBLE: #utoast-slot, #unote-slot, #unews-slot, #uoffline-slot. A
+     VISIBLE: the update and offline slots (#3955 left #utoast-slot and #uoffline-slot). A
      sentence asserting a property is not a guard on it; `web.consolidated-980`
      now pins this so the promise can fail loudly instead of quietly. */
   /* Josh, 2026-08-27: "the design doesn't go all the way to the top. There's a gap
@@ -4161,9 +4193,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
          The four update slots live inside .apphead, and when one shows, that margin is
          what separates it from the board. So it moves ONTO the slots, where it applies
          only when a slot is actually on screen. `#*-slot:empty { display: none }` at the
-         top of this file makes that automatic for three of them. #unews-slot is never
-         :empty (it carries a hidden #newsbar child, as its own comment says), so it
-         needs the :has() test instead. */
+         top of this file makes that automatic for them (#3955 removed #unews-slot, the one
+         that was never :empty). */
       html[data-layout="consolidated"] body.consolidated > .apphead { position: static; margin: 0; padding: 0; border: 0; min-height: 0; }
       /* #2282: the consolidated-only notice-slot bottom-margins are GONE. They existed
          for the OLD collapsed-header design, where a shown update/offline notice was the
@@ -9805,12 +9836,6 @@ window.kosmosMeasureScrollbarWidth();
          reasoning, drawn 2e4e100). Renders only when a newer version is
          published; role=status per the pack. -->
     <div id="utoast-slot"></div>
-    <!-- #541, moved here for #655 (Josh, 2026-08-24 15:50): the "updated itself
-         while you were away" line lives in the same container as the
-         update-available notice and wears its shape, so it sits with the
-         header instead of pushing the board down. The slot's :empty rule
-         does not apply while this child exists, so the line hides itself. -->
-    <div id="unote-slot"></div>
     <!-- #2055: the update-abort notice. Its own slot so it can co-occur with the
          post-update note and the offline note rather than overwriting either; a
          machine that cannot update is a state worth its own line. -->
@@ -9820,19 +9845,10 @@ window.kosmosMeasureScrollbarWidth();
          the update/offline notices rather than overwriting them; role=status per
          the pack; renders only when data.loginAdvisories is non-empty. -->
     <div id="login-adv-slot"></div>
-    <div id="unews-slot">
-      <div class="utoast stale" id="newsbar" role="status" hidden>
-        <span class="udot" aria-hidden="true"></span>
-        <div class="utxt"><a id="newsbar-link" class="newsupd" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener"><b id="newsbar-text"></b></a></div>
-        <div class="uacts"><button type="button" id="newsbar-ok" class="newsx" aria-label="Close this note">&times;</button></div>
-      </div>
-    </div>
-    <!-- ⚠️ ITS OWN SLOT RATHER THAN SHARING `#unote-slot`, and the reason is a
-         state that really happens: a person updates and then loses the server.
-         Both notes are true at once and they belong in that order, because the
-         first explains the second. Sharing would make this overwrite the
-         post-update note and hide the likeliest cause of the failure at exactly
-         the moment it mattered (Mona Lisa, #269). -->
+    <!-- ⚠️ ITS OWN SLOT, and the reason is a state that really happens: a person
+         updates and then loses the server. Both are true at once (Mona Lisa, #269);
+         since #3955 the post-update message is the "Kosmos has been updated" window,
+         and this line must not overwrite the update chip. -->
     <div id="uoffline-slot"></div>
   </div>
   <!-- The pack's centre column: the nav lives IN the header grid, centred,
@@ -11078,6 +11094,22 @@ window.kosmosMeasureScrollbarWidth();
     <div class="rm-acts">
       <button class="btn" type="button" id="uc-no">Not now</button>
       <button class="btn uprime" type="button" id="uc-go">Update</button>
+    </div>
+  </div>
+</div>
+
+<!-- #3955: "Kosmos has been updated", once per version (Mona Lisa's mock C). whatsNewCheck decides
+     when; the tiles come from web/whats-new.json through /api/whats-new. The mark is the app's own
+     icon. -->
+<div class="rm-back" id="whatsnew" hidden>
+  <div class="wn-box" role="dialog" aria-modal="true" aria-labelledby="wn-title" aria-describedby="wn-ver">
+    <img class="wn-mark" src="/icons/kosmos-192.png" alt="" width="52" height="52">
+    <h2 class="wn-title" id="wn-title">Kosmos has been updated</h2>
+    <div class="wn-ver" id="wn-ver"></div>
+    <ul class="wn-tiles" id="wn-tiles" aria-label="What is new" hidden></ul>
+    <div class="wn-acts">
+      <button type="button" class="wn-ok" id="wn-ok">Got it</button>
+      <a class="wn-more" id="wn-more" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener">See everything that changed</a>
     </div>
   </div>
 </div>
@@ -18656,6 +18688,27 @@ function paintLoginAdvisories(advs) {
   }).join('');
 }
 
+/* #3955: reload an old page by itself, but only when that cannot lose anything: the window is in the
+   background, nothing is on its way, no composer holds a word, and no window is open over the page.
+   Otherwise the chip waits for the person's Reload. Once per board version per tab, so a board that
+   keeps serving an old page can never make a reload loop. */
+function updateSafeReload(servedVersion) {
+  try {
+    if (!document.hidden || !servedVersion) return false;
+    if (sessionStorage.getItem('kosmos-auto-reloaded') === servedVersion) return false;
+    const busy = [typeof TALK_SENDING !== 'undefined' && TALK_SENDING, typeof PJ_SENDING !== 'undefined' && PJ_SENDING,
+      typeof PJ_REPLY_SENDING !== 'undefined' && PJ_REPLY_SENDING, typeof TERM_SENDING !== 'undefined' && TERM_SENDING];
+    if (busy.some(Boolean)) return false;
+    const drafted = (m) => !!m && Object.values(m).some((v) => (typeof v === 'string' ? v : (v && v.text) || '').trim());
+    if ([typeof TALK_DRAFTS !== 'undefined' && TALK_DRAFTS, typeof TERM_DRAFTS !== 'undefined' && TERM_DRAFTS,
+      typeof PJ_DRAFTS !== 'undefined' && PJ_DRAFTS, typeof PJ_ROOM_DRAFTS !== 'undefined' && PJ_ROOM_DRAFTS].some(drafted)) return false;
+    if ([...document.querySelectorAll('textarea')].some((t) => t.value.trim())) return false;
+    if (typeof tipModalOpen === 'function' && tipModalOpen()) return false;
+    sessionStorage.setItem('kosmos-auto-reloaded', servedVersion);
+    window.location.reload();
+    return true;
+  } catch { return false; }
+}
 function renderUpdateToast(u) {
   const slot = document.getElementById('utoast-slot');
   /* 🛑 THE ENGINE STATE OUTRANKS BOTH OTHERS (#338). A server behind the code
@@ -18685,15 +18738,18 @@ function renderUpdateToast(u) {
       + '</div>';
     return;
   }
+  /* #3955 (Josh: "You're looking at the previous version. That doesn't make sense"; Mona Lisa's
+     mock B): the page is older than Kosmos. One small chip, never "Kosmos updated" while the old
+     page is showing, and the page reloads itself when that cannot lose anything (updateSafeReload). */
   if (!UPDATING_NOW && pageIsStale(SERVED_VERSION)) {
+    updateSafeReload(SERVED_VERSION);
     if (slot.dataset.v === 'stale') return;
     slot.dataset.v = 'stale';
-    slot.innerHTML = '<div class="utoast stale" role="status">'
+    slot.innerHTML = '<div class="uchip" role="status">'
       + '<span class="udot" aria-hidden="true"></span>'
-      + '<div class="utxt"><b>Kosmos updated</b><small>You are looking at the previous version</small></div>'
-      + '<div class="uacts">'
-      + '<button type="button" class="uprime" id="ut-reload">Reload</button>'
-      + '</div></div>';
+      + '<span class="uchip-t">Reload to finish updating</span>'
+      + '<button type="button" id="ut-reload">Reload</button>'
+      + '</div>';
     document.getElementById('ut-reload').addEventListener('click', () => {
       /* The whole remedy. `reload()` and not a re-render: the stale thing is
          the document, not any state inside it. */
@@ -18706,17 +18762,14 @@ function renderUpdateToast(u) {
   }
   if (slot.dataset.v === u.version) return;      // already showing this one
   slot.dataset.v = u.version;
-  slot.innerHTML = '<div class="utoast" role="status">'
+  /* #3955 (Josh: "we should say 'An update is available,' and that should be it"; Mona Lisa's mock A):
+     one small chip, one action, no version number. The confirm names the version. Later is gone from
+     here; a Later pressed on an older page still quiets its version (updateLaterSuppresses). */
+  slot.innerHTML = '<div class="uchip" role="status">'
     + '<span class="udot" aria-hidden="true"></span>'
-    + '<div class="utxt"><b>Update available</b><small>Kosmos ' + esc(u.version) + '</small></div>'
-    + '<div class="uacts">'
-    + '<button type="button" id="ut-later">Later</button>'
-    + '<button type="button" class="uprime" id="ut-install">Install</button>'
-    + '</div></div>';
-  document.getElementById('ut-later').addEventListener('click', () => {
-    try { localStorage.setItem('kosmos-update-later', JSON.stringify({ v: u.version, at: Date.now() })); } catch { /* shown again next release either way */ }
-    slot.innerHTML = ''; delete slot.dataset.v;
-  });
+    + '<span class="uchip-t">An update is available</span>'
+    + '<button type="button" id="ut-install">Update</button>'
+    + '</div>';
   document.getElementById('ut-install').addEventListener('click', () => {
     // Focus lands on the SAFE answer, same rule as every dialog here: the
     // confirm exists as a deliberate-click gate, and opening it with the
@@ -19144,10 +19197,8 @@ document.getElementById('uc-go').addEventListener('click', async () => {
     return;
   }
   UPDATING_NOW = true;
-  /* The toast says what the poll saw; the FINISH LINE says what actually
-     landed (her rule). The fresh page reads this note and names the
-     version it is really serving. */
-  try { sessionStorage.setItem('kosmos-updated-from', LAST_VERSION || ''); } catch { /* the update still runs */ }
+  /* #3955: what landed is said by the "Kosmos has been updated" window on the fresh page
+     (whatsNewCheck), for a manual update and an automatic one alike. */
   document.getElementById('updconfirm').hidden = true;
   renderUpdateToast(null);
   const back = document.createElement('div');
@@ -19295,32 +19346,6 @@ function updateOverlayLead(reached, version, platform, rollback) {
   return reached ? ('Downloading ' + version + '.') : 'Updating.';
 }
 
-/* "Updated. You are on Kosmos X." -- once, from the first status after a
-   reload that followed an install. Shown ONLY when the served version
-   actually CHANGED: an installer that found nothing to do did not update
-   anything, and saying so would be the stale-label defect at the finish
-   line instead of the start. */
-/* Known hole, erring honest: on the deadline-elapsed reload (installer
-   still running after three minutes), the first status serves the OLD
-   version, the note is consumed, and no "Updated." ever shows for that
-   install. Silence beats a claim we cannot time correctly. */
-let UPDATED_NOTE_DONE = false;
-function updatedNoteOnce(nowVersion) {
-  if (UPDATED_NOTE_DONE) return;
-  UPDATED_NOTE_DONE = true;
-  let from = null;
-  try {
-    from = sessionStorage.getItem('kosmos-updated-from');
-    sessionStorage.removeItem('kosmos-updated-from');
-  } catch { return; }
-  if (!from || !nowVersion || nowVersion === from) return;
-  const slot = document.getElementById('unote-slot');
-  slot.innerHTML = '<div class="utoast" role="status">'
-    + '<span class="udot" aria-hidden="true"></span>'
-    + '<div class="utxt"><b>Updated.</b><small>You are on Kosmos ' + esc(nowVersion) + '.</small></div>'
-    + '<div class="uacts"><button type="button" id="un-ok">OK</button></div></div>';
-  document.getElementById('un-ok').addEventListener('click', () => { slot.innerHTML = ''; });
-}
 
 /**
  * How long ago the board was read, in words a person can take in at a glance.
@@ -19722,7 +19747,6 @@ async function tick() {
     paintLoginAdvisories(data.loginAdvisories); // #3532: warn before a login expires
     paintUpdateAbort(data.updateAbort); // #2055: null-when-healthy; renders only on this successful read
     paintUpdateCard(data.version, data.update, data.updateLook, data.updateManual, data.updateChannel, data.updateRollback);
-    updatedNoteOnce(data.version);
     LAST_VERSION = data.version || LAST_VERSION;
     LAST_BOOTED_AT = data.bootedAt || LAST_BOOTED_AT;
     LAST_UPDATE_LOG = data.updateLog || LAST_UPDATE_LOG;
@@ -31903,40 +31927,97 @@ function conShelfDoor(api, st) {
 }
 
 /* The connect tab's one computed sentence (the taxonomy doc's defect half). */
-/* #541: the one line that makes ship-day visible. */
-async function newsbarCheck() {
+/* #3955 (Josh, 2026-09-26: "a full-screen modal with a dimmed background ... Kosmos has been updated
+   to version number ... some callouts of what the new features are"; Mona Lisa's mock C). Once per
+   version, after the new version is on screen, whether it was a manual Update or an automatic one.
+   The board records the version seen (seen-version.json, #541), so dismissed stays dismissed across
+   restarts and browsers; it replaces the "Kosmos updated to X [x]" line, which lingered.
+   Shown only when: the page on screen IS the board's version (never over an old page, where the
+   update chip says Reload), a version has been seen before (a fresh install records silently: it
+   was not updated, it was installed), and that version is not the one running now. The tiles are
+   web/whats-new.json's highlights, which the board serves only when the file is for this version;
+   without them the window is the title and the version alone. */
+const WN_ICONS = Object.freeze({
+  swarm: '<circle cx="12" cy="8" r="3.5"/><circle cx="5.5" cy="16" r="2.5"/><circle cx="18.5" cy="16" r="2.5"/>',
+  tasks: '<path d="M4 6l2 2 3-3"/><path d="M12 7h8"/><path d="M4 13l2 2 3-3"/><path d="M12 14h8"/><path d="M12 20h8"/>',
+  phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
+  list: '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M8 10h8M8 14h5"/>',
+  chat: '<path d="M4 5h16v11H9l-5 4z"/>',
+  shield: '<path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6z"/>',
+  spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M18 6l-2.5 2.5M8.5 15.5L6 18"/>',
+});
+function wnIcon(key) {
+  const inner = WN_ICONS[key] || WN_ICONS.spark;
+  return '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + inner + '</svg>';
+}
+let WN_OPENER = null;
+let WN_VERSION = null;
+function wnOpen(version, highlights) {
+  const back = document.getElementById('whatsnew');
+  if (!back) return;
+  WN_VERSION = version;
+  document.getElementById('wn-ver').textContent = 'Version ' + version;
+  const tiles = document.getElementById('wn-tiles');
+  const list = Array.isArray(highlights) ? highlights.slice(0, 5) : [];
+  tiles.innerHTML = list.map((h) => '<li class="wn-tile"><span class="wn-ico">' + wnIcon(h.icon) + '</span>'
+    + '<span class="wn-words"><b>' + esc(h.title) + '</b><span>' + esc(h.line) + '</span></span></li>').join('');
+  tiles.hidden = list.length === 0;
+  tiles.classList.toggle('one', list.length === 1);
+  document.getElementById('wn-more').href = 'https://installkosmos.com/versions#v' + version.replace(/\./g, '-');
+  WN_OPENER = document.activeElement;
+  back.hidden = false;
+  document.getElementById('wn-ok').focus();
+}
+function wnClose() {
+  const back = document.getElementById('whatsnew');
+  if (!back || back.hidden) return;
+  back.hidden = true;
+  const v = WN_VERSION;
+  WN_VERSION = null;
+  // Recorded on close, so a reload before it was read shows it again rather than never.
+  if (v) fetch('/api/whats-new/seen', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: v }) })
+    .then((r) => r.text()).catch(() => { /* shown again next load, which is the safe direction */ });
+  const to = WN_OPENER;
+  WN_OPENER = null;
+  if (to && typeof to.focus === 'function' && document.contains(to)) to.focus();
+}
+function wnWire() {
+  const back = document.getElementById('whatsnew');
+  if (!back) return;
+  document.getElementById('wn-ok').addEventListener('click', wnClose);
+  back.addEventListener('click', (e) => { if (e.target === back) wnClose(); });
+  back.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); wnClose(); return; }
+    if (e.key !== 'Tab') return;
+    // Two things to press; Tab stays between them while the window is up.
+    const f = [document.getElementById('wn-ok'), document.getElementById('wn-more')];
+    const at = f.indexOf(document.activeElement);
+    if (e.shiftKey && at <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+    else if (!e.shiftKey && at === f.length - 1) { e.preventDefault(); f[0].focus(); }
+  });
+}
+wnWire();
+async function whatsNewCheck() {
   try {
     const res = await fetch('/api/whats-new', { cache: 'no-store' });
     if (!res.ok) return;
     const got = await res.json();
     if (!got || typeof got.current !== 'string') return;
-    /* ⚠️ THE RESPONSE IS READ, AND NOT AS TIDINESS (#39, measured): a fetch
-       whose body nobody consumes leaves the connection counted as in-flight
-       until the Response is garbage-collected, so every FIRST page load on a
-       fresh install carried one request that never finished -- invisible to a
-       person, and a hang to anything that waits for the network to settle
-       (the browser checks' networkidle timed out 9 runs out of 9 on exactly
-       this, and passed on retry because `seen` was recorded by then). */
+    /* ⚠️ THE RESPONSE IS READ, AND NOT AS TIDINESS (#39, measured): a fetch whose body nobody
+       consumes leaves the connection counted as in-flight, and the browser checks' networkidle
+       waited on it (the seen POST below reads its body for the same reason). */
     const record = () => fetch('/api/whats-new/seen', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ version: got.current }),
     }).then((r) => r.text()).catch(() => { /* tried again next load */ });
-    if (!got.seen) { record(); return; } // first sight: silent
+    if (!got.seen) { record(); return; }          // a fresh install: installed, not updated
     if (got.seen === got.current) return;
-    // Josh, 2026-08-24 16:50: short. The whole line is the link (click to
-    // see what changed); the X closes it. No "while you were away".
-    document.getElementById('newsbar-text').textContent = 'Kosmos updated to ' + got.current;
-    document.getElementById('newsbar-link').href =
-      'https://installkosmos.com/versions#v' + got.current.replace(/\./g, '-');
-    const bar = document.getElementById('newsbar');
-    bar.hidden = false;
-    document.getElementById('newsbar-ok').addEventListener('click', () => {
-      bar.hidden = true;
-      record();
-    }, { once: true });
+    const baked = bakedVersion();
+    if (baked && baked !== got.current) return;   // an old page: the chip says Reload first
+    wnOpen(got.current, got.highlights);
   } catch { /* news can wait */ }
 }
-newsbarCheck();
+whatsNewCheck();
 
 async function paintConnLive() {
   const el = document.getElementById('conn-live');

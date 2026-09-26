@@ -25,6 +25,19 @@ improvement it gained would have died with the session that wrote it.
    fifteen minutes to be told the same thing -- but it is a loss of a working
    habit and you will meet it on every cut, not only on a slow one.
 
+   **The What's new highlights are checked here too (#3955; the cut labels it
+   `1b-ii`).** `web/whats-new.json` holds the 1 to 5 highlights the "Kosmos has
+   been updated" window shows after an update:
+   `{"version":"0.6.98","highlights":[{"icon":"spark","title":"...","line":"..."}]}`.
+   The operator writes it and commits it to main before the cut, like the versions
+   entry; release.sh never writes it. `icon` is one of `swarm`, `tasks`, `phone`,
+   `list`, `chat`, `shield`, `spark`; a title of about 40 characters; one plain
+   sentence for the line; no em dashes. A cut whose file is missing, not for the
+   version being cut, or not one the window can draw stops here
+   (`tools/whats-new-check.js` says why). **A hotfix with nothing to announce:**
+   `KOSMOS_CUT_NO_WHATS_NEW=1 yarn release X.Y.Z`, and the window shows only the
+   title and the version.
+
    **Then, still in step 1, test-sign with the cut's own identity (#3579; the cut
    labels it `1c`)**, before anything is bumped or built. Step 4 signs Developer
    ID. Over a plain SSH session the login keychain is **locked**: the identity is

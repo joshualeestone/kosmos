@@ -530,6 +530,18 @@ kosmos_versions_entry_gate_or_pending "$V" "$SITE/versions.html" "Nothing has be
   "Stamp it for when you expect to PUBLISH, about 15 minutes out -- a stamp written now, or already minutes old, is stale by step 7. Or leave it as an entry file carrying TIMESTAMP (see docs/releasing.md) and the deploy stamps it for you." \
   "$KOSMOS_STEP1_PAST_BOUND" "$KOSMOS_ENTRY_FILE" || exit 1
 
+step "== 1b-ii. the What's new highlights are for this version (#3955) =="
+# The "Kosmos has been updated" window shows web/whats-new.json's highlights, written by the operator
+# and committed to main before the cut, beside the versions entry (agreed with Baron, #3955). A file
+# left from the last release would show nothing (the board serves it only for its own version), so a
+# cut whose file is not for $V stops HERE, before anything is built or bumped.
+# KOSMOS_CUT_NO_WHATS_NEW=1 is the hotfix opt-out: the release then shows the title alone.
+if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" = "1" ]; then
+  echo "KOSMOS_CUT_NO_WHATS_NEW=1: $V ships with no highlights; the update window will say only \"Kosmos has been updated\" and the version."
+else
+  node "$REPO/tools/whats-new-check.js" "$V" "$REPO/web/whats-new.json" || exit 1
+fi
+
 step "== 1c. the signing key answers, before anything is bumped or built (#3579) =="
 # Step 4 signs Developer ID. A locked login keychain (any plain SSH session, or a cut
 # detached from the session that unlocked it) made 0.6.91's first cuts die THERE, after
