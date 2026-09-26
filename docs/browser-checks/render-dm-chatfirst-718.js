@@ -21,7 +21,9 @@
  *   - the visualViewport listener itself, driven through a stubbed window.visualViewport: the
  *     keyboard class turns on when the visible height drops, stays off for a pinch zoom (scale),
  *     turns on where the keyboard shrinks the layout viewport too, and resets on rotation.
- *   Not covered: iOS panning the layout viewport on focus (on the iOS simulator list).
+ *   Not covered: iOS panning the layout viewport on focus, and the emoji panel's top edge under such a
+ *   pan (a stubbed pan could not be made to tell the old and new placement apart); both on the iOS
+ *   simulator list.
  *
  * Harness posture mirrors render-dm-phone-718.js: file://, the thread poll answered from a
  * fixture, the agent opened through openDetail. No board and no real conversation are involved.
@@ -122,6 +124,9 @@ function measure() {
     const css = (/@media \(max-width: ([0-9.]+rem)\)/.exec(src.slice(block)) || [])[1];
     const js = (/Same breakpoint as the CSS block[^\n]*\n\s*const PHONE_WIDTH = window\.matchMedia\('\(max-width: ([0-9.]+rem)\)'\)/.exec(src) || [])[1];
     chk(!!css && css === js, 'the CSS phone breakpoint and the listener\'s matchMedia are the same', `css=${css} js=${js}`);
+    const cssTyping = [...src.matchAll(/html\.kosmos-keyboard-up body:has\(#d-talk-box :is\(([^)]*)\):focus/g)].map((m) => m[1].replace(/\s+/g, ' ').trim());
+    const jsTyping = (/const KOSMOS_TYPING_SELECTOR = '([^']*)'/.exec(src) || [])[1];
+    chk(cssTyping.length >= 4 && cssTyping.every((x) => x === jsTyping), 'the CSS typing list and the listener\'s KOSMOS_TYPING_SELECTOR are the same', JSON.stringify({ cssTyping: [...new Set(cssTyping)], jsTyping }));
   }
   for (const eng of (process.env.ENGINES || 'chromium').split(',')) {
     const browser = await pw[eng].launch({ headless: process.env.HEADED === '0' });
@@ -208,11 +213,17 @@ function measure() {
         // The connection banner above the panel with the keyboard up: the composer must still sit
         // above the keyboard (it is sticky at the bottom of the talk box).
         {
+          // Clear what the crowded-box case above left showing, so this case measures only the notices.
+          await page.evaluate(() => { document.getElementById('d-qask').hidden = true; const ch = document.getElementById('d-attach-chips'); ch.hidden = true; ch.innerHTML = ''; document.getElementById('d-say-msg').textContent = ''; });
           await page.focus('#d-say');
           await page.evaluate((k) => { document.documentElement.style.setProperty('--kosmos-visible-height', (window.innerHeight - k) + 'px'); document.documentElement.classList.add('kosmos-keyboard-up'); const c = document.getElementById('conn'); c.hidden = false; c.textContent = 'Kosmos cannot reach this computer right now. Trying again.'; }, SIMULATED_KEYBOARD_PX);
           const kc = await page.evaluate(measure);
           chk(kc.box && kc.box.bottom <= limit + 1 && kc.box.top >= 0, `${t} with the connection banner and the keyboard up, the composer sits above the keyboard`, `bottom=${kc.box && Math.round(kc.box.bottom)} limit=${limit}`);
-          await page.evaluate(() => { document.getElementById('conn').hidden = true; });
+          await page.evaluate(() => { document.getElementById('conn').hidden = true; const a = document.getElementById('askcard'); a.hidden = false; a.textContent = 'Allow this phone to reach your agents? Review'; });
+          const ka = await page.evaluate(measure);
+          const askH = await page.evaluate(() => document.getElementById('askcard').getBoundingClientRect().height);
+          chk(ka.box && ka.box.bottom <= limit + 1 && ka.threadH >= 40 && askH === 0, `${t} with a pairing card and the keyboard up, the card steps aside and the composer sits above the keyboard`, `bottom=${ka.box && Math.round(ka.box.bottom)} threadH=${ka.threadH} askH=${askH}`);
+          await page.evaluate(() => { document.getElementById('askcard').hidden = true; });
         }
         // Leave the composer (a person dismisses the keyboard), then Profile is one tap.
         await page.evaluate(() => { document.activeElement.blur(); document.documentElement.style.removeProperty('--kosmos-visible-height'); });
