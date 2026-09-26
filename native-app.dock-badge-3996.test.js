@@ -40,7 +40,7 @@ test('#3996: the badge starts once the board\'s port is known, and keeps polling
 
 test('#3996: while the page polls, the app asks the board nothing extra; otherwise it reads /api/status with the token', () => {
   const refresh = body('private func refreshDockBadge(port: Int)');
-  assert.match(refresh, /if let at = lastPageBadgeAt, Date\(\)\.timeIntervalSince\(at\) < 8 \{ return \}/,
+  assert.match(refresh, /if let at = lastPageBadgeAt, ProcessInfo\.processInfo\.systemUptime - at < 8 \{ return \}/,
     'the app polls the heaviest route even while the page is already handing it the count');
   assert.match(refresh, /\/api\/status/);
   assert.match(refresh, /x-kosmos-board-token/, 'an enforcing board refuses a request without its token');
@@ -50,7 +50,8 @@ test('#3996: while the page polls, the app asks the board nothing extra; otherwi
   assert.match(refresh, /self\.badgeEverAnswered \|\| code != nil/, 'a board that refuses from the start is never logged');
   assert.match(refresh, /if answered \|\| self\.badgeMisses >= 3 \{ self\.showBadge\(label, asked: asked\) \}/, 'one slow answer blanks the badge');
   const said = body('func pageSaidWaiting(_ body: Any)');
-  assert.match(said, /lastPageBadgeAt = Date\(\)/);
+  assert.match(said, /lastPageBadgeAt = ProcessInfo\.processInfo\.systemUptime/);
+  assert.match(said, /badgeMisses = 0/, 'misses from before a page stretch add up to a later "three in a row"');
   assert.match(said, /badgeLabel\(fromCount: body\)/, 'the page\'s count is not read by the same rule as the board\'s');
   const show = body('private func showBadge(_ label: String?, asked: Int)');
   assert.match(show, /guard asked >= self\.badgeShown else \{ return \}/, 'an older answer can overwrite a newer one');
@@ -70,7 +71,7 @@ test('#3996: only the board\'s own page can hand over a count, and the page hand
   assert.match(board, /return host == mine\.host && seen == mine\.port/, 'another local service on another port could set the badge');
   assert.match(board, /let seen = port == 0 \? Self\.defaultPort\(scheme\) : port/, 'a default-port board (port 0 in WebKit) never feeds the badge');
   assert.match(SRC, /badgeOrigin = \("127\.0\.0\.1", resolved\.port\)/, 'the board\'s own origin is not the one allowed');
-  assert.match(SRC, /if let last = badgeSettingAnswer, Date\(\)\.timeIntervalSince\(last\.at\) < 300 \{ done\(last\.allowed\); return \}/, 'the badge setting is asked on every update');
+  assert.match(SRC, /if let last = badgeSettingAnswer, ProcessInfo\.processInfo\.systemUptime - last\.at < 300 \{ done\(last\.allowed\); return \}/, 'the badge setting is asked on every update');
   const page = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
   const tickAt = page.indexOf('async function tick(');
   assert.notEqual(tickAt, -1, 'tick() moved');

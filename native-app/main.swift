@@ -1068,7 +1068,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // #3996: the Dock badge's poll (held so it survives), when the page last handed over its count,
     // and the order answers were asked in (an older answer never overwrites a newer one).
     private var badgeTimer: Timer?
-    private var lastPageBadgeAt: Date?
+    private var lastPageBadgeAt: TimeInterval?   // systemUptime: a clock that never steps backwards
     private var badgeAsked = 0
     private var badgeShown = 0
     private var badgeReadFailing = false
@@ -2301,7 +2301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     private func refreshDockBadge(port: Int) {
         // 8 s: above the page's 5 s poll, below this timer's 10 s, so a page that went quiet costs one tick at most.
-        if let at = lastPageBadgeAt, Date().timeIntervalSince(at) < 8 { return }   // the page is saying it
+        if let at = lastPageBadgeAt, ProcessInfo.processInfo.systemUptime - at < 8 { return }   // the page is saying it
         guard let url = URL(string: "http://127.0.0.1:\(port)/api/status") else { return }
         var req = URLRequest(url: url)
         if let tok = boardTokenValue() {
@@ -2350,7 +2350,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// The page's own count (#3996), handed over by BadgeMessageProxy after every board poll.
     func pageSaidWaiting(_ body: Any) {
-        lastPageBadgeAt = Date()
+        lastPageBadgeAt = ProcessInfo.processInfo.systemUptime
+        /* A post is a board read that worked (the page posts only from a poll that succeeded), so the
+           app's miss count starts again (round 7): misses from before a stretch the page fed do not
+           add up to a later "three in a row". */
+        badgeMisses = 0
+        if badgeReadFailing { badgeReadFailing = false; logLine("dock badge: the board answers again (through the page)") }
         badgeAsked += 1
         showBadge(Self.badgeLabel(fromCount: body), asked: badgeAsked)
     }
@@ -2397,14 +2402,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
        (a selftest, the prototype build) skips the question. */
     /* Asked at most every five minutes (the setting almost never changes, and a badge update runs
        every few seconds): the last answer is kept and handed on in between. */
-    private static var badgeSettingAnswer: (allowed: Bool, at: Date)?
+    private static var badgeSettingAnswer: (allowed: Bool, at: TimeInterval)?
     static func badgesAllowed(_ done: @escaping (Bool) -> Void) {
         dispatchPrecondition(condition: .onQueue(.main))   // badgeSettingAnswer is read and written only here
         guard Bundle.main.bundleIdentifier != nil else { done(true); return }
-        if let last = badgeSettingAnswer, Date().timeIntervalSince(last.at) < 300 { done(last.allowed); return }
+        if let last = badgeSettingAnswer, ProcessInfo.processInfo.systemUptime - last.at < 300 { done(last.allowed); return }
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             let allowed = settings.badgeSetting != .disabled
-            DispatchQueue.main.async { badgeSettingAnswer = (allowed, Date()) }
+            DispatchQueue.main.async { badgeSettingAnswer = (allowed, ProcessInfo.processInfo.systemUptime) }
             done(allowed)
         }
     }
@@ -3918,7 +3923,18 @@ if CommandLine.arguments.contains("--kosmos-app-badge-selftest") {
     check(#"{"version":"0.6.98"}"#, nil, "no counts at all")
     check("not json", nil, "an answer that is not JSON")
     check(nil, nil, "no answer")
-    let expected = 14
+    // Whether an answer READ as the board's status (a miss otherwise, counted toward three).
+    func reads(_ json: String?, _ want: Bool, _ why: String) {
+        ran += 1
+        let got = AppDelegate.readsAsStatus(json.map { Data($0.utf8) })
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + (got ? "reads " : "miss  ").padding(toLength: 7, withPad: " ", startingAt: 0) + why)
+    }
+    reads(#"{"counts":{"waiting":2}}"#, true, "a status with a count reads")
+    reads(#"{"counts":{}}"#, true, "a status from an older board (no count) still reads: it clears, it is not a miss")
+    reads(#"{"counts":{"wait"#, false, "A 200 CUT OFF MID-BODY IS A MISS, not a reason to clear at once")
+    reads(#"{"version":"0.6.98"}"#, false, "an answer with no counts is not the status")
+    let expected = 18
     if ran != expected {
         print("\nbadge-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)

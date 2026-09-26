@@ -42,5 +42,12 @@ With Kosmos open or closed to the Dock, the Kosmos icon shows a red number equal
 - A KOSMOS_URL without a port: WebKit's origin port 0 is read as the scheme's default on both sides.
 - Left: an app poll and a page post can land out of the order they were asked in for one page tick (about 5 s); it corrects itself.
 
+## Review rounds 6 and 7
+- A 200 whose body does not read as the status is a miss (counted toward three), not an answer; a status with no count (an older board) is an answer and clears.
+- A page post is a board read that worked, so it resets the app's miss count and its failing state.
+- The quiet-page and setting timers use systemUptime, which never steps backwards.
+- The selftest has rows for what reads as a status (18 rows).
+- Left: the page posts its count before the rest of tick() paints its tiles; the Dock number is the server's, so a later tile error does not make it wrong. The server test's fixture has no unread project message; waitingTotal's parts each have a control in the engine test.
+
 ## Not in this change
 Windows taskbar overlay (Homer, reads the same counts.waiting). A served build with a real Dock screenshot is the card's done; that needs a cut.
