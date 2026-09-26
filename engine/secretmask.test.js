@@ -1216,7 +1216,9 @@ test('#3935 lines with spaces are not walked, their key-shaped tokens are; a bar
 
 test('#3935 past the value cap, a compact JSON line ("name":"value") does not crowd out a real key (review round 30)', () => {
   const value = 'zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v';
-  const filler = Array.from({ length: 1999 }, (_, i) => `zz-filler-${String(i).padStart(6, '0')}-xyz`);
+  /* The filler sorts before the key, so exactly one bare value is dropped at the cap: the key, unless the JSON line
+     ranks after it (it sorts first of all by its quote). */
+  const filler = Array.from({ length: 1999 }, (_, i) => `aa-filler-${String(i).padStart(6, '0')}-xyz`);
   setKnownSecrets([...filler, value, '"name":"AbCdEf123456ZzYy1234"']);
   try {
     const out = mask('First zq8vLm3p then Rt6wXy9k then Hb2nWc4d then Pq7sTu5v done').text;
