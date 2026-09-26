@@ -59162,11 +59162,6 @@ function asbFold() {
   const bub = document.getElementById('asb');
   if (bub && !bub.hidden) bub.focus();
 }
-/* The first x asks once (Josh 18:02). After that, an opening where nothing was typed is counted, and the second
-   offers to hide the guide for good (#3947, in asbX; it replaced #3034's 09-25 rule of asking on every such close).
-   Nothing typed means nothing sent this opening AND the box unchanged since it opened: somebody who wrote a question
-   and then closed was using it, not hunting for the way to get rid of it, while a draft left from an earlier visit
-   is not typing now (review round 1). */
 const ASB_SAVE_FAILED = 'We could not save that just now. Try again in a moment.';
 /* #3947: the idle-close count and the "Keep it" answer, kept in this page's storage. A count that is lost (storage
    cleared, a private window) only means one more close before the offer, so it does not need the board; the switch
@@ -59177,6 +59172,11 @@ const ASB_KEPT_KEY = 'kosmos.asb.kept.v1';
 function asbIdleGet() { try { const n = Number(localStorage.getItem(ASB_IDLE_KEY)); return Number.isInteger(n) && n > 0 ? n : 0; } catch { return 0; } }
 function asbIdleSet(n) { try { localStorage.setItem(ASB_IDLE_KEY, String(n)); } catch { /* not counted: see above */ } }
 function asbKept() { try { return localStorage.getItem(ASB_KEPT_KEY) === '1'; } catch { return false; } }
+/* The first x asks once (Josh 18:02). After that, an opening where nothing was typed is counted, and the second
+   offers to hide the guide for good (#3947, in asbX; it replaced #3034's 09-25 rule of asking on every such close).
+   Nothing typed means nothing sent this opening AND the box unchanged since it opened: somebody who wrote a question
+   and then closed was using it, not hunting for the way to get rid of it, while a draft left from an earlier visit
+   is not typing now (review round 1). */
 /* Trimmed both sides (review round 2): a stray space is not typing, while a half-written word still is. */
 function asbDidNothing() {
   const say = document.getElementById('asp-say');

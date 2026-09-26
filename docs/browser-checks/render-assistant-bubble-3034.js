@@ -483,7 +483,8 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     chk(!afterSend.hide && !afterSend.panel && await idleNow() === 1, 'B7c CONTROL: after the send, the next idle close counts 1 and does not offer', JSON.stringify(afterSend));
     // Storage that refuses: nothing is counted, and x simply closes (never an error, never the offer).
     await fresh(0, false);
-    await page.evaluate(() => { window.__lsSet = Storage.prototype.setItem; Storage.prototype.setItem = () => { throw new Error('refused'); }; });
+    // Reads refuse as well as writes: in a window with storage blocked, merely reading it throws.
+    await page.evaluate(() => { window.__lsSet = Storage.prototype.setItem; window.__lsGet = Storage.prototype.getItem; Storage.prototype.setItem = () => { throw new Error('refused'); }; Storage.prototype.getItem = () => { throw new Error('refused'); }; });
     // Stop at the first close that did not close: a throw inside x leaves the chat open and hides the bubble, so the
     // next click would only time out; this way that defect fails under this check's own name.
     let refused = null;
@@ -492,8 +493,20 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
       refused = await bubble(page);
       if (refused.panel || !refused.bubble) break;
     }
-    await page.evaluate(() => { Storage.prototype.setItem = window.__lsSet; });
+    await page.evaluate(() => { Storage.prototype.setItem = window.__lsSet; Storage.prototype.getItem = window.__lsGet; });
     chk(!refused.panel && !refused.hide && refused.bubble, 'B7c with storage refusing, idle closes just close', JSON.stringify(refused));
+    // Keep it while storage refuses to save: the answer is not remembered, but the chat still closes.
+    await fresh(1, false);
+    await page.click('#asb');
+    await page.click('#asp-x');
+    await page.waitForTimeout(200);
+    chk((await bubble(page)).hide, 'B7c precondition: the offer is up before storage starts refusing');
+    await page.evaluate(() => { window.__lsSet = Storage.prototype.setItem; Storage.prototype.setItem = () => { throw new Error('refused'); }; });
+    await page.click('#asp-hide-no');
+    await page.waitForTimeout(250);
+    const keptRefused = await bubble(page);
+    await page.evaluate(() => { Storage.prototype.setItem = window.__lsSet; });
+    chk(!keptRefused.panel && !keptRefused.hide && keptRefused.bubble, 'B7c Keep it with storage refusing still closes the chat', JSON.stringify(keptRefused));
     // Hide it: the same board switch as Close forever.
     await fresh(1, false);
     await page.click('#asb');
@@ -506,6 +519,47 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const s7ch = (await (await fetch(URL + '/api/settings')).json()).setupAssistant;
     chk(!hid.bubble && !hid.panel && s7ch.on === false && await idleNow() === 0, 'B7c Hide it turns the guide off, bubble and all (#3947)', JSON.stringify({ hid, s7ch }));
     await setting({ on: true });
+    await boot();   // the page reads the switch at load: Hide it turned it off here
+    await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 8000);
+    await fresh(0, false);
+    // A Hide it whose save fails keeps the offer up, says so, and counts nothing; the next try works and clears it.
+    await fresh(1, false);
+    await page.click('#asb');
+    await page.click('#asp-x');
+    await page.waitForTimeout(200);
+    chk((await bubble(page)).hide, 'B7c precondition: the offer is up for the failing Hide it');
+    let hideFailed = 0;
+    await page.route('**/api/settings', (route) => {
+      if (route.request().method() === 'POST' && hideFailed === 0) { hideFailed++; return route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"no"}' }); }
+      return route.continue();
+    });
+    await page.click('#asp-hide-yes');
+    await page.waitForTimeout(300);
+    const hideFail = await bubble(page);
+    const failMsg = await page.evaluate(() => document.getElementById('asp-msg').textContent);
+    const s7cf = (await (await fetch(URL + '/api/settings')).json()).setupAssistant;
+    chk(hideFailed === 1 && hideFail.panel && hideFail.hide && failMsg === 'We could not save that just now. Try again in a moment.' && s7cf.on === true && await idleNow() === 1,
+      'B7c a Hide it that could not be saved keeps the offer, says so, and leaves the guide on', JSON.stringify({ hideFail, failMsg, s7cf }));
+    await page.click('#asp-hide-yes');
+    await page.waitForTimeout(300);
+    await page.unroute('**/api/settings');
+    const hideRetry = await bubble(page);
+    const retryMsg = await page.evaluate(() => document.getElementById('asp-msg').textContent);
+    chk(!hideRetry.bubble && !hideRetry.panel && retryMsg === '' && (await (await fetch(URL + '/api/settings')).json()).setupAssistant.on === false,
+      'B7c the next Hide it works and the failure line is gone', JSON.stringify({ hideRetry, retryMsg }));
+    await setting({ on: true });
+    // The FIRST x on an opening where something was typed: Close for now is not counted as an idle close.
+    await setting({ asked: false });
+    await boot();
+    await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 8000);
+    await fresh(0, false);
+    await page.click('#asb');
+    await page.fill('#asp-say', 'where do my agents live?');
+    await page.click('#asp-x');
+    chk((await bubble(page)).ask, 'B7 precondition: the first x asks again once the ask is reset');
+    await page.click('#asp-close-now');
+    await page.waitForTimeout(300);
+    chk(await idleNow() === 0, 'B7 CONTROL: a first Close for now after typing is not counted as an idle close (#3947)');
     await fresh(0, false);
 
     // B8: Close forever turns it off; the Settings switch reads that and brings it back.
