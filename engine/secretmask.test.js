@@ -889,7 +889,7 @@ test('#3935 a first chunk too short to open a walk does not leave the rest reada
   } finally { setKnownSecrets([]); }
 });
 
-test('#3935 a reply the budget stops is withheld with words that do not claim a key was found (review round 19)', () => {
+test('#3935 the words a budget-stopped reply is withheld with do not claim a key was found (review round 19; the behaviour is asserted by the budget tests)', () => {
   assert.notEqual(UNCHECKED, WITHHELD);
   assert.match(UNCHECKED, /could not finish checking/);
   assert.doesNotMatch(UNCHECKED, /removed a password/);
@@ -900,7 +900,21 @@ test('#3935 a held fragment far into one long run is still found (review round 2
   try {
     let x = 3; let junk = ''; for (let i = 0; i < 4200; i += 1) { x = (x * 1103515245 + 12345) % 2147483648; junk += 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789'[x % 54]; }
     const out = mask(`Intro line.\nZq${junk}8vLm3pRt6wXy9kHb2nWc4d\nTail line.`).text;
+    const r = mask(`Intro line.\nZq${junk}8vLm3pRt6wXy9kHb2nWc4d\nTail line.`);
     assert.ok(!out.includes('8vLm3pRt6wXy9kHb2nWc4d'), 'the fragment past character 4096 survived');
+    /* The fragment search did it, not the long-token catch-all (review round 21). */
+    assert.ok(r.fired.some((f) => f.kind === 'split_secret'), JSON.stringify(r.fired));
     assert.ok(out.startsWith('Intro line.\n') && out.endsWith('\nTail line.'), out.slice(0, 40));
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a held NAME=value line: a reply naming the variable is not masked, the value still is (review round 21)', () => {
+  const value = 'Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v';
+  setKnownSecrets([`KOSMOS_CF_ACCOUNT_ID_FOR_DEPLOYS=${value}`, value]);
+  try {
+    const t2 = 'To deploy, set KOSMOS_CF_ACCOUNT_ID_FOR_DEPLOYS in the settings page, then press Save.';
+    assert.equal(mask(t2).text, t2);
+    const out = mask('The value is Zq8vLm3p then Rt6wXy9k then Hb2nWc4d then Pq7sTu5v, done.').text;
+    assert.ok(!out.includes('Rt6wXy9k') && !out.includes('Pq7sTu5v'), `the value split by words survived: ${out}`);
   } finally { setKnownSecrets([]); }
 });

@@ -51,6 +51,7 @@ const PATTERNS = [
 let knownForms = [];
 function setKnownSecrets(values) {
   const forms = new Set();
+  const heldValues = [];   // the values taken, as trimmed: the same set the forms and the fragment index come from
   let taken = 0;
   for (const v of Array.isArray(values) ? values : []) {
     if (typeof v !== 'string') continue;
@@ -59,6 +60,7 @@ function setKnownSecrets(values) {
     /* A bound on the work every reply pays (review round 1 measured 545ms per reply at 20,000 values). */
     if (taken >= MAX_KNOWN_VALUES) break;
     taken += 1;
+    heldValues.push(k);
     const buf = Buffer.from(k, 'utf8');
     const hex = buf.toString('hex');
     const spaced = hex.match(/../g).join(' ');
@@ -79,6 +81,9 @@ function setKnownSecrets(values) {
     /* #3935: the word-skipping join assembles a form from runs of key characters, so it walks the form with
        every other character taken out (a password's ! and #, the spaced hex's spaces): those characters sit
        between runs in the text, not inside them. */
+    /* A whole NAME=value line held from a secrets file (review round 21): its NAME is public, and walking or
+       slicing it would mask the name in a reply that only mentions it. The value is held on its own. */
+    if (ENV_LINE.test(f)) continue;
     const w = f.replace(NOT_KEY_CHARS, '');
     addWalked(w, walked);
     /* A key given WITHOUT its public prefix (review round 15): a reply that leaves out sk-ant-api03- and splits
@@ -89,14 +94,14 @@ function setKnownSecrets(values) {
   }
   /* Every FRAGMENT_LEN-character slice of each held value as given (not its encodings, which would multiply the
      index), for fragmentsIn (review round 19). A word-shaped value is left out, as the walk leaves it out. */
-  for (const v of Array.isArray(values) ? values.slice(0, MAX_KNOWN_VALUES) : []) {
-    if (typeof v !== 'string') continue;
-    const w = v.trim().replace(NOT_KEY_CHARS, '');
+  for (const v of heldValues) {
+    if (ENV_LINE.test(v) || knownGrams.size >= MAX_GRAMS) continue;
+    const w = v.replace(NOT_KEY_CHARS, '');
     if (w.length < FRAGMENT_LEN || w.length > WORD_WALK_MAX_FORM || madeOfWords(w)) continue;
     /* Not the public prefix (sk-ant-api03 is itself 12 characters, and the whole guide names it): slices start
        after the last - or _ in the first 16 characters, as the prefix-less walk does. */
     const cut = Math.max(w.lastIndexOf('-', 15), w.lastIndexOf('_', 15));
-    for (let i = cut + 1; i + FRAGMENT_LEN <= w.length; i += 1) knownGrams.add(w.slice(i, i + FRAGMENT_LEN));
+    for (let i = cut + 1; i + FRAGMENT_LEN <= w.length && knownGrams.size < MAX_GRAMS; i += 1) knownGrams.add(w.slice(i, i + FRAGMENT_LEN));
   }
 }
 /* #3935 (review round 19): a key whose first chunk is under OPENING_LEN starts no walk, and the rest can sit in
@@ -104,6 +109,10 @@ function setKnownSecrets(values) {
    consecutive characters of a held value is masked whole. That many consecutive characters of a random value
    do not turn up in ordinary text by chance, and the shortest value held at all is this long. */
 const FRAGMENT_LEN = 12;
+/* A bound on the fragment index's memory: 2,000 values of a key's length are about 200,000 slices. */
+const MAX_GRAMS = 400000;
+/* A held value that is a whole environment line, NAME=value. */
+const ENV_LINE = /^[A-Za-z_][A-Za-z0-9_]*=/;
 let knownGrams = new Set();
 function fragmentsIn(text) {
   const spans = [];
@@ -246,7 +255,7 @@ function normalisedCopy(text) {
 }
 /*
  * #3935: a HELD value whose pieces have WORDS between them (a row label, another filled column, a bullet's
- * description, prose around bold or backticked chunks). The two separator copies in mask() drop only
+ * description, prose around bold or backticked chunks). The separator copies in mask() (#3938's two) drop only
  * characters no key uses and runs of three or fewer key characters, so any run of four or more between
  * pieces defeated them and the whole key showed.
  *
@@ -257,7 +266,7 @@ function normalisedCopy(text) {
  * noise run that happens to equal the next part ("1" in a row label) cannot derail the real assembly.
  * The walk stops at the same bound as the separator copies: at most 4x the form's length in
  * non-whitespace characters from the first piece, which is what stops two far-apart words from
- * swallowing a reply. Returns [from, to) spans in the text, first piece to last.
+ * swallowing a reply. Returns [from, to) spans in the text, one per matched piece (review round 18).
  *
  * Not covered:
  *  - pieces out of order or reversed;
@@ -268,6 +277,7 @@ function normalisedCopy(text) {
  *    non-word pieces of OPENING_LEN or more; a try that reaches it is masked piece by piece;
  *  - glue in the middle of a run other than - or _ between chunks and a label joined by =, - or _ on either side;
  *  - a held form over WORD_WALK_MAX_FORM characters;
+ *  - pieces that overlap (a character given twice, at the end of one piece and the start of the next);
  *  - a key split across two replies (the mask is per message).
  */
 /* The most checks one reply may cost the walk. A reply that needs more is not searched to the end:
@@ -277,11 +287,15 @@ function normalisedCopy(text) {
    over about 4x the value), or thousands of held values sharing an opening that the reply repeats. What fills it
    grows with (held forms sharing an opening) x (mentions of that opening in the reply). Measured with random keys
    (review round 19), five held Anthropic keys and guide prose naming sk-ant-api03- each time: withheld in 6 of
-   20 trials at 400 mentions (49,000 characters), 1 of 20 at 160, never at 80 or fewer. Earlier measurement:
+   20 trials at 400 mentions (49,000 characters), 1 of 20 at 160, never at 80 or fewer. That was at a budget of
+   250,000; review round 21 measured denser prose (a mention every 130 characters) withheld 9 of 20 times at 80
+   mentions with five keys, while an exhausted search had cost only 37 to 50ms, so the budget is 1,250,000: what
+   matters is mentions per character, and every adversarial test still ends at it within its CPU bound.
+   Earlier measurement:
    well inside it: a 50,000-character reply with five held Anthropic keys and 400 sk-ant-api03- mentions. Measured
    reaching it (review round 13): ten held Anthropic keys and a 36,000-character reply repeating a paragraph that
    names sk-ant-api03- 200 times, withheld; whether it trips depends on the keys' random next characters. */
-const WORD_WALK_BUDGET = 250000;
+const WORD_WALK_BUDGET = 1250000;
 /* A comparison is charged by the characters it can read, one unit per 16 (review round 6): an opening or a
    piece can be up to WORD_WALK_MAX_FORM long, and counting comparisons alone let 2,000 held values sharing a
    1,000-character prefix cost two seconds under the budget. An ordinary opening or piece is one unit. */
