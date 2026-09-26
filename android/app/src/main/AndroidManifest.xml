@@ -57,6 +57,10 @@
                 android:name="android.support.customtabs.trusted.SPLASH_SCREEN_FADE_OUT_DURATION"
                 android:value="250" />
 
+            <meta-data
+                android:name="android.support.customtabs.trusted.FILE_PROVIDER_AUTHORITY"
+                android:value="@string/providerAuthority" />
+
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -71,6 +75,18 @@
                 <data android:scheme="https" android:host="@string/hostName" />
             </intent-filter>
         </activity>
+
+        <!-- Chrome receives the prepared splash bitmap through this provider. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="@string/providerAuthority"
+            android:exported="false"
+            android:grantUriPermissions="true">
+
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/filepaths" />
+        </provider>
 
         <!-- Notification delegation (#718: push lives in the app, not the website).
              Without this service Chrome shows a web push as a CHROME notification

@@ -33,6 +33,7 @@ android/
 │       ├── AndroidManifest.xml                        LauncherActivity + push delegation
 │       ├── res/mipmap-anydpi-v26/                     adaptive + round launcher icons
 │       ├── res/drawable*/                              K foreground, splash + push icon
+│       ├── res/xml/filepaths.xml                       shares the TWA splash with Chrome
 │       ├── res/values*/                               light/dark system-bar + splash colours
 │       └── res/values/strings.xml                     ← the ONLY file to edit to repoint
 │                                                        (origin: login.kosmosplus.com)
@@ -53,6 +54,8 @@ The launch activity supplies the same gold and K as both its native window
 background and androidbrowserhelper's TWA splash metadata. This covers the
 native handoff and Chrome's TWA startup without a white frame between them.
 Android 12 and later also use the platform splash-screen attributes.
+The private `FileProvider` exposes only the generated `twa_splash/` file to
+Chrome, which Android Browser Helper requires to transfer the splash bitmap.
 
 The status and navigation bars match the board tokens: `#faf9f7` in light mode
 and `#0c0d0f` in dark mode. Both the activity theme and the TWA metadata read
