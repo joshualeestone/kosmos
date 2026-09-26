@@ -1348,9 +1348,9 @@ const ROLES = [
      for them with a set of instructions on how to set up and get the most out of
      Kosmos." Josh, 2026-09-24 16:05: "I think i want to use my avatar and play off
      the fact that I built it and will help them", so it speaks as the builder. Its
-     opening greeting says it is an AI (#3947, Josh 2026-09-26 07:41, which replaced
-     the #3034 "say so the first time" rule; it still never claims to be a person). Also 16:05:
-     context-aware, so it is told which screen the person is on (PAGE_FILE, written
+     opening greeting says it is an AI (#3947, Josh 2026-09-26 07:41, replacing the
+     #3034 "say so the first time" rule; it still never claims to be a person).
+     Also 16:05: context-aware, so it is told which screen the person is on (PAGE_FILE, written
      by engine/pagecontext.js). Hands-off, and no summary files (NO_SUMMARY below):
      Renet's two recommendations on #3034, standing unless Josh says otherwise. */
   {

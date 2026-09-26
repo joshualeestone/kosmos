@@ -59168,6 +59168,7 @@ function asbFold() {
    that's probably what they're trying to look for at that point)". Nothing typed means nothing sent this opening
    AND the box unchanged since it opened: somebody who wrote a question and then closed was using it, not hunting
    for the way to get rid of it, while a draft left from an earlier visit is not typing now (review round 1). */
+const ASB_SAVE_FAILED = 'We could not save that just now. Try again in a moment.';
 /* Trimmed both sides (review round 2): a stray space is not typing, while a half-written word still is. */
 function asbDidNothing() {
   const say = document.getElementById('asp-say');
@@ -59175,6 +59176,7 @@ function asbDidNothing() {
 }
 function asbX() {
   if (asbStepping()) { asbFold(); return; }   // nothing to ask about: it is going anyway
+  if (ASB.offering) { asbFold(); return; }   // #3947: X on the hide offer is "not now", and is not another close to count
   const didNothing = asbDidNothing();
   /* The first X asks once, whatever happened in the chat. */
   if (ASB.setting && ASB.setting.asked !== true) { ASB.asking = true; asbPaint(); document.getElementById('asp-close-now').focus(); return; }
@@ -59183,9 +59185,9 @@ function asbX() {
      trying to get rid of it". This replaces the 09-25 rule that asked on EVERY such close. Opens that end with
      nothing sent are counted in the board's settings, so the count survives a restart; a sent message sets it
      back to 0 (asbSend). The second one offers to hide it, unless they already answered "Keep it". */
-  if (ASB.setting && didNothing) {
+  if (ASB.setting && didNothing && ASB.setting.kept !== true) {   // after Keep it there is nothing to count toward
     const idle = (ASB.setting.idleCloses || 0) + 1;
-    if (idle >= 2 && ASB.setting.kept !== true) { ASB.offering = true; asbPaint(); document.getElementById('asp-hide-yes').focus(); return; }
+    if (idle >= 2) { ASB.offering = true; asbPaint(); document.getElementById('asp-hide-yes').focus(); return; }
     ASB.setting.idleCloses = idle;   // now, not when the save answers: a quick second close must see it
     asbSaveSetting({ idleCloses: idle });   // best-effort: a lost count only means one more close before the offer
   }
@@ -59194,24 +59196,31 @@ function asbX() {
 /* #3947: "Hide it" is the same switch as Close forever; "Keep it" is not asked again. Either way the count restarts. */
 async function asbHideChoice(hide) {
   const ok = await asbSaveSetting(hide ? { on: false, idleCloses: 0 } : { kept: true, idleCloses: 0 });
-  if (!ok) { document.getElementById('asp-msg').textContent = 'We could not save that just now. Try again in a moment.'; return; }
+  const msg = document.getElementById('asp-msg');
+  if (!ok) { msg.textContent = ASB_SAVE_FAILED; return; }
+  if (msg.textContent === ASB_SAVE_FAILED) msg.textContent = '';   // an earlier failed try is not left standing
   ASB.offering = false;
   asbFold();
   asbPaintSetting();
   if (hide) asbFocusPage();
 }
 async function asbSaveSetting(patch) {
+  /* #3947: saves can overlap (an idle close's count, then a send's reset). Only the answer to the latest one
+     replaces the page's copy, so a slow earlier answer cannot put back a count the person already reset. */
+  const seq = ASB.saveSeq = (ASB.saveSeq || 0) + 1;
   try {
     const r = await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ setupAssistant: patch }) });
     const body = await r.json();
-    if (r.ok && body && body.setupAssistant) { ASB.setting = body.setupAssistant; return true; }
+    if (r.ok && body && body.setupAssistant) { if (seq === ASB.saveSeq) ASB.setting = body.setupAssistant; return true; }
   } catch { /* said below */ }
   return false;
 }
 async function asbCloseChoice(forGood) {
   /* #3947: a first X on an opening where nothing was sent is also the first of the two that lead to the offer. */
   const ok = await asbSaveSetting(forGood ? { asked: true, on: false } : (asbDidNothing() ? { asked: true, idleCloses: 1 } : { asked: true }));
-  if (!ok) { document.getElementById('asp-msg').textContent = 'We could not save that just now. Try again in a moment.'; return; }
+  const msg = document.getElementById('asp-msg');
+  if (!ok) { msg.textContent = ASB_SAVE_FAILED; return; }
+  if (msg.textContent === ASB_SAVE_FAILED) msg.textContent = '';
   ASB.asking = false;
   asbFold();
   asbPaintSetting();
