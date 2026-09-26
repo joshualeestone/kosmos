@@ -7304,7 +7304,14 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
        (the red triangle + red status), so the real cardStOf and its CARD_ST table join the
        prelude. A stub would let this pass while the shipped needs-you condition differed. */
     + pageConstSource('CARD_ST') + '\n'
-    + pageFnSource('cardStOf') + '\n';
+    + pageFnSource('cardStOf') + '\n'
+    /* #3991: pjMember draws the memory ring (lrowRing) and the presence dot (memberDotClass,
+       which reads boardMods), so the real ones join the prelude. */
+    + pageFnSource('pctOf') + '\n'
+    + pageFnSource('memBand') + '\n'
+    + pageFnSource('lrowRing') + '\n'
+    + pageFnSource('boardMods') + '\n'
+    + pageFnSource('memberDotClass') + '\n';
   const member = pageFunction('pjMember', prelude);
   const toldLine = pageFunction('pjToldLine', TOLD_PRELUDE);
 
@@ -7444,7 +7451,14 @@ test('#2711 item 16: pjMember takes a state wash class, for working/needs-you/id
     + pageFnSource('restartingLabel') + '\n'
     + pageFnSource('stateCopyOf') + '\n'
     + pageConstSource('CARD_ST') + '\n'
-    + pageFnSource('cardStOf') + '\n';
+    + pageFnSource('cardStOf') + '\n'
+    /* #3991: pjMember draws the memory ring (lrowRing) and the presence dot (memberDotClass,
+       which reads boardMods), so the real ones join the prelude. */
+    + pageFnSource('pctOf') + '\n'
+    + pageFnSource('memBand') + '\n'
+    + pageFnSource('lrowRing') + '\n'
+    + pageFnSource('boardMods') + '\n'
+    + pageFnSource('memberDotClass') + '\n';
   const member = pageFunction('pjMember', prelude);
 
   // Real produced roster rows, not hand-built stand-ins (fixture-discipline):
