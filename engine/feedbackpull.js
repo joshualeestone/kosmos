@@ -125,8 +125,22 @@ async function defaultList(tok) {
   return blobs;
 }
 
-async function defaultGet(url) {
-  const res = await fetchBounded(url);
+/* kosmos#3878: the reports now live in a PRIVATE blob store, where a blob URL
+   answers 403 without the store token, so each GET carries it (the header
+   @vercel/blob's own get() sends). The token goes ONLY to the blob host
+   (*.blob.vercel-storage.com) or the configured blob API origin: the URL comes from
+   the listing, and a listing naming any other host must not receive the credential. */
+function tokenMayGoTo(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol === 'https:' && /(^|\.)blob\.vercel-storage\.com$/i.test(u.hostname)) return true;
+    return u.origin === new URL(blobApi()).origin;
+  } catch { return false; }
+}
+
+async function defaultGet(url, tok) {
+  const init = (tok && tokenMayGoTo(url)) ? { headers: { authorization: 'Bearer ' + tok } } : undefined;
+  const res = await fetchBounded(url, init);
   if (!res || !res.ok) throw new Error('blob GET HTTP ' + (res && res.status));
   return res.text();
 }
@@ -206,10 +220,18 @@ async function pull(dir, opts) {
   catch { return { ok: false, written: 0, skipped: 0, dir: target, because: 'could not create the destination directory' }; }
   let written = 0;
   let skipped = 0;
+  // kosmos#3878: a GET that failed (403 from a private store read without the right
+  // token, a network fault), counted apart from a malformed record, so a pull that
+  // could read NOTHING is not reported as a success.
+  let unreadable = 0;
+  let lastGetError = '';
   for (const b of (Array.isArray(blobs) ? blobs : [])) {
     if (!b || typeof b.url !== 'string') { skipped += 1; continue; }
+    let text;
+    try { text = await tp.get(b.url, tok); }
+    catch (e) { skipped += 1; unreadable += 1; lastGetError = String((e && e.message) || e); continue; }
     let rec;
-    try { rec = JSON.parse(await tp.get(b.url)); }
+    try { rec = JSON.parse(text); }
     catch { skipped += 1; continue; }
     if (!rec || typeof rec !== 'object' || typeof rec.body !== 'string') { skipped += 1; continue; }
     try {
@@ -220,7 +242,15 @@ async function pull(dir, opts) {
       written += 1;
     } catch { skipped += 1; }
   }
-  return { ok: true, written, skipped, total: (Array.isArray(blobs) ? blobs.length : 0), dir: target };
+  const total = Array.isArray(blobs) ? blobs.length : 0;
+  if (written === 0 && unreadable > 0) {
+    return {
+      ok: false, written, skipped, total, dir: target,
+      because: 'the store listed ' + total + ' report(s) but none could be read (' + lastGetError
+        + '). The token filed as ' + FEEDBACK_TOKEN_TARGET + ' may be for the wrong store: reports are in the private feedback store (kosmos#3878).',
+    };
+  }
+  return { ok: true, written, skipped, total, dir: target };
 }
 
 /**
