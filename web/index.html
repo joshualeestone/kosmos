@@ -45016,8 +45016,7 @@ async function loadProjects() {
     }
     PJ_AGENTS_UNREADABLE = body.agentsUnreadable === true;
     PJ_READ_FAILED = false;
-    BOARD_NEEDS_SIGNIN = false; // #2023: a readable projects response means this browser is authed.
-    BOARD_SIGNED_OUT = false;
+    BOARD_NEEDS_SIGNIN = false; BOARD_SIGNED_OUT = false; // #2023 / #718 state 3: a readable projects response means this browser is authed.
     /* After the outcome is recorded, never before: the sentence's "no
        projects" verdict reads PJ_READ_FAILED, and a read that recovers on an
        empty board would otherwise paint one poll of the wrong sentence. */

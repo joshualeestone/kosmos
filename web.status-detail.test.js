@@ -25,7 +25,9 @@ function armFor(res) {
   assert.ok(at > -1, 'the failed-status arm is gone or has been rewritten');
   const end = SCRIPT.indexOf("\n    }", SCRIPT.indexOf("throw new Error(parts.join", at)) + 6;
   // eslint-disable-next-line no-new-func
-  const fn = new Function('res', 'return (async () => {\n' + SCRIPT.slice(at, end) + '\nreturn null; })();');
+  // #718 state 3: the arm also asks relaySignedOut whether the relay said signed out.
+  const fn = new Function('res', require('./test-support/page').lift(SCRIPT, 'relaySignedOut')
+    + '\nreturn (async () => {\n' + SCRIPT.slice(at, end) + '\nreturn null; })();');
   return fn(res);
 }
 

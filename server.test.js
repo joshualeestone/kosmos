@@ -7632,6 +7632,18 @@ test('the free-agent picker names the not-signed-in state distinctly on a 403 (#
     'the control: flag off shows the ordinary empty reason: ' + selOff.innerHTML);
 });
 
+test('the free-agent picker names a relay-signed-out device distinctly (#718 state 3)', () => {
+  const prelude = 'const esc = (s) => String(s == null ? "" : s);\n'
+    + 'let LAST = []; let BOARD_LOOKED = true; let BOARD_LOOK_FAILED = "status 401";\n';
+  const sel = { __lastPicker: null, value: '', innerHTML: '' };
+  pageFunction('paintFreeAgentPicker', prelude + 'let BOARD_NEEDS_SIGNIN = false; let BOARD_SIGNED_OUT = true;\n')({ agents: [] }, sel, null);
+  assert.match(sel.innerHTML, /needs to sign in again/i, 'a signed-out device got the generic reason: ' + sel.innerHTML);
+  // CONTROL: the same failed read without the flag is the ordinary cannot-see reason.
+  const off = { __lastPicker: null, value: '', innerHTML: '' };
+  pageFunction('paintFreeAgentPicker', prelude + 'let BOARD_NEEDS_SIGNIN = false; let BOARD_SIGNED_OUT = false;\n')({ agents: [] }, off, null);
+  assert.ok(!/sign in again/i.test(off.innerHTML) && /cannot see the agents/i.test(off.innerHTML), 'the control: ' + off.innerHTML);
+});
+
 test('paintAddAgents shows the not-signed-in copy on a 403, and cannot-read otherwise (#2023)', () => {
   /* paintAddAgents' BOARD_NEEDS_SIGNIN branch (checked BEFORE BOARD_LOOK_FAILED)
      had no assertion. A 403 sets BOTH flags, so the signin branch must win.
@@ -7653,6 +7665,30 @@ test('paintAddAgents shows the not-signed-in copy on a 403, and cannot-read othe
     pageFunction('paintAddAgents', base + 'let BOARD_NEEDS_SIGNIN = false; let BOARD_SIGNED_OUT = false;\n')();
     assert.match(box.innerHTML, /cannot read the agents/i, 'the control: a non-403 failure must still show cannot-read');
     assert.ok(!/not signed in/i.test(box.innerHTML), 'the control: cannot-read must not say signin');
+  } finally {
+    delete global.document;
+  }
+});
+
+test('paintAddAgents tells a relay-signed-out device to sign in, and does not say the project can still be added (#718 state 3)', () => {
+  /* The relay refuses a signed-out device's POST too, so "You can still add the project"
+     would be false here. */
+  const box = { innerHTML: '' };
+  global.document = { getElementById: (id) => (id === 'pj-add-agents' ? box : null) };
+  try {
+    const base = 'const esc = (s) => String(s == null ? "" : s);\n'
+      + 'const setLive = (el, html) => { el.innerHTML = html; };\n'
+      + 'const SIGNIN_SENTENCE = ' + JSON.stringify(pageConst('SIGNIN_SENTENCE')) + ';\n'
+      + 'const SIGNED_OUT_SENTENCE = ' + JSON.stringify(pageConst('SIGNED_OUT_SENTENCE')) + ';\n'
+      + 'let LAST = []; let BOARD_LOOKED = true; let BOARD_LOOK_FAILED = "status 401"; let BOARD_NEEDS_SIGNIN = false;\n';
+    pageFunction('paintAddAgents', base + 'let BOARD_SIGNED_OUT = true;\n')();
+    assert.match(box.innerHTML, /signed out of your Kosmos/i, 'a signed-out device got another copy: ' + box.innerHTML);
+    assert.ok(!/You can still add the project/i.test(box.innerHTML), 'it promised a project the relay will refuse to create');
+    assert.ok(!/cannot read the agents/i.test(box.innerHTML), 'the signed-out branch leaked cannot-read');
+    // CONTROL: the flag off with the same failed read is cannot-read.
+    box.innerHTML = '';
+    pageFunction('paintAddAgents', base + 'let BOARD_SIGNED_OUT = false;\n')();
+    assert.match(box.innerHTML, /cannot read the agents/i, 'the control: ' + box.innerHTML);
   } finally {
     delete global.document;
   }
