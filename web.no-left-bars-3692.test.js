@@ -10,9 +10,10 @@
  * Each one found must belong to a selector in ALLOWED, which lists the few places where a
  * left rule is not a card bar. Hairline separators (under 2px) and transparent borders
  * (CSS triangles) are not bars and are not counted.
- * It reads only those two shorthand forms with px widths. A bar written another way (a
- * border-left-width longhand, border-inline-start, rem units, a bar set in a JS style string)
- * is not seen; none exists in the page today.
+ * It reads only those two shorthand forms, with the px width first (`border-left: 2px solid ...`)
+ * and the inset shadow first in its list. A bar written another way (a border-left-width
+ * longhand, border-inline-start, rem units, `solid 2px` order, a later item in a shadow list, a
+ * bar set in a JS style string) is not seen; none exists in the page today.
  *
  *   node --test web.no-left-bars-3692.test.js
  */

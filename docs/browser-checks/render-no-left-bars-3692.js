@@ -66,7 +66,10 @@ const SAMPLES = [
   try {
     /* [label, the browser's colour scheme, an explicit data-theme]: the dark overrides live twice,
        under the prefers-color-scheme media query and under :root[data-theme="dark"]. */
-    for (const [theme, scheme, explicit] of [['light', 'light', null], ['dark', 'dark', null], ['dark-explicit', 'light', 'dark']]) {
+    /* plus-light: the Kosmos+ navy look (body.plus-active) on a light-mode Mac. It pins its own
+       colours (#3724), so a warning there must take the pinned dark tint, not the light one. */
+    const tintByTheme = {};
+    for (const [theme, scheme, explicit, plus] of [['light', 'light', null, false], ['dark', 'dark', null, false], ['dark-explicit', 'light', 'dark', false], ['plus-light', 'light', null, true]]) {
       const page = await browser.newPage({ viewport: { width: 1000, height: 1100 }, colorScheme: scheme });
       const errs = [];
       page.on('pageerror', (e) => errs.push(e.message));
@@ -74,6 +77,7 @@ const SAMPLES = [
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
 
       if (explicit) await page.evaluate((t) => { document.documentElement.dataset.theme = t; }, explicit);
+      if (plus) await page.evaluate(() => document.body.classList.add('plus-active'));
       const res = await page.evaluate((samples) => {
         /* A left bar: a left border wider than the others, or an inset shadow offset only in x. */
         function bar(el) {
@@ -140,11 +144,15 @@ const SAMPLES = [
         chk(!s.missing && want === true, `[${theme}] ${s.label} carries its replacement (${s.kind})`, JSON.stringify({ widths: s.widths, bg: s.bg, shadow: s.shadow }));
       }
       const unsure = res.samples.find((s) => s.label === '.pj-msg.unsure');
+      tintByTheme[theme] = unsure && unsure.bg;
       chk(unsure && unsure.bg !== res.controls.plainmsg.bg, `[${theme}] the unsure room message is tinted differently from a plain one`, JSON.stringify({ unsure: unsure && unsure.bg, plain: res.controls.plainmsg.bg }));
       await page.screenshot({ path: path.join(OUT, `no-left-bars-${theme}.png`), fullPage: false });
       chk(errs.length === 0, `[${theme}] no page errors`, errs.join(' | '));
       await page.close();
     }
+    /* On navy the warn tint is the pinned dark one: the light one is near invisible there. */
+    chk(tintByTheme['plus-light'] === tintByTheme.dark && tintByTheme['plus-light'] !== tintByTheme.light,
+      'the Kosmos+ navy look takes the dark warn tint on a light-mode Mac', JSON.stringify(tintByTheme));
     /* The explicit dark theme reaches its own override: the same ring colour as the media-query
        dark, and not the light one (which it would fall back to if that override were missing). */
     chk(ringByTheme['dark-explicit'] === ringByTheme.dark && ringByTheme['dark-explicit'] !== ringByTheme.light,
