@@ -1095,7 +1095,7 @@ test('#3827: a register that hangs cannot hang Forget: both are bounded', async 
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
     delete process.env.FAKE_REGISTER_MS;
-    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
   }
 });
 
@@ -1108,6 +1108,9 @@ test('#3827: a register killed after writing the key and id (mid-certificate) is
     await remote.signinVerify('her@example.com', '111111');
     const killed = await remote.signinRegister('hers');
     assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
+    // Only the kill needs the short bound; a register expected to succeed gets room
+    // on a loaded machine. Retires stay short so a hung one still ends quickly.
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '1500';
     assert.equal(remote.enrolled(), false, 'fixture: no certificate, so not enrolled');
     fs.rmSync(RECORD, { force: true });
     const got = await remote.forget();
@@ -1117,7 +1120,7 @@ test('#3827: a register killed after writing the key and id (mid-certificate) is
     assert.equal(got.address, 'hers.kosmos.invalid', 'Forget did not say which address it retired');
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
-    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
   }
 });
 
@@ -1193,7 +1196,7 @@ test('#3827: a retire that hangs cannot hang Forget', async () => {
     assert.equal(remote.enrolled(), false, 'the Mac is still forgotten here');
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
-    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
   }
 });
 
@@ -1220,6 +1223,9 @@ test('#3827: a register after one cut off mid-certificate retires the half ident
     await remote.signinVerify('her@example.com', '111111');
     const killed = await remote.signinRegister('hers');
     assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
+    // Only the kill needs the short bound; a register expected to succeed gets room
+    // on a loaded machine. Retires stay short so a hung one still ends quickly.
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '1500';
     delete process.env.FAKE_TUNNEL_MODE;
     fs.rmSync(RECORD, { force: true });
     const again = await remote.signinRegister('hers');
@@ -1228,7 +1234,7 @@ test('#3827: a register after one cut off mid-certificate retires the half ident
     assert.ok(calls.indexOf('retire') >= 0 && calls.indexOf('retire') < calls.indexOf('signin register'), 'the half identity was not retired before the new register: ' + JSON.stringify(calls));
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
-    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
     remote.setOn(false);
   }
 });
@@ -1280,7 +1286,7 @@ test('#3827: every sign-in step and the Settings setup are refused while a Forge
     await forgetting;
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
-    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
   }
 });
 
@@ -1295,6 +1301,9 @@ test('#3827: a half identity whose retire gets no answer is kept, the register w
     await remote.signinVerify('her@example.com', '111111');
     const killed = await remote.signinRegister('hers');
     assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
+    // Only the kill needs the short bound; a register expected to succeed gets room
+    // on a loaded machine. Retires stay short so a hung one still ends quickly.
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '1500';
     process.env.FAKE_TUNNEL_MODE = 'hung-retire';
     fs.rmSync(RECORD, { force: true });
     process.stderr.write = function (chunk, ...rest) { logged.push(String(chunk)); return orig.call(this, chunk, ...rest); };
@@ -1314,7 +1323,7 @@ test('#3827: a half identity whose retire gets no answer is kept, the register w
   } finally {
     process.stderr.write = orig;
     delete process.env.FAKE_TUNNEL_MODE;
-    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
     remote.setOn(false);
   }
 });
@@ -1325,8 +1334,12 @@ test('#3827: after Kosmos+ refused to retire a half identity, its "already in us
   const orig = process.stderr.write;
   const halfThen = async (mode) => {
     process.env.FAKE_TUNNEL_MODE = 'partial-register';
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
     const killed = await remote.signinRegister('hers');
     assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
+    // Only the kill needs the short bound; a register expected to succeed gets room
+    // on a loaded machine. Retires stay short so a hung one still ends quickly.
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '1500';
     process.env.FAKE_TUNNEL_MODE = mode;
     return remote.signinRegister('hers');
   };
@@ -1368,7 +1381,7 @@ test('#3827: after Kosmos+ refused to retire a half identity, its "already in us
   } finally {
     process.stderr.write = orig;
     delete process.env.FAKE_TUNNEL_MODE;
-    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
     remote.setOn(false);
   }
 });
@@ -1382,6 +1395,9 @@ test('#3827: the Settings setup also retires a half identity before it registers
     await remote.signinVerify('her@example.com', '111111');
     const killed = await remote.signinRegister('hers');
     assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
+    // Only the kill needs the short bound; a register expected to succeed gets room
+    // on a loaded machine. Retires stay short so a hung one still ends quickly.
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '1500';
     delete process.env.FAKE_TUNNEL_MODE;
     await remote.setupStart('her@example.com');
     fs.rmSync(RECORD, { force: true });
@@ -1391,7 +1407,7 @@ test('#3827: the Settings setup also retires a half identity before it registers
     assert.ok(calls.indexOf('retire') >= 0 && calls.indexOf('retire') < calls.indexOf('setup complete'), 'the half identity was not retired before the Settings setup: ' + JSON.stringify(calls));
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
-    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
     remote.setOn(false);
   }
 });
@@ -1413,7 +1429,7 @@ test('#3827: Kosmos+ cannot be turned on while this computer is being forgotten'
     assert.equal(remote.read().on, false, 'the switch is on after the Forget');
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
-    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
   }
 });
 
@@ -1490,7 +1506,7 @@ test('#3827: the relay cannot be changed while this computer is being forgotten'
     await forgetting;
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
-    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
     remote.setRelay('');
   }
 });
@@ -1559,6 +1575,9 @@ test('#3827: the Settings setup gets the same stranded-name answer', async () =>
     await remote.signinVerify('her@example.com', '111111');
     process.env.FAKE_TUNNEL_MODE = 'partial-register';
     assert.equal((await remote.signinRegister('hers')).ok, false, 'fixture: the register was killed by its bound');
+    // Only the kill needs the short bound; a register expected to succeed gets room
+    // on a loaded machine. Retires stay short so a hung one still ends quickly.
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '1500';
     await remote.setupStart('her@example.com');
     process.env.FAKE_TUNNEL_MODE = 'retire-refused,setup-409';
     const r = await remote.setupComplete('123456', 'hers');
@@ -1568,7 +1587,7 @@ test('#3827: the Settings setup gets the same stranded-name answer', async () =>
   } finally {
     process.stderr.write = orig;
     delete process.env.FAKE_TUNNEL_MODE;
-    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
     remote.setOn(false);
   }
 });
@@ -1589,7 +1608,7 @@ test('#3827: a Sign out lands on a register killed after it wrote the identity: 
     assert.equal(remote.read().on, false, 'a register reported failed but set up left the switch on: the ensure tick would bring it online');
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
-    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
     await remote.forget();
   }
 });
@@ -1632,7 +1651,7 @@ test('#3827: device verbs and a second-factor reset wait while this computer is 
     await forgetting;
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
-    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
   }
 });
 
@@ -1672,6 +1691,9 @@ test('#3827: the Settings setup also keeps a half identity whose retire got no a
     await remote.signinVerify('her@example.com', '111111');
     process.env.FAKE_TUNNEL_MODE = 'partial-register';
     assert.equal((await remote.signinRegister('hers')).ok, false, 'fixture: the register was killed by its bound');
+    // Only the kill needs the short bound; a register expected to succeed gets room
+    // on a loaded machine. Retires stay short so a hung one still ends quickly.
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '1500';
     await remote.setupStart('her@example.com');
     process.env.FAKE_TUNNEL_MODE = 'retire-502html';
     fs.rmSync(RECORD, { force: true });
@@ -1682,7 +1704,7 @@ test('#3827: the Settings setup also keeps a half identity whose retire got no a
   } finally {
     process.stderr.write = orig;
     delete process.env.FAKE_TUNNEL_MODE;
-    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
     remote.setOn(false);
     await remote.forget();
   }
