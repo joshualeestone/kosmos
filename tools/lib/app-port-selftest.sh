@@ -45,7 +45,8 @@ bounded_run() {
       kill "$pid" 2>/dev/null       # 2. the leader, in case setpgrp had not run yet
       kill -- -"$pid" 2>/dev/null   # 3. the group again: children forked between 1 and 2
       # 4. a bundle that traps or ignores TERM would still hang the wait below, the same
-      #    #955 shape by another route (review of #3859). Give TERM about 2s, then KILL
+      #    #955 shape by another route (review of #3859). Give TERM a grace (10 x sleep 0.2,
+      #    measured about 3.3s with the cost of each sleep), then KILL
       #    the group and the leader, which nothing can trap. The GROUP is what is
       #    watched, not the leader: a leader that dies on TERM can leave a child that
       #    ignores it, still holding the port (review 2). A pgid is not reused while

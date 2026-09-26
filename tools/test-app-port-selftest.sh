@@ -126,14 +126,16 @@ else reaped="never-forked"; fi
 check "the FORKED child is reaped by the group-kill (not orphaned)" 0 "$reaped"
 
 # --- kosmos#3859: the bound expires BEFORE perl has run setpgrp ----------------------
-# The seam holds perl for 4s before setpgrp, so the 2s bound expires while there is no
+# The seam holds perl for 6s before setpgrp, so the 2s bound expires while there is no
 # group yet. The old kill (group only) found nothing and a bare wait then blocked while
 # perl went on to exec the hanging bundle: a hang, not a 124. So this arm runs under its
 # own watchdog: if bounded_run is still going after 20s it is killed and reported as a
 # hang, rather than hanging this test (which would be the #955 shape all over again).
-# It must also return BEFORE the KILL grace (bound + ~2s) could have fired: step 4's KILL
-# would otherwise bound it too, and this arm could no longer see steps 2 and 3 (review 2).
-# The seam delay is 6s, so a KILL-only return lands near 4s and the ceiling below is 3s.
+# It must also return BEFORE the KILL grace could have fired: step 4's KILL would otherwise
+# bound it too, and this arm could no longer see steps 2 and 3 (review 2). MEASURED, not
+# from the loop's nominal 10 x 0.2s: each `sleep 0.2` costs about 0.33s here, so the grace
+# is about 3.3s. The TERM path returns in 2.3 to 2.6s; with steps 2-3 removed it took 5.6s.
+# The ceiling is 4s, between the two with room on both sides for a loaded box.
 rcf="$tmp/rc-3859"; rm -f "$rcf"
 ( s0=$(date +%s)
   KOSMOS_BOUNDED_RUN_SETPGRP_DELAY=6 bounded_run "$T" "$bhang" --kosmos-app-port-selftest 501 >/dev/null 2>&1
@@ -144,11 +146,14 @@ if [ -f "$rcf" ]; then
   wait "$wd" 2>/dev/null
   read -r rc_3859 el_3859 < "$rcf"
   check "bound expiring before setpgrp: returns 124, does not hang (#3859)" 124 "$rc_3859"
-  if [ "$el_3859" -le 3 ]; then check "...and by TERM to the leader, before any KILL (steps 2-3)" ok ok
+  if [ "$el_3859" -le 4 ]; then check "...and by TERM to the leader, before any KILL (steps 2-3)" ok ok
   else check "...and by TERM to the leader, before any KILL (steps 2-3)" ok "took-${el_3859}s"; fi
 else
   # The regression: tear down what it left (the subshell, perl, and the bundle it
   # exec'd, which carry our unique markers) so the rest of this test still runs.
+  # perl may still be in the seam's sleep (not yet exec'd): its argv names the stub,
+  # whose path is unique to this run's tmp dir.
+  pkill -KILL -f "$bhang" 2>/dev/null
   pkill -f "sleep $LAUNCH\$" 2>/dev/null; pkill -f "sleep $FORK\$" 2>/dev/null
   kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
   check "bound expiring before setpgrp: returns 124, does not hang (#3859)" 124 "HUNG-20s"
@@ -175,6 +180,7 @@ if [ -f "$rcf2" ]; then
   wait "$wd2" 2>/dev/null
   check "a bundle ignoring SIGTERM is still bounded: 124, no hang" 124 "$(cat "$rcf2")"
 else
+  pkill -KILL -f "$bterm" 2>/dev/null
   pkill -KILL -f "sleep $LAUNCH\$" 2>/dev/null
   kill "$wd2" 2>/dev/null; wait "$wd2" 2>/dev/null
   check "a bundle ignoring SIGTERM is still bounded: 124, no hang" 124 "HUNG-20s"

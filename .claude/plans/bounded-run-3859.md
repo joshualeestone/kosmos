@@ -23,7 +23,7 @@ was not used as written.
 
 Then, from review 1, a fourth step. All the kills are SIGTERM, and a bundle that
 traps or ignores TERM would still hang the `wait`, the same #955 shape by another
-route. So after about 2s of grace, the group and the leader get SIGKILL. The
+route. So after a grace (10 x `sleep 0.2`, measured about 3.3s), the group and the leader get SIGKILL. The
 grace watches the GROUP, not the leader (review 2): a leader that dies on TERM can
 leave a child that ignores it, still holding the port.
 
@@ -45,10 +45,11 @@ microseconds wide and is not exercised by any test. It is argued, not measured.
 copy with its own fix removed:
 
 - **The bound beats setpgrp:** a 6s seam delay with a 2s bound. It must return
-  124 within a 20s watchdog, and within 3s. KILL alone would land near 4s, so the
-  ceiling is what keeps steps 2 and 3 visible now that step 4 exists.
+  124 within a 20s watchdog, and within 4s. The measured TERM path is 2.3 to
+  2.6s. With steps 2-3 removed, KILL alone took 5.6s. So the ceiling is what keeps
+  steps 2 and 3 visible now that step 4 exists.
   - Old kill: `HUNG-20s`.
-  - Steps 2-3 removed: `took-5s`.
+  - Steps 2-3 removed: fails the ceiling.
 - **A bundle that ignores SIGTERM:** must return 124. With step 4 removed it
   reports `HUNG-20s`.
 - **A bundle whose child ignores SIGTERM while the leader dies on it:** the child
