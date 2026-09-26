@@ -26430,7 +26430,7 @@ let ORG_LIVE = null;   // { nodes: Map key -> node, hub, size, raf, alpha }
 let ORG_DRAG_MOVED = false;   // the last pointer sequence on the map was a drag, not a click (#381)
 let ORG_POS = new Map(); // last positions by key, so a repaint does not snap back
 let ORG_SIZE = 0;        // the canvas ORG_POS was measured on (#718: a new width rescales them)
-let ORG_VIEW_W = 0;      // the chart box's width at the last paint (#718: keeps a scrolled chart's centre)
+let ORG_VIEW_W = 0;      // the chart box's width at the last paint (#718: width changes, a scrolled chart's centre)
 let ORG_HTML = null;         // the repaint guard's memory
 
 function orgTreeOf(agents) {
@@ -26595,24 +26595,28 @@ function paintOrg() {
   const fit = orgFit(maxR, wrap.clientWidth);
   if (fit.k < 1) for (const spot of placed.values()) spot.r *= fit.k;
   const size = fit.size;
+  /* #718: what changed since the last paint. Only a change in the box's width is
+     acted on here: a new agent growing a desktop chart keeps its positions as
+     before, and the 5s poll repainting at the same width touches neither the
+     positions nor the scroll (writing scrollLeft mid-pan stops a finger's scroll). */
+  const viewW = wrap.clientWidth;
+  const widthChanged = ORG_VIEW_W > 0 && viewW !== ORG_VIEW_W;
+  const f = widthChanged && ORG_SIZE > 0 ? size / ORG_SIZE : 1;
   /* Positions kept from a canvas of another size (a phone turned sideways, a
      scrollbar coming and going) are in that canvas's frame: carry them across
      in proportion rather than restarting from the rings. */
-  const f = ORG_SIZE > 0 ? size / ORG_SIZE : 1;
-  if (ORG_SIZE !== size) {
-    if (ORG_SIZE > 0) for (const p of ORG_POS.values()) { p.x *= f; p.y *= f; }
-    ORG_SIZE = size;
-  }
+  if (f !== 1) for (const p of ORG_POS.values()) { p.x *= f; p.y *= f; }
+  ORG_SIZE = size;
   // #718: wider than its box even at the floor: the box scrolls (.orgscroll) and
-  // touch must pan it (.orgwide). The first time, it opens centred on the hub.
-  const wide = size > wrap.clientWidth;
-  /* Where the box should be scrolled to after this paint: centred the first time
-     it scrolls; after that, the point that was in the middle of the box stays in
-     the middle when the width changes again (a phone turned while scrolled). */
+  // touch must pan it (.orgwide). A box with no width yet is not "wide".
+  const wide = viewW > 0 && size > viewW;
+  /* Where the box is scrolled to: centred the first time it scrolls; after that,
+     only when its width changes, keeping the point that was in the middle of the
+     box in the middle. Otherwise the scroll is left alone. */
   const wasWide = wrap.classList.contains('orgscroll');
-  const scrollTo = !wide ? null : !wasWide ? (size - wrap.clientWidth) / 2
-    : (wrap.scrollLeft + ORG_VIEW_W / 2) * f - wrap.clientWidth / 2;
-  ORG_VIEW_W = wrap.clientWidth;
+  const scrollTo = !wide ? null : !wasWide ? (size - viewW) / 2
+    : widthChanged ? (wrap.scrollLeft + ORG_VIEW_W / 2) * f - viewW / 2 : null;
+  ORG_VIEW_W = viewW;
   wrap.classList.toggle('orgscroll', wide);
   const orgmapEl = document.getElementById('orgmap');
   orgmapEl.classList.toggle('orgwide', wide);
@@ -26961,7 +26965,6 @@ document.getElementById('orgmap').addEventListener('click', (e) => {
    changed: a phone's address bar showing and hiding fires resize on height alone.
    Registered by name, not as an arrow: web.consolidated-breakpoint.test.js finds
    the layout resize handler as the only arrow-form resize listener. */
-let ORG_RESIZE_W = 0;
 let ORG_RESIZE_RAF = 0;   // one repaint per frame while a window edge is being dragged
 function orgResizeRepaint() {
   if (ORG_RESIZE_RAF) return;
@@ -26969,9 +26972,9 @@ function orgResizeRepaint() {
     ORG_RESIZE_RAF = 0;
     const wrap = document.getElementById('orgview');
     if (!wrap || wrap.hidden) return;
-    const w = wrap.clientWidth;
-    if (w === ORG_RESIZE_W) return;
-    ORG_RESIZE_W = w;
+    // Against the width the chart was last PAINTED at, which every paint records:
+    // a width remembered only here goes stale while the chart is hidden.
+    if (wrap.clientWidth === ORG_VIEW_W) return;
     paintOrg();
   });
 }
