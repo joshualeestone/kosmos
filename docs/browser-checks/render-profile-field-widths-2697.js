@@ -25,6 +25,7 @@
  */
 
 const nodePath = require('node:path');
+require('./lib-sandbox-home.js');
 
 let chromium;
 try { ({ chromium } = require('playwright')); }
@@ -110,6 +111,32 @@ const PANEL_W = 1200; // wide enough that 25% (~290px) clears the shared min-wid
     };
   }, PANEL_W);
 
+  await page.setViewportSize({ width: 412, height: 915 });
+  const phone = await page.evaluate(() => {
+    const panel = document.getElementById('panel-detail');
+    const profile = document.getElementById('d-sec-profile');
+    const instr = document.getElementById('d-sec-instr');
+    const skills = document.getElementById('d-sec-skills');
+    panel.style.width = '';
+    panel.hidden = false;
+    profile.hidden = false;
+    instr.hidden = true;
+    skills.hidden = true;
+    document.getElementById('d-reports-wrap').hidden = false;
+    const px = (id) => parseFloat(getComputedStyle(document.getElementById(id)).fontSize);
+    const box = (id) => { const b = document.getElementById(id).getBoundingClientRect(); return { width: Math.round(b.width), height: Math.round(b.height) }; };
+    const profileOut = {
+      fonts: ['d-rename', 'd-role', 'd-reports'].map(px), save: box('d-save'),
+      hint: box('d-rename-hint'), form: box('d-sec-profile'),
+    };
+    profile.hidden = true;
+    instr.hidden = false;
+    skills.hidden = false;
+    return { profile: profileOut, instructions: {
+      fonts: ['d-instr', 'd-skill-name', 'd-skill-body'].map(px),
+      save: box('d-instr-save'), addSkill: box('d-skill-add'),
+    } };
+  });
   await browser.close();
 
   if (r.error) { console.error('FAIL  render-profile-field-widths-2697: ' + r.error); process.exit(1); }
@@ -135,6 +162,11 @@ const PANEL_W = 1200; // wide enough that 25% (~290px) clears the shared min-wid
   if (missing.length) fail.push('the #2697 narrowing rules are not all present in the CSSOM (' + JSON.stringify(missing) + '); the scoping control cannot verify - did the rules move or change?');
   const createLeak = ns.filter((s) => /#create-/.test(s));
   if (createLeak.length) fail.push('a field-narrowing (25%/50%) rule targets a create-form id: ' + JSON.stringify(createLeak) + ' - the #2697 sizing leaked past the detail form to the create form (scoping regression)');
+  if (!phone.profile.fonts.every((x) => x >= 16)) fail.push('phone Profile fields are not all 16px: ' + JSON.stringify(phone.profile));
+  if (phone.profile.save.height < 44) fail.push('phone Profile Save is below 44px: ' + JSON.stringify(phone.profile.save));
+  if (phone.profile.hint.width < phone.profile.form.width * 0.8) fail.push('phone Name help stays squeezed: ' + JSON.stringify(phone.profile));
+  if (!phone.instructions.fonts.every((x) => x >= 16)) fail.push('phone Instructions fields are not all 16px: ' + JSON.stringify(phone.instructions));
+  if (phone.instructions.save.height < 44 || phone.instructions.addSkill.height < 44) fail.push('phone Instructions actions are below 44px: ' + JSON.stringify(phone.instructions));
 
   if (fail.length) {
     console.error('FAIL  render-profile-field-widths-2697: ' + fail.join('; '));
@@ -142,4 +174,5 @@ const PANEL_W = 1200; // wide enough that 25% (~290px) clears the shared min-wid
     process.exit(1);
   }
   console.log('render-profile-field-widths-2697: the agent Profile fields size to ~25% (Name) / ~50% (What they do) / ~25% (Reports to) of their rows, Reports-to has top spacing, the Name helper wraps at ~50%, and the create form is UNAFFECTED (its Name field stays full-width). PASS');
+  console.log('  #718 phone=' + JSON.stringify(phone));
 })().catch((e) => { console.error('FAIL  render-profile-field-widths-2697', e && e.message); process.exit(1); });

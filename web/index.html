@@ -9466,6 +9466,16 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   :is(#d-files, #d-sec-files) .pj-doc { min-height: 44px; }
   #d-files-all { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
   #d-files-back { display: inline-flex; align-items: center; min-height: 44px; }
+  /* #718 rows 2 and 3: keep the agent's Profile and Instructions forms readable without
+     iOS focus zoom, and give their actions a phone-sized target. The desktop percentage
+     widths stay above; only the phone lets the long Name help use the form's width. */
+  #d-sec-profile :is(input:not([type="file"]), select),
+  #d-sec-instr textarea,
+  #d-sec-skills :is(input, textarea, select) { font-size: 16px; }
+  #d-sec-profile :is(input:not([type="file"]), select, button),
+  #d-sec-instr button,
+  #d-sec-skills :is(input, textarea, select, button) { min-height: 44px; }
+  #d-rename-hint { max-width: none; }
 }
 /* #718 (Raiden's table, row 4): the same two fields on ANY touchscreen, not only a portrait phone. A
    phone turned sideways (667 to 932 wide) or a tablet is past the 40rem block above, where the search
