@@ -54,3 +54,15 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 - The row shows the muted signed_in_unverified "Signed in" (a remembered answer), only while agy is installed; Remove arms like Disconnect (danger style, aria-label, blur disarms); its hover says it comes back on Kosmos's next check.
 - The tmux server starts with -f /dev/null and the agy path is shell-quoted.
 - Not done (nit N1): no browser check renders the Settings row itself; web.agy-row-3998.test.js executes the page's own key-path functions on it instead.
+
+## Review rounds 3 and 4 (decided)
+- Nothing throws out of the 1 s timer (the board has no uncaughtException handler): a key that did not go out is pressed again next tick; 5 in a row shows the window.
+- A test process never reads or writes the real remembered sign-in (store.ROOT/agy-signin/last.json): only a file a test set with setLastFileForTests. The stray file earlier test runs wrote on this Mac was removed. "Not offered" is not remembered.
+- No email on the row: ~/.gemini/google_accounts.json is the Gemini CLI's own sign-in, and Antigravity keeps no account file Kosmos can read. Weakest premise: a future agy may add one; then the row can name it.
+- The code is typed only when the screen shows agy's code prompt right then (not on the state alone). The "did not take" retry waits 20 s.
+- Once the window is shown, Kosmos presses nothing; it watches for agy exiting or its ready screen. The ready screen ("(… Quota) - Gemini") earns one confirmation even when the other asks are spent.
+- The screen is the one whose words appear last on it, and the marker read is the last one; terms press Enter only on "[Done]".
+- The tmux socket is named after this board's folder (two boards on one account never share a sign-in).
+- Routes: a stale sign-in id is 409 on code, show and stop; an unknown sub-address is 404.
+- Page: leaving while the start request is out stops the sign-in it began; the status line is rewritten only when its words change (a live region re-reads every write).
+- Left: N6's cleanup nit (tests reset the module anyway).

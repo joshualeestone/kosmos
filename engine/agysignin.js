@@ -24,13 +24,19 @@ const { execFileSync, execFile } = require('node:child_process');
 
 /* Its own tmux socket, so the session is invisible to every agent-listing tmux call. A test names
    its own (AGENT_WORKFORCE_AGY_SIGNIN_SOCKET) so it can never meet a real sign-in. */
-function socket() { return process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET || 'kosmos-agy-signin'; }
+/* Named after this board's own folder, so two boards run by one macOS account never kill each
+   other's sign-in (review round 4). */
+function socket() {
+  if (process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET) return process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET;
+  const root = String(require('./store').ROOT);
+  return 'kosmos-agy-signin-' + crypto.createHash('sha256').update(root).digest('hex').slice(0, 10);
+}
 const SESSION = 'agy-signin';
 const TICK_MS = 1000;
 const STUCK_MS = 8000;          // an unrecognised screen this long is shown, not guessed at
 const GIVE_UP_MS = 30 * 60000;  // a sign-in nobody finishes ends by itself
 const SAME_SCREEN_MS = 20000;   // a recognised screen that does not move on this long is stuck too
-const CODE_RETRY_MS = 15000;    // the code screen still showing this long after a code: it was not taken
+const CODE_RETRY_MS = 20000;    // the code screen still showing this long after a code: it was not taken
 /* Asking agy whether it is signed in costs a prompt on the person's subscription, so one sign-in
    asks at most this many times, however long it sits on a screen Kosmos does not know. */
 const MAX_CHECKS = 3;
@@ -44,7 +50,22 @@ const SCREENS = {
   theme: /Choose your colou?r scheme/i,
   terms: /Terms of Service & Data Use/,
   trust: /Do you trust the contents of this project\?/,
+  /* agy's own ready screen once signed in: "<email> (Antigravity Starter Quota) - Gemini 3.8 Flash
+     (High)" on Josh's Mac. Seeing it earns one confirmation even when the others are spent, so a
+     sign-in the person finished in the shown window is still recognised (review round 4). */
+  ready: /\(.*Quota\)\s+-\s+Gemini/,
 };
+/* Which screen agy is on: the one whose words appear LAST, so text an earlier screen left behind
+   never wins over the screen now drawn (review round 4). */
+function screenOf(text) {
+  let best = null; let at = -1;
+  for (const [k, re] of Object.entries(SCREENS)) {
+    const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g');
+    let m;
+    while ((m = g.exec(text)) !== null) { if (m.index > at || (m.index === at && best === null)) { at = m.index; best = k; } if (m[0] === '') g.lastIndex += 1; }
+  }
+  return best;
+}
 
 /* ---- seams a test replaces -------------------------------------------------------------- */
 function tmuxBin() { return require('./create').binPaths().tmuxBin; }
@@ -108,9 +129,9 @@ function urlFrom(text) {
   const m = String(text).match(/https:\/\/accounts\.google\.com\/\S+/);
   return m ? m[0] : null;
 }
-/* The line the menu's ">" marker is on. */
+/* The line the ">" marker is on: the LAST one, the screen now drawn. */
 function markedLine(text) {
-  const line = String(text).split('\n').find((l) => /^\s*>\s/.test(l));
+  const line = String(text).split('\n').reverse().find((l) => /^\s*>\s/.test(l));
   return line ? line.trim() : '';
 }
 /* The folder the trust screen names (the line after "Accessing workspace:"). */
@@ -153,7 +174,7 @@ function step() {
     // session only: a Stop and a new Sign in while it was out must not be ended by it.
     const mine = S;
     mine.busy = true;
-    Promise.resolve(confirmSignedIn()).then((r) => {
+    Promise.resolve().then(() => confirmSignedIn()).then((r) => {   // a throw is a rejection, so busy is always cleared
       mine.busy = false;
       if (S !== mine || !mine.timer) return;   // stopped or replaced while agy was asked
       if (r && r.signedIn === true) end('done');
@@ -162,16 +183,22 @@ function step() {
     return;
   }
   if (text === undefined) return;
+  const name = screenOf(text);
+  const changed = name !== S.screen;
+  if (changed) { S.screen = name; S.screenSince = now(); S.pressed = false; S.downFrom = null; S.moves = 0; }
+  if (name === 'ready') { readyCheck(text); return; }
+  /* 🛑 ONCE THE WINDOW IS SHOWN, THE PERSON DRIVES (review round 4). Kosmos presses nothing more:
+     its keys would race theirs (a Done pressed before they tick the box they meant to). It only
+     watches for the end: agy exiting (above) or its ready screen. */
+  if (S.shown) return;
+  if (!changed && name && S.state === 'stuck') return;   // shown to the person; nothing more is pressed on it
   /* A recognised screen that stays the same this long is stuck too (a changed default, a cursor
      that is not where Kosmos expects): the code screen is exempt, it waits for the person. */
-  const name = Object.keys(SCREENS).find((k) => SCREENS[k].test(text)) || null;
-  if (name !== S.screen) { S.screen = name; S.screenSince = now(); S.pressed = false; S.downFrom = null; S.moves = 0; }
-  else if (name && S.state === 'stuck') return;   // shown to the person; nothing more is pressed on it
-  else if (name && name !== 'code' && now() - S.screenSince > SAME_SCREEN_MS) {
+  if (!changed && name && name !== 'code' && now() - S.screenSince > SAME_SCREEN_MS) {
     S.state = 'stuck'; S.because = UNKNOWN;
     return;
   }
-  const seen = (name) => SCREENS[name].test(text);
+  const seen = (n) => name === n;   // the screen drawn NOW, not words an earlier one left behind
   if (seen('menu')) {
     // "> 1. Google OAuth" is the default choice; press Enter only when it is the marked one.
     if (S.state === 'stuck') { S.state = 'starting'; S.because = null; }
@@ -188,7 +215,7 @@ function step() {
     /* Each key once: Enter once on "[Done]", and the next Down only after the marker has moved, so
        a slow redraw never carries a second key onto the next screen (the trust question). */
     if (S.pressed) return;
-    if (/Done/.test(on)) { S.pressed = true; keys('Enter'); return; }
+    if (/\[Done\]/.test(on)) { S.pressed = true; keys('Enter'); return; }
     if (S.downFrom !== null && S.downFrom !== undefined && on === S.downFrom) return;   // the last Down has not landed yet
     if (S.moves < 4) { S.downFrom = on; S.moves += 1; keys('Down'); return; }
     // Shown, not ended: the person can still finish it in the window, or stop.
@@ -242,9 +269,30 @@ function step() {
   const mine = S;
   mine.busy = true; mine.checks += 1; mine.lastCheckAt = now();
   if (mine.state !== 'stuck') mine.state = 'checking';
-  Promise.resolve(confirmSignedIn()).then((r) => {
+  Promise.resolve().then(() => confirmSignedIn()).then((r) => {   // a throw is a rejection, so busy is always cleared
     mine.busy = false;
     if (S !== mine || !mine.timer) return;   // a session that has ended, or been replaced, is not touched
+    if (r && r.signedIn === true) { end('done'); return; }
+    mine.state = 'stuck'; mine.because = UNKNOWN; mine.stuckText = text;
+  }, () => {
+    mine.busy = false;
+    if (S !== mine || !mine.timer) return;
+    mine.state = 'stuck'; mine.because = UNKNOWN; mine.stuckText = text;
+  });
+}
+
+/* agy's ready screen: signed in, very likely. It is confirmed once (a prompt on the person's
+   subscription), even when the unknown-screen asks are spent, because this is the one screen that
+   says the person may have finished. A "no" leaves it stuck; the same ready screen is not asked
+   about again. */
+function readyCheck(text) {
+  if (S.readyChecked) return;
+  const mine = S;
+  mine.readyChecked = true; mine.busy = true; mine.lastCheckAt = now();
+  if (mine.state !== 'stuck') mine.state = 'checking';
+  Promise.resolve().then(() => confirmSignedIn()).then((r) => {
+    mine.busy = false;
+    if (S !== mine || !mine.timer) return;
     if (r && r.signedIn === true) { end('done'); return; }
     mine.state = 'stuck'; mine.because = UNKNOWN; mine.stuckText = text;
   }, () => {
@@ -295,6 +343,11 @@ function code(value, id) {
   if (S.state !== 'code') return { ok: false, because: 'Antigravity is not waiting for a code' };
   const v = String(value || '').trim();
   if (!CODE_RE.test(v)) return { ok: false, because: 'That does not look like the code from Google\'s page' };
+  /* 🛑 THE SCREEN, NOT THE STATE, right before typing (review round 4): the state can be a tick
+     behind, and a code typed onto another screen is keystrokes there (on the ready screen, a
+     prompt spent on the subscription). */
+  const now_ = screen();
+  if (typeof now_ !== 'string' || screenOf(now_) !== 'code') return { ok: false, because: 'Antigravity is not waiting for a code' };
   try { keys('-l', '--', v); keys('Enter'); } catch { return { ok: false, because: 'Kosmos could not pass the code to Antigravity' }; }
   S.state = 'checking'; S.step = 'code-sent'; S.because = null; S.lastSeen = now(); S.codeSentAt = now();
   return { ok: true };
@@ -309,7 +362,11 @@ function show(id) {
     try {
       fs.writeFileSync(file, '#!/bin/sh\nexec ' + shq(tmuxBin()) + ' -L ' + shq(socket()) + ' attach -t ' + SESSION + '\n', { mode: 0o700 });
     } catch { resolve({ ok: false, because: 'Kosmos could not open the sign-in window' }); return; }
-    openFile(file, (err) => resolve(err ? { ok: false, because: 'Kosmos could not open the sign-in window' } : { ok: true }));
+    const mine = S;
+    openFile(file, (err) => {
+      if (!err && S === mine) mine.shown = true;   // from here the person drives; Kosmos presses nothing
+      resolve(err ? { ok: false, because: 'Kosmos could not open the sign-in window' } : { ok: true });
+    });
   });
 }
 
@@ -337,5 +394,5 @@ function resetForTests() {
   ({ tmux, openFile, confirmSignedIn, agyBin, now, folderRoot } = REAL);
 }
 
-module.exports = { start, status, code, show, stop, socket, SESSION, SCREENS, CODE_RE, MAX_CHECKS, MAX_KEY_FAILURES,
+module.exports = { start, status, code, show, stop, socket, SESSION, SCREENS, CODE_RE, MAX_CHECKS, MAX_KEY_FAILURES, NOT_MINE, screenOf,
   urlFrom, markedLine, trustFolder, setForTests, tickForTests, resetForTests };

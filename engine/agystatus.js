@@ -92,29 +92,36 @@ function check() { return shared().then((r) => { remember(r); return r; }); }
    a prompt on every repaint. Saved beside the sign-in folder, so a board restart keeps it. Only a
    confident answer is kept: signedIn true, or false because agy is not installed; "could not
    confirm" (null) leaves the last one standing. */
-let lastFile = () => path.join(require('./store').ROOT, 'agy-signin', 'last.json');
+/* 🛑 A TEST PROCESS NEVER READS OR WRITES THE REAL RECORD (review round 4): store.ROOT is the
+   person's own Kosmos folder unless a sandbox is set, and every check() remembers its answer, so a
+   test run flipped the real Settings row. In a test the record exists only where the test put it
+   (setLastFileForTests); otherwise nothing is remembered and nothing is known. */
+let lastFileForTests = null;
+function lastFile() {
+  if (lastFileForTests) return lastFileForTests();
+  if (require('./live-execution').inTestProcess()) return null;
+  return path.join(require('./store').ROOT, 'agy-signin', 'last.json');
+}
 function remember(r) {
-  if (!r || (r.signedIn !== true && !(r.signedIn === false && r.installed === false))) return;
+  if (!r || r.offered === false) return;   // "not offered here" says nothing about a sign-in
+  if (r.signedIn !== true && !(r.signedIn === false && r.installed === false)) return;
+  const file = lastFile();
+  if (!file) return;
   const rec = { signedIn: r.signedIn === true, at: new Date().toISOString() };
-  try { fs.mkdirSync(path.dirname(lastFile()), { recursive: true, mode: 0o700 }); fs.writeFileSync(lastFile(), JSON.stringify(rec), { mode: 0o600 }); } catch { /* best effort */ }
+  try { fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 }); fs.writeFileSync(file, JSON.stringify(rec), { mode: 0o600 }); } catch { /* best effort */ }
 }
 /** { signedIn, at } from the last confident answer, or null if there has been none. */
 function lastKnown() {
-  try { const r = JSON.parse(fs.readFileSync(lastFile(), 'utf8')); return r && typeof r.signedIn === 'boolean' ? r : null; } catch { return null; }
+  const file = lastFile();
+  if (!file) return null;
+  try { const r = JSON.parse(fs.readFileSync(file, 'utf8')); return r && typeof r.signedIn === 'boolean' ? r : null; } catch { return null; }
 }
 /** Forget it (Remove on the account row): Kosmos stops listing it; agy's own sign-in is untouched. */
-function forget() { try { fs.rmSync(lastFile(), { force: true }); } catch { /* none */ } }
-/* The Google account agy is signed in as, if its account file names one (~/.gemini/google_accounts.json,
-   "active"). Read-only; null when absent or unreadable. */
-let accountsFile = () => path.join(os.homedir(), '.gemini', 'google_accounts.json');
-function activeEmail() {
-  try {
-    const j = JSON.parse(fs.readFileSync(accountsFile(), 'utf8'));
-    return j && typeof j.active === 'string' && /^[^\s@]+@[^\s@]+$/.test(j.active) ? j.active : null;
-  } catch { return null; }
-}
-function setLastFileForTests(fn) { lastFile = fn; }
-function setAccountsFileForTests(fn) { accountsFile = fn; }
+function forget() { const file = lastFile(); if (!file) return; try { fs.rmSync(file, { force: true }); } catch { /* none */ } }
+/* No email on the row (review round 4): ~/.gemini/google_accounts.json is the Gemini CLI's own
+   sign-in, not Antigravity's, and Antigravity keeps no account file Kosmos can read. A person
+   signed in to the two as different Google accounts would have seen the wrong one. */
+function setLastFileForTests(fn) { lastFileForTests = fn || null; }
 
 /* #3998: signing in is engine/agysignin.js (agy's interactive sign-in run out of sight); the old
    open-it-in-Terminal path is gone. */
@@ -177,4 +184,4 @@ function setRunnerForTests(fn) { runAgy = fn; }
 
 REAL.runAgy = runAgy; REAL.runInstall = runInstall;
 module.exports = { resetForTests, allowSandboxInstallForTests, installed, installedForScreen, offered, check, install, setRunnerForTests, setInstallerForTests, PROMPT, INSTALL_URL,
-  remember, lastKnown, forget, activeEmail, setLastFileForTests, setAccountsFileForTests };
+  remember, lastKnown, forget, setLastFileForTests };
