@@ -9485,6 +9485,12 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-talk-box .composerbox .cinput, #d-talk-box #d-talk-search { font-size: 16px; }
   #d-talk-box #d-talk-search-wrap { min-height: 44px; }
   #d-talk-box #d-talk-search { min-height: 42px; }
+  /* #3916: the Instructions pill also owns Skills. Keep both editors out of iOS focus zoom
+     and their actions thumb-sized when a phone is sideways or the screen is a touch tablet. */
+  #d-sec-instr textarea,
+  #d-sec-skills :is(input, textarea, select) { font-size: 16px; }
+  #d-sec-instr button,
+  #d-sec-skills :is(input, textarea, select, button) { min-height: 44px; }
 }
 /* The canvases honour prefers-reduced-motion in JS (a single static frame, no
    rAF loop); this makes that intent visible to a source reader too. */
