@@ -750,6 +750,19 @@ const visible = (page, sel) => page.evaluate((s) => {
         expired: await visible(page, '#plus-si-expired'), go: !(await page.isDisabled('#plus-si-code-go')) };
       chk(!/not right|timed out/i.test(afterResend.msg) && afterResend.v === '' && !afterResend.expired && afterResend.go,
         `[${k}] #3942 a check still in flight when Send again is pressed does not land on the fresh code step`, JSON.stringify(afterResend));
+      /* Web round 6 (measured there, same code here): a click near the RIGHT edge of a box in a full code
+         lands on that box (the text caret alone put it on the next one); and text that arrives with no
+         cancelable beforeinput (set and announced by an input event) is searched like a paste. */
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = '314159'; i.focus(); });
+      const edge4 = await page.evaluate(() => { const c = document.querySelectorAll('#plus-si-code .otp-cell')[3].getBoundingClientRect(); return { x: c.left + c.width * 0.95, y: c.top + c.height / 2 }; });
+      await page.mouse.click(edge4.x, edge4.y);
+      await page.waitForTimeout(150);
+      const onEdge = await onBox();
+      chk(onEdge.s === 3 && onEdge.e === 3 && onEdge.on === 3, `[${k}] #3942 a click near the right edge of the fourth box puts the caret on the fourth box`, JSON.stringify(onEdge));
+      const beforeRaw = wrongSends;
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); i.value = 'Sent 2026-09-26. Your code is 482 917.'; i.dispatchEvent(new Event('input', { bubbles: true })); });
+      await page.waitForTimeout(400);
+      chk((await page.inputValue('#plus-si-code-in')) === '482917' && wrongSends === beforeRaw + 1, `[${k}] #3942 email text arriving without a cancelable event yields the code, not the date`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), sent: wrongSends - beforeRaw }));
       // Put a full code back quietly (no input event, so nothing is sent): the scenario after this presses Verify.
       await page.evaluate(() => { document.getElementById('plus-si-code-in').value = '127956'; });
       chk(imeOk, `[${k}] #3942 a seventh digit from an input method replaces the digit after the caret`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
