@@ -299,6 +299,8 @@ const SELECTS = [
         const u = String(url);
         if (/\/api\/runners(\?|$)/.test(u)) return enc({ runners: { gemini: { present: false, job: null }, grok: { present: false, job: null } } });
         if (/\/api\/accounts(\?|$)/.test(u)) return enc({ accounts: [] });
+        // #3874: Gemini on a Google subscription not offered here, so Gemini's pick goes on to the download.
+        if (/\/api\/antigravity(\?|$)/.test(u)) return enc({ enabled: true, supported: false, installed: false });
         return enc({});
       };
       if (typeof openAcctAdd !== 'function') return { fatal: 'openAcctAdd is not a global function' };

@@ -87,6 +87,8 @@ const chk = (ok, label, extra) => {
       // #3731: both tools are installed here; the install itself is render-firstrun-keyed-connect-3658.js's.
       if (/\/api\/runners(\?|$)/.test(u)) return enc({ runners: { gemini: { present: true }, grok: { present: true } } });
       if (/\/api\/accounts(\?|$)/.test(u)) return enc({ accounts: window.__accounts.slice() });
+      // #3874: Gemini's own subscription choice is render-settings-agy-3874.js's; here it is not offered.
+      if (/\/api\/antigravity(\?|$)/.test(u)) return enc({ enabled: true, supported: false, installed: false });
       return enc({});
     };
   });
@@ -130,7 +132,7 @@ const chk = (ok, label, extra) => {
   chk(key.key && !key.grok && key.focus === 'acct-apikey-key', '"Use an API key" opens the key step', JSON.stringify(key));
 
   const gemini = await q(async () => { await window.__pick('google'); return { grok: !document.getElementById('acct-grok-flow').hidden, key: !document.getElementById('acct-apikey-flow').hidden }; });
-  chk(!gemini.grok && gemini.key, 'Gemini has no subscription choice: straight to its key step', JSON.stringify(gemini));
+  chk(!gemini.grok && gemini.key, 'where Gemini\'s subscription is not offered (#3874: not a Mac, or switched off), no choice: straight to its key step', JSON.stringify(gemini));
 
   await q(async () => { await window.__pick('xai'); document.getElementById('acct-grok-pick-sub').click(); window.__status = { state: 'starting' }; document.getElementById('acct-grok-sub-go').click(); });
   await q(() => new Promise((r) => setTimeout(r, 50)));
