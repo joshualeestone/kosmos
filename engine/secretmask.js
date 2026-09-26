@@ -111,9 +111,11 @@ function fragmentsIn(text) {
   for (const m of text.matchAll(/[A-Za-z0-9_+/=-]{12,}/g)) {
     /* A run that is itself words (a webhook URL's com/api/webhooks/, which a guide names) is ordinary text. */
     if (madeOfWords(m[0])) continue;
-    const run = m[0].length > 4096 ? m[0].slice(0, 4096) : m[0];   // a key is far shorter; bounded per run
+    /* The whole run, however long (review round 20: a cap left a fragment past it unread): one Set lookup per
+       position, so the cost stays linear in the reply. */
+    const run = m[0];
     for (let i = 0; i + FRAGMENT_LEN <= run.length; i += 1) {
-      if (knownGrams.has(run.slice(i, i + FRAGMENT_LEN))) { spans.push([m.index, m.index + m[0].length]); break; }
+      if (knownGrams.has(run.slice(i, i + FRAGMENT_LEN))) { spans.push([m.index, m.index + run.length]); break; }
     }
   }
   return spans;

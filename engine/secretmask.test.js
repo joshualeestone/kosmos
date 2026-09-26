@@ -894,3 +894,13 @@ test('#3935 a reply the budget stops is withheld with words that do not claim a 
   assert.match(UNCHECKED, /could not finish checking/);
   assert.doesNotMatch(UNCHECKED, /removed a password/);
 });
+
+test('#3935 a held fragment far into one long run is still found (review round 20)', () => {
+  setKnownSecrets(['Zq8vLm3pRt6wXy9kHb2nWc4d']);
+  try {
+    let x = 3; let junk = ''; for (let i = 0; i < 4200; i += 1) { x = (x * 1103515245 + 12345) % 2147483648; junk += 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789'[x % 54]; }
+    const out = mask(`Intro line.\nZq${junk}8vLm3pRt6wXy9kHb2nWc4d\nTail line.`).text;
+    assert.ok(!out.includes('8vLm3pRt6wXy9kHb2nWc4d'), 'the fragment past character 4096 survived');
+    assert.ok(out.startsWith('Intro line.\n') && out.endsWith('\nTail line.'), out.slice(0, 40));
+  } finally { setKnownSecrets([]); }
+});
