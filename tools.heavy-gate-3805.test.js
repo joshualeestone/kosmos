@@ -163,7 +163,12 @@ test('run by zsh it re-runs under bash, so a real run still counts (control: the
   assert.equal(run([realRun()]).code, 1);
 });
 
-test('live: a real release.sh outside any test ancestry counts, and --except-cwd on its folder rules it out', async (t) => {
+// Opt-in, by hand only: KOSMOS_HG_LIVE=1 node --test tools.heavy-gate-3805.test.js
+// Its stand-in is a real tools/release.sh outside the kt sandbox, so while it runs EVERY agent's
+// gate on this Mac reads busy (Liu Kang m967: repeated runs parked the whole fleet). The default
+// suite must spawn nothing another gate can see, so it skips this test.
+const LIVE = process.env.KOSMOS_HG_LIVE === '1';
+test('live (opt-in, KOSMOS_HG_LIVE=1): a real release.sh outside any test ancestry counts, and --except-cwd on its folder rules it out', { skip: !LIVE && 'opt-in: set KOSMOS_HG_LIVE=1 and run by hand' }, async (t) => {
   const dir = fs.realpathSync(fs.mkdtempSync('/tmp/hg-live-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   fs.mkdirSync(path.join(dir, 'tools'));
@@ -177,6 +182,8 @@ test('live: a real release.sh outside any test ancestry counts, and --except-cwd
     if (line) pid = line.trim().split(/\s+/)[0]; else spawnSync('sleep', ['0.1']);
   }
   assert.ok(pid, 'the stub started');
+  // Stop the stand-in the moment the test ends, by the exact pid this test started.
+  t.after(() => { try { process.kill(Number(pid)); } catch { /* already gone */ } });
   const env = { ...process.env, KOSMOS_HG_CLAIM: FREE, KOSMOS_HG_SNAPSHOT: '' };
   const seen = spawnSync('bash', [TOOL], { encoding: 'utf8', env });
   assert.match(seen.stdout, new RegExp('COUNTS ' + pid + ':'), seen.stdout);
