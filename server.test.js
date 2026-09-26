@@ -8834,7 +8834,7 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
   const els = {};
   const doc = {
     getElementById: (id) => {
-      if (!els[id]) els[id] = { className: '', innerHTML: '', textContent: '', hidden: false };
+      if (!els[id]) els[id] = { className: '', innerHTML: '', textContent: '', hidden: false, dataset: {} };
       return els[id];
     },
   };

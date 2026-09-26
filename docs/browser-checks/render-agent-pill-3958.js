@@ -10,6 +10,7 @@
  *   - the pill's word and state class match the agent's state;
  *   - while working, the pill carries the working dots and they MOVE (sampled, not just present);
  *   - the pill and the DM line agree (both working, or neither);
+ *   - after a flip to needs-you, the pill says exactly what the agent's grid card says;
  *   - on the second working poll in a row, the pill's dots are the same nodes, so their animation
  *     was not rebuilt and restarted by the poll (asserted to have run, not skipped).
  * Control: the first reading (idle, before any flip) shows the instrument can read "Idle" and "no
@@ -124,6 +125,18 @@ async function read(page) {
             prevWorking = null;
           }
         }
+        /* A third state: needs-you. The pill must say exactly what the agent's own grid card says,
+           the one derivation both surfaces share, and not linger on Working. */
+        setState('needs_you');
+        await page.waitForTimeout(6500);
+        const nv = await page.evaluate(() => {
+          const card = [...document.querySelectorAll('.acard')].find((c) => /Beatrix/.test(c.textContent));
+          /* The state WORD, the <b> both badges carry: the card's badge also holds its Answer button. */
+          const word = (el) => { const x = el ? el.querySelector('b') : null; return x ? x.textContent.trim() : null; };
+          return { pill: word(document.getElementById('d-state')), card: word(card ? card.querySelector('.astate') : null) };
+        });
+        chk(nv.card && nv.pill === nv.card && nv.pill !== 'Working' && nv.pill !== 'Idle',
+          `${engineName} -> needs_you: the pill says what the grid card says`, JSON.stringify(nv));
         chk(secondPolls === 1, `${engineName}: precondition: the keep-running arm actually ran once`, String(secondPolls));
         chk(errs.length === 0, `${engineName}: no page errors`, errs.join(' | '));
       } finally {
