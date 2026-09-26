@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: mobile-chatfirst-718
-diff_hash: 347110fae58aa997f8bda90ed364b684fbf756e6ae39c85f3f70c2d2bb0d7921
+diff_hash: 1c24667a11f693c7ca1797faab326a279887616d5f44b9ea9b8cdfd4b8258658
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-26T05:38:31Z
+timestamp: 2026-09-26T05:42:11Z
 iterations: 19
 converged: false
 ---
@@ -26,8 +26,10 @@ severity for Liu Kang to decide.
 Reviewer model: sonnet for iterations 2 and 4 (first attempt), then opus only after the sonnet weekly
 limit (Liu Kang m711, until Sunday 5pm). This is a known weakness: most rounds ran on one model.
 
-Final state (rebased onto origin/main 0e11b0277 after Liu Kang's approval at 71c14dee; the interdiff is only
-the gated checks-list line, where main added render-subtasks-3861): tools/run-tests.sh 9670 tests, 9518 pass,
+Final state (rebased onto origin/main d3cbdf032 after Liu Kang's approval at 71c14dee; the interdiff is only
+the gated checks-list line, where main added render-subtasks-3861 and render-fed-external-3311; after the
+last rebase render-dm-chatfirst-718 606/0 and render-waiting-phone-718 13/13 on both engines, gate v4; the
+full-suite numbers below are from the previous base 0e11b0277, and CI runs the suite on this head): tools/run-tests.sh 9670 tests, 9518 pass,
 0 fail, validation PASSED (hash 347110fae58a), subdir audit clean. render-dm-chatfirst-718.js 606 PASS,
 0 FAIL on Chromium + WebKit; negative control against origin/main's page: 312 FAIL of 606. Re-run on
 this tree: render-waiting-phone-718 13/13, render-swarm-ui-3564 60/60, render-dm-emoji-3744 70/70,
