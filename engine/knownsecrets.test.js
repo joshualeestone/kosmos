@@ -70,7 +70,13 @@ test('#3935 keyTokens: every key-shaped token of a line with spaces, and no name
     ['# Cloudflare API token, DNS edit scope', []],
     ['Set CF_API_TOKEN and Configuration here', []],
     ['# Created 2026-09-25T11:54:00Z see https://x.io/a1b2c3d4e5f6g7', []],
-    ['NoSpacesHereAbCd1234', []],   // a line with no space is walked whole by the mask, not split here
+    ['NoSpacesHereAbCd1234', []],   // one piece: the line itself is held and walked
+    ['xK9-mP2qR7vT4wZ8nB5c: rotated last week', ['xK9-mP2qR7vT4wZ8nB5c']],   // a key with - before its note (round 33)
+    ['password:Hq7vLm3pRt6wXy9kHb2n', ['Hq7vLm3pRt6wXy9kHb2n']],   // no space, glued with : (round 33)
+    ['aws_secret_access_key = wJalrXUtnFEMI//K7MDENGbPxRfiCY9EXAMPLEKq', ['wJalrXUtnFEMI//K7MDENGbPxRfiCY9EXAMPLEKq']],   // // in base64 (round 33)
+    ['# needs the XMLHttpRequest polyfill', []],   // an identifier, not a key (round 33)
+    ['key 550e8400-e29b-41d4-a716-446655440000', ['550e8400-e29b-41d4-a716-446655440000']],
+    ['lic Qw8e-Rt2y-Ui9o-Pa3s', ['Qw8e-Rt2y-Ui9o-Pa3s']],
   ];
   for (const [line, want] of cases) assert.deepEqual(keyTokens(line), want, line);
 });

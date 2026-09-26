@@ -448,10 +448,12 @@ test('#3935 the look-ahead is charged per run visited, so repeating a held value
   try {
     const reply = `${atCap.slice(0, 6)} x y z `.repeat(10000);
     /* The median of three runs (review round 29: two loaded full-suite runs measured 605 and 626ms, and it passed at
-       200 to 250ms alone at load 25). The reply is past the cache's text limit, so each run is fresh. */
+       200 to 250ms alone at load 25). Each run re-holds the value, which clears mask()'s cache, so each is a fresh
+       search (review round 33: long texts are cached by hash, and the second run had been a cache hit). */
     let r;
-    const runs = [0, 1, 2].map(() => cpuMillisecondsOf(() => { r = mask(reply); })).sort((x, y) => x - y);
+    const runs = [0, 1, 2].map(() => { setKnownSecrets([]); setKnownSecrets([atCap]); return cpuMillisecondsOf(() => { r = mask(reply); }); }).sort((x, y) => x - y);
     const ms = runs[1];
+    assert.ok(runs[0] > 5, `every run was a cache hit (${runs.map(Math.round).join(', ')}ms), so the bound measured nothing`);
     assert.ok(ms < 600, `a ${reply.length}-character reply repeating a held value's opening cost ${Math.round(ms)}ms of CPU (median of ${runs.map(Math.round).join(', ')})`);
     /* The charge is what decides it (raising WORD_WALK_BUDGET in secretmask.js changes this test's answer): 10,000 openings each looking ahead over hundreds of runs spend the budget,
        and the reply is withheld whole. That is the stated price of the bound on a reply built this way
@@ -619,7 +621,7 @@ test('#3935 deciding which starts to keep is not quadratic: many repeated openin
     /* Measured against the same reply with an unrelated held value, since most of a 1.5MB reply's cost is the
        mask's ordinary linear passes: 1.3x with the sweep, 4x when every completion was compared with every other. */
     /* The median of three interleaved runs each (review round 27: one run each failed under a loaded full suite,
-       780ms against 376ms, and passed alone; the reply is past the cache's text limit, so every run is fresh). */
+       780ms against 376ms, and passed alone). Every run is fresh because each changes the held set, which clears the cache. */
     const base = []; const hit = [];
     let r;
     for (let i = 0; i < 3; i += 1) {
@@ -1287,5 +1289,22 @@ test('#3935 a secret written before its note, or with no digit, on a line with s
     const out = mask('First PqzRtLmW then xKvBnHsU then vWyZaBcDe done').text;
     assert.ok(!out.includes('xKvBnHsU') && !out.includes('vWyZaBcDe'), out);
     assert.equal(mask('It was rotated last week, keep it until Friday.').text, 'It was rotated last week, keep it until Friday.');
+  } finally { setKnownSecrets([]); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('#3935 a key with - before its note, and a key glued with : on a line with no space, are masked split (review round 33)', () => {
+  const knownsecrets = require('./knownsecrets');
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'km-3935-33-'));
+  try {
+    fs.mkdirSync(path.join(root, 'secrets'));
+    fs.writeFileSync(path.join(root, 'secrets', 'notes.txt'), 'xK9-mP2qR7vT4wZ8nB5c: rotated last week\n');
+    fs.writeFileSync(path.join(root, 'secrets', 'htpasswd'), 'password:Hq7vLm3pRt6wXy9kHb2n\n');
+    setKnownSecrets(knownsecrets.collect({ dataRoot: root, home: root }));
+    assert.ok(!mask('Your key is xK9-mP2qR7vT4wZ8nB5c ok').text.includes('mP2qR7vT'));
+    const out = mask('Part one Hq7vLm3p then part two Rt6wXy9k then Hb2n.').text;
+    assert.ok(!out.includes('Hq7vLm3p') && !out.includes('Rt6wXy9k'), out);
+    const t = 'Set password and r2_secret_access_key before you start.';
+    assert.equal(mask(t).text, t);
   } finally { setKnownSecrets([]); fs.rmSync(root, { recursive: true, force: true }); }
 });

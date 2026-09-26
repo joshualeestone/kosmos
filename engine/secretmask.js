@@ -56,7 +56,7 @@ function setKnownSecrets(values) {
      at the value cap took about 2 seconds of the event loop). */
   const list = Array.isArray(values) ? values.filter((v) => typeof v === 'string') : [];
   /* Sorted (review round 24): the files are read in directory order, which need not repeat, and the same set in
-     another order is still the same set. The index itself is built from the list as given. */
+     another order is still the same set. */
   /* A hash of the sorted list as JSON (review round 25): a join on a separator collided when a value held that
      separator, and kept a copy of every held file. */
   const signature = require('crypto').createHash('sha256').update(JSON.stringify([...list].sort())).digest('hex');
@@ -69,7 +69,7 @@ function setKnownSecrets(values) {
   maskCacheChars = 0;
   const forms = new Set();
   const heldValues = [];   // the values taken, as trimmed: the same set the forms and the fragment index come from
-  const walkable = new Set();   // forms of values that are not NAME=value lines
+  const walkable = new Set();   // forms of values the walk reads: not a value with spaces, not a NAME=value line
   /* In sorted order (review round 27): past MAX_KNOWN_VALUES the same set in another order keeps the same values.
      Bare values first (review round 29): a key on its own is what the walk needs, and a line or a file only stands
      in for the values held from it, so those are the ones the cap drops. */
@@ -731,6 +731,8 @@ function mask(text) {
   if (hit) return { text: hit.text, fired: hit.fired.map((f) => ({ ...f })) };
   const out = maskFresh(text);
   const cost = key.length + out.text.length;
+  /* One result larger than the whole bound is not kept (review round 33: it evicted everything and stayed anyway). */
+  if (cost > MASK_CACHE_CHARS_MAX) return out;
   while (maskCache.size && (maskCache.size >= MASK_CACHE_MAX || maskCacheChars + cost > MASK_CACHE_CHARS_MAX)) {
     const [oldest, was] = maskCache.entries().next().value;
     maskCacheChars -= oldest.length + was.text.length;

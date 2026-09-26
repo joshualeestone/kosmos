@@ -65,31 +65,34 @@ function assignedValue(line) {
   return value && !/^=+$/.test(value) ? value : null;
 }
 
-/* The key-shaped tokens of a line with spaces in it (#3935 review rounds 28 and 29). The mask does not walk such a
-   line (a comment, a YAML line, prose: walking it masked the same words in a guide's sentence), so a key inside it
-   is held on its own here: "# rotated: Zq8v...", "token:Zq8v...", "note Zq8v...". Names being assigned are taken
-   out first. A token is cut at spaces , ; :
-   and an = that is not padding; it counts with 12 characters or more, 4 letters or more and a digit, when it is
-   not a URL or path (//) and not made of words (the mask's own test). A name (CF_API_TOKEN) has no digit; a
-   timestamp (2026-09-25T11) has one letter. */
+/* The key-shaped tokens of a secrets-file line (#3935). The mask does not walk a line with spaces in it (a comment,
+   a YAML line, prose: walking it masked the same words in a guide's sentence), so every key inside a line is held on
+   its own here, whatever surrounds it: "# rotated: Zq8v...", "token:Zq8v...", "Zq8v...: rotated last week",
+   "password:Hq7v...". Rather than guessing which side of a : or = is a name (review rounds 27 to 33 each found a
+   shape that guess got wrong), every piece is judged on its own shape:
+   - a piece is cut at spaces , ; : and an = that is not padding;
+   - it is a key with MIN_VALUE_LEN characters or more, four letters, not a URL or path, not made of words, and a
+     digit or both cases;
+   - it is a NAME, and not held, when it is parts joined by _ - . that are each one case, 10 characters at most and
+     no more digits than letters (CF_API_TOKEN, r2_secret_access_key, webhook_url_v2); a key's parts are mixed
+     case or mostly digits (xK9-mP2qR7vT4wZ8nB5c, 550e8400-e29b-...);
+   - an all-letter piece is an identifier when every case piece is three letters or more (XMLHttpRequest,
+     NSURLSessionTask); a random one breaks into two-letter pieces (Pqz Rt Lm Wx ...). */
 function keyTokens(line) {
-  if (typeof line !== 'string' || !/\s/.test(line.trim())) return [];
+  if (typeof line !== 'string') return [];
   const { madeOfWords, MIN_VALUE_LEN } = require('./secretmask');
-  /* Key-shaped (review round 32): MIN_VALUE_LEN or more, four letters, not a URL or path, not made of words, and a
-     digit, or else both cases with no - _ . in it (an all-letter key, PqzRtLmWxKvBnHs...; a name like CF_API_TOKEN
-     has separators, a word like Configuration is made of words). */
-  const isKey = (tok) => tok.length >= MIN_VALUE_LEN && !tok.includes('//') && (tok.match(/[A-Za-z]/g) || []).length >= 4
-    && (/[0-9]/.test(tok) || (!/[-_.]/.test(tok) && /[a-z]/.test(tok) && /[A-Z]/.test(tok))) && !madeOfWords(tok);
+  const namePart = (x) => x.length <= 10 && (x === x.toLowerCase() || x === x.toUpperCase())
+    && (x.match(/[0-9]/g) || []).length <= (x.match(/[A-Za-z]/g) || []).length;
+  const isName = (tok) => /[-_.]/.test(tok) && tok.split(/[-_.]+/).filter(Boolean).every(namePart);
+  const lettersOnlyWords = (tok) => (tok.match(/[A-Z]{2,5}(?=[A-Z][a-z]|$)|[A-Z]?[a-z]+|[A-Z]+/g) || [])
+    .every((p) => p.length >= 3);   // a random all-letter key breaks into many two-letter case pieces (Pqz Rt Lm ...)
+  const isKey = (tok) => tok.length >= MIN_VALUE_LEN && !/^[/~]/.test(tok) && (tok.match(/[A-Za-z]/g) || []).length >= 4
+    && !isName(tok) && !madeOfWords(tok)
+    && (/[0-9]/.test(tok) || (/[a-z]/.test(tok) && /[A-Z]/.test(tok) && !lettersOnlyWords(tok)));
   const out = [];
-  /* A name being assigned (r2_secret_access_key:, API_KEY=, "webhook_url_v2":) is public, not a token. An = counts
-     only with a value after it (review round 31: a single-padded base64 key, Zq8v...Q1=, ended in = and was removed
-     as a name). A "name" that is itself key-shaped with no - _ . in it is the secret with a note after it
-     (AbCdEfGh12345678: rotated last week, review round 32), and is kept. */
-  const names = /(^|[\s,;{#])["']?([A-Za-z_][A-Za-z0-9_.-]*)["']?\s*(?::|=(?![=\s]|$))/g;
-  const stripped = line.trim().replace(names, (m, lead, name) => (isKey(name) && !/[-_.]/.test(name) ? `${lead}${name} ` : `${lead} `));
-  for (const raw of stripped.split(/[\s,;:]+|=(?=[^=\s])/)) {
+  for (const raw of line.trim().split(/[\s,;:]+|=(?=[^=\s])/)) {
     const tok = raw.replace(/^[#"'`([{<]+|["'`)\]}>.,]+$/g, '');
-    if (isKey(tok)) out.push(tok);
+    if (isKey(tok) && tok !== line.trim()) out.push(tok);
   }
   return out;
 }
