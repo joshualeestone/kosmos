@@ -3,9 +3,8 @@ import UserNotifications
 
 // Encapsulates the notification surface: authorization, APNs registration,
 // registering the categories (NotificationCategories), and foreground/response
-// handling. Kept
-// separate from AppDelegate so the behavior is testable and the delegate stays a
-// thin forwarder.
+// handling. Kept separate from AppDelegate so the behavior is testable and the
+// delegate stays a thin forwarder.
 final class PushNotificationManager: NSObject, ObservableObject {
 
     // One tap's request to open a board. Each tap gets its own id, so a second tap
