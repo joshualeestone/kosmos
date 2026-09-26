@@ -15315,7 +15315,10 @@ const server = http.createServer((req, res) => {
       try {
         told = projects.syncAgent(name, roster);
       } catch (err) {
-        told = { state: projects.TOLD.COULD_NOT, because: String((err && err.message) || 'we could not reach that agent') };
+        // A fixed sentence: the raw message can carry a file path and an error code, which is not
+        // something to put in front of the person with a Try again beside it.
+        console.error('[kosmos] #3923 retell ' + name + ': ' + String((err && err.message) || err));
+        told = { state: projects.TOLD.COULD_NOT, because: 'we could not write to its instructions' };
       }
       let retold = null;
       try { retold = projects.get(id, roster); } catch { retold = null; }
@@ -15325,12 +15328,22 @@ const server = http.createServer((req, res) => {
          written (`added`, not `changed`: the same write may add or drop some other project), and
          only while the agent is still on it: a leave landing mid-request must not be announced
          as a join. A no-op retry repeats nothing (#304). */
+      /* Every project the write newly added is announced, not only this one: an earlier failed add
+         elsewhere is stored on each of the agent's projects, so pressing Try again here can be what
+         finally writes that other project in, and its stored TOLD reads as "told it on its screen"
+         too. `said` stays this project's answer; `alsoSaid` carries the others by id. */
       let said = null;
-      const stillOn = !!(retold && (retold.agents || []).some((a) => a && (a.sessionName || a) === name));
-      if (retold && stillOn && told && told.state === projects.TOLD.TOLD && Array.isArray(told.added) && told.added.includes(id)) {
-        said = projects.speakOfMembership(name, retold, 'joined', roster);
+      const alsoSaid = {};
+      const added = (told && told.state === projects.TOLD.TOLD && Array.isArray(told.added)) ? told.added : [];
+      for (const pid of added) {
+        let proj = null;
+        try { proj = pid === id ? retold : projects.get(pid, roster); } catch { proj = null; }
+        const on = !!(proj && (proj.agents || []).some((a) => a && (a.sessionName || a) === name));
+        if (!on) continue;
+        const one = projects.speakOfMembership(name, proj, 'joined', roster);
+        if (pid === id) said = one; else alsoSaid[pid] = one;
       }
-      sendJson(res, 200, { project: retold, told, said, agentsUnreadable: roster === null });
+      sendJson(res, 200, { project: retold, told, said, alsoSaid, agentsUnreadable: roster === null });
       return;
     }
     /* The membership valve (#803, extended): a process past sixty membership
@@ -17011,6 +17024,7 @@ if (require.main === module) {
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
+  resetRetellForTests: () => { RETELL_RECENT.length = 0; }, // #3923: the agent-made retry bound, emptied between tests
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
   federateOut, // #3311: what leaves this computer for a federated room, exported so the agent arm is tested

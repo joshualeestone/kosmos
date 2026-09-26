@@ -137,6 +137,9 @@ const TOLD = {
  * same commit and left this one standing, which is the class this file keeps
  * producing: the newest sentence is the least examined one.
  */
+/* #3923: no page reads `becauseGroup` any more (the project notice replaced the group line), but
+   this map stays: it is the list of every could_not sentence the engine authors, and the notice's
+   coverage test reads it so a new sentence cannot reach the screen without a notice row. */
 const GROUP_BECAUSE = new Map([
   /**
    * ⚠️ THE FRAME NAMES THE AGENTS, so these values carry `instructions`
@@ -2550,6 +2553,13 @@ function projectsInBlock(text, ids) {
   const block = src.slice(at.start, at.end);
   return ids.filter((id) => block.includes(projectPostKey(id) + '`'));
 }
+/** Whether a block exists that names NONE of the ids by the current post line: an older-format block
+    (before this line, or with another command shown), whose projects cannot be read, so `added` must
+    not treat everything as new. */
+function blockUnreadable(text, ids) {
+  const at = findBlock(String(text == null ? '' : text));
+  return !!(at && !at.ambiguous && ids.length && !projectsInBlock(text, ids).length);
+}
 
 function blockBody(projects, sessionName) {
   // ⚠️ Never reached with an empty list any more -- `tellAgent` REMOVES the
@@ -2756,7 +2766,9 @@ function tellAgent(sessionName, projects, roster) {
        that adds some other project or takes one out. */
     const ids = projects.map((p) => p.id).filter((id) => id != null);
     const had = projectsInBlock(current.text, ids);
-    const added = projectsInBlock(next, ids).filter((id) => !had.includes(id));
+    // An older-format block whose projects cannot be read: nothing is claimed as new (announcing a
+    // project the agent has been on for weeks is worse than saying nothing).
+    const added = blockUnreadable(current.text, ids) ? [] : projectsInBlock(next, ids).filter((id) => !had.includes(id));
     return { state: TOLD.TOLD, because: null, changed: withProjects !== (current.text || ''), added };
   } catch (err) {
     // ⚠️ A length refusal is OUR doing here, not the person's. Taking our block

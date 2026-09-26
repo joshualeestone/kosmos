@@ -87,7 +87,7 @@ test('#3923: nothing wrong says nothing (success and not_tried included)', () =>
 test('#3923: each shape as the design draws it (Wait, Act then retry twice, Explain), one agent each', () => {
   const { pjNotice } = notice();
   const wait = pjNotice(rows({ leo: 'we could not write to its instructions' }));
-  assert.equal(text(wait), 'Kosmos could not update leo’s instructions for this project. The change did not save. It may work on another try. Try again');
+  assert.equal(text(wait), 'Kosmos could not update leo’s instructions for this project. Saving did not work this time. It may work on another try. Try again');
   assert.match(wait, /data-pn-retry="leo"/);
 
   const act = pjNotice(rows({ april: 'it has no instructions file yet, and we will not create one' }));
@@ -122,7 +122,7 @@ test('#3923: several agents: the header counts, each row carries its own why and
   assert.equal((html.match(/data-pn-retry=/g) || []).length, 2, 'leo (Wait) and april (fix, then retry) get a button; casey (Explain) does not');
   assert.doesNotMatch(html, /data-pn-retry="casey"/);
   assert.match(html, /aria-label="Try again for leo"/, 'each button names its agent for a screen reader');
-  assert.match(html, /<span class="pnwho">leo<\/span><span class="pnwhy">The change did not save\. It may work on another try\./);
+  assert.match(html, /<span class="pnwho">leo<\/span><span class="pnwhy">Saving did not work this time\. It may work on another try\./);
   assert.match(html, /<span class="pnwho">casey<\/span><span class="pnwhy">Kosmos has no folder for casey on this computer, so it has nowhere to write\./);
   assert.doesNotMatch(html, /bob/);
 });
@@ -132,7 +132,7 @@ test('#3923: a Try again that came back with the same answer says so on the row,
   const r = rows({ leo: 'we could not write to its instructions' });
   assert.doesNotMatch(pjNotice(r, 'p1'), /still did not work/, 'CONTROL: not before a retry');
   PJ_NOTICE_TRIED.set('p1\nleo', 'we could not write to its instructions');
-  assert.match(text(pjNotice(r, 'p1')), /The change did not save\. It may work on another try\. It still did not work\./);
+  assert.match(text(pjNotice(r, 'p1')), /Saving did not work this time\. It may work on another try\. It still did not work\./);
   // Another project painting (where leo is fine) does not forget it here.
   pjNotice(rows({ leo: 'told' }), 'p2');
   assert.match(text(pjNotice(r, 'p1')), /It still did not work\./, 'browsing another project forgot the retry here');
@@ -148,7 +148,7 @@ test('#3923: a Try again that got no answer says it did not go through, and a la
   const r = rows({ leo: 'we could not write to its instructions' });
   assert.doesNotMatch(pjNotice(r, 'p1'), /did not go through/, 'CONTROL: not before a retry');
   PJ_NOTICE_MISSED.set('p1\nleo', 'we could not write to its instructions');
-  assert.match(text(pjNotice(r, 'p1')), /The change did not save\. It may work on another try\. Trying again did not go through, so this is still the earlier answer\./);
+  assert.match(text(pjNotice(r, 'p1')), /Saving did not work this time\. It may work on another try\. Trying again did not go through, so this is still the earlier answer\./);
   assert.doesNotMatch(pjNotice(r, 'p1'), /still did not work/, 'an unanswered retry claimed to have been tried');
   // A changed answer ends the mark, as for an answered retry.
   pjNotice(rows({ leo: 'its instructions are already at the size limit' }), 'p1');
@@ -159,6 +159,10 @@ test('#3923: a Try again that got no answer says it did not go through, and a la
 
 test('#3923: an unknown cause is one honest retry with the engine\'s own sentence', () => {
   const { pjNotice } = notice();
+  // A system error's own words (an error code, a path) never reach the person.
+  for (const raw of ["EACCES: permission denied, open '/Users/josh/x.json'", 'ENOSPC: no space left on device', "could not open C:\\Users\\x"]) {
+    assert.equal(text(pjNotice(rows({ leo: raw }))), 'Kosmos could not update leo’s instructions for this project. Kosmos could not update leo’s instructions. Try again', 'raw text reached the notice: ' + raw);
+  }
   assert.equal(text(pjNotice(rows({ leo: 'the disk is full' }))), 'Kosmos could not update leo’s instructions for this project. The disk is full. Try again');
 });
 
@@ -259,7 +263,7 @@ function retryHandler(state) {
   return new Function('state', 'document', 'fetch', 'loadProjects', 'paintOneProject', 'PROJECTS', 'PJ_NOTICE_TRIED', 'PJ_NOTICE_MISSED', 'window', 'CSS',
     pageFn('const pjNoticeKey').split('\n')[0] + '\nreturn ' + body + ';')(state, state.document, state.fetch, state.loadProjects, state.paintOneProject, state.PROJECTS, state.tried, state.missed, {}, undefined);
 }
-function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false, refused = false, status = null, overtaken = false, focusedElsewhere = false, readFails = false } = {}) {
+function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false, refused = false, status = null, overtaken = false, focusedElsewhere = false, focusedInside = false, readFails = false } = {}) {
   const log = [];
   const btn = { dataset: { pnRetry: project.agents[0].sessionName }, disabled: false, closest() { return this; } };
   const again = { focus() { log.push('focus:again'); } };
@@ -268,12 +272,15 @@ function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false
   const heading = { focus() { log.push('focus:heading'); }, hasAttribute: (k) => k in attrs, setAttribute: (k, v) => { attrs[k] = v; },
     removeAttribute: (k) => { delete attrs[k]; }, addEventListener: (type, fn) => { if (type === 'blur') onBlur.push(fn); } };
   again.dataset = { pnRetry: project.agents[0].sessionName };
-  const box = { __lastLive: 'x', querySelectorAll: () => (rowAfter ? [again] : []), contains: () => false };
+  const inside = { id: 'a-button-in-the-notice' };
+  const box = { __lastLive: 'x', querySelectorAll: () => (rowAfter ? [again] : []), contains: (el) => el === inside };
+  const said = { textContent: 'stale' };
   const body = { id: 'body' };
   const elsewhere = { id: 'composer' };
   const state = {
-    PJ_CURRENT: project.id, PROJECTS: [project], tried: new Map(), missed: new Map(), log, btn, attrs, onBlur,
-    document: { getElementById: () => box, querySelector: () => heading, body, get activeElement() { return focusedElsewhere ? elsewhere : body; } },
+    PJ_CURRENT: project.id, PROJECTS: [project], tried: new Map(), missed: new Map(), log, btn, attrs, onBlur, said,
+    document: { getElementById: (id) => (id === 'pj-one-notice-said' ? said : box), querySelector: () => heading, body,
+      get activeElement() { return focusedElsewhere ? elsewhere : (focusedInside ? inside : body); } },
     fetch: async (url, opts) => { log.push('fetch:' + opts.method + ' ' + url + ' disabled=' + btn.disabled); if (switchTo) state.PJ_CURRENT = switchTo; if (fetchFails) throw new Error('offline'); return { ok: !refused && !status, status: status || (refused ? 500 : 200) }; },
     loadProjects: async () => { log.push('load live=' + box.__lastLive); state.PJ_READ_FAILED = readFails; return !overtaken; },
     paintOneProject: () => { log.push('paint live=' + box.__lastLive); },
@@ -291,6 +298,11 @@ test('#3923: Try again re-tells with ?retell=1, repaints, marks the answer, and 
     'focus:again',
   ]);
   assert.equal(st.btn.disabled, false, 'the button must be re-enabled after the repaint');
+  assert.equal(st.said.textContent, '', 'CONTROL: a row that is still there announces no success');
+  // Focus still inside the notice (the pressed button was replaced): it is put back.
+  const kept = standIn(project, { focusedInside: true });
+  await retryHandler(kept)({ target: kept.btn });
+  assert.equal(kept.log[kept.log.length - 1], 'focus:again', 'focus left inside the notice was not put back');
   assert.equal(st.tried.get(project.id + '\nleo'), 'we could not write to its instructions', 'the answer before the retry is remembered');
 });
 
@@ -300,6 +312,7 @@ test('#3923: when the row is gone focus goes to the Members heading; after a pro
   await retryHandler(gone)({ target: gone.btn });
   assert.equal(gone.log[gone.log.length - 1], 'focus:heading');
   assert.equal(gone.attrs.tabindex, '-1', 'the heading must be focusable to take focus');
+  assert.equal(gone.said.textContent, 'Kosmos updated leo’s instructions.', 'a retry that worked was silent to a screen reader');
   gone.onBlur.forEach((fn) => fn());
   assert.equal('tabindex' in gone.attrs, false, 'the heading stayed focusable after focus left it');
 

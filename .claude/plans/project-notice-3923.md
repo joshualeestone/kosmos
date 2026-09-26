@@ -102,3 +102,15 @@ page. Try again re-tells that agent and the notice updates.
   since they write the instruction file but move no membership and memberValve never sees them. The
   screen is never refused, like every sibling path.
 - A 409 (the agent left) is an answer, not a failed retry: the row goes, so nothing is marked.
+
+## Review round 13
+- A retry announces EVERY project its write newly added while the agent is on it (`alsoSaid` by id),
+  not only the one in the URL: an earlier failed add elsewhere is stored on all the agent's projects.
+- A block in an older format (no post line for any listed project) claims nothing as newly added.
+- The retell catch stores a fixed sentence and logs the raw error; the notice's unknown-cause row
+  never shows text carrying an error code or a file path.
+- A retry that worked says so to a screen reader ("Kosmos updated X's instructions.", a visually
+  hidden status line), since an emptied notice announces nothing.
+- Save row reads "Saving did not work this time. It may work on another try."
+- Consolidated layout (Members card hidden, so no notice there): follow-up #3948.
+- The agent-made retry bound resets between tests (resetRetellForTests).

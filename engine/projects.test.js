@@ -2099,6 +2099,21 @@ test('#3923: syncAgent reports which projects the write newly put in the block, 
   assert.deepEqual([same.changed, same.added], [false, []]);
 });
 
+test('#3923: a block in an older format (no post line) claims nothing as newly added', () => {
+  reset();
+  agent('ivo', '# Ivo\n\nHis own words, long enough to be a real instruction file.\n');
+  const R = cards([fleet.agent('ivo', { state: 'working' })]);
+  const one = projects.create({ name: 'Old', folder: folder('old-format'), agents: ['ivo'] });
+  assert.deepEqual(projects.syncAgent('ivo', R).added, [one.id], 'CONTROL: a fresh block reports its project');
+  // Rewrite the block as an older version wrote it: the project line without the post line.
+  const file = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'ivo', 'CLAUDE.md');
+  const text = fs.readFileSync(file, 'utf8').split('\n').filter((l) => !l.includes(' post ')).join('\n');
+  fs.writeFileSync(file, text);
+  const again = projects.syncAgent('ivo', R);
+  assert.equal(again.changed, true, 'CONTROL: the rewrite restores the post line, so the block changed');
+  assert.deepEqual(again.added, [], 'a project the old block already listed was claimed as newly added');
+});
+
 test('a colleagues marker pair cannot ride a project field into the block', () => {
   // tellAgent heals the colleagues block now, so a smuggled pair is an
   // injection path into the heal (ambiguate it off, or hand it a span

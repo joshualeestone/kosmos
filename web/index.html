@@ -13723,6 +13723,7 @@ window.kosmosMeasureScrollbarWidth();
            heading and above the list, in the page's order and on screen (the card's grid pins the
            heading to row 1). -->
       <div id="pj-one-notice" role="status" aria-live="polite"></div>
+      <div id="pj-one-notice-said" class="vh" role="status" aria-live="polite"></div>
       <div id="pj-one-agents" class="pj-members"></div>
       <!-- ⚠️ The picker hides behind the button, not the other way round: the
            resting state of the box is the members, and "+ Add Member" (the
@@ -43734,7 +43735,7 @@ function pjToldLine(told) {
  * in a row of several (the name is beside it).
  */
 const PJ_NOTICE = [
-  [/^we could not write to its instructions$|^those instructions could not be saved$/, 'wait', () => 'The change did not save. It may work on another try.'],
+  [/^we could not write to its instructions$|^those instructions could not be saved$/, 'wait', () => 'Saving did not work this time. It may work on another try.'],
   [/^we could not check which agents are running$/, 'wait', () => 'We could not check which agents are running.'],
   // Somebody saved the file mid-write; nothing was lost, and a retry reads it fresh.
   // (The raw editor sentence is matched too: verdicts saved before tellAgent translated it keep it.)
@@ -43780,8 +43781,10 @@ function pjNoticeRow(m, solo) {
   const name = String((m && m.name) || (m && m.sessionName) || 'this agent');
   const hit = PJ_NOTICE.find(([re]) => re.test(because));
   if (!hit) {
-    // Unknown cause: its own sentence and one honest retry.
-    return { shape: 'wait', why: pjSentence(because) || 'We could not update ' + (solo ? name : 'it') + '.', fix: '', name, key: m.sessionName, because };
+    // Unknown cause: its own sentence and one honest retry. Not a system error's own words, though:
+    // one carrying a file path or an error code (EACCES, ENOENT...) is not a sentence for the person.
+    const raw = /(^|\s)E[A-Z]{2,}\b|\/(Users|home|private|var|tmp)\/|[A-Za-z]:\\/.test(because);
+    return { shape: 'wait', why: (!raw && pjSentence(because)) || 'Kosmos could not update ' + (solo ? name + '\u2019s' : 'its') + ' instructions.', fix: '', name, key: m.sessionName, because };
   }
   const [, shape, why, fix] = hit;
   return { shape, why: why(solo ? name : null, name), fix: fix ? fix(name) : '', name, key: m.sessionName, because };
@@ -53305,10 +53308,12 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
   const box = document.getElementById('pj-one-notice');
   btn.disabled = true;
   let before = '';
+  let name = key;   // the display name, for the success line (the row is gone by then)
   try {
     const p = (PROJECTS || []).find((x) => x && x.id === project);
     const m = p ? (p.agents || []).find((a) => a && a.sessionName === key) : null;
     before = String((m && m.told && m.told.because) || '');
+    if (m && m.name) name = String(m.name);
   } catch { /* no remembered answer: nothing is marked as "still" */ }
   let reached = false;
   let left = false;   // 409: the agent is no longer on the project. An answer, not a failure: its row goes.
@@ -53341,6 +53346,9 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
   // Compared as data, not built into a selector, so no session name can break the lookup.
   const again = Array.from(box.querySelectorAll('[data-pn-retry]')).find((b) => b.dataset.pnRetry === key) || null;
   const heading = document.querySelector('.pjcard-members > .dlab');
+  // Success empties the notice, which a screen reader does not announce: say it in words.
+  const said = document.getElementById('pj-one-notice-said');
+  if (said) said.textContent = (reached && !again) ? 'Kosmos updated ' + (name || key) + '\u2019s instructions.' : '';
   if (again) again.focus();
   else if (heading) {
     // Focusable only for this one landing: a heading left in the tab-by-click order is a stray stop.

@@ -14990,8 +14990,7 @@ test('#3923: Try again (?retell=1) re-tells a current member and never re-adds o
   const retell = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
   assert.equal(retell.status, 200, retell.body);
   assert.deepEqual(agentsOf(), ['leo']);
-  // (leo is not running in the sandbox, so this holds either way; the stubbed arms below are the real check.)
-  assert.equal(JSON.parse(retell.body).said, null, 'a retell typed into the agent\'s window');
+  // (Whether a retry speaks is checked by the stubbed arms below; leo is not running in the sandbox.)
   assert.ok(at0 && toldAt() > at0, 'the retell recorded no fresh verdict: ' + at0 + ' -> ' + toldAt());
 
   // A retell on a project that does not exist is a 404, like every sibling path.
@@ -15017,6 +15016,19 @@ test('#3923: Try again (?retell=1) re-tells a current member and never re-adds o
     const other = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
     assert.equal(other.status, 200, other.body);
     assert.equal(spoke.length, 1, 'a retry announced this project when the write added a different one');
+    // ...and when that other project is real and leo is on it, THAT one is announced (its stored TOLD
+    // reads as told on its screen too), under alsoSaid, while this project's `said` stays null.
+    const madeTwo = await req('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Retell Other', folder: mkTemp('aw-retell-two-'), agents: ['leo'] }) });
+    assert.equal(madeTwo.status, 200, madeTwo.body);
+    const id2 = JSON.parse(madeTwo.body).project.id;
+    eng.syncAgent = () => ({ state: eng.TOLD.TOLD, because: null, changed: true, added: [id2] });
+    const both = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
+    assert.equal(both.status, 200, both.body);
+    assert.deepEqual(spoke[spoke.length - 1], ['leo', id2, 'joined'], 'the other newly written project was not announced');
+    assert.equal(JSON.parse(both.body).said, null);
+    assert.deepEqual(Object.keys(JSON.parse(both.body).alsoSaid), [id2]);
+    spoke.length = 1;
     // Left while the retry ran (the sync took the block out): never announced as a join.
     eng.syncAgent = () => {
       const all = eng.readAll();
@@ -15053,5 +15065,6 @@ test('#3923: Try again (?retell=1) re-tells a current member and never re-adds o
   } finally {
     eng.syncAgent = realSync;
     eng.speakOfMembership = realSpeak;
+    require('./server').resetRetellForTests();
   }
 });
