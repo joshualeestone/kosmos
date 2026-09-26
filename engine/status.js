@@ -6087,8 +6087,10 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     return {
       state: STATE.NEEDS_YOU,
       confidence: CONFIDENCE.STRUCTURED,
-      because: 'Kosmos restarted this agent and it did not come back. Restart it to bring it back',
-      disruption: { cause: disruptionRec.cause, startedAt: disruptionRec.startedAt, timedOut: true, failed: true },
+      because: disruptionRec.gone === true
+        ? 'Kosmos restarted this agent but its launch file is gone, so it cannot start. It has to be created again'
+        : 'Kosmos restarted this agent and it did not come back. Restart it to bring it back',
+      disruption: { cause: disruptionRec.cause, startedAt: disruptionRec.startedAt, timedOut: true, failed: true, gone: disruptionRec.gone === true },
       reported: false,
       conflict: null,
     };
@@ -6636,7 +6638,8 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
     because: status.because,
     /* #2019: the field a pane card carries for a deliberate restart. A paneless
        agent has no STOPPED pane to misread, so it never reaches the RESTARTING
-       branch and this is always null here; carried anyway so both card kinds
+       branch; the one exception is a FAILED restart (#4006), passed in for a
+       created agent with no pane, which reads needs_you and carries it here. Carried so both card kinds
        have one shape. Surfacing RESTARTING for a PANELESS agent mid-restart --
        keeping its card on the board through the disruption window instead of
        dropping it -- is a delineated follow-up, and it covers TWO cases, not
@@ -6857,7 +6860,7 @@ function snapshot() {
       } else {
         const full = disruption.read(pane.name);
         if (full.found) {
-          disruptionRec = { cause: full.cause, startedAt: full.startedAt, ageMs: full.ageMs, timedOut: true, failed: full.failed === true };
+          disruptionRec = { cause: full.cause, startedAt: full.startedAt, ageMs: full.ageMs, timedOut: true, failed: full.failed === true, gone: full.gone === true };
         }
       }
     }
@@ -7407,7 +7410,7 @@ function snapshot() {
          session, no loaded job). Only a FAILED record is passed: a fresh in-flight one would change the
          paneless-restart reading, which is its own follow-up (see the disruption note in panelessCard). */
       let failedRec = null;
-      try { const d = disruption.read(key); if (d.found && d.failed) failedRec = { cause: d.cause, startedAt: d.startedAt, failed: true, timedOut: true }; } catch { failedRec = null; }
+      try { const d = disruption.read(key); if (d.found && d.failed) failedRec = { cause: d.cause, startedAt: d.startedAt, failed: true, timedOut: true, gone: d.gone === true }; } catch { failedRec = null; }
       try { agents.push(panelessCard(key, nowMs, NEVER_RUN_DEFAULT, failedRec)); boardKeys.add(key); } catch { /* that one agent is not listable */ }
     }
   }
