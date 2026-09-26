@@ -29,8 +29,10 @@
  * finish again: the new attempt's record REPLACES this build's record when it finishes. An earlier
  * record is never deleted before then, so an abandoned attempt cannot turn a refusal into a HOLD.
  *
- * THE SEED: the address #1591 decided (a plus address on the mailbox the Gmail connector already
- * reads, not a new mailbox, #3751), given as --seed or KOSMOS_SEED_EMAIL. It is not written in
+ * THE SEED: the address #1591 decides: a +seed alias on a KOSMOS-owned mailbox (installkosmos.com),
+ * connected to the agents' Gmail connector. Never another company's mailbox by default: the connector
+ * can read the whole mailbox, not only one address (#1591, 2026-09-26). Given as --seed or
+ * KOSMOS_SEED_EMAIL. It is not written in
  * this repo (#1881: no other company's names or accounts in the tree); the card names it. The
  * Resend key is never used for reading.
  *
