@@ -1,6 +1,6 @@
 'use strict';
 /* #3614: the agent page's Files block, as #3757 reshaped it (no section while there are no files;
- * View All when there are more than it lists; Open in Finder on the Files screen). Placement is checked on the shipped markup (directly under
+ * View All with any file, even one (#3994); Open in Finder on the Files screen). Placement is checked on the shipped markup (directly under
  * the four-pack, inside the left column); the painter is the REAL function lifted from
  * web/index.html, run against a stub DOM and fetch.
  *
@@ -101,11 +101,17 @@ test('files render as rows with name, date and size; the rest are counted', asyn
   assert.equal(h.el['d-files-msg'].textContent, '');
   assert.equal(h.el['d-files'].hidden, false, 'an agent with files does not show the section');
   assert.equal(h.el['d-files-all'].hidden, false, '#3757: more files than listed, and no View All');
-  // Exactly as many as listed: no View All (Josh: "a View All if we exceeded the number that we display").
+  // #3994 (Josh, 2026-09-26): ONE file, every file listed, and View All still shows, because it is the
+  // way to Open in Finder ("even if there is only one file"). This replaced #3757's more-than-listed rule.
   const all = harness(() => ({ ok: true, total: 1, stamp: 's1', files: [{ name: 'only.txt', size: 1 }] }));
   await all.api.paintAgentFiles('ana');
   assert.equal(all.el['d-files'].hidden, false);
-  assert.equal(all.el['d-files-all'].hidden, true, '#3757: View All shown although every file is listed');
+  assert.equal(all.el['d-files-all'].hidden, false, '#3994: one file, and no View All (no way to Open in Finder)');
+  // CONTROL: no files is still no section, and so no View All (#3757).
+  const none = harness(() => ({ ok: true, total: 0, stamp: 's0', files: [] }));
+  await none.api.paintAgentFiles('ana');
+  assert.equal(none.el['d-files'].hidden, true);
+  assert.equal(none.el['d-files-all'].hidden, true);
 });
 
 test('an unchanged folder is not repainted; a changed one is', async () => {

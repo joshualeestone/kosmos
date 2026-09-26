@@ -85,12 +85,14 @@ const USAGE = {
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
   room: 'Usage: kosmos room <project-id>   (read a room; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   task: [
-    'Usage: kosmos task <list|add|close|message>',
+    'Usage: kosmos task <list|add|close|message|built>',
     '  kosmos task list <project-id>                                 list this project\'s tasks',
     '  kosmos task add  <project-id> "<what the task is>" ["more detail"]  add one (quote each part)',
     '      --parent <task-number>                                   make it a subtask of that task',
     '  kosmos task close <project-id> <task-number>                  close one (number is from list)',
     '  kosmos task message <project-id> <task-number> "<what to say>"  say something in a task\'s conversation',
+    '  kosmos task built <project-id> <task-number> ["what is left"]  mark it built, waiting to be released or checked',
+    '      --clear                                                  take the built mark off',
     '  (project ids are in your instructions\' Your projects section.)',
   ].join('\n'),
   project: [
@@ -525,7 +527,7 @@ async function taskList(ctx, args) {
     const who = (x.whoNames && x.whoNames.length) ? ' (' + x.whoNames.join(', ') + ')' : '';
     const up = x.parent ? ' (under task ' + x.parent + ')' : '';
     const kids = (x.subtasks && x.subtasks.total) ? ' [' + x.subtasks.done + '/' + x.subtasks.total + ' subtasks done]' : '';
-    ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? '[done] ' : '') + (x.sentence || '(no description)') + who + up + kids);
+    ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? '[done] ' : (x.builtAt ? '[built] ' : '')) + (x.sentence || '(no description)') + who + up + kids);
   }
   return 0;
 }
@@ -588,6 +590,31 @@ async function taskMessage(ctx, args) {
   if (r.json && r.json.ok === true) { ctx.out('Message recorded on task ' + num + ' of ' + project + '; any agents assigned to it were notified.'); return 0; }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that message: ' + ctx.refusedBy(r) + '.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when sending that message.');
+  return 1;
+}
+
+/* #3951, as install/kosmos cmd_task built: mark a task built, waiting to be released or checked, or take the mark
+   off with --clear. Presents the agent token, as message does, so the board names who marked it. */
+async function taskBuilt(ctx, args) {
+  const [project, num] = args;
+  if (!project || !num) { ctx.err('Usage: kosmos task built <project-id> <task-number> ["what is left"]   (or --clear to take the mark off)'); return 2; }
+  if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
+  const rest = args.slice(2);
+  const clear = rest.includes('--clear');
+  const note = rest.filter((a) => a !== '--clear').join(' ');
+  if (clear && note) { ctx.err('--clear takes the mark off, so it takes no note. Run it without the note.'); return 2; }
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '' });
+  if (!r.reached) {
+    return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
+      : ctx.unreachable('mark that task');
+  }
+  if (r.json && r.json.task) {
+    ctx.out(clear ? (r.json.changed === false ? 'Task ' + num + ' on ' + project + ' was not marked built.' : 'Took the built mark off task ' + num + ' on ' + project + '.')
+      : 'Marked task ' + num + ' on ' + project + ' built, waiting to be released or checked. Closing it clears the mark.');
+    return 0;
+  }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos could not mark that task: ' + ctx.refusedBy(r) + '.'); return 1; }
+  ctx.err('Kosmos gave an answer we could not read when marking that task.');
   return 1;
 }
 
@@ -766,7 +793,7 @@ const VERB_HANDLERS = {
 const SUBCOMMAND_HANDLERS = {
   report: { show: reportShow, status: reportShow },
   room: { reopen: roomReopen },
-  task: { list: taskList, add: taskAdd, close: taskClose, message: taskMessage },
+  task: { list: taskList, add: taskAdd, close: taskClose, message: taskMessage, built: taskBuilt },
   project: { create: projectCreate },
   agent: { create: agentCreate, roles: agentRoles },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },

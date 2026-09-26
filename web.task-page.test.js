@@ -146,6 +146,14 @@ test('the page says which task, in which project, added when, and in what state'
   assert.equal(doc.els['tk-project'].textContent, 'Customer Onboarding Refresh');
   assert.equal(doc.els['tk-state'].textContent, 'Open');
   assert.equal(doc.els['tk-done'].textContent, 'Mark as done');
+  /* #3951 (review round 4): a built task says so on its own page, with who and what is left. */
+  const built = runPaint({
+    project: { ...PROJECT, tasks: [] },
+    task: { number: 16, sentence: 'Ship the form', detail: null, who: 'april', createdAt: new Date(now - 3600000).toISOString(),
+      addedBy: 'operator', closedAt: null, builtAt: new Date(now - 60000).toISOString(), builtBy: 'april', builtNote: 'waiting on the release' },
+    now,
+  });
+  assert.equal(built.doc.els['tk-state'].textContent, 'Open, marked built by April: waiting on the release');
   // The back link IS the breadcrumb: the way back and what it belongs to are
   // the same fact, so the project name has to be in it.
   assert.match(doc.els['tk-back'].textContent, /Customer Onboarding Refresh/);
