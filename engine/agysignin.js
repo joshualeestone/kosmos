@@ -236,8 +236,12 @@ function readyLineOf(text) {
 }
 function step() {
   if (!S || S.busy) return;
-  if (now() - S.startedAt > GIVE_UP_MS) { end('failed', 'the sign-in was not finished, so Kosmos stopped it'); return; }
+  /* Round 25: once the window is shown the person is driving it, so the half hour counts from the last
+     time its screen changed, not from the start: a person still working in it is never cut off. */
+  const since = S.shown ? Math.max(S.startedAt, S.lastChangeAt || 0) : S.startedAt;
+  if (now() - since > GIVE_UP_MS) { end('failed', 'the sign-in was not finished, so Kosmos stopped it'); return; }
   const text = screen();
+  if (typeof text === 'string' && text !== S.lastText) { S.lastText = text; S.lastChangeAt = now(); }
   /* Gone only when tmux says so twice in a row (round 13): one failed has-session can be a hiccup
      (a fork failure, a moved binary), and "gone" ends the sign-in or spends an ask. */
   if (text === null) { S.goneMisses = (S.goneMisses || 0) + 1; if (S.goneMisses < 2) return; } else if (text !== undefined) S.goneMisses = 0;

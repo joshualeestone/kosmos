@@ -166,3 +166,7 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 - Every failure at the tmux/open boundary is logged (start, the code send, the window script, open), never the code itself. The code and stop routes answer 500 with their own words on a throw.
 - Scripted tests set the real tick interval out of the way (tickMs), so only their own ticks run.
 - Weakest premise now: agy never draws its ready line alone for a whole tick between two setup screens (then a yes would end it before terms and trust); the steadiness tick guards the passing frame.
+
+## Review round 25 (decided)
+- Once the window is shown, the half-hour give-up counts from the last time its screen changed, so a person still working in it is never cut off; a shown window left unchanged for over half an hour still ends. Not shown, it counts from the start as before.
+- Left: the first-run paste box and Show row have no browser check of their own. They are the same agySubDriver the Settings browser check drives end to end in a real browser (render-settings-agy-3874), and web.agy-on-3568.test.js covers the first-run markup; a first-run browser check is a follow-up, not this card.

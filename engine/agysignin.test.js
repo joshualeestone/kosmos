@@ -1049,3 +1049,26 @@ test('#3998 round 23: code() reads a frame as the tick does (round 24: the code 
     assert.deepEqual(st.sent.filter((k) => /4\/0A/.test(k)), []);
   } finally { s.resetForTests(); }
 });
+
+/* ---- review round 25 --------------------------------------------------------------------- */
+test('#3998 round 25: a shown window the person is still working in is not cut off at half an hour; a quiet one is', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'something Kosmos does not know');
+  st.answer = { signedIn: null };
+  s.setForTests({ openFile: (f, done) => done(null) });
+  try {
+    const { id } = s.start();
+    await s.show(id);
+    for (let i = 0; i < 40; i++) {   // 40 minutes of the person moving through screens
+      st.screen = 'a screen the person is on, minute ' + i; st.t += 60000; s.tickForTests(); await settle();
+    }
+    assert.notEqual(s.status().state, 'failed', 'the window was closed while the person was still using it');
+    for (let i = 0; i < 31; i++) { st.t += 60000; s.tickForTests(); await settle(); }   // then nothing changes for 31 minutes
+    assert.equal(s.status().state, 'failed', 'CONTROL: a shown window left untouched for over half an hour is still ended');
+    // CONTROL: not shown, the half hour counts from the start however the screen changes.
+    const st2 = scripted(s, 'x');
+    s.start();
+    for (let i = 0; i < 31; i++) { st2.screen = 'hidden screen ' + i; st2.t += 60000; s.tickForTests(); await settle(); }
+    assert.equal(s.status().state, 'failed');
+  } finally { s.resetForTests(); }
+});
