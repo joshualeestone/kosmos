@@ -2228,3 +2228,23 @@ test('#3827: a signed mac-request is refused while this computer is being forgot
     delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
   }
 });
+
+test('#3827: the hosted assistant is refused while this computer is being forgotten', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  process.env.FAKE_TUNNEL_MODE = 'hung-retire';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000';
+  process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '1500';
+  try {
+    const forgetting = remote.forget();
+    const r = await remote.assistantChat({ message: 'hi' });
+    assert.equal(r.ok, false, 'the assistant signed with a key being retired');
+    assert.match(r.because, /being forgotten/);
+    await forgetting;
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
+  }
+});

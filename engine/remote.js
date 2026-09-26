@@ -706,10 +706,14 @@ async function assistantChat(body) {
   if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_TUNNEL_BIN) {
     return { ok: false, because: 'the tunnel is not available under test' };
   }
+  // Signed with this Mac's key (or the install key) in the state dir, like every
+  // other signed call: refused while a register or a Forget is out, and Forget
+  // waits for one already out (it carries its own bound). (#3827)
+  { const b = busy(); if (b) return b; }
   const args = ['assistant-chat', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()];
   const timeout = Number(process.env.AGENT_WORKFORCE_ASSISTANT_TIMEOUT_MS) || ASSISTANT_TIMEOUT_MS;
   let r;
-  try { r = await setupRun(args, JSON.stringify(body || {}), timeout); }
+  try { r = await tracked(setupRun(args, JSON.stringify(body || {}), timeout)); }
   catch (err) { return { ok: false, because: String((err && err.message) || err) }; }
   if (!r.ok) {
     const because = String(r.because || 'the tunnel program failed');

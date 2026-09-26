@@ -158,3 +158,7 @@ Main gained the split-out parseSaid fix (PR #3893: lastJsonLine, used by parseSa
 - NIT: offEpoch was bumped before the off was saved; now only a saved off counts.
 - NIT: resetForTests now clears the tracked signed calls.
 - Refinement found while applying W1: abandonChangedIdentity assumed any certificate present was the OLD one. A register killed AFTER it wrote its new certificate leaves a whole new identity, and dropping it failed "a Sign out lands on a register killed after it wrote the identity". A certificate is now dropped only if it is older than the register's start (its mtime), so a new one is kept. All 93 remote tests pass, including round 18's rename tests (their certificate predates the failing register).
+
+## Round 21 review (sonnet)
+- WARNING: assistantChat signs with the state dir's key (the Mac's, or the install key) but was neither gated by busy() nor tracked, the one signed call left out. It now refuses while a register or a Forget is out, and Forget waits for one already out (its own timeout bounds it). The in-app guide's chat pauses for that minute, which is acceptable. Test (refused with "being forgotten" during a Forget); control fails by name.
+- NIT (intentional, no change): devicesList is a local, unsigned read of allow_list (no --coordinator), so it stays ungated; the worst case during a wipe is a transient read error.
