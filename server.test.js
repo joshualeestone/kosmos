@@ -2254,6 +2254,8 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
     assert.equal(els[id].disabled, true, `${id} was still offered`);
   }
   assert.equal(els['d-untied'].hidden, false, 'nothing explained why the writes are gone');
+  // #4038: the disabled button names that sentence for assistive tech, and only while disabled (below).
+  assert.equal(els['d-file-btn'].attrs['aria-describedby'], 'd-untied', 'the disabled Change picture button names no reason');
   // ⚠️ And the sentence must not be a tautology. For an untied card the display
   // name is FORCED to the raw session name, so a message built from both read
   // "we found a session called research, but not the one research's own session
@@ -2302,9 +2304,11 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
 
   // And a tied card gets everything back.
   run(tiedCard, tiedCard.isNamedOurs);
-  for (const id of ['d-file', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save']) {
+  for (const id of ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save']) {
     assert.equal(els[id].disabled, false, `${id} stayed withdrawn for a tied agent`);
   }
+  // #4038: a hidden element still describes whatever points at it, so a live button must point at no reason.
+  assert.equal(els['d-file-btn'].attrs['aria-describedby'], undefined, 'a live Change picture button still names a reason');
   assert.equal(els['d-untied'].hidden, true, 'the explanation stayed up for a tied agent');
 });
 
