@@ -985,3 +985,24 @@ test('#3998 round 22: while Kosmos drives the setup, a ready line alone for one 
     assert.equal(s.status().state, 'done');
   } finally { s.resetForTests(); }
 });
+
+/* ---- review round 23 --------------------------------------------------------------------- */
+test('#3998 round 23: a code pasted while the code screen shows agy\'s footer under it is taken, as the tick reads it', async () => {
+  const s = require('./agysignin');
+  const CODE = 'Your browser should open automatically. If not:\n\nhttps://accounts.google.com/o/oauth2/auth?x=1\n\nPaste the authorization code:\n';
+  const st = scripted(s, CODE);
+  try {
+    const { id } = s.start();
+    s.tickForTests();
+    st.screen = CODE + READY_LINE; s.tickForTests();
+    assert.equal(s.status().state, 'code', 'CONTROL: the tick reads the frame as the code screen');
+    const r = s.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v', id);
+    assert.equal(r.ok, true, 'the code was refused on a frame the panel shows as waiting for it: ' + JSON.stringify(r));
+    // CONTROL: agy's ready screen on its own is never typed on.
+    const st2 = scripted(s, READY_LINE);
+    const again = s.start();
+    s.tickForTests();
+    assert.equal(s.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v', again.id).ok, false, 'a code was typed on the ready screen');
+    assert.deepEqual(st2.sent.filter((k) => /4\/0A/.test(k)), []);
+  } finally { s.resetForTests(); }
+});

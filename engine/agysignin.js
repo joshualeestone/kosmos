@@ -55,6 +55,10 @@ const ASK_STEPS = Object.freeze(['trust']);   // round 16: a yes after theme or 
 const MAX_VISITS = 3;
 /* Downs Kosmos sends looking for the terms' [Done] before it shows the screen instead (round 7). */
 const MAX_DOWNS = 4;
+/* The size of agy's hidden terminal: wide enough that its Google URL and the trust folder's path are
+   not wrapped mid-word (the screen readers match on whole lines), tall enough for its longest screen. */
+const PANE_COLS = 120;
+const PANE_ROWS = 40;
 /* The trust answer Kosmos presses (agy 1.2.11, Josh's screenshot): exactly this label, nothing broader. */
 const TRUST_YES = /^>\s*Yes, I trust this folder\s*$/;
 
@@ -212,6 +216,18 @@ function tick() {
     }
   }
 }
+/* The known screen agy's ready line is drawn OVER, when that line is a footer, else null. One rule for
+   the tick and for code()'s last look before typing (round 23: two readings of one frame refused a
+   valid code). Round 20: before the trust step, theme, terms or trust under it is that screen, not the
+   end. Round 22: while Kosmos drives the setup (a step taken, not the shown window), any known screen
+   under it is that screen. After trust, words left above the ready line do not hold it up (round 4). */
+function underReady(text) {
+  if (!S || S.step === 'trust') return null;
+  const under = screenOf(text, 'ready');
+  if (under === 'theme' || under === 'terms' || under === 'trust') return under;
+  if (under && S.step && !S.shown) return under;
+  return null;
+}
 function step() {
   if (!S || S.busy) return;
   if (now() - S.startedAt > GIVE_UP_MS) { end('failed', 'the sign-in was not finished, so Kosmos stopped it'); return; }
@@ -248,18 +264,12 @@ function step() {
      not the end: before the trust step, a frame that also shows theme, terms or trust is that setup
      screen. (After trust, words it left behind above the ready line do not hold the ready screen up.) */
   if (name) S.lastUnknown = null;   // "the same unknown frame twice" means twice IN A ROW (round 20)
-  if (name === 'ready' && S.step !== 'trust') {
-    const under = screenOf(text, 'ready');
-    if (under === 'theme' || under === 'terms' || under === 'trust') name = under;
-    /* Round 22: while Kosmos is driving a setup (a step taken, not the shown window), the ready line
-       counts only on its own and steady: over any other known screen (the code screen still drawn
-       under it) it is that screen, and a footer caught alone between two setup screens must be the
-       same frame on two ticks in a row before agy is asked. A sign-in that starts on the ready screen
-       (already signed in, no step yet) is unaffected. */
-    else if (S.step && !S.shown) {
-      if (under) name = under;
-      else if (text !== S.lastReady) { S.lastReady = text; return; }
-    }
+  if (name === 'ready') {
+    const under = underReady(text);
+    if (under) name = under;
+    /* Round 22: a footer caught alone between two setup screens must be the same frame on two ticks
+       in a row before agy is asked. */
+    else if (S.step && S.step !== 'trust' && !S.shown && text !== S.lastReady) { S.lastReady = text; return; }
   }
   if (name !== 'ready') S.lastReady = null;
   /* A blank frame caught mid-redraw is not a new screen (round 10): it must not clear `pressed` and
@@ -449,7 +459,7 @@ function start() {
     /* -f /dev/null: this private server never reads the person's ~/.tmux.conf (a remain-on-exit
        there would keep a dead agy's pane, and the exit would never be seen). The program is quoted
        for the shell tmux runs it with, so a path with a space still starts. */
-    tmux(['-f', '/dev/null', 'new-session', '-d', '-s', SESSION, '-x', '120', '-y', '40', '-c', folder, 'exec ' + shq(inst.bin)]);
+    tmux(['-f', '/dev/null', 'new-session', '-d', '-s', SESSION, '-x', String(PANE_COLS), '-y', String(PANE_ROWS), '-c', folder, 'exec ' + shq(inst.bin)]);
   } catch {
     return { ok: false, because: 'Kosmos could not start Antigravity\'s sign-in just now' };
   }
@@ -479,7 +489,8 @@ function code(value, id) {
      behind, and a code typed onto another screen is keystrokes there (on the ready screen, a
      prompt spent on the subscription). */
   const now_ = screen();
-  if (typeof now_ !== 'string' || screenOf(now_) !== 'code') return { ok: false, because: 'Antigravity is not waiting for a code' };
+  const drawn = typeof now_ === 'string' ? screenOf(now_) : null;
+  if (drawn !== 'code' && !(drawn === 'ready' && underReady(now_) === 'code')) return { ok: false, because: 'Antigravity is not waiting for a code' };
   // C-u first (round 12): a code left half-sent by an earlier failed try is cleared, not doubled.
   try { keys('C-u'); keys('-l', '--', v); keys('Enter'); } catch { return { ok: false, because: 'Kosmos could not pass the code to Antigravity' }; }
   S.state = 'checking'; S.step = 'code-sent'; S.because = null; S.lastSeen = now(); S.codeSentAt = now();

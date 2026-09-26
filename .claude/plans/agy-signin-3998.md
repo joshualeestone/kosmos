@@ -152,3 +152,8 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 
 ## Review round 22 (decided)
 - While Kosmos drives the setup (a step taken, window not shown), agy's ready line counts only on its own and steady: over any other known screen (the code screen still drawn under it) it is that screen, and a footer caught alone must be the same frame on two ticks in a row before agy is asked. A sign-in that starts on the ready screen (already signed in, no step yet) and the shown window are unaffected. Weakest premise: agy does not leave its footer alone on screen for a whole tick between two setup screens.
+
+## Review round 23 (decided)
+- One rule (underReady) for the screen under agy's ready line, used by the tick and by code()'s last look before typing: the code screen with the footer under it takes a pasted code, as the panel shows it waiting for one. After trust the rule gives nothing, so a code is still never typed on agy's own ready screen (tested).
+- The hidden terminal's size is named (PANE_COLS, PANE_ROWS).
+- Left: the page's 3 s availability wait and 1 s follow poll stay inline, as the page's other drivers write theirs.
