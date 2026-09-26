@@ -2652,3 +2652,16 @@ test('#4006: when both tries fail, what launchd said (bootstrap code and stderr,
     disruption.clear(name);
   }
 });
+
+test('#4006: removing an agent clears a failed-restart record, so it never shows on a later agent of that name', () => {
+  const name = madeAgent('failedthenremoved');
+  disruption.begin(name, 'restart');
+  disruption.fail(name, null);
+  assert.equal(disruption.read(name).failed, true, 'precondition: the failed record is on file');
+  boardShows(name, name);
+  world();
+  remove.setDryRun(false);
+  const r = mac.remove(name);
+  assert.equal(r.outcome, remove.OUTCOME.REMOVED, r.because);
+  assert.equal(disruption.read(name).found, false, 'the failed record outlived the removal');
+});

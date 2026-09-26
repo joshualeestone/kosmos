@@ -5736,3 +5736,15 @@ test('#3038: createdCount() counts creations (created + partial), never refusals
     .filter((e) => e.outcome === create.OUTCOME.CREATED || e.outcome === create.OUTCOME.PARTIAL).length;
   assert.equal(create.createdCount(), expected, 'createdCount matches the created+partial birth-log entries');
 });
+
+test('#4006: a new agent never inherits a failed-restart record left under its name', () => {
+  const disruption = require('./disruption');
+  create.setRunner(() => ({ ok: true }));
+  create.setDryRun(false);
+  disruption.begin('failheir', 'restart');
+  disruption.fail('failheir', null);
+  assert.equal(disruption.read('failheir').failed, true, 'precondition: a failed record is on file under the name');
+  const made = create.createAgent({ ...BINS, name: 'failheir', role: 'pm' });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because || '');
+  assert.equal(disruption.read('failheir').found, false, 'the new agent was born under an old failed-restart record');
+});
