@@ -21166,7 +21166,13 @@ async function saveWaitingBadge() {
     paintSwitch('wb-toggle', out.waitingBadge);   // what the board stored, not the click
     if (msg) msg.textContent = '';
   } catch {
-    if (mine === WB_EPOCH && msg) msg.textContent = 'We could not save that just now. Try again in a moment.';
+    if (mine === WB_EPOCH) {
+      /* Re-read (round 3): the board may have stored it and only the answer was lost, so the switch
+         draws what the board holds, then says the save did not come back. */
+      WB_SAVING = false;
+      await paintWaitingBadge();
+      if (msg) msg.textContent = 'We could not save that just now. Try again in a moment.';
+    }
   } finally { WB_SAVING = false; }
 }
 document.getElementById('wb-toggle') && document.getElementById('wb-toggle').addEventListener('click', saveWaitingBadge);

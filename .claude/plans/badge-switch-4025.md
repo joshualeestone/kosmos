@@ -30,3 +30,9 @@ Card #4025 (follow-up to #3996). The Dock badge cannot be turned off today: macO
 - "Settings > Computer", the nav's own word, in comments, README and plan.
 - Kept: one settings.json read per /api/status (safe, cannot throw; a cache would need invalidation on every write path for one small file).
 - Validation found web.win32-board-copy.test.js keeps a hand list of every data-win-hide surface; the App icon box is added to it (the reviewers had not searched for data-win-hide tests).
+
+## Review round 3 (decided)
+- wb-toggle joins web.switch-markup.test.js's family of switches that may not show a position before they load.
+- A save whose answer is lost (the board may have stored it) re-reads the board before saying it could not save, so the switch draws what the board holds.
+- main.swift's comment names this switch; the browser check's header no longer claims to pin the row's place (web.settings-nav.test.js does).
+- validation #2's one red (tools.plus-signin-2036, a timing test this branch does not touch) is 19/19 alone: machine contention.

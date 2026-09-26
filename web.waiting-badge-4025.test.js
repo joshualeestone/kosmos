@@ -84,6 +84,19 @@ test('#4025: a refused save keeps the old position and says so; a switch not yet
   assert.match(h.msg.textContent, /could not save/);
 });
 
+test('#4025 round 3: a save whose answer was lost re-reads the board, so the switch shows what it holds', async () => {
+  let stored = true;
+  const h = harness(async (url, opts) => {
+    if (opts && opts.method === 'POST') { stored = JSON.parse(opts.body).waitingBadge; throw new Error('connection reset'); }
+    return { ok: true, json: async () => ({ waitingBadge: stored }) };
+  });
+  await h.api.paintWaitingBadge();
+  await h.api.saveWaitingBadge();
+  assert.equal(stored, false, 'CONTROL: the board did store the Off');
+  assert.equal(h.tog.getAttribute('aria-checked'), 'false', 'the switch kept a position the board no longer holds');
+  assert.match(h.msg.textContent, /could not save/, 'the lost answer was not said');
+});
+
 test('#4025: a save paints the board\'s answer, not the click (the board may hold something else)', async () => {
   const h = harness(async (url, opts) => ((opts && opts.method === 'POST')
     ? { ok: true, json: async () => ({ ok: true, waitingBadge: true }) } : { ok: true, json: async () => ({ waitingBadge: true }) }));
