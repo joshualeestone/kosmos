@@ -26,6 +26,8 @@ function setup(flow) {
   process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET = 'kosmos-agy-signin-test-' + process.pid + '-' + flow;
   const signin = require('./agysignin');
   signin.resetForTests();
+  // These tests drive a real tmux on a private socket on purpose: open the live-execution gate for them.
+  require('./live-execution').allowLiveExecution();
   // The fake reads its settings from the environment the tmux server hands it: a wrapper script
   // carries them, since tmux does not pass the test's own environment to a new session.
   const wrapper = path.join(dir, 'agy');
@@ -41,6 +43,7 @@ function setup(flow) {
     signin.stop();
     try { execFileSync(TMUX, ['-L', process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET, 'kill-server'], { stdio: 'ignore' }); } catch { /* none */ }
     signin.resetForTests();
+    require('./live-execution').resetForTests();
     fs.rmSync(dir, { recursive: true, force: true });
   };
   return { signin, dir, log, cleanup, logText: () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '') };
@@ -100,7 +103,7 @@ test('#3998: a screen Kosmos does not recognise is shown, not guessed at', { ski
     assert.equal(opened.length, 1);
     const script = fs.readFileSync(opened[0], 'utf8');
     assert.match(script, / attach -t agy-signin\n$/, 'the window does not attach to the hidden session');
-    assert.match(script, new RegExp('-L ' + process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET), 'the window attaches to some other tmux');
+    assert.match(script, new RegExp("-L '" + process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET + "' "), 'the window attaches to some other tmux (the socket is quoted)');
   } finally { t.cleanup(); }
 });
 
@@ -115,4 +118,53 @@ test('#3998: the screen words match, and the helpers read agy\'s screens as it d
   // The fake prints the same words the engine looks for (so the end-to-end tests are about agy's screens).
   const fake = fs.readFileSync(FAKE, 'utf8');
   for (const [name, re] of Object.entries(s.SCREENS)) assert.ok(re.test(fake), 'the fake agy does not draw the ' + name + ' screen');
+});
+
+test('#3998: a check that answers after its sign-in was stopped and restarted never touches the new one', async () => {
+  const s = require('./agysignin');
+  s.resetForTests();
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const killed = [];
+  s.setForTests({
+    agyBin: () => ({ installed: true, bin: '/bin/true' }),
+    folderRoot: () => os.tmpdir(),
+    tmux: (args) => { if (args[0] === 'capture-pane') return null; if (args[0] === 'kill-session') killed.push(args.join(' ')); return ''; },
+    confirmSignedIn: () => gate,   // the FIRST session's check hangs until released
+  });
+  try {
+    assert.equal(s.start().ok, true);
+    s.tickForTests();              // the session looks gone: its check starts and waits
+    s.stop();                      // the person stops it...
+    assert.equal(s.start().ok, true);   // ...and signs in again
+    s.setForTests({ confirmSignedIn: async () => ({ signedIn: null }) });
+    const killsBefore = killed.length;
+    release({ signedIn: false });  // the OLD check answers now
+    await new Promise((r) => setImmediate(r));
+    assert.equal(s.status().state, 'starting', 'a stale answer ended the new sign-in');
+    assert.equal(killed.length, killsBefore, 'a stale answer killed the new session');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998: a recognised screen that does not move on becomes stuck (a changed default is shown, not waited on for half an hour)', () => {
+  const s = require('./agysignin');
+  s.resetForTests();
+  let t0 = 1000000;
+  const sent = [];
+  s.setForTests({
+    agyBin: () => ({ installed: true, bin: '/bin/true' }),
+    folderRoot: () => os.tmpdir(),
+    now: () => t0,
+    // The menu with the cursor NOT on Google OAuth: Kosmos must not press Enter, and must not wait forever.
+    tmux: (args) => { if (args[0] === 'capture-pane') return 'Select login method:\n  1. Google OAuth\n> 2. Use a Google Cloud project\n'; if (args[0] === 'send-keys') sent.push(args.slice(3).join(' ')); return ''; },
+  });
+  try {
+    s.start();
+    s.tickForTests();
+    t0 += 10000; s.tickForTests();
+    assert.notEqual(s.status().state, 'stuck', 'CONTROL: not stuck after 10 s');
+    t0 += 15000; s.tickForTests();
+    assert.equal(s.status().state, 'stuck', 'a menu that never moved on was never shown');
+    assert.deepEqual(sent, [], 'Kosmos pressed a key on a menu whose choice was not Google OAuth');
+  } finally { s.resetForTests(); }
 });
