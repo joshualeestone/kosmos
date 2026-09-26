@@ -1675,7 +1675,15 @@ function questionIn(text) {
        runner drew it, and a Codex question must be findable too. */
     if (status.ALL_NEEDS_YOU_MARKERS.some((re) => re.test(lines[i]))) at = i;
   }
-  if (at < 0) return null;
+  if (at < 0) {
+    /* #4034: Gemini's question box matches no marker; the same reading the card's needs_you came from finds it, so
+       the page shows the question the card names. From the box's top edge. */
+    const g = status.geminiQuestionReading(whole);
+    if (!g) return null;
+    let top = -1;
+    for (let i = lines.length - 1; i >= 0; i -= 1) if (/^\s*╭─+╮\s*$/.test(lines[i])) { top = i; break; }
+    return top < 0 ? null : { text: lines.slice(top).join('\n').replace(/\s+$/, '') };
+  }
   // A few lines of run-up, because a Claude permission prompt states what it is
   // asking about above the line that matches.
   const from = Math.max(0, at - 6);

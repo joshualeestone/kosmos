@@ -12,7 +12,7 @@ Card: joshualeestone/kosmos#4034 (filed from #4004). Measurements and the decisi
 
 ## Change
 - engine/status.js `geminiQuestionReading`: the question box by its shape (a box top, a message, numbered options
-  ending in Stop, nothing after but the box edge), returning Gemini's first line. In classify, after #4004's
+  one of which is a bare Stop, nothing after but the box edge), returning the message's first sentence. In classify, after #4004's
   usage-limit reading: NEEDS_YOU, "Gemini is waiting on a question: <its first line>". No key is pressed and
   `quotaDialog` is not set, so #4004's Stop sweep does not answer it.
 
@@ -36,3 +36,12 @@ Card: joshualeestone/kosmos#4034 (filed from #4004). Measurements and the decisi
 - Only Gemini's remedy hints ("/model to switch models.", "/stats model for usage details") are left out of the
   message; a first line that starts with a slash is still the message. Tested, red before.
 - The shared GEMINI_LIMIT_ROWS window is stated in the comment: a box taller than it is not read, as for a usage limit.
+
+## Review round 2 (Opus), what changed
+- The agent page could not find the question the card named (chat.questionIn keys on markers Gemini's box has
+  none of). questionIn now falls back to the same reading and shows the box from its top edge. No buttons: option 1
+  is Keep trying, which this change deliberately never presses. Tested, with a quoted-box control.
+- The reason is the message's first sentence with its rows joined, so a narrow pane's wrapping does not cut it
+  ("was not" / "found or is invalid."). Tested.
+- Comments and this plan say "one of which is a bare Stop"; the credits dialogs ("Stop - Abort request") are named
+  as not read, for #4004's reading and this one alike. The export line's comment is its own.

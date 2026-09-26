@@ -84,3 +84,26 @@ test('#4034 review round 1: Stop anywhere among the options, and a first line th
   assert.ok(slashFirst.includes('/models/custom-x'), 'the fixture edit did not apply');
   assert.equal(status.geminiQuestionReading(slashFirst).evidence, '/models/custom-x was rejected.');
 });
+
+test('#4034 review round 2: the agent page finds the question the card names, and a narrow pane\'s wrapping does not cut the reason', () => {
+  const chat = require('./chat');
+  const q = chat.questionIn(NOT_FOUND);
+  assert.ok(q && q.text.includes('was not found or is invalid') && q.text.includes('2. Stop'), 'questionIn did not find the box: ' + JSON.stringify(q));
+  assert.ok(q.text.startsWith('╭'), 'the question does not start at the box top: ' + JSON.stringify(q.text.slice(0, 40)));
+  const quoted = ['✦ Checking the other agent', NOT_FOUND, '⠏ Thinking (esc to cancel, 3s)', ' *   Type your message or @path/to/file'].join('\n');
+  assert.equal(chat.questionIn(quoted), null, 'a quoted box was offered as this agent\'s question');
+  const narrow = [
+    ' > hello there',
+    '╭──────────────────────────────────────╮',
+    '│                                      │',
+    '│ Model "gemini-2.5-flash" was not     │',
+    '│ found or is invalid.                 │',
+    '│ /model to switch models.             │',
+    '│                                      │',
+    '│ ● 1. Keep trying                     │',
+    '│   2. Stop                            │',
+    '│                                      │',
+    '╰──────────────────────────────────────╯',
+  ].join('\n');
+  assert.equal(status.geminiQuestionReading(narrow).evidence, 'Model "gemini-2.5-flash" was not found or is invalid.');
+});
