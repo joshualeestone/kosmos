@@ -44,6 +44,7 @@
  * block, a project room with posts and reactions, Cleo's pending ask. The
  * allow-card screen stubs one phone asking to connect (see it below).
  */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts (the board below also gets its own roots)
 const { spawn, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -77,7 +78,8 @@ async function openTab(page, tab) {
     await page.waitForSelector(`[data-tab="${tab}"]`, { state: 'visible', timeout: 5000 });
   }
   await page.click(`[data-tab="${tab}"]`);
-  await page.waitForTimeout(300);
+  // Arrived, or the shot fails: a click that stops switching must not photograph the last screen.
+  await page.waitForSelector(`#panel-${tab}`, { state: 'visible', timeout: 5000 });
 }
 
 /* Deep links (web/index.html's ?tab / ?agent / ?project routing) reach a
@@ -102,11 +104,15 @@ const SCREENS = [
     await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
     await page.waitForSelector('button.vt[data-layout="list"][aria-pressed="true"][aria-label="Show agents as a list"]', { timeout: 5000 });
   } },
-  { name: 'agent-page', owner: 'Raiden', go: async (page) => at(page, '?agent=ada') },
+  { name: 'agent-page', owner: 'Raiden', go: async (page) => {
+    await at(page, '?agent=ada');
+    await page.waitForSelector('#panel-detail', { state: 'visible', timeout: 5000 });
+  } },
   // Scorpion: an agent's chat.
   { name: 'agent-chat', owner: 'Scorpion', go: async (page) => {
     await at(page, '?agent=ada');
     await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
+    await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
   } },
   // Kano: projects, a room, and the waiting-on-you ask.
   { name: 'projects', owner: 'Kano', go: async (page) => openTab(page, 'projects') },
@@ -159,7 +165,8 @@ const SCREENS = [
     await page.waitForSelector('button.vt[data-layout="org"][aria-pressed="true"]', { timeout: 5000 });
   } },
   { name: 'create-agent', owner: 'unowned', go: async (page) => {
-    await page.evaluate(() => document.getElementById('new-agent').click());
+    // A real tap (visible, not covered), the way a phone user reaches it; a hidden button fails the shot.
+    await page.click('#new-agent', { timeout: 5000 });
     await page.waitForSelector('#panel-create', { state: 'visible', timeout: 5000 });
   } },
   { name: 'first-run', owner: 'unowned', go: async (page) => {
@@ -180,12 +187,12 @@ const SCREENS = [
   { name: 'agent-profile', owner: 'unowned', go: async (page) => {
     await at(page, '?tab=detail&agent=ada');
     await page.locator('#d-nav button[data-go="profile"]').first().click({ timeout: 5000 });
-    await page.waitForTimeout(300);
+    await page.waitForSelector('#d-sec-profile', { state: 'visible', timeout: 5000 });
   } },
   { name: 'agent-instructions', owner: 'unowned', go: async (page) => {
     await at(page, '?tab=detail&agent=ada');
     await page.locator('#d-nav button[data-go="instr"]').first().click({ timeout: 5000 });
-    await page.waitForTimeout(300);
+    await page.waitForSelector('#d-sec-instr', { state: 'visible', timeout: 5000 });
   } },
   // Tasks is Mona Lisa and April's lane: shot and reported on #3559, not fixed here.
   { name: 'tasks', owner: 'Mona Lisa / April', go: async (page) => {
@@ -327,10 +334,13 @@ async function startBoard() {
   const early = Object.keys(require.cache).filter((f) => f.startsWith(path.join(REPO, 'engine') + path.sep));
   if (early.length) throw new Error('an engine module was loaded before the sandbox was set: ' + early[0]);
   Object.assign(process.env, sealed);
-  seedFiles(roots);
+  const dropRoots = () => { for (const d of Object.values(roots)) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } } };
+  try { seedFiles(roots); } catch (e) { dropRoots(); throw e; }   // a failed seed leaves no sandboxed HOME behind
   const port = freePort();
   const base = `http://127.0.0.1:${port}`;
-  const stderrFd = fs.openSync(path.join(roots.DATA, 'board-stderr.log'), 'w');
+  // Outside DATA, so a board that dies after boot still leaves its stderr to read (printed at the end).
+  const stderrLog = path.join(os.tmpdir(), `mobile-shots-board-${process.pid}.log`);
+  const stderrFd = fs.openSync(stderrLog, 'w');
   const srv = spawn(process.execPath, ['server.js'], {
     cwd: REPO,
     env: { ...process.env, ...sealed, PORT: String(port), AGENT_WORKFORCE_RELEASE_BASE: 'http://127.0.0.1:9/dist',
@@ -346,11 +356,12 @@ async function startBoard() {
   if (!(await waitForBoard(base, 20000))) {
     srv.kill();
     let tail = '';
-    try { tail = fs.readFileSync(path.join(roots.DATA, 'board-stderr.log'), 'utf8').trim().split('\n').slice(-5).join('\n'); } catch { /* none */ }
-    for (const d of Object.values(roots)) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+    try { tail = fs.readFileSync(stderrLog, 'utf8').trim().split('\n').slice(-5).join('\n'); } catch { /* none */ }
+    try { fs.rmSync(stderrLog, { force: true }); } catch { /* best effort */ }
+    dropRoots();
     throw new Error('the throwaway board did not come up on ' + base + (tail ? '; its stderr ended:\n' + tail : ''));
   }
-  return { base, srv, roots };
+  return { base, srv, roots, stderrLog };
 }
 
 /* After start: a project through the board's own API, then its room posts and
@@ -594,6 +605,17 @@ async function run() {
                   throw err;
                 }
                 await page.screenshot({ path: path.join(out, file), scale: 'css' });
+                /* The page re-renders on its tick, so the scan above and the shot are two reads:
+                   scan again, and a hit painted in between deletes the shot before anything
+                   else can pick it up. */
+                const late = await leaksOn(page);
+                if (late.length) {
+                  try { fs.rmSync(path.join(out, file), { force: true }); } catch { /* best effort */ }
+                  const err = new Error('LEAK GUARD: this screen shows real data (' + late.length + ' hits after the shot, e.g. '
+                    + late[0] + '). Its shot is deleted. Stopping with no further shots.');
+                  err.leak = true;
+                  throw err;
+                }
                 const ov = await overflowOf(page);
                 if (ov.containers.length || ov.worst) {
                   overflowCount++;
@@ -621,8 +643,16 @@ async function run() {
       await new Promise((r) => { process.once('SIGINT', r); process.once('SIGTERM', r); });
     }
   } finally {
+    const died = board.srv.exitCode !== null;   // the board went away on its own during the run
     board.srv.kill();
     for (const d of Object.values(board.roots)) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+    if (died || errors) {
+      try {
+        const tail = fs.readFileSync(board.stderrLog, 'utf8').trim().split('\n').slice(-10).join('\n');
+        if (tail) console.log('\nthe throwaway board\'s stderr ended:\n' + tail);
+      } catch { /* none */ }
+    }
+    try { fs.rmSync(board.stderrLog, { force: true }); } catch { /* best effort */ }
   }
 
   const md = ['# Mobile screenshots', '',
