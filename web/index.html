@@ -27047,7 +27047,7 @@ function paintOrg() {
     const parent = spot.node.parent ? placed.get(spot.node.parent) : null;
     const px = parent ? cx + Math.cos(parent.ang) * parent.r : cx;
     const py = parent ? cy + Math.sin(parent.ang) * parent.r : cy;
-    const w = orgWireEnds(px, py, parent ? orgReach(parent.node.agent) : 0, x, y, orgReach(spot.node.agent));
+    const w = orgWireEnds(px, py, parent ? parent.node.agent : null, x, y, spot.node.agent);
     wires.push('<line data-for="' + esc(name) + '" x1="' + w.x1.toFixed(1) + '" y1="' + w.y1.toFixed(1) + '" x2="'
       + w.x2.toFixed(1) + '" y2="' + w.y2.toFixed(1) + '" class="edge"' + (w.shown ? '' : ' visibility="hidden"') + '/>');
     const a = spot.node.agent;
@@ -27206,7 +27206,7 @@ function orgLiveStart(map, placed, cx, cy, size) {
   const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const hubEl = map.querySelector('.hub');
   const hubWas = ORG_POS.get('\u0000hub');
-  const hub = { key: '\u0000hub', el: hubEl, x: hubWas ? hubWas.x : cx, y: hubWas ? hubWas.y : cy, vx: 0, vy: 0, fixed: false, size: 52, home: { x: cx, y: cy }, reach: 0 };
+  const hub = { key: '\u0000hub', el: hubEl, x: hubWas ? hubWas.x : cx, y: hubWas ? hubWas.y : cy, vx: 0, vy: 0, fixed: false, size: 52, home: { x: cx, y: cy }, agent: null };   // #4040: the hub, whose wires start at its centre
   const nodes = new Map();
   for (const [key, spot] of placed) {
     const el = map.querySelector('.onode[data-agent="' + CSS.escape(key) + '"]');
@@ -27218,7 +27218,7 @@ function orgLiveStart(map, placed, cx, cy, size) {
       y: was ? was.y : cy + Math.sin(spot.ang) * spot.r,
       vx: 0, vy: 0, ring: spot.r, parentKey: spot.node.parent || null, parent: null, fixed: false,
       wire: map.querySelector('line[data-for="' + CSS.escape(key) + '"]'),
-      reach: orgReach(spot.node.agent),   // #4040: where its wire stops
+      agent: spot.node.agent,   // #4040: its picture, where its wires stop
     });
   }
   for (const n of nodes.values()) n.parent = n.parentKey ? (nodes.get(n.parentKey) || null) : null;
@@ -27238,23 +27238,34 @@ function orgLiveStart(map, placed, cx, cy, size) {
 /* #4040 (Josh, 2026-09-26: the connecting line "goes above agent clusters avatars"): a wire stops at each
    node's edge instead of running to its centre. An agent's opaque disc hid the rest of a centre-to-centre
    wire, but a swarm's cluster has no disc (gaps between its circles, and it rests at half strength), so the
-   wire showed through it. The reach is how far a node's picture extends from its centre on its 44px node:
-   a disc reaches 22px; a cluster is measured from its own layout (swarmLayout, the one swarmCircles draws),
-   never less than a disc. The hub is an opaque disc drawn over the wires: a wire from it starts at its
-   centre (reach 0). */
-function orgReach(a) {
+   wire showed through it. orgReach(a, ux, uy) is how far along the direction (ux, uy) from a node's centre
+   its picture ends, on its 44px node: a disc ends at 22px whatever the direction; a cluster ends where that
+   ray leaves the last circle it crosses (swarmLayout, the one swarmCircles draws). A ray that passes just
+   beside a circle (through the narrow gap between two) stops level with that circle's outer edge rather
+   than running on to the centre. The hub is an opaque disc drawn over the wires: a wire from it starts at
+   its centre. */
+function orgReach(a, ux, uy) {
   if (!(typeof SWARMS_ON !== 'undefined' && SWARMS_ON && !!a && Object.prototype.hasOwnProperty.call(a, 'swarm') && !!a.swarm)) return 22;
   const L = swarmLayout(Math.max(2, Math.min(10, Number(a.swarm.maxHelpers) || 3)));
-  let far = 0;
-  for (const q of L.p) far = Math.max(far, Math.hypot(q[0] - 0.5, q[1] - 0.5) + L.r);
-  return Math.max(22, Math.ceil(far * 44));
+  const r = L.r * 44;
+  let cut = 0;
+  for (const q of L.p) {
+    const cx = (q[0] - 0.5) * 44, cy = (q[1] - 0.5) * 44;
+    const b = cx * ux + cy * uy, d = Math.sqrt(Math.max(0, cx * cx + cy * cy - b * b));
+    if (d <= r) cut = Math.max(cut, b + Math.sqrt(r * r - d * d));
+    else if (d < 1.2 * r) cut = Math.max(cut, b + r);
+  }
+  return cut;
 }
-/* A wire from (x0, y0) to (x1, y1), cut back by each end's reach. Two nodes closer than their reaches
-   together get no wire (shown false) rather than one drawn backwards across both faces. */
-function orgWireEnds(x0, y0, cut0, x1, y1, cut1) {
+/* A wire from (x0, y0) to (x1, y1), cut back by each end's picture along the wire (a0 and a1 are the ends'
+   agents; a0 is null for the hub). Two nodes whose pictures meet get no wire (shown false) rather than one
+   drawn backwards across both faces. */
+function orgWireEnds(x0, y0, a0, x1, y1, a1) {
   const len = Math.hypot(x1 - x0, y1 - y0);
-  if (!(len > cut0 + cut1)) return { x1: x0, y1: y0, x2: x1, y2: y1, shown: false };
+  if (!(len > 0)) return { x1: x0, y1: y0, x2: x1, y2: y1, shown: false };
   const ux = (x1 - x0) / len, uy = (y1 - y0) / len;
+  const cut0 = a0 ? orgReach(a0, ux, uy) : 0, cut1 = orgReach(a1, -ux, -uy);
+  if (!(len > cut0 + cut1)) return { x1: x0, y1: y0, x2: x1, y2: y1, shown: false };
   return { x1: x0 + ux * cut0, y1: y0 + uy * cut0, x2: x1 - ux * cut1, y2: y1 - uy * cut1, shown: true };
 }
 /* #1738: run the same relaxation orgLiveRun animates, but synchronously and
@@ -27286,7 +27297,7 @@ function orgLiveSync() {
     n.el.classList.toggle('co-r', n.x > 2 * third);
     const p = n.parent || hub;
     if (n.wire) {
-      const w = orgWireEnds(p.x, p.y, p.reach || 0, n.x, n.y, n.reach || 0);
+      const w = orgWireEnds(p.x, p.y, p.agent || null, n.x, n.y, n.agent);
       n.wire.setAttribute('x1', w.x1.toFixed(1)); n.wire.setAttribute('y1', w.y1.toFixed(1));
       n.wire.setAttribute('x2', w.x2.toFixed(1)); n.wire.setAttribute('y2', w.y2.toFixed(1));
       if (w.shown) n.wire.removeAttribute('visibility'); else n.wire.setAttribute('visibility', 'hidden');

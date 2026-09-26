@@ -71,14 +71,15 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       if (engineOn) {
         j.swarms = true;
         for (const a of j.agents || []) { if (a.sessionName === 'crew' && crewState) a.state = crewState; }
-        /* S40 (#4040): a branch, hub > crew (a swarm) > rex > crew2 (a swarm at the end of it). */
+        /* S40 (#4040): a branch, hub > crew (a swarm) > rex > crew2 (a two-helper swarm, the least round cluster,
+           at the end of it). */
         if (orgBranch) for (const a of j.agents || []) {
           if (a.sessionName === 'rex') a.profile = { ...(a.profile || {}), reportsTo: 'crew' };
           if (a.sessionName === 'crew2') a.profile = { ...(a.profile || {}), reportsTo: 'rex' };
         }
         if (crewNoSwarm) { for (const a of j.agents || []) if (a.sessionName === 'crew') { delete a.swarm; a.__noSwarm = true; } }
         for (const a of j.agents || []) if (!a.__noSwarm) a.swarm = a.sessionName === 'crew' ? { ...crewSwarm }
-          : a.sessionName === 'crew2' ? { maxHelpers: 4, activeHelpers: 1, tokensToday: 1000, dailyTokenLimit: 2000000, active: true, pausedBecause: null, helperTokenRatio: null, metered: true } : null;
+          : a.sessionName === 'crew2' ? { maxHelpers: orgBranch ? 2 : 4, activeHelpers: 1, tokensToday: 1000, dailyTokenLimit: 2000000, active: true, pausedBecause: null, helperTokenRatio: null, metered: true } : null;
       } else {
         /* The engine is on main now and always answers; "without the engine" is a board from before it, which
            sends neither the flag nor the field. */
@@ -337,19 +338,23 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
         return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy)); };
       const into = [];
       for (const w of wires) for (const c of drawn) { const d = dist(c, w.a, w.b); if (d < c.r - 1) into.push(w.who + ' into ' + c.who + ' ' + d.toFixed(1) + '<' + c.r.toFixed(1)); }
-      /* And it reaches the picture: a wire ending well short of its own node reads as detached. */
+      /* And both ends reach their pictures: a wire ending well short of its node reads as detached. The child
+         end is the wire's own node; the parent end is the branch's (rex under crew, crew2 under rex). */
+      const parentOf = { rex: 'crew', crew2: 'rex' };
+      const short = (who, p) => { const own = drawn.filter((c) => c.who.startsWith(who + ' '));
+        return Math.min(...own.map((c) => Math.hypot(c.x - p.x, c.y - p.y) - c.r)); };
       const gap = [];
       for (const w of wires) {
-        const own = drawn.filter((c) => c.who.startsWith(w.who + ' '));
-        const near = Math.min(...own.map((c) => Math.hypot(c.x - w.b.x, c.y - w.b.y) - c.r));
-        if (!(near < 6)) gap.push(w.who + ' ends ' + near.toFixed(1) + 'px short');
+        const near = short(w.who, w.b);
+        if (!(near < 6)) gap.push(w.who + ' ends ' + near.toFixed(1) + 'px short of ' + w.who);
+        if (parentOf[w.who]) { const far = short(parentOf[w.who], w.a); if (!(far < 6)) gap.push(w.who + ' starts ' + far.toFixed(1) + 'px short of ' + parentOf[w.who]); }
       }
       return { wires: wires.map((w) => w.who), clusters: [...new Set(drawn.filter((c) => c.who.endsWith('circle')).map((c) => c.who.split(' ')[0]))], into, gap };
     });
     chk(s40.clusters.includes('crew') && s40.clusters.includes('crew2') && ['crew', 'rex', 'crew2'].every((w) => s40.wires.includes(w)),
       'S40 precondition: two clusters on the chart, and a wire to each of crew, rex and crew2', JSON.stringify(s40));
     chk(s40.into.length === 0, 'S40 no wire runs into a drawn circle or disc: each stops at the node\'s edge (#4040)', JSON.stringify(s40.into));
-    chk(s40.gap.length === 0, 'S40 and each wire still reaches its node: none ends more than 6px short of its picture', JSON.stringify(s40.gap));
+    chk(s40.gap.length === 0, 'S40 and each wire still reaches both its nodes: neither end is more than 6px short of its picture', JSON.stringify(s40.gap));
     orgBranch = false;
     await page.click('[data-scope="agents"] .vt[data-layout="grid"]');
     await page.waitForTimeout(400);
