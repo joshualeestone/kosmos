@@ -47,6 +47,10 @@ const crypto = require('node:crypto');
 const record = require('./lib/plus-signin-record');
 
 const CALL_MS = Number(process.env.KOSMOS_PLUS_CALL_MS) || 15 * 1000;
+/* #3986: the cancel that cleans up a half sign-in gets at least five seconds, whatever CALL_MS is.
+   It is sent right after a call that timed out, which is when the board is slowest; on the same
+   short budget it was the call most likely to be abandoned, leaving the sign-in half made. */
+const CLEANUP_MS = Math.max(CALL_MS, 5 * 1000);
 /* The engine bounds a register at five minutes plus up to a minute clearing a half identity. */
 const REGISTER_MS = Number(process.env.KOSMOS_PLUS_REGISTER_MS) || 7 * 60 * 1000;
 /* The engine's forget waits for a register in flight, then signed calls, then the retire: about 8 minutes at worst. */
@@ -147,7 +151,7 @@ async function start(a) {
   const steps = [{ id: 'fresh', result: 'pass' }];
   const s = await b.post('/api/remote/signin-start', { email: seed });
   // No answer is setup, not a refusal: it must not replace this build's record (review round 5).
-  if (s.status === 0) { await b.post('/api/remote/signin-cancel', {}); setup('signin-start: ' + String(s.json.error) + '; try again'); }
+  if (s.status === 0) { await b.post('/api/remote/signin-cancel', {}, CLEANUP_MS); setup('signin-start: ' + String(s.json.error) + '; try again'); }
   if (s.status !== 200) {
     steps.push({ id: 'start', result: 'fail', detail: String(s.json.error || s.status) });
     return finishRecord(ptr, identity, seed, 'NONE', steps);
@@ -170,7 +174,7 @@ async function finish(a) {
   const code = String(a.code || '').trim();
   // Setup mistakes say nothing about the build: cancel the half sign-in, record nothing.
   if (!['INBOX', 'SPAM', 'OTHER'].includes(placement) || !/^[0-9]{6}$/.test(code)) {
-    await b.post('/api/remote/signin-cancel', {});
+    await b.post('/api/remote/signin-cancel', {}, CLEANUP_MS);
     setup('a six-digit --code and --placement INBOX|SPAM|OTHER are required (read them from the seed inbox)');
   }
   const seed = prog.seed;
@@ -180,7 +184,7 @@ async function finish(a) {
   // nothing. Once a register was tried it may have finished on the board after we gave up, so a
   // timeout is recorded as a failed step and the forget below still runs (review round 4).
   const fail = async (id, r) => {
-    if (r && r.status === 0 && !registerTried) { await b.post('/api/remote/signin-cancel', {}); setup(id + ': ' + String(r.json.error) + '; try again'); }
+    if (r && r.status === 0 && !registerTried) { await b.post('/api/remote/signin-cancel', {}, CLEANUP_MS); setup(id + ': ' + String(r.json.error) + '; try again'); }
     if (r && r.status === 0) { steps.push({ id, result: 'fail', detail: 'no answer from the board (' + String(r.json.error) + '); a Mac may have been registered anyway, so it is forgotten' }); return; }
     steps.push({ id, result: 'fail', detail: String((r && r.json && r.json.error) || (r && r.status) || r) });
   };
@@ -191,11 +195,11 @@ async function finish(a) {
     let answer = v.json;
     if (v.json.stage === 'second') {
       if (v.json.second_kind && v.json.second_kind !== 'totp') {
-        await b.post('/api/remote/signin-cancel', {});
+        await b.post('/api/remote/signin-cancel', {}, CLEANUP_MS);
         setup('the seed account\'s second step is ' + JSON.stringify(v.json.second_kind) + ', not an authenticator this procedure can answer');
       }
       const secret = process.env.KOSMOS_SEED_TOTP;
-      if (!secret) { await b.post('/api/remote/signin-cancel', {}); setup('KOSMOS_SEED_TOTP is not set (secrets-map.sh value kosmos-seed-totp)'); }
+      if (!secret) { await b.post('/api/remote/signin-cancel', {}, CLEANUP_MS); setup('KOSMOS_SEED_TOTP is not set (secrets-map.sh value kosmos-seed-totp)'); }
       const r = await b.post('/api/remote/signin-second', { code: totp(secret) });
       if (r.status !== 200) { await fail('second', r); throw new Error('second'); }
       answer = r.json;
@@ -254,7 +258,7 @@ async function finish(a) {
       : f.status === 0 ? { id: 'forget', result: 'fail', detail: 'no answer from the board to the forget; the retire may still complete: check the seed account' }
       : { id: 'forget', result: 'fail', detail: 'the throwaway registration was not retired: ' + String((f.json && (f.json.because || f.json.error)) || f.status) });
   } else {
-    await b.post('/api/remote/signin-cancel', {});
+    await b.post('/api/remote/signin-cancel', {}, CLEANUP_MS);
   }
   return finishRecord(ptr, identity, seed, placement, steps);
 }
