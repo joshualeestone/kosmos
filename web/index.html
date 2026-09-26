@@ -26451,12 +26451,6 @@ let ORG_POS = new Map(); // last positions by key, so a repaint does not snap ba
 let ORG_SIZE = 0;        // the canvas ORG_POS was measured on (#718: a new width rescales them)
 let ORG_VIEW_W = 0;      // the chart box's width at the last paint (#718: width changes, a scrolled chart's centre)
 let ORG_SCROLL_X = 0;    // the box's scroll as the person left it at that width (#718; see the scroll listener)
-/* #718: the chart box back to a plain one (no sideways scroll, no scroll padding,
-   not a focusable region): on a paint that fits, and wherever the chart is cleared
-   instead of painted (an empty board, a poll that failed). `cleared` also drops the
-   emptied map's size, or it stays a blank square the size of the last chart above
-   the note. Only then: a paint that fits keeps its size, which the repaint guard
-   may not set again. */
 /* #718: true while a drag is really under way: the node has moved (a tap is not a
    drag) and is still on the page. Keyed on the element rather than a flag alone, so
    a release that never arrives (the node cleared by a failed poll, capture lost)
@@ -26464,6 +26458,12 @@ let ORG_SCROLL_X = 0;    // the box's scroll as the person left it at that width
 function orgDragHolds() {
   return !!(ORG_LIVE && ORG_LIVE.dragEl && ORG_LIVE.dragEl.isConnected);
 }
+/* #718: the chart box back to a plain one (no sideways scroll, no scroll padding,
+   not a focusable region): on a paint that fits, and wherever the chart is cleared
+   instead of painted (an empty board, a poll that failed). `cleared` also drops the
+   emptied map's size, or it stays a blank square the size of the last chart above
+   the note. Only then: a paint that fits keeps its size, which the repaint guard
+   may not set again. */
 function orgBoxPlain(cleared) {
   const wrap = document.getElementById('orgview');
   const hadFocus = document.activeElement === wrap;   // read before tabindex goes
@@ -26476,7 +26476,7 @@ function orgBoxPlain(cleared) {
   // or it falls to the page body.
   if (hadFocus) {
     const first = map.querySelector('.onode');
-    if (first) first.focus();
+    if (first) first.focus({ preventScroll: true });
   }
 }
 let ORG_HTML = null;         // the repaint guard's memory
@@ -27013,6 +27013,9 @@ function orgLiveRun() {
   });
   map.addEventListener('pointermove', (e) => {
     if (!drag) return;
+    // #718: a repaint (a poll, a resize) before the node moved rebuilt the nodes; this
+    // drag's node is gone, so the drag is over rather than steering a detached copy.
+    if (!drag.el.isConnected) { drag = null; return; }
     const dx = e.clientX - drag.x0; const dy = e.clientY - drag.y0;
     if (!drag.moved && Math.abs(dx) + Math.abs(dy) > 4) {
       drag.moved = true; drag.el.classList.add('dragging');
@@ -27048,7 +27051,7 @@ function orgLiveRun() {
   };
   map.addEventListener('pointerup', release);
   map.addEventListener('pointercancel', release);
-  map.addEventListener('lostpointercapture', release);   // #718: capture lost ends the drag too
+  map.addEventListener('lostpointercapture', release);
 })();
 document.getElementById('orgmap').addEventListener('click', (e) => {
   if (ORG_DRAG_MOVED) { ORG_DRAG_MOVED = false; return; }   // a drag just ended here (#381)
