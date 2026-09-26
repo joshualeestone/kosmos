@@ -248,10 +248,10 @@ let engineLook = { at: 0, staleSince: null };
    protects is one pane from being flooded, so that is what it counts: how many times
    agents typed into THIS assignee's screen this hour. A fleet-wide ceiling stays as a
    runaway breaker only, far above any real batch, the same shape as #3959's. */
-const heardBudgetLog = new Map(); // assignee name -> times typed to, oldest first
+const heardBudgetLog = new Map(); // heardKey(assignee) (trimmed, lowercased) -> times typed to, oldest first
 const HEARD_BUDGET_WINDOW_MS = 3600000;
 const HEARD_PER_AGENT_MAX = 30;
-const HEARD_RUNAWAY_MAX = 500;
+const HEARD_RUNAWAY_MAX = 500; // pinned equal to AGENT_RUNAWAY_PER_HOUR (below) by the #3961 test
 /* Lowercased, because delivery finds the pane case-insensitively (chat.resolveCard,
    #989): "mara" and "Mara" type into one screen, so they spend one allowance. */
 function heardKey(who) {
@@ -397,9 +397,9 @@ function tellEveryoneOn(t, roster) {
      pane line spends the assignee's paging allowance (heardBudgetAllows, per assignee).
    - assigner: the Kosmos Assigner. Its own provenance ('assigner'), so neither the parts
      valve nor the paging allowance is charged (the Assigner has its own hourly caps);
-     the part must still be free at the moment of the write (onlyIfFree); the pane line is always sent, and if it could not
-     reach the agent at all (COULD_NOT) the assignment is taken back, so nobody is left on a task
-     they were never told about.
+     the part must still be free at the moment of the write (onlyIfFree); the pane line is
+     always sent, and if it could not reach the agent at all (COULD_NOT) the assignment is
+     taken back, so nobody is left on a task they were never told about.
    Returns the route's body fields plus `ok`/`status`/`because`; never throws for a refusal. */
 function givePart(projectId, n, partId, who, { screen, roster, assigner } = {}) {
   if (!screen && !assigner) {

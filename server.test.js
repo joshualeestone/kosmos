@@ -14204,6 +14204,17 @@ test('#3961: the paging allowance is per assignee, every route says when it skip
     assert.equal(hWho.state, 'could_not');
     assert.equal(hWho.who, 'mara');
     assert.equal(sends.length, before, 'CONTROL: nothing was typed for the reassign');
+    // Part add spends and respects the same allowance: to mara (spent) it is not typed...
+    const rAddMara = await api('/task/1/parts', { sentence: 'Slice bread', who: 'mara' });
+    assert.equal(rAddMara.status, 200, rAddMara.body);
+    assert.equal((JSON.parse(rAddMara.body).heard || {}).state, 'could_not', rAddMara.body);
+    assert.equal(sends.length, before, 'CONTROL: nothing was typed for the part add past the allowance');
+    // ...and theo's placed task and part add each counted: two spent, so spending the
+    // other twenty-eight leaves his next assignment untyped.
+    spendHeardBudgetForTests('theo', HEARD_PER_AGENT_MAX - 2);
+    const rTheoFull = await api('/tasks', { sentence: 'Theo is full', who: 'theo' });
+    assert.equal((JSON.parse(rTheoFull.body).heard || {}).state, 'could_not',
+      'a placed part add or task did not spend the assignee\'s allowance: ' + rTheoFull.body);
     // A part with NOBODY named still answers no heard at all.
     const rNone = await api('/task/1/parts', { sentence: 'Unassigned' });
     assert.equal(rNone.status, 200, rNone.body);
