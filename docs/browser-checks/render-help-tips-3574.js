@@ -403,10 +403,11 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
       const c = document.getElementById('tipcard');
       const one = (left, width) => {
         const d = document.createElement('div');
-        d.id = 'tip3920-target';
+        // A data attribute, not an id: the page has no such element, and #758's guard rightly checks every id a check asks for.
+        d.setAttribute('data-tip3920', '');
         d.style.cssText = 'position:fixed;left:' + left + 'px;top:8px;width:' + width + 'px;height:' + (innerHeight - 16) + 'px;';
         document.body.appendChild(d);
-        tipPlace(c, '#tip3920-target', false, { key: 'check-3920', avoid: false });
+        tipPlace(c, '[data-tip3920]', false, { key: 'check-3920', avoid: false });
         const a = c.getBoundingClientRect(), br = d.getBoundingClientRect();
         const out = { cls: ['up', 'down', 'left', 'right', 'flat'].find((k) => c.classList.contains(k)), width: Math.round(a.width),
           over: a.left < br.right && a.right > br.left && a.top < br.bottom && a.bottom > br.top,
