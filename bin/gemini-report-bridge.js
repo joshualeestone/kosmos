@@ -69,6 +69,9 @@ const STATE_FOR_EVENT = Object.freeze({
   SessionEnd: 'stopped',
 });
 
+/* Set by the Windows per-turn supervisor (win32keyed.turnEnv); see reportFor. */
+const PER_TURN_ENV = 'KOSMOS_PER_TURN';
+
 function readStdin() {
   return new Promise((resolve) => {
     let data = '';
@@ -89,13 +92,21 @@ function readStdin() {
   });
 }
 
-/* The pure event -> report translation, exported for tests. Returns { state, text }
+/* The pure event -> report translation, exported for tests (`env`: the environment the hook
+   runs in, read only for PER_TURN_ENV). Returns { state, text }
    or null for an event we do not map. Kept side-effect-free so the mapping (the
    thing most likely to drift) is testable without a live board. */
-function reportFor(event) {
+function reportFor(event, env) {
   if (!event || typeof event !== 'object') return null;
   const state = STATE_FOR_EVENT[event.hook_event_name];
   if (!state) return null; // an unobserved event is ignored, never guessed at
+  /* #4012: a PER-TURN agent (Windows: one headless gemini run per message, win32keyed.js)
+     opens and closes a whole session on EVERY turn, so SessionStart/SessionEnd are turn
+     edges there, not the agent's life. Measured on Windows: each turn ended on `stopped`,
+     which the board reads as "it reported stopping, but it is still running" and drops the
+     report, the turn's last words with it. The supervisor that runs the turns owns the
+     agent's life, so those two are not reported; the turn events still are. */
+  if ((state === 'started' || state === 'stopped') && env && env[PER_TURN_ENV] === '1') return null;
   /* The last words for the card (idle), or the reason a needs_you requires. For
      needs_you the route REFUSES an empty note (selfreport.js: a needs_you/blocked
      must carry a reason/on/owner), so a Notification with no message would be
@@ -131,12 +142,32 @@ function buildBody(state, text, env) {
   };
 }
 
+/* #4012: where the engine is, for the board token and the world header below. In a checkout
+   and in the bundle this file sits in bin/ with engine/ beside it. The copy every agent actually
+   RUNS is the one installSupervisor puts in <supportDir>/bin, which has no engine/ beside it, so
+   `require('../engine/...')` always failed there and the two headers this file promises were
+   never sent. That folder does carry the `engine-path` pointer installSupervisor writes (#1139,
+   the same file agent-supervisor.sh reads), so fall back to it. Null when neither resolves: the
+   report then goes without those headers, exactly as before. `here` is a seam for the test. */
+function engineDir(here) {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const h = here || __dirname;
+  const beside = path.join(h, '..', 'engine');
+  if (fs.existsSync(path.join(beside, 'boardauth.js'))) return beside;
+  try {
+    const ptr = String(fs.readFileSync(path.join(h, 'engine-path'), 'utf8')).split(/\r?\n/)[0].trim();
+    if (ptr && fs.existsSync(path.join(ptr, 'boardauth.js'))) return ptr;
+  } catch { /* no pointer: no engine */ }
+  return null;
+}
+
 async function main() {
   const raw = await readStdin();
   let event;
   try { event = JSON.parse(raw || ''); } catch { return; }
 
-  const mapped = reportFor(event);
+  const mapped = reportFor(event, process.env);
   if (!mapped) return;
   const { state, text } = mapped;
 
@@ -157,15 +188,16 @@ async function main() {
      accepts instead of a bare pane). Read via boardauth, the ONE source of truth
      for the path. Guarded to this file's cardinal rule: a token we cannot read
      must never break the agent. */
+  const engine = engineDir();
   try {
-    const boardTok = require('../engine/boardauth').readToken();
+    const boardTok = require(require('node:path').join(engine, 'boardauth')).readToken();
     if (typeof boardTok === 'string' && boardTok) headers['x-kosmos-board-token'] = boardTok;
   } catch { /* a missed board token must never become a failed turn */ }
 
   /* Name this agent's Kosmos, so a board serving ANOTHER Kosmos answers 421
      rather than refusing the report as a stranger's. Same guard as above. */
   try {
-    const launchidentity = require('../engine/launchidentity');
+    const launchidentity = require(require('node:path').join(engine, 'launchidentity'));
     headers[launchidentity.WORLD_HEADER] = launchidentity.worldHeaderValue(process.env);
   } catch { /* a missed world header must never become a failed turn */ }
 
@@ -186,4 +218,4 @@ if (require.main === module) {
   main().catch(() => { /* same rule as the top: never break the agent */ });
 }
 
-module.exports = { STATE_FOR_EVENT, reportFor, buildBody };
+module.exports = { STATE_FOR_EVENT, PER_TURN_ENV, reportFor, buildBody, engineDir };

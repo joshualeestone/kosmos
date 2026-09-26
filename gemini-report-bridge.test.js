@@ -26,7 +26,7 @@ const BRIDGE = nodePath.join(__dirname, 'bin', 'gemini-report-bridge.js');
  * so a synchronous spawn that blocks the event loop makes delivery flaky. The child
  * exits only after its fetch settles, and the handler pushes to `seen` before
  * responding, so awaiting the child's close is a sufficient barrier. */
-function drive(eventJson, env = {}) {
+function drive(eventJson, env = {}, bridge = BRIDGE) {
   return new Promise((resolve, reject) => {
     const seen = [];
     const server = http.createServer((req, res) => {
@@ -40,7 +40,7 @@ function drive(eventJson, env = {}) {
     });
     server.listen(0, '127.0.0.1', () => {
       const port = server.address().port;
-      const child = spawn(process.execPath, [BRIDGE], {
+      const child = spawn(process.execPath, [bridge], {
         env: { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%77', ...env },
         stdio: ['pipe', 'ignore', 'ignore'],
       });
@@ -173,4 +173,54 @@ test('#1704: the bridge names this agent\'s Kosmos, and says default when KOSMOS
   } finally {
     fsB.rmSync(data, { recursive: true, force: true });
   }
+});
+
+/* #4012: the bridge an agent RUNS is the copy installSupervisor puts in <supportDir>/bin, and that
+   folder has no engine/ beside it, so `require('../engine/...')` failed there and neither the
+   board token nor the world header was ever sent (measured on Windows). It now finds the engine
+   through the `engine-path` pointer installSupervisor writes beside it. */
+test('#4012: the supportDir COPY finds the engine through engine-path and presents the board token and world header', async () => {
+  const { WORLD_HEADER } = require('./engine/launchidentity');
+  const sup = fsB.mkdtempSync(nodePath.join(osB.tmpdir(), 'aw-4012-gemini-sup-'));
+  try {
+    const bin = nodePath.join(sup, 'bin');
+    fsB.mkdirSync(bin, { recursive: true });
+    const copy = nodePath.join(bin, 'gemini-report-bridge.js');
+    fsB.copyFileSync(BRIDGE, copy);
+    const root = nodePath.join(sup, 'data', store.APP);
+    fsB.mkdirSync(root, { recursive: true });
+    fsB.writeFileSync(nodePath.join(root, 'board.token'), 'abc123boardtoken');
+    const env = { AGENT_WORKFORCE_DATA: nodePath.join(sup, 'data'), KOSMOS_WORLD: 'test' };
+
+    // No pointer yet: the report still goes, just without the two headers (the old behaviour).
+    const bare = await drive(TURN, env, copy);
+    assert.equal(bare.length, 1, 'a bridge with no engine still reports');
+    assert.equal(bare[0].headers['x-kosmos-board-token'], undefined);
+
+    fsB.writeFileSync(nodePath.join(bin, 'engine-path'), nodePath.join(__dirname, 'engine') + '\n');
+    const seen = await drive(TURN, env, copy);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].headers['x-kosmos-board-token'], 'abc123boardtoken', 'the supportDir copy did not present the board token');
+    assert.equal(seen[0].headers[WORLD_HEADER], 'test', 'the supportDir copy did not name its Kosmos');
+  } finally {
+    fsB.rmSync(sup, { recursive: true, force: true });
+  }
+});
+
+/* #4012: on Windows every gemini turn is its own headless session (win32keyed.js), so its
+   SessionStart/SessionEnd are turn edges. Measured: each turn ended on `stopped`, which the
+   board reads as "it reported stopping, but it is still running" and drops. With the per-turn
+   marker those two report nothing; the turn events still do; without it nothing changes. */
+test('#4012: a per-turn agent does not report its session edges as starting and stopping', async () => {
+  const { reportFor, PER_TURN_ENV } = require('./bin/gemini-report-bridge');
+  const perTurn = { [PER_TURN_ENV]: '1' };
+  assert.equal(reportFor({ hook_event_name: 'SessionStart' }, perTurn), null);
+  assert.equal(reportFor({ hook_event_name: 'SessionEnd' }, perTurn), null);
+  assert.equal(reportFor({ hook_event_name: 'BeforeAgent' }, perTurn).state, 'working');
+  assert.equal(reportFor({ hook_event_name: 'SessionEnd' }, {}).state, 'stopped', 'a pane agent still reports stopping');
+  assert.equal(reportFor({ hook_event_name: 'SessionStart' }).state, 'started');
+  const ended = await drive(JSON.stringify({ hook_event_name: 'SessionEnd' }), perTurn);
+  assert.equal(ended.length, 0, 'a per-turn SessionEnd must not reach the board');
+  const turn = await drive(TURN, perTurn);
+  assert.equal(JSON.parse(turn[0].body).state, 'idle', 'the turn itself still reports');
 });

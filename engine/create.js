@@ -5376,6 +5376,7 @@ module.exports = {
      mac-only copy -- the defect it fixed, whose Windows output cannot be
      asserted at runtime from a Mac because it reads process.platform. */
   supportDir,
+  geminiBridgePath,
   /* #1315: exported so the fix that unblocks a codex agent's first launch
      can be tested directly, rather than only through a full creation. */
   dismissCodexUpdateNotice,
