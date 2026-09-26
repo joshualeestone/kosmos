@@ -9364,16 +9364,65 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
     padding: 6px 0 6px 6px; max-height: calc(0.18 * var(--kosmos-visible-height, 100dvh));
     overflow: hidden auto; }
   /* Top-aligned, not centred: a centred row taller than its cap spills above the scroll box, where
-     no scroll can reach (the name and Start this agent were cut off). An action further down the
-     notes (Start this agent, Sign in again) is reached by scrolling this block; a roomier cap for
-     them was tried and left an iPhone SE no conversation at all. */
+     no scroll can reach (the name and Start this agent were cut off). Start this agent comes before
+     the notes and stays in view; Sign in again, the last note, is pinned to this block's bottom edge
+     (#3892, below). A cap roomier for every agent was tried and left an iPhone SE no conversation. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dav-wrap,
   #panel-detail:has(#d-sec-talk:not([hidden])) .dav-wrap .detail-av { width: 40px; height: 40px; flex-basis: 40px; }
+  /* #3892: Sign in again must never hide. It is how a person recovers an agent whose sign-in stopped, and it
+     comes last in the notes (after the usage-limit quote), so on every phone size it sat below this block's
+     fold with nothing showing the block scrolls. On the phone chat it is pinned to the bottom edge of the
+     capped block, over the notes on the page's own ground, with a fade above it that says the block goes on;
+     the DOM order (so the keyboard and screen-reader order) is unchanged. Start this agent comes before the
+     notes and stays in view without this. :not([hidden]), or display would override the hidden attribute.
+     The whole 44px row is the target (the words stay at the left), which suits a thumb. The ground is the
+     plain page ground, so it is not dimmed while the help tour dims the page (the tour rarely covers this). */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-reauth:not([hidden]) {
+    position: sticky; bottom: 0; z-index: 1; display: flex; align-items: center; width: 100%;
+    min-height: 44px; background: var(--k-bg); box-shadow: 0 -10px 8px -2px var(--k-bg);
+    /* The fade reaches 16px above the button (10px offset + 8px blur - 2px spread); this gap keeps the
+       quote's last line clear of it once the block is scrolled to its end. */
+    margin-top: 16px; }
+  /* The shared ring is drawn 2px OUTSIDE (.linkish:focus-visible); the block scrolls and has no right padding,
+     so that ring was clipped at its edge. Inside the button here, fully visible. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-reauth:not([hidden]):focus-visible { outline-offset: -3px; }
+  /* A defence only: Start this agent shows for an agent that is off, and a stopped sign-in counts as on, so
+     today the two never show together. If they ever do, the name row, Start and a pinned 44px Sign in again
+     need about 150px, more than an SE's 120px cap, so the cap has a 152px floor (an SE gives up 32px;
+     larger phones are already past it). The case that does happen, a swarm agent whose sign-in stopped,
+     has its own floor below. The header steps aside while typing, so writing gets the room back. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-start-wrap:not([hidden])) {
+    max-height: max(calc(0.18 * var(--kosmos-visible-height, 100dvh)), min(152px, calc(0.3 * var(--kosmos-visible-height, 100dvh)))); }
+  /* A swarm agent whose sign-in stopped: the name row, Stop now and a pinned 44px Sign in again share the
+     block, and Stop now carries its warning (it says work is dropped), up to 116px on an SE. The floor is
+     tall enough that Stop now is never under the pinned button and scrolling brings the whole warning into
+     view above it and its fade (116 + 16 + 44 + padding). The conversation gives up about 70px on an SE and
+     at most 37px on larger phones, only in this state, when the agent cannot answer anyway. Both floors are
+     held to 30% of the visible height, which leaves every portrait phone its full floor (30% of an SE's
+     667px is 200px) and keeps a phone held sideways (360px tall) its conversation; there the warning may
+     need a scroll past the button (sideways phones are outside #718's sizes). */
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) {
+    max-height: max(calc(0.18 * var(--kosmos-visible-height, 100dvh)), min(190px, calc(0.3 * var(--kosmos-visible-height, 100dvh)))); }
+  /* The floor is measured for a one-line name row; a long name, or a task sentence that wraps, would push
+     Stop now back under the pinned button. So for a swarm agent whose sign-in stopped (not for the defensive
+     Start case, which never happens today) the row stays one line: the task sentence is
+     not shown (the state badge, "Sign-in isn't working", and the pinned Sign in again already say it), nor
+     the role (both are on Profile; with the role beside it the name was squeezed to "A.." on an SE), the
+     state badge keeps its size, and the name takes the rest (a short name whole; a long one ellipsized, it
+     is on Profile in full). */
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) .dnamerow { flex-wrap: nowrap; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) #d-task { display: none; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) #d-meta { display: none; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) #d-name { min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) .detail-state { flex: none; }
   /* A swarm agent (#3564) on the phone chat keeps only Active/Paused and Stop now in the header;
      they come before the notes, so they sit at the top of the capped block, on screen. The helper
      and daily-limit sliders stay on Profile. */
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox ~ .swbox { display: none; }
-  /* Stop now acts at once, so its explanation stays visible in full (it says work is dropped). */
+  /* Stop now acts at once, so its explanation is never cut short (it says work is dropped). It can sit below
+     the capped block's fold (an SE shows part of it on first view); while a swarm agent's sign-in has
+     stopped, the pinned Sign in again (#3892) also lies over it until the block is scrolled, and scrolling
+     brings the whole of it into view above the pinned button. */
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel #d-swarm-stop-hint { margin: 4px 0 0; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel { gap: 0; margin-top: 4px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox { padding: 4px 8px; }
