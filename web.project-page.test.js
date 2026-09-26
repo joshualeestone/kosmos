@@ -108,7 +108,9 @@ test('the heard sentence is wired to both surfaces that can produce one, after t
   const ntAt = SCRIPT.indexOf("getElementById('nt-go').addEventListener('click'");
   const ntFn = SCRIPT.slice(ntAt, SCRIPT.indexOf('\n});\n', ntAt) + 5);
   assert.ok(ntAt > -1, "nt-go's handler moved; re-anchor");
-  assert.match(ntFn, /await pjReload\(\);[\s\S]{0,600}if \(heard\) document\.getElementById\('pj-one-msg'\)\.textContent = heard;/,
+  /* 900, was 600: #3861 part 2 puts the "+ Add subtask" branch (it answers on the task page) between
+     the reload and this line. What is pinned is unchanged: the line comes AFTER the reload. */
+  assert.match(ntFn, /await pjReload\(\);[\s\S]{0,900}if \(heard\) document\.getElementById\('pj-one-msg'\)\.textContent = heard;/,
     'New Task no longer surfaces the heard verdict after its own reload');
   // Add a part / reassign a part (the task page): tkPartPost is the one
   // function both routes share.
