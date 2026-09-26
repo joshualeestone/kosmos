@@ -1662,27 +1662,32 @@ function viewport(sessionName, roster) {
  * from a few lines above the matching line to the end. It does not extract "the
  * question", name the options, or reword anything: the person reads the
  * terminal, we only scroll it to the right place.
+ *
+ * `runner` (#4034): the card's runner. For 'gemini' the slice starts at Gemini's question box when one is up
+ * (status.geminiQuestionReading); for any other runner, or none, only the markers are read.
  */
 function questionIn(text, runner) {
   const whole = String(text == null ? '' : text);
   if (!whole.trim()) return null;
   const lines = whole.split('\n');
+  /* #4034: on a Gemini pane, its question box first. Its box is at the bottom by rule, while a marker phrase
+     ("Would you like to", "permission to") can sit higher up in the agent's own earlier reply; the markers would
+     take that stale prose as the question. Only for Gemini: the box is a shape, not words, and another runner's
+     tool output can draw one. */
+  if (runner === 'gemini') {
+    const g = status.geminiQuestionReading(whole);
+    if (g) return { text: lines.slice(g.from).join('\n').replace(/\s+$/, '') };
+  }
   // The LAST match, not the first: a pane accumulates, and an older question
   // that has already been answered may still be on screen above the live one.
   let at = -1;
   for (let i = 0; i < lines.length; i += 1) {
-    /* ALL runners' markers (#249): this reads a pane without knowing which
-       runner drew it, and a Codex question must be findable too. */
+    /* ALL runners' markers (#249): the markers do not depend on which runner
+       drew the pane (only the Gemini box above does), and a Codex question
+       must be findable too. */
     if (status.ALL_NEEDS_YOU_MARKERS.some((re) => re.test(lines[i]))) at = i;
   }
-  if (at < 0) {
-    /* #4034: Gemini's question box matches no marker; for a GEMINI pane only (the box is a shape, not words, and
-       another runner's tool output can draw one), the same reading the card's needs_you came from finds it, so the
-       page shows the question the card names, from the line it says the box starts on. */
-    if (runner !== 'gemini') return null;
-    const g = status.geminiQuestionReading(whole);
-    return g ? { text: lines.slice(g.from).join('\n').replace(/\s+$/, '') } : null;
-  }
+  if (at < 0) return null;
   // A few lines of run-up, because a Claude permission prompt states what it is
   // asking about above the line that matches.
   const from = Math.max(0, at - 6);

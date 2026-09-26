@@ -17,6 +17,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const status = require('./status');
 const geminiquota = require('./geminiquota');
+const chat = require('./chat');
 const fleet = require('../test-support/fleet');
 
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
@@ -86,7 +87,6 @@ test('#4034 review round 1: Stop anywhere among the options, and a first line th
 });
 
 test('#4034 review round 2: the agent page finds the question the card names, and a narrow pane\'s wrapping does not cut the reason', () => {
-  const chat = require('./chat');
   const q = chat.questionIn(NOT_FOUND, 'gemini');
   assert.ok(q && q.text.includes('was not found or is invalid') && q.text.includes('2. Stop'), 'questionIn did not find the box: ' + JSON.stringify(q));
   assert.ok(q.text.startsWith('╭'), 'the question does not start at the box top: ' + JSON.stringify(q.text.slice(0, 40)));
@@ -111,4 +111,23 @@ test('#4034 review round 2: the agent page finds the question the card names, an
     '╰──────────────────────────────────────╯',
   ].join('\n');
   assert.equal(status.geminiQuestionReading(narrow).evidence, 'Model "gemini-2.5-flash" was not found or is invalid.');
+});
+
+test('#4034 review round 4: a project member carries its runner so the project thread finds the box, and a stale marker phrase above the box does not win', () => {
+  const projects = require('./projects');
+  // A roster built by the real status engine (fleet.install), as projects.test.js does: tied cards with their runner.
+  const board = fleet.install([fleet.agent('gemd', { ours: 'claim', runner: 'gemini', command: 'node', state: 'needs_you' })]);
+  let roster;
+  try { roster = board.agents; } finally { board.restore(); }
+  assert.equal((roster.find((c) => c.sessionName === 'gemd') || {}).runner, 'gemini', 'the fixture roster has no Gemini card');
+  const p = projects.create({ name: 'Gemini 4034 thread', agents: ['gemd'], roster });
+  const got = projects.get(p.id, roster);
+  const member = chat.resolveCard(got.agents || [], 'gemd');
+  assert.ok(member, 'the member was not found: ' + JSON.stringify(got.agents));
+  assert.equal(member.runner, 'gemini', 'a project member does not carry its runner');
+  const q = chat.questionIn(NOT_FOUND, member.runner);
+  assert.ok(q && q.text.startsWith('╭'), 'the project thread did not find the box: ' + JSON.stringify(q));
+  const stale = [' > hi', '✦ Do you want to proceed? I asked earlier.', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', NOT_FOUND].join('\n');
+  const s = chat.questionIn(stale, 'gemini');
+  assert.ok(s && s.text.startsWith('╭') && !s.text.includes('I asked earlier'), 'the stale marker phrase won over the box: ' + JSON.stringify(s && s.text.slice(0, 80)));
 });

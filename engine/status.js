@@ -1627,7 +1627,8 @@ function geminiQuotaReading(paneText, afterStop) {
 
 /* #4034: the same question box for other conditions (Gemini CLI 0.61.0). Captured: a model not found draws
    'Model "<model>" was not found or is invalid.' over "1. Keep trying / 2. Stop". From Gemini's source, not captured:
-   "We are currently experiencing high demand ..." over the same options. So the box is read by its SHAPE (a message
+   "We are currently experiencing high demand ..." over the same options, as are a model not available in a region
+   and "It seems like you don't have access to ..." (Switch / Upgrade / Stop). So the box is read by its SHAPE (a message
    inside a box top, numbered options one of which is a bare "Stop", nothing after but the box edge), whatever its
    message says. Not read: the credits dialogs, whose option is "Stop - Abort request". Returns the message's first
    sentence (its rows joined, so a narrow pane's wrapping does not cut it) and `from`, the line the box starts on,

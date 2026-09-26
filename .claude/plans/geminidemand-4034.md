@@ -50,8 +50,17 @@ Card: joshualeestone/kosmos#4034 (filed from #4004). Measurements and the decisi
 - BLOCKER fixed: questionIn is runner-blind, and the Gemini fallback matches a shape another runner's tool output
   can draw, so a Claude or Codex page could show a subprocess's retry box as "the question" and hide the card's own
   reason. The fallback now runs only when the caller says the pane is Gemini's (the three server routes pass the
-  card's runner). Tested for claude, codex and an unknown runner.
+  card's runner; CORRECTED in round 4: the project route's member carried no runner until then). Tested for claude, codex and an unknown runner.
 - geminiQuestionReading returns the line its box starts on; questionIn uses it rather than finding the box a second way.
 - The high-demand fixture now carries the message as Gemini renders it (two message lines, then the hint).
 - Decided, noted: a not-found box whose first option is "Switch to <model>" (no Keep trying) is read the same way,
   and nothing is pressed for it either; switching a model is the person's call.
+
+## Review round 4 (Opus), what changed
+- BLOCKER fixed: round 3's claim that all three routes pass the runner was false for the project thread. A project
+  member (engine/projects.js) never carried `runner`, so the fallback never ran there. It now carries it, under the
+  same tied gate as `state`. Tested with a roster from the real status engine; red without it.
+- On a Gemini pane questionIn now reads the box FIRST: a marker phrase in the agent's own earlier reply ("Do you
+  want to proceed?") above the box made the markers return stale prose as the question. Tested; red without it.
+- Comments: questionIn's docblock names `runner`; the status comment lists the region and no-access variants,
+  which the same shape reads.
