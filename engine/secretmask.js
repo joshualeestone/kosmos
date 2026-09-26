@@ -222,14 +222,19 @@ function fragmentsIn(text) {
     /* The whole run, however long (review round 20: a cap left a fragment past it unread): one Set lookup per
        position, so the cost stays linear in the reply. */
     const run = m[0];
-    /* #3995: and the run with - _ + / = taken out, for a fragment grouped with them (Lm3p/Rt6w/Xy9k). */
-    const bare = run.replace(/[-_+/=]+/g, '');
-    for (const r of bare === run ? [run] : [run, bare]) {
-      let found = false;
-      for (let i = 0; i + FRAGMENT_LEN <= r.length; i += 1) {
-        if (knownGrams.has(r.slice(i, i + FRAGMENT_LEN))) { found = true; break; }
-      }
-      if (found) { spans.push([m.index, m.index + run.length]); break; }
+    let found = false;
+    for (let i = 0; i + FRAGMENT_LEN <= run.length; i += 1) {
+      if (knownGrams.has(run.slice(i, i + FRAGMENT_LEN))) { spans.push([m.index, m.index + run.length]); found = true; break; }
+    }
+    if (found || !/[-_+/=]/.test(run)) continue;
+    /* #3995: and the run with - _ + / = taken out, for a fragment grouped with them (Lm3p/Rt6w/Xy9k). Only the
+       characters of the matching slices are masked (review round 3: the whole run took labels glued to it,
+       token=, name=production+). */
+    const kept = [];
+    for (let k = 0; k < run.length; k += 1) if (!/[-_+/=]/.test(run[k])) kept.push(k);
+    const bare = kept.map((k) => run[k]).join('');
+    for (let i = 0; i + FRAGMENT_LEN <= bare.length; i += 1) {
+      if (knownGrams.has(bare.slice(i, i + FRAGMENT_LEN))) spans.push([m.index + kept[i], m.index + kept[i + FRAGMENT_LEN - 1] + 1]);
     }
   }
   return spans;
@@ -385,7 +390,8 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  * noise run that happens to equal the next part ("1" in a row label) cannot derail the real assembly.
  * The walk stops at the separator copies' bound, counted per gap (#3995): at most 4x the form's length in
  * non-whitespace characters past the opening, or past the last piece of OPENING_LEN or more that took it
- * further. Pieces are masked one by one, so two far-apart words never swallow the text between them. Returns [from, to) spans in the text, one per matched piece (review round 18).
+ * further. Pieces are masked one by one, so two far-apart words never swallow the text between them.
+ * Returns [from, to) spans in the text, one per matched piece (review round 18).
  *
  * Not covered:
  *  - pieces out of order or reversed;
@@ -396,6 +402,8 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *    non-word pieces of OPENING_LEN or more; a try that reaches it is masked piece by piece;
  *  - glue in the middle of a run other than - _ + / = between chunks and a label joined by =, - or _ on either side;
  *  - a held form with its own - or _ regrouped with + or / (its grams and walked form keep its own separators);
+ *  - a group joined by + / = that is all lowercase letters with no digit, when it is under FRAGMENT_LEN;
+ *  - a value with symbols in it, given without its opening, with spaces around its symbols;
  *  - a held form over WORD_WALK_MAX_FORM characters;
  *  - pieces that overlap (a character given twice, at the end of one piece and the start of the next);
  *  - a key split across two replies (the mask is per message).
@@ -447,8 +455,17 @@ function pieceVariants(run) {
   /* A key's chunks joined by its own separators, licence-key style (Qw8e-Rt2y), with words between the groups
      (review round 14): the run is tried with every - and _ taken out as well, one piece of the key. */
   for (const v of [...out]) if (/[^-_][-_]+[^-_]/.test(v)) out.add(v.replace(/[-_]+/g, ''));
-  /* #3995: and with + / = taken out too, for chunks grouped with those (Rt6wXy9k=Hb2nWc4d). */
-  for (const v of [...out]) if (/[^-_+/=][-_+/=]+[^-_+/=]/.test(v)) out.add(v.replace(/[-_+/=]+/g, ''));
+  /* #3995: and with + / = taken out too, for chunks grouped with those (Rt6wXy9k=Hb2nWc4d). Only for a run that
+     looks like key text once joined (letters with digits, or both cases, and not words): each variant costs every
+     walk that reads the run, and text dense with paths and sums (a/b/c, x+y=z) was withheld at the budget
+     (review round 3). An all-lowercase group with no digit is not tried this way (stated under "Not covered"). */
+  for (const v of [...out]) {
+    if (!/[^-_+/=][-_+/=]+[^-_+/=]/.test(v)) continue;
+    const joined = v.replace(/[-_+/=]+/g, '');
+    if ((/[0-9]/.test(joined) && /[A-Za-z]/.test(joined)) || (/[a-z]/.test(joined) && /[A-Z]/.test(joined))) {
+      if (!madeOfWords(joined)) out.add(joined);
+    }
+  }
   /* A label joined by a hyphen (chunk-2-Rt2mNp9b, review round 15): each tail after a - or _, up to four, and
      only tails of OPENING_LEN or more (a shorter one, "Wor" of pi03-Wor, is coincidence, not a piece). */
   /* Taken from the END (review round 17): the piece is the last part, so a label with many hyphens
@@ -482,7 +499,8 @@ function wordSkippingSpans(text) {
     return v;
   };
   const hasOpening = (raw) => {
-    for (const str of /[-_]/.test(raw) ? [raw, raw.replace(/[-_]+/g, '')] : [raw]) {
+    /* And without + / = as well (#3995 review round 3): a / inside the key's first four characters hid its opening. */
+    for (const str of /[-_+/=]/.test(raw) ? [raw, raw.replace(/[-_]+/g, ''), raw.replace(/[-_+/=]+/g, '')] : [raw]) {
       for (let q = 0; q + OPENING_LEN <= str.length; q += 1) if (knownByOpening.has(str.slice(q, q + OPENING_LEN))) return true;
     }
     return false;
@@ -536,7 +554,8 @@ function wordSkippingSpans(text) {
     const [runFrom] = runs[r];
     /* The opening is looked for in the run as written and in each variant a piece is tried as (glue taken off),
        so a key's own last _ or / is kept in one and italics or a label are gone in another. */
-    /* Every variant is a substring of the run or of the run without its - and _, so a run holding no indexed
+    /* Every variant is a substring of the run, of the run without its - and _, or of the run without - _ + / =
+       (#3995), and hasOpening looks in all three, so a run holding no indexed
        opening in either starts nothing, and its variants are not built (review round 18: building them for
        every run cost 2.5x on text dense with - _ and =, when nothing matched). */
     if (!hasOpening(runs[r][2])) continue;
@@ -840,6 +859,7 @@ function maskFresh(text) {
          linear, and inside the budget the word walk states above. */
       const isKeyChar = (c) => /[A-Za-z0-9_+/=-]/.test(c);
       const seen = new Set();
+      const found = [];
       for (const [a, b] of fragmentSlicesIn(unpunct.str)) {
         for (let k = a; k < b; k += 1) {
           let from = unpunct.map[k], to = from + 1;
@@ -847,9 +867,19 @@ function maskFresh(text) {
           while (from > 0 && isKeyChar(original[from - 1])) from -= 1;
           while (to < original.length && isKeyChar(original[to])) to += 1;
           for (let x = from; x < to; x += 1) seen.add(x);
-          spans.push([from, to]);
+          found.push([from, to]);
         }
       }
+      /* Runs separated only by the deleted characters are one span, so the password's own symbols do not show
+         between the masks (review round 3). */
+      found.sort((x, y) => x[0] - y[0]);
+      const merged = [];
+      for (const sp of found) {
+        const last = merged[merged.length - 1];
+        if (last && /^[^A-Za-z0-9_+/=\s-]+$/.test(original.slice(last[1], sp[0]))) last[1] = sp[1];
+        else merged.push([sp[0], sp[1]]);
+      }
+      for (const sp of merged) spans.push(sp);
     }
     /* And in a copy with only single-character spacing closed up (review round 25): a key spaced one character
        at a time WITH words between its chunks ("Z q 8 v L m 3 p then w X y 9 ...") is neither. Not the copy above,

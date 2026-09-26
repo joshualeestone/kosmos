@@ -50,6 +50,18 @@ Card: #3995 (filed from #3935's review rounds 27, 29 and 34). Refs #3995, does n
   linear and inside the stated budget; recorded in the comment. What would change it: a reply the extra pass
   pushes over the budget, or a measured cost on the board's real message sizes that matters.
 
+## Review round 3 (Opus), what changed
+- BLOCKER fixed: a / + or = inside the key's first four characters hid its opening from hasOpening, so the new
+  variant was never reached. hasOpening now also looks in the run without - _ + / =. Tested for all three.
+- The + / = variant is offered only for a run that looks like key text once joined (letters with digits, or both
+  cases, and not words): text dense with paths and sums was withheld at the budget (4 of 20 trials on the previous
+  commit, 0 of 20 now, 42,000 characters, 5 held keys). Tested. The cost: an all-lowercase, digitless group under
+  FRAGMENT_LEN joined by + / = is not tried; named under "Not covered".
+- The separator-stripped fragment match masks only the matching slices' characters, not the whole run (labels
+  glued to the key, token= and name=production+, stay). Tested.
+- A symbol-cut password's runs are joined into one span, so its symbols do not show between the masks. Tested.
+- Not covered, named: a value with symbols given without its opening, with spaces around the symbols.
+
 ## Tests
 - engine/secretmask.test.js "#3995 ...": every case above, plus ordinary text with / + = (URLs, arithmetic,
   and/or) left alone, and one piece alone not swallowing the text after it. Red on origin/main's secretmask.js.

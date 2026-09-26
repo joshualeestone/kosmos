@@ -1366,3 +1366,24 @@ test('#3995 review round 1: a guide naming a held key\'s prefix many times is no
     }
   } finally { setKnownSecrets([]); }
 });
+
+test('#3995 review round 3: a / + or = inside the opening, labels glued to a grouped key, a symbol-cut password\'s symbols, and dense paths and sums', () => {
+  const held = j('Zq8vLm3p', 'Rt6wXy9k', 'Hb2nWc4d');
+  const pw = j('Zq8v!Lm3p', '#Rt6w$Xy9k');
+  setKnownSecrets([held, pw]);
+  try {
+    for (const sep of ['/', '+', '=']) {
+      const input = `Here Zq8${sep}vLm3pR then t6wX${sep}y9kHb then 2nWc${sep}4d ok`;
+      assert.equal(mask(input).text, `Here ${MASK} then ${MASK} then ${MASK} ok`, `a ${sep} inside the opening`);
+    }
+    assert.equal(mask('Use name=production+region=useast+token=Lm3p/Rt6w/Xy9k then save').text, `Use name=production+region=useast+token=${MASK} then save`);
+    assert.equal(mask('id=Lm3p/Rt6w/Xy9k/and/more/stuff/here ok').text, `id=${MASK}/and/more/stuff/here ok`);
+    assert.equal(mask('pw is Lm3p#Rt6w$Xy9k.').text, `pw is ${MASK}.`);
+  } finally { setKnownSecrets([]); }
+  const keys = Array.from({ length: 5 }, (_, i) => j('sk-ant-', 'api03-', `Dense${i}Paths`, 'Qm4tZr8wLp2xNc6vHb9yKd3sFg7jQm4tZr8wLp2xNc6vHb9yKd3sFg7jQm4tZr8wLp2xNc6vHb9yKd3s'));
+  setKnownSecrets(keys);
+  try {
+    const para = 'Paste sk-ant-api03- into the box at settings/api/keys/new and a/b/c/d, x+y=z, k=v/w, then/or save/apply. '.repeat(400);
+    assert.equal(mask(para).text, para, 'text dense with paths and sums was changed or withheld');
+  } finally { setKnownSecrets([]); }
+});
