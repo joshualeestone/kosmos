@@ -44052,11 +44052,10 @@ function paintProjectTasks(p) {
      Covers the tab view and the consolidated view alike (both render here). */
   column.sort((a, b) => Number(b.number) - Number(a.number));
   const TK_COLUMN_MAX = 5;
-  /* #3861 part 2: nested the way the Tasks view nests (taskNest, one rule for both), BEFORE the
-     cap: a subtask follows its parent, and one whose parent is not in the column says what it is
-     part of. No fold here: the column shows five, so there is nothing to tuck away. */
-  const showing = taskNest(column, (t) => Number(t.number), (t) => (t.parent == null ? null : Number(t.parent)), null)
-    .slice(0, TK_COLUMN_MAX);
+  /* #3861 part 2: the five newest open tasks, as before, then nested among themselves the way the
+     Tasks view nests (taskNest, one rule for both): a subtask follows its parent when both made the
+     five, and one whose parent did not says what it is part of. No fold here: five rows. */
+  const showing = taskNest(column.slice(0, TK_COLUMN_MAX), (t) => Number(t.number), (t) => (t.parent == null ? null : Number(t.parent)), null);
   // kosmos#1009 retired the reasoning that used to sit here ("an empty COLUMN
   // coexists with closed and unpicked tasks behind the door, and the door line
   // below says so"). Josh's first look is the evidence it was not sufficient:
@@ -45493,13 +45492,6 @@ document.getElementById('nt-go').addEventListener('click', async () => {
       return;
     }
     await pjReload();
-    if (NT_ORIGIN === 'task') {
-      /* #3861 part 2: from a task page's "+ Add subtask": stay on that page, which the reload
-         repainted with the new subtask in its list, and say so there. */
-      const made = body && body.task;
-      document.getElementById('tk-msg').textContent = 'Added task ' + (made && made.number ? made.number + ' ' : '') + 'as a subtask.';
-      return;
-    }
     // Set AFTER the reload and the dialog's own close, which both land on
     // the project page too: an earlier write here would be gone before
     // the person could read it (leaveNewTask moves focus, pjReload
@@ -45508,6 +45500,11 @@ document.getElementById('nt-go').addEventListener('click', async () => {
     // speak comes from pjNameOf, which needs the CURRENT roster.
     const freshP = pjById(PJ_CURRENT);
     const heard = heardSentence(spokenHeard(freshP, body && body.heard));
+    if (NT_ORIGIN === 'task') {   // #3861 part 2: "+ Add subtask" stays on its task page; the line goes there
+      const made = body && body.task;
+      document.getElementById('tk-msg').textContent = 'Added task ' + (made && made.number ? made.number + ' ' : '') + 'as a subtask.' + (heard ? ' ' + heard : '');
+      return;
+    }
     if (heard) document.getElementById('pj-one-msg').textContent = heard;
   } catch {
     document.getElementById('nt-msg').textContent = 'we could not add that task';

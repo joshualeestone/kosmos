@@ -139,9 +139,13 @@ function chk(ok, label, extra) {
         const col = await page.evaluate(() => [...document.querySelectorAll('#pj-tasklist .tkcard')].map((c) => ({
           n: Number(c.dataset.task), sub: c.classList.contains('sub2') ? 2 : c.classList.contains('sub1') ? 1 : 0,
           chip: (c.querySelector('.tsk-chip') || {}).textContent || '', part: (c.querySelector('.tkcard-part-of') || {}).textContent || '' })));
-        const c1 = col.find((c) => c.n === 1) || {};
-        chk(col.length === 5 && col[0].n === 7, '[column] five cards, newest top-level first', JSON.stringify(col.map((c) => c.n)));
-        chk(/^1\/3$/.test(c1.chip) && col.some((c) => c.sub === 1), '[column] the parent carries its chip and a subtask nests under it', JSON.stringify(col));
+        /* The five newest open (7, 5, 4, 3, 2; 1 is sixth), nested among themselves: 3 and 2 lost
+           their parent to the cap, so they stand top level and name it; 4 nests under 3, 5 under 4. */
+        const cn = (n) => col.find((c) => c.n === n) || {};
+        chk(JSON.stringify(col.map((c) => c.n)) === JSON.stringify([7, 3, 4, 5, 2]), '[column] the five newest open tasks, a family kept together', JSON.stringify(col.map((c) => c.n)));
+        chk(cn(4).sub === 1 && cn(5).sub === 2 && cn(3).sub === 0, '[column] a subtask nests under its parent', JSON.stringify(col));
+        chk(/^Part of #1 Plan the launch week/.test(cn(3).part) && /^Part of #1 /.test(cn(2).part) && !cn(4).part, '[column] one whose parent is past the cap names it; one under its parent does not', JSON.stringify(col));
+        chk(/^0\/1$/.test(cn(3).chip) && /^1\/1, all subtasks done$/.test(cn(7).chip), '[column] a parent carries its chip', JSON.stringify(col));
         if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'subtasks-project-column.png'), fullPage: false });
 
         /* The task page. */
