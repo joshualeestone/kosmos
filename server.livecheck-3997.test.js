@@ -250,6 +250,18 @@ test('#3997 round 7: the OpenAI overlay asks deadIsNewer before letting an agent
   assert.ok(overlay.indexOf('deadIsNewer') < overlay.indexOf("badge !== 'working'"), 'the rule must run before the green decision');
 });
 
+test('#3997 round 12: the Grok overlay drops an agent success older than this read\'s refusal before judging the row', () => {
+  // As for deadIsNewer: the route test cannot tie an agent to an account, so the wiring is pinned in the source with
+  // comments stripped. The rule itself is tested in engine/grokaccounts.livecheck-3997.test.js.
+  const code = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+  const start = code.indexOf('const grok = grokRows.map(');
+  assert.ok(start > 0, 'the Grok overlay was not found');
+  const overlay = code.slice(start, start + 2500);
+  assert.match(overlay, /const agentObs = grokAccounts\.refusalIsNewer\(thisCheck, agentSeen\) \? null : agentSeen;/);
+  assert.ok(overlay.indexOf('refusalIsNewer') < overlay.indexOf('const obs = '), 'the rule must run before the newest observation is picked');
+});
+
 test('#3997 Check now routes: connected, none and unknown, and a wrong kind of account is refused', async () => {
   let runs = 0;
   codexsigninlive.setRunner(async () => { runs++; return { ok: true, stdout: DOC('ok') }; });

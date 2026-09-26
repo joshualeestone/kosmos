@@ -102,3 +102,15 @@ test('#3997 round 11: a slower, older check never overwrites or reports over a n
   assert.equal((await grok.subscriptionLive(dir2)).verdict, 'refused', 'a run from before the reset kept nothing');
   assert.equal(asked.length, 1);
 });
+
+test('#3997 round 12: refusalIsNewer: a refusal newer than an agent success wins; an older one, a failure, or no answer does not', () => {
+  const t = 1_000_000;
+  assert.equal(grok.refusalIsNewer({ verdict: 'refused', at: t + 1 }, { outcome: 'ok', at: t }), true);
+  assert.equal(grok.refusalIsNewer({ verdict: 'refused', at: t }, { outcome: 'ok', at: t + 1 }), false, 'an agent success after the refusal lost to it');
+  assert.equal(grok.refusalIsNewer({ verdict: 'refused', at: t + 1 }, { outcome: '401', at: t }), false, 'an agent failure was dropped');
+  assert.equal(grok.refusalIsNewer({ verdict: 'live', at: t + 1 }, { outcome: 'ok', at: t }), false, 'a live answer counted as a refusal');
+  assert.equal(grok.refusalIsNewer({ verdict: 'unknown', because: 'x' }, { outcome: 'ok', at: t }), false);
+  assert.equal(grok.refusalIsNewer({ verdict: 'refused' }, { outcome: 'ok', at: t }), false, 'a refusal with no time counted as newer');
+  assert.equal(grok.refusalIsNewer(null, { outcome: 'ok', at: t }), false);
+  assert.equal(grok.refusalIsNewer({ verdict: 'refused', at: t + 1 }, null), false);
+});

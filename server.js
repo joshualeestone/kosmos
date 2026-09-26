@@ -7777,11 +7777,12 @@ const server = http.createServer((req, res) => {
            then, and against the earlier nowMs it read as from the future, so not fresh, and the row stayed amber. */
         const grokNow = Date.now();
         const grok = grokRows.map((a) => {
-          const agentObs = a.dir ? obsByGrokDir.get(a.dir) : null;
           /* Grok REFUSING the sign-in in this read outranks an earlier check's green (review round 1). Only a refusal:
-             no answer, or a key that expired as keys do, is not evidence against a green from a minute ago. A real
-             agent's observed request still counts either way. */
+             no answer, or a key that expired as keys do, is not evidence against a green from a minute ago. An agent's
+             success counts unless the refusal is newer (round 12). */
           const thisCheck = a.dir ? subChecks.get(a.dir) : null;
+          const agentSeen = a.dir ? obsByGrokDir.get(a.dir) : null;
+          const agentObs = grokAccounts.refusalIsNewer(thisCheck, agentSeen) ? null : agentSeen;
           const checkObs = a.dir && !(thisCheck && thisCheck.verdict === 'refused') ? observed.readDir(observed.PROVIDER.XAI, a.dir) : null;
           const obs = (agentObs && checkObs) ? (checkObs.at >= agentObs.at ? checkObs : agentObs) : (agentObs || checkObs);
           if (!obs) return unverifiedSub(a);

@@ -117,6 +117,22 @@ Design and measurements are on the card (comment 5849157780).
 - Deferred NIT: a slow shared Grok list check can replace a newer Check now answer when it finishes; both are real
   answers for the same key.
 
+## Review rounds 11 (Sonnet) and 12 (Opus), what changed
+- REVERSED the earlier deferral that a slow shared Grok list check may replace a newer Check now answer: round 11
+  showed it repaints the wrong badge for up to 30s right after Check now. A Grok check that finishes after a newer
+  one now neither overwrites it nor reports its own older answer, and a reset stops old runs. Tested, red when reverted.
+- A Grok refusal newer than an agent's success now drops that success (grokaccounts.refusalIsNewer, the sibling of
+  codexsigninlive.deadIsNewer): the row falls to amber, never red. Unit-tested, and its call pinned in the source.
+  Both red when perturbed.
+- The Grok in-flight entry is cleared only by the run that set it.
+- Deferred (round 12): a ChatGPT sign-in with no agent can turn red on a doctor "dead"; this rests on the premise
+  above (doctor near expiry was not measured), which the agent-probe path already relies on. What would change it:
+  a measured doctor run against an expired access token that reports dead while codex itself would renew.
+- Deferred (round 12, already deferred above): a probe-greened Grok row shows the observed-request title.
+- Deferred NITs: in-flight keyed by folder not key (a renewal mid-check joins the old key's check; the next read asks
+  again); injected nowMs vs Date.now() in codexsigninlive's newer-answer guard (test-only callers pass nowMs);
+  livenessNow (Check now) writes over a list check that started after it (intended: Check now is what was asked).
+
 ## Decided
 - Pill text stays a short "Signed in" (Josh 6.68, #3136); the reason is in the title.
 - A 401 from Grok is "not confirmed" (amber), never red: grok may renew the key on its next run.

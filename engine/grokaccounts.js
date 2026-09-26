@@ -354,7 +354,7 @@ function resetSubscriptionLiveForTest() { subscriptionLiveCache.clear(); subscri
 function subscriptionLive(dir) {
   const key = path.resolve(String(dir || ''));
   if (subscriptionLiveInflight.has(key)) return subscriptionLiveInflight.get(key);
-  const p = subscriptionLiveOnce(dir).finally(() => subscriptionLiveInflight.delete(key));
+  const p = subscriptionLiveOnce(dir).finally(() => { if (subscriptionLiveInflight.get(key) === p) subscriptionLiveInflight.delete(key); });
   subscriptionLiveInflight.set(key, p);
   return p;
 }
@@ -400,6 +400,13 @@ async function subscriptionLiveOnce(dir, opts) {
   if (status === 200) return keep({ verdict: 'live', because: 'Grok confirmed this sign-in works' });
   if (status === 401 || status === 403) return keep({ verdict: 'refused', because: 'Grok did not accept this sign-in just now. Signing in again fixes it' });
   return { verdict: 'unknown', because: 'we asked Grok about this sign-in and could not tell' };
+}
+
+/** True when this read's check REFUSED the sign-in after the agent's observed success (review round 12, the Grok
+    sibling of codexsigninlive.deadIsNewer): the older success then no longer paints the row green. */
+function refusalIsNewer(check, agentObs) {
+  return !!(check && check.verdict === 'refused' && Number.isFinite(check.at)
+    && agentObs && agentObs.outcome === 'ok' && Number.isFinite(agentObs.at) && check.at > agentObs.at);
 }
 
 /* ---- add / store / forget / remove ---------------------------------------- */
@@ -998,7 +1005,7 @@ const listLive = inflight.collapse(listLiveNow);
 module.exports = {
   STATE, PROVIDER, PROVIDER_NAME, DIR_PREFIX, KEY_BASENAME, FORGOTTEN_PREFIX,
   homeDir, defaultDir, keyFile, identityOf, list,
-  setFetcher, askModels, validateLive, checkLive, listLive, subscriptionLive, subscriptionLiveOnce, resetSubscriptionLiveForTest,
+  setFetcher, askModels, validateLive, checkLive, listLive, subscriptionLive, subscriptionLiveOnce, resetSubscriptionLiveForTest, refusalIsNewer,
   keyProblem, cleanLabel, dirForLabel, nextWorkDir,
   storeKey, forgetKey, forgetAccount, removeAccount,
   authFile, readAuth, parseGrokLoginOutput, startGrokLogin, reauthTarget, grokLoginStatus, cancelGrokLogin, setGrokTimers,
