@@ -191,10 +191,13 @@ function chk(ok, label, extra) {
       await page.waitForFunction(() => document.querySelectorAll('#tsk-tiles .tsk-tile').length > 0 && document.querySelectorAll('#tsk-groups .tsk-row').length > 0, null, { timeout: 8000 });
       const a = await page.evaluate(read);
       chk(a.visible, `${tag} the Tasks page is on screen`);
-      /* #3880's control: the tab view KEEPS its outer frame (Josh scoped #3880 to the consolidated
-         view); only the column drops it (asserted below), so a rule that removed it everywhere fails here. */
-      const tabFrame = await page.evaluate(() => { const cs = getComputedStyle(document.querySelector('#panel-tasks .tsk-view')); return { w: cs.borderTopWidth, r: cs.borderTopLeftRadius }; });
-      chk(tabFrame.w === '1px' && tabFrame.r === '14px', `${tag} the tab view keeps its outer frame (#3880 is the consolidated view only)`, JSON.stringify(tabFrame));
+      /* #3949 (Josh, 09-26 16:18): the tab view has no outer frame either ("lose the outer thin rounded box stroke");
+         #3880 had removed it only in the consolidated column. The tiles keep their own border (asserted below). */
+      const tabFrame = await page.evaluate(() => { const cs = getComputedStyle(document.querySelector('#panel-tasks .tsk-view'));
+        const tile = getComputedStyle(document.querySelector('#tsk-tiles .tsk-tile'));
+        return { w: cs.borderTopWidth, style: cs.borderTopStyle, r: cs.borderTopLeftRadius, tileBorder: tile.borderTopWidth }; });
+      chk((tabFrame.w === '0px' || tabFrame.style === 'none') && tabFrame.r === '0px' && tabFrame.tileBorder !== '0px',
+        `${tag} the tab view has no outer frame; the tiles keep their own border`, JSON.stringify(tabFrame));
       /* #3949/#3951 (Josh): six single-label tiles in his order; Completed is a tile and still the fold below. */
       chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['decision', 'working', 'assigned', 'nobody', 'built', 'closed']), `${tag} the tiles are Josh's six groups in his order, each from a recorded state`, JSON.stringify(a.tiles.map((t) => t.k)));
       chk(JSON.stringify(a.tiles.map((t) => t.label)) === JSON.stringify(['Needs Your Decision', 'In progress', 'Assigned but not started', 'Unassigned', 'Built but waiting', 'Completed']), `${tag} each tile is one label`, JSON.stringify(a.tiles.map((t) => t.label)));

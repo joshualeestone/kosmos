@@ -102,6 +102,10 @@ test('#3949 the layout: no Projects rail, search beside the count, Project and C
   assert.doesNotMatch(body, /tsk-rail|id="tsk-projects"|tsk-mobsel/, 'the left Projects column is back');
   assert.doesNotMatch(PAGE, /Tap a tile to see only that group/, 'the tile hint is back');
   assert.doesNotMatch(PAGE, /\.tsk-view \{[^}]*grid-template-columns/, 'the view still reserves a rail column');
+  // #3949 (Josh, 09-26): no thin rounded outer frame around the page body, in any layout.
+  const viewRules = PAGE.match(/(^|\n)[^\n{}]*\.tsk-view \{[^}]*\}/g) || [];
+  assert.ok(viewRules.length > 0, 'no .tsk-view rule found');
+  for (const r of viewRules) assert.doesNotMatch(r, /border(-radius)?\s*:\s*[^0\s;]/, 'the page body has a frame again: ' + r.trim());
   const at = (re) => { const i = body.search(re); assert.ok(i >= 0, 'missing: ' + re); return i; };
   // Search and the count share the top row, the count to the right.
   const top = body.slice(at(/<div class="tsk-toprow">/), at(/<div class="tsk-ctrls" id="tsk-filters">/));
