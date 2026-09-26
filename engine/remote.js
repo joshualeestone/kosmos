@@ -712,7 +712,7 @@ async function forgetNow() {
   let retired = false;
   let because = null;
   if (canRetire) {
-    const r = await setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, retireTimeoutMs());
+    const r = await retireHere();
     retired = r.ok === true;
     because = r.ok ? null : r.because;
   }
@@ -744,6 +744,8 @@ async function forgetNow() {
  * signed request clears it and nothing else can; the coordinator refuses it
  * unsigned and for a stranger key. Only an enrolled Mac can ask. */
 async function secondReset() {
+  // Signed with this Mac's key, which a Forget or a register may be replacing.
+  { const b = busy(); if (b) return b; }
   if (!enrolled()) {
     return { ok: false, because: 'this computer is not set up for Plus, so it cannot reset a second factor' };
   }
@@ -899,6 +901,7 @@ async function devicesList() {
     coordinator; a failed ack heals on the tunnel's next poll and the allow
     stands. `name` is the kind the phone gave, recorded for the list. */
 async function deviceAllow(id, name) {
+  { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
   const args = deviceArgs('allow', id, true);
@@ -908,6 +911,7 @@ async function deviceAllow(id, name) {
 /** Say no: the coordinator drops the request and the phone is told. Writes
     nothing on this Mac; a fresh sign-in may ask again. */
 async function deviceDeny(id) {
+  { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
   const r = parseSaid(await setupRun(deviceArgs('deny', id, true)));
@@ -922,6 +926,7 @@ async function deviceDeny(id) {
 /** Take it back: off this Mac's list at once, and the tunnel drops any live
     session for it on the next request. */
 async function deviceRemove(id) {
+  { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
   return parseSaid(await setupRun(deviceArgs('remove', id, false)));
@@ -1083,7 +1088,9 @@ const SIGNIN_CANCELLED = { ok: false, because: 'the sign-in was cancelled' };
    switch goes off (it may have been on before the sign-in) and no tunnel runs,
    so the ensure tick cannot bring it online. */
 function cancelledAfter(result) {
-  if (result && result.ok) {
+  // What is on disk, not only what the program said: a register killed by its
+  // bound after it wrote the identity reports a failure and is still set up.
+  if ((result && result.ok) || enrolled()) {
     try { write({ on: false }); } catch { /* status says what happened */ }
     stopChild();
   }
@@ -1303,13 +1310,20 @@ const retireTimeoutMs = () => {
 // A Mac key and id with no certificate: a register that was cut off after the
 // coordinator accepted it. It is registered there, so registering again would strand
 // it (or meet "already owns the name"); Forget retires it.
-const halfRegistered = () => !enrolled() && ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(STATE_DIR(), f)));
-const RETIRE_TRANSIENT = /unreachable|did not answer in time|could not be started|\(HTTP 5\d\d on |answered 5\d\d for /i;
+// Exactly that: key and id, and no certificate. A Mac with its certificate is not
+// half anything (a missing address file alone must never retire and wipe it).
+const halfRegistered = () => !enrolled()
+  && ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(STATE_DIR(), f)))
+  && !['tls.crt', 'tls.key'].some((f) => fs.existsSync(path.join(STATE_DIR(), f)));
+/* The one retire of this Mac at Kosmos+, signed with its own key. */
+const retireHere = () => setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, retireTimeoutMs());
+// 408 and 429 are "not now", not "no": retried like a server error.
+const RETIRE_TRANSIENT = /unreachable|did not answer in time|could not be started|\(HTTP (5\d\d|408|429) on |answered (5\d\d|408|429) for /i;
 /* Retires a half identity before a new register. Answers why the retire failed
    (the coordinator may still hold that earlier attempt), or null. */
 async function clearHalfIdentity() {
   if (!halfRegistered()) return null;
-  const r = await setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, retireTimeoutMs());
+  const r = await retireHere();
   // No answer (timed out, unreachable, the program would not start, a server
   // error) may work a moment later, and only this key can do it: keep it, and the
   // caller says try again. Anything else is final (Kosmos+ refused this Mac, a

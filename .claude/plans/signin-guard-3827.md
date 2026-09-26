@@ -83,3 +83,11 @@ Weakest premise: Forget can now take up to the register bound (60s) when a regis
 - NIT: the Forget-during-register test now asserts the register's own answer is "cancelled".
 - NIT: the session-less already-set-up shortcut only answers when the switch is already on, so a stale Try again after a Sign out does not switch it back on. Test; control fails by name.
 - Slip, recorded: one control's --test-name-pattern contained "Kosmos+", a regex that matched no test; the run exited 0 with "tests 1" (the file). Rerun with a literal-safe pattern: it fails by name. Every other control this round named its failing assertion.
+
+## Round 11 review (sonnet)
+- WARNING: cancelledAfter trusted the program's answer, not the disk: a register killed by its bound after writing the identity reports failed, so a Sign out then left the switch on and the ensure tick brought the new identity online. It now also switches off when enrolled(). Test with a fake mode that writes the full identity and hangs past the bound; control (answer only) fails by name.
+- WARNING: halfRegistered matched any not-enrolled state with key and id, including a set-up Mac missing only its address file; the next register would retire and wipe a working certificate. It now means exactly key and id with no certificate. Test (address file removed, register again: no retire); control fails by name.
+- WARNING: a 408 or 429 on retire counted as final and wiped a half identity that a minute's wait would have retired. RETIRE_TRANSIENT now includes 408 and 429. Test arm (the tunnel's 429 sentence) is kept and a retry clears it; control fails by name.
+- WARNING: secondReset and the device verbs (allow, deny, remove) signed with this Mac's key during a Forget or a register. They now wait on busy(). devicesList (a read the page polls) is left open. Test (all four refused during a Forget); control (allow ungated) fails by name.
+- NIT: the two retire calls are one retireHere().
+- NIT: the fake's successful retire now prints the coordinator's JSON answer, as the real one does.

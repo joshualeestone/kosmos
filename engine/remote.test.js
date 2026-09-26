@@ -162,6 +162,14 @@ if (args[0] === 'signin') {
       fs.writeFileSync(path.join(d0, 'address'), flag('--name') + '.kosmos.invalid\\n');
       const until = Date.now() + 15000; while (Date.now() < until) { /* hung at the certificate */ }
     }
+    // A register that wrote the whole identity and then hung, so its bound kills it
+    // after the write: the answer says failed while the Mac is set up.
+    if (mode.includes('write-then-hang')) {
+      const d1 = flag('--state-dir'); fs.mkdirSync(d1, { recursive: true });
+      for (const f of ['mac_id', 'mac_key', 'coordinator_pubkey', 'tls.crt', 'tls.key']) fs.writeFileSync(path.join(d1, f), 'fake');
+      fs.writeFileSync(path.join(d1, 'address'), name + '.kosmos.invalid\\n');
+      const until = Date.now() + 15000; while (Date.now() < until) { /* hung after writing */ }
+    }
     if (mode.includes('slow-register')) { const until = Date.now() + Number(process.env.FAKE_REGISTER_MS || 2500); while (Date.now() < until) { /* wait */ } }
     const dir = flag('--state-dir');
     fs.mkdirSync(dir, { recursive: true });
@@ -193,7 +201,10 @@ if (args[0] === 'retire' && mode.includes('hung-retire')) { const until = Date.n
 // The tunnel's own sentences for a retire (crates/tunnel coordinator.rs signed_request).
 if (args[0] === 'retire' && mode.includes('retire-refused')) { process.stderr.write('Kosmos+ refused this Mac: this Mac was retired; set Kosmos up again to give it a new key (HTTP 401 on /v1/mac/retire)\\n'); process.exit(1); }
 if (args[0] === 'retire' && mode.includes('retire-down')) { process.stderr.write('Kosmos+ unreachable for /v1/mac/retire: connection refused\\n'); process.exit(1); }
+if (args[0] === 'retire' && mode.includes('retire-429')) { process.stderr.write('Kosmos+ refused this Mac: too many requests; wait a minute (HTTP 429 on /v1/mac/retire)\\n'); process.exit(1); }
 if (args[0] === 'retire' && mode.includes('retire-5xx')) { process.stderr.write('Kosmos+ answered 503 for /v1/mac/retire: unavailable\\n'); process.exit(1); }
+// A retire that worked prints the coordinator's answer, as the real one does.
+if (args[0] === 'retire') { console.log(JSON.stringify({ retired: true })); process.exit(0); }
 if (args[0] === 'run') {
   if (mode === 'crash') process.exit(3);
   const statusFile = flag('--status-file');
@@ -1337,7 +1348,7 @@ test('#3827: after Kosmos+ refused to retire a half identity, its "already in us
     const refusedThenFree = await halfThen('retire-refused');
     assert.equal(refusedThenFree.ok, true, 'a definite refusal became a dead end: ' + refusedThenFree.because);
     // Unreachable and a server error are kept for a retry.
-    for (const mode of ['retire-down', 'retire-5xx']) {
+    for (const mode of ['retire-down', 'retire-5xx', 'retire-429']) {
       await fresh();
       const kept = await halfThen(mode);
       assert.equal(kept.ok, false, mode + ': registered over a half identity that could still be retired');
@@ -1555,5 +1566,68 @@ test('#3827: the Settings setup gets the same stranded-name answer', async () =>
     delete process.env.FAKE_TUNNEL_MODE;
     delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
     remote.setOn(false);
+  }
+});
+
+test('#3827: a Sign out lands on a register killed after it wrote the identity: the switch still goes off', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  process.env.FAKE_TUNNEL_MODE = 'write-then-hang';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  try {
+    assert.equal(remote.setOn(true).ok, true, 'fixture: switched on before signing in');
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const racing = remote.signinRegister('hers');
+    remote.signinCancel();
+    const late = await racing;
+    assert.match(late.because, /cancelled/);
+    assert.equal(remote.enrolled(), true, 'fixture: the killed register left a full identity');
+    assert.equal(remote.read().on, false, 'a register reported failed but set up left the switch on: the ensure tick would bring it online');
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    await remote.forget();
+  }
+});
+
+test('#3827: a set-up Mac missing only its address file is not treated as half registered', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  const dir = process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote');
+  fs.rmSync(nodePath.join(dir, 'address'), { force: true });
+  assert.ok(fs.existsSync(nodePath.join(dir, 'tls.crt')), 'fixture: the certificate is still there');
+  fs.rmSync(RECORD, { force: true });
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  await remote.signinRegister('hers');
+  assert.ok(!recorded().some((c) => c[0] === 'retire'), 'a Mac with its certificate was retired as half registered');
+  await remote.forget();
+});
+
+test('#3827: device verbs and a second-factor reset wait while this computer is being forgotten', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  process.env.FAKE_TUNNEL_MODE = 'hung-retire';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  try {
+    const forgetting = remote.forget();
+    for (const [label, step] of [
+      ['allow', () => remote.deviceAllow('dev-1', 'iPhone')],
+      ['deny', () => remote.deviceDeny('dev-1')],
+      ['remove', () => remote.deviceRemove('dev-1')],
+      ['second reset', () => remote.secondReset()],
+    ]) {
+      const r = await step();
+      assert.equal(r.ok, false, label + ' signed with a key being forgotten');
+      assert.match(r.because, /being forgotten/, label);
+    }
+    await forgetting;
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
   }
 });
