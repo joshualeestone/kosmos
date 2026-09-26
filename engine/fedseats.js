@@ -34,7 +34,9 @@ const INBOUND_WINDOW_MS = 60000;
    sender is unattested, so it cannot be per peer) on top of the minute's: every stored row is kept in
    memory and scanned by the room and unread reads, so a peer sending at the
    minute's limit all day must not be able to grow them without end. 2 MiB of
-   words a day is far above any conversation. Counted per board run. */
+   words a day is far above any conversation. Counted per board run: a restart
+   (an update, a crash) starts a fresh day's allowance, so this bounds one run's
+   growth, not a calendar day's. Persisting it is kosmos#3844. */
 const INBOUND_BYTES_PER_DAY = 2 * 1024 * 1024;
 /* And rows a day per room: every row is held in memory and scanned on every
    read, so tiny messages at the minute's limit must not grow it without end. */

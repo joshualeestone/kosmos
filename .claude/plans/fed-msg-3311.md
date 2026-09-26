@@ -295,3 +295,7 @@ not count).
 - The bracket removal in joinedProjectName is now pinned: a BRACKET fixture (ASCII and fullwidth brackets, which NFKC folds to ASCII) joins and no bracket survives; control (brackets out of JOIN_NAME_QUOTES) fails "a bracket survived".
 - federateOut and an unreadable federation.json: it was logged (round 13) but the room said nothing. A room with a running seat is shared whatever the record says, so its post now leaves a note in the room ("cannot be read right now"); a room with no seat says nothing (the record cannot say it is shared). Test; control (note removed) fails by name.
 - messages.list(agent) matched an external row by `from`, a name another account chose, so an outside sender named like a local agent put its words in that agent's own messages (the agent page). External rows no longer match on `from`. Every other from-match in messages.js already filters to post/message rows. Test; control fails by name.
+
+## Round 24 (sonnet)
+- WARNING: externalName cut by UTF-16 code unit, so an emoji at the limit left a lone surrogate in a stored name (and, through joinedProjectName, a U+FFFD in a folder name). It now cuts by code point (byCodePoint), and so does the outside message body. Test; controls (either slice back to code units) fail by name.
+- WARNING: the per-day inbound budget resets on a board restart. Already on kosmos#3844 (round 20); the comment now says it bounds one run's growth, not a calendar day's.

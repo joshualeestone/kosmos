@@ -94,3 +94,14 @@ test('#3311: variation selectors and blank letters cannot hide text or a lookali
   assert.equal(row.from, 'Splinter', 'a variation selector survived in the name: ' + JSON.stringify(row.from));
   assert.ok(!/[\ufe0f\u3164]|\u{e0101}/u.test(row.text), 'an invisible character survived in the body: ' + JSON.stringify(row.text));
 });
+
+test('#3311: an outside name or body cut at its limit never ends in half a character', () => {
+  const { externalName } = require('./externalname');
+  const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+  const name = externalName('X'.repeat(79) + '\u{1F680}' + 'YYYYY', 80);
+  assert.ok(!lone.test(name), 'a name was cut mid-character: ' + JSON.stringify(name));
+  assert.strictEqual(Array.from(name).length, 80, 'the name keeps 80 characters, the rocket included');
+  const row = messages.externalPost('proj-cut', { from: 'Ada', fromKind: 'person', text: 'x'.repeat(16383) + '\u{1F680}' + 'tail' });
+  assert.ok(row, 'fixture: the row was stored');
+  assert.ok(!lone.test(row.text), 'a body was cut mid-character at its limit');
+});

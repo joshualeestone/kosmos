@@ -21,7 +21,14 @@ function externalName(v, max) {
   // Invisible yet not \p{Cf}: variation selectors (text can be smuggled in them)
   // and the blank letters (Hangul fillers, braille blank) a name can hide behind.
   s = s.replace(INVISIBLE, '');
-  return s.replace(CONTROL, ' ').replace(/[\n\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  // Cut by code point, never mid-pair: a lone surrogate would be stored, shown,
+  // and folded into a folder name as U+FFFD (the joinedProjectName rule).
+  return byCodePoint(s.replace(CONTROL, ' ').replace(/[\n\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim(), max);
 }
 
-module.exports = { externalName, INVISIBLE };
+/* The first `max` code points of `s`. */
+function byCodePoint(s, max) {
+  return s.length <= max ? s : Array.from(s).slice(0, max).join('');
+}
+
+module.exports = { externalName, INVISIBLE, byCodePoint };
