@@ -13,3 +13,9 @@ That the JSON is always the last line. True of `emit` on origin/main. If the tun
 
 ## Not in this change
 The wider #3827 hardening (single-flight register and Forget, half identities, cancels) is on signin-guard-3827, still in review. This is split out so the live bug makes the next cut.
+
+## Round 1 review (opus)
+- WARNING: macRequest (mac-standing, updating, phonenotify) and assistantChat parsed all of stdout too. The tunnel logs to stdout for every verb but fed-room (tracing's default writer, kosmos-relay main.rs), so a warn such as "could not record mac_last_signed" (full disk) made a signed request unreadable. All three readers now share lastJsonLine. Test: the fake mac-request prints a tracing line before its JSON; control (whole-stdout parse) fails by name. The upstream fix (route every verb's tracing to stderr) belongs to kosmos-relay and is noted on #3827.
+- WARNING: the register test proved nothing by itself (every register test goes red on the old parse). lastJsonLine is exported and unit-tested: certificate line then JSON, JSON only, a tracing line first, CRLF, empty, no JSON line, a last line that does not parse (never falls back to an older object), pretty-printed JSON. Controls: the fallback-to-older variant fails "never the older object"; whole-stdout fails "a certificate line before the JSON".
+- NIT: a re-register that kept its certificate prints JSON only; the fake has that branch (name "kept") and a test.
+- Pre-existing, carded separately: setupComplete never caches standing (setupRun sets no .data and real `setup complete` prints no JSON).

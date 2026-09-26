@@ -164,6 +164,8 @@ if (args[0] === 'signin') {
     }
     fs.writeFileSync(path.join(dir, 'address'), name + '.kosmos.invalid\\n');
     fs.writeFileSync(path.join(dir, 'stdin-token'), token);
+    // A re-register that kept its certificate (setup.rs certificate_survives): JSON only.
+    if (name === 'kept') { console.log(JSON.stringify({ stage: 'registered', mac_id: 'mac-fake', name: name, address: name + '.kosmos.invalid', standing: 'good', kept_certificate: true })); process.exit(0); }
     // As the real one does on a fresh register (kosmos-relay setup.rs fetch_certificate): the
     // certificate line first, then the JSON answer.
     console.log('certificate for ' + name + '.kosmos.invalid written to ' + path.join(dir, 'tls.crt') + ' (key stayed here)');
@@ -184,6 +186,8 @@ if (args[0] === 'devices') {
   console.log(JSON.stringify({ [verb === 'allow' ? 'allowed' : verb === 'deny' ? 'denied' : 'removed']: true, device_id: flag('--device-id') }));
   process.exit(0);
 }
+// A signed request: tracing logs to stdout by default (kosmos-relay main.rs), so a warn line can come first.
+if (args[0] === 'mac-request') { console.log('\\u001b[33m WARN\\u001b[0m kosmos_tunnel::coordinator: could not record mac_last_signed'); console.log(JSON.stringify({ standing: 'good' })); process.exit(0); }
 if (args[0] === 'run') {
   if (mode === 'crash') process.exit(3);
   const statusFile = flag('--status-file');
@@ -1125,5 +1129,38 @@ test('#3827: a fresh register whose tunnel prints its certificate line first is 
   assert.equal(r.ok, true, 'a real first sign-in read as a failure: ' + r.because);
   assert.equal(r.data.address, 'hers.kosmos.invalid');
   assert.equal(remote.read().on, true, 'signed in, but Kosmos+ was not switched on');
+  remote.setOn(false);
+});
+
+test('#3827: the tunnel answer is its last JSON line, and only that line', () => {
+  const pick = (said) => { const got = remote.lastJsonLine(said); return got ? got.value : null; };
+  assert.deepEqual(pick('certificate for hers.x written to /s/tls.crt (key stayed here)\n{"stage":"registered"}\n'), { stage: 'registered' }, 'a certificate line before the JSON');
+  assert.deepEqual(pick('{"stage":"registered","kept_certificate":true}'), { stage: 'registered', kept_certificate: true }, 'JSON only (a kept certificate)');
+  assert.deepEqual(pick('\u001b[33mWARN\u001b[0m could not record mac_last_signed\n{"status":200,"body":{}}\n'), { status: 200, body: {} }, 'a tracing line on stdout before the JSON');
+  assert.deepEqual(pick('{"stage":"registered"}\r\n'), { stage: 'registered' }, 'CRLF');
+  assert.equal(pick(''), null, 'empty stdout is no answer');
+  assert.equal(pick('certificate for x written'), null, 'no JSON line is no answer');
+  assert.equal(pick('{"old":true}\n{not json'), null, 'a last line that does not parse is unreadable, never the older object');
+  assert.equal(pick('{\n  "stage": "registered"\n}'), null, 'pretty-printed JSON is not read line by line into something else');
+});
+
+test('#3827: a re-register that kept its certificate (JSON only) is read as signed in too', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const r = await remote.signinRegister('kept');
+  assert.equal(r.ok, true, r.because);
+  assert.equal(r.data.address, 'kept.kosmos.invalid');
+  remote.setOn(false);
+});
+
+test('#3827: a signed request whose tunnel logs a line before its answer is still read', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  const r = await remote.macRequest('GET', '/v1/mac/standing');
+  assert.equal(r.ok, true, 'a log line on stdout made a signed request unreadable: ' + r.because);
+  assert.deepEqual(r.data, { standing: 'good' });
   remote.setOn(false);
 });
