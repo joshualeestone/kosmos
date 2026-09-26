@@ -34,6 +34,7 @@
  * same-width repaint arm reds when every repaint writes the scroll; the turned-
  * while-hidden arm reds when the resize handler remembers its own width; the long
  * callout arm reds without the box's sideways clip (page 406px at 375); the
+ * widened arm reds when the re-centre reads the browser-clamped scroll; the
  * keyboard arm reds when the scrolling box cannot take focus; the ring-added arm
  * reds when a same-width growth leaves the scroll where it was; the failed-poll
  * arm reds when the failure path leaves the scrolling box's classes behind.
@@ -73,6 +74,10 @@ const srv = require('../../server.js');
 const ALL_ENGINES = ['chromium', 'webkit'];
 const ENGINES = (process.env.ENGINES || 'chromium').split(',').map((s) => s.trim()).filter((e) => ALL_ENGINES.includes(e));
 // The mobile-shots harness sizes: iPhone SE, iPhone 15, iPhone 15 Pro Max, a Pixel.
+if (!ENGINES.length) {
+  console.log('FAIL  render-orgchart-phone-718: ENGINES names no known engine (' + (process.env.ENGINES || '') + '); nothing would run');
+  process.exit(1);
+}
 const PHONES = [[375, 667], [393, 852], [430, 932], [412, 915]];
 const NAMES = ['ada', 'bram', 'cleo', 'dov', 'eve'];
 
@@ -249,6 +254,20 @@ function measure(page) {
           const c = Math.round((r.scrollW - r.clientW) / 2);
           chk(r.clientW < box.clientW && Math.abs(r.left - c) <= 2, `${tag} narrowed to 360, the chart stays centred in its box`, `box ${box.clientW} -> ${r.clientW}px, scrollLeft ${r.left}, centre ${c}`);
         }
+        // Widened while scrolled to the right edge: the box's maximum scroll shrinks and the
+        // browser clamps before the repaint. The point that was in the middle must stay in the
+        // middle as far as the new edge allows (here the right edge stays the right edge),
+        // not be re-centred from the clamped value.
+        {
+          const at360 = await page.evaluate(() => { const w = document.getElementById('orgview'); w.scrollLeft = w.scrollWidth - w.clientWidth;
+            return new Promise((res) => setTimeout(() => res({ left: w.scrollLeft, clientW: w.clientWidth }), 200)); });
+          await page.setViewportSize({ width: 375, height: 667 });
+          await page.waitForTimeout(600);
+          const r = await page.evaluate(() => { const w = document.getElementById('orgview'); return { left: w.scrollLeft, max: w.scrollWidth - w.clientWidth, clientW: w.clientWidth }; });
+          const want = Math.min(r.max, Math.round(at360.left - (r.clientW - at360.clientW) / 2));
+          chk(r.clientW > at360.clientW && Math.abs(r.left - want) <= 2, `${tag} widened back to 375 from the right edge, the scroll keeps its middle point`,
+            `box ${at360.clientW} -> ${r.clientW}px, scrollLeft ${at360.left} -> ${r.left}, want ${want} (max ${r.max})`);
+        }
         // The board repaints every 5s at the same width. That repaint must not write the box's
         // scroll: a write mid-pan stops a finger's scroll. Count writes through a spy on the box.
         {
@@ -293,6 +312,8 @@ function measure(page) {
           const r = await page.evaluate(() => {
             const map = document.getElementById('orgmap');
             map.scrollIntoView({ block: 'center' });
+            // From the middle, so the swipe has room whichever arm above left the box at an edge.
+            const box = document.getElementById('orgview'); box.scrollLeft = Math.round((box.scrollWidth - box.clientWidth) / 2);
             const b = map.getBoundingClientRect();
             const wrap = document.getElementById('orgview').getBoundingClientRect();
             return { x: Math.round(wrap.left + wrap.width / 2),

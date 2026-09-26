@@ -76,7 +76,7 @@ test('#718: a deeper fleet brings its rings in, and never below the floor', () =
 
 test('#718: paintOrg sizes the chart by orgFit from its own width, and squeezes the rings, not the nodes', () => {
   const paint = SCRIPT.slice(SCRIPT.indexOf('function paintOrg'), SCRIPT.indexOf('function orgLiveStart'));
-  assert.match(paint, /const fit = orgFit\(maxR, wrap\.clientWidth\);/);
+  assert.match(paint, /const viewW = wrap\.clientWidth;[^\n]*\n\s*const fit = orgFit\(maxR, viewW\);/);
   assert.match(paint, /spot\.r \*= fit\.k/);
   assert.match(paint, /const size = fit\.size;/);
   assert.doesNotMatch(paint, /const pad = 78/, 'the old fixed square is back');
@@ -114,7 +114,7 @@ test('#718: positions from a canvas of another width are carried across in propo
   assert.match(paint, /const f = widthChanged && ORG_SIZE > 0 \? size \/ ORG_SIZE : 1;/);
   // The scroll is written the first time the box scrolls and when its width changes, never on a
   // same-width repaint (the 5s poll): a write mid-pan stops a finger's scroll.
-  assert.match(paint, /: widthChanged \? \(wrap\.scrollLeft \+ ORG_VIEW_W \/ 2\) \* f - viewW \/ 2\s*: size !== sizeWas && sizeWas > 0 \? wrap\.scrollLeft \+ \(size - sizeWas\) \/ 2 : null;/);
+  assert.match(paint, /: widthChanged \? \(ORG_SCROLL_X \+ ORG_VIEW_W \/ 2\) \* f - viewW \/ 2\s*: size !== sizeWas && sizeWas > 0 \? wrap\.scrollLeft \+ \(size - sizeWas\) \/ 2 : null;/);
   // A scrolling box is focusable and named, so a keyboard can pan it.
   assert.match(paint, /if \(wide\) \{\s*wrap\.tabIndex = 0; wrap\.setAttribute\('role', 'region'\);/);
   // Every path that clears the chart instead of painting it resets the box the same way.

@@ -146,3 +146,15 @@ and a phone has no hover: a tap opens the agent. Changing that is a design call 
   web.offline-note.test.js x2) had no orgBoxPlain and threw. They now inject it like their other tick
   dependencies; server.test.js passes a counter and asserts the failure path calls it once (control without
   the call fails).
+
+## Second rebase (origin/main moved 34 commits during the re-run; gate-list line only), challenge loop iteration 1
+- Widening a scrolled box: the browser clamps scrollLeft to the new, smaller maximum (and fires scroll) before
+  the repaint, so re-centring read the clamped value. ORG_SCROLL_X now records where the person left the scroll,
+  only while the box is the width it was painted at. Widen arm (360 -> 375 from the right edge); control
+  reading scrollLeft lands at 101 instead of 108.
+- overflow-x: clip needs iOS/Safari 16; the iOS app's floor is 16.0. Documented at the rule: an older Safari
+  ignores it and a long name can widen the page there, as it did before this change.
+- One read of the box width feeds both orgFit and the scroll logic. The check fails (exit 1) if ENGINES names
+  no known engine. The swipe arm starts from the middle of the box, since an arm before it can leave the box
+  at an edge (the widen arm did, and the swipe arm read red for that reason alone).
+- Fixed 97/97 (Chromium + WebKit).
