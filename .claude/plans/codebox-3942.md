@@ -198,3 +198,14 @@
   answer "not right" on the fresh step. On success the boxes are cleared, then Verify is freed; when no new
   code is made (a refusal or cooldown), Verify is freed for the old code, which drop() already forgot.
 - A held-back press re-writes the status line so a screen reader hears why.
+
+## Web review round 10 (opus), applies to both halves
+- FIXED: the held press re-announced the refusal by blanking the status/error line for 50ms, and the
+  guards read that line, so a second press inside those 50ms (a double-click) sent the refused code.
+  The line is now changed by adding or removing a zero-width space: spoken again, never empty.
+- ACCEPTED (NIT): a stale verify answer can free the button while a fresh check is running (round 7's
+  decision, a narrow window: the old request must outlast Send again and the new code's first check).
+  Rejected: per-request sequence numbers on all three handlers, for a double-press-in-a-rare-window.
+  What would change my mind: a slow-network report of a code sent twice.
+- ACCEPTED (NIT): when Send again makes no new code, a code typed during the wait goes at once and its
+  send clears the "no new code" message. That code is the old one, which is back in play (round 12).

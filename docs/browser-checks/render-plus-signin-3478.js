@@ -792,6 +792,14 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.waitForTimeout(400);
       const rp = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); return { s: i.selectionStart, e: i.selectionEnd, v: i.value }; });
       chk(wrongSends === b2Before + 1 && rp.v === '343434' && rp.s === 0 && rp.e === 6, `[${k}] #3942 pasting a code just refused again does not resend it; the code is selected`, JSON.stringify({ sent: wrongSends - b2Before, rp }));
+      // Web review round 10: a double press on it: saying the refusal again must not switch the hold off
+      // for the second press (a blank moment in the status line did).
+      await page.click('#plus-si-code-go');
+      await page.waitForTimeout(10);
+      await page.click('#plus-si-code-go');
+      await page.waitForTimeout(400);
+      const dbl = { sent: wrongSends - b2Before, msg: (await page.textContent('#plus-signin-msg')).trim() };
+      chk(dbl.sent === 1 && /not right/.test(dbl.msg), `[${k}] #3942 a double press on a code just refused sends nothing and keeps the refusal`, JSON.stringify(dbl));
       // CONTROL for B2: after a DROPPED request the code was never tried, so a hand press does send it.
       verifyAbort = true;
       await page.evaluate(() => plusSiMsg(''));

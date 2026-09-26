@@ -37351,13 +37351,16 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   const judgedWrong = (c) => c === lastSent
     && /\bcode is not (right|what the app shows|the one we texted)/i.test((document.getElementById('plus-signin-msg') || {}).textContent || '');
   // Holding a refused code back: the person is put in the field with it selected, and the status line
-  // is said again (written anew), so a screen reader hears why nothing was sent.
+  // is said again (changed, never blanked), so a screen reader hears why nothing was sent.
   const holdRefused = () => {
     el.focus();
     try { el.setSelectionRange(0, el.value.length); } catch { /* not a text input */ }
     paint();
     const msg = document.getElementById('plus-signin-msg');
-    if (msg) { const t = msg.textContent; msg.textContent = ''; setTimeout(() => { if (!msg.textContent) msg.textContent = t; }, 50); }
+    // Said again by a change that never blanks it: blanking, even for a moment, switched off judgedWrong()
+    // (which reads this line), so a second press in that moment sent the refused code (web round 10).
+    // A zero-width space, added or taken off, is a change the live region speaks and nobody sees.
+    if (msg) msg.textContent = /\u200B$/.test(msg.textContent) ? msg.textContent.replace(/\u200B$/, '') : msg.textContent + '\u200B';
   };
   if (go) go.addEventListener('click', (e) => {
     const c = el.value.replace(/\D/g, '');
