@@ -536,7 +536,7 @@ async function taskAdd(ctx, args) {
   if (!project || !sentence) { ctx.err('Usage: kosmos task add <project-id> "<what the task is>" ["more detail"] [--parent <task-number>]'); return 2; }
   /* #3861, as install/kosmos cmd_task add: the sentence comes first, and `--parent <n>` is
      taken out of the rest wherever it sits; everything else is still the detail. */
-  if (sentence === '--parent') { ctx.err('Put what the task is first: kosmos task add <project-id> "<what the task is>" --parent <task-number>'); return 2; }
+  if (sentence === '--parent' || sentence.startsWith('--parent=')) { ctx.err('Put what the task is first: kosmos task add <project-id> "<what the task is>" --parent <task-number>'); return 2; }
   const rest = args.slice(2);
   let parent = null;
   const words = [];

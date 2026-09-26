@@ -123,6 +123,7 @@ test('Windows `task add` refuses a bad --parent before reaching the board, and a
   assert.equal((await win(['task', 'add', projectId, 'x', '--parent'])).code, 2);
   assert.equal((await win(['task', 'add', projectId, 'x', '--parent', 'two'])).code, 2);
   assert.equal((await win(['task', 'add', projectId, '--parent', '3'])).code, 2);
+  assert.equal((await win(['task', 'add', projectId, '--parent=3'])).code, 2, 'a sentence of --parent=3 is refused, as the Mac CLI does (review iteration 3)');
   assert.equal((await win(['task', 'add', projectId, 'x', '--parent=3'])).code, 2, '--parent=3 must be refused, never folded into the detail');
   const r = await win(['task', 'add', projectId, 'x', '--parent', '999']);
   assert.equal(r.code, 1);
