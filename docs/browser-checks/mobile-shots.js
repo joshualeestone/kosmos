@@ -398,9 +398,12 @@ function seedFiles(roots) {
     const t = new Date(t0 + i * 60e3);
     fs.utimesSync(path.join(adaFiles, f), t, t);
   });
-  landed(require(path.join(REPO, 'engine', 'selfreport')).record(DATA.askAgent, {
-    state: 'needs_you', because: DATA.ask,
-  }), "Cleo's needs-you state");
+  // The store set records this after the project exists, naming it (seed below).
+  if (!DATA.askInProject) {
+    landed(require(path.join(REPO, 'engine', 'selfreport')).record(DATA.askAgent, {
+      state: 'needs_you', because: DATA.ask,
+    }), "Cleo's needs-you state");
+  }
 }
 
 async function waitForBoard(base, ms) {

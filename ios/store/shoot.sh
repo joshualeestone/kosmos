@@ -39,19 +39,24 @@ srcs = {(t, n): os.path.join(raw, f'{n}--appstore--{t}--webkit.png') for t in th
 missing = [s for s in srcs.values() if not os.path.exists(s)]
 if missing:
     sys.exit('missing shots, nothing filed: ' + ', '.join(os.path.basename(m) for m in missing))
+# Flatten every shot into a staging folder first; the committed set is touched
+# only once all of them were written, so a failure part way leaves it as it was.
+stage = os.path.join(raw, 'filed')
+for theme in themes:
+    os.makedirs(os.path.join(stage, theme))
+    for i, name in enumerate(order, 1):
+        im = Image.open(srcs[(theme, name)]).convert('RGBA')
+        flat = Image.new('RGB', im.size, (255, 255, 255))
+        flat.paste(im, mask=im.split()[3])
+        flat.save(os.path.join(stage, theme, f'{i:02d}-{name}.png'), optimize=True)
 for theme in themes:
     d = os.path.join(dest, theme)
     os.makedirs(d, exist_ok=True)
     for old in glob.glob(os.path.join(d, '*.png')):
         os.remove(old)
-    for i, name in enumerate(order, 1):
-        src = srcs[(theme, name)]
-        im = Image.open(src)
-        flat = Image.new('RGB', im.size, (255, 255, 255))
-        flat.paste(im.convert('RGBA'), mask=im.convert('RGBA').split()[3])
-        out = os.path.join(d, f'{i:02d}-{name}.png')
-        flat.save(out, optimize=True)
-        print('filed', os.path.relpath(out, os.path.dirname(dest)), flat.size)
+    for f in sorted(os.listdir(os.path.join(stage, theme))):
+        os.replace(os.path.join(stage, theme, f), os.path.join(d, f))
+        print('filed', f'screenshots/{theme}/{f}', Image.open(os.path.join(d, f)).size)
 PY
 [ $? = 0 ] || { echo "VERDICT: FAIL (filing the shots failed)"; exit 1; }
 echo "VERDICT: PASS"
