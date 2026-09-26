@@ -110,7 +110,7 @@ function blockBody(dir) {
     'project). This holds even when they asked for it, or you made it, in a direct',
     'conversation. Then tell them in one line where you put it: which project, the',
     'file\'s name, and the folder inside the project if it is not at the top (Kosmos',
-    'lists only the top of a project\'s folder). If they name a project you are not',
+    'lists a project\'s subfolders too, a few folders deep). If they name a project you are not',
     'on, do not guess another: save it in your Files folder, say you are not on that',
     'project, and say it can move there once you are added to it.',
     '',

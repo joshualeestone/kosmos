@@ -9413,7 +9413,7 @@ test('the documents list of a project that does not exist is a 404', async () =>
    =========================================================================== */
 
 test('a body with no citation is byte-for-byte what esc() produced before', () => {
-  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n');
+  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n');
   const esc = pageFunction('esc');
   const names = new Set(['brief.md']);
   for (const body of [
@@ -9437,7 +9437,7 @@ test('a body with no citation is byte-for-byte what esc() produced before', () =
    not escaped". Verified by doing exactly that. Neither test covers the other's
    escape, so removing either would open an injection with a green suite. */
 test('a citation becomes a chip and everything around it stays escaped', () => {
-  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n');
+  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n');
   const out = link('see brief.md and <script>alert(1)</script>', new Set(['brief.md']));
   assert.match(out, /<span class="ref">brief\.md<button class="refgo"/,
     'the cited file did not become a chip');
@@ -9445,17 +9445,22 @@ test('a citation becomes a chip and everything around it stays escaped', () => {
   assert.ok(!out.includes('<script>'), 'RAW SCRIPT TAG SURVIVED into message markup');
 });
 
-test('the chip carries the BASENAME, because that is what the opener takes', () => {
-  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n');
+test('the chip carries the name the documents list gave, not the path as written', () => {
+  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n');
   const out = link('look at docs/brief.md', new Set(['brief.md']));
-  // The person sees the path they wrote; the button carries what open-file
-  // accepts, which is a bare filename and nothing else.
+  // The person sees the path they wrote; the button carries the listed name.
   assert.ok(out.includes('>docs/brief.md<'), 'the chip stopped showing the path as written');
-  assert.match(out, /data-ref="brief\.md"/, 'the button lost the basename the route needs');
+  assert.match(out, /data-ref="brief\.md"/, 'the button lost the listed name the route needs');
+});
+
+test('#2245: a Windows-style backslash cite chips to the listed subfolder file', () => {
+  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n');
+  const out = link('saved to sub\\report.pdf', new Set(['sub/report.pdf']));
+  assert.match(out, /data-ref="sub\/report\.pdf"/, 'a backslash cite did not chip to the listed name: ' + out);
 });
 
 test('a token containing .. is never dressed as a citation, even when its basename matches', () => {
-  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n');
+  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n');
   const esc = pageFunction('esc');
   for (const body of ['../brief.md', 'a/../../brief.md', '..\\brief.md']) {
     const out = link(body, new Set(['brief.md']));
@@ -9465,14 +9470,14 @@ test('a token containing .. is never dressed as a citation, even when its basena
 });
 
 test('trailing punctuation is stripped for the lookup and put back after', () => {
-  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n');
+  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n');
   const out = link('it is in brief.md.', new Set(['brief.md']));
   assert.match(out, /<span class="ref">brief\.md<button/, 'the full stop blocked the match');
   assert.ok(out.endsWith('.'), 'the sentence lost its full stop');
 });
 
 test('whitespace the agent typed survives the reassembly', () => {
-  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n');
+  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n');
   // Agents paste columns. Collapsing runs would edit what they said.
   const out = link('a    b\n\tbrief.md', new Set(['brief.md']));
   assert.ok(out.includes('a    b'), 'a run of spaces was collapsed');
@@ -9480,13 +9485,64 @@ test('whitespace the agent typed survives the reassembly', () => {
 });
 
 test('an empty or absent name list leaves every body untouched', () => {
-  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n');
+  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n');
   const esc = pageFunction('esc');
   // CONTROL: the same body DOES become a chip when the list has the name, so
   // "untouched" here is the list being empty rather than the matcher being dead.
   assert.equal(link('brief.md', new Set()), esc('brief.md'));
   assert.equal(link('brief.md', null), esc('brief.md'));
   assert.match(link('brief.md', new Set(['brief.md'])), /refgo/);
+});
+
+/* #2245: the list names a subfolder file by its relative path, so a citation is matched on
+   its LONGEST trailing run of segments in the list, and the chip opens THAT file. */
+test('#2245: a cited subfolder file chips to its own relative path, never a same-named top-level file', () => {
+  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n');
+  const names = new Set(['report.pdf', 'sub/report.pdf']);
+  assert.match(link('see sub/report.pdf', names), /data-ref="sub\/report\.pdf"/, 'a relative cite opened the wrong file');
+  assert.match(link('see /Users/a/Kosmos/Projects/P/sub/report.pdf', names), /data-ref="sub\/report\.pdf"/,
+    'an absolute cite did not find the subfolder file');
+  // CONTROL: a bare name still means the top-level file.
+  assert.match(link('see report.pdf', names), /data-ref="report\.pdf"/);
+  // and a subfolder file with no top-level twin chips by its full relative path
+  assert.match(link('see weather/forecast.pdf', new Set(['weather/forecast.pdf'])), /data-ref="weather\/forecast\.pdf"/);
+});
+
+test('#2245: a BARE name chips to the one nested file with that name, and to none when two share it', () => {
+  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n');
+  assert.match(link('saved forecast.pdf', new Set(['weather-forecast-test/forecast.pdf', 'notes.md'])),
+    /data-ref="weather-forecast-test\/forecast\.pdf"/, 'a bare cite of a nested-only file got no chip');
+  const two = link('saved forecast.pdf', new Set(['a/forecast.pdf', 'b/forecast.pdf']));
+  assert.ok(!two.includes('refgo'), 'an ambiguous bare name was chipped to one of two files: ' + two);
+  // CONTROL: a cite WITH a folder that is not listed does not fall back to a basename guess.
+  assert.ok(!link('saved other/forecast.pdf', new Set(['weather-forecast-test/forecast.pdf'])).includes('refgo'),
+    'a cite naming a different folder was chipped to a same-named file');
+});
+
+test('#2245: a folder name with HTML in it cannot inject through a room chip', () => {
+  const rich = pageFunction('pjRichSpans', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n'
+    + pageFnSource('pjLinkPaths') + '\n');
+  const evil = 'x"><img src=x onerror=alert(1)>/notes.md';
+  const out = rich('see notes.md', new Set([evil]), new Set());
+  // CONTROL: the chip IS built (so the assertions below are about its escaping, not its absence).
+  assert.match(out, /refgo/, 'the bare-name chip was not built at all: ' + out);
+  assert.ok(!/<img/i.test(out), 'a folder name reached the markup as a live tag: ' + out);
+  assert.ok(!/data-ref="x">/.test(out), 'the data-ref attribute was broken out of: ' + out);
+});
+
+test('#2245: in the room, a folder named with & still chips to its own file, not a top-level twin', () => {
+  const rich = pageFunction('pjRichSpans', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n'
+    + pageFnSource('pjLinkPaths') + '\n');
+  const out = rich('see R&D/report.pdf', new Set(['report.pdf', 'R&D/report.pdf']), new Set());
+  assert.match(out, /data-ref="R&amp;D\/report\.pdf"/, 'the & folder chipped to the wrong file: ' + out);
+});
+
+test('#2245: the room renderer matches citations the same way', () => {
+  const rich = pageFunction('pjRichSpans', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n'
+    + pageFnSource('pjLinkPaths') + '\n');
+  const names = new Set(['report.pdf', 'sub/report.pdf']);
+  assert.match(rich('see sub/report.pdf', names, new Set()), /data-ref="sub\/report\.pdf"/, 'the room chip opened the wrong file');
+  assert.match(rich('see report.pdf', names, new Set()), /data-ref="report\.pdf"/, 'CONTROL: a bare name lost its chip in the room');
 });
 
 /* ===========================================================================
@@ -9543,7 +9599,7 @@ test('trailing punctuation is not swallowed into the href', () => {
 });
 
 test('a URL inside a message that also cites a file gets both treatments', () => {
-  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n');
+  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n');
   const out = link('brief.md and https://example.test', new Set(['brief.md']));
   assert.match(out, /<span class="ref">brief\.md/, 'the citation was lost when a URL was present');
   assert.match(out, /<a class="xlink"/, 'the URL was lost when a citation was present');
@@ -9561,7 +9617,7 @@ function bodyFn() {
   // #2239: pjBody now hands each prose segment to pjProse (rich prose), which
   // in turn calls pjRichSpans; both are lifted in so the extracted pjBody runs.
   return pageFunction('pjBody', pageFnSource('esc') + '\n'
-    + pageFnSource('pjInline') + '\n' + pageFnSource('pjLinkPaths') + '\n'
+    + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n' + pageFnSource('pjLinkPaths') + '\n'
     + pageFnSource('pjRichSpans') + '\n' + pageFnSource('pjListDepth') + '\n' + pageFnSource('pjProse') + '\n');
 }
 
@@ -9594,7 +9650,7 @@ test('outside the fence, citations and links still work', () => {
 
 test('a body with no fence is exactly what it was before pjBody existed', () => {
   const body = bodyFn();
-  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n');
+  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n');
   for (const t of ['plain', 'brief.md here', '<script>alert(1)</script>', 'https://example.test']) {
     assert.equal(body(t, new Set(['brief.md'])), link(t, new Set(['brief.md'])),
       JSON.stringify(t) + ' changed when it contains no fence');

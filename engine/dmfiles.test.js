@@ -48,6 +48,9 @@ test('#3614: the block names the REAL path, and says to create it and to keep pr
   assert.doesNotMatch(flat, /wherever else these instructions use that phrase/);   // round 7's wider redirect, removed in round 12, must not come back
   assert.match(flat, /Kosmos lists what is in it on your page, where they can open it/, 'the block does not tell the agent the person sees its Files on its page (#3614 item 2 ships with it)');
   assert.match(flat, /Save files directly in it, not in subfolders: the page lists only what sits at the top of the folder/, 'the agent is not told the list skips subfolders, so tidied work reads as "Nothing here yet"');
+  // #2245: a PROJECT's list walks subfolders, so the block must not tell the agent otherwise.
+  assert.doesNotMatch(flat, /lists only the top of a project/, 'the block still says a project list shows only its top level');
+  assert.match(flat, /Kosmos lists a project's subfolders too, a few folders deep/);
   assert.match(flat, /When the conversation itself happens inside a project, not in a direct conversation, keep using that project's own folder/);
 });
 

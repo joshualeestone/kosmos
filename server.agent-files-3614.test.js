@@ -77,6 +77,17 @@ test('files the agent saved are listed newest first with name, size and date; do
   assert.ok(typeof r.json.stamp === 'string' && r.json.stamp.length > 0);
 });
 
+test('#2245: the agent page Files list stays flat: a file in a subfolder is not listed there', async () => {
+  const dir = path.join(agentDir('flatx'), 'Files');
+  fs.mkdirSync(path.join(dir, 'sub'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'top.txt'), 't');
+  fs.writeFileSync(path.join(dir, 'sub', 'deep.txt'), 'd');
+  const r = await get('/api/agent/flatx/files');
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.json.files.map((f) => f.name), ['top.txt'], 'the agent Files list walked a subfolder its instructions say is not listed');
+  assert.equal(r.json.total, 1);
+});
+
 test('an unknown agent is 404; a name that cannot be a folder is refused; the list is read-only', async () => {
   assert.equal((await get('/api/agent/nobody/files')).status, 404);
   assert.equal((await get('/api/agent/..%2F..%2Fetc/files')).status, 404, 'a traversal name was not refused (store.safeKey folds it to a plain name; there is no workers/etc here)');

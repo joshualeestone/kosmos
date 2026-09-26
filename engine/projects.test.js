@@ -2178,13 +2178,19 @@ test('openFile: a bare filename in the folder opens', () => {
   projects.setRevealRunner(null);
 });
 
-test('openFile: every name that is not a bare filename is refused', () => {
+test('openFile: every name that is not the shape the list produces is refused', () => {
   reset();
   const dir = folder('open-names');
   fs.writeFileSync(path.join(dir, 'ok.txt'), 'x');
+  // #2245: sub/ok.txt EXISTS here, so the segment attacks below are refused by the
+  // NAME gate, not merely because the path they spell happens to be missing.
+  fs.mkdirSync(path.join(dir, 'sub'));
+  fs.writeFileSync(path.join(dir, 'sub', 'ok.txt'), 'x');
   let ran = false;
   projects.setRevealRunner(() => { ran = true; return { ok: true }; });
-  for (const bad of ['../ok.txt', 'sub/ok.txt', '/etc/hosts', '..', '.', '']) {
+  for (const bad of ['../ok.txt', '/etc/hosts', '..', '.', '',
+    'sub/../ok.txt', './ok.txt', 'sub/./ok.txt', 'sub//ok.txt', '/sub/ok.txt', 'sub/ok.txt/',
+    'sub\\ok.txt', '.hidden/ok.txt', 'sub/.ok.txt', 'C:\\Windows\\win.ini', 'C:/Windows/win.ini']) {
     const out = projects.openFile(dir, bad);
     assert.equal(out.ok, false, `${JSON.stringify(bad)} was accepted`);
   }
@@ -2224,6 +2230,134 @@ test('openFile: a symlink is not listed either, so the list cannot offer the esc
   const names = projects.listFiles(dir).files.map((f) => f.name);
   assert.ok(names.includes('real.txt'), 'CONTROL: the ordinary file was not listed');
   assert.ok(!names.includes('escape.txt'), 'the list offered a link out of the project');
+});
+
+/* #2245: subfolders are listed (bounded), and a listed subfolder file opens. */
+
+test('listFiles: a file in a subfolder is listed by its relative path (#2245)', () => {
+  reset();
+  const dir = folder('docs-nested');
+  fs.writeFileSync(path.join(dir, 'top.txt'), 'a');
+  fs.mkdirSync(path.join(dir, 'weather-forecast-test', 'mckinney'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'weather-forecast-test', 'forecast.pdf'), 'b');
+  fs.writeFileSync(path.join(dir, 'weather-forecast-test', 'mckinney', 'deep.csv'), 'c');
+  const out = projects.listFiles(dir, 50);
+  const names = out.files.map((f) => f.name).sort();
+  assert.deepEqual(names, ['top.txt', 'weather-forecast-test/forecast.pdf', 'weather-forecast-test/mckinney/deep.csv']);
+  assert.deepEqual([...out.names].sort(), names, 'names (every file) must match the listed files');
+  assert.equal(out.total, 3);
+  assert.equal(out.truncated, undefined, 'a small folder must not claim to be truncated');
+});
+
+test('listFiles: dependency/cache/build-output trees, hidden folders and too-deep folders are not walked (#2245)', () => {
+  reset();
+  const dir = folder('docs-noise');
+  fs.writeFileSync(path.join(dir, 'real.md'), 'a');
+  for (const noise of ['node_modules/pkg', '__pycache__', 'venv/lib', 'env/lib', 'dist', 'build', 'target/debug', 'Pods', 'DerivedData', '.git', '.venv']) {
+    fs.mkdirSync(path.join(dir, noise), { recursive: true });
+    fs.writeFileSync(path.join(dir, noise, 'junk.js'), 'x');
+  }
+  // depth: a/b/c is 3 below the project (listed), a/b/c/d is 4 (not walked)
+  fs.mkdirSync(path.join(dir, 'a', 'b', 'c', 'd'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'a', 'b', 'c', 'at-depth-3.txt'), 'x');
+  fs.writeFileSync(path.join(dir, 'a', 'b', 'c', 'd', 'at-depth-4.txt'), 'x');
+  const names = projects.listFiles(dir, 500).files.map((f) => f.name).sort();
+  assert.deepEqual(names, ['a/b/c/at-depth-3.txt', 'real.md'], `unexpected list: ${JSON.stringify(names)}`);
+});
+
+test('listFiles: a symlinked FOLDER is neither listed nor entered, so it cannot lead out (#2245)', () => {
+  reset();
+  const dir = folder('docs-dirlink');
+  const outside = folder('docs-dirlink-elsewhere');
+  fs.writeFileSync(path.join(outside, 'secret.txt'), 'x');
+  fs.writeFileSync(path.join(dir, 'real.txt'), 'x');
+  fs.symlinkSync(outside, path.join(dir, 'escape-dir'));
+  fs.symlinkSync(dir, path.join(dir, 'loop')); // a link to itself must not loop the walk
+  const names = projects.listFiles(dir, 500).files.map((f) => f.name);
+  assert.ok(names.includes('real.txt'), 'CONTROL: the ordinary file was not listed');
+  assert.ok(!names.some((n) => n.includes('secret')), 'the walk followed a folder link out of the project');
+  assert.ok(!names.some((n) => n.startsWith('loop/')), 'the walk followed a link back into itself');
+  // and open refuses the same escape even when named directly
+  let ran = false;
+  projects.setRevealRunner(() => { ran = true; return { ok: true }; });
+  const out = projects.openFile(dir, 'escape-dir/secret.txt');
+  assert.equal(out.ok, false, 'a file through a folder link out of the project was opened');
+  assert.match(out.because, /outside this project/);
+  assert.equal(ran, false);
+  projects.setRevealRunner(null);
+});
+
+test('listFiles: a huge TOP level is still listed in full, as before #2245', () => {
+  reset();
+  const dir = folder('docs-bigtop');
+  for (let i = 0; i < 2100; i++) fs.writeFileSync(path.join(dir, `f${i}.txt`), 'x');
+  const out = projects.listFiles(dir, 10);
+  assert.equal(out.ok, true);
+  assert.equal(out.total, 2100, 'the top level lost files to the subfolder budget');
+  assert.equal(out.truncated, undefined, 'a top-level-only folder claimed to be truncated');
+});
+
+test('listFiles: a huge subfolder cannot push a top-level file off, and the cut is flagged (#2245)', () => {
+  reset();
+  const dir = folder('docs-bigsub');
+  // Named to sort BEFORE the top-level file, so a depth-first walk would reach it first.
+  fs.mkdirSync(path.join(dir, 'aaa-data'));
+  for (let i = 0; i < 2100; i++) fs.writeFileSync(path.join(dir, 'aaa-data', `r${i}.csv`), 'x');
+  fs.writeFileSync(path.join(dir, 'zzz-report.pdf'), 'x');
+  const out = projects.listFiles(dir, 5000);
+  assert.ok(out.names.includes('zzz-report.pdf'), 'a top-level file was dropped for a big subfolder');
+  assert.equal(out.truncated, true, 'a walk that hit its budget did not say so');
+  assert.ok(out.total <= 2001 && out.total > 1, `total ${out.total} is outside the budget`);
+});
+
+test('listFiles: an unreadable subfolder is skipped and the rest still lists (#2245)', { skip: process.getuid && process.getuid() === 0 }, () => {
+  reset();
+  const dir = folder('docs-locked-sub');
+  fs.writeFileSync(path.join(dir, 'top.txt'), 'x');
+  fs.mkdirSync(path.join(dir, 'open'));
+  fs.writeFileSync(path.join(dir, 'open', 'ok.txt'), 'x');
+  fs.mkdirSync(path.join(dir, 'locked'));
+  fs.writeFileSync(path.join(dir, 'locked', 'hidden.txt'), 'x');
+  fs.chmodSync(path.join(dir, 'locked'), 0o000);
+  try {
+    const out = projects.listFiles(dir, 50);
+    assert.equal(out.ok, true, 'one unreadable subfolder failed the whole list');
+    assert.deepEqual(out.names.slice().sort(), ['open/ok.txt', 'top.txt']);
+  } finally {
+    fs.chmodSync(path.join(dir, 'locked'), 0o755);
+  }
+});
+
+test('listFiles: the stamp changes when only truncated flips, so a polling page repaints the note (#2245)', () => {
+  reset();
+  const dir = folder('docs-stamp-trunc');
+  fs.writeFileSync(path.join(dir, 'real.txt'), 'x');
+  fs.mkdirSync(path.join(dir, 'sub'));
+  // Dot-entries are read (they count against the budget) but never listed, so the
+  // listed file set stays exactly { real.txt } on both sides of the budget.
+  for (let i = 0; i < 2000; i++) fs.writeFileSync(path.join(dir, 'sub', `.n${i}`), 'x');
+  const under = projects.listFiles(dir, 50);
+  fs.writeFileSync(path.join(dir, 'sub', '.n-extra'), 'x');
+  const over = projects.listFiles(dir, 50);
+  assert.deepEqual(over.names, under.names, 'CONTROL: the listed files must be identical');
+  assert.equal(under.truncated, undefined);
+  assert.equal(over.truncated, true);
+  assert.notEqual(over.stamp, under.stamp, 'truncated flipped but the stamp did not, so the page would skip the repaint');
+});
+
+test('openFile: a file in a subfolder the list shows opens by its relative path (#2245)', () => {
+  reset();
+  const dir = folder('open-nested');
+  fs.mkdirSync(path.join(dir, 'reports'));
+  fs.writeFileSync(path.join(dir, 'reports', 'q3.pdf'), 'x');
+  const listed = projects.listFiles(dir).files.map((f) => f.name);
+  assert.ok(listed.includes('reports/q3.pdf'), 'CONTROL: the nested file was not listed');
+  let ran = null;
+  projects.setRevealRunner((bin, args) => { ran = { bin, args }; return { ok: true }; });
+  const out = projects.openFile(dir, 'reports/q3.pdf');
+  assert.equal(out.ok, true, out.because);
+  assert.equal(ran.args[0], fs.realpathSync(path.join(dir, 'reports', 'q3.pdf')));
+  projects.setRevealRunner(null);
 });
 
 test('openFile: a directory and a missing file are both refused', () => {

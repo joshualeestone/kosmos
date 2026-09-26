@@ -13551,8 +13551,8 @@ window.kosmosMeasureScrollbarWidth();
            `h3.dlab` heading and the same column this file already uses — so
            Mona Lisa is blessing or replacing something that already sits in the
            system rather than something I made up.
-           ⚠️ THE LIST IS THE PROJECT'S FOLDER, top level, newest first, and
-           that is ALL it will ever be. Agents write into the project folder, so
+           ⚠️ THE LIST IS THE PROJECT'S FOLDER (and its subfolders to a bounded
+           depth, #2245), newest first. Agents write into the project folder, so
            what they produce is already here.
            🛑 THIS COMMENT USED TO PROMISE THAT ATTACHED FILES WOULD JOIN THIS
            LIST once the attachment path landed, and that sentence was the reason
@@ -13579,7 +13579,7 @@ window.kosmosMeasureScrollbarWidth();
              is what stops it looking like the other one arrived. (#110, heading
              from Mona Lisa.) -->
         <!-- Josh, 2026-09-10 (#2711 item 13): just "Files". Still the
-             project folder, top level, newest first, as the comment above says. -->
+             project folder, newest first, as the comment above says. -->
         <h3 class="dlab">Files</h3>
         <!-- #3218: View-All sits right after the header (before the list) so keyboard focus reaches
              it in reading order. The consolidated view grids it into the header row far-right; being
@@ -44571,6 +44571,10 @@ function pjById(id) { return PROJECTS.find((p) => p.id === id) || null; }
    list left standing would dress another project's words as citations of files
    this one does not have. */
 let PJ_DOC_NAMES = null;
+/* #2245: shown by both document views when the folder walk stopped short. */
+let PJ_DOCS_VIEW_PARTIAL = false; // #2245: the open View All list was cut short
+let PJ_DOCS_RAIL_PARTIAL = false; // #2245: the rail's last list was cut short
+const PJ_DOCS_PARTIAL = 'This folder holds a lot, so Kosmos stopped looking partway through its subfolders. Some files may not be listed here. Open the folder to see everything.';
 let TK_OPEN = null;        // the task number the task page is showing
 
 /** Re-read the store; loadProjects itself repaints the open project on
@@ -46913,8 +46917,9 @@ function paintFreeAgentPicker(p, sel, btn) {
  * ⚠️ WHAT THIS SCREEN MAY CLAIM, the same discipline chat.js carries about a
  * keystroke. "These are the files in this project's folder, a moment ago" is
  * ours to say. "This is everything for this project" is NOT, and the list does
- * not say it: the folder is the top level only, and files that arrive through
- * the conversation are not there until the attachment path lands.
+ * not say it: the folder walk is bounded (#2245) and says so when it stopped
+ * short, and files that arrive through the conversation are not there until the
+ * attachment path lands.
  *
  * A folder we cannot read produces a SENTENCE rather than an empty list,
  * because "no documents yet" and "we could not look" are different facts and
@@ -46959,6 +46964,7 @@ document.getElementById('docs-prev').addEventListener('click', () => { PJ_DOCS_P
 document.getElementById('docs-next').addEventListener('click', () => { PJ_DOCS_PAGE += 1; pjDocsPaintPage(); document.getElementById('docs-list').scrollIntoView({ block: 'start' }); });
 
 async function openDocsView() {
+  PJ_DOCS_VIEW_PARTIAL = false; // #2245: a failed read must not inherit the last project's flag
   const p = pjById(PJ_CURRENT);
   if (!p) return;
   document.getElementById('docs-project').textContent = p.name;
@@ -47009,7 +47015,8 @@ async function openDocsView() {
     if (PJ_CURRENT !== forProject || PJ_VIEW !== 'docs') return;
     if (body.ok === false) { msg.textContent = pjSentence(body.because || 'we cannot read that folder right now'); return; }
     const files = Array.isArray(body.files) ? body.files : [];
-    if (!files.length) { msg.textContent = 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.'; return; }
+    PJ_DOCS_VIEW_PARTIAL = body.truncated === true;
+    if (!files.length) { msg.textContent = PJ_DOCS_VIEW_PARTIAL ? PJ_DOCS_PARTIAL : 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.'; return; }
     msg.textContent = '';
     /* Paginated (#535, Josh: 'a paginated list of project files'). Fifty a
        page: enough to scan, never a wall. The floor sentence survives at the
@@ -47018,6 +47025,8 @@ async function openDocsView() {
     PJ_DOCS_TOTAL = Number(body.total) || files.length;
     PJ_DOCS_PAGE = 0;
     pjDocsPaintPage();
+    /* #2245: the walk has a budget; a list it cut short says so rather than passing as complete. */
+    if (body.truncated === true) msg.textContent = PJ_DOCS_PARTIAL;
   } catch {
     if (PJ_CURRENT === forProject && PJ_VIEW === 'docs') msg.textContent = 'We could not reach Kosmos to list the documents.';
   }
@@ -47042,7 +47051,7 @@ document.getElementById('docs-list').addEventListener('click', async (e) => {
     if (!res.ok) { const b = await res.json().catch(() => null); msg.textContent = pjSentence((b && (b.error || b.because)) || 'we could not open that file'); }
     /* win32-board-copy: Windows shows a file that can run a program instead of opening it, and the engine says so. */
     /* The sentence is cleared on every other open (review round 2), so it never sits under the next document. */
-    else { const b = await res.json().catch(() => null); msg.textContent = (b && b.revealedInstead && b.say) || ''; }
+    else { const b = await res.json().catch(() => null); msg.textContent = (b && b.revealedInstead && b.say) || (PJ_DOCS_VIEW_PARTIAL ? PJ_DOCS_PARTIAL : ''); }
   } catch { msg.textContent = 'We could not reach Kosmos to open that file.'; }
 });
 
@@ -47125,7 +47134,7 @@ async function pjLoadDocs(id) {
     /* ⚠️ Only if this project is still the open one. Same capture-and-recheck
        every other async painter here carries: an answer that arrives after a
        switch would paint one project's failure under another's name. */
-    if (PJ_CURRENT === id) { msg.textContent = 'We could not read this project\u2019s folder just now.'; PJ_DOCS_OK = false; }
+    if (PJ_CURRENT === id) { msg.textContent = 'We could not read this project\u2019s folder just now.'; PJ_DOCS_OK = false; PJ_DOCS_RAIL_PARTIAL = false; }
     return;
   }
   if (epoch !== PJ_DOCS_EPOCH) return;
@@ -47144,6 +47153,7 @@ async function pjLoadDocs(id) {
   PJ_DOCS_OK = nowOk;
   box.textContent = '';
   if (!body || body.ok !== true) {
+    PJ_DOCS_RAIL_PARTIAL = false; // #2245: a failed read carries no list to be partial about
     msg.textContent = (body && body.because) || 'We could not read this project\u2019s folder just now.';
     all.hidden = true;
     return;
@@ -47155,12 +47165,14 @@ async function pjLoadDocs(id) {
   const roomBox = document.getElementById('pj-room');
   if (roomBox) { roomBox.__lastRoom = undefined; if (roomBox.__lastBody) paintRoom(roomBox.__lastBody); }
   const files = Array.isArray(body.files) ? body.files : [];
+  PJ_DOCS_RAIL_PARTIAL = body.truncated === true;
   if (!files.length) {
-    msg.textContent = 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.';
+    msg.textContent = body.truncated === true ? PJ_DOCS_PARTIAL : 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.';
     all.hidden = true;
     return;
   }
-  msg.textContent = '';
+  /* #2245: the walk has a budget; a list it cut short says so rather than passing as complete. */
+  msg.textContent = body.truncated === true ? PJ_DOCS_PARTIAL : '';
   for (const f of files) {
     /* A BUTTON, not a div with a handler: this opens a file, and an action
        that cannot be reached from the keyboard is not an action for everyone. */
@@ -47188,6 +47200,30 @@ async function pjLoadDocs(id) {
   /* #3306 (Josh 2026-09-19): the rail door reads just "View All", no count. The
      total still lives on the all-files screen this door opens, so nothing is lost. */
   all.textContent = 'View All';
+}
+
+/* #2245: the documents list names a subfolder file by its path relative to the project
+   (reports/q3.pdf), so a cited path is matched on its LONGEST trailing run of segments that
+   is in the list, and data-ref carries that listed name. The shortest run tried is the
+   basename, so a bare `notes.md` still matches a top-level notes.md. */
+function pjCiteKey(core, names) {
+  /* A Windows agent writes sub\report.pdf; the list's names always use '/'. Only the
+     LOOKUP is normalised: the chip still carries the listed name, and a '..' segment was
+     refused before this is called. */
+  core = String(core).replace(/\\/g, '/');
+  const segs = core.split('/');
+  for (let i = 0; i < segs.length; i++) {
+    const key = segs.slice(i).join('/');
+    if (key && names.has(key)) return key;
+  }
+  /* A BARE name (no folder written) that is not at the top level chips to the one listed
+     subfolder file with that name; two or more is ambiguous and gets no chip. */
+  if (segs.length !== 1 || !core) return null;
+  let only = null;
+  for (const n of names) {
+    if (n.endsWith('/' + core)) { if (only !== null) return null; only = n; }
+  }
+  return only;
 }
 
 /**
@@ -47230,18 +47266,18 @@ function pjLinkPaths(text, names) {
     const core = m[1];
     const tail = m[2];
     if (!core) return pjInline(tok);
-    /* A cited path may be written with folders in front of it. The FILE is
-       what we can open, so the last segment is what is matched -- but only
+    /* A cited path may be written with folders in front of it. It is matched
+       by pjCiteKey (#2245) -- but only
        when the whole token has no `..` in it, because a token that walks up
        is not describing a file in this project and should not be dressed as
        one even if its basename collides. */
     if (core.includes('..')) return pjInline(tok);
-    const base = core.split('/').pop();
-    if (!names.has(base)) return pjInline(tok);
+    const key = pjCiteKey(core, names);
+    if (key === null) return pjInline(tok);
     hit = true;
     return '<span class="ref">' + esc(core)
-      + '<button class="refgo" type="button" data-ref="' + esc(base)
-      + '" aria-label="Show me ' + esc(base) + '">Show me</button></span>' + esc(tail);
+      + '<button class="refgo" type="button" data-ref="' + esc(key)
+      + '" aria-label="Show me ' + esc(key) + '">Show me</button></span>' + esc(tail);
   }).join('');
   /* ⚠️ Identical output to the old path when nothing matched, byte for byte:
      the reassembly above escapes every token and every whitespace run, so a
@@ -47659,23 +47695,19 @@ function pjRichSpans(seg, names, agentNames) {
       }
     }
     /* A cited project file -> a "Show me" chip (#355), same PATH rule as
-       pjLinkPaths (last segment, no `..`), only when a `names` set is supplied.
+       pjLinkPaths (pjCiteKey, no `..`), only when a `names` set is supplied.
        Held like the URL so the chip is atomic and inert through the emphasis
        pass -- `**notes.md**` bolds the chip rather than leaking a marker.
-       ⚠️ One deliberate difference from pjLinkPaths: the lookup here is on the
-       already-esc()'d token (step 2 ran first), whereas pjLinkPaths matches the
-       raw token. So a document literally named with an HTML-special character
-       (`&`, `<`, `>`, `"`) does not chip in the room, where it would on the row
-       surfaces. That is the safe direction (it falls through to plain escaped
-       text, never a double-escape or an injection) and such names are
-       vanishingly rare; using the escaped `core` as-is is what keeps the chip
-       from double-escaping. */
+       #2245: the token here is already esc()'d (step 2 ran first), so it is DECODED
+       back to the raw text for the lookup, and the listed name that comes back is a
+       raw folder/file name from disk, so it is esc()'d on the way into the markup. */
     if (hasNames && core && !core.includes('..')) {
-      const base = core.split('/').pop();
-      if (names.has(base)) {
+      const rawCore = core.replace(/&(amp|lt|gt|quot);/g, (m, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"' }[e]));
+      const key = pjCiteKey(rawCore, names);
+      if (key !== null) {
         return hold('<span class="ref">' + core
-          + '<button class="refgo" type="button" data-ref="' + base
-          + '" aria-label="Show me ' + base + '">Show me</button></span>') + mm[2];
+          + '<button class="refgo" type="button" data-ref="' + esc(key)
+          + '" aria-label="Show me ' + esc(key) + '">Show me</button></span>') + mm[2];
       }
     }
     return tok;
@@ -47904,7 +47936,7 @@ document.getElementById('pj-docs').addEventListener('click', async (e) => {
     if (res.ok) {
       /* win32-board-copy: a file shown rather than opened (Windows, a type that can run a program) is said. */
       const b = await res.json().catch(() => null);
-      msg.textContent = (b && b.revealedInstead && b.say) || '';
+      msg.textContent = (b && b.revealedInstead && b.say) || (PJ_DOCS_RAIL_PARTIAL ? PJ_DOCS_PARTIAL : '');
       return;
     }
     /* The refusal is the ENGINE's sentence, shown verbatim. It already says
@@ -47920,8 +47952,8 @@ document.getElementById('pj-docs').addEventListener('click', async (e) => {
 
 /* ⚠️ DELEGATED ON THE THREAD, because every poll rebuilds the messages: a
    listener bound to a chip is bound to an element the next repaint destroys.
-   The button carries the BASENAME, which is the only shape open-file accepts,
-   and the refusal shown is the engine's own sentence rather than a second,
+   The button carries the name the documents list gave (pjCiteKey), which is a
+   shape open-file accepts, and the refusal shown is the engine's own sentence rather than a second,
    weaker copy of it. */
 document.getElementById('pj-room').addEventListener('click', async (e) => {
   const go = e.target && e.target.closest ? e.target.closest('.refgo') : null;
