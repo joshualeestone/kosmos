@@ -24,3 +24,8 @@ Card: kosmos#3851 (two follow-ups deferred from the #3311 federation review, rou
 
 ## Round 3 review (opus): 1 NIT
 - [NIT] the stale-link test's post() assertion could not fail (post returns false with no seat either way). FIXED: before ensure runs, it asserts fedseats.linkFor hides the link and a post writes no "stayed on this computer" note, which a room read as shared gets. Control (linkFor returning the raw link) fails the test by name.
+
+## Round 4 review (sonnet): NO FINDINGS
+
+## Validation (first run)
+Tests: 9833, 0 failed. The browser-check surface gate (#2518) then failed: the new CSS names `msg` and `msg-av`, which render-unread-edge-3743, render-dm-phone-718 and render-agentdm-3414 assert on. All three were run on this branch and pass ("all unread-edge checks passed", "all passed", "all passed"). The new rules only reach `.msg.ext` rows; unread-edge-3743 renders external rows and still passes. Recorded as per-check trailers on the next commit, as the gate asks.
