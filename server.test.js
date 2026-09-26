@@ -2185,7 +2185,11 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
   const ids = ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save',
     'd-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-msg', 'd-untied'];
   const els = {};
-  for (const id of ids) els[id] = { id, disabled: false, hidden: false, value: '', textContent: '' };
+  // setAttribute/removeAttribute: #4038 names the button's reason (aria-describedby) only while it is disabled.
+  for (const id of ids) {
+    els[id] = { id, disabled: false, hidden: false, value: '', textContent: '', attrs: {},
+      setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; } };
+  }
   const document = { getElementById: (id) => els[id] || null };
 
   // ⚠️ Brace-matched, not "up to the next function". The first version sliced

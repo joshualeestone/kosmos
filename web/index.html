@@ -10808,7 +10808,7 @@ window.kosmosMeasureScrollbarWidth();
          figure earlier tonight: three surfaces, one job, and the ones nobody
          was editing stayed behind. -->
     <div class="frow">
-      <button class="btn sav-btn" type="button" id="d-file-btn" aria-describedby="d-untied d-withdrawn">Change picture</button>
+      <button class="btn sav-btn" type="button" id="d-file-btn">Change picture</button>
       <!-- "Remove picture", not "Remove": a bare verb beside "Change picture"
              reads as removing the AGENT until you have pressed it (#406). (This
              page also has a "Remove <name>" control, in the Advanced section since
@@ -19871,6 +19871,7 @@ async function tick() {
       const el = document.getElementById(id);
       if (el) el.disabled = true;
     }
+    document.getElementById('d-file-btn')?.setAttribute('aria-describedby', 'd-withdrawn');
     REMOVE_ASK = null;
     const start = document.getElementById('d-remove-start');
     if (start) start.hidden = true;
@@ -32391,12 +32392,15 @@ function setWritesOffered(a, tied) {
   // left behind.
   /* #4038 (Josh, 09-26: "Change picture ... doesn't seem to be working"): the VISIBLE button goes with the hidden input.
      It was left out, so on an untied card it stayed live and its .click() on the disabled input did nothing: no
-     picker, no message. Disabled, it names the page's sentence that says why (aria-describedby). */
+     picker, no message. Disabled, it names the sentence that says why (aria-describedby), and only while disabled: a
+     hidden element still describes whatever points at it, so a live button must not point at a stale reason. */
   const controls = ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save'];
   for (const id of controls) {
     const el = document.getElementById(id);
     if (el) el.disabled = !tied;
   }
+  const fileBtn = document.getElementById('d-file-btn');
+  if (fileBtn) { if (tied) fileBtn.removeAttribute('aria-describedby'); else fileBtn.setAttribute('aria-describedby', 'd-untied'); }
 
   if (!tied) {
     // Clear, don't just disable. A disabled textarea still SHOWS the text.

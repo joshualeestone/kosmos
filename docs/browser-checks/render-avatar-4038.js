@@ -111,6 +111,12 @@ function solidPng(r, g, b) {
   await Promise.all([page.waitForEvent('filechooser', { timeout: 1500 }).then(() => { opened = true; }).catch(() => {}),
     page.click('#d-file-btn', { force: true, timeout: 1500 }).catch(() => {})]);
   chk(!opened, 'and no picker opens for it (not a regression guard: main opened none either, silently)');
+  const untiedDesc = await page.evaluate(() => document.getElementById('d-file-btn').getAttribute('aria-describedby'));
+  chk(untiedDesc === 'd-untied', 'the disabled button names the sentence that says why', JSON.stringify(untiedDesc));
+  await page.evaluate(() => openDetail('april', 'profile'));
+  await page.waitForTimeout(1200);
+  const back = await page.evaluate(() => ({ btn: document.getElementById('d-file-btn').disabled, desc: document.getElementById('d-file-btn').getAttribute('aria-describedby') }));
+  chk(back.btn === false && back.desc === null, 'back on a tied agent the button is live and names no stale reason', JSON.stringify(back));
   chk(errors.length === 0, 'no page errors', JSON.stringify(errors.slice(0, 2)));
 
   await browser.close();
