@@ -107,13 +107,10 @@ https://kosmosplus.com
 https://installkosmos.com/privacy
 <!-- /privacy_url -->
 
-🛑 **Not ready to submit as written.** It is the Privacy link in the
-kosmosplus.com footer, and it answered 200, but the page describes only the free
-Mac app. It says "Kosmos has no account of its own", while this app signs in
-to a Kosmos+ account and sends the coordinator an email address, a session and a
-push token (see `privacy-label.md`). App Review compares the policy with the app
-and the privacy label. Josh has to extend the policy to cover Kosmos+ and the
-iPhone app, or publish a separate Kosmos+ policy and put its address here.
+The Privacy link in the kosmosplus.com footer. Rewritten under kosmos #3869 and
+live: read on 2026-09-26, it covers Kosmos+ and the iPhone app (the account's
+email and phone, device approvals, the iPhone notification token, notification
+records, server logs, and the processors), which matches `privacy-label.md`.
 
 ## Category
 

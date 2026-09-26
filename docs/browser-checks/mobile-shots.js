@@ -11,12 +11,18 @@
  *     node docs/browser-checks/mobile-shots.js [--out DIR] [--screens a,b]
  *       [--sizes se,iphone15,promax,android] [--themes light,dark]
  *       [--engines chromium,webkit] [--strict] [--list] [--keep]
+ *       [--data sample|store] [--scale css|device]
  *
  * Output: DIR/<screen>--<size>--<theme>--<engine>.png plus DIR/report.md (every
  * shot, and every overflow found). Default DIR is a new temp folder, printed at
  * the end. --strict exits 1 when anything overflows. --list prints the screens.
  * --keep leaves the throwaway board running afterwards (address printed) so you
  * can explore it by hand; Ctrl-C stops it and deletes its data.
+ * --data store seeds a clean fleet for App Store and Play screenshots instead
+ * of the stress-test sample (no stopped agent, no overlong names, no code
+ * block); --scale device saves at the device's pixels, not CSS pixels. The
+ * App Store size is `appstore` (440x956 at 3x, which is 1320x2868): it is not in
+ * the default sweep. ios/store/shoot.sh is the one command for the iOS set.
  *
  * 🛑 NEVER THE LIVE BOARD, AND NEVER THIS MAC'S ACCOUNTS. The board below is
  * started here, on a free port, with every data root in a temp dir and a fake
@@ -61,7 +67,10 @@ const SIZES = {
   iphone15: { width: 393, height: 852, dpr: 3, label: 'iPhone 15' },
   promax: { width: 430, height: 932, dpr: 3, label: 'iPhone Pro Max' },
   android: { width: 412, height: 915, dpr: 2.625, label: 'mid Android' },
+  // The 6.9-inch iPhone screenshot App Store Connect requires: 1320x2868 at --scale device.
+  appstore: { width: 440, height: 956, dpr: 3, label: 'App Store 6.9-inch' },
 };
+const DEFAULT_SIZES = ['se', 'iphone15', 'promax', 'android'];
 const THEMES = ['light', 'dark'];
 const ENGINES = ['chromium', 'webkit'];
 
@@ -204,7 +213,7 @@ const SCREENS = [
 
 /* ------------------------------------------------------------------ args */
 function parseArgs(argv) {
-  const a = { out: null, screens: null, sizes: Object.keys(SIZES), themes: THEMES, engines: ENGINES, strict: false, list: false, keep: false };
+  const a = { out: null, screens: null, sizes: DEFAULT_SIZES, themes: THEMES, engines: ENGINES, strict: false, list: false, keep: false, data: 'sample', scale: 'css' };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const v = () => argv[++i];
@@ -216,11 +225,15 @@ function parseArgs(argv) {
     else if (k === '--strict') a.strict = true;
     else if (k === '--list') a.list = true;
     else if (k === '--keep') a.keep = true;
+    else if (k === '--data') a.data = v();
+    else if (k === '--scale') a.scale = v();
     else throw new Error('unknown argument ' + k);
   }
   for (const s of a.sizes) if (!SIZES[s]) throw new Error('unknown size ' + s + ' (have ' + Object.keys(SIZES).join(', ') + ')');
   for (const t of a.themes) if (!THEMES.includes(t)) throw new Error('unknown theme ' + t);
   for (const e of a.engines) if (!ENGINES.includes(e)) throw new Error('unknown engine ' + e);
+  if (!DATA_SETS[a.data]) throw new Error('unknown data set ' + a.data + ' (have ' + Object.keys(DATA_SETS).join(', ') + ')');
+  if (!['css', 'device'].includes(a.scale)) throw new Error('unknown scale ' + a.scale + ' (have css, device)');
   if (a.screens) for (const s of a.screens) if (!SCREENS.find((x) => x.name === s)) throw new Error('unknown screen ' + s);
   return a;
 }
@@ -251,6 +264,56 @@ const LONG_REPLY = 'Here is the plan for tomorrow, in order. First I will finish
   + 'for (const row of prices) { if (row.price !== row.listed) console.log(\'mismatch\', row.sku, row.price, row.listed); }\n```\n\n'
   + 'Tell me if you want the photographer on a different day.';
 
+/* The store set: a tidy fleet for App Store and Play screenshots, which people
+   buying the app see. Same claims as the sample, so every screen's `go` works
+   unchanged; four agents, each in a state a customer should see (two working,
+   one needing you, one idle), nothing stopped and nothing overlong. */
+const STORE_AGENTS = [
+  { claim: 'ada', title: '⠋ Writing the product copy for the spring catalogue', name: 'Ada', role: 'Writer' },
+  { claim: 'basil', title: '⠙ Comparing supplier prices for the linen range', name: 'Basil', role: 'Researcher' },
+  { claim: 'cleo', title: '', name: 'Cleo', role: 'Project manager' },
+  { claim: 'dmitri', title: '', name: 'Dmitri', role: 'Bookkeeper' },
+];
+const DATA_SETS = {
+  sample: {
+    agents: AGENTS,
+    chat: [
+      ['you', 'Morning Ada. What is left on the catalogue?'],
+      ['ada', 'Morning! Three things, and none of them are blocked.'],
+      ['you', 'Can you write it up properly so I can read it on my phone later?'],
+      ['ada', LONG_REPLY],
+    ],
+    ask: 'The printer quoted two prices for the spring catalogue. May I accept the cheaper one (£1,240, five working days) or do you want the faster one (£1,610, two days)?',
+    secondProject: { name: 'Quarterly accounts', agents: ['esme'] },
+  },
+  store: {
+    agents: STORE_AGENTS,
+    chat: [
+      ['you', 'Morning Ada. How is the catalogue copy coming along?'],
+      ['ada', 'Pages 1 to 8 are written and checked against the price sheet.'],
+      ['you', 'Great. What is left?'],
+      ['ada', 'Pages 9 to 12 need the new photos before I can caption them. The shoot is on Thursday, so I will have the full draft to you on Friday morning.'],
+      ['you', 'Perfect, thank you.'],
+    ],
+    ask: 'The printer sent two quotes for the catalogue: $1,240 in five working days, or $1,610 in two. Shall I accept the cheaper one?',
+    secondProject: { name: 'Quarterly accounts', agents: ['dmitri'], description: 'Close the quarter and send the accounts to the accountant.' },
+    projectDescription: 'Get the spring catalogue written, priced, photographed and to the printer by the 3rd.',
+    /* A Mac that is set up, which the empty sandbox is not: each agent gets a
+       launch job and its own folder with instructions, and your messages were
+       delivered. Without these the shots carry setup warnings no customer with
+       a working Mac would see ("will not come back if you restart", "made
+       before Kosmos recorded this", "could not deliver"). */
+    setUp: true,
+    askInProject: true,
+    /* The sandbox has no Claude account on purpose (the leak guard insists),
+       so the board truthfully says it cannot reach one. A customer's Mac can.
+       In the PAGE only, the status answer's `connection` is set to connected;
+       every other field is the board's own. */
+    connected: true,
+  },
+};
+let DATA = DATA_SETS.sample;   // run() picks the set before the board is seeded
+
 /* Everything that can be written before the board starts, through the engine's
    own writers, so the files are the shapes the real producers make. The data
    roots are set in THIS process first: several engine modules resolve their
@@ -263,6 +326,7 @@ function seedFiles(roots) {
   process.env.AGENT_WORKFORCE_LAUNCH = roots.LAUNCH;
   process.env.AGENT_WORKFORCE_PROJECTS = roots.PROJECTS;
   const fleet = require(path.join(REPO, 'test-support', 'fleet'));
+  const AGENTS = DATA.agents;
   fs.writeFileSync(path.join(roots.DATA, 'fake-panes'), AGENTS.map((a) => fleet.line({
     session: a.claim + '-discord', claim: a.claim, title: a.title, ...(a.command ? { command: a.command } : {}),
   })).join('\n') + '\n');
@@ -281,10 +345,24 @@ function seedFiles(roots) {
   /* These writers report a failure as { recorded: false, because } rather than throwing;
      a seed that silently did not land would be photographed as if it had. */
   const landed = (r, what) => { if (r && r.recorded === false) throw new Error('the seed could not write ' + what + ': ' + r.because); };
-  landed(chat.appendMessage(chat.DIRECT, 'ada', { text: 'Morning Ada. What is left on the catalogue?', at: stamp(1) }), "Ada's chat");
-  landed(chat.appendMessage(chat.DIRECT, 'ada', { text: 'Morning! Three things, and none of them are blocked.', at: stamp(2), from: 'ada' }), "Ada's chat");
-  landed(chat.appendMessage(chat.DIRECT, 'ada', { text: 'Can you write it up properly so I can read it on my phone later?', at: stamp(3) }), "Ada's chat");
-  landed(chat.appendMessage(chat.DIRECT, 'ada', { text: LONG_REPLY, at: stamp(4), from: 'ada' }), "Ada's chat");
+  DATA.chat.forEach(([who, text], i) => {
+    const mine = who === 'you' ? (DATA.setUp ? { delivery: { state: 'placed' } } : {}) : { from: who };
+    landed(chat.appendMessage(chat.DIRECT, 'ada', { text, at: stamp(i + 1), ...mine }), "Ada's chat");
+  });
+  if (DATA.setUp) {
+    const create = require(path.join(REPO, 'engine', 'create'));
+    for (const a of AGENTS) {
+      fs.mkdirSync(path.dirname(create.plistPath(a.claim)), { recursive: true });
+      // The shape readPlistJob reads: ProgramArguments with the agent CLI at 4, tmux at 5, the model at 7.
+      fs.writeFileSync(create.plistPath(a.claim), '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict>'
+        + '<key>Label</key><string>' + create.serviceLabel(a.claim) + '</string>'
+        + '<key>ProgramArguments</key><array>' + ['/bin/bash', '-lc', 'start', a.claim, '/usr/local/bin/claude', '/usr/local/bin/tmux', a.claim, 'sonnet']
+          .map((x) => '<string>' + x + '</string>').join('') + '</array>'
+        + '<key>RunAtLoad</key><true/></dict></plist>\n');
+      fs.mkdirSync(create.workerDir(a.claim), { recursive: true });
+      fs.writeFileSync(path.join(create.workerDir(a.claim), 'CLAUDE.md'), '# ' + a.name + '\n\nYou are ' + a.name + ', the ' + a.role.toLowerCase() + '.\n');
+    }
+  }
   /* Ada's Files folder, for the agent-files screens: more rows than the
      agent page shows (AGENT_FILES_SHOWN, 10, so View All appears), one with
      a long name. */
@@ -299,7 +377,7 @@ function seedFiles(roots) {
     fs.utimesSync(path.join(adaFiles, f), t, t);
   });
   landed(require(path.join(REPO, 'engine', 'selfreport')).record('cleo', {
-    state: 'needs_you', because: 'The printer quoted two prices for the spring catalogue. May I accept the cheaper one (£1,240, five working days) or do you want the faster one (£1,610, two days)?',
+    state: 'needs_you', because: DATA.ask,
   }), "Cleo's needs-you state");
 }
 
@@ -393,13 +471,14 @@ async function seed(base, roots) {
     if (!r.ok) throw new Error('seed ' + p + ' answered ' + r.status);
     return r.json().catch(() => ({}));
   };
-  const made = await post('/api/projects', { name: 'Launch the spring catalogue', agents: ['ada', 'basil', 'cleo'] });
+  const made = await post('/api/projects', { name: 'Launch the spring catalogue', agents: ['ada', 'basil', 'cleo'],
+    ...(DATA.projectDescription ? { description: DATA.projectDescription } : {}) });
   const pid = made.project && made.project.id;
   if (!pid) throw new Error('seed: the board made no project');
   for (const s2 of ['Draft the product copy for every page', 'Check the prices against the spreadsheet', 'Book the photographer']) {
     await post('/api/project/' + pid + '/tasks', { sentence: s2, who: 'ada' });
   }
-  await post('/api/projects', { name: 'Quarterly accounts', agents: ['esme'] });
+  await post('/api/projects', DATA.secondProject);
   const t0 = Date.now() - 1800e3;
   const stamp = (min) => new Date(t0 + min * 60e3).toISOString();
   const lines = [
@@ -409,7 +488,16 @@ async function seed(base, roots) {
     { kind: 'reaction', project: pid, of: 'm3', emoji: '👍', op: 'add', from: 'cleo', at: stamp(10) },
     { kind: 'reaction', project: pid, of: 'm2', emoji: '🔥', op: 'add', from: 'ada', at: stamp(11) },
   ];
-  fs.appendFileSync(path.join(roots.DATA, 'messages.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  /* The log lives in the store's own root (engine/messages.js: store.ROOT, which is
+     DATA/<app>), not at the top of DATA: written there, the room showed no posts at all. */
+  const storeRoot = require(path.join(REPO, 'engine', 'store')).ROOT;
+  fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  /* The store set's question names its project, as an agent on a project would, so it
+     lights that project rather than counting as a needs-you with no project. */
+  if (DATA.askInProject) {
+    const r = require(path.join(REPO, 'engine', 'selfreport')).record('cleo', { state: 'needs_you', because: DATA.ask, project: pid });
+    if (r && r.recorded === false) throw new Error('the seed could not write Cleo\'s needs-you state: ' + r.because);
+  }
   return { projectId: pid };
 }
 
@@ -536,6 +624,7 @@ async function run() {
   const engines = { chromium, webkit };
   const out = args.out || fs.mkdtempSync(path.join(os.tmpdir(), 'mobile-shots-'));
   fs.mkdirSync(out, { recursive: true });
+  DATA = DATA_SETS[args.data];
   const screens = args.screens ? SCREENS.filter((s) => args.screens.includes(s.name)) : SCREENS;
 
   const board = await startBoard();
@@ -558,8 +647,18 @@ async function run() {
                 viewport: { width: s.width, height: s.height }, deviceScaleFactor: s.dpr,
                 // isMobile is Chromium-only in Playwright (WebKit refuses it); both get touch.
                 isMobile: en === 'chromium', hasTouch: true, colorScheme: theme,
-                ...(sc.noServiceWorker ? { serviceWorkers: 'block' } : {}),
+                // A page.route stub needs the service worker off in WebKit (see allow-card).
+                ...(sc.noServiceWorker || DATA.connected ? { serviceWorkers: 'block' } : {}),
               });
+              if (DATA.connected) {
+                await ctx.route('**/api/status', async (r) => {
+                  const res = await r.fetch();
+                  const body = await res.json().catch(() => null);
+                  if (!body || typeof body !== 'object') return r.fulfill({ response: res });
+                  body.connection = { ...(body.connection || {}), state: 'connected' };
+                  return r.fulfill({ response: res, json: body });
+                });
+              }
               await ctx.addInitScript((t) => { try { localStorage.setItem('kosmos-theme', t); } catch { /* no storage */ } }, theme);
               const page = await ctx.newPage();
               const pageErrors = [];
@@ -580,7 +679,7 @@ async function run() {
                   err.leak = true;
                   throw err;
                 }
-                await page.screenshot({ path: path.join(out, file), scale: 'css' });
+                await page.screenshot({ path: path.join(out, file), scale: args.scale });
                 /* The page re-renders on its tick, so the scan above and the shot are two reads:
                    scan again, and a hit painted in between deletes the shot before anything
                    else can pick it up. */
