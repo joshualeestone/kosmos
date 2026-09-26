@@ -830,3 +830,36 @@ test('#3998 round 17: a sign-in that ends leaves a line in the log, and its wind
     assert.equal(fs.existsSync(path.join(st.root, 'agy-signin', 'show-sign-in.command')), false, 'the window script was left behind');
   } finally { console.error = was; s.resetForTests(); }
 });
+
+/* ---- review round 18 --------------------------------------------------------------------- */
+test('#3998 round 18: agy going back to its menu after a refused code asks for a code again (no half hour on "checking")', () => {
+  const s = require('./agysignin');
+  const MENU = 'Select login method:\n> 1. Google OAuth\n';
+  const st = scripted(s, MENU);
+  try {
+    const { id } = s.start();
+    s.tickForTests();                                   // menu: Enter
+    st.screen = CODE_SCREEN; s.tickForTests();
+    assert.equal(s.code(CODE, id).ok, true);
+    assert.equal(s.status().state, 'checking');
+    st.screen = MENU; s.tickForTests();                 // agy refused it and went back to the menu
+    st.screen = CODE_SCREEN; s.tickForTests();          // a fresh code screen
+    assert.equal(s.status().state, 'code', 'the panel stayed on checking with a new code screen showing');
+    assert.equal(s.code(CODE, id).ok, true, 'a second code was refused');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 18: signing in again after a finished sign-in does not log a false "stopped"', async () => {
+  const s = require('./agysignin');
+  scripted(s, 'j@example.com (Antigravity Starter Quota) - Gemini 3.8 Flash (High)\n> \n');
+  const lines = [];
+  const was = console.error;
+  console.error = (m) => lines.push(String(m));
+  try {
+    s.setForTests({ confirmSignedIn: async () => ({ signedIn: true }) });
+    s.start(); s.tickForTests(); await settle();
+    assert.equal(s.status().state, 'done');
+    s.start();
+    assert.deepEqual(lines.filter((l) => /ended stopped/.test(l)), [], 'a finished sign-in was logged as stopped');
+  } finally { console.error = was; s.resetForTests(); }
+});

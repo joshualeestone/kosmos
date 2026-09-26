@@ -265,7 +265,9 @@ function step() {
   const seen = (n) => name === n;   // the screen drawn NOW, not words an earlier one left behind
   if (seen('menu')) {
     // "> 1. Google OAuth" is the default choice; press Enter only when it is the marked one.
-    if (S.state === 'stuck') { S.state = 'starting'; S.because = null; }
+    /* Back at the menu (stuck, or after a code agy did not take, round 18): the sign-in starts over, so
+       the next code screen asks for a code again instead of sitting on "checking". */
+    if (S.state === 'stuck' || S.state === 'checking' || AFTER_CODE.includes(S.step)) { S.state = 'starting'; S.because = null; }
     // Anchored to the marker (round 8): the words must be the item the ">" is on, not anywhere on its line.
     if (/^>\s*(1\.\s*)?Google OAuth\b/.test(markedLine(text)) && !S.pressed) { S.step = 'menu'; S.pressed = true; keys('Enter'); }
     S.lastSeen = now();
@@ -390,7 +392,7 @@ function readyCheck(text) {
 
 /** Start a sign-in (ending any earlier one). */
 function start() {
-  if (S) end('stopped');
+  if (S && S.timer) end('stopped');   // only a sign-in still running is stopped (round 18: no false log line)
   tmuxBinCached = null;   // looked up again for each sign-in (the person may have installed tmux since)
   const inst = agyBin();
   if (!inst || !inst.installed) return { ok: false, because: 'Antigravity is not installed on this computer' };

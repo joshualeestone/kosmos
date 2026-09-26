@@ -25528,6 +25528,8 @@ function agySubDriver(pre, onReady) { return {
     if (pr) pr.hidden = !paste;
     if (sr) sr.hidden = !show;
     const pg = this.el('page'); if (pg) { pg.hidden = !url; pg.setAttribute('href', url || '#'); }
+    // Its paragraph too (round 18): an empty paragraph keeps its margin in the layout.
+    const pgp = pg && pg.closest ? pg.closest('p') : null; if (pgp) pgp.hidden = !url;
   },
   /* #3998: follow the hidden sign-in the board is running, once a second, until it ends or this step
      is left. Each state is said in the step's own status line. */

@@ -125,3 +125,9 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 - The trust step is set only after its Enter went out, so no ask (and no done) with the trust question unanswered.
 - The remembered sign-in lives in <ROOT>/agy-account/last.json, apart from the sign-in's throwaway workspace (<ROOT>/agy-signin), whose window script is removed when the sign-in ends.
 - The dead 404 after the sign-in routes is gone; NOT_CONFIRMED sits with UNKNOWN.
+
+## Review round 18 (decided)
+- agy returning to its login menu after a code (refused, or any step after the code) starts the sign-in over, so the next code screen asks for a code again instead of sitting on "checking" for half an hour.
+- A new start stops only a sign-in still running (no false "ended stopped" log line after a finished one).
+- The route's catch for a throwing start() is tested by making start() itself throw (exactly 500).
+- The paragraph around "Open Google's sign-in page again" hides with its link.
