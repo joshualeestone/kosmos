@@ -34,7 +34,7 @@
 # the self-test can hit it on purpose; unset, it costs nothing.
 bounded_run() {
   local secs="$1"; shift
-  local tmp pid waited rc _g
+  local tmp pid waited rc _g _how
   tmp="$(mktemp)"
   perl -e 'select(undef, undef, undef, $ENV{KOSMOS_BOUNDED_RUN_SETPGRP_DELAY}) if $ENV{KOSMOS_BOUNDED_RUN_SETPGRP_DELAY}; setpgrp(0,0); exec @ARGV or exit 127' "$@" >"$tmp" 2>/dev/null &
   pid=$!
@@ -45,8 +45,8 @@ bounded_run() {
       kill "$pid" 2>/dev/null       # 2. the leader, in case setpgrp had not run yet
       kill -- -"$pid" 2>/dev/null   # 3. the group again: children forked between 1 and 2
       # 4. a bundle that traps or ignores TERM would still hang the wait below, the same
-      #    #955 shape by another route (review of #3859). Give TERM a grace (10 x sleep 0.2,
-      #    measured about 3.3s with the cost of each sleep), then KILL
+      #    #955 shape by another route (review of #3859). Give TERM a grace (10 x sleep 0.2:
+      #    about 2s nominal, longer on a box where starting a program is slow), then KILL
       #    the group and the leader, which nothing can trap. The GROUP is what is
       #    watched, not the leader: a leader that dies on TERM can leave a child that
       #    ignores it, still holding the port (review 2). A pgid is not reused while
@@ -55,10 +55,16 @@ bounded_run() {
       while { kill -0 -- -"$pid" || kill -0 "$pid"; } 2>/dev/null && [ "$_g" -lt 10 ]; do
         sleep 0.2; _g=$((_g + 1))
       done 2>/dev/null
+      _how=term
       if { kill -0 -- -"$pid" || kill -0 "$pid"; } 2>/dev/null; then
-        kill -KILL -- -"$pid" 2>/dev/null
-        kill -KILL "$pid" 2>/dev/null
+        _how=kill
+        kill -KILL -- -"$pid" 2>/dev/null   # the same three steps as TERM, for the same
+        kill -KILL "$pid" 2>/dev/null       # window: a leader still before setpgrp can
+        kill -KILL -- -"$pid" 2>/dev/null   # fork between the first two
       fi
+      # TEST SEAM: which signal ended it, so the self-test can tell TERM from KILL without
+      # a wall clock (timing differs by machine). Unset, it writes nothing.
+      [ -n "${KOSMOS_BOUNDED_RUN_HOW_FILE:-}" ] && echo "$_how" > "$KOSMOS_BOUNDED_RUN_HOW_FILE"
       wait "$pid" 2>/dev/null
       rm -f "$tmp"
       return 124

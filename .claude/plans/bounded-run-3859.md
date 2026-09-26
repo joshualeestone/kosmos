@@ -23,7 +23,8 @@ was not used as written.
 
 Then, from review 1, a fourth step. All the kills are SIGTERM, and a bundle that
 traps or ignores TERM would still hang the `wait`, the same #955 shape by another
-route. So after a grace (10 x `sleep 0.2`, measured about 3.3s), the group and the leader get SIGKILL. The
+route. So after a grace (10 x `sleep 0.2`: about 2s nominal, 3.3s on Agent1s where
+starting a program is slow), the group and the leader get SIGKILL. The
 grace watches the GROUP, not the leader (review 2): a leader that dies on TERM can
 leave a child that ignores it, still holding the port.
 
@@ -45,11 +46,14 @@ microseconds wide and is not exercised by any test. It is argued, not measured.
 copy with its own fix removed:
 
 - **The bound beats setpgrp:** a 6s seam delay with a 2s bound. It must return
-  124 within a 20s watchdog, and within 4s. The measured TERM path is 2.3 to
-  2.6s. With steps 2-3 removed, KILL alone took 5.6s. So the ceiling is what keeps
-  steps 2 and 3 visible now that step 4 exists.
+  124 within the watchdog, and it must have been ended by TERM, not by step 4's
+  KILL. A test-only file, `KOSMOS_BOUNDED_RUN_HOW_FILE`, records which signal
+  ended it. An earlier time ceiling did this job, but review 4 showed it passed
+  without steps 2-3 on a normal Mac, where the grace is shorter than on Agent1s.
   - Old kill: `HUNG-20s`.
-  - Steps 2-3 removed: fails the ceiling.
+  - Steps 2-3 removed: the file says `kill`.
+  - The TERM-ignoring arm asserts `kill`, which is the control that the file can
+    say it.
 - **A bundle that ignores SIGTERM:** must return 124. With step 4 removed it
   reports `HUNG-20s`.
 - **A bundle whose child ignores SIGTERM while the leader dies on it:** the child

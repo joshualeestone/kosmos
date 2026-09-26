@@ -131,23 +131,19 @@ check "the FORKED child is reaped by the group-kill (not orphaned)" 0 "$reaped"
 # perl went on to exec the hanging bundle: a hang, not a 124. So this arm runs under its
 # own watchdog: if bounded_run is still going after 20s it is killed and reported as a
 # hang, rather than hanging this test (which would be the #955 shape all over again).
-# It must also return BEFORE the KILL grace could have fired: step 4's KILL would otherwise
-# bound it too, and this arm could no longer see steps 2 and 3 (review 2). MEASURED, not
-# from the loop's nominal 10 x 0.2s: each `sleep 0.2` costs about 0.33s here, so the grace
-# is about 3.3s. The TERM path returns in 2.3 to 2.6s; with steps 2-3 removed it took 5.6s.
-# The ceiling is 4s, between the two with room on both sides for a loaded box.
-rcf="$tmp/rc-3859"; rm -f "$rcf"
-( s0=$(date +%s)
-  KOSMOS_BOUNDED_RUN_SETPGRP_DELAY=6 bounded_run "$T" "$bhang" --kosmos-app-port-selftest 501 >/dev/null 2>&1
-  echo "$? $(( $(date +%s) - s0 ))" > "$rcf.tmp"; mv "$rcf.tmp" "$rcf" ) &
+# It must also have been ended by TERM (steps 2-3), not by step 4's KILL, which would
+# bound it too and hide steps 2 and 3 (review 2). Asked of bounded_run itself through a
+# test-only file, not a wall clock: the grace's real length differs by machine (review 4
+# found a time ceiling that passed without steps 2-3 on a normal Mac).
+rcf="$tmp/rc-3859"; howf="$tmp/how-3859"; rm -f "$rcf" "$howf"
+( KOSMOS_BOUNDED_RUN_HOW_FILE="$howf" KOSMOS_BOUNDED_RUN_SETPGRP_DELAY=6 bounded_run "$T" "$bhang" --kosmos-app-port-selftest 501 >/dev/null 2>&1
+  echo "$?" > "$rcf.tmp"; mv "$rcf.tmp" "$rcf" ) &
 wd=$!
 for _ in $(seq 1 40); do [ -f "$rcf" ] && break; sleep 0.5; done
 if [ -f "$rcf" ]; then
   wait "$wd" 2>/dev/null
-  read -r rc_3859 el_3859 < "$rcf"
-  check "bound expiring before setpgrp: returns 124, does not hang (#3859)" 124 "$rc_3859"
-  if [ "$el_3859" -le 4 ]; then check "...and by TERM to the leader, before any KILL (steps 2-3)" ok ok
-  else check "...and by TERM to the leader, before any KILL (steps 2-3)" ok "took-${el_3859}s"; fi
+  check "bound expiring before setpgrp: returns 124, does not hang (#3859)" 124 "$(cat "$rcf")"
+  check "...and ended by TERM to the leader, not by the KILL (steps 2-3)" term "$(cat "$howf" 2>/dev/null || echo none)"
 else
   # The regression: tear down what it left (the subshell, perl, and the bundle it
   # exec'd, which carry our unique markers) so the rest of this test still runs.
@@ -162,7 +158,7 @@ check "nothing leaked when the bound beat setpgrp (#3859)" 0 "$(wait_gone "sleep
 
 # --- a bundle that IGNORES SIGTERM is still bounded (review of #3859) ---------------
 # All the kills used to be TERM. A bundle that traps TERM kept running and the wait hung.
-# The stub ignores TERM and hangs; bounded_run must still return 124 (KILL after ~2s),
+# The stub ignores TERM and hangs; bounded_run must still return 124 (KILL after the grace),
 # under the same 20s watchdog as the arm above.
 bterm="$tmp/behind-ignores-term"
 cat > "$bterm" <<EOF
@@ -172,13 +168,17 @@ exec sleep $LAUNCH
 EOF
 chmod +x "$bterm"
 rcf2="$tmp/rc-3859-term"; rm -f "$rcf2"
-( bounded_run "$T" "$bterm" --kosmos-app-port-selftest 501 >/dev/null 2>&1
+howf2="$tmp/how-3859-term"; rm -f "$howf2"
+( KOSMOS_BOUNDED_RUN_HOW_FILE="$howf2" bounded_run "$T" "$bterm" --kosmos-app-port-selftest 501 >/dev/null 2>&1
   echo "$?" > "$rcf2.tmp"; mv "$rcf2.tmp" "$rcf2" ) &
 wd2=$!
 for _ in $(seq 1 40); do [ -f "$rcf2" ] && break; sleep 0.5; done
 if [ -f "$rcf2" ]; then
   wait "$wd2" 2>/dev/null
   check "a bundle ignoring SIGTERM is still bounded: 124, no hang" 124 "$(cat "$rcf2")"
+  # The control for the TERM check above: the same file reads "kill" when KILL did end it,
+  # so "term" there is an answer, not a default.
+  check "...and that one was ended by the KILL" kill "$(cat "$howf2" 2>/dev/null || echo none)"
 else
   pkill -KILL -f "$bterm" 2>/dev/null
   pkill -KILL -f "sleep $LAUNCH\$" 2>/dev/null
