@@ -69,6 +69,7 @@ const SAMPLES = [
     /* plus-light: the Kosmos+ navy look (body.plus-active) on a light-mode Mac. It pins its own
        colours (#3724), so a warning there must take the pinned dark tint, not the light one. */
     const tintByTheme = {};
+    const lineByTheme = {};
     for (const [theme, scheme, explicit, plus] of [['light', 'light', null, false], ['dark', 'dark', null, false], ['dark-explicit', 'light', 'dark', false], ['plus-light', 'light', null, true]]) {
       const page = await browser.newPage({ viewport: { width: 1000, height: 1100 }, colorScheme: scheme });
       const errs = [];
@@ -95,7 +96,7 @@ const SAMPLES = [
           const tinted = !!alpha && (alpha[1].split(',').length < 4 || parseFloat(alpha[1].split(',')[3]) > 0);
           const ring = shadow.split(/,(?![^(]*\))/).some((s) => /inset/.test(s) && /\b0px 0px 0px [1-9]/.test(s.replace(/rgba?\([^)]*\)/, '')));
           const sidesEqual = w.every((x) => x === w[0]);
-          return { widths: w, sidesEqual, insetX, shadow, bg, tinted, ring };
+          return { widths: w, sidesEqual, insetX, shadow, bg, tinted, ring, borderColor: cs.borderTopColor };
         }
         document.body.classList.remove('consolidated');
         const sheet = document.createElement('div');
@@ -145,6 +146,8 @@ const SAMPLES = [
       }
       const unsure = res.samples.find((s) => s.label === '.pj-msg.unsure');
       tintByTheme[theme] = unsure && unsure.bg;
+      const door = res.samples.find((s) => s.label === '.svc-door');
+      lineByTheme[theme] = door && door.borderColor;
       chk(unsure && unsure.bg !== res.controls.plainmsg.bg, `[${theme}] the unsure room message is tinted differently from a plain one`, JSON.stringify({ unsure: unsure && unsure.bg, plain: res.controls.plainmsg.bg }));
       await page.screenshot({ path: path.join(OUT, `no-left-bars-${theme}.png`), fullPage: false });
       chk(errs.length === 0, `[${theme}] no page errors`, errs.join(' | '));
@@ -153,6 +156,8 @@ const SAMPLES = [
     /* On navy the warn tint is the pinned dark one: the light one is near invisible there. */
     chk(tintByTheme['plus-light'] === tintByTheme.dark && tintByTheme['plus-light'] !== tintByTheme.light,
       'the Kosmos+ navy look takes the dark warn tint on a light-mode Mac', JSON.stringify(tintByTheme));
+    chk(lineByTheme['plus-light'] === lineByTheme.dark && lineByTheme['plus-light'] !== lineByTheme.light,
+      'the Kosmos+ navy look takes the dark hairline colour on a light-mode Mac', JSON.stringify(lineByTheme));
     chk(ringByTheme['plus-light'] === ringByTheme.dark && ringByTheme['plus-light'] !== ringByTheme.light,
       'the Kosmos+ navy look takes the dark roadmap ring on a light-mode Mac', JSON.stringify(ringByTheme));
     /* The explicit dark theme reaches its own override: the same ring colour as the media-query
