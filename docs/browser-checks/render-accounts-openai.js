@@ -627,7 +627,13 @@ let failed = 0;
      key box. The key step is then one press away. Where it is not offered, Gemini goes straight to
      the key step as before, so the choice is checked only when it is there. */
   const geminiToKey = async (report) => {
-    if (!(await p.isVisible('#acct-gemini-flow'))) return;
+    // Wait for the page to settle on ONE of its two answers (the runner read and the
+    // Antigravity read both run first), rather than guessing from a fixed pause.
+    await p.waitForSelector('#acct-gemini-flow:not([hidden]), #acct-apikey-flow:not([hidden]), #acct-keyed-install:not([hidden])', { state: 'visible', timeout: 10000 });
+    if (!(await p.isVisible('#acct-gemini-flow'))) {
+      if (report) console.log('NOTE  Gemini on a Google subscription is not offered on this board; the #3874 choice was not exercised');
+      return;
+    }
     if (report) {
       say('#3874 where the subscription is offered, Gemini asks subscription or key first, with no key box yet',
         (await p.isVisible('#acct-gemini-pick-key')) && (await p.isHidden('#acct-apikey-flow')));
