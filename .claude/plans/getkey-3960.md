@@ -28,3 +28,7 @@ Every place Kosmos asks for a provider's API key (Settings > AI Models > Add a p
 - render-openai-key-step requires the table address (no silent pass when KEY_PAGES is unreadable); the Grok arm also checks the screen-reader text says xAI.
 - The six links use rel="noreferrer noopener", like the page's other outward links (the board's address is not sent to the provider).
 - The outside-the-table scan uses key-page paths where the domain has other legitimate pages.
+
+## Review round 4
+- render-accounts-openai carries a Browser-check-surface header naming acct-openai-getkey and acct-apikey-getkey, so a future change to those links is tied to the check that pins the shared box's switch.
+- Recorded, not changed: render-accounts-openai and render-openai-key-step are not in gated.txt, so CI does not run them; both were run locally (the first passes via tools/browser-checks.sh; the second needs a board URL and is fixed by reading).

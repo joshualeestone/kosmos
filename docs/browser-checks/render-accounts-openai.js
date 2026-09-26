@@ -1,3 +1,4 @@
+// Browser-check-surface: acct-openai-getkey acct-apikey-getkey
 'use strict';
 /**
  * #540: an OpenAI account, added from the Accounts page with a pasted key
