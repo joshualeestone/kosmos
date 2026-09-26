@@ -5,7 +5,9 @@
  * Each case the card names is tested with its control: the same input with only the deciding
  * detail changed must give the other answer, so no pass comes from a check that cannot fail.
  * The process table and the reservation come in through the tool's seams (KOSMOS_HG_SNAPSHOT,
- * KOSMOS_HG_CLAIM), so every case is deterministic; one smoke test runs it against the live Mac.
+ * KOSMOS_HG_CLAIM), so every case is deterministic. The live scan (ps, lsof, the ancestor walk) is
+ * tested against a fake ps and lsof on PATH, which spawns nothing another agent's gate could see;
+ * a smoke test only checks the real Mac gives an answer.
  *
  *   node --test tools.heavy-gate-3805.test.js
  */
@@ -181,6 +183,7 @@ test('live (opt-in, KOSMOS_HG_LIVE=1): a real release.sh outside any test ancest
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   fs.mkdirSync(path.join(dir, 'tools'));
   fs.writeFileSync(path.join(dir, 'tools', 'release.sh'), 'sleep 8\n');
+  fs.writeFileSync(path.join(dir, '.git'), 'gitdir: /nowhere\n');
   // Double fork, so the stub is re-parented away from this node --test process.
   spawnSync('bash', ['-c', `cd "${dir}" && (bash tools/release.sh </dev/null >/dev/null 2>&1 &)`], { stdio: 'ignore' });
   let pid = '';
@@ -219,6 +222,7 @@ test('--except-cwd rules out your own run, exact or below, and not a sibling tha
   assert.doesNotMatch(base, /\/T\/kt[0-9]/, 'the own-run folders must sit outside the kt sandbox pattern');
   const mine = path.join(base, 'kosmos');
   fs.mkdirSync(path.join(mine, 'sub'), { recursive: true });
+  fs.writeFileSync(path.join(mine, '.git'), 'gitdir: /nowhere\n'); // a worktree's .git is a file
   const args = ['--except-cwd', mine];
   assert.equal(run([realRun(mine)], { args }).code, 0, 'exact dir is mine');
   assert.equal(run([realRun(path.join(mine, 'sub'))], { args }).code, 0, 'below is mine');
@@ -233,6 +237,10 @@ test('--except-cwd with a missing or non-existent directory is an error, never a
   assert.equal(noArg.code, 2, noArg.out);
   assert.equal(run([], { args: ['--except-cwd', ''] }).code, 2);
   assert.equal(run([], { args: ['--except-cwd', '/no/such/dir-3805'] }).code, 2);
+  /* A folder that is not a checkout (a parent passed by mistake) would rule out every run below it. */
+  const notCheckout = run([realRun(os.homedir() + '/work/kosmos')], { args: ['--except-cwd', os.homedir()] });
+  assert.equal(notCheckout.code, 2, notCheckout.out);
+  assert.match(notCheckout.out, /needs a checkout/);
   assert.equal(run([], { args: ['--bogus'] }).code, 2);
 });
 
@@ -289,6 +297,69 @@ test('a KOSMOS_HG_TWICE_SECONDS that is not whole seconds is exit 2, never a qui
   const r = run([], { args: ['--twice'], env: { KOSMOS_HG_TWICE_SECONDS: 'abc' } });
   assert.equal(r.code, 2, r.out);
   assert.equal(run([], { args: ['--twice'] }).code, 0);
+});
+
+test('the reservation reads free only on the exact free line (control: the phrase inside a held line is held)', () => {
+  assert.equal(run([], { claim: FREE }).code, 0);
+  const tricky = 'the machine is reserved for a release (no release holds x, pid 1 on this Mac) until 15:19 CDT.';
+  assert.equal(run([], { claim: tricky }).code, 1);
+  assert.equal(run([], { claim: FREE + '\nwarning: something' }).code, 1);
+});
+
+test('stock macOS /bin/bash 3.2 gives the same answers (control: clear stays clear)', () => {
+  assert.equal(run([realRun()], { shell: '/bin/bash' }).code, 1);
+  assert.equal(run([['901', KT, 'bash ' + KT + '/tools/release.sh', 'zsh']], { shell: '/bin/bash' }).code, 0);
+  assert.equal(run([], { shell: '/bin/bash' }).code, 0);
+});
+
+test('the LIVE scan (ps, lsof, the ancestor walk) through a fake ps and lsof on PATH (control: without the real run, clear)', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hg-fake-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const bin = path.join(dir, 'bin');
+  fs.mkdirSync(bin);
+  /* table: pid, ppid, cwd, command (tab-separated), read by the fakes below */
+  fs.writeFileSync(path.join(bin, 'ps'), `#!/bin/bash
+T="$FAKE_PS_TABLE"
+if [ "$*" = "-axo pid=,command=" ]; then awk -F'\t' '{ print $1 " " $4 }' "$T"; exit 0; fi
+field=""; pid=""
+while [ $# -gt 0 ]; do case "$1" in -o) field="$2"; shift 2 ;; -p) pid="$2"; shift 2 ;; *) shift ;; esac; done
+line="$(awk -F'\t' -v p="$pid" '$1 == p' "$T")"
+[ -n "$line" ] || exit 1
+case "$field" in
+  command=) printf '%s\n' "$line" | cut -f4 ;;
+  ppid=) printf '%s\n' "$line" | cut -f2 ;;
+  *) printf '  PID\n%s\n' "$pid" ;;
+esac
+`, { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, 'lsof'), `#!/bin/bash
+pid=""
+while [ $# -gt 0 ]; do case "$1" in -p) pid="$2"; shift 2 ;; *) shift ;; esac; done
+cwd="$(awk -F'\t' -v p="$pid" '$1 == p { print $3 }' "$FAKE_PS_TABLE")"
+[ -n "$cwd" ] || exit 1
+printf 'p%s\nfcwd\nn%s\n' "$pid" "$cwd"
+`, { mode: 0o755 });
+  const rows = [
+    ['900', '1', '/', 'zsh'],
+    ['901', '900', WORK, 'bash tools/release.sh 0.6.9'],
+    ['910', '1', WORK, 'node --test x.test.js'],
+    ['911', '910', WORK, 'bash tools/browser-checks.sh'],
+    ['920', '900', WORK, 'zsh -c echo tools/release.sh'],
+  ];
+  const live = (table) => {
+    const f = path.join(dir, 'table.tsv');
+    fs.writeFileSync(f, table.map((r) => r.join('\t')).join('\n') + '\n');
+    const env = { ...process.env, PATH: bin + ':' + process.env.PATH, FAKE_PS_TABLE: f, KOSMOS_HG_CLAIM: FREE };
+    delete env.KOSMOS_HG_SNAPSHOT;
+    const r = spawnSync('bash', [TOOL], { encoding: 'utf8', env });
+    return { code: r.status, out: r.stdout + r.stderr };
+  };
+  const r = live(rows);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, new RegExp('COUNTS 901: a real run \\(' + WORK));
+  assert.match(r.out, /ignore 911: a unit-test fixture \(node --test ancestor\)/);
+  assert.match(r.out, /ignore 920: mentions/);
+  const without = live(rows.filter((row) => row[0] !== '901'));
+  assert.equal(without.code, 0, without.out);
 });
 
 test('smoke: against the live Mac it gives an answer (0 or 1), never a usage error', () => {

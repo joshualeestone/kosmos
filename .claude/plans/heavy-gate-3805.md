@@ -23,7 +23,12 @@ candidate with the reason it counts or does not. Each case on the card has a tes
     (`.../T/` on macOS, `/tmp`, or `$TMPDIR`). That is run-tests.sh's sandbox (`${TMPDIR:-/tmp}/kt$$`),
     and its re-exec tests detach from node --test, so ancestry alone misses them (observed).
   - A process that has already exited (a short fixture can exit between the listing and the check).
-  - With `--except-cwd DIR`, a run in DIR or below it (your own). The match is exact-or-below, so
+  - With `--except-cwd DIR`, EVERY run in DIR or below it, whoever started it. Meant for your own
+    worktree; passed a shared checkout it rules out other agents' runs there too, and the header
+    says so. DIR must be a checkout (has `.git`), so a parent folder passed by mistake is exit 2.
+    Rejected: matching "own" by process ancestry (review suggestion). A guarded run is started in
+    the background and the gate is a later, separate call, so the run is a sibling, not a
+    descendant, and ancestry would never recognise it. The match is exact-or-below, so
     `kosmos` does not exclude `kosmos-bar`, and an empty or missing DIR is exit 2 (m837: an empty
     prefix would match every cwd and read clear).
 
@@ -33,7 +38,8 @@ candidate with the reason it counts or does not. Each case on the card has a tes
   question. The tool reads the reservation through who-has-the-box, so the two cannot disagree.
 - **Test seams, not spawned processes.** Every test process runs under `node --test`, so a real
   spawned fixture is excluded by design and could not test "counts". The snapshot seam feeds
-  synthetic process lines, and one smoke test runs against the live Mac.
+  synthetic process lines. The live scan itself (ps, lsof, the ancestor walk) runs against a fake
+  ps and lsof put first on PATH, and a smoke test only checks the real Mac gives an answer.
 - **Snapshot fields are separated by \x1f, not tab.** `read` collapses repeated tabs, which shifted
   the fields after an empty cwd. That was found by mutation testing: removing the exited filter
   broke no test until the separator changed.
