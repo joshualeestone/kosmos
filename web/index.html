@@ -46449,7 +46449,7 @@ async function tskCloseParent(key) {
 /* #3951 (review round 1): take the built mark off one task, from the screen. The task stays open. */
 async function tskUnbuild(key) {
   if (TSK.busy) return;
-  const said = document.getElementById('tsk-said');
+  const said = document.getElementById('tsk-msg');
   const i = key.lastIndexOf('#');
   const projectId = key.slice(0, i);
   const number = Number(key.slice(i + 1));
