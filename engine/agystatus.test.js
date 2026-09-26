@@ -131,3 +131,19 @@ test('not offered (switched off, or not a Mac): the screen is told so, and the c
     assert.equal((await agystatus.install()).ok, false);
   } finally { if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = was; }
 });
+
+test('#3998: the last confident answer is remembered for the account row, and "could not confirm" never overwrites it', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-last-'));
+  agystatus.setLastFileForTests(() => path.join(dir, 'last.json'));
+  try {
+    assert.equal(agystatus.lastKnown(), null, 'CONTROL: nothing before any answer');
+    agystatus.remember({ installed: true, signedIn: true });
+    assert.equal(agystatus.lastKnown().signedIn, true);
+    agystatus.remember({ installed: true, signedIn: null, because: 'may need signing in' });
+    assert.equal(agystatus.lastKnown().signedIn, true, 'an unconfirmed check erased a known sign-in');
+    agystatus.remember({ installed: false, signedIn: false });
+    assert.equal(agystatus.lastKnown().signedIn, false, 'an uninstalled agy still read as signed in');
+    agystatus.forget();
+    assert.equal(agystatus.lastKnown(), null, 'forget left the row behind');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
