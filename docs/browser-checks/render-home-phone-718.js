@@ -13,8 +13,10 @@
  *   - the page is no wider than the screen;
  * and at desktop width (1280) the button keeps its old height.
  *
- * RED arm (measured on main, Chromium and WebKit): the button arm reds at every phone
- * size (34px); the rest stay green (they pin the reason the names are left alone).
+ * Controls, measured: on main's page the button arm reds at every phone size in both
+ * engines (34px) and the rest stay green (they pin the reason the names are left alone). With
+ * the board's click handler opening an agent only from its name, both tap arms red at all
+ * four sizes.
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -46,6 +48,8 @@ catch {
 }
 const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
+const create = require('../../engine/create');
+const store = require('../../engine/store');
 
 // The gate runs Chromium; ENGINES=chromium,webkit adds WebKit by hand.
 const ALL_ENGINES = ['chromium', 'webkit'];
@@ -99,6 +103,13 @@ function emptySpot(page, sel) {
     displayName: n[0].toUpperCase() + n.slice(1),
     role: 'Role ' + (i + 1),
   })));
+  // A profile and a folder for each agent and no login job (LAUNCH is an empty temp dir):
+  // the survival panel's "missing" list, so "Set them to start at login" shows
+  // (engine/register.js reads the profiles, not the fleet stub).
+  NAMES.forEach((n, i) => {
+    store.writeProfile(n, { role: 'Role ' + (i + 1) });
+    fs.mkdirSync(create.workerDir(n), { recursive: true });
+  });
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
   try {
