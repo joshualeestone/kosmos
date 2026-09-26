@@ -1502,8 +1502,9 @@ function listFiles(folder, limit, opts) {
  *   1. The name must have the SHAPE listFiles produces: a bare filename, or (#2245)
  *      a RELATIVE path of plain segments joined by `/`. Refused outright rather than
  *      trimmed: an absolute path, a backslash, an empty segment (`a//b`, a leading or
- *      trailing `/`), a `.` or `..` segment, and any segment starting with `.` (the
- *      list never shows a hidden entry, so a caller never legitimately has one).
+ *      trailing `/`), a `.` or `..` segment, and any segment the list hides
+ *      (isScratchName: a dot-name, an Office `~$` file and the like, #3965), because the
+ *      list never shows a hidden entry, so a caller never legitimately has one.
  *      This gate only narrows the string. It is NOT what stops an escape: gate 3 is.
  *   2. The project's folder must be READABLE, by the same folderState every
  *      other folder-touching route already goes through.
@@ -1519,7 +1520,7 @@ function openFile(folder, name, where = 'this project') {
   if (!given) return { ok: false, because: 'no file was named' };
   const segs = given.split('/');
   if (given.includes('\\') || path.isAbsolute(given) || path.win32.isAbsolute(given)
-      || segs.some((s) => s === '' || s.startsWith('.'))) {
+      || segs.some((s) => s === '' || isScratchName(s))) {
     return { ok: false, because: 'that is not a file in ' + where };
   }
   const state = folderState(folder);

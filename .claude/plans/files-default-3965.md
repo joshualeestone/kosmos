@@ -65,3 +65,8 @@
   an Office owner file, so hiding them could hide work.
 - DEFERRED: the first commit's subject predates the branch-prefix form; history is pushed, and the
   squash-merge title follows the convention.
+
+## Challenge-loop iteration 4
+- openFile's name gate refused only dot-names while its comment claimed it refused every hidden
+  entry: it now uses isScratchName, so a name the list hides cannot be opened either (tested, with an
+  ordinary file opening as the control).

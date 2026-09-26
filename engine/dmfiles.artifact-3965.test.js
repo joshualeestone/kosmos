@@ -75,3 +75,22 @@ test('#3965: a folder with a scratch name is not walked, so nothing inside it is
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('#3965: a name the list hides cannot be opened either (the same rule, not only the dot-names)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-scratchopen-3965-'));
+  let ran = false;
+  projects.setRevealRunner(() => { ran = true; return { ok: true }; });
+  try {
+    for (const n of ['~$report.docx', 'Thumbs.db', '~WRL0001.tmp', 'real.txt']) fs.writeFileSync(path.join(dir, n), 'x');
+    for (const n of ['~$report.docx', 'Thumbs.db', '~WRL0001.tmp']) {
+      assert.equal(projects.openFile(dir, n).ok, false, JSON.stringify(n) + ' was opened');
+    }
+    assert.equal(ran, false, 'a refused name still reached the opener');
+    // control: an ordinary file in the same folder opens through the same runner
+    assert.equal(projects.openFile(dir, 'real.txt').ok, true);
+    assert.equal(ran, true);
+  } finally {
+    projects.setRevealRunner(null);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
