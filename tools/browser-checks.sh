@@ -1354,6 +1354,10 @@ done < "$REPO/docs/browser-checks/gated.txt"
 for n in ${GATED_CHECKS[@]+"${GATED_CHECKS[@]}"}; do
   run_one "$n" node "docs/browser-checks/$n.js"
 done
+# kosmos#2624: hermetic (file://), so it needs no board. On its own line rather than in the list above,
+# which every new check appends to: a long-lived branch holding a name in that one line conflicts with
+# every merge (this one did four times in a night).
+run_one "render-tophead-stable-2624" node docs/browser-checks/render-tophead-stable-2624.js
 # --- the rich board: four checks that could not be wired for want of a fixture
 # --- (#1072). Each was verified green against this exact shape by hand first;
 # --- what none of them had was a board in the RUNNER that could show them
