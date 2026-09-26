@@ -26453,11 +26453,18 @@ let ORG_SCROLL_X = 0;    // the box's scroll as the person left it at that width
    may not set again. */
 function orgBoxPlain(cleared) {
   const wrap = document.getElementById('orgview');
+  const hadFocus = document.activeElement === wrap;   // read before tabindex goes
   wrap.classList.remove('orgscroll');
   wrap.removeAttribute('tabindex'); wrap.removeAttribute('role'); wrap.removeAttribute('aria-label');
   const map = document.getElementById('orgmap');
   map.classList.remove('orgwide');
   if (cleared) { map.style.width = ''; map.style.height = ''; }
+  // A box that stops being a region stops taking focus: hand it to the first node,
+  // or it falls to the page body.
+  if (hadFocus) {
+    const first = map.querySelector('.onode');
+    if (first) first.focus();
+  }
 }
 let ORG_HTML = null;         // the repaint guard's memory
 
@@ -26577,7 +26584,13 @@ function orgPlace(nodes) {
    A fleet too big even at the floor keeps its width, and .orgwrap scrolls on its
    own rather than the page. Desktop (the square fits) is exactly as before. */
 const ORG_PAD = 78;
-const ORG_PAD_MIN = 30;
+/* The nearest a node's centre comes to the canvas edge: the face's radius (22)
+   plus the reach of its working / needs-you glow (20 of its 6px spread and 16px
+   blur), so an outer node's glow is not cut by the box. The fit leaves this much
+   and the drag box keeps a dragged node inside it. render-orgchart-phone-718
+   checks every glow lands inside the chart. Five agents still fit a 375px phone
+   without moving a ring (120 + 42 <= 163). */
+const ORG_PAD_MIN = 42;
 const ORG_SQUEEZE_MIN = 0.7;
 function orgFit(maxR, avail) {
   const natural = Math.round((maxR + ORG_PAD) * 2);

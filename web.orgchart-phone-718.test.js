@@ -54,19 +54,23 @@ test('#718: no width yet (hidden, or not laid out) draws at the natural size', (
 
 test('#718: on every phone the harness shoots, a small fleet fits the width without moving a ring', () => {
   // 375 / 393 / 412 screens, less the page's side padding: the chart gets roughly 327 to 364px.
-  for (const avail of [300, 327, 345, 364]) {
+  for (const avail of [327, 345, 364]) {
     const f = orgFit(120, avail);
     assert.ok(f.size <= avail, `size ${f.size} > ${avail}`);
     assert.equal(f.k, 1, 'the padding alone was enough; the rings should not move');
     assert.ok(120 + C.ORG_PAD_MIN <= f.size / 2, 'the outer ring sits inside the drag box');
   }
+  // A 320px phone (about 300px for the chart): the margin keeps each outer face's glow inside, so
+  // the rings come in a little, still well above the floor.
+  const small = orgFit(120, 300);
+  assert.ok(small.size <= 300 && small.k < 1 && small.k > C.ORG_SQUEEZE_MIN, JSON.stringify(small));
 });
 
 test('#718: a deeper fleet brings its rings in, and never below the floor', () => {
-  const f = orgFit(180, 327);
+  const f = orgFit(160, 327);
   assert.ok(f.k < 1 && f.k >= C.ORG_SQUEEZE_MIN, `k ${f.k}`);
   assert.ok(f.size <= 327, `size ${f.size}`);
-  assert.ok(180 * f.k + C.ORG_PAD_MIN <= f.size / 2 + 0.5, 'the squeezed outer ring fits in the box');
+  assert.ok(160 * f.k + C.ORG_PAD_MIN <= f.size / 2 + 0.5, 'the squeezed outer ring fits in the box');
   // Too big even at the floor: k stops at the floor and the chart keeps the width it needs
   // (.orgwrap scrolls on its own; the page does not).
   const big = orgFit(600, 327);
@@ -116,6 +120,8 @@ test('#718: positions from a canvas of another width are carried across in propo
   assert.match(paint, /const widthChanged = viewW > 0 && ORG_VIEW_W > 0 && viewW !== ORG_VIEW_W;/);
   assert.match(paint, /if \(viewW > 0\) ORG_SIZE = size;/);
   assert.match(paint, /if \(viewW === 0\) return;/);
+  // The box losing its tabindex hands focus to the first node rather than dropping it on the body.
+  assert.match(SCRIPT, /const hadFocus = document\.activeElement === wrap;[\s\S]{0,500}if \(hadFocus\) \{\s*const first = map\.querySelector\('\.onode'\);\s*if \(first\) first\.focus\(\);/);
   // The note inside a scrolling box stays in view.
   assert.match(PAGE, /\.orgwrap\.orgscroll #orgnote \{ position: sticky; left: 0; \}/);
   // The scroll is written the first time the box scrolls and when its width changes, never on a
