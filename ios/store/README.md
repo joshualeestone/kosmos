@@ -21,12 +21,10 @@ These are listed roughly in the order they would stop a submission.
 2. **The App Privacy answers** in `privacy-label.md` are yours to submit. Six
    items are marked UNSURE there. The one that most needs a ruling is whether
    to declare Purchase History (my reading is no).
-3. **Approve and Deny on a notification do nothing yet (kosmos #3870).** The
-   buttons are registered, but tapping one only writes a log line
-   (`ios/Kosmos/PushNotificationManager.swift`, the `TODO(#718)`). A reviewer
-   who taps one would see nothing happen. The plan is to hide them for the
-   first submission (#3870, being built next), so the listing and review notes
-   do not mention them.
+3. **Approve and Deny on a notification are hidden (kosmos #3870, merged in
+   #3974).** They were registered but did nothing, so the first submission
+   ships without them and the listing does not mention them. The card stays
+   open for a check on a real phone.
 4. **Pushes to the iPhone app are not switched on yet** (the coordinator only
    logs them). The description and one screenshot show a notification landing,
    so pushes have to be live before submission. The app's `aps-environment` is
@@ -39,8 +37,9 @@ These are listed roughly in the order they would stop a submission.
 6. **Guideline 4.2 (a repackaged website) is the other likely rejection.** Face
    ID unlock is built but switched off (`requireBiometricUnlock = false`). The
    native surface a reviewer sees today is push, the offline page, pull to
-   refresh and opening outside links in Safari. Turning Face ID on, and making
-   Approve and Deny work, would both strengthen the case.
+   refresh and opening outside links in Safari. Hiding Approve and Deny (item 3)
+   removed one native feature. Turning Face ID on, and building Approve and Deny
+   for real, would both strengthen the case.
 7. **Copy choices:** the name (`Kosmos: AI Workforce`, with two fallbacks in
    case it is taken, which only App Store Connect can tell you), the subtitle,
    the keywords and the category (Productivity, then Business). All are
