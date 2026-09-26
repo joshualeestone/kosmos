@@ -203,10 +203,11 @@ const TERMS = (marked) => 'Terms of Service & Data Use\n\n' + ['[ ] Yes, I agree
 
 test('#3998 B2: after the setup, an unknown screen asks agy a few times at most, and stuck stays stuck', async () => {
   const s = require('./agysignin');
-  const st = scripted(s, 'Choose your color scheme\n> terminal\n');
+  const st = scripted(s, '');
+  st.screen = 'Accessing workspace:\n\n' + path.join(st.root, 'agy-signin') + '\n\nDo you trust the contents of this project?\n\n> Yes, I trust this folder\n';
   try {
     s.start();
-    s.tickForTests();                                   // theme: Enter
+    s.tickForTests();                                   // trust (its own folder): Enter, the last setup screen (round 16)
     st.screen = 'something agy draws that Kosmos has never seen';
     const seen = [];
     for (let i = 0; i < 60; i++) { st.t += 1000; s.tickForTests(); await settle(); seen.push(s.status().state); }
@@ -763,5 +764,37 @@ test('#3998 round 15: a failure finding tmux (Kosmos\'s own work) is "try again"
     for (let i = 0; i < 4; i++) { s.tickForTests(); await settle(); }
     assert.equal(st.checks, 0, 'a tmux lookup failure spent an ask as if agy had exited');
     assert.notEqual(s.status().state, 'failed', 'a tmux lookup failure ended the sign-in as agy closing');
+  } finally { s.resetForTests(); }
+});
+
+/* ---- review round 16 --------------------------------------------------------------------- */
+test('#3998 round 16: a yes before the trust question is answered does not end the sign-in as done', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'Choose your color scheme\n> terminal\n');
+  st.answer = { signedIn: true };
+  try {
+    s.start();
+    s.tickForTests();                               // theme: Enter
+    st.screen = 'Something agy draws before the terms';
+    for (let i = 0; i < 12; i++) { st.t += 1000; s.tickForTests(); await settle(); }
+    assert.equal(st.checks, 0, 'agy was asked before the setup was finished');
+    assert.notEqual(s.status().state, 'done', 'the sign-in ended as done with the terms and trust unanswered');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 16: a terms Down that timed out is not sent again', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, TERMS('Previous'));
+  let failing = 1;
+  s.setForTests({ tmux: (args) => {
+    if (args[0] === 'capture-pane') return st.screen;
+    if (args[0] === 'send-keys') { st.sent.push(args.slice(3).join(' ')); if (failing > 0) { failing -= 1; const e = new Error('spawnSync tmux ETIMEDOUT'); e.code = 'ETIMEDOUT'; throw e; } }
+    return '';
+  } });
+  try {
+    s.start();
+    s.tickForTests();                  // Down goes out, then the call times out
+    s.tickForTests();                  // the marker has not moved yet
+    assert.deepEqual(st.sent, ['Down'], 'a second Down went out after a timeout');
   } finally { s.resetForTests(); }
 });

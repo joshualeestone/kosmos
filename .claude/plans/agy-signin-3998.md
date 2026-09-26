@@ -113,3 +113,8 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 ## Review round 15 (decided)
 - The sign-in start route (and the GET state, /api/antigravity GET and /forget routes beside it) catch a synchronous throw and answer 500: the board has no process-level handler. The live-execution gate's test-process throw stays loud.
 - A failure finding tmux (Kosmos's own work) is marked and read as "try again", never as agy exiting.
+
+## Review round 16 (decided)
+- An unknown screen is asked about only after the trust question (the last setup screen) was answered (narrows round 14): a yes after theme or terms would end the sign-in with the setup unfinished, and the next agent would stop on the terms. The ready screen, agy exiting after a code, and the shown window still end it.
+- A terms Down marks the marker line before it is sent, so a Down that timed out is not sent again.
+- Left: a torn first frame of the trust screen (question drawn, folder not yet) goes stuck and stays shown; it fails safe and agy prints the path first.

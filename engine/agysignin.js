@@ -48,7 +48,7 @@ const AFTER_CODE = Object.freeze(['code-sent', 'theme', 'terms', 'trust']);
    Google took the code. Just after the code, agy may still be trading it with Google, or refusing it,
    and a signed-out agy asked may open a second Google page. (agy EXITING after the code is still asked:
    AFTER_CODE above.) */
-const ASK_STEPS = Object.freeze(['theme', 'terms', 'trust']);
+const ASK_STEPS = Object.freeze(['trust']);   // round 16: a yes after theme or terms would end the sign-in with the setup unfinished
 
 /* The words each screen shows (agy 1.2.11, Josh's screenshots of 2026-09-26). Matched on the text
    of the screen with the ANSI styling already stripped by capture-pane -p. */
@@ -272,7 +272,9 @@ function step() {
     if (/^>\s*\[Done\]/.test(on)) { S.pressed = true; keys('Enter'); return; }
     if (S.downFrom !== null && S.downFrom !== undefined && on === S.downFrom) return;   // the last Down has not landed yet
     // The move counts only once the key went out (round 7): a tmux hiccup must not spend the budget.
-    if (S.moves < 4) { keys('Down'); S.downFrom = on; S.moves += 1; return; }
+    /* downFrom BEFORE the send (round 16): a Down that timed out may have gone out, so the next tick
+       waits for the marker to move rather than sending another; moves counts only a send that returned. */
+    if (S.moves < 4) { S.downFrom = on; keys('Down'); S.moves += 1; return; }
     // Shown, not ended: the person can still finish it in the window, or stop.
     S.state = 'stuck'; S.because = 'Kosmos could not find the Done button on Antigravity\'s terms';
     return;
