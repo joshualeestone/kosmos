@@ -42,7 +42,7 @@ test('#3829 each request is a compact card: kind, when, the code, one device-neu
   assert.ok(!/>' \+ askEsc\(d\.device_id\)/.test(card), 'the device id is interpolated as text, which identifies the device beyond kind, time and code');
   // Positive control: the same card does carry the kind, the time and the code.
   assert.match(card, /askEsc\(kind\)/);
-  assert.match(card, /askAgo\(d\.first_seen\)/);
+  assert.match(card, /askAgoSpan\(d\.first_seen\)/);   // #3978: the time is a span filled in place
   assert.match(card, /askEsc\(d\.code\)/);
   assert.match(card, /data-ask="allow"[^>]*>Allow<\/button>/);
   assert.match(card, /data-ask="deny"[^>]*>Deny<\/button>/);
