@@ -42,8 +42,8 @@
  * the dragged-to-the-edge arm reds when the drag box leaves less than a glow's
  * reach between a face and the box; the edge-callout arm reds when a squeezed
  * chart centres an edge node's callout; the hub arm reds when the hub is
- * clamped by a node's margin; the mid-drag arm reds when a resize repaints under
- * a live drag, or when the release does not catch up with the new width.
+ * clamped by a node's margin; the mid-drag arm reds when a resize or a poll repaints
+ * under a live drag, or when the release does not catch up with the new width.
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -260,7 +260,9 @@ function measure(page) {
           await page.mouse.down();
           for (let i = 1; i <= 4; i++) await page.mouse.move(p0.x + i * 6, p0.y + i * 6);
           await page.setViewportSize({ width: 375, height: 852 });
-          await page.waitForTimeout(500);
+          // Hold through one 5s board poll too: the poll calls paintOrg, and it must not repaint
+          // under the drag any more than the resize may.
+          await page.waitForTimeout(6000);
           const mid = await page.evaluate(() => ({ connected: window.__dragged.isConnected }));
           await page.mouse.move(p0.x + 40, p0.y + 40);
           await page.mouse.up();

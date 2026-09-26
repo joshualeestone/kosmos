@@ -117,7 +117,7 @@ test('#718: a chart wider than its box lets a finger scroll the box, and the dra
   assert.match(SCRIPT, /const natural = orgNatural\(maxR\);   \/\/ the square before any fit/);
   assert.equal((SCRIPT.match(/Math\.round\(\(maxR \+ ORG_PAD\) \* 2\)/g) || []).length, 1, 'the natural square is derived in one place');
   // No repaint on resize mid-drag; the release catches up.
-  assert.match(SCRIPT, /if \(ORG_LIVE && ORG_LIVE\.dragging\) return;/);
+  assert.match(SCRIPT, /function paintOrg\(\) \{\s*const wrap = document\.getElementById\('orgview'\);\s*if \(!wrap \|\| wrap\.hidden\) return;[\s\S]{0,500}?if \(ORG_LIVE && ORG_LIVE\.dragging\) return;/);
   assert.match(SCRIPT, /orgResizeRepaint\(\);   \/\/ #718: a width change held off during the drag lands now/);
   assert.match(PAGE, /\.orgmap\.orgtight \.onode\.co-l \.callout \{ left: 0; transform: none; \}/);
   assert.match(SCRIPT, /const extra = drag\.body === ORG_LIVE\.hub \? Math\.max\(0, ORG_LIVE\.hub\.size - box\.lo\) : 0;/);
