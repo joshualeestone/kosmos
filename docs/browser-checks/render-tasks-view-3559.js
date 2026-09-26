@@ -280,9 +280,10 @@ function chk(ok, label, extra) {
           const t = document.querySelector('#tsk-tiles [data-tile="decision"]');
           const probe = document.createElement('span'); probe.style.color = 'var(--danger)'; document.getElementById('panel-tasks').appendChild(probe);
           const danger = getComputedStyle(probe).color; probe.remove();
-          return { n: Number(t.querySelector('.num').textContent), red: getComputedStyle(t.querySelector('.num')).color === danger };
+          return { n: Number(t.querySelector('.num').textContent), red: getComputedStyle(t.querySelector('.num')).color === danger,
+            redDot: getComputedStyle(t.querySelector('.tsk-dot')).backgroundColor === danger };
         });
-        chk(zero.n === 0 && !zero.red, `${tag} a zero Needs Your Decision is not red`, JSON.stringify(zero));
+        chk(zero.n === 0 && !zero.red && !zero.redDot, `${tag} a zero Needs Your Decision is not red, its dot included`, JSON.stringify(zero));
         /* Its own clear button: shown with text, clears and hides again. */
         const clr = await page.evaluate(() => !document.getElementById('tsk-qclear').hidden);
         chk(clr, `${tag} the search's clear button shows once there is text`);

@@ -4,7 +4,7 @@
  * the door opens the Tasks view (#3559) scoped to its project: ONE list screen (Mona's mock). The
  * old all-tasks screen is retired, and what it guaranteed is measured here on the new destination:
  *   - the door is offered, reads "View All", carries no count (#1346's second number);
- *   - it lands on Tasks scoped to THIS project: its title, its rail item, only its rows, and its
+ *   - it lands on Tasks scoped to THIS project: its title, the project dropdown, only its rows, and its
  *     finished work reachable (Created: All, the Completed fold) (#2498; #3949 renamed both);
  *   - #1346: the sub-line's open count equals the open rows ON SCREEN, counted inside the view;
  *   - "+ New task" there files to the picked project, or asks which project on All tasks;

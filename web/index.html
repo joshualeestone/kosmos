@@ -3356,8 +3356,9 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    their own. 🛑 NO COLOURED BAR DOWN A LEFT EDGE, ANYWHERE (Josh, 2026-09-24 12:52: "the em-dash
    version of, this was made with Ai"): a status is a round DOT beside its label, and the
    browser check asserts no element here carries a coloured left border.
-   The status colours: grey for nobody on it, gold for assigned, the working green for in
-   progress, a quiet grey for closed -- the app's existing meanings, no new palette. */
+   The status colours: red (--danger) for Needs Your Decision (#3949), grey for unassigned, gold for
+   assigned but not started, the working green for in progress, a quiet grey for completed -- the
+   app's existing meanings, no new palette. */
 #panel-tasks { --tsk-c: var(--k-ink-2); --tsk-nobody: var(--k-ink-2); --tsk-assigned: var(--gold-deep); --tsk-working: var(--ok);
   --tsk-decision: var(--danger);
   --tsk-closed: color-mix(in srgb, var(--k-ink-2) 55%, var(--k-rule));
@@ -45217,7 +45218,7 @@ function tskRosterChanged() {
    applies (tasks.waitingOnPerson); this copy only decides WHEN to re-read, and it is the same inline rule the
    cards' data-attn uses on this page. A case added to needsPerson belongs here and in data-attn too. */
 function tskNeedsSig() {
-  return (Array.isArray(LAST) ? LAST : []).filter((a) => a && a.isNamedOurs !== false && (a.state === 'needs_you' || a.state === 'needs_trust'
+  return (Array.isArray(LAST) ? LAST : []).filter((a) => a && a.isNamedOurs === true && (a.state === 'needs_you' || a.state === 'needs_trust'
     || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')))
     .map((a) => a.sessionName + ':' + a.state + ':' + (a.stateProject || '')).sort().join('|');
 }
@@ -45413,8 +45414,9 @@ function taskNest(rows, keyOf, parentKeyOf, folded) {
 }
 /* What the view lists: every task except an archived project's, unless that project is the one
    in scope (its own View-all door, #3703). Unarchiving brings them back on the next read. */
-/* #3949: a dropdown's options are rewritten only when they change, so a background repaint (a load, the
-   roster) does not close or reset one the person has open; its value is kept in step either way. */
+/* #3949: a dropdown's options are rewritten only when they change, so a background repaint that changes
+   nothing (a load, the roster) does not close or reset one the person has open. A read that changes a
+   project's open count does rewrite the project list's options; its value is kept in step either way. */
 function tskOptions(sel, html, value) {
   if (sel.dataset.opts !== html) { sel.innerHTML = html; sel.dataset.opts = html; }
   if (sel.value !== value) sel.value = value;
@@ -45468,7 +45470,9 @@ function tskPaint() {
      #3949 (Josh): one label each, no byline, and Completed is a tile again (it was only the fold). */
   document.getElementById('tsk-tiles').innerHTML = !TSK.data ? '' : TSK_GROUPS.map((g) => {
     const n = scoped.filter((t) => t.state === g.k).length;
-    return '<button type="button" class="tsk-tile" data-tile="' + g.k + '" data-n="' + n + '" aria-pressed="' + (TSK.tile === g.k) + '" style="--tsk-c:' + g.c + '">'
+    /* A zero Needs Your Decision takes a neutral dot too: nothing to act on, nothing red (post-rebase review). */
+    const dot = g.k === 'decision' && !n ? 'var(--tsk-nobody)' : g.c;
+    return '<button type="button" class="tsk-tile" data-tile="' + g.k + '" data-n="' + n + '" aria-pressed="' + (TSK.tile === g.k) + '" style="--tsk-c:' + dot + '">'
       + '<span class="num">' + n + '</span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span></button>';
   }).join('');
   const groups = document.getElementById('tsk-groups');
