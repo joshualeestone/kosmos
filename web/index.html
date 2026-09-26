@@ -6951,8 +6951,6 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    sharing the class would have hidden it exactly when several members were in
    the same state. */
 .pj-member .pj-notyet { display: block; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); flex-basis: 100%; }
-/* The one-verdict-for-the-roster line: same voice as .pj-told, but it sits
-   as its own flex child below the member cards, not inside one of them. */
 /* #3923: the project notice (Mona Lisa's design, project-notice-mock.html). Appears only while
    an agent on the project could not be given its folder; one row per agent, each shaped by what
    the person must do. No bar down the left (Josh has ruled those out). */
@@ -43738,28 +43736,28 @@ const PJ_NOTICE = [
   [/^we could not write to its instructions$/, 'wait', (n) => n ? 'We could not write to ' + n + '\u2019s instructions.' : 'We could not write to its instructions.'],
   [/^we could not check which agents are running$/, 'wait', () => 'We could not check which agents are running.'],
   [/^it has no instructions file yet, and we will not create one$/, 'act', (n) => (n ? n + ' has' : 'It has') + ' no instructions file, and Kosmos will not create one.',
-    (name) => 'Give ' + name + ' some instructions and it will pick this up next time.'],
+    (name) => 'Give ' + name + ' some instructions and Kosmos will pick it up the next time this project changes.'],
   [/^its instructions contain \d+ Kosmos project blocks/, 'act', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions hold more than one Kosmos project section, so Kosmos cannot tell which is its own.',
-    (name) => 'Leave one Kosmos project section in ' + name + '\u2019s instructions and it will pick this up next time.'],
+    (name) => 'Leave one Kosmos project section in ' + name + '\u2019s instructions and Kosmos will pick it up the next time this project changes.'],
   [/^taking this out would leave its instructions almost empty$/, 'act', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are too short for Kosmos to change safely.',
-    (name) => 'Add to ' + name + '\u2019s instructions and it will pick this up next time.'],
+    (name) => 'Add to ' + name + '\u2019s instructions and Kosmos will pick it up the next time this project changes.'],
   [/^its instructions are already at the size limit$/, 'act', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are already at the size limit.',
-    (name) => 'Shorten ' + name + '\u2019s instructions and it will pick this up next time.'],
+    (name) => 'Shorten ' + name + '\u2019s instructions and Kosmos will pick it up the next time this project changes.'],
   [/^we could not find an agent with exactly this name on this computer$/, 'retry', (n) => 'Kosmos cannot match ' + (n || 'it') + ' to a session on this computer.',
     (name) => 'Start ' + name + ', then try again.'],
   [/^something is running under this name, but we cannot tell that it is this agent$/, 'retry', (n) => 'Something is running under ' + (n ? n + '\u2019s' : 'its') + ' name, but Kosmos cannot tell that it is ' + (n || 'the same agent') + '.',
     (name) => 'Restart ' + name + ' from Kosmos, then try again.'],
   [/^it has no folder of its own on this computer yet$/, 'explain', (n, name) => n
     ? 'Kosmos only keeps instructions for agents it made. ' + n + ' came from somewhere else, so Kosmos has nowhere to write.'
-    : 'Kosmos only keeps instructions for agents it made, and ' + name + ' came from somewhere else.'],
+    : 'Kosmos only keeps instructions for agents it made, and ' + name + ' came from somewhere else, so Kosmos has nowhere to write.'],
   [/^it keeps its instructions somewhere we cannot safely change$|^its worker folder /, 'explain', (n) => (n || 'It') + ' keeps its instructions somewhere Kosmos will not change, so Kosmos has nowhere to write.'],
   // The reader's own refusals for a file it cannot safely edit (workerfile.js, instructions.js):
   // pressing again reads the same file the same way, so no button.
-  [/^its instruction file is not UTF-8 text|^its instruction file is not one we can read$|^its instruction file could not be read$|^we cannot get at its instruction file to read it$|^that file is not inside the workers folder$/, 'explain',
+  [/^its instruction file is not UTF-8 text|^its instruction file is not one we can read$|^its instruction file could not be read$|^we cannot get at its instruction file to read it$|^that file is not inside the workers folder$|^that is not a name we can look up$/, 'explain',
     (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are in a file Kosmos cannot safely change, so Kosmos has nowhere to write.'],
 ];
-/* A Try again that came back with the same answer: its row says so once, until the answer
-   changes or the row goes. Keyed by session name. */
+/* A Try again that came back with the same answer: its row says so on every paint until the
+   answer changes or the row goes. Keyed by session name. */
 const PJ_NOTICE_TRIED = new Map();
 const PJ_NOTICE_COUNT = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
 
@@ -53289,14 +53287,20 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
     const m = p ? (p.agents || []).find((a) => a && a.sessionName === key) : null;
     before = String((m && m.told && m.told.because) || '');
   } catch { /* no remembered answer: nothing is marked as "still" */ }
+  let reached = false;
   try {
-    await fetch('/api/project/' + encodeURIComponent(project) + '/agent/' + encodeURIComponent(key) + '?retell=1', { method: 'POST' });
+    const res = await fetch('/api/project/' + encodeURIComponent(project) + '/agent/' + encodeURIComponent(key) + '?retell=1', { method: 'POST' });
+    reached = !!(res && res.ok);
   } catch { /* the repaint below shows where it stands */ }
-  PJ_NOTICE_TRIED.set(key, before);
+  // "It still did not work" only about a retry that reached the board and was answered.
+  if (reached) PJ_NOTICE_TRIED.set(key, before);
   box.__lastLive = null;   // repaint even when the answer is word for word the same
   await loadProjects();
   btn.disabled = false;
   if (PJ_CURRENT !== project) return;
+  // A newer poll can overtake this read and paint later; paint now so focus lands on this paint.
+  box.__lastLive = null;
+  paintOneProject();
   const again = box.querySelector('[data-pn-retry="' + (window.CSS && CSS.escape ? CSS.escape(key) : key) + '"]');
   const heading = document.querySelector('.pjcard-members > .dlab');
   if (again) again.focus();

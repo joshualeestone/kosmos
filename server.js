@@ -15283,6 +15283,10 @@ const server = http.createServer((req, res) => {
        re-add one. A notice painted before the agent left must not put it back on the project
        (and type "Kosmos put you on the project" into its window). */
     if (req.method === 'POST' && moved && new URL(req.url, ROUTING_BASE).searchParams.get('retell') === '1') {
+      // A missing project answers 404 like every sibling path; a member that left, 409.
+      let exists = false;
+      try { exists = projects.readAll().some((p) => p && p.id === id); } catch { exists = true; }
+      if (!exists) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
       sendJson(res, 409, { error: 'that agent is no longer on this project' });
       return;
     }

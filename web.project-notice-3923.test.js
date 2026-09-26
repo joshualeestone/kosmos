@@ -91,7 +91,7 @@ test('#3923: the four shapes, one agent each, as the design draws them', () => {
   assert.match(wait, /data-pn-retry="leo"/);
 
   const act = pjNotice(rows({ april: 'it has no instructions file yet, and we will not create one' }));
-  assert.equal(text(act), 'april does not have this project’s folder. april has no instructions file, and Kosmos will not create one. Give april some instructions and it will pick this up next time.');
+  assert.equal(text(act), 'april does not have this project’s folder. april has no instructions file, and Kosmos will not create one. Give april some instructions and Kosmos will pick it up the next time this project changes.');
   assert.doesNotMatch(act, /Try again/, 'Act offers no button: pressing it would fail every time');
   assert.match(act, /<b class="pnfix">Give april/);
 
@@ -121,7 +121,7 @@ test('#3923: several agents: the header counts, each row carries its own why and
   assert.equal((html.match(/data-pn-retry=/g) || []).length, 1, 'only leo (Wait) gets a button');
   assert.match(html, /aria-label="Try again for leo"/, 'each button names its agent for a screen reader');
   assert.match(html, /<span class="pnwho">leo<\/span><span class="pnwhy">We could not write to its instructions\./);
-  assert.match(html, /<span class="pnwho">casey<\/span><span class="pnwhy">Kosmos only keeps instructions for agents it made, and casey came from somewhere else\./);
+  assert.match(html, /<span class="pnwho">casey<\/span><span class="pnwhy">Kosmos only keeps instructions for agents it made, and casey came from somewhere else, so Kosmos has nowhere to write\./);
   assert.doesNotMatch(html, /bob/);
 });
 
@@ -158,7 +158,8 @@ test('#3923: every could_not sentence the engine names has a shape (none falls t
     'its instruction file is not one we can read',
     'its instruction file could not be read',
     'we cannot get at its instruction file to read it',
-    'that file is not inside the workers folder');
+    'that file is not inside the workers folder',
+    'that is not a name we can look up');
   for (const because of keys) {
     assert.ok(PJ_NOTICE.some(([re]) => re.test(because)), 'no shape for: ' + because);
   }
@@ -180,10 +181,10 @@ function retryHandler(state) {
   assert.ok(at > 0, 'the Try again listener moved; re-anchor');
   const body = PAGE.slice(at + sig.length, PAGE.indexOf('\n});', at) + 2).replace(/PJ_CURRENT/g, 'state.PJ_CURRENT');
   // eslint-disable-next-line no-new-func
-  return new Function('state', 'document', 'fetch', 'loadProjects', 'PROJECTS', 'PJ_NOTICE_TRIED', 'window', 'CSS',
-    'return ' + body + ';')(state, state.document, state.fetch, state.loadProjects, state.PROJECTS, state.tried, {}, undefined);
+  return new Function('state', 'document', 'fetch', 'loadProjects', 'paintOneProject', 'PROJECTS', 'PJ_NOTICE_TRIED', 'window', 'CSS',
+    'return ' + body + ';')(state, state.document, state.fetch, state.loadProjects, state.paintOneProject, state.PROJECTS, state.tried, {}, undefined);
 }
-function standIn(project, { rowAfter = true, switchTo = null } = {}) {
+function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false } = {}) {
   const log = [];
   const btn = { dataset: { pnRetry: project.agents[0].sessionName }, disabled: false, closest() { return this; } };
   const again = { focus() { log.push('focus:again'); } };
@@ -193,8 +194,9 @@ function standIn(project, { rowAfter = true, switchTo = null } = {}) {
   const state = {
     PJ_CURRENT: project.id, PROJECTS: [project], tried: new Map(), log, btn, attrs,
     document: { getElementById: () => box, querySelector: () => heading },
-    fetch: async (url, opts) => { log.push('fetch:' + opts.method + ' ' + url + ' disabled=' + btn.disabled); if (switchTo) state.PJ_CURRENT = switchTo; return {}; },
+    fetch: async (url, opts) => { log.push('fetch:' + opts.method + ' ' + url + ' disabled=' + btn.disabled); if (switchTo) state.PJ_CURRENT = switchTo; if (fetchFails) throw new Error('offline'); return { ok: true }; },
     loadProjects: async () => { log.push('load live=' + box.__lastLive); },
+    paintOneProject: () => { log.push('paint live=' + box.__lastLive); },
   };
   return state;
 }
@@ -206,9 +208,10 @@ test('#3923: Try again re-tells with ?retell=1, repaints, marks the answer, and 
   assert.deepEqual(st.log, [
     'fetch:POST /api/project/' + encodeURIComponent(project.id) + '/agent/leo?retell=1 disabled=true',
     'load live=null',
+    'paint live=null',
     'focus:again',
   ]);
-  assert.equal(st.btn.disabled, false, 'the button stays dead after the repaint');
+  assert.equal(st.btn.disabled, false, 'the button must be re-enabled after the repaint');
   assert.equal(st.tried.get('leo'), 'we could not write to its instructions', 'the answer before the retry is remembered');
 });
 
@@ -223,6 +226,12 @@ test('#3923: when the row is gone focus goes to the Members heading; after a pro
   await retryHandler(moved)({ target: moved.btn });
   assert.ok(!moved.log.some((l) => l.startsWith('focus:')), 'focus moved into a project the person had left: ' + moved.log);
   assert.equal(moved.btn.disabled, false);
+
+  // A retry that never reached the board marks nothing as "still".
+  const offline = standIn(project, { fetchFails: true });
+  await retryHandler(offline)({ target: offline.btn });
+  assert.equal(offline.tried.has('leo'), false, 'a failed request was recorded as a retry that did not work');
+  assert.equal(offline.btn.disabled, false);
 
   // CONTROL: a click that is not on a Try again does nothing at all.
   const idle = standIn(project);

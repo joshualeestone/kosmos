@@ -14983,7 +14983,16 @@ test('#3923: Try again (?retell=1) re-tells a current member and never re-adds o
   // CONTROL: the same retell for a current member goes through and adds nothing new.
   const add = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo', { method: 'POST' });
   assert.equal(add.status, 200, add.body);
+  const toldAt = () => (((require('./engine/projects').readAll().find((p) => p.id === id) || {}).told || {}).leo || {}).at;
+  const at0 = toldAt();
+  await new Promise((r) => setTimeout(r, 5));
   const retell = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
   assert.equal(retell.status, 200, retell.body);
   assert.deepEqual(agentsOf(), ['leo']);
+  assert.equal(JSON.parse(retell.body).said, null, 'a retell typed into the agent\'s window');
+  assert.ok(at0 && toldAt() > at0, 'the retell recorded no fresh verdict: ' + at0 + ' -> ' + toldAt());
+
+  // A retell on a project that does not exist is a 404, like every sibling path.
+  const nowhere = await req('/api/project/no-such-project/agent/leo?retell=1', { method: 'POST' });
+  assert.equal(nowhere.status, 404, nowhere.body);
 });
