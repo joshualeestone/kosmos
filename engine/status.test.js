@@ -969,6 +969,42 @@ test('#3953: a crashed Grok agent stays restartable but is NOT a running session
   assert.equal(isAgentSession(stray), false, 'an unclaimed grok pane was claimed as a Kosmos agent');
 });
 
+test('#3953: a Grok-tagged pane not running grok is stopped in Grok words, and real Grok screens read honestly', () => {
+  const st = require('./status');
+  // Tagged grok, but the command is not grok: stopped, and the sentence names Grok, not Claude.
+  for (const command of ['node', 'zsh', '2.1.283']) {
+    const [p] = parsePanes(`elon\t0.0\t${command}\t0\telon\tgrok\t`);
+    const c = st.classify(p, '');
+    assert.equal(c.state, 'stopped', `a grok-tagged pane running ${command} did not read stopped`);
+    assert.equal(c.because, 'Grok is not running for this one');
+  }
+  // Two screens captured from grok 1.0.41 in a real tmux pane (the idle prompt on a subscription sign-in, and
+  // the device sign-in screen). Grok screens reach the Claude screen read now; neither may read as a sign-in
+  // failure, a question for the person, or stopped.
+  const idle = [
+    '               New worktree                                 ctrl+w',
+    '               Resume session                               ctrl+r',
+    '  Help improve Grok                                         [Opt out] [Opt in]',
+    '  Off by default. Opt-in to allow SpaceXAI to retain coding',
+    '  ╭──────────╮',
+    '  │ ❯                                                                        │',
+    '  ╰───── Grok 4.7 (high) · always-approve ─╯',
+    '                                                   Grok Build  1.0.41 [stable]',
+  ].join('\n');
+  const signin = [
+    '                  Approve in your browser to finish signing in.',
+    '                                    FCFR-36Y6',
+    '                     Make sure your browser shows this code.',
+    '                             Waiting for approval...',
+    '                                  ctrl+q  quit',
+  ].join('\n');
+  const [running] = parsePanes('elon\t0.0\tgrok-native\t0\telon\tgrok\t');
+  for (const [what, screen] of [['idle', idle], ['sign-in', signin]]) {
+    const c = st.classify(running, screen);
+    assert.ok(!['stopped', 'auth_failed', 'needs_you'].includes(c.state), `the ${what} Grok screen read ${c.state}: ${c.because}`);
+  }
+});
+
 test('#3953: a running Grok pane wins over a crashed shell sibling', () => {
   const roster = onePanePerSession(parsePanes([
     'elon\t0.0\tzsh\t0\telon\tgrok\t',

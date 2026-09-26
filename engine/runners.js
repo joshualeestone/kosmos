@@ -606,7 +606,9 @@ function resolveBin(provider, opts) {
      Rungs: the env override, then the copy Kosmos installed, then the vendor's
      npm-global `grok` (/opt/homebrew/bin/grok -> node_modules/@xai-official/grok/bin/
      grok-native) this Mac may already have. `envName` travels with the answer so a
-     refusal names the RIGHT variable. */
+     refusal names the RIGHT variable.
+     #3953: the board and the supervisor recognise a running Grok pane by its command
+     (status.isGrokCommand), so an override must run as `grok-native`, `grok` or `grok.exe`. */
   if (provider === 'grok') {
     const envGrok = process.env.AGENT_WORKFORCE_GROK_BIN;
     if (envGrok) return { bin: envGrok, present: isRunnable(envGrok), managed: false, overridden: true, envName: 'AGENT_WORKFORCE_GROK_BIN' };

@@ -7036,7 +7036,7 @@ function snapshot() {
     /* #3391: the Grok arm, keyed on the @kosmos_runner tag the supervisor records.
        Read the session once for the context ring below (no observation arm yet --
        the account badge's XAI provider is the launcher slice). */
-    const isGrokPane = pane.runner === 'grok';
+    const isGrokPane = pane.runner === 'grok' || isGrokCommand(pane.command);   // #3953: before its tag lands too
     /* #3568: an Antigravity pane is not a Claude pane either; kept out of the ANTHROPIC
        observation arm below so it can never record a false Claude-account reading. */
     const isAgyPane = pane.runner === 'antigravity' || isAntigravityCommand(pane.command);
@@ -7252,7 +7252,7 @@ function snapshot() {
          everywhere the option is absent. The switch screen keys on this, and it is
          the supervisor's record, never an inference from the command. */
       // #3568: an agy pane read before its runner tag lands is still antigravity (as isAgyPane says).
-      runner: pane.runner === 'codex' ? 'codex' : pane.runner === 'gemini' ? 'gemini' : pane.runner === 'grok' ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : 'claude',
+      runner: pane.runner === 'codex' ? 'codex' : pane.runner === 'gemini' ? 'gemini' : (pane.runner === 'grok' || isGrokCommand(pane.command)) ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : 'claude',
       task: taskLine(pane.title),
       state: status.state,
       stateConfidence: status.confidence,
