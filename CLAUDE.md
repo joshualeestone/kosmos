@@ -247,6 +247,13 @@ from a night in this codebase, kosmos#2616.)
    under `NODE_TEST_CONTEXT` (kosmos#3605, after #3011). Enforced by
    `engine/create.launch-refuse-3605.test.js`.
 
+7. **A page `/api` call needs its board route in the same change.** `web.api-routes-3957.test.js`
+   reads every quoted `/api/` literal in `web/index.html`'s code and refuses one that no route in
+   `server.js` serves (kosmos#3957: 0.6.96 shipped a page calling `/api/federation/invite` before
+   the route merged). It does not check the HTTP method, a URL built from a variable, or a
+   variable path segment named by a sibling route; its header says which, and it caps the unread
+   counts so they cannot grow unnoticed.
+
 ### This list is intentionally incomplete
 
 The first five come from the account and removal lanes one agent happened to be in. They almost

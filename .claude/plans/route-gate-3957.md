@@ -47,3 +47,15 @@ and needs no runtime flag.
   served with invite removed, because join fills it. The gate catches a missing route only where the
   page names it literally.
 - Historical pair re-run: still red on exactly the three federation routes.
+
+## Challenge-loop iteration 2
+- BLOCKER (mine, from iteration 1): the comment scanner ended every string at a line break, so a
+  `//` inside a multi-line template literal hid a real call after it. Replaced by one lexical mask
+  (code / comment / string / string start / regex). A page literal must be a real string START.
+- BLOCKER: a comparison quoted inside a board log string counted as a route. A board literal now
+  counts only when its quote is a real string start and its `===` is code.
+- The lexer then mis-read the page (193 -> 171 paths, the federation routes among the lost): a
+  backtick inside a regex literal opened a phantom template. Regex literals are now recognised.
+  The paths floor is 170, near today's 186, so a silent drop like that one reds.
+- Base parses memoized; CLAUDE.md gains convention 7 for this gate.
+- History re-run: red on exactly /api/federation/invite, /join, /verify at 07a786f9a.

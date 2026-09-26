@@ -42,31 +42,65 @@ const SERVED_ELSEWHERE = {
 const UNREAD_CEILING = 20;
 const UNREADABLE_CEILING = 1;
 
-/* The [start, end) ranges of JS comments (block and line) in a source text, skipping quoted strings
-   so a `//` inside a URL string is not taken for a comment. Good enough for this page and server;
-   a regex literal containing a quote could confuse it, and none of the /api ones do. */
-function commentRanges(src) {
-  const out = [];
+/* A lexical mask over a source text: CODE, COMMENT, STRING (inside a string literal), START (the
+   opening quote of one) and REGEX (a regex literal). One pass, so a quote inside a comment, a `//` inside a string, and a
+   template literal spanning lines are each classified by what they really are. A template's
+   `${...}` is treated as part of the string (an /api call INSIDE an interpolation is not read). */
+const CODE = 0; const COMMENT = 1; const STRING = 2; const START = 3; const REGEX = 4;
+/* Can a `/` at i open a regex literal? Yes after an operator, an opening bracket, a comma, a colon,
+   a semicolon, `return`/`typeof`-style keywords, or at the start of a line; no after a value
+   (an identifier, a number, `)` or `]`), where it divides. */
+function regexCanStart(src, i) {
+  let k = i - 1;
+  while (k >= 0 && (src[k] === ' ' || src[k] === '\t')) k -= 1;
+  if (k < 0 || src[k] === '\n') return true;
+  if ('(,=:[!&|?{};+-*%<>~^'.includes(src[k])) return true;
+  const word = src.slice(Math.max(0, k - 10), k + 1).match(/[A-Za-z_$]+$/);
+  return !!(word && /^(return|typeof|case|in|of|new|delete|void|throw|else|do)$/.test(word[0]));
+}
+function lexMask(src) {
+  const mask = new Uint8Array(src.length);
   let i = 0;
   while (i < src.length) {
     const c = src[i];
     if (c === "'" || c === '"' || c === '`') {
+      mask[i] = START;
       let j = i + 1;
-      while (j < src.length && src[j] !== c && src[j] !== '\n') j += src[j] === '\\' ? 2 : 1;
+      while (j < src.length && src[j] !== c) {
+        if (c !== '`' && src[j] === '\n') break; // a quote/double-quote string ends at a line break
+        if (src[j] === '\\') { mask[j] = STRING; j += 1; }
+        if (j < src.length) mask[j] = STRING;
+        j += 1;
+      }
+      if (j < src.length) mask[j] = STRING;
       i = j + 1;
     } else if (c === '/' && src[i + 1] === '*') {
       const e = src.indexOf('*/', i + 2);
       const end = e < 0 ? src.length : e + 2;
-      out.push([i, end]);
+      mask.fill(COMMENT, i, end);
       i = end;
-    } else if (c === '/' && src[i + 1] === '/' && src[i - 1] !== ':' && src[i - 1] !== '\\') {
+    } else if (c === '/' && src[i + 1] === '/') {
       const e = src.indexOf('\n', i);
       const end = e < 0 ? src.length : e;
-      out.push([i, end]);
+      mask.fill(COMMENT, i, end);
       i = end;
+    } else if (c === '/' && regexCanStart(src, i)) {
+      /* A regex literal: skipped whole (outside a character class a `/` ends it), so a quote or a
+         backtick inside one, /['"`]/, cannot open a phantom string that swallows the file. */
+      let j = i + 1;
+      let inClass = false;
+      for (; j < src.length && src[j] !== '\n'; j += 1) {
+        const d = src[j];
+        if (d === '\\') { j += 1; continue; }
+        if (inClass) { if (d === ']') inClass = false; continue; }
+        if (d === '[') { inClass = true; continue; }
+        if (d === '/') break;
+      }
+      mask.fill(REGEX, i, Math.min(j + 1, src.length));
+      i = j + 1;
     } else i += 1;
   }
-  return out;
+  return mask;
 }
 
 /** The /api paths the page reaches, as concrete example paths with dynamic parts filled in. */
@@ -79,13 +113,12 @@ function pagePaths(src) {
   /* Every quoted '/api/' literal in CODE, not only fetch( arguments: the page also reaches the
      board through helpers (a post wrapper, a table of endpoints, a `url:` field), and a UI merged
      ahead of its route through one of those is the same defect. Comments are skipped. */
-  const comments = commentRanges(src);
-  const inComment = (i) => comments.some(([s0, e0]) => i >= s0 && i < e0);
+  const mask = lexMask(src);
   const re = /['"`]\/api\//g;
   let m;
   while ((m = re.exec(src))) {
     const at = m.index;
-    if (inComment(at)) continue;
+    if (mask[at] !== START) continue; // inside a comment, or quoted text inside another string
     /* A literal the page only COMPARES against (`api.startsWith('/api/svc/')`, `=== '/api/x'`) names
        no request, so it is not a call to check. */
     if (/(?:startsWith|endsWith|includes|indexOf)\(\s*$|[=!]==?\s*$/.test(src.slice(Math.max(0, at - 24), at))) continue;
@@ -151,18 +184,22 @@ function pagePaths(src) {
 
 /** The board's routes: exact literals, prefixes, and regexes. */
 function boardRoutes(src) {
-  const comments = commentRanges(src);
-  const inComment = (i) => comments.some(([s0, e0]) => i >= s0 && i < e0);
+  const mask = lexMask(src);
+  const inCode = (i) => mask[i] === CODE;
   /* A literal counts as a ROUTE only where the board compares the path to it (`=== '/api/..'`,
      `'/api/..' ===`, a `case`), not anywhere it is merely mentioned: a comment, a log line or an
      outbound URL naming a route that does not exist yet must not serve it. */
   const literals = new Set();
   for (const m of src.matchAll(/(?:===\s*|case\s+)'(\/api\/[A-Za-z0-9/_.-]*)'|'(\/api\/[A-Za-z0-9/_.-]*)'\s*===/g)) {
-    if (!inComment(m.index)) literals.add(m[1] || m[2]);
+    /* The literal's own opening quote must be a real string start, and the comparison around it
+       must be CODE: `console.log("x === '/api/y'")` names no route. */
+    const q = m.index + m[0].indexOf("'");
+    const op = m[0].indexOf('===') > -1 ? m.index + m[0].indexOf('===') : m.index;
+    if (mask[q] === START && inCode(op)) literals.add(m[1] || m[2]);
   }
   /* A PREFIX only where the board itself tests one with startsWith, and never the bare '/api/':
      that is the "no such endpoint" catch-all, and counting it would serve every path. */
-  const prefixes = [...src.matchAll(/startsWith\('(\/api\/[A-Za-z0-9/_.-]+)'\)/g)].filter((m) => !inComment(m.index)).map((m) => m[1]);
+  const prefixes = [...src.matchAll(/startsWith\('(\/api\/[A-Za-z0-9/_.-]+)'\)/g)].filter((m) => inCode(m.index)).map((m) => m[1]);
   const regexes = [];
   /* Regex literals are scanned by hand, because a route regex carries `[^/]`: a `/` inside a
      character class does not end the literal, and a naive pattern stops there (it found 4 of 55). */
@@ -170,7 +207,7 @@ function boardRoutes(src) {
   for (;;) {
     const at = src.indexOf('/^\\/api\\/', from);
     if (at < 0) break;
-    if (inComment(at)) { from = at + 1; continue; }
+    if (mask[at] !== REGEX) { from = at + 1; continue; } // a real regex literal, not text about one
     let i = at + 1;
     let inClass = false;
     for (; i < src.length; i += 1) {
@@ -195,6 +232,11 @@ function alternatives(board) {
   return [...words];
 }
 
+/* The two real parses, once per process: the controls parse MODIFIED copies and keep doing so. */
+let BASE_PAGE = null; let BASE_BOARD = null;
+const basePage = () => (BASE_PAGE = BASE_PAGE || pagePaths(PAGE));
+const baseBoard = () => (BASE_BOARD = BASE_BOARD || boardRoutes(SERVER));
+
 function served(p, board) {
   if (board.literals.has(p)) return true;
   if (board.prefixes.some((l) => p.startsWith(l))) return true;
@@ -217,10 +259,13 @@ function served(p, board) {
 }
 
 test('#3957: every /api path the page fetches is served by a board route', () => {
-  const { paths, unread, unreadable } = pagePaths(PAGE);
-  const board = boardRoutes(SERVER);
+  const { paths, unread, unreadable } = basePage();
+  const board = baseBoard();
   console.log(`page paths read: ${paths.length}; fetches not read (URL not a literal): ${unread}; with a variable tail, NOT checked: ${unreadable.length} (${unreadable.join(', ')}); board literals ${board.literals.size}, prefixes ${board.prefixes.length}, regexes ${board.regexes.length}`);
-  assert.ok(paths.length >= 50, 'the extractor read almost nothing from the page; it is broken, not the page');
+  /* A FLOOR near today's count (186), not a token one: a lexer slip that mis-reads a region drops
+     real calls SILENTLY (one did, 193 -> 171, taking the federation routes with it), and a floor of
+     50 could not see it. Lower it only when the page genuinely loses calls. */
+  assert.ok(paths.length >= 170, `the extractor read ${paths.length} paths (floor 170); a region of the page is being mis-read, not the page shrinking`);
   assert.ok(board.regexes.length >= 40, 'the board extractor found almost no route regexes (' + board.regexes.length + '); it is broken, not the board');
   /* CEILINGS, not just a printout: a green log is read by nobody. A new fetch whose URL is a variable,
      or a new variable-tailed one, cannot be checked here, so it has to be a deliberate change: make
@@ -234,7 +279,7 @@ test('#3957: every /api path the page fetches is served by a board route', () =>
 });
 
 test('#3957: every SERVED_ELSEWHERE entry is still called by the page, so the list cannot rot', () => {
-  const { paths } = pagePaths(PAGE);
+  const { paths } = basePage();
   const stale = Object.keys(SERVED_ELSEWHERE).filter((p) => !paths.includes(p));
   assert.deepEqual(stale, [], 'an exception the page no longer needs: remove it');
 });
@@ -272,4 +317,14 @@ test('#3957 control: an /api call through a page helper (not fetch) is read and 
   const planted = pagePaths(PAGE + "\nplusSiPost('/api/remote/no-such-3957', {});\n").paths;
   assert.ok(planted.includes('/api/remote/no-such-3957'), 'a helper call was not read');
   assert.equal(served('/api/remote/no-such-3957', boardRoutes(SERVER)), false);
+});
+
+test('#3957 control: a `//` inside a multi-line template literal does not hide a real call after it', () => {
+  const planted = pagePaths(PAGE + "\nconst label3957 = `Manage your account\n// settings and preferences` + 0; fetch('/api/attack-three-missing-3957');\n").paths;
+  assert.ok(planted.includes('/api/attack-three-missing-3957'), 'the call after a multi-line template was swallowed as a comment');
+});
+
+test('#3957 control: a comparison quoted inside a board LOG STRING is not a route', () => {
+  const board = boardRoutes(SERVER + "\nconsole.log(\"deprecated path === '/api/oldthing-not-real-3957', ignoring\");\n");
+  assert.equal(served('/api/oldthing-not-real-3957', board), false);
 });
