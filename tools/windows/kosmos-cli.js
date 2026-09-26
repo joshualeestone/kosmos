@@ -727,8 +727,7 @@ async function feedbackPull(ctx, args) {
   let r;
   try { r = await ctx.engine('feedbackpull').pull(dir || undefined); } catch { ctx.err('could not pull the collected feedback'); return 1; }
   if (!r.ok) { ctx.err(r.because); return 1; }
-  ctx.out('pulled ' + r.written + ' report(s)' + (r.skipped ? ' (' + r.skipped + ' skipped)' : '') + ' to ' + r.dir);
-  if (r.unreadable) ctx.out(r.unreadable + ' of them could not be read (last error: ' + r.lastGetError + ')');
+  for (const line of ctx.engine('feedbackpull').summaryLines(r)) ctx.out(line);
   ctx.out('next: kosmos feedback triage --dir ' + r.dir);
   return 0;
 }

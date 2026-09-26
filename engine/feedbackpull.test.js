@@ -331,3 +331,31 @@ test('#3878: a partial pull says how many reports could not be read; the wrong-s
   });
   assert.match((await fp.pull(path.join(SB, 'd-denied'), { token: 'tok' })).because, /wrong store/);
 });
+
+test('#3878: one summary for every CLI, including the could-not-be-read line', () => {
+  assert.deepEqual(fp.summaryLines({ written: 3, skipped: 0, dir: '/d' }), ['pulled 3 report(s) to /d']);
+  assert.deepEqual(fp.summaryLines({ written: 1, skipped: 2, unreadable: 2, lastGetError: 'blob GET HTTP 403', dir: '/d' }),
+    ['pulled 1 report(s) (2 skipped) to /d', '2 of them could not be read (last error: blob GET HTTP 403)']);
+  // The Mac and Windows commands print THIS, not their own copy of the sentence.
+  const repo = path.join(__dirname, '..');
+  const mac = fs.readFileSync(path.join(repo, 'install', 'kosmos'), 'utf8');
+  const win = fs.readFileSync(path.join(repo, 'tools', 'windows', 'kosmos-cli.js'), 'utf8');
+  const self = fs.readFileSync(path.join(repo, 'engine', 'feedbackpull.js'), 'utf8');
+  for (const [name, src] of [['install/kosmos', mac], ['tools/windows/kosmos-cli.js', win]]) {
+    assert.match(src, /summaryLines\(r\)/, name + ' does not print the shared summary');
+    assert.doesNotMatch(src, /["']pulled ["'] *\+ *r\.written/, name + ' still words the summary itself');
+  }
+  assert.equal((self.match(/'pulled ' \+ r\.written/g) || []).length, 1, 'the summary is worded more than once in the engine');
+});
+
+test('#3878: the wrong-store hint survives a later 404 once any read was denied', async () => {
+  let n = 0;
+  fp.setTransport({
+    list: async () => [1, 2, 3].map((i) => ({ url: 'https://s.blob.vercel-storage.com/' + i + '.json' })),
+    get: async () => { n += 1; throw new Error(n < 3 ? 'blob GET HTTP 403' : 'blob GET HTTP 404'); },
+  });
+  const r = await fp.pull(path.join(SB, 'd-mixed'), { token: 'tok' });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /last error: blob GET HTTP 404/);
+  assert.match(r.because, /wrong store/, 'two 403s then a 404 must still point at the token');
+});

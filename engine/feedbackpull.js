@@ -234,7 +234,9 @@ async function pull(dir, opts) {
     try { text = await tp.get(b.url, tok); }
     catch (e) {
       skipped += 1; unreadable += 1; lastGetError = String((e && e.message) || e);
-      lastGetDenied = /HTTP 40[13]\b/.test(lastGetError);
+      // Sticky: ANY denied read means the token may be for the wrong store, even when
+      // a later read failed another way (a 404 on a blob deleted mid-pull).
+      if (/HTTP 40[13]\b/.test(lastGetError)) lastGetDenied = true;
       continue;
     }
     let rec;
@@ -263,6 +265,18 @@ async function pull(dir, opts) {
   // A partial pull is still ok, but says how many could not be read and why, so a
   // mostly-failed pull is not mistaken for a clean one.
   return { ok: true, written, skipped, unreadable, lastGetError: unreadable ? lastGetError : '', total, dir: target };
+}
+
+/**
+ * The success summary of a pull, as lines. The ONE place it is worded: runCli, the
+ * Mac `kosmos feedback pull` (install/kosmos) and the Windows command all print
+ * these, so a partial pull's "could not be read" line cannot be missing from one of
+ * them (kosmos#3878).
+ */
+function summaryLines(r) {
+  const out = ['pulled ' + r.written + ' report(s)' + (r.skipped ? ' (' + r.skipped + ' skipped)' : '') + ' to ' + r.dir];
+  if (r.unreadable) out.push(r.unreadable + ' of them could not be read (last error: ' + r.lastGetError + ')');
+  return out;
 }
 
 /**
@@ -315,10 +329,7 @@ async function runCli(argv, opts) {
   try { r = await pull(dir || undefined, opts); }
   catch (e) { process.stderr.write('could not pull the collected feedback: ' + String((e && e.message) || e) + '\n'); return 1; }
   if (!r.ok) { process.stderr.write(r.because + '\n'); return 1; }
-  process.stdout.write('pulled ' + r.written + ' report(s)'
-    + (r.skipped ? ' (' + r.skipped + ' skipped)' : '')
-    + ' to ' + r.dir + '\n');
-  if (r.unreadable) process.stdout.write(r.unreadable + ' of them could not be read (last error: ' + r.lastGetError + ')\n');
+  for (const line of summaryLines(r)) process.stdout.write(line + '\n');
   return 0;
 }
 
@@ -334,5 +345,5 @@ if (require.main === module) {
 module.exports = {
   pull, runCli, setTransport, token, toMarkdown, fileName,
   FEEDBACK_TOKEN_TARGET, PREFIX, defaultDir, blobApi, DEFAULT_BLOB_API,
-  defaultList, defaultGet, tokenMayGoTo,
+  defaultList, defaultGet, tokenMayGoTo, summaryLines,
 };

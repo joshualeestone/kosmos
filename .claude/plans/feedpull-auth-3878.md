@@ -25,13 +25,17 @@ migration it would pull nothing, and it would still report `ok: true`.
 - A partial pull stays ok but returns `unreadable` and `lastGetError`, and both CLIs print "N of them could not be read (last error: ...)".
 - The wrong-store hint follows only a 401 or 403. A 404 (a blob deleted between the list and the GET) does not blame the token.
 
+## Review iteration 2
+- `summaryLines(r)` is the ONE wording of a pull's success summary. runCli, the Mac `kosmos feedback pull` (install/kosmos) and the Windows command all print it. A test fails if either CLI words it itself.
+- The wrong-store hint is sticky: any 401/403 in the run keeps it, even if a later read failed another way.
+
 ## Tests
 engine/feedbackpull.test.js:
 - the real transport's report GETs carry the token;
 - a foreign-host report URL gets no token;
 - all-unreadable gives ok:false, with a partial-pull control.
 
-Seven mutations run red: no auth header; token sent to any host; the silent success; the start anchor; the end anchor; https-only; token blamed on every error.
+Nine mutations run red (also: a non-sticky hint, the Mac CLI's own copy of the summary): no auth header; token sent to any host; the silent success; the start anchor; the end anchor; https-only; token blamed on every error.
 
 ## Weakest premise
 That the blob host pattern stays `*.blob.vercel-storage.com`. If Vercel changes it, the token is withheld and pull fails loudly (ok:false naming the error), never silently.
