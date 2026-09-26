@@ -42,7 +42,9 @@ wait_gone() {
   # `$` anchors the pattern to the END of the command line: our marker `sleep 9552<pid>`
   # is a PREFIX of a concurrent run's `sleep 9552<longerpid>`, so an UNanchored match could
   # count another run's live child and false-FAIL. Anchored, only our exact marker matches.
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
+  # Up to ~20s (#3854 review): a reaped marker is gone at the first look, so the longer
+  # ceiling costs nothing unless the reap is genuinely slow on a loaded Mac.
+  for _ in $(seq 1 40); do
     c="$(pgrep -f "$1\$" | wc -l | tr -d ' ')"
     [ "$c" = 0 ] && break
     sleep 0.5
@@ -63,10 +65,14 @@ chmod +x "$cur"
 # BEHIND-HANG: predates the flag, so it starts the app for EVERYTHING (the real bug). It
 # FORKS a child before becoming the launcher, so a launcher-only kill would orphan the
 # child -- exactly the leak the group-kill exists to prevent.
+# It writes FORKED once the child exists (#3854 review): under load the kill can land
+# before the fork, and then "no child left" would pass with nothing ever to reap.
 bhang="$tmp/behind-hang"
+FORKED="$tmp/forked"
 cat > "$bhang" <<EOF
 #!/bin/bash
 sleep $FORK &
+echo forked > "$FORKED"
 exec sleep $LAUNCH
 EOF
 chmod +x "$bhang"
@@ -78,9 +84,17 @@ bexit="$tmp/behind-exit"; printf '#!/bin/bash\nexit 0\n' > "$bexit"; chmod +x "$
 bwrong="$tmp/behind-wrong"; printf '#!/bin/bash\necho 9999\nexit 0\n' > "$bwrong"; chmod +x "$bwrong"
 
 # --- bounded_run bounds a hanging bundle AND takes its FORKED child with it --------
-start=$(date +%s)
-bounded_run "$T" "$bhang" --kosmos-app-port-selftest 501 >/dev/null 2>&1; rc=$?
-elapsed=$(( $(date +%s) - start ))
+# The arm is only a test of the reap if the stub forked before the kill. Under load a
+# 2s bound can land first; then run it once more with a bound the start cannot miss.
+hang_arm() {  # hang_arm <bound>: sets rc and elapsed
+  rm -f "$FORKED"
+  local start; start=$(date +%s)
+  bounded_run "$1" "$bhang" --kosmos-app-port-selftest 501 >/dev/null 2>&1; rc=$?
+  elapsed=$(( $(date +%s) - start ))
+}
+hang_arm "$T"
+[ -f "$FORKED" ] || { wait_gone "sleep $FORK" >/dev/null; hang_arm 10; }
+check "the hanging stub forked before the kill (so the reap below is real)" yes "$([ -f "$FORKED" ] && echo yes || echo no)"
 check "bounded_run returns 124 on a hanging bundle" 124 "$rc"
 # The completion itself proves no-hang (a broken bound would hang this test). A generous
 # ceiling well under the 999s hang catches a far-too-slow bound without flaking on load.
@@ -92,13 +106,24 @@ else check "bounded_run did not hang (bounded)" ok "SLOW-${elapsed}s"; fi
 check "the FORKED child is reaped by the group-kill (not orphaned)" 0 "$(wait_gone "sleep $FORK")"
 
 # --- bounded_run returns a quick command's output and rc --------------------------
+start=$(date +%s)
 out="$(bounded_run "$QUICK_T" "$cur" --kosmos-app-port-selftest 501)"; rc=$?
+quick=$(( $(date +%s) - start ))
 check "bounded_run returns a quick command's rc" 0 "$rc"
 check "bounded_run returns a quick command's stdout" 16180 "$out"
+# A quick answer returns when it exits, not at the bound: this is what makes QUICK_T free.
+if [ "$quick" -le 20 ]; then check "a quick answer returns before the bound" ok ok
+else check "a quick answer returns before the bound" ok "WAITED-${quick}s"; fi
+# The BEHIND answering bundles really ANSWER (rc 0) rather than time out, so the premise
+# arms below fail them for their answer, not for a timeout (#3854 review).
+out="$(bounded_run "$QUICK_T" "$bexit" --kosmos-app-port-selftest 501)"; rc=$?
+check "a BEHIND (exit) bundle answers, with no port" "0:" "$rc:$out"
+out="$(bounded_run "$QUICK_T" "$bwrong" --kosmos-app-port-selftest 501)"; rc=$?
+check "a WRONG-port bundle answers, with its wrong port" "0:9999" "$rc:$out"
 
 # --- the premise check: current vs behind -----------------------------------------
 kosmos_app_selftest_current "$cur" 16180 "$QUICK_T";    check "a CURRENT bundle is #910-aware" 0 "$?"
-kosmos_app_selftest_current "$bhang" 16180 "$T";  check "a BEHIND (hanging) bundle is behind" 1 "$?"
+kosmos_app_selftest_current "$bhang" 16180 "$T";        check "a BEHIND (hanging) bundle is behind" 1 "$?"
 kosmos_app_selftest_current "$bexit" 16180 "$QUICK_T";  check "a BEHIND (exit, no port) bundle is behind" 1 "$?"
 kosmos_app_selftest_current "$bwrong" 16180 "$QUICK_T"; check "a bundle answering the WRONG port is behind" 1 "$?"
 

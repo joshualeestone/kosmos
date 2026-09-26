@@ -20,12 +20,23 @@ Real use is unaffected: tools/test-install.sh passes ${KOSMOS_SELFTEST_TIMEOUT:-
   arms (their 124 is under test). A quick answer returns when it exits, so the longer bound costs nothing
   on an idle Mac.
 
+- Review round 1: the hanging arm's reap check passed with nothing to reap when the kill landed before
+  the stub forked (a launcher-only-kill regression went green with a slow fork). The stub now writes a
+  marker once it has forked; if a 2s run misses it, the arm runs once more at 10s, and it FAILS rather
+  than passes without the marker. The BEHIND answering bundles are also run raw, asserting rc 0 and their
+  answer, so their premise arms fail on the answer, not a timeout. A quick answer is timed (<= 20s), which
+  is what makes QUICK_T free. wait_gone polls up to ~20s.
+
 ## Measured
 - On main's test with the answering stub made to take 3s (standing in for a loaded start): 3 FAIL, the
   card's two plus the CURRENT arm. The same stub on this branch: 0 FAIL. Unmodified branch run: all pass.
+- Hanging stub delayed 3s before its fork: passes (via the 10s rerun). The same plus a launcher-only kill
+  in the lib: 2 FAIL (the reap and the no-leak checks); before round 1 it passed.
 
 ## Decided
 - Test-only; bounded_run and its real callers are unchanged (rejected: a finer poll inside bounded_run,
   which would change product code to fix a test's bound). Weakest premise: that nothing else in the
   test waits on another process; the reproduction shows the bound alone accounts for the card's failure.
+- Not here: bounded_run can hang if its bound expires before perl's setpgrp (product code, found in
+  review round 1). Filed as #3859.
 - Card offered to Baron Draxum (the test's author) first; his session could not answer.
