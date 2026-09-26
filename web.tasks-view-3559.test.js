@@ -79,12 +79,42 @@ test('scope: project, window and search combine', () => {
   assert.deepEqual(pick({ win: 2, q: 'rex' }), [2, 7]);
 });
 
-test('only the groups the engine can prove are defined, in the mock\'s order', () => {
+test('#3949 only the groups the engine can prove are defined, in Josh\'s order, one label each', () => {
   const m = SCRIPT.match(/const TSK_GROUPS = \[([\s\S]*?)\n\];/);
   assert.ok(m, 'TSK_GROUPS moved; update this test');
   const keys = [...m[1].matchAll(/\bk: '([a-z]+)'/g)].map((x) => x[1]);
-  assert.deepEqual(keys, ['nobody', 'assigned', 'working', 'closed']);
-  assert.doesNotMatch(m[1], /Waiting on you|Done, check it/, 'an unprovable group is drawn');
+  assert.deepEqual(keys, ['decision', 'working', 'assigned', 'nobody', 'closed']);
+  const labels = [...m[1].matchAll(/\bl: '([^']+)'/g)].map((x) => x[1]);
+  assert.deepEqual(labels, ['Needs Your Decision', 'In progress', 'Assigned but not started', 'Unassigned', 'Completed']);
+  assert.doesNotMatch(m[1], /\bs: '/, 'a group carries a byline again');
+  assert.doesNotMatch(m[1], /Built but waiting|Waiting on you|Done, check it/, 'an unprovable group is drawn (#3951)');
+  assert.match(m[1], /k: 'decision', l: 'Needs Your Decision', c: 'var\(--tsk-decision\)'/);
+  assert.match(PAGE, /--tsk-decision: var\(--danger\);/, 'Needs Your Decision is not red');
+});
+
+test('#3949 the layout: no Projects rail, search beside the count, Project and Created: dropdowns on one row, Group by and Sort under the tiles', () => {
+  const view = PAGE.slice(PAGE.indexOf('<section class="panel panel-wide" id="panel-tasks" hidden>'));
+  const body = view.slice(0, view.indexOf('</section>'));
+  assert.doesNotMatch(body, /tsk-rail|id="tsk-projects"|tsk-mobsel/, 'the left Projects column is back');
+  assert.doesNotMatch(PAGE, /Tap a tile to see only that group/, 'the tile hint is back');
+  assert.doesNotMatch(PAGE, /\.tsk-view \{[^}]*grid-template-columns/, 'the view still reserves a rail column');
+  const at = (re) => { const i = body.search(re); assert.ok(i >= 0, 'missing: ' + re); return i; };
+  // Search and the count share the top row, the count to the right.
+  const top = body.slice(at(/<div class="tsk-toprow">/), at(/<div class="tsk-ctrls" id="tsk-filters">/));
+  assert.ok(top.indexOf('id="tsk-search"') >= 0 && top.indexOf('id="tsk-sub"') > top.indexOf('id="tsk-search"'), 'the count is not to the right of the search');
+  // Project and Created: are dropdowns on one row, above the tiles.
+  const filters = body.slice(at(/id="tsk-filters"/), at(/id="tsk-tiles"/));
+  assert.match(filters, /<select class="tsk-sel" id="tsk-projsel">/);
+  assert.match(filters, /<label class="tsk-cl" for="tsk-win">Created:<\/label><select class="tsk-sel" id="tsk-win">/);
+  // Group by and Sort are dropdowns under the tiles.
+  const under = body.slice(at(/id="tsk-under"/));
+  assert.ok(at(/id="tsk-under"/) > at(/id="tsk-tiles"/), 'Group by and Sort are not under the tiles');
+  assert.match(under, /<label class="tsk-cl" for="tsk-by">Group by<\/label><select class="tsk-sel" id="tsk-by">/);
+  assert.match(under, /id="tsk-sort"/);
+  // The dropdowns drive the view.
+  assert.match(SCRIPT, /if \(e\.target\.id === 'tsk-win'\) \{ TSK\.win = Number\(e\.target\.value\) \|\| 0; tskPaint\(\); return; \}/);
+  assert.match(SCRIPT, /if \(e\.target\.id === 'tsk-by'\) \{ TSK\.by = e\.target\.value === 'project' \? 'project' : 'status'; tskPaint\(\); \}/);
+  assert.match(SCRIPT, /by: 'status'/, 'Group by does not default to Status');
 });
 
 test('the wiring: a Tasks tab, both allowlists, showTab loads it, and the consolidated rail has a way in', () => {

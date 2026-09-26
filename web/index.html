@@ -3359,18 +3359,11 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    The status colours: grey for nobody on it, gold for assigned, the working green for in
    progress, a quiet grey for closed -- the app's existing meanings, no new palette. */
 #panel-tasks { --tsk-c: var(--k-ink-2); --tsk-nobody: var(--k-ink-2); --tsk-assigned: var(--gold-deep); --tsk-working: var(--ok);
+  --tsk-decision: var(--danger);
   --tsk-closed: color-mix(in srgb, var(--k-ink-2) 55%, var(--k-rule));
   --tsk-wash: color-mix(in srgb, var(--gold) 14%, var(--k-surface)); color: var(--k-ink); }
-.tsk-view { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 70vh;
-  background: var(--k-bg); border: 1px solid var(--k-rule); border-radius: 14px; overflow: hidden; }
-.tsk-rail { background: var(--k-side); border-right: 1px solid var(--k-rule); padding: 18px 12px 24px; }
-.tsk-rcap { font: 650 .6875rem var(--font-ui); letter-spacing: .12em; text-transform: uppercase; color: var(--k-ink-2); margin: 4px 8px 6px; }
-.tsk-ritem { display: flex; align-items: center; gap: 8px; width: 100%; border: 1px solid transparent; background: none;
-  font: 500 .875rem var(--font-ui); color: var(--k-ink); padding: 6px 8px; border-radius: 8px; cursor: pointer; text-align: left; }
-.tsk-ritem:hover:not(.on) { background: var(--tsk-wash); }
-.tsk-ritem.on { background: var(--k-surface); border-color: var(--gold-edge); font-weight: 650; }
-.tsk-ritem .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tsk-ritem .ct { font: 500 .75rem var(--font-mono); color: var(--k-ink-2); font-variant-numeric: tabular-nums; }
+/* #3949: one column, the full width (the Projects rail is gone; its choice is the dropdown). */
+.tsk-view { min-height: 70vh; background: var(--k-bg); border: 1px solid var(--k-rule); border-radius: 14px; overflow: hidden; }
 .tsk-main { padding: 25px 26px 110px; min-width: 0; position: relative; }
 .tsk-crumb { font-size: .8125rem; color: var(--k-ink-2); margin: 0 0 2px; min-height: 1.3em; }
 /* Mona's look review of #3701: halve the two big vertical gaps (measured 51px above the title,
@@ -3382,15 +3375,18 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    because truncating would hide the part the person needs. It stays a live region. */
 .tsk-crumb:empty { min-height: 0; margin: 0; }
 #tsk-msg { margin: 0; min-height: 1.6em; min-height: 1lh; }   /* one message line, reserved */
-#panel-tasks #tsk-hint { margin-bottom: 0; }
 #tsk-groups > .tsk-grp:first-child { margin-top: 3px; }
 .tsk-crumb button { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer;
   text-decoration: underline; text-decoration-color: var(--gold); text-underline-offset: 3px; }
 #panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
 /* #3703: the head carries "+ New task" beside the title, as Mona's mock draws it (.mh / .newbtn). */
 #panel-tasks .tsk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.tsk-sub { color: var(--k-ink-2); font-size: .9375rem; margin: 2px 0 0; }
-.tsk-ctrls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 18px 0 4px; }
+/* #3949: the search takes about half the width, with the open-task count to its right. */
+.tsk-toprow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; margin: 16px 0 0; }
+.tsk-toprow .tsk-search { flex: 0 1 50%; min-width: 240px; margin: 0; max-width: none; }
+.tsk-sub { color: var(--k-ink-2); font-size: .9375rem; margin: 0; }
+.tsk-ctrls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 14px 0 4px; }
+#tsk-under { margin: 12px 0 4px; }
 .tsk-ctl { display: flex; align-items: center; }
 .tsk-cl { font: 650 .6875rem var(--font-ui); letter-spacing: .1em; text-transform: uppercase; color: var(--k-ink-2); margin-right: 6px; white-space: nowrap; }
 .tsk-search { position: relative; margin: 16px 0 0; max-width: 520px; }
@@ -3401,10 +3397,6 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .tsk-search button { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: 0; background: none; cursor: pointer;
   color: var(--k-ink-2); font: 600 1rem var(--font-ui); width: 26px; height: 26px; border-radius: 7px; }
 .tsk-search button:hover { background: var(--k-rule); }
-.tsk-seg { display: inline-flex; border: 1px solid var(--k-rule); border-radius: 9px; overflow: hidden; background: var(--k-surface); }
-.tsk-seg button { border: 0; background: none; cursor: pointer; padding: 0 11px; height: 30px; color: var(--k-ink-2); font: 600 .8125rem var(--font-ui); white-space: nowrap; }
-.tsk-seg button + button { border-left: 1px solid var(--k-rule); }
-.tsk-seg button[aria-pressed="true"] { color: #231b06; background: linear-gradient(150deg, var(--gold-bright), var(--gold-deep)); }
 /* The arrow's position and size and the radius come from the global `select`
    rule; `background-color`, not the `background` shorthand, so they survive.
    The 2rem right padding is restated because the `padding` shorthand replaces
@@ -3414,7 +3406,6 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
   background-color: var(--k-surface); color: var(--k-ink);
   background-image: linear-gradient(45deg, transparent 50%, var(--k-ink-2) 50%),
                     linear-gradient(135deg, var(--k-ink-2) 50%, transparent 50%); }
-.tsk-mobsel { display: none; }
 .tsk-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(138px, 1fr)); gap: 10px; margin: 16px 0 4px; }
 .tsk-tile { background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 12px; padding: 11px 13px 10px; cursor: pointer;
   text-align: left; font: inherit; color: inherit; display: flex; flex-direction: column; gap: 1px; }
@@ -3422,9 +3413,10 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-tile[aria-pressed="true"] { background: var(--agent-msg); border-color: var(--gold-edge); }
 .tsk-tile .num { font: 650 1.5rem var(--font-ui); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
 .tsk-tile .lab { font-size: .8125rem; font-weight: 650; }
-.tsk-tile .ts { font-size: .75rem; color: var(--k-ink-2); }
+/* #3949 (Josh): Needs Your Decision is red, the only tile the person acts on. */
+.tsk-tile[data-tile="decision"] { border-color: color-mix(in srgb, var(--danger) 45%, var(--k-rule)); }
+.tsk-tile[data-tile="decision"] .num, .tsk-tile[data-tile="decision"] .lab { color: var(--danger); }
 .tsk-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--tsk-c); margin-right: 6px; vertical-align: 1px; flex: none; }
-.tsk-hint { font-size: .8125rem; color: var(--k-ink-2); margin: 6px 0 4px; max-width: 80ch; }
 .tsk-grp { margin-top: 24px; }
 .tsk-grp h3 { font-size: 1.0625rem; margin: 0; display: flex; align-items: center; gap: 3px; }
 .tsk-grp h3 .count { font: 500 .8125rem var(--font-mono); color: var(--k-ink-2); margin-left: 6px; }
@@ -3489,24 +3481,18 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-task
 /* #3880 (Josh, 2026-09-25 22:01): in the column the view has no outer frame of its own; the title, New task, filters,
    tiles and list sit on the column's ground unframed. The tiles and the list keep their own borders. The tab view keeps
    its frame: Josh scoped this to the consolidated view. */
-html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-view { grid-template-columns: 1fr;
+html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-view {
   border: 0; border-radius: 0; background: none; }
 /* Mona's look review of #3701: in the column the panel's own top inset already spaces the title,
    so the view's does not stack on it (was about 49px, like the tab view's 51px before halving). */
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-main { padding-top: 0; }
-html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-rail { display: none; }
-html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-mobsel { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 /* The consolidated projects rail's way into Tasks (the tab bar is hidden there). */
 .rail-tasks { border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); font: 600 .75rem var(--font-ui);
   padding: 2px 8px; border-radius: 999px; cursor: pointer; margin-left: 8px; }
 .rail-tasks:hover { color: var(--k-ink); border-color: var(--gold-edge); }
 @media (max-width: 760px) {
-  .tsk-view { grid-template-columns: 1fr; }
-  .tsk-rail { display: none; }
-  .tsk-mobsel { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-  .tsk-search { max-width: none; }
+  .tsk-toprow .tsk-search { flex-basis: 100%; }
   .tsk-ctl { flex-wrap: wrap; row-gap: 4px; }
-  .tsk-seg button { padding: 0 8px; }
   .tsk-main { padding: 22px 14px 120px; }
   .tsk-row { grid-template-columns: 22px minmax(0, 1fr); }
   .tsk-side { grid-column: 2; flex-direction: row; align-items: center; justify-content: flex-start; min-width: 0; flex-wrap: wrap; }
@@ -14600,40 +14586,40 @@ window.kosmosMeasureScrollbarWidth();
 <!-- #3559 (Josh, 2026-09-24): Tasks is a top-level view beside Agents and Projects, every
      task across every project. Mona's mock (chaoskosmos-site tasks-view-3559 248c953, the dot
      revision) plus Josh's search box. Groups are WHERE THE WORK IS, derived by the engine
-     (tasks.taskState) and only those it can prove today: Nobody on it, Assigned not started, In
-     progress, Closed. Waiting on you, Done-check-it and categories need evidence no task stores
-     yet, so they are not drawn at all rather than guessed. No coloured left bars anywhere (Josh,
-     12:52): the status mark is a round dot beside the label. -->
+     (tasks.taskState) and only those it can prove (since #3949: Needs Your Decision, In progress,
+     Assigned but not started, Unassigned, Completed). Built-but-waiting and categories need
+     evidence no task stores yet (#3951), so they are not drawn at all rather than guessed. No
+     coloured left bars anywhere (Josh, 12:52): the status mark is a round dot beside the label. -->
+<!-- #3949 (Josh, 2026-09-26): no left Projects column; the body takes the full width. Projects is a
+     dropdown on one line with Created:, the search is about half as wide with the open-task count to its
+     right, five single-label tiles (Needs Your Decision red), and Group by and Sort under the tiles. -->
 <section class="panel panel-wide" id="panel-tasks" hidden>
   <div class="tsk-view">
-    <aside class="tsk-rail" aria-label="Filter tasks by project">
-      <div class="tsk-rcap">Projects</div>
-      <div id="tsk-projects"></div>
-    </aside>
     <div class="tsk-main">
       <p class="tsk-crumb" id="tsk-crumb"></p>
       <div class="tsk-head"><h2 id="tsk-title">All tasks</h2><button class="btn uprime" id="tsk-new" type="button"><span aria-hidden="true">+</span> New task</button></div>
-      <p class="tsk-sub" id="tsk-sub"></p>
-      <!-- Mona's a40bbe1: on a narrow window (and in the consolidated column) the rail becomes this
-           dropdown, and the search sits below it, full width. -->
-      <div class="tsk-mobsel"><select class="tsk-sel" id="tsk-projsel" aria-label="Project"></select></div>
-      <!-- #3559 (Josh, 14:39): search, on its own line above the controls (Mona's a40bbe1). Its own
-           clear button; the browser's native one is hidden. -->
+      <!-- #3559 (Josh, 14:39): search, with its own clear button; the browser's native one is hidden.
+           #3949: about half as wide, with the open-task count to its right. -->
+      <div class="tsk-toprow">
       <div class="tsk-search" role="search">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5" stroke-linecap="round"/></svg>
         <input id="tsk-search" type="search" autocomplete="off" spellcheck="false"
                placeholder="Search tasks" aria-label="Search tasks by what they say, number, project or agent">
         <button type="button" id="tsk-qclear" aria-label="Clear search" hidden>&times;</button>
       </div>
-      <div class="tsk-ctrls">
-        <div class="tsk-ctl"><span class="tsk-cl" id="tsk-win-l">Added in</span><span class="tsk-seg" id="tsk-win" role="group" aria-labelledby="tsk-win-l"></span></div>
-        <div class="tsk-ctl"><span class="tsk-cl" id="tsk-by-l">Group by</span><span class="tsk-seg" id="tsk-by" role="group" aria-labelledby="tsk-by-l"></span></div>
+      <p class="tsk-sub" id="tsk-sub"></p>
+      </div>
+      <div class="tsk-ctrls" id="tsk-filters">
+        <div class="tsk-ctl"><label class="tsk-cl" for="tsk-projsel">Project</label><select class="tsk-sel" id="tsk-projsel"></select></div>
+        <div class="tsk-ctl"><label class="tsk-cl" for="tsk-win">Created:</label><select class="tsk-sel" id="tsk-win"></select></div>
+      </div>
+      <div class="tsk-tiles" id="tsk-tiles"></div>
+      <div class="tsk-ctrls" id="tsk-under">
+        <div class="tsk-ctl"><label class="tsk-cl" for="tsk-by">Group by</label><select class="tsk-sel" id="tsk-by"></select></div>
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-sort">Sort</label><select class="tsk-sel" id="tsk-sort">
           <option value="new">Newest first</option><option value="stale">Quietest first</option><option value="old">Oldest first</option>
         </select></div>
       </div>
-      <div class="tsk-tiles" id="tsk-tiles"></div>
-      <p class="tsk-hint" id="tsk-hint">Tap a tile to see only that group, tap it again to see everything.</p>
       <p class="fmsg" id="tsk-msg" role="status" aria-live="polite"></p>
       <!-- What a search found, said to a screen reader while focus stays in the search box (the
            rows themselves change silently). Visually hidden: the page already shows it. -->
@@ -45179,17 +45165,22 @@ document.getElementById('pj-alltasks').addEventListener('click', () => openProje
 /* ---- #3559: the Tasks view ------------------------------------------------------------
    Every task on every project, grouped by WHERE THE WORK IS. The engine derives each task's
    `state` (tasks.taskState, from the same claim the project card shows); this code renders it
-   and never computes it. Only the groups the engine can prove exist here; waiting-on-you,
-   done-check-it and categories wait for evidence no task stores yet (Mona's weakest-premise
-   note on #3559), so they are not drawn at all rather than guessed. */
+   and never computes it. Only the groups the engine can prove exist here (#3949 added Needs Your
+   Decision, from the roster); built-but-waiting and categories wait for evidence no task stores yet
+   (#3951, and Mona's weakest-premise note on #3559), so they are not drawn at all rather than guessed. */
+/* #3949 (Josh, 2026-09-26): one label per group, no byline, in his order. Needs Your Decision is red, the
+   only group the person acts on; the engine's `decision` state (tasks.waitingOnPerson) fills it. "Built but
+   waiting" is not drawn: no task stores it yet (#3951). */
 const TSK_GROUPS = [
-  { k: 'nobody', l: 'Nobody on it', s: 'no agent assigned', c: 'var(--tsk-nobody)',
-    why: 'Open and unassigned. Give these to an agent, or close the ones that no longer matter.' },
-  { k: 'assigned', l: 'Assigned, not started', s: 'agent named, has not said it started', c: 'var(--tsk-assigned)',
-    why: 'An agent has these, and what it reports does not name them yet. Old ones here are worth a nudge.' },
-  { k: 'working', l: 'In progress', s: 'the agent says it is on it', c: 'var(--tsk-working)',
+  { k: 'decision', l: 'Needs Your Decision', c: 'var(--tsk-decision)',
+    why: 'The agent on these needs you: a question about this project, or your go-ahead.' },
+  { k: 'working', l: 'In progress', c: 'var(--tsk-working)',
     why: 'The agent’s own report names these as what it is working on.' },
-  { k: 'closed', l: 'Closed', s: 'finished and closed', c: 'var(--tsk-closed)', why: 'Closed tasks.' },
+  { k: 'assigned', l: 'Assigned but not started', c: 'var(--tsk-assigned)',
+    why: 'An agent has these, and what it reports does not name them yet. Old ones here are worth a nudge.' },
+  { k: 'nobody', l: 'Unassigned', c: 'var(--tsk-nobody)',
+    why: 'Open and unassigned. Give these to an agent, or close the ones that no longer matter.' },
+  { k: 'closed', l: 'Completed', c: 'var(--tsk-closed)', why: 'Finished and closed.' },
 ];
 const TSK_WINDOWS = [['24h', 1], ['48h', 2], ['1 week', 7], ['1 month', 30], ['All', 0]];
 const TSK_BYS = [['status', 'Status'], ['project', 'Project']];
@@ -45426,15 +45417,11 @@ function tskPaint() {
   /* "All tasks" counts what clicking it shows: every task but an archived project's, even while a
      door has us scoped to that archived project (#1346: a count agrees with its destination). */
   const openAll = tskVisible(TSK.data, null).filter((t) => t.state !== 'closed').length;
-  /* The rail, and its narrow-window twin. */
-  const rail = document.getElementById('tsk-projects');
-  if (rail) {
-    rail.innerHTML = '<button type="button" class="tsk-ritem' + (TSK.proj ? '' : ' on') + '" aria-pressed="' + !TSK.proj + '" data-proj=""><span class="nm">All tasks</span><span class="ct">' + openAll + '</span></button>'
-      + projectsList.map((p) => '<button type="button" class="tsk-ritem' + (TSK.proj === p.id ? ' on' : '') + '" aria-pressed="' + (TSK.proj === p.id) + '" data-proj="' + esc(p.id) + '"><span class="nm">' + esc(p.name) + '</span><span class="ct">' + p.open + '</span></button>').join('');
-  }
+  /* #3949: the project picker is this dropdown at every width (the left rail is gone). Each option keeps
+     the rail's open count, so it still agrees with what picking it shows (#1346). */
   const sel = document.getElementById('tsk-projsel');
   if (sel) {
-    sel.innerHTML = '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>').join('');
+    sel.innerHTML = '<option value="">All projects (' + openAll + ')</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(p.name) + ' (' + p.open + ')</option>').join('');
   }
   const picked = TSK.proj ? projMap.get(TSK.proj) : null;
   document.getElementById('tsk-title').textContent = picked ? picked.name : 'All tasks';
@@ -45446,16 +45433,16 @@ function tskPaint() {
   document.getElementById('tsk-sub').textContent = TSK.error && !TSK.data ? ''
     : open.length + (open.length === 1 ? ' open task' : ' open tasks')
       + (picked ? '' : ' across ' + projectsList.length + (projectsList.length === 1 ? ' project' : ' projects'));
-  document.getElementById('tsk-win').innerHTML = TSK_WINDOWS.map(([l, d]) => '<button type="button" data-win="' + d + '" aria-pressed="' + (TSK.win === d) + '">' + esc(l) + '</button>').join('');
-  document.getElementById('tsk-by').innerHTML = TSK_BYS.map(([k, l]) => '<button type="button" data-by="' + k + '" aria-pressed="' + (TSK.by === k) + '">' + esc(l) + '</button>').join('');
+  /* #3949: Created: and Group by are dropdowns (they were button rows). */
+  document.getElementById('tsk-win').innerHTML = TSK_WINDOWS.map(([l, d]) => '<option value="' + d + '"' + (TSK.win === d ? ' selected' : '') + '>' + esc(l) + '</option>').join('');
+  document.getElementById('tsk-by').innerHTML = TSK_BYS.map(([k, l]) => '<option value="' + k + '"' + (TSK.by === k ? ' selected' : '') + '>' + esc(l) + '</option>').join('');
   document.getElementById('tsk-sort').value = TSK.sort;
-  /* Tiles: the proven groups only, counted before the tile filter so every tile keeps its number. */
-  /* Closed is not a tile (Mona, as the mock draws it): tiles are where the open work is, and the
-     sub-line counts open tasks, so a Closed tile read as one more. Closed stays the folded list. */
-  document.getElementById('tsk-tiles').innerHTML = !TSK.data ? '' : TSK_GROUPS.filter((g) => g.k !== 'closed').map((g) => {
+  /* Tiles: the proven groups only, counted before the tile filter so every tile keeps its number.
+     #3949 (Josh): one label each, no byline, and Completed is a tile again (it was only the fold). */
+  document.getElementById('tsk-tiles').innerHTML = !TSK.data ? '' : TSK_GROUPS.map((g) => {
     const n = scoped.filter((t) => t.state === g.k).length;
     return '<button type="button" class="tsk-tile" data-tile="' + g.k + '" aria-pressed="' + (TSK.tile === g.k) + '" style="--tsk-c:' + g.c + '">'
-      + '<span class="num">' + n + '</span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span><span class="ts">' + esc(g.s) + '</span></button>';
+      + '<span class="num">' + n + '</span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span></button>';
   }).join('');
   const groups = document.getElementById('tsk-groups');
   if (!TSK.data) { groups.innerHTML = TSK.error ? '' : '<p class="tsk-empty">Reading your tasks…</p>'; tskPaintBulk(); return; }
@@ -45493,9 +45480,10 @@ function tskPaint() {
     groups.innerHTML = TSK_GROUPS.filter((g) => !TSK.tile || TSK.tile === g.k).map((g) => {
       const ts = sorted.filter((t) => t.state === g.k);
       const head = '<h3><span class="tsk-dot" style="--tsk-c:' + g.c + '"></span>' + esc(g.l) + '<span class="count">' + ts.length + '</span></h3><p class="why">' + esc(g.why) + '</p>';
-      /* Closed is always the fold (it has no tile): finished work is reachable, not in the way. */
+      /* Completed is always the fold: finished work is reachable, not in the way. */
       if (g.k === 'closed') {
-        return '<section class="tsk-grp" style="--tsk-c:' + g.c + '"><details class="tsk-fold"' + (TSK.closedOpen ? ' open' : '') + '><summary>' + esc(g.l) + ' (' + ts.length + ')</summary>' + tskList(ts) + '</details></section>';
+        /* #3949: picked from its tile, Completed opens: the person asked to see exactly these. */
+        return '<section class="tsk-grp" style="--tsk-c:' + g.c + '"><details class="tsk-fold"' + (TSK.closedOpen || TSK.tile === 'closed' ? ' open' : '') + '><summary>' + esc(g.l) + ' (' + ts.length + ')</summary>' + tskList(ts) + '</details></section>';
       }
       return '<section class="tsk-grp">' + head + tskList(ts) + '</section>';
     }).join('');
@@ -45632,18 +45620,18 @@ async function tskBulkClose() {
 }
 /* A repaint replaces the control that had focus, so focus goes to its REPLACEMENT: the same kind
    of control (tag + data attribute + value) inside the same container (its row by task key, the
-   crumb, the rail, the tiles, a segmented control), and only one that is on screen. Scoping to the
-   container is what makes it the same control: an agent's button repeats on every row it holds,
-   a row and its checkbox share a key, and the crumb's "All tasks" shares data-proj="" with a rail
-   item that is hidden in the consolidated view. */
-const TSK_FOCUS_KEYS = ['data-fold', 'data-close-parent', 'data-open-task', 'data-open-project', 'data-agent', 'data-tile', 'data-proj', 'data-win', 'data-by', 'data-key'];
+   crumb, the tiles), and only one that is on screen. Scoping to the container is what makes it the
+   same control: an agent's button repeats on every row it holds, and a row and its checkbox share a
+   key. The dropdowns (#3949: project, Created:, Group by, Sort) keep their own focus, since a repaint
+   replaces only their options. */
+const TSK_FOCUS_KEYS = ['data-fold', 'data-close-parent', 'data-open-task', 'data-open-project', 'data-agent', 'data-tile', 'data-proj', 'data-key'];
 function tskFocusMark(el) {
   const panel = document.getElementById('panel-tasks');
   if (!el || !panel || !panel.contains(el)) return null;
   const attr = TSK_FOCUS_KEYS.find((k) => el.hasAttribute(k));
   if (!attr) return null;
   const row = el.closest('.tsk-row');
-  const box = row ? null : el.closest('#tsk-crumb, #tsk-projects, #tsk-tiles, #tsk-win, #tsk-by');
+  const box = row ? null : el.closest('#tsk-crumb, #tsk-tiles');
   return { tag: el.tagName.toLowerCase(), attr, value: el.getAttribute(attr), row: row ? row.dataset.key : null, box: box ? box.id : null };
 }
 function tskFocusRestore(mark) {
@@ -45655,10 +45643,8 @@ function tskFocusRestore(mark) {
   const again = scope ? [...scope.querySelectorAll(mark.tag + '[' + mark.attr + '="' + CSS.escape(String(mark.value)) + '"]')].find(shown) : null;
   if (again) { again.focus(); return; }
   /* The control is gone with its container (the crumb's "All tasks" empties the crumb): land on
-     what now stands for it, the rail's item for that project, else the dropdown, else the search,
-     never the page body. */
-  const fallback = [...document.querySelectorAll('#tsk-projects [data-proj="' + CSS.escape(String(mark.attr === 'data-proj' ? mark.value : '')) + '"]')].find(shown)
-    || [document.getElementById('tsk-projsel'), document.getElementById('tsk-search')].find(shown);
+     what now stands for it, the project dropdown, else the search, never the page body. */
+  const fallback = [document.getElementById('tsk-projsel'), document.getElementById('tsk-search')].find(shown);
   if (fallback) fallback.focus();
 }
 function tskPaintKeepingFocus(el) {
@@ -45674,8 +45660,6 @@ document.getElementById('panel-tasks').addEventListener('click', (e) => {
   const el = (sel) => e.target.closest(sel);
   let b;
   if ((b = el('[data-proj]'))) { TSK.proj = b.dataset.proj || null; TSK.tile = null; tskPaintKeepingFocus(b); return; }
-  if ((b = el('[data-win]'))) { TSK.win = Number(b.dataset.win) || 0; tskPaintKeepingFocus(b); return; }
-  if ((b = el('[data-by]'))) { TSK.by = b.dataset.by; tskPaintKeepingFocus(b); return; }
   if ((b = el('[data-tile]'))) { TSK.tile = TSK.tile === b.dataset.tile ? null : b.dataset.tile; tskPaintKeepingFocus(b); return; }
   if ((b = el('[data-fold]'))) { const k = b.dataset.fold; if (TSK.fold.has(k)) TSK.fold.delete(k); else TSK.fold.add(k); tskPaintKeepingFocus(b); return; }
   if ((b = el('[data-close-parent]'))) { tskCloseParent(b.dataset.closeParent); return; }
@@ -45693,7 +45677,9 @@ document.getElementById('panel-tasks').addEventListener('change', (e) => {
     return;
   }
   if (e.target.id === 'tsk-sort') { TSK.sort = e.target.value; tskPaint(); return; }
-  if (e.target.id === 'tsk-projsel') { TSK.proj = e.target.value || null; TSK.tile = null; tskPaint(); }
+  if (e.target.id === 'tsk-projsel') { TSK.proj = e.target.value || null; TSK.tile = null; tskPaint(); return; }
+  if (e.target.id === 'tsk-win') { TSK.win = Number(e.target.value) || 0; tskPaint(); return; }
+  if (e.target.id === 'tsk-by') { TSK.by = e.target.value === 'project' ? 'project' : 'status'; tskPaint(); }
 });
 /* `toggle` does not bubble, so the Closed fold's open state is caught in the capture phase and
    kept across repaints. */

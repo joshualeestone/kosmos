@@ -5,7 +5,7 @@
  * old all-tasks screen is retired, and what it guaranteed is measured here on the new destination:
  *   - the door is offered, reads "View All", carries no count (#1346's second number);
  *   - it lands on Tasks scoped to THIS project: its title, its rail item, only its rows, and its
- *     finished work reachable (window All, Closed fold) (#2498);
+ *     finished work reachable (Created: All, the Completed fold) (#2498; #3949 renamed both);
  *   - #1346: the sub-line's open count equals the open rows ON SCREEN, counted inside the view;
  *   - "+ New task" there files to the picked project, or asks which project on All tasks;
  *   - an ARCHIVED project's own door still lists its tasks, and All tasks sets them aside again;
@@ -169,14 +169,15 @@ const say = (n, cond, note) => {
       const rows = [...pt.querySelectorAll('#tsk-groups .tsk-row')];
       const seen = (r) => r.getBoundingClientRect().height > 0;
       const fold = pt.querySelector('.tsk-fold summary');
-      const pressedWin = pt.querySelector('#tsk-win [aria-pressed="true"]');
-      const pressedRail = pt.querySelector('#tsk-projects .tsk-ritem.on');
+      /* #3949: the project and Created: pickers are dropdowns (the rail and the button row are gone). */
+      const win = document.getElementById('tsk-win');
+      const projSel = document.getElementById('tsk-projsel');
       return {
         shown: !pt.hidden && pt.getClientRects().length > 0,
         projectPageHidden: document.getElementById('pj-one-view').getClientRects().length === 0,
         title: document.getElementById('tsk-title').textContent.trim(),
-        rail: pressedRail ? pressedRail.dataset.proj : null,
-        win: pressedWin ? pressedWin.dataset.win : null,
+        rail: projSel ? projSel.value : null,
+        win: win ? win.value : null,
         keys: rows.map((r) => r.dataset.key),
         openOnScreen: rows.filter((r) => seen(r) && !r.closest('.tsk-fold')).length,
         sub: document.getElementById('tsk-sub').textContent.trim(),
@@ -186,12 +187,12 @@ const say = (n, cond, note) => {
       };
     });
     say('the door opens the Tasks view (not a separate screen)', landed.shown && landed.projectPageHidden, JSON.stringify(landed));
-    say('it is scoped to the project the door was opened from: title and rail', landed.title === 'Alpha Project' && landed.rail === made[0], JSON.stringify(landed));
+    say('it is scoped to the project the door was opened from: title and project dropdown', landed.title === 'Alpha Project' && landed.rail === made[0], JSON.stringify(landed));
     say('every row is this project\'s, all four of them (open and closed)',
       landed.keys.length === 4 && landed.keys.every((k) => k.startsWith(made[0] + '#')), JSON.stringify(landed.keys));
     say('the other project\'s tasks are not listed', !landed.keys.some((k) => k.startsWith(made[1] + '#')), JSON.stringify(landed.keys));
     say('the window opens at All, so finished work is reachable', landed.win === '0', JSON.stringify(landed.win));
-    say('finished work sits in the Closed fold, counted', landed.fold === 'Closed (2)', JSON.stringify(landed.fold));
+    say('finished work sits in the Completed fold, counted', landed.fold === 'Completed (2)', JSON.stringify(landed.fold));
     /* 🔑 THE #1346 ASSERTION on the new destination: the stated open count equals the open rows
        a person can SEE, counted inside the view (the project page behind renders task cards too). */
     const statedOpen = Number((landed.sub.match(/^(\d+) open/) || [])[1]);
@@ -225,7 +226,7 @@ const say = (n, cond, note) => {
     say('focus returns to + New task', madeA.modalHidden && madeA.focus === 'tsk-new', JSON.stringify(madeA.focus));
 
     /* ---- + New task on All tasks: the dialog asks which project ---- */
-    await p.click('#tsk-projects [data-proj=""]');
+    await p.selectOption('#tsk-projsel', '');
     await p.waitForTimeout(200);
     await p.click('#tsk-new');
     await p.waitForSelector('#nt-modal', { state: 'visible', timeout: 5000 });
@@ -270,15 +271,17 @@ const say = (n, cond, note) => {
     /* Read once the view's own read has come back (it knows Beta is archived); the arrival paint
        before it draws from the previous read, when Beta was not archived yet. */
     await p.waitForFunction(() => (TSK.data || []).some((t) => t.projectArchived), null, { timeout: 8000 }).catch(() => {});
-    const railAllBefore = await p.evaluate(() => Number(document.querySelector('#tsk-projects [data-proj=""] .ct').textContent));
-    await p.click('#tsk-projects [data-proj=""]');
+    /* #3949: the All projects count is on the dropdown's first option, "All projects (N)". */
+    const allCount = () => Number((document.querySelector('#tsk-projsel option[value=""]').textContent.match(/\((\d+)\)$/) || [])[1]);
+    const railAllBefore = await p.evaluate(allCount);
+    await p.selectOption('#tsk-projsel', '');
     await p.waitForTimeout(200);
-    const railAllAfter = await p.evaluate(() => ({
-      badge: Number(document.querySelector('#tsk-projects [data-proj=""] .ct').textContent),
+    const railAllAfter = await p.evaluate((src) => ({
+      badge: new Function('return ' + src)()(),
       openRows: Number((document.getElementById('tsk-sub').textContent.match(/^(\d+) open/) || [])[1]),
-    }));
-    /* #1346 on the rail: while scoped to an archived project, "All tasks" counts what clicking it shows. */
-    say('the rail\'s All tasks count agrees with its destination, even from an archived door',
+    }), allCount.toString());
+    /* #1346 on the picker: while scoped to an archived project, "All projects" counts what picking it shows. */
+    say('the dropdown\'s All projects count agrees with its destination, even from an archived door',
       railAllBefore === railAllAfter.badge && railAllAfter.badge === railAllAfter.openRows, JSON.stringify({ railAllBefore, ...railAllAfter }));
     const setAside = await p.evaluate((id) => [...document.querySelectorAll('#tsk-groups .tsk-row')].filter((r) => r.dataset.key.startsWith(id + '#')).length, made[1]);
     say('on All tasks the archived project is set aside again', setAside === 0, String(setAside));
