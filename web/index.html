@@ -37396,7 +37396,7 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
        to what it was and nothing is sent (keeping its first six digits sent a date as the code). */
     // Only text with words or other characters in it, or more digits than a code: digits with spaces,
     // dashes or dots ("123 45") are simply cleaned, as typing is.
-    if (raw.length - prevValue.length > 1 && (/[^\d\s\u2010-\u2015.-]/.test(raw) || d.length > 7)) {
+    if (raw.length - prevValue.length > 1 && (/[^\d\s\u2010-\u2015.-]/.test(raw) || d.length > 7 || (d.length === 7 && hadDigits !== 6))) {
       const found = plusSiCodeFromPaste(raw);
       if (!found) {
         e.target.value = prevValue;
