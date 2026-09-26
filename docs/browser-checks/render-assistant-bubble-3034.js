@@ -410,7 +410,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const s7 = (await (await fetch(URL + '/api/settings')).json()).setupAssistant;
     chk(!kept.panel && kept.bubble && s7.asked === true && s7.on === true, 'B7 Close for now closes it, keeps the bubble, and remembers it asked', JSON.stringify({ kept, s7 }));
     // #3947: that first x came on an opening with nothing typed, so it is the first of the two before the hide offer.
-    chk(s7.idleCloses === 1, 'B7 and, nothing typed in that opening, it counts as the first idle close (#3947)', JSON.stringify(s7));
+    chk(await page.evaluate(() => asbIdleGet()) === 1, 'B7 and, nothing typed in that opening, it counts as the first idle close (#3947)');
     // A later x, after the person used the chat (here: wrote a question), just closes, without asking again.
     await page.click('#asb');
     await page.fill('#asp-say', 'how do I add an agent?');
@@ -418,12 +418,13 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.waitForTimeout(200);
     const again = await bubble(page);
     chk(!again.panel && !again.ask && again.bubble, 'B7 a later x after writing in the chat just closes, without asking again', JSON.stringify(again));
-    chk((await (await fetch(URL + '/api/settings')).json()).setupAssistant.idleCloses === 1, 'B7 CONTROL: a close after writing is not counted (#3947)');
+    chk(await page.evaluate(() => asbIdleGet()) === 1, 'B7 CONTROL: a close after writing is not counted (#3947)');
     // B7c (#3947, Josh 2026-09-26 08:13, verbatim: "If I click on the assistant and hit the X on him and haven't typed
     // a message, and I do that twice, then it should prompt me to close the agent forever"). This replaces the 09-25
-    // rule that asked on EVERY such close. Start from a known count, the board's and the page's.
-    const fresh = async (patch) => { await setting(patch); await page.evaluate(async () => { ASB.setting = (await (await fetch('/api/settings')).json()).setupAssistant; }); };
-    await fresh({ asked: true, idleCloses: 0, kept: false });
+    // rule that asked on EVERY such close. The count and the Keep it answer live in the page's storage; start known.
+    const fresh = (idle, kept) => page.evaluate(([i, k]) => { localStorage.setItem(ASB_IDLE_KEY, String(i)); if (k) localStorage.setItem(ASB_KEPT_KEY, '1'); else localStorage.removeItem(ASB_KEPT_KEY); }, [idle, kept]);
+    const idleNow = () => page.evaluate(() => asbIdleGet());
+    await fresh(0, false);
     // The first open-and-close with nothing typed just closes, and is counted. The question written above is still in
     // the box, unsent: a draft from an earlier visit is not typing in this one, and a stray space is not typing either.
     await page.click('#asb');
@@ -431,98 +432,64 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.press('#asp-say', 'End');
     await page.keyboard.type(' ');
     await page.click('#asp-x');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(250);
     const first = await bubble(page);
-    const s7c1 = (await (await fetch(URL + '/api/settings')).json()).setupAssistant;
-    chk(!first.panel && !first.ask && !first.hide && first.bubble && s7c1.idleCloses === 1, 'B7c the first open-and-close with nothing typed just closes, and is counted (#3947)', JSON.stringify({ first, s7c1 }));
-    // The second one offers to hide the guide for good, in the words on the card.
+    chk(!first.panel && !first.ask && !first.hide && first.bubble && await idleNow() === 1, 'B7c the first open-and-close with nothing typed just closes, and is counted (#3947)', JSON.stringify(first));
+    // The second one offers to hide the guide for good.
     await page.click('#asb');
     await page.click('#asp-x');
     await page.waitForTimeout(200);
     const second = await bubble(page);
-    const hideWords = await page.evaluate(() => ({ head: document.querySelector('#asp-hide b').textContent, yes: document.getElementById('asp-hide-yes').textContent,
-      no: document.getElementById('asp-hide-no').textContent, line: document.querySelector('#asp-hide small').textContent.replace(/\u00a0/g, ' '), focus: document.activeElement && document.activeElement.id }));
+    const hideWords = await page.evaluate(() => { const g = document.getElementById('asp-hide'); return { head: g.querySelector('b').textContent, yes: document.getElementById('asp-hide-yes').textContent,
+      no: document.getElementById('asp-hide-no').textContent, line: g.querySelector('small').textContent.replace(/ /g, ' '), focus: document.activeElement && document.activeElement.id,
+      group: g.getAttribute('role'), named: (document.getElementById(g.getAttribute('aria-labelledby')) || {}).textContent }; });
     chk(second.panel && second.hide && !second.ask, 'B7c the second open-and-close with nothing typed offers to hide the guide (#3947)', JSON.stringify(second));
-    chk(hideWords.head === 'Hide the guide for good?' && hideWords.yes === 'Hide it' && hideWords.no === 'Keep it' && hideWords.line === 'You can bring it back in Settings > Computer' && hideWords.focus === 'asp-hide-yes',
-      'B7c it asks "Hide the guide for good?" with Hide it (focused) / Keep it, and says where to bring it back', JSON.stringify(hideWords));
+    chk(hideWords.head === 'Hide the guide for good?' && hideWords.yes === 'Hide it' && hideWords.no === 'Keep it' && hideWords.line === 'You can turn it back on under Settings > Computer'
+      && hideWords.focus === 'asp-hide-yes' && hideWords.group === 'group' && hideWords.named === 'Hide the guide for good?',
+      'B7c it asks "Hide the guide for good?" (a named group) with Hide it (focused) / Keep it, and says where to turn it back on', JSON.stringify(hideWords));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'hide-offer-light.png') });
-    // Keep it: closes, keeps the bubble, and is not offered again.
-    await page.click('#asp-hide-no');
-    await page.waitForTimeout(300);
-    const keptIt = await bubble(page);
-    const s7ck = (await (await fetch(URL + '/api/settings')).json()).setupAssistant;
-    chk(!keptIt.panel && keptIt.bubble && s7ck.kept === true && s7ck.idleCloses === 0 && s7ck.on === true, 'B7c Keep it closes it, keeps the bubble, and remembers the answer', JSON.stringify({ keptIt, s7ck }));
-    for (let i = 0; i < 2; i++) { await page.click('#asb'); await page.click('#asp-x'); await page.waitForTimeout(250); }
-    const after = await bubble(page);
-    const s7ca = (await (await fetch(URL + '/api/settings')).json()).setupAssistant;
-    chk(!after.panel && !after.hide && after.bubble && s7ca.idleCloses === 0, 'B7c after Keep it, two more idle closes just close, and are not counted', JSON.stringify({ after, s7ca }));
-    // Two quick idle closes while the board is slow to save still make two (review: the count must not wait on the save).
-    await fresh({ asked: true, idleCloses: 0, kept: false });
-    await page.route('**/api/settings', async (route) => { if (route.request().method() === 'POST') await new Promise((r) => setTimeout(r, 1500)); return route.continue(); });
-    await page.click('#asb');
-    await page.click('#asp-x');
-    await page.click('#asb');
-    await page.click('#asp-x');
-    await page.waitForTimeout(150);
-    chk((await bubble(page)).hide, 'B7c two idle closes in quick succession offer to hide, even with the save still in flight (#3947)');
-    await page.unroute('**/api/settings');
-    await page.waitForTimeout(2500);   // the 1500ms-delayed save lands, with room, before the next arm
     // X on the offer is "not now": it closes, and is not another close to count.
     await page.click('#asp-x');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(250);
     const notNow = await bubble(page);
-    const s7cx = (await (await fetch(URL + '/api/settings')).json()).setupAssistant;
-    chk(!notNow.panel && !notNow.hide && notNow.bubble && s7cx.idleCloses === 1 && s7cx.kept === false, 'B7c X on the hide offer just closes it and counts nothing more (the board still holds the one before it)', JSON.stringify({ notNow, s7cx }));
-    // A slow earlier save cannot put back a count a later save reset: the idle close's save answers AFTER the send's.
-    await fresh({ asked: true, idleCloses: 0, kept: false });
-    await page.route('**/api/settings', async (route) => { const b = route.request().method() === 'POST' ? route.request().postData() || '' : '';
-      if (/"idleCloses":1/.test(b)) await new Promise((r) => setTimeout(r, 1500)); return route.continue(); });
+    chk(!notNow.panel && !notNow.hide && notNow.bubble && await idleNow() === 1, 'B7c X on the hide offer just closes it and counts nothing more', JSON.stringify(notNow));
+    // Keep it: closes, keeps the bubble, and is not offered again (nor counted).
     await page.click('#asb');
-    await page.click('#asp-x');   // counts 1, its save held back
-    await page.click('#asb');
-    await page.fill('#asp-say', 'One question');
-    await page.keyboard.press('Enter');   // resets to 0, its save answers first
-    await waitFor(page, () => ASB.sending === false && document.getElementById('asp-say').value === '');
-    await page.waitForTimeout(1900);
-    await page.unroute('**/api/settings');
-    const boardAfter = (await (await fetch(URL + '/api/settings')).json()).setupAssistant.idleCloses;
-    chk(await page.evaluate(() => ASB.setting.idleCloses) === 0 && boardAfter === 0, 'B7c a slow earlier save does not put back a count the person reset, on the page or on the board (#3947)',
-      JSON.stringify({ page: await page.evaluate(() => ASB.setting), boardAfter }));
-    await page.click('#asp-fold');
-    await page.waitForTimeout(300);
-    // A message sent restarts the count: counted once, then a send, then an idle close only counts again (no offer).
-    await fresh({ asked: true, idleCloses: 1, kept: false });
+    await page.click('#asp-x');
+    await page.waitForTimeout(200);
+    chk((await bubble(page)).hide, 'B7c precondition: the next idle close offers again');
+    await page.click('#asp-hide-no');
+    await page.waitForTimeout(250);
+    const keptIt = await bubble(page);
+    const s7ck = (await (await fetch(URL + '/api/settings')).json()).setupAssistant;
+    chk(!keptIt.panel && keptIt.bubble && s7ck.on === true && await page.evaluate(() => asbKept()) && await idleNow() === 0, 'B7c Keep it closes it, keeps the bubble, and remembers the answer', JSON.stringify({ keptIt, s7ck }));
+    for (let i = 0; i < 2; i++) { await page.click('#asb'); await page.click('#asp-x'); await page.waitForTimeout(250); }
+    const after = await bubble(page);
+    chk(!after.panel && !after.hide && after.bubble && await idleNow() === 0, 'B7c after Keep it, two more idle closes just close, and are not counted', JSON.stringify(after));
+    // A message sent (an attempt to send) restarts the count: counted once, then a send, then an idle close counts 1 again.
+    await fresh(1, false);
     verdict = { delivery: { state: 'placed' }, recorded: true };
     await page.click('#asb');
     await page.fill('#asp-say', 'Thanks, that helps');
     await page.keyboard.press('Enter');
     await waitFor(page, () => ASB.sending === false && document.getElementById('asp-say').value === '');
-    let reset = null;
-    for (let i = 0; i < 12 && reset !== 0; i++) { reset = (await (await fetch(URL + '/api/settings')).json()).setupAssistant.idleCloses; if (reset !== 0) await page.waitForTimeout(250); }
-    chk(reset === 0, 'B7c a sent message sets the count back to 0 (#3947)', JSON.stringify(reset));
+    chk(await idleNow() === 0, 'B7c a sent message sets the count back to 0 (#3947)');
     await page.click('#asp-x');
     await page.waitForTimeout(250);
     await page.click('#asb');
     await page.click('#asp-x');
     await page.waitForTimeout(250);
     const afterSend = await bubble(page);
-    const s7cs = (await (await fetch(URL + '/api/settings')).json()).setupAssistant;
-    chk(!afterSend.hide && !afterSend.panel && s7cs.idleCloses === 1, 'B7c CONTROL: after the send, the next idle close counts 1 and does not offer', JSON.stringify({ afterSend, s7cs }));
-    // A save that never answers does not hold the next one: an idle close's save hangs, and a later save still lands.
-    await fresh({ asked: true, idleCloses: 0, kept: false });
-    await page.evaluate(() => { ASB_SAVE_TIMEOUT_MS = 800; });
-    await page.route('**/api/settings', async (route) => { const b = route.request().method() === 'POST' ? route.request().postData() || '' : '';
-      if (/"idleCloses":1/.test(b)) return;   // never answered
-      return route.continue(); });
-    await page.click('#asb');
-    await page.click('#asp-x');
-    // Bounded, so a queue that DOES stall fails here in seconds instead of hanging the whole check.
-    const later = await page.evaluate(() => Promise.race([asbSaveSetting({ kept: false }), new Promise((r) => setTimeout(() => r('still waiting after 5s'), 5000))]));
-    await page.unroute('**/api/settings');
-    await page.evaluate(() => { ASB_SAVE_TIMEOUT_MS = 10000; });
-    chk(later === true, 'B7c a save that never answers does not hold the next one behind it (#3947)', JSON.stringify(later));
-    // Hide it: the same switch as Close forever.
-    await fresh({ asked: true, idleCloses: 1, kept: false });
+    chk(!afterSend.hide && !afterSend.panel && await idleNow() === 1, 'B7c CONTROL: after the send, the next idle close counts 1 and does not offer', JSON.stringify(afterSend));
+    // Storage that refuses: nothing is counted, and x simply closes (never an error, never the offer).
+    await fresh(0, false);
+    await page.evaluate(() => { window.__lsSet = Storage.prototype.setItem; Storage.prototype.setItem = () => { throw new Error('refused'); }; });
+    for (let i = 0; i < 2; i++) { await page.click('#asb'); await page.click('#asp-x'); await page.waitForTimeout(250); }
+    const refused = await bubble(page);
+    await page.evaluate(() => { Storage.prototype.setItem = window.__lsSet; });
+    chk(!refused.panel && !refused.hide && refused.bubble, 'B7c with storage refusing, idle closes just close', JSON.stringify(refused));
+    // Hide it: the same board switch as Close forever.
+    await fresh(1, false);
     await page.click('#asb');
     await page.click('#asp-x');
     await page.waitForTimeout(200);
@@ -531,8 +498,9 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.waitForTimeout(300);
     const hid = await bubble(page);
     const s7ch = (await (await fetch(URL + '/api/settings')).json()).setupAssistant;
-    chk(!hid.bubble && !hid.panel && s7ch.on === false && s7ch.idleCloses === 0, 'B7c Hide it turns the guide off, bubble and all (#3947)', JSON.stringify({ hid, s7ch }));
-    await setting({ on: true, idleCloses: 0, kept: false });
+    chk(!hid.bubble && !hid.panel && s7ch.on === false && await idleNow() === 0, 'B7c Hide it turns the guide off, bubble and all (#3947)', JSON.stringify({ hid, s7ch }));
+    await setting({ on: true });
+    await fresh(0, false);
 
     // B8: Close forever turns it off; the Settings switch reads that and brings it back.
     await setting({ asked: false });

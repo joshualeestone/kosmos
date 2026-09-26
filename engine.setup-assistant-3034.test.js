@@ -640,28 +640,20 @@ test('ensureGuide: the switch off means nothing automatic at all', async () => {
   } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
 });
 
-const D = { on: true, asked: false, idleCloses: 0, kept: false };   // #3947 added the last two
-
 test('SETTING: defaults to on and not yet asked; anything malformed reads as the default', () => {
-  assert.deepEqual(setupAssistant.settingFrom({}), D);
-  assert.deepEqual(setupAssistant.settingFrom(null), D);
-  assert.deepEqual(setupAssistant.settingFrom({ setupAssistant: { on: 'no', asked: 1, idleCloses: -1, kept: 'yes' } }), D);
-  assert.deepEqual(setupAssistant.settingFrom({ setupAssistant: { idleCloses: 1.5 } }), D, 'a fractional count was kept');
-  assert.deepEqual(setupAssistant.settingFrom({ setupAssistant: { on: false, asked: true, idleCloses: 1, kept: true } }),
-    { on: false, asked: true, idleCloses: 1, kept: true });
+  assert.deepEqual(setupAssistant.settingFrom({}), { on: true, asked: false });
+  assert.deepEqual(setupAssistant.settingFrom(null), { on: true, asked: false });
+  assert.deepEqual(setupAssistant.settingFrom({ setupAssistant: { on: 'no', asked: 1 } }), { on: true, asked: false });
+  assert.deepEqual(setupAssistant.settingFrom({ setupAssistant: { on: false, asked: true } }), { on: false, asked: true });
 });
 
-test('SETTING: a patch sets any key as its own kind, and the other keys are kept', () => {
-  for (const bad of [null, [], {}, { on: 'false' }, { asked: 0 }, { on: true, extra: true }, 'on',
-    { idleCloses: true }, { idleCloses: -1 }, { idleCloses: 2.5 }, { idleCloses: 101 }, { idleCloses: '2' }, { kept: 1 }]) {
+test('SETTING: a patch sets one or both keys as booleans, and the other key is kept', () => {
+  for (const bad of [null, [], {}, { on: 'false' }, { asked: 0 }, { on: true, extra: true }, 'on']) {
     assert.ok(setupAssistant.settingPatchProblem(bad), `${JSON.stringify(bad)} was accepted`);
   }
   assert.equal(setupAssistant.settingPatchProblem({ on: false }), null);
   assert.equal(setupAssistant.settingPatchProblem({ asked: true, on: true }), null);
-  assert.equal(setupAssistant.settingPatchProblem({ idleCloses: 2 }), null);
-  assert.equal(setupAssistant.settingPatchProblem({ idleCloses: 0, kept: true }), null);
-  const stored = { setupAssistant: { on: false, asked: false, idleCloses: 1 } };
-  assert.deepEqual(setupAssistant.mergeSetting(stored, { asked: true }), { on: false, asked: true, idleCloses: 1, kept: false }, 'setting asked turned the bubble back on or lost the count');
-  assert.deepEqual(setupAssistant.mergeSetting({}, { on: false }), { ...D, on: false });
-  assert.deepEqual(setupAssistant.mergeSetting(stored, { idleCloses: 2 }), { on: false, asked: false, idleCloses: 2, kept: false });
+  const stored = { setupAssistant: { on: false, asked: false } };
+  assert.deepEqual(setupAssistant.mergeSetting(stored, { asked: true }), { on: false, asked: true }, 'setting asked turned the bubble back on');
+  assert.deepEqual(setupAssistant.mergeSetting({}, { on: false }), { on: false, asked: false });
 });

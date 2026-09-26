@@ -653,39 +653,27 @@ function resetEnsureGuideForTests() { inFlight = null; lastFailedAt = 0; failure
  *   on     the Settings switch. false = "Close forever": no bubble at all.
  *   asked  the first-X choice (Close for now / Close forever) has been offered,
  *          so later closes just close.
- *   idleCloses  #3947 (Josh, 2026-09-26 08:13): how many times in a row the chat was
- *          opened and closed with X without a message sent. The second one offers to
- *          hide the guide for good. A sent message sets it back to 0.
- *   kept   #3947: they answered that offer with "Keep it", so it is not offered again.
  * The bubble, the X dialog and the Settings row are Mona's; this is only the state.
  */
-const SETTING_DEFAULT = Object.freeze({ on: true, asked: false, idleCloses: 0, kept: false });
+const SETTING_DEFAULT = Object.freeze({ on: true, asked: false });
 const SETTING_KEYS = Object.keys(SETTING_DEFAULT);
-/* The count only has to reach 2; the ceiling keeps a stored value small and sane. */
-const IDLE_CLOSES_MAX = 100;
-
-/* One value of the right kind for key k: a boolean where the default is one, else a whole number 0..IDLE_CLOSES_MAX. */
-function settingValueOk(k, v) {
-  if (typeof SETTING_DEFAULT[k] === 'boolean') return typeof v === 'boolean';
-  return Number.isInteger(v) && v >= 0 && v <= IDLE_CLOSES_MAX;
-}
 
 /** The stored setting with defaults filled in; anything malformed reads as the default. */
 function settingFrom(stored) {
   const a = (stored && typeof stored.setupAssistant === 'object' && stored.setupAssistant) || {};
   const out = {};
-  for (const k of SETTING_KEYS) out[k] = settingValueOk(k, a[k]) ? a[k] : SETTING_DEFAULT[k];
+  for (const k of SETTING_KEYS) out[k] = typeof a[k] === 'boolean' ? a[k] : SETTING_DEFAULT[k];
   return out;
 }
 
-/** Why a POSTed patch is refused, or null. A patch sets any of the keys, each of its own kind. */
+/** Why a POSTed patch is refused, or null. A patch sets one or both keys, booleans only. */
 function settingPatchProblem(patch) {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return 'that is not a valid setup assistant setting';
   const keys = Object.keys(patch);
   if (!keys.length) return 'that is not a valid setup assistant setting';
   for (const k of keys) {
     if (!SETTING_KEYS.includes(k)) return 'that is not a valid setup assistant setting';
-    if (!settingValueOk(k, patch[k])) return 'that is not a valid setup assistant setting';
+    if (typeof patch[k] !== 'boolean') return 'that is not a valid setup assistant setting';
   }
   return null;
 }
