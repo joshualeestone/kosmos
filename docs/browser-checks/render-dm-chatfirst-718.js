@@ -259,6 +259,9 @@ function measure() {
       {
         const { page, errs } = await open(browser, 520, 800, 'light');
         const t = `[${eng} 520x800 emoji]`;
+        // Before typing starts (the search row steps aside while the keyboard is up).
+        const sr = await page.evaluate(() => document.getElementById('d-talk-search').getBoundingClientRect().height);
+        chk(sr >= 40, `${t} the search field itself is a full-height tap target`, `h=${sr}`);
         await page.focus('#d-say');
         await page.evaluate(() => { document.documentElement.style.setProperty('--kosmos-visible-height', (window.innerHeight - 300) + 'px'); document.documentElement.classList.add('kosmos-keyboard-up'); });
         const eb = await page.evaluate(() => { const r = document.getElementById('d-emoji-btn').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width, h: r.height }; });
@@ -280,8 +283,6 @@ function measure() {
           await page.mouse.move(2, 2); await page.mouse.up();
         }
         chk(pickKept && pickKept.active === 'd-say' && !pickKept.headShown, `${t} pressing an emoji in the panel keeps focus in the text box (the handler's job) and the header aside`, JSON.stringify({ pick: !!pick, pickKept }));
-        const sr = await page.evaluate(() => document.getElementById('d-talk-search').getBoundingClientRect().height);
-        chk(sr >= 40, `${t} the search field itself is a full-height tap target`, `h=${sr}`);
         const sf = await page.evaluate(() => getComputedStyle(document.getElementById('d-talk-search')).fontSize);
         chk(sf === '16px', `${t} the search box is 16px (iOS does not zoom on focus)`, sf);
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
