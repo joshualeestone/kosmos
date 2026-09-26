@@ -16,6 +16,8 @@
  *     not overlap Add Project or the sort, and that page is no wider than the screen, at the
  *     four sizes and at 600px (between the list's own 30rem wrap and this 40rem rule);
  *   - a back link with a one-character label is still 44 wide (three take a name);
+ *   - Project settings' back link ("← <span>name</span>") keeps the space between the arrow
+ *     and the name (a flex container drops the literal space; the rule's column-gap replaces it);
  *   - the page is no wider than the screen;
  *   - the header is no taller than the same page with the old sizes put back (the grown
  *     boxes are cancelled by negative margins, so the row keeps its height);
@@ -34,6 +36,7 @@
  * With the projects toggle slid 120px left onto the sort, the projects overlap arm reds.
  * With the rule at 41rem instead of 40rem, the 641px edge arm reds (mark 44x44).
  * Without the back link's min-width, the one-character label arm reds (10.9px wide).
+ * Without the back link's column-gap, Project settings' arrow and name touch (gap 0) and reds.
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -211,6 +214,22 @@ async function projectsArm(page, tag, w) {
             if (b.missing || !b.shown) chk(false, `${tag} ${name} is on the page and showing`, sel);
             else chk(b.w >= 44 && b.h >= 44, `${tag} ${name} is at least 44x44`, `${b.w}x${b.h}`);
             if (sel === '#pj-add-back') {
+              // Project settings' back link is "← <span>name</span>": the arrow and the name keep a
+              // space's width apart (a flex container drops the literal space).
+              const gap = await page.evaluate(() => {
+                document.getElementById('pj-settings-backname').textContent = 'Kosmos';
+                pjView('settings');
+                const b = document.getElementById('pj-settings-back');
+                const range = document.createRange(); range.selectNodeContents(b.firstChild);
+                const arrow = [...range.getClientRects()].filter((r) => r.width > 0).pop();
+                const name = document.getElementById('pj-settings-backname').getBoundingClientRect();
+                const r = b.getBoundingClientRect();
+                const out = { gap: arrow ? Math.round((name.left - arrow.right) * 10) / 10 : null, h: Math.round(r.height * 10) / 10 };
+                pjView('add');
+                return out;
+              });
+              chk(gap.gap !== null && gap.gap >= 3 && gap.h >= 44, `${tag} Project settings' back link keeps the space between the arrow and the name, and is 44 tall`, JSON.stringify(gap));
+
               // Three back links carry a project or task name; the shortest label must still be 44 wide.
               const short = await page.evaluate((sel) => { const el = document.querySelector(sel); const was = el.textContent;
                 el.textContent = '\u2190'; const r = el.getBoundingClientRect(); el.textContent = was;
@@ -229,10 +248,12 @@ async function projectsArm(page, tag, w) {
           const page = await ctx.newPage();
           await home(page, URL);
           const [mark, grid] = await measure(page, ['#klink', '[data-scope="agents"] .vt[data-layout="grid"]'].map((sel) => HOME.find((c) => c.sel === sel)));
-          const ok = phone ? (mark.w >= 44 && mark.h >= 44 && grid.w >= 44 && grid.h >= 44)
-            : (mark.w === 34 && mark.h === 34 && grid.w === 38 && grid.h === 30);
+          await page.evaluate(() => showTab('create'));
+          const [back] = await measure(page, [{ sel: '#create-back', name: 'the create page\'s "All agents"' }]);
+          const ok = phone ? (mark.w >= 44 && mark.h >= 44 && grid.w >= 44 && grid.h >= 44 && back.h >= 44)
+            : (mark.w === 34 && mark.h === 34 && grid.w === 38 && grid.h === 30 && back.h < 44);
           chk(!mark.missing && !grid.missing && ok, `${tag} ${phone ? 'the phone sizes apply' : 'the old sizes hold'} at the rule's edge`,
-            `mark ${mark.w}x${mark.h}, grid toggle ${grid.w}x${grid.h}`);
+            `mark ${mark.w}x${mark.h}, grid toggle ${grid.w}x${grid.h}, back link ${back.w}x${back.h}`);
           await ctx.close();
         }
         // 600px: the frame rule applies (under 40rem) but the projects list's own wrap (30rem = 480)
