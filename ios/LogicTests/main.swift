@@ -1,8 +1,8 @@
 import Foundation
 import UserNotifications
 
-// Tests for the push bridge logic (#718), compiled for macOS together with
-// ios/Kosmos/PushBridgeLogic.swift and PushRegistrar.swift and run on a Mac:
+// Tests for the iOS app's UIKit-free logic (#718), compiled for macOS together
+// with the app files run.sh lists and run on a Mac:
 // there is no iOS simulator runtime on the build box, so XCTest cannot run.
 // Run with ios/LogicTests/run.sh. It prints every case and ends with one
 // verdict line; a missing verdict means the run did not finish.
@@ -589,7 +589,6 @@ do {
     let perm = cats.first { $0.identifier == "AGENT_PERMISSION" }
     check(perm != nil, "the agent-permission category is still registered, so a push's category still matches")
     check(cats.allSatisfy { $0.actions.isEmpty }, "no category registers an action button (Approve/Deny hidden)")
-    check(cats.allSatisfy { $0.actions.allSatisfy { !["APPROVE_ACTION", "DENY_ACTION"].contains($0.identifier) } }, "neither the approve nor the deny action exists")
 }
 
 print("")

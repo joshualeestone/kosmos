@@ -1,6 +1,6 @@
 #!/bin/bash
-# Build and run the push bridge logic tests (#718) on this Mac. The iOS app's
-# Foundation-only files compile for macOS unchanged, so their logic is proven
+# Build and run the iOS logic tests (#718) on this Mac. The iOS app's
+# UIKit-free files compile for macOS unchanged, so their logic is proven
 # without an iOS simulator runtime. Pass a directory to compile the app sources
 # from somewhere else (used to run the suite against a deliberately broken copy,
 # proving it can fail).

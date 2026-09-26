@@ -510,7 +510,9 @@ stops once the service restarts.
 - **A tapped Android notification opens the Mac's own address**
   (`https://<mac>.kosmosplus.com/`). Only `login.kosmosplus.com` is the app's verified origin, so
   the Mac's page opens with a URL bar. That is the undecided half of #2854 (Splinter and Josh).
-- **iOS has no Approve or Deny buttons on a notification yet.** The Mac does not say whether a
-  `needs_you` is a permission prompt.
+- **iOS shows no Approve or Deny buttons on a notification** (#3870). They were registered but
+  nothing carried the choice to the Mac, so they are hidden for the first store submission.
+  Building them for real needs an authenticated call from the phone to the Mac, a ruling on
+  whether Face ID is required, and the Mac saying whether a `needs_you` is a permission prompt.
 - **One coordinator doc is out of date.** kosmos-relay `docs/coordinator-api.md` still says web
   push goes to "a PushSender that tonight logs". `coordinator/src/main.rs` sends for real.
