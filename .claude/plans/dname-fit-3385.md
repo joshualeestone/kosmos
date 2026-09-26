@@ -37,3 +37,8 @@ ellipsis) and a short one keeps 18px. Both arms red on origin/main.
   HEADED=0 (SwiftShader, as CI and the nightly run): the 40-letter name fits at 0.607rem, well clear of
   the 0.55rem floor, and the phone name lands at 12.3px, well under 18px, so neither sits on a boundary.
 - KEPT: the typeof guard on the detailGo call (harmless; protects a test that lifts detailGo alone).
+
+## Review round 2 (opus)
+- FIXED: nothing checked the section-change refit (detailGo). New phone arm: Talk to Profile re-fits (0.766rem to 0.931rem, whole), and back to Talk returns to the Talk fit, whole. Red with the refit removed.
+- NIT, commented rather than changed: openDetail fits at once and detailGo fits a frame later (after the swarm avatar slot is sized); both kept.
+- NIT accepted: the one-per-frame resize coalescing has no check (performance only).

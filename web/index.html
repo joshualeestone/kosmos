@@ -30453,6 +30453,8 @@ function openDetail(sessionName, section, fromProject) {
      reflow, so the shrink lands before the first paint. Called on the cold
      open path (a board click straight into detail), which the earlier in-line
      call could not serve because the panel was still display:none. */
+  /* Not a duplicate of detailGo's fit (#3385 follow-up): this one fits at once, so the name never shows
+     cut; detailGo's runs a frame later, after the swarm avatar slot has been sized. Keep both. */
   fitDetailName();
 }
 

@@ -183,7 +183,7 @@ function chk(ok, label, extra) {
        fit, so a long name was cut at 18px. It shrinks there too now, and a short one keeps 18px. */
     await page.setViewportSize({ width: 412, height: 900 });
     await page.waitForTimeout(300);
-    const phone = await page.evaluate(() => {
+    const phone = await page.evaluate(async () => {
       const el = document.getElementById('d-name');
       const real = LAST[0];
       showTab('agents');
@@ -192,15 +192,27 @@ function chk(ok, label, extra) {
       const talk = !document.getElementById('d-sec-talk').hidden;
       const longPx = parseFloat(getComputedStyle(el).fontSize);
       const longCut = el.scrollWidth > el.clientWidth + 1;
+      // Round 2: a section change re-fits the name for THAT section (the phone draws it at different sizes
+      // in Talk and Profile), so it is whole in Profile, and whole again back in Talk.
+      const frames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const talkVar = el.style.getPropertyValue('--dname-size').trim();
+      detailGo('profile'); await frames();
+      const profVar = el.style.getPropertyValue('--dname-size').trim();
+      const profCut = el.scrollWidth > el.clientWidth + 1;
+      detailGo('talk'); await frames();
+      const backCut = el.scrollWidth > el.clientWidth + 1;
+      const backVar = el.style.getPropertyValue('--dname-size').trim();
       showTab('agents');
       LAST[0] = real; openDetail(real.sessionName);
       const shortPx = parseFloat(getComputedStyle(el).fontSize);
-      return { talk, longPx, longCut, shortPx };
+      return { talk, longPx, longCut, shortPx, talkVar, profVar, profCut, backCut, backVar };
     });
     await page.setViewportSize({ width: 1400, height: 950 });
     await page.waitForTimeout(300);
     chk(phone.talk && phone.longCut === false && phone.longPx < 18 && phone.shortPx === 18,
       'Part 5 (#3385 follow-up): on a phone Talk view a long name shrinks to fit (no ellipsis) and a short one keeps the compact 18px', JSON.stringify(phone));
+    chk(phone.profCut === false && phone.profVar !== phone.talkVar && phone.backCut === false && phone.backVar === phone.talkVar,
+      'Part 5 (#3385 follow-up, round 2): changing section re-fits the name for that section (whole in Profile at its own size, whole again back in Talk)', JSON.stringify(phone));
     chk(shrink.short === '1.5rem', 'Part 5 (#3385): a short name keeps the base 1.5rem size on a cold open', shrink.short);
     chk(parseFloat(shrink.long) > 0 && parseFloat(shrink.long) < 1.5, 'Part 5 (#3385): a long name shrinks below the base size on a COLD open (fit runs after the panel is shown)', shrink.long);
     chk(shrink.shortClipped === false && shrink.longClipped === false,
