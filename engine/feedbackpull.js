@@ -130,8 +130,11 @@ async function defaultList(tok) {
    answers 403 without the store token, so each GET carries it (the header
    @vercel/blob's own get() sends). The token goes only to an https Vercel Blob host
    (*.blob.vercel-storage.com, any store's: the check is Vercel-host scoped, not
-   store scoped) or the configured blob API origin. The URL comes from the listing,
-   and a listing naming any other host must not receive the credential. */
+   store scoped) or the configured blob API origin (whatever its scheme: that origin
+   is operator-set, and the tests run it on http loopback). The URL comes from the
+   listing, and a listing naming any other host must not receive the credential.
+   Only the first hop is checked here; fetch itself drops Authorization on a
+   cross-origin redirect. */
 function tokenMayGoTo(url) {
   try {
     const u = new URL(url);
@@ -141,9 +144,15 @@ function tokenMayGoTo(url) {
 }
 
 async function defaultGet(url, tok) {
-  const init = (tok && tokenMayGoTo(url)) ? { headers: { authorization: 'Bearer ' + tok } } : undefined;
-  const res = await fetchBounded(url, init);
-  if (!res || !res.ok) throw new Error('blob GET HTTP ' + (res && res.status));
+  const send = !!(tok && tokenMayGoTo(url));
+  const res = await fetchBounded(url, send ? { headers: { authorization: 'Bearer ' + tok } } : undefined);
+  if (!res || !res.ok) {
+    // A refusal after the token was WITHHELD is the host rule, not the token: say so,
+    // so the hint below does not send anyone to refile a token that is fine.
+    let host = '';
+    try { host = new URL(url).hostname; } catch { host = '?'; }
+    throw new Error('blob GET HTTP ' + (res && res.status) + (tok && !send ? ' (token withheld from host ' + host + ')' : ''));
+  }
   return res.text();
 }
 
@@ -234,9 +243,9 @@ async function pull(dir, opts) {
     try { text = await tp.get(b.url, tok); }
     catch (e) {
       skipped += 1; unreadable += 1; lastGetError = String((e && e.message) || e);
-      // Sticky: ANY denied read means the token may be for the wrong store, even when
-      // a later read failed another way (a 404 on a blob deleted mid-pull).
-      if (/HTTP 40[13]\b/.test(lastGetError)) lastGetDenied = true;
+      // Sticky: ANY read denied WITH the token means it may be for the wrong store,
+      // even when a later read failed another way (a 404 on a blob deleted mid-pull).
+      if (/HTTP 40[13]\b/.test(lastGetError) && !/token withheld/.test(lastGetError)) lastGetDenied = true;
       continue;
     }
     let rec;
@@ -255,7 +264,9 @@ async function pull(dir, opts) {
   if (written === 0 && unreadable > 0) {
     return {
       ok: false, written, skipped, total, dir: target,
-      because: 'the store listed ' + total + ' report(s) but none could be read (last error: ' + lastGetError + ')'
+      because: 'the store listed ' + total + ' report(s) and none was pulled: ' + unreadable + ' could not be read'
+        + (skipped > unreadable ? ', ' + (skipped - unreadable) + ' were malformed or not written' : '')
+        + ' (last read error: ' + lastGetError + ')'
         + (lastGetDenied
           ? '. The token filed as ' + FEEDBACK_TOKEN_TARGET + ' may be for the wrong store: reports are in the private feedback store (kosmos#3878).'
           : '.'),
@@ -275,7 +286,7 @@ async function pull(dir, opts) {
  */
 function summaryLines(r) {
   const out = ['pulled ' + r.written + ' report(s)' + (r.skipped ? ' (' + r.skipped + ' skipped)' : '') + ' to ' + r.dir];
-  if (r.unreadable) out.push(r.unreadable + ' of them could not be read (last error: ' + r.lastGetError + ')');
+  if (r.unreadable) out.push(r.unreadable + ' report(s) could not be read (last error: ' + r.lastGetError + ')');
   return out;
 }
 

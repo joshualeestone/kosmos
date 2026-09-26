@@ -29,13 +29,18 @@ migration it would pull nothing, and it would still report `ok: true`.
 - `summaryLines(r)` is the ONE wording of a pull's success summary. runCli, the Mac `kosmos feedback pull` (install/kosmos) and the Windows command all print it. A test fails if either CLI words it itself.
 - The wrong-store hint is sticky: any 401/403 in the run keeps it, even if a later read failed another way.
 
+## Review iteration 3
+- The failure message is worded from the counts: "N could not be read, K were malformed or not written".
+- A refusal after the host rule withheld the token says "token withheld from host H" and never blames the token. That is the plan's weakest-premise case, so it is now diagnosed correctly.
+- A Windows test drives the success path through the ctx.engine seam and asserts both summary lines.
+
 ## Tests
 engine/feedbackpull.test.js:
 - the real transport's report GETs carry the token;
 - a foreign-host report URL gets no token;
 - all-unreadable gives ok:false, with a partial-pull control.
 
-Nine mutations run red (also: a non-sticky hint, the Mac CLI's own copy of the summary): no auth header; token sent to any host; the silent success; the start anchor; the end anchor; https-only; token blamed on every error.
+Eleven mutations run red (also: a non-sticky hint; the Mac CLI's own copy of the summary; a withheld token blamed; the Windows CLI's own line): no auth header; token sent to any host; the silent success; the start anchor; the end anchor; https-only; token blamed on every error.
 
 ## Weakest premise
 That the blob host pattern stays `*.blob.vercel-storage.com`. If Vercel changes it, the token is withheld and pull fails loudly (ok:false naming the error), never silently.

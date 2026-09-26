@@ -269,7 +269,7 @@ test('#3878: a pull that lists reports but can read none is NOT ok, and says why
   const r = await fp.pull(path.join(SB, 'd-unreadable'), { token: 'tok' });
   assert.equal(r.ok, false);
   assert.equal(r.written, 0);
-  assert.match(r.because, /none could be read \(last error: blob GET HTTP 403\)/);
+  assert.match(r.because, /none was pulled: 2 could not be read \(last read error: blob GET HTTP 403\)/);
   // Control: one readable report makes it a success again (a partial pull is not a failure).
   let n = 0;
   fp.setTransport({
@@ -335,7 +335,7 @@ test('#3878: a partial pull says how many reports could not be read; the wrong-s
 test('#3878: one summary for every CLI, including the could-not-be-read line', () => {
   assert.deepEqual(fp.summaryLines({ written: 3, skipped: 0, dir: '/d' }), ['pulled 3 report(s) to /d']);
   assert.deepEqual(fp.summaryLines({ written: 1, skipped: 2, unreadable: 2, lastGetError: 'blob GET HTTP 403', dir: '/d' }),
-    ['pulled 1 report(s) (2 skipped) to /d', '2 of them could not be read (last error: blob GET HTTP 403)']);
+    ['pulled 1 report(s) (2 skipped) to /d', '2 report(s) could not be read (last error: blob GET HTTP 403)']);
   // The Mac and Windows commands print THIS, not their own copy of the sentence.
   const repo = path.join(__dirname, '..');
   const mac = fs.readFileSync(path.join(repo, 'install', 'kosmos'), 'utf8');
@@ -356,6 +356,40 @@ test('#3878: the wrong-store hint survives a later 404 once any read was denied'
   });
   const r = await fp.pull(path.join(SB, 'd-mixed'), { token: 'tok' });
   assert.equal(r.ok, false);
-  assert.match(r.because, /last error: blob GET HTTP 404/);
+  assert.match(r.because, /last read error: blob GET HTTP 404/);
   assert.match(r.because, /wrong store/, 'two 403s then a 404 must still point at the token');
+});
+
+test('#3878: the counts are the message: some unreadable and some malformed is said as both', async () => {
+  let n = 0;
+  fp.setTransport({
+    list: async () => [1, 2, 3].map((i) => ({ url: 'https://s.blob.vercel-storage.com/' + i + '.json' })),
+    get: async () => { n += 1; if (n === 1) throw new Error('blob GET HTTP 403'); return '{not json'; },
+  });
+  const r = await fp.pull(path.join(SB, 'd-mixed-bad'), { token: 'tok' });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /1 could not be read, 2 were malformed or not written/);
+});
+
+test('#3878: a refusal after the token was withheld names the host, not the token', async () => {
+  const http = require('node:http');
+  const api = http.createServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ blobs: [{ url: 'http://localhost:' + other.address().port + '/r.json' }], hasMore: false }));
+  });
+  const other = http.createServer((req, res) => { res.statusCode = 403; res.end('no'); });
+  await new Promise((r) => other.listen(0, '127.0.0.1', r));
+  await new Promise((r) => api.listen(0, '127.0.0.1', r));
+  const savedApi = process.env.AGENT_WORKFORCE_BLOB_API;
+  process.env.AGENT_WORKFORCE_BLOB_API = 'http://127.0.0.1:' + api.address().port;
+  try {
+    fp.setTransport(null);
+    const r = await fp.pull(path.join(SB, 'd-withheld'), { token: 'tok' });
+    assert.equal(r.ok, false);
+    assert.match(r.because, /token withheld from host localhost/);
+    assert.doesNotMatch(r.because, /wrong store/, 'the token was never sent, so it must not be blamed');
+  } finally {
+    if (savedApi === undefined) delete process.env.AGENT_WORKFORCE_BLOB_API; else process.env.AGENT_WORKFORCE_BLOB_API = savedApi;
+    await new Promise((r) => api.close(r)); await new Promise((r) => other.close(r));
+  }
 });
