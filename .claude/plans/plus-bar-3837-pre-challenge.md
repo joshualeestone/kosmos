@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: plus-bar-3837
-diff_hash: 840e059260fee69e5faa09f1e3831adcb8b7edb85d62a7d6ad75c325e5ece97e
+diff_hash: 56bd2945e10c0bb008ee3c79018773dbd8640da47f308acc9cb1dbcb4ee02a4e
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-26T00:17:39Z
+timestamp: 2026-09-26T00:28:37Z
 iterations: 3
 converged: true
 ---
@@ -47,5 +47,8 @@ Verified both round-2 fixes against sw.js and the check's accumulate-not-throw c
 The surface gate named render-unread-edge-3743 and render-agentdm-3414 (the token 'msg', from #kplus-bar-msg); both
 run green on this branch (24, 40), recorded in per-check trailers.
 
+Rebased onto main after convergence (#3829's panel landed): the runner list and EXPECTED_SITES (162, measured by
+the reason-grep test); 13 pass after the rebase.
+
 ## Validation
-6j on HEAD: full suite clean (hash 840e059260fe), subdir audit clean. render-plus-bar-3837: 13 pass (P1 control to P7).
+6j on HEAD: full suite clean (hash 56bd2945e10c), subdir audit clean. render-plus-bar-3837: 13 pass (P1 control to P7).
