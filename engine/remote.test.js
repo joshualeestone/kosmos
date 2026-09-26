@@ -202,6 +202,8 @@ if (args[0] === 'retire' && mode.includes('hung-retire')) { const until = Date.n
 if (args[0] === 'retire' && mode.includes('retire-refused')) { process.stderr.write('Kosmos+ refused this Mac: this Mac was retired; set Kosmos up again to give it a new key (HTTP 401 on /v1/mac/retire)\\n'); process.exit(1); }
 if (args[0] === 'retire' && mode.includes('retire-down')) { process.stderr.write('Kosmos+ unreachable for /v1/mac/retire: connection refused\\n'); process.exit(1); }
 if (args[0] === 'retire' && mode.includes('retire-429')) { process.stderr.write('Kosmos+ refused this Mac: too many requests; wait a minute (HTTP 429 on /v1/mac/retire)\\n'); process.exit(1); }
+// A gateway's error page: the tunnel prints the raw body, many lines, when it is not the API's JSON.
+if (args[0] === 'retire' && mode.includes('retire-502html')) { process.stderr.write('Error: Kosmos+ answered 502 for /v1/mac/retire: <html>\\n<head><title>502 Bad Gateway</title></head>\\n<body>Bad Gateway</body>\\n</html>\\n'); process.exit(1); }
 if (args[0] === 'retire' && mode.includes('retire-5xx')) { process.stderr.write('Kosmos+ answered 503 for /v1/mac/retire: unavailable\\n'); process.exit(1); }
 // A retire that worked prints the coordinator's answer, as the real one does.
 if (args[0] === 'retire') { console.log(JSON.stringify({ retired: true })); process.exit(0); }
@@ -1348,7 +1350,7 @@ test('#3827: after Kosmos+ refused to retire a half identity, its "already in us
     const refusedThenFree = await halfThen('retire-refused');
     assert.equal(refusedThenFree.ok, true, 'a definite refusal became a dead end: ' + refusedThenFree.because);
     // Unreachable and a server error are kept for a retry.
-    for (const mode of ['retire-down', 'retire-5xx', 'retire-429']) {
+    for (const mode of ['retire-down', 'retire-5xx', 'retire-429', 'retire-502html']) {
       await fresh();
       const kept = await halfThen(mode);
       assert.equal(kept.ok, false, mode + ': registered over a half identity that could still be retired');
@@ -1465,7 +1467,8 @@ test('#3827: turning Kosmos+ on, or changing the relay, waits for a register tha
     const relay = remote.setRelay('127.0.0.1:9555');
     assert.equal(relay.ok, false, 'the relay was changed beside a register still out');
     assert.equal(remote.setOn(false).ok, true, 'turning off must never wait');
-    await racing;
+    assert.equal((await racing).ok, true, 'fixture: the register succeeded');
+    assert.equal(remote.read().on, false, 'the register switched Kosmos+ back on after the person turned it off');
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
     remote.setOn(false);
@@ -1629,5 +1632,57 @@ test('#3827: device verbs and a second-factor reset wait while this computer is 
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
     delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+  }
+});
+
+test('#3827: during a Forget waiting on a register, a tunnel restart does not bring the Mac back online', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered and on');
+  remote.ensure(4600);
+  const pid = remote.currentChildPid();
+  assert.ok(pid, 'fixture: a registered, switched-on Mac runs a tunnel');
+  process.env.FAKE_TUNNEL_MODE = 'slow-register';
+  process.env.FAKE_REGISTER_MS = '4000';
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const racing = remote.signinRegister('theirs');   // a new name: a real register, still out
+    const forgetting = remote.forget();                // waits on it; the switch is still on
+    process.kill(pid, 'SIGTERM');                      // the tunnel dies; its restart comes in ~1s
+    await new Promise((r) => setTimeout(r, 2000));
+    assert.equal(remote.currentChildPid(), null, 'the tunnel restarted during the Forget, on the key being retired');
+    await racing;
+    await forgetting;
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.FAKE_REGISTER_MS;
+  }
+});
+
+test('#3827: the Settings setup also keeps a half identity whose retire got no answer', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  const orig = process.stderr.write;
+  try {
+    process.stderr.write = () => true;
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    process.env.FAKE_TUNNEL_MODE = 'partial-register';
+    assert.equal((await remote.signinRegister('hers')).ok, false, 'fixture: the register was killed by its bound');
+    await remote.setupStart('her@example.com');
+    process.env.FAKE_TUNNEL_MODE = 'retire-502html';
+    fs.rmSync(RECORD, { force: true });
+    const r = await remote.setupComplete('123456', 'hers');
+    assert.equal(r.ok, false, 'the Settings setup ran over a half identity that could still be retired');
+    assert.match(r.because, /answered 502/, 'the kept answer should name the real reason, not "</html>": ' + r.because);
+    assert.ok(!recorded().some((c) => c[0] === 'setup' && c[1] === 'complete'), 'setup complete ran beside a kept half identity');
+  } finally {
+    process.stderr.write = orig;
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    remote.setOn(false);
+    await remote.forget();
   }
 });

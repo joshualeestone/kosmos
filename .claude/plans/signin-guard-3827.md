@@ -91,3 +91,10 @@ Weakest premise: Forget can now take up to the register bound (60s) when a regis
 - WARNING: secondReset and the device verbs (allow, deny, remove) signed with this Mac's key during a Forget or a register. They now wait on busy(). devicesList (a read the page polls) is left open. Test (all four refused during a Forget); control (allow ungated) fails by name.
 - NIT: the two retire calls are one retireHere().
 - NIT: the fake's successful retire now prints the coordinator's JSON answer, as the real one does.
+
+## Round 12 review (opus)
+- WARNING: turning Kosmos+ off while a register was out (the page gives up at 15s, the certificate takes ~65s) was undone when the register finished (turnOnAfterSignin). setOn(false) now bumps an off epoch, and a register that sees it moved does not switch on. The existing test now asserts the switch stays off; control (always switch on) fails by name. setupComplete never switches on by itself, so it needs nothing.
+- WARNING: the transient-retire check read only setupRun's last stderr line. A gateway's multi-line HTML 502 (the tunnel prints the raw body) ends in "</html>", so it was read as final and the key wiped. The check now scans the whole stderr and the kept answer names the matching line. Fake arm prints a multi-line HTML 502; the kept loop and a Settings-path test cover it; control (last line only) fails by name.
+- NIT: the ensure() Forget guard was untested (Forget switches off before its retire wait, so only a Forget waiting on a register exposes it). Test: a set-up, running Mac; a slow register for a new name; a Forget waiting on it; the tunnel killed so its 1s restart fires inside the wait: no tunnel. Control (guard removed) fails by name. KEPT_HALF on the Settings path is now tested.
+- NIT (hardening, no dedicated test): the session-less shortcut requires a session that carries a token (not a mid-flow challenge); "has a certificate" is tls.crt alone (the tunnel writes tls.key first, so key-without-certificate is half registered).
+- NIT (no change): clearHalfIdentity's wipe also takes the assistant's install_key/install_id in the same dir, as Forget always has.
