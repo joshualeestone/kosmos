@@ -9267,6 +9267,21 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 .plus-si-wide { width: 75%; min-width: min(100%, 15rem); }
 #plus-state2 .plus-si-otp { width: 12ch; font: 600 1.3rem ui-monospace, Menlo, monospace; letter-spacing: .3em; text-indent: .3em; text-align: center; font-variant-numeric: tabular-nums; }
 #plus-state2 .plus-si-otp::placeholder { letter-spacing: .3em; color: #4d5f86; -webkit-text-fill-color: #4d5f86; }
+/* #3942 (Josh, 2026-09-26): one big box per digit. The boxes are drawn BEHIND the one real input,
+   whose digits are spaced to land one per box (monospace, letter-spacing in ch), so paste, the
+   phone's one-time-code autofill, Backspace and a screen reader all work on an ordinary input.
+   The cells are decoration (aria-hidden); the box being typed into is outlined. The input is wider
+   than the boxes so its own text never scrolls; the wrapper CLIPS rather than hides, because a
+   hidden-overflow box still scrolls to show a focused child, which shifted every box left. */
+#plus-state2 .otp-boxes { --cw: 2.6ch; --gap: .5ch; position: relative; display: block; overflow: hidden; overflow: clip;
+  font: 650 1.75rem/1 ui-monospace, Menlo, monospace; width: calc(6 * var(--cw) + 5 * var(--gap)); height: calc(var(--cw) * 1.25); margin-top: .75rem; }
+#plus-state2 .otp-cells { position: absolute; inset: 0; display: flex; gap: var(--gap); pointer-events: none; }
+#plus-state2 .otp-cell { flex: 0 0 var(--cw); box-sizing: border-box; border-radius: 12px; background: #16223e; border: 1px solid #5c78a6; }
+#plus-state2 .otp-cell.on { border-color: #7ea0f0; box-shadow: 0 0 0 2px #7ea0f0 inset; }
+#plus-state2 .otp-boxes .plus-si-otp, #plus-state2 .otp-boxes .plus-si-otp:focus { position: absolute; left: 0; top: 0; height: 100%; width: calc(100% + 2 * var(--cw));
+  margin: 0; padding: 0 0 0 calc((var(--cw) - 1ch) / 2); border: 0; border-radius: 0; outline: 0; box-shadow: none; background: transparent;
+  font: inherit; letter-spacing: calc(var(--cw) + var(--gap) - 1ch); text-indent: 0; text-align: left; caret-color: transparent; }
+#plus-state2 .otp-boxes .plus-si-otp:-webkit-autofill { -webkit-box-shadow: none; transition: background-color 600000s 0s; }
 #plus-state2 .plus-si-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 #plus-state2 .btn.uprime { background: linear-gradient(150deg,#3a68d8,#2f57c4); border: 1px solid #2f57c4; color: #fff; border-radius: 10px; font-weight: 650; padding: .6rem 1.4rem; }
 #plus-state2 .btn.uprime:hover { filter: brightness(1.08); background: linear-gradient(150deg,#3a68d8,#2f57c4); border-color: #2f57c4; color: #fff; }
@@ -15663,7 +15678,7 @@ window.kosmosMeasureScrollbarWidth();
         <div class="field">
           <!-- The label stays for a screen reader; on screen the line above says it (#3796). -->
           <label class="flabel plus-si-sr" for="plus-si-code-in">The code from the email</label>
-          <input class="tk-inp plus-si-otp" id="plus-si-code-in" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="000000">
+          <input class="tk-inp plus-si-otp" id="plus-si-code-in" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12">
         </div>
         <div class="frow">
           <button class="btn uprime" type="button" id="plus-si-code-go">Verify</button>
@@ -15680,7 +15695,7 @@ window.kosmosMeasureScrollbarWidth();
         <p class="plus-si-lead" id="plus-si-second-lead">Enter the 6-digit code from your second step.</p>
         <div class="field">
           <label class="flabel plus-si-sr" for="plus-si-second-in" id="plus-si-second-label">The code from your second step</label>
-          <input class="tk-inp plus-si-otp" id="plus-si-second-in" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="000000">
+          <input class="tk-inp plus-si-otp" id="plus-si-second-in" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12">
         </div>
         <div class="frow">
           <button class="btn uprime" type="button" id="plus-si-second-go">Verify</button>
@@ -15724,7 +15739,7 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <div class="field">
           <label class="flabel" for="plus-si-enrol-code">The code your second step shows</label>
-          <input class="tk-inp plus-si-otp" id="plus-si-enrol-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="000000">
+          <input class="tk-inp plus-si-otp" id="plus-si-enrol-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12">
         </div>
         <div class="frow">
           <button class="btn uprime" type="button" id="plus-si-enrol-confirm-go">Confirm</button>
@@ -37195,13 +37210,52 @@ document.getElementById('plus-si-cancel').addEventListener('click', (e) => {
   paintPlus();
 });
 /* Codes arrive by paste with whitespace riding along; normalize to six digits, as
-   the enrol code field above does. */
+   the enrol code field above does.
+   #3942 (Josh, 2026-09-26: "the code is really big and prominent in individual boxes... whenever I
+   paste it pastes across all of it... As soon as the code enters completely, it automatically
+   submits"): each code field is drawn as six boxes (CSS .otp-boxes: the boxes sit behind the one
+   real input, so paste and one-time-code autofill fill them all at once), and the moment the sixth
+   digit arrives the step's own button is pressed, once. The button stays for anyone who clicks. */
+const PLUS_SI_OTP_GO = { 'plus-si-code-in': 'plus-si-code-go', 'plus-si-second-in': 'plus-si-second-go', 'plus-si-enrol-code': 'plus-si-enrol-confirm-go' };
 for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code']) {
   const el = document.getElementById(id);
-  if (el) el.addEventListener('input', (e) => {
+  if (!el || !el.parentNode) continue;   // a field that is not in the document has nowhere to draw boxes
+  const box = document.createElement('div');
+  box.className = 'otp-boxes';
+  const cells = document.createElement('div');
+  cells.className = 'otp-cells';
+  cells.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < 6; i += 1) cells.appendChild(document.createElement('span')).className = 'otp-cell';
+  el.parentNode.insertBefore(box, el);
+  box.appendChild(cells);
+  box.appendChild(el);
+  // Where overflow: clip is not supported, a focus can still scroll the box; put it straight back.
+  box.addEventListener('scroll', () => { if (box.scrollLeft) box.scrollLeft = 0; });
+  const digits = () => el.value.replace(/\D/g, '').length;
+  // The box being typed into is outlined: the next empty one, or the last when all six are in.
+  const paint = () => {
+    const n = digits(); const on = document.activeElement === el;
+    Array.from(cells.children).forEach((c, i) => c.classList.toggle('on', on && i === Math.min(n, 5)));
+  };
+  /* Auto-submit fires on the step from fewer than six digits to six, so a code already complete
+     (say, after a wrong-code answer) is not sent again until it changes. Focus re-reads it, since a
+     cleared field (plusSiClear) changes without an input event. */
+  let had = 0;
+  el.addEventListener('input', (e) => {
     const clean = e.target.value.replace(/\D/g, '').slice(0, 6);
     if (e.target.value !== clean) e.target.value = clean;
+    paint();
+    if (clean.length === 6 && had < 6) {
+      const go = document.getElementById(PLUS_SI_OTP_GO[id]);
+      if (go && !go.disabled) go.click();
+    }
+    had = clean.length;
   });
+  // Typing always continues at the end, one box after another; Backspace steps back a box.
+  const toEnd = () => { const n = el.value.length; try { el.setSelectionRange(n, n); } catch { /* not a text input */ } };
+  el.addEventListener('focus', () => { had = digits(); toEnd(); paint(); });
+  el.addEventListener('click', () => { toEnd(); paint(); });
+  for (const ev of ['blur', 'keyup', 'select']) el.addEventListener(ev, paint);
 }
 /* Ask signin-start for an email code. ONE place, shared by the initial "Email me a
    code" button and the "again" button on the code step -- two copies of this sequence

@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-state1 plus-state2 plus-si-done plus-si-owned plus-si-name-count plus-si-expired plus-si-second-lead plus-si-second-help plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status
+// Browser-check-surface: plus-state1 plus-state2 plus-si-done plus-si-owned plus-si-name-count plus-si-expired plus-si-second-lead plus-si-second-help plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status otp-boxes otp-cell otp-cells
 'use strict';
 /**
  * #3478: the Kosmos+ sign-in links open the IN-APP wizard, not the web.
@@ -252,7 +252,11 @@ const visible = (page, sel) => page.evaluate((s) => {
           const okBorder = getComputedStyle(probe).borderTopColor;
           return { gap: btn.top - f.bottom, n: inputs.length, badBorder, okBorder,
             wiz: inputs.filter((i) => i.closest('#plus-state2')).length,
-            bad: inputs.map((i) => { const c = getComputedStyle(i); return { id: i.id, raw: c.color + ' on ' + c.backgroundColor, want: WANT(i) }; })
+            /* #3942: a code field is transparent over its six boxes, so what the digits sit on is the
+               boxes' fill: read that, not the input's own (now see-through) background. */
+            bad: inputs.map((i) => { const c = getComputedStyle(i); const boxed = i.closest('.otp-boxes');
+              const under = boxed ? getComputedStyle(boxed.querySelector('.otp-cell')).backgroundColor : c.backgroundColor;
+              return { id: i.id, raw: c.color + ' on ' + under, want: WANT(i) }; })
               .filter((x) => x.raw !== x.want).map((x) => x.id + ': ' + x.raw) };
         }, theme);
         chk(r.n === 10, `[${key}] #3596 CONTROL: the Kosmos+ pane's 10 inputs were found (${theme})`, String(r.n));
@@ -288,14 +292,21 @@ const visible = (page, sel) => page.evaluate((s) => {
           const inp = document.getElementById('plus-si-code-in'); const cs = getComputedStyle(inp);
           const go = getComputedStyle(document.getElementById('plus-si-code-go'));
           const rs = document.getElementById('plus-si-code-resend');
-          return { lead: document.querySelector('#plus-si-code .plus-si-lead').textContent.trim(), w: inp.getBoundingClientRect().width,
-            align: cs.textAlign, mono: /mono|menlo/i.test(cs.fontFamily), otp: inp.getAttribute('autocomplete'), mode: inp.getAttribute('inputmode'),
+          const cells = Array.from(document.querySelectorAll('#plus-si-code .otp-cell')).map((x) => x.getBoundingClientRect());
+          return { lead: document.querySelector('#plus-si-code .plus-si-lead').textContent.trim(),
+            cells: cells.length, cellW: Math.min(...cells.map((r) => r.width)), cellH: Math.min(...cells.map((r) => r.height)),
+            hidden: (document.querySelector('#plus-si-code .otp-cells') || { getAttribute: () => null }).getAttribute('aria-hidden'), fontPx: parseFloat(cs.fontSize),
+            on: Array.from(document.querySelectorAll('#plus-si-code .otp-cell')).findIndex((x) => x.classList.contains('on')),
+            mono: /mono|menlo/i.test(cs.fontFamily), otp: inp.getAttribute('autocomplete'), mode: inp.getAttribute('inputmode'),
             goBg: go.backgroundImage + ' ' + go.backgroundColor, rsTag: rs.tagName, rsText: rs.textContent.trim(),
             labelShown: document.querySelector('label[for="plus-si-code-in"]').getBoundingClientRect().width > 1 };
         });
         chk(c.lead === 'We sent a code to you@example.com. It works for 10 minutes.', `[${key}] #3796 the code step's one line names the email and how long the code works`, c.lead);
         chk((await page.textContent('#plus-si-cancel')).trim() === 'Start over', `[${key}] #3796 addendum 4: while a sign-in is in progress the way out reads "Start over"`, await page.textContent('#plus-si-cancel'));
-        chk(c.w > 90 && c.w < 200 && c.align === 'center' && c.mono, `[${key}] #3796 the code field is compact, centred and monospace`, JSON.stringify(c));
+        // #3942 (Josh, 2026-09-26) replaces #3796's compact field: one big box per digit.
+        chk(c.cells === 6 && c.cellW >= 40 && c.cellH >= 48 && c.fontPx >= 26 && c.mono && c.hidden === 'true',
+          `[${key}] #3942 the code is six big boxes (drawn for the eye, hidden from a screen reader), with big digits`, JSON.stringify(c));
+        chk(c.on === 0, `[${key}] #3942 the first box is outlined while the field has focus`, String(c.on));
         chk(c.otp === 'one-time-code' && c.mode === 'numeric', `[${key}] #3796 the code field offers one-time-code autofill and a number pad`);
         chk(/58, 104, 216|47, 87, 196/.test(c.goBg) && !/227, 179, 65|245, 197/.test(c.goBg), `[${key}] #3796 Verify is Kosmos+ blue, not gold`, c.goBg);
         chk(c.rsTag === 'A' && c.rsText === 'Send again', `[${key}] #3796 resend is a small "Send again" link`, c.rsTag + ' ' + c.rsText);
@@ -304,9 +315,31 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(g.above > 40 && Math.abs(g.above - g.below) <= 4, `[${key}] #3796 the code step's card is centred vertically`, JSON.stringify(g));
       }
 
-      // Step: email code -> the branch signin-verify chose.
-      await page.fill('#plus-si-code-in', '123456');
-      await page.click('#plus-si-code-go');
+      // Step: email code -> the branch signin-verify chose. #3942: the sixth digit submits by itself,
+      // so no click: reaching the next step below IS the auto-submit. The first scenario PASTES the
+      // code with a space in it, as it arrives from an email, and counts the verify requests.
+      if (key === 'existing-2fa') {
+        let verifies = 0;
+        const count = (r) => { if (r.method() === 'POST' && /\/api\/remote\/signin-verify$/.test(r.url())) verifies += 1; };
+        page.on('request', count);
+        await page.focus('#plus-si-code-in');
+        await page.keyboard.insertText('123 45');
+        const part = await page.evaluate(() => { const box = document.querySelector('#plus-si-code .otp-boxes');
+          if (!box) return { v: document.getElementById('plus-si-code-in').value, on: -1, scroll: null, shift: null, boxes: false };   // a red, not a throw
+          return { v: document.getElementById('plus-si-code-in').value,
+            on: Array.from(document.querySelectorAll('#plus-si-code .otp-cell')).findIndex((x) => x.classList.contains('on')),
+            scroll: box.scrollLeft, shift: Math.round(box.querySelector('.otp-cell').getBoundingClientRect().left - box.getBoundingClientRect().left) }; });
+        chk(part.v === '12345' && part.on === 5 && verifies === 0, `[${key}] #3942 five digits fill five boxes, outline the sixth, and do not submit yet`, JSON.stringify({ part, verifies }));
+        chk(part.scroll === 0 && part.shift === 0, `[${key}] #3942 typing never scrolls the boxes sideways (the first box stays whole)`, JSON.stringify(part));
+        if (process.env.SHOT_DIR || OUT) await page.screenshot({ path: path.join(OUT, `${key}-code-boxes-3942.png`) });
+        await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = ''; i.dispatchEvent(new Event('input')); });
+        await page.keyboard.insertText('123 456');   // one paste, space and all
+        await page.waitForTimeout(300);
+        chk(verifies === 1, `[${key}] #3942 one paste of "123 456" fills every box and submits exactly once`, String(verifies));
+        page.off('request', count);
+      } else {
+        await page.fill('#plus-si-code-in', '123456');
+      }
 
       const verifyStage = sc.steps['/api/remote/signin-verify'].stage;
       if (verifyStage === 'second') {
@@ -320,8 +353,7 @@ const visible = (page, sel) => page.evaluate((s) => {
         await page.click('#plus-si-second-help');
         const rec = (await page.textContent('#plus-si-second-recover')).trim();
         chk((await visible(page, '#plus-si-second-recover')) && /I lost my phone/.test(rec), `[${key}] #3796 "Can't get a code?" opens the recovery path`, JSON.stringify(rec));
-        await page.fill('#plus-si-second-in', '654321');
-        await page.click('#plus-si-second-go');
+        await page.fill('#plus-si-second-in', '654321');   // #3942: auto-submits
       } else if (verifyStage === 'enrol_second_factor') {
         await page.waitForSelector('#plus-si-enrol', { state: 'visible', timeout: 5000 });
         chk(await visible(page, '#plus-si-enrol-sms'), `[${key}] verify -> set-up step offers text when sms_available`);
@@ -346,8 +378,7 @@ const visible = (page, sel) => page.evaluate((s) => {
           const secret = await page.inputValue('#plus-si-secret');
           chk(secret === 'ABCD1234EFGH5678', `[${key}] the authenticator key is shown to type in`, JSON.stringify(secret));
         }
-        await page.fill('#plus-si-enrol-code', '111222');
-        await page.click('#plus-si-enrol-confirm-go');
+        await page.fill('#plus-si-enrol-code', '111222');   // #3942: auto-submits
       }
 
       // Step: session -> name -> hand off to the connected flow.
@@ -478,8 +509,7 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.fill('#plus-signin-email', 'you@example.com');
       await page.click('#plus-signin-code');
       await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
-      await page.fill('#plus-si-code-in', '123456');
-      await page.click('#plus-si-code-go');           // verify now in flight for 1.5s
+      await page.fill('#plus-si-code-in', '123456');   // #3942: auto-submits; verify now in flight for 1.5s
       const startOverPost = page.waitForRequest((r) => r.method() === 'POST' && /\/api\/remote\/signin-cancel$/.test(r.url()), { timeout: 3000 }).then(() => true, () => false);
       await page.click('#plus-si-cancel');            // "Start over" (addendum 4)
       chk(await startOverPost, `[${k}] #3796 addendum 4: Start over drops the held sign-in (POST signin-cancel)`);
@@ -516,8 +546,7 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.fill('#plus-signin-email', 'you@example.com');
       await page.click('#plus-signin-code');
       await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
-      await page.fill('#plus-si-code-in', '111111');
-      await page.click('#plus-si-code-go');
+      await page.fill('#plus-si-code-in', '111111');   // #3942: auto-submits
       await page.waitForTimeout(400);
       chk((await visible(page, '#plus-si-code-go')) && !(await visible(page, '#plus-si-expired')), `[${k}] #3796 CONTROL: a wrong code stays on the step to retype`);
       verifyAnswer = { status: 400, body: { error: 'Kosmos+ said no (401): that sign-in has expired or was already finished; start again from the email' } };
@@ -546,8 +575,7 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.fill('#plus-signin-email', 'you@example.com');
       await page.click('#plus-signin-code');
       await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
-      await page.fill('#plus-si-code-in', '123456');
-      await page.click('#plus-si-code-go');
+      await page.fill('#plus-si-code-in', '123456');   // #3942: auto-submits
       await page.waitForSelector('#plus-si-register-go', { state: 'visible', timeout: 5000 });
       const f = await page.evaluate(() => ({ lead: document.getElementById('plus-si-owned').textContent.trim(), btn: document.getElementById('plus-si-register-go').textContent.trim(), msg: document.getElementById('plus-signin-msg').textContent.trim() }));
       chk(/could not connect as twin-mac\.kosmosplus\.com/.test(f.lead) && f.btn === 'Try again' && /already connected/.test(f.msg), `[${k}] #3796 review: a failed automatic register says so and offers Try again`, JSON.stringify(f));
@@ -569,8 +597,7 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.fill('#plus-signin-email', 'you@example.com');
       await page.click('#plus-signin-code');
       await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
-      await page.fill('#plus-si-code-in', '123456');
-      await page.click('#plus-si-code-go');
+      await page.fill('#plus-si-code-in', '123456');   // #3942: auto-submits
       await page.waitForSelector('#plus-si-enrol-sms', { state: 'visible', timeout: 5000 });
       const stroke = await page.evaluate(() => { const c = getComputedStyle(document.getElementById('plus-si-enrol-sms')); return { w: c.borderTopWidth, col: c.borderTopColor, style: c.borderTopStyle }; });
       const alpha = /rgba\([^)]*,\s*([\d.]+)\)/.exec(stroke.col);
