@@ -148,6 +148,10 @@ function tokenMayGoTo(url) {
   } catch { return false; }
 }
 
+/* A read the store REFUSED (as opposed to missing, 404, or failing): 401 or 403 in the
+   'blob GET HTTP <status>' errors defaultGet throws. One pattern, used for the count. */
+const REFUSED_STATUS = /HTTP 40[13]\b/;
+
 async function defaultGet(url, tok) {
   const send = !!(tok && tokenMayGoTo(url));
   const res = await fetchBounded(url, send ? { headers: { authorization: 'Bearer ' + tok } } : undefined);
@@ -157,7 +161,7 @@ async function defaultGet(url, tok) {
     // so the hint below does not send anyone to refile a token that is fine.
     let host = '';
     try { host = new URL(url).hostname; } catch { host = '?'; }
-    throw new Error('blob GET HTTP ' + (res && res.status) + (tok && !send ? ' (token withheld from host ' + host + ')' : ''));
+    throw new Error('blob GET HTTP ' + (res && res.status) + (tok && !send ? ', token withheld from host ' + host : ''));
   }
   return res.text();
 }
@@ -251,7 +255,7 @@ async function pull(dir, opts) {
     try { text = await tp.get(b.url, tok); }
     catch (e) {
       skipped += 1; unreadable += 1; lastGetError = String((e && e.message) || e);
-      if (/HTTP 40[13]\b/.test(lastGetError) && !/token withheld/.test(lastGetError)) denied += 1;
+      if (REFUSED_STATUS.test(lastGetError) && !/token withheld/.test(lastGetError)) denied += 1;
       continue;
     }
     let rec;
@@ -282,8 +286,9 @@ async function pull(dir, opts) {
         + ' (last read error: ' + lastGetError + ')'
         + (denied
           ? '. ' + denied + ' were refused although the store\'s own token was sent: the read path may need a different URL or auth form.'
-          : '.'),
-      unreadable, denied,
+          : '.')
+        + (fromPublicStore ? ' ' + PUBLIC_STORE_NOTE : ''),
+      unreadable, denied, fromPublicStore,
     };
   }
   // A partial pull is still ok, but says how many could not be read and why, so a
@@ -297,6 +302,10 @@ async function pull(dir, opts) {
  * these, so a partial pull's "could not be read" line cannot be missing from one of
  * them (kosmos#3878).
  */
+/* The real wrong-store hint, in one place for the success summary and the failure. */
+const PUBLIC_STORE_NOTE = 'These reports were listed from a PUBLIC blob store. Since kosmos#3878 they are kept in the private feedback store; refile '
+  + FEEDBACK_TOKEN_TARGET + ' with that store\'s token.';
+
 function summaryLines(r) {
   const out = ['pulled ' + r.written + ' report(s)' + (r.skipped ? ' (' + r.skipped + ' skipped)' : '') + ' to ' + r.dir];
   if (r.unreadable) {
@@ -304,10 +313,7 @@ function summaryLines(r) {
       + (r.denied ? ', ' + r.denied + ' of them refused although the token was sent' : '')
       + ' (last error: ' + r.lastGetError + ')');
   }
-  if (r.fromPublicStore) {
-    out.push('note: these came from a PUBLIC blob store. Since kosmos#3878 the reports are kept in the private feedback store; refile '
-      + FEEDBACK_TOKEN_TARGET + ' with that store\'s token.');
-  }
+  if (r.fromPublicStore) out.push('note: ' + PUBLIC_STORE_NOTE);
   return out;
 }
 
