@@ -102,7 +102,11 @@ test('#718: a chart wider than its box lets a finger scroll the box, and the dra
   // callouts reach past the square, so an always-on scroller would cut them off.
   assert.match(paint, /classList\.toggle\('orgscroll', wide\)/);
   assert.match(PAGE, /\.orgwrap\.orgscroll \{ overflow-x: auto;/);
-  assert.doesNotMatch(PAGE, /\.orgwrap \{[^}]*overflow-x/, 'every chart would clip its callouts');
+  assert.doesNotMatch(PAGE, /\.orgwrap \{[^}]*overflow-x: (auto|hidden|scroll)/, 'every chart would clip its callouts');
+  // Sideways only, and clip (not hidden) so it is not a scroller and overflow-y stays visible.
+  assert.match(PAGE, /\.orgwrap \{ overflow-x: clip; \}/);
+  // A finger on a wide chart pans it; it does not also start a drag.
+  assert.match(SCRIPT, /if \(e\.pointerType === 'touch' && map\.classList\.contains\('orgwide'\)\) return;/);
 });
 
 test('#718: positions from a canvas of another width are carried across in proportion', () => {

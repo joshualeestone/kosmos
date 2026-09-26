@@ -32,7 +32,8 @@
  * scrolling box's top padding; the centred arm reds without the centring; the narrowed
  * arm reds when the old scroll offset is kept across a width change; the
  * same-width repaint arm reds when every repaint writes the scroll; the turned-
- * while-hidden arm reds when the resize handler remembers its own width.
+ * while-hidden arm reds when the resize handler remembers its own width; the long
+ * callout arm reds without the box's sideways clip (page 406px at 375).
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -100,7 +101,8 @@ function measure(page) {
     // A label the chart's box cuts off: only possible while the box clips (it scrolls),
     // and measured on every node's name and callout whether or not it is showing.
     const wrap = document.getElementById('orgview');
-    const clips = getComputedStyle(wrap).overflowX !== 'visible';
+    // Vertical clipping is what can cut a name off; the box clips sideways by design.
+    const clips = getComputedStyle(wrap).overflowY !== 'visible';
     const wr = wrap.getBoundingClientRect();
     const clipped = !clips ? [] : [...document.querySelectorAll('#orgmap .onode')].flatMap((n) =>
       [...n.querySelectorAll('.oname, .callout')].map((el) => ({ agent: n.getAttribute('data-agent'), cls: el.className, r: el.getBoundingClientRect() })))
@@ -143,6 +145,18 @@ function measure(page) {
           chk(small.length === 0, `${tag} every face is at least 44x44`, JSON.stringify(small.length ? small : m.nodes.map((n) => n.w + 'x' + n.h)));
           // A chart that fits must not clip: the name callout above a top node reaches past its square.
           chk(!m.clips, `${tag} a chart that fits does not clip its names (the box is not a scroller)`, 'overflow clips=' + m.clips);
+          // A callout is laid out while hidden. A long name and role over the rightmost node
+          // must not make the page wider than the screen (the fixture's short names cannot).
+          const longCo = await page.evaluate(() => {
+            const n = [...document.querySelectorAll('#orgmap .onode')].sort((a, b) => b.getBoundingClientRect().right - a.getBoundingClientRect().right)[0];
+            const c = n && n.querySelector('.callout');
+            const nm = c && c.querySelector('.co-name'); const rl = c && c.querySelector('.co-role');
+            if (!nm || !rl) return { error: 'no callout name/role on the rightmost node (renamed? re-anchor this check)' };
+            nm.textContent = 'Johnny Cage the Second'; rl.textContent = 'Head of partnerships and field operations';
+            return { agent: n.dataset.agent, calloutRight: Math.round(c.getBoundingClientRect().right), pageW: document.documentElement.scrollWidth, vw: document.documentElement.clientWidth };
+          });
+          chk(!longCo.error && longCo.calloutRight > longCo.vw && longCo.pageW <= longCo.vw,
+            `${tag} a long name and role over the rightmost node do not widen the page`, JSON.stringify(longCo));
           // A tap on a face opens that agent (the chart's own click handler).
           const target = m.nodes.find((n) => n.agent);
           if (target) {

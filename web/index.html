@@ -1798,6 +1798,13 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    ring AND the loudest colour, working is a quarter, idle is absent. Read the
    view in greyscale and it still works. */
 .orgwrap { margin-top: 8px; }
+/* #718: a callout is laid out while hidden (opacity 0), so a long name and role
+   over a node near the edge of a phone-width chart made the page wider than the
+   screen. clip, not hidden: it cuts the sideways overflow without making the box
+   a scroller, so overflow-y stays visible and the callouts above the top ring
+   still show. render-orgchart-phone-718 puts a long callout on the rightmost node
+   and fails if the page widens. */
+.orgwrap { overflow-x: clip; }
 /* #718: a fleet too big to fit a phone even with its rings brought in (orgFit)
    scrolls inside the chart's own box, never the whole page sideways. Only then
    (paintOrg sets .orgscroll), because overflow-x makes overflow-y clip as well.
@@ -26616,7 +26623,7 @@ function paintOrg() {
   const wasWide = wrap.classList.contains('orgscroll');
   const scrollTo = !wide ? null : !wasWide ? (size - viewW) / 2
     : widthChanged ? (wrap.scrollLeft + ORG_VIEW_W / 2) * f - viewW / 2 : null;
-  ORG_VIEW_W = viewW;
+  if (viewW > 0) ORG_VIEW_W = viewW;
   wrap.classList.toggle('orgscroll', wide);
   const orgmapEl = document.getElementById('orgmap');
   orgmapEl.classList.toggle('orgwide', wide);
@@ -26914,6 +26921,9 @@ function orgLiveRun() {
   map.addEventListener('pointerdown', (e) => {
     ORG_DRAG_MOVED = false;
     if (!ORG_LIVE || e.button !== 0) return;
+    // #718: on a chart wider than its box a finger pans it; starting a drag too would
+    // move the node a few pixels before the browser takes the gesture and cancels.
+    if (e.pointerType === 'touch' && map.classList.contains('orgwide')) return;
     const el = e.target.closest && e.target.closest('.onode, .hub');
     if (!el) return;
     const body = el.classList.contains('hub') ? ORG_LIVE.hub : ORG_LIVE.nodes.get(el.dataset.agent);
