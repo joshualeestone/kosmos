@@ -50,9 +50,11 @@ const CALL_MS = Number(process.env.KOSMOS_PLUS_CALL_MS) || 15 * 1000;
 /* #3986: the cancel that cleans up a half sign-in gets at least five seconds. Two of its six
    sites follow a call that timed out (the start, and a step failing in fail()), which is when the
    board is slowest, so it should not share that call's budget; the other four (a bad argument, an
-   unsupported second step, no TOTP secret, nothing registered) get the same floor for one rule. This only changes anything when KOSMOS_PLUS_CALL_MS is set under 5s (tests do);
-   at the 15s default the floor is inert. */
-const CLEANUP_MS = Math.max(CALL_MS, 5 * 1000);
+   unsupported second step, no TOTP secret, nothing registered) get the same floor for one rule.
+   This only changes anything when KOSMOS_PLUS_CALL_MS is set under 5s (tests do); at the 15s
+   default the floor is inert. Exported so the tests read it rather than copy it. */
+const CLEANUP_FLOOR_MS = 5 * 1000;
+const CLEANUP_MS = Math.max(CALL_MS, CLEANUP_FLOOR_MS);
 /* The engine bounds a register at five minutes plus up to a minute clearing a half identity. */
 const REGISTER_MS = Number(process.env.KOSMOS_PLUS_REGISTER_MS) || 7 * 60 * 1000;
 /* The engine's forget waits for a register in flight, then signed calls, then the retire: about 8 minutes at worst. */
@@ -276,7 +278,7 @@ function finishRecord(ptr, identity, seed, placement, steps) {
   return rec.result === 'pass' ? 0 : 1;
 }
 
-module.exports = { totp };
+module.exports = { totp, CLEANUP_FLOOR_MS };
 
 if (require.main === module) {
   const a = args(process.argv.slice(2));
