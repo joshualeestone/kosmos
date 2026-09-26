@@ -72,3 +72,33 @@ test('#3997: no answer, an odd status, or an unreadable sign-in is "unknown", ne
   fs.writeFileSync(grok.authFile(bad), '{not json');
   assert.equal((await grok.subscriptionLive(bad)).verdict, 'unknown');
 });
+
+test('#3997 round 11: a slower, older check never overwrites or reports over a newer Check now, and a reset stops old runs', async () => {
+  grok.resetSubscriptionLiveForTest();
+  const dir = signedIn(3 * 3600 * 1000);
+  const pending = [];
+  grok.setFetcher((url, init) => new Promise((resolve) => pending.push(resolve)));
+  const background = grok.subscriptionLive(dir);          // the list's check, started first
+  await new Promise((r) => setTimeout(r, 5));
+  const checkNow = grok.subscriptionLiveOnce(dir, { fresh: true });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(pending.length, 2, 'both checks asked (Check now does not join the list check)');
+  pending[1]({ status: 401 });                            // Check now answers first: refused
+  assert.equal((await checkNow).verdict, 'refused');
+  pending[0]({ status: 200 });                            // the older check answers later: live
+  assert.equal((await background).verdict, 'refused', 'the older check reports the newer answer, not its own');
+  grok.setFetcher(async () => { throw new Error('must not ask again within 30s'); });
+  assert.equal((await grok.subscriptionLive(dir)).verdict, 'refused', 'the kept answer is still the newer one');
+
+  const dir2 = signedIn(3 * 3600 * 1000);
+  const held = [];
+  grok.setFetcher((url, init) => new Promise((resolve) => held.push(resolve)));
+  const old = grok.subscriptionLive(dir2);
+  await new Promise((r) => setImmediate(r));
+  grok.resetSubscriptionLiveForTest();
+  held[0]({ status: 200 });
+  assert.equal((await old).verdict, 'live');
+  const asked = answering(401);
+  assert.equal((await grok.subscriptionLive(dir2)).verdict, 'refused', 'a run from before the reset kept nothing');
+  assert.equal(asked.length, 1);
+});

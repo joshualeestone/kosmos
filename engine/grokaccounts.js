@@ -348,7 +348,9 @@ const subscriptionLiveInflight = new Map();
    xAI again each time (review round 4); a new key (grok renewed it) asks afresh. "No answer" is never kept. */
 const SUBSCRIPTION_LIVE_TTL_MS = 30 * 1000;
 const subscriptionLiveCache = new Map();
-function resetSubscriptionLiveForTest() { subscriptionLiveCache.clear(); subscriptionLiveInflight.clear(); }
+/* Bumped by a reset, so a check started before it never writes after it. */
+let subscriptionLiveGeneration = 0;
+function resetSubscriptionLiveForTest() { subscriptionLiveCache.clear(); subscriptionLiveInflight.clear(); subscriptionLiveGeneration += 1; }
 function subscriptionLive(dir) {
   const key = path.resolve(String(dir || ''));
   if (subscriptionLiveInflight.has(key)) return subscriptionLiveInflight.get(key);
@@ -370,7 +372,18 @@ async function subscriptionLiveOnce(dir, opts) {
   const kept = subscriptionLiveCache.get(cacheKey);
   /* Every answer carries `at`, when it was learned, so a kept one is never recorded as newer than it is (round 6). */
   if (!fresh && kept && Date.now() - kept.at < SUBSCRIPTION_LIVE_TTL_MS) return kept.answer;
-  const keep = (answer) => { const at = Date.now(); const a = { ...answer, at }; subscriptionLiveCache.set(cacheKey, { answer: a, at }); return a; };
+  const gen = subscriptionLiveGeneration;
+  const startedAt = Date.now();
+  /* #3997 round 11: a check that finishes after a NEWER one (a Check now that started later and answered first) neither
+     overwrites it nor reports its own older answer; both callers then see the newer one. */
+  const keep = (answer) => {
+    const had = subscriptionLiveCache.get(cacheKey);
+    if (had && had.at > startedAt) return had.answer;
+    const at = Date.now();
+    const a = { ...answer, at };
+    if (gen === subscriptionLiveGeneration) subscriptionLiveCache.set(cacheKey, { answer: a, at });
+    return a;
+  };
   const f = fetcher || (async (url, init) => {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 8000);
