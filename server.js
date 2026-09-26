@@ -1782,19 +1782,20 @@ function taskMessageValveRecord() {
   taskMessageSends.push(Date.now());
 }
 
-/* #3951 (review round 5): the built route's own valve, the same sliding hour as task messages, counted only for a
-   PROCESS mark that changed something. A repeat of the same mark records nothing and is not counted; the person is
-   never valved. Its own counter, so marks and messages do not starve each other. */
-/* `>= 0`, not `|| 60`, as TASK_MSG_CAP_PER_HOUR above (review round 8): a cap of 0 means no agent marks at all. */
-const BUILT_MARK_CAP_PER_HOUR = (() => {
-  const n = Number(process.env.AGENT_WORKFORCE_BUILT_MARK_CAP);
-  return Number.isFinite(n) && n >= 0 ? n : 60;
-})();
+/* #3951 (review round 5): the built route's own breaker, the same runaway breaker as task messages and parts (#4019,
+   500 an hour shared by all agents unless AGENT_WORKFORCE_BUILT_MARK_CAP says otherwise; 0 switches agent marks off),
+   counted only for a PROCESS mark that changed something. A repeat of the same mark records nothing and is not
+   counted; the person is never valved. Its own counter, so marks and messages do not starve each other. */
+const BUILT_MARK_CAP_PER_HOUR = taskMsgCapFrom(process.env.AGENT_WORKFORCE_BUILT_MARK_CAP);
 let builtMarks = [];
-function builtMarkValveTripped() {
-  const cutoff = Date.now() - TASK_MSG_WINDOW_MS;
-  builtMarks = builtMarks.filter((t) => t >= cutoff);
-  return builtMarks.length >= BUILT_MARK_CAP_PER_HOUR;
+function builtMarkRefusal(now = Date.now()) {
+  builtMarks = builtMarks.filter((t) => t >= now - AGENT_RUNAWAY_WINDOW_MS);
+  if (BUILT_MARK_CAP_PER_HOUR === 0) {
+    return { because: 'agent built marks are switched off on this computer (AGENT_WORKFORCE_BUILT_MARK_CAP is 0); the person can still take a mark off from the screen', retryAfterSecs: null };
+  }
+  const r = runawayRefusal(builtMarks, { noun: 'built marks', did: 'made', pausing: 'agent built marks', again: 'mark tasks built',
+    screen: 'take a mark off' }, { now, limit: BUILT_MARK_CAP_PER_HOUR });
+  return r && { because: r.because, retryAfterSecs: r.retryAfterSecs };
 }
 
 // #3485: the community feed's flood valve, a sliding window like the task valve
@@ -15165,7 +15166,7 @@ const server = http.createServer((req, res) => {
      no agent (review round 11). The real
      boundary is the board token, and the person's own mark rests on the screen posture (isViaScreen), advisory
      as on the bulk-close route: a local process that claims to be the screen is taken at its word (review round 13). A
-     process is valved (builtMarkValveTripped); the same mark again records nothing and is not counted. Marking a closed
+     process is valved (builtMarkRefusal, the runaway breaker); the same mark again records nothing and is not counted. Marking a closed
      task is refused (409); clearing one is a no-op answered `changed: false` (review round 10), since closing
      already cleared the mark. The block is not re-synced: the mark changes nothing on an agent's instructions list. */
   const taskBuilt = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/built$/);
@@ -15197,8 +15198,10 @@ const server = http.createServer((req, res) => {
       const card = tokenSender ? tokenSender.card : (byPane && byPane.ok ? byPane.card : null);
       const by = viaScreen ? null : ((card && card.sessionName) || null);
       if (!viaScreen) {
-        if (builtMarkValveTripped()) {
-          sendJson(res, 429, { error: 'agents have marked tasks built many times in the last hour, so Kosmos is pausing agent marks; the person can still take a mark off from the screen' });
+        const refused = builtMarkRefusal();
+        if (refused) {
+          if (refused.retryAfterSecs !== null) res.setHeader('retry-after', String(refused.retryAfterSecs));
+          sendJson(res, 429, { error: refused.because, ...(refused.retryAfterSecs !== null ? { retry_after_secs: refused.retryAfterSecs } : {}) });
           return;
         }
         const proj = projects.readAll().find((x) => x.id === id) || null;   // the stored record: agents are names

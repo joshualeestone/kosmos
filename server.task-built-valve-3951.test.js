@@ -76,6 +76,9 @@ test('three changed process marks pass, a repeat is not counted, the fourth chan
   const fourth = newTask('four');
   const refused = await post(`/api/project/${projectId}/task/${fourth}/built`, {}, as);
   assert.equal(refused.status, 429, 'the fourth changed mark went through: ' + JSON.stringify(refused.json));
+  /* The runaway breaker's own answer (#4019): it names the limit and says when marks can resume. */
+  assert.ok(refused.json.retry_after_secs > 0, JSON.stringify(refused.json));
+  assert.match(refused.json.error, /limit of 3 an hour shared by all agents/);
   assert.equal('builtAt' in tasks.byNumber(projects.readAll().find((x) => x.id === projectId), fourth), false);
   const screen = await post(`/api/project/${projectId}/task/${fourth}/built`, {}, { 'sec-fetch-site': 'same-origin' });
   assert.equal(screen.status, 200, 'the screen was valved');
