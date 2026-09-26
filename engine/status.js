@@ -5254,6 +5254,20 @@ function readGeminiSession(agentName) {
   catch { return { found: false }; }
 }
 
+/* #4039: the windows of Gemini models, for a transcript that does not state one (the Gemini CLI never
+   does; agy does in some generations). An ASSUMED ceiling, said as such on the ring, exactly like the
+   Claude assumed ceiling: Google publishes these per model, and every Gemini 2.x and 3.x model
+   Kosmos runs today has a 1,048,576-token window. A model this does not know keeps the honest
+   no-ceiling reading rather than a guessed percentage. */
+const GEMINI_WINDOWS = [
+  { match: /^gemini-(2\.0|2\.5|3(\.\d+)?)-(pro|flash)(-[\w.-]*)?$/i, window: 1048576 },
+];
+function assumedGeminiWindow(model) {
+  if (typeof model !== 'string') return null;
+  const hit = GEMINI_WINDOWS.find((w) => w.match.test(model.trim()));
+  return hit ? hit.window : null;
+}
+
 /* #4039: resolve an Antigravity agent's launch folder to its agy conversation and read it, ONCE.
    Mirrors readGeminiSession: workerDir + readJob, gated on runner 'antigravity'. agy keeps its data
    under ~/.gemini/antigravity-cli (agysession.HOME); a per-account agy home is not a thing yet. */
@@ -5281,8 +5295,10 @@ function readAgyContext(agentName, sess) {
     if (neverRecorded(agentName)) return neverRecordedResult();
     return { ...NONE_BASE, notYet: false, because: NO_READING.NO_TRANSCRIPT };
   }
-  if (!sess.contextWindow) return noCeilingResult(sess.contextUsed, sess.model || null);
-  return measuredResult(sess.contextUsed, sess.contextWindow, false);
+  if (sess.contextWindow) return measuredResult(sess.contextUsed, sess.contextWindow, false);
+  const assumed = assumedGeminiWindow(sess.model);
+  if (assumed) return measuredResult(sess.contextUsed, assumed, true);
+  return noCeilingResult(sess.contextUsed, sess.model || null);
 }
 
 function readGeminiContext(agentName, sess) {
@@ -5319,7 +5335,13 @@ function readGeminiContext(agentName, sess) {
   // null -- the Claude "assumed ceiling" case), so this always renders measured
   // usage with no percentage. Unlike Codex, Gemini names the model, so pass
   // sess.model rather than null -- the ring can show the real model.
-  if (!sess.contextWindow) return noCeilingResult(tokens, sess.model || null);
+  // #4039: that left the ring with nothing to draw for every Gemini agent, so a known model's
+  // published window is used as an ASSUMED ceiling (the ring says so); an unknown model keeps
+  // the no-ceiling reading.
+  if (!sess.contextWindow) {
+    const assumed = assumedGeminiWindow(sess.model);
+    return assumed ? measuredResult(tokens, assumed, true) : noCeilingResult(tokens, sess.model || null);
+  }
   // Defensive: a future Gemini that DID state a window would render measured,
   // not-assumed, exactly like Codex. Not reachable today (read() returns null).
   return measuredResult(tokens, sess.contextWindow, false);
@@ -7844,6 +7866,7 @@ module.exports = {
   // #3391: the Grok context-ring reader (wired into snapshot's context ring).
   readGrokContext,
   readAgyContext,
+  assumedGeminiWindow,
   /* ⚠️ Exported so the ROUTE can say what tmux said. The alternative is a
      second caller of `list-panes` asking the same question a second time,
      which would report a different moment from the one that failed. */

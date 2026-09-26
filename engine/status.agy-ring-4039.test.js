@@ -56,11 +56,14 @@ test('#4039: a read conversation with a recorded window is a MEASURED ring again
   assert.equal(ctx.notYet, false);
 });
 
-test('#4039: usage without a window is measured with no ceiling, naming the model (never a made-up percent)', () => {
-  const ctx = status.readAgyContext(NAME, { found: true, contextUsed: 900, contextWindow: null, model: 'gemini-3.8-flash' });
-  assert.equal(ctx.noCeiling, true);
-  assert.equal(ctx.percent, null);
-  assert.match(ctx.because, /gemini-3\.8-flash/);
+test('#4039: no recorded window falls back to the known model\'s window, assumed; an unknown model stays no-ceiling', () => {
+  const known = status.readAgyContext(NAME, { found: true, contextUsed: 900, contextWindow: null, model: 'gemini-3.8-flash' });
+  assert.equal(known.ceiling, 1048576);
+  assert.equal(known.ceilingAssumed, true, 'not recorded in this conversation, so assumed, and said so');
+  const unknown = status.readAgyContext(NAME, { found: true, contextUsed: 900, contextWindow: null, model: 'some-new-model' });
+  assert.equal(unknown.noCeiling, true);
+  assert.equal(unknown.percent, null, 'never a made-up percent');
+  assert.match(unknown.because, /some-new-model/);
 });
 
 test('#4039: a conversation with no usage yet is "not yet", and an unreadable one is admitted', () => {

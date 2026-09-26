@@ -79,19 +79,31 @@ function reset() {
   try { fs.rmSync(create.plistPath(NAME), { force: true }); } catch { /* none */ }
 }
 
-test('#3296: readGeminiContext maps a found session to a MEASURED-usage, no-ceiling ring', () => {
+test('#3296 #4039: a known Gemini model gets its published window as an ASSUMED ceiling', () => {
   // sess-injection seam (same pre-read contract as readCodexContext): pass the
   // object geminisession.read would return, so this asserts the MAPPING directly.
+  // #4039: Gemini's transcript states no window, and the ring used to draw nothing for every Gemini
+  // agent; a known model's window is now used, and the ring says it was assumed.
   const ctx = status.readGeminiContext(NAME, {
     found: true, contextUsed: 6937, contextWindow: null, model: 'gemini-2.5-flash', because: undefined,
   });
   assert.equal(ctx.tokens, 6937, 'tokens is the measured occupancy (gemini tokens.input)');
-  assert.equal(ctx.noCeiling, true, 'Gemini states no window in the transcript -> no ceiling (the Claude case)');
-  assert.equal(ctx.ceiling, null);
-  assert.equal(ctx.percent, null, 'no window -> no percentage, never a fabricated one');
+  assert.equal(ctx.ceiling, 1048576, 'gemini-2.5-flash holds 1,048,576 tokens');
+  assert.equal(ctx.ceilingAssumed, true, 'the transcript never states it, so it is assumed, and said so');
+  assert.equal(ctx.percent, 1, '6937 / 1048576 rounds to 1');
   assert.equal(ctx.notYet, false, 'a turn with usage is not "not yet"');
   assert.equal(ctx.confidence, 'structured', 'a read from the transcript is STRUCTURED confidence');
-  assert.match(ctx.because, /gemini-2\.5-flash/, 'the model is named (Gemini carries it, unlike Codex)');
+  assert.match(ctx.because, /assumed/, 'the ring says the limit was assumed');
+});
+
+test('#3296: a model whose window Kosmos does not know stays MEASURED-usage, no-ceiling (never a guessed percent)', () => {
+  const ctx = status.readGeminiContext(NAME, {
+    found: true, contextUsed: 6937, contextWindow: null, model: 'gemini-1.5-pro', because: undefined,
+  });
+  assert.equal(ctx.noCeiling, true, 'an unknown window -> no ceiling (the Claude case)');
+  assert.equal(ctx.ceiling, null);
+  assert.equal(ctx.percent, null, 'no window -> no percentage, never a fabricated one');
+  assert.match(ctx.because, /gemini-1\.5-pro/, 'the model is named (Gemini carries it, unlike Codex)');
 });
 
 test('#3296: a found session with no usage yet reads notYet, not a missing transcript (#2803-analog)', () => {
@@ -113,7 +125,8 @@ test('#3296: readGeminiContext reads a real-shaped session end-to-end via the pl
   writeSession(WORKDIR, 'gizmo-slug', 6937, 'gemini-2.5-flash');
   const ctx = status.readGeminiContext(NAME);
   assert.equal(ctx.tokens, 6937, 'end-to-end: workerDir -> session -> tokens.input');
-  assert.equal(ctx.noCeiling, true);
+  assert.equal(ctx.ceiling, 1048576, 'end-to-end: the known model\'s window (#4039)');
+  assert.equal(ctx.ceilingAssumed, true);
   assert.equal(ctx.confidence, 'structured');
 });
 
