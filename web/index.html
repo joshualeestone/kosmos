@@ -9270,15 +9270,17 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 /* #3942 (Josh, 2026-09-26): one big box per digit. The boxes are drawn BEHIND the one real input,
    whose digits are spaced to land one per box (monospace, letter-spacing in ch), so paste, the
    phone's one-time-code autofill, Backspace and a screen reader all work on an ordinary input.
-   The cells are decoration (aria-hidden); the box being typed into is outlined. The input is wider
-   than the boxes so its own text never scrolls; the wrapper CLIPS rather than hides, because a
-   hidden-overflow box still scrolls to show a focused child, which shifted every box left. */
+   The cells are decoration (aria-hidden); the box being typed into is outlined. The input is exactly
+   as wide as the boxes; the spacing after the sixth digit would scroll its text to show the
+   (invisible) caret, so the script puts its scroll back to zero. The wrapper CLIPS rather than
+   hides, because a hidden-overflow box still scrolls to show a focused child, which shifted every
+   box left. */
 #plus-state2 .otp-boxes { --cw: 2.6ch; --gap: .5ch; position: relative; display: block; overflow: hidden; overflow: clip;
   font: 650 1.75rem/1 ui-monospace, Menlo, monospace; width: calc(6 * var(--cw) + 5 * var(--gap)); height: calc(var(--cw) * 1.25); margin-top: .75rem; }
 #plus-state2 .otp-cells { position: absolute; inset: 0; display: flex; gap: var(--gap); pointer-events: none; }
 #plus-state2 .otp-cell { flex: 0 0 var(--cw); box-sizing: border-box; border-radius: 12px; background: #16223e; border: 1px solid #5c78a6; }
 #plus-state2 .otp-cell.on { border-color: #7ea0f0; box-shadow: 0 0 0 2px #7ea0f0 inset; }
-#plus-state2 .otp-boxes .plus-si-otp, #plus-state2 .otp-boxes .plus-si-otp:focus { position: absolute; left: 0; top: 0; height: 100%; width: calc(100% + 2 * var(--cw));
+#plus-state2 .otp-boxes .plus-si-otp, #plus-state2 .otp-boxes .plus-si-otp:focus { position: absolute; left: 0; top: 0; height: 100%; width: 100%;
   margin: 0; padding: 0 0 0 calc((var(--cw) - 1ch) / 2); border: 0; border-radius: 0; outline: 0; box-shadow: none; background: transparent;
   font: inherit; letter-spacing: calc(var(--cw) + var(--gap) - 1ch); text-indent: 0; text-align: left; caret-color: transparent; }
 #plus-state2 .otp-boxes .plus-si-otp:-webkit-autofill { -webkit-box-shadow: none; transition: background-color 600000s 0s; }
@@ -37234,6 +37236,7 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   const digits = () => el.value.replace(/\D/g, '').length;
   // The box being typed into is outlined: the next empty one, or the last when all six are in.
   const paint = () => {
+    if (el.scrollLeft) el.scrollLeft = 0;   // digits stay over their boxes
     const n = digits(); const on = document.activeElement === el;
     Array.from(cells.children).forEach((c, i) => c.classList.toggle('on', on && i === Math.min(n, 5)));
   };
@@ -37255,7 +37258,7 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   const toEnd = () => { const n = el.value.length; try { el.setSelectionRange(n, n); } catch { /* not a text input */ } };
   el.addEventListener('focus', () => { had = digits(); toEnd(); paint(); });
   el.addEventListener('click', () => { toEnd(); paint(); });
-  for (const ev of ['blur', 'keyup', 'select']) el.addEventListener(ev, paint);
+  for (const ev of ['blur', 'keyup', 'select', 'scroll']) el.addEventListener(ev, paint);
 }
 /* Ask signin-start for an email code. ONE place, shared by the initial "Email me a
    code" button and the "again" button on the code step -- two copies of this sequence

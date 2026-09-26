@@ -328,7 +328,7 @@ const visible = (page, sel) => page.evaluate((s) => {
           if (!box) return { v: document.getElementById('plus-si-code-in').value, on: -1, scroll: null, shift: null, boxes: false };   // a red, not a throw
           return { v: document.getElementById('plus-si-code-in').value,
             on: Array.from(document.querySelectorAll('#plus-si-code .otp-cell')).findIndex((x) => x.classList.contains('on')),
-            scroll: box.scrollLeft, shift: Math.round(box.querySelector('.otp-cell').getBoundingClientRect().left - box.getBoundingClientRect().left) }; });
+            scroll: box.scrollLeft + document.getElementById('plus-si-code-in').scrollLeft, shift: Math.round(box.querySelector('.otp-cell').getBoundingClientRect().left - box.getBoundingClientRect().left) }; });
         chk(part.v === '12345' && part.on === 5 && verifies === 0, `[${key}] #3942 five digits fill five boxes, outline the sixth, and do not submit yet`, JSON.stringify({ part, verifies }));
         chk(part.scroll === 0 && part.shift === 0, `[${key}] #3942 typing never scrolls the boxes sideways (the first box stays whole)`, JSON.stringify(part));
         if (process.env.SHOT_DIR || OUT) await page.screenshot({ path: path.join(OUT, `${key}-code-boxes-3942.png`) });
@@ -548,6 +548,12 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
       await page.fill('#plus-si-code-in', '111111');   // #3942: auto-submits
       await page.waitForTimeout(400);
+      /* #3942: with all six digits in (the step stays, the code was wrong), the digits must still sit
+         over their boxes: the spacing after the sixth would scroll the field's text unless reset. */
+      await page.focus('#plus-si-code-in');
+      const six = await page.evaluate(() => ({ scroll: document.getElementById('plus-si-code-in').scrollLeft,
+        on: Array.from(document.querySelectorAll('#plus-si-code .otp-cell')).findIndex((x) => x.classList.contains('on')) }));
+      chk(six.scroll === 0 && six.on === 5, `[${k}] #3942 with all six digits in, they stay over their boxes and the last box is outlined`, JSON.stringify(six));
       chk((await visible(page, '#plus-si-code-go')) && !(await visible(page, '#plus-si-expired')), `[${k}] #3796 CONTROL: a wrong code stays on the step to retype`);
       verifyAnswer = { status: 400, body: { error: 'Kosmos+ said no (401): that sign-in has expired or was already finished; start again from the email' } };
       await page.click('#plus-si-code-go');
