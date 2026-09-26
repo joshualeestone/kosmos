@@ -14615,6 +14615,7 @@ const server = http.createServer((req, res) => {
         }
         try {
           const made = tasks.create(id, { sentence: body.sentence, detail: body.detail, who: body.who,
+            parent: body.parent,
             made: { via: viaScreen ? 'screen' : 'process', by: paneCard ? paneCard.sessionName : null } }, roster);
           // The assignee's managed block now lists this task in the exact
           // spelling the join matches on, so the agent is TOLD, not merely
@@ -14748,6 +14749,35 @@ const server = http.createServer((req, res) => {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
           { error: msg || 'we could not set that due date' });
+      }
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #3861: put a task under another task on the same project, or out from under one.
+     Body { parent: <task number> | null }. tasks.setParent refuses a parent that is not a task
+     here, the task itself, or one already under it (a loop), inside the write, as a 400; the
+     answer is never a 200 that stored nothing. A process may do this (agents make subtasks);
+     it moves no pane and assigns nobody, so it is not valved beyond task creation's own. */
+  const taskParent = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/parent$/);
+  if (taskParent && req.method === 'POST') {
+    const id = decodeSegment(taskParent[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || !('parent' in body)) {
+        sendJson(res, 400, { error: 'say which task this is part of, or null for none' });
+        return;
+      }
+      try {
+        const t = tasks.setParent(id, taskParent[2], body.parent);
+        sendJson(res, 200, { task: t });
+      } catch (err) {
+        const msg = String((err && err.message) || '');
+        const code = (err && err.code === 'UNREADABLE') ? 500
+          : (/no project by that name|there is no task by that number/.test(msg) ? 404 : 400);
+        sendJson(res, code, { error: msg || 'we could not change what that task is part of' });
       }
     }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
