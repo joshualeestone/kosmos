@@ -59186,6 +59186,7 @@ function asbX() {
   if (ASB.setting && didNothing) {
     const idle = (ASB.setting.idleCloses || 0) + 1;
     if (idle >= 2 && ASB.setting.kept !== true) { ASB.offering = true; asbPaint(); document.getElementById('asp-hide-yes').focus(); return; }
+    ASB.setting.idleCloses = idle;   // now, not when the save answers: a quick second close must see it
     asbSaveSetting({ idleCloses: idle });   // best-effort: a lost count only means one more close before the offer
   }
   asbFold();
@@ -59227,7 +59228,7 @@ async function asbSend() {
   const msg = document.getElementById('asp-msg');
   const text = say.value.trim();
   if (text) ASB.sentThisOpen = true;   // #3034: an attempt to send is using it, whatever the answer
-  if (text && ASB.setting && ASB.setting.idleCloses) asbSaveSetting({ idleCloses: 0 });   // #3947: using it restarts the count
+  if (text && ASB.setting && ASB.setting.idleCloses) { ASB.setting.idleCloses = 0; asbSaveSetting({ idleCloses: 0 }); }   // #3947: using it restarts the count
   if (asbIsHosted()) { if (text && !ASB.sending) await asbHostedSend(text); return; }
   /* In the fallback, the board is asked again before each message (Josh: on the next message, not continuously):
      still failing, the backup answers; answering again, it goes to the guide as usual. */
