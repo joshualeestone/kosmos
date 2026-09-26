@@ -350,8 +350,10 @@ let offEpoch = 0;
 /* #3827: signed calls in flight on this Mac's key (device verbs, a second-factor
    reset). Forget waits for them before it retires and wipes, so none finishes
    after the wipe and writes into a state dir that no longer belongs to anyone.
-   Each carries the retire bound as its own kill timeout (the tunnel sets none),
-   so the wait below always ends with the call ended, not merely abandoned. */
+   Each carries its own kill timeout (the tunnel sets none): the device verbs and
+   the second reset use the retire bound, macRequest MAC_REQUEST_TIMEOUT_MS and
+   assistantChat ASSISTANT_TIMEOUT_MS. So the wait below always ends with the call
+   ended, not merely abandoned. */
 const signedInFlight = new Set();
 function tracked(p) {
   signedInFlight.add(p);

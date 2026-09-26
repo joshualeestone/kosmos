@@ -249,6 +249,9 @@ if (args[0] === 'retire' && mode.includes('retire-5xx')) { process.stderr.write(
 if (args[0] === 'retire') { console.log(JSON.stringify({ retired: true })); process.exit(0); }
 // A signed request: tracing logs to stdout by default (kosmos-relay main.rs), so a warn line can come first.
 if (args[0] === 'mac-request' && mode.includes('hung-macreq')) { const until = Date.now() + Number(process.env.FAKE_DEVICE_HANG_MS || 700); while (Date.now() < until) { /* wait */ } fs.appendFileSync(${JSON.stringify(RECORD)}, JSON.stringify(['macreq-done']) + '\\n'); }
+// The hosted assistant, a signed call on the same key (#3827 review 22).
+if (args[0] === 'assistant-chat' && mode.includes('hung-assistant')) { const until = Date.now() + Number(process.env.FAKE_DEVICE_HANG_MS || 700); while (Date.now() < until) { /* wait */ } fs.appendFileSync(${JSON.stringify(RECORD)}, JSON.stringify(['assistant-done']) + '\\n'); }
+if (args[0] === 'assistant-chat') { console.log(JSON.stringify({ reply: 'hello' })); process.exit(0); }
 if (args[0] === 'mac-request') { console.log('\\u001b[33m WARN\\u001b[0m kosmos_tunnel::coordinator: could not record mac_last_signed'); console.log(JSON.stringify({ standing: 'good' })); process.exit(0); }
 if (args[0] === 'run') {
   if (mode === 'crash') process.exit(3);
@@ -2173,6 +2176,27 @@ test('#3827: Forget lets a signed mac-request already out finish before it retir
     await asking;
     const calls = recorded().map((c) => c[0]);
     assert.ok(calls.indexOf('macreq-done') >= 0 && calls.indexOf('macreq-done') < calls.indexOf('retire'), 'Forget retired while a mac-request was still out: ' + JSON.stringify(calls));
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.FAKE_DEVICE_HANG_MS;
+  }
+});
+
+test('#3827: Forget lets a hosted-assistant call already out finish before it retires', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  process.env.FAKE_TUNNEL_MODE = 'hung-assistant';
+  process.env.FAKE_DEVICE_HANG_MS = '700';
+  try {
+    fs.rmSync(RECORD, { force: true });
+    const asking = remote.assistantChat({ message: 'hi' });
+    await new Promise((r) => setTimeout(r, 100));
+    await remote.forget();
+    await asking;
+    const calls = recorded().map((c) => c[0]);
+    assert.ok(calls.indexOf('assistant-done') >= 0 && calls.indexOf('assistant-done') < calls.indexOf('retire'), 'Forget retired while an assistant call was still out: ' + JSON.stringify(calls));
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
     delete process.env.FAKE_DEVICE_HANG_MS;

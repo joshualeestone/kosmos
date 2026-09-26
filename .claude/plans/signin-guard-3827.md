@@ -162,3 +162,10 @@ Main gained the split-out parseSaid fix (PR #3893: lastJsonLine, used by parseSa
 ## Round 21 review (sonnet)
 - WARNING: assistantChat signs with the state dir's key (the Mac's, or the install key) but was neither gated by busy() nor tracked, the one signed call left out. It now refuses while a register or a Forget is out, and Forget waits for one already out (its own timeout bounds it). The in-app guide's chat pauses for that minute, which is acceptable. Test (refused with "being forgotten" during a Forget); control fails by name.
 - NIT (intentional, no change): devicesList is a local, unsigned read of allow_list (no --coordinator), so it stays ungated; the worst case during a wipe is a transient read error.
+
+## Merge with main (01:35 CDT 09-26)
+Merged origin/main (56 commits) into the branch at b78e1b429, no conflicts. Full validation passed there (9870 tests, 0 fail, 153 skipped; hash 3933b9d80f09).
+
+## Round 22 review (sonnet, on b78e1b429)
+- WARNING (coverage): round 21 made assistantChat refuse new calls during a Forget, but nothing proved Forget waits for one already out, the other half every earlier signed call tests. Test: a hung assistant-chat on the fake, Forget while it is out, and "assistant-done" is recorded before "retire". Control (assistantChat untracked) fails by name: ["assistant-chat","retire","assistant-done"].
+- NIT: the signedInFlight comment said every tracked call carries the retire bound; macRequest and assistantChat carry their own (20s, 45s). Reworded to name each.
