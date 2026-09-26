@@ -30,3 +30,5 @@ Card: kosmos#3831. Josh signed in from the Kosmos app; the Mac then listed "a de
 
 ## Validation (first run): 1 failure, mine
 engine/machine.test.js's guard "no live sentence ... says 'this Mac'" (kosmos#1004, Josh: call it "this computer") failed on my darwin fallback "This Mac (Kosmos app)", which round 2's NIT had asked for. FIXED: the fallback is "This computer (Kosmos app)" on every platform; deviceNameFrom no longer takes a platform. The round-2 NIT's premise (a Mac-specific word on a Mac) is overruled by Josh's standing ruling, which the guard enforces.
+
+## Round 5 review (sonnet, on the validation fix): NO FINDINGS, converged
