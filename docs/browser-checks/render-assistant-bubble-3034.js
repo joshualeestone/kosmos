@@ -259,13 +259,13 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     });
     /* #3738 (Josh 08:51): "Josh, Kosmos Guide", no pill, no footer, one opening message, the new placeholder. */
     chk(head.who === 'Josh, Kosmos Guide' && !head.tag && !head.noteShown, 'B3 headed "Josh, Kosmos Guide", with no pill and no footer line (#3738)', JSON.stringify(head));
-    chk(head.him[0] === 'Hi, I\'m Josh\'s AI guide. Ask me anything about setting up Kosmos.' && head.him.length === 2 && head.place === 'Ask about Kosmos\u2026',
-      'B3 the opening message is the first guide bubble, then the thread; the box says "Ask about Kosmos..."', JSON.stringify(head));
+    chk(head.him[0] === 'Hi I\'m Josh, an AI Assistant to help you get your Kosmos setup. What can I help you with?' && head.him.length === 2 && head.place === 'Ask about Kosmos\u2026',
+      'B3 the opening message (Josh\'s words, #3947) is the first guide bubble, then the thread; the box says "Ask about Kosmos..."', JSON.stringify(head));
     chk(head.focus === 'asp-say', 'B3 and puts the cursor in the box', JSON.stringify(head));
     /* The two lines Josh cut are gone from the page, its scripts included, so no template or fallback can bring
        one back (a starting note in the panel's markup carried one after the paint had dropped it). */
-    const cut = await page.evaluate(() => { const h = document.documentElement.innerHTML; return ['Hi, I built Kosmos', 'An AI that knows Kosmos'].filter((w) => h.includes(w)); });
-    chk(cut.length === 0, 'B3 neither cut line is anywhere in the page (#3738)', JSON.stringify(cut));
+    const cut = await page.evaluate(() => { const h = document.documentElement.innerHTML; return ['Hi, I built Kosmos', 'An AI that knows Kosmos', 'AI guide. Ask me anything'].filter((w) => h.includes(w)); });
+    chk(cut.length === 0, 'B3 none of the cut lines is anywhere in the page (#3738, #3947)', JSON.stringify(cut));
     /* The guide's bubble is the DM's agent cream (the same token, read, not a copy of its value). */
     chk(await page.evaluate(() => { const t = document.createElement('div'); t.style.background = 'var(--agent-msg)'; document.body.appendChild(t); const v = getComputedStyle(t).backgroundColor; t.remove();
       return v === getComputedStyle(document.querySelector('#asp-th .asp-m.him')).backgroundColor; }), 'B3 the guide\'s bubbles are the DM agent cream (--agent-msg)', JSON.stringify(head));

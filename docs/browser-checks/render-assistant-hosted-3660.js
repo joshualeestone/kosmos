@@ -164,7 +164,7 @@ const BUBBLE_SHOWN_ON_JOSH = () => {
     chk(await waitFor(page, () => !document.getElementById('asp').hidden), 'H2 the chat opens');
     const h2 = await state(page);
     chk(h2.note === 'Until you connect your own AI, your questions go online to Kosmos\'s AI.', 'H2 it says their questions go online to Kosmos\'s AI until they connect theirs', h2.note);
-    chk(await page.evaluate(() => (document.querySelector('#asp-th .asp-m.him.asp-open') || {}).textContent === 'Hi, I\'m Josh\'s AI guide. Ask me anything about setting up Kosmos.'), 'H2 and opens with the guide\'s own first message (#3738)');
+    chk(await page.evaluate(() => (document.querySelector('#asp-th .asp-m.him.asp-open') || {}).textContent === 'Hi I\'m Josh, an AI Assistant to help you get your Kosmos setup. What can I help you with?'), 'H2 and opens with the guide\'s own first message (#3738)');
     await page.waitForTimeout(1800);
     chk(pageReports.length === 0, 'H2 no screen report goes to a guide that does not exist (its 404 would reset the bubble)', JSON.stringify(pageReports));
 

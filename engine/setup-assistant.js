@@ -496,19 +496,35 @@ function hostedWhy({ available = undefined, listed = () => listedModels(), faili
 function hostedOffered(deps) { return hostedWhy(deps).ok; }
 
 /* #3734: an existing guide was born told it never creates agents. Replace that paragraph, once, with the
-   current hands-off and make-agents lines, in the marked guide folder only. The running guide reads its
-   new instructions from its next session. { changed: boolean } */
+   current hands-off and make-agents lines, in the marked guide folder only.
+   #3947: likewise its "Who you are" paragraph, which told it to say it is an AI in its first answer; the
+   greeting says that now. Each old paragraph is replaced only where it is still word for word, so a
+   guide whose instructions the person reworded is left alone. The running guide reads its new
+   instructions from its next session. { changed: boolean } */
 function refreshGuideRole({ name = guideName(), isGuide = isGuideFolder } = {}) {
   if (!name || !isGuide(name)) return { changed: false };
   const roles = require('./roles');
   const instructions = require('./instructions');
   let cur;
   try { cur = instructions.read(name); } catch { return { changed: false }; }
-  const old = roles.HANDS_OFF_LINES_BEFORE_3734.join('\n');
-  if (!cur || !cur.exists || typeof cur.text !== 'string' || !cur.text.includes(old)) return { changed: false };
-  const now = [...(roles.SETUP_HANDS_OFF ? roles.HANDS_OFF_LINES : []), ...(roles.SETUP_MAKES_AGENTS ? roles.MAKE_AGENTS_LINES : [])].join('\n');
+  if (!cur || !cur.exists || typeof cur.text !== 'string') return { changed: false };
+  const swaps = [
+    { old: roles.HANDS_OFF_LINES_BEFORE_3734.join('\n'),
+      now: [...(roles.SETUP_HANDS_OFF ? roles.HANDS_OFF_LINES : []), ...(roles.SETUP_MAKES_AGENTS ? roles.MAKE_AGENTS_LINES : [])].join('\n'),
+      because: 'Kosmos let the setup guide make agents for you' },
+    { old: roles.WHO_YOU_ARE_LINES_BEFORE_3947.join('\n'), now: roles.WHO_YOU_ARE_LINES.join('\n'),
+      because: 'the setup guide\'s greeting now says it is an AI, so its answers go straight to helping' },
+  ];
+  let text = cur.text;
+  const why = [];
+  for (const s of swaps) {
+    if (!text.includes(s.old)) continue;
+    text = text.replace(s.old, () => s.now);
+    why.push(s.because);
+  }
+  if (!why.length) return { changed: false };
   try {
-    instructions.write(name, cur.text.replace(old, () => now), cur.version, undefined, { who: 'kosmos', because: 'Kosmos let the setup guide make agents for you' });
+    instructions.write(name, text, cur.version, undefined, { who: 'kosmos', because: why.join('; ') });
     return { changed: true };
   } catch { return { changed: false }; }
 }
