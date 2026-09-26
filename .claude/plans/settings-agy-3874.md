@@ -54,6 +54,10 @@ the subscription is not offered (Windows, AGENT_WORKFORCE_ANTIGRAVITY=0) Gemini 
 - Ready ends on the step's own words with the dialog's Close button, not a success panel (review
   round 1 NIT): no account row is created, so the account success panel would claim something untrue.
 
+- Rows wrap only their reason pill in practice (review round 5 predicted the mark and name splitting
+  near 320px): measured 360px to 240px with no split, the name shrinks in place; a 320px geometry
+  assertion in render-settings-agy-3874 guards it. No extra CSS.
+
 ## Unmeasured
 - Same as #3568: a signed-out agy's behaviour under the check and on a cold Terminal start. Needs the
   second, fresh Mac Mini.

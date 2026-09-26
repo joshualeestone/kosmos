@@ -7689,9 +7689,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    list's cap, so without wrap the NAME was cut ("Google Gemini (Google su..."); wrapped, the pill
    goes under it and the name stays whole. */
 .pcombo-opt { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 8px 10px; border-radius: 6px; cursor: pointer; }
-/* The name never wraps away from its mark (18px + the 8px gap): it may only shrink, with an ellipsis,
-   when it alone is wider than a narrow screen's list. */
-.pcombo-opt .pcombo-mark ~ .pcombo-name { max-width: calc(100% - 26px); }
 .pcombo-opt .pcombo-name { color: var(--k-ink); }
 .pcombo-active { background: var(--k-rule); }
 .pcombo-off { cursor: default; }

@@ -158,7 +158,8 @@ const view = () => ({
     await s.page.close();
   }
 
-  // A narrow screen: the long name stays on its mark's line (it may shrink), only the pill wraps.
+  // A narrow screen: the long name stays on its mark's line (it shrinks with an ellipsis), only the
+  // pill wraps. Measured 360px down to 240px: the list holds at 288px and the name shrinks in place.
   {
     const s = await openPage(browser, true);
     await s.page.setViewportSize({ width: 320, height: 700 });
