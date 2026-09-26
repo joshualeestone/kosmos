@@ -12,6 +12,8 @@
  *     project page (the .back rule reaches every back link; that one stands for the project
  *     pages' four and the Files view's);
  *   - no two of them overlap (a grown box must not take its neighbour's taps);
+ *   - the projects list's own grid / roadmap toggle (the same .vt) is at least 44x44, does
+ *     not overlap Add Project or the sort, and that page is no wider than the screen;
  *   - the page is no wider than the screen;
  *   - the header is no taller than the same page with the old sizes put back (the grown
  *     boxes are cancelled by negative margins, so the row keeps its height);
@@ -22,6 +24,7 @@
  * create page's and the Add a project page's back links 15 tall) except the agent page's back link, which main already
  * makes 44px tall on a phone (the Talk section's own rule); the other arms stay green there.
  * Without the negative margins the header arm reds (99px against 83 at 375, 87 at the rest).
+ * With the projects toggle slid 120px left onto the sort, the projects overlap arm reds.
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -76,6 +79,15 @@ const HOME = [
   { sel: '[data-scope="agents"] .vt[data-layout="grid"]', name: 'the grid toggle', always: true },
   { sel: '[data-scope="agents"] .vt[data-layout="list"]', name: 'the list toggle', always: true },
   { sel: '[data-scope="agents"] .vt[data-layout="org"]', name: 'the org toggle', always: true },
+];
+// The projects list reuses .vt for its own grid / roadmap toggle, so the phone rule grows it
+// too. Measured where it lives, beside Add Project and the sort, whose narrow-width wrap
+// (#pj-list-view .statsrow, max-width: 30rem) was tuned against the old 38px toggles.
+const PROJECTS = [
+  { sel: '#pj-new', name: 'Add Project', always: true, sizeFree: true },
+  { sel: '#pj-list-view .sortctl', name: 'the projects sort', always: true, sizeFree: true },
+  { sel: '[data-scope="projects"] .vt[data-layout="grid"]', name: 'the projects grid toggle', always: true },
+  { sel: '[data-scope="projects"] .vt[data-layout="roadmap"]', name: 'the projects roadmap toggle', always: true },
 ];
 // The old sizes, put back over the page for the header-height control.
 const OLD = '.klink{padding:0!important;margin:0!important}'
@@ -160,6 +172,18 @@ async function home(page, url) {
           const before = await headH();
           await tagEl.evaluate((n) => n.remove());
           chk(now <= before, `${tag} the header is no taller than with the old sizes`, `${now}px now, ${before}px old`);
+          // The projects list's toggle, beside Add Project and the sort.
+          await page.evaluate(() => showTab('projects'));
+          await page.waitForSelector(PROJECTS[2].sel, { state: 'visible', timeout: 8000 }).catch(() => {});
+          const pj = await measure(page, PROJECTS);
+          for (const c of pj) {
+            if (c.missing || !c.shown) { chk(false, `${tag} ${c.name} is on the page and showing`, c.sel); continue; }
+            if (!c.sizeFree) chk(c.w >= 44 && c.h >= 44, `${tag} ${c.name} is at least 44x44`, `${c.w}x${c.h}`);
+          }
+          const pjOv = overlaps(pj);
+          chk(pjOv.length === 0, `${tag} Add Project, the sort and the projects toggle do not overlap`, pjOv.join(', '));
+          const pjW = await page.evaluate(() => document.documentElement.scrollWidth);
+          chk(pjW <= w, `${tag} the projects list is no wider than the screen`, `page ${pjW}px`);
           // The back links, on the agent page and on the create page.
           for (const [go, sel, name] of [
             [() => page.locator('.acard[data-agent="ada"] .namego').first().tap(), '#detail-back', 'the agent page\'s "All agents"'],
