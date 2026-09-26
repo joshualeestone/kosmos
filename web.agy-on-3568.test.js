@@ -158,12 +158,12 @@ function agyFlow(answers) {
   let painted = 0;
   // eslint-disable-next-line no-new-func
   const successes = [];
-  const api = new Function('document', 'fetch', 'paintAgyOption', 'frPaintKeyed', 'setTimeout', 'acctShowSuccess', 'frCheckRow', `
+  const api = new Function('document', 'fetch', 'paintAgyOption', 'frPaintKeyed', 'setTimeout', 'acctShowSuccess', 'frCheckRow', 'paintAccounts', `
     let AGY_INSTALLED = null; let AGY_OFFERED = null;
     ${PAGE.slice(at, end)}
     return { FR_AGY_SUB, ACCT_AGY_SUB, ready: () => FR_AGY_READY, offered: () => AGY_OFFERED };
   `)(doc, fetchStub, () => {}, () => { painted += 1; }, (fn) => setImmediate(fn),
-    (label, box) => successes.push([label, box]), (o) => 'BOX:' + o.title + '|' + o.detail);
+    (label, box) => successes.push([label, box]), (o) => 'BOX:' + o.title + '|' + o.detail, async () => {});
   const view = () => ({ text: el('fr-gemini-sub-code').textContent, button: el('fr-gemini-sub-go').hidden ? '' : el('fr-gemini-sub-go').textContent,
     stop: !el('fr-gemini-sub-cancel-row').hidden });
   const settle = async (pred, n = 200) => { for (let i = 0; i < n && !pred(); i++) await new Promise((r) => setImmediate(r)); };
