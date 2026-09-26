@@ -137,6 +137,28 @@ const PANEL_W = 1200; // wide enough that 25% (~290px) clears the shared min-wid
       save: box('d-instr-save'), addSkill: box('d-skill-add'),
     } };
   });
+  const touchArms = {};
+  for (const arm of [
+    { name: 'sideways', width: 667, height: 375, hasTouch: true },
+    { name: 'tablet', width: 932, height: 768, hasTouch: true },
+    { name: 'mouse', width: 932, height: 768, hasTouch: false },
+  ]) {
+    const context = await browser.newContext({ viewport: { width: arm.width, height: arm.height }, hasTouch: arm.hasTouch });
+    const p = await context.newPage();
+    await p.goto('file://' + PAGE);
+    touchArms[arm.name] = await p.evaluate(() => {
+      document.getElementById('panel-detail').hidden = false;
+      document.getElementById('d-sec-talk').hidden = true;
+      document.getElementById('d-sec-instr').hidden = false;
+      document.getElementById('d-sec-skills').hidden = false;
+      const px = (id) => parseFloat(getComputedStyle(document.getElementById(id)).fontSize);
+      const height = (id) => Math.round(document.getElementById(id).getBoundingClientRect().height);
+      return { hoverNone: matchMedia('(hover: none)').matches,
+        fonts: ['d-instr', 'd-skill-name', 'd-skill-body'].map(px),
+        actions: ['d-instr-save', 'd-skill-add'].map(height) };
+    });
+    await context.close();
+  }
   await browser.close();
 
   if (r.error) { console.error('FAIL  render-profile-field-widths-2697: ' + r.error); process.exit(1); }
@@ -167,6 +189,14 @@ const PANEL_W = 1200; // wide enough that 25% (~290px) clears the shared min-wid
   if (phone.profile.hint.width < phone.profile.form.width * 0.8) fail.push('phone Name help stays squeezed: ' + JSON.stringify(phone.profile));
   if (!phone.instructions.fonts.every((x) => x >= 16)) fail.push('phone Instructions fields are not all 16px: ' + JSON.stringify(phone.instructions));
   if (phone.instructions.save.height < 44 || phone.instructions.addSkill.height < 44) fail.push('phone Instructions actions are below 44px: ' + JSON.stringify(phone.instructions));
+  for (const name of ['sideways', 'tablet']) {
+    const arm = touchArms[name];
+    if (!arm.hoverNone) fail.push(name + ' control did not emulate hover:none: ' + JSON.stringify(arm));
+    if (!arm.fonts.every((x) => x >= 16)) fail.push(name + ' Instructions fields are below 16px: ' + JSON.stringify(arm));
+    if (!arm.actions.every((x) => x >= 44)) fail.push(name + ' Instructions actions are below 44px: ' + JSON.stringify(arm));
+  }
+  const mouse = touchArms.mouse;
+  if (mouse.hoverNone || !mouse.fonts.every((x) => x < 16) || !mouse.actions.every((x) => x < 44)) fail.push('mouse control no longer keeps desktop Instructions sizing: ' + JSON.stringify(mouse));
 
   if (fail.length) {
     console.error('FAIL  render-profile-field-widths-2697: ' + fail.join('; '));
@@ -175,4 +205,5 @@ const PANEL_W = 1200; // wide enough that 25% (~290px) clears the shared min-wid
   }
   console.log('render-profile-field-widths-2697: the agent Profile fields size to ~25% (Name) / ~50% (What they do) / ~25% (Reports to) of their rows, Reports-to has top spacing, the Name helper wraps at ~50%, and the create form is UNAFFECTED (its Name field stays full-width). PASS');
   console.log('  #718 phone=' + JSON.stringify(phone));
+  console.log('  #3916 touch=' + JSON.stringify(touchArms));
 })().catch((e) => { console.error('FAIL  render-profile-field-widths-2697', e && e.message); process.exit(1); });
