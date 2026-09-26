@@ -15,6 +15,15 @@ Design and measurements are on the card (comment 5849157780).
   to --danger red; grey `.acct-unknown` is only "could not check". The ChatGPT row shows its check's verdict (green /
   red / amber). Check now on ChatGPT and Grok subscription rows. One follow-up read when a check is under way.
 
+## Review round 1 (Sonnet), what changed
+- Grok REFUSING a sign-in (401/403) in this read outranks an earlier Check now green; no answer, or a key that
+  expired as keys do, does not (neither is evidence against the green). Agent observations still count. Tested.
+- The follow-up reads continue every 3.5s while a ChatGPT check is still pending, up to ACCT_FOLLOWUP.max (6), since
+  a dead or slow handshake takes up to about 20s; a single read at 3.5s missed exactly that case. Tested: keeps
+  reading until it can say, stops at the bound.
+- NITs: codexsigninlive required once at the top of server.js; the .acct-none comment names --danger; the Grok title
+  is gated on the subscription kind too; the badge check's "Claude-only" comment names the new field.
+
 ## Decided
 - Pill text stays a short "Signed in" (Josh 6.68, #3136); the reason is in the title.
 - A 401 from Grok is "not confirmed" (amber), never red: grok may renew the key on its next run.

@@ -712,8 +712,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 /* #881: the two states a live check can also confirm, alongside .acct-connected.
    Neither dot pulses -- pulsing is reserved for "actively connected" (Josh's own
    framing for .acct-connected above); a static dot reads as a fact, not a
-   heartbeat. .acct-none is the genuine negative (warn tokens, same as this
-   file's other danger states); .acct-unknown is deliberately muted, not red --
+   heartbeat. .acct-none is the genuine negative (--danger since #3997, red); .acct-unknown is deliberately muted, not red --
    "we could not check" must never look as alarming as a confirmed problem. */
 .acct-none { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
   font-weight: 600; color: var(--danger); white-space: nowrap; }
@@ -21924,8 +21923,12 @@ function accountGroupsHtml(list, rowHtml) {
 let acctSayTimer = null;
 function acctCancelSay() { if (acctSayTimer) { clearTimeout(acctSayTimer); acctSayTimer = null; } }
 
+/* #3997: how often, and how many times, the list is read again while a ChatGPT sign-in's free check is still under way.
+   A healthy check answers within a second or two; a dead or slow one takes up to about 20 seconds (codex's own
+   handshake timeout), so the reads continue until nothing is pending or the count runs out. */
+const ACCT_FOLLOWUP = { ms: 3500, max: 6 };
 async function paintAccounts(opts) {
-  const followUp = !!(opts && opts.followUp);
+  const followUp = (opts && Number.isInteger(opts.followUp)) ? opts.followUp : 0;
   const box = document.getElementById('set-accounts');
   const msg = document.getElementById('set-accounts-msg');
   /* A repaint is itself a writer to that line ("Checking your accounts..."), so
@@ -21980,10 +21983,10 @@ async function paintAccounts(opts) {
     return;
   }
   accountsRead(list);
-  /* #3997: a ChatGPT sign-in whose free check was only just started reads once more, a few seconds on, so it turns
-     green (or says what is wrong) without the person doing anything. Once: a follow-up never schedules another. */
-  if (!followUp && list.some((a) => a && a.connection && a.connection.liveCheckPending)) {
-    setTimeout(() => { if (mine === ACCT_EPOCH) paintAccounts({ followUp: true }); }, 3500);
+  /* #3997: a ChatGPT sign-in whose free check is still under way is read again a few seconds on, so it turns green
+     (or says what is wrong) without the person doing anything; bounded by ACCT_FOLLOWUP.max, never a loop. */
+  if (followUp < ACCT_FOLLOWUP.max && list.some((a) => a && a.connection && a.connection.liveCheckPending)) {
+    setTimeout(() => { if (mine === ACCT_EPOCH) paintAccounts({ followUp: followUp + 1 }); }, ACCT_FOLLOWUP.ms);
   }
   acctCancelSay();  /* post-await writer, same reason as the catch above */
   if (msg) msg.textContent = '';
@@ -22157,7 +22160,7 @@ async function paintAccounts(opts) {
     const unverifiedWhy = 'This account is signed in. We have not seen a request on it succeed recently, so we are not confirming it live here. '
       + ((isKeyed && !canCheckSignIn) ? 'It confirms itself the next time an agent on it runs.' : 'Use Check now to verify it, or it confirms itself the next time an agent on it runs.');
     /* #3997: a Grok subscription's own reason (for example, its key expired and Grok renews it on its next run). */
-    const unverifiedTitle = (acctProvider(a) === 'xai' && a.connection && a.connection.because) ? a.connection.because + '. ' + 'Use Check now to verify it.' : null;
+    const unverifiedTitle = (acctProvider(a) === 'xai' && a.authMode === 'subscription' && a.connection && a.connection.because) ? a.connection.because + '. ' + 'Use Check now to verify it.' : null;
     let connBadge;
     if (badge === 'working') {
       connBadge = '<span class="acct-connected" title="' + esc(workingWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in' + (ageStr ? ' · active ' + esc(ageStr) : '') + '</span>';

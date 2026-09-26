@@ -723,6 +723,7 @@ const limits = require('./engine/limits');
 const engmode = require('./engine/engmode');
 const accounts = require('./engine/accounts');
 const observed = require('./engine/observed');
+const codexsigninlive = require('./engine/codexsigninlive');   // #3997: the ChatGPT sign-in's free live check
 /* #1304, second half: PigeonPete's live reader. It walks the pane's process tree
    to the claude descendant and reads the environment it is ACTUALLY running
    with, which is a better source than a startup file or a transcript for the
@@ -7543,10 +7544,9 @@ const server = http.createServer((req, res) => {
     const openaiPending = new Set();
     for (const row of openaiAccounts.list()) {
       if (!row || row.authMode !== 'chatgpt' || !row.dir) continue;
-      const signinlive = require('./engine/codexsigninlive');
-      if (signinlive.livenessCached(row.dir).cause !== 'indeterminate') continue;
+      if (codexsigninlive.livenessCached(row.dir).cause !== 'indeterminate') continue;
       openaiPending.add(row.dir);
-      signinlive.liveness(row.dir).catch(() => { /* never a verdict: the next read shows what it can */ });
+      codexsigninlive.liveness(row.dir).catch(() => { /* never a verdict: the next read shows what it can */ });
     }
     Promise.all([accounts.listLive(), openaiAccounts.listLive(), geminiAccounts.listLive(), grokAccounts.listLive()])
       .then(async ([claudeRows, openaiRows, geminiRows, grokRows]) => {
@@ -7752,7 +7752,11 @@ const server = http.createServer((req, res) => {
         };
         const grok = grokRows.map((a) => {
           const agentObs = a.dir ? obsByGrokDir.get(a.dir) : null;
-          const checkObs = a.dir ? observed.readDir(observed.PROVIDER.XAI, a.dir) : null;
+          /* Grok REFUSING the sign-in in this read outranks an earlier check's green (review round 1). Only a refusal:
+             no answer, or a key that expired as keys do, is not evidence against a green from a minute ago. A real
+             agent's observed request still counts either way. */
+          const thisCheck = a.dir ? subChecks.get(a.dir) : null;
+          const checkObs = a.dir && !(thisCheck && thisCheck.verdict === 'refused') ? observed.readDir(observed.PROVIDER.XAI, a.dir) : null;
           const obs = (agentObs && checkObs) ? (checkObs.at >= agentObs.at ? checkObs : agentObs) : (agentObs || checkObs);
           if (!obs) return unverifiedSub(a);
           const v = observed.verdict({
@@ -8066,7 +8070,7 @@ const server = http.createServer((req, res) => {
           sendJson(res, 200, { state: r.verdict === 'live' ? 'connected' : 'unknown', because: r.because });
           return;
         }
-        const v = await require('./engine/codexsigninlive').liveness(acct.dir);
+        const v = await codexsigninlive.liveness(acct.dir);
         sendJson(res, 200, v === 'live' ? { state: 'connected' }
           : v === 'dead' ? { state: 'none' }
             : { state: 'unknown', because: 'we could not reach ChatGPT to check this sign-in' });

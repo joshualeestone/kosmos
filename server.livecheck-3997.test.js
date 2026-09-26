@@ -123,6 +123,11 @@ test('#3997 Check now routes: connected, none and unknown, and a wrong kind of a
   grokAccounts.setFetcher(async () => ({ status: 500 }));
   const row = (await accounts()).find((a) => a.provider === 'xai');
   assert.equal(row.connection.badge, 'working', 'Check now did not turn the row green');
+  // But Grok REFUSING it on the next read outranks that green (it is what the new answer is about).
+  grokAccounts.setFetcher(async () => ({ status: 401 }));
+  const refused = (await accounts()).find((a) => a.provider === 'xai');
+  assert.equal(refused.connection.badge, 'signed_in_unverified', 'a refused sign-in still shows an earlier green');
+  assert.match(refused.connection.because, /Signing in again/);
   // A ChatGPT dir asked on the Grok route (and a stranger's folder) is not an account of that kind.
   assert.equal((await post('/api/accounts/grok/check', { dir: CODEX })).status, 404);
   assert.ok((await accounts()).some((a) => a.dir === CODEX_KEY), 'CONTROL: the api-key account is a listed OpenAI account');

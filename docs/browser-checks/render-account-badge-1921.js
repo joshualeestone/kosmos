@@ -210,31 +210,34 @@ const ACCOUNTS = [
     const pill = () => { const b = document.querySelector('#set-accounts .acct-box .acct-connected, #set-accounts .acct-box .acct-unverified'); return b ? b.className : null; };
     const pending = { ...row, connection: { ...row.connection, liveCheckPending: true } };
     const confirmed = { ...row, connection: { ...row.connection, state: 'connected', because: 'the OpenAI sign-in reached ChatGPT, so it is working' } };
-    let count = reads([pending, confirmed]);
+    ACCT_FOLLOWUP.ms = 400;   // the page's own knob, shortened so the check is quick (the logic is the same)
+    // Pending on the first two reads, confirmed on the third: it keeps reading until it can say, then turns green.
+    let count = reads([pending, pending, confirmed]);
     await paintAccounts();
     const before = pill();
-    await wait(4500);
+    await wait(2000);
     const afterOne = count();
     const after = pill();
-    // A check still under way on the follow-up read does not start a third: one follow-up per opening, never a loop.
-    count = reads([pending, pending, pending]);
+    // Never confirmed: the reads stop at the bound (1 + ACCT_FOLLOWUP.max), never a loop.
+    count = reads([pending]);
     await paintAccounts();
-    await wait(9000);
+    await wait(400 * (ACCT_FOLLOWUP.max + 3));
     const afterTwo = count();
+    const bound = 1 + ACCT_FOLLOWUP.max;
     count = reads([row]);
     await paintAccounts();
-    await wait(4500);
-    return { before, after, afterOne, afterTwo, control: count() };
+    await wait(1500);
+    return { before, after, afterOne, afterTwo, bound, control: count() };
   }, pendingRow);
 
   await browser.close();
 
   const problems = [];
   if (r.error) problems.push(r.error);
-  if (!(follow.before === 'acct-unverified' && follow.afterOne === 2 && follow.after === 'acct-connected')) {
-    problems.push('#3997: a row whose check was under way was not read once more and turned green: ' + JSON.stringify(follow));
+  if (!(follow.before === 'acct-unverified' && follow.afterOne === 3 && follow.after === 'acct-connected')) {
+    problems.push('#3997: a row whose check was under way was not read again until it could say, and turned green: ' + JSON.stringify(follow));
   }
-  if (follow.afterTwo !== 2) problems.push('#3997: the follow-up read scheduled another (a loop): ' + JSON.stringify(follow));
+  if (follow.afterTwo !== follow.bound) problems.push('#3997: a check that never finished was not read exactly up to the bound (a loop, or it gave up early): ' + JSON.stringify(follow));
   if (follow.control !== 1) problems.push('#3997 CONTROL: a list with no check under way was read again: ' + JSON.stringify(follow));
   if (r.count !== ACCOUNTS.length) problems.push('expected ' + ACCOUNTS.length + ' account rows, got ' + r.count);
 
@@ -269,7 +272,7 @@ const ACCOUNTS = [
     // api-key rows of both providers: NEITHER reauth button. (Keyed by the primary label
     // paintAccounts renders -- an api-key OpenAI row has no email, so its label is its key tail.)
     // #3136: the CLAUDE api-key row DOES get Check now (a claude -p probe works for it);
-    // the OpenAI api-key row does NOT (Check now is Claude-only).
+    // the OpenAI api-key row does NOT (this `checkNow` is the Claude probe; the free sign-in checks of #3997 are `checkSignin`).
     { email: 'clkey@example.com', claudeReauth: false, openaiReauth: false, checkNow: true },
     { email: 'API key ending cd34', claudeReauth: false, openaiReauth: false, checkNow: false, checkSignin: '' },
     // #3391 part 2: a Grok KEY row has no sign-in to redo, so no Grok Sign in again.
