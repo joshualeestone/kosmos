@@ -104,6 +104,7 @@ function fakeBoard(opts = {}) {
       if (req.url === '/api/remote/signin-register') {
         if (opts.registerFails) { state.enrolled = true; return send(400, { error: 'register broke half way' }); }   // the files were written
         if (opts.registerRefusedClean) return send(400, { error: 'finish the code steps first' });   // nothing written
+        if (opts.registerHangs) { state.enrolled = true; return; }   // it finishes on the board, but never answers
         state.enrolled = true; state.on = opts.switchOn !== false; state.up = state.on;
         return send(200, { ok: true, name: 'x' });
       }
@@ -312,4 +313,18 @@ test('#2036: a register refused before it wrote anything does not claim a throwa
     assert.strictEqual(step(got, 'register').result, 'fail');
     assert.deepStrictEqual(step(got, 'forget'), { id: 'forget', result: 'pass', detail: 'the register wrote nothing, so there was nothing to retire' });
   } finally { b.server.close(); }
+});
+
+test('#2036: a register that times out after finishing on the board is recorded as a fail, and its Mac is forgotten', async () => {
+  const dir = tmp(); const e = Object.assign(env(dir), { KOSMOS_PLUS_REGISTER_MS: '300' }); const ptr = pointerFile(dir);
+  const b = await fakeBoard({ registerHangs: true });
+  try {
+    const r = await both(b, e, ptr, ['--code', '123456', '--placement', 'INBOX']);
+    assert.strictEqual(r.code, 1, r.out);
+    const got = rec(e);
+    assert.strictEqual(step(got, 'register').result, 'fail');
+    assert.match(step(got, 'register').detail, /no answer from the board/);
+    assert.ok(b.calls.some((c) => c.url === '/api/remote/forget'), 'a register that timed out left its Mac');
+    assert.strictEqual(b.state.enrolled, false);
+  } finally { b.server.closeAllConnections(); b.server.close(); }
 });

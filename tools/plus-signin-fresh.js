@@ -46,7 +46,7 @@ const record = require('./lib/plus-signin-record');
 const DEFAULT_SEED = 'josh+kosmos-seed@book.io';
 const CALL_MS = Number(process.env.KOSMOS_PLUS_CALL_MS) || 15 * 1000;
 /* The engine bounds a register at five minutes plus up to a minute clearing a half identity. */
-const REGISTER_MS = 7 * 60 * 1000;
+const REGISTER_MS = Number(process.env.KOSMOS_PLUS_REGISTER_MS) || 7 * 60 * 1000;
 /* How long the tunnel may take to report up after the register. */
 const UP_MS = Number(process.env.KOSMOS_PLUS_UP_MS) || 120 * 1000;
 const UP_POLL_MS = Number(process.env.KOSMOS_PLUS_UP_POLL_MS) || 2000;
@@ -169,9 +169,12 @@ async function finish(a) {
   const seed = prog.seed;
   const steps = prog.steps.concat([{ id: 'code', result: 'pass' }]);
   let registerTried = false;
-  // No answer at all (a timeout) says nothing about the build: cancel, record nothing.
+  // No answer at all (a timeout) BEFORE any register says nothing about the build: cancel, record
+  // nothing. Once a register was tried it may have finished on the board after we gave up, so a
+  // timeout is recorded as a failed step and the forget below still runs (review round 4).
   const fail = async (id, r) => {
-    if (r && r.status === 0) { await b.post('/api/remote/signin-cancel', {}); setup(id + ': ' + String(r.json.error) + '; try again'); }
+    if (r && r.status === 0 && !registerTried) { await b.post('/api/remote/signin-cancel', {}); setup(id + ': ' + String(r.json.error) + '; try again'); }
+    if (r && r.status === 0) { steps.push({ id, result: 'fail', detail: 'no answer from the board (' + String(r.json.error) + '); a Mac may have been registered anyway, so it is forgotten' }); return; }
     steps.push({ id, result: 'fail', detail: String((r && r.json && r.json.error) || (r && r.status) || r) });
   };
   try {
