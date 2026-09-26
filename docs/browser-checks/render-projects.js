@@ -91,8 +91,8 @@ async function api(p, options) {
 const post = (p, body) => api(p, {
   method: 'POST',
   /* ⚠️ THE LOOPBACK Origin IS THE SCREEN'S OWN DOOR, not a bypass invented
-     for the test. The #327 runaway valve pauses PROCESS-made projects at
-     twelve an hour and exempts the screen, keyed on browser headers a body
+     for the test. The #327 runaway valve pauses PROCESS-made projects past
+     its hourly limit and exempts the screen, keyed on browser headers a body
      cannot mint; this check drives the person-facing surface (its scroll
      stage alone seeds twelve fillers), so its creates are the screen's
      kind, and they say so the same way the page's own fetches do. Without

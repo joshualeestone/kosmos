@@ -716,7 +716,10 @@ function isAgentSession(pane) {
   // wrong direction.
   // #3568: Antigravity's agy is a native binary, so its pane command is `agy` itself. Only for a
   // fleet session (the guard above), so a person's own `agy` in some other pane is never ours.
-  return isClaudeCommand(pane.command) || isCodexCommand(pane.command) || isAntigravityCommand(pane.command);
+  // #3953: Grok is a native binary too (see isGrokCommand). Missing here, a running Grok agent on a
+  // Mac was never "running" to the board: Josh's first Grok agent, "has not come up".
+  return isClaudeCommand(pane.command) || isCodexCommand(pane.command) || isAntigravityCommand(pane.command)
+    || isGrokCommand(pane.command);
 }
 
 /**
@@ -1216,7 +1219,7 @@ function isNamedOurs(pane) {
  * (tier 3), still appears, and is still typeable. The name only settles a TIE
  * against a same-named session that does carry the suffix.
  */
-const RANK_NAMED_RUNNING = 0;   // ours by name, unambiguously Claude
+const RANK_NAMED_RUNNING = 0;   // ours by name, an unambiguous agent process
 const RANK_NAMED_CRASHED = 1;   // ours by name, fallen back to a shell
 const RANK_NAMED_LEGACY = 2;    // ours by name, AMBIGUOUS process — `node` only
 /**
@@ -1287,7 +1290,8 @@ function rank(pane) {
     // a shell at RANK_NAMED_CRASHED (1), the identical `zsh` + `claude` bug the
     // comment above measured, reproduced for codex. Reuses the one
     // `isCodexCommand` source rather than a private copy.
-    if (isUnambiguousClaude(pane && pane.command) || isCodexCommand(pane && pane.command) || isAntigravityCommand(pane && pane.command)) return RANK_NAMED_RUNNING + byClaimOnly; // #3568: agy too
+    if (isUnambiguousClaude(pane && pane.command) || isCodexCommand(pane && pane.command) || isAntigravityCommand(pane && pane.command)
+      || isGrokCommand(pane && pane.command)) return RANK_NAMED_RUNNING + byClaimOnly; // #3568: agy too; #3953: grok
     // `isAgentSession` accepts these too, but they are weaker: `node` is what a
     // dev server looks like, and inside our own session it must not outrank the
     // pane that is unambiguously Claude.
@@ -1410,6 +1414,16 @@ function isCodexCommand(command) {
 /* #3568: Antigravity (Google's agy), the same strict literal shape as isCodexCommand. */
 function isAntigravityCommand(command) {
   return String(command || '').trim() === 'agy';
+}
+
+/* #3953: Grok Build, the same strict literal shape. It is a native binary. On a Mac the managed
+   install is a `grok` symlink to `pkg/bin/grok-native`, and tmux names the pane after the
+   symlink's TARGET, so the pane reads `grok-native` (measured on grok 1.0.41, both through the
+   managed-style symlink and the npm-global one). `grok` covers a copy or a future rename;
+   `grok.exe` is the Windows build. */
+function isGrokCommand(command) {
+  const c = String(command || '').trim();
+  return c === 'grok-native' || c === 'grok' || c === 'grok.exe';
 }
 
 /**
@@ -3640,7 +3654,14 @@ function classify(pane, paneText) {
     }
     return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'Kosmos cannot read what Antigravity is doing yet' };
   }
-  if (!isClaudeRunning(pane.command)) {
+  /* #3953: a Grok pane. grok is a native binary (`grok-native` on a Mac), so the Claude running
+     check below called a live Grok agent stopped, and the creation screen said it had not come up.
+     Running-or-not comes from the command; a running one goes on to the screen read below. */
+  const grokPane = pane.runner === 'grok' || isGrokCommand(pane.command);
+  if (grokPane && !isGrokCommand(pane.command)) {
+    return { state: STATE.STOPPED, confidence: CONFIDENCE.STRUCTURED, because: 'Grok is not running for this one' };
+  }
+  if (!grokPane && !isClaudeRunning(pane.command)) {
     return { state: STATE.STOPPED, confidence: CONFIDENCE.STRUCTURED, because: 'Claude is not running for this one' };
   }
   if (paneText === null) {
@@ -6758,7 +6779,7 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
          sign-in it does not use. */
       const nonClaude = require('./create').isNonClaudeRunner;   // the one list (review round 5)
       const onClaude = (p) => !nonClaude(p.runner)
-        && !isAntigravityCommand(p.command) && !isCodexCommand(p.command);   // a pane not yet tagged: its command says
+        && !isAntigravityCommand(p.command) && !isCodexCommand(p.command) && !isGrokCommand(p.command);   // a pane not yet tagged: its command says
       const agents = panes.filter((p) => isNamedOurs(p) && onClaude(p)).map((p) => ({ name: p.name, target: p.target }));
       return le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred });
     },
@@ -7012,13 +7033,10 @@ function snapshot() {
        arm yet -- the account badge's GOOGLE provider is the launcher slice). */
     const isGeminiPane = pane.runner === 'gemini';
     const geminiSess = (isNamedOurs(pane) && isGeminiPane) ? readGeminiSession(pane.name) : null;
-    /* #3391: the Grok arm. TAG-ONLY recognition, for the SAME reason as Gemini --
-       a Grok Build agent runs as `node <bundle>` (grok fronts as node too, the
-       dev-server ambiguity isCodexCommand exists to avoid), never a distinguishing
-       binary. So key ONLY on the @kosmos_runner tag the supervisor records, never on
-       the command. Read the session once for the context ring below (no observation
-       arm yet -- the account badge's XAI provider is the launcher slice). */
-    const isGrokPane = pane.runner === 'grok';
+    /* #3391: the Grok arm, keyed on the @kosmos_runner tag the supervisor records.
+       Read the session once for the context ring below (no observation arm yet --
+       the account badge's XAI provider is the launcher slice). */
+    const isGrokPane = pane.runner === 'grok' || isGrokCommand(pane.command);   // #3953: before its tag lands too
     /* #3568: an Antigravity pane is not a Claude pane either; kept out of the ANTHROPIC
        observation arm below so it can never record a false Claude-account reading. */
     const isAgyPane = pane.runner === 'antigravity' || isAntigravityCommand(pane.command);
@@ -7234,7 +7252,7 @@ function snapshot() {
          everywhere the option is absent. The switch screen keys on this, and it is
          the supervisor's record, never an inference from the command. */
       // #3568: an agy pane read before its runner tag lands is still antigravity (as isAgyPane says).
-      runner: pane.runner === 'codex' ? 'codex' : pane.runner === 'gemini' ? 'gemini' : pane.runner === 'grok' ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : 'claude',
+      runner: pane.runner === 'codex' ? 'codex' : pane.runner === 'gemini' ? 'gemini' : (pane.runner === 'grok' || isGrokCommand(pane.command)) ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : 'claude',
       task: taskLine(pane.title),
       state: status.state,
       stateConfidence: status.confidence,
@@ -7620,6 +7638,7 @@ module.exports = {
   SELECTOR_GLYPHS,
   isCodexCommand,
   isAntigravityCommand, // #3568
+  isGrokCommand, // #3953
   /* #570: exported so the two job gates can be asserted for BOTH platforms from
      either one. They read `create.hasJob`/`create.jobMissing`, which used to be
      a plist stat -- the reason a freshly made Windows agent was told it was

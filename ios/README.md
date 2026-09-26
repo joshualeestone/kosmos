@@ -6,7 +6,7 @@ board" shape as the macOS app (`native-app/main.swift`) and the Android TWA
 (PR #2865). Unlike Android, iOS has no Trusted-Web-Activity path, and Apple
 rejects a repackaged website (Review Guideline 4.2), so App Store presence
 requires a genuine native app with real native surface (APNs registration,
-notification actions, biometric unlock). The shell (#2869) plus that native
+notification handling, biometric unlock). The shell (#2869) plus that native
 surface as buildable stubs (#718) are both here now. Full context on the cards
 (#2869, #718).
 
@@ -18,9 +18,13 @@ surface as buildable stubs (#718) are both here now. Full context on the cards
   (`KosmosConfig.boardURL`), the one place to repoint, mirroring the Android
   skeleton's `strings.xml`.
 - `Kosmos/AppDelegate.swift` + `Kosmos/PushNotificationManager.swift`: APNs
-  registration and the notification categories/actions, bridged to the SwiftUI
-  app via `@UIApplicationDelegateAdaptor`. The device token is registered with
-  the coordinator (see "Push" below). The `aps-environment` entitlement is in
+  registration and notification handling, bridged to the SwiftUI app via
+  `@UIApplicationDelegateAdaptor`. `Kosmos/NotificationCategories.swift` holds
+  the one category, with **no action buttons** (#3870): Approve and Deny were
+  registered but nothing carried the choice to the board, so they are hidden
+  until approving from a notification is built for real. A tap opens the
+  agent. The device token is registered with the coordinator (see "Push"
+  below). The `aps-environment` entitlement is in
   `Kosmos.entitlements`; the APNs auth key (.p8) lives on the coordinator, not
   in the app.
 - `Kosmos/BiometricAuth.swift`: Face ID / Touch ID unlock, gated behind
@@ -127,8 +131,9 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
 
 ### Tests that run without a simulator
 
-`LogicTests/run.sh` compiles the Foundation-only files (`PushBridgeLogic.swift`,
-`PushRegistrar.swift`, `ShellLogic.swift`) for macOS with the tests and runs them. It ends with one
+`LogicTests/run.sh` compiles the UIKit-free files (`PushBridgeLogic.swift`,
+`PushRegistrar.swift`, `ShellLogic.swift`, `NotificationCategories.swift`) for
+macOS with the tests and runs them. It ends with one
 `VERDICT:` line; no verdict line means the run did not finish. Pass a directory
 to run the suite against a modified copy of those files (how the suite was
 shown able to fail). CI runs it, plus a simulator-SDK build, in

@@ -164,9 +164,11 @@ while "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; do
       # isClaudeCommand. Without them, a LIVE codex agent's pane reads as
       # "every pane is a shell: it crashed" and this script kills it.
       # #3568: agy (Antigravity) for the same reason, mirroring status.js's isAntigravityCommand.
+      # #3953: grok-native/grok/grok.exe, mirroring status.js's isGrokCommand
+      # (supervisor.adopt-grok-3953.test.js runs this against every name it accepts).
       if [[ "$pane_cmd" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
         || [ "$pane_cmd" = claude ] || [ "$pane_cmd" = claude.exe ] || [ "$pane_cmd" = node ] \
-        || [ "$pane_cmd" = codex ] || [ "$pane_cmd" = codex.exe ] || [ "$pane_cmd" = agy ]; then
+        || [ "$pane_cmd" = codex ] || [ "$pane_cmd" = codex.exe ] || [ "$pane_cmd" = agy ] || [ "$pane_cmd" = grok-native ] || [ "$pane_cmd" = grok ] || [ "$pane_cmd" = grok.exe ]; then
         alive=1
       fi
     done <<EOF
@@ -569,6 +571,23 @@ if [ -z "$adopt" ]; then
     # stray CODEX_HOME. NOT the server-global (that was the #3432-v1 bug Pete + ICK caught).
     EFFECTIVE_CODEX_HOME="${AGENT_WORKFORCE_CODEX_HOME:-${AGENT_WORKFORCE_HOME:-$HOME}/.codex}"
     PANE_ENV+=(-e "CODEX_HOME=$EFFECTIVE_CODEX_HOME")
+  fi
+  # #3953: the codex, gemini and grok report bridges are node scripts their runner starts by name
+  # (codex through the bridge's `#!/usr/bin/env node`, gemini and grok through a `node "<bridge>"`
+  # hook), so they need node on the PANE's PATH. A pane inherits the tmux server's PATH, which has
+  # no node when launchd started the server or Kosmos is the only node on the Mac, and then those
+  # agents' self-reports fail silently. APPEND the directory of the node this script resolved (on an
+  # install, Kosmos's runtime/bin, so its npm/npx come too) after the server's own PATH, so a
+  # person's own node and npm still come first. This -e comes last, so it replaces any PATH the
+  # secrets/env door added above. Claude's hook finds node itself.
+  if [ -n "${NODE_BIN:-}" ] && { [ "$RUNNER" = codex ] || [ "$RUNNER" = gemini ] || [ "$RUNNER" = grok ]; }; then
+    _srv_path="$("$TMUX_BIN" show-environment -g PATH 2>/dev/null || true)"
+    case "$_srv_path" in
+      PATH=?*) _srv_path="${_srv_path#PATH=}" ;;
+      *) _srv_path="$PATH" ;;
+    esac
+    PANE_ENV+=(-e "PATH=${_srv_path}:$(dirname "$NODE_BIN")")
+    unset _srv_path
   fi
   if [ "$RUNNER" = codex ]; then
     # Self-reporting (#245 on #526): codex's notify hook runs the bridge

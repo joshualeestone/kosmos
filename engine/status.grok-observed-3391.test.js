@@ -88,7 +88,7 @@ test('grokLastCompletionAt returns the completion timestamp (signals.json mtime)
 
 test('a grok WORKING pane with a FRESH session completion records an XAI ok (never claude/openai/google)', () => {
   writeGrokSession('grokok', Date.now() - 30 * 1000);
-  const board = fleet.install([fleet.agent('grokok', { runner: 'grok', state: 'working' })]);
+  const board = fleet.install([fleet.agent('grokok', { runner: 'grok', command: 'grok-native', state: 'working' })]);
   assert.equal(board.card('grokok').state, 'working', 'fixture is not WORKING, so the assertion is vacuous');
   assert.equal((observed.read(observed.PROVIDER.XAI, 'grokok') || {}).outcome, observed.OUTCOME.OK,
     'a working grok agent with a fresh witnessed completion did not record an XAI ok: ' + JSON.stringify(observed.all()));
@@ -102,7 +102,7 @@ test('a grok WORKING pane with a FRESH session completion records an XAI ok (nev
 
 test('recording is DECOUPLED from the scraped state: a NON-WORKING grok pane with a fresh completion still records an XAI ok', () => {
   writeGrokSession('grokidle', Date.now() - 30 * 1000);
-  const board = fleet.install([fleet.agent('grokidle', { runner: 'grok', state: 'unknown' })]);
+  const board = fleet.install([fleet.agent('grokidle', { runner: 'grok', command: 'grok-native', state: 'unknown' })]);
   assert.notEqual(board.card('grokidle').state, 'working', 'fixture is WORKING, so the decoupling assertion is vacuous');
   assert.equal((observed.read(observed.PROVIDER.XAI, 'grokidle') || {}).outcome, observed.OUTCOME.OK,
     'a non-working grok pane with a fresh witnessed completion did not record an XAI ok -- recording is wrongly coupled to the WORKING scrape: ' + JSON.stringify(observed.all()));
@@ -110,8 +110,19 @@ test('recording is DECOUPLED from the scraped state: a NON-WORKING grok pane wit
 
 test('a grok WORKING pane with a STALE session completion records NOTHING (self-heals, no permanent green)', () => {
   writeGrokSession('grokstale', Date.now() - 10 * 60 * 1000); // 10 min ago: past the 5-min window
-  const board = fleet.install([fleet.agent('grokstale', { runner: 'grok', state: 'working' })]);
+  const board = fleet.install([fleet.agent('grokstale', { runner: 'grok', command: 'grok-native', state: 'working' })]);
   assert.equal(board.card('grokstale').state, 'working', 'fixture is not WORKING, so the assertion is vacuous');
   assert.equal(observed.read(observed.PROVIDER.XAI, 'grokstale'), null,
     'a stale completion kept greening the sign-in -- the permanent green over a possibly-dead credential this arm avoids: ' + JSON.stringify(observed.all()));
+});
+
+test('#3953: a Grok pane read BEFORE its runner tag lands is still Grok: no Claude ok, and the card says grok', () => {
+  // The pane's command alone says Grok (grok-native, the Mac pane's real command). Before #3953 such a pane was
+  // classified stopped and never reached the observation arms; now it is read as running, so both must know it.
+  writeGrokSession('grokuntagged', Date.now() - 30 * 1000);
+  const board = fleet.install([fleet.agent('grokuntagged', { runner: '', command: 'grok-native', state: 'working' })]);
+  assert.equal(board.card('grokuntagged').state, 'working', 'fixture is not WORKING, so the assertion is vacuous');
+  assert.equal(board.card('grokuntagged').runner, 'grok', 'an untagged Grok pane was reported to the page as another runner');
+  assert.equal(observed.read(observed.PROVIDER.ANTHROPIC, 'grokuntagged'), null,
+    'an untagged Grok pane recorded a Claude-account ok: ' + JSON.stringify(observed.all()));
 });

@@ -146,25 +146,91 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     await openForm();
     chk(await page.evaluate(() => !document.getElementById('create-kind').hidden && document.getElementById('create-swarm').hidden), 'S2 the Agent / Swarm choice shows, Agent first and chosen');
     await page.click('label.ctype-opt:has(input[value="swarm"])');
-    const s2 = await page.evaluate(() => ({ settings: !document.getElementById('create-swarm').hidden, modelField: document.getElementById('create-model-field').hidden,
-      go: document.getElementById('create-go').textContent, circles: document.querySelectorAll('#create-kind-swarm-face .swd').length }));
-    chk(s2.settings && s2.modelField === true && s2.go === 'Make this swarm' && s2.circles === 3, 'S2 Swarm shows its settings, Runs on Claude in place of the model picker, and reads Make this swarm', JSON.stringify(s2));
+    const s2 = await page.evaluate(() => {
+      const sel = document.getElementById('create-provider');
+      const others = [...sel.options].filter((o) => o.value !== 'anthropic');
+      return { settings: !document.getElementById('create-swarm').hidden, modelField: document.getElementById('create-model-field').hidden,
+        go: document.getElementById('create-go').textContent, circles: document.querySelectorAll('#create-kind-swarm-face .swd').length,
+        provider: sel.value, othersGreyed: others.length > 0 && others.every((o) => o.disabled && o.dataset.off === 'Swarms run on Claude for now'),
+        badge: !!document.querySelector('#create-kind-swarm-face .swb'), runsOnLine: !!document.querySelector('#create-swarm .swfixed'),
+        instr: document.getElementById('create-instr-hint').textContent, maxLabel: document.querySelector('label[for="create-swarm-max"]').textContent };
+    });
+    // #3946 items 1, 5, 6, 12: no "0/N" on the tile; the normal model picker with every non-Claude provider greyed
+    // and saying why (not hidden); "Maximum helpers"; the instructions line speaks of the team.
+    chk(s2.settings && s2.modelField === false && s2.go === 'Make this swarm' && s2.circles === 3 && s2.provider === 'anthropic' && s2.othersGreyed
+      && !s2.badge && !s2.runsOnLine && s2.maxLabel === 'Maximum helpers' && s2.instr === 'Describe what these agents do and how they should work. You can edit this later.',
+    'S2 Swarm: its settings, the model picker with only Claude open, no count badge, Maximum helpers, the team instructions line, Make this swarm (#3946)', JSON.stringify(s2));
+    // S2b (#3946 item 2): the tiles show the identity mark as the name is typed, and are empty with no name (the
+    // Agent tile used to show "S", from the word Swarm).
+    const tiles = () => page.evaluate(() => ({ agentImg: getComputedStyle(document.getElementById('create-kind-agent-face')).backgroundImage,
+      agentText: document.getElementById('create-kind-agent-face').textContent,
+      swarmImgs: [...document.querySelectorAll('#create-kind-swarm-face .swd')].map((d) => { const im = d.querySelector('image'); return im ? im.getAttribute('href') : ''; }) }));
+    await page.fill('#create-name', '');
+    await page.dispatchEvent('#create-name', 'input');
+    const empty2 = await tiles();
+    await page.fill('#create-name', 'Nadia');
+    await page.dispatchEvent('#create-name', 'input');
+    await page.waitForTimeout(100);
+    const named2 = await tiles();
+    const mark2 = await page.evaluate(() => document.getElementById('genav').toDataURL('image/png'));
+    chk(empty2.agentImg === 'none' && empty2.agentText === '' && empty2.swarmImgs.every((x) => !x || !/data:/.test(x)),
+      'S2b with no name the tiles are empty, like the identity ring (no stand-in letter)', JSON.stringify(empty2).slice(0, 300));
+    chk(named2.agentImg.includes(mark2.slice(0, 60)) && named2.swarmImgs.length === 3 && named2.swarmImgs.every((x) => x.includes(mark2.slice(0, 60))),
+      'S2b typing a name puts the identity mark on the Agent tile and every Swarm circle', JSON.stringify({ a: named2.agentImg.slice(0, 60), n: named2.swarmImgs.length }));
+    // S2c (#3946 review round 2): the form opened AGAIN starts empty. openCreate clears the name without an input
+    // event and used to leave the last agent's mark on both tiles.
+    await openForm();
+    await page.click('label.ctype-opt:has(input[value="swarm"])');
+    const again2 = await tiles();
+    chk(again2.agentImg === 'none' && again2.swarmImgs.every((x) => !x || !/data:/.test(x)),
+      'S2c a reopened form shows empty tiles, not the last agent\'s mark', JSON.stringify({ a: again2.agentImg.slice(0, 60), s: again2.swarmImgs.map((x) => String(x).slice(0, 30)) }));
+    await page.fill('#create-name', 'Nadia');
+    await page.dispatchEvent('#create-name', 'input');
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await (await page.$('#cstep-name')).screenshot({ path: path.join(SHOTS, 'create.png') }); }
 
     // S3: the slider moves the value and the warning (helpers plus the lead); the limit shows unrounded.
-    await page.fill('#create-swarm-max', '7');
+    await page.fill('#create-swarm-max', '9');
     await page.dispatchEvent('#create-swarm-max', 'input');
     await page.fill('#create-swarm-cap', '9');
     await page.dispatchEvent('#create-swarm-cap', 'input');
-    const s3 = await page.evaluate(() => ({ v: document.getElementById('create-swarm-max-v').textContent, warn: document.getElementById('create-swarm-warn').textContent,
+    const s3 = await page.evaluate(() => ({ v: document.getElementById('create-swarm-max-v').textContent, warn: document.querySelector('#create-swarm-warn span:last-child').textContent,
+      explain: document.getElementById('create-swarm-explain').textContent,
       cap: document.getElementById('create-swarm-cap-v').textContent, circles: document.querySelectorAll('#create-kind-swarm-face .swd').length }));
-    chk(s3.v === '7' && /about 8 times/.test(s3.warn) && /7 helpers plus the lead/.test(s3.warn) && s3.cap === '9,000,000' && s3.circles === 7, 'S3 the slider moves the value, the warning and the cluster; the limit shows in full', JSON.stringify(s3));
+    // #3946 items 3, 7, 8: one circle per helper past the old seven; Josh's words with the slider's numbers.
+    chk(s3.v === '9' && s3.warn === 'With all 9 helpers active, the swarm can use roughly 10 times as many tokens as a single agent.'
+      && s3.explain === 'The lead agent brings in up to 9 helpers when parts of a task can be done at the same time. Otherwise, it works alone.'
+      && s3.cap === '9,000,000' && s3.circles === 9, 'S3 the slider moves the value, Josh\'s explainer and warning (its numbers), and the cluster past seven (#3946)', JSON.stringify(s3));
+    // S3b (#3946 item 4): every circle whole at every count, 2 to 10: inside its box and clear of every other circle.
+    const whole = await page.evaluate(() => {
+      const bad = [];
+      for (let n = 2; n <= 10; n += 1) {
+        const host = document.createElement('div');
+        // Every helper working, so each circle carries its gold ring: the ring must stay inside the circle too.
+        host.innerHTML = swarmCluster({ name: 'Nadia', swarm: { maxHelpers: n, activeHelpers: n } }, 44, {});
+        document.body.appendChild(host);
+        const box = host.querySelector('.swc').getBoundingClientRect();
+        // The drawn extent of each circle INCLUDING its lit ring and edge strokes (the <g>'s box).
+        const cs = [...host.querySelectorAll('.swd')].map((d) => { const r = d.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, r: r.width / 2, b: r }; });
+        if (cs.length !== n) bad.push(n + ': ' + cs.length + ' circles');
+        for (const c of cs) if (c.b.left < box.left - 0.5 || c.b.top < box.top - 0.5 || c.b.right > box.right + 0.5 || c.b.bottom > box.bottom + 0.5) bad.push(n + ': a circle leaves the box');
+        for (let i = 0; i < cs.length; i += 1) for (let j = i + 1; j < cs.length; j += 1) {
+          if (Math.hypot(cs[i].x - cs[j].x, cs[i].y - cs[j].y) < cs[i].r + cs[j].r - 0.25) bad.push(n + ': circles ' + i + ' and ' + j + ' overlap');
+        }
+        host.remove();
+      }
+      return bad;
+    });
+    chk(whole.length === 0, 'S3b every count from 2 to 10 draws whole circles: none overlaps another or leaves the box (#3946)', JSON.stringify(whole.slice(0, 5)));
 
-    // S4: the create request carries the contract's fields (and no provider).
+    // S4: the create request carries the contract fields, Claude as provider, and the picker model and account (#3946).
+    const formPick = await page.evaluate(() => ({ model: document.getElementById('create-model').value, account: document.getElementById('create-account').value }));
     await page.evaluate(() => document.getElementById('create-go').click());
     chk(await waitFor(page, () => true, null, 100) && await (async () => { for (let i = 0; i < 20 && !createBody; i++) await page.waitForTimeout(150); return !!createBody; })()
-      && createBody.kind === 'swarm' && createBody.maxHelpers === 7 && createBody.dailyTokenLimit === 9000000 && !('provider' in createBody) && !('model' in createBody) && !('account' in createBody),
-      'S4 Make this swarm sends kind, maxHelpers and dailyTokenLimit', JSON.stringify(createBody));
+      && createBody.kind === 'swarm' && createBody.maxHelpers === 9 && createBody.dailyTokenLimit === 9000000 && createBody.provider === 'anthropic'
+      /* #3946 review: the picker's model and account travel as an Agent's do: sent when chosen, absent when empty. */
+      && (formPick.model ? createBody.model === formPick.model : !('model' in createBody))
+      && (formPick.account ? createBody.account === formPick.account : !('account' in createBody)),
+      'S4 Make this swarm sends kind, maxHelpers, dailyTokenLimit, Claude as its provider, and the picker\'s model and account as an Agent would (#3946)', JSON.stringify({ createBody, formPick }));
     // S4b CONTROL: back to Agent, the request carries none of them.
     createBody = null;
     await openForm();
@@ -172,6 +238,10 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     for (let i = 0; i < 20 && !createBody; i++) await page.waitForTimeout(150);
     chk(!!createBody && !('kind' in createBody) && !('maxHelpers' in createBody) && await page.evaluate(() => document.getElementById('create-model-field').hidden === false),
       'S4b a plain Agent sends no swarm fields and shows the model picker', JSON.stringify(createBody));
+    // S4c CONTROL (#3946): back on Agent, the providers the swarm greyed are theirs again (OpenAI selectable).
+    chk(await page.evaluate(() => { const o = [...document.getElementById('create-provider').options].find((x) => x.value === 'openai');
+      return !!o && !o.disabled && o.dataset.off !== 'Swarms run on Claude for now' && o.dataset.swarmGated === undefined; }),
+      'S4c a plain Agent gets OpenAI back: the swarm greying is undone');
 
     // S5: the board card. The crew is its cluster (min(max, 7) circles, the badge working/most, the Swarm line);
     // Rex stays a plain face (the control).
@@ -182,8 +252,41 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       return { circles: c.querySelectorAll('clipPath[id^="swc-"]').length, badge: [...c.querySelectorAll('.agauge text')].map((t) => t.textContent).join(' '),
         meta: c.querySelector('.ameta') && c.querySelector('.ameta').textContent, rexCluster: !!r.querySelector('clipPath[id^="swc-"]') };
     });
-    chk(s5.circles === 5 && /3\/5/.test(s5.badge) && s5.meta === 'Swarm · 3 of 5 helpers working' && !s5.rexCluster, 'S5 the swarm card: five circles, 3/5, and its Swarm line; Rex stays a plain face', JSON.stringify(s5));
+    // #3946 item 15: no "3/5" count on the card any more; the lit circles and the Swarm line say it.
+    chk(s5.circles === 5 && s5.badge === '' && s5.meta === 'Swarm · 3 of 5 helpers working' && !s5.rexCluster, 'S5 the swarm card: five circles, no count badge, and its Swarm line; Rex stays a plain face (#3946)', JSON.stringify(s5));
     if (SHOTS) await (await page.$('#grid')).screenshot({ path: path.join(SHOTS, 'board.png') });
+    // S31 (#3946 item 15): ONE swarm avatar on all three views. The list row and the org chart node draw the same
+    // circles as the grid card (one per helper, the same picture source in each), with no count badge and nothing
+    // clipping them. The list used to show one faded bubble and the org chart a single face.
+    const drawn = (sel) => page.evaluate((sel) => {
+      const host = document.querySelector(sel);
+      if (!host) return null;
+      const gs = [...host.querySelectorAll('.swd')];
+      const src = gs.map((g) => { const im = g.querySelector('image'); if (im) return 'img:' + im.getAttribute('href'); const c = g.querySelector('circle'); return 'tint:' + (c ? c.style.fill : ''); });
+      let clip = false;
+      const box = host.querySelector('.swc, svg') && (host.querySelector('.swc') || host).getBoundingClientRect();
+      for (let el = host.querySelector('.swc'); el && el !== host.parentElement; el = el.parentElement) {
+        const cs = getComputedStyle(el);
+        if (cs.overflow !== 'visible' && el !== host.querySelector('.swc')) {
+          const r = el.getBoundingClientRect();
+          if (box && (box.width > r.width + 1 || box.height > r.height + 1)) clip = true;
+          if (cs.borderRadius && cs.borderRadius !== '0px' && el.contains(host.querySelector('.swc'))) clip = true;
+        }
+      }
+      return { circles: gs.length, src: [...new Set(src)], badge: !!host.querySelector('.swb') || /\d\/\d/.test([...host.querySelectorAll('svg text')].map((t) => t.textContent).join(' ')), clip };
+    }, sel);
+    const gridDraw = await drawn('#grid [data-agent="crew"]');
+    await page.click('[data-scope="agents"] .vt[data-layout="list"]');
+    await page.waitForTimeout(500);
+    const listDraw = await drawn('[data-agent="crew"].lrow .lav, .lrow[data-agent="crew"] .lav');
+    await page.click('[data-scope="agents"] .vt[data-layout="org"]');
+    await page.waitForTimeout(800);
+    const orgDraw = await drawn('.onode[data-agent="crew"] .face');
+    await page.click('[data-scope="agents"] .vt[data-layout="grid"]');
+    await page.waitForTimeout(400);
+    const same = (x) => x && x.circles === 5 && !x.badge && !x.clip && gridDraw && JSON.stringify(x.src) === JSON.stringify(gridDraw.src);
+    chk(same(listDraw), 'S31 the list row draws the swarm as the grid does: five circles, the same picture, no badge, not clipped (#3946)', JSON.stringify({ gridDraw, listDraw }));
+    chk(same(orgDraw), 'S31 the org chart node draws the swarm as the grid does: five circles, the same picture, no badge, not clipped (#3946)', JSON.stringify({ gridDraw, orgDraw }));
 
     // S6: the swarm's page shows its panel; Rex's page does not (the control).
     await page.evaluate(() => document.querySelector('#grid [data-agent="rex"]').click());
@@ -194,6 +297,13 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     await page.waitForTimeout(300);
     await page.evaluate(() => document.querySelector('#grid [data-agent="crew"]').click());
     chk(await waitFor(page, () => !document.getElementById('d-swarm-panel').hidden), 'S6 the swarm\'s page shows its controls');
+    // S30 (#3946): the Paused toggle says how it differs from Stop now (Josh asked). Item 13's move of this panel
+    // below the section buttons is superseded by item 14 (a Swarm Settings view) and waits for it.
+    const s30 = await page.evaluate(() => ({ hint: (document.getElementById('d-swarm-pause-hint') || {}).textContent || '',
+      described: (document.querySelector('#d-swarm-panel fieldset.swmode') || { getAttribute: () => '' }).getAttribute('aria-describedby'),
+      maxLabel: document.querySelector('label[for="d-swarm-max"]').textContent }));
+    chk(/Paused finishes what it is doing, then takes nothing new/.test(s30.hint) && s30.described === 'd-swarm-pause-hint' && s30.maxLabel === 'Maximum helpers',
+      'S30 Paused says how it differs from Stop now, and the page says Maximum helpers (#3946)', JSON.stringify(s30));
     chk(await page.evaluate(() => document.getElementById('d-provider').closest('.frow').hidden), 'S19 a swarm\'s page offers no provider switch (it runs on Claude only)');
     const s6 = await page.evaluate(() => ({ active: document.querySelector('input[name="d-swarm-active"][value="on"]').checked, today: document.getElementById('d-swarm-today').textContent,
       limit: document.getElementById('d-swarm-limit').textContent, bar: document.getElementById('d-swarm-bar').style.width, max: document.getElementById('d-swarm-max').value,
@@ -410,13 +520,15 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       'S9 Off sends PUT /api/project/pj1/swarm/crew { on: false } and shows Off', JSON.stringify(last));
     chk(await page.evaluate(() => URL_TAB === 'projects' && !(CURRENT && CURRENT.sessionName === 'crew' && URL_TAB === 'detail')), 'S9 and pressing Off stays on the project (it does not open the swarm\'s page)', await page.evaluate(() => URL_TAB));
 
-    // S15: dark. The cluster, the badge and the panel draw in the dark theme too.
+    // S15: dark. The cluster and the panel draw in the dark theme too (#3946: there is no count badge any more).
     await page.emulateMedia({ colorScheme: 'dark' });
     await page.evaluate(() => { showTab('agents'); });
     await page.waitForTimeout(1700);
     const s15 = await page.evaluate(() => ({ dark: matchMedia('(prefers-color-scheme: dark)').matches, clusters: document.querySelectorAll('#grid clipPath[id^="swc-"]').length,
-      badge: getComputedStyle(document.querySelector('#grid [data-agent="crew"] .agauge rect')).fill }));
-    chk(s15.dark && s15.clusters >= 5 && s15.badge && s15.badge !== 'none', 'S15 in dark the swarm card still draws its cluster and badge', JSON.stringify(s15));
+      edge: (() => { const e = document.querySelector('#grid [data-agent="crew"] .swd circle[fill="none"]'); return e ? getComputedStyle(e).stroke : null; })(),
+      bg: getComputedStyle(document.body).getPropertyValue('--k-bg').trim(),
+      badge: !!document.querySelector('#grid [data-agent="crew"] .agauge rect') }));
+    chk(s15.dark && s15.clusters >= 5 && !!s15.edge && s15.edge !== 'none' && !s15.badge, 'S15 in dark the swarm card still draws its cluster, each circle edged in the page colour, and no badge', JSON.stringify(s15));
     if (SHOTS) await (await page.$('#grid')).screenshot({ path: path.join(SHOTS, 'board-dark.png') });
     await page.emulateMedia({ colorScheme: 'light' });
 

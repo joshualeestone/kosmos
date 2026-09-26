@@ -1,7 +1,8 @@
 import Foundation
+import UserNotifications
 
-// Tests for the push bridge logic (#718), compiled for macOS together with
-// ios/Kosmos/PushBridgeLogic.swift and PushRegistrar.swift and run on a Mac:
+// Tests for the iOS app's UIKit-free logic (#718), compiled for macOS together
+// with the app files run.sh lists and run on a Mac:
 // there is no iOS simulator runtime on the build box, so XCTest cannot run.
 // Run with ios/LogicTests/run.sh. It prints every case and ends with one
 // verdict line; a missing verdict means the run did not finish.
@@ -576,6 +577,19 @@ do {
     check(b?["token"] == hex32, "the wire body carries the token")
     check(runTransport(status: 401, fail: false).0 == 401, "a 401 comes through as 401")
     check(runTransport(status: 200, fail: true).0 == nil, "a connection failure comes through as no status")
+}
+
+// MARK: - Notification categories (#3870)
+
+// Approve and Deny did nothing when tapped, so the first store build shows no
+// action buttons at all: a notification's only action is the plain tap.
+section("notification categories")
+do {
+    let cats = NotificationCategories.all()
+    let perm = cats.first { $0.identifier == "AGENT_PERMISSION" }
+    check(perm != nil, "the agent-permission category is still registered, so a push's category still matches")
+    check(cats.allSatisfy { $0.actions.isEmpty }, "no category registers an action button (Approve/Deny hidden)")
+    check(cats.allSatisfy { $0.options.isEmpty }, "no category asks for dismiss delivery, which the handler has no branch for")
 }
 
 print("")

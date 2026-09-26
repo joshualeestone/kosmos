@@ -609,8 +609,8 @@ function block() {
  *
  *  11. kosmos#3405. Josh, talking to an agent in its dialogue: it could not make
  *     a project itself and asked to add that to the instructions. The board
- *     already accepts an agent-made project (POST /api/projects, valved at
- *     12/hr, #327), and the `kosmos project create "<name>" <folder> ["<desc>"]`
+ *     already accepts an agent-made project (POST /api/projects, behind the
+ *     500-an-hour runaway breaker, #327, #3959), and the `kosmos project create "<name>" <folder> ["<desc>"]`
  *     verb now wraps it (same address + token resolution as `kosmos post`). This
  *     block never told an agent the capability exists, so it did not use it. A
  *     NEW section states it plainly.

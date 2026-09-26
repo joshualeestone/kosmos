@@ -19,7 +19,7 @@ import UIKit
 //     over the kosmosSession bridge (see PushNotificationManager).
 final class AppDelegate: NSObject, UIApplicationDelegate {
 
-    // Owns notification authorization, categories/actions, and the
+    // Owns notification authorization, the notification categories, and the
     // UNUserNotificationCenter delegate. Retained for the app lifetime.
     let pushManager = PushNotificationManager()
 
@@ -27,9 +27,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-        // Register notification categories/actions up front so an incoming push
-        // can render its action buttons, then ask for authorization and (on
-        // grant) register with APNs. Registration is safe to request every
+        // Register the notification categories up front (NotificationCategories,
+        // no action buttons: #3870), then ask for authorization and (on grant)
+        // register with APNs. Registration is safe to request every
         // launch; iOS returns the current token quickly if already registered.
         pushManager.configure()
         pushManager.requestAuthorizationAndRegister()

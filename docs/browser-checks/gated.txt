@@ -76,6 +76,7 @@ render-firstrun-s6-2037
 render-firstrun-scan-on-grant-1652
 render-firstrun-stepcap-gear-0640
 render-firstrun-wizard-flow
+render-frame-phone-718
 render-frnav-2647
 render-gemini-logo-3422
 render-grok-subscription-3391
@@ -84,6 +85,7 @@ render-handoff-restart-3492
 render-head-row
 render-help-tips-3574
 render-home-discovery-removed-3048
+render-home-phone-718
 render-import-add-inplace-2419
 render-inline-field-errors-2606
 render-keyed-install-3713
@@ -147,6 +149,7 @@ render-room-scroll
 render-settings-agy-3874
 render-settings-nav
 render-settings-openai-goldbox
+render-signin-visible-3892
 render-sound-master-2436
 render-stale-auth-1930
 render-start-agent-3410
@@ -173,6 +176,7 @@ render-waiting-phone-718
 render-win32-board-copy
 render-workchip-zero-2157
 render-workindicator-2146
+render-working-pulse-3956
 render-world-import-2563
 render-worldhide-2935
 render-worldrename-1704

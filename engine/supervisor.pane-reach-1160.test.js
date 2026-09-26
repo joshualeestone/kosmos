@@ -94,6 +94,8 @@ test('the supervisor counts a live agy pane as an agent, not a crashed shell (#3
   assert.equal(aliveFor('agy'), '1', 'a live Antigravity agent would be killed as a crashed shell');
   assert.equal(aliveFor('codex'), '1', 'CONTROL: codex still counts');
   assert.equal(aliveFor('-zsh'), '0', 'CONTROL: a shell is still a crashed pane');
+  // #3953: and a live Grok agent, by every name the board counts as Grok.
+  for (const g of ['grok-native', 'grok', 'grok.exe']) assert.equal(aliveFor(g), '1', `a live Grok agent (${g}) would be killed as a crashed shell`);
 });
 
 /* #3568 round 14: the SECOND guard that keeps a Claude account out of an agy pane -- the one that
