@@ -43845,11 +43845,16 @@ function pjToldGroupLine(told) {
 function memberDotClass(row) {
   if (!row) return '';
   /* lrow's not-running branch, with its two exceptions: a restart, and the needs-trust arm (which
-     draws `attn notrunning needstrust`, no `off`). The trust arm reads lrow's own field, needsTrust,
+     draws `attn notrunning needstrust`, no `off`; here it is the unsure dot, below). The trust arm reads lrow's own field, needsTrust,
      which rides the same board poll as `running`; a member row's state comes from the projects poll,
      so it is the fallback only when the board card is not there. */
   const trust = row.needsTrust === true || (!('needsTrust' in row) && row.state === 'needs_trust');
-  if (row.running === false && row.state !== 'restarting' && !trust) return ' pjd pjd-off';
+  /* A trust-stuck agent's presence is UNSURE (CARD_ST.needs_trust, drawn hollow on the grid card):
+     never the green all-clear, which would sit beside the red needs-you triangle on the same face.
+     boardMods cannot say this: it washes needs_trust into `attn` with needs_you. */
+  if (trust) return ' pjd pjd-unk';
+  if (row.running === false && row.state !== 'restarting') return ' pjd pjd-off';
+  if (cardStOf(row).pres === 'unsure') return ' pjd pjd-unk';
   const mods = ' ' + boardMods(row, cardStOf(row)) + ' ';
   if (mods.indexOf(' off ') > -1) return ' pjd pjd-off';
   if (mods.indexOf(' unk ') > -1) return ' pjd pjd-unk';

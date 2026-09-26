@@ -52,6 +52,18 @@ function pageFnSource(name) {
   throw new Error('unbalanced ' + name);
 }
 
+/* A top-level `const NAME = {...};` from the page, brace-matched: the real table, not a copy. */
+function constSource(name) {
+  const start = RAW.indexOf('const ' + name + ' = {');
+  assert.ok(start > -1, name + ' vanished from web/index.html');
+  let depth = 0;
+  for (let k = RAW.indexOf('{', start); k < RAW.length; k += 1) {
+    if (RAW[k] === '{') depth += 1;
+    else if (RAW[k] === '}') { depth -= 1; if (depth === 0) return RAW.slice(start, RAW.indexOf(';', k) + 1); }
+  }
+  throw new Error('unbalanced ' + name);
+}
+
 /* The REAL paintDetailState and workingSampleIsStale, with the label/glyph derivations stubbed to
    echo the state they were handed, so the test reads which state the pill was painted from. */
 function pillFor(card, spokeLearnedAt, lastAt) {
@@ -123,7 +135,8 @@ test('#3991: the dot\'s trust exception reads needsTrust (the board poll\'s own 
   // eslint-disable-next-line no-new-func
   const memberDotClass = new Function([
     'const boardMods = () => "";',
-    'const cardStOf = (a) => ({ st: a.state });',
+    constSource('CARD_ST'),
+    pageFnSource('cardStOf'),
     pageFnSource('memberDotClass'),
     'return memberDotClass;',
   ].join('\n'))();
@@ -133,8 +146,12 @@ test('#3991: the dot\'s trust exception reads needsTrust (the board poll\'s own 
     /* The server adds `running` and `needsTrust` on /api/status; the member row's state comes from
        the projects poll, so the two can disagree for one poll. The dot follows the board's field. */
     const onBoard = (extra) => Object.assign({}, card, extra);
-    assert.equal(memberDotClass(onBoard({ running: false, needsTrust: true, state: 'idle' })), ' pjd',
-      'the board says trust-stuck while the member poll still says idle: not an offline dot');
+    assert.equal(memberDotClass(onBoard({ running: false, needsTrust: true, state: 'idle' })), ' pjd pjd-unk',
+      'the board says trust-stuck while the member poll still says idle: the unsure dot, not offline or green');
+    assert.equal(memberDotClass(onBoard({ running: false, needsTrust: true, state: 'needs_trust' })), ' pjd pjd-unk',
+      'a trust-stuck member drew the green all-clear beside its red needs-you triangle');
+    assert.equal(memberDotClass(onBoard({ running: true, state: 'unknown' })), ' pjd pjd-unk', 'an unsure presence is the unsure dot');
+    assert.equal(memberDotClass(onBoard({ running: true, state: 'needs_you' })), ' pjd', 'control: needs-you is present, green');
     assert.equal(memberDotClass(onBoard({ running: false, needsTrust: false, state: 'needs_trust' })), ' pjd pjd-off',
       'the board has cleared trust (and says not running): the stale member state must not keep it');
     assert.equal(memberDotClass(onBoard({ running: false })), ' pjd pjd-off', 'control: not running, no trust, offline');

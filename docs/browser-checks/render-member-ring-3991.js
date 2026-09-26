@@ -125,7 +125,10 @@ const PERCENT = { beatrix: 42, dora: 71 };
 
         /* PARITY, for every member: the dot this row draws must be the one the CONSOLIDATED row
            would draw for the same live card (lrow's not-running branch, then boardMods' off/unk),
-           computed in the page from the page's own functions. */
+           computed in the page from the page's own functions. One deliberate exception is not in
+           this fixture: a trust-stuck agent (win32 only; fleet cannot produce needsTrust) draws the
+           hollow unsure dot, as the grid card's `pres unsure` does, where lrow draws no dot at all.
+           web.pill-remembered-3958.test.js pins that case against the page's own CARD_ST. */
         const parity = await page.evaluate(() => [...document.querySelectorAll('#pj-one-agents .pj-member')].map((row) => {
           const who = row.getAttribute('data-agent');
           const card = LAST.find((x) => x && x.sessionName === who);
