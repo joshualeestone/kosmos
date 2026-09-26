@@ -326,10 +326,12 @@ async function startBoard() {
   const sealed = {
     HOME: home, AGENT_WORKFORCE_HOME: home, AGENT_WORKFORCE_CONFIG_ROOT: path.join(home, 'config'),
     AGENT_WORKFORCE_CLAUDE_CONFIG: path.join(home, '.claude.json'), AGENT_WORKFORCE_CLAUDE_CONFIG_DIR: path.join(home, '.claude'),
-    CLAUDE_CONFIG_DIR: path.join(home, '.claude'), AGENT_WORKFORCE_CLAUDE_SETTINGS: path.join(home, '.claude', 'settings.json'),
-    AGENT_WORKFORCE_CODEX_HOME: path.join(home, '.codex'), CODEX_HOME: path.join(home, '.codex'),
-    AGENT_WORKFORCE_GEMINI_HOME: path.join(home, '.gemini'), GEMINI_CLI_HOME: home,
-    AGENT_WORKFORCE_GROK_HOME: path.join(home, '.grok'), GROK_HOME: path.join(home, '.grok'),
+    AGENT_WORKFORCE_CLAUDE_SETTINGS: path.join(home, '.claude', 'settings.json'),
+    AGENT_WORKFORCE_GEMINI_HOME: path.join(home, '.gemini'), AGENT_WORKFORCE_GROK_HOME: path.join(home, '.grok'),
+    /* Not named here: CODEX_HOME, AGENT_WORKFORCE_CODEX_HOME, GEMINI_CLI_HOME, GROK_HOME and
+       CLAUDE_CONFIG_DIR. lib-sandbox-home (required at the top) removes them, and naming them
+       would put the board in the "operator named a home" mode (#1488), which no user runs; left
+       unset they resolve under the sandboxed home above. */
     AGENT_WORKFORCE_SCAN_ROOTS: path.join(home, 'scan'),
     /* The board installs its agent browser (a ~100MB download) on start unless
        it is told it is a sandbox; every other self-booting check sets this. */
@@ -337,6 +339,15 @@ async function startBoard() {
   };
   const early = Object.keys(require.cache).filter((f) => f.startsWith(path.join(REPO, 'engine') + path.sep));
   if (early.length) throw new Error('an engine module was loaded before the sandbox was set: ' + early[0]);
+  /* HOME is sealed in this process too (an engine writer can fall back to os.homedir()), and
+     Playwright finds its browsers under the home. Pin its cache to the REAL one first, so the
+     launches below do not depend on Playwright having been required before this point. */
+  if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
+    const realHome = os.homedir();
+    process.env.PLAYWRIGHT_BROWSERS_PATH = process.platform === 'darwin' ? path.join(realHome, 'Library', 'Caches', 'ms-playwright')
+      : process.platform === 'win32' ? path.join(process.env.LOCALAPPDATA || path.join(realHome, 'AppData', 'Local'), 'ms-playwright')
+        : path.join(process.env.XDG_CACHE_HOME || path.join(realHome, '.cache'), 'ms-playwright');
+  }
   Object.assign(process.env, sealed);
   const dropRoots = () => { for (const d of Object.values(roots)) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } } };
   try { seedFiles(roots); } catch (e) { dropRoots(); throw e; }   // a failed seed leaves no sandboxed HOME behind
