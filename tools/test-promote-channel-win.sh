@@ -238,7 +238,7 @@ out="$(PATH="$WRAP:$PATH" REAL_BASH="$REAL_BASH" MIDGATE_CMD="KOSMOS_SITE='$Sr' 
 [ "$(jget "$S/dist/latest-win.json" version)" = "$V_OLD" ] && pass "before promote: prod names $V_OLD" || bad "fixture: prod is not $V_OLD before the promote"
 STAGING_BEFORE="$(sha_of "$S/dist/latest-win-staging.json")"
 promote "$S" "$RPASS" --approved-version "$V" --approved-sha "$SHA" --approval-ref "$REF"
-[ "$rc" = 0 ] && has "$out" "PROMOTED $V to prod - latest-win.json" && pass "promote: approved + passing record -> exit 0" || bad "promote success (rc=$rc, out=$out)"
+[ "$rc" = 0 ] && has "$out" "updated the SITE CHECKOUT's latest-win.json to $V" && has "$out" "does NOT change what users are served" && pass "promote: approved + passing record -> exit 0, and it does not claim to move served prod" || bad "promote success (rc=$rc, out=$out)"
 cmp -s "$S/dist/latest-win-staging.json" "$S/dist/latest-win.json" && pass "promote: latest-win.json is the staging pointer byte for byte" || bad "promote: latest-win.json differs from the staging pointer"
 [ "$(sha_of "$S/dist/latest-win-staging.json")" = "$STAGING_BEFORE" ] && pass "promote: the staging pointer itself is unchanged" || bad "promote changed the staging pointer"
 cmp -s "$S/dist/kosmos-win-x64.zip" "$S/dist/kosmos-$V-win-x64.zip" && pass "promote: the alias kosmos-win-x64.zip now holds the promoted $V bytes" || bad "promote: the alias does not hold the promoted bytes"

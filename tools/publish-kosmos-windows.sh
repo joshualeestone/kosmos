@@ -204,6 +204,7 @@ KM_LWP_VERSION="$VERSION" KM_LWP_SHA="$SHA" KM_LWP_ARTIFACT="$ALIAS" KM_LWP_VERS
   || { echo "publish-win: could not write $POINTER_FILE" >&2; exit 1; }
 
 if [ "$CUT_CHANNEL" = prod ]; then
+  echo "publish-win: NOTE users are served the Windows files from R2 (kosmos-dist-win), which this script does not write; tools/windows/publish-r2.ps1 -Promote is what moves served prod (#3725)."
   echo "publish-win: staged into $SITE/dist (NOT deployed):"
   echo "   alias:     $ALIAS ($SHA)"
   echo "   versioned: $VERSIONED"
@@ -215,6 +216,7 @@ else
   echo "   versioned: $VERSIONED ($SHA)"
   echo "   manifest:  $POINTER_FILE -> $(cat "$SITE/dist/$POINTER_FILE")"
   echo "   untouched: $ALIAS, its sidecar and latest-win.json (prod stays on its current build)."
-  echo "publish-win: next: commit these and deploy (tools/deploy-site.sh) so the staged build is served, verify it on the Windows box (which writes its verification record), then, ONLY on Josh's go for this exact build:"
+  echo "publish-win: NOTE users are served the Windows files from R2 (kosmos-dist-win), which this script does not write; tools/windows/publish-r2.ps1 is what stages a served build (tools/windows/RELEASING.md, #3725)."
+  echo "publish-win: next: to serve this build, stage it to R2 with tools/windows/publish-r2.ps1 (committing and deploying the site only updates the site copy), verify it on the Windows box (which writes its verification record), then, ONLY on Josh's go for this exact build:"
   echo "   tools/promote-channel.sh <site> --family win --approved-version <V> --approved-sha <the sha256 he approved> --approval-ref <his message's Slack ts or permalink>"
 fi
