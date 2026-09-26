@@ -103,7 +103,8 @@ let tmux = (args) => {
   let bin;
   try { bin = tmuxBin(); } catch (e) { const x = new Error('Kosmos could not find tmux: ' + (e && e.message)); x.kosmosInternal = true; throw x; }
   if (!live(bin, full)) throw new Error('live execution is off');
-  return execFileSync(bin, full, { encoding: 'utf8', timeout: 5000 });
+  // stderr piped, not inherited (round 21): the speculative kill before a start is not an error line in the board's log.
+  return execFileSync(bin, full, { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] });
 };
 let openFile = (file, done) => {
   if (!live('/usr/bin/open', [file])) { done(new Error('live execution is off')); return; }

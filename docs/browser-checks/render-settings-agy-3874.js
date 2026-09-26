@@ -1,4 +1,4 @@
-// Browser-check-surface: acct-gemini-flow acct-gemini-pick acct-gemini-sub-step acct-keyed-install
+// Browser-check-surface: acct-gemini-flow acct-gemini-pick acct-gemini-sub-step acct-keyed-install acct-gemini-sub-paste-row acct-gemini-sub-paste acct-gemini-sub-paste-go acct-gemini-sub-page
 'use strict';
 /**
  * kosmos#3874: Settings, AI Models, Add a provider offers Gemini on a Google subscription, as the

@@ -145,3 +145,7 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 - The trust answer is pressed only on the measured label "Yes, I trust this folder"; a broader Yes falls through to stuck.
 - onReady is called through a caught promise.
 - Kept: the trailing return in the signin route. Every sub-address returns above it, so it is unreachable today, but it keeps a future fall-through from reaching the routes below (fail closed).
+
+## Review round 21 (decided)
+- render-settings-agy-3874's surface annotation names the new paste and page ids the check asserts on, so a later edit to them must touch this check (the #2518 precision gate). Not added: acct-success-box, shared by five provider checks and annotated by none; claiming it here would force unrelated cards through this check.
+- tmux's stderr is piped, not inherited, so the speculative kill before each start is no longer a raw error line in the board's log.
