@@ -23,7 +23,7 @@ test.after(() => { try { BOARD.restore(); } catch { /* restored */ } fs.rmSync(S
 
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
-const FNS = page.liftAll(SCRIPT, ['pjById', 'ntChoices', 'openNewTask', 'ntAimAt', 'leaveNewTask']);
+const FNS = page.liftAll(SCRIPT, ['pjById', 'ntChoices', 'openNewTask', 'ntAimAt', 'ntFillParents', 'leaveNewTask']);
 
 function world(projects, { current = null, readFailed = false } = {}) {
   const els = {};
@@ -37,7 +37,7 @@ function world(projects, { current = null, readFailed = false } = {}) {
   const document = { getElementById: (id) => els[id] || null, querySelector: (q) => (q === '#nt-modal [role="dialog"]' ? box : null) };
   const esc = (s) => String(s);
   const api = new Function('document', 'PROJECTS', 'PJ_CURRENT', 'PJ_READ_FAILED', 'esc',
-    'let NT_FOR = null; let NT_ORIGIN = "project"; let NT_PROJECT = null;\n' + FNS
+    'let NT_FOR = null; let NT_ORIGIN = "project"; let NT_PROJECT = null; let NT_PARENT = null;\n' + FNS
     + '\nreturn { openNewTask, leaveNewTask, ntChoices, get NT_PROJECT() { return NT_PROJECT; }, get NT_ORIGIN() { return NT_ORIGIN; }, set NT_FOR(v) { NT_FOR = v; } };')(
     document, projects, current, readFailed, esc);
   return { api, els, focusLog };

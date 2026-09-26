@@ -2294,6 +2294,53 @@ test('#3679: a room post whose raw text is huge is refused before the store walk
   });
 });
 
+test('#3311: in a shared project every envelope says the room is shared outside this computer; in a local one none does', () => {
+  withFleet(room3(), (board) => {
+    let tmux = arm([]);
+    messages.sendPost({ operator: true, project: 'henderson-lease', text: '@leo status?', federated: true }, board.agents, MEMBERS);
+    const shared = tmux.pastedSends().filter((s) => s.text.startsWith('['));
+    assert.ok(shared.length > 0, 'fixture: envelopes were typed');
+    assert.ok(shared.every((s) => /shared outside this computer, what you post here leaves it/.test(s.text)), JSON.stringify(shared.map((s) => s.text.slice(0, 160))));
+    tmux = arm([]);
+    armSender('leo-discord');
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@mara look', federated: true }, board.agents, MEMBERS);
+    const colleague = tmux.pastedSends().filter((s) => s.text.startsWith('['));
+    assert.ok(colleague.length > 0 && colleague.every((s) => /shared outside this computer/.test(s.text)), 'a colleague post in a shared room was not marked');
+    tmux = arm([]);
+    messages.sendPost({ operator: true, project: 'henderson-lease', text: '@leo status?' }, board.agents, MEMBERS);
+    assert.ok(tmux.pastedSends().every((s) => !/shared outside this computer/.test(s.text)), 'a local room was marked shared');
+  });
+});
+
+test('#3311 + #3745: a reply in a shared room keeps the shared marker in all four envelope arms', () => {
+  withFleet(room3(), (board) => {
+    arm([]);
+    const first = messages.sendPost({ operator: true, project: 'henderson-lease', text: 'The renewal is on the first', federated: true }, board.agents, MEMBERS);
+    assert.ok(first && first.id, 'fixture: the answered post landed');
+    const check = (sent, label) => {
+      const env = sent.filter((m) => m.startsWith('['));
+      assert.ok(env.length > 0, label + ': fixture: envelopes were typed');
+      for (const m of env) {
+        const head = m.slice(0, m.indexOf('] ') + 1);
+        assert.match(head, new RegExp(' \u00b7 answers ' + first.id + ' '), label + ': the reply does not say what it answers: ' + head);
+        assert.match(head, /shared outside this computer, what you post here leaves it/, label + ': a reply in a shared room lost the shared marker: ' + head);
+      }
+      return env;
+    };
+    // The operator, addressing leo: leo gets "message from your operator", the rest "for the whole room".
+    let tmux = arm([]);
+    messages.sendPost({ operator: true, project: 'henderson-lease', text: '@leo keep it', replyTo: first.id, federated: true }, board.agents, MEMBERS);
+    const op = check(tmux.pastedMessages(), 'operator');
+    assert.ok(op.some((m) => m.startsWith('[message from your operator')) && op.some((m) => m.startsWith('[from your operator in project')), 'fixture: both operator arms were typed');
+    // A colleague, addressing leo: leo gets "message from your colleague", the rest "background".
+    armSender('mara-discord');
+    tmux = arm([]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@leo agreed', replyTo: first.id, federated: true }, board.agents, MEMBERS);
+    const col = check(tmux.pastedMessages(), 'colleague');
+    assert.ok(col.some((m) => m.startsWith('[message from your colleague')) && col.some((m) => m.startsWith('[background from your colleague')), 'fixture: both colleague arms were typed');
+  });
+});
+
 /* ── replying to a room post (#3745) ─────────────────────────────────────── */
 
 /* Kosmos's part (the id, who wrote it, when) is inside the envelope's bracket; the answered words come

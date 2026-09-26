@@ -389,6 +389,24 @@ function ensure(port) {
   }
 }
 
+/* #3311: this Mac's seat in one federated project's room (`kosmos-tunnel
+   fed-room`). stdin and stdout are the interface (lines of JSON; see
+   engine/fedseats.js); stderr joins the board's log like the tunnel's own. The
+   same binary, relay, state dir and coordinator as the drive tunnel. */
+function spawnFedSeat(edgeId) {
+  const args = [
+    'fed-room',
+    '--relay', RELAY(),
+    '--state-dir', STATE_DIR(),
+    '--coordinator', COORDINATOR(),
+    '--edge', String(edgeId),
+  ];
+  if (process.env.AGENT_WORKFORCE_TUNNEL_CA) {
+    args.push('--tunnel-ca', process.env.AGENT_WORKFORCE_TUNNEL_CA);
+  }
+  return spawn(BIN(), args, { stdio: ['pipe', 'pipe', 'inherit'] });
+}
+
 function startChild() {
   const args = [
     'run',
@@ -407,7 +425,23 @@ function startChild() {
   try {
     /* stdout is dropped (the status file is the interface); stderr joins the
        board's log, which launchd keeps, so a refused ticket is findable. */
-    spawned = spawn(BIN(), args, { stdio: ['ignore', 'ignore', 'inherit'] });
+    /* #3838: the tunnel presents the board's own token on requests from devices this
+       Mac has Allowed; since #1946 the board answers nothing without it, and a remote
+       browser saw "This board is not signed in". The PATH goes by environment, never
+       the value and never argv: it is the SAME file the board reads its token from
+       (the primary leaf is mode 600; a legacy-leaf copy has no mode guarantee, but
+       the board already trusts it, so the tunnel adds no new trust), and an
+       older bundled tunnel ignores an unknown variable where it would refuse an
+       unknown flag and never connect. */
+    let tokenFile = '';
+    try { tokenFile = require('./boardauth').enforcedTokenPath(); } catch (err) {
+      // Not "the tunnel could not start": it can, it just shows a board that is not signed in.
+      process.stderr.write('remote: could not find the board token file: ' + (err && err.message) + '\n');
+    }
+    const env = { ...process.env };
+    delete env.KOSMOS_BOARD_TOKEN_FILE;   // never a stale one inherited from the launcher
+    if (tokenFile) env.KOSMOS_BOARD_TOKEN_FILE = tokenFile;
+    spawned = spawn(BIN(), args, { stdio: ['ignore', 'ignore', 'inherit'], env });
   } catch (err) {
     restartBecause = 'the tunnel program could not be started: ' + (err && err.message);
     process.stderr.write('remote: ' + restartBecause + '\n');
@@ -607,8 +641,9 @@ async function macRequest(method, routePath, body) {
   const timeout = Number(process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS) || MAC_REQUEST_TIMEOUT_MS;
   const r = await setupRun(args, method === 'GET' ? null : JSON.stringify(body || {}), timeout);
   if (!r.ok) return { ok: false, because: r.because };
-  try { return { ok: true, data: JSON.parse(r.said) }; }
-  catch { return { ok: false, because: 'the tunnel program answered in a shape we could not read' }; }
+  const got = lastJsonLine(r.said);
+  if (got) return { ok: true, data: got.value };
+  return { ok: false, because: 'the tunnel program answered in a shape we could not read' };
 }
 
 /* A model answer, not a single signed round trip: capped output, but a slow provider.
@@ -659,8 +694,9 @@ async function assistantChat(body) {
     }
     return r.timedOut ? { ok: false, timedOut: true, because } : { ok: false, because };
   }
-  let said;
-  try { said = JSON.parse(r.said); } catch { return { ok: false, because: 'the tunnel program answered in a shape we could not read' }; }
+  const got = lastJsonLine(r.said);
+  if (!got) return { ok: false, because: 'the tunnel program answered in a shape we could not read' };
+  const said = got.value;
   if (!said || typeof said !== 'object' || !Number.isInteger(said.status) || !said.body || typeof said.body !== 'object') {
     return { ok: false, because: 'the tunnel program answered in a shape we could not read' };
   }
@@ -871,19 +907,32 @@ function pendingDevices() {
     }));
   return { devices, snapshot: raw !== null, email: settings.email || '' };
 }
-/** The binary answers JSON on stdout for every devices verb; a non-JSON
-    answer is reported as such rather than guessed at. */
-function parseSaid(result) {
-  if (!result.ok) return result;
-  // The answer is the program's last JSON line. A fresh register prints its
-  // certificate line first ("certificate for ... written to ..."), so the whole
-  // of stdout is not JSON; reading all of it made every first sign-in read as a
-  // failure while the Mac was in fact registered (#3827).
-  const lines = String(result.said || '').split('\n').map((l) => l.trim()).filter(Boolean);
+/* The tunnel's answer is its last line of stdout that starts with "{", one line
+   of JSON. Other lines
+   can come before it: a fresh register prints its certificate line first
+   ("certificate for ... written to ...", kosmos-relay setup.rs fetch_certificate),
+   and most verbs log to stdout (tracing's default writer). Parsing all of stdout
+   made every first sign-in read as a failure while the Mac was registered, and
+   Kosmos+ was never switched on (#3827). Only the last line starting with "{" is
+   read: if it does not parse, the answer is unreadable, never an older object.
+   ⚠️ This relies on the tunnel never logging a JSON-shaped line to stdout: its
+   tracing uses the default human-readable format (kosmos-relay main.rs,
+   tracing_subscriber::fmt()). A JSON log formatter there would be read here as
+   the answer. Used by parseSaid, macRequest and assistantChat. */
+function lastJsonLine(said) {
+  const lines = String(said || '').split('\n').map((l) => l.trim()).filter(Boolean);
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!lines[i].startsWith('{')) continue;
-    try { return { ok: true, because: null, data: JSON.parse(lines[i]) }; } catch { break; }
+    try { return { value: JSON.parse(lines[i]) }; } catch { return null; }
   }
+  return null;
+}
+/** The binary answers JSON for every devices and signin verb; a non-JSON answer
+    is reported as such rather than guessed at. */
+function parseSaid(result) {
+  if (!result.ok) return result;
+  const got = lastJsonLine(result.said);
+  if (got) return { ok: true, because: null, data: got.value };
   return { ok: false, because: 'the tunnel program answered in a shape we could not read' };
 }
 function deviceArgs(verb, id, withCoordinator) {
@@ -1502,7 +1551,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,
@@ -1513,6 +1562,7 @@ module.exports = { secondReset, forget, macRequest, assistantChat, hostedAvailab
   setOn,
   setRelay,
   enrolled,
+  spawnFedSeat,
   address,
   ensure,
   status,

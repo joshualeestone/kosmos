@@ -807,6 +807,12 @@ const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
 const projects = require('./engine/projects');
 const { accountProblemOf } = require('./engine/accountproblem'); // #3723
+const federation = require('./engine/federation');
+/* #3311: one room seat per federated project. What arrives is recorded in the
+   room as an external row (data, never typed into a pane); a post that lands in
+   a federated room is sent out through its seat (federateOut below). */
+const fedseats = require('./engine/fedseats');
+const { externalName } = require('./engine/externalname');
 const tasks = require('./engine/tasks');
 const chat = require('./engine/chat');
 const messages = require('./engine/messages');
@@ -2584,7 +2590,7 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
       return { state: 'could_not', because: 'that message (' + citedId + ') belongs to a different room than the one you posted into. Answer it in the room it came from (shown in the message you are replying to), or post here without answering it.' };
     }
   }
-  return messages.sendPost({
+  const delivery = messages.sendPost({
     fromPane,
     sender,
     project: found.id,
@@ -2593,6 +2599,8 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
     projectName: found.name,
     text,
     replyExpected,
+    // #3311: the colleagues it reaches are told the room is shared outside this computer.
+    federated: (() => { try { return !!federation.linkFor(found.id); } catch (err) { fedseats.logUnreadable(err); return false; } })(),
     /* #3224, the proactive half: only a post that is not a reply is asked which room
        it meant (a reply is already bound above). The caller decides whether to ask at
        all: the live route does, the outbox drain does not. */
@@ -2613,6 +2621,8 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
     // #3745: kept on the post, so the room shows what it answers. The engine re-checks it is a post in this room.
     replyTo: citedId && /^m\d+$/.test(citedId) ? citedId : null,
   }, roster, members);
+  federateOut(found.id, delivery, false);
+  return delivery;
 }
 
 /* Is this name an agent in the Kosmos this board serves? A profile in this
@@ -3042,6 +3052,10 @@ function withPreviews(rows) {
     // #3723: Kosmos's account line quotes text read off an agent's screen, so the board does not go
     // and fetch whatever address that text contains.
     if (r.kind === 'kosmos') continue;
+    // #3311: nor for words from OUTSIDE this Kosmos. Fetching a link a peer planted
+    // would tell them this Mac's address and when the room was read; the external
+    // row never draws a preview anyway.
+    if (r.kind === 'external') continue;
     const link = unfurl.firstLink(r.text);
     if (!link) continue;
     const hit = unfurl.peek(link);
@@ -7120,7 +7134,8 @@ const server = http.createServer((req, res) => {
      card only when Plus is on and enrolled, which the engine already
      encodes as an empty list. */
   if (pathname === '/api/remote/pending' && (req.method === 'GET' || req.method === 'HEAD')) {
-    try { sendJson(res, 200, remote.pendingDevices()); }
+    // #3829 follow-up: the card names this Mac's own sign-in the same way the list does.
+    try { sendJson(res, 200, Object.assign({}, remote.pendingDevices(), { self_device_id: typeof remote.read().device_id === 'string' ? remote.read().device_id : '' })); }
     catch { sendJson(res, 500, { error: 'we could not read what is waiting' }); }
     return;
   }
@@ -7129,7 +7144,10 @@ const server = http.createServer((req, res) => {
       .then((list) => {
         if (!list.ok) { sendJson(res, 500, { error: list.because }); return; }
         const pending = remote.pendingDevices();
-        sendJson(res, 200, { pending: pending.devices, allowed: list.data.devices, email: pending.email, on: remote.read().on === true });
+        /* #3829 follow-up (ICK's finding): this Mac's own in-app sign-in is a row too, and it sends no name.
+           Its id (an opaque label kept in remote.json, not a credential) lets the page call it "This Mac". */
+        const self = typeof remote.read().device_id === 'string' ? remote.read().device_id : '';
+        sendJson(res, 200, { pending: pending.devices, allowed: list.data.devices, email: pending.email, on: remote.read().on === true, self_device_id: self });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the devices' }));
     return;
@@ -13708,6 +13726,47 @@ const server = http.createServer((req, res) => {
           // a 400 like any other bad field rather than a silent ungroup.
           parent: body.parent,
           made: { via: viaScreen ? 'screen' : 'process', by: paneCard ? paneCard.sessionName : null } });
+        /* #3311: an owner who minted invites on the create screen sends the
+           project_ref they were minted with, so this board can find the project's
+           room later (the coordinator derives it from owner + ref). Without that
+           record the invites point at a room this board will never sit in, so a
+           failed record takes the project back out and says so, the same as join. It
+           runs BEFORE any member is told, so taking it back leaves nobody told of a
+           project that does not exist. */
+        let federationLinked;
+        // One decision for both blocks below: a ref only from the screen, and
+        // within bounds. Anything else is no ref at all.
+        const fedRef = (viaScreen && federation.refOk(body.federation_ref)) ? body.federation_ref : null;
+        // A new project starts with no link, whatever an earlier project of the
+        // same id left behind. A link that is there but cannot be removed stops
+        // the project being made. A record that cannot be read at all does not:
+        // every reader of it (federateOut, the seats) then finds no link, so
+        // nothing is federated, and a damaged file must not block making projects.
+        if (!fedRef) {
+          let stale = false;
+          let found = null;
+          try { found = federation.linkFor(made.id); } catch { found = null; }
+          if (found) {
+            try { fedseats.stop(made.id); } catch { /* the next check stops it */ }
+            try { federation.forgetLink(made.id); } catch { stale = true; }
+          }
+          if (stale) {
+            try { projects.remove(made.id); } catch { /* reported below either way */ }
+            sendJson(res, 500, { error: 'We could not make this project cleanly on this computer. Try again.' });
+            return;
+          }
+        }
+        // Only the page sends federation_ref (the create screen that minted the
+        // invites); a process caller's is ignored.
+        if (fedRef) {
+          try { federation.recordLink(made.id, { role: 'owner', ref: fedRef }); federationLinked = true; }
+          catch (err) {
+            try { projects.remove(made.id); } catch { /* reported below either way */ }
+            sendJson(res, 500, { error: 'We could not record this shared project on this computer, so it was not made. Try again. ('
+              + String((err && err.message) || 'unknown') + ')' });
+            return;
+          }
+        }
         // ⚠️ Told AFTER the record is written, never before. If announcing it
         // failed first, a membership the person asked for would not exist at
         // all -- and the whole point of the three-valued verdict is that a
@@ -13747,9 +13806,11 @@ const server = http.createServer((req, res) => {
             messages.roomNote(made.id, projects.BRIEF_PENDING_NOTE);
           }
         } catch { /* the note is furniture; the project exists regardless */ }
+        // The owner's seat waits for a first edge (someone has joined); try now.
+        if (federationLinked) fedseats.ensure(made.id).catch(() => {});
         let project = null;
         try { project = projects.get(made.id, roster); } catch { project = null; }
-        sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null });
+        sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null, federationLinked });
       })
       .catch((err) => sendJson(res, (err && err.code === 'UNREADABLE') ? 500 : 400,
         { error: String((err && err.message) || 'we could not read that request') }));
@@ -13877,6 +13938,11 @@ const server = http.createServer((req, res) => {
     let gone;
     try {
       gone = projects.remove(id);
+      /* #3311: its seat and its link go with it NOW. Project ids are name slugs
+         and a freed one is reused, so a later local project of the same name
+         would otherwise inherit a room outside this Mac. */
+      try { fedseats.stop(id); } catch { /* best-effort */ }
+      try { federation.forgetLink(id); } catch { /* create clears it too */ }
     } catch (err) {
       // #1994: honour an explicit status (remove now throws a 409 when the
       // project still has sub-projects -- it exists, so a 404 would be wrong).
@@ -14055,10 +14121,14 @@ const server = http.createServer((req, res) => {
            without these every agent blocked after the first vanishes silently
            and reads as unresponsive. The refusal contract already records
            who and why, once per sender-reason-window; the room just shows it. */
-        .filter((m) => m && ((m.kind === 'post' || m.kind === 'valve' || m.kind === 'note') ? m.project === id
+        .filter((m) => m && ((m.kind === 'post' || m.kind === 'valve' || m.kind === 'note' || m.kind === 'external') ? m.project === id
           : (m.kind === 'refused' && m.project === id)))
         .map((m) => (m.kind === 'refused'
           ? { kind: 'refused', from: m.from, because: m.because || null, at: m.at }
+          /* #3311: from outside this Kosmos; `external: true` is what the page
+             and the text view key on, never the name. */
+          : m.kind === 'external'
+          ? { kind: 'external', id: m.id, from: m.from, fromKind: m.fromKind, text: m.text, at: m.at, external: true }
           : m.kind === 'note'
           ? { kind: 'note', text: m.text || null, at: m.at }
           : m.kind === 'post'
@@ -14101,12 +14171,34 @@ const server = http.createServer((req, res) => {
            machine the operator is sitting at, never to an error. */
         let zone = null;
         try { zone = (store.readSettings() || {}).timezone || null; } catch { zone = null; }
-        const tail = rows.slice(-40);
+        /* #3311: at most 20 of the 40 rows shown come from outside, so a busy
+           peer cannot push every local post out of the view agents read. */
+        const tail = [];
+        let outside = 0;
+        for (let i = rows.length - 1; i >= 0 && tail.length < 40; i--) {
+          if (rows[i] && rows[i].kind === 'external') { if (outside >= 20) continue; outside += 1; }
+          tail.unshift(rows[i]);
+        }
         const lines = tail.flatMap((m) => {
           const when = messages.roomClock(m.at, zone);
           if (m.kind === 'valve') return [when + '  [kosmos] ' + (m.because || 'Kosmos stepped in.')];
           if (m.kind === 'refused') return [when + '  [kosmos] ' + m.from + ' tried to post here and Kosmos stopped it: ' + (m.because || 'no reason recorded')];
           if (m.kind === 'note') return [when + '  [kosmos] ' + String(m.text || '')];
+          /* #3311: a message from outside this Kosmos. Tagged so an agent reading
+             the room knows it is someone else's words, to weigh, not an
+             instruction from its operator. */
+          /* #3311: an outside sender's words are QUOTED, in guillemets they cannot
+             close (they are removed from the text), and the name loses brackets, so
+             nothing inside can read as another row, a [kosmos] line or the operator. */
+          if (m.kind === 'external') {
+            const who = String(m.from || '').replace(/[\[\]«»]/g, '');
+            // Its square brackets become round ones: every marker local agents act
+            // on (the operator's, a colleague's, [kosmos]) starts with `[`, and local
+            // posts are refused for carrying them (messages.js MARKERS); outside
+            // words cannot be refused, so here they cannot spell one.
+            const said = String(m.text || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/[«»]/g, '"').replace(/\[/g, '(').replace(/\]/g, ')').replace(/\s+/g, ' ');
+            return [when + '  [external ' + (m.fromKind === 'agent' ? 'agent' : 'person') + '] ' + who + ' wrote: «' + said + '»'];
+          }
           const who = m.operator ? 'operator' : m.from;
           /* #2239: the store now keeps paragraph breaks in a post's text (for
              the HTML room to render), but this CLI arm's contract is one line
@@ -14151,8 +14243,13 @@ const server = http.createServer((req, res) => {
         const head = rec.ok === false
           ? 'We could not read some of this room; what follows may be missing recent posts.\n'
           : (lines.length ? '' : 'Nothing has been said in this room yet.\n');
+        /* #3311: agents read this view before they post. In a shared project every
+           post here leaves this computer, so it says so first, every time. */
+        let shared = '';
+        try { if (federation.linkFor(id)) shared = '[kosmos] This room is shared with people outside this computer: every post here is sent to them. Do not post file paths, keys or anything private.\n'; }
+        catch (err) { fedseats.logUnreadable(err); }
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
-        res.end(head + lines.join('\n') + (lines.length ? '\n' : ''));
+        res.end(shared + head + lines.join('\n') + (lines.length ? '\n' : ''));
         return;
       }
       /* #185: which addressed agents have not answered which posts, from
@@ -14202,6 +14299,8 @@ const server = http.createServer((req, res) => {
         const files = attachments.resolveForMessage(body, 'project', found.id, 'that attachment is not one this project can send');
         if (!files.ok) { sendJson(res, 400, { error: files.because }); return; }
         const fields = attachments.rowFields(files.recs);
+        let federated = false;
+        try { federated = !!federation.linkFor(found.id); } catch (err) { federated = false; fedseats.logUnreadable(err); }
         /* #3745: a reply names the post it answers. It must be a post in THIS room; the answering
            post is refused otherwise (never posted pointing at another room, or at nothing). */
         let replyTo = null;
@@ -14220,10 +14319,11 @@ const server = http.createServer((req, res) => {
           replyTo = body.reply_to;
         }
         const delivery = messages.sendPost({
-          operator: true, project: found.id, projectName: found.name, text: body.text,
+          operator: true, project: found.id, projectName: found.name, text: body.text, federated,
           attachment: fields.attachment || null, attachments: fields.attachments || null, trailer: attachments.wireNote(files.recs),
           replyTo,
         }, roster, members);
+        federateOut(found.id, delivery, true);
         sendJson(res, 200, { delivery });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
@@ -14422,6 +14522,72 @@ const server = http.createServer((req, res) => {
    * the shaping and the one retry; the tunnel signs (no crypto on the board). While
    * a guide agent answers on their own model, the bubble talks to that instead.
    */
+  /* #3311: the Add Project screen's federation calls (#3312). invite and verify go
+     to the coordinator signed by this Mac (engine/federation.js; the board holds
+     no account session, #874). join is local: it makes the joined project from
+     the snapshot the coordinator returned on verify, never from the page's
+     words, and records which connection it belongs to. */
+  if ((pathname === '/api/federation/invite' || pathname === '/api/federation/verify') && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* A local process can reach the coordinator's federation routes through
+           this Mac's signature (kosmos-relay attack-surface.md, #3311), so the
+           board acts on them only for a person at its screen, the #3595 line.
+           ADVISORY: a process can present the browser header; this stops the
+           default path an agent would take. */
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can invite or join an external project.' }); return; }
+        const out = pathname === '/api/federation/invite'
+          ? await federation.invite(remote, body)
+          : await federation.verify(remote, body);
+        sendJson(res, out.status, out.body);
+      })
+      .catch((err) => sendJson(res, 400, { error: (err && err.message) || 'we could not read that request' }));
+    return;
+  }
+  if (pathname === '/api/federation/join' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can invite or join an external project.' }); return; }
+        const snap = federation.joinSnapshot(body.edge_id);
+        if (!snap) { sendJson(res, 409, { error: 'Verify the code again before joining. Each code works once, so if it says it was already used, ask for a new one.' }); return; }
+        const roster = safeRoster();
+        const agents = Array.isArray(body.agents) ? body.agents.filter((a) => typeof a === 'string') : [];
+        // The owner's words stay theirs: the name is only a starting point for a
+        // local name that can actually be made here, and the description is never
+        // written into this computer's brief as if the person here wrote it.
+        const made = projects.create({ name: joinedProjectName(snap.project_name), agents, roster,
+          made: { via: 'screen', by: null } });
+        // Without its link the project is an ordinary local one that says nothing
+        // of where it came from; take it back out rather than leave that behind.
+        try {
+          federation.recordLink(made.id, { role: 'member', edge_id: snap.edge_id, owner_handle: snap.owner_handle,
+            project_name: snap.project_name, project_desc: snap.project_desc });
+        } catch (err) {
+          try { projects.remove(made.id); } catch { /* reported below either way */ }
+          throw err;
+        }
+        federation.forgetSnapshot(snap.edge_id);
+        fedseats.ensure(made.id).catch(() => {});
+        // The receiver's own agents, told the same way the create route tells them.
+        for (const a of made.agents || []) {
+          try { projects.syncAgent(a, roster); projects.speakOfMembership(a, made, 'joined', roster); }
+          catch { /* membership is recorded; telling the agent is best-effort here */ }
+        }
+        let project = null;
+        try { project = projects.get(made.id, roster); } catch { project = null; }
+        sendJson(res, 200, { project, id: made.id });
+      })
+      .catch((err) => sendJson(res, (err && err.code === 'UNREADABLE') ? 500 : 400,
+        { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
   if (pathname === '/api/setup-guide/hosted' && req.method === 'POST') {
     /* The same test the bubble is shown by, so the route cannot be used past it (a model connected, a checkout). */
     const offer = setupAssistant.hostedWhy({ failing: setupGuideFailing });
@@ -14611,6 +14777,7 @@ const server = http.createServer((req, res) => {
         }
         try {
           const made = tasks.create(id, { sentence: body.sentence, detail: body.detail, who: body.who,
+            parent: body.parent,
             made: { via: viaScreen ? 'screen' : 'process', by: paneCard ? paneCard.sessionName : null } }, roster);
           // The assignee's managed block now lists this task in the exact
           // spelling the join matches on, so the agent is TOLD, not merely
@@ -14744,6 +14911,36 @@ const server = http.createServer((req, res) => {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
           { error: msg || 'we could not set that due date' });
+      }
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #3861: put a task under another task on the same project, or out from under one.
+     Body { parent: <task number> | null }. tasks.setParent refuses a parent that is not a task
+     here, the task itself, or one already under it (a loop), inside the write, as a 400; the
+     answer is never a 200 that stored nothing. A process may do this (agents make subtasks).
+     This route has no rate valve, like the /due route beside it: it pages no pane and gives
+     the task to nobody, and a same-value write records nothing. */
+  const taskParent = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/parent$/);
+  if (taskParent && req.method === 'POST') {
+    const id = decodeSegment(taskParent[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || !('parent' in body)) {
+        sendJson(res, 400, { error: 'say which task this is part of, or null for none' });
+        return;
+      }
+      try {
+        const t = tasks.setParent(id, taskParent[2], body.parent);
+        sendJson(res, 200, { task: t });
+      } catch (err) {
+        const msg = String((err && err.message) || '');
+        const code = (err && err.code === 'UNREADABLE') ? 500
+          : (/no project by that name|there is no task by that number/.test(msg) ? 404 : 400);
+        sendJson(res, code, { error: msg || 'we could not change what that task is part of' });
       }
     }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
@@ -15678,6 +15875,105 @@ const server = http.createServer((req, res) => {
  * Binds and resolves once listening. Port 0 asks the OS for a free one, which
  * is how the tests get a port without colliding with a board someone is using.
  */
+fedseats.configure({
+  spawnSeat: (edge) => remote.spawnFedSeat(edge),
+  macRequest: (method, route, body) => remote.macRequest(method, route, body),
+  recordExternal: (projectId, msg) => messages.externalPost(projectId, msg),
+  enrolled: () => remote.enrolled(),
+  projectExists: (projectId) => { try { return !!projects.get(projectId, []); } catch { return true; } },
+  note: (projectId, text) => messages.roomNote(projectId, text),
+});
+
+/* #3311: a local name for a project joined from outside. The owner's name can
+   clash with a project already here, break this computer's folder rules, or
+   match a folder that already exists, and any of those would fail every join
+   while the code stays used. So: the owner's name if it fits, else the same with
+   "(shared)", then "(shared 2)" and on. */
+/* The owner's project name comes from ANOTHER account, and becomes this project's
+   name here: typed into local agents' panes ("Kosmos put you on the project
+   "<name>".") and written into their instructions. So it is cleaned as every
+   outside name is (externalname: format characters, controls, lookalike forms),
+   and loses every quote-like character and backslash, so it can never close the
+   quotes it is shown in and go on as Kosmos's own words. */
+const JOIN_NAME_QUOTES = /[\[\]"'`\\\u00ab\u00bb\u2018-\u201f\u2039\u203a\u300c-\u300f\uff02\uff07]/g;
+function joinedProjectName(ownerName) {
+  // Cleaned FIRST (NFKC folds fullwidth backticks and backslashes into real
+  // ones), then the quotes go, then the length (by code point, so no lone
+  // surrogate is left in a name or folder).
+  const base = Array.from(externalName(String(ownerName || ''), 200).replace(JOIN_NAME_QUOTES, ' ').replace(/\s+/g, ' ').trim()).slice(0, 48).join('').trim();
+  let taken;
+  try { taken = new Set(projects.readAll().map((p) => String(p.name || '').toLowerCase())); } catch { taken = new Set(); }
+  const free = (n) => !projects.folderNameProblem(n) && !taken.has(n.toLowerCase())
+    && !fs.existsSync(projects.folderPathFor(n));
+  for (const b of [base, 'Shared project']) {
+    if (!b || projects.folderNameProblem(b)) continue;
+    for (let i = 0; i < 50; i++) {
+      const n = i === 0 ? b : (i === 1 ? b + ' (shared)' : b + ' (shared ' + i + ')');
+      if (free(n)) return n;
+    }
+  }
+  return 'Shared project ' + Date.now();
+}
+
+/* #3311: send a post that landed in a federated project's room out through its
+   seat. Only the words and who said them leave this Mac; a post that did not
+   land (no id) is never sent, and what is sent is the text the room STORED, so
+   both rooms show the same message. The operator speaks as a person under their
+   own name; an agent as an agent under the name its project shows (never the
+   internal session name). Attachments stay on this computer: a post that is
+   only an attachment says so in the room. A room with no live seat keeps the
+   post local, and the seat manager says so in the room with a Kosmos note. */
+function federateOut(projectId, delivery, operator) {
+  if (!delivery || !delivery.id) return;
+  let link = null;
+  try { link = federation.linkFor(projectId); } catch (err) {
+    fedseats.logUnreadable(err);
+    // The record cannot say whether this room is shared, but a seat running for
+    // it can: that room is, and its post must not stay here without a word.
+    if (fedseats.statusOf(projectId)) {
+      messages.roomNote(projectId, 'That post stayed on this computer: the shared-project record cannot be read right now, so nothing is sent to the external project until it can.');
+    }
+    return;
+  }
+  if (!link) return;
+  const text = typeof delivery.text === 'string' ? delivery.text : '';
+  if (!text.trim()) {
+    messages.roomNote(projectId, 'That post stayed on this computer: attachments are not sent to the external project, only words.');
+    return;
+  }
+  let from;
+  if (operator) {
+    // you.read() answers { state, you: { name, ... } }; the name is one level in.
+    // Without a saved name, the fallback says which side this is: only the
+    // owner's board may call its person the project owner.
+    const fallback = link.role === 'owner' ? 'the project owner' : 'someone who joined';
+    try { const r = you.read(); from = (r && r.you && r.you.name) || fallback; } catch { from = fallback; }
+  } else {
+    from = 'an agent';
+    try {
+      const p = projects.get(projectId, safeRoster());
+      const m = p && (p.agents || []).find((a) => a && a.sessionName === delivery.from);
+      // Only a REAL name read off the agent's own card. A card can be present
+      // and still carry the machine name (no identity line, an untied pane), and
+      // the session name is internal and never leaves.
+      if (m && m.name && m.present && m.nameDerived && m.name !== m.sessionName) from = m.name;
+    } catch { /* keeps 'an agent': the session name is internal and never leaves */ }
+  }
+  let sent = false;
+  try { sent = fedseats.post(projectId, { from, kind: operator ? 'person' : 'agent', text }) === true; } catch { /* a seat is best-effort */ }
+  // Files never leave this computer. When the words went and a file did not, say
+  // so here, or "see the attached plan" arrives with nothing attached and nobody
+  // on this side knows.
+  if (sent) {
+    let hadFiles = false;
+    try {
+      const row = messages.record().rows.find((m) => m && m.id === delivery.id);
+      hadFiles = !!(row && (row.attachment || (Array.isArray(row.attachments) && row.attachments.length)));
+    } catch { hadFiles = false; }
+    if (hadFiles) messages.roomNote(projectId, 'The words went to the external project; the attached file stayed on this computer.');
+  }
+}
+
 function start(port = PORT) {
   /* #1704 slice 2b: the active world's data-root env is applied at the TOP of this
      file (engine/worldenv.js), before any engine module is required -- NOT here.
@@ -16144,6 +16440,12 @@ function start(port = PORT) {
       // setting is on at boot, running the tick inline would block the listen
       // callback on a snapshot() capture fan-out. unref'd so it never holds the
       // process open.
+      // #3311: take this Mac's seat in every federated project's room, and look
+      // again each minute: an owner's seat can only start once someone has
+      // joined, and nothing tells this board when that happens.
+      Promise.resolve().then(() => fedseats.ensureAll()).catch(() => {});
+      const fedTick = setInterval(() => { fedseats.ensureAll().catch(() => {}); }, 60000);
+      if (fedTick && typeof fedTick.unref === 'function') fedTick.unref();
       const heartbeatFirst = setTimeout(heartbeatTick, 0);
       if (heartbeatFirst && typeof heartbeatFirst.unref === 'function') heartbeatFirst.unref();
       resolve(server);
@@ -16532,6 +16834,7 @@ module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
+  federateOut, // #3311: what leaves this computer for a federated room, exported so the agent arm is tested
   swarmSweepDeps, // #3564: the limit sweep's wiring, exported so it is tested
   markGuide, // #3739: the guide row's mark and title, for its tests
   guideCardFailing, resetGuideCardMemoForTests, // #3660: the fallback's reading of the guide card, for its tests

@@ -111,3 +111,11 @@ Weakest premise: Forget can now take up to the register bound (60s) when a regis
 - WARNING: Forget's answer (and the kept/stranded reasons) used setupRun's last stderr line, so a gateway 502 read "(</html>)". retireReason picks the tunnel's "Kosmos+ ..." line, drops "Error: " and any raw body after ": <". Test; control shows "(</html>)".
 - WARNING: a cancel switched off a Mac whose register then failed and changed nothing (enrolled() could not tell a new identity from the old). cancelledAfter now switches off only when the register succeeded or the mac_id changed. Test (on, register a new name that fails slowly, cancel: still on); control fails by name.
 - NIT: Forget stops the tunnel at once, not after its wait. NIT: the register answer carries switchedOn (false when the person turned off during it), so the page need not say "connecting" about a switch that is off.
+
+## Merged origin/main (after round 14)
+Main gained the split-out parseSaid fix (PR #3893: lastJsonLine, used by parseSaid, macRequest and assistantChat), #3838 (the board token file for the tunnel), and fed-msg (#3887). Resolved:
+- engine/remote.js takes main's lastJsonLine/parseSaid; this branch's own parseSaid copy is gone.
+- engine/remote.test.js is this branch's file plus main's additions: the kept-shape and mac-request fake branches, the run-env recording block, main's four parseSaid tests and four #3838 tests.
+- A line-level check found every line main added since the merge base present in both files. The only exception is a two-line comment this branch words differently at the same spot.
+- 85/85 remote tests pass.
+- Slip, recorded: my first resolution concatenated both sides of shared-tail hunks and broke the file's syntax. The second rebuilt from this branch's side and at first dropped main's #3838 tests. The line-level check caught it, and they were restored.

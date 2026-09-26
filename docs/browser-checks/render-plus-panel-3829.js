@@ -63,8 +63,8 @@ const STATES = {
       page.on('pageerror', (e) => errs.push(e.message));
       const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
       await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? st.remote : { ok: true })));
-      await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: st.pending, email: 'you@example.com' })));
-      await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: st.remote.on, allowed: [{ device_id: 'd-mac', name: 'Mac browser', allowed_at: now() - 86400, last_seen: now() - 600 }, { device_id: 'd-noname', allowed_at: now() - 7200 }], pending: st.pending })));
+      await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: st.pending, email: 'you@example.com', self_device_id: 'd-self' })));
+      await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: st.remote.on, allowed: [{ device_id: 'd-mac', name: 'Mac browser', allowed_at: now() - 86400, last_seen: now() - 600 }, { device_id: 'd-noname', allowed_at: now() - 7200 }, { device_id: 'd-self', allowed_at: now() - 3600 }], pending: st.pending, self_device_id: 'd-self' })));
       await page.goto(BASE, { waitUntil: 'networkidle' });
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
       await page.evaluate(() => showTab('settings'));
@@ -78,14 +78,14 @@ const STATES = {
         const card = document.getElementById('askcard');
         return {
           pill: document.getElementById('plus-pill').textContent.trim(), pillState: document.getElementById('plus-pill').getAttribute('data-state'),
-          chip: vis('plus-chip'), chipAddr: document.getElementById('plus-chip-addr').textContent.trim(),
+          chip: vis('plus-chip'), copy: !!document.getElementById('plus-copy'), chipAddr: document.getElementById('plus-chip-addr').textContent.trim(),
           open: document.getElementById('plus-open').getAttribute('href'), account: document.getElementById('plus-account').getAttribute('href'),
           status: document.getElementById('plus-status').textContent.trim(), sw: sw.textContent.trim(), swClass: sw.className,
-          cardShown: vis('askcard'), cardText: card ? card.innerText.replace(/\s+/g, ' ') : '',
-          reqs: document.querySelectorAll('#ask-rows .askreq').length, stale: document.querySelectorAll('#ask-rows .askreq.stale').length,
-          codes: [...document.querySelectorAll('#ask-rows .askcode')].map((e) => ({ t: e.textContent.replace(/^code /, ''), px: parseFloat(getComputedStyle(e).fontSize) })),
+          cardShown: vis('plus-asks'), cardText: (document.getElementById('plus-asks').innerText || '').replace(/\s+/g, ' '),
+          reqs: document.querySelectorAll('#plus-ask-rows .askreq').length, stale: document.querySelectorAll('#plus-ask-rows .askreq.stale').length, topCardShown: vis('askcard'), inPanel: vis('plus-asks'), panelW: document.getElementById('plus-asks').getBoundingClientRect().width, flowW: document.getElementById('plus-flow').getBoundingClientRect().width, asksAbove: document.getElementById('plus-asks').getBoundingClientRect().bottom <= document.getElementById('plus-flow').getBoundingClientRect().top + 1,
+          codes: [...document.querySelectorAll('#plus-ask-rows .askcode')].map((e) => ({ t: e.textContent.replace(/^code /, ''), px: parseFloat(getComputedStyle(e).fontSize) })),
           listPending: document.querySelectorAll('#plus-devlist [data-ask]').length, listNames: [...document.querySelectorAll('#plus-devlist .devname')].map((e) => e.textContent.trim()),
-          leftBar: card ? getComputedStyle(card).borderLeftWidth === getComputedStyle(card).borderTopWidth : true,
+          leftBar: [...document.querySelectorAll('#plus-ask-rows .askreq')].every((c) => getComputedStyle(c).borderLeftWidth === getComputedStyle(c).borderTopWidth),
         };
       });
       const t = `[${key}]`;
@@ -100,7 +100,7 @@ const STATES = {
       } else {
         chk(v.pill === 'Connected' && v.pillState === 'up', `${t} a green Connected pill`, v.pill);
         chk(v.chip && v.chipAddr === ADDR && v.open === 'https://' + ADDR + '/', `${t} the address in one chip with Open to it`, JSON.stringify({ chip: v.chip, a: v.chipAddr, open: v.open }));
-        chk(v.status === 'Open this address in any browser, or sign in on the Kosmos+ mobile apps.', `${t} one plain line under the chip`, v.status);
+        chk(v.status === 'To use Kosmos on another device, sign in at login.kosmosplus.com.' && !v.copy, `${t} one plain line under the chip (Josh's 17:30 wording), and no Copy`, v.status);
         chk(v.sw === 'Turn off' && v.swClass === 'plus-quiet', `${t} Turn off is quiet, not a headline button`, v.sw + ' ' + v.swClass);
         chk(v.account === 'https://login.kosmosplus.com/', `${t} View my account opens the web account`, v.account);
       }
@@ -112,12 +112,23 @@ const STATES = {
         chk(v.codes.length === 1 && v.codes[0].t === 'VR-D6' && v.codes[0].px >= 24, `${t} the code is shown large`, JSON.stringify(v.codes));
         chk(v.listPending === 0, `${t} the request is not repeated in the devices list`, String(v.listPending));
         chk(v.leftBar, `${t} no solid left bar on the card (#3692)`);
+        // #3829 addendum (Josh 20:00): on Kosmos Plus the requests sit directly ABOVE the panel at its width; no top banner.
+        chk(v.inPanel && !v.topCardShown && v.asksAbove && Math.abs(v.panelW - v.flowW) <= 2, `${t} the request sits above the panel at the panel's width, not as a top banner`, JSON.stringify({ inPanel: v.inPanel, top: v.topCardShown, above: v.asksAbove, w: [v.panelW, v.flowW] }));
+        // Elsewhere: one compact notice at the top that links to Kosmos Plus.
+        await page.evaluate(() => showTab('agents'));
+        await page.waitForTimeout(300);
+        const other = await page.evaluate(() => ({ shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ').trim(), cards: document.querySelectorAll('#askcard .askreq').length, link: !!document.querySelector('#askcard [data-ask="open"]') }));
+        chk(other.shown && other.cards === 0 && other.link && /asking to use this Kosmos/.test(other.text), `${t} on another view, only a compact notice with a link`, JSON.stringify(other));
+        await page.click('#askcard [data-ask="open"]');
+        await page.waitForTimeout(400);
+        chk(await page.evaluate(() => !document.getElementById('plus-asks').hidden && document.getElementById('askcard').hidden), `${t} the notice's link opens Kosmos Plus with the request above the panel`);
       }
       if (key === 'two') {
         chk(v.reqs === 2 && v.stale === 1, `${t} two cards, the one older than an hour faded`, JSON.stringify({ reqs: v.reqs, stale: v.stale }));
         chk(/Unknown device/.test(v.cardText) && !/\bdevice\b[^s]*\bis asking/.test(v.cardText), `${t} an unnamed request reads "Unknown device"`, v.cardText);
       }
       chk(!v.listNames.some((n) => n === 'device') && v.listNames.includes('Unknown device'), `${t} an unnamed devices-list row reads "Unknown device", never just "device"`, JSON.stringify(v.listNames));
+      chk(v.listNames.includes('This computer (Kosmos app)'), `${t} this Mac's own sign-in row reads "This computer (Kosmos app)" (ICK's finding)`, JSON.stringify(v.listNames));
       if (SHOTS) { await page.setViewportSize({ width: 1400, height: 1300 }); await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(200); await page.screenshot({ path: path.join(SHOTS, `3829-${key}.png`) }); }
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await page.close();

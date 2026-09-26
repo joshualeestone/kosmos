@@ -661,10 +661,17 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
      sit further down, so the one path that returned without reaching it
      returned unshaped tasks. Uses `tasksModEarly`, the same require the filter
      above already made. */
+  /* #3861 part 2: the project page's rows carry the same tree facts as /api/tasks rows (the parent
+     AS READ, its sentence, the direct-children "2 of 5"), from the one tree derivation, so the
+     project column and the task page never count children themselves. Built once per call. */
+  const tree = tasksModEarly.treeOf({ tasks });
   const withParts = (t) => (t ? {
     ...t,
     parts: tasksModEarly.partsOf(t),
     progress: (({ done, total, closed, assigned }) => ({ done, total, closed, assigned }))(tasksModEarly.progressOf(t)),
+    parent: tree.up(t),
+    parentSentence: tree.up(t) === null ? null : (tree.byNum.get(tree.up(t)).sentence || null),
+    subtasks: tree.progress(t.number),
   } : t);
   const withWho = tasks.filter((t) => t && tasksModEarly.whoOf(t).length > 0 && !tasksModEarly.progressOf(t).closed);
   /* 🛑 THE EARLY RETURN USED TO HAND BACK THE RAW TASKS, and that was the whole
@@ -868,6 +875,10 @@ function describe(project, roster, all) {
       // name it is showing was read off a live agent or is just the key.
       name: card && card.name ? card.name : sessionName,
       present: Boolean(card),
+      // Whether `name` is a real name (typed, or read off the agent's identity
+      // line) rather than the machine name a card falls back to. A card being
+      // present does not make its name real (#3311: what may leave this Mac).
+      nameDerived: Boolean(card && card.nameDerived),
       // ⚠️ TIED, and it is a different question from `present`. A pane can hold
       // this name without being this agent — a stranger's `tmux new -s angel`
       // is on the roster and matches by `sessionName`. The write gate already
@@ -2492,9 +2503,14 @@ function blockBody(projects, sessionName) {
     // shows the done ones -- the opposite mismatch. Raw length matches the card's
     // count-0 semantics exactly: "No tasks set" only when there are none at all.
     const hasTasks = Array.isArray(p.tasks) && p.tasks.length > 0;
-    const taskLine = hasTasks
+    /* #3861 (Josh, 2026-09-25: tasks can have a parent; Splinter's call: the doctrine says to
+       use it). One line, on every project, so big work lands as one task with its pieces under
+       it rather than as a pile of loose tasks nobody can see belong together. */
+    const subtaskLine = `\n  - Big work: add one task for the whole thing, then its pieces under it with \`${cliShown} task add ${oneLine(String(p.id))} "the piece" --parent <its number>\``;
+    const taskLine = (hasTasks
       ? `\n  - Its tasks: \`${cliShown} task list ${oneLine(String(p.id))}\` to see them, \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` to add one (use this, not a hand-rolled task-board file)`
-      : `\n  - No tasks set for this project yet. Add one with \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` (use this, not a hand-rolled task-board file)`;
+      : `\n  - No tasks set for this project yet. Add one with \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` (use this, not a hand-rolled task-board file)`)
+      + subtaskLine;
     const head = `- **${oneLine(p.name)}**: \`${oneLine(p.folder)}\`` + (p.id
       ? `\n  - Post to everyone on it: \`${cliShown} post ${oneLine(String(p.id))} "your message"\``
         + taskLine

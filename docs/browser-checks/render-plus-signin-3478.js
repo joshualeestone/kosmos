@@ -386,6 +386,9 @@ const visible = (page, sel) => page.evaluate((s) => {
       if (key === 'existing-2fa') {
         /* #3796 addenda 5 and 6 (Josh typed "MacbookPro..." and was refused for capitals): the name is cleaned
            as typed, and the cleaned name is what the register request carries. */
+        // #3842: the chooser arrives with a private suggestion that can be saved as is, and says so.
+        const sug = await page.evaluate(() => ({ v: document.getElementById('plus-si-name').value, note: !document.getElementById('plus-si-name-suggested').hidden, save: !document.getElementById('plus-si-register-go').disabled }));
+        chk(/^[abcdefghjkmnpqrstuvwxyz23456789]{8}$/.test(sug.v) && sug.note && sug.save, `[${key}] #3842 the address chooser arrives with a private suggestion`, JSON.stringify(sug));
         await page.fill('#plus-si-name', '');
         await page.type('#plus-si-name', 'Sunny Otter');
         chk((await page.inputValue('#plus-si-name')) === 'sunny-otter', `[${key}] #3796 addenda 5 and 6: a name typed with capitals and a space is cleaned as typed`, await page.inputValue('#plus-si-name'));

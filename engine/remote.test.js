@@ -32,6 +32,15 @@ fs.writeFileSync(FAKE_BIN, `#!/usr/bin/env node
 const fs = require('node:fs');
 const path = require('node:path');
 fs.appendFileSync(${JSON.stringify(RECORD)}, JSON.stringify(process.argv.slice(2)) + '\\n');
+if (process.argv[2] === 'run') {
+  fs.writeFileSync(${JSON.stringify(RECORD)} + '.run-env', process.env.KOSMOS_BOARD_TOKEN_FILE || '(unset)');
+  // Never the environment itself (it can hold real credentials on a shared box):
+  // only the NAMES of variables holding the probe value a test planted, if any.
+  let probe = '';
+  try { probe = fs.readFileSync(${JSON.stringify(RECORD)} + '.probe', 'utf8'); } catch { /* no probe */ }
+  const hits = probe ? Object.keys(process.env).filter((k) => String(process.env[k]).includes(probe)) : [];
+  fs.writeFileSync(${JSON.stringify(RECORD)} + '.run-env-hits', JSON.stringify(hits));
+}
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i === -1 ? null : args[i + 1]; };
 const mode = process.env.FAKE_TUNNEL_MODE || '';
@@ -179,6 +188,8 @@ if (args[0] === 'signin') {
     }
     fs.writeFileSync(path.join(dir, 'address'), name + '.kosmos.invalid\\n');
     fs.writeFileSync(path.join(dir, 'stdin-token'), token);
+    // The kept-certificate answer shape (setup.rs certificate_survives): JSON only, no certificate line.
+    if (name === 'kept') { console.log(JSON.stringify({ stage: 'registered', mac_id: 'mac-fake', name: name, address: name + '.kosmos.invalid', standing: 'good', kept_certificate: true })); process.exit(0); }
     // As the real one does on a fresh register (setup.rs fetch_certificate), before its JSON.
     console.log('certificate for ' + name + '.kosmos.invalid written to ' + path.join(dir, 'tls.crt') + ' (key stayed here)');
     console.log(JSON.stringify({ stage: 'registered', mac_id: 'mac-fake', name: name, address: name + '.kosmos.invalid', standing: 'good', kept_certificate: false }));
@@ -211,6 +222,8 @@ if (args[0] === 'retire' && mode.includes('retire-502html')) { process.stderr.wr
 if (args[0] === 'retire' && mode.includes('retire-5xx')) { process.stderr.write('Error: Kosmos+ answered 503 for /v1/mac/retire: unavailable\\n'); process.exit(1); }
 // A retire that worked prints the coordinator's answer, as the real one does.
 if (args[0] === 'retire') { console.log(JSON.stringify({ retired: true })); process.exit(0); }
+// A signed request: tracing logs to stdout by default (kosmos-relay main.rs), so a warn line can come first.
+if (args[0] === 'mac-request') { console.log('\\u001b[33m WARN\\u001b[0m kosmos_tunnel::coordinator: could not record mac_last_signed'); console.log(JSON.stringify({ standing: 'good' })); process.exit(0); }
 if (args[0] === 'run') {
   if (mode === 'crash') process.exit(3);
   const statusFile = flag('--status-file');
@@ -1828,4 +1841,145 @@ test('#3827: a Sign out during a register that then fails leaves a Mac that was 
     remote.setOn(false);
     await remote.forget();
   }
+});
+
+test('#3827: the tunnel answer is its last JSON line, and only that line', () => {
+  const pick = (said) => { const got = remote.lastJsonLine(said); return got ? got.value : null; };
+  assert.deepEqual(pick('certificate for hers.x written to /s/tls.crt (key stayed here)\n{"stage":"registered"}\n'), { stage: 'registered' }, 'a certificate line before the JSON');
+  assert.deepEqual(pick('{"stage":"registered","kept_certificate":true}'), { stage: 'registered', kept_certificate: true }, 'JSON only (a kept certificate)');
+  assert.deepEqual(pick('\u001b[33mWARN\u001b[0m could not record mac_last_signed\n{"status":200,"body":{}}\n'), { status: 200, body: {} }, 'a tracing line on stdout before the JSON');
+  assert.deepEqual(pick('{"stage":"registered"}\r\n'), { stage: 'registered' }, 'CRLF');
+  assert.equal(pick(''), null, 'empty stdout is no answer');
+  assert.equal(pick('certificate for x written'), null, 'no JSON line is no answer');
+  assert.equal(pick('{"old":true}\n{not json'), null, 'a last line that does not parse is unreadable, never the older object');
+  assert.equal(pick('{\n  "stage": "registered"\n}'), null, 'pretty-printed JSON is not read line by line into something else');
+});
+
+test('#3827: a register whose answer is JSON only (the kept-certificate shape) is read as signed in too', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const r = await remote.signinRegister('kept');
+  assert.equal(r.ok, true, r.because);
+  assert.equal(r.data.address, 'kept.kosmos.invalid');
+  remote.setOn(false);
+});
+
+test('#3827: a signed request whose tunnel logs a line before its answer is still read', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  const r = await remote.macRequest('POST', '/v1/mac/standing', {});   // the real tunnel refuses GET
+  assert.equal(r.ok, true, 'a log line on stdout made a signed request unreadable: ' + r.because);
+  assert.deepEqual(r.data, { standing: 'good' });
+  remote.setOn(false);
+});
+
+test('#3827: a fresh register whose tunnel prints its certificate line first is still read as signed in, and switches Kosmos+ on', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  remote.setOn(false);
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const r = await remote.signinRegister('hers');
+  assert.equal(r.ok, true, 'a real first sign-in read as a failure: ' + r.because);
+  assert.equal(r.data.address, 'hers.kosmos.invalid');
+  assert.equal(remote.read().on, true, 'signed in, but Kosmos+ was not switched on');
+  remote.setOn(false);
+});
+
+test('#3838: the token VALUE reaches the tunnel in no argument and no environment variable, only its path', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  const SECRET = 'tok3838secretvalue';
+  const tokenFile = nodePath.join(DATA_ROOT, 'board.token');
+  fs.mkdirSync(DATA_ROOT, { recursive: true });
+  fs.writeFileSync(tokenFile, SECRET + '\n', { mode: 0o600 });
+  fs.rmSync(RECORD + '.run-env', { force: true });
+  fs.rmSync(RECORD + '.run-env-hits', { force: true });
+  fs.writeFileSync(RECORD + '.probe', SECRET);
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    await remote.signinRegister('hers');
+    remote.setOn(true);
+    remote.ensure(4600);
+    await until(() => remote.status().state === 'up', 'the tunnel to come up');
+    assert.equal(fs.readFileSync(RECORD + '.run-env', 'utf8'), tokenFile, 'fixture: the tunnel was told the real token file');
+    const leaked = JSON.parse(fs.readFileSync(RECORD + '.run-env-hits', 'utf8'));
+    assert.deepEqual(leaked, [], 'the token value is in the tunnel environment under ' + leaked.join(', '));
+    const run = recorded().find((c) => c[0] === 'run');
+    assert.ok(!run.some((x) => String(x).includes(SECRET)), 'the token value is on the tunnel argv');
+  } finally {
+    remote.setOn(false);
+    fs.rmSync(tokenFile, { force: true });
+    fs.rmSync(RECORD + '.probe', { force: true });
+    fs.rmSync(RECORD + '.run-env-hits', { force: true });
+  }
+});
+
+test('#3838: a KOSMOS_BOARD_TOKEN_FILE inherited from the launcher never reaches the tunnel when no file is found', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  fs.rmSync(RECORD + '.run-env', { force: true });
+  const boardauth = require('./boardauth');
+  const real = boardauth.enforcedTokenPath;
+  boardauth.enforcedTokenPath = () => { throw new Error('no data root'); };
+  const had = process.env.KOSMOS_BOARD_TOKEN_FILE;
+  process.env.KOSMOS_BOARD_TOKEN_FILE = '/stale/from/the/launcher/board.token';
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    await remote.signinRegister('hers');
+    remote.setOn(true);
+    remote.ensure(4600);
+    await until(() => remote.status().state === 'up', 'the tunnel to come up');
+    assert.equal(fs.readFileSync(RECORD + '.run-env', 'utf8'), '(unset)',
+      'a stale inherited token file reached the tunnel');
+  } finally {
+    boardauth.enforcedTokenPath = real;
+    if (had === undefined) delete process.env.KOSMOS_BOARD_TOKEN_FILE; else process.env.KOSMOS_BOARD_TOKEN_FILE = had;
+    remote.setOn(false);
+  }
+});
+
+test('#3838: the tunnel is told the file the board ENFORCES (enforcedTokenPath), not merely the primary path', async () => {
+  // In this sandbox both would answer the same path, so the wiring is proved by
+  // making them differ: whatever enforcedTokenPath answers is what the tunnel gets.
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  fs.rmSync(RECORD + '.run-env', { force: true });
+  const boardauth = require('./boardauth');
+  const real = boardauth.enforcedTokenPath;
+  const legacyOnly = nodePath.join(SANDBOX, 'legacy-leaf', 'board.token');
+  boardauth.enforcedTokenPath = () => legacyOnly;
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    await remote.signinRegister('hers');
+    remote.setOn(true);
+    remote.ensure(4600);
+    await until(() => remote.status().state === 'up', 'the tunnel to come up');
+    assert.equal(fs.readFileSync(RECORD + '.run-env', 'utf8'), legacyOnly,
+      'the tunnel was told the primary path, not the file the board enforces (a legacy-only token)');
+  } finally {
+    boardauth.enforcedTokenPath = real;
+    remote.setOn(false);
+  }
+});
+
+test('#3838: the tunnel is told where the board token file is, by environment, never argv', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  fs.rmSync(RECORD + '.run-env', { force: true });   // nothing from an earlier start
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  await remote.signinRegister('hers');
+  remote.setOn(true);
+  remote.ensure(4600);
+  await until(() => remote.status().state === 'up', 'the tunnel to come up');
+  const envPath = fs.readFileSync(RECORD + '.run-env', 'utf8');
+  // A literal path, not tokenPath(): the file the board writes its token to.
+  assert.equal(envPath, nodePath.join(DATA_ROOT, 'board.token'), 'the tunnel was not told the board token file');
+  const run = recorded().find((c) => c[0] === 'run');
+  assert.ok(run, 'fixture: run reached the binary');
+  assert.ok(!run.includes('--board-token-file'), 'the path went on argv, which an older bundled tunnel would refuse');
+  assert.ok(!run.some((a) => String(a).includes('board.token')), 'the token file went on argv under some spelling: ' + JSON.stringify(run));
+  remote.setOn(false);
 });
