@@ -182,6 +182,9 @@ function step() {
   if (!S || S.busy) return;
   if (now() - S.startedAt > GIVE_UP_MS) { end('failed', 'the sign-in was not finished, so Kosmos stopped it'); return; }
   const text = screen();
+  /* Gone only when tmux says so twice in a row (round 13): one failed has-session can be a hiccup
+     (a fork failure, a moved binary), and "gone" ends the sign-in or spends an ask. */
+  if (text === null) { S.goneMisses = (S.goneMisses || 0) + 1; if (S.goneMisses < 2) return; } else if (text !== undefined) S.goneMisses = 0;
   if (text === null) {
     // The session is gone: agy exited. Signed in or not is agy's own answer. The answer is for THIS
     // session only: a Stop and a new Sign in while it was out must not be ended by it.
@@ -326,7 +329,10 @@ function step() {
     mine.busy = false;
     if (S !== mine || !mine.timer) return;
     mine.state = 'stuck'; mine.because = UNKNOWN; mine.stuckText = text;
-  }).catch(() => { mine.busy = false; });   // round 9: nothing a callback throws escapes (no process handler)
+  }).catch(() => {   // round 9: nothing a callback throws escapes (no process handler)
+    mine.busy = false;
+    if (S === mine && mine.timer) { mine.state = 'stuck'; mine.because = UNKNOWN; }   // round 13: shown, not left stale
+  });
 }
 
 /* agy's ready screen: signed in, very likely. It is confirmed once (a prompt on the person's
@@ -347,7 +353,10 @@ function readyCheck(text) {
     mine.busy = false;
     if (S !== mine || !mine.timer) return;
     mine.state = 'stuck'; mine.because = NOT_CONFIRMED; mine.stuckText = text;
-  }).catch(() => { mine.busy = false; });   // round 9: nothing a callback throws escapes (no process handler)
+  }).catch(() => {   // round 9: nothing a callback throws escapes (no process handler)
+    mine.busy = false;
+    if (S === mine && mine.timer) { mine.state = 'stuck'; mine.because = UNKNOWN; }   // round 13: shown, not left stale
+  });
 }
 // On agy's own ready screen the honest reason is that the sign-in could not be confirmed, not a strange step.
 const NOT_CONFIRMED = 'Kosmos could not confirm the sign-in with Antigravity just now';

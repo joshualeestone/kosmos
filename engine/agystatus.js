@@ -99,7 +99,9 @@ function check() { return shared().then((r) => { remember(r); return r; }); }
 let lastFileForTests = null;
 function lastFile() {
   if (lastFileForTests) return lastFileForTests();
-  if (require('./live-execution').inTestProcess()) return null;
+  /* Two independent signs of a test (round 13; bulletin runtime-self-detection-is-version-dependent):
+     execArgv's --test, which a runtime can stop reporting, and the test runner's own environment. */
+  if (require('./live-execution').inTestProcess() || process.env.NODE_TEST_CONTEXT) return null;
   return path.join(require('./store').ROOT, 'agy-signin', 'last.json');
 }
 function remember(r) {

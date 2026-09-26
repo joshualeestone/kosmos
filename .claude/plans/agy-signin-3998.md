@@ -98,3 +98,8 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 - Only a different KNOWN screen is a new screen: a blank or half-drawn frame keeps the last known one, so a key is never sent twice (a second Enter on the terms could otherwise answer the trust question unchecked).
 - A folder Kosmos did not choose is left to the person (stuck, window offered) instead of ending a sign-in Google may already have saved; still never trusted, never pressed. The folder is read without a box border, and "~" means the home folder.
 - A code is typed after C-u, so a half-sent earlier try is cleared, not doubled.
+
+## Review round 13 (decided)
+- A test process is recognised two ways before the real remembered sign-in could be touched: execArgv's --test and the test runner's NODE_TEST_CONTEXT (bulletin runtime-self-detection-is-version-dependent).
+- agy is taken as exited only after two missing-session readings in a row (one failed has-session can be a hiccup).
+- The final .catch of an ask marks the sign-in stuck rather than leaving the state stale.

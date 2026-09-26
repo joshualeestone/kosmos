@@ -140,7 +140,8 @@ test('#3998: a check that answers after its sign-in was stopped and restarted ne
     s.tickForTests();              // the code screen
     assert.equal(s.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v', first.id).ok, true);   // a code went in
     screenNow = null;
-    s.tickForTests();              // the session looks gone: its check starts and waits
+    s.tickForTests();              // gone once: a hiccup, not yet an exit (round 13)
+    s.tickForTests();              // gone twice: its check starts and waits
     s.stop(first.id);              // the person stops it...
     assert.equal(s.start().ok, true);   // ...and signs in again
     s.setForTests({ confirmSignedIn: async () => ({ signedIn: null }) });
@@ -269,7 +270,8 @@ test('#3998 W4: a Stop while agy is asked (after it exited) stays stopped', asyn
     s.tickForTests();
     assert.equal(s.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v', id).ok, true);   // a code went in: agy may be signed in now
     st.hasSession = false; st.captureThrows = new Error('gone');
-    s.tickForTests();                 // the session is gone: agy is asked (on the next turn)
+    s.tickForTests();                 // gone once: not yet
+    s.tickForTests();                 // gone twice: agy is asked (on the next turn)
     s.stop(id);                       // ...and the person stops it meanwhile
     await settle();
     assert.equal(st.checks, 1, 'CONTROL: agy was asked (after a code, it may have signed in)');
@@ -288,6 +290,8 @@ test('#3998 W5: only a missing session is agy exiting; a slow tmux is tried agai
     assert.equal(st.checks, 0, 'a slow tmux was read as agy exiting');
     assert.equal(s.status().state, 'starting');
     st.captureThrows = new Error('can\'t find session'); st.hasSession = false;
+    s.tickForTests(); await settle();
+    assert.equal(s.status().state, 'starting', 'one missing reading ended the sign-in (round 13: twice in a row)');
     s.tickForTests(); await settle();
     assert.equal(s.status().state, 'failed', 'CONTROL: a session that is really gone ends the sign-in');
   } finally { s.resetForTests(); }
@@ -596,7 +600,7 @@ test('#3998 round 10: agy exiting before any code went in ends the sign-in witho
     s.start();
     s.tickForTests();
     st.hasSession = false; st.captureThrows = new Error('gone');
-    s.tickForTests(); await settle();
+    s.tickForTests(); s.tickForTests(); await settle();
     assert.equal(st.checks, 0, 'a signed-out agy was asked (it may open a Google page of its own)');
     assert.equal(s.status().state, 'failed');
   } finally { s.resetForTests(); }
