@@ -281,8 +281,6 @@ const FAMILIES = [
 //   macos-only-branch   -- reached only on the macOS path (tmux / launchd), not on Windows
 //   guarded-vanish      -- an fs.constants flag undefined on win32, captured undefined-safe
 //                          (`|| 0`) AND behaviour-pinned platform-independently (securewrite)
-//   macos-covers-removal -- on macOS a behavioural arm catches the flag's REMOVAL; the win32
-//                          hardening of its vanish is #1777 item 3, deferred for the beta
 //   benign-nonblock     -- O_NONBLOCK is a fifo-avoidance flag, not a security guard; its
 //                          win32 absence changes nothing that matters
 // Add a row ONLY after confirming the site is not a real Windows bug; a real hit
@@ -313,7 +311,7 @@ const INVENTORY = [
   { file: 'engine/machine.js', family: 'env-home', count: 1, contains: "path.join(process.env.HOME || '', 'Library', 'LaunchAgents')", disposition: 'macos-only-branch', why: 'macOS LaunchAgents path; the Library/LaunchAgents branch is macOS-only' },
   { file: 'engine/boardrestart.js', family: 'env-home', count: 1, contains: "path.join(process.env.HOME || '', 'Library', 'LaunchAgents')", disposition: 'macos-only-branch', why: 'macOS LaunchAgents path (#2238); the com.kosmos.board self-restart is a macOS/launchd-only primitive (launchctl, com.kosmos.board.plist). On Windows HOME is undefined so the dir is absent, canSelfRestart returns false, and the route falls back to a manual restart -- the same fail-safe branch machine.js takes here' },
   // --- fs.constants flags undefined on win32 (the #1761/#1776 vanishing-guard class) ---
-  { file: 'engine/instructions.js', family: 'fs-const-platform-flag', count: 1, contains: 'fs.constants.O_NOFOLLOW ', disposition: 'macos-covers-removal', why: 'symlink-refusing open flag; on macOS its removal is caught behaviourally (the symlink/fifo refusal arms in instructions.test.js), win32 hardening is #1777 item 3, deferred for beta' },
+  { file: 'engine/instructions.js', family: 'fs-const-platform-flag', count: 1, contains: 'const KERNEL_NOFOLLOW = fs.constants.O_NOFOLLOW', disposition: 'guarded-vanish', why: '#1777 item 3: the CLAUDE.md.previous backup open ORs it in undefined-safe as (NOFOLLOW || 0), and refuseSymlinkTarget(..., undefined) runs before the open on every platform. Behaviour-pinned from macOS by the _setNofollowForTest(undefined) arm in instructions.test.js, which reds by name when the hand check is deleted (the kernel-flag arm beside it stays green, which is why the seam exists)' },
   { file: 'engine/instructions.js', family: 'fs-const-platform-flag', count: 1, contains: 'fs.constants.O_NONBLOCK', disposition: 'benign-nonblock', why: 'paired with O_NOFOLLOW to avoid blocking on a fifo; its win32 absence is not a security regression' },
   { file: 'engine/securewrite.js', family: 'fs-const-platform-flag', count: 1, contains: 'const NOFOLLOW = fs.constants.O_NOFOLLOW', disposition: 'guarded-vanish', why: 'THE EXEMPLAR (#1776): captured undefined-safe as (NOFOLLOW || 0) and the refuseSymlinkTarget hand check runs even when the kernel flag is absent, so the protection is platform-independent and pinned in securewrite.test.js' },
   { file: 'server.js', family: 'fs-const-platform-flag', count: 2, contains: 'const NOFOLLOW = fs.constants.O_NOFOLLOW', disposition: 'guarded-vanish', why: 'TWO byte-identical sites, both captured undefined-safe as (NOFOLLOW || 0) and paired with a platform-independent lstat hand check (isSymbolicLink refusal) that runs regardless of the kernel flag: #1652 /api/agent-import-file (pinned by the TOCTOU symlink arm in server.agent-import-1652.test.js) and #2682 /api/agent-import-folder, its folder sibling, which mirrors the same hardened read (pinned by the symlink arm in server.agent-import-folder-2682.test.js). Count 2, not a second row: the two lines are identical, so a distinct per-line `contains` is impossible and one row with count 2 is the only clean representation, exactly as this file notes for identical same-family lines' },
@@ -461,6 +459,22 @@ test('#1776 pin: engine/securewrite.js handles O_NOFOLLOW vanishing on win32 und
   assert.match(code, /\(\s*NOFOLLOW\s*\|\|\s*0\s*\)/,
     'engine/securewrite.js must OR O_NOFOLLOW in undefined-safe as (NOFOLLOW || 0), so the flag ' +
     'vanishing on win32 cannot malform the open flags (#1776).');
+});
+
+test('#1777 pin: engine/instructions.js backup write survives O_NOFOLLOW vanishing on win32', () => {
+  // Same shape as the #1776 pin above, for the CLAUDE.md.previous backup open. Until
+  // #1777 item 3 this site OR-ed fs.constants.O_NOFOLLOW in bare, so on win32 its
+  // symlink guard silently disappeared. The behaviour is pinned in instructions.test.js
+  // (with the flag dropped through the seam); this pins the source markers so a revert
+  // to the bare OR reds here too.
+  const code = codeText('engine/instructions.js');
+  assert.match(code, /\(\s*NOFOLLOW\s*\|\|\s*0\s*\)/,
+    'engine/instructions.js must OR O_NOFOLLOW in undefined-safe as (NOFOLLOW || 0) (#1777 item 3).');
+  assert.match(code, /refuseSymlinkTarget\(\s*`\$\{file\}\.previous`\s*,\s*undefined\s*\)/,
+    'engine/instructions.js must hand-check the backup path with refuseSymlinkTarget(..., undefined): '
+    + 'on win32 it is the whole symlink defence (#1777 item 3).');
+  assert.doesNotMatch(code, /\|\s*fs\.constants\.O_NOFOLLOW\b/,
+    'a bare `| fs.constants.O_NOFOLLOW` vanishes on win32; capture it and OR it in as (NOFOLLOW || 0).');
 });
 
 // ============================================================================

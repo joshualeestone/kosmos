@@ -84,9 +84,12 @@ an in-file `INVENTORY` with a disposition + one-line reason, and:
   when a reviewer should be thinking about Windows;
 - **reds on a stale inventory entry** - a classified site removed or reshaped - so the inventory cannot rot into a vacuous pass;
 - carries **positive pins** for the known-fixed sites (github.js uses
-  `path.delimiter`; store.js uses `joinerFor`; securewrite.js ORs `O_NOFOLLOW` in
-  undefined-safe as `(NOFOLLOW || 0)`), so it independently red-guards a
-  regression.
+  `path.delimiter`; store.js uses `joinerFor`; securewrite.js and instructions.js OR
+  `O_NOFOLLOW` in undefined-safe as `(NOFOLLOW || 0)`), so it independently
+  red-guards a regression. instructions.js was the last bare `| O_NOFOLLOW` site
+  (the `CLAUDE.md.previous` backup); #1777 item 3 closed it with the same
+  `refuseSymlinkTarget` hand check, behaviour-pinned from macOS through a seam that
+  drops the kernel flag.
 
 Every arm is perturbation-proven: reverting the github.js fix reds the coupling
 arm **and** the github pin; a synthetic new `.split(':')` or `fs.constants.O_SYMLINK`
