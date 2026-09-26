@@ -251,7 +251,17 @@ function step() {
   if (name === 'ready' && S.step !== 'trust') {
     const under = screenOf(text, 'ready');
     if (under === 'theme' || under === 'terms' || under === 'trust') name = under;
+    /* Round 22: while Kosmos is driving a setup (a step taken, not the shown window), the ready line
+       counts only on its own and steady: over any other known screen (the code screen still drawn
+       under it) it is that screen, and a footer caught alone between two setup screens must be the
+       same frame on two ticks in a row before agy is asked. A sign-in that starts on the ready screen
+       (already signed in, no step yet) is unaffected. */
+    else if (S.step && !S.shown) {
+      if (under) name = under;
+      else if (text !== S.lastReady) { S.lastReady = text; return; }
+    }
   }
+  if (name !== 'ready') S.lastReady = null;
   /* A blank frame caught mid-redraw is not a new screen (round 10): it must not clear `pressed` and
      send the same key again when the screen comes back. */
   /* Only a DIFFERENT KNOWN screen is a new screen (round 12): a frame Kosmos does not recognise (a

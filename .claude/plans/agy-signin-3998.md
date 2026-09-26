@@ -149,3 +149,6 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 ## Review round 21 (decided)
 - render-settings-agy-3874's surface annotation names the new paste and page ids the check asserts on, so a later edit to them must touch this check (the #2518 precision gate). Not added: acct-success-box, shared by five provider checks and annotated by none; claiming it here would force unrelated cards through this check.
 - tmux's stderr is piped, not inherited, so the speculative kill before each start is no longer a raw error line in the board's log.
+
+## Review round 22 (decided)
+- While Kosmos drives the setup (a step taken, window not shown), agy's ready line counts only on its own and steady: over any other known screen (the code screen still drawn under it) it is that screen, and a footer caught alone must be the same frame on two ticks in a row before agy is asked. A sign-in that starts on the ready screen (already signed in, no step yet) and the shown window are unaffected. Weakest premise: agy does not leave its footer alone on screen for a whole tick between two setup screens.

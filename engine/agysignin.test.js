@@ -952,3 +952,36 @@ test('#3998 round 20: only the measured trust label is pressed', () => {
     assert.deepEqual(st.sent, ['Enter'], 'CONTROL: the measured label was not pressed');
   } finally { s.resetForTests(); }
 });
+
+/* ---- review round 22 --------------------------------------------------------------------- */
+const READY_LINE = 'j@example.com (Antigravity Starter Quota) - Gemini 3.8 Flash (High)\n';
+test('#3998 round 22: while Kosmos drives the setup, a ready line alone for one tick, or over the code screen, is not the end', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'Choose your color scheme\n> terminal\n');
+  st.answer = { signedIn: true };
+  try {
+    s.start();
+    s.tickForTests();                                  // theme: Enter
+    st.screen = READY_LINE; st.t += 1000; s.tickForTests(); await settle();   // a footer caught between screens
+    assert.equal(st.checks, 0, 'a footer seen once between setup screens was confirmed');
+    st.screen = TERMS('Previous'); st.t += 1000; s.tickForTests(); await settle();
+    assert.notEqual(s.status().state, 'done', 'the sign-in ended done with the terms unanswered');
+    // The code screen still drawn with the footer under it, after a code went in:
+    const CODE = 'Your browser should open automatically. If not:\n\nhttps://accounts.google.com/o/oauth2/auth?x=1\n\nPaste the authorization code:\n';
+    const st2 = scripted(s, CODE);
+    st2.answer = { signedIn: true };
+    const { id } = s.start();
+    s.tickForTests();
+    assert.equal(s.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v', id).ok, true);
+    st2.screen = CODE + READY_LINE;
+    for (let i = 0; i < 3; i++) { st2.t += 1000; s.tickForTests(); await settle(); }
+    assert.equal(st2.checks, 0, 'the code screen with a footer under it was taken for the ready screen');
+    assert.notEqual(s.status().state, 'done');
+    // CONTROL: a ready screen that stays (a setup finished on an earlier run) still ends it.
+    st2.screen = READY_LINE;
+    st2.t += 1000; s.tickForTests(); await settle();
+    st2.t += 1000; s.tickForTests(); await settle();
+    assert.equal(st2.checks, 1, 'CONTROL: a steady ready screen after the code was never confirmed');
+    assert.equal(s.status().state, 'done');
+  } finally { s.resetForTests(); }
+});
