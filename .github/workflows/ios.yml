@@ -1,12 +1,13 @@
-# iOS CI (#718). Runs the push bridge logic tests (ios/LogicTests) and compiles the
+# iOS CI (#718). Runs the iOS logic tests (ios/LogicTests) and compiles the
 # app against the simulator SDK, so a change to the origin gate, the session
-# handling or the register/unregister rules goes red here instead of only on
+# handling, the register/unregister rules or the notification categories goes red here instead of only on
 # whoever remembers to run ios/LogicTests/run.sh by hand.
 #
 # ADVISORY, like android.yml and test.yml: nothing here blocks a merge (no branch
 # protection on this repo, by a deliberate repo-admin decision; see test.yml).
 #
-# WHAT GREEN CERTIFIES: the Foundation-only push logic passes its suite on macOS,
+# WHAT GREEN CERTIFIES: the UIKit-free logic (ios/LogicTests/run.sh lists the
+# files) passes its suite on macOS,
 # the app compiles and links for the simulator with signing off (Debug and
 # Release), and both built apps carry the four permission strings. It does NOT
 # certify running on a simulator or device, a signed build, or APNs delivery.

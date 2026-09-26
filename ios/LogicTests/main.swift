@@ -589,6 +589,7 @@ do {
     let perm = cats.first { $0.identifier == "AGENT_PERMISSION" }
     check(perm != nil, "the agent-permission category is still registered, so a push's category still matches")
     check(cats.allSatisfy { $0.actions.isEmpty }, "no category registers an action button (Approve/Deny hidden)")
+    check(cats.allSatisfy { $0.options.isEmpty }, "no category asks for dismiss delivery, which the handler has no branch for")
 }
 
 print("")

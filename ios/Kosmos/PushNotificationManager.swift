@@ -152,8 +152,9 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
         completionHandler([.banner, .sound, .badge])
     }
 
-    // Handle a tap on the notification. It has no action buttons (#3870), so a
-    // tap opens the agent and anything else (a dismiss) does nothing.
+    // Handle a response to a notification. The categories register no actions
+    // and no .customDismissAction (#3870), so the plain tap is the only response
+    // iOS delivers here.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,

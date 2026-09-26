@@ -17,10 +17,17 @@ Card: kosmos #3870 (part of #718). Decision by Liu Kang, reversible, Josh can ov
   plain notification.
 
 ## Validation
-- `bash ios/LogicTests/run.sh`: VERDICT: PASS 225/225.
-- Negative control: a copy with an APPROVE_ACTION button restored fails 1 of 225.
+- `bash ios/LogicTests/run.sh`: VERDICT: PASS 226/226.
+- Negative control: a copy with an APPROVE_ACTION button restored fails 1 of 226.
 - `swiftc -typecheck` of ios/Kosmos/*.swift against the iPhoneSimulator 26.5 SDK: clean.
 
 ## Weakest part
 Not run on a device or simulator (no iOS runtime on the build box); the proof that the
 lock screen shows no buttons is that no action is registered, not an observed notification.
+
+## Effect on App Review 4.2 (a repackaged website)
+Lock-screen Approve/Deny were one of the native features that argue against 4.2. Hiding
+them weakens that case: what remains is APNs push with a tap that opens the agent, the
+offline page, pull to refresh, Safari for outside links, and Face ID (built, switched off).
+ios/store/README.md (the #718 listing PR) lists 4.2 among the things Josh decides before
+submission; this PR should say so in its description too.
