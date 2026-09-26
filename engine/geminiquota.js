@@ -15,6 +15,19 @@
 /* Under the sweep's one-minute tick, so timer jitter never skips a tick and stretches a retry to two minutes. */
 const ANSWER_EVERY_MS = 55 * 1000;
 
+/* Review round 11: Gemini raises the same question for Google reasons whose message after Stop is Google's own text,
+   not one Kosmos can recognise. Kosmos does know it just answered that agent's usage-limit question, so the reading
+   (status.js) treats Gemini's error line in that position as the limit for a while after an answer. */
+const AFTER_STOP_MS = 15 * 60 * 1000;
+const answeredAt = new Map();
+function noteAnswered(session, now) { if (session) answeredAt.set(String(session), Number.isFinite(now) ? now : Date.now()); }
+function answeredRecently(session, now) {
+  const at = answeredAt.get(String(session || ''));
+  const t = Number.isFinite(now) ? now : Date.now();
+  return Number.isFinite(at) && t - at >= 0 && t - at < AFTER_STOP_MS;
+}
+function resetForTest() { answeredAt.clear(); }
+
 function waitingOnQuestion(card) {
   return !!card && card.runner === 'gemini' && card.state === 'rate_limited' && card.quotaDialog === true;
 }
@@ -39,6 +52,7 @@ function sweepOnce(o) {
     book.set(session, now);
     let got;
     try { got = answer(session, roster); } catch (err) { got = { ok: false, because: String((err && err.message) || err) }; }
+    if (got && got.ok) noteAnswered(session, now);
     const r = { session, name: (card && card.name) || session, answered: !!(got && got.ok), because: (got && (got.because || (got.ok ? 'answered Stop with ' + got.key : ''))) || '' };
     results.push(r);
     if (log) { try { log(r); } catch { /* logging never breaks a sweep */ } }
@@ -47,4 +61,4 @@ function sweepOnce(o) {
   return results;
 }
 
-module.exports = { ANSWER_EVERY_MS, waitingOnQuestion, sweepOnce };
+module.exports = { ANSWER_EVERY_MS, AFTER_STOP_MS, waitingOnQuestion, sweepOnce, noteAnswered, answeredRecently, resetForTest };

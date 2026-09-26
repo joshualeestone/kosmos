@@ -1591,7 +1591,7 @@ function geminiStopKey(paneText) {
 /* The question is up: its message, then numbered options ending in Stop, and nothing after them but the box's
    bottom edge (the real dialog replaces the composer; a quoted copy has the agent's own screen below it). Or the
    quota error is Gemini's newest line: nothing after it but its empty composer and footer. */
-function geminiQuotaReading(paneText) {
+function geminiQuotaReading(paneText, afterStop) {
   /* Two views of the same rows, kept in step: `rows` with the question box's border stripped (for the question), and
      `raw` with only trailing space removed (for the error line). The border strip would also erase what marks a
      QUOTED error: a working agent's tool output prints it behind a "│", and its own answer indents it under "✦".
@@ -1610,7 +1610,10 @@ function geminiQuotaReading(paneText) {
     }
   }
   let at = -1;
-  raw.forEach((r, i) => { if (GEMINI_QUOTA_ERROR.test(r) || GEMINI_QUOTA_OTHER.test(r)) at = i; });
+  /* `afterStop`: Kosmos answered this agent's usage-limit question Stop a moment ago, so Gemini's own error line in
+     this position is that limit whatever Google's words are (review round 11). Still only at the left edge, still
+     only with the composer below and nothing working. */
+  raw.forEach((r, i) => { if (GEMINI_QUOTA_ERROR.test(r) || GEMINI_QUOTA_OTHER.test(r) || (afterStop === true && /^✕\s*\[API Error:/.test(r))) at = i; });
   if (at < 0) return null;
   const below = rows.slice(at + 1);
   const newer = below.some((r) => (/^>\s+\S/.test(r) && !GEMINI_COMPOSER.test(r)) || /^✦/.test(r));
@@ -3731,7 +3734,7 @@ function classify(pane, paneText) {
      error. Firm (Gemini's own words), like Codex's limit line. `quotaDialog` rides onto the card (snapshot), and
      it is what engine/geminiquota.js answers Stop for. */
   if (pane.runner === 'gemini') {
-    const q = geminiQuotaReading(paneText);
+    const q = geminiQuotaReading(paneText, require('./geminiquota').answeredRecently(pane.name));
     if (q) {
       return {
         state: STATE.RATE_LIMITED,

@@ -21,6 +21,7 @@ const { accountProblemOf } = require('./accountproblem');
 const fleet = require('../test-support/fleet');
 
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+test.beforeEach(() => geminiquota.resetForTest());
 
 const DIALOG = [
   ' > hello',
@@ -126,6 +127,51 @@ test('#4004 CONTROLS: a quota line QUOTED by a working agent whose turn has ende
   assert.equal(status.classify(gem, AFTER_STOP).state, 'rate_limited');
 });
 
+test('#4004: after Kosmos answered Stop, Google\'s own words (any) at the left edge read as the limit, for a while only', () => {
+  // Review round 11: reasons like INSUFFICIENT_G1_CREDITS_BALANCE raise the same question, then print Google's text.
+  const googleText = AFTER_STOP.replace('✕ [API Error: You have exhausted your daily quota on this model.]',
+    '✕ [API Error: Your project has insufficient credits for this request.]');
+  assert.notEqual(googleText, AFTER_STOP, 'the fixture edit did not apply');
+  assert.notEqual(status.classify(gem, googleText).state, 'rate_limited', 'CONTROL: without Kosmos\'s answer an unknown error line is not a limit');
+  const now = Date.now();
+  geminiquota.noteAnswered('gemq', now);
+  const c = status.classify(gem, googleText);
+  assert.equal(c.state, 'rate_limited', JSON.stringify(c));
+  assert.equal(c.quotaDaily, false, 'a reset time would be promised for a limit nobody named');
+  // The same words quoted in a working agent's tool output still do not count, answer or not.
+  const quoted = ['✦ Checking', '│ ✕ [API Error: Your project has insufficient credits for this request.]', '│', ' *   Type your message or @path/to/file'].join('\n');
+  assert.notEqual(status.classify(gem, quoted).state, 'rate_limited');
+  // Long after the answer, the line is just an error again.
+  geminiquota.noteAnswered('gemq', now - geminiquota.AFTER_STOP_MS - 1000);
+  assert.notEqual(status.classify(gem, googleText).state, 'rate_limited', 'the answer was remembered forever');
+});
+
+test('#4004: the sweep remembers only answers that were given', () => {
+  const dialog = status.classify(gem, DIALOG);
+  const roster = [{ sessionName: 'gemq', runner: 'gemini', state: dialog.state, quotaDialog: dialog.quotaDialog }];
+  const now = Date.now();
+  geminiquota.sweepOnce({ roster, answer: () => ({ ok: false, because: 'no' }), book: new Map(), now });
+  assert.equal(geminiquota.answeredRecently('gemq', now), false, 'a failed answer was remembered as given');
+  geminiquota.sweepOnce({ roster, answer: () => ({ ok: true, key: '2' }), book: new Map(), now });
+  assert.equal(geminiquota.answeredRecently('gemq', now), true);
+});
+
+test('#4004: the API-key layouts of the question ([Switch, Stop] and [Keep trying, Switch, Stop]) are read, Stop key and all', () => {
+  const opt = (t) => '│ ' + t.padEnd(49) + '│';
+  const layouts = [
+    [opt('● 1. Switch to gemini-2.5-flash-lite'), opt('  2. Stop')],
+    [opt('● 1. Keep trying'), opt('  2. Switch to gemini-2.5-flash-lite'), opt('  3. Stop')],
+  ];
+  const at = DIALOG.split('\n');
+  const start = at.findIndex((l) => /1\. Keep trying/.test(l));
+  for (const rows of layouts) {
+    const screen = [...at.slice(0, start), ...rows, ...at.slice(start + 2)].join('\n');
+    const c = status.classify(gem, screen);
+    assert.equal(c.quotaDialog, true, screen);
+    assert.equal(status.geminiStopKey(screen), String(rows.length));
+  }
+});
+
 test('#4004: after Stop with the non-YOLO composer (">   Type your message") below the error, it still reads the limit', () => {
   const nonYolo = AFTER_STOP.replace(' *   Type your message or @path/to/file', ' >   Type your message or @path/to/file');
   assert.equal(status.classify(gem, nonYolo).state, 'rate_limited');
@@ -182,8 +228,18 @@ test('#4004 snapshot: the board card carries quotaDialog and limitFrom, so the s
       assert.equal(card.limitFrom, 'gemini');
       assert.equal(geminiquota.waitingOnQuestion(card), false, 'CONTROL: no question up, nothing to answer');
       assert.equal(card.quotaDaily, true);
+      // The sweep records its answer under the CARD's session name; the reading looks it up by the pane's name. They
+      // must be the same name, or the after-Stop reading never fires on the board.
+      assert.equal(card.sessionName, 'gemsnap');
       assert.match(accountProblemOf(card).text, /daily limit for/);
     } finally { after.restore(); }
+    const googleText = AFTER_STOP.replace('✕ [API Error: You have exhausted your daily quota on this model.]', '✕ [API Error: Your project has insufficient credits.]');
+    const other = fleet.install([fleet.agent('gemsnap', { state: 'idle', runner: 'gemini', command: 'node', screen: googleText })]);
+    try {
+      geminiquota.noteAnswered(status.snapshot().agents.find((a) => a.sessionName === 'gemsnap').sessionName);
+      const card2 = status.snapshot().agents.find((a) => a.sessionName === 'gemsnap');
+      assert.equal(card2.state, 'rate_limited', 'the sweep\'s answer, recorded under the card\'s name, did not reach the reading');
+    } finally { other.restore(); }
   } finally { board.restore(); }
 });
 

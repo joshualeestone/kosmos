@@ -88,6 +88,14 @@ message after the reset works (item 4 with no restart). The board read the quest
   Upgrade; perturbed red). Deferred: a bare RESOURCE_EXHAUSTED line can be a per-minute limit that clears itself; the
   card then reads a limit until the next turn, in words that stay true (no reset time promised).
 
+- Review round 11 (Sonnet, CLI source): other Google reasons (credits balance, long retry delays, QUOTA_EXHAUSTED on
+  cloud-code accounts) raise the same question, then print Google's own text after Stop, which neither known line
+  matches, so the card fell back to idle after Kosmos's own press. Matching every error line would call ordinary
+  failures a limit; instead the sweep remembers answering an agent's question (geminiquota.noteAnswered, 15 minutes),
+  and for that agent any Gemini error line at the left edge, composer below and nothing working, reads as the limit
+  (neutral words, no reset time). The API-key layouts ([Switch, Stop], [Keep trying, Switch, Stop]) are tested.
+  Each piece perturbed red, including the card-name to pane-name join.
+
 ## Weakest premise
 - Matching Gemini's words on screen: a future CLI can reword them. The reading then falls back to today's behaviour
   (unknown/idle), and the sweep presses nothing, since it needs the question recognised.
