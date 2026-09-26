@@ -119,3 +119,6 @@ Main gained the split-out parseSaid fix (PR #3893: lastJsonLine, used by parseSa
 - A line-level check found every line main added since the merge base present in both files. The only exception is a two-line comment this branch words differently at the same spot.
 - 85/85 remote tests pass.
 - Slip, recorded: my first resolution concatenated both sides of shared-tail hunks and broke the file's syntax. The second rebuilt from this branch's side and at first dropped main's #3838 tests. The line-level check caught it, and they were restored.
+
+## Round 15 review (sonnet, on the merge): 1 WARNING
+- WARNING: the merge kept two near-identical "fresh register prints its certificate line first" tests (this branch's and main's). This branch's copy is removed; main's keeps it, with the "(the #3827 symptom)" wording folded into its assertion. Everything else in the resolution checked clean: parseSaid/lastJsonLine once, the #3838 tests and run-env block once, fake register order matches the real tunnel.

@@ -1771,17 +1771,6 @@ test('#3827: a Settings setup in flight blocks the in-app register, turning on a
   }
 });
 
-test('#3827: a fresh register whose tunnel prints its certificate line first is still read as signed in', async () => {
-  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
-  await remote.signinStart('her@example.com');
-  await remote.signinVerify('her@example.com', '111111');
-  const r = await remote.signinRegister('hers');
-  assert.equal(r.ok, true, 'a real first sign-in read as a failure: ' + r.because);
-  assert.equal(r.data.address, 'hers.kosmos.invalid');
-  assert.equal(remote.read().on, true, 'signed in, but Kosmos+ was not switched on (the #3827 symptom)');
-  await remote.forget();
-});
-
 test('#3827: a Sign out during the half-identity retire means the register is never sent', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
@@ -1884,7 +1873,7 @@ test('#3827: a fresh register whose tunnel prints its certificate line first is 
   const r = await remote.signinRegister('hers');
   assert.equal(r.ok, true, 'a real first sign-in read as a failure: ' + r.because);
   assert.equal(r.data.address, 'hers.kosmos.invalid');
-  assert.equal(remote.read().on, true, 'signed in, but Kosmos+ was not switched on');
+  assert.equal(remote.read().on, true, 'signed in, but Kosmos+ was not switched on (the #3827 symptom)');
   remote.setOn(false);
 });
 
