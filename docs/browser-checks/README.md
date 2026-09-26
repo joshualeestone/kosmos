@@ -636,6 +636,10 @@ The temp-root test mirrors `engine/status.js` and carries its two corrections: `
 is not `os.tmpdir()` on macOS, and both sides need resolving because `/var` is a symlink
 to `/private/var`.
 
+### `lib-leak-guard.js` is a library, not a check
+
+The leak guard's checks for `mobile-shots.js` (kosmos#718): `hitsIn(text)` finds an email the board injected (not example.com / .org / .net, and not one that ships in web/index.html), an API key (sk-, AIza, xai-), or this Mac's home path, user name or host name, and reports each by kind and length only. `mobile-shots.js` runs it over every screen before and after the shot and over the report; `tools.mobile-shots-leak-718.test.js` proves each kind fires, with a clean control.
+
 ### `lib-sandbox-home.js` is a library, not a check
 
 **Every check that boots or spawns a board requires it first (#3675).** The account

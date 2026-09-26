@@ -25,8 +25,9 @@
  * sandboxed on data roots alone still lists this Mac's real Claude emails and an
  * OpenAI key suffix in Settings (found and measured by Sonya, #718). Before every
  * screenshot a LEAK GUARD reads the page and stops the whole run, writing nothing
- * more, if it finds an email outside example.com, an `sk-` key fragment, or this
- * Mac's home path, user name or host name (exit 3). Screenshots end up on
+ * more, if it finds an email the board injected (not example.com / .org / .net, and
+ * not one that ships in web/index.html), an API key (sk-, AIza, xai-), or this Mac's
+ * home path, user name or host name (exit 3). The report is checked the same way. Screenshots end up on
  * GitHub; a real account must not. THIS IS THE ONLY SANCTIONED WAY TO TAKE
  * SCREENSHOTS FOR A PR OR #718: other checks here do not set these roots.
  *
@@ -429,52 +430,14 @@ async function preflight(base) {
 }
 
 /* ------------------------------------------------------------------ leak guard */
-/* What must never appear in a shot: a real email (anything not example.com),
-   an API key (sk-, AIza, xai-), this Mac's home path, user name or host name.
-   Returns the offending strings. */
+/* What must never appear in a shot: see lib-leak-guard.js, which holds the checks. */
 /* The two controls tools/browser-checks.sh runs, each of which must exit 3:
    `account` plants a signed-in Claude account in the sandboxed home (the
    preflight must stop it), `page` puts an address in an agent's role (the page
    scan must stop it). The address is invented and not example.com. */
 const LEAK_CONTROL = process.env.MSHOTS_LEAK_CONTROL || '';
 const PLANTED_EMAIL = 'planted.leak@leak-control.test';
-const REAL_HOME = os.homedir();
-const REAL_USER = os.userInfo().username;
-const REAL_HOST = os.hostname().replace(/\.local$/, '');
-/* Email-shaped strings that ship verbatim in web/index.html (a placeholder such
-   as josh@you.com, a pattern fragment) are the same product text for everyone,
-   so they cannot leak anything; only data the board injects is judged. */
-const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
-// OpenAI / Anthropic (sk-...), Google Gemini (AIza...) and xAI Grok (xai-...) keys.
-const KEY_RE = /\b(?:sk-[A-Za-z0-9_-]{2,}|AIza[0-9A-Za-z_-]{20,}|xai-[A-Za-z0-9]{20,})/g;
-const SHIPPED_HTML = fs.readFileSync(path.join(REPO, 'web', 'index.html'), 'utf8');
-const SHIPPED_EMAILS = new Set(SHIPPED_HTML.match(EMAIL_RE) || []);
-/* e.g. the `sk-ant-` placeholder on the API key field. This scan catches a full key
-   on screen; a key shown masked or as a suffix is not visible to it, and the accounts
-   preflight above is what stops a board that has one (the `account` control proves it). */
-const SHIPPED_KEYS = new Set(SHIPPED_HTML.match(KEY_RE) || []);
-const escapeRegExp = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-/* A login or host name that is also a word the product ships (`kosmos`,
-   `agent`, the first-run placeholder `Josh`) would stop every run on the
-   product's own text, so that one check is switched off, SAID so at the start
-   of the run, and the home-path, email and key checks still stand. */
-const nameCheck = (name, label) => {
-  if (!name || name.length <= 2) return null;
-  const re = new RegExp('\\b' + escapeRegExp(name) + '\\b', 'i');
-  if (re.test(SHIPPED_HTML)) {
-    console.log(`note  the ${label}-name check is off: this Mac's ${label} name is a word in web/index.html`);
-    return null;
-  }
-  return re;
-};
-const REAL_USER_RE = nameCheck(REAL_USER, 'user');
-const REAL_HOST_RE = nameCheck(REAL_HOST, 'host');
-/* Judged on what a screenshot or a hover can show: the rendered text, form
-   values, and title / aria-label / alt / placeholder. NOT the page source, whose
-   comments and script would match a common login name such as a word in a
-   code comment, and stop every run on that Mac. A hit is reported by kind and
-   length only, no characters of it, because the message lands in shared logs. */
-const mask = (t, kind) => (kind || (t.includes('@') ? 'an email address' : 'a value')) + ` (${t.length} chars)`;
+const { hitsIn } = require('./lib-leak-guard.js');
 async function leaksOn(page) {
   const text = await page.evaluate(() => {
     if (!document.body) return '';
@@ -488,22 +451,6 @@ async function leaksOn(page) {
   });
   return hitsIn(text);
 }
-/* The checks themselves, on any text: the page's, and the report's (tap-target names are
-   read from textContent, which the page scan does not see). */
-function hitsIn(text) {
-  // Keyed on what was found, so two different hits of one length count as two; masked only for printing.
-  const hits = new Map();
-  for (const m of text.match(EMAIL_RE) || []) {
-    if (!/@example\.(com|org|net)$/i.test(m) && !SHIPPED_EMAILS.has(m)) hits.set('email:' + m, mask(m));
-  }
-  // macOS paths are case-insensitive: the home shown in another case is the same leak.
-  if (REAL_HOME.length > 1 && text.toLowerCase().includes(REAL_HOME.toLowerCase())) hits.set('home', 'home: ' + mask(REAL_HOME));
-  if (REAL_USER_RE && REAL_USER_RE.test(text)) hits.set('user', 'user: ' + mask(REAL_USER));
-  if (REAL_HOST_RE && REAL_HOST_RE.test(text)) hits.set('host', 'host: ' + mask(REAL_HOST));
-  for (const m of text.match(KEY_RE) || []) if (!SHIPPED_KEYS.has(m)) hits.set('key:' + m, mask(m, 'a key'));
-  return [...hits.values()];
-}
-
 /* ------------------------------------------------------------------ capture */
 async function overflowOf(page) {
   return page.evaluate((sels) => {
@@ -609,6 +556,7 @@ async function run() {
                  decide what the next screen looks like. */
               const ctx = await browser.newContext({
                 viewport: { width: s.width, height: s.height }, deviceScaleFactor: s.dpr,
+                // isMobile is Chromium-only in Playwright (WebKit refuses it); both get touch.
                 isMobile: en === 'chromium', hasTouch: true, colorScheme: theme,
                 ...(sc.noServiceWorker ? { serviceWorkers: 'block' } : {}),
               });
@@ -651,21 +599,24 @@ async function run() {
                     + (ov.worst ? ` widest: ${ov.worst.tag}${ov.worst.id ? '#' + ov.worst.id : ''}${ov.worst.cls ? '.' + ov.worst.cls.split(' ')[0] : ''} to ${ov.worst.right}px of ${ov.vw}` : '');
                 }
                 fit = await fitOf(page);
-                // report.json and report.md travel with the shots: the names in them pass the same checks.
-                const inReport = hitsIn(JSON.stringify(fit) + ' ' + note);
-                if (inReport.length) {
-                  try { fs.rmSync(path.join(out, file), { force: true }); } catch { /* best effort */ }
-                  const err = new Error('LEAK GUARD: this screen\'s report would carry real data (' + inReport.length + ' hits, e.g. '
-                    + inReport[0] + '). Its shot is deleted. Stopping with no further shots.');
-                  err.leak = true;
-                  throw err;
-                }
               } catch (e) {
                 if (e.leak) { await ctx.close(); throw e; }
                 errors++;
                 note = 'ERROR ' + String(e.message || e).split('\n')[0];
               }
               if (pageErrors.length) note += (note ? '; ' : '') + 'page error: ' + pageErrors.splice(0).join(' | ').slice(0, 200);
+              /* report.json and report.md travel with the shots: everything this row carries (the
+                 tap-target names, overflow and ERROR notes, page errors) passes the same checks,
+                 once the note is complete. */
+              const inReport = hitsIn(JSON.stringify(fit) + ' ' + note);
+              if (inReport.length) {
+                try { fs.rmSync(path.join(out, file), { force: true }); } catch { /* best effort */ }
+                await ctx.close();
+                const err = new Error('LEAK GUARD: this screen\'s report would carry real data (' + inReport.length + ' hits, e.g. '
+                  + inReport[0] + '). Its shot is deleted. Stopping with no further shots.');
+                err.leak = true;
+                throw err;
+              }
               rows.push({ file, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields });
               console.log((note ? 'FLAG  ' : 'ok    ') + file + (note ? '  ' + note : '')
                 + `  taps<${MIN_TAP_PX}: ${fit.taps.length}  fields<${MIN_FIELD_FONT_PX}px: ${fit.fields.length}`);
