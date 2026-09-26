@@ -17,8 +17,9 @@
  *   - an ordinary Kosmos note (no audience) still shows on the page, so the filter is not
  *     hiding every note.
  *
- * Controls, measured: with the room route's audience filter removed, the person's-view arms
- * red (the JSON carries the note and the page draws it).
+ * Controls, measured: with the room route's audience filter removed, all five person's-view
+ * arms red in Chromium (the JSON carries the note, the older untagged note too, and the page
+ * draws "This project has no brief yet" instead of its empty state); the agents' arms stay green.
  *
  *   node docs/browser-checks/render-brief-note-agents.js            # headed
  *   HEADED=0 node docs/browser-checks/render-brief-note-agents.js   # headless
