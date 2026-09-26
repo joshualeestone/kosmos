@@ -257,6 +257,10 @@ const LONG_REPLY = 'Here is the plan for tomorrow, in order. First I will finish
 function seedFiles(roots) {
   process.env.AGENT_WORKFORCE_DATA = roots.DATA;
   process.env.AGENT_WORKFORCE_WORKERS = roots.WORKERS;
+  // All four, not only the two the writers below read today: a module that goes back to
+  // capturing LAUNCH or PROJECTS at require time would otherwise write into the real ones.
+  process.env.AGENT_WORKFORCE_LAUNCH = roots.LAUNCH;
+  process.env.AGENT_WORKFORCE_PROJECTS = roots.PROJECTS;
   const fleet = require(path.join(REPO, 'test-support', 'fleet'));
   fs.writeFileSync(path.join(roots.DATA, 'fake-panes'), AGENTS.map((a) => fleet.line({
     session: a.claim + '-discord', claim: a.claim, title: a.title, ...(a.command ? { command: a.command } : {}),
