@@ -1592,7 +1592,14 @@ function geminiStopKey(paneText) {
    bottom edge (the real dialog replaces the composer; a quoted copy has the agent's own screen below it). Or the
    quota error is Gemini's newest line: nothing after it but its empty composer and footer. */
 function geminiQuotaReading(paneText) {
-  const rows = String(paneText || '').split('\n').map(geminiRow).filter((r) => r).slice(-GEMINI_LIMIT_ROWS);
+  /* Two views of the same rows, kept in step: `rows` with the question box's border stripped (for the question), and
+     `raw` with only trailing space removed (for the error line). The border strip would also erase what marks a
+     QUOTED error: a working agent's tool output prints it behind a "│", and its own answer indents it under "✦".
+     Gemini's own error line starts at the left edge (captured), so it is matched there, on the raw row (round 9). */
+  const pairs = String(paneText || '').split('\n').map((line) => ({ row: geminiRow(line), raw: String(line).replace(/\s+$/, '') }))
+    .filter((p) => p.row).slice(-GEMINI_LIMIT_ROWS);
+  const rows = pairs.map((p) => p.row);
+  const raw = pairs.map((p) => p.raw);
   const m = rows.findIndex((r) => GEMINI_QUOTA_DIALOG.test(r));
   if (m >= 0) {
     const after = rows.slice(m + 1);
@@ -1603,7 +1610,7 @@ function geminiQuotaReading(paneText) {
     }
   }
   let at = -1;
-  rows.forEach((r, i) => { if (GEMINI_QUOTA_ERROR.test(r) || GEMINI_QUOTA_OTHER.test(r)) at = i; });
+  raw.forEach((r, i) => { if (GEMINI_QUOTA_ERROR.test(r) || GEMINI_QUOTA_OTHER.test(r)) at = i; });
   if (at < 0) return null;
   const below = rows.slice(at + 1);
   const newer = below.some((r) => (/^>\s+\S/.test(r) && !GEMINI_COMPOSER.test(r)) || /^✦/.test(r));
@@ -1612,7 +1619,7 @@ function geminiQuotaReading(paneText) {
      (a spinner). A copy of the line in a working agent's tool output has a spinner under it. */
   if (!below.some((r) => GEMINI_COMPOSER.test(r))) return null;
   if (below.some((r) => /esc to cancel|[\u2800-\u28FF]/i.test(r))) return null;
-  return { dialog: false, daily: GEMINI_QUOTA_ERROR.test(rows[at]), evidence: rows[at].replace(/^✕\s*/, '') };
+  return { dialog: false, daily: GEMINI_QUOTA_ERROR.test(raw[at]), evidence: rows[at].replace(/^✕\s*/, '') };
 }
 
 /**

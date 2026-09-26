@@ -78,6 +78,11 @@ message after the reset works (item 4 with no restart). The board read the quest
   the question reads unknown for a moment (nothing pressed); Google-subscription credit screens ("Stop - Abort
   request") are not recognised and get no key (another card's scope).
 
+- Review round 9 (Sonnet), BLOCKER fixed: the row clean-up stripped the "│" that marks a quota line QUOTED in a
+  working agent's tool output, so an agent reporting on another pane (turn ended, composer back) read as rate-limited
+  and its manager got a false alarm. The error line is now matched on the raw row at the left edge, where Gemini
+  prints its own; quoted in tool output or indented in an answer, it is not. The question-box reading is unchanged.
+
 ## Weakest premise
 - Matching Gemini's words on screen: a future CLI can reword them. The reading then falls back to today's behaviour
   (unknown/idle), and the sweep presses nothing, since it needs the question recognised.

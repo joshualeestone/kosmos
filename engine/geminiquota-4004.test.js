@@ -112,6 +112,20 @@ test('#4004: after Stop on ANOTHER limit, Google\'s own quota line still reads t
   assert.notEqual(status.classify(gem, quoted).state, 'rate_limited');
 });
 
+test('#4004 CONTROLS: a quota line QUOTED by a working agent whose turn has ended is not its own limit', () => {
+  // Review round 9: its turn is over (nothing working below, its composer back), so only the quote marks remain.
+  for (const line of ['✕ [API Error: You have exhausted your daily quota on this model.]', '✕ [API Error: You exceeded your current quota, limit: 0]']) {
+    const inTool = ['✦ I checked the other agent\'s pane and it shows:', '│ ' + line, '│ That agent is stuck.',
+      '                                                   ? for shortcuts', ' *   Type your message or @path/to/file'].join('\n');
+    assert.notEqual(status.classify(gem, inTool).state, 'rate_limited', 'a line quoted in tool output read as this agent\'s limit: ' + line);
+    const inAnswer = ['✦ The other agent is stuck on this:', '  ' + line, '  It resets at midnight.',
+      '                                                   ? for shortcuts', ' *   Type your message or @path/to/file'].join('\n');
+    assert.notEqual(status.classify(gem, inAnswer).state, 'rate_limited', 'a line quoted in its answer read as this agent\'s limit: ' + line);
+  }
+  // CONTROL: the same line at the left edge, Gemini's own, is the limit.
+  assert.equal(status.classify(gem, AFTER_STOP).state, 'rate_limited');
+});
+
 test('#4004: after Stop with the non-YOLO composer (">   Type your message") below the error, it still reads the limit', () => {
   const nonYolo = AFTER_STOP.replace(' *   Type your message or @path/to/file', ' >   Type your message or @path/to/file');
   assert.equal(status.classify(gem, nonYolo).state, 'rate_limited');
