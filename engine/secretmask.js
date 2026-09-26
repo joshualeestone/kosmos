@@ -81,7 +81,7 @@ function setKnownSecrets(values) {
     const w = f.replace(NOT_KEY_CHARS, '');
     if (w.length < 12 || w.length > WORD_WALK_MAX_FORM || walked.has(w) || madeOfWords(w)) continue;
     walked.add(w);
-    const o = w.slice(0, 4);
+    const o = w.slice(0, OPENING_LEN);
     if (!knownByOpening.has(o)) knownByOpening.set(o, []);
     knownByOpening.get(o).push(w);
   }
@@ -95,7 +95,7 @@ function madeOfWords(v) {
   return pieces.length > 0 && pieces.every((p) => /^[0-9]+$/.test(p) || (p.length >= 3 && /[aeiouy]/i.test(p)));
 }
 let knownByPrefix = new Map();
-/* The held forms the word walk assembles (key characters only), by their first 4 characters (#3935). */
+/* The held forms the word walk assembles (key characters only), by their first OPENING_LEN characters (#3935). */
 let knownByOpening = new Map();
 const NOT_KEY_CHARS = /[^A-Za-z0-9_+/=-]+/g;
 /* The board also holds whole files (engine/knownsecrets.js, up to 64KB) and their encodings. A form that
@@ -103,6 +103,10 @@ const NOT_KEY_CHARS = /[^A-Za-z0-9_+/=-]+/g;
    only forms up to this length are walked (review round 1: one 40,000-character held value made a reply
    that repeated its opening cost over a second). Longer forms are still masked whole by known_secret. */
 const WORD_WALK_MAX_FORM = 1024;
+/* The shortest first piece that starts a walk, and the width of the held forms' opening index. Shorter and
+   ordinary words would start walks against every held value sharing their letters; the cost is that a key
+   cut into chunks of three or fewer, with words between them, is not caught (stated under wordSkippingSpans). */
+const OPENING_LEN = 4;
 /* The held forms that occur in `str`, longest first. */
 function knownFormsIn(str) {
   if (!knownByPrefix.size || typeof str !== 'string') return [];
@@ -245,8 +249,8 @@ function wordSkippingSpans(text) {
     /* The opening may carry italics or a slash after it (_Ab3d_), or end in a _ or / of the key's own
        (review round 3): it is looked for both as written and with those taken off. */
     const stripped = raw.replace(/[_/]+$/, '');
-    for (const run of stripped === raw ? [raw] : [raw, stripped]) for (let q = 0; q + 4 <= run.length; q += 1) {
-      const cands = knownByOpening.get(run.slice(q, q + 4));
+    for (const run of stripped === raw ? [raw] : [raw, stripped]) for (let q = 0; q + OPENING_LEN <= run.length; q += 1) {
+      const cands = knownByOpening.get(run.slice(q, q + OPENING_LEN));
       if (!cands) continue;
       const opening = run.slice(q);
       const group = groupsFor(opening, cands);
@@ -278,6 +282,8 @@ function wordSkippingSpans(text) {
              occurrence, and that start walks it. Carrying on here would skip a whole sibling occurrence as
              noise (review round 2: two held Anthropic keys, both sk-ant-api03-, shown split in one reply,
              joined into one span that masked everything between them). */
+          /* Not charged: each check reads at most the run's own length, and the reach bound above (4x the form in
+             non-whitespace) caps how much run text one walk can visit, so its total is bounded by the form. */
           if (pieces.some((v) => v.length >= opening.length && v.length < f.length && f.startsWith(v))) break;
           let done = false;
           const next = new Set(reached);

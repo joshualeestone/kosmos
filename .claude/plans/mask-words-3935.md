@@ -109,6 +109,14 @@ another filled column, a bullet's description, words around bold or backticked c
 - [NIT] hyphen and other glue --> named in the code's Not covered comment.
 - [NIT] the tests that assert WITHHELD now point at WORD_WALK_BUDGET.
 
+## Review round 4
+- [CONVENTION] the 4-character opening was a raw literal at three sites --> FIXED: OPENING_LEN, with
+  why it is 4 and what that costs.
+- [CONVENTION] the first commit's subject is `kosmos#3935: ...`, neither `#N:` nor `<branch> -- `
+  --> DEFERRED: the repo squash-merges (#3938 landed as one commit), so the PR title is the subject
+  that reaches main, and it uses the branch form. Rewriting pushed history buys nothing.
+- [NIT] the reopening check is not charged --> commented: bounded by the reach, not by the budget.
+
 ## Not covered (still open, named on #3935)
 - pieces out of order or reversed;
 - an opening piece shorter than four characters that also has words after it;
