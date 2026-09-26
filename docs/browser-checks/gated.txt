@@ -171,6 +171,7 @@ render-waiting-phone-718
 render-win32-board-copy
 render-workchip-zero-2157
 render-workindicator-2146
+render-working-pulse-3956
 render-world-import-2563
 render-worldhide-2935
 render-worldrename-1704
