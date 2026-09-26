@@ -1219,7 +1219,7 @@ function isNamedOurs(pane) {
  * (tier 3), still appears, and is still typeable. The name only settles a TIE
  * against a same-named session that does carry the suffix.
  */
-const RANK_NAMED_RUNNING = 0;   // ours by name, unambiguously Claude
+const RANK_NAMED_RUNNING = 0;   // ours by name, an unambiguous agent process
 const RANK_NAMED_CRASHED = 1;   // ours by name, fallen back to a shell
 const RANK_NAMED_LEGACY = 2;    // ours by name, AMBIGUOUS process — `node` only
 /**

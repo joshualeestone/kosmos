@@ -63,6 +63,12 @@ test('#3568: an agent on another program (antigravity, codex) is never named in 
   const named2 = out2.flatMap((a) => a.agents);
   assert.ok(named2.includes('angel'), 'CONTROL');
   assert.ok(!named2.includes('gem2') && !named2.includes('cx2'), 'an untagged agy or codex pane was named: ' + JSON.stringify(named2));
+  // #3953: an untagged Grok pane too, by the command a Mac Grok pane really reads (grok-native).
+  const untaggedGrok = paneOf({ session: 'gk2-discord', pane: '0.5', command: 'grok-native' });
+  const out3 = status.computeLoginAdvisories([untaggedGrok, claudePane], now, { readCcd, readCred, cache: { at: 0, value: [] } });
+  const named3 = out3.flatMap((a) => a.agents);
+  assert.ok(named3.includes('angel'), 'CONTROL');
+  assert.ok(!named3.includes('gk2'), 'an untagged Grok pane was named in a Claude login warning: ' + JSON.stringify(named3));
 });
 
 test('computeLoginAdvisories: a second call within the TTL serves from the injected cache (no re-resolve)', () => {
