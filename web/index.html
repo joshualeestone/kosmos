@@ -43723,12 +43723,12 @@ function pjToldLine(told) {
 }
 
 /**
- * #3923: the project notice (Mona Lisa's design). The variable is what the person must do,
- * not the kind of failure: WAIT (a button only), ACT (a sentence only), RETRY (act, then a
- * button), EXPLAIN (a sentence saying nothing can be done yet). A "Try again" is offered only
- * where pressing it can work. Keyed on the engine's EXACT singular becauses (the same keys as
- * projects.js GROUP_BECAUSE); an unknown one is treated as WAIT with the engine's own sentence,
- * because an unknown cause is what one honest retry is for.
+ * #3923: the project notice (Mona Lisa's design). The variable is what the person must do, not
+ * the kind of failure: WAIT (the reason and Try again), RETRY (the reason, a fix ending "then try
+ * again", and Try again: nothing else re-tells an agent after a fix), EXPLAIN (a sentence saying
+ * nothing can be done yet, no button). Keyed on the engine's EXACT singular becauses (the same keys
+ * as projects.js GROUP_BECAUSE, plus the instruction reader's refusals); an unknown one is treated
+ * as WAIT with the engine's own sentence, because an unknown cause is what one honest retry is for.
  * `solo` is the agent's name when the notice is about one agent (the sentence names it), null
  * in a row of several (the name is beside it).
  */
@@ -43747,9 +43747,7 @@ const PJ_NOTICE = [
     (name) => 'Start ' + name + ', then try again.'],
   [/^something is running under this name, but we cannot tell that it is this agent$/, 'retry', (n) => 'Something is running under ' + (n ? n + '\u2019s' : 'its') + ' name, but Kosmos cannot tell that it is ' + (n || 'the same agent') + '.',
     (name) => 'Restart ' + name + ' from Kosmos, then try again.'],
-  [/^it has no folder of its own on this computer yet$/, 'explain', (n, name) => n
-    ? 'Kosmos only keeps instructions for agents it made. ' + n + ' came from somewhere else, so Kosmos has nowhere to write.'
-    : 'Kosmos only keeps instructions for agents it made, and ' + name + ' came from somewhere else, so Kosmos has nowhere to write.'],
+  [/^it has no folder of its own on this computer yet$/, 'explain', (n, name) => 'Kosmos has no folder for ' + name + ' on this computer, so it has nowhere to write.'],
   [/^it keeps its instructions somewhere we cannot safely change$|^its worker folder /, 'explain', (n) => (n || 'It') + ' keeps its instructions somewhere Kosmos will not change, so Kosmos has nowhere to write.'],
   // The reader's own refusals for a file it cannot safely edit (workerfile.js, instructions.js):
   // pressing again reads the same file the same way, so no button.
@@ -53300,11 +53298,16 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
   const mark = pjNoticeKey(project, key);
   if (reached) PJ_NOTICE_TRIED.set(mark, before);
   box.__lastLive = null;   // repaint even when the answer is word for word the same
-  const landed = await loadProjects();
+  // A newer read that overtook this one also started after the retry, so its data answers the
+  // retry too: the mark stands. One more read gives this handler a paint of its own to focus on.
+  let landed = await loadProjects();
+  if (!landed) landed = await loadProjects();
   btn.disabled = false;
-  // A newer poll overtook this read: it paints on its own, so no focus is placed here.
-  if (!landed) { PJ_NOTICE_TRIED.delete(mark); return; }
-  if (PJ_CURRENT !== project) return;
+  if (!landed || PJ_CURRENT !== project) return;
+  // Only put focus back if it is still where the press left it (the page, or this notice); a
+  // person who has moved on keeps their place.
+  const now = document.activeElement;
+  if (now && now !== document.body && !box.contains(now)) return;
   // Compared as data, not built into a selector, so no session name can break the lookup.
   const again = Array.from(box.querySelectorAll('[data-pn-retry]')).find((b) => b.dataset.pnRetry === key) || null;
   const heading = document.querySelector('.pjcard-members > .dlab');

@@ -1,9 +1,10 @@
 # Plan: kosmos#3923, the project notice (Mona Lisa's design)
 
 ## Finished looks like
-On a project page, while any member's told state is could_not, one notice above the Members list
-names what is wrong, shaped by what the person must do (Wait: Try again only; Act: a sentence only;
-Act then retry: a sentence and Try again; Explain: a sentence saying nothing can be done yet), one row
+On a project page, while any member's told state is could_not, one notice under the Members heading
+names what is wrong, shaped by what the person must do (Wait: the reason and Try again; Act then retry:
+the reason, a fix ending "then try again", and Try again; Explain: a sentence saying nothing can be done
+yet), one row
 per agent when several, using the person's names, with no left bar. Nothing renders when every agent
 has the folder (success and not_tried say nothing). The per-row interim line is gone from the project
 page. Try again re-tells that agent and the notice updates.
@@ -56,3 +57,12 @@ page. Try again re-tells that agent and the notice updates.
   re-tell) becomes a nice-to-have.
 - Try again no longer paints twice (a role=status notice announced twice); "still" is marked only for a
   read that landed, and an overtaken read places no focus.
+
+## Review round 7
+- Try again places focus only if it is still on the page body or in the notice; a newer read that
+  overtook this one keeps the still-mark (it also started after the retry) and one more read gives the
+  handler its own paint to focus on.
+- The no-folder Explain says what is missing ("Kosmos has no folder for X on this computer"), true for a
+  connected agent and for a Kosmos-made one whose folder was deleted.
+- Kept deliberately: engine becauseGroup (still on /api/projects; no page reader now). Removing it is
+  an engine change with its own test, outside this card.

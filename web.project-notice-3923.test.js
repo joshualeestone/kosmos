@@ -2,8 +2,8 @@
 /**
  * #3923: the project notice (Mona Lisa's design, project-notice-mock.html). One notice above the
  * members list while an agent could not be given the project's folder, shaped by what the person
- * must do: WAIT (Try again only), ACT (a sentence only), RETRY (a sentence and Try again),
- * EXPLAIN (a sentence saying there is nothing to do). Success and not_tried say nothing.
+ * must do: WAIT (the reason and Try again), RETRY (the reason, a fix ending "then try again", and
+ * Try again), EXPLAIN (a sentence saying there is nothing to do). Success and not_tried say nothing.
  *
  * The member rows are REAL: the fleet fixture's agents, put on a project by the projects engine
  * and read back through its own `list()`, with the verdicts set in the stored project record
@@ -100,7 +100,7 @@ test('#3923: the four shapes, one agent each, as the design draws them', () => {
   assert.equal(text(retry), 'mikey does not have this project’s folder. Kosmos cannot match mikey to a session on this computer. Start mikey, then try again. Try again');
 
   const explain = pjNotice(rows({ casey: 'it has no folder of its own on this computer yet' }));
-  assert.equal(text(explain), 'casey does not have this project’s folder. Kosmos only keeps instructions for agents it made. casey came from somewhere else, so Kosmos has nowhere to write.');
+  assert.equal(text(explain), 'casey does not have this project’s folder. Kosmos has no folder for casey on this computer, so it has nowhere to write.');
   assert.doesNotMatch(explain, /Try again|pnfix/, 'Explain prescribes nothing');
 
   // A file the reader refuses is Explain too: pressing again reads the same file the same way.
@@ -123,7 +123,7 @@ test('#3923: several agents: the header counts, each row carries its own why and
   assert.doesNotMatch(html, /data-pn-retry="casey"/);
   assert.match(html, /aria-label="Try again for leo"/, 'each button names its agent for a screen reader');
   assert.match(html, /<span class="pnwho">leo<\/span><span class="pnwhy">We could not write to its instructions\./);
-  assert.match(html, /<span class="pnwho">casey<\/span><span class="pnwhy">Kosmos only keeps instructions for agents it made, and casey came from somewhere else, so Kosmos has nowhere to write\./);
+  assert.match(html, /<span class="pnwho">casey<\/span><span class="pnwhy">Kosmos has no folder for casey on this computer, so it has nowhere to write\./);
   assert.doesNotMatch(html, /bob/);
 });
 
@@ -213,17 +213,19 @@ function retryHandler(state) {
   return new Function('state', 'document', 'fetch', 'loadProjects', 'paintOneProject', 'PROJECTS', 'PJ_NOTICE_TRIED', 'window', 'CSS',
     pageFn('const pjNoticeKey').split('\n')[0] + '\nreturn ' + body + ';')(state, state.document, state.fetch, state.loadProjects, state.paintOneProject, state.PROJECTS, state.tried, {}, undefined);
 }
-function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false, overtaken = false } = {}) {
+function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false, overtaken = false, focusedElsewhere = false } = {}) {
   const log = [];
   const btn = { dataset: { pnRetry: project.agents[0].sessionName }, disabled: false, closest() { return this; } };
   const again = { focus() { log.push('focus:again'); } };
   const attrs = {};
   const heading = { focus() { log.push('focus:heading'); }, hasAttribute: (k) => k in attrs, setAttribute: (k, v) => { attrs[k] = v; } };
   again.dataset = { pnRetry: project.agents[0].sessionName };
-  const box = { __lastLive: 'x', querySelectorAll: () => (rowAfter ? [again] : []) };
+  const box = { __lastLive: 'x', querySelectorAll: () => (rowAfter ? [again] : []), contains: () => false };
+  const body = { id: 'body' };
+  const elsewhere = { id: 'composer' };
   const state = {
     PJ_CURRENT: project.id, PROJECTS: [project], tried: new Map(), log, btn, attrs,
-    document: { getElementById: () => box, querySelector: () => heading },
+    document: { getElementById: () => box, querySelector: () => heading, body, get activeElement() { return focusedElsewhere ? elsewhere : body; } },
     fetch: async (url, opts) => { log.push('fetch:' + opts.method + ' ' + url + ' disabled=' + btn.disabled); if (switchTo) state.PJ_CURRENT = switchTo; if (fetchFails) throw new Error('offline'); return { ok: true }; },
     loadProjects: async () => { log.push('load live=' + box.__lastLive); return !overtaken; },
     paintOneProject: () => { log.push('paint live=' + box.__lastLive); },
@@ -262,12 +264,19 @@ test('#3923: when the row is gone focus goes to the Members heading; after a pro
   assert.equal(offline.tried.has(project.id + '\nleo'), false, 'a failed request was recorded as a retry that did not work');
   assert.equal(offline.btn.disabled, false);
 
-  // A newer poll overtook this read: no focus here, and no "still" mark from data that is not ours.
+  // Overtaken twice: the newer reads answer the retry too, so the mark stands; no read of its own
+  // landed, so no focus is placed. (Overtaken once, the second read lands and focuses: the first case.)
   const over = standIn(project, { overtaken: true });
   await retryHandler(over)({ target: over.btn });
-  assert.ok(!over.log.some((l) => l.startsWith('focus:') || l.startsWith('paint')), 'an overtaken read painted or moved focus: ' + over.log);
-  assert.equal(over.tried.size, 0, 'an overtaken read left a still-mark');
+  assert.equal(over.log.filter((l) => l.startsWith('load')).length, 2, 'an overtaken read is read once more');
+  assert.ok(!over.log.some((l) => l.startsWith('focus:')), 'focus placed without a paint of its own: ' + over.log);
+  assert.equal(over.tried.get(project.id + '\nleo'), 'we could not write to its instructions', 'the still-mark was dropped');
   assert.equal(over.btn.disabled, false);
+
+  // Focus is not taken back from someone who has moved on.
+  const away = standIn(project, { focusedElsewhere: true });
+  await retryHandler(away)({ target: away.btn });
+  assert.ok(!away.log.some((l) => l.startsWith('focus:')), 'focus was pulled back from where the person moved it');
 
   // CONTROL: a click that is not on a Try again does nothing at all.
   const idle = standIn(project);
