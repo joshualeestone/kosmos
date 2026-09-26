@@ -15144,7 +15144,7 @@ const server = http.createServer((req, res) => {
      advisory, as on the message route: a local process can claim any pane, so the builder it names is a label, not
      a proof (an enforcing board still needs the board token to reach this at all). No valve: the mark is
      one field set per task, and the same mark again (same builder and note) writes and records nothing. A closed task is refused (409): closing
-     already cleared the mark. The block is not re-synced: the mark changes nothing an agent's instructions list. */
+     already cleared the mark. The block is not re-synced: the mark changes nothing on an agent's instructions list. */
   const taskBuilt = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/built$/);
   if (taskBuilt && req.method === 'POST') {
     const id = decodeSegment(taskBuilt[1]);

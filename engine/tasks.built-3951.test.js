@@ -204,3 +204,17 @@ test('the Assigner does not hand out a built task, and a built task does not kee
   assert.equal(assigner.hasOpenWork('rex', read()), false, 'a built task kept its agent busy');
   assert.equal(assigner.pick('rex', read(), new Set()), null, 'a built task was handed out again');
 });
+
+test('a mark frees the agent who made it, or every agent when the person made it; another agent\'s part stays busy (review round 4)', () => {
+  const assigner = require('../engine/assigner');
+  const p = projects.create({ name: 'Shared ' + Math.random().toString(36).slice(2), agents: ['rex', 'mona'] });
+  const n = tasks.create(p.id, { sentence: 'Shared work' }).number;
+  tasks.addPart(p.id, n, { sentence: 'rex part', who: 'rex' });
+  tasks.addPart(p.id, n, { sentence: 'mona part', who: 'mona' });
+  const read = () => projects.readAll().filter((x) => x.id === p.id);
+  tasks.setBuilt(p.id, n, { by: 'mona' });
+  assert.equal(assigner.hasOpenWork('mona', read()), false, 'the builder is freed');
+  assert.equal(assigner.hasOpenWork('rex', read()), true, 'another agent with an open part was freed by mona\'s mark');
+  tasks.setBuilt(p.id, n, { by: 'operator' });
+  assert.equal(assigner.hasOpenWork('rex', read()), false, 'the person marking it built did not free the agents on it');
+});

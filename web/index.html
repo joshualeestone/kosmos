@@ -46174,7 +46174,7 @@ function tskRow(t, at) {
       + (t.builtAt ? ' ' + esc(agoWords(Date.now() - Date.parse(t.builtAt))) : '')
       + (t.builtNote ? ': ' + esc(t.builtNote) : '')
       /* Review round 1: the person can take a mistaken mark off without closing the task. */
-      + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Task ' + Number(t.number) + ' of ' + esc(t.projectName) + ': not built yet">Not built yet</button></div>';
+      + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(t.projectName) + ' not built yet">Not built yet</button></div>';
   return '<div class="tsk-row' + (on ? ' sel' : '') + (place.depth ? ' d' + place.depth : '') + '" data-key="' + esc(tskKey(t)) + '">'
     + '<input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
     /* The row no longer repeats its state in a status group (the heading says it), so there the
@@ -46681,7 +46681,11 @@ function paintTaskPage() {
 
   document.getElementById('tk-project').textContent = p.name;
   document.getElementById('tk-added').textContent = tkAdded(t);
-  document.getElementById('tk-state').textContent = tkStateWord(t);
+  /* #3951 (review round 4): the task page says the mark too, not only the Tasks tab: who marked it built and what
+     is left. Closing clears it, so a closed task never says it. */
+  const builtWho = t.builtBy === 'operator' ? 'you' : (t.builtBy ? tkMemberName(p, t.builtBy) : '');
+  document.getElementById('tk-state').textContent = tkStateWord(t)
+    + (t.builtAt && !t.closedAt ? ', marked built' + (builtWho ? ' by ' + builtWho : '') + (t.builtNote ? ': ' + t.builtNote : '') : '');
   /* #768: the due date. `document.activeElement` guard so the five-second poll
      does not yank the value out from under someone mid-edit (the same reason the
      Prompter interval paint checks it). Empty input means no due date. */
@@ -46846,7 +46850,8 @@ function tkActPhrase(ev, p) {
     case 'reopened': return 'Put back';
     /* #3951: who marked it built and what was left; and why the mark went. */
     case 'built': { const who = ev.by === 'operator' ? 'You' : nameOf(ev.by); return (who ? who + ' marked it built' : 'Marked built') + (ev.note ? ': ' + ev.note : ''); }
-    case 'unbuilt': return ev.reason === 'new work' ? 'No longer built: new work was added' : 'Built mark taken off';
+    case 'unbuilt': { if (ev.reason === 'new work') return 'No longer built: new work was added';
+      const who = ev.by === 'operator' ? 'You' : nameOf(ev.by); return who ? who + ' took the built mark off' : 'Built mark taken off'; }
     default: return String(ev.kind);
   }
 }
