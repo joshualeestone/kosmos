@@ -120,7 +120,7 @@ test('#3708: Grok wears its real mark and Gemini and Grok name how they connect'
   // Each subtitle names how it connects, not 'works today': Kosmos does not install either one's
   // command line tool yet, so Connect can stop at 'not installed' on a fresh computer.
   assert.match(STEP, /<b>Grok<\/b><small>xAI &middot; subscription or API key today<\/small>/);
-  assert.match(STEP, /<b>Gemini<\/b><small>Google &middot; API key today<\/small>/);
+  assert.match(STEP, /<b>Gemini<\/b><small>Google &middot; subscription or API key today<\/small>/);
 });
 
 test('Claude stays at full weight, the one with an OAuth connect', () => {

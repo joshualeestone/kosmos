@@ -12854,6 +12854,16 @@ test('#2811: the RECORD account path does not score a codex dir as a non-default
   }
 });
 
+test('#3568: an Antigravity agent reads as what the person picked, with the program it runs on', () => {
+  const { sentenceForWhoami } = require('./server.js');
+  const said = sentenceForWhoami(null, null, 'antigravity');
+  assert.match(said, /^This is a Gemini \(Google subscription\) agent \(it runs on Antigravity\), and /, said);
+  assert.match(said, /it signs in with your Google account inside Antigravity/, 'no account is by design, not a fault');
+  assert.doesNotMatch(said, /cannot tell which account/);
+  // CONTROL: a consonant keeps "a".
+  assert.match(sentenceForWhoami(null, null, 'codex'), /^This is a Codex agent, and /);
+});
+
 test('#2811: the sentence a Codex agent reads back actually says Codex', () => {
   /* 🔑 THE ONLY USER-VISIBLE SURFACE OF THE VERB. `install/kosmos` prints the
      `because` sentence and nothing else (it seds the field out of the body), and

@@ -295,7 +295,7 @@ test('#3519: an AGENTS.md folder with a provider:xai hint is ADOPTED as grok', (
    so connecting a folder can never start an Antigravity agent the flag has not switched on. */
 test('#3568: with the flag off, a provider:antigravity hint adopts codex, never antigravity', () => {
   const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY;
-  delete process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  process.env.AGENT_WORKFORCE_ANTIGRAVITY = '0';
   try {
     const dir = agentFolder('scoutagy', 'AGENTS.md', '# You are Scout Agy\n');
     const r = discover.connect(dir, { provider: 'antigravity' });

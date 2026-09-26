@@ -173,7 +173,7 @@ function withAgyOn(fn) {
 }
 test('#3568: with the flag off, installJob refuses an Antigravity agent and writes no job', () => {
   const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY;
-  delete process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  process.env.AGENT_WORKFORCE_ANTIGRAVITY = '0';
   try {
     const name = bornMissingJob('ij-agy-off', 'antigravity');
     const r = create.installJob(name, { ...BINS, antigravityBin: AGY_BIN, platform: process.platform });

@@ -131,6 +131,8 @@ test('#2097(2) (source+exec): the account row is HIDDEN at <2 accounts, SHOWN at
     const switchKeyedWord = switchKeyedWord3566;
     // eslint-disable-next-line no-eval, no-unused-vars
     const paintKeyedProviderOptions = eval('(' + grab('function paintKeyedProviderOptions(') + ')');
+    // eslint-disable-next-line no-unused-vars
+    const paintAgyOption = () => {}; const agyAsk = () => {};   // #3568: tested in web.agy-on-3568
     // eslint-disable-next-line no-eval
     eval('(' + fn + ')')();
     return arow.hidden;

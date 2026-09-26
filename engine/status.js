@@ -6752,7 +6752,14 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
   return le.cachedAdvisories({
     cache: opts.cache || loginAdvCache, now: nowMs, ttlMs: LOGIN_ADV_TTL_MS,
     compute: () => {
-      const agents = panes.filter((p) => isNamedOurs(p)).map((p) => ({ name: p.name, target: p.target }));
+      /* #3568: only an agent that runs on Claude can be in a Claude login warning. A codex, gemini,
+         grok or antigravity pane reads no Claude credential; filed under the bare Claude account's
+         keychain service (its pane has no CLAUDE_CONFIG_DIR), it would be named in a warning about a
+         sign-in it does not use. */
+      const nonClaude = require('./create').isNonClaudeRunner;   // the one list (review round 5)
+      const onClaude = (p) => !nonClaude(p.runner)
+        && !isAntigravityCommand(p.command) && !isCodexCommand(p.command);   // a pane not yet tagged: its command says
+      const agents = panes.filter((p) => isNamedOurs(p) && onClaude(p)).map((p) => ({ name: p.name, target: p.target }));
       return le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred });
     },
   });

@@ -627,7 +627,8 @@ function resolveBin(provider, opts) {
   /* #3568: the Antigravity runner (Google's `agy`, a native binary). Its own installer puts it
      in the vendor's ~/.local/bin/agy, the same shape as Claude Code's ~/.local/bin/claude, so it
      resolves under homeDir() (the AGENT_WORKFORCE_HOME sandbox seam) rather than a fixed path.
-     Env override first, like every runner. Not managed (no Kosmos install). An override must keep
+     Env override first, like every runner. Not managed here: engine/agystatus.js runs Google's own
+     installer on a press (#3568). An override must keep
      the basename `agy`: the board recognises the pane by that command (status.isAntigravityCommand). */
   if (provider === 'antigravity') {
     const envAgy = process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN;

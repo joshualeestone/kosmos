@@ -27,7 +27,9 @@ const PAGE = fs.readFileSync('web/index.html', 'utf8');
 const KEYED_SRC = (() => {
   const r = PAGE.indexOf('const ACCT_KEYED_ROUTE');
   const k = PAGE.indexOf('function keyOnlyProvider(');
-  return PAGE.slice(r, PAGE.indexOf('\n', r)) + '\n' + PAGE.slice(k, PAGE.indexOf('\n}', k) + 2);
+  const v = PAGE.indexOf('function vendorPicksModel(');   // #3568: the one "picks its own model" predicate
+  return PAGE.slice(r, PAGE.indexOf('\n', r)) + '\n' + PAGE.slice(k, PAGE.indexOf('\n}', k) + 2)
+    + '\n' + PAGE.slice(v, PAGE.indexOf('\n', v));
 })();
 const SCRIPT = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
 
