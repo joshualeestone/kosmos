@@ -57,6 +57,7 @@ Card #3955 (Josh, #admin, 2026-09-26 08:11). Design: Mona Lisa's mock on card-sh
 ## Review round 7 (decided)
 - The suite: tools.release-gate.test.js's git sandbox carries the whats-new check, its engine module and a highlights file for the version its arms cut; browser-check selectors (a URL fragment split, the removed Later asserted by button count); reason-grep sites 177.
 - The tour wait uses a real one-hour deadline (a background tab slows timers). Stale comments rewritten (renderUpdateToast's, render-reload-toast's header and README row).
+- The round-6 never-closing-tour test gets a clock that moves a minute per reading (the real deadline made it run a real hour, and the six-file run hung on it for 25 minutes).
 
 ## Tests
 - The chip's two states and its one button; the stale chip never says "Kosmos updated"; engine-stale still first.

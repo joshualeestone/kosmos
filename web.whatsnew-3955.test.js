@@ -101,9 +101,14 @@ test('#3955 round 6: a tour still open after the wait records the version quietl
     if (opts && opts.method === 'POST') { posts.push(url); return { ok: true, text: async () => '' }; }
     return { ok: true, json: async () => ({ current: '0.6.98', seen: '0.6.97', highlights: H1 }) };
   };
-  const run = new Function('fetch', 'bakedVersion', 'wnOpen', 'setTimeout',
+  /* The wait is a real deadline (round 7), so this test's clock moves a minute per reading: the hour
+     passes in 60 turns instead of an hour of real time. */
+  let t = 0;
+  const clock = { now: () => (t += 60000) };
+  const run = new Function('fetch', 'bakedVersion', 'wnOpen', 'setTimeout', 'Date',
     'let TIP_OPEN = { step: 1 };\n' + page.liftAll(SCRIPT, ['wnNewer', 'whatsNewCheck']) + '\nreturn whatsNewCheck();');
-  await run(fetchStub, () => '0.6.98', (v) => opened.push(v), (f) => setImmediate(f));
+  await run(fetchStub, () => '0.6.98', (v) => opened.push(v), (f) => setImmediate(f), clock);
+  assert.ok(t >= 3600000, 'CONTROL: the wait ran to its hour');
   assert.deepEqual(opened, [], 'the window opened over a tour that never closed');
   assert.deepEqual(posts, ['/api/whats-new/seen'], 'the version was not recorded, so it would try again every load');
 });
