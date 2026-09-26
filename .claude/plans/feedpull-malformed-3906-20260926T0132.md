@@ -14,6 +14,11 @@ Deferred from #3878's review loop (kosmos#3904, iteration 8). `pull` already ans
 - The counts are derived ONCE in `pull` (malformed = skipped - unreadable - unwritten) into one result shape shared by ok and failed pulls.
 - `reasonClauses` gives the reasons: the failure message joins them and the summary prints them. A partial pull's malformed remainder is now explained too.
 
+## Review iterations 4 to 6
+- A stale duplicate of the #3906 comment was deleted (iteration 4).
+- "malformed" is said as "N report(s) malformed (not a valid report, or no url)". A failed save removes its .tmp (iteration 5).
+- The public-store note is a TOKEN hint, so it is left out when every skip was a local save failure. The decision is ONE function, `storeNoteApplies`, used by the failure message and the summary alike. Iteration 5 had applied it to the failure path only; iteration 6 caught the second derivation.
+
 ## Tests
 `engine/feedbackpull.test.js`:
 - all malformed;
@@ -22,6 +27,7 @@ Deferred from #3878's review loop (kosmos#3904, iteration 8). `pull` already ans
 - a partial pull with a local write failure;
 - all three kinds together, each counted once;
 - a partial pull explains its malformed remainder, and both results carry the same fields;
+- the store note: dropped on a save-only failure and on a save-only partial pull; kept on a clean public pull and on an unreadable one;
 - controls: one good report among bad ones, and an empty listing.
 
 The mutation that restores the old condition runs red.

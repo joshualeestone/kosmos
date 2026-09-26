@@ -276,7 +276,7 @@ async function pull(dir, opts) {
       written += 1;
     } catch (e) {
       skipped += 1; unwritten += 1; lastWriteError = String((e && e.message) || e);
-      // Best effort: a rename that failed after the write would leave the .tmp behind.
+      // Best effort: remove a .tmp the failed write or rename may have left behind.
       try { fs.rmSync(path.join(target, fileName(rec)) + '.tmp', { force: true }); } catch { /* cleanup only */ }
     }
   }
@@ -302,9 +302,7 @@ async function pull(dir, opts) {
   if (written === 0 && skipped > 0) {
     return { ok: false, ...counts,
       because: 'the store listed ' + reports(total) + ' and none was pulled: ' + reasonClauses(counts).join('; ')
-        // The store note is about the TOKEN; when every skip was a local save failure the
-        // reports were read fine and the token is not the problem, so it is left out.
-        + '.' + (fromPublicStore && unwritten < skipped ? ' ' + PUBLIC_STORE_NOTE : '') };
+        + '.' + (storeNoteApplies(counts) ? ' ' + PUBLIC_STORE_NOTE : '') };
   }
   // A partial pull is still ok, and its summary gives the same reasons for every skip.
   return { ok: true, ...counts };
@@ -316,6 +314,13 @@ async function pull(dir, opts) {
 const PUBLIC_STORE_NOTE = 'These reports were listed from a PUBLIC blob store. That is expected until the site\'s '
   + 'private-store migration (kosmos#3878) has run; after it, refile ' + FEEDBACK_TOKEN_TARGET
   + ' with the private feedback store\'s token.';
+
+/* Whether a result carries the public-store note: the listing came from a PUBLIC store,
+   and the skips (if any) were not ALL local save failures, which say nothing about the
+   token. One decision for the failure message and the summary. */
+function storeNoteApplies(r) {
+  return !!r.fromPublicStore && !(r.skipped > 0 && r.unwritten === r.skipped);
+}
 
 /* A count with its noun: "1 report", "2 reports". */
 function reports(n) { return n + (n === 1 ? ' report' : ' reports'); }
@@ -359,7 +364,7 @@ function summaryLines(r) {
       + ' holds the private feedback store\'s token (kosmos#3878).');
   }
   out.push(...reasonClauses(r));
-  if (r.fromPublicStore) out.push('note: ' + PUBLIC_STORE_NOTE);
+  if (storeNoteApplies(r)) out.push('note: ' + PUBLIC_STORE_NOTE);
   return out;
 }
 
