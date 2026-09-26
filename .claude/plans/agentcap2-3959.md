@@ -54,6 +54,11 @@ IN the error text, because both CLIs print only the error (Homer checked).
   DECIDED, not a side effect: Josh ruled no working limit on agents, and 500 an hour still stops a
   loop within minutes. Counting DELIVERIES instead of messages would be the tighter design; it is
   named on #3959 as the thing to do if a real run floods a screen.
+- **Part changes rewrite instruction files** (review round 5). Every agent part add or reassign
+  runs tellEveryoneOn, which rewrites the instruction file of each person on the task. Moving the
+  parts cap from 12 to 500 an hour raises that too, to about 500 rounds of rewrites an hour times
+  the people on the task. DECIDED, same as task messages: Josh's no-working-limit ruling; 500 an
+  hour still stops a loop within minutes.
 - **The membership valve's wait** is still worked out from the OLDEST change, the bug this branch
   fixes for parts (right only at exactly the limit, too short after an overshoot). Out of scope with
   the valve itself; named on #3959 so it can move onto runawayRefusal later.

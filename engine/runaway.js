@@ -1,8 +1,8 @@
 'use strict';
 
 /* #3959: the one runaway breaker for agent-made work. Josh ruled (09-26) that agents are not
-   limited in how many tasks, projects, part changes or task messages they make; only a loop is
-   stopped. Every such limit counts all agents together, so its refusal must say the limit, that
+   limited in how many tasks and projects they make; Splinter's follow-up applied the same to part
+   changes and task messages. Only a loop is stopped. Every such limit counts all agents together, so its refusal must say the limit, that
    it is shared, and when it lifts: both CLIs print only the error text (Homer checked), so the
    sentence is the whole answer an agent gets. */
 const AGENT_RUNAWAY_PER_HOUR = 500;
@@ -17,8 +17,8 @@ const AGENT_RUNAWAY_WINDOW_MS = 3600000;
    Returns null to allow, or { because, retryAfterSecs, count }. The wait is when enough of the
    OLDEST writes leave the hour to bring the count under the limit, capped at the window so a
    record dated in the future never quotes a longer wait. A limit of 0 always refuses and quotes
-   the full hour (callers that mean "switched off" say so themselves, as the task-message route
-   does). */
+   the full hour (callers that mean "switched off" say so themselves, as taskMessageRefusal in
+   server.js does). */
 function runawayRefusal(times, what, { now = Date.now(), limit: rawLimit = AGENT_RUNAWAY_PER_HOUR } = {}) {
   // A whole number of writes: a fractional limit would index between two writes and give NaN.
   const limit = Number.isFinite(rawLimit) && rawLimit >= 0 ? Math.floor(rawLimit) : AGENT_RUNAWAY_PER_HOUR;

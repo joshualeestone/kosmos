@@ -1702,9 +1702,9 @@ function policySummaries(r) {
      - anything else (negative, not a number) gives the default. */
 function taskMsgCapFrom(raw) {
   const s = raw === undefined || raw === null ? '' : String(raw).trim();
-  if (s === '') return AGENT_RUNAWAY_PER_HOUR;
-  const n = Number(s);
-  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : AGENT_RUNAWAY_PER_HOUR;
+  // Plain decimal only: '0x10' or '1e3' are not a cap an operator means, so they give the default.
+  if (!/^\d+(\.\d+)?$/.test(s)) return AGENT_RUNAWAY_PER_HOUR;
+  return Math.floor(Number(s));
 }
 let TASK_MSG_CAP_PER_HOUR = taskMsgCapFrom(process.env.AGENT_WORKFORCE_TASK_MSG_CAP);
 // Test-only: set the cap for a test and restore it (no argument restores the environment's value).
@@ -1719,7 +1719,9 @@ let taskMessageSends = [];
 function taskMessageRefusal(now = Date.now()) {
   taskMessageSends = taskMessageSends.filter((t) => t >= now - TASK_MSG_WINDOW_MS);
   if (TASK_MSG_CAP_PER_HOUR === 0) {
-    // No retry time: waiting does not help while the cap is 0, so none is offered.
+    // No retry time: waiting does not help while the cap is 0, so none is offered. It stays a 429,
+    // not a 403, on purpose: both kosmos CLIs print the error text either way, and a 403 reads as
+    // "your token was refused", which would send the agent to fix its sign-in instead.
     return { because: 'agent task messages are switched off on this computer (AGENT_WORKFORCE_TASK_MSG_CAP is 0); the person can still send from the screen', retryAfterSecs: null };
   }
   const r = runawayRefusal(taskMessageSends, { noun: 'task messages', did: 'sent',
@@ -17053,7 +17055,7 @@ if (require.main === module) {
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
-  get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker)
+  get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker); read it when needed, a destructured copy goes stale after setTaskMsgCapForTests
   taskMsgCapFrom, setTaskMsgCapForTests, // #3959: how the operator's value is read, and the test seam
   resetRetellForTests: () => { RETELL_RECENT.length = 0; }, // #3923: the agent-made retry bound, emptied between tests
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book

@@ -11724,7 +11724,7 @@ test('#3959: agent task messages default to the same 500-an-hour breaker (the op
   // How an operator's value is read: unset, empty and blank mean "not set" (the default);
   // 0 is a deliberate off; a fraction rounds down; nonsense falls back to the default.
   const cases = [[undefined, 500], ['', 500], ['  ', 500], ['0', 0], ['2', 2], ['2.5', 2], ['0.5', 0], ['750', 750],
-    ['-1', 500], ['abc', 500], [' 7 ', 7]];
+    ['-1', 500], ['abc', 500], [' 7 ', 7], ['0x10', 500], ['1e3', 500]];
   for (const [raw, want] of cases) assert.equal(taskMsgCapFrom(raw), want, 'AGENT_WORKFORCE_TASK_MSG_CAP=' + JSON.stringify(raw));
 });
 
