@@ -177,7 +177,9 @@ async function seenIsCurrent() {
         chk(wn.title === 'Kosmos has been updated' && wn.ver === 'Version 0.6.98', theme + ': it says Kosmos has been updated, and the version', wn.title + ' / ' + wn.ver);
         chk(wn.tiles === 4 && wn.icons === 4, theme + ': four highlight tiles, each with its icon', wn.tiles + ' tiles, ' + wn.icons + ' icons');
         chk(wn.focus === 'wn-ok' && wn.centred, theme + ': focus on Got it, the card centred over the dimmed app', JSON.stringify({ focus: wn.focus, centred: wn.centred, dim: wn.dim }));
-        chk(wn.more === 'https://installkosmos.com/versions' + '#' + 'v0-6-98' && wn.rel === 'noreferrer noopener',   // split: a URL fragment, not a page id theme + ': "See everything that changed" goes to this version on the site', wn.more);
+        // The URL is split so the selectors test does not read its fragment as a page id.
+        chk(wn.more === 'https://installkosmos.com/versions' + '#' + 'v0-6-98' && wn.rel === 'noreferrer noopener',
+          theme + ': "See everything that changed" goes to this version on the site', wn.more);
       }
       // The window's words clear 4.5:1 (round 4 tiles; round 5 the version pill and the link too).
       const words = await pg.evaluate(() => {

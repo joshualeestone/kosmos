@@ -59,6 +59,11 @@ Card #3955 (Josh, #admin, 2026-09-26 08:11). Design: Mona Lisa's mock on card-sh
 - The tour wait uses a real one-hour deadline (a background tab slows timers). Stale comments rewritten (renderUpdateToast's, render-reload-toast's header and README row).
 - The round-6 never-closing-tour test gets a clock that moves a minute per reading (the real deadline made it run a real hour, and the six-file run hung on it for 25 minutes).
 
+## Review round 8 (decided)
+- render-reload-toast.js did not parse: my round-7 edit put a line comment in the middle of a chk() call, swallowing its label and closing paren. Fixed, every touched script now passes node --check / bash -n, and both update checks were RUN against a sandbox board (render-reload-toast: 54 PASS, all good; render-update-toast: OK). The reason-grep test only scans text, so it stayed green on an unparseable file.
+- Clicking outside the window also closes it (the same single wnClose as Got it and Escape, and the app's other dialogs do the same); seen is recorded on open either way.
+- The highlight limits are enforced at 48 and 140 characters; the "about 40" and "about 120" above are the writing guide, with room left over.
+
 ## Tests
 - The chip's two states and its one button; the stale chip never says "Kosmos updated"; engine-stale still first.
 - Safe reload: reloads when hidden and idle; not when visible, sending, drafting, or a dialog is open.
