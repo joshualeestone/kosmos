@@ -67,6 +67,11 @@ The field is present on the measured Claude Code build only; another build
 could rename it. Then nothing is written, and the account falls back to the
 token slider, which is the safe direction.
 
+A second, smaller one: forward-only assumes the weekly figure never drops
+mid-week. If the provider ever reset usage mid-week, the recorded figure would
+stay high until the week ends. That errs toward pausing a swarm early, which
+is the safe direction again.
+
 ## Tests
 
 `engine/allowance.test.js` (16). The script runs the way Claude Code runs it,
@@ -78,4 +83,6 @@ against a sandbox home (extracted from setup.sh). Mutations shown red:
 - letting a lagging reading step back;
 - treating a reset stamp seconds apart as a new week;
 - setup not wiring the statusline;
-- setup's guard removed.
+- setup's guard removed;
+- accounts.js requiring allowance at load again (the fixture copies files, because a
+  symlinked one resolved the real module and could not fail).

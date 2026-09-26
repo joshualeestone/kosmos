@@ -226,20 +226,20 @@ function ephemeralMismatch(settingsPath, commandPaths) {
   let realTmp = rawTmp;
   try { realTmp = fs.realpathSync(rawTmp); } catch { /* keep the raw value */ }
   /* Type-safe on purpose: this module never throws for an expected shape,
-     and both callers fail soft. A non-string settingsPath must NOT throw
-     here -- it falls through to the read below, which answers with a
-     sentence. underRoot returns false for a non-string rather than calling
+     and its callers fail soft. A non-string settingsPath must NOT throw
+     here: this answers false, and the caller's readSettings answers it with
+     a sentence. underRoot returns false for a non-string rather than calling
      .startsWith on it (#1582 review). */
   const underRoot = (p, root) => typeof p === 'string' && (p === root || p.startsWith(root + path.sep));
-  /* #570: the win32 entry carries TWO paths (node as the exec-form command,
-     script as args[0]), so BOTH must be vetted -- a durable settings file
-     pointing at an ephemeral runtime/node.exe is the same #1582 defect as
-     pointing at an ephemeral script. `node` is null off win32, where the entry
-     carries only the script. */
+  /* #570: every path the command will carry is vetted, not just the script:
+     the win32 report hook also carries node (the exec-form command), and a
+     durable settings file pointing at an ephemeral runtime/node.exe is the
+     same #1582 defect as pointing at an ephemeral script. The caller passes
+     them all in commandPaths. */
   const scriptEphemeral = (commandPaths || []).some((p) => underRoot(p, rawTmp) || underRoot(p, realTmp));
   /* Durable = a real settings path that is NOT under temp. A null/undefined
-     settingsPath is neither durable nor ephemeral here, so the refusal does
-     not fire and the downstream read handles the malformed input. */
+     settingsPath is neither durable nor ephemeral here, so this answers false
+     and the caller's readSettings handles the malformed input. */
   const settingsDurable = typeof settingsPath === 'string'
     && !underRoot(settingsPath, rawTmp) && !underRoot(settingsPath, realTmp);
   /* Coupling this fix relies on, verified against the cut scripts (#1582

@@ -222,11 +222,17 @@ function runSetupBlock({ withAllowance }) {
   const kh = path.join(root, 'kosmos');
   const eng = path.join(kh, 'app', 'engine');
   fs.mkdirSync(eng, { recursive: true });
+  /* COPIES in the installed layout, not symlinks: node resolves a symlinked module
+     to its real path, so a symlinked fixture would find allowance.js in the repo
+     even when this "bundle" leaves it out, and the missing-module arm would pass
+     without testing anything. */
   for (const f of fs.readdirSync(__dirname)) {
     if (!f.endsWith('.js') || f.endsWith('.test.js')) continue;
     if (!withAllowance && f === 'allowance.js') continue;
-    fs.symlinkSync(path.join(__dirname, f), path.join(eng, f));
+    fs.copyFileSync(path.join(__dirname, f), path.join(eng, f));
   }
+  fs.mkdirSync(path.join(kh, 'app', 'bin'), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, '..', 'install', 'kosmos-report-hook.sh'), path.join(kh, 'app', 'bin', 'kosmos-report-hook.sh'));
   const home = path.join(root, 'home');
   fs.mkdirSync(home, { recursive: true });
   const r = spawnSync(NODE, ['-', kh], { input: setupHookProgram(), encoding: 'utf8',
@@ -240,6 +246,7 @@ test('setup.sh wires the default account with the report hooks AND the statuslin
   assert.equal(r.status, 0, r.stderr);
   assert.ok(data && data.hooks && Array.isArray(data.hooks.Stop), 'the report hooks were not wired');
   assert.ok(allowance.isOurs(data.statusLine), 'the statusline was not wired: ' + JSON.stringify(data && data.statusLine));
+  assert.match(data.statusLine.command, /app\/engine\/kosmos-statusline\.js/, 'the command does not name the bundle copy');
 });
 
 test('setup.sh: a statusline that cannot be wired does not change the hooks\' answer', () => {

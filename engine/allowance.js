@@ -14,11 +14,12 @@
  * An account that already has its own statusline is LEFT ALONE: replacing it
  * would take away something the person set up, which is clobbering. That
  * account simply has no weekly reading, and the swarm limit stays in tokens
- * for it. The same holds for API-key accounts (no weekly figure exists; they
- * are wired anyway, because an account's key can be swapped for a sign-in
- * later and the slot costs nothing while empty) and, for now, Windows: a statusline is a shell string there, and the report
- * hook's exec form (#570) does not apply to it, so wiring it needs the
- * Windows box to verify (the Mac does not ship a Windows change unverified).
+ * for it. API-key accounts have no weekly figure, but they are wired anyway:
+ * a key can later be swapped for a sign-in, and the slot costs nothing while
+ * empty. Windows is not wired for now: a statusline is a shell string there,
+ * the report hook's exec form (#570) does not apply to it, and wiring it
+ * needs the Windows box to verify (the Mac does not ship a Windows change
+ * unverified).
  *
  * MERGE-ONLY, NEVER CLOBBER, through the same read/write/#1582 helpers as
  * engine/reporthook.js, so there is one copy of each. It requires only
@@ -47,12 +48,17 @@ function scriptPath() {
  * writes it, so a versioned path is a trap: a board run from source under
  * Homebrew has execPath /opt/homebrew/Cellar/node/<version>/bin/node, which
  * the next upgrade deletes. So prefer, in order: the installed bundle's own
- * runtime (beside app/, stable across updates), then a stable symlink that
- * resolves to the same binary, then execPath as it is.
+ * runtime (only when this file sits in an installed app/engine), then
+ * Homebrew's unversioned link when it resolves to the same binary, then
+ * execPath as it is. Other version managers (nvm, fnm, volta, asdf) have no
+ * unversioned link, so a source run under one of them bakes a versioned path;
+ * the next setup or prepare repoints it. Installed Kosmos always takes the
+ * first branch.
  */
 function stableNode(execPath = process.execPath) {
+  const installed = path.basename(__dirname) === 'engine' && path.basename(path.dirname(__dirname)) === 'app';
   const bundled = path.resolve(__dirname, '..', '..', 'runtime', 'bin', 'node');
-  if (fs.existsSync(bundled)) return bundled;
+  if (installed && fs.existsSync(bundled)) return bundled;
   let real = null;
   try { real = fs.realpathSync(execPath); } catch { return execPath; }
   for (const link of ['/opt/homebrew/bin/node', '/usr/local/bin/node']) {
