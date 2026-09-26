@@ -1473,7 +1473,10 @@ function sentenceForWhoami(account, model, runner) {
        a missing startup file, and this arm is reachable WITH one present (a job
        exists, carries no account dir, and no row of the right provider matched),
        so borrowing that reason would state a cause that is sometimes false. */
-    : (named ? named + 'we cannot tell which account it runs on' : why));
+    : (named ? named + (runner === 'antigravity'
+      // #3568 (review round 9): no Kosmos account by design, so not a fault to report.
+      ? 'it signs in with your Google account inside Antigravity'
+      : 'we cannot tell which account it runs on') : why));
   parts.push(model && model.name ? 'and its model is ' + model.name : 'and we cannot tell which model it is running');
   return parts.join(', ') + '.';
 }
