@@ -481,7 +481,10 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   .askdev svg { width: 22px; height: 22px; stroke: var(--k-ink); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .askwho b { font-size: 1rem; color: var(--k-ink); }
   .askwho span { margin-left: 8px; font-size: .8rem; color: var(--k-ink-2); }
-  .askcode { grid-column: 3; grid-row: 1 / span 2; font: 600 1.7rem/1 var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .08em; color: var(--k-ink); }
+  /* #3952: the code on its own row under who and when (was large at the right), in the shared boxes. */
+  .askcode { grid-column: 2 / span 2; }
+  .askcode .devcode { color: var(--k-ink); }
+  .askcode .devcode-cell { border-color: var(--k-rule); background: rgba(255,255,255,.6); }
   .askreq .asksay { grid-column: 2; font-size: .85rem; color: var(--k-ink-2); }
   .askreq .acts { grid-column: 2 / span 2; display: flex; gap: 8px; margin-top: 6px; }
   .askcard .btn.uprime, .askcard .btn.uprime:hover { background: #2f57c4; border-color: #2f57c4; color: #fff; }
@@ -8516,9 +8519,15 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    4, a dash, 4). Display only, not an input: the same big-box look as the Kosmos+ code boxes (#3942), drawn in this
    page's own colours. The characters are real text, so it copies and reads as the code; the boxes are borders. */
 /* INLINE-BLOCK, not flex, on purpose: flex items are blockified, so the browser's own text of the row (what a person
-   gets by selecting it and pressing Copy) came out one character per line. Inline boxes keep it one run: "49SE-FJW2". */
-.devcode { display: block; margin: .5rem 0 .25rem; white-space: nowrap;
-  font: 650 1.6rem/1 ui-monospace, Menlo, monospace; font-size: min(1.6rem, 6.4vw); color: var(--label); }
+   gets by selecting it and pressing Copy) came out one character per line. Inline boxes keep it one run: "49SE-FJW2".
+   SIZED TO ITS OWN BOX, not the screen (review round 1, measured: first run's Grok box is 222px on a 360px phone, and
+   vw-sized boxes ran past it): .devcode-fit is the container and the size is in cqw, the #3942 approach, with vw only
+   where container units are missing. Each group is one unbreakable piece and the row may break after the dash, so a
+   narrow box shows 4 over 4 rather than cutting the code off. 10cqw fits a group of five characters in its box. */
+.devcode-fit { display: block; container-type: inline-size; margin: .5rem 0 .25rem; }
+.devcode { display: block; letter-spacing: normal;
+  font: 650 1.6rem/1.25 ui-monospace, Menlo, monospace; font-size: min(1.6rem, 6vw); font-size: min(1.6rem, 10cqw); color: var(--label); }
+.devcode-grp { display: inline-block; white-space: nowrap; }
 .devcode-cell { display: inline-block; box-sizing: border-box; vertical-align: middle; text-align: center;
   width: 1.45em; height: 1.75em; line-height: calc(1.75em - 3px); margin-right: .22em;
   border-radius: 10px; border: 1.5px solid var(--border-strong); background: var(--bg-elevated); }
@@ -8526,8 +8535,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 #firstrun .devcode { color: var(--k-ink); }
 #firstrun .devcode-cell { border-color: var(--k-rule); background: rgba(255,255,255,.6); }
 .devcode-note { display: block; margin-top: .35rem; }
-.fr-cmd.devcode-host { background: none; border: 0; padding: 0; letter-spacing: normal; }
-.devcode-host .devcode { margin: 0; }
+/* The Windows copy row keeps the code as text for Copy to read, hidden to the eye: the boxes above it are the code. */
+.oa-devrow .fr-cmd.devcode-copytext { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 /* The manual update offer's numbered steps (W-25). */
 .upd-manual-steps { margin: 8px 0 0; padding-left: 1.4em; }
 .upd-manual-steps li { margin: 2px 0; }
@@ -17986,9 +17995,9 @@ function esc(s) {
    optional line under the boxes. */
 function devCodeHtml(lead, code, note) {
   const groups = String(code || '').split('-').filter((g) => g);
-  const cells = groups.map((g) => [...g].map((ch) => '<span class="devcode-cell">' + esc(ch) + '</span>').join(''))
-    .join('<span class="devcode-dash">-</span>');
-  return esc(lead) + '<span class="devcode" role="img" aria-label="' + esc(groups.map((g) => [...g].join(' ')).join(', ')) + '">' + cells + '</span>'
+  const cells = groups.map((g, i) => '<span class="devcode-grp">' + [...g].map((ch) => '<span class="devcode-cell">' + esc(ch) + '</span>').join('')
+    + (i < groups.length - 1 ? '<span class="devcode-dash">-</span>' : '') + '</span>').join('<wbr>');
+  return esc(lead) + '<span class="devcode-fit"><span class="devcode" role="img" aria-label="' + esc(groups.map((g) => [...g].join(' ')).join(', ')) + '">' + cells + '</span></span>'
     + (note ? '<span class="devcode-note">' + esc(note) + '</span>' : '');
 }
 /* xAI's own page says to enter "the code shown in your terminal" (Josh read it as having to open a terminal). */
@@ -23159,9 +23168,11 @@ function openaiSubDeviceMarkup(out) {
     const addr = openaiSubDeviceAddress(out.authUrl);
     const lead = addr ? windowsCopy('openaiSubCodeLeadAt').replace('%ADDR%', '<b>' + esc(addr) + '</b>') : windowsCopy('openaiSubCodeLead');
     return { key: 'code:' + out.userCode + '@' + addr, html: lead
-      /* #3952: the same boxes as every device code, drawn INSIDE the .fr-cmd the Copy button reads, so Copy still
-         takes exactly the code (the boxes' characters are its text, the dash included). */
-      + '<span class="fr-cmd-row oa-devrow"><code class="fr-cmd oa-devcode devcode-host">' + devCodeHtml('', out.userCode) + '</code>'
+      /* #3952: the same boxes as every device code, on their own row ABOVE the Copy row (inside the row's scrolling
+         .fr-cmd a phone showed three of nine boxes, review round 1); the .fr-cmd keeps the code as text, hidden to
+         the eye, so Copy still takes exactly the code. */
+      + devCodeHtml('', out.userCode)
+      + '<span class="fr-cmd-row oa-devrow"><code class="fr-cmd oa-devcode devcode-copytext">' + esc(out.userCode) + '</code>'
       + '<button class="btn-quiet fr-copy" type="button" data-copy-command>' + windowsCopy('copyLabel') + '</button></span>' };
   }
   if (out && out.instructions) {
@@ -36944,7 +36955,9 @@ function paintAsk() {
     const say = d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
     return '<div class="askreq' + (stale ? ' stale' : '') + '"><div class="askdev">' + askIcon(kind) + '</div>' +
       '<div class="askwho"><b>' + askEsc(kind) + '</b><span>' + askEsc(askAgo(d.first_seen)) + '</span></div>' +
-      (d.code ? '<div class="askcode"><span class="vh">code </span>' + askEsc(d.code) + '</div>' : '') +
+      /* #3952: the code in the same boxes as every device code, on its own row, so it can be matched at a glance
+         against the device in the person's hand (Josh 09-26: "they matched perfectly"). */
+      (d.code ? '<div class="askcode">' + devCodeHtml('', d.code) + '</div>' : '') +
       '<p class="asksay">' + say + again + (e && e.state === 'error' ? ' ' + askEsc(e.because) : '') + '</p>' +
       '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + askEsc(kind) + (d.code ? ', code ' + askEsc(d.code) : '') + '">Allow</button>' +
       '<button class="btn" type="button" data-ask="deny" data-id="' + askEsc(d.device_id) + '" aria-label="Deny ' + askEsc(kind) + (d.code ? ', code ' + askEsc(d.code) : '') + '">Deny</button></div></div>';

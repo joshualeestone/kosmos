@@ -19,11 +19,24 @@ similar graphical fashion so that it visually matches ... Oh crap, I have to ent
   copying the code by hand got newlines, and the GitHub door check (innerText) would have gone red.
 - Page colours, not the Kosmos+ page's dark palette: #3942's boxes are scoped to that page; these match its shape.
 - The "terminal" line only on xAI's flow (only xAI's page says it).
-- Kosmos+ device approval: no device code is drawn by this page for it (searched); nothing to change here.
+
+## Review round 1 (Opus), what changed
+- BLOCKER, my own false claim: "measured at 360px" measured a full-width test paragraph, not the real boxes (first
+  run's Grok box is 222px). The boxes now size to their own container (cqw, the #3942 approach, vw fallback), each
+  group is one piece, and the row breaks after the dash: 4 over 4 on a phone. 360px arms added to both checks; they
+  go RED on the previous commit's page (the defect the reviewer measured) and green now.
+- BLOCKER: on Windows the boxes sat in the Copy row's scrolling cell (3 of 9 showed). They now sit on their own row
+  above it; the cell keeps the code as text, hidden to the eye, so Copy is unchanged.
+- WARNING: the Kosmos+ device approval card (#3829) was missed, my search was wrong. Its code is now in the same boxes,
+  on its own row under the device and time (it was large at the right; Mona's #3829 layout, told).
+- WARNING: the GitHub door check asserts the boxes, not only the text.
+- NITs: letter-spacing reset on .devcode itself; the tinted strip is gone with the host class.
+- Deferred NIT: role="img" makes VoiceOver add "image" after the code. A hidden-text alternative would be copied
+  along with the code by a hand selection, so the label stays.
 
 ## Weakest premise
-- A provider whose code has no dash is one group: fine for 8 or fewer characters; a long one would still fit (nowrap,
-  measured at 360px for 9 characters) but would not match a provider page that groups differently.
+- A provider whose code has no dash is one group, which cannot break: 10cqw fits five characters in its box, so a
+  longer undashed code shrinks rather than wraps. Every code seen so far has a dash (xAI 4-4, OpenAI 4-5, GitHub 4-4).
 
 ## Tests
 - render-grok-subscription-3391.js: Settings and first run show 8 boxes, one dash, the right text, one row, readable

@@ -48,8 +48,8 @@ const CODE = 'Q7RT-4KXWZ';
 
 /* One page per arm. `platform` stamps the served meta the way server.js does and runs
    the copy layer; `start` and `status` are what the stubbed engine answers. */
-async function arm(browser, { platform, where, start, status }) {
-  const page = await browser.newPage({ viewport: { width: 900, height: 1000 } });
+async function arm(browser, { platform, where, start, status, width }) {
+  const page = await browser.newPage({ viewport: { width: width || 900, height: 1000 } });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('file://' + PAGE);
@@ -100,6 +100,7 @@ async function arm(browser, { platform, where, start, status }) {
       boxText: code ? [...code.querySelectorAll('.devcode-cell')].map((c) => c.textContent).join('') : '',
       boxDashes: code ? code.querySelectorAll('.devcode-dash').length : 0,
       boxNote: !!(code && code.querySelector('.devcode-note')),
+      boxInside: !!code && [...code.querySelectorAll('.devcode-cell')].every((c) => c.getBoundingClientRect().right <= code.getBoundingClientRect().right + 0.5 && c.getBoundingClientRect().width >= 20),
       how: how ? how.textContent.replace(/\s+/g, ' ').trim() : null,
       openText: open ? open.textContent.trim() : null,
       starts: window.__starts,
@@ -135,6 +136,9 @@ async function arm(browser, { platform, where, start, status }) {
   const device = { start: { sessionId: 's1', mode: 'device' }, status: { state: 'awaiting-code', authUrl: URL, userCode: CODE } };
   const winFirstRun = await arm(browser, { platform: 'win32', where: 'firstrun', ...device });
   const winSettings = await arm(browser, { platform: 'win32', where: 'settings', ...device });
+  // #3952 review round 1: on a 360px phone the boxes once sat inside the copy row's scrolling cell, showing 3 of 9.
+  const winPhoneFr = await arm(browser, { platform: 'win32', where: 'firstrun', width: 360, ...device });
+  const winPhoneSet = await arm(browser, { platform: 'win32', where: 'settings', width: 360, ...device });
   const winRaw = await arm(browser, { platform: 'win32', where: 'firstrun', start: { sessionId: 's2', mode: 'device' },
     status: { state: 'awaiting-code', authUrl: URL, instructions: 'Open ' + URL + ' and type the word Codex shows you.' } });
   const mac = await arm(browser, { platform: 'darwin', where: 'firstrun', start: { sessionId: 's3', mode: 'browser' },
@@ -142,6 +146,11 @@ async function arm(browser, { platform, where, start, status }) {
   await browser.close();
 
   const problems = [];
+  for (const [name, r] of Object.entries({ winPhoneFr, winPhoneSet })) {
+    if (r.error) { problems.push(name + ': arm setup failed: ' + r.error); continue; }
+    if (r.boxText !== CODE.replace(/-/g, '') || !r.boxInside) problems.push(name + ': #3952 at 360px not every box is inside the code line, readable: ' + JSON.stringify({ boxText: r.boxText, boxInside: r.boxInside }));
+    if (r.codeCell !== CODE) problems.push(name + ': #3952 at 360px the Copy cell no longer holds exactly the code: ' + JSON.stringify(r.codeCell));
+  }
   for (const [name, r] of Object.entries({ winFirstRun, winSettings, winRaw, mac })) {
     if (r.error) problems.push(name + ': arm setup failed: ' + r.error);
     if (r.errors && r.errors.length) problems.push(name + ': page errors: ' + r.errors.join(' | '));
