@@ -267,3 +267,23 @@ test('#3568/#3998: POST /api/antigravity/signin and /install answer through the 
     assert.match(json(i2).error, /did not finish/);
   } finally { delete process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN; }
 });
+
+test('#3998: /api/accounts lists the Gemini subscription from the last confident answer, and forget removes it', async () => {
+  if (process.platform !== 'darwin') return;   // offered only where agy runs
+  const agystatus = require('./engine/agystatus');
+  const dir = path.join(SANDBOX, 'agylast'); fs.mkdirSync(dir, { recursive: true });
+  agystatus.setLastFileForTests(() => path.join(dir, 'last.json'));
+  const rows = async () => (json(await req('/api/accounts')).accounts || []).filter((a) => a.authMode === 'antigravity');
+  try {
+    assert.deepEqual(await rows(), [], 'CONTROL: no row before any sign-in');
+    agystatus.remember({ installed: true, signedIn: true });
+    const r = await rows();
+    assert.equal(r.length, 1, 'a signed-in subscription has no account row');
+    assert.equal(r[0].provider, 'google');
+    assert.equal(r[0].dir, null, 'the row must not point at a key folder');
+    assert.equal(r[0].connection.state, 'connected');
+    const f = await req('/api/antigravity/forget', { method: 'POST' });
+    assert.equal(f.status, 200);
+    assert.deepEqual(await rows(), [], 'forget left the row');
+  } finally { agystatus.forget(); }
+});

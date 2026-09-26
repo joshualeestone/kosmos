@@ -37,3 +37,9 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 ## Card items added 11:48 (Josh) and folded in at Splinter's 12:04 ask
 - The key-based option in the create-agent and agent-detail provider menus reads "Google Gemini (API key)" beside "Google Gemini (Google subscription)". Settings' Add a provider keeps "Google Gemini": it asks key or subscription on the next step.
 - The Gemini subscription account row in Settings > AI Models is now in this branch too (Splinter, 12:04: build it now rather than a second PR).
+
+## The Gemini subscription account row (built in this branch)
+- engine/agystatus.js remembers its last CONFIDENT answer (signed in, or not installed) at <store.ROOT>/agy-signin/last.json; "could not confirm" never overwrites it. A live check costs a prompt on the person's subscription, so the row never runs one per repaint.
+- /api/accounts appends a row for it (provider google, authMode 'antigravity', dir null, the Google email from ~/.gemini/google_accounts.json "active" if present) while it is offered and last known signed in.
+- The row: the email (or "Google subscription"), "Google subscription, through Antigravity on this computer", Signed in, Sign in again (Add a provider on Google Gemini straight to the hidden sign-in) and Remove (two presses; POST /api/antigravity/forget; Kosmos stops listing it and Antigravity stays signed in, said in its title, since agy has no sign-out command Kosmos can call).
+- Not shown: the plan tier Josh saw in agy ("Antigravity Starter Quota"). Kosmos has no readable source for it yet; showing a guess would be worse than not showing it.
