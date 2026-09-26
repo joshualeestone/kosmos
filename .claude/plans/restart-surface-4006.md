@@ -34,9 +34,8 @@ logged to board.log only; the card fell to a quiet "not running" for 23 minutes.
 ## Review round 2 (Sonnet), what changed
 - The second-try wait blocks the whole board (restart is synchronous), so only the first failure in a 10-second
   window waits; later ones in a burst retry at once. A test runs two failing restarts back to back and requires the
-  second to take under 300ms with a 400ms wait configured (perturbed red).
-- A failed restart whose launch file was gone says the agent has to be created again, not "restart it" (engine
-  reason and card copy; the record carries `gone` from its diagnostics).
+  second to take under 700ms with a 1500ms wait configured (perturbed red).
+- (Superseded by round 5: the "launch file gone" reading was removed as unreachable.)
 - Kept as documented: the diagnostics hold the LAST bootstrap's answer only.
 
 ## Review round 5 (Opus), what changed
@@ -47,7 +46,13 @@ logged to board.log only; the card fell to a quiet "not running" for 23 minutes.
 - A failed record clears on an UNKNOWN reading only when an agent process runs in the pane (isAgentSession): a
   board that could not read the pane also says UNKNOWN, and one bad read must not erase the failure.
 - A failed START (fromDead: a never-run or fully-dead agent) clears its record as before: it is not a restart that
-  did not come back, and the route already says what happened.
+  did not come back, and the route already says what happened. EXCEPT (round 7): if a failed restart was already on
+  file, a failed START (the person's own Restart of the no-pane agent) keeps it failed rather than wiping it.
+## Review round 7 (Opus), what changed
+- The retry-keeps-failure exception above (remove.test.js, perturbed red).
+- A negative test for the isAgentSession guard: a Codex pane dropped back to a shell reads UNKNOWN with no agent
+  process and keeps the record; the same reading with `codex` running clears it (perturbed `|| true`: red).
+
 - Deferred (harmless): the send route's asking gates do not exclude a failed restart (a stopped pane has no menu).
 
 ## Decided

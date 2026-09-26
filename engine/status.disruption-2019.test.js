@@ -260,3 +260,18 @@ test('#4006 snapshot: a failed record clears as soon as the pane runs anything, 
   assert.equal(disruption.read('backunknown').found, false, 'the failed record should clear once the agent is back (reading unknown with an agent process)');
 });
 
+test('#4006 snapshot: an UNKNOWN reading with NO agent process in the pane keeps the failed record', () => {
+  // A Codex agent's pane that has dropped back to a shell reads unknown (the codex arm cannot read a shell) while
+  // no agent process is running: that is not the agent coming back, so the failure has to stay on file.
+  fleet.install([fleet.agent('notback', { state: 'stopped' })]);
+  disruption.begin('notback', 'restart');
+  disruption.fail('notback', null);
+  assert.equal(status.snapshot().agents.find((a) => a.sessionName === 'notback').state, STATE.NEEDS_YOU);
+  fleet.install([fleet.agent('notback', { state: 'unknown', runner: 'codex', command: '-zsh', screen: '% \n' })]);
+  assert.equal(status.snapshot().agents.find((a) => a.sessionName === 'notback').state, STATE.UNKNOWN);
+  assert.equal(disruption.read('notback').failed, true, 'a pane with no agent process in it wiped the failed record');
+  // CONTROL: the same UNKNOWN reading WITH an agent process in the pane clears it (the agent is back).
+  fleet.install([fleet.agent('notback', { state: 'unknown', runner: 'codex', command: 'codex', screen: '% \n' })]);
+  status.snapshot();
+  assert.equal(disruption.read('notback').found, false, 'CONTROL: an agent process reading unknown did not clear the record');
+});
