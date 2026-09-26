@@ -19,3 +19,8 @@ Weakest premise: Forget can now take up to the register bound (60s) when a regis
 - WARNING: the page gives up at 15s while a register can take over a minute: handed to Pete (his UI).
 - WARNING: the switch-save test could not fail; it now asserts the log line. Control fails.
 - NIT, left: resetForTests does not kill an outstanding register child (every test awaits its register).
+
+## Round 2 review (sonnet)
+- BLOCKER: two concurrent forget() calls each retired the same Mac. A second forget now returns the first one's promise (same answer, one retire). Test; control without the dedupe fails "retired the Mac twice".
+- BLOCKER: forget's sentence was keyed on enrolled(), so a half-registered Mac was always told "nothing to retire", even after a successful retire, and a real retire failure was hidden. Keyed on canRetire now. Test asserts because is null after a successful retire; control fails.
+- WARNING (documented): worst case a hung register then a hung retire, two bounds, about ten minutes, only when already broken.

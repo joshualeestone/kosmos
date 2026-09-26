@@ -1084,6 +1084,7 @@ test('#3827: a register killed after writing the key and id (mid-certificate) is
     const got = await remote.forget();
     assert.equal(recorded().filter((c) => c[0] === 'retire').length, 1, 'a Mac with a key and id at the coordinator was not retired');
     assert.ok(got.retired, 'Forget did not report the retire: ' + got.because);
+    assert.equal(got.because, null, 'a successful retire of a half-registered Mac was reported as: ' + got.because);
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
     delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
@@ -1126,4 +1127,17 @@ test('#3827: when the switch cannot be saved, the Mac is still registered and th
     assert.equal(remote.read().on, false, 'fixture: the switch really is off');
     assert.ok(logged.some((l) => /could not switch Kosmos\+ on/.test(l)), 'a failed switch save was not logged');
   } finally { fs.rmSync(remote.FILE + '.tmp', { recursive: true, force: true }); }
+});
+
+test('#3827: two Forgets at once retire the Mac once and both get the same answer', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const reg = await remote.signinRegister('hers');
+  assert.equal(reg.ok, true, 'fixture: registered ' + reg.because);
+  fs.rmSync(RECORD, { force: true });
+  const [a, b] = await Promise.all([remote.forget(), remote.forget()]);
+  assert.equal(recorded().filter((c) => c[0] === 'retire').length, 1, 'two Forgets retired the Mac twice');
+  assert.deepEqual(a, b, 'the second Forget got a different answer');
+  assert.equal(remote.enrolled(), false);
 });

@@ -664,17 +664,27 @@ async function forget() {
   // must not turn the switch back on), and WAIT for a register already out, so what
   // is retired and wiped below includes it; otherwise it writes a fresh identity
   // into the directory this empties. The wait is bounded: the register itself is
-  // (registerTimeoutMs).
+  // (registerTimeoutMs). Worst case, a hung register then a hung retire: two
+  // bounds, about ten minutes, and only when something is already broken.
+  //
+  // One forget at a time: a second (a double click, two tabs, a retried request)
+  // gets the first one's answer instead of retiring the same Mac beside it.
+  if (forgetInFlight) return forgetInFlight;
   signinEpoch += 1;
   signinSession = null;
   forgetting = true;
-  try {
-    if (registerInFlight) await registerInFlight;
-    return await forgetNow();
-  } finally {
-    forgetting = false;
-  }
+  forgetInFlight = (async () => {
+    try {
+      if (registerInFlight) await registerInFlight;
+      return await forgetNow();
+    } finally {
+      forgetting = false;
+      forgetInFlight = null;
+    }
+  })();
+  return forgetInFlight;
 }
+let forgetInFlight = null;
 
 async function forgetNow() {
   const was = { enrolled: enrolled(), address: address() };
@@ -703,7 +713,9 @@ async function forgetNow() {
     ok: true,
     retired,
     address: was.address,
-    because: !was.enrolled ? 'this computer was not set up for Plus, so there was nothing to retire'
+    // Keyed on what was ATTEMPTED (canRetire), not on enrolled(): a half-registered
+    // Mac is retired too, and its result must be reported as it is.
+    because: !canRetire ? 'this computer was not set up for Plus, so there was nothing to retire'
       : retired ? null
       : 'this computer is forgotten here, but your Kosmos+ account could not be updated (' + because + '); its address may still show on your account page until you remove it there',
   };
@@ -1346,7 +1358,7 @@ module.exports = { secondReset, forget, macRequest, assistantChat, hostedAvailab
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { signinSession = null; mintedDeviceId = null; registerInFlight = null; stopChild(); },
+  resetForTests: () => { signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; stopChild(); },
   /* test seam: the live child's pid, or null. spawn() sets the handle
      synchronously, so a test can assert "nothing spawned" deterministically
      right after ensure() instead of waiting a fixed interval and hoping. */
