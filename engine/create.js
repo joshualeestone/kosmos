@@ -4374,6 +4374,11 @@ function createAgentInner(opts) {
      credential for its name survives is the exact state this exists to
      prevent, and a half-made one is worse than none. A name that never had a
      token is the common case and is silent: `revoke` answers ENOENT ok:true. */
+  /* #4006: a NEW agent starts with no disruption record, so an old failed restart under this name never shows on it.
+     Cleared HERE, before the gates below that can still refuse, on purpose: every check above has already refused a
+     name with a launch file, folder, loaded job or running session, so the record belongs to no card and clearing it
+     hides nothing; while a create that ends PARTIAL leaves a launch file (so a card), which must not inherit it. */
+  try { require('./disruption').clear(name); } catch { /* best-effort */ }
   const priorTokens = sendertoken.revoke(name);
   if (priorTokens.ok !== true) {
     return {
@@ -4722,9 +4727,9 @@ function createAgentInner(opts) {
     //
     // ⚠️ THE FITS-CHECK IS DEFENCE AGAINST GROWTH AND CANNOT CURRENTLY FIRE,
     // which is stated here because an unlabelled guard reads as a tested one.
-    // On this path the text is a role template under a kilobyte plus two
-    // bounded blocks, against a 256KB cap: the margin is four orders of
-    // magnitude. The near-cap case exists only for CUSTOM instructions, and
+    // On this path the text is a role template plus bounded blocks against a
+    // 256KB cap: measured at 32,935 bytes on 2026-09-26, a margin of about 8x
+    // (kosmos#4021; the size canary in create.test.js watches it). The near-cap case exists only for CUSTOM instructions, and
     // those never enter this branch. A test asserting the drop passed with
     // this line deleted for exactly that reason, and was replaced by one that
     // measures the margin instead.

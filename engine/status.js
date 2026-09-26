@@ -1562,6 +1562,69 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
   /^\s*›\s*\d+\.\s.*\n\s*\d+\.\s/m,
 ]);
 
+/* #4004: Gemini CLI (0.61.0, measured 2026-09-26 against a fake 429 in a real tmux pane) on a daily quota.
+   While it waits, its quota question is on screen ("Usage limit reached for <model>." over numbered options that
+   end in "Stop"), and it waits there forever. After Stop, it is back at its prompt under
+   "✕ [API Error: You have exhausted your daily quota on this model.]". Rows may carry the dialog's box border (│),
+   stripped before matching the question (the error line is matched on the raw row, round 9). Both rules are anchored to Gemini's own shapes, because an agent can have these words
+   on screen in its tool output (a grep, another pane's capture) while it is working. */
+const GEMINI_QUOTA_DIALOG = /^Usage limit reached for\b/i;
+const GEMINI_QUOTA_OPTION = /^(?:[●○>]\s*)?\d+\.\s+\S.*$/;
+const GEMINI_QUOTA_STOP = /^(?:[●○>]\s*)?\d+\.\s+Stop\s*$/i;
+const GEMINI_QUOTA_ERROR = /^✕\s*\[API Error:.*exhausted your daily quota\b/i;
+/* Review round 8: the same question also comes up for other limits (a model the key has no free quota for, a long
+   retry delay), and after Stop those print Google's own message instead, e.g. "You exceeded your current quota ...
+   limit: 0". Not a daily limit, so no midnight reset is promised for it. */
+const GEMINI_QUOTA_OTHER = /^✕\s*\[API Error:.*(?:exceeded your current quota|RESOURCE_EXHAUSTED|\blimit:\s*0\b)/i;
+const GEMINI_BOX_EDGE = /^[╭╮╰╯─]+$/;
+const GEMINI_COMPOSER = /Type your message/i;
+const GEMINI_LIMIT_ROWS = 14;
+function geminiRow(r) { return String(r).replace(/^[\s│]+|[\s│]+$/g, ''); }
+/* The number Gemini printed beside "Stop" in its quota question, or null. The one parser of that row: the reading
+   below and chat.answerGeminiQuotaStop both use it. Reads the LAST such row (the dialog is at the bottom). */
+function geminiStopKey(paneText) {
+  const rows = String(paneText || '').split('\n').map(geminiRow).filter((r) => r).reverse();
+  const row = rows.find((r) => GEMINI_QUOTA_STOP.test(r));
+  const m = row ? row.match(/(\d+)\./) : null;
+  return m ? m[1] : null;
+}
+/* The question is up: its message, then numbered options ending in Stop, and nothing after them but the box's
+   bottom edge (the real dialog replaces the composer; a quoted copy has the agent's own screen below it). Or the
+   quota error is Gemini's newest line: nothing after it but its empty composer and footer. */
+function geminiQuotaReading(paneText, afterStop) {
+  /* Two views of the same rows, kept in step: `rows` with the question box's border stripped (for the question), and
+     `raw` with only trailing space removed (for the error line). The border strip would also erase what marks a
+     QUOTED error: a working agent's tool output prints it behind a "│", and its own answer indents it under "✦".
+     Gemini's own error line starts at the left edge (captured), so it is matched there, on the raw row (round 9). */
+  const pairs = String(paneText || '').split('\n').map((line) => ({ row: geminiRow(line), raw: String(line).replace(/\s+$/, '') }))
+    .filter((p) => p.row).slice(-GEMINI_LIMIT_ROWS);
+  const rows = pairs.map((p) => p.row);
+  const raw = pairs.map((p) => p.raw);
+  const m = rows.findIndex((r) => GEMINI_QUOTA_DIALOG.test(r));
+  if (m >= 0) {
+    const after = rows.slice(m + 1);
+    const lastOpt = after.reduce((at, r, i) => (GEMINI_QUOTA_OPTION.test(r) ? i : at), -1);
+    const hasStop = geminiStopKey(after.join('\n')) !== null;
+    if (lastOpt >= 0 && hasStop && after.slice(lastOpt + 1).every((r) => GEMINI_BOX_EDGE.test(r))) {
+      return { dialog: true, evidence: rows[m] };
+    }
+  }
+  let at = -1;
+  /* `afterStop`: Kosmos answered this agent's usage-limit question Stop a moment ago, so Gemini's own error line in
+     this position is that limit whatever Google's words are (review round 11). Still only at the left edge, still
+     only with the composer below and nothing working. */
+  raw.forEach((r, i) => { if (GEMINI_QUOTA_ERROR.test(r) || GEMINI_QUOTA_OTHER.test(r) || (afterStop === true && /^✕\s*\[API Error:/.test(r))) at = i; });
+  if (at < 0) return null;
+  const below = rows.slice(at + 1);
+  const newer = below.some((r) => (/^>\s+\S/.test(r) && !GEMINI_COMPOSER.test(r)) || /^✦/.test(r));
+  if (newer) return null;   // a turn since: the person wrote, or the agent answered
+  /* Gemini's own error sits right above its idle prompt: its composer follows, and nothing is working below it
+     (a spinner). A copy of the line in a working agent's tool output has a spinner under it. */
+  if (!below.some((r) => GEMINI_COMPOSER.test(r))) return null;
+  if (below.some((r) => /esc to cancel|[\u2800-\u28FF]/i.test(r))) return null;
+  return { dialog: false, daily: GEMINI_QUOTA_ERROR.test(raw[at]), evidence: rows[at].replace(/^✕\s*/, '') };
+}
+
 /**
  * #3723: Codex's own "you are out of usage or credits" messages. READ FROM CODEX'S PROGRAM TEXT
  * (the installed codex binary, 2026-09-25), not captured from a live pane: nobody here had an
@@ -3666,6 +3729,24 @@ function classify(pane, paneText) {
   }
   if (paneText === null) {
     return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'we could not read its screen' };
+  }
+  /* #4004: a Gemini agent on its daily quota, waiting on its quota question or back at its prompt under the quota
+     error. Firm (Gemini's own words), like Codex's limit line. `quotaDialog` rides onto the card (snapshot), and
+     it is what engine/geminiquota.js answers Stop for. */
+  if (pane.runner === 'gemini') {
+    const q = geminiQuotaReading(paneText, require('./geminiquota').answeredRecently(pane.name));
+    if (q) {
+      return {
+        state: STATE.RATE_LIMITED,
+        confidence: CONFIDENCE.SCRAPED,
+        because: q.dialog ? 'its screen says it has reached a Google usage limit, and it is waiting on a question about it'
+          : q.daily ? 'its screen says its Google daily limit is used up' : 'its screen says it has reached a Google usage limit',
+        evidence: q.evidence,
+        limitFrom: 'gemini',
+        quotaDialog: q.dialog,
+        quotaDaily: q.daily === true,
+      };
+    }
   }
 
   const tail = paneText.split('\n').slice(-25).join('\n');
@@ -6076,6 +6157,23 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity);
     return { ...answer, conflict: 'its screen shows an old Claude sign-in rejection, but the account sign-in is currently valid, so the rejection is stale' };
   }
+  /* #4006: a restart that did NOT come back (disruption.fail). Not "restarting" and not a quiet
+     "not running": the person has to act, so it reads as needs_you (red on the board; not a phone
+     notification, which only a REPORTED needs_you sends).
+     Josh's Grok agent sat dead for 23 minutes behind a plain stopped card before this. Only while
+     nothing is running (the scrape is STOPPED); the agent coming back ends it, and status clears
+     the record then. */
+  if (disruptionRec && disruptionRec.failed === true
+      && scraped.state === STATE.STOPPED && scraped.confidence === CONFIDENCE.STRUCTURED) {
+    return {
+      state: STATE.NEEDS_YOU,
+      confidence: CONFIDENCE.STRUCTURED,
+      because: 'Kosmos restarted this agent and it did not come back. Restart it to bring it back',
+      disruption: { cause: disruptionRec.cause, startedAt: disruptionRec.startedAt, timedOut: true, failed: true },
+      reported: false,
+      conflict: null,
+    };
+  }
   /* #2019: a dead pane is "gone" UNLESS we are the ones who just took it out. If
      a fresh disruption record is on file (a restart / model / provider /
      account / instructions change we initiated, still inside its window) and the
@@ -6257,12 +6355,16 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
      The reconcile is re-entered with the rate-limit signal removed rather than
      the report rules being copied, so this branch cannot drift from them. */
   if (scraped.state === STATE.RATE_LIMITED) {
+    /* #4004: Gemini's quota question on screen blocks its turn, so no report can say it is working through it. */
+    if (scraped.quotaDialog === true) {
+      return { ...scraped, reported: false, conflict: 'its screen shows it is waiting on a question about its usage limit' + saidWords(reported, nowMs) };
+    }
     const atRl = Date.parse(reported.at || '');
     const freshRl = Number.isFinite(atRl) && (nowMs - atRl) <= REPORT_WORKING_DECAY_MS;
     /* #3723: except Codex's own limit message against an AUTOMATIC report. Codex's bridge reports
        idle at the end of every turn, and a turn that failed on the limit still ends, so that report
        is the machine noticing the turn ended, not evidence the account works. */
-    const autoOverCodexLimit = scraped.limitFrom === 'codex' && reported.by === 'auto';
+    const autoOverCodexLimit = (scraped.limitFrom === 'codex' || scraped.limitFrom === 'gemini') && reported.by === 'auto';   // #4004: Gemini's bridge ends a failed turn with idle too
     if (freshRl && !autoOverCodexLimit) {
       const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity);
       return { ...answer, conflict: 'its screen shows a usage limit, but it is still reporting, so it may be working through it' };
@@ -6561,7 +6663,7 @@ const PANELESS_DEFAULT = { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, be
    cold (both are a job + worker dir with no pane and no beat). */
 const NEVER_RUN_DEFAULT = { state: STATE.STOPPED, confidence: CONFIDENCE.STRUCTURED, because: 'it was created on this computer and is not running right now' };
 
-function panelessCard(key, nowMs, defaultStatus) {
+function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
   const identity = readIdentity(key);
   /* The agent's own account, reconciled against a scrape that could not
      happen. Passing a default rather than skipping `reconcileReport` is
@@ -6576,7 +6678,7 @@ function panelessCard(key, nowMs, defaultStatus) {
   const status = reconcileReport(
     selfreport.read(key),
     defaultStatus || PANELESS_DEFAULT,
-    nowMs);
+    nowMs, undefined, disruptionRec || null);
   /* #2146 for a PANELESS agent (the case this whole role exists for). No pane, so
      the ONLY active-while-waiting signal is the report heartbeat leg -- a beat
      newer than the standing needs_you/blocked report. This is why the report route
@@ -6619,7 +6721,8 @@ function panelessCard(key, nowMs, defaultStatus) {
     because: status.because,
     /* #2019: the field a pane card carries for a deliberate restart. A paneless
        agent has no STOPPED pane to misread, so it never reaches the RESTARTING
-       branch and this is always null here; carried anyway so both card kinds
+       branch; the one exception is a FAILED restart (#4006), passed in for a
+       created agent with no pane, which reads needs_you and carries it here. Carried so both card kinds
        have one shape. Surfacing RESTARTING for a PANELESS agent mid-restart --
        keeping its card on the board through the disruption window instead of
        dropping it -- is a delineated follow-up, and it covers TWO cases, not
@@ -6831,7 +6934,8 @@ function snapshot() {
        NOT the #920 spinner trap: the timeout produces an honest MESSAGE (the render
        stops the animation on `timedOut`), not a spinner that lies forever, and it
        self-heals the instant the pane comes back live (the forward heal below
-       clears any record -- fresh or aged -- once the state is a definite live one). */
+       clears any record -- fresh or aged -- once the state is a definite live one;
+       a FAILED record (#4006) once anything but the failure is read, UNKNOWN included). */
     let disruptionRec = null;
     if (isNamedOurs(pane)) {
       const fresh = disruption.active(pane.name);
@@ -6840,7 +6944,7 @@ function snapshot() {
       } else {
         const full = disruption.read(pane.name);
         if (full.found) {
-          disruptionRec = { cause: full.cause, startedAt: full.startedAt, ageMs: full.ageMs, timedOut: true };
+          disruptionRec = { cause: full.cause, startedAt: full.startedAt, ageMs: full.ageMs, timedOut: true, failed: full.failed === true };
         }
       }
     }
@@ -6958,7 +7062,15 @@ function snapshot() {
        within restartInner, so no snapshot can observe the pre-kill live pane
        after begin(). Clear never throws; the write fits the snapshot's existing
        best-effort writes (wouldping/observed). */
-    if (disruptionRec && status.state !== STATE.RESTARTING && status.state !== STATE.UNKNOWN) {
+    /* #4006: a FAILED record is kept while the failure is what the card shows (clearing it would put the card
+       back to a quiet "not running" next tick), and cleared as soon as anything else is read, UNKNOWN included:
+       an unknown reading means the pane is running something, so the restart did come back after all. */
+    const showingFailure = !!(status.disruption && status.disruption.failed === true);
+    if (disruptionRec && disruptionRec.failed === true) {
+      /* UNKNOWN clears it only with an agent process in the pane: a board that could not read the pane at all
+         also says UNKNOWN, and one bad read must not erase the failure. */
+      if (!showingFailure && (status.state !== STATE.UNKNOWN || isAgentSession(pane))) disruption.clear(pane.name);
+    } else if (disruptionRec && status.state !== STATE.RESTARTING && status.state !== STATE.UNKNOWN) {
       disruption.clear(pane.name);
     }
     /* 🔑 WHAT A PING WOULD HAVE BEEN, AND NOBODY IS PINGED (#1494). The phone
@@ -7186,8 +7298,8 @@ function snapshot() {
        `at` (Pete's dangerous-answer control): the report route pins the report's
        own liveness beat to that `at`, so `>` excludes it and a just-filed needs_you
        does NOT self-trigger; a pane WORKING_LINE this tick is definitionally after
-       any past ask, so it always counts. Mutually exclusive with disruption.timedOut
-       (that lives on RESTARTING; this only on needs_you/blocked). */
+       any past ask, so it always counts. Mutually exclusive with an in-flight
+       disruption (that lives on RESTARTING); a failed one reads needs_you (#4006). */
     let activeWhileWaiting = false;
     if (status.state === STATE.NEEDS_YOU || status.state === STATE.BLOCKED) {
       const waitReport = tied ? selfreport.read(pane.name) : { found: false };
@@ -7268,9 +7380,15 @@ function snapshot() {
       /* The line the classifier actually matched, when it has one. Null for
          every state that did not read a sentence off the screen. */
       stateEvidence: status.evidence || null,
+      /* #4004: Gemini's quota question is on screen (engine/geminiquota.js answers Stop for it). */
+      quotaDialog: status.quotaDialog === true,
+      quotaDaily: status.quotaDaily === true,   // #4004 round 8: only Gemini's daily line promises the midnight reset
+      /* #4004: whose own words set a limit reading ('codex' / 'gemini'), so the wording keys on a field, not a sentence. */
+      limitFrom: typeof status.limitFrom === 'string' ? status.limitFrom : null,
       because: status.because,
-      /* #2019: present only while state === 'restarting' -- {cause, startedAt}
-         for the deliberate disruption in flight. Null otherwise, so the board
+      /* #2019: present while state === 'restarting' -- {cause, startedAt}
+         for the deliberate disruption in flight -- and (#4006) on the needs_you of a
+         restart that did not come back, with `failed`. Null otherwise, so the board
          reads a fact rather than an absence, and the frontend renders the copy
          (cause + the model field above) and the animated K from it. */
       disruption: status.disruption || null,
@@ -7380,7 +7498,12 @@ function snapshot() {
     try { createdKeys = createdSource(boardKeys) || []; } catch { createdKeys = []; }
     for (const key of createdKeys) {
       if (boardKeys.has(key)) continue;   // belt-and-braces: the source excludes these, re-checked here
-      try { agents.push(panelessCard(key, nowMs, NEVER_RUN_DEFAULT)); boardKeys.add(key); } catch { /* that one agent is not listable */ }
+      /* #4006: a created agent with no pane may be one whose restart did not come back (Josh's Elon: no
+         session, no loaded job). Only a FAILED record is passed: a fresh in-flight one would change the
+         paneless-restart reading, which is its own follow-up (see the disruption note in panelessCard). */
+      let failedRec = null;
+      try { const d = disruption.read(key); if (d.found && d.failed) failedRec = { cause: d.cause, startedAt: d.startedAt, failed: true, timedOut: true }; } catch { failedRec = null; }
+      try { agents.push(panelessCard(key, nowMs, NEVER_RUN_DEFAULT, failedRec)); boardKeys.add(key); } catch { /* that one agent is not listable */ }
     }
   }
 
@@ -7489,6 +7612,24 @@ function projectsUnreadTotal(projects, unreadMap) {
   return total;
 }
 
+/* #3996 (Josh, 2026-09-26: a count on the Dock icon "like Messages"): the ONE number for what is
+   waiting on the person, so the Dock badge (and the Windows taskbar's) agree with the page. It is
+   the three counters the page already shows, added: the Needs you tile (counts.needsYou, the
+   needsPerson rule), the Messages tile (each agent's dmUnread) and the Projects badge
+   (counts.projectsUnread). The guide's row is left out, as the tiles leave it out, and an unknown
+   part counts 0 as it does on the tiles: a badge never shows a guess.
+   Not added: tasks that need the person's decision (#3949). tasks.waitingOnPerson is true exactly
+   when an agent holding the task passes needsPerson, so that agent is already in needsYou and a
+   task on top would count one question twice.
+   RAW: the page's tiles leave out the thread open on screen, which only the page knows. */
+function waitingTotal(counts, agents) {
+  const n = (v) => { const x = Number(v); return Number.isFinite(x) && x > 0 ? Math.floor(x) : 0; };
+  const dms = (Array.isArray(agents) ? agents : [])
+    .filter((a) => a && a.isGuide !== true)
+    .reduce((t, a) => t + n(a.dmUnread), 0);
+  return n(counts && counts.needsYou) + dms + n(counts && counts.projectsUnread);
+}
+
 // `transcriptFor` is exported for the instructions module, which needs a
 // session start time. It resolves by session id rather than by guessing a
 // directory from the agent's name, for the reason its own comment gives: a
@@ -7579,6 +7720,7 @@ function sessionStartedAtFromTmux(sessionName, now = Date.now()) {
 }
 
 module.exports = {
+  waitingTotal,   // #3996: the Dock badge's number
   /* #1500: exported so discover.foundCodex can honour the same refusal.
      The Codex walk reaches ~/.codex without ever calling configRoots. */
   sandboxIsInconsistent,
@@ -7625,7 +7767,7 @@ module.exports = {
   // first time a marker is added here. The card that says "Needs you" and the
   // thread that shows the question must never be able to disagree.
   NEEDS_YOU_MARKERS,
-  CODEX_NEEDS_YOU_MARKERS, CODEX_LIMIT_MARKERS,
+  CODEX_NEEDS_YOU_MARKERS, CODEX_LIMIT_MARKERS, geminiQuotaReading, geminiStopKey, capturePane,   // #4004: chat re-reads a pane before a key
   ALL_NEEDS_YOU_MARKERS,
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the

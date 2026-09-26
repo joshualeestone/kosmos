@@ -22,10 +22,8 @@
  *   i want to use my avatar and play off the fact that I built it and will help
  *   them." The first version (#3153) read the 09-14 note ("give it my avatar")
  *   as the USER'S picture and name; his 09-24 ruling settles it the other way. So
- *   the guide is GUIDE_NAME, carries GUIDE_TAG so nobody mistakes it for him
- *   typing live, and wears the bundled picture at GUIDE_AVATAR_BASE when one is
- *   shipped (no picture -> the initials avatar; never fatal). The role's own text
- *   (engine/roles.js, `setup`) says the same, so the words and the face agree.
+ *   the guide is GUIDE_NAME and wears the bundled picture at GUIDE_AVATAR_BASE
+ *   when one is shipped (no picture -> the initials avatar; never fatal).
  *   A saved user name is therefore no longer needed to seed.
  * - MODEL/ACCOUNT = the first connected model, on ITS provider (Claude, OpenAI,
  *   Gemini, Grok, in that order; a named account by its dir, a default as none),
@@ -54,9 +52,7 @@ const create = require('./create');
 
 const SETUP_ROLE_KEY = 'setup';
 
-/* The guide's name, and the words that say it is an AI (#3034, Josh 2026-09-24).
-   GUIDE_TAG is for every surface that shows the guide's name, so the label
-   travels with it; the role's label says the same. */
+/* The guide's name, and its short AI tag (#3034, Josh 2026-09-24), used in the guide's purpose line below. */
 const GUIDE_NAME = 'Josh';
 const GUIDE_TAG = require('./roles').GUIDE_TAG;
 /* Tried only when GUIDE_NAME is taken (Josh running his own build most likely has an
@@ -496,19 +492,35 @@ function hostedWhy({ available = undefined, listed = () => listedModels(), faili
 function hostedOffered(deps) { return hostedWhy(deps).ok; }
 
 /* #3734: an existing guide was born told it never creates agents. Replace that paragraph, once, with the
-   current hands-off and make-agents lines, in the marked guide folder only. The running guide reads its
-   new instructions from its next session. { changed: boolean } */
+   current hands-off and make-agents lines, in the marked guide folder only.
+   #3947: likewise its "Who you are" paragraph, which told it to say it is an AI in its first answer; the
+   greeting says that now. Each old paragraph is replaced only where it is still word for word, so a
+   guide whose instructions the person reworded is left alone. The running guide reads its new
+   instructions from its next session. { changed: boolean } */
 function refreshGuideRole({ name = guideName(), isGuide = isGuideFolder } = {}) {
   if (!name || !isGuide(name)) return { changed: false };
   const roles = require('./roles');
   const instructions = require('./instructions');
   let cur;
   try { cur = instructions.read(name); } catch { return { changed: false }; }
-  const old = roles.HANDS_OFF_LINES_BEFORE_3734.join('\n');
-  if (!cur || !cur.exists || typeof cur.text !== 'string' || !cur.text.includes(old)) return { changed: false };
-  const now = [...(roles.SETUP_HANDS_OFF ? roles.HANDS_OFF_LINES : []), ...(roles.SETUP_MAKES_AGENTS ? roles.MAKE_AGENTS_LINES : [])].join('\n');
+  if (!cur || !cur.exists || typeof cur.text !== 'string') return { changed: false };
+  const swaps = [
+    { old: roles.HANDS_OFF_LINES_BEFORE_3734.join('\n'),
+      now: [...(roles.SETUP_HANDS_OFF ? roles.HANDS_OFF_LINES : []), ...(roles.SETUP_MAKES_AGENTS ? roles.MAKE_AGENTS_LINES : [])].join('\n'),
+      because: 'Kosmos let the setup guide make agents for you' },
+    { old: roles.WHO_YOU_ARE_LINES_BEFORE_3947.join('\n'), now: roles.WHO_YOU_ARE_LINES.join('\n'),
+      because: 'the setup guide\'s greeting now says it is an AI, so its answers go straight to helping' },
+  ];
+  let text = cur.text;
+  const why = [];
+  for (const s of swaps) {
+    if (!text.includes(s.old)) continue;
+    text = text.replace(s.old, () => s.now);
+    why.push(s.because);
+  }
+  if (!why.length) return { changed: false };
   try {
-    instructions.write(name, cur.text.replace(old, () => now), cur.version, undefined, { who: 'kosmos', because: 'Kosmos let the setup guide make agents for you' });
+    instructions.write(name, text, cur.version, undefined, { who: 'kosmos', because: why.join('; ') });
     return { changed: true };
   } catch { return { changed: false }; }
 }
