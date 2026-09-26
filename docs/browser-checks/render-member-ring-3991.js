@@ -10,6 +10,8 @@
  *   - a memory ring (.lring) is drawn around the face, its arc the card's percent;
  *   - the presence dot is drawn: green for the working and idle members, grey for the stopped one;
  *   - the stopped member (not running) gets the grey dot, not a green one.
+ *   - for EVERY member (working, idle, stopped, needs-you, auth-failed), the dot matches the
+ *     consolidated row's rule computed in the page from the page's own boardMods and cardStOf.
  * Control: with the context reading removed for one member, that member has NO ring, so the ring
  * is not drawn unconditionally.
  *
@@ -50,9 +52,11 @@ const PERCENT = { beatrix: 42, dora: 71 };
     fleet.agent('beatrix', { state: 'working', displayName: 'Beatrix', role: 'Collections Coordinator' }),
     fleet.agent('cosmo', { state: 'idle', displayName: 'Cosmo', role: 'Researcher' }),
     fleet.agent('dora', { state: 'stopped', displayName: 'Dora', role: 'Analyst' }),
+    fleet.agent('ned', { state: 'needs_you', displayName: 'Ned', role: 'Writer' }),
+    fleet.agent('ava', { state: 'auth_failed', displayName: 'Ava', role: 'Editor' }),
   ]);
   const p = projects.create({ name: 'Ring Check' });
-  projects.writeAll(projects.readAll().map((x) => (x.id === p.id ? { ...x, agents: ['beatrix', 'cosmo', 'dora'] } : x)));
+  projects.writeAll(projects.readAll().map((x) => (x.id === p.id ? { ...x, agents: ['beatrix', 'cosmo', 'dora', 'ned', 'ava'] } : x)));
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
   await fetch(URL + '/api/first-run/complete', { method: 'POST' });
@@ -114,6 +118,22 @@ const PERCENT = { beatrix: 42, dora: 71 };
         const c = by('Cosmo');
         chk(c.dot && green(c.dotColor), `${engineName}: the idle (running) member has a green dot`, String(c.dotColor));
         chk(!c.ring, `${engineName}: control: a member with no memory reading draws no ring`, JSON.stringify(c));
+
+        /* PARITY, for every member: the dot this row draws must be the one the CONSOLIDATED row
+           would draw for the same live card (lrow's not-running branch, then boardMods' off/unk),
+           computed in the page from the page's own functions. */
+        const parity = await page.evaluate(() => [...document.querySelectorAll('#pj-one-agents .pj-member')].map((row) => {
+          const who = row.getAttribute('data-agent');
+          const card = LAST.find((x) => x && x.sessionName === who);
+          const face = row.querySelector('.pj-face');
+          const mods = ' ' + boardMods(card, cardStOf(card)) + ' ';
+          const want = (card.running === false && card.state !== 'restarting') || mods.indexOf(' off ') > -1 ? 'off'
+            : mods.indexOf(' unk ') > -1 ? 'unk' : 'on';
+          const got = face.classList.contains('pjd-off') ? 'off' : face.classList.contains('pjd-unk') ? 'unk' : face.classList.contains('pjd') ? 'on' : 'none';
+          return { who, state: card.state, want, got };
+        }));
+        chk(parity.length === 5, `${engineName}: precondition: all five members are drawn`, String(parity.length));
+        for (const r of parity) chk(r.got === r.want, `${engineName}: ${r.who} (${r.state}) dot matches the consolidated row's rule`, `${r.got} vs ${r.want}`);
 
         chk(errs.length === 0, `${engineName}: no page errors`, errs.join(' | '));
         await ctx.close();

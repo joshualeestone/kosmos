@@ -89,3 +89,10 @@ test('#3958: a working sample older than the reply on screen paints the pill idl
     fleet.restore();
   }
 });
+
+test('#3991: a swarm member\'s face carries the same ring and dot as any other member', () => {
+  const src = pageFnSource('pjMember');
+  assert.match(src, /const swFace = swRow \? '<span class="lav pj-face pj-swface' \+ dotCls \+ '"[^;]*\+ memRing \+ warn \+ reachMark/,
+    'the swarm face is drawn without the ring or the dot (a SOURCE pin: no fixture here turns swarms on)');
+  assert.match(src, /const dotCls = present \? memberDotClass\(boardCard \|\| liveM\) : '';/, 'the dot must come from the shared helper');
+});

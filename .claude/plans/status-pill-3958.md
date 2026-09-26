@@ -95,3 +95,12 @@ sits outside the full-size photo.
 docs/browser-checks/render-member-ring-3991.js (chromium + webkit); ring removed / dot rule removed
 each red their arms. My first dot rule keyed on `running === false` alone and gave a stopped
 member a green dot (its card says running:true, state:stopped); the check caught it.
+
+## Challenge-loop iteration 6
+- BLOCKER fixed: a swarm member's face (swFace) got neither the ring nor the dot. It now carries
+  both. Source-pinned only: no fixture here turns swarms on.
+- The dot's rule is one helper, memberDotClass, that READS boardMods (plus lrow's not-running
+  branch) instead of restating it. The browser check now asserts parity for every member
+  (working, idle, stopped, needs-you, auth-failed) against boardMods computed in the page.
+- A unit test over snapshot cards was tried and refused by the strict fixture: the snapshot has
+  no `running` (the server adds it on /api/status), so the browser check is the right instrument.
