@@ -573,6 +573,21 @@ if [ -z "$adopt" ]; then
     EFFECTIVE_CODEX_HOME="${AGENT_WORKFORCE_CODEX_HOME:-${AGENT_WORKFORCE_HOME:-$HOME}/.codex}"
     PANE_ENV+=(-e "CODEX_HOME=$EFFECTIVE_CODEX_HOME")
   fi
+  # #3953: the codex, gemini and grok report bridges are node scripts their runner starts by name
+  # (codex through the bridge's `#!/usr/bin/env node`, gemini and grok through a `node "<bridge>"`
+  # hook), so they need node on the PANE's PATH. A pane inherits the tmux server's PATH, which has
+  # no node when launchd started the server or Kosmos is the only node on the Mac, and then those
+  # agents' self-reports fail silently. APPEND the node this script resolved, after the server's own
+  # PATH, so a person's own node and npm still come first. Claude's hook finds node itself.
+  if [ -n "${NODE_BIN:-}" ] && { [ "$RUNNER" = codex ] || [ "$RUNNER" = gemini ] || [ "$RUNNER" = grok ]; }; then
+    _srv_path="$("$TMUX_BIN" show-environment -g PATH 2>/dev/null || true)"
+    case "$_srv_path" in
+      PATH=?*) _srv_path="${_srv_path#PATH=}" ;;
+      *) _srv_path="$PATH" ;;
+    esac
+    PANE_ENV+=(-e "PATH=${_srv_path}:$(dirname "$NODE_BIN")")
+    unset _srv_path
+  fi
   if [ "$RUNNER" = codex ]; then
     # Self-reporting (#245 on #526): codex's notify hook runs the bridge
     # with one JSON argument per event, from INSIDE the agent's pane, so
