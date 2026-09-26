@@ -150,3 +150,31 @@ test('no Tasks style declares a left border (Josh, 2026-09-24: no coloured bar d
   assert.deepEqual(rules.flatMap((r) => [...r.matchAll(SHADOW_BAR)].map((m) => m[0])), []);
   assert.equal([...'.tsk-x { box-shadow: inset 3px 0 0 var(--gold); }'.matchAll(SHADOW_BAR)].length, 1, 'the shadow check cannot see a shadow bar');
 });
+
+test('#3949 Needs Your Decision stays live: a change in WHO needs the person re-reads the tasks while the view is shown', () => {
+  const src = page.liftAll(SCRIPT, ['tskRosterChanged', 'tskNeedsSig', 'tskNamesSig']);
+  const make = new Function('env', `
+    let LAST = env.LAST; const TSK_READY = true;
+    const TSK = { data: [], names: '', needs: null, busy: false };
+    const document = { getElementById: () => ({ hidden: env.hidden }) };
+    let loads = 0, paints = 0;
+    const tskLoad = () => { loads += 1; };
+    const tskPaintKeepingCurrentFocus = () => { paints += 1; };
+    ${src}
+    return { tick(next) { LAST = next; tskRosterChanged(); return { loads, paints }; }, TSK };`);
+  const idle = [{ sessionName: 'rex', name: 'Rex', state: 'idle' }];
+  const asks = [{ sessionName: 'rex', name: 'Rex', state: 'needs_you', stateProject: 'p1' }];
+  const env = { LAST: idle, hidden: false };
+  const v = make(env);
+  v.TSK.names = 'rex=Rex';
+  assert.deepEqual(v.tick(idle), { loads: 0, paints: 0 }, 'the first poll only records who needs the person');
+  assert.deepEqual(v.tick(idle), { loads: 0, paints: 0 }, 'an unchanged poll re-reads nothing');
+  assert.deepEqual(v.tick(asks), { loads: 1, paints: 0 }, 'a new question re-reads the tasks');
+  assert.deepEqual(v.tick(asks), { loads: 1, paints: 0 });
+  assert.deepEqual(v.tick([{ sessionName: 'rex', name: 'Rex', state: 'needs_you', stateProject: 'p2' }]), { loads: 2, paints: 0 }, 'a question moving to another project re-reads');
+  assert.deepEqual(v.tick(idle), { loads: 3, paints: 0 }, 'an answered question re-reads');
+  env.hidden = true;
+  const hid = make(Object.assign(env, { LAST: idle }));
+  hid.tick(idle);
+  assert.deepEqual(hid.tick(asks), { loads: 0, paints: 0 }, 'a hidden view does not read (arriving on it loads fresh)');
+});

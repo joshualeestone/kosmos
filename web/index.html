@@ -45173,7 +45173,7 @@ document.getElementById('pj-alltasks').addEventListener('click', () => openProje
    waiting" is not drawn: no task stores it yet (#3951). */
 const TSK_GROUPS = [
   { k: 'decision', l: 'Needs Your Decision', c: 'var(--tsk-decision)',
-    why: 'The agent on these needs you: a question about this project, or your go-ahead.' },
+    why: 'The agent on these needs you: a question about this project, your go-ahead, or a connection Kosmos could not restore.' },
   { k: 'working', l: 'In progress', c: 'var(--tsk-working)',
     why: 'The agent’s own report names these as what it is working on.' },
   { k: 'assigned', l: 'Assigned but not started', c: 'var(--tsk-assigned)',
@@ -45184,7 +45184,7 @@ const TSK_GROUPS = [
 ];
 const TSK_WINDOWS = [['24h', 1], ['48h', 2], ['1 week', 7], ['1 month', 30], ['All', 0]];
 const TSK_BYS = [['status', 'Status'], ['project', 'Project']];
-const TSK = { data: null, error: null, proj: null, projHint: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '', closedOpen: false, fold: new Set() };
+const TSK = { data: null, error: null, proj: null, projHint: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '', needs: null, closedOpen: false, fold: new Set() };
 TSK_READY = true;
 const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
 /* The name the board prints for an agent (its roster card's `name`; a card has no `displayName`
@@ -45201,7 +45201,21 @@ function tskAgentName(sessionName) {
 var TSK_READY;   // hoisted (undefined) until `const TSK` below has run
 function tskRosterChanged() {
   if (!TSK_READY) return;   // the Tasks view is not set up yet; its own load paints with the roster it finds
-  if (TSK.data && !document.getElementById('panel-tasks').hidden && tskNamesSig() !== TSK.names) tskPaintKeepingCurrentFocus();
+  /* #3949: Needs Your Decision is live board state, so when WHO needs the person changes (a question asked
+     or answered), the tasks are read again while the view is on screen; any other poll changes nothing. */
+  const needs = tskNeedsSig();
+  const needsMoved = TSK.needs !== null && needs !== TSK.needs;
+  TSK.needs = needs;
+  const shown = !document.getElementById('panel-tasks').hidden;
+  if (needsMoved && shown && TSK.data && !TSK.busy) { tskLoad(); return; }
+  if (TSK.data && shown && tskNamesSig() !== TSK.names) tskPaintKeepingCurrentFocus();
+}
+/* The agents needing the person by the board's own rule (the cards' data-attn), with the project a question
+   names: the part of the roster Needs Your Decision is derived from. */
+function tskNeedsSig() {
+  return (Array.isArray(LAST) ? LAST : []).filter((a) => a && (a.state === 'needs_you' || a.state === 'needs_trust'
+    || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')))
+    .map((a) => a.sessionName + ':' + a.state + ':' + (a.stateProject || '')).sort().join('|');
 }
 function tskNamesSig() {
   return (Array.isArray(LAST) ? LAST : []).map((a) => a && (a.sessionName + '=' + (a.name || ''))).sort().join('|');
@@ -45316,7 +45330,7 @@ function tskRow(t, at) {
   const whoHtml = who.length
     ? who.map((w) => '<button type="button" class="tsk-who" data-agent="' + esc(w) + '">' + esc(tskAgentName(w)) + '</button>').join('')
     : '<span class="tsk-who nobody">Nobody yet</span>';
-  /* The claim could not be read: say WHY on the row, so "Assigned, not started" is never read
+  /* The claim could not be read: say WHY on the row, so "Assigned but not started" is never read
      as a fact about a task we simply could not check. */
   /* Mona's look review of #3701: in Josh's words, and short. The field says only that the agent
      has never written its report (the engine's `neverReported`), not that it has said nothing
@@ -45684,7 +45698,8 @@ document.getElementById('panel-tasks').addEventListener('change', (e) => {
 /* `toggle` does not bubble, so the Closed fold's open state is caught in the capture phase and
    kept across repaints. */
 document.getElementById('panel-tasks').addEventListener('toggle', (e) => {
-  if (e.target && e.target.classList && e.target.classList.contains('tsk-fold')) TSK.closedOpen = e.target.open;
+  /* #3949: while the Completed tile is picked the fold is forced open; that is not the person opening it. */
+  if (e.target && e.target.classList && e.target.classList.contains('tsk-fold') && TSK.tile !== 'closed') TSK.closedOpen = e.target.open;
 }, true);
 document.getElementById('tsk-search').addEventListener('input', (e) => {
   TSK.q = e.target.value;

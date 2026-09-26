@@ -127,6 +127,17 @@ test('#3949 waitingOnPerson: the holding agent needs the person, about this task
   assert.equal(tasks.waitingOnPerson(task, null), false);
 });
 
+test('#3949 waitingOnPerson: any agent holding an open part counts, not only the first; a finished part\'s agent does not', () => {
+  const task = { projectId: 'p1', number: 4, parts: [{ id: 1, who: 'a' }, { id: 2, who: 'b' }] };
+  const asking = (name) => [{ sessionName: name, isNamedOurs: true, state: 'needs_you', stateProject: 'p1' }];
+  assert.equal(tasks.waitingOnPerson(task, asking('b')), true, 'the second agent\'s question is missed');
+  assert.equal(tasks.waitingOnPerson(task, asking('a')), true);
+  const bDone = { projectId: 'p1', number: 4, parts: [{ id: 1, who: 'a' }, { id: 2, who: 'b', closedAt: '2026-09-01T00:00:00Z' }] };
+  assert.equal(tasks.waitingOnPerson(bDone, asking('b')), false, 'an agent whose part is finished holds nothing here');
+  const gaveUp = [{ sessionName: 'a', isNamedOurs: true, state: 'connection_lost', reconnect: { phase: 'gave_up' } }];
+  assert.equal(tasks.waitingOnPerson(task, gaveUp), true, 'a connection Kosmos gave up on needs the person (the board\'s rule)');
+});
+
 test('#3949 taskState: decision comes from waitingOnPerson, ahead of working and assigned, and closed still wins', () => {
   assert.equal(tasks.taskState({ number: 1, who: 'a', claim: { claimed: true }, waitingOnPerson: true }), 'decision');
   assert.equal(tasks.taskState({ number: 1, who: 'a', claim: { claimed: false }, waitingOnPerson: true }), 'decision');

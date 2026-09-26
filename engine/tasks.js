@@ -859,22 +859,23 @@ function taskState(task) {
 }
 
 /**
- * #3949 (Josh, 2026-09-26): does this open task need the person's decision? True when the agent
- * holding it (claimWho) needs the person right now by the board's own rule (status.needsPerson: a
- * question, a trust wait, a connection given up on), on a pane tied to that name, and, for a
+ * #3949 (Josh, 2026-09-26): does this open task need the person's decision? True when ANY agent
+ * holding an open part of it needs the person right now by the board's own rule (status.needsPerson:
+ * a question, a trust wait, a connection given up on), on a pane tied to that name, and, for a
  * question, one about THIS task's project: the project page's needsYou rule (#763, #3726), per task.
- * A question belongs to the agent and names a project, not a task, so an agent holding two tasks
- * in one project marks both.
+ * Every holder, not only the first (claimWho): the red tile is the one the person acts on, and a
+ * second agent's question on a shared task is still a question. A question belongs to the agent and
+ * names a project, not a task, so an agent holding two tasks in one project marks both.
  */
 function waitingOnPerson(task, roster) {
-  if (!task || progressOf(task).closed) return false;
-  const who = claimWho(task);
-  if (!who || !Array.isArray(roster)) return false;
-  const card = roster.find((a) => a && a.sessionName === who);
-  if (!card || card.isNamedOurs !== true) return false;
+  if (!task || progressOf(task).closed || !Array.isArray(roster)) return false;
+  const holders = new Set(partsOf(task).filter((x) => x && x.who && !x.closedAt).map((x) => x.who));
+  if (!holders.size) return false;
+  // Required here rather than at the top, as projects.js does: status is loaded lazily from this layer.
   const status = require('./status');
-  if (!status.needsPerson(card)) return false;
-  return card.state === status.STATE.NEEDS_YOU ? card.stateProject === task.projectId : true;
+  return roster.some((card) => card && holders.has(card.sessionName) && card.isNamedOurs === true
+    && status.needsPerson(card)
+    && (card.state === status.STATE.NEEDS_YOU ? card.stateProject === task.projectId : true));
 }
 
 /**
