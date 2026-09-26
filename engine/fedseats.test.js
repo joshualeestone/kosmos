@@ -823,7 +823,8 @@ test('#3728: a member says hello, holds its posts until the key arrives, then se
   say(seat, { event: 'message', data: fedseal.seal(fedseal.randomSecret(), 0, 'room-sm', { from: 'Mallory', kind: 'person', text: 'wrong key' }) });
   await settle();
   assert.deepStrictEqual(h.recorded.map((r) => r.text), ['hello member'], 'a replayed, stale, downgraded or unopenable message was shown');
-  assert.ok(h.notes.some((n) => /arrived again or too late/.test(n.text)));
+  assert.ok(h.notes.some((n) => /arrived a second time/.test(n.text)));
+  assert.ok(h.notes.some((n) => /check the date and time/.test(n.text)), 'a message refused on time did not point at the clock');
   assert.ok(h.notes.some((n) => /arrived unsealed/.test(n.text)));
   assert.ok(h.notes.some((n) => /could not open/.test(n.text)));
 });
@@ -951,4 +952,22 @@ test('#3728: a room with no seal state (before sealing, or an older owner) posts
   say(seat, { event: 'message', data: { from: 'Owner', kind: 'person', text: 'plain back' } });
   await settle();
   assert.deepStrictEqual(h.recorded.map((r) => r.text), ['plain back']);
+});
+
+test('#3728: an owner re-sends the current key on each pass, so a member offline at a rotation catches up', async () => {
+  const a = newInvite('cu-a');
+  const b = newInvite('cu-b');
+  const { h, seat } = await ownerRoom('proj-catchup', 'ref-catchup', 'room-cu', [a, b]);
+  const ka = fedseal.newKeyPair();
+  const kb = fedseal.newKeyPair();
+  say(seat, { event: 'message', data: fedseal.helloFrame(a.s, a.code, ka, 'room-cu') });
+  say(seat, { event: 'message', data: fedseal.helloFrame(b.s, b.code, kb, 'room-cu') });
+  await settle();
+  h.edges = [{ id: 'edge-inv-cu-a', project_ref: 'ref-catchup', status: 'revoked', invite_id: 'inv-cu-a' }, { id: 'edge-inv-cu-b', project_ref: 'ref-catchup', status: 'active', invite_id: 'inv-cu-b' }];
+  await fedseats.rotateForRevoked('proj-catchup', federation.linkFor('proj-catchup'), null);
+  // B was offline and missed that rotate. The owner's seat stays up (no reconnect); the next pass re-sends it.
+  const n = lines(seat).length;
+  await fedseats.ensureAll();
+  const ownerPub = fedseal.sealingKey().pub;
+  assert.ok(lines(seat).slice(n).some((f) => f.t === 'key-rotate' && fedseal.openRotate(kb, ownerPub, f, 'room-cu')), 'the pass did not re-send the current key');
 });

@@ -82,3 +82,8 @@ Tests (engine/fedseal.test.js):
 - [NIT] one pair key for share and rotate. FIXED: separate HKDF info per purpose. Test: a share's ciphertext presented as a rotate does not open.
 - [NIT] no test for the owner-side downgrade. ADDED (see the first BLOCKER).
 - Also: a member still waiting for a key says hello again on each ensureAll pass (a dropped hello is not a lost room). Control fails by name.
+
+## Round 2 review (sonnet): 2 WARNINGs, both taken
+- [WARNING] a member offline at a rotation stayed on the old key: only the OWNER's reconnect re-sent it, and a member holding any key does not say hello again. FIXED: on each ensureAll pass the owner re-sends the current epoch to its pinned members; members ignore an epoch they hold. Test (owner seat stays up, a pass re-sends); control fails by name.
+- [WARNING] freshness is judged against each Mac's clock, unstated, and a skewed clock refused genuine messages with a note blaming nothing. FIXED: a time refusal has its own note ("...check the date and time on this computer and on the other one"), distinct from a second copy ("arrived a second time"); the clock assumption is stated in engine/fedseal.js. Control (no clock hint) fails by name.
+- The reviewer also checked and found sound: the coordinator lying about invite_id to edge gains nothing (it cannot forge a hello without s); sealStep runs fn once (then(fn, fn) fires one handler) and a hung call is bounded by macRequest's own timeout; a sealed owner with every member revoked still posts (sealed, unread); no plaintext path or unguarded throw in the message pipeline.

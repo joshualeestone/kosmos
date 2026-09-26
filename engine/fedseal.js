@@ -28,7 +28,8 @@
  * NOT CLAIMED (v1, stated on the card): no forward secrecy (the share uses the two
  * boards' long-term keys); members share one room key, so a member could forge
  * another member's `from`, as today; the relay still sees who posts, when and how
- * much. Nonces are random 96-bit under one room key, safe to about 2^32 messages per
+ * much. Freshness is judged against each Mac's own clock: a clock off by more than an
+ * hour refuses genuine messages (the room says to check the clock). Nonces are random 96-bit under one room key, safe to about 2^32 messages per
  * epoch, far past any room's life at the inbound budget (2,000 rows a day).
  */
 const crypto = require('node:crypto');

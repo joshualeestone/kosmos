@@ -161,7 +161,12 @@ function onEvent(projectId, line) {
       const now = Date.now();
       const opened = hasKey(sealed) && s.room ? fedseal.open(acceptedKeys(sealed, now), s.room, ev.data) : null;
       if (!opened) { noteOnce(projectId, s, 'unopened', 'A sealed message arrived that this computer could not open, so it was not shown.'); return; }
-      if (!freshMessage(s, opened, now)) { noteOnce(projectId, s, 'replay', 'A sealed message arrived again or too late, so it was not shown a second time.'); return; }
+      const fresh = freshMessage(s, opened, now);
+      if (fresh === 'seen') { noteOnce(projectId, s, 'replay', 'A sealed message arrived a second time, so it was not shown again.'); return; }
+      if (fresh === 'time') {
+        noteOnce(projectId, s, 'clock', 'A sealed message arrived with a time more than an hour from this computer\'s clock, so it was not shown. If messages keep not showing, check the date and time on this computer and on the other one.');
+        return;
+      }
       ev.data = opened.m;
     } else if (sealedRoom) {
       // No downgrade: once a room is sealed, words sent in the clear are not shown.
@@ -420,14 +425,16 @@ function acceptedKeys(st, now) {
   if (prev >= 0 && typeof st.keys[prev] === 'string' && Number.isFinite(st.rotatedAt) && now - st.rotatedAt < EPOCH_GRACE_MS) keys[prev] = st.keys[prev];
   return keys;
 }
-/** Whether an opened message is fresh: inside the window and not seen before. */
+/** Whether an opened message is fresh: 'ok', 'seen' (a replay of one already shown),
+    or 'time' (sealed too long ago or too far ahead of this computer's clock: a replay,
+    or one of the two clocks is wrong, which the room's note says). */
 function freshMessage(s, opened, now) {
-  if (now - opened.at > REPLAY_WINDOW_MS || opened.at - now > FUTURE_SKEW_MS) return false;
+  if (now - opened.at > REPLAY_WINDOW_MS || opened.at - now > FUTURE_SKEW_MS) return 'time';
   s.seen = s.seen || new Map();
-  if (s.seen.has(opened.id)) return false;
+  if (s.seen.has(opened.id)) return 'seen';
   s.seen.set(opened.id, opened.at);
   if (s.seen.size > 4096) for (const [id, at] of s.seen) if (now - at > REPLAY_WINDOW_MS) s.seen.delete(id);
-  return true;
+  return 'ok';
 }
 function noteOnce(projectId, s, key, text) {
   s.sealNoted = s.sealNoted || {};
@@ -675,9 +682,12 @@ async function ensureAll() {
   // #3728: a member still waiting for the room key says hello again (a dropped hello is
   // not a lost room), and a revoked member of a sealed room is rotated out (the same
   // one edges request).
+  // An owner re-sends the current epoch to its members on the same pass: the relay does
+  // not queue, so a member that was offline at a rotation catches up within a pass of
+  // coming back (it already holds a key, so it does not say hello again).
   for (const id of Object.keys(links)) {
     const seat = seats.get(id);
-    if (seat && seat.status === 'connected') { try { sayHello(id, seat); } catch { /* next pass */ } }
+    if (seat && seat.status === 'connected') { try { sayHello(id, seat); sendRotates(id, seat); } catch { /* next pass */ } }
   }
   for (const id of Object.keys(links)) {
     const link = links[id];
