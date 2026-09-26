@@ -20,16 +20,11 @@
  * report vocabulary (measured against the installed grok 1.0.41 on 2026-09-23):
  *   SessionStart {source}                        -> started
  *   UserPromptSubmit {prompt}                     -> working   (a turn started)
- *   Notification {message,notification_type}      -> needs_you (a tool needs the
- *       person; message carries the reason the route requires for needs_you). This
- *       mapping is REASONED, mirrored from the gemini bridge, NOT measured for grok:
- *       a Notification under --always-approve/bypassPermissions was not induced this
- *       session (the same honesty the plan applies to StopFailure). The expectation is
- *       that benign confirmations auto-approve and do not fire it, so a Notification
- *       that DOES fire is a genuine attention signal -- but if grok fires it for an
- *       auto-approved call, this would paint needs_you spuriously. It is bounded: the
- *       report is auto:true, so it can never erase a deliberate blocked, and a live
- *       check of grok's Notification-under-bypass behaviour is the follow-up.
+ *   Notification {message,notification_type}      -> NOT MAPPED (#4006). Under
+ *       --always-approve/bypassPermissions it is not a permission prompt: measured on a
+ *       real agent 2026-09-26, it fires about a minute after a turn ends with message
+ *       "Waiting for your next prompt". Mapping it to needs_you painted a healthy idle
+ *       agent red and got it auto-restarted.
  *   Stop {reason:"end_turn",lastAssistantMessage} -> idle      (turn complete on a
  *       GENUINE completion; lastAssistantMessage is the last words, so the card can
  *       say what it finished with -- the analog of gemini's prompt_response)
@@ -75,7 +70,13 @@ const STDIN_TIMEOUT_MS = 2000;
 const STATE_FOR_EVENT = Object.freeze({
   SessionStart: 'started',
   UserPromptSubmit: 'working',
-  Notification: 'needs_you',
+  /* #4006: NO Notification. Kosmos always launches grok with --always-approve /
+     bypassPermissions, so there is no permission dialog for a Notification to be about.
+     Measured on Josh's Mac 2026-09-26: grok fires it about a minute after a turn ends,
+     message "Waiting for your next prompt". Mapped to needs_you it painted a healthy idle
+     agent red AND tripped the class-1 auto-handler, which restarted it (losing its
+     conversation) every time it went quiet. Stop / StopCancelled / StopFailure already
+     report the turn's end. */
   Stop: 'idle',
   /* A turn that ends without a genuine completion fires StopCancelled (interrupt /
      declined permission / --max-turns / no-progress) or StopFailure (API error)

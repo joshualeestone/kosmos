@@ -123,6 +123,15 @@ function planClass1Handle(standing, attempts, now, opts) {
     // would silently drop a blocking request and stall the fleet.
     return { act: 'none', because: 'not a standing by:auto needs_you (class-1) wait' };
   }
+  /* #4006: the handle clears CLAUDE CODE's folder-trust / bypass prompt. Another runner has no
+     such prompt (create.trustAgentFolder is already a no-op for grok), so its by:auto needs_you is
+     something else, and restarting it only throws away its conversation: on 2026-09-26 a grok
+     agent's ordinary "Waiting for your next prompt" was restarted, and the restart did not come
+     back. Only a Claude agent (no runner, or 'claude') is ever eligible. */
+  const runner = standing && typeof standing.runner === 'string' ? standing.runner : '';
+  if (runner && runner !== 'claude') {
+    return { act: 'none', because: `a ${runner} agent has no Claude Code trust prompt to clear, so it is never restarted for one` };
+  }
 
   // Resolve the attempt history, biasing EVERY corrupt shape toward escalate (never
   // toward another restart), consistent across the container, the entries, and `now`:
@@ -302,7 +311,7 @@ function standingFromAgent(agent, isTrustDialogEvidence) {
   // session -> card by:null + evidence -> handled), which the earlier defense-in-depth test
   // (a by:'agent' + evidence card, a shape status.js cannot produce) did not.
   const by = (rawBy === 'auto' || (trustDialogScrape && !rawBy)) ? 'auto' : rawBy;
-  return { found: true, state: agent && agent.state, by };
+  return { found: true, state: agent && agent.state, by, runner: (agent && typeof agent.runner === 'string') ? agent.runner : '' };
 }
 
 /*

@@ -93,15 +93,18 @@ test('#249: an interrupted or API-failed turn reports idle, so an agent never st
   assert.equal(JSON.parse(failed[0].body).state, 'idle');
 });
 
-test('Notification reports needs_you carrying a reason, so the route does not drop it', async () => {
-  const withMsg = await drive(JSON.stringify({ hook_event_name: 'Notification', message: 'Tool X requires execution' }));
-  assert.equal(JSON.parse(withMsg[0].body).state, 'needs_you');
-  assert.equal(JSON.parse(withMsg[0].body).text, 'Tool X requires execution');
-  // A Notification with no message still carries a non-empty reason (selfreport.js
-  // refuses a needs_you with no reason/on/owner, so an empty one would be dropped).
-  const noMsg = await drive(JSON.stringify({ hook_event_name: 'Notification' }));
-  assert.equal(JSON.parse(noMsg[0].body).state, 'needs_you');
-  assert.ok(JSON.parse(noMsg[0].body).text.length > 0, 'a needs_you with no reason would be refused by the route');
+test('#4006: a Notification reports NOTHING, so a quiet grok agent is never painted needs_you (and never auto-restarted)', async () => {
+  // Measured on a real agent 2026-09-26: under --always-approve grok fires Notification about a minute after a
+  // turn ends, message "Waiting for your next prompt". It is not a permission prompt, and reported as needs_you
+  // it got a healthy agent restarted by the class-1 handler.
+  const waiting = await drive(JSON.stringify({ hook_event_name: 'Notification', message: 'Waiting for your next prompt', notification_type: 'idle' }));
+  assert.equal(waiting.length, 0, 'the turn-end Notification was reported: ' + JSON.stringify(waiting));
+  const other = await drive(JSON.stringify({ hook_event_name: 'Notification', message: 'Tool X requires execution' }));
+  assert.equal(other.length, 0, 'a Notification is never a permission prompt under always-approve, so none is reported');
+  // CONTROL: the same harness does report a mapped event, so the empty results above are not a dead harness.
+  const stop = await drive(JSON.stringify({ hook_event_name: 'Stop', reason: 'end_turn', lastAssistantMessage: 'done' }));
+  assert.equal(stop.length, 1);
+  assert.equal(JSON.parse(stop[0].body).state, 'idle');
 });
 
 test('an event we do not map reports nothing, and neither does garbage stdin', async () => {
