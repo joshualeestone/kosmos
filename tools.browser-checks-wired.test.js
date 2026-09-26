@@ -157,19 +157,33 @@ function isLibrary(file) {
    proposing it - 50 expected, 47 ran, all three differences explained against
    the tree her run froze, no live gap. ⇒ It COMPLEMENTS this file. Where it
    belongs is a post-gate assertion in the release, not here. */
-function invokedNames(code) {
+/* #3929: the no-URL loop's names moved to GATED_FILE, one per line, read into GATED_CHECKS and
+   iterated by `for n in ${GATED_CHECKS[@]+"${GATED_CHECKS[@]}"}`. That list token is a POSITION
+   too, but only when BOTH halves are in the code: the read that fills the array from the file,
+   and the loop over the array whose body calls run_one. Either half alone confers nothing. */
+const GATED_FILE = path.join(DIR, 'gated.txt');
+const GATED_LOOP_LIST = '${GATED_CHECKS[@]+"${GATED_CHECKS[@]}"}';
+const GATED_READ = 'done < "$REPO/docs/browser-checks/gated.txt"';
+function gatedNames(text = fs.readFileSync(GATED_FILE, 'utf8')) {
+  return text.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+}
+function invokedNames(code, gated = gatedNames()) {
   const names = new Set();
   for (const m of code.matchAll(/run_one\s+"([^"]+)"/g)) names.add(m[1]);
   for (const loop of code.matchAll(/for n in ([^;]+); do([\s\S]*?)done/g)) {
     if (!/run_one/.test(loop[2])) continue;
+    if (loop[1].trim() === GATED_LOOP_LIST) {
+      if (code.includes(GATED_READ)) for (const n of gated) names.add(n);
+      continue;
+    }
     for (const n of loop[1].trim().split(/\s+/)) names.add(n);
   }
   for (const m of code.matchAll(/node\s+docs\/browser-checks\/([a-z0-9-]+)\.js/g)) names.add(m[1]);
   return names;
 }
 
-function wiredIn(code, stem) {
-  return invokedNames(code).has(stem);
+function wiredIn(code, stem, gated) {
+  return invokedNames(code, gated).has(stem);
 }
 
 function checkFiles() {
@@ -278,6 +292,34 @@ test('#1387: the instrument is reading something', () => {
   assert.ok(wiredIn('PORT="$p" node docs/browser-checks/thread-server.js > log 2>&1 &', 'thread-server'),
     'a check launched directly by node, not via run_one, reads as unwired');
 });
+
+test('#3929: the gated list is one name per line, sorted, unique, each a real check, and the runner iterates IT', () => {
+  const names = gatedNames();
+  assert.ok(names.length >= 100, `only ${names.length} names read from ${GATED_FILE}; the read looks broken`);
+  const sorted = [...names].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  assert.deepEqual(names, sorted, `${GATED_FILE} is not sorted (byte order); keep it sorted so two new names rarely touch the same line`);
+  assert.equal(new Set(names).size, names.length, `${GATED_FILE} has a duplicate name`);
+  for (const n of names) {
+    assert.ok(/^[a-z0-9-]+$/.test(n), `${GATED_FILE}: "${n}" is not a bare check name (one name per line)`);
+    assert.ok(fs.existsSync(path.join(DIR, `${n}.js`)), `${GATED_FILE} names ${n}, but ${DIR}/${n}.js does not exist`);
+  }
+  const code = runnerCode();
+  /* The runner really runs every name in the file... */
+  for (const n of names) assert.ok(wiredIn(code, n), `${n} is in ${GATED_FILE} but the runner does not iterate it`);
+  /* ...and each half of the mechanism is load-bearing (CONTROLS: each must be able to say no). */
+  const probe = names[0];
+  assert.ok(!wiredIn(code, 'zzz-not-listed', [...names]), 'a name in neither the file nor the runner reads as wired');
+  assert.ok(wiredIn(code, 'zzz-just-added', [...names, 'zzz-just-added']), 'a name ADDED to the file is not picked up by the runner loop');
+  assert.ok(!wiredIn(code, probe, names.filter((n) => n !== probe)) || invokedByOtherPosition(code, probe),
+    `REMOVING ${probe} from the file does not drop it from the run`);
+  assert.ok(!wiredIn(code.replace(GATED_READ, 'done < /dev/null'), probe, names) || invokedByOtherPosition(code, probe),
+    'the loop still reads as running the file when the runner no longer reads the file');
+  assert.ok(!wiredIn(code.replace(`for n in ${GATED_LOOP_LIST}; do`, 'for n in; do'), probe, names) || invokedByOtherPosition(code, probe),
+    'the file still reads as run when the runner no longer loops over it');
+});
+function invokedByOtherPosition(code, stem) {
+  return invokedNames(code, []).has(stem);
+}
 
 test('#1387: every browser check is RUN by the runner, or is listed as unwired with a reason', () => {
   const code = runnerCode();
