@@ -148,6 +148,21 @@ function chk(ok, label, extra) {
       await page.waitForTimeout(150);
       const hov = await page.evaluate((s) => { const cs = getComputedStyle(document.querySelector(s)); return { bc: cs.borderTopColor, bg: cs.backgroundColor }; }, hoverSel);
       chk(hov.bc !== rest.bc && hov.bg !== rest.bg, `[${theme}] hovering a four-pack tile applies the warm preview (border and wash both change)`, JSON.stringify({ rest, hov }));
+      // #4051 (Josh, 2026-09-26): the hover and selected outlines are the bright gold of the Post
+      // button, not the brown. Compared to the Post button's own computed fill on this page, so it
+      // follows the token rather than a colour string; the resting tile is the control (not gold).
+      const gold = await page.evaluate(() => {
+        const post = document.getElementById('d-send');
+        const on = document.querySelector('#d-nav button.on');
+        const rgb = (c) => (c.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+        const lum = (c) => { const [r, g, b] = rgb(c).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+        const ratio = (a, b) => { const x = lum(a), y = lum(b); return +((Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)).toFixed(2); };
+        const side = getComputedStyle(document.getElementById('d-nav').closest('.detail-side, .dside, aside') || document.body).backgroundColor;
+        return { post: post ? getComputedStyle(post).backgroundColor : null, on: on ? getComputedStyle(on).borderTopColor : null, onKey: on && on.dataset.go, ratioOnPage: on ? ratio(getComputedStyle(on).borderTopColor, getComputedStyle(document.body).backgroundColor) : null, side };
+      });
+      chk(!!gold.post && gold.on === gold.post, `[${theme}] #4051: the selected tile's outline is the Post button's bright gold`, JSON.stringify(gold));
+      chk(hov.bc === gold.post, `[${theme}] #4051: the hover outline is the same bright gold`, JSON.stringify({ hover: hov.bc, post: gold.post }));
+      chk(rest.bc !== gold.post, `[${theme}] #4051 CONTROL: a resting tile is not gold`, JSON.stringify({ rest: rest.bc }));
       await page.mouse.move(0, 0);
       await page.waitForTimeout(50);
 
