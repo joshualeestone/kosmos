@@ -38,7 +38,7 @@ page. Try again re-tells that agent and the notice updates.
 - pjSharedTold, pjToldGroupLine, their CSS and tests are removed (dead once the notice replaced the
   group line). pjToldLine stays: the Settings members list still uses it.
 
-- Act rows say Kosmos picks the fix up "the next time this project changes" (review round 3): nothing
+- Act rows say Kosmos picks the fix up "the next time you give NAME a task here or change who is on this project" (Mona's concrete wording, narrowed to what syncAgent fires on: giving that agent a task, or a membership change) (review round 3): nothing
   re-syncs an agent on a timer or after an instructions save, only on membership, task and project
   changes, so the mock's "next time" is made concrete rather than promising a mechanism that is not
   there. Rejected: re-telling inside the instructions save, which rewrites the file under the person's

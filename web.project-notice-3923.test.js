@@ -91,7 +91,7 @@ test('#3923: the four shapes, one agent each, as the design draws them', () => {
   assert.match(wait, /data-pn-retry="leo"/);
 
   const act = pjNotice(rows({ april: 'it has no instructions file yet, and we will not create one' }));
-  assert.equal(text(act), 'april does not have this project’s folder. april has no instructions file, and Kosmos will not create one. Give april some instructions and Kosmos will pick it up the next time this project changes.');
+  assert.equal(text(act), 'april does not have this project’s folder. april has no instructions file, and Kosmos will not create one. Give april some instructions and Kosmos will pick it up the next time you give april a task here or change who is on this project.');
   assert.doesNotMatch(act, /Try again/, 'Act offers no button: pressing it would fail every time');
   assert.match(act, /<b class="pnfix">Give april/);
 
