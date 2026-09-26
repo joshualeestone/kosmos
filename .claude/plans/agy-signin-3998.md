@@ -138,3 +138,10 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 - The revisit and terms-Down caps are named constants (MAX_VISITS, MAX_DOWNS).
 - readyCheck's last-resort catch uses the ready screen's own reason (NOT_CONFIRMED).
 - Sign in again's click catches a throw and says so in the step.
+
+## Review round 20 (decided)
+- A blank frame is never asked about, and after Show only the same unknown frame on two ticks in a row is (the person's keys make agy redraw; a yes on a passing frame mid-setup ended it done and closed their window). Rejected: also refusing asks while the last known screen is theme or terms; that would never confirm a sign-in the person finished faster than one tick per screen (round 6 test). Weakest premise: agy's redraws settle within a tick.
+- agy's ready line drawn under theme, terms or trust before the trust step is that setup screen, not the end (a status footer). After trust, words left above the ready line still do not hold it up (round 4).
+- The trust answer is pressed only on the measured label "Yes, I trust this folder"; a broader Yes falls through to stuck.
+- onReady is called through a caught promise.
+- Kept: the trailing return in the signin route. Every sub-address returns above it, so it is unreachable today, but it keeps a future fall-through from reaching the routes below (fail closed).

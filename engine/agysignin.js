@@ -55,6 +55,8 @@ const ASK_STEPS = Object.freeze(['trust']);   // round 16: a yes after theme or 
 const MAX_VISITS = 3;
 /* Downs Kosmos sends looking for the terms' [Done] before it shows the screen instead (round 7). */
 const MAX_DOWNS = 4;
+/* The trust answer Kosmos presses (agy 1.2.11, Josh's screenshot): exactly this label, nothing broader. */
+const TRUST_YES = /^>\s*Yes, I trust this folder\s*$/;
 
 /* The words each screen shows (agy 1.2.11, Josh's screenshots of 2026-09-26). Matched on the text
    of the screen with the ANSI styling already stripped by capture-pane -p. */
@@ -71,9 +73,10 @@ const SCREENS = {
 };
 /* Which screen agy is on: the one whose words appear LAST, so text an earlier screen left behind
    never wins over the screen now drawn (review round 4). */
-function screenOf(text) {
+function screenOf(text, skip) {
   let best = null; let at = -1;
   for (const [k, re] of Object.entries(SCREENS)) {
+    if (k === skip) continue;
     const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g');
     let m;
     while ((m = g.exec(text)) !== null) { if (m.index > at || (m.index === at && best === null)) { at = m.index; best = k; } if (m[0] === '') g.lastIndex += 1; }
@@ -239,7 +242,15 @@ function step() {
     return;
   }
   if (text === undefined) return;
-  const name = screenOf(text);
+  let name = screenOf(text);
+  /* Round 20: agy's ready line drawn under a setup screen still being answered (a status footer) is
+     not the end: before the trust step, a frame that also shows theme, terms or trust is that setup
+     screen. (After trust, words it left behind above the ready line do not hold the ready screen up.) */
+  if (name) S.lastUnknown = null;   // "the same unknown frame twice" means twice IN A ROW (round 20)
+  if (name === 'ready' && S.step !== 'trust') {
+    const under = screenOf(text, 'ready');
+    if (under === 'theme' || under === 'terms' || under === 'trust') name = under;
+  }
   /* A blank frame caught mid-redraw is not a new screen (round 10): it must not clear `pressed` and
      send the same key again when the screen comes back. */
   /* Only a DIFFERENT KNOWN screen is a new screen (round 12): a frame Kosmos does not recognise (a
@@ -313,7 +324,8 @@ function step() {
     }
     S.state = 'setup'; S.because = null;
     // The step becomes 'trust' only once its Enter went out (round 17): asking agy (and so a done) waits for it.
-    if (/^>\s*Yes\b/.test(markedLine(text)) && !S.pressed) { S.pressed = true; keys('Enter'); S.step = 'trust'; }
+    // Anchored to the measured label (round 20): a broader "Yes" an update might offer is not pressed.
+    if (TRUST_YES.test(markedLine(text)) && !S.pressed) { S.pressed = true; keys('Enter'); S.step = 'trust'; }
     S.lastSeen = now();
     return;
   }
@@ -351,7 +363,14 @@ function step() {
      person drives may still be asked about. */
   /* Round 10: not merely "a known screen was seen" (the menu counts, before any code): only once the
      code has gone in or the setup screens are under way, or the person drives the window. */
-  const mayAsk = S.shown || ASK_STEPS.includes(S.step);
+  /* Round 20: only a screen that is really drawn is asked about: never a blank frame, and in the
+     shown window the same frame on two ticks in a row (the person's keys make agy redraw, and a yes
+     on a passing frame mid-setup would end it done and close their window). */
+  const blank = !text.trim();
+  const steady = text === S.lastUnknown;
+  S.lastUnknown = text;
+  const shownMayAsk = S.shown && steady;
+  const mayAsk = !blank && (shownMayAsk || ASK_STEPS.includes(S.step));
   const ask = mayAsk && S.checks < MAX_CHECKS && (S.state === 'stuck'
     ? text !== S.stuckText && now() - S.lastCheckAt > STUCK_MS   // a redrawing screen does not spend them all at once
     : settled || now() - S.lastSeen > STUCK_MS);

@@ -534,7 +534,7 @@ test('#3998 round 6: between setup screens, an unknown frame is not asked about 
     s.start();   // makes its own sign-in folder under the scripted root
     s.tickForTests();
     assert.ok(st2.sent.includes('Enter'), 'CONTROL: the trust screen for its own folder was answered');
-    st2.screen = ''; st2.t += 1000; s.tickForTests(); await settle();
+    st2.screen = 'something agy draws after the setup'; st2.t += 1000; s.tickForTests(); await settle();
     assert.equal(st2.checks, 1);
     assert.equal(s.status().state, 'done');
   } finally { s.resetForTests(); }
@@ -897,4 +897,58 @@ test('#3998 round 18: signing in again after a finished sign-in does not log a f
     s.start();
     assert.deepEqual(lines.filter((l) => /ended stopped/.test(l)), [], 'a finished sign-in was logged as stopped');
   } finally { console.error = was; s.resetForTests(); }
+});
+
+/* ---- review round 20 --------------------------------------------------------------------- */
+test('#3998 round 20: after Show, a blank frame or a passing redraw is not asked about, so the person\'s window is not closed mid-setup', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, TERMS('Previous'));
+  st.answer = { signedIn: true };   // Google already took the code: a yes is what agy would say
+  try {
+    const { id } = s.start();
+    const marks = ['Previous', '[ ] Yes, I agree', 'Previous', '[ ] Yes, I agree', 'Previous', '[ ] Yes, I agree'];
+    for (const m of marks) { st.screen = TERMS(m); s.tickForTests(); }
+    assert.equal(s.status().state, 'stuck', 'CONTROL: stuck on the terms, the case where Show is offered');
+    s.setForTests({ openFile: (f, done) => done(null) });
+    await s.show(id);
+    st.screen = '\n\n'; st.t += 9000; s.tickForTests(); await settle();
+    assert.equal(st.checks, 0, 'a blank frame after Show was asked about');
+    st.screen = 'half a redraw'; st.t += 9000; s.tickForTests(); await settle();
+    assert.equal(st.checks, 0, 'a frame seen once was asked about');
+    st.screen = TERMS('[Done]'); st.t += 1000; s.tickForTests(); await settle();
+    assert.notEqual(s.status().state, 'done', 'the sign-in ended done with the terms unanswered');
+    assert.equal(st.killed, 1, 'the person\'s window was closed mid-setup (only the start\'s clean-up kills)');
+    // CONTROL: the same unknown frame twice in a row is asked about (a hand-finished sign-in still ends).
+    st.screen = 'j@example.com - Gemini Pro plan\n> \n';
+    st.t += 9000; s.tickForTests(); await settle();
+    st.t += 9000; s.tickForTests(); await settle();
+    assert.equal(st.checks, 1, 'CONTROL: a steady unknown screen after Show was never asked about');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 20: agy\'s ready line under a setup screen before trust is that setup screen, not the end', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, TERMS('Previous') + '\nj@example.com (Antigravity Starter Quota) - Gemini 3.8 Flash (High)\n');
+  st.answer = { signedIn: true };
+  try {
+    s.start();
+    s.tickForTests(); await settle();
+    assert.equal(st.checks, 0, 'the ready footer under the terms was confirmed');
+    assert.deepEqual(st.sent, ['Down'], 'CONTROL: the terms were driven as the terms');
+    assert.notEqual(s.status().state, 'done');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 20: only the measured trust label is pressed', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, '');
+  st.screen = 'Accessing workspace:\n\n' + path.join(st.root, 'agy-signin') + '\n\nDo you trust the contents of this project?\n\n> Yes, trust this folder and its parent folders\n';
+  try {
+    s.start();
+    s.tickForTests();
+    assert.deepEqual(st.sent, [], 'a broader Yes was pressed');
+    st.screen = 'Accessing workspace:\n\n' + path.join(st.root, 'agy-signin') + '\n\nDo you trust the contents of this project?\n\n> Yes, I trust this folder\n  No, exit\n';
+    s.tickForTests();
+    assert.deepEqual(st.sent, ['Enter'], 'CONTROL: the measured label was not pressed');
+  } finally { s.resetForTests(); }
 });
