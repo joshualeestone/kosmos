@@ -567,6 +567,30 @@ case "$_stale_out" in
 esac
 echo "==> native app: it knows when it is the stale half (#1042)"
 
+# ---- the Dock badge's number (kosmos#3996) -----------------------------------
+# The app shows the board's counts.waiting as the red number on its Dock icon. The part that can be
+# wrong without a window server is reading that number out of the board's JSON (zero and unknown
+# must CLEAR the badge, never leave one up), so that part is a pure function with its own rows.
+_badge_rc=0
+_badge_out="$(perl -e 'alarm 20; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-badge-selftest 2>&1)" || _badge_rc=$?
+if [ "$_badge_rc" -ne 0 ]; then
+  case "$_badge_out" in
+    *"badge-check: only "*)
+      printf '%s\n' "the #3996 selftest is no longer testing anything, so it cannot vouch for the Dock badge:" "$_badge_out" >&2 ;;
+    *"badge-check:"*)
+      printf '%s\n' "the native app reads the Dock badge's number wrong (#3996). Its own rows:" "$_badge_out" >&2 ;;
+    *)
+      printf '%s\n' "the #3996 gate did not finish (exit $_badge_rc): a timeout, a missing binary, or something that is not the badge. It could not judge it either way." "$_badge_out" >&2 ;;
+  esac
+  exit 1
+fi
+printf '%s\n' "$_badge_out" | sed 's/^/    /'
+case "$_badge_out" in
+  *"badge-check: all good"*) ;;
+  *) echo "the #3996 gate exited 0 without reporting a verdict. Treat that as the gate being broken, not as a pass." >&2; exit 1 ;;
+esac
+echo "==> native app: the Dock badge reads the board's waiting count (#3996)"
+
 _app_bin_sha="$(shasum -a 256 "$STAGE/app/bin/kosmos-app" | awk '{print $1}')"
 echo "==> native app: kosmos-app signed $_app_bin_sha"
 

@@ -41,7 +41,7 @@ const worldRegistryBase = require('./engine/worldenv').bootstrapWorldEnv(process
 // literal there is a comparison that silently stops matching the day the engine
 // renames one.
 const {
-  snapshot, paneRoster, countAgents, needsPerson, projectsUnreadTotal, STATE, modelDisplayName,
+  snapshot, paneRoster, countAgents, needsPerson, projectsUnreadTotal, waitingTotal, STATE, modelDisplayName,
   /* #1304: the tier vocabulary, imported rather than hand-written. A literal
      'structured' beside a value read off a process command line is exactly the
      two-copies-of-one-fact habit this file criticises elsewhere. */
@@ -4348,8 +4348,12 @@ const server = http.createServer((req, res) => {
          false and the banner stays down. */
       // #3739: the guide is included on purpose: the bubble depends on Claude even though its row is hidden.
       const dependsOnClaude = someAgentNeedsClaude(agents.concat(offline));
+      const rows = withDmUnread(agents.concat(offline));
+      /* #3996: what is waiting on the person, in one number (the Dock badge reads it). The same
+         rows the Messages tile sums, after the needs-you and projects counts above are final. */
+      counts.waiting = waitingTotal(counts, rows);
       body = JSON.stringify({
-        ...snap, agents: withDmUnread(agents.concat(offline)), counts, connection, version, dependsOnClaude,
+        ...snap, agents: rows, counts, connection, version, dependsOnClaude,
         /* #2066: the board reads (version, sourceChannel); the version line and the
            federation gate use them (the corner marker went in #3641). Channel rides
            the 5s status tick the board already polls. #2934: no longer just a file

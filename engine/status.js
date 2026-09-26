@@ -7489,6 +7489,24 @@ function projectsUnreadTotal(projects, unreadMap) {
   return total;
 }
 
+/* #3996 (Josh, 2026-09-26: a count on the Dock icon "like Messages"): the ONE number for what is
+   waiting on the person, so the Dock badge (and the Windows taskbar's) agree with the page. It is
+   the three counters the page already shows, added: the Needs you tile (counts.needsYou, the
+   needsPerson rule), the Messages tile (each agent's dmUnread) and the Projects badge
+   (counts.projectsUnread). The guide's row is left out, as the tiles leave it out, and an unknown
+   part counts 0 as it does on the tiles: a badge never shows a guess.
+   Not added: tasks that need the person's decision (#3949). tasks.waitingOnPerson is true exactly
+   when an agent holding the task passes needsPerson, so that agent is already in needsYou and a
+   task on top would count one question twice.
+   RAW: the page's tiles leave out the thread open on screen, which only the page knows. */
+function waitingTotal(counts, agents) {
+  const n = (v) => { const x = Number(v); return Number.isFinite(x) && x > 0 ? Math.floor(x) : 0; };
+  const dms = (Array.isArray(agents) ? agents : [])
+    .filter((a) => a && a.isGuide !== true)
+    .reduce((t, a) => t + n(a.dmUnread), 0);
+  return n(counts && counts.needsYou) + dms + n(counts && counts.projectsUnread);
+}
+
 // `transcriptFor` is exported for the instructions module, which needs a
 // session start time. It resolves by session id rather than by guessing a
 // directory from the agent's name, for the reason its own comment gives: a
@@ -7579,6 +7597,7 @@ function sessionStartedAtFromTmux(sessionName, now = Date.now()) {
 }
 
 module.exports = {
+  waitingTotal,   // #3996: the Dock badge's number
   /* #1500: exported so discover.foundCodex can honour the same refusal.
      The Codex walk reaches ~/.codex without ever calling configRoots. */
   sandboxIsInconsistent,

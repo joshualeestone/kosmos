@@ -39,6 +39,7 @@
 import Cocoa
 import WebKit
 import ApplicationServices  // #2125 slice 3: AXIsProcessTrusted / AXIsProcessTrustedWithOptions
+import UserNotifications    // #3996: whether the person turned Kosmos's badges off
 
 // MARK: - Install-time configuration
 //
@@ -1049,6 +1050,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // #1 / #2189: the watcher that turns a webview grant-button POST into a real,
     // under-tmux macOS prompt (see startPromptRequestWatcher).
     private var promptRequestTimer: Timer?
+    // #3996: the Dock badge's poll (held so it survives).
+    private var badgeTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // #2124: single-instance. A fresh install could run this app from two bundle
@@ -1441,6 +1444,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         do {
             resolved = try resolveInstall(config: config)
             resolvedPort = resolved.port
+            startDockBadge(port: resolved.port)
         } catch InstallResolutionError.noOwnInstallForOtherUser {
             // Logged before the modal so a test double can observe the
             // refusal without needing to click the dialog it is about to
@@ -2238,6 +2242,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         guard let a = versionParts(mine), let b = versionParts(theirs) else { return nil }
         for (x, y) in zip(a, b) where x != y { return x < y }
         return false
+    }
+
+    /* #3996 (Josh, 2026-09-26: "a total number of waiting notifications on the kosmos app icon in
+       the dock, like Messages app shows"): the red number on the Dock icon. The board works the
+       number out (engine/status.js waitingTotal: needs-you + unread DMs + unread project messages,
+       the page's own three counters) and serves it as counts.waiting on /api/status; this only
+       shows it. Its own timer, not the page's poll, so the badge keeps up with the window closed.
+       10 s, not the page's 5 s: it runs as well as the page's poll, and a badge a few seconds
+       late is still right. The request is the stale check's (token header, no cache). */
+    private func startDockBadge(port: Int) {
+        badgeTimer?.invalidate()
+        refreshDockBadge(port: port)
+        badgeTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+            self?.refreshDockBadge(port: port)
+        }
+    }
+
+    private func refreshDockBadge(port: Int) {
+        guard let url = URL(string: "http://127.0.0.1:\(port)/api/status") else { return }
+        var req = URLRequest(url: url)
+        if let tok = boardTokenValue() {
+            req.setValue(tok, forHTTPHeaderField: "x-kosmos-board-token")
+        }
+        req.timeoutInterval = 8
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        URLSession.shared.dataTask(with: req) { data, response, _ in
+            /* A board that did not answer, or answered anything but 200, CLEARS the badge rather than
+               leaving the last number up: a stale count reads as work waiting that may be gone. */
+            let answered = (response as? HTTPURLResponse)?.statusCode == 200
+            let label = answered ? Self.badgeLabel(fromStatusJSON: data) : nil
+            Self.badgesAllowed { allowed in
+                DispatchQueue.main.async { NSApp.dockTile.badgeLabel = allowed ? label : nil }
+            }
+        }.resume()
+    }
+
+    /* 🔑 PURE, so --kosmos-app-badge-selftest can drive it (the caller is a URLSession callback no
+       selftest reaches). A whole number above zero is the label; over 999 it reads "999+" so the
+       badge stays a badge. Zero, a missing, unreadable or non-number count clears it: nil. */
+    static func badgeLabel(fromStatusJSON data: Data?) -> String? {
+        guard let data,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let counts = obj["counts"] as? [String: Any],
+              let n = counts["waiting"] as? NSNumber,
+              CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }   // true is an NSNumber too
+        let d = n.doubleValue
+        guard d.isFinite, d >= 1, d == d.rounded() else { return nil }
+        return d > 999 ? "999+" : String(Int(d))
+    }
+
+    /* The person's own macOS setting wins: when Kosmos has a notification setting and its badges
+       are turned off, no badge. Kosmos does not ASK for notification permission to get a setting
+       (a system dialog nobody asked for); without one, the badge shows, as NSDockTile does for any
+       app. UNUserNotificationCenter needs a real bundle, so a bare binary (a selftest, the
+       prototype build) skips the question. */
+    static func badgesAllowed(_ done: @escaping (Bool) -> Void) {
+        guard Bundle.main.bundleIdentifier != nil else { done(true); return }
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            done(settings.badgeSetting != .disabled)
+        }
     }
 
     /// Ask the board what version it is, once, after the page has loaded.
@@ -3722,6 +3786,41 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
     if !sawUnknownLogRow { print("\nstale-check: the COULD NOT COMPARE log row is gone, and it is the row that keeps a three-state verdict from being logged as two"); exit(1) }
     print(bad == 0 ? "\nstale-check: all good, \(ran) checks" : "\nstale-check: \(bad) FAILED")
     exit(bad == 0 ? 0 : 1)
+}
+
+/* #3996: the Dock badge's number, read from the board's own JSON the way the timer reads it. */
+if CommandLine.arguments.contains("--kosmos-app-badge-selftest") {
+    var bad = 0
+    var ran = 0
+    func check(_ json: String?, _ want: String?, _ why: String) {
+        ran += 1
+        let got = AppDelegate.badgeLabel(fromStatusJSON: json.map { Data($0.utf8) })
+        let ok = got == want
+        if !ok { bad += 1 }
+        print((ok ? "PASS  " : "FAIL  ") + (got ?? "(none)").padding(toLength: 7, withPad: " ", startingAt: 0) + why)
+    }
+    check(#"{"counts":{"waiting":3}}"#, "3", "a count is its number")
+    check(#"{"counts":{"waiting":1}}"#, "1", "one is shown")
+    check(#"{"counts":{"waiting":999}}"#, "999", "999 as it is")
+    check(#"{"counts":{"waiting":1000}}"#, "999+", "over 999 stays a badge")
+    check(#"{"counts":{"waiting":0}}"#, nil, "ZERO CLEARS IT: no badge when nothing is waiting")
+    check(#"{"counts":{"waiting":-2}}"#, nil, "a negative is not a count")
+    check(#"{"counts":{"waiting":2.5}}"#, nil, "nor a fraction")
+    check(#"{"counts":{"waiting":"4"}}"#, nil, "a string is not read as a number")
+    check(#"{"counts":{"waiting":true}}"#, nil, "nor is true (it is an NSNumber too)")
+    check(#"{"counts":{"waiting":null}}"#, nil, "an unknown count clears it")
+    check(#"{"counts":{"needsYou":2}}"#, nil, "a board from before #3996 has no count: no badge, not a guess")
+    check(#"{"version":"0.6.98"}"#, nil, "no counts at all")
+    check("not json", nil, "an answer that is not JSON")
+    check(nil, nil, "no answer")
+    let expected = 14
+    if ran != expected {
+        print("\nbadge-check: only \(ran) of \(expected) rows ran, so this proved nothing")
+        exit(1)
+    }
+    if bad > 0 { print("\nbadge-check: \(bad) row(s) wrong"); exit(1) }
+    print("\nbadge-check: all good (\(ran) rows)")
+    exit(0)
 }
 
 // #2125 slice 3: the native Accessibility writer's two hatches, same

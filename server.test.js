@@ -14285,6 +14285,29 @@ test('#2863: an agent\'s DM replies surface as a.dmUnread, cleared by POST /api/
   assert.equal(april2.dmUnread, 0, 'the payload now carries the cleared count');
 });
 
+// #3996: counts.waiting, the Dock badge's number, on the real /api/status payload: the three
+// counters the page shows (needs-you, DMs, projects) added, and it falls when a thread is read.
+test('#3996: /api/status carries counts.waiting = needsYou + every DM unread + projects unread', async (t) => {
+  const chat = require('./engine/chat');
+  const made = fleet.install([
+    fleet.agent('zora', { state: 'idle', displayName: 'Zora', role: 'a tester' }),
+    fleet.agent('quill', { state: 'needs_you', displayName: 'Quill', role: 'a tester' }),
+  ]);
+  t.after(() => made.restore());
+  assert.equal(chat.appendMessage(chat.DIRECT, 'zora', { text: 'one', at: '2026-09-26T00:00:00.000Z', from: 'zora' }).recorded, true);
+  assert.equal(chat.appendMessage(chat.DIRECT, 'zora', { text: 'two', at: '2026-09-26T00:01:00.000Z', from: 'zora' }).recorded, true);
+  const read = async () => JSON.parse((await req('/api/status')).body);
+  const b1 = await read();
+  const dms = (b1.agents || []).filter((a) => a.isGuide !== true).reduce((n, a) => n + (Number(a.dmUnread) > 0 ? Number(a.dmUnread) : 0), 0);
+  assert.ok(b1.counts.needsYou >= 1, 'CONTROL: the needs-you fixture reached the count: ' + JSON.stringify(b1.counts));
+  assert.ok(dms >= 2, 'CONTROL: the two DM replies reached the board');
+  assert.equal(typeof b1.counts.waiting, 'number', 'no counts.waiting on the payload');
+  assert.equal(b1.counts.waiting, b1.counts.needsYou + dms + (b1.counts.projectsUnread || 0), JSON.stringify(b1.counts));
+  assert.equal((await postJson('/api/agent/zora/seen', {})).status, 200);
+  const b2 = await read();
+  assert.equal(b2.counts.waiting, b1.counts.waiting - 2, 'reading the thread did not take its two messages off the count');
+});
+
 // #2863: the /seen route's error mapping, exercised through HTTP (the engine-layer
 // BAD_THREAD refusal is unit-tested in engine/chat.dm-unread-2863.test.js; this
 // pins that the ROUTE maps it to 400). `bad.name` is a single path segment (no
