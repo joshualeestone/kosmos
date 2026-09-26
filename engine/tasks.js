@@ -268,14 +268,24 @@ function create(projectId, { sentence, detail, who, parent, made: origin } = {},
  * So every write starts from `partsOf`, which is the derived list, and the
  * legacy `who` is retired in the same edit rather than left to disagree.
  */
-function writeParts(projectId, n, fn) {
+function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
   let changed;
+  let droppedForWork = false;
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
     const parts = fn(partsOf(t), t, p);
     if (!parts) throw new Error('that did not change anything');
     changed = { ...t, parts };
+    /* #3951: the built mark does not outlive the work it described: a new part, or a part put back, is new work
+       (`dropBuilt`, a flag or a question asked after `fn` ran), and a task that is now closed is done (a later
+       reopen must not bring back a stale "built"). */
+    const closedNow = progressOf(changed).closed;
+    const forWork = typeof dropBuilt === 'function' ? !!dropBuilt() : !!dropBuilt;
+    if ((forWork || closedNow) && t.builtAt) {
+      changed = withoutBuilt(changed);
+      droppedForWork = forWork && !closedNow;
+    }
     /* ⚠️ `who` is DROPPED once parts are stored, not kept in step. Two fields
        answering "who is on this" is two things that disagree the first time
        one of them is edited, and every reader would then have to know which
@@ -283,7 +293,15 @@ function writeParts(projectId, n, fn) {
     delete changed.who;
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
+  /* The history says why the mark went (review round 1); a close says so itself. The caller records it after its
+     own event (part-added, part-reopened), so the history reads cause then effect (review round 2). Carried on the
+     returned task, not in module state (review round 3), so nothing can leak to another task's write. */
+  if (droppedForWork) DROPPED_FOR_WORK.add(changed);
   return changed;
+}
+const DROPPED_FOR_WORK = new WeakSet();
+function recordDroppedForWork(projectId, n, task) {
+  if (task && DROPPED_FOR_WORK.has(task)) taskchat.record(projectId, Number(n), { kind: 'unbuilt', reason: 'new work' });
 }
 
 function nextPartId(parts) {
@@ -393,9 +411,10 @@ function addPart(projectId, n, { sentence, who, made } = {}) {
       taskReopened = true;
     }
     return next;
-  });
+  }, { dropBuilt: true });
   taskchat.record(projectId, Number(n), { kind: 'part-added', partId: newPartId, sentence: said, who: whoKey });
   if (taskReopened) taskchat.record(projectId, Number(n), { kind: 'reopened' });
+  recordDroppedForWork(projectId, n, task);
   return { ok: true, task };
 }
 
@@ -412,6 +431,7 @@ function assignPart(projectId, n, partId, who, made) {
   // `changed` (the merged task record it returns) -- same word, unrelated
   // meaning, easy to conflate on a re-read.
   let moved = false;
+  let givenOpen = false;
   // #3595: `made.onlyIfFree` refuses, inside the same write, a part somebody is already on, so a
   // caller that chose the part from an earlier read never moves it off a person who took it since.
   // `made.onlyIfWho` likewise refuses unless the part is still on that agent (the Assigner's
@@ -431,20 +451,24 @@ function assignPart(projectId, n, partId, who, made) {
       if (Number(x.id) !== Number(partId)) return x;
       found = true;
       if (made && made.onlyIfFree && x.who) { taken = true; return x; }
+      /* #3951 (review round 15): the Assigner picked it before it was marked built; giving it now would drop the mark. */
+      if (made && made.onlyIfFree && t.builtAt) { taken = true; return x; }
       if (made && typeof made.onlyIfWho === 'string' && x.who !== made.onlyIfWho) { taken = true; return x; }
       moved = (x.who || null) !== whoKey;
+      givenOpen = moved && !!whoKey && !x.closedAt;
       if (moved && whoKey && !(p.agents || []).includes(whoKey)) {
         throw new Error('that agent is not on this project, so the part cannot be given to it');
       }
       return moved ? { ...x, who: whoKey, movedVia: viaOf(made), movedAt: new Date().toISOString() } : x;
     });
-  });
+  }, { dropBuilt: () => givenOpen });   // #3951 (review round 5): an open part given to somebody is work to do
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
   if (taken) return { ok: false, because: made && typeof made.onlyIfWho === 'string' ? 'that part is no longer on ' + made.onlyIfWho : 'somebody is already on that part' };
   // Only a real move is recorded: a resubmit of the current assignee (moved
   // false) changed nothing and types no pane line, so it leaves no transcript
   // line either. `who: null` is a real event -- somebody was taken off.
   if (moved) taskchat.record(projectId, Number(n), { kind: 'assigned', partId: Number(partId), who: whoKey });
+  recordDroppedForWork(projectId, n, task);
   return { ok: true, task, changed: moved };
 }
 
@@ -479,15 +503,112 @@ function setPartClosed(projectId, n, partId, closedAt) {
       if (before !== after) taskTransition = after ? 1 : -1;
     }
     return next;
-  });
+  }, { dropBuilt: () => partTransition && !closedAt });   // #3951 (review round 1): a part put back is new work
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
   if (partTransition) taskchat.record(projectId, Number(n), { kind: closedAt ? 'part-closed' : 'part-reopened', partId: Number(partId) });
   if (taskTransition) taskchat.record(projectId, Number(n), { kind: taskTransition > 0 ? 'closed' : 'reopened' });
+  recordDroppedForWork(projectId, n, task);
   return { ok: true, task };
 }
 
 function byNumber(p, n) {
   return (p.tasks || []).find((t) => t.number === Number(n));
+}
+
+/* #3951: "built, waiting to ship". An agent (or the person) marks an OPEN task built; the Tasks page counts it in
+   Josh's "Built but waiting" tile. The fields are BUILT_FIELDS, set and dropped together; setBuilt says what each is. */
+/* The note says what is left in a sentence or two; 300 characters is SENTENCE_MAX's room for a task's own sentence,
+   plus a clause, and keeps the row's line readable. */
+const BUILT_NOTE_MAX = 300;
+/* Thrown inside projects.mutate's callback to leave the store unwritten (review round 15: mutate writes the whole
+   store even when the callback changes nothing, so a looping repeat mark rewrote it on every call). */
+const NO_WRITE = Symbol('no write');
+const BUILT_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtFreesAll', 'builtNote'];
+function withoutBuilt(t) {
+  if (!t || !BUILT_FIELDS.some((k) => k in t)) return t;
+  const rest = { ...t };
+  for (const k of BUILT_FIELDS) delete rest[k];
+  return rest;
+}
+
+/**
+ * Mark an open task built. `by` is the agent's name (null when the caller could not be named); `person` is true when
+ * the person marked it from the screen, a flag and not a name, so no agent's name can pass for the person (review
+ * round 9: an agent named "operator" did). `note` is optional. Fields:
+ *   builtAt, builtNote     when, and what is left
+ *   builtBy, builtByPerson the LAST marker, for what the page says ("by April", "by you")
+ *   builtWho               every agent that has marked it since the mark was set (review round 9: a second agent's
+ *                          mark made the first busy again); the Assigner frees each of them
+ *   builtFreesAll          the person marked it: the Assigner frees every agent on it. Not an unnamed caller
+ *                          (review round 11: that gave a caller that would not name itself more power than one that
+ *                          did); an unnamed mark frees nobody, and the person can free them from the screen
+ * The same mark again (same marker, same note) records nothing (`changed: false`). `refusePersonMark` refuses a
+ * change to a mark the person made, checked inside the write (review round 9: it was read before it). A closed
+ * task is refused: closing already cleared the mark.
+ */
+function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false } = {}) {
+  const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
+  if (said.length > BUILT_NOTE_MAX) return { ok: false, because: `keep the note to ${BUILT_NOTE_MAX} characters or fewer` };
+  const isPerson = person === true;
+  const who = !isPerson && typeof by === 'string' && by.trim() ? by.trim().slice(0, WHO_MAX) : null;
+  let changed = null;
+  let closed = false;
+  let same = false;
+  let personMark = false;
+  try {
+    projects.mutate(projectId, (p) => {
+      const t = byNumber(p, n);
+      if (!t) throw new Error('there is no task by that number on this project');
+      if (progressOf(t).closed) { closed = true; throw NO_WRITE; }
+      if (refusePersonMark && t.builtAt && t.builtByPerson === true) { personMark = true; throw NO_WRITE; }
+      /* The same mark again (same marker, same note) changes no field and records nothing (review round 3: a looping
+         agent re-marking wrote a history line each time), and writes nothing (review round 15). */
+      if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said) {
+        same = true; changed = t; throw NO_WRITE;
+      }
+      const earlier = t.builtAt ? (Array.isArray(t.builtWho) ? t.builtWho : []) : [];
+      const builtWho = who && !earlier.includes(who) ? earlier.concat([who]) : earlier;
+      changed = {
+        ...withoutBuilt(t), builtAt: new Date().toISOString(), builtBy: who,
+        ...(isPerson ? { builtByPerson: true } : {}), builtWho,
+        ...((t.builtAt && t.builtFreesAll === true) || isPerson ? { builtFreesAll: true } : {}),
+        ...(said ? { builtNote: said } : {}),
+      };
+      return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
+    });
+  } catch (err) {
+    if (err !== NO_WRITE) return { ok: false, because: String((err && err.message) || err), code: err && err.code };
+  }
+  if (closed) return { ok: false, closed: true, because: 'that task is closed already, so it is not waiting on anything' };
+  if (personMark) return { ok: false, person: true, because: 'the person marked this task built, so only the person can change that mark' };
+  if (same) return { ok: true, task: changed, changed: false };
+  taskchat.record(projectId, changed.number, { kind: 'built', by: who, ...(isPerson ? { person: true } : {}), ...(said ? { note: said } : {}) });
+  return { ok: true, task: changed, changed: true };
+}
+
+/** Take the built mark off (the work turned out not to be done). A task with no mark records nothing. */
+function clearBuilt(projectId, n, { by = null, person = false, refusePersonMark = false } = {}) {
+  const isPerson = person === true;
+  const who = !isPerson && typeof by === 'string' && by.trim() ? by.trim().slice(0, WHO_MAX) : null;
+  let changed = null;
+  let had = false;
+  let personMark = false;
+  try {
+    projects.mutate(projectId, (p) => {
+      const t = byNumber(p, n);
+      if (!t) throw new Error('there is no task by that number on this project');
+      if (refusePersonMark && t.builtAt && t.builtByPerson === true) { personMark = true; throw NO_WRITE; }
+      had = !!t.builtAt;
+      changed = withoutBuilt(t);
+      if (!had) throw NO_WRITE;
+      return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
+    });
+  } catch (err) {
+    if (err !== NO_WRITE) return { ok: false, because: String((err && err.message) || err), code: err && err.code };
+  }
+  if (personMark) return { ok: false, person: true, because: 'the person marked this task built, so only the person can change that mark' };
+  if (had) taskchat.record(projectId, changed.number, { kind: 'unbuilt', by: who, ...(isPerson ? { person: true } : {}) });
+  return { ok: true, task: changed, changed: had };
 }
 
 /** Close: a record edit, never an act on an agent (see the header). */
@@ -518,6 +639,8 @@ function setClosed(projectId, n, closedAt) {
     changed = { ...t, closedAt };
     const after = progressOf(changed).closed;
     if (before !== after) transition = after ? 1 : -1;
+    /* #3951: closing is the person's "it is live": the built mark goes with it, and a reopen does not restore it. */
+    if (after) changed = withoutBuilt(changed);
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
@@ -853,14 +976,16 @@ function allTasks(everyProject) {
  *   'decision' (#3949) open, and the agent holding it needs the person right now
  *              (`waitingOnPerson`, set by the Tasks route from the roster); it
  *              wins over working and assigned, so each open task is in one group
- * "Built, waiting to ship" needs an agent-says-built that no task stores yet
- * (#3951), so no task is ever put in it.
+ *   'built'    (#3951) open, and marked built (`builtAt`, by `kosmos task built`): Josh's "Built but waiting". After
+ *              decision (an agent needing the person is still the one to act on), before nobody, working and
+ *              assigned (a built task whose agent was since taken off is still built).
  */
 function taskState(task) {
   if (!task) return 'nobody';
   if (progressOf(task).closed) return 'closed';
+  if (task.waitingOnPerson === true && whoOf(task).length > 0) return 'decision';
+  if (typeof task.builtAt === 'string' && task.builtAt) return 'built';
   if (whoOf(task).length === 0) return 'nobody';
-  if (task.waitingOnPerson === true) return 'decision';
   return (task.claim && task.claim.claimed === true) ? 'working' : 'assigned';
 }
 
@@ -1044,4 +1169,4 @@ module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claim
   taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX };

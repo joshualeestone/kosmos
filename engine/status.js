@@ -1562,6 +1562,69 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
   /^\s*›\s*\d+\.\s.*\n\s*\d+\.\s/m,
 ]);
 
+/* #4004: Gemini CLI (0.61.0, measured 2026-09-26 against a fake 429 in a real tmux pane) on a daily quota.
+   While it waits, its quota question is on screen ("Usage limit reached for <model>." over numbered options that
+   end in "Stop"), and it waits there forever. After Stop, it is back at its prompt under
+   "✕ [API Error: You have exhausted your daily quota on this model.]". Rows may carry the dialog's box border (│),
+   stripped before matching the question (the error line is matched on the raw row, round 9). Both rules are anchored to Gemini's own shapes, because an agent can have these words
+   on screen in its tool output (a grep, another pane's capture) while it is working. */
+const GEMINI_QUOTA_DIALOG = /^Usage limit reached for\b/i;
+const GEMINI_QUOTA_OPTION = /^(?:[●○>]\s*)?\d+\.\s+\S.*$/;
+const GEMINI_QUOTA_STOP = /^(?:[●○>]\s*)?\d+\.\s+Stop\s*$/i;
+const GEMINI_QUOTA_ERROR = /^✕\s*\[API Error:.*exhausted your daily quota\b/i;
+/* Review round 8: the same question also comes up for other limits (a model the key has no free quota for, a long
+   retry delay), and after Stop those print Google's own message instead, e.g. "You exceeded your current quota ...
+   limit: 0". Not a daily limit, so no midnight reset is promised for it. */
+const GEMINI_QUOTA_OTHER = /^✕\s*\[API Error:.*(?:exceeded your current quota|RESOURCE_EXHAUSTED|\blimit:\s*0\b)/i;
+const GEMINI_BOX_EDGE = /^[╭╮╰╯─]+$/;
+const GEMINI_COMPOSER = /Type your message/i;
+const GEMINI_LIMIT_ROWS = 14;
+function geminiRow(r) { return String(r).replace(/^[\s│]+|[\s│]+$/g, ''); }
+/* The number Gemini printed beside "Stop" in its quota question, or null. The one parser of that row: the reading
+   below and chat.answerGeminiQuotaStop both use it. Reads the LAST such row (the dialog is at the bottom). */
+function geminiStopKey(paneText) {
+  const rows = String(paneText || '').split('\n').map(geminiRow).filter((r) => r).reverse();
+  const row = rows.find((r) => GEMINI_QUOTA_STOP.test(r));
+  const m = row ? row.match(/(\d+)\./) : null;
+  return m ? m[1] : null;
+}
+/* The question is up: its message, then numbered options ending in Stop, and nothing after them but the box's
+   bottom edge (the real dialog replaces the composer; a quoted copy has the agent's own screen below it). Or the
+   quota error is Gemini's newest line: nothing after it but its empty composer and footer. */
+function geminiQuotaReading(paneText, afterStop) {
+  /* Two views of the same rows, kept in step: `rows` with the question box's border stripped (for the question), and
+     `raw` with only trailing space removed (for the error line). The border strip would also erase what marks a
+     QUOTED error: a working agent's tool output prints it behind a "│", and its own answer indents it under "✦".
+     Gemini's own error line starts at the left edge (captured), so it is matched there, on the raw row (round 9). */
+  const pairs = String(paneText || '').split('\n').map((line) => ({ row: geminiRow(line), raw: String(line).replace(/\s+$/, '') }))
+    .filter((p) => p.row).slice(-GEMINI_LIMIT_ROWS);
+  const rows = pairs.map((p) => p.row);
+  const raw = pairs.map((p) => p.raw);
+  const m = rows.findIndex((r) => GEMINI_QUOTA_DIALOG.test(r));
+  if (m >= 0) {
+    const after = rows.slice(m + 1);
+    const lastOpt = after.reduce((at, r, i) => (GEMINI_QUOTA_OPTION.test(r) ? i : at), -1);
+    const hasStop = geminiStopKey(after.join('\n')) !== null;
+    if (lastOpt >= 0 && hasStop && after.slice(lastOpt + 1).every((r) => GEMINI_BOX_EDGE.test(r))) {
+      return { dialog: true, evidence: rows[m] };
+    }
+  }
+  let at = -1;
+  /* `afterStop`: Kosmos answered this agent's usage-limit question Stop a moment ago, so Gemini's own error line in
+     this position is that limit whatever Google's words are (review round 11). Still only at the left edge, still
+     only with the composer below and nothing working. */
+  raw.forEach((r, i) => { if (GEMINI_QUOTA_ERROR.test(r) || GEMINI_QUOTA_OTHER.test(r) || (afterStop === true && /^✕\s*\[API Error:/.test(r))) at = i; });
+  if (at < 0) return null;
+  const below = rows.slice(at + 1);
+  const newer = below.some((r) => (/^>\s+\S/.test(r) && !GEMINI_COMPOSER.test(r)) || /^✦/.test(r));
+  if (newer) return null;   // a turn since: the person wrote, or the agent answered
+  /* Gemini's own error sits right above its idle prompt: its composer follows, and nothing is working below it
+     (a spinner). A copy of the line in a working agent's tool output has a spinner under it. */
+  if (!below.some((r) => GEMINI_COMPOSER.test(r))) return null;
+  if (below.some((r) => /esc to cancel|[\u2800-\u28FF]/i.test(r))) return null;
+  return { dialog: false, daily: GEMINI_QUOTA_ERROR.test(raw[at]), evidence: rows[at].replace(/^✕\s*/, '') };
+}
+
 /**
  * #3723: Codex's own "you are out of usage or credits" messages. READ FROM CODEX'S PROGRAM TEXT
  * (the installed codex binary, 2026-09-25), not captured from a live pane: nobody here had an
@@ -3666,6 +3729,24 @@ function classify(pane, paneText) {
   }
   if (paneText === null) {
     return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'we could not read its screen' };
+  }
+  /* #4004: a Gemini agent on its daily quota, waiting on its quota question or back at its prompt under the quota
+     error. Firm (Gemini's own words), like Codex's limit line. `quotaDialog` rides onto the card (snapshot), and
+     it is what engine/geminiquota.js answers Stop for. */
+  if (pane.runner === 'gemini') {
+    const q = geminiQuotaReading(paneText, require('./geminiquota').answeredRecently(pane.name));
+    if (q) {
+      return {
+        state: STATE.RATE_LIMITED,
+        confidence: CONFIDENCE.SCRAPED,
+        because: q.dialog ? 'its screen says it has reached a Google usage limit, and it is waiting on a question about it'
+          : q.daily ? 'its screen says its Google daily limit is used up' : 'its screen says it has reached a Google usage limit',
+        evidence: q.evidence,
+        limitFrom: 'gemini',
+        quotaDialog: q.dialog,
+        quotaDaily: q.daily === true,
+      };
+    }
   }
 
   const tail = paneText.split('\n').slice(-25).join('\n');
@@ -6274,12 +6355,16 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
      The reconcile is re-entered with the rate-limit signal removed rather than
      the report rules being copied, so this branch cannot drift from them. */
   if (scraped.state === STATE.RATE_LIMITED) {
+    /* #4004: Gemini's quota question on screen blocks its turn, so no report can say it is working through it. */
+    if (scraped.quotaDialog === true) {
+      return { ...scraped, reported: false, conflict: 'its screen shows it is waiting on a question about its usage limit' + saidWords(reported, nowMs) };
+    }
     const atRl = Date.parse(reported.at || '');
     const freshRl = Number.isFinite(atRl) && (nowMs - atRl) <= REPORT_WORKING_DECAY_MS;
     /* #3723: except Codex's own limit message against an AUTOMATIC report. Codex's bridge reports
        idle at the end of every turn, and a turn that failed on the limit still ends, so that report
        is the machine noticing the turn ended, not evidence the account works. */
-    const autoOverCodexLimit = scraped.limitFrom === 'codex' && reported.by === 'auto';
+    const autoOverCodexLimit = (scraped.limitFrom === 'codex' || scraped.limitFrom === 'gemini') && reported.by === 'auto';   // #4004: Gemini's bridge ends a failed turn with idle too
     if (freshRl && !autoOverCodexLimit) {
       const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity);
       return { ...answer, conflict: 'its screen shows a usage limit, but it is still reporting, so it may be working through it' };
@@ -7295,6 +7380,11 @@ function snapshot() {
       /* The line the classifier actually matched, when it has one. Null for
          every state that did not read a sentence off the screen. */
       stateEvidence: status.evidence || null,
+      /* #4004: Gemini's quota question is on screen (engine/geminiquota.js answers Stop for it). */
+      quotaDialog: status.quotaDialog === true,
+      quotaDaily: status.quotaDaily === true,   // #4004 round 8: only Gemini's daily line promises the midnight reset
+      /* #4004: whose own words set a limit reading ('codex' / 'gemini'), so the wording keys on a field, not a sentence. */
+      limitFrom: typeof status.limitFrom === 'string' ? status.limitFrom : null,
       because: status.because,
       /* #2019: present while state === 'restarting' -- {cause, startedAt}
          for the deliberate disruption in flight -- and (#4006) on the needs_you of a
@@ -7522,6 +7612,24 @@ function projectsUnreadTotal(projects, unreadMap) {
   return total;
 }
 
+/* #3996 (Josh, 2026-09-26: a count on the Dock icon "like Messages"): the ONE number for what is
+   waiting on the person, so the Dock badge (and the Windows taskbar's) agree with the page. It is
+   the three counters the page already shows, added: the Needs you tile (counts.needsYou, the
+   needsPerson rule), the Messages tile (each agent's dmUnread) and the Projects badge
+   (counts.projectsUnread). The guide's row is left out, as the tiles leave it out, and an unknown
+   part counts 0 as it does on the tiles: a badge never shows a guess.
+   Not added: tasks that need the person's decision (#3949). tasks.waitingOnPerson is true exactly
+   when an agent holding the task passes needsPerson, so that agent is already in needsYou and a
+   task on top would count one question twice.
+   RAW: the page's tiles leave out the thread open on screen, which only the page knows. */
+function waitingTotal(counts, agents) {
+  const n = (v) => { const x = Number(v); return Number.isFinite(x) && x > 0 ? Math.floor(x) : 0; };
+  const dms = (Array.isArray(agents) ? agents : [])
+    .filter((a) => a && a.isGuide !== true)
+    .reduce((t, a) => t + n(a.dmUnread), 0);
+  return n(counts && counts.needsYou) + dms + n(counts && counts.projectsUnread);
+}
+
 // `transcriptFor` is exported for the instructions module, which needs a
 // session start time. It resolves by session id rather than by guessing a
 // directory from the agent's name, for the reason its own comment gives: a
@@ -7612,6 +7720,7 @@ function sessionStartedAtFromTmux(sessionName, now = Date.now()) {
 }
 
 module.exports = {
+  waitingTotal,   // #3996: the Dock badge's number
   /* #1500: exported so discover.foundCodex can honour the same refusal.
      The Codex walk reaches ~/.codex without ever calling configRoots. */
   sandboxIsInconsistent,
@@ -7658,7 +7767,7 @@ module.exports = {
   // first time a marker is added here. The card that says "Needs you" and the
   // thread that shows the question must never be able to disagree.
   NEEDS_YOU_MARKERS,
-  CODEX_NEEDS_YOU_MARKERS, CODEX_LIMIT_MARKERS,
+  CODEX_NEEDS_YOU_MARKERS, CODEX_LIMIT_MARKERS, geminiQuotaReading, geminiStopKey, capturePane,   // #4004: chat re-reads a pane before a key
   ALL_NEEDS_YOU_MARKERS,
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the

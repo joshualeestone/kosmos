@@ -203,17 +203,42 @@ test('the win32 device-code sign-in waits 14 minutes; a browser sign-in keeps 5'
 });
 
 test('the watchdog uses the longer wait only for a win32 device sign-in', async (t) => {
-  // Short stand-ins for the two waits, restored after, so the arm runs in well under a second.
-  openai.setChatgptTimers({ timeout: 150, deviceTimeout: 5000 });
+  // Stand-ins for the two waits, restored after: the browser wait short so the Mac arm ends fast
+  // (the test runs in well under a second), the device wait long on purpose (below).
+  const BROWSER_WAIT_MS = 150;
+  const DEVICE_WAIT_MS = 60 * 1000;
+  /* The device wait is long here on purpose: a stand-in slow to print must fail on the wait below
+     (naming 'starting'), never on this watchdog, whose error text is the same as the browser one. */
+  openai.setChatgptTimers({ timeout: BROWSER_WAIT_MS, deviceTimeout: DEVICE_WAIT_MS });
   t.after(() => openai.setChatgptTimers({ timeout: 5 * 60 * 1000, deviceTimeout: 14 * 60 * 1000 }));
+  /* A margin for timer lateness (measured, not proven), so the read below lands after a
+     browser-wait watchdog would have fired. */
+  const READ_MARGIN_MS = 100;
+  const startedAt = Date.now();
   const win = startWithStandin({ say: MEASURED_DEVICE_OUT, platform: 'win32', mode: 'browser' }).r;
+  /* startChatgptLogin arms its watchdog before it returns, so this bounds when a browser-wait one
+     would fire: winArmedBy + BROWSER_WAIT_MS. */
+  const winArmedBy = Date.now();
   const mac = startWithStandin({ say: 'https://auth.openai.com/oauth/authorize?x=1\n', platform: 'darwin', mode: 'browser' }).r;
-  assert.equal(win.ok && mac.ok, true);
   try {
+    assert.equal(win.ok && mac.ok, true);
+    /* #4028: the Windows stand-in is a whole node process, and under load it can take longer than
+       the browser wait just to print. Read before then, its state is still 'starting', and the old
+       single read failed with a message blaming the browser wait. Wait for its code first. */
+    await waitFor(win.sessionId, (x) => x.state === 'awaiting-code' || x.state === 'error');
     const m = await waitFor(mac.sessionId, (x) => x.state === 'error');
     assert.equal(m.error, 'the OpenAI sign-in timed out');
+    /* Read only once a browser-wait watchdog for Windows would have fired (its scheduled time is
+       bounded; READ_MARGIN_MS covers event-loop lateness, measured to load ~77, not proven): measured from
+       when ITS start returned, not from the Mac error. (Reading at the Mac error relied on the
+       Windows start coming first: swapped, a slow second start let a wrong watchdog pass 10 of 100
+       runs under load.) Staying in awaiting-code then means Windows is NOT on the browser wait; the
+       device wait's value is pinned by the chatgptLoginTimeoutMs test above. */
+    const settle = winArmedBy + BROWSER_WAIT_MS + READ_MARGIN_MS - Date.now();
+    if (settle > 0) await new Promise((r) => setTimeout(r, settle));
     const w = openai.chatgptLoginStatus(win.sessionId);
-    assert.equal(w.state, 'awaiting-code', 'the Windows device sign-in was timed out on the browser wait');
+    assert.equal(w.state, 'awaiting-code', 'the Windows device sign-in was timed out on the browser wait ('
+      + JSON.stringify(w.error || null) + ', ' + (Date.now() - startedAt) + 'ms after start)');
   } finally { openai.cancelChatgptLogin(win.sessionId); openai.cancelChatgptLogin(mac.sessionId); }
 });
 

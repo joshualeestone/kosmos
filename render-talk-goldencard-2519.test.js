@@ -988,6 +988,9 @@ test('#2519: the non-string INVENTORY outside profile is fixed, so a new produce
       /* #570: how the board reaches the agent (a Windows supervisor pipe, or a pane).
          Two values, nothing identifying, and false on every Mac card. */
       'reachedByChannel',
+      /* #4004: whether Gemini's usage-limit question is on screen, and whether its limit is the daily one. Two
+         booleans the board reads off the agent's own screen; nothing identifying, and false on every non-Gemini card. */
+      'quotaDialog', 'quotaDaily',
     ];
     const PINNED_BOOLEAN = ['hasAvatar'];
     /* #2698: avatarVer is a PINNED NUMBER (category 1), forced to a constant in
