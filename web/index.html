@@ -20073,7 +20073,7 @@ async function tick() {
        fix is to depend on the thing that is static and always there. */
     document.getElementById('orgmap').innerHTML = '';
     ORG_HTML = null;
-    orgBoxPlain();
+    orgBoxPlain(true);
     document.getElementById('orgnote').textContent = BOARD_NEEDS_SIGNIN
       ? SIGNIN_SENTENCE
       : 'We cannot read the agents right now, so this is not drawn. It is not saying there are none.';
@@ -26442,13 +26442,18 @@ let ORG_SIZE = 0;        // the canvas ORG_POS was measured on (#718: a new widt
 let ORG_VIEW_W = 0;      // the chart box's width at the last paint (#718: width changes, a scrolled chart's centre)
 let ORG_SCROLL_X = 0;    // the box's scroll as the person left it at that width (#718; see the scroll listener)
 /* #718: the chart box back to a plain one (no sideways scroll, no scroll padding,
-   not a focusable region) wherever the chart is cleared instead of painted: an
-   empty board, and a poll that failed. */
-function orgBoxPlain() {
+   not a focusable region): on a paint that fits, and wherever the chart is cleared
+   instead of painted (an empty board, a poll that failed). `cleared` also drops the
+   emptied map's size, or it stays a blank square the size of the last chart above
+   the note. Only then: a paint that fits keeps its size, which the repaint guard
+   may not set again. */
+function orgBoxPlain(cleared) {
   const wrap = document.getElementById('orgview');
   wrap.classList.remove('orgscroll');
   wrap.removeAttribute('tabindex'); wrap.removeAttribute('role'); wrap.removeAttribute('aria-label');
-  document.getElementById('orgmap').classList.remove('orgwide');
+  const map = document.getElementById('orgmap');
+  map.classList.remove('orgwide');
+  if (cleared) { map.style.width = ''; map.style.height = ''; }
 }
 let ORG_HTML = null;         // the repaint guard's memory
 
@@ -26605,7 +26610,7 @@ function paintOrg() {
     note.textContent = BOARD_SEEN ? 'No agents set up in Kosmos yet.' : 'Looking…';
     // Same correction as the failure path: the container, never its children.
     document.getElementById('orgmap').innerHTML = '';
-    orgBoxPlain();
+    orgBoxPlain(true);
     ORG_HTML = null;
     return;
   }

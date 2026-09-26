@@ -158,3 +158,10 @@ and a phone has no hover: a tap opens the agent. Changing that is a design call 
   no known engine. The swipe arm starts from the middle of the box, since an arm before it can leave the box
   at an edge (the widen arm did, and the swipe arm read red for that reason alone).
 - Fixed 97/97 (Chromium + WebKit).
+
+## Second rebase, challenge loop iteration 2
+- A cleared chart (empty board, failed poll) kept #orgmap's inline width/height, leaving a blank square the size
+  of the last chart above the note (pre-existing on main at 396px; this branch's wide charts made it larger).
+  orgBoxPlain(true) on the two clearing paths also drops the size. Not on a paint that fits: the repaint guard
+  may skip setting the size again, so clearing it there would collapse a drawn chart. The failed-poll arm asserts
+  the emptied map is 0px tall; server.test.js asserts the failure path passes true. Both fail without it.

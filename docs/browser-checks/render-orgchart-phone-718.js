@@ -37,7 +37,8 @@
  * widened arm reds when the re-centre reads the browser-clamped scroll; the
  * keyboard arm reds when the scrolling box cannot take focus; the ring-added arm
  * reds when a same-width growth leaves the scroll where it was; the failed-poll
- * arm reds when the failure path leaves the scrolling box's classes behind.
+ * arm reds when the failure path leaves the scrolling box's classes or the
+ * emptied map's size behind.
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -380,12 +381,13 @@ function measure(page) {
             await page.waitForTimeout(500);
             r = await page.evaluate(() => { const w = document.getElementById('orgview');
               return { note: document.getElementById('orgnote').textContent, scroll: w.classList.contains('orgscroll'), tab: w.getAttribute('tabindex'), role: w.getAttribute('role'),
-                wide: document.getElementById('orgmap').classList.contains('orgwide'), padTop: getComputedStyle(w).paddingTop }; });
+                wide: document.getElementById('orgmap').classList.contains('orgwide'), padTop: getComputedStyle(w).paddingTop,
+                mapH: Math.round(document.getElementById('orgmap').getBoundingClientRect().height) }; });
             if (/cannot read|sign/i.test(r.note)) break;
           }
           await page.evaluate(() => { window.fetch = window.__realFetch; });
-          chk(before && /cannot read|sign/i.test(r.note) && !r.scroll && !r.wide && r.tab === null && r.role === null && r.padTop === '0px',
-            `${tag} a failed poll leaves a plain box under its note, not a scrolling region`, JSON.stringify(r));
+          chk(before && /cannot read|sign/i.test(r.note) && !r.scroll && !r.wide && r.tab === null && r.role === null && r.padTop === '0px' && r.mapH === 0,
+            `${tag} a failed poll leaves a plain, empty box under its note (no scrolling region, no blank square)`, JSON.stringify(r));
         }
         chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));
         await ctx.close();
