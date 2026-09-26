@@ -69,13 +69,23 @@ function setKnownSecrets(values) {
   /* Indexed by their first 8 characters, so a reply is scanned once rather than once per form (every form
      is 12 characters or more). */
   knownByPrefix = new Map();
+  knownByOpening = new Map();
   for (const f of knownForms) {
     const k = f.slice(0, 8);
     if (!knownByPrefix.has(k)) knownByPrefix.set(k, []);
     knownByPrefix.get(k).push(f);
+    /* #3935: the word-skipping join assembles a form from runs of key characters, so a form holding any
+       other character (the spaced hex) can never be assembled and is left out. */
+    if (!KEY_RUN_ONLY.test(f)) continue;
+    const o = f.slice(0, 4);
+    if (!knownByOpening.has(o)) knownByOpening.set(o, []);
+    knownByOpening.get(o).push(f);
   }
 }
 let knownByPrefix = new Map();
+/* The key-character-only held forms, by their first 4 characters (#3935). */
+let knownByOpening = new Map();
+const KEY_RUN_ONLY = /^[A-Za-z0-9_+/=-]+$/;
 /* The held forms that occur in `str`, longest first. */
 function knownFormsIn(str) {
   if (!knownByPrefix.size || typeof str !== 'string') return [];
@@ -140,6 +150,97 @@ function normalisedCopy(text) {
     return spans;
   });
   return cur;
+}
+/*
+ * #3935: a HELD value whose pieces have WORDS between them (a row label, another filled column, a bullet's
+ * description, prose around bold or backticked chunks). The two separator copies in mask() drop only
+ * characters no key uses and runs of three or fewer key characters, so any run of four or more between
+ * pieces defeated them and the whole key showed.
+ *
+ * The reply is cut into runs of key characters. A form is started by a run that ENDS with the form's
+ * opening (four characters or more, so "KEY=Ab3d" starts it as well as "Ab3d"); the runs after it are
+ * walked in order, and a run that is exactly the form's next part advances it while any other run is
+ * skipped as noise. Every position the form could have reached is kept, not only the latest, so a short
+ * noise run that happens to equal the next part ("1" in a row label) cannot derail the real assembly.
+ * The walk stops at the same bound as the separator copies: at most 4x the form's length in
+ * non-whitespace characters from the first piece, which is what stops two far-apart words from
+ * swallowing a reply. Returns [from, to) spans in the text, first piece to last.
+ *
+ * Not covered: pieces out of order or reversed, an opening piece shorter than four characters, and a key
+ * split across two replies (the mask is per message).
+ */
+/* The most checks one reply may cost the walk. A reply that needs more (thousands of held forms sharing an
+   opening, each opening repeated thousands of times with matching pieces after it) is not searched to the end:
+   wordSkippingSpans returns null and mask() withholds the whole message, because a search cut short is one
+   that may have missed a key, and this file errs toward masking. */
+const WORD_WALK_BUDGET = 250000;
+function wordSkippingSpans(text) {
+  if (!knownByOpening.size) return [];
+  let budget = WORD_WALK_BUDGET;
+  const runs = [];
+  for (const m of text.matchAll(/[A-Za-z0-9_+/=-]+/g)) runs.push([m.index, m.index + m[0].length, m[0]]);
+  if (runs.length < 2) return [];
+  /* nonSpaceBefore[i]: non-whitespace characters in text[0, i), so any span's count is one subtraction. */
+  const nonSpaceBefore = new Uint32Array(text.length + 1);
+  for (let i = 0; i < text.length; i += 1) nonSpaceBefore[i + 1] = nonSpaceBefore[i] + (/\s/.test(text[i]) ? 0 : 1);
+  const spans = [];
+  /* The forms an opening can start, grouped by the character that must begin the next piece, with the
+     longest form's bound. Cached per opening for this reply: the cost test's 2,000 held values share one
+     opening that occurs 4,000 times, and walking every form from every start cost 12 seconds. */
+  const byOpening = new Map();
+  const groupsFor = (opening, cands) => {
+    let g = byOpening.get(opening);
+    if (g) return g;
+    g = { byNext: new Map(), maxLen: 0 };
+    for (const f of cands) {
+      /* The whole form inside one run is contiguous: the ordinary known_secret pass masks it. */
+      if (opening.length >= f.length || !f.startsWith(opening)) continue;
+      const c = f[opening.length];
+      if (!g.byNext.has(c)) g.byNext.set(c, []);
+      g.byNext.get(c).push(f);
+      g.maxLen = Math.max(g.maxLen, f.length);
+    }
+    byOpening.set(opening, g);
+    return g;
+  };
+  for (let r = 0; r < runs.length; r += 1) {
+    const [runFrom, , run] = runs[r];
+    for (let q = 0; q + 4 <= run.length; q += 1) {
+      const cands = knownByOpening.get(run.slice(q, q + 4));
+      if (!cands) continue;
+      const opening = run.slice(q);
+      const { byNext, maxLen } = groupsFor(opening, cands);
+      if (!maxLen) continue;
+      const from = runFrom + q;
+      /* Only a form whose next character begins some run in reach can ever advance. */
+      const live = new Set();
+      for (let s = r + 1; s < runs.length && nonSpaceBefore[runs[s][1]] - nonSpaceBefore[from] <= 4 * maxLen; s += 1) {
+        const next = byNext.get(runs[s][2][0]);
+        if (!next) continue;
+        if ((budget -= next.length) < 0) return null;
+        for (const f of next) live.add(f);
+      }
+      for (const f of live) {
+        const bound = 4 * f.length;
+        let reached = new Set([opening.length]);
+        for (let s = r + 1; s < runs.length; s += 1) {
+          const [, sTo, piece] = runs[s];
+          if (nonSpaceBefore[sTo] - nonSpaceBefore[from] > bound) break;
+          let done = false;
+          const next = new Set(reached);
+          if ((budget -= reached.size) < 0) return null;
+          for (const p of reached) {
+            if (!f.startsWith(piece, p)) continue;
+            if (p + piece.length === f.length) { done = true; break; }
+            next.add(p + piece.length);
+          }
+          if (done) { spans.push([from, sTo]); break; }
+          reached = next;
+        }
+      }
+    }
+  }
+  return spans;
 }
 /* How many characters of text[from, to) are not whitespace, counting no further than `cap + 1`. */
 function nonSpaceIn(text, from, to, cap = Infinity) {
@@ -247,6 +348,10 @@ function mask(text) {
         }
       }
     }
+    /* #3935: and with WORDS between the pieces, which neither copy above can skip. */
+    const words = wordSkippingSpans(original);
+    if (!words) { hit('split_search_limit'); return { text: WITHHELD, fired: report() }; }
+    for (const s of words) spans.push(s);
   }
   if (norm !== original) {
     /* A match in the copy counts only if no match of the same pattern in the text itself is the same

@@ -332,5 +332,71 @@ test('#3769 the separator join stays cheap on a long reply with the held values 
     assert.ok(ms < 1500, `a ${noisy.length}-character reply cost ${Math.round(ms)}ms of CPU`);
     const withSplit = `${noisy.slice(0, 5000)} held-value-0000, 1234-xyz ${noisy.slice(5000)}`;
     assert.ok(!mask(withSplit).text.includes('1234-xyz'), 'CONTROL: a comma-split held value inside the same reply was not masked');
+    /* #3935: masked where it sits, not by withholding the whole reply at the word walk's budget. */
+    assert.ok(!mask(noisy).fired.some((f) => f.kind === 'split_search_limit'), 'an ordinary long reply hit the word walk budget');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a held key with WORDS between its pieces is masked: row labels, another column, bullet text, prose around chunks', () => {
+  const held = j('sk-ant-', 'api03-', 'WordsBetweenThePieces0123456789XYZ');
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{1,8}/g);
+    const names = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot'];
+    const cases = [
+      ['word row labels', `Here:\n| Part | Value |\n|---|---|\n${chunks.map((c, i) => `| ${names[i]} | ${c} |`).join('\n')}\nDone.`, 'Here:\n', '\nDone.'],
+      ['another filled column', `Here:\n| Value | Note |\n|---|---|\n${chunks.map((c, i) => `| ${c} | piece number ${i + 1} |`).join('\n')}\nDone.`, 'Here:\n', ' |\nDone.'],
+      ['bullets with a description', `Pieces:\n${chunks.map((c, i) => `- ${c}: the ${names[i]} part of your key`).join('\n')}\nThat is all.`, 'Pieces:\n', ' part of your key\nThat is all.'],
+      ['prose around bold and backticks', `The key starts with **${chunks[0]}**, then comes \`${chunks[1]}\`, followed by ${chunks.slice(2).map((c) => `**${c}**`).join(' and then ')}. Keep it safe.`, 'The key starts with **', '**. Keep it safe.'],
+      ['glued after a name', `KEY=${chunks[0]} | then | ${chunks.slice(1).join(' | then | ')} | end`, 'KEY=', ' | end'],
+    ];
+    for (const [name, input, head, tail] of cases) {
+      const r = mask(input);
+      for (const piece of chunks) assert.ok(!r.text.includes(piece), `${name}: the piece ${piece} survived: ${r.text}`);
+      assert.ok(r.text.startsWith(head) && r.text.endsWith(tail) && r.text.includes(MASK), `${name}: the text around the key was lost: ${JSON.stringify(r.text)}`);
+      assert.ok(r.fired.some((f) => f.kind === 'split_secret'), `${name}: reported as ${JSON.stringify(r.fired)}`);
+    }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 the word-skipping join is for held values only, and naming a held key\'s known opening is not a leak', () => {
+  const held = j('sk-ant-', 'api03-', 'WordsBetweenThePieces0123456789XYZ');
+  setKnownSecrets([held]);
+  try {
+    const ordinary = [
+      '| Name | Role |\n|---|---|\n| Charlie | Builder |\n| Delta | Reviewer |',
+      '- Theme: the colour of the board\n- Model: which AI answers\n- Folder: where the files live',
+      'Anthropic keys start with sk-ant-api03 and are about a hundred characters long. Paste yours in Settings.',
+    ];
+    for (const t of ordinary) assert.equal(mask(t).text, t, `ordinary text was changed: ${t}`);
+    /* CONTROL: the same key in the same table shape IS masked, so the untouched table above is not a mask
+       that never fires. */
+    const chunks = held.match(/.{1,8}/g);
+    const table = chunks.map((c, i) => `| Row${i} name | ${c} |`).join('\n');
+    assert.ok(!mask(table).text.includes(chunks[2]), 'CONTROL: the held key in a word-labelled table survived');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 the word walk is bounded: a reply built to keep thousands of held forms alive is withheld whole, cheaply', () => {
+  setKnownSecrets(Array.from({ length: 2000 }, (_, i) => `held-value-${String(i).padStart(8, '0')}-xyz`));
+  try {
+    const bad = Array.from({ length: 4000 }, (_, i) => `| held-value- | 0000 | ${i % 10} | 00 | -xyz |`).join('\n');
+    let r;
+    const ms = cpuMillisecondsOf(() => { r = mask(bad); });
+    /* Unbounded, the walk alone cost 9.6 seconds here. Bounded it costs about 18ms; most of what remains
+       (about 600ms) is the separator copies' held-value search, which costs the same without this change. */
+    assert.ok(ms < 1500, `a ${bad.length}-character adversarial reply cost ${Math.round(ms)}ms of CPU`);
+    assert.equal(r.text, WITHHELD, 'a search cut short by the budget must not return the text it could not finish checking');
+    assert.deepEqual(r.fired, [{ kind: 'split_search_limit', count: 1 }]);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a noise run that equals the next piece cannot derail the walk ("Part 1" before a piece starting with 1)', () => {
+  const pieces = [j('sk-ant-', 'api03-', 'Q'), '1ZyXwVuT', 'sRqPoNmLk98765'];
+  setKnownSecrets([pieces.join('')]);
+  try {
+    const out = mask(`Here:\n${pieces.map((p, i) => `| Part ${i} | ${p} |`).join('\n')}\nDone.`).text;
+    for (const p of pieces) assert.ok(!out.includes(p), `the piece ${p} survived: ${out}`);
+    assert.ok(out.startsWith('Here:\n| Part 0 | ') && out.endsWith(' |\nDone.'), JSON.stringify(out));
   } finally { setKnownSecrets([]); }
 });
