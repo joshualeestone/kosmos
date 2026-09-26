@@ -351,6 +351,7 @@ function boardRoutes(src) {
   /* Route regexes: every REGEX span the lexer found (so a `[^/]` class or an alternation right
      after the anchor, /^\/api(?:\/a|\/b)\//, is read whole) whose source mentions \/api. */
   const regexes = [];
+  const wild = [];
   for (let i = 0; i < src.length; i += 1) {
     if (mask[i] !== REGEX || (i > 0 && mask[i - 1] === REGEX)) continue;
     let e = i;
@@ -362,12 +363,15 @@ function boardRoutes(src) {
     /* A ROUTE regex is anchored at both ends (all 55 today): an unanchored one mentioning \/api is a
        guard (`/^\/api\/federation\//.test(pathname) && !authed`), and would serve everything under it. */
     const body = lit.slice(1, last);
+    /* A wildcard (`.*` / `.+`) serves everything under it, like a startsWith prefix: counted, not a
+       route, and pinned at zero below. */
+    if (/\.[*+]/.test(body)) { wild.push(lit); i = e; continue; }
     if (body.startsWith('^') && body.endsWith('$')) {
       try { regexes.push(new RegExp(lit.slice(1, last), flags.replace('g', ''))); } catch { /* not a regex after all */ }
     }
     i = e;
   }
-  return { literals, prefixes, regexes };
+  return { literals, prefixes, regexes, wild };
 }
 
 /* The words a route regex enumerates, `(allow|deny|remove)`, so a page placeholder can stand for one. */
@@ -429,6 +433,7 @@ test('#3957: every /api path the page fetches is served by a board route', () =>
   /* A board startsWith('/api/x') prefix serves everything under it, so a guard written that way
      would serve a route with no handler (the 0.6.96 shape). None exists today: a new one must be a
      deliberate change to this number. */
+  assert.equal(board.wild.length, 0, 'a board /api regex with a wildcard appeared: ' + board.wild.join(', ') + '; a guard written that way would serve every path under it');
   assert.equal(board.prefixes.length, 0, 'a board startsWith(\'/api/...\') prefix appeared: ' + board.prefixes.join(', ') + '; check it is a real route family, then raise this with a reason');
   assert.ok(unread <= UNREAD_CEILING, `fetches whose URL is not a literal grew to ${unread} (ceiling ${UNREAD_CEILING}); make the new one's URL a literal, or raise the ceiling with a reason`);
   assert.ok(unreadable.length <= UNREADABLE_CEILING, `fetches with a variable tail grew to ${unreadable.length} (ceiling ${UNREADABLE_CEILING}): ${unreadable.join(', ')}`);
@@ -555,4 +560,10 @@ test('#3957 control: a stray backtick in raw markup does not swallow the script'
 test('#3957 control: the unread ceiling can go red', () => {
   const { unread } = pagePaths(PAGE + '\nfetch(someUrl3957);\n');
   assert.ok(unread > UNREAD_CEILING, 'a new variable-URL fetch did not raise the unread count past its ceiling');
+});
+
+test('#3957 control: an anchored wildcard guard regex is not a route, and is counted', () => {
+  const board = boardRoutes(SERVER.split('/api/federation/invite').join('/api/federation/inv1te') + "\nif (/^\\/api\\/federation\\/.*$/.test(pathname) && !authed) deny(res);\n");
+  assert.equal(served('/api/federation/invite', board), false);
+  assert.equal(board.wild.length, 1);
 });
