@@ -13721,7 +13721,7 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #3923: the project notice, painted by pjNotice() only while something is wrong, under the
            heading and above the list, in the page's order and on screen (the card's grid pins the
            heading to row 1). -->
-      <div id="pj-one-notice" class="pnotice" role="status" hidden></div>
+      <div id="pj-one-notice" class="pnotice" role="status" aria-live="polite" hidden></div>
       <div id="pj-one-agents" class="pj-members"></div>
       <!-- ⚠️ The picker hides behind the button, not the other way round: the
            resting state of the box is the members, and "+ Add Member" (the
@@ -43737,7 +43737,7 @@ const PJ_NOTICE = [
   [/^we could not check which agents are running$/, 'wait', () => 'We could not check which agents are running.'],
   // Somebody saved the file mid-write; nothing was lost, and a retry reads it fresh.
   [/^its instructions changed while we were writing to them$/, 'wait', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions changed while Kosmos was writing to them, so Kosmos left them as they were.'],
-  [/^it has no instructions file yet, and we will not create one$|^it has no instruction file yet$/, 'retry', (n) => (n ? n + ' has' : 'It has') + ' no instructions file, and Kosmos will not create one.',
+  [/^it has no instructions file yet, and we will not create one$/, 'retry', (n) => (n ? n + ' has' : 'It has') + ' no instructions file, and Kosmos will not create one.',
     (name) => 'Give ' + name + ' some instructions, then try again.'],
   [/^its instructions contain \d+ Kosmos project blocks/, 'retry', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions hold more than one Kosmos project section, so Kosmos cannot tell which is its own.',
     (name) => 'Leave one Kosmos project section in ' + name + '\u2019s instructions, then try again.'],
@@ -43750,7 +43750,7 @@ const PJ_NOTICE = [
   [/^something is running under this name, but we cannot tell that it is this agent$/, 'retry', (n) => 'Something is running under ' + (n ? n + '\u2019s' : 'its') + ' name, but Kosmos cannot tell that it is ' + (n || 'the same agent') + '.',
     (name) => 'Restart ' + name + ' from Kosmos, then try again.'],
   [/^it has no folder of its own on this computer yet$/, 'explain', (n, name) => 'Kosmos has no folder for ' + name + ' on this computer, so it has nowhere to write.'],
-  [/^it keeps its instructions somewhere we cannot safely change$|^its worker folder /, 'explain', (n) => (n || 'It') + ' keeps its instructions somewhere Kosmos will not change, so Kosmos has nowhere to write.'],
+  [/^it keeps its instructions somewhere we cannot safely change$|^its worker folder /, 'explain', (n) => (n || 'It') + ' keeps its instructions somewhere Kosmos cannot safely change, so Kosmos has nowhere to write.'],
   // The reader's own refusals for a file it cannot safely edit (workerfile.js, instructions.js):
   // pressing again reads the same file the same way, so no button.
   [/^its instruction file is not UTF-8 text|^its instruction file is not one we can read$|^its instruction file could not be read$|^we cannot get at its instruction file to read it$|^that file is not inside the workers folder$/, 'explain',
@@ -43760,7 +43760,9 @@ const PJ_NOTICE = [
 ];
 /* A Try again that came back with the same answer: its row says so on every paint until the
    answer changes or the row goes. Keyed by project and session name (pjNoticeKey), so browsing
-   another project where the same agent is fine does not forget it here. */
+   another project where the same agent is fine does not forget it here. A mark is pruned only when its
+   project paints again, so marks for projects never reopened stay for the tab's life: one short string
+   per retry, accepted. */
 const PJ_NOTICE_TRIED = new Map();
 const pjNoticeKey = (projectId, sessionName) => String(projectId) + '\n' + String(sessionName);
 /* A Try again that never got an answer (offline, refused, a board error): the row keeps the
@@ -43807,7 +43809,7 @@ function pjNotice(roster, projectId) {
   }
   if (!failing.length) return '';
   const solo = failing.length === 1;
-  const rows = failing.map((m) => pjNoticeRow(m, solo)).filter(Boolean);
+  const rows = failing.map((m) => pjNoticeRow(m, solo));
   const head = solo
     ? esc(rows[0].name) + ' does not have this project\u2019s folder.'
     : (PJ_NOTICE_COUNT[rows.length] || String(rows.length)) + ' agents do not have this project\u2019s folder.';
@@ -47434,8 +47436,10 @@ function paintOneProject() {
      above the list (Mona's design), not on its row: every member row passes suppressTold. */
   const notice = pjNotice(roster, p.id);
   const noticeBox = document.getElementById('pj-one-notice');
-  setIfChanged(noticeBox, notice);
+  // Shown BEFORE it is written: a live region's change is announced only while it is in the
+  // accessibility tree, so the first appearance (the one that matters) is not missed.
   noticeBox.hidden = !notice;
+  setIfChanged(noticeBox, notice);
   setIfChanged(document.getElementById('pj-one-agents'), roster.length
     ? roster.map((m) => pjMember(m, true, true, true)).join('')
     : '<p class="fhint">No agents on this project yet.</p>');

@@ -227,7 +227,10 @@ test('#3923: every refusal the instruction reader can pass through has a shape (
   assert.ok(found.some((b) => b.startsWith('its worker folder ')), 'CONTROL: the scan reads template sentences too (the worker-folder refusal)');
   // Not tellAgent's path: two staleness verdicts (the file changed since the agent started) and
   // the identity-line rename's own refusal. Everything else here can reach a project verdict.
-  const reasons = found.filter((b) => !/edited since this agent started|last edited|that name cannot go in/.test(b));
+  // And the reader's missing-file sentence: tellAgent replaces it with its own ('it has no instructions
+  // file yet, and we will not create one', shaped above), so it never reaches a project verdict.
+  const reasons = found.filter((b) => !/edited since this agent started|last edited|that name cannot go in|^it has no instruction file yet$/.test(b));
+  assert.ok(found.includes('it has no instruction file yet'), 'CONTROL: the excluded missing-file sentence is still one the reader says; re-check the exclusion');
   for (const because of reasons) {
     assert.ok(PJ_NOTICE.some(([re]) => re.test(because)), 'no shape for the reader refusal: ' + because);
   }
