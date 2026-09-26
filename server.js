@@ -247,12 +247,15 @@ let engineLook = { at: 0, staleSince: null };
    the tasks themselves (#3959) now land up to a 500-an-hour breaker. What the valve
    protects is one pane from being flooded, so that is what it counts: how many times
    agents typed into THIS assignee's screen this hour. A fleet-wide ceiling of
-   AGENT_RUNAWAY_PER_HOUR (#3959's number) stays behind it. The task breaker and the
-   parts valve (#4019) each allow that many agent-made writes an hour, so together they
-   allow twice it; this ceiling holds the pages TYPED from all of them to one such number. */
+   HEARD_RUNAWAY_MAX stays behind it: #3959's runaway number, read from engine/runaway.
+   One looping agent is stopped by its assignee's 30 long before this; the ceiling binds
+   only when about seventeen or more screens are each paged thirty times in one hour, and
+   then it holds the pages typed across the fleet to that number. The card's option 1
+   spoke of removing the shared ceiling; this keeps one far above it, for that case. */
 const heardBudgetLog = new Map(); // heardKey(assignee, roster): the pane's session name -> times typed to, oldest first
 const HEARD_BUDGET_WINDOW_MS = 3600000;
 const HEARD_PER_AGENT_MAX = 30;
+const HEARD_RUNAWAY_MAX = require('./engine/runaway').AGENT_RUNAWAY_PER_HOUR;
 /* The key is the PANE the name reaches, found the way delivery finds it
    (chat.resolveCard): an exact name first, else a case-insensitive one (#989). So
    "MARA" spends mara's allowance, while an external "Casey" pane beside our "casey"
@@ -278,7 +281,7 @@ function heardBudgetAllows(who, roster) {
   const total = heardBudgetPrune();
   const k = heardKey(who, roster);
   if (!k) return true;
-  return total < AGENT_RUNAWAY_PER_HOUR && (heardBudgetLog.get(k) || []).length < HEARD_PER_AGENT_MAX;
+  return total < HEARD_RUNAWAY_MAX && (heardBudgetLog.get(k) || []).length < HEARD_PER_AGENT_MAX;
 }
 function heardBudgetRecord(who, roster) {
   const k = heardKey(who, roster);
@@ -294,10 +297,10 @@ function heardBudgetSkipped(who) {
   if (!heardKey(who)) return undefined;
   const name = who.trim(); // as the caller spelled it, for the sentence
   // When both limits are spent, the fleet ceiling is named: it is the graver fact.
-  const runaway = heardBudgetPrune() >= AGENT_RUNAWAY_PER_HOUR;
+  const runaway = heardBudgetPrune() >= HEARD_RUNAWAY_MAX;
   return { who: name, state: chat.DELIVERY.COULD_NOT,
     because: runaway
-      ? 'agents have typed into agent screens ' + AGENT_RUNAWAY_PER_HOUR + ' times this hour, so Kosmos has stopped them for now and '
+      ? 'agents have typed into agent screens ' + HEARD_RUNAWAY_MAX + ' times this hour, so Kosmos has stopped them for now and '
         + name + ' was not told on screen; the work is on their list'
       : 'agents have already told ' + name + ' about new work on screen ' + HEARD_PER_AGENT_MAX
         + ' times this hour, so ' + name + ' was not told again on screen; the work is on their list' };
@@ -310,6 +313,8 @@ function resetHeardBudgetForTests() {
 }
 // Test-only: spend `n` of one assignee's allowance without typing anything, so a test
 // can reach the fleet-wide ceiling without five hundred real deliveries.
+/* Pass the roster for any pane whose name has capitals: without one the key falls back to
+   the lowercased name, which is not that pane's key. */
 function spendHeardBudgetForTests(who, n, roster) {
   for (let i = 0; i < n; i += 1) heardBudgetRecord(who, roster);
 }
@@ -17099,7 +17104,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
-  HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX: AGENT_RUNAWAY_PER_HOUR, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
+  HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
   get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker); read it when needed, a destructured copy goes stale after setTaskMsgCapForTests
   taskMsgCapFrom, setTaskMsgCapForTests, // #3959: how the operator's value is read, and the test seam

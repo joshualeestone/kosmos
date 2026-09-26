@@ -14019,8 +14019,8 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
     });
     assert.equal(r0.status, 200, r0.body);
 
-    // #3959: the parts valve is the 500-an-hour breaker in production; this test pins its
-    // interplay with the twelve-an-hour paging allowance, so it runs the valve at twelve too.
+    // The parts valve is the 500-an-hour breaker in production (#4019); this test runs it at
+    // twelve so the write valve trips cheaply. The paging allowance is not the limit here.
     require('./engine/tasks').setPartsLimitForTests(12);
     // Twelve process-originated (no sec-fetch-site: a curl, not a browser)
     // part assignments each page the pane: the parts WRITE valve is 12 an hour,

@@ -15,8 +15,11 @@ every other agent's assignments for the rest of the hour.
 - A fleet-wide ceiling stays behind it, read from #3959's AGENT_RUNAWAY_PER_HOUR (the
   same number, one constant). It does not refuse or persist the way #3959's breaker
   does; it only stops the typing. Since #4019 the task breaker and the parts valve
-  each allow that many agent-made writes an hour, so together they allow twice it;
-  the ceiling holds the pages typed from all of them to one such number.
+  each allow that many agent-made writes an hour. One looping agent is stopped by its
+  assignee's 30 long before the ceiling; the ceiling binds only when about seventeen or
+  more screens are each paged thirty times in an hour. This departs from the card's
+  option 1 wording ("removes the shared ceiling"): it keeps one, far above any real
+  batch, for that case.
 - The skip answer names which limit it hit. The per-agent sentence says the
   agent was already told N times this hour; the ceiling's sentence says agents
   were stopped.
