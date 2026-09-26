@@ -28,7 +28,9 @@
 #   KOSMOS_HG_SNAPSHOT  a file of process lines to use instead of the live table, one per line,
 #                       fields separated by the ASCII unit separator (\x1f), not a tab: read
 #                       collapses repeated tabs, which would shift the fields after an empty cwd.
-#                       pid, cwd, command, ancestor commands joined by " | "
+#                       pid, cwd, command, ancestor commands joined by the record separator
+#                       (\x1e): a command line can contain " | " itself, so no printable joiner
+#                       is safe (a shell running `foo | node --test` would read as a test runner)
 #                       (a cwd of <exited> stands for a process that is gone; an EMPTY cwd means
 #                       the cwd could not be read, and that process still counts)
 #   KOSMOS_HG_CLAIM     set: use this text as the reservation line instead of who-has-the-box;
@@ -82,6 +84,7 @@ claim_line() {
 # How far up the parent chain to look for a node --test runner. A test fixture sits a few hops
 # below it (node, a wrapper shell, the script); a deeper chain stops early and fails toward busy.
 ANCESTOR_DEPTH=10
+ANC_SEP=$'\036'   # joins ancestor commands; see KOSMOS_HG_SNAPSHOT above
 live_snapshot() {
   local p q cwd cmd anc depth
   ps -axo pid=,command= | awk '$2 ~ /(^|\/)(bash|sh|zsh)$/ { for (i = 3; i <= NF; i++) if ($i ~ /(^|\/)(release|browser-checks)\.sh$/) { print $1; next } }' |
@@ -96,9 +99,9 @@ live_snapshot() {
       depth=$((depth + 1))
       q="$(ps -o ppid= -p "$q" 2>/dev/null | tr -d ' ')"
       { [ -z "$q" ] || [ "$q" -le 1 ]; } && break
-      anc="$anc | $(ps -o command= -p "$q" 2>/dev/null)"
+      anc="$anc$ANC_SEP$(ps -o command= -p "$q" 2>/dev/null)"
     done
-    printf '%s\037%s\037%s\037%s\n' "$p" "$cwd" "$cmd" "${anc# | }"
+    printf '%s\037%s\037%s\037%s\n' "$p" "$cwd" "$cmd" "${anc#"$ANC_SEP"}"
   done
 }
 
@@ -134,13 +137,13 @@ script_of() (
 # only starts with --test (--test-endpoint=1). Subshell with globbing off, as above.
 has_test_runner() (
   set -f
-  IFS=$'\n'
-  for a in $(printf '%s\n' "$1" | sed 's/ | /\n/g'); do
+  IFS="$ANC_SEP"
+  for a in $1; do
     prog="${a%% *}"; prog="${prog##*/}"
     [ "$prog" = node ] || continue
     IFS=' '
     for w in $a; do [ "$w" = --test ] && exit 0; done
-    IFS=$'\n'
+    IFS="$ANC_SEP"
   done
   exit 1
 )
