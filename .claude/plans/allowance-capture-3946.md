@@ -5,7 +5,7 @@
 Josh asked (#3946 items 9 and 10) for a swarm's daily limit as a "% of weekly
 allowance". The decision on the card: the only honest "weekly allowance" is
 the provider's own weekly figure, calibrated against tokens Kosmos measures.
-This PR is the capture half. It shows nothing on screen yet; part 2 (the
+This PR is the capture half. It shows no reading on screen yet; part 2 (the
 calibration and the slider in %) reads what this records.
 
 ## Measured before building (Claude Code 2.1.283, this Mac, 2026-09-26)
@@ -21,7 +21,10 @@ calibration and the slider in %) reads what this records.
 
 - `engine/kosmos-statusline.js` (new): the statusline. Writes
   `{usedPct, resetsAt, at, history}` to `<account dir>/kosmos-weekly.json`
-  only when the reading moves forward, prints nothing, never errors.
+  only when the reading moves forward, prints nothing, never errors. Measured:
+  printing nothing still leaves one empty row under the prompt and hides the
+  "? for shortcuts" hint, against a control with no status line at all
+  (`--setting-sources project,local`, so the account's own was excluded).
 - `engine/allowance.js` (new): `ensureStatusLine` (merge-only wiring),
   `readWeekly` (null for nothing, malformed, or a week already reset).
 - `engine/reporthook.js`: the settings read, the atomic write and the #1582

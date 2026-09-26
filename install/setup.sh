@@ -2163,11 +2163,21 @@ KOSMOS_SWEEP_LIST
   # #3946: the status line Kosmos adds to record weekly usage is ours by its marker,
   # but the bundled Node that could edit the JSON is gone by now, so it is NAMED, as
   # the header's rule asks. Left in place it points at files this uninstall removed,
-  # so it now shows nothing and records nothing, and it keeps the one status-line slot.
-  if [ -f "$HOME/.claude/settings.json" ] && grep -q 'kosmos-statusline\.js' "$HOME/.claude/settings.json" 2>/dev/null; then
-    printf '  Kosmos\047s status line was left in ~/.claude/settings.json (the "statusLine"\n'
+  # so it records nothing any more, and it keeps the one status-line slot.
+  # Every account Kosmos wires, not only the default: account folders are kept by this
+  # uninstall, so their entries would otherwise be left unnamed.
+  _sl_left=""
+  for _sl in "$HOME/.claude/settings.json" "$HOME"/.claude-*/settings.json; do
+    [ -f "$_sl" ] || continue
+    grep -q 'kosmos-statusline\.js' "$_sl" 2>/dev/null || continue
+    _sl_left="$_sl_left $_sl"
+  done
+  if [ -n "$_sl_left" ]; then
+    printf '  Kosmos\047s status line was left in these settings files (the "statusLine"\n'
     printf '  entry naming kosmos-statusline.js). It does nothing now; delete that entry\n'
-    printf '  if you want to use a status line of your own.\n\n'
+    printf '  if you want to use a status line of your own:\n'
+    for _sl in $_sl_left; do printf '    %s\n' "$_sl"; done
+    printf '\n'
   fi
   # ⚠️ AND THE SECOND THING WE LEFT IN THAT TOOL'S CONFIG, named for exactly the
   # same reason. Creating an agent records that Claude Code trusts the folder
@@ -3575,8 +3585,9 @@ else
 fi
 # #3946: said once, whatever happened above, because it describes a standing rule
 # rather than this run's result: the person should know a status line appears.
-info "where a Claude account has no status line of its own, Kosmos adds one that shows"
-info "nothing and only notes how much of the account's weekly allowance has been used"
+info "where a Claude account has no status line of its own, Kosmos adds one, for every"
+info "Claude session on that account: it notes how much of the weekly allowance is used and"
+info "prints nothing, which leaves an empty row under the prompt"
 
 # ---- start ------------------------------------------------------------------
 # 🔑 DERIVED HERE, BEFORE THE BOARD FIRST STARTS, NOT JUST WRITTEN INTO THE

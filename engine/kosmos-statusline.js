@@ -3,7 +3,10 @@
 /**
  * Kosmos's Claude Code statusline (#3946 phase B). Its only job is to write
  * down the account's weekly usage, as Anthropic counts it, where the engine
- * can read it. It prints NOTHING, so a pane looks exactly as it did before.
+ * can read it. It prints nothing. Measured 2026-09-26 on Claude Code 2.1.283:
+ * a configured status line that prints nothing still takes one empty row under
+ * the prompt, and the footer's "? for shortcuts" hint is not shown, compared
+ * with no status line at all. That is the visible cost of this reading.
  *
  * Why a statusline: Claude Code hands the weekly figure to exactly one
  * place, the statusline's input. Measured 2026-09-26 on Claude Code 2.1.283:

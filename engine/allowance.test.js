@@ -273,6 +273,7 @@ test('accounts.prepare still makes an account when the allowance module is missi
   const got = JSON.parse(r.stdout);
   assert.equal(got.ok, true, r.stdout);
   assert.equal(got.weeklyWired, false, r.stdout);
+  assert.match(got.weeklyBecause, /could not be set up/, r.stdout);
   assert.equal(got.hooksWired, true, 'the report hooks were lost with the allowance module: ' + r.stdout);
 });
 
@@ -290,18 +291,28 @@ test('uninstall names our status line, and only ours', () => {
   const sh = fs.readFileSync(path.join(__dirname, '..', 'install', 'setup.sh'), 'utf8');
   const start = sh.indexOf('  # #3946: the status line Kosmos adds to record weekly usage');
   assert.ok(start > 0, 'the uninstall naming block moved in setup.sh');
-  const ifAt = sh.indexOf('  if [', start);
-  const block = sh.slice(ifAt, sh.indexOf('\n  fi\n', ifAt) + '\n  fi\n'.length);
+  const from = sh.indexOf('  _sl_left=""', start);
+  const ifAt = sh.indexOf('  if [ -n "$_sl_left" ]', from);
+  assert.ok(from > 0 && ifAt > from, 'the uninstall naming block changed shape');
+  const block = sh.slice(from, sh.indexOf('\n  fi\n', ifAt) + '\n  fi\n'.length);
   assert.ok(block.includes(allowance.MARKER.replace('.', '\\.')), 'the uninstall grep does not name allowance.MARKER');
-  const run = (statusLine) => {
+  const run = (dirs) => {
     const home = fs.mkdtempSync(path.join(SANDBOX, 'uninst-'));
-    fs.mkdirSync(path.join(home, '.claude'));
-    fs.writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({ statusLine }));
-    return spawnSync('bash', ['-c', block], { encoding: 'utf8', env: { ...process.env, HOME: home } });
+    for (const [dir, statusLine] of Object.entries(dirs)) {
+      fs.mkdirSync(path.join(home, dir));
+      fs.writeFileSync(path.join(home, dir, 'settings.json'), JSON.stringify({ statusLine }));
+    }
+    const r = spawnSync('sh', ['-c', block], { encoding: 'utf8', env: { ...process.env, HOME: home } });
+    return { ...r, home };
   };
-  const ours = run({ type: 'command', command: allowance.commandFor(NODE, SCRIPT, '/x') });
-  assert.equal(ours.status, 0, ours.stderr);
-  assert.match(ours.stdout, /Kosmos's status line was left in ~\/\.claude\/settings\.json/);
-  const theirs = run({ type: 'command', command: 'bash ~/.claude/scripts/statusline.sh' });
-  assert.equal(theirs.stdout, '', 'somebody else\'s status line was named as ours');
+  const ours = { type: 'command', command: allowance.commandFor(NODE, SCRIPT, '/x') };
+  const theirs = { type: 'command', command: 'bash ~/.claude/scripts/statusline.sh' };
+  const both = run({ '.claude': ours, '.claude-work1': ours, '.claude-work2': theirs });
+  assert.equal(both.status, 0, both.stderr);
+  assert.match(both.stdout, /Kosmos's status line was left in these settings files/);
+  assert.ok(both.stdout.includes(path.join(both.home, '.claude', 'settings.json')), 'the default account was not named');
+  assert.ok(both.stdout.includes(path.join(both.home, '.claude-work1', 'settings.json')), 'a Kosmos account folder was not named');
+  assert.ok(!both.stdout.includes('.claude-work2'), 'an account with somebody else\'s status line was named as ours');
+  const none = run({ '.claude': theirs });
+  assert.equal(none.stdout, '', 'somebody else\'s status line was named as ours');
 });
