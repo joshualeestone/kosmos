@@ -8,8 +8,10 @@
  *   - the working card runs `working-pulse`, slowly (3s or more per cycle), forever;
  *   - its ground is sampled across one full cycle and must swing toward green and back, and stay
  *     light at its greenest (a pulse that never moves, or one that goes dark, both fail);
+ *   - watched across three five-second polls, a rebuilt card continues the pulse instead of
+ *     snapping back to the plain surface;
  *   - the idle card does not pulse;
- *   - the list row, its one-screen variant and the project member box carry the same animation
+ *   - a list row and a project member box carry the same animation
  *     (read from elements placed in the real page, so the page's own stylesheet decides);
  *   - under prefers-reduced-motion nothing pulses and the working card keeps its static ground.
  * Control: the same readings on the idle card show the instrument can see "no pulse".
@@ -113,6 +115,35 @@ async function placeSiblings(page) {
         chk(swing > 3, `${engineName}: the working ground swings toward green and back over one cycle`, `green lean ${Math.min(...leans).toFixed(1)}..${Math.max(...leans).toFixed(1)}`);
         const greenest = samples[leans.indexOf(Math.max(...leans))];
         chk(Math.min(...greenest) >= 200, `${engineName}: at its greenest the light ground stays light, never dark`, String(greenest));
+
+        /* The board rebuilds its cards on every five-second poll, and a rebuilt card must pick the
+           pulse up where the old one left it rather than snap back to the plain surface. Watched
+           across three polls, re-finding the card each time: at least two rebuilds must happen (or
+           this arm proves nothing), and no step between neighbouring readings may jump. A smooth
+           step here is under one unit; the snap this guards against was about five. */
+        const watch = await page.evaluate(async () => {
+          const out = { steps: [], replaced: 0 };
+          const px = (el) => {
+            const c = document.createElement('canvas'); c.width = 1; c.height = 1;
+            const x = c.getContext('2d'); x.fillStyle = getComputedStyle(el).backgroundColor; x.fillRect(0, 0, 1, 1);
+            const d = x.getImageData(0, 0, 1, 1).data; return d[1] - (d[0] + d[2]) / 2;
+          };
+          let prev = null; let prevEl = null;
+          const end = performance.now() + 16000;
+          while (performance.now() < end) {
+            await new Promise((r) => requestAnimationFrame(r));
+            const el = document.querySelector('.acard.working');
+            if (!el) continue;
+            if (prevEl && el !== prevEl) out.replaced += 1;
+            const v = px(el);
+            if (prev !== null) out.steps.push(Math.abs(v - prev));
+            prev = v; prevEl = el;
+          }
+          return out;
+        });
+        chk(watch.replaced >= 2, `${engineName}: precondition: the board rebuilt the working card during the watch`, `rebuilt ${watch.replaced}x`);
+        const worst = Math.max(...watch.steps);
+        chk(worst < 2.5, `${engineName}: a rebuilt card continues the pulse, it does not snap back to white`, `largest frame-to-frame step ${worst.toFixed(2)} over ${watch.steps.length} frames`);
 
         /* Control: the idle card does not pulse, and the same instrument says so. */
         const i = await anim(page, '.acard:not(.working)');

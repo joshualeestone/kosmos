@@ -2236,10 +2236,11 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 }
 /* #3956 (Josh, 2026-09-26): "the green was glowing to a slightly darker green and back ... not
    fast, very gradual ... a 10% or 15% increase". Every working-green ground (grid card, list row
-   and its one-screen variant, project member box) pulses as ONE animation. It moves only the
-   layer UNDER the static wash, from the surface to the surface with 10% green mixed in, so the
-   deepest point is roughly twice today's wash and never dark, in either theme. background-color
-   only: no JS timer, nothing but a repaint. Off for reduced motion, which keeps the static wash. */
+   and its one-screen variant, project member box) runs these keyframes, kept in phase by
+   pinWorkingPulse beside setInterval(tick). It moves only the layer UNDER the static
+   wash, from the surface to the surface with 10% green mixed in. No JS timer. Its cost is a
+   repaint of each working box per frame (background-color is not a compositor property). Off
+   for reduced motion, which keeps the static wash. */
 .acard.working, .lrow.working, #pj-one-agents .pj-member.pjm-working {
   animation: working-pulse 3.6s ease-in-out infinite;
 }
@@ -59489,6 +59490,36 @@ firstRunBoot(PARAMS.get('first-run') === '1', Number(PARAMS.get('fr-step')) || 1
 paintBuildLine(null);
 tick();
 setInterval(tick, 5000);
+/* #3956: every working pulse runs on ONE clock. The poll above rebuilds the grid, the list and the
+   project members, and a rebuilt element starts its CSS animation at 0% (the plain surface), so
+   the green snapped away mid-pulse every five seconds. Pinning each working-pulse animation's
+   start to the document timeline's origin gives a rebuilt card the same phase as the one it
+   replaced. The pin runs from a MutationObserver because its callback lands BEFORE the next
+   paint; chromium paints a frame before animationstart fires, which still showed the snap.
+   animationstart stays as the backstop for an animation that begins without a DOM change (a
+   reduced-motion setting switched off). Events only, no timer. */
+function pinWorkingPulse(el) {
+  if (!el || typeof el.getAnimations !== 'function') return;
+  for (const a of el.getAnimations()) {
+    if (a.animationName === 'working-pulse' && a.startTime !== 0) a.startTime = 0;
+  }
+}
+function pinWorkingPulseIn(node) {
+  if (!node || node.nodeType !== 1) return;
+  if (node.classList.contains('working') || node.classList.contains('pjm-working')) pinWorkingPulse(node);
+  if (node.firstElementChild) {
+    for (const el of node.querySelectorAll('.working, .pjm-working')) pinWorkingPulse(el);
+  }
+}
+new MutationObserver((records) => {
+  for (const r of records) {
+    if (r.type === 'attributes') pinWorkingPulseIn(r.target);
+    else for (const n of r.addedNodes) pinWorkingPulseIn(n);
+  }
+}).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+document.addEventListener('animationstart', (e) => {
+  if (e.animationName === 'working-pulse') pinWorkingPulse(e.target);
+});
 /* #3124: age the freshness stamp on its own ~1s cadence, independent of when
    polls land, so a board that goes quiet ages visibly instead of freezing on
    the last "just now". A helper nothing calls is the defect this file is written

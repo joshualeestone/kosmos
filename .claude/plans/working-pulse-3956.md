@@ -12,12 +12,24 @@ off under prefers-reduced-motion.
   mixes into the theme's own surface.
 - Josh's "10% or 15% increase" read as percentage points of green, low end (10), because he also
   said "not crazy, super dark". A relative 10% of a .10 wash would be invisible.
-- Rejected: @property-registered colour token (discrete flip where unsupported); a pseudo-element
-  overlay (these elements already use their pseudo-elements elsewhere, and positioning risk).
+- Phase: the 5s poll rebuilds cards and a new element's animation starts at 0%, which snapped the
+  green away (found by blind review, iteration 1). pinWorkingPulse sets each working-pulse
+  animation's startTime to 0 (document timeline origin) from a MutationObserver, whose callback
+  runs before the next paint; animationstart alone left one white frame in chromium (measured).
+- Cost, accepted: background-color is not a compositor property, so each working box repaints per
+  frame. The compositor alternative (an opacity overlay on ::before) needs position:relative plus a
+  new stacking context on .acard/.pj-member, which could trap card menus under neighbouring cards;
+  not worth that risk for this card.
+- CORRECTION: an earlier version of this plan said these elements already use their pseudo-elements.
+  That was never measured and is false (the only hits are on a child, .lrow > .lav::after). The real
+  reason for rejecting the overlay is the positioning and stacking risk above.
+- Rejected: @property-registered colour token animated on a persistent ancestor (an inherited
+  property animating per frame restyles the whole subtree every frame).
 
 ## Verification
-- docs/browser-checks/render-working-pulse-3956.js, chromium + webkit, 30/30.
+- docs/browser-checks/render-working-pulse-3956.js, chromium + webkit, 34/34 (incl. the rebuild arm).
 - Perturbation: animation line removed -> pulse arms RED; reduced-motion rule removed -> 6
-  reduced-motion arms RED.
+  reduced-motion arms RED; pin disabled -> rebuild arm RED on both engines (step 5.00);
+  animationstart-only pin -> chromium RED (5.50), webkit green.
 - Mapped checks re-run green: render-dm-badges-2863, render-no-conflict-3729, render-stale-auth-1930.
 - Contrast: dark ink on the greenest ground is ~16:1.
