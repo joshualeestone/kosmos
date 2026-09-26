@@ -4,7 +4,7 @@
  * runs them over each screen and its report) and tools.mobile-shots-leak-718.test.js
  * (which proves each kind fires). What must never appear in a shot or its report: an
  * email the board injected (not example.com / .org / .net, and not one that ships in
- * web/index.html), an API key (sk-, AIza, xai-), or this Mac's home path, user name or
+ * web/index.html), an API key (sk-, AIza, xai-, GitHub ghp_ / github_pat_, Stripe sk_live_ / rk_live_), or this Mac's home path, user name or
  * host name. A hit is reported by kind and length only: the message lands in shared logs.
  */
 const fs = require('node:fs');
@@ -19,8 +19,11 @@ const REAL_HOST = os.hostname().replace(/\.local$/, '');
    as josh@you.com, a pattern fragment) are the same product text for everyone,
    so they cannot leak anything; only data the board injects is judged. */
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
-// OpenAI / Anthropic (sk-...), Google Gemini (AIza...) and xAI Grok (xai-...) keys.
-const KEY_RE = /\b(?:sk-[A-Za-z0-9_-]{2,}|AIza[0-9A-Za-z_-]{20,}|xai-[A-Za-z0-9]{20,})/g;
+/* OpenAI / Anthropic (sk-...), Google Gemini (AIza...), xAI Grok (xai-...), GitHub tokens
+   (ghp_ / gho_ / ghu_ / ghs_ / ghr_ with 36 characters, and fine-grained github_pat_...) and
+   Stripe secret and restricted keys (sk_live_ / sk_test_ / rk_live_ / rk_test_). Each has a
+   firing arm and a near-miss arm in tools.mobile-shots-leak-718.test.js. */
+const KEY_RE = /\b(?:sk-[A-Za-z0-9_-]{2,}|AIza[0-9A-Za-z_-]{20,}|xai-[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}|[sr]k_(?:live|test)_[A-Za-z0-9]{10,})/g;
 const SHIPPED_HTML = fs.readFileSync(path.join(REPO, 'web', 'index.html'), 'utf8');
 const SHIPPED_EMAILS = new Set(SHIPPED_HTML.match(EMAIL_RE) || []);
 /* e.g. the `sk-ant-` placeholder on the API key field. This scan catches a full key
