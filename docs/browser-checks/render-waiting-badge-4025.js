@@ -1,8 +1,8 @@
 // Browser-check-surface: wb-row wb-toggle wb-msg
 'use strict';
 /**
- * kosmos#4025: Settings > This computer > App icon, the switch for the waiting count on the Kosmos
- * icon (the #3996 Dock badge; the Windows taskbar reads the same count). HERMETIC: the real page from
+ * kosmos#4025: Settings > Computer > App icon, the switch for the waiting count on the Kosmos
+ * icon (the #3996 Dock badge; the box is hidden on Windows until a taskbar count ships). HERMETIC: the real page from
  * file://, with fetch answered in the page. What the node test (web.waiting-badge-4025.test.js)
  * cannot see: that the row draws beside Sounds, the switch paints its position only once the board's
  * setting is read, a click flips the drawn and accessible state from the board's answer, and a failed

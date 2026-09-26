@@ -83,3 +83,28 @@ test('#4025: a refused save keeps the old position and says so; a switch not yet
   assert.equal(h.tog.getAttribute('aria-checked'), 'true', 'a refused save showed a position the board does not hold');
   assert.match(h.msg.textContent, /could not save/);
 });
+
+test('#4025: a save paints the board\'s answer, not the click (the board may hold something else)', async () => {
+  const h = harness(async (url, opts) => ((opts && opts.method === 'POST')
+    ? { ok: true, json: async () => ({ ok: true, waitingBadge: true }) } : { ok: true, json: async () => ({ waitingBadge: true }) }));
+  await h.api.paintWaitingBadge();
+  await h.api.saveWaitingBadge();   // asks for Off; the board answers it holds On
+  assert.equal(h.tog.getAttribute('aria-checked'), 'true', 'the switch drew the click, not what the board stored');
+});
+
+test('#4025: a repaint while a save is in flight does not draw over it', async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let reads = 0;
+  const h = harness(async (url, opts) => {
+    if (opts && opts.method === 'POST') { await gate; return { ok: true, json: async () => ({ ok: true, waitingBadge: false }) }; }
+    reads += 1;
+    return { ok: true, json: async () => ({ waitingBadge: true }) };
+  });
+  await h.api.paintWaitingBadge();
+  const saving = h.api.saveWaitingBadge();
+  await h.api.paintWaitingBadge();   // Settings repainted mid-save
+  assert.equal(reads, 1, 'a repaint read the board while the save was in flight');
+  release(); await saving;
+  assert.equal(h.tog.getAttribute('aria-checked'), 'false', 'the save\'s answer was thrown away');
+});

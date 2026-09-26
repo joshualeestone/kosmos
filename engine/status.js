@@ -7652,8 +7652,8 @@ function waitingTotal(counts, agents) {
 
 /* #4025: the person's switch for that count on the app icon (Settings > Computer > App icon). On
    unless the stored settings say exactly false: a missing or unreadable setting is the default, on.
-   Off, the board serves counts.waiting as null, which clears the Mac Dock badge and the Windows
-   taskbar's alike (both read null as "no count"). */
+   Off, the board serves counts.waiting as null, which clears the Mac Dock badge (it reads null as
+   "no count"); a Windows taskbar count, when it ships, reads the same field. */
 function waitingBadgeOn(stored) {
   return !(stored && typeof stored === 'object' && stored.waitingBadge === false);
 }

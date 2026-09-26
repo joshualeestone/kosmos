@@ -15447,6 +15447,19 @@ window.kosmosMeasureScrollbarWidth();
          ON, the per-project toggles govern each project as they do today. On by default
          (Josh chose the sound); the static markup starts ON and paintSettings confirms it
          from storage, so there is no flash. Copy is Mona Lisa's (the card). -->
+    <!-- #4025: the waiting count on the app icon (#3996), switchable. Kept on the board, not in this
+         browser, because the app reads the count from the board even with no page open. Ships hidden
+         and unclickable until the setting has loaded (paintSwitch), the auto-handoff pattern. Above
+         Sounds (#3138 keeps Sounds last). Hidden on Windows until its taskbar count ships (Homer). -->
+    <section class="dbox" data-win-hide>
+      <h3 class="dlab">App icon</h3>
+      <div class="setrow" id="wb-row" style="margin-top:14px;">
+        <div><b>Show the waiting count on the Kosmos icon</b>
+          <p class="dhint" style="margin:2px 0 0;">In the Kosmos app, the icon in the Dock shows how many things are waiting on you: agents that need you and unread messages. On by default.</p></div>
+        <button class="toggle" id="wb-toggle" role="switch" aria-label="Show the waiting count on the Kosmos icon" hidden><i></i></button>
+      </div>
+      <p class="dhint" id="wb-msg" role="status"></p>
+    </section>
     <section class="dbox">
       <h3 class="dlab">Sounds</h3>
       <div class="setrow" id="snd-row" style="margin-top:14px;">
@@ -15458,18 +15471,6 @@ window.kosmosMeasureScrollbarWidth();
              keeps the same discipline (its visible label is a substring of its aria-label). -->
         <button class="toggle on" id="snd-toggle" role="switch" aria-checked="true" aria-label="Play a sound for new messages on any of your projects"><i></i></button>
       </div>
-    </section>
-    <!-- #4025: the waiting count on the app icon (#3996), switchable. Kept on the board, not in this
-         browser, because the app reads the count from the board even with no page open. Ships hidden
-         and unclickable until the setting has loaded (paintSwitch), the auto-handoff pattern. -->
-    <section class="dbox">
-      <h3 class="dlab">App icon</h3>
-      <div class="setrow" id="wb-row" style="margin-top:14px;">
-        <div><b>Show the waiting count on the Kosmos icon</b>
-          <p class="dhint" style="margin:2px 0 0;">In the Kosmos app, the icon in the Dock or taskbar shows how many things are waiting on you: agents that need you and unread messages. On by default.</p></div>
-        <button class="toggle" id="wb-toggle" role="switch" aria-label="Show the waiting count on the Kosmos icon" hidden><i></i></button>
-      </div>
-      <p class="dhint" id="wb-msg" role="status"></p>
     </section>
   </section>
   <section class="dsec" id="s-sec-automation" data-sec="automation" tabindex="-1" aria-label="Automation" hidden>
@@ -20231,7 +20232,7 @@ async function tick() {
        app need not ask the board itself while this page is polling. Nothing outside the Mac app. */
     try {
       const h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosBadge;
-      // null when this board has no count (older than #3996): the app clears the badge, and does not poll.
+      // null when this board has no count (older than #3996, or the person switched it off in Settings, #4025): the app clears the badge.
       if (h) h.postMessage(typeof c.waiting === 'number' ? c.waiting : null);
     } catch { /* not in the Mac app, or no window (a test): nothing to tell */ }
     /* #3423: if the Issue filter is on and there is nothing left to filter, exit it
@@ -21132,6 +21133,7 @@ let AH_EPOCH = 0;
 let WB_EPOCH = 0;
 let WB_SAVING = false;
 async function paintWaitingBadge() {
+  if (WB_SAVING) return;   // a save in flight paints the board's answer itself; a repaint now could read the old value
   const mine = ++WB_EPOCH;
   const msg = document.getElementById('wb-msg');
   try {
