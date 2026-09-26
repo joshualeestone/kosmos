@@ -1371,7 +1371,10 @@ const LIST_SKIP_DIRS = new Set(['node_modules', 'venv', 'env', '__pycache__', 'd
  * "this project has no documents" and "we could not look" are different
  * sentences and only one of them is about the project.
  */
-function listFiles(folder, limit) {
+function listFiles(folder, limit, opts) {
+  /* #2245 round 7: a caller that promises a flat list (the agent page's Files, #3614: its
+     instructions tell agents to save at the top) passes { maxDepth: 0 }. */
+  const maxDepth = opts && Number.isInteger(opts.maxDepth) && opts.maxDepth >= 0 ? opts.maxDepth : LIST_MAX_DEPTH;
   const state = folderState(folder);
   if (!state || state.state !== FOLDER.READABLE) {
     return { ok: false, because: (state && state.because) || 'we cannot read that folder right now', files: [] };
@@ -1403,7 +1406,7 @@ function listFiles(folder, limit) {
     // ⚠️ isFile()/isDirectory() on the DIRENT, so a symlink is excluded without a
     // second stat: withFileTypes reports the link itself, which is what we want here.
     if (ent.isDirectory()) {
-      if (depth < LIST_MAX_DEPTH && !LIST_SKIP_DIRS.has(ent.name)) queue.push({ abs: path.join(abs, ent.name), rel: relName, depth: depth + 1 });
+      if (depth < maxDepth && !LIST_SKIP_DIRS.has(ent.name)) queue.push({ abs: path.join(abs, ent.name), rel: relName, depth: depth + 1 });
       return;
     }
     if (!ent.isFile()) return;

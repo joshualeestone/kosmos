@@ -47200,6 +47200,10 @@ async function pjLoadDocs(id) {
    is in the list, and data-ref carries that listed name. The shortest run tried is the
    basename, so a bare `notes.md` still matches a top-level notes.md. */
 function pjCiteKey(core, names) {
+  /* A Windows agent writes sub\report.pdf; the list's names always use '/'. Only the
+     LOOKUP is normalised: the chip still carries the listed name, and a '..' segment was
+     refused before this is called. */
+  core = String(core).replace(/\\/g, '/');
   const segs = core.split('/');
   for (let i = 0; i < segs.length; i++) {
     const key = segs.slice(i).join('/');

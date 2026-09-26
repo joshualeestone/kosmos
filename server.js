@@ -4989,9 +4989,9 @@ const server = http.createServer((req, res) => {
   }
   /* #3614 items 1, 2, 4: the agent page's Files list, for files an agent makes for the person in a
      Direct Message. The folder is dmfiles.filesDir(name) (Renet's module, item 3), read through
-     the same engine functions as a project's documents: listFiles (top level, no dotfiles, no
-     symlinks, newest first, a stamp), openFile (bare names only, the target must resolve inside
-     the folder), revealFolder (Finder, or File Explorer on Windows). A Files folder that does not
+     the same engine functions as a project's documents: listFiles (top level only here, via
+     maxDepth 0, no dotfiles, no symlinks, newest first, a stamp), openFile (a bare name or, since
+     #2245, a relative path; the target must resolve inside the folder), revealFolder (Finder, or File Explorer on Windows). A Files folder that does not
      exist yet is the EMPTY state, not an error: nothing has been saved there. */
   const agentFiles = pathname.match(/^\/api\/agent\/([^/]+)\/files(?:\/(open|reveal))?$/);
   if (agentFiles) {
@@ -5028,7 +5028,9 @@ const server = http.createServer((req, res) => {
       }
       // listFiles also returns `names` (every name in the folder, uncapped); the page never reads
       // it, so it is dropped here rather than sent on every poll.
-      const { names: _allNames, ...listed } = projects.listFiles(folder, cap);
+      // Flat on purpose (#2245 round 7): the agent's instructions (engine/dmfiles.js) tell it to save
+      // directly in Files, and this page says so; only a PROJECT's list walks subfolders.
+      const { names: _allNames, ...listed } = projects.listFiles(folder, cap, { maxDepth: 0 });
       sendJson(res, 200, { ...listed, folder });
       return;
     }

@@ -74,3 +74,9 @@ hiding the files.
 ## Not in this change
 The live-spawn adherence check (does a Claude / OpenAI agent actually save into the folder each
 time) stays on the card as a live-app test.
+
+## Merge with main (09-26 03:33) and round 7 review (opus): 2 WARNINGs, 1 NIT
+Merged origin/main (677 commits); three conflicts resolved (openFile's refusal takes main's `where`; browser-checks list; both page helpers in server.test.js).
+- [WARNING] main's #3614 agent page Files list shares listFiles, so it silently started walking subfolders, without the partial note, while the agent's own instructions (engine/dmfiles.js) say to save directly in Files because that page lists only the top. DECIDED: that list stays FLAT. listFiles takes `{ maxDepth: 0 }` and the agent route passes it; its comment says so. Only a PROJECT's list walks subfolders. Test: a sub/deep.txt in an agent's Files is not listed. Control (no maxDepth) fails by name.
+- [WARNING] the instructions every agent gets said "Kosmos lists only the top of a project's folder", now false. FIXED: "Kosmos lists a project's subfolders too, a few folders deep". dmfiles.test.js pins the new sentence and refuses the old.
+- [NIT] a Windows-style cite (sub\report.pdf) never chipped. FIXED: pjCiteKey normalises backslashes for the lookup only (the chip carries the listed name; the '..' refusal still runs first, and its test with '..\brief.md' still passes). Test and control fail by name.

@@ -9453,6 +9453,12 @@ test('the chip carries the name the documents list gave, not the path as written
   assert.match(out, /data-ref="brief\.md"/, 'the button lost the listed name the route needs');
 });
 
+test('#2245: a Windows-style backslash cite chips to the listed subfolder file', () => {
+  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n');
+  const out = link('saved to sub\\report.pdf', new Set(['sub/report.pdf']));
+  assert.match(out, /data-ref="sub\/report\.pdf"/, 'a backslash cite did not chip to the listed name: ' + out);
+});
+
 test('a token containing .. is never dressed as a citation, even when its basename matches', () => {
   const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n');
   const esc = pageFunction('esc');
