@@ -6942,8 +6942,8 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .lring .gf.warn
 html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd::after {
   content: ""; position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; border-radius: 50%;
   background: #2f7d5a; box-shadow: 0 0 0 2px var(--k-surface); }
-html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd-off::after { background: var(--k-ink-2); }
-html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd-unk::after { background: transparent; border: 1.5px solid var(--k-ink-2); box-sizing: border-box; }
+html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pjd-off::after { background: var(--k-ink-2); }
+html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pjd-unk::after { background: transparent; border: 1.5px solid var(--k-ink-2); box-sizing: border-box; }
 .pj-member small.pj-attn { color: #b3261e; }
 /* #b3261e is a ~2:1 whisper on the dark surface (under WCAG AA for this caption), so it
    lightens to #ff8c82 in dark mode. Only the SYSTEM-dark @media rule is written by hand; the
@@ -27946,6 +27946,10 @@ let START_FLIGHT = null;
    it, and re-showing the button under the receipt would offer a second start. A reopen bumps the
    epoch and ends both. */
 let START_RECEIPT = null;
+/* Whether a poll has seen the agent running since the receipt was left. Until then a stopped
+   reading is the board catching up (one stale poll); after it, a stopped reading is a real stop,
+   so the receipt is cleared and Start is offered again. */
+let START_RECEIPT_SAW_RUNNING = false;
 
 /* #3410: derive the Start affordance's visibility, enabled state and label from
    the live card, shared by openDetail (on open), the poll's reappear arm (so a
@@ -27966,7 +27970,17 @@ let START_RECEIPT = null;
 function refreshStartAffordance(a) {
   const wrap = document.getElementById('d-start-wrap');
   if (!wrap) return;
-  if ((START_FLIGHT !== null && START_FLIGHT === START_EPOCH) || START_RECEIPT === START_EPOCH) return;
+  if (START_FLIGHT !== null && START_FLIGHT === START_EPOCH) return;
+  if (START_RECEIPT === START_EPOCH) {
+    const offNow = !!a && cardStOf(a).pres === 'off';
+    if (!offNow) { START_RECEIPT_SAW_RUNNING = true; return; }
+    if (!START_RECEIPT_SAW_RUNNING) return; // the board has not caught up with the start yet
+    /* It ran, and has stopped again: the "Started" receipt is stale, and Start applies again. */
+    START_RECEIPT = null;
+    START_RECEIPT_SAW_RUNNING = false;
+    const msg = document.getElementById('d-start-msg');
+    if (msg && msg.textContent) msg.textContent = '';
+  }
   const notRunning = !!a && cardStOf(a).pres === 'off';
   wrap.hidden = !notRunning;
   const btn = document.getElementById('d-start-agent');
@@ -29516,7 +29530,10 @@ async function paintTalk(sessionName, agentName) {
          a mid-restart agent a message; only the badge past-marking is wrong). */
       /* #3958: the LATEST card, not CURRENT: CURRENT is the card from when the page opened, and
          the pill now follows the poll, so reading CURRENT would past-mark a live restart. */
-      const latest = CURRENT && ((typeof LAST !== 'undefined' && Array.isArray(LAST) && LAST.find((x) => x.sessionName === CURRENT.sessionName)) || CURRENT);
+      /* When the agent has left LAST entirely (withdrawn from the board) the only card is CURRENT,
+     frozen at open; that fallback can still past-mark a restart seen at open. Narrow, and the
+     least-bad reading available: there is no fresher card. */
+  const latest = CURRENT && ((typeof LAST !== 'undefined' && Array.isArray(LAST) && LAST.find((x) => x.sessionName === CURRENT.sessionName)) || CURRENT);
       markStateRemembered(!(latest && latest.state === 'restarting'));
   } else if (body.presence === 'unsure') {
     off.textContent = 'We could not check whether ' + name + ' is running. '
@@ -35382,7 +35399,7 @@ document.getElementById('d-start-agent').addEventListener('click', async () => {
        (#3958) to leave them, and a later open that finds the agent stopped once
        more un-hides the button. */
     if (onPanel() && sb) sb.hidden = true;
-    if (onPanel()) START_RECEIPT = epoch;
+    if (onPanel()) { START_RECEIPT = epoch; START_RECEIPT_SAW_RUNNING = false; }
   } finally {
     /* Release the in-flight marker if it is still ours: a later open bumps
        START_EPOCH and may start its own, and clearing unconditionally would wipe

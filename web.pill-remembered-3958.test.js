@@ -191,9 +191,11 @@ test('#3958: the per-poll Start re-derive leaves a Start of this open alone, in 
       const els = {
         'd-start-wrap': { hidden: false },
         'd-start-agent': { hidden: true, disabled: true, textContent: 'Starting…' },
+        'd-start-msg': { textContent: 'Started Beatrix. Say hello to wake them.' },
       };
       // eslint-disable-next-line no-new-func
       const fn = new Function('document', 'START_FLIGHT', 'START_RECEIPT', 'START_EPOCH', [
+        'let START_RECEIPT_SAW_RUNNING = false;',
         constSource('CARD_ST'),
         pageFnSource('cardStOf'),
         pageFnSource('refreshStartAffordance'),
@@ -214,6 +216,19 @@ test('#3958: the per-poll Start re-derive leaves a Start of this open alone, in 
     done.fn(running);
     assert.equal(done.els['d-start-wrap'].hidden, false, 'the poll hid the "Started" receipt');
     assert.equal(done.els['d-start-agent'].hidden, true, 'the button came back under the receipt');
+    /* A receipt holds through a stale "stopped" poll right after the start (the board catching
+       up), but once the agent has been seen running, a stopped poll is a real stop: the receipt
+       clears and Start is offered again. */
+    const board2 = fleet.install([fleet.agent('beatrix', { state: 'stopped' })]);
+    const stopped = board2.agents.find((x) => x.name === 'beatrix');
+    const again = make(null, 3, 3);
+    again.fn(stopped);
+    assert.equal(again.els['d-start-agent'].hidden, true, 'a stale stopped poll right after the start re-offered the button');
+    again.fn(running);
+    again.fn(stopped);
+    assert.equal(again.els['d-start-wrap'].hidden, false, 'the agent stopped again and the Start area stayed hidden');
+    assert.equal(again.els['d-start-agent'].hidden, false, 'the agent stopped again and Start was not offered');
+    assert.equal(again.els['d-start-msg'].textContent, '', 'the stale "Started" receipt stayed after the agent stopped again');
     /* A receipt from an EARLIER open does not stick. */
     const old = make(null, 2, 3);
     old.fn(running);
