@@ -133,22 +133,22 @@ test('#3034: a guide deleted and a NEW agent given the same name gets no page re
 test('#3034: the setup assistant switch round-trips through /api/settings and keeps the other settings', async () => {
   const get = async () => (await (await fetch(board.base + '/api/settings')).json());
   const set = (body) => fetch(board.base + '/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  assert.deepEqual((await get()).setupAssistant, { on: true, asked: false }, 'the default is on, not yet asked');
+  assert.deepEqual((await get()).setupAssistant, { on: true, asked: false, idleCloses: 0, kept: false }, 'the default is on, not yet asked');
   assert.equal((await set({ timezone: 'America/Chicago' })).status, 200);
   // The first X: "Close forever" = asked and off, in one write.
   const r = await set({ setupAssistant: { asked: true, on: false } });
   assert.equal(r.status, 200);
-  assert.deepEqual((await r.json()).setupAssistant, { on: false, asked: true });
+  assert.deepEqual((await r.json()).setupAssistant, { on: false, asked: true, idleCloses: 0, kept: false });
   // The Settings switch turns it back on, and the asked state is kept.
   await set({ setupAssistant: { on: true } });
   const now = await get();
-  assert.deepEqual(now.setupAssistant, { on: true, asked: true });
+  assert.deepEqual(now.setupAssistant, { on: true, asked: true, idleCloses: 0, kept: false });
   assert.equal(now.timezone, 'America/Chicago', 'the setup assistant write dropped another setting');
   // A bad value is a 400 and changes nothing.
   for (const bad of [{ on: 'no' }, {}, { gone: true }, 'off']) {
     assert.equal((await set({ setupAssistant: bad })).status, 400, JSON.stringify(bad));
   }
-  assert.deepEqual((await get()).setupAssistant, { on: true, asked: true });
+  assert.deepEqual((await get()).setupAssistant, { on: true, asked: true, idleCloses: 0, kept: false });
 });
 
 test('#3034: a REMOVED guide (removal deletes nothing, so its marker survives) is "no guide", and an unreadable removed list refuses', async () => {
