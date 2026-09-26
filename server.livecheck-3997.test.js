@@ -60,7 +60,7 @@ test.after(() => {
   try { server.close(); } catch { /* best effort */ }
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
-test.beforeEach(() => { codexsigninlive.resetForTest(); grokAccounts.setFetcher(null); observed._clearForTest(); });
+test.beforeEach(() => { codexsigninlive.resetForTest(); grokAccounts.setFetcher(null); grokAccounts.resetSubscriptionLiveForTest(); observed._clearForTest(); });
 
 const accounts = async () => ((await (await fetch(base + '/api/accounts')).json()).accounts || []);
 const post = (p, obj) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(obj) });
@@ -112,6 +112,36 @@ test('#3997 ChatGPT Check now runs its OWN check, never the one opening the list
   assert.equal(runs, 2);
 });
 
+test('#3997 round 4: a stale check never overwrites a newer answer, "no answer" never erases a green, a reset stops old runs', async () => {
+  // A check started before the person signed in again (it will say dead) finishes AFTER Check now said live.
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let n = 0;
+  codexsigninlive.setRunner(async () => { n++; if (n === 1) { await gate; return { ok: true, stdout: DOC('warning') }; } return { ok: true, stdout: DOC('ok') }; });
+  const stale = codexsigninlive.liveness(CODEX);
+  await new Promise((r) => setTimeout(r, 10));   // the stale run starts its runner a tick later
+  assert.equal(n, 1, 'CONTROL: the stale run is the one holding the gate');
+  assert.equal(await codexsigninlive.livenessNow(CODEX), 'live');
+  release();
+  assert.equal(await stale, 'dead', 'CONTROL: the stale run did answer dead');
+  assert.equal(codexsigninlive.livenessCached(CODEX).verdict, 'live', 'the stale run overwrote the newer Check now answer');
+  // Check now with no answer leaves the fresh green as it was.
+  codexsigninlive.setRunner(async () => ({ ok: false }));
+  assert.equal(await codexsigninlive.livenessNow(CODEX), 'unknown');
+  assert.equal(codexsigninlive.livenessCached(CODEX).verdict, 'live', 'a check with no answer erased a green');
+  // A run from before a reset writes nothing after it.
+  codexsigninlive.resetForTest();
+  let release2;
+  const gate2 = new Promise((r) => { release2 = r; });
+  codexsigninlive.setRunner(async () => { await gate2; return { ok: true, stdout: DOC('warning') }; });
+  const old = codexsigninlive.liveness(CODEX);
+  await new Promise((r) => setTimeout(r, 10));
+  codexsigninlive.resetForTest();
+  release2();
+  await old;
+  assert.equal(codexsigninlive.checkState(CODEX), 'cold', 'a run from before the reset wrote into the cache after it');
+});
+
 test('#3997 Grok subscription: a current key checked live on open reads working; an expired one stays unconfirmed with its reason', async () => {
   let calls = 0;
   grokAccounts.setFetcher(async () => { calls++; return { status: 200 }; });
@@ -159,7 +189,11 @@ test('#3997 Check now routes: connected, none and unknown, and a wrong kind of a
   grokAccounts.setFetcher(async () => ({ status: 500 }));
   const row = (await accounts()).find((a) => a.provider === 'xai');
   assert.equal(row.connection.badge, 'working', 'Check now did not turn the row green');
-  // But Grok REFUSING it on the next read outranks that green (it is what the new answer is about).
+  // Within 30s the list reuses Check now's answer rather than asking again (round 4):
+  grokAccounts.setFetcher(async () => { throw new Error('asked again inside the 30s'); });
+  assert.equal((await accounts()).find((a) => a.provider === 'xai').connection.badge, 'working');
+  // But once that has run out, Grok REFUSING it on the next read outranks that green (it is what the new answer is about).
+  grokAccounts.resetSubscriptionLiveForTest();   // the 30s have passed
   grokAccounts.setFetcher(async () => ({ status: 401 }));
   const refused = (await accounts()).find((a) => a.provider === 'xai');
   assert.equal(refused.connection.badge, 'signed_in_unverified', 'a refused sign-in still shows an earlier green');

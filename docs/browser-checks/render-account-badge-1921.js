@@ -266,7 +266,11 @@ const ACCOUNTS = [
     focusBtn.disabled = false;
     listAnswer = [sub, row];
     await wait(900);
-    return { expiredSays, expiredTitle, listsAfterExpired, green, focused, whileBusy, afterBusy: lists };
+    // An expired key's row does not point its title at Check now (the server's structured verdict, round 4).
+    listAnswer = [{ ...row, connection: { ...row.connection, liveVerdict: 'expired', because: 'Grok renews this sign-in the next time it runs, so it cannot be checked until then' } }];
+    await paintAccounts();
+    const expTitle = (document.querySelector('#set-accounts .acct-box .acct-unverified') || { title: '' }).title;
+    return { expiredSays, expiredTitle, listsAfterExpired, green, focused, whileBusy, afterBusy: lists, expTitle };
   }, { row: grokRow, sub: ACCOUNTS.find((a) => a.email === 'sub@example.com') });
 
   await browser.close();
@@ -275,6 +279,7 @@ const ACCOUNTS = [
   if (clicks.expiredSays !== 'Not until Grok runs again' || !/renews this sign-in/.test(clicks.expiredTitle) || clicks.listsAfterExpired !== 1) {
     problems.push('#3997: Check now on an expired Grok key did not say so (or repainted for nothing): ' + JSON.stringify(clicks));
   }
+  if (!/renews this sign-in/.test(clicks.expTitle) || /Check now/.test(clicks.expTitle)) problems.push('#3997: an expired key\'s title points at Check now: ' + JSON.stringify(clicks.expTitle));
   if (!clicks.green) problems.push('#3997: Check now answering connected did not repaint the row green: ' + JSON.stringify(clicks));
   if (!clicks.focused) problems.push('#3997: the busy arm could not mark a Check now in flight, so it tested nothing: ' + JSON.stringify(clicks));
   if (clicks.whileBusy !== 1) problems.push('#3997: a follow-up rebuilt the list while a Check now was in flight: ' + JSON.stringify(clicks));

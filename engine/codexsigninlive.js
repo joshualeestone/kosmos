@@ -137,7 +137,10 @@ function setRunner(fn) { runner = fn; }              // tests
 const cache = new Map();
 // homeKey -> Promise<{ verdict, cause }>, so concurrent callers on a miss share one doctor run.
 const inflight = new Map();
-function resetForTest() { cache.clear(); inflight.clear(); runner = defaultRunner; }
+/* #3997 round 4: a run started before a reset (a test's, or a board restart's) must not write into the cache after
+   it, so every run carries the generation it started in. */
+let generation = 0;
+function resetForTest() { cache.clear(); inflight.clear(); runner = defaultRunner; generation += 1; }
 
 /**
  * livenessDetailed(dir, nowMs?) -> Promise<{ verdict, cause }>. The full result: the verdict AND
@@ -152,13 +155,20 @@ async function livenessDetailed(dir, nowMs) {
   const cur = cache.get(key);
   if (cur && (now - cur.at) < TTL_MS) return { verdict: cur.verdict, cause: cur.cause };
   if (inflight.has(key)) return inflight.get(key);
+  const gen = generation;
+  const startedAt = now;
   const p = Promise.resolve()
     .then(() => runner(dir))
     .then((r) => (r && r.ok ? classifyDetailed(r.stdout) : { verdict: 'unknown', cause: 'indeterminate' }))
     .catch(() => ({ verdict: 'unknown', cause: 'indeterminate' }))
     .then((res) => {
-      cache.set(key, { verdict: res.verdict, cause: res.cause, at: (typeof nowMs === 'number' ? nowMs : Date.now()) });
-      inflight.delete(key);
+      /* #3997 round 4: never overwrite a NEWER answer (a Check now that ran while this one was in flight, against a
+         sign-in the person had just fixed), and never write across a reset. */
+      const had = cache.get(key);
+      if (gen === generation && !(had && had.at > startedAt)) {
+        cache.set(key, { verdict: res.verdict, cause: res.cause, at: (typeof nowMs === 'number' ? nowMs : Date.now()) });
+      }
+      if (inflight.get(key) === p) inflight.delete(key);
       return res;
     });
   inflight.set(key, p);
@@ -201,12 +211,19 @@ function checkState(dir, nowMs) {
 /* #3997 round 3: a NEW run for Check now, never joined to one already in flight (opening the list may have started
    one against the sign-in from before the person fixed it). Its answer is cached as the freshest. */
 async function livenessNow(dir) {
+  const gen = generation;
   let res;
   try {
     const r = await runner(dir);
     res = r && r.ok ? classifyDetailed(r.stdout) : { verdict: 'unknown', cause: 'indeterminate' };
   } catch { res = { verdict: 'unknown', cause: 'indeterminate' }; }
-  cache.set(homeKey(dir), { verdict: res.verdict, cause: res.cause, at: Date.now() });
+  /* No answer changes nothing (the #1316/#1916 rule the route states): a fresh live or dead stays as it is. */
+  const key = homeKey(dir);
+  const had = cache.get(key);
+  const hadFresh = had && (Date.now() - had.at) < TTL_MS && had.verdict !== 'unknown';
+  if (gen === generation && !(res.verdict === 'unknown' && hadFresh)) {
+    cache.set(key, { verdict: res.verdict, cause: res.cause, at: Date.now() });
+  }
   return res.verdict;
 }
 

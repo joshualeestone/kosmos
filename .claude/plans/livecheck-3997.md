@@ -49,6 +49,21 @@ Design and measurements are on the card (comment 5849157780).
   old behaviour fails rather than hangs); invalidate() removed as unused.
 - NIT: a branch in the Grok overlay that could not fire (a live answer is recorded, so never reaches it) removed.
 
+## Review round 4 (Opus), what changed
+- BLOCKER: server.openai-badge-2413.test.js reset to the REAL codex runner, and the list now starts a check, so the
+  file ran `codex doctor` against chatgpt.com with a fake token. It now sets a no-report runner after each reset.
+  Measured with a logging codex stub: 5 doctor runs without the fix (control), 0 with it, across the eight server
+  suites that read /api/accounts.
+- A stale list check can no longer overwrite a newer answer (each run carries its start and generation; a reset stops
+  old runs writing). Check now with no answer leaves a fresh green or red as it was. Each tested and perturbed red.
+- Grok: definite answers kept 30s per folder and key (the follow-up reads no longer ask xAI each time); Check now
+  bypasses and refreshes that. The expired-key title keys on a structured `liveVerdict`, not a sentence match.
+- Busy means a Check now in flight or a half-pressed confirm, not focus alone (a button kept focus after its answer
+  and the row kept saying "checking"). One helper, one scheduler.
+- Premise (#3391), measured: `codex doctor` did not rotate this Mac's ChatGPT token (auth.json last_refresh
+  unchanged at 2026-09-25T03:00Z after a doctor run on 09-26). Caveat: that token was days from expiry; a token near
+  expiry was not measured, and the agent-probe path (codexauthprobe) already runs doctor for homes with agents.
+
 ## Decided
 - Pill text stays a short "Signed in" (Josh 6.68, #3136); the reason is in the title.
 - A 401 from Grok is "not confirmed" (amber), never red: grok may renew the key on its next run.

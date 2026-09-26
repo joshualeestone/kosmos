@@ -344,6 +344,11 @@ function subscriptionVerdict(dir) {
 const SUBSCRIPTION_EXPIRY_MARGIN_MS = 60 * 1000;
 /* Callers asking about the same folder at the same moment (two screens reading the list) share one request. */
 const subscriptionLiveInflight = new Map();
+/* A definite answer (live or refused) is kept 30 seconds per folder AND key, so the list's follow-up reads do not ask
+   xAI again each time (review round 4); a new key (grok renewed it) asks afresh. "No answer" is never kept. */
+const SUBSCRIPTION_LIVE_TTL_MS = 30 * 1000;
+const subscriptionLiveCache = new Map();
+function resetSubscriptionLiveForTest() { subscriptionLiveCache.clear(); subscriptionLiveInflight.clear(); }
 function subscriptionLive(dir) {
   const key = path.resolve(String(dir || ''));
   if (subscriptionLiveInflight.has(key)) return subscriptionLiveInflight.get(key);
@@ -351,7 +356,9 @@ function subscriptionLive(dir) {
   subscriptionLiveInflight.set(key, p);
   return p;
 }
-async function subscriptionLiveOnce(dir) {
+/* `fresh`: Check now. Its own request, never a kept answer, and what it learns is kept for the list. */
+async function subscriptionLiveOnce(dir, opts) {
+  const fresh = !!(opts && opts.fresh);
   const auth = readAuth(dir);
   if (auth.kind !== 'ok') return { verdict: 'unknown', because: 'Could not read the Grok sign-in' };
   const e = auth.entry;
@@ -359,6 +366,10 @@ async function subscriptionLiveOnce(dir) {
   if (typeof e.key !== 'string' || !e.key || !Number.isFinite(until) || until <= Date.now() + SUBSCRIPTION_EXPIRY_MARGIN_MS) {
     return { verdict: 'expired', because: 'Grok renews this sign-in the next time it runs, so it cannot be checked until then' };
   }
+  const cacheKey = path.resolve(String(dir || '')) + '|' + e.key;
+  const kept = subscriptionLiveCache.get(cacheKey);
+  if (!fresh && kept && Date.now() - kept.at < SUBSCRIPTION_LIVE_TTL_MS) return kept.answer;
+  const keep = (answer) => { subscriptionLiveCache.set(cacheKey, { answer, at: Date.now() }); return answer; };
   const f = fetcher || (async (url, init) => {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 8000);
@@ -372,8 +383,8 @@ async function subscriptionLiveOnce(dir) {
   try { r = await f(url, { method: 'GET', headers: { authorization: 'Bearer ' + e.key } }); }
   catch { return { verdict: 'unknown', because: 'we could not reach Grok to check this sign-in' }; }
   const status = r && r.status;
-  if (status === 200) return { verdict: 'live', because: 'Grok confirmed this sign-in works' };
-  if (status === 401 || status === 403) return { verdict: 'refused', because: 'Grok did not accept this sign-in just now. Signing in again fixes it' };
+  if (status === 200) return keep({ verdict: 'live', because: 'Grok confirmed this sign-in works' });
+  if (status === 401 || status === 403) return keep({ verdict: 'refused', because: 'Grok did not accept this sign-in just now. Signing in again fixes it' });
   return { verdict: 'unknown', because: 'we asked Grok about this sign-in and could not tell' };
 }
 
@@ -973,7 +984,7 @@ const listLive = inflight.collapse(listLiveNow);
 module.exports = {
   STATE, PROVIDER, PROVIDER_NAME, DIR_PREFIX, KEY_BASENAME, FORGOTTEN_PREFIX,
   homeDir, defaultDir, keyFile, identityOf, list,
-  setFetcher, askModels, validateLive, checkLive, listLive, subscriptionLive, subscriptionLiveOnce,
+  setFetcher, askModels, validateLive, checkLive, listLive, subscriptionLive, subscriptionLiveOnce, resetSubscriptionLiveForTest,
   keyProblem, cleanLabel, dirForLabel, nextWorkDir,
   storeKey, forgetKey, forgetAccount, removeAccount,
   authFile, readAuth, parseGrokLoginOutput, startGrokLogin, reauthTarget, grokLoginStatus, cancelGrokLogin, setGrokTimers,

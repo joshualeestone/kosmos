@@ -7757,7 +7757,7 @@ const server = http.createServer((req, res) => {
           if (!(a.authMode === 'subscription' && a.connection && a.connection.state === 'connected')) return a;
           const r = subChecks.get(a.dir);   // a `live` answer never reaches here: it is recorded, so the row is working
           const because = r ? r.because : a.connection.because;
-          return { ...a, connection: { ...a.connection, because, badge: 'signed_in_unverified' } };
+          return { ...a, connection: { ...a.connection, because, badge: 'signed_in_unverified', liveVerdict: r ? r.verdict : null } };
         };
         const grok = grokRows.map((a) => {
           const agentObs = a.dir ? obsByGrokDir.get(a.dir) : null;
@@ -8074,7 +8074,7 @@ const server = http.createServer((req, res) => {
         const acct = rows.find((a) => a.dir === resolved && a.authMode === (grok ? 'subscription' : 'chatgpt'));
         if (!acct) { sendJson(res, 404, { error: 'we could not find that sign-in on this computer' }); return; }
         if (grok) {
-          const r = await grokAccounts.subscriptionLiveOnce(acct.dir);   // its own request, never one already in flight
+          const r = await grokAccounts.subscriptionLiveOnce(acct.dir, { fresh: true });   // its own request; what it learns is kept for the list
           if (r.verdict === 'live') observed.sawDir(observed.PROVIDER.XAI, acct.dir, observed.OUTCOME.OK);
           if (r.verdict === 'refused') observed.forgetDir(observed.PROVIDER.XAI, acct.dir);
           /* `refused` and `expired` are their own answers: the page repaints on a refusal (an earlier green is gone)
