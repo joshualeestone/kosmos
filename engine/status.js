@@ -1572,6 +1572,10 @@ const GEMINI_QUOTA_DIALOG = /^Usage limit reached for\b/i;
 const GEMINI_QUOTA_OPTION = /^(?:[●○>]\s*)?\d+\.\s+\S.*$/;
 const GEMINI_QUOTA_STOP = /^(?:[●○>]\s*)?\d+\.\s+Stop\s*$/i;
 const GEMINI_QUOTA_ERROR = /^✕\s*\[API Error:.*exhausted your daily quota\b/i;
+/* Review round 8: the same question also comes up for other limits (a model the key has no free quota for, a long
+   retry delay), and after Stop those print Google's own message instead, e.g. "You exceeded your current quota ...
+   limit: 0". Not a daily limit, so no midnight reset is promised for it. */
+const GEMINI_QUOTA_OTHER = /^✕\s*\[API Error:.*(?:exceeded your current quota|RESOURCE_EXHAUSTED|\blimit:\s*0\b)/i;
 const GEMINI_BOX_EDGE = /^[╭╮╰╯─]+$/;
 const GEMINI_COMPOSER = /Type your message/i;
 const GEMINI_LIMIT_ROWS = 14;
@@ -1599,7 +1603,7 @@ function geminiQuotaReading(paneText) {
     }
   }
   let at = -1;
-  rows.forEach((r, i) => { if (GEMINI_QUOTA_ERROR.test(r)) at = i; });
+  rows.forEach((r, i) => { if (GEMINI_QUOTA_ERROR.test(r) || GEMINI_QUOTA_OTHER.test(r)) at = i; });
   if (at < 0) return null;
   const below = rows.slice(at + 1);
   const newer = below.some((r) => (/^>\s+\S/.test(r) && !GEMINI_COMPOSER.test(r)) || /^✦/.test(r));
@@ -1608,7 +1612,7 @@ function geminiQuotaReading(paneText) {
      (a spinner). A copy of the line in a working agent's tool output has a spinner under it. */
   if (!below.some((r) => GEMINI_COMPOSER.test(r))) return null;
   if (below.some((r) => /esc to cancel|[\u2800-\u28FF]/i.test(r))) return null;
-  return { dialog: false, evidence: rows[at].replace(/^✕\s*/, '') };
+  return { dialog: false, daily: GEMINI_QUOTA_ERROR.test(rows[at]), evidence: rows[at].replace(/^✕\s*/, '') };
 }
 
 /**
@@ -3726,10 +3730,11 @@ function classify(pane, paneText) {
         state: STATE.RATE_LIMITED,
         confidence: CONFIDENCE.SCRAPED,
         because: q.dialog ? 'its screen says it has reached a Google usage limit, and it is waiting on a question about it'
-          : 'its screen says its Google daily limit is used up',
+          : q.daily ? 'its screen says its Google daily limit is used up' : 'its screen says it has reached a Google usage limit',
         evidence: q.evidence,
         limitFrom: 'gemini',
         quotaDialog: q.dialog,
+        quotaDaily: q.daily === true,
       };
     }
   }
@@ -7340,6 +7345,7 @@ function snapshot() {
       stateEvidence: status.evidence || null,
       /* #4004: Gemini's quota question is on screen (engine/geminiquota.js answers Stop for it). */
       quotaDialog: status.quotaDialog === true,
+      quotaDaily: status.quotaDaily === true,   // #4004 round 8: only Gemini's daily line promises the midnight reset
       /* #4004: whose own words set a limit reading ('codex' / 'gemini'), so the wording keys on a field, not a sentence. */
       limitFrom: typeof status.limitFrom === 'string' ? status.limitFrom : null,
       because: status.because,

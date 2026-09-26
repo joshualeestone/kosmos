@@ -95,6 +95,23 @@ test('#4004 CONTROLS: the words in tool output, a quoted dialog, a newer turn, a
   assert.notEqual(c.quotaDialog, true, 'a Claude pane was read with Gemini\'s quota rule');
 });
 
+test('#4004: after Stop on ANOTHER limit, Google\'s own quota line still reads the limit, said without a reset time', () => {
+  // Gemini prints Google's message (not "exhausted your daily quota") when the question came up for, say, a model the
+  // key has no free quota for. Before this, the card read a calm idle the moment Kosmos pressed Stop.
+  const other = AFTER_STOP.replace('✕ [API Error: You have exhausted your daily quota on this model.]',
+    '✕ [API Error: You exceeded your current quota, please check your plan and billing details. limit: 0, model: gemini-2.5-pro]');
+  assert.notEqual(other, AFTER_STOP, 'the fixture edit did not apply');
+  const c = status.classify(gem, other);
+  assert.equal(c.state, 'rate_limited', JSON.stringify(c));
+  assert.equal(c.quotaDaily, false);
+  const p = accountProblemOf({ name: 'Gem', runner: 'gemini', state: 'rate_limited', because: c.because, limitFrom: c.limitFrom, quotaDialog: c.quotaDialog, quotaDaily: c.quotaDaily });
+  assert.match(p.text, /reached a Google usage limit/);
+  assert.doesNotMatch(p.text, /midnight|daily limit/, 'a reset time promised for a limit that is not the daily one');
+  // CONTROL: the same line inside a working agent's tool output is not this agent's limit.
+  const quoted = ['✦ Checking', '│ ✕ [API Error: You exceeded your current quota, limit: 0]', '⠏ Thinking (esc to cancel, 2s)', ' *   Type your message or @path/to/file'].join('\n');
+  assert.notEqual(status.classify(gem, quoted).state, 'rate_limited');
+});
+
 test('#4004: after Stop with the non-YOLO composer (">   Type your message") below the error, it still reads the limit', () => {
   const nonYolo = AFTER_STOP.replace(' *   Type your message or @path/to/file', ' >   Type your message or @path/to/file');
   assert.equal(status.classify(gem, nonYolo).state, 'rate_limited');
@@ -150,6 +167,7 @@ test('#4004 snapshot: the board card carries quotaDialog and limitFrom, so the s
       assert.equal(card.quotaDialog, false);
       assert.equal(card.limitFrom, 'gemini');
       assert.equal(geminiquota.waitingOnQuestion(card), false, 'CONTROL: no question up, nothing to answer');
+      assert.equal(card.quotaDaily, true);
       assert.match(accountProblemOf(card).text, /daily limit for/);
     } finally { after.restore(); }
   } finally { board.restore(); }
@@ -158,7 +176,7 @@ test('#4004 snapshot: the board card carries quotaDialog and limitFrom, so the s
 test('#4004: the card and the manager are told in plain words, with the reset and the two ways out', () => {
   // After Stop: Gemini's own "exhausted your daily quota" line is a daily limit, free or billed (it cannot say which).
   const c = status.classify(gem, AFTER_STOP);
-  const p = accountProblemOf({ name: 'Gem', runner: 'gemini', state: 'rate_limited', because: c.because, limitFrom: c.limitFrom, quotaDialog: c.quotaDialog });
+  const p = accountProblemOf({ name: 'Gem', runner: 'gemini', state: 'rate_limited', because: c.because, limitFrom: c.limitFrom, quotaDialog: c.quotaDialog, quotaDaily: c.quotaDaily });
   assert.ok(p && p.notify === true, JSON.stringify(p));
   assert.match(p.text, /Google's daily limit for Gem's API key is used up/);
   assert.doesNotMatch(p.text, /free/, 'the screen cannot tell a free key from a billed one');
@@ -229,6 +247,13 @@ test('#4004 answerGeminiQuotaStop: presses the number beside Stop when the quest
     const q = chat.answerGeminiQuotaStop('gemq', board.agents);
     assert.equal(q.ok, false, 'a key was pressed into a pane only quoting the question');
     assert.equal(tmux.calls.filter((a) => a[0] === 'send-keys').length, 1, 'a key was pressed into a pane only quoting the question');
+    // The limit line with a stray "2. Stop" row on screen (in the agent's own text, say) is not the question either.
+    const stray = AFTER_STOP.replace('                                                   ? for shortcuts', '  2. Stop\n                                                   ? for shortcuts');
+    assert.notEqual(stray, AFTER_STOP, 'the fixture edit did not apply');
+    assert.equal(status.geminiStopKey(stray), '2', 'CONTROL: the stray row does carry a Stop number');
+    status.setPaneCapture(() => stray);
+    assert.equal(chat.answerGeminiQuotaStop('gemq', board.agents).ok, false, 'a key was pressed with only the limit line up');
+    assert.equal(tmux.calls.filter((a) => a[0] === 'send-keys').length, 1, 'a key was pressed with only the limit line up');
     // The screen changed (the question was answered, or never there): nothing is pressed.
     status.setPaneCapture(() => AFTER_STOP);
     const none = chat.answerGeminiQuotaStop('gemq', board.agents);
