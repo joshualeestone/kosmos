@@ -10,5 +10,6 @@ src="${1:-$here/../Kosmos}"
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
 xcrun swiftc -O -o "$out/push-logic-tests" \
-  "$src/PushBridgeLogic.swift" "$src/PushRegistrar.swift" "$src/ShellLogic.swift" "$here/main.swift"
+  "$src/PushBridgeLogic.swift" "$src/PushRegistrar.swift" "$src/ShellLogic.swift" \
+  "$src/NotificationCategories.swift" "$here/main.swift"
 "$out/push-logic-tests"
