@@ -20,46 +20,14 @@ final class PushNotificationManager: NSObject, ObservableObject {
     // lock still showing); the WebView loads it and clears it when it can.
     @Published var boardToOpen: BoardRequest?
 
-    // The one notification category the board uses today: an agent asking the
-    // user to approve or deny a permission prompt. Additional categories (e.g.
-    // "task finished -> view") are added here as the board grows; the strings
-    // must match the "category" the coordinator sets on the push payload.
-    enum Category {
-        static let agentPermission = "AGENT_PERMISSION"
-    }
-
-    enum Action {
-        static let approve = "APPROVE_ACTION"
-        static let deny = "DENY_ACTION"
-    }
-
     // MARK: - Configuration
 
-    // Register the notification-center delegate and the action categories. Called
-    // once at launch, before requesting authorization.
+    // Register the notification-center delegate and the categories
+    // (NotificationCategories: no action buttons, #3870). Called once at launch,
+    // before requesting authorization.
     func configure() {
         UNUserNotificationCenter.current().delegate = self
-
-        // Both actions require device authentication before firing: approving or
-        // denying an agent permission prompt from the lock screen is sensitive.
-        let approve = UNNotificationAction(
-            identifier: Action.approve,
-            title: "Approve",
-            options: [.authenticationRequired]
-        )
-        let deny = UNNotificationAction(
-            identifier: Action.deny,
-            title: "Deny",
-            options: [.destructive, .authenticationRequired]
-        )
-        let agentPermission = UNNotificationCategory(
-            identifier: Category.agentPermission,
-            actions: [approve, deny],
-            intentIdentifiers: [],
-            options: [.customDismissAction]
-        )
-
-        UNUserNotificationCenter.current().setNotificationCategories([agentPermission])
+        UNUserNotificationCenter.current().setNotificationCategories(NotificationCategories.all())
     }
 
     // MARK: - Authorization + APNs registration
@@ -184,17 +152,14 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
         completionHandler([.banner, .sound, .badge])
     }
 
-    // Handle a tap on the notification or one of its action buttons.
+    // Handle a tap on the notification. It has no action buttons (#3870), so a
+    // tap opens the agent and anything else (a dismiss) does nothing.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         switch response.actionIdentifier {
-        case Action.approve:
-            NSLog("[Push] user APPROVED an agent permission prompt")
-        case Action.deny:
-            NSLog("[Push] user DENIED an agent permission prompt")
         case UNNotificationDefaultActionIdentifier:
             // Only the coordinator's `address` field decides where a tap goes, and
             // only when it is a plain host under the relay domain (PushBridge.boardURL).
@@ -211,9 +176,6 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
         default:
             break
         }
-        // TODO(#718): forward the user's choice to the board/coordinator once the
-        // action endpoint lands, so an "approve" from the lock screen actually
-        // releases the waiting agent.
         completionHandler()
     }
 }
