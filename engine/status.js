@@ -6076,6 +6076,23 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity);
     return { ...answer, conflict: 'its screen shows an old Claude sign-in rejection, but the account sign-in is currently valid, so the rejection is stale' };
   }
+  /* #4006: a restart that did NOT come back (disruption.fail). Not "restarting" and not a quiet
+     "not running": the person has to act, so it reads as needs_you (red on the board; not a phone
+     notification, which only a REPORTED needs_you sends).
+     Josh's Grok agent sat dead for 23 minutes behind a plain stopped card before this. Only while
+     nothing is running (the scrape is STOPPED); the agent coming back ends it, and status clears
+     the record then. */
+  if (disruptionRec && disruptionRec.failed === true
+      && scraped.state === STATE.STOPPED && scraped.confidence === CONFIDENCE.STRUCTURED) {
+    return {
+      state: STATE.NEEDS_YOU,
+      confidence: CONFIDENCE.STRUCTURED,
+      because: 'Kosmos restarted this agent and it did not come back. Restart it to bring it back',
+      disruption: { cause: disruptionRec.cause, startedAt: disruptionRec.startedAt, timedOut: true, failed: true },
+      reported: false,
+      conflict: null,
+    };
+  }
   /* #2019: a dead pane is "gone" UNLESS we are the ones who just took it out. If
      a fresh disruption record is on file (a restart / model / provider /
      account / instructions change we initiated, still inside its window) and the
@@ -6093,22 +6110,6 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
      skipped; and once the window elapses, disruptionRec is null and a restart
      that never came back falls through to the honest STOPPED readings below --
      never a spinner that lies forever. */
-  /* #4006: a restart that did NOT come back (disruption.fail). Not "restarting" and not a quiet
-     "not running": the person has to act, so it reads as needs_you, which is red and notifies.
-     Josh's Grok agent sat dead for 23 minutes behind a plain stopped card before this. Only while
-     nothing is running (the scrape is STOPPED); the agent coming back ends it, and status clears
-     the record then. */
-  if (disruptionRec && disruptionRec.failed === true
-      && scraped.state === STATE.STOPPED && scraped.confidence === CONFIDENCE.STRUCTURED) {
-    return {
-      state: STATE.NEEDS_YOU,
-      confidence: CONFIDENCE.STRUCTURED,
-      because: 'Kosmos restarted this agent and it did not come back. Restart it to bring it back',
-      disruption: { cause: disruptionRec.cause, startedAt: disruptionRec.startedAt, timedOut: true, failed: true },
-      reported: false,
-      conflict: null,
-    };
-  }
   if (disruptionRec && disruptionRec.cause
       && scraped.state === STATE.STOPPED && scraped.confidence === CONFIDENCE.STRUCTURED) {
     const timedOut = disruptionRec.timedOut === true;
@@ -6974,10 +6975,13 @@ function snapshot() {
        within restartInner, so no snapshot can observe the pre-kill live pane
        after begin(). Clear never throws; the write fits the snapshot's existing
        best-effort writes (wouldping/observed). */
-    /* #4006: except the failed-restart reading itself, which IS the record speaking; clearing it here
-       would put the card back to a quiet "not running" on the next tick. */
-    if (disruptionRec && status.state !== STATE.RESTARTING && status.state !== STATE.UNKNOWN
-        && !(status.disruption && status.disruption.failed === true)) {
+    /* #4006: a FAILED record is kept while the failure is what the card shows (clearing it would put the card
+       back to a quiet "not running" next tick), and cleared as soon as anything else is read, UNKNOWN included:
+       an unknown reading means the pane is running something, so the restart did come back after all. */
+    const showingFailure = !!(status.disruption && status.disruption.failed === true);
+    if (disruptionRec && disruptionRec.failed === true) {
+      if (!showingFailure) disruption.clear(pane.name);
+    } else if (disruptionRec && status.state !== STATE.RESTARTING && status.state !== STATE.UNKNOWN) {
       disruption.clear(pane.name);
     }
     /* 🔑 WHAT A PING WOULD HAVE BEEN, AND NOBODY IS PINGED (#1494). The phone
@@ -7205,8 +7209,8 @@ function snapshot() {
        `at` (Pete's dangerous-answer control): the report route pins the report's
        own liveness beat to that `at`, so `>` excludes it and a just-filed needs_you
        does NOT self-trigger; a pane WORKING_LINE this tick is definitionally after
-       any past ask, so it always counts. Mutually exclusive with disruption.timedOut
-       (that lives on RESTARTING; this only on needs_you/blocked). */
+       any past ask, so it always counts. Mutually exclusive with an in-flight
+       disruption (that lives on RESTARTING); a failed one reads needs_you (#4006). */
     let activeWhileWaiting = false;
     if (status.state === STATE.NEEDS_YOU || status.state === STATE.BLOCKED) {
       const waitReport = tied ? selfreport.read(pane.name) : { found: false };

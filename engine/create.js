@@ -4374,6 +4374,8 @@ function createAgentInner(opts) {
      credential for its name survives is the exact state this exists to
      prevent, and a half-made one is worse than none. A name that never had a
      token is the common case and is silent: `revoke` answers ENOENT ok:true. */
+  /* #4006: a NEW agent starts with no disruption record, so an old failed restart under this name never shows on it. */
+  try { require('./disruption').clear(name); } catch { /* best-effort */ }
   const priorTokens = sendertoken.revoke(name);
   if (priorTokens.ok !== true) {
     return {

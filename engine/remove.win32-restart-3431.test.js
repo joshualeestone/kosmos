@@ -39,7 +39,6 @@ process.on('exit', () => {
 });
 
 const remove = require('./remove');
-remove.setRelaunchRetryMsForTests(0);   // #4006: no real wait before the second try, in tests
 const job = require('./win32job');
 const stop = require('./win32stop');
 const streamstate = require('./win32streamstate');
@@ -149,7 +148,8 @@ test('#3431 (b) the win32 Nora: /Run ok but the supervisor never comes up -> PAR
     assert.doesNotMatch(out.because, /starting|is back\b/,
       'it claims the agent is coming back when its supervisor never started');
     /* #2019 seam: a down agent must not be left marked restarting. */
-    { const a = disruption.active(name); const d = disruption.read(name); assert.ok((!a || a.failed === true) && d.found && d.failed === true, 'a failed restart left the agent marked restarting' + ' (#4006: the record stays, marked failed, so the card says it did not come back): ' + JSON.stringify(d)); }
+    assert.ok(!disruption.active(name),
+      'a failed restart left the agent marked restarting');
   } finally {
     reset(name);
   }
@@ -193,7 +193,7 @@ test('#3431 (d) stale-file guard: the dying supervisor\'s leftover identity is N
     assert.equal(out.outcome, remove.OUTCOME.PARTIAL, out.because);
     assert.match(out.because, /supervisor never came up/,
       'a leftover state file matching the pre-restart baseline must not read as a live restart');
-    { const a = disruption.active(name); const d = disruption.read(name); assert.ok((!a || a.failed === true) && d.found && d.failed === true, 'a failed restart left the agent marked restarting' + ' (#4006: the record stays, marked failed, so the card says it did not come back): ' + JSON.stringify(d)); }
+    assert.ok(!disruption.active(name), 'a failed restart left the agent marked restarting');
   } finally {
     reset(name);
   }

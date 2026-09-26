@@ -248,3 +248,15 @@ test('#4006: disruption.fail keeps the cause and start, marks it failed, and kee
   assert.match(onDisk.diagnostics.bootstrap.stderr, /Input\/output error/);
   disruption.clear('diagme');
 });
+
+test('#4006 snapshot: a failed record clears as soon as the pane runs anything, an UNKNOWN reading included', () => {
+  fleet.install([fleet.agent('backunknown', { state: 'stopped' })]);
+  disruption.begin('backunknown', 'restart');
+  disruption.fail('backunknown', null);
+  assert.equal(status.snapshot().agents.find((a) => a.sessionName === 'backunknown').state, STATE.NEEDS_YOU);
+  fleet.install([fleet.agent('backunknown', { state: 'unknown' })]);
+  const card = status.snapshot().agents.find((a) => a.sessionName === 'backunknown');
+  assert.equal(card.state, STATE.UNKNOWN);
+  assert.equal(disruption.read('backunknown').found, false, 'an agent that came back reading unknown kept its failed record');
+});
+

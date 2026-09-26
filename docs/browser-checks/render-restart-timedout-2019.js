@@ -37,8 +37,12 @@ const { chromium } = require('playwright');
       }, over);
       const inprog = base({ sessionName: 'inprog', disruption: { cause: 'model', startedAt: Date.now() - 5000, timedOut: false } });
       const timed  = base({ sessionName: 'timed',  disruption: { cause: 'model', startedAt: Date.now() - 90000, timedOut: true } });
+      /* #4006: a restart that did not come back (the engine's needs_you with disruption.failed), and a plain
+         needs_you with no disruption as its control. */
+      const failed = base({ sessionName: 'failed', state: 'needs_you', disruption: { cause: 'restart', startedAt: Date.now() - 90000, timedOut: true, failed: true } });
+      const plainNeeds = base({ sessionName: 'plainneeds', state: 'needs_you', disruption: null });
       try {
-        document.getElementById('grid').innerHTML = [inprog, timed].map((a) => card(a)).join('');
+        document.getElementById('grid').innerHTML = [inprog, timed, failed, plainNeeds].map((a) => card(a)).join('');
         return 'OK';
       } catch (e) { return 'ERR: ' + e.message; }
     });
@@ -69,6 +73,13 @@ const { chromium } = require('playwright');
     say(/taking longer than usual/.test(tTxt) && !/a few seconds/.test(tTxt), 'timed out: sub-line drops "a few seconds" for the honest overrun line');
     say(/\bst-restarting\b/.test(await stateClass('timed')), 'timed out: still the RESTARTING family (never a bare stopped/gone card)', await stateClass('timed'));
     say(!/doesn't exist|does not exist/i.test(tTxt), 'timed out: never "this agent doesn\'t exist"');
+
+    // #4006: a restart that did not come back is red and says so, with what to do (Josh's Grok agent sat dead
+    // 23 minutes behind a card that said nothing). CONTROL: a plain needs_you card does not say it.
+    const fTxt = await text('failed');
+    say(/did not come back/.test(fTxt) && /Restart it/.test(fTxt), 'failed restart: the card says it did not come back and to restart it (#4006)', JSON.stringify(fTxt));
+    say(/\bst-attn\b/.test(await stateClass('failed')), 'failed restart: the card is in the needs-you (red, st-attn) family', await stateClass('failed'));
+    say(!/did not come back/.test(await text('plainneeds')), 'CONTROL: a needs_you card with no failed restart does not say it (#4006)');
   } finally {
     await b.close();
   }

@@ -363,6 +363,7 @@ function del(name, opts) {
      failure: `revoke` answers ENOENT with `ok: true`, so this stays quiet for
      every agent that never spoke. */
   let tokens;
+  try { require('./disruption').clear(p.name); } catch { /* #4006: best-effort, with the tokens below */ }
   try { tokens = sendertoken.revoke(p.name); } catch (err) {
     tokens = { ok: false, because: String((err && err.message) || err) };
   }

@@ -16,11 +16,25 @@ logged to board.log only; the card fell to a quiet "not running" for 23 minutes.
   (Elon's case: no session, no loaded job). The forward self-heal skips that reading, so it survives ticks; the agent
   coming back live clears it as before.
 
+## Review round 1 (Opus), what changed
+- The card shows it: web stateReason renders "Kosmos restarted it and it did not come back. Restart it to bring it
+  back." for a needs_you carrying disruption.failed (the engine's `because` never reached the page, which quotes only
+  REPORTED reasons). Browser check render-restart-timedout-2019 asserts it, with a plain needs_you CONTROL.
+- NOT a phone notification: only a REPORTED needs_you pings (server.js report route). Red on the board only.
+- A failed record clears the moment the pane reads anything but the failure itself, UNKNOWN included.
+- Removal (recordRemoval), creation and delete-leftover clear the record, so it never outlives its agent.
+- The bootstrap diagnostics are reset at each relaunch; the retry and the failed marking are Mac only (Windows keeps
+  its clear; its running-check already polls up to 12s).
+- Probed, not changed: the reviewer's concern that the working animation could paint over a failed card. Measured on
+  a pane card and a created-no-pane card, with a newer liveness beat than the dead instance's last report and the
+  guard removed: activeWhileWaiting stays false on both. A guard that cannot fire was not added.
+- fail() validates its time; stale comments in remove.js and disruption.js corrected.
+
 ## Decided
 - Reuse the disruption record rather than a new store: it already ties a restart to the card and already clears when
   the agent is back.
-- NEEDS_YOU, not a new state: it is the existing red that already notifies; the page's agent view always offers
-  Restart.
+- NEEDS_YOU, not a new state: it is the existing red; the page's agent view always offers Restart. (It is not a
+  phone notification: only a reported needs_you sends one.)
 - Only a FAILED record reaches a created-no-pane card; an in-flight one there is a separate, existing follow-up.
 - Applies to every failed restart (manual or automatic): either way the agent is down and the person must act.
 
