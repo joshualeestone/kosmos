@@ -527,7 +527,7 @@ async function taskList(ctx, args) {
     const who = (x.whoNames && x.whoNames.length) ? ' (' + x.whoNames.join(', ') + ')' : '';
     const up = x.parent ? ' (under task ' + x.parent + ')' : '';
     const kids = (x.subtasks && x.subtasks.total) ? ' [' + x.subtasks.done + '/' + x.subtasks.total + ' subtasks done]' : '';
-    ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? '[done] ' : '') + (x.sentence || '(no description)') + who + up + kids);
+    ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? '[done] ' : (x.builtAt ? '[built] ' : '')) + (x.sentence || '(no description)') + who + up + kids);
   }
   return 0;
 }

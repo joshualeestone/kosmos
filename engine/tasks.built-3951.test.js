@@ -176,3 +176,31 @@ test('the history reads cause then effect: the part change, then "no longer buil
   tasks.addPart(id2, n2, { sentence: 'three' });
   assert.equal(taskchat.read(id2, n2).filter((e) => e.kind === 'unbuilt').length, 1);
 });
+
+test('the same mark again (same builder and note) writes and records nothing; a changed note does (review round 3)', () => {
+  const { id, n } = freshTask();
+  tasks.setBuilt(id, n, { by: 'rex', note: 'x' });
+  const at = stored(id, n).builtAt;
+  const again = tasks.setBuilt(id, n, { by: 'rex', note: 'x' });
+  assert.equal(again.ok, true);
+  assert.equal(again.changed, false);
+  assert.equal(stored(id, n).builtAt, at, 'a repeat refreshed the time');
+  assert.equal(taskchat.read(id, n).filter((e) => e.kind === 'built').length, 1, 'a repeat wrote another history line');
+  tasks.setBuilt(id, n, { by: 'rex', note: 'y' });
+  assert.equal(taskchat.read(id, n).filter((e) => e.kind === 'built').length, 2, 'CONTROL: a changed note is recorded');
+});
+
+test('the Assigner does not hand out a built task, and a built task does not keep its agent busy (review round 3)', () => {
+  const assigner = require('../engine/assigner');
+  const { id, n } = freshTask();
+  const nobody = tasks.create(id, { sentence: 'Built with nobody on it' }).number;
+  const read = () => projects.readAll().filter((p) => p.id === id);
+  /* Controls first: rex is busy with task n, and the unassigned task is up for picking. */
+  assert.equal(assigner.hasOpenWork('rex', read()), true, 'CONTROL: an open part keeps rex busy');
+  const before = assigner.pick('rex', read(), new Set());
+  assert.ok(before && before.n === nobody, 'CONTROL: the unassigned task is picked: ' + JSON.stringify(before));
+  tasks.setBuilt(id, n, { by: 'rex' });
+  tasks.setBuilt(id, nobody, { by: 'operator' });
+  assert.equal(assigner.hasOpenWork('rex', read()), false, 'a built task kept its agent busy');
+  assert.equal(assigner.pick('rex', read(), new Set()), null, 'a built task was handed out again');
+});

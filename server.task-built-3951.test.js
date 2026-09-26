@@ -178,6 +178,13 @@ test('Mac `kosmos task built` marks with the agent token and a quoted note; --cl
   const both = await mac(['task', 'built', projectId, String(n), '--clear', 'a note'], { KOSMOS_AGENT_TOKEN: minted.token });
   assert.equal(both.code, 2);
   assert.ok('builtAt' in stored(n), 'a refused --clear with a note took the mark off');
+  /* Review round 3: an agent can see its mark in `task list`. */
+  const m2 = newTask('Listed as built');
+  tasks.setBuilt(projectId, m2, { by: 'mona' });
+  const list = await mac(['task', 'list', projectId]);
+  assert.match(list.out, new RegExp('\\[' + m2 + '\\] \\[built\\] Listed as built'), list.out);
+  const wlist = await win(['task', 'list', projectId]);
+  assert.match(wlist.out, new RegExp('\\[' + m2 + '\\] \\[built\\] Listed as built'), wlist.out);
   const help = await mac(['task']);
   assert.match(help.out, /kosmos task built <project-id> <task-number>/);
 });

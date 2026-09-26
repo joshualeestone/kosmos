@@ -294,14 +294,14 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
   /* The history says why the mark went (review round 1); a close says so itself. The caller records it after its
-     own event (part-added, part-reopened), so the history reads cause then effect (review round 2). */
-  lastDroppedForWork = droppedForWork;
+     own event (part-added, part-reopened), so the history reads cause then effect (review round 2). Carried on the
+     returned task, not in module state (review round 3), so nothing can leak to another task's write. */
+  if (droppedForWork) DROPPED_FOR_WORK.add(changed);
   return changed;
 }
-let lastDroppedForWork = false;
-function recordDroppedForWork(projectId, n) {
-  if (lastDroppedForWork) taskchat.record(projectId, Number(n), { kind: 'unbuilt', reason: 'new work' });
-  lastDroppedForWork = false;
+const DROPPED_FOR_WORK = new WeakSet();
+function recordDroppedForWork(projectId, n, task) {
+  if (task && DROPPED_FOR_WORK.has(task)) taskchat.record(projectId, Number(n), { kind: 'unbuilt', reason: 'new work' });
 }
 
 function nextPartId(parts) {
@@ -414,7 +414,7 @@ function addPart(projectId, n, { sentence, who, made } = {}) {
   }, { dropBuilt: true });
   taskchat.record(projectId, Number(n), { kind: 'part-added', partId: newPartId, sentence: said, who: whoKey });
   if (taskReopened) taskchat.record(projectId, Number(n), { kind: 'reopened' });
-  recordDroppedForWork(projectId, n);
+  recordDroppedForWork(projectId, n, task);
   return { ok: true, task };
 }
 
@@ -502,7 +502,7 @@ function setPartClosed(projectId, n, partId, closedAt) {
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
   if (partTransition) taskchat.record(projectId, Number(n), { kind: closedAt ? 'part-closed' : 'part-reopened', partId: Number(partId) });
   if (taskTransition) taskchat.record(projectId, Number(n), { kind: taskTransition > 0 ? 'closed' : 'reopened' });
-  recordDroppedForWork(projectId, n);
+  recordDroppedForWork(projectId, n, task);
   return { ok: true, task };
 }
 
@@ -529,11 +529,15 @@ function setBuilt(projectId, n, { by = null, note = '' } = {}) {
   const who = typeof by === 'string' && by.trim() ? by.trim().slice(0, WHO_MAX) : null;
   let changed = null;
   let closed = false;
+  let same = false;
   try {
     projects.mutate(projectId, (p) => {
       const t = byNumber(p, n);
       if (!t) throw new Error('there is no task by that number on this project');
       if (progressOf(t).closed) { closed = true; return p; }
+      /* The same mark again (same builder, same note) changes nothing and records nothing (review round 3: a
+         looping agent re-marking wrote a history line and a store write each time). */
+      if (t.builtAt && (t.builtBy || null) === who && (t.builtNote || '') === said) { same = true; changed = t; return p; }
       changed = { ...withoutBuilt(t), builtAt: new Date().toISOString(), builtBy: who, ...(said ? { builtNote: said } : {}) };
       return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
     });
@@ -541,8 +545,9 @@ function setBuilt(projectId, n, { by = null, note = '' } = {}) {
     return { ok: false, because: String((err && err.message) || err), code: err && err.code };
   }
   if (closed) return { ok: false, closed: true, because: 'that task is closed already, so it is not waiting on anything' };
+  if (same) return { ok: true, task: changed, changed: false };
   taskchat.record(projectId, changed.number, { kind: 'built', by: who, ...(said ? { note: said } : {}) });
-  return { ok: true, task: changed };
+  return { ok: true, task: changed, changed: true };
 }
 
 /** Take the built mark off (the work turned out not to be done). A task with no mark records nothing. */

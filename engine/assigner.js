@@ -67,12 +67,14 @@ function liveProjects(records) {
 }
 
 /* Does this agent have an open part of any task, in ANY project, archived included: open work
-   in an archived project still means the agent is not free. (Picking stays live-only.) */
+   in an archived project still means the agent is not free. (Picking stays live-only.)
+   #3951: a task its agent marked built is waiting on a release or a check, not on the agent, so it does not keep
+   the agent busy; new work on it drops the mark (tasks.writeParts), and it counts again. */
 function hasOpenWork(session, projects) {
   for (const p of projects) {
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       const prog = tasks.progressOf(t);
-      if (prog.closed) continue;
+      if (prog.closed || t.builtAt) continue;
       if (prog.parts.some((x) => x.who === session && !x.closedAt)) return true;
     }
   }
@@ -98,7 +100,8 @@ function pick(session, projects, taken) {
       if (typeof t.number !== 'number') continue;
       if (taken.has(p.id + '#' + t.number)) continue;
       const prog = tasks.progressOf(t);
-      if (prog.closed || tasks.whoOf(t).length) continue;
+      /* #3951: a built task is not handed out again: the work is done and waits on a release or a check. */
+      if (prog.closed || tasks.whoOf(t).length || t.builtAt) continue;
       const part = prog.parts.find((x) => !x.closedAt);
       if (!part) continue;
       candidates.push({ projectId: p.id, n: t.number, partId: part.id, due: dueKey(t), age: ageKey(t) });
