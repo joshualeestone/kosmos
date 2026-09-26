@@ -136,3 +136,14 @@
 - Checks: the no-code paste asserts the page cancelled it; the web scroll arm is measured at six
   digits; Enter after the sixth digit; a short paste into a full code; an email line without a
   paste; 320px height and 150% text fit (app); a 150% text phone pass (web, EXPECTED updated).
+
+## Review round 6 (app) and round 5 (web)
+- A seventh digit arriving by the fallback path with the caret at the very END of a full code
+  starts the code again (as typing does), rather than being dropped.
+- WEB: after a NETWORK failure (nothing reached the server) the step's handler calls the code
+  box's forget(), so Enter, held back only for a code the server has answered, retries it (the
+  Enter guard had swallowed it; measured, with a check arm that fails without the fix). A
+  wrong-code answer still holds Enter back, so it cannot spend a second try.
+- Focus is visible without the script: every box brightens while the field has focus
+  (:focus-within), under the script's outline of the current box.
+- WEB: the dash range in the regexes is written as \u2010-\u2015, not raw glyphs.

@@ -9291,6 +9291,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 .otp-cells { position: absolute; inset: 0; display: flex; pointer-events: none; }
 #plus-state2 .otp-cell + .otp-cell { margin-left: var(--gap); }
 #plus-state2 .otp-cell { flex: 0 0 var(--cw); box-sizing: border-box; border-radius: 12px; background: #16223e; border: 1px solid #5c78a6; }
+/* Focus visible without the script: every box brightens while the field has focus (CSS alone), and
+   the script outlines the box being typed into on top of that. */
+#plus-state2 .otp-boxes:focus-within .otp-cell { border-color: #7d95c2; }
 #plus-state2 .otp-cell.on { border-color: #7ea0f0; box-shadow: 0 0 0 2px #7ea0f0 inset; }
 /* Listed a second time with #panel-settings in front: the narrow-screen rule that sets every settings
    input to 16px (so an iPhone does not zoom on focus) otherwise outranks this, shrinking the digits
