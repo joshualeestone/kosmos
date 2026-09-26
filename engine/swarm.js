@@ -170,6 +170,13 @@ function blockBody(maxHelpers) {
     '  same part.',
     '- You check and merge every helper\'s work yourself before you answer. Only you',
     '  speak: helpers never post in a room or message anyone.',
+    /* #3965: a REINFORCEMENT, not the only path: a helper started in the lead's folder likely reads
+       the same instructions file, file-not-artifact rule included. This says the helper's part in it:
+       it hands its file back and the lead, which merges every helper's work, is the one that saves. */
+    '- Tell each helper to hand back the path of any file it makes to keep, and not to',
+    '  save it into your Files folder or a project itself, nor publish it as a Claude',
+    '  artifact or a link. You check it, then save it where your "Where to save files',
+    '  you make for the person" section says.',
   ].join('\n');
 }
 

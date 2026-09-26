@@ -1356,6 +1356,22 @@ const LIST_MAX_SCAN = 2000;
 const LIST_SKIP_DIRS = new Set(['node_modules', 'venv', 'env', '__pycache__', 'dist', 'build', 'target', 'Pods', 'DerivedData']);
 
 /**
+ * #3965 (Josh, 2026-09-26): a name that is an app's scratch file, never the person's work, and so
+ * never listed. Dot-names (`.DS_Store`, LibreOffice's `.~lock.*#`, `.git`) were already hidden;
+ * this adds Microsoft Office's owner file (`~$report.docx`, the "~$on (Grok A..." 162 B row Josh
+ * saw in an agent's Files), Word's save-time temp files (`~WRL0001.tmp`, `~WRD0002.tmp`), the macOS
+ * custom-folder-icon file (`Icon` followed by a carriage return) and Windows' folder files
+ * (`Thumbs.db`, `desktop.ini`). Applied to folders too, so a folder with such a name is not walked.
+ */
+const SCRATCH_PREFIXES = ['.', '~$'];
+const SCRATCH_NAMES = new Set(['Icon\r']);
+const SCRATCH_PATTERN = /^(?:~WR[A-Z]\d+\.tmp|thumbs\.db|desktop\.ini)$/i;
+function isScratchName(name) {
+  const n = String(name || '');
+  return SCRATCH_PREFIXES.some((p) => n.startsWith(p)) || SCRATCH_NAMES.has(n) || SCRATCH_PATTERN.test(n);
+}
+
+/**
  * The files in a project's folder, newest first.
  *
  * ⚠️ FILES ONLY, AND SUBFOLDERS WALKED WITH BOUNDS (#2245; this was top-level only
@@ -1363,7 +1379,7 @@ const LIST_SKIP_DIRS = new Set(['node_modules', 'venv', 'env', '__pycache__', 'd
  * a place a person and their agents both write into, so an UNBOUNDED walk would
  * turn "the last ten documents" into a crawl of somebody's whole working tree: the
  * walk is capped in depth and in entries read, and skips dependency, cache and build-output trees.
- * Directories, dotfiles and anything that is not a regular file are left out — a
+ * Directories, scratch names (isScratchName: dotfiles, Office ~$ files and the like) and anything that is not a regular file are left out — a
  * symlink (file or folder) is not listed or entered, because the thing it points at
  * is what would open and this list would be naming the wrong file.
  *
@@ -1387,7 +1403,7 @@ function listFiles(folder, limit, opts) {
      `/` as the separator (on Windows too), and openFile accepts exactly that shape.
      Bounded three ways, because this runs on every panel poll:
        - depth: LIST_MAX_DEPTH folders below the project folder;
-       - noise: dot-entries and LIST_SKIP_DIRS (dependency, cache and build-output trees an
+       - noise: scratch names (isScratchName) and LIST_SKIP_DIRS (dependency, cache and build-output trees an
          agent's tooling makes; a thousand node_modules files are not "files in this project");
        - cost: at most LIST_MAX_SCAN entries read BELOW the top level. The top level is
          read in full and does not count, as it always was. Past the budget the walk stops
@@ -1401,7 +1417,7 @@ function listFiles(folder, limit, opts) {
   /* BREADTH-FIRST, so shallower files are reached before deeper ones when the budget runs out. */
   const queue = [{ abs: state.real, rel: '', depth: 0 }];
   const take = (ent, abs, rel, depth) => {
-    if (ent.name.startsWith('.')) return;
+    if (isScratchName(ent.name)) return;
     const relName = rel ? rel + '/' + ent.name : ent.name;
     // ⚠️ isFile()/isDirectory() on the DIRENT, so a symlink is excluded without a
     // second stat: withFileTypes reports the link itself, which is what we want here.
@@ -1486,8 +1502,9 @@ function listFiles(folder, limit, opts) {
  *   1. The name must have the SHAPE listFiles produces: a bare filename, or (#2245)
  *      a RELATIVE path of plain segments joined by `/`. Refused outright rather than
  *      trimmed: an absolute path, a backslash, an empty segment (`a//b`, a leading or
- *      trailing `/`), a `.` or `..` segment, and any segment starting with `.` (the
- *      list never shows a hidden entry, so a caller never legitimately has one).
+ *      trailing `/`), a `.` or `..` segment, and any segment the list hides
+ *      (isScratchName: a dot-name, an Office `~$` file and the like, #3965), because the
+ *      list never shows a hidden entry, so a caller never legitimately has one.
  *      This gate only narrows the string. It is NOT what stops an escape: gate 3 is.
  *   2. The project's folder must be READABLE, by the same folderState every
  *      other folder-touching route already goes through.
@@ -1503,7 +1520,7 @@ function openFile(folder, name, where = 'this project') {
   if (!given) return { ok: false, because: 'no file was named' };
   const segs = given.split('/');
   if (given.includes('\\') || path.isAbsolute(given) || path.win32.isAbsolute(given)
-      || segs.some((s) => s === '' || s.startsWith('.'))) {
+      || segs.some((s) => s === '' || isScratchName(s))) {
     return { ok: false, because: 'that is not a file in ' + where };
   }
   const state = folderState(folder);

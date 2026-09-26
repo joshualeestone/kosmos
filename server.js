@@ -5037,7 +5037,7 @@ const server = http.createServer((req, res) => {
   /* #3614 items 1, 2, 4: the agent page's Files list, for files an agent makes for the person in a
      Direct Message. The folder is dmfiles.filesDir(name) (Renet's module, item 3), read through
      the same engine functions as a project's documents: listFiles (top level only here, via
-     maxDepth 0, no dotfiles, no symlinks, newest first, a stamp), openFile (a bare name or, since
+     maxDepth 0, no scratch names (isScratchName), no symlinks, newest first, a stamp), openFile (a bare name or, since
      #2245, a relative path; the target must resolve inside the folder), revealFolder (Finder, or File Explorer on Windows). A Files folder that does not
      exist yet is the EMPTY state, not an error: nothing has been saved there. */
   const agentFiles = pathname.match(/^\/api\/agent\/([^/]+)\/files(?:\/(open|reveal))?$/);
