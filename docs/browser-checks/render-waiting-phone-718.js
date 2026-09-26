@@ -82,10 +82,14 @@ async function open(browser, opts) {
       chk(ask.hoverNone && ask.buttons.length >= 1 && ask.buttons.every((b) => b.h >= 44), '[allow/touch] the notice\'s button is at least 44px tall', JSON.stringify(ask.buttons));
       // On Kosmos Plus the full cards sit above the panel; their Allow and Deny keep the 44px (#718).
       const inPanel = await phone.evaluate(() => {
-        showTab('settings'); settingsGo('plus'); paintAsk();
+        // This fixture is not enrolled, so show the connected panel the in-panel slot sits above.
+        showTab('settings'); settingsGo('plus');
+        const flow = document.getElementById('plus-flow'); const was = flow.hidden; flow.hidden = false; paintAsk();
         const box = document.getElementById('plus-asks');
-        if (!box || box.hidden) return { error: 'the request did not show above the Kosmos Plus panel' };
-        return [...box.querySelectorAll('button')].filter((b) => b.getBoundingClientRect().height > 0).map((b) => ({ t: b.textContent.trim().slice(0, 16), h: Math.round(b.getBoundingClientRect().height) }));
+        const got = (!box || box.hidden) ? { error: 'the request did not show above the Kosmos Plus panel' }
+          : [...box.querySelectorAll('button')].filter((b) => b.getBoundingClientRect().height > 0).map((b) => ({ t: b.textContent.trim().slice(0, 16), h: Math.round(b.getBoundingClientRect().height) }));
+        flow.hidden = was; paintAsk();
+        return got;
       });
       chk(Array.isArray(inPanel) && inPanel.length >= 2 && inPanel.every((b) => b.h >= 44), '[allow/touch] every Allow / Deny above the Kosmos Plus panel is at least 44px tall', JSON.stringify(inPanel));
       // Review (#3829): with the connected panel NOT showing (not enrolled, or mid sign-in) there is nothing to sit
