@@ -55,6 +55,33 @@ fs.writeFileSync(path.join(SIGN_STUBS, 'security'),
 fs.writeFileSync(path.join(SIGN_STUBS, 'secrets-map'),
   `#!/bin/sh\nprintf '%s\\n' '${path.join(SIGN_STUBS, 'notary.p8')}'\n`, { mode: 0o755 });
 
+/* #3884: step 1d refuses a prebuilt Plus connector that kosmos-relay main has moved past.
+   The sandbox has neither, so the arms that must reach step 2 get a REAL, current fixture
+   rather than a skipped check: a tiny relay (bare origin plus a clone) and a connector whose
+   .commit sidecar names the clone's HEAD. The check itself runs; it just finds nothing stale.
+   Its own arms are in tools/test-connector-currency-3884.sh. */
+const RELAY_FX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-relay-'));
+test.after(() => fs.rmSync(RELAY_FX, { recursive: true, force: true }));
+const gitfx = (...args) => {
+  const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' });
+  if (r.status !== 0) throw new Error(`relay fixture: git ${args.join(' ')} failed: ${r.stderr}`);
+  return r.stdout.trim();
+};
+const RELAY_REPO = path.join(RELAY_FX, 'relay');
+gitfx('init', '-q', '--bare', '-b', 'main', path.join(RELAY_FX, 'origin.git'));
+gitfx('init', '-q', '-b', 'main', RELAY_REPO);
+fs.mkdirSync(path.join(RELAY_REPO, 'crates', 'tunnel'), { recursive: true });
+fs.writeFileSync(path.join(RELAY_REPO, 'crates', 'tunnel', 'lib.rs'), '// fixture\n');
+gitfx('-C', RELAY_REPO, 'add', '-A');
+gitfx('-C', RELAY_REPO, 'commit', '-q', '-m', 'fixture');
+gitfx('-C', RELAY_REPO, 'remote', 'add', 'origin', path.join(RELAY_FX, 'origin.git'));
+gitfx('-C', RELAY_REPO, 'push', '-q', 'origin', 'main');
+const TUNNEL_BIN = path.join(RELAY_FX, 'kosmos-tunnel');
+fs.writeFileSync(TUNNEL_BIN, 'MACHO-STAND-IN\n', { mode: 0o755 });
+fs.writeFileSync(`${TUNNEL_BIN}.commit`, `${gitfx('-C', RELAY_REPO, 'rev-parse', 'HEAD')}\n`);
+fs.writeFileSync(`${TUNNEL_BIN}.sha256`,
+  `${require('node:crypto').createHash('sha256').update(fs.readFileSync(TUNNEL_BIN)).digest('hex')}\n`);
+
 const REAL = path.join(__dirname, 'tools', 'release.sh');
 
 /**
@@ -463,6 +490,9 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
       KOSMOS_SECURITY_BIN: path.join(SIGN_STUBS, 'security'),
       KOSMOS_SECRETS_MAP_BIN: path.join(SIGN_STUBS, 'secrets-map'),
       KOSMOS_INSTALLER_CERT: SANDBOX_INSTALLER_ID,
+      /* #3884: step 1d, against the current fixture connector above. */
+      KOSMOS_TUNNEL_BIN: TUNNEL_BIN,
+      KOSMOS_RELAY_REPO: RELAY_REPO,
     },
     timeout: 60000,
     killSignal: 'SIGKILL',
