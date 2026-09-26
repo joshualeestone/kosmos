@@ -19558,6 +19558,8 @@ async function tick() {
       // #2023: a 403 is not-signed-in (no board token, #1946), a known state with
       // a remedy -- flag it so the render shows the remedy, not "cannot read".
       BOARD_NEEDS_SIGNIN = (res.status === 403);
+      // #718 state 3: the relay's own answer for a remote device whose sign-in lapsed.
+      BOARD_SIGNED_OUT = relaySignedOut(res.status, said);
       throw new Error(parts.join(' · '));
     }
     const data = await res.json();
@@ -19644,6 +19646,7 @@ async function tick() {
     BOARD_LOOKED = true;
     BOARD_LOOK_FAILED = null;
     BOARD_NEEDS_SIGNIN = false; // #2023: a successful read means this browser is authed.
+    BOARD_SIGNED_OUT = false;
     // ⚠️ The picker is repainted here rather than only on open, because the
     // add-a-project flow suppresses the projects poll while it is up. Without
     // this, a person who opened it before the first status landed kept an empty
@@ -20153,7 +20156,7 @@ async function tick() {
        403 path above (answered) sets BOARD_NEEDS_SIGNIN correctly; a genuine
        no-answer must clear it, or the board draws "not signed in" AND "not
        answering" at once -- the self-contradiction #268 exists to forbid. */
-    if (!answered) BOARD_NEEDS_SIGNIN = false;
+    if (!answered) { BOARD_NEEDS_SIGNIN = false; BOARD_SIGNED_OUT = false; }
     /* 🔑 HERE, AND NOWHERE ELSE, WHICH IS THE WHOLE OF THE SECOND RULE. This
        branch runs only once a poll has RETURNED a failure; while the first one
        is merely in flight nothing has called it, so nothing is drawn. On a slow
@@ -20208,8 +20211,8 @@ async function tick() {
     document.getElementById('orgmap').innerHTML = '';
     ORG_HTML = null;
     orgBoxPlain(true);
-    document.getElementById('orgnote').textContent = BOARD_NEEDS_SIGNIN
-      ? SIGNIN_SENTENCE
+    document.getElementById('orgnote').textContent = BOARD_SIGNED_OUT ? SIGNED_OUT_SENTENCE
+      : BOARD_NEEDS_SIGNIN ? SIGNIN_SENTENCE
       : 'We cannot read the agents right now, so this is not drawn. It is not saying there are none.';
     /* The tiles are claims too. Left alone they hold last-success numbers
        beside "we cannot see them" -- concrete headline counts asserting a
@@ -27717,6 +27720,24 @@ let BOARD_LOOK_FAILED = null;
    loadProjects, where a sticky true drew "not signed in" over "not answering").
    Kept apart from BOARD_LOOK_FAILED so a GENUINE unreadable board still says so. */
 let BOARD_NEEDS_SIGNIN = false;
+/* #718 state 3: this phone or computer reached the Mac through the relay, and its relay
+   sign-in has lapsed. The relay answers every script fetch with 401 and
+   {"signed_out":true} (kosmos-relay crates/tunnel/src/proxy.rs gate_page) and a
+   NAVIGATION with its sign-in page, so the remedy is a reload. Keyed on that field, not on
+   401 alone: a bare 401 from anything else is not proof that signing in fixes it. Set and
+   cleared at the same points as BOARD_NEEDS_SIGNIN. */
+let BOARD_SIGNED_OUT = false;
+function relaySignedOut(status, body) {
+  return status === 401 && !!body && body.signed_out === true;
+}
+const SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos, so it cannot see your agents or projects. Your Mac and your agents are fine. Reload the page to sign in again.';
+function deviceSignedOutHtml() {
+  return '<div class="pj-empty boardfail">'
+    + '<p><b>Sign in again to see your agents.</b><br>'
+    + 'This phone or computer was signed out of your Kosmos. Your Mac and your agents are fine.</p>'
+    + '<button class="btn" type="button" data-device-signin>Sign in</button>'
+    + '</div>';
+}
 /* One source for the not-signed-in copy so the agents box, the org note and the
    projects surfaces cannot drift.
    THE REMEDY IS THAT THE BOARD SELF-HEALS ON THE NEXT KOSMOS UPDATE (Angel's
@@ -27767,6 +27788,7 @@ function boardSigninHtml() {
  */
 function boardEmpty() {
   // #2023: a not-signed-in board is a known state with a remedy, not "cannot read".
+  if (BOARD_SIGNED_OUT) return deviceSignedOutHtml();
   if (BOARD_NEEDS_SIGNIN) return boardSigninHtml();
   if (BOARD_LOOK_FAILED) {
     return '<div class="pj-empty boardfail">'
@@ -41518,6 +41540,9 @@ document.addEventListener('click', (e) => {
      node: on a failure the box's markup is unchanged, so the change guard can
      legitimately skip it and a permanently disabled button would be worse
      than an inert one. */
+  /* #718 state 3: a reload is a navigation, which the relay answers with its sign-in page;
+     after signing in it sends the person back here. */
+  if (e.target.closest('[data-device-signin]')) { location.reload(); return; }
   const retry = e.target.closest('[data-board-retry]');
   if (retry) {
     if (retry.disabled) return;
@@ -44927,6 +44952,7 @@ let PJ_GEN = 0;
 async function loadProjects() {
   const mine = ++PJ_GEN;
   let got403 = false; // #2023: did THIS read get a 403 (not-signed-in), specifically?
+  let gotSignedOut = false; // #718 state 3: did THIS read get the relay's signed-out 401?
   // Returns whether THIS call's read is the one that landed (true on either
   // outcome, success or recorded failure; false when a newer call retired
   // it). Callers that branch on PJ_READ_FAILED right after awaiting need to
@@ -44936,6 +44962,7 @@ async function loadProjects() {
     const res = await fetch('/api/projects');
     got403 = res.status === 403; // #2023: captured before json(), so a 403 with an unparseable body still flags.
     const body = await res.json();
+    gotSignedOut = relaySignedOut(res.status, body);
     if (mine !== PJ_GEN) return false;
     // ⚠️ Checked BEFORE anything is assigned. The first version of this fix
     // assigned PROJECTS and then threw, so the comment claiming "PROJECTS is
@@ -44949,6 +44976,7 @@ async function loadProjects() {
       // #2023: a 403 is not-signed-in; ANY other failure (incl. a genuine
       // projectsUnreadable 500) must clear the flag, not leave a prior true.
       BOARD_NEEDS_SIGNIN = got403;
+      BOARD_SIGNED_OUT = gotSignedOut;
       throw new Error(body.error || 'we cannot read your projects right now');
     }
     PROJECTS = body.projects || [];
@@ -44983,6 +45011,7 @@ async function loadProjects() {
     PJ_AGENTS_UNREADABLE = body.agentsUnreadable === true;
     PJ_READ_FAILED = false;
     BOARD_NEEDS_SIGNIN = false; // #2023: a readable projects response means this browser is authed.
+    BOARD_SIGNED_OUT = false;
     /* After the outcome is recorded, never before: the sentence's "no
        projects" verdict reads PJ_READ_FAILED, and a read that recovers on an
        empty board would otherwise paint one poll of the wrong sentence. */
@@ -44993,6 +45022,7 @@ async function loadProjects() {
     // error, or an unparseable body must not inherit a prior poll's true flag
     // (a sticky true drew the signin remedy over a genuine outage).
     BOARD_NEEDS_SIGNIN = got403;
+    BOARD_SIGNED_OUT = gotSignedOut;
     PJ_READ_FAILED = true;
     paintPjNone();
     // ⚠️ Reported where the person is LOOKING, not only into the list. Both the
@@ -45001,7 +45031,7 @@ async function loadProjects() {
     // showing the state from before the change with no error anywhere visible.
     // A screen asserting a state nobody checked is the failure this whole app
     // is built against, and it had crept back in through an error path.
-    const note = BOARD_NEEDS_SIGNIN ? SIGNIN_SENTENCE
+    const note = BOARD_SIGNED_OUT ? SIGNED_OUT_SENTENCE : BOARD_NEEDS_SIGNIN ? SIGNIN_SENTENCE
       : 'We cannot read your projects right now. This is not saying you have none, it is saying we cannot see them.';
     // ⚠️ Through the SAME change-guard as the success path. The poll re-enters
     // here every 5 seconds while the store stays unreadable, and these are
@@ -45013,7 +45043,8 @@ async function loadProjects() {
        since dragend is delegated on #pj-list a detached node's dragend never fires to
        clear PJ_DRAGGING. paintProjects self-heals a stranded flag as a backstop, but not
        detaching in the first place keeps the drag itself alive through a transient blip. */
-    if (!PJ_DRAGGING) setIfChanged(document.getElementById('pj-list'), BOARD_NEEDS_SIGNIN ? boardSigninHtml()
+    if (!PJ_DRAGGING) setIfChanged(document.getElementById('pj-list'), BOARD_SIGNED_OUT ? deviceSignedOutHtml()
+      : BOARD_NEEDS_SIGNIN ? boardSigninHtml()
       : '<div class="err"><b>We cannot read your projects right now.</b><br>'
       + 'This is not saying you have none, it is saying we cannot see them.</div>');
     // The tiles are claims too: confident counts one element above the
@@ -47398,7 +47429,8 @@ function paintOneProject() {
 function paintFreeAgentPicker(p, sel, btn) {
   const on = new Set((p.agents || []).map((a) => a.sessionName));
   const free = (LAST || []).filter((a) => !(a && a.isGuide === true)).filter((a) => !on.has(a.sessionName));
-  const emptyBecause = BOARD_NEEDS_SIGNIN // #2023: distinct from "cannot see them".
+  const emptyBecause = BOARD_SIGNED_OUT ? 'this phone or computer needs to sign in again'
+    : BOARD_NEEDS_SIGNIN // #2023: distinct from "cannot see them".
     ? 'this board is not signed in yet'
     : BOARD_LOOK_FAILED
       ? 'we cannot see the agents right now'
@@ -52410,8 +52442,8 @@ function paintAddAgents() {
   // #2023: a not-signed-in board is a known state with a remedy, not "cannot
   // read". Checked first so a 403 (which also sets BOARD_LOOK_FAILED) draws the
   // self-heal copy here too, not the generic could-not-see-them sentence.
-  if (BOARD_NEEDS_SIGNIN) {
-    setLive(box, '<p class="fhint">' + SIGNIN_SENTENCE + ' You can still '
+  if (BOARD_SIGNED_OUT || BOARD_NEEDS_SIGNIN) {
+    setLive(box, '<p class="fhint">' + (BOARD_SIGNED_OUT ? SIGNED_OUT_SENTENCE : SIGNIN_SENTENCE) + ' You can still '
       + 'add the project and put agents on it later.</p>');
     return;
   }

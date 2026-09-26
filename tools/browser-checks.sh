@@ -1406,10 +1406,14 @@ if boot_board_rich "$sbr" "$P11"; then
   # Same first-run-complete board; the check mocks its own /api/status+/api/projects
   # to 403 (and a 200 + a 500 control), so it needs no token and no enforcing board.
   run_one "render-board-signin-403-2023" env HEADED=0 node docs/browser-checks/render-board-signin-403-2023.js "http://127.0.0.1:$P11"
+  # #718 state 3: the relay's signed-out 401 renders "Sign in again" with a button that
+  # reloads (the relay answers a navigation with its sign-in page). Stubs its own routes,
+  # like the 403 check above; controls: a bare 401, the board's 403, a normal board.
+  run_one "render-device-signed-out-401-718" env HEADED=0 node docs/browser-checks/render-device-signed-out-401-718.js "http://127.0.0.1:$P11"
   run_one "render-update-abort-2055" env HEADED=0 node docs/browser-checks/render-update-abort-2055.js "http://127.0.0.1:$P11"
   run_one "render-survival"    env KOSMOS_URL="http://127.0.0.1:$P11" node docs/browser-checks/render-survival.js "$sbr/shots-survival"
 else
-  FAILED+=("render-org-chart render-not-running render-list-row render-fields render-board-signin-403-2023 render-update-abort-2055 render-survival (rich board did not boot)")
+  FAILED+=("render-org-chart render-not-running render-list-row render-fields render-board-signin-403-2023 render-device-signed-out-401-718 render-update-abort-2055 render-survival (rich board did not boot)")
 fi
 
 # --- the dense org board (#1870): its OWN board, because it needs a static
