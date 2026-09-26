@@ -688,3 +688,14 @@ test('#3935 a partial walk needs real pieces after a PUBLIC prefix: guide prose 
     for (const piece of ['Qw8eRt2y', 'Ui9oPa3s', 'Df6gHj1k']) assert.ok(!out.includes(piece), `CONTROL: the piece ${piece} survived: ${out.slice(0, 120)}`);
   } finally { setKnownSecrets([]); }
 });
+
+test('#3935 a run of the key\'s own separators left out at a split does not end the walk (review round 12)', () => {
+  for (const held of ['Qx7pLm2--Vb4Rt8Kz1WnAb3dEf7hJk9mNp2qRs5t', 'Qx7pLm2__Vb4Rt8Kz1WnAb3dEf7hJk9mNp2qRs5t']) {
+    setKnownSecrets([held]);
+    try {
+      const r = mask('Prefix Qx7pLm2, then the rest: part 1 Vb4Rt8Kz, part 2 1WnAb3dE, part 3 f7hJk9mN, part 4 p2qRs5t.');
+      for (const piece of ['Qx7pLm2', 'Vb4Rt8Kz', '1WnAb3dE', 'f7hJk9mN']) assert.ok(!r.text.includes(piece), `${held}: the piece ${piece} survived: ${r.text}`);
+      assert.ok(r.fired.some((f) => f.kind === 'split_secret'), JSON.stringify(r.fired));
+    } finally { setKnownSecrets([]); }
+  }
+});

@@ -112,6 +112,15 @@ const WORD_WALK_MAX_FORM = 1024;
 const OPENING_LEN = 4;
 /* A key's own separators, which a reply may drop where it splits the key (sk-ant-api03 then the rest). */
 const SKIPPABLE = new Set(['-', '_']);
+/* How many of them in a row a reply may drop at one split (review round 12: a doubled "--" or "__" is common
+   in a base64url form, and skipping only one let such a key through whole). A cap keeps the walk bounded. */
+const SKIP_RUN = 3;
+/* The positions a piece may start from at p: p itself, and past each of up to SKIP_RUN separators there. */
+function skipsFrom(f, p) {
+  const out = [p];
+  for (let k = 0; k < SKIP_RUN && SKIPPABLE.has(f[p + k]); k += 1) out.push(p + k + 1);
+  return out;
+}
 /* The held forms that occur in `str`, longest first. */
 function knownFormsIn(str) {
   if (!knownByPrefix.size || typeof str !== 'string') return [];
@@ -261,7 +270,7 @@ function wordSkippingSpans(text) {
       if (opening.length >= f.length || !f.startsWith(opening)) continue;
       /* A key's own - or _ at the split may be left out of the reply (review round 7): the next piece can then
          start with the character after it. */
-      const nexts = SKIPPABLE.has(f[opening.length]) ? [f[opening.length], f[opening.length + 1]] : [f[opening.length]];
+      const nexts = skipsFrom(f, opening.length).map((q) => f[q]);
       for (const c of nexts) {
         if (c === undefined) continue;
         if (!g.byNext.has(c)) g.byNext.set(c, []);
@@ -314,7 +323,7 @@ function wordSkippingSpans(text) {
           let done = false;
           const next = new Set(reached);
           const at = [];
-          for (const p of reached) { at.push(p); if (SKIPPABLE.has(f[p])) at.push(p + 1); }
+          for (const p of reached) for (const q of skipsFrom(f, p)) at.push(q);
           if ((budget -= at.length * piecesCost) < 0) return null;
           for (const p of at) {
             for (const piece of pieces) {
