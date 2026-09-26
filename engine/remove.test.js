@@ -2608,7 +2608,7 @@ test('#4006: a burst of failing restarts waits once, not once each (the wait blo
     return { ok: true, stdout: '' };
   });
   const was = process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS;
-  process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS = '400';
+  process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS = '1500';
   try {
     mac.restart(a);                       // may wait (or not, if another failure waited moments ago)
     boardShows(b, b);
@@ -2616,7 +2616,7 @@ test('#4006: a burst of failing restarts waits once, not once each (the wait blo
     const out = mac.restart(b);           // the second failure in the burst must not wait again
     const took = Date.now() - t0;
     assert.equal(out.outcome, remove.OUTCOME.PARTIAL, out.because);
-    assert.ok(took < 300, `the second failing restart in a burst waited again (${took}ms)`);
+    assert.ok(took < 700, `the second failing restart in a burst waited again (${took}ms)`);
   } finally {
     if (was === undefined) delete process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS; else process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS = was;
     remove.setRunner(null);

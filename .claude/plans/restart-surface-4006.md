@@ -12,7 +12,8 @@ logged to board.log only; the card fell to a quiet "not running" for 23 minutes.
   once more. If it still does not load: `disruption.fail(...)` with `ops.diagnose` (the last bootstrap's code/stderr
   and `launchctl print` of the job) instead of `disruption.clear`. `run()` now keeps stdout/stderr on failure.
 - engine/status.js: a failed record over a stopped pane reads NEEDS_YOU ("Kosmos restarted this agent and it did not
-  come back. Restart it to bring it back"), red and notifying, for pane cards and for created agents with no pane
+  come back. Restart it to bring it back"), red on the board (not a phone notification; it is counted by
+  wouldping.saw like any needs_you), for pane cards and for created agents with no pane
   (Elon's case: no session, no loaded job). The forward self-heal skips that reading, so it survives ticks; the agent
   coming back live clears it as before.
 

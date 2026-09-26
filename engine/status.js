@@ -6851,7 +6851,8 @@ function snapshot() {
        NOT the #920 spinner trap: the timeout produces an honest MESSAGE (the render
        stops the animation on `timedOut`), not a spinner that lies forever, and it
        self-heals the instant the pane comes back live (the forward heal below
-       clears any record -- fresh or aged -- once the state is a definite live one). */
+       clears any record -- fresh or aged -- once the state is a definite live one;
+       a FAILED record (#4006) once anything but the failure is read, UNKNOWN included). */
     let disruptionRec = null;
     if (isNamedOurs(pane)) {
       const fresh = disruption.active(pane.name);

@@ -160,9 +160,13 @@ let lastRetryWaitAt = 0;
 function retryWait() {
   const now = Date.now();
   if (now - lastRetryWaitAt < RETRY_WAIT_WINDOW_MS) return;
-  lastRetryWaitAt = now;
-  sleepMs(relaunchRetryMs());
+  const ms = relaunchRetryMs();
+  if (ms > 0) lastRetryWaitAt = now;
+  sleepMs(ms);
 }
+/* The trade-off, stated: the second and later failures in one burst retry at once, so their second try does not
+   get the wait the bootout race needs. Accepted, because a board frozen for N waits is worse than a second try
+   that may not help; those agents still end on the failed card. */
 
 function run(file, args) {
   if (runner) return runner(file, args);
@@ -501,8 +505,9 @@ function jobOps(platform) {
         label: record.label || null,
         plistExists: Boolean(record.plist && fs.existsSync(record.plist)),
         bootstrap: lastBootstrap,
+        /* On success only the code: print's stdout carries the job's environment block. */
         print: printed ? { ok: printed.ok !== false, code: printed.code == null ? null : printed.code,
-          text: String(printed.ok !== false ? (printed.stdout || '') : (printed.stderr || printed.stdout || '')).slice(0, 2000) } : null,
+          text: printed.ok !== false ? '' : String(printed.stderr || printed.stdout || '').slice(0, 2000) } : null,
       };
     },
   };

@@ -12340,7 +12340,8 @@ const server = http.createServer((req, res) => {
     // The board's word, through the engine's own constant. `tied` is implied
     // by the card lookup above (isNamedOurs), which is the same conjunct the
     // project route spells out.
-    const asking = Boolean(card) && card.state === STATE.NEEDS_YOU;
+    // #4006: a restart that did not come back reads needs_you with no question behind it.
+    const asking = Boolean(card) && card.state === STATE.NEEDS_YOU && !(card.disruption && card.disruption.failed === true);
     /**
      * ⚠️ THE CAPTURE RUNS ONLY WHEN THE QUESTION NEEDS IT, and that is a
      * DIFFERENT gate from the one the project thread refused.
@@ -15574,7 +15575,7 @@ const server = http.createServer((req, res) => {
     // together with NEEDS_YOU and no test can hold this conjunct (round 14
     // measured its removal green). It stays for the day the upstream gating
     // changes; there is no route-level pin for it, on purpose recorded here.
-    const asking = member.tied && member.state === STATE.NEEDS_YOU;
+    const asking = member.tied && member.state === STATE.NEEDS_YOU && member.restartFailed !== true;   // #4006: no question behind a failed restart
     const paneQuestion = asking && view.text ? chat.questionIn(view.text) : null;
     /* #2456: the same reported-question fallback the agent thread uses. A
        reported needs_you gave us its words in the card's `because` (the header
