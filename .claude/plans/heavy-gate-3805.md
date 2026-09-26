@@ -43,6 +43,12 @@ mutations of the tool (drop each exclusion, a bare-prefix own-match, no argument
 ignore the claim, count mentions, count any process, skip `--twice`, a tab separator), and every
 one turns at least one test red.
 
+## Observed live (2026-09-25 20:28 CDT, Mortals)
+During the 0.6.95 re-cut the tool read BUSY, and correctly: it reported the reservation (until 20:53)
+and three real runs, `tools/release.sh 0.6.95` in the main checkout plus a release.sh and a
+browser-checks.sh in the release's own temp checkout (`$TMPDIR/kosmos-release.*/`, not the
+`kt<digits>` test sandbox, so they rightly count).
+
 ## Weakest part
 The fixture exclusions are heuristics shaped by what was observed today: a `node --test` ancestor,
 and the `kt<digits>` sandbox path. A future fixture that detaches AND lives outside the kt sandbox
