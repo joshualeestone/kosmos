@@ -53,7 +53,7 @@ const SAMPLES = [
   ['.pj-folder-state.bad', '<p class="pj-folder-state bad" data-nlb>This folder cannot be read.</p>', 'warn'],
   ['.pj-question', '<div class="pj-question" data-nlb>A question for you from the project.</div>', 'warn'],
   ['.pj-msg.unsure', '<div class="pj-msg unsure" data-nlb>A message Kosmos is unsure was delivered.</div>', 'tint'],
-  ['.rolelimit', '<span class="rolelimit" data-nlb>What this role cannot do.</span>', 'line'],
+  ['.rolelimit', '<p class="rolelimit" data-nlb>What this role cannot do.</p>', 'line'],
   ['.note', '<div class="note" data-nlb>A note.</div>', 'line'],
 ];
 
