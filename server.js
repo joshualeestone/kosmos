@@ -2553,7 +2553,7 @@ function isSetupGuide(name) {
 function guideMasked(who, text) {
   if (typeof text !== 'string' || !isSetupGuide(who)) return text;
   const out = require('./engine/secretmask').mask(text);
-  if (out.fired.length) console.error(`#3769: masked ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
+  if (out.fired.length) console.error(`#3769: caught ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
   return out.text;
 }
 
@@ -2571,7 +2571,7 @@ function guideMaskedRows(rows, wholeThread) {
     if (!m || typeof m.text !== 'string') return m;
     if (!wholeThread && !isGuide(m.from)) return m;
     const out = require('./engine/secretmask').mask(m.text);
-    if (out.fired.length) console.error(`#3769: masked ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
+    if (out.fired.length) console.error(`#3769: caught ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
     return { ...m, text: out.text };
   });
 }
