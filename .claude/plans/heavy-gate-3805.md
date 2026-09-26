@@ -19,8 +19,9 @@ candidate with the reason it counts or does not. Each case on the card has a tes
     correction to pgrep -f.
   - A process with a `node --test` ancestor: the release-tooling unit tests start `release.sh` in
     temp fixtures. Observed live on Mortals, 15:22 to 15:24, from two agents' suites.
-  - A process whose cwd or script path sits under `$TMPDIR/kt<digits>/`. That is run-tests.sh's
-    sandbox, and its re-exec tests detach from node --test, so ancestry alone misses them (observed).
+  - A process whose cwd or script path sits in a `kt<digits>` folder directly under a temp dir
+    (`.../T/` on macOS, `/tmp`, or `$TMPDIR`). That is run-tests.sh's sandbox (`${TMPDIR:-/tmp}/kt$$`),
+    and its re-exec tests detach from node --test, so ancestry alone misses them (observed).
   - A process that has already exited (a short fixture can exit between the listing and the check).
   - With `--except-cwd DIR`, a run in DIR or below it (your own). The match is exact-or-below, so
     `kosmos` does not exclude `kosmos-bar`, and an empty or missing DIR is exit 2 (m837: an empty
@@ -59,6 +60,17 @@ browser-checks.sh in the release's own temp checkout (`$TMPDIR/kosmos-release.*/
 - New tests: an unknown cwd counts; options and a relative name; a wrapper vs a real runner; a live
   double-forked stub counted, then ruled out by `--except-cwd`; and the real who-has-the-box wording.
   All pass normally and under a kt-style TMPDIR, and three mutations of the new rules are caught.
+
+- Later rounds: a command string in combined flags (`bash -lc`, `sh -ec`) is a mention; `./release.sh`
+  and a bare name after an option value (`-o pipefail`) count; the sandbox under `/tmp` is a fixture
+  and only `kt` plus digits is; a non-numeric `KOSMOS_HG_TWICE_SECONDS` is exit 2; `--quiet` is
+  documented and tested, and the seam warning goes to stderr so `--quiet` cannot hide it.
+  `tools/who-has-the-box.sh`'s header now points heavy-run callers at this tool.
+
+## Adoption
+The card ends "then the fleet uses only this tool". The who-has-the-box pointer is the in-repo half.
+The fleet half (retiring the shared `heavy-gate-snippet.sh` and the hand-rolled copies) follows the
+merge, per Liu Kang (m1092).
 
 ## Weakest part
 The fixture exclusions are heuristics shaped by what was observed today: a `node --test` ancestor,
