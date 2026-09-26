@@ -246,12 +246,13 @@ let engineLook = { at: 0, staleSince: null };
    nobody else's assignment reached anybody's screen for the rest of the hour, while
    the tasks themselves (#3959) now land up to a 500-an-hour breaker. What the valve
    protects is one pane from being flooded, so that is what it counts: how many times
-   agents typed into THIS assignee's screen this hour. A fleet-wide ceiling stays as a
-   runaway breaker only, far above any real batch, the same shape as #3959's. */
+   agents typed into THIS assignee's screen this hour. A fleet-wide ceiling of
+   AGENT_RUNAWAY_PER_HOUR (#3959's number) stays behind it. Today the task breaker and
+   the parts valve already hold agent-made pages near that number, so the ceiling only
+   bites if one of those is raised: it is the backstop that keeps this bounded then. */
 const heardBudgetLog = new Map(); // heardKey(assignee, roster): the pane's session name -> times typed to, oldest first
 const HEARD_BUDGET_WINDOW_MS = 3600000;
 const HEARD_PER_AGENT_MAX = 30;
-const HEARD_RUNAWAY_MAX = 500; // pinned equal to AGENT_RUNAWAY_PER_HOUR (below) by the #3961 test
 /* The key is the PANE the name reaches, found the way delivery finds it
    (chat.resolveCard): an exact name first, else a case-insensitive one (#989). So
    "MARA" spends mara's allowance, while an external "Casey" pane beside our "casey"
@@ -277,7 +278,7 @@ function heardBudgetAllows(who, roster) {
   const total = heardBudgetPrune();
   const k = heardKey(who, roster);
   if (!k) return true;
-  return total < HEARD_RUNAWAY_MAX && (heardBudgetLog.get(k) || []).length < HEARD_PER_AGENT_MAX;
+  return total < AGENT_RUNAWAY_PER_HOUR && (heardBudgetLog.get(k) || []).length < HEARD_PER_AGENT_MAX;
 }
 function heardBudgetRecord(who, roster) {
   const k = heardKey(who, roster);
@@ -293,10 +294,10 @@ function heardBudgetSkipped(who) {
   if (!heardKey(who)) return undefined;
   const name = who.trim(); // as the caller spelled it, for the sentence
   // When both limits are spent, the fleet ceiling is named: it is the graver fact.
-  const runaway = heardBudgetPrune() >= HEARD_RUNAWAY_MAX;
+  const runaway = heardBudgetPrune() >= AGENT_RUNAWAY_PER_HOUR;
   return { who: name, state: chat.DELIVERY.COULD_NOT,
     because: runaway
-      ? 'agents have typed into agent screens ' + HEARD_RUNAWAY_MAX + ' times this hour, so Kosmos has stopped them for now and '
+      ? 'agents have typed into agent screens ' + AGENT_RUNAWAY_PER_HOUR + ' times this hour, so Kosmos has stopped them for now and '
         + name + ' was not told on screen; the work is on their list'
       : 'agents have already told ' + name + ' about new work on screen ' + HEARD_PER_AGENT_MAX
         + ' times this hour, so ' + name + ' was not told again on screen; the work is on their list' };
@@ -309,8 +310,8 @@ function resetHeardBudgetForTests() {
 }
 // Test-only: spend `n` of one assignee's allowance without typing anything, so a test
 // can reach the fleet-wide ceiling without five hundred real deliveries.
-function spendHeardBudgetForTests(who, n) {
-  for (let i = 0; i < n; i += 1) heardBudgetRecord(who);
+function spendHeardBudgetForTests(who, n, roster) {
+  for (let i = 0; i < n; i += 1) heardBudgetRecord(who, roster);
 }
 /* #3959: agent-made TASKS and PROJECTS have no working limit, only a runaway breaker.
    It was twelve an hour (#327, #485), which stopped real work: Josh had agents add a
@@ -16998,7 +16999,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
-  HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
+  HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX: AGENT_RUNAWAY_PER_HOUR, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested

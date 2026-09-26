@@ -14145,7 +14145,7 @@ test('#3961: the paging allowance is per assignee, every route says when it skip
   const chatEngine = require('./engine/chat');
   const projectsEngine3961 = require('./engine/projects');
   const tasksEngine3961 = require('./engine/tasks');
-  const { HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, AGENT_RUNAWAY_PER_HOUR, spendHeardBudgetForTests } = require('./server');
+  const { HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests } = require('./server');
   const board = fleet.install([fleet.agent('mara', { state: 'idle' }), fleet.agent('theo', { state: 'idle' })]);
   const sends = [];
   try {
@@ -14166,9 +14166,6 @@ test('#3961: the paging allowance is per assignee, every route says when it skip
     // The ceiling must stay far above one agent's allowance, or the two collapse back
     // into one shared count, which is the defect this card fixed.
     assert.ok(HEARD_RUNAWAY_MAX >= 10 * HEARD_PER_AGENT_MAX, 'the fleet ceiling is too close to one agent\'s allowance');
-    // Two literals for one runaway rule (#3959's task breaker and this ceiling): pinned
-    // equal, so raising one without the other fails here rather than drifting.
-    assert.equal(HEARD_RUNAWAY_MAX, AGENT_RUNAWAY_PER_HOUR, 'the paging ceiling drifted from the task runaway breaker');
     let placed = 0;
     for (let i = 0; i < HEARD_PER_AGENT_MAX; i += 1) {
       const r = await api('/tasks', { sentence: 'Errand ' + i, who: 'mara' });
@@ -14219,10 +14216,10 @@ test('#3961: the paging allowance is per assignee, every route says when it skip
     const rNone = await api('/task/1/parts', { sentence: 'Unassigned' });
     assert.equal(rNone.status, 200, rNone.body);
     assert.equal(JSON.parse(rNone.body).heard, undefined, 'a part with no assignee claimed someone was not told');
-    // One allowance per pane, whatever the spelling: delivery matches names without
-    // regard to case, so spending "THEO" spends theo's.
+    // One allowance per pane, whatever the spelling: "THEO" resolves through the roster
+    // to theo's pane (delivery tolerates case, #989), so spending it spends theo's.
     resetHeardBudgetForTests();
-    spendHeardBudgetForTests('THEO', HEARD_PER_AGENT_MAX);
+    spendHeardBudgetForTests('THEO', HEARD_PER_AGENT_MAX, board.agents);
     const rCase = await api('/tasks', { sentence: 'Spelled differently', who: 'theo' });
     assert.equal((JSON.parse(rCase.body).heard || {}).state, 'could_not', 'a differently-cased spelling got its own allowance: ' + rCase.body);
     assert.match(JSON.parse(rCase.body).heard.because, /already told theo/);

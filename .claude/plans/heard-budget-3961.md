@@ -12,8 +12,11 @@ every other agent's assignments for the rest of the hour.
 
 - The allowance counts per assignee: 30 an hour for one agent's screen. That is
   what the valve protects, one pane from being flooded.
-- A fleet-wide ceiling of 500 an hour stays as a runaway breaker only, the same
-  number and shape as #3959's task breaker.
+- A fleet-wide ceiling stays behind it, read from #3959's AGENT_RUNAWAY_PER_HOUR (the
+  same number, one constant). It does not refuse or persist the way #3959's breaker
+  does; it only stops the typing. Today the task breaker and the parts valve already
+  hold agent-made pages near that number, so the ceiling is a backstop for when one
+  of them is raised.
 - The skip answer names which limit it hit. The per-agent sentence says the
   agent was already told N times this hour; the ceiling's sentence says agents
   were stopped.
