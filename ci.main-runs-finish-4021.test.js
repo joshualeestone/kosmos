@@ -23,6 +23,9 @@ const path = require('node:path');
 /* Every workflow that runs on a push to main: the suite, and the two app builds (#3499 keeps the
    three in lockstep). A new push-to-main workflow belongs in this list. */
 const PINNED_WORKFLOWS = ['test.yml', 'android.yml', 'ios.yml'];
+const MAIN_BRANCH = 'main';
+const MAIN_REF = 'refs/heads/' + MAIN_BRANCH;
+const A_PR_REF = 'refs/pull/4021/merge';
 const WORKFLOW_DIR = path.join(__dirname, '.github', 'workflows');
 const readWorkflowText = (file) => fs.readFileSync(path.join(WORKFLOW_DIR, file), 'utf8');
 const TEST_WORKFLOW_TEXT = readWorkflowText('test.yml');
@@ -57,17 +60,28 @@ function cancelsInProgressOn(block, ref) {
 for (const file of PINNED_WORKFLOWS) {
   test('#4021: ' + file + ': a main run is never cancelled; a PR\'s superseded run still is', () => {
     const block = concurrencyBlockOf(readWorkflowText(file), file);
-    assert.equal(cancelsInProgressOn(block, 'refs/heads/main'), false, file + ': main\'s run can be cancelled by the next merge again');
-    assert.equal(cancelsInProgressOn(block, 'refs/pull/4021/merge'), true, file + ': a PR\'s superseded run is no longer cancelled (the #3499 contention)');
+    assert.equal(cancelsInProgressOn(block, MAIN_REF), false, file + ': main\'s run can be cancelled by the next merge again');
+    assert.equal(cancelsInProgressOn(block, A_PR_REF), true, file + ': a PR\'s superseded run is no longer cancelled (the #3499 contention)');
     const group = blockValue(block, 'group') || '';
     assert.match(group, /^[A-Za-z0-9_-]+-\$\{\{\s*github\.ref\s*\}\}$/,
       file + ': the group must be `<own-prefix>-${{ github.ref }}`, or a PR run (or another workflow) could cancel or replace main\'s: ' + group);
   });
 }
 
-test('#4021: each pinned workflow has its own group prefix', () => {
-  const prefixes = PINNED_WORKFLOWS.map((file) => (blockValue(concurrencyBlockOf(readWorkflowText(file), file), 'group') || '').split('-${{')[0]);
-  assert.equal(new Set(prefixes).size, prefixes.length, 'two workflows share a concurrency group, so one\'s pending run replaces the other\'s: ' + prefixes.join(', '));
+test('#4021: each pinned workflow has its own group prefix, shared with no other workflow', () => {
+  const prefixOf = (text, file) => {
+    const m = text.match(/^concurrency:\n/m) ? blockValue(concurrencyBlockOf(text, file), 'group') : null;
+    return m ? m.split('-${{')[0] : null;
+  };
+  const prefixes = PINNED_WORKFLOWS.map((file) => prefixOf(readWorkflowText(file), file));
+  assert.equal(new Set(prefixes).size, prefixes.length, 'two pinned workflows share a concurrency group, so one\'s pending run replaces the other\'s: ' + prefixes.join(', '));
+  /* Any OTHER workflow in a pinned group (a schedule or a dispatch on main, say) would cancel or
+     replace main's run from outside the pins. */
+  const others = fs.readdirSync(WORKFLOW_DIR).filter((f) => /\.ya?ml$/.test(f) && !PINNED_WORKFLOWS.includes(f));
+  for (const f of others) {
+    const p = prefixOf(readWorkflowText(f), f);
+    assert.ok(p === null || !prefixes.includes(p), f + ' joins the pinned concurrency group ' + p + ', so it can cancel or replace main\'s run');
+  }
 });
 
 test('#4021 control: the reader sees the old setting as cancelling main', () => {
@@ -75,7 +89,7 @@ test('#4021 control: the reader sees the old setting as cancelling main', () => 
      quiet) even when the live file regresses to the old setting: the pin above names that. */
   const old = TEST_WORKFLOW_TEXT.replace(/(^\s+cancel-in-progress:).*$/m, '$1 true');
   assert.match(old, /^\s+cancel-in-progress: true$/m, 'the control could not write the old setting');
-  assert.equal(cancelsInProgressOn(concurrencyBlockOf(old, 'test.yml'), 'refs/heads/main'), true);
+  assert.equal(cancelsInProgressOn(concurrencyBlockOf(old, 'test.yml'), MAIN_REF), true);
 });
 
 test('#4021 control: a group named only in a comment is not a group', () => {
@@ -118,8 +132,8 @@ function pushesToMain(workflow) {
   else if (Array.isArray(on)) push = on.includes('push') ? {} : undefined;
   else if (on && typeof on === 'object' && 'push' in on) push = on.push || {};
   if (push === undefined) return false;
-  if (push.branches !== undefined) return branchListMatches(push.branches, 'main');
-  if (push['branches-ignore'] !== undefined) return !branchListMatches(push['branches-ignore'], 'main');
+  if (push.branches !== undefined) return branchListMatches(push.branches, MAIN_BRANCH);
+  if (push['branches-ignore'] !== undefined) return !branchListMatches(push['branches-ignore'], MAIN_BRANCH);
   return push.tags === undefined && push['tags-ignore'] === undefined; // tags only: no branch push
 }
 /* Anchors (`&b` / `*b`) are legal in a workflow and Psych 4 refuses them by default; dates and
@@ -128,11 +142,16 @@ function parseWorkflowYaml(file) {
   let out;
   try {
     out = execFileSync('ruby', ['-ryaml', '-rjson', '-rdate', '-e',
-      'puts JSON.generate(YAML.load_file(ARGV[0], aliases: true, permitted_classes: [Date, Symbol]).transform_keys(&:to_s))', file],
+        /* Psych 4 (Ruby 3.1+) refuses aliases unless asked; Psych 3 (macOS's /usr/bin/ruby 2.6)
+         allows them and does not know the keywords, so ask only where they exist. */
+      'y = Psych::VERSION.to_i >= 4 ? YAML.load_file(ARGV[0], aliases: true, permitted_classes: [Date, Symbol]) : YAML.load_file(ARGV[0]); '
+      + 'puts JSON.generate(y.transform_keys(&:to_s))', file],
     { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (err) {
     /* Named, in one line: a raw Psych backtrace does not say which workflow or why. */
-    const why = String((err && err.stderr) || (err && err.message) || err).split('\n').find((l) => l.trim()) || 'ruby failed';
+    /* The reason, without Psych's long source path in front of it. */
+    const first = String((err && err.stderr) || (err && err.message) || err).split('\n').find((l) => l.trim()) || 'ruby failed';
+    const why = first.replace(/^.*?:in '[^']*': /, '').replace(/^\([^)]*\): /, '');
     assert.fail(path.basename(file) + ' could not be read as YAML by this check (' + why.trim().slice(0, 200) + '); fix the file, or teach parseWorkflowYaml the construct');
   }
   return JSON.parse(out);
@@ -153,6 +172,14 @@ test('#4021 control: every workflow that runs on a push to main is in the list',
   const onMain = fs.readdirSync(WORKFLOW_DIR).filter((f) => /\.ya?ml$/.test(f)).filter((f) => pushesToMain(parseWorkflowYaml(path.join(WORKFLOW_DIR, f))));
   for (const known of PINNED_WORKFLOWS) assert.ok(onMain.includes(known), 'the push-to-main detector cannot see ' + known + ': ' + onMain.join(', '));
   assert.deepEqual(onMain.filter((f) => !PINNED_WORKFLOWS.includes(f)), [], 'a push-to-main workflow is not pinned here');
+});
+
+test('#4021: no job in a pinned workflow has its own concurrency (it would bring back cancelling main)', { skip: RUBY_PROBLEM ? RUBY_PROBLEM + ' (the pins above still run)' : false }, () => {
+  for (const file of PINNED_WORKFLOWS) {
+    const jobs = parseWorkflowYaml(path.join(WORKFLOW_DIR, file)).jobs || {};
+    const withOwn = Object.keys(jobs).filter((j) => jobs[j] && jobs[j].concurrency !== undefined);
+    assert.deepEqual(withOwn, [], file + ': job-level concurrency on ' + withOwn.join(', ') + ' is not pinned here; move it to the top-level block');
+  }
 });
 
 test('#4021 control: the push-to-main detector reads every spelling', () => {

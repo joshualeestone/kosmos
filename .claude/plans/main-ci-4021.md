@@ -68,5 +68,14 @@ but bisecting means `yarn test` locally at that sha (none of the three has a man
 ## Iteration 5 (sonnet)
 - WARNING: a workflow ruby's safe loader refuses (a custom tag) failed the detector with a raw
   backtrace naming no file --> the failure names the file and the reason in one line.
-- NIT: `[...]` is copied into the regex as-is, looser than GitHub's alnum-ranges-only sets; kept,
-  since a divergence there can only make the detector disagree loudly, never miss silently.
+- NIT: `[...]` is copied into the regex as-is, looser than GitHub's alnum-ranges-only sets. Kept,
+  and stated honestly: a set the regex reads differently from GitHub (a `[^x]`, say) could make the
+  detector miss a push-to-main workflow SILENTLY. No workflow here uses a set in a branch filter.
+
+## Iteration 6 (opus)
+- WARNING: the Psych 4 keywords fail on macOS's /usr/bin/ruby 2.6 (Psych 3) and the message blamed
+  the workflow --> the keywords are passed only on Psych 4+; Psych 3 allows aliases by default.
+- NITs fixed: job-level concurrency in a pinned workflow is refused (via the parsed YAML); any
+  other workflow joining a pinned group is refused; a parse failure's reason no longer loses to
+  Psych's source path; two comments reworded; the incident window is 17:57Z-19:07Z (eight runs);
+  the `[...]` claim above corrected. CONVENTION: MAIN_BRANCH / MAIN_REF / A_PR_REF constants.

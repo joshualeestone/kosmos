@@ -57,8 +57,8 @@ on:
 permissions:
   contents: read
 
-# Cancel a superseded run of the same event+ref (a PR sync) instead of queuing a
-# redundant build; never on main (#4021, below). Same shape as test.yml: with push gated to
+# Cancel a superseded run of the same ref (a PR sync) instead of queuing a
+# redundant build. Same shape as test.yml: with push gated to
 # main (above, #3499), a feature branch no longer builds for both its push and its PR,
 # so there is no push/PR pair left to collapse here; this group only dedupes successive
 # events on the same ref.

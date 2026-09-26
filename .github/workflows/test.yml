@@ -55,14 +55,14 @@ on:
 permissions:
   contents: read
 
-# Cancel a superseded run of the SAME event+ref: a successive sync of a PR cancels its
-# in-flight predecessor instead of queuing a redundant run (on main, see #4021 below).
+# Cancel a superseded run of the same ref: a successive sync of a PR cancels its
+# in-flight predecessor instead of queuing a redundant run. (Not on main: #4021 below.)
 # With push gated to main (above, #3499), a feature branch no longer
 # runs the suite for BOTH its push and its PR, so there is no push-and-PR pair left to
 # collapse here; this group now only dedupes successive events on the same ref.
 #
 # 🛑 #4021: EXCEPT ON MAIN, WHERE A RUN IS NEVER CANCELLED. The suite takes ~14m and merges
-# landed faster than that on 2026-09-26, so every main run from 17:57Z to 18:49Z was
+# landed faster than that on 2026-09-26, so every main run from 17:57Z to 19:07Z (eight in a row) was
 # cancelled by the next merge: main went red and no run ever finished to say so. It was
 # first seen at a release cut's step 3, the most expensive place. With this, a running
 # main run always finishes; GitHub still keeps at most ONE pending run per group (a newer
