@@ -48,6 +48,7 @@ test.before(async () => {
   base = `http://127.0.0.1:${server.address().port}`;
 });
 test.after(async () => {
+  require('./engine/agystatus').resetForTests();   // #3568: no agy stub outlives this file
   server.closeAllConnections();
   server.close();
   fs.rmSync(SANDBOX, { recursive: true, force: true });

@@ -29,8 +29,8 @@ subscription, only now that it is true.
    only when asked, never on a poll), for the Gemini row and the provider lists.
 3. Every display site above learns 'antigravity' (label "Gemini (Google subscription)" where a person
    picks, "Antigravity" where the board names the program).
-4. Create and switch offer "Gemini (Google subscription)" (value 'antigravity'), enabled only when agy
-   is installed and signed in, the same gating Gemini's key option has.
+4. Create and switch offer "Gemini (Google subscription)" (value 'antigravity'), enabled when agy is
+   installed (signing in happens in the agent's own window on its first start), sorted beside Gemini.
 5. The Gemini row's subscription step: KEYED_SUB_START.google checks agy, and either says it is ready,
    or links Google's installer, or opens agy's sign-in and re-checks.
 6. Copy: engine/connections.js and the Gemini row say key or Google subscription.
@@ -51,6 +51,15 @@ subscription, only now that it is true.
   Rejected: showing the command to paste into Terminal, which Josh's #996 rule forbids (a person is
   never told to open a Terminal; web.terminal-hatch-996 guards it). Kosmos already installs every
   other provider's terminal agent behind a Confirm press.
+
+- Review round 1: opening Antigravity for sign-in is its own press ("Open Antigravity to sign in"),
+  never a side effect of a check (each check costs a prompt, each open is a window). The check has a
+  hard cap of its own and kills agy with SIGKILL, so a hung agy cannot wedge later checks. Gemini's
+  Connect shows the choice before downloading the Gemini CLI, which only the key path needs. Claude
+  login warnings leave out agents on other programs (engine/status.js computeLoginAdvisories).
+- Weakest premise, narrowed: Google documents that agy started without a saved session opens the
+  browser to sign in, so opening it in Terminal is the documented path; what `agy -p` does signed out
+  (it may also open a browser) is still unmeasured here.
 
 ## Not in this card
 - Reading what an Antigravity agent is doing (status) and its auth-failed copy: #3568's PR 2.

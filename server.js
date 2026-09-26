@@ -7674,7 +7674,7 @@ const server = http.createServer((req, res) => {
      prompt on the person's subscription, so a screen calls it only on a press, and concurrent presses
      share one run. signedIn is true, false (not installed) or null (could not confirm). */
   if (pathname === '/api/antigravity' && req.method === 'GET') {
-    sendJson(res, 200, require('./engine/agystatus').installed());
+    sendJson(res, 200, require('./engine/agystatus').installedForScreen());
     return;
   }
   /* #3568: open agy once in Terminal so it launches Google's sign-in in the browser (its documented

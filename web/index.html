@@ -20973,7 +20973,8 @@ function keyOnlyProvider(p) {
    a list cannot drift out of this order by being written in a different one. The
    coming-soon providers follow the four that work. `claude` is the Add-a-provider
    picker's value for Anthropic. Pinned by docs/browser-checks/render-provider-order-3651.js. */
-const PROVIDER_ORDER = Object.freeze(['anthropic', 'openai', 'google', 'xai', 'meta', 'alibaba', 'moonshot', 'mistral']);
+// #3568: Gemini by subscription ('antigravity') sits beside Gemini.
+const PROVIDER_ORDER = Object.freeze(['anthropic', 'openai', 'google', 'antigravity', 'xai', 'meta', 'alibaba', 'moonshot', 'mistral']);
 const PROVIDER_ORDER_ALIAS = Object.freeze({ claude: 'anthropic' });
 function providerRank(value) {
   const v = String(value == null ? '' : value).toLowerCase();
@@ -21029,9 +21030,12 @@ function paintAgyOption(sel, current) {
   opt.disabled = !on;
   if (on) delete opt.dataset.off;
   else opt.dataset.off = AGY_INSTALLED === false ? "Needs Google's Antigravity" : 'Checking Antigravity';
+  if (sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
 }
 function agyAsk() {
-  if (AGY_INSTALLED !== null || AGY_ASKING) return;
+  /* Asked again while it reads not installed (review round 1): a person who installs Antigravity with
+     the board open should not have to reload to see the option turn on. The GET is cheap. */
+  if (AGY_INSTALLED === true || AGY_ASKING) return;
   AGY_ASKING = fetch('/api/antigravity', { cache: 'no-store' })
     .then((r) => (r.ok ? r.json() : null))
     .then((b) => { AGY_INSTALLED = !!(b && b.installed === true); })
@@ -21042,7 +21046,6 @@ function agyAsk() {
         const sel = document.getElementById(id);
         const cur = id === 'd-provider' && typeof CURRENT !== 'undefined' && CURRENT ? providerOf(CURRENT) : '';
         paintAgyOption(sel, cur);
-        if (sel && sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
       }
     });
 }
@@ -24566,7 +24569,9 @@ const FR_KEYED = { google: { pre: 'gemini' }, xai: { pre: 'grok' } };
    open agy once in Terminal for the sign-in and offer Check again. Nothing is typed into agy. */
 const FR_AGY_SUB = {
   busy: false,
-  next: 'check',   // what the step's button does next: 'install' Antigravity, or 'check' again
+  gen: 0,          // bumped when the row closes: an answer for a closed row writes nothing (review round 1)
+  next: 'check',   // what the step's button does next: 'install' Antigravity, 'open' its sign-in, or 'check'
+  leave() { this.gen += 1; this.busy = false; this.next = 'check'; },
   el(part) { return document.getElementById('fr-gemini-sub-' + part); },
   say(text, button, about) {
     const code = this.el('code'); if (code) { code.textContent = text; code.hidden = !text; }
@@ -24583,10 +24588,26 @@ const FR_AGY_SUB = {
   async start() {
     if (this.busy) return;
     this.busy = true;
+    const mine = this.gen;
+    const live = () => mine === this.gen;
     try {
+      if (this.next === 'open') {
+        /* Opening Terminal is its own press, never a side effect of a check (review round 1): each
+           check costs a prompt and each open is another window. */
+        const opened = await this.post('/api/antigravity/open');
+        if (!live()) return;
+        this.next = 'check';
+        this.say(opened && opened.ok
+          ? "Antigravity opened, and it opens Google's sign-in in your browser. Sign in there with your Google account, then press Check again."
+          : ((opened && opened.error) || "We could not open Antigravity's sign-in just now") + '.',
+          opened && opened.ok ? 'Check again' : 'Open Antigravity to sign in', false);
+        if (!(opened && opened.ok)) this.next = 'open';
+        return;
+      }
       if (this.next === 'install') {
         this.say('Installing Antigravity from Google…', '', false);
         const got = await this.post('/api/antigravity/install');
+        if (!live()) return;
         if (!got || !got.ok) {
           this.next = 'install';
           this.say(((got && got.error) || 'We could not install Antigravity just now') + '.', 'Try again', true);
@@ -24595,6 +24616,7 @@ const FR_AGY_SUB = {
       }
       this.say('Checking Antigravity on this computer…', '', false);
       const r = await this.post('/api/antigravity/check');
+      if (!live()) return;
       if (r && typeof r.installed === 'boolean') { AGY_INSTALLED = r.installed; paintAgyOption(document.getElementById('create-provider'), ''); }
       if (!r || typeof r.installed !== 'boolean') {
         this.next = 'check';
@@ -24607,12 +24629,9 @@ const FR_AGY_SUB = {
         this.next = 'check';
         this.say('Ready. Gemini runs on your Google subscription on this computer: pick Google Gemini (Google subscription) when you create an agent.', '', false);
       } else {
-        const opened = await this.post('/api/antigravity/open');
-        this.next = 'check';
-        this.say(opened && opened.ok
-          ? "Antigravity opened, and it opens Google's sign-in in your browser. Sign in there with your Google account, then press Check again."
-          : ((opened && opened.error) || "We could not open Antigravity's sign-in just now") + '. Press Check again to retry.',
-          'Check again', false);
+        this.next = 'open';
+        this.say("Antigravity is on this computer but we could not confirm it is signed in. Open it once to sign in with your Google account.",
+          'Open Antigravity to sign in', false);
       }
     } finally { this.busy = false; }
   },
@@ -24631,6 +24650,7 @@ function frKeyedCollapse(which, keepSignIn) {
   // A closed panel keeps no "Checking..." behind (#3658); a finished sign-in writes its result next.
   const msg = frK(which, 'msg'); if (msg && !keepSignIn && !msg.classList.contains('fr-connbox')) msg.textContent = '';
   if (which === 'xai' && !keepSignIn) FR_GROK_SUB.leave();
+  if (which === 'google' && !keepSignIn) FR_AGY_SUB.leave();   // #3568
   /* A read, install or Add started for this panel no longer owns it (review pass 1: a late
      /api/runners answer reopened a panel another provider's Connect had just closed). */
   if (!keepSignIn) FR_KEYED_GEN += 1;
@@ -24644,8 +24664,17 @@ function frKeyedShowPick(which) {
   frK(which, 'pick').hidden = false;
   frK(which, 'pick-sub').focus();
 }
+/* #3568: set when a provider's choice was shown before its terminal agent was installed (Gemini,
+   whose subscription does not need it): "Use an API key" installs it first. */
+const FR_KEYED_KEY_NEEDS_INSTALL = { google: false, xai: false };
 function frKeyedChoose(which, how) {
   const msg = frK(which, 'msg'); if (msg) msg.textContent = '';
+  if (how === 'key' && FR_KEYED_KEY_NEEDS_INSTALL[which]) {
+    frK(which, 'pick').hidden = true;
+    frK(which, 'confirm').hidden = false;
+    const go = frK(which, 'confirm-go'); go.disabled = false; go.focus();
+    return;
+  }
   if (which === 'xai') FR_GROK_SUB.leave();   // a switch between the two ends a sign-in in flight
   frK(which, 'pick').hidden = true;
   frK(which, 'flow').hidden = how !== 'key';
@@ -24675,7 +24704,16 @@ async function frKeyedConnect(which) {
   { const bar = frK(which, 'confirm-bar'); if (bar) bar.hidden = true; const cm = frK(which, 'confirm-msg'); if (cm) cm.textContent = ''; }
   const info = await keyedRunnerInfo(which);
   if (mine !== FR_KEYED_GEN) return;
+  FR_KEYED_KEY_NEEDS_INSTALL[which] = false;
   if (info && info.present) { frKeyedShowPick(which); return; }
+  /* #3568 (review round 1): Gemini's subscription runs on Antigravity, not the Gemini CLI, so the
+     choice comes first and the Gemini CLI is downloaded only for "Use an API key". A download already
+     under way is watched as before. */
+  if (which === 'google' && keyedSubReady(which) && !keyedJobLive(info)) {
+    FR_KEYED_KEY_NEEDS_INSTALL[which] = true;
+    frKeyedShowPick(which);
+    return;
+  }
   frK(which, 'confirm').hidden = false;
   const go = frK(which, 'confirm-go');
   go.disabled = false;
@@ -24697,6 +24735,13 @@ async function frKeyedConfirm(which) {
   bar.hidden = true;
   if (!ok) { go.disabled = false; return; }
   msg.textContent = '';
+  /* The install ran for "Use an API key" (#3568): go on to the key, not back to the choice. */
+  if (FR_KEYED_KEY_NEEDS_INSTALL[which]) {
+    FR_KEYED_KEY_NEEDS_INSTALL[which] = false;
+    box.hidden = true;
+    frKeyedChoose(which, 'key');
+    return;
+  }
   frKeyedShowPick(which);
 }
 async function frKeyedAdd(which) {
@@ -38771,7 +38816,7 @@ async function changeProviderNow(say) {
        Anthropic" with "reactivate on Claude" in one dialog would be the last-screen inconsistency
        this branch exists to avoid. */
     const restarted = out.outcome === 'changed';
-    const provName = want === 'openai' ? 'OpenAI' : keyOnlyProvider(want) ? switchKeyedWord(want) : 'Anthropic';
+    const provName = want === 'openai' ? 'OpenAI' : (keyOnlyProvider(want) || want === 'antigravity') ? switchKeyedWord(want) : 'Anthropic';   // #3568
     // #2716: build the manual line ONCE and share it with the auto-hello helper, so the
     // helper's content check compares against exactly what tell() painted (no triplicated
     // string to drift out of byte-identity if the wording is retuned).

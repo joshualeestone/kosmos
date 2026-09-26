@@ -41,6 +41,23 @@ test('computeLoginAdvisories: filters non-ours panes, groups ours by the credent
   assert.equal(out[0].service, 'Claude Code-credentials-2a1a4199');
 });
 
+test('#3568: an agent on another program (antigravity, codex) is never named in a Claude login warning', () => {
+  const now = 1_000_000_000_000;
+  const DAY = 24 * 3600 * 1000;
+  const agyPane = paneOf({ session: 'gem-discord', pane: '0.0' }); agyPane.runner = 'antigravity';
+  const codexPane = paneOf({ session: 'cx-discord', pane: '0.1' }); codexPane.runner = 'codex';
+  const claudePane = paneOf({ session: 'angel-discord', pane: '0.2' });
+  // Every pane resolves to the SAME bare Claude credential, which is what an agy pane without a
+  // CLAUDE_CONFIG_DIR would read as: without the filter all three would be named.
+  const readCcd = () => null;
+  const readCred = () => JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: now + 2 * DAY } });
+  const out = status.computeLoginAdvisories([agyPane, codexPane, claudePane], now, { readCcd, readCred, cache: { at: 0, value: [] } });
+  const named = out.flatMap((a) => a.agents);
+  assert.ok(named.includes('angel'), 'CONTROL: the Claude agent is still warned: ' + JSON.stringify(out));
+  assert.ok(!named.includes('gem'), 'an Antigravity agent was named in a Claude login warning');
+  assert.ok(!named.includes('cx'), 'a Codex agent was named in a Claude login warning');
+});
+
 test('computeLoginAdvisories: a second call within the TTL serves from the injected cache (no re-resolve)', () => {
   const now = 1_000_000_000_000;
   const panes = [paneOf({ session: 'angel-discord' })];

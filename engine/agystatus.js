@@ -31,12 +31,14 @@ function installed() {
   const r = runners.resolveBin('antigravity');
   return { installed: !!(r && r.present), bin: r ? r.bin : null, because: r && r.because ? r.because : null };
 }
+/* What a screen is told: whether it is installed, never the path (review round 1). */
+function installedForScreen() { const i = installed(); return { installed: i.installed }; }
 
 /* The seam a test replaces: run agy once and hand back (err, stdout). */
 let runAgy = (bin, done) => {
   let dir = null;
   try { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-agy-check-')); } catch { dir = os.tmpdir(); }
-  execFile(bin, ['-p', PROMPT, '--print-timeout', CAP_SECONDS + 's'], { cwd: dir, timeout: KILL_MS, maxBuffer: 64 * 1024 },
+  execFile(bin, ['-p', PROMPT, '--print-timeout', CAP_SECONDS + 's'], { cwd: dir, timeout: KILL_MS, killSignal: 'SIGKILL', maxBuffer: 64 * 1024 },
     (err, stdout) => {
       if (dir && dir !== os.tmpdir()) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } }
       done(err, String(stdout || ''));
@@ -50,10 +52,17 @@ function checkOnce() {
       resolve({ installed: false, signedIn: false, because: inst.because || 'Antigravity is not installed on this computer' });
       return;
     }
+    /* A hard cap of our own (review round 1): execFile's timeout signals agy but its callback waits
+       for stdout to close, which a child agy started can hold open; and a check that never settles
+       would hold every later one (inflight shares the unsettled run). */
+    let done = false;
+    const unknown = { installed: true, signedIn: null,
+      because: 'Antigravity did not answer, so it may need signing in (or this computer is offline)' };
+    const cap = setTimeout(() => { if (!done) { done = true; resolve(unknown); } }, KILL_MS + 5000);
     runAgy(inst.bin, (err, out) => {
-      if (!err && /\bok\b/i.test(out)) { resolve({ installed: true, signedIn: true }); return; }
-      resolve({ installed: true, signedIn: null,
-        because: 'Antigravity did not answer, so it may need signing in (or this computer is offline)' });
+      if (done) return;
+      done = true; clearTimeout(cap);
+      resolve(!err && /\bok\b/i.test(out) ? { installed: true, signedIn: true } : unknown);
     });
   });
 }
@@ -108,7 +117,11 @@ function installOnce() {
 const sharedInstall = inflight.collapse(installOnce);
 function install() { return sharedInstall(); }
 function setInstallerForTests(fn) { runInstall = fn; }
+/* The real runner, opener and installer, kept so a test file can put them back when it is done. */
+const REAL = {};
+function resetForTests() { runAgy = REAL.runAgy; openTerminal = REAL.openTerminal; runInstall = REAL.runInstall; }
 function setOpenerForTests(fn) { openTerminal = fn; }
 function setRunnerForTests(fn) { runAgy = fn; }
 
-module.exports = { installed, check, openForSignIn, install, setRunnerForTests, setOpenerForTests, setInstallerForTests, PROMPT, INSTALL_URL };
+REAL.runAgy = runAgy; REAL.openTerminal = openTerminal; REAL.runInstall = runInstall;
+module.exports = { resetForTests, installed, installedForScreen, check, openForSignIn, install, setRunnerForTests, setOpenerForTests, setInstallerForTests, PROMPT, INSTALL_URL };

@@ -107,3 +107,21 @@ test('#3568: the switch dialog and the "reactivate" sentence name Gemini by subs
   assert.match(PAGE, /const label = toOpenai \? 'OpenAI' : \(toOther \|\| toAgy\) \? switchKeyedWord\(sel\.value\) : 'Anthropic';/);
   assert.match(PAGE, /: toAgy\s*\n\s*\? 'Its ' \+ fromWord \+ ' model and account choices do not cross: Gemini picks its own model, and it signs in with your Google subscription in its own window\.'/);
 });
+
+test('#3568: after a switch, the dialog says "Restarted on Gemini (Google subscription)", never Anthropic (review round 1)', () => {
+  const line = PAGE.match(/\n\s*(const provName = want === 'openai' \? [^\n]*;)/);
+  assert.ok(line, 'changeProviderNow\'s provName line moved; re-anchor');
+  const r = PAGE.indexOf('const ACCT_KEYED_ROUTE');
+  // eslint-disable-next-line no-new-func
+  const provNameFor = new Function('want', PAGE.slice(r, PAGE.indexOf('\n', r)) + '\n'
+    + grab('function keyOnlyProvider(') + '\n' + grab('function switchKeyedWord(') + '\n' + line[1] + '\nreturn provName;');
+  assert.equal(provNameFor('antigravity'), 'Gemini (Google subscription)');
+  assert.equal(provNameFor('google'), 'Gemini', 'CONTROL');
+  assert.equal(provNameFor('anthropic'), 'Anthropic', 'CONTROL');
+});
+
+test('#3568: Gemini by subscription sorts beside Gemini (review round 1: it sank below the coming-soon rows)', () => {
+  const at = PAGE.indexOf('const PROVIDER_ORDER = ');
+  const order = JSON.parse(PAGE.slice(PAGE.indexOf('[', at), PAGE.indexOf(']', at) + 1).replace(/'/g, '"'));
+  assert.equal(order.indexOf('antigravity'), order.indexOf('google') + 1);
+});

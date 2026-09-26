@@ -141,12 +141,23 @@ const chk = (ok, label, extra) => {
   chk(place.gemini && place.grok, '#3731 Gemini\'s and Grok\'s panels sit directly under their own rows', JSON.stringify(place));
   chk(!place.nerd, '#3731 no command-line or "runner" talk anywhere on the model step', JSON.stringify(place));
 
-  // A missing tool: the install comes first, never a key box (Josh: an API key cannot work yet).
-  const miss = await q(async () => {
+  // #3568: Gemini's subscription does not need the Gemini CLI, so with it missing the choice comes first
+  // and nothing is downloaded yet.
+  const first = await q(async () => {
     window.__posts.length = 0;
     window.__runnerMissing = { gemini: true, grok: true };
+    window.__installs = 0;
     document.getElementById('fr-gemini-connect').click();
     await new Promise((r) => setTimeout(r, 250));
+    return { pick: !document.getElementById('fr-gemini-pick').hidden, confirm: !document.getElementById('fr-gemini-confirm').hidden,
+      key: !document.getElementById('fr-gemini-flow').hidden, installs: window.__installs || 0, focus: document.activeElement && document.activeElement.id };
+  });
+  chk(first.pick && !first.confirm && !first.key && first.installs === 0 && first.focus === 'fr-gemini-pick-sub',
+    '#3568 with the Gemini CLI missing, Gemini offers the choice first and downloads nothing', JSON.stringify(first));
+  // A missing tool on the KEY path: the install comes first, never a key box (Josh: an API key cannot work yet).
+  const miss = await q(async () => {
+    document.getElementById('fr-gemini-pick-key').click();
+    await new Promise((r) => setTimeout(r, 50));
     return { posts: window.__posts.length, confirm: !document.getElementById('fr-gemini-confirm').hidden,
       key: !document.getElementById('fr-gemini-flow').hidden, ask: document.getElementById('fr-gemini-confirm-t').textContent,
       focus: document.activeElement && document.activeElement.id, expanded: document.getElementById('fr-gemini-connect').getAttribute('aria-expanded') };
@@ -167,6 +178,8 @@ const chk = (ok, label, extra) => {
   const failed = await q(async () => {
     document.getElementById('fr-gemini-connect').click();
     await new Promise((r) => setTimeout(r, 250));
+    document.getElementById('fr-gemini-pick-key').click();   // #3568: the key path installs first
+    await new Promise((r) => setTimeout(r, 50));
     window.__installFail = 'the downloaded runner did not match its published checksum, so it was discarded';
     document.getElementById('fr-gemini-confirm-go').click();
     await new Promise((r) => setTimeout(r, 2600));
@@ -192,18 +205,17 @@ const chk = (ok, label, extra) => {
       expanded: document.getElementById('fr-gemini-connect').getAttribute('aria-expanded') };
   });
   chk(g.seen.some((x) => /Downloading… 10 of 21 MB/.test(x)), 'the install shows its real progress, from the engine\'s own byte counts', JSON.stringify(g.seen));
-  // #3568: Gemini's subscription (Google's Antigravity) is live, so the install is followed by GPT's choice, as Grok's is.
-  chk(g.confirmHidden && g.pick && !g.key && g.focus === 'fr-gemini-pick-sub' && g.expanded === 'true',
-    '#3568 once installed, Gemini offers the choice: Sign in with Subscription or Use an API key', JSON.stringify(g));
+  // #3568: the install ran for "Use an API key", so the key step follows it directly (the choice came first).
+  chk(g.confirmHidden && !g.pick && g.key && g.expanded === 'true',
+    '#3568 once installed for the key path, Gemini goes straight on to the key step', JSON.stringify(g));
   const gk = await q(() => {
-    document.getElementById('fr-gemini-pick-key').click();
     return { pick: !document.getElementById('fr-gemini-pick').hidden, key: !document.getElementById('fr-gemini-flow').hidden,
       head: document.getElementById('fr-gemini-key-t').textContent, href: document.getElementById('fr-gemini-getkey').getAttribute('href'),
       focus: document.activeElement && document.activeElement.id };
   });
   chk(!gk.pick && gk.key && /^Download complete\. You will need a Google API key to finish\./.test(gk.head) && /aistudio\.google\.com/.test(gk.href)
       && gk.focus === 'fr-gemini-key',
-    '#3731 "Use an API key" on Gemini opens GPT\'s key step', JSON.stringify(gk));
+    '#3731 Gemini\'s key step is GPT\'s, with its words, link and focus', JSON.stringify(gk));
   await shot('3731-2-gemini-key-step');
 
   // Grok: the install, then GPT's choice, under Grok's row; Gemini's panels close.
@@ -433,6 +445,8 @@ const chk = (ok, label, extra) => {
     document.getElementById('fr-gemini-confirm-msg').textContent = 'left over';
     document.getElementById('fr-gemini-connect').click();
     await new Promise((r) => setTimeout(r, 250));
+    document.getElementById('fr-gemini-pick-key').click();   // #3568: the key path shows the install
+    await new Promise((r) => setTimeout(r, 50));
     return { confirm: !document.getElementById('fr-gemini-confirm').hidden, bar: !document.getElementById('fr-gemini-confirm-bar').hidden,
       msg: document.getElementById('fr-gemini-confirm-msg').textContent };
   });
