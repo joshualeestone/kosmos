@@ -14248,6 +14248,37 @@ test('#3961: the paging allowance is per assignee, every route says when it skip
   }
 });
 
+/* #3961: the allowance belongs to the PANE a name reaches, found the way delivery
+   finds it (exact name first, then case-insensitive). Two live panes whose names differ
+   only in case are two screens, so spending one leaves the other alone. */
+test('#3961: two panes whose names differ only in case keep separate allowances', async () => {
+  const chatEngine = require('./engine/chat');
+  const projectsEngineCase = require('./engine/projects');
+  const { HEARD_PER_AGENT_MAX, spendHeardBudgetForTests } = require('./server');
+  const board = fleet.install([fleet.agent('casey', { state: 'idle' }), fleet.agent('Casey', { state: 'idle' })]);
+  try {
+    resetHeardBudgetForTests();
+    chatEngine.setRunner((args) => {
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chatEngine.setDryRun(false);
+    const pdir = nodePath.join(SANDBOX, 'p3961-case'); fs.mkdirSync(pdir, { recursive: true });
+    const p = projectsEngineCase.create({ name: 'Case check 3961', folder: pdir, agents: ['casey', 'Casey'], roster: board.agents });
+    const api = (body) => req('/api/project/' + encodeURIComponent(p.id) + '/tasks', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    spendHeardBudgetForTests('casey', HEARD_PER_AGENT_MAX);
+    const rLower = await api({ sentence: 'For casey', who: 'casey' });
+    assert.equal((JSON.parse(rLower.body).heard || {}).state, 'could_not', rLower.body);
+    const rUpper = await api({ sentence: 'For Casey', who: 'Casey' });
+    assert.equal((JSON.parse(rUpper.body).heard || {}).state, 'placed', 'a different pane was silenced by casey\'s allowance: ' + rUpper.body);
+  } finally {
+    resetHeardBudgetForTests();
+    chatEngine.setRunner(null);
+    board.restore();
+  }
+});
+
 /* #761 challenge-loop round 6, rebuilt for #3961: only a real PLACED delivery spends the
    paging allowance. More failed attempts than the whole allowance, all at the SAME agent,
    then that agent comes back and must still be told. (The earlier version aimed its

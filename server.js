@@ -248,14 +248,19 @@ let engineLook = { at: 0, staleSince: null };
    protects is one pane from being flooded, so that is what it counts: how many times
    agents typed into THIS assignee's screen this hour. A fleet-wide ceiling stays as a
    runaway breaker only, far above any real batch, the same shape as #3959's. */
-const heardBudgetLog = new Map(); // heardKey(assignee) (trimmed, lowercased) -> times typed to, oldest first
+const heardBudgetLog = new Map(); // heardKey(assignee, roster): the pane's session name -> times typed to, oldest first
 const HEARD_BUDGET_WINDOW_MS = 3600000;
 const HEARD_PER_AGENT_MAX = 30;
 const HEARD_RUNAWAY_MAX = 500; // pinned equal to AGENT_RUNAWAY_PER_HOUR (below) by the #3961 test
-/* Lowercased, because delivery finds the pane case-insensitively (chat.resolveCard,
-   #989): "mara" and "Mara" type into one screen, so they spend one allowance. */
-function heardKey(who) {
-  return typeof who === 'string' && who.trim() ? who.trim().toLowerCase() : null;
+/* The key is the PANE the name reaches, found the way delivery finds it
+   (chat.resolveCard): an exact name first, else a case-insensitive one (#989). So
+   "MARA" spends mara's allowance, while an external "Casey" pane beside our "casey"
+   keeps its own. With no roster, or no pane for the name, the lowercased name
+   stands in: nothing is typed then, so it only has to be consistent. */
+function heardKey(who, roster) {
+  if (typeof who !== 'string' || !who.trim()) return null;
+  const card = Array.isArray(roster) ? chat.resolveCard(roster, who.trim()) : null;
+  return card && typeof card.sessionName === 'string' ? card.sessionName : who.trim().toLowerCase();
 }
 function heardBudgetPrune() {
   const cutoff = Date.now() - HEARD_BUDGET_WINDOW_MS;
@@ -268,14 +273,14 @@ function heardBudgetPrune() {
 }
 /* Nobody named means nobody is typed to (heardBy answers undefined), so there is
    nothing to allow or refuse; only a named assignee is counted. */
-function heardBudgetAllows(who) {
+function heardBudgetAllows(who, roster) {
   const total = heardBudgetPrune();
-  const k = heardKey(who);
+  const k = heardKey(who, roster);
   if (!k) return true;
   return total < HEARD_RUNAWAY_MAX && (heardBudgetLog.get(k) || []).length < HEARD_PER_AGENT_MAX;
 }
-function heardBudgetRecord(who) {
-  const k = heardKey(who);
+function heardBudgetRecord(who, roster) {
+  const k = heardKey(who, roster);
   if (!k) return;
   if (!heardBudgetLog.has(k)) heardBudgetLog.set(k, []);
   heardBudgetLog.get(k).push(Date.now());
@@ -411,10 +416,10 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner } = {}) 
   if (!out.ok) return { ok: false, status: 400, because: out.because };
   const r = roster || safeRoster();
   let heard;
-  if (out.changed && (screen || assigner || heardBudgetAllows(who))) {
+  if (out.changed && (screen || assigner || heardBudgetAllows(who, r))) {
     const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partId)) || {}).sentence;
     heard = heardBy(projectId, out.task, who, sentence, r);
-    if (heard && heard.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord(who);
+    if (heard && heard.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord(who, r);
   } else if (out.changed) {
     heard = heardBudgetSkipped(who); // only a process reaches here: screen and assigner always pass
   }
@@ -14953,12 +14958,12 @@ const server = http.createServer((req, res) => {
           // Task CREATION has its own persisted refusal above (the runaway breaker,
           // which 429s the whole request); this only gates whether it also pages a pane.
           let heard;
-          if (viaScreen || heardBudgetAllows(made.who)) {
+          if (viaScreen || heardBudgetAllows(made.who, roster)) {
             heard = heardBy(id, made, made.who, made.sentence, roster);
             // Only a REAL delivery spends the allowance: a run of failed attempts
             // while an agent is unreachable must not use up its hour, or it would
             // not be told once it is back.
-            if (heard && heard.state === chat.DELIVERY.PLACED && !viaScreen) heardBudgetRecord(made.who);
+            if (heard && heard.state === chat.DELIVERY.PLACED && !viaScreen) heardBudgetRecord(made.who, roster);
           } else {
             heard = heardBudgetSkipped(made.who);
           }
@@ -15247,9 +15252,9 @@ const server = http.createServer((req, res) => {
         const newPart = (out.task.parts || [])[(out.task.parts || []).length - 1];
         const roster = safeRoster();
         let heard;
-        if (screen || heardBudgetAllows(body && body.who)) {
+        if (screen || heardBudgetAllows(body && body.who, roster)) {
           heard = heardBy(id, out.task, body && body.who, newPart && newPart.sentence, roster);
-          if (heard && heard.state === chat.DELIVERY.PLACED && !screen) heardBudgetRecord(body && body.who);
+          if (heard && heard.state === chat.DELIVERY.PLACED && !screen) heardBudgetRecord(body && body.who, roster);
         } else {
           heard = heardBudgetSkipped(body && body.who);
         }
