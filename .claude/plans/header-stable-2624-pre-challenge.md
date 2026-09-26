@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: header-stable-2624
-diff_hash: 1c1847b1394f50fa3a92c6bb0eef871182146666e5148df6ad558fcd3384cebd
+diff_hash: fd8e909c3a41bc51b7b7de356fdfef130cf3b24ce623d3bd6f11c2cc67b39d77
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-26T10:39:39Z
+timestamp: 2026-09-26T11:08:07Z
 iterations: 3
 converged: true
 ---
@@ -47,3 +47,7 @@ Validation clean at 7b0ce4d0; gates, the wiring tests and the header checks re-r
 ### Fourth rebase (onto 46d03880f)
 - [CONVENTION] the same browser-checks.sh list-line conflict a fourth time --> FIXED: render-tophead-stable-2624 now runs on its own run_one line after that loop (hermetic, needs no board), so it no longer shares the line every new check appends to. Wiring tests pass.
 Validation clean at 1c1847b1; gates and the four header checks green on the new base.
+
+### Fifth rebase (onto #3933, gated.txt)
+- [CONVENTION] #3933 (kosmos#3929) moved the gated checks to docs/browser-checks/gated.txt, one name per line --> FIXED: render-tophead-stable-2624 listed there in sorted position, the standalone run_one workaround removed; the branch no longer touches tools/browser-checks.sh. Wiring tests pass (sorted, no duplicates, runner iterates the file).
+Validation clean at fd8e909c; gates and the four header checks green.
