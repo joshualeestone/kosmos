@@ -12,6 +12,8 @@
  *   - the stopped member (not running) gets the grey dot, not a green one.
  *   - for EVERY member (working, idle, stopped, needs-you, auth-failed), the dot matches the
  *     consolidated row's rule computed in the page from the page's own boardMods and cardStOf.
+ *   - in the warn and high bands a member's ring keeps its thin stroke (the grid card's thick band
+ *     widths are not inherited), with a control that the same band outside the column is thick;
  *   - when the working member's reading climbs, the ring's arc follows IN PLACE: no member node is
  *     replaced (a rebuilt column for a 1% tick would be #3966's flash again).
  * Control: with the context reading removed for one member, that member has NO ring, so the ring
@@ -125,10 +127,10 @@ const PERCENT = { beatrix: 42, dora: 71 };
 
         /* PARITY, for every member: the dot this row draws must be the one the CONSOLIDATED row
            would draw for the same live card (lrow's not-running branch, then boardMods' off/unk),
-           computed in the page from the page's own functions. One deliberate exception is not in
-           this fixture: a trust-stuck agent (win32 only; fleet cannot produce needsTrust) draws the
-           hollow unsure dot, as the grid card's `pres unsure` does, where lrow draws no dot at all.
-           web.pill-remembered-3958.test.js pins that case against the page's own CARD_ST. */
+           computed in the page from the page's own functions. A trust-stuck agent (win32 only;
+           fleet cannot produce needsTrust, so not in this fixture) is hollow on both: lrow's
+           `needstrust` row has its own hollow-dot CSS, read here as unsure, and
+           web.pill-remembered-3958.test.js pins memberDotClass for it against the page's CARD_ST. */
         const parity = await page.evaluate(() => [...document.querySelectorAll('#pj-one-agents .pj-member')].map((row) => {
           const who = row.getAttribute('data-agent');
           const card = LAST.find((x) => x && x.sessionName === who);
@@ -138,7 +140,7 @@ const PERCENT = { beatrix: 42, dora: 71 };
           const holder = document.createElement('div');
           holder.innerHTML = lrow(card);
           const cls = holder.firstElementChild ? holder.firstElementChild.classList : { contains: () => false };
-          const want = cls.contains('off') ? 'off' : cls.contains('unk') ? 'unk' : 'on';
+          const want = cls.contains('off') ? 'off' : (cls.contains('unk') || cls.contains('needstrust')) ? 'unk' : 'on';
           const got = face.classList.contains('pjd-off') ? 'off' : face.classList.contains('pjd-unk') ? 'unk' : face.classList.contains('pjd') ? 'on' : 'none';
           return { who, state: card.state, want, got };
         }));
@@ -154,6 +156,30 @@ const PERCENT = { beatrix: 42, dora: 71 };
         const greenDot = !!z && /\bpjd\b/.test(z.dot) && !/pjd-(unk|off)/.test(z.dot);
         chk(!!z && !z.wash && !greenDot,
           `${engineName}: an untied pane (a stranger holding the name) does not get a green dot`, JSON.stringify(z));
+        /* A warn or high band keeps the thin ring here: the global .gf.warn/.high widths (5, 6) are for
+           the grid card's big gauge and would clip and spread over the photo at 42px. Read through the
+           computed style on a REAL member ring; the control is the same classes on a ring OUTSIDE the
+           members column, which must still read the global widths (so the instrument can see thick). */
+        const widths = await page.evaluate(() => {
+          const gf = document.querySelector('#pj-one-agents .pj-member .lring .gf');
+          const out = {};
+          if (!gf) return out;
+          const base = gf.getAttribute('class');
+          for (const band of ['warn', 'high']) {
+            gf.setAttribute('class', 'gf ' + band);
+            out[band] = parseFloat(getComputedStyle(gf).strokeWidth);
+          }
+          gf.setAttribute('class', base);
+          const probe = document.createElement('div');
+          probe.innerHTML = '<svg class="lring" viewBox="0 0 36 36"><circle class="gf high" r="15.5" stroke-width="2.5"/></svg>';
+          document.body.appendChild(probe);
+          out.controlHigh = parseFloat(getComputedStyle(probe.querySelector('.gf')).strokeWidth);
+          probe.remove();
+          return out;
+        });
+        chk(widths.controlHigh === 6, `${engineName}: control: outside the members column a high ring is thick (the instrument can see it)`, JSON.stringify(widths));
+        chk(widths.warn === 2.5 && widths.high === 2.5, `${engineName}: a member's ring stays thin in the warn and high bands`, JSON.stringify(widths));
+
         /* The reading climbs: the arc must follow without the column being rebuilt. */
         const before = await page.evaluate(() => {
           let n = 0;

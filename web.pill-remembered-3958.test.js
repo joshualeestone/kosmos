@@ -168,9 +168,9 @@ test('#3958: the poll does not rewrite an unchanged pill, task or said label (a 
     const els = pillFor.els;
     /* Count writes from here on, on the same elements, across a second identical paint. */
     const counted = {};
-    for (const id of ['d-state', 'd-task', 'd-said-lab']) {
+    for (const id of ['d-state', 'd-task', 'd-said', 'd-said-lab']) {
       const el = els[id];
-      if (!el) continue;
+      assert.ok(el, id + ' was never painted, so this test would not watch it');
       for (const k of ['innerHTML', 'textContent']) {
         let v = el[k];
         Object.defineProperty(el, k, { get: () => v, set: (x) => { counted[id + '.' + k] = (counted[id + '.' + k] || 0) + 1; v = x; } });
@@ -178,6 +178,46 @@ test('#3958: the poll does not rewrite an unchanged pill, task or said label (a 
     }
     pillFor.repaint(card);
     assert.deepEqual(counted, {}, 'an identical poll rewrote: ' + JSON.stringify(counted));
+  } finally {
+    fleet.restore();
+  }
+});
+
+test('#3958: the per-poll Start re-derive leaves a Start of this open alone, in flight or done', () => {
+  const board = fleet.install([fleet.agent('beatrix', { state: 'working' })]);
+  try {
+    const running = board.agents.find((x) => x.name === 'beatrix');
+    const make = (flight, receipt, epoch) => {
+      const els = {
+        'd-start-wrap': { hidden: false },
+        'd-start-agent': { hidden: true, disabled: true, textContent: 'Starting…' },
+      };
+      // eslint-disable-next-line no-new-func
+      const fn = new Function('document', 'START_FLIGHT', 'START_RECEIPT', 'START_EPOCH', [
+        constSource('CARD_ST'),
+        pageFnSource('cardStOf'),
+        pageFnSource('refreshStartAffordance'),
+        'return refreshStartAffordance;',
+      ].join('\n'))({ getElementById: (id) => els[id] || null }, flight, receipt, epoch);
+      return { fn, els };
+    };
+    /* The agent came up (working): with no Start of this open, the wrap hides. */
+    const plain = make(null, null, 3);
+    plain.fn(running);
+    assert.equal(plain.els['d-start-wrap'].hidden, true, 'control: a running agent hides the Start area');
+    /* In flight for this open: the "Starting..." line stays. */
+    const flying = make(3, null, 3);
+    flying.fn(running);
+    assert.equal(flying.els['d-start-wrap'].hidden, false, 'the poll hid the Start area mid-start, taking "Starting..." with it');
+    /* Done for this open: the receipt stays, and the button is not offered again. */
+    const done = make(null, 3, 3);
+    done.fn(running);
+    assert.equal(done.els['d-start-wrap'].hidden, false, 'the poll hid the "Started" receipt');
+    assert.equal(done.els['d-start-agent'].hidden, true, 'the button came back under the receipt');
+    /* A receipt from an EARLIER open does not stick. */
+    const old = make(null, 2, 3);
+    old.fn(running);
+    assert.equal(old.els['d-start-wrap'].hidden, true, 'a receipt from an earlier open held the Start area');
   } finally {
     fleet.restore();
   }

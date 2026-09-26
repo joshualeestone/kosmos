@@ -4558,6 +4558,11 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   html[data-layout="consolidated"] body.consolidated .lrow.off > .lav::after { background: var(--k-ink-2); }
   html[data-layout="consolidated"] body.consolidated .lrow.unk > .lav::after {
     background: transparent; border: 1.5px solid var(--k-ink-2); }
+  /* #3991: a trust-stuck agent is "we could not tell" too (CARD_ST.needs_trust, pres unsure, drawn
+     hollow on the grid card and the tab view's members), never the green all-clear beside its red
+     needs-you triangle. */
+  html[data-layout="consolidated"] body.consolidated .lrow.needstrust > .lav::after {
+    background: transparent; border: 1.5px solid var(--k-ink-2); }
   html[data-layout="consolidated"] body.consolidated .lrow > .lav > img, html[data-layout="consolidated"] body.consolidated .lrow > .lav > .lavtint { position: absolute; left: 5px; top: 5px; width: 24px; height: 24px; font-size: 10px; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lav > .lring { display: block; position: absolute; inset: 0; width: 34px; height: 34px; }
   html[data-layout="consolidated"] body.consolidated .lring .gf.warn, html[data-layout="consolidated"] body.consolidated .lring .gf.high { stroke-width: 2.5; }
@@ -6931,6 +6936,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    ring sits just OUTSIDE the full-size photo (the consolidated row shrinks its photo instead), and
    both are scoped to the tab view's members so a picker or the consolidated layout is unchanged. */
 html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face > .lring { display: block; position: absolute; inset: -4px; width: 42px; height: 42px; pointer-events: none; }
+/* The global .gf.warn / .gf.high widths (5, 6) are for the grid card's large gauge; on a 42px ring
+   they would clip at the edge and spread over the photo. Same override as the consolidated rail. */
+html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .lring .gf.warn, html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .lring .gf.high { stroke-width: 2.5; }
 html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd::after {
   content: ""; position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; border-radius: 50%;
   background: #2f7d5a; box-shadow: 0 0 0 2px var(--k-surface); }
@@ -27932,11 +27940,19 @@ let START_EPOCH = 0;
    for THIS open does not re-enable a button the in-flight click deliberately
    disabled (which would let a person fire a second restart mid-wait). */
 let START_FLIGHT = null;
+/* #3958: the START_EPOCH whose Start succeeded and left its receipt ("Started X...") on the panel,
+   or null. Since the poll re-derives the Start area every tick, it must leave a Start of THIS open
+   alone, in flight or done: hiding the wrap would take the "Starting..." line and the receipt with
+   it, and re-showing the button under the receipt would offer a second start. A reopen bumps the
+   epoch and ends both. */
+let START_RECEIPT = null;
 
 /* #3410: derive the Start affordance's visibility, enabled state and label from
-   the live card, shared by openDetail (on open) and the poll's reappear arm (so a
+   the live card, shared by openDetail (on open), the poll's reappear arm (so a
    transient board dropout that disabled the button re-enables it when the agent
-   returns, rather than leaving it stuck disabled until reopen). Deliberately does
+   returns, rather than leaving it stuck disabled until reopen), and, since #3958,
+   every poll (so the button follows the live pill). A Start of this open, in flight
+   or done, is left alone (START_FLIGHT / START_RECEIPT). Deliberately does
    NOT clear #d-start-msg -- openDetail owns clearing a stale message, and the poll
    must not wipe a just-written status line. Shown only when confidently not
    running (cardStOf(a).pres === 'off', 'stopped' alone). connection_lost, now
@@ -27950,6 +27966,7 @@ let START_FLIGHT = null;
 function refreshStartAffordance(a) {
   const wrap = document.getElementById('d-start-wrap');
   if (!wrap) return;
+  if ((START_FLIGHT !== null && START_FLIGHT === START_EPOCH) || START_RECEIPT === START_EPOCH) return;
   const notRunning = !!a && cardStOf(a).pres === 'off';
   wrap.hidden = !notRunning;
   const btn = document.getElementById('d-start-agent');
@@ -35359,12 +35376,13 @@ document.getElementById('d-start-agent').addEventListener('click', async () => {
       'Started ' + shown + '. Say ‘hello’ to wake them.');
     /* The agent is running now, so Start no longer applies: hide the BUTTON (the
        common restart keeps the row present -- state 'restarting' then a live state
-       -- so the poll's withdrawn->reappear arm does not fire, and there is no
-       general per-tick re-derive; without this the disabled button would sit under
-       the "Started" receipt until reopen). Keep the wrap + message as the receipt;
-       refreshStartAffordance un-hides the button again if a later open finds the
-       agent stopped once more. */
+       -- so the poll's withdrawn->reappear arm does not fire; without this the
+       disabled button would sit under the "Started" receipt until reopen). Keep the
+       wrap + message as the receipt: START_RECEIPT tells the per-tick re-derive
+       (#3958) to leave them, and a later open that finds the agent stopped once
+       more un-hides the button. */
     if (onPanel() && sb) sb.hidden = true;
+    if (onPanel()) START_RECEIPT = epoch;
   } finally {
     /* Release the in-flight marker if it is still ours: a later open bumps
        START_EPOCH and may start its own, and clearing unconditionally would wipe
