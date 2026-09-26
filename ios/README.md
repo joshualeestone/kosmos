@@ -6,7 +6,7 @@ board" shape as the macOS app (`native-app/main.swift`) and the Android TWA
 (PR #2865). Unlike Android, iOS has no Trusted-Web-Activity path, and Apple
 rejects a repackaged website (Review Guideline 4.2), so App Store presence
 requires a genuine native app with real native surface (APNs registration,
-notification actions, biometric unlock). The shell (#2869) plus that native
+notification handling, biometric unlock). The shell (#2869) plus that native
 surface as buildable stubs (#718) are both here now. Full context on the cards
 (#2869, #718).
 
