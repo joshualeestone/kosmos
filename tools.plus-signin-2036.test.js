@@ -271,7 +271,7 @@ test('#2036: a sign-in that skips the second step straight to a session is recor
   } finally { b.server.close(); }
 });
 
-test('#3940: a record that exists but cannot be read refuses (1); only a MISSING record is 2', () => {
+test('#3940: a record that exists but cannot be read refuses (1); among read failures only a MISSING record is 2', () => {
   // exit 2 now lets a promote through (#3940), so an unreadable record, which may be a FAIL, must not.
   const dir = tmp(); const ptr = pointerFile(dir);
   const env0 = { KOSMOS_PLUS_VERIFY_DIR: dir };

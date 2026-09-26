@@ -237,10 +237,10 @@ if [ "$FAMILY" = mac ]; then
     0) echo "promote-channel: first Kosmos+ sign-in gate PASSED for $V." ;;
     1) echo "promote-channel: first Kosmos+ sign-in gate FAILED (exit 1) - a fresh Kosmos+ sign-in does not work on $V (the #3827 class), or its record is ambiguous. REFUSING to promote; --force does not override it." >&2; exit 1 ;;
     2)
-      echo "promote-channel: WARNING first Kosmos+ sign-in gate could not confirm $V (exit 2) - promoting anyway (#3940, Josh's ruling 2026-09-26). A first Kosmos+ sign-in was NOT verified on this build." >&2
+      echo "promote-channel: WARNING first Kosmos+ sign-in gate could not confirm $V (exit 2) - this does not hold the promote (#3940, Josh's ruling 2026-09-26); it goes ahead if the remaining checks pass. A first Kosmos+ sign-in was NOT verified on this build." >&2
       PLUS_UNVERIFIED=1
       # The gate's last line says WHY (no record, an attempt in flight, the gate could not run).
-      PLUS_REASON="$(printf '%s\n' "$PLUS_OUT" | awk 'NF{l=$0} END{print l}' | tr '\t' ' ')"
+      PLUS_REASON="$(printf '%s\n' "$PLUS_OUT" | awk 'NF{l=$0} END{print l}' | tr '\t\r' '  ')"
       [ -n "$PLUS_REASON" ] || PLUS_REASON="(the gate printed nothing)" ;;
     *) echo "promote-channel: first Kosmos+ sign-in gate returned an unexpected code ($PLUS_RC) - refusing to promote on an ambiguous result" >&2; exit 1 ;;
   esac
@@ -319,10 +319,10 @@ if [ "$FAMILY" != win ] && [ "${PLUS_UNVERIFIED:-0}" = 1 ]; then
   PLUS_HOME="${HOME:-}"
   PLUS_LOG_DIR="${KOSMOS_PLUS_VERIFY_DIR:-${PLUS_HOME:+$PLUS_HOME/.local/state/kosmos/release-verify}}"
   PLUS_LOG="${PLUS_LOG_DIR:+$PLUS_LOG_DIR/promote-plus-unverified.log}"
-  PLUS_HOST="$(hostname -s 2>/dev/null || echo unknown)"
+  PLUS_HOST="$(hostname -s 2>/dev/null)"; [ -n "$PLUS_HOST" ] || PLUS_HOST=unknown
   if [ -n "$PLUS_LOG" ] && mkdir -p "$PLUS_LOG_DIR" 2>/dev/null \
-     && { printf '%s\thost=%s\tversion=%s\tsha256=%s\tfirst Kosmos+ sign-in NOT verified; promoted per #3940 (Josh 2026-09-26)\treason=%s\n' \
-            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PLUS_HOST" "$(printf '%s' "$V" | tr '\t\n' '  ')" "$(printf '%s' "$SHA" | tr '\t\n' '  ')" "$PLUS_REASON" >> "$PLUS_LOG"; } 2>/dev/null; then
+     && { printf '%s\thost=%s\tversion=%s\tsha256=%s\tforce=%s\tfirst Kosmos+ sign-in NOT verified; promoted per #3940 (Josh 2026-09-26)\treason=%s\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PLUS_HOST" "$(printf '%s' "$V" | tr '\t\n' '  ')" "$(printf '%s' "$SHA" | tr '\t\n' '  ')" "$FORCE" "$PLUS_REASON" >> "$PLUS_LOG"; } 2>/dev/null; then
     echo "promote-channel: recorded in $PLUS_LOG (on this machine, $PLUS_HOST)" >&2
   else
     echo "promote-channel: WARNING could not append to ${PLUS_LOG:-the unverified-promote log (no HOME and no KOSMOS_PLUS_VERIFY_DIR)}; the promote happened and this output is the only record." >&2
@@ -372,6 +372,7 @@ if [ "$FAMILY" = win ]; then
   echo "promote-channel: updated the SITE CHECKOUT's $PROD_NAME to $V ($ARTIFACT). This does NOT change what users are served: that is tools/windows/publish-r2.ps1 -Promote."
 else
   echo "promote-channel: PROMOTED $V to prod - $PROD_NAME now points at the exact bytes staging verified ($ARTIFACT)."
+  [ "${PLUS_UNVERIFIED:-0}" = 1 ] && echo "promote-channel: NOTE a first Kosmos+ sign-in was NOT verified on $V (#3940); see ${PLUS_LOG:-the output above}."
 fi
 echo "   -> $(cat "$SITE/dist/$PROD_NAME")"
 echo "promote-channel: the next site deploy publishes the prod pointer. No rebuild happened."
