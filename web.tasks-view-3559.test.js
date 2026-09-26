@@ -103,10 +103,11 @@ test('#3949 the layout: no Projects rail, search beside the count, Project and C
   assert.doesNotMatch(PAGE, /Tap a tile to see only that group/, 'the tile hint is back');
   assert.doesNotMatch(PAGE, /\.tsk-view \{[^}]*grid-template-columns/, 'the view still reserves a rail column');
   // #3949 (Josh, 09-26): no thin rounded outer frame around the page body, in any layout: no border (shorthand or
-  // any side), no outline, no box-shadow standing in for one.
-  const viewRules = PAGE.match(/(^|\n)[^\n{}]*\.tsk-view \{[^}]*\}/g) || [];
-  assert.ok(viewRules.length > 0, 'no .tsk-view rule found');
-  for (const r of viewRules) assert.doesNotMatch(r, /(?:border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-(?:width|style|color|radius))?|outline|box-shadow)\s*:(?!\s*(?:0|none)\s*[;}])\s*[^;}\s]/, 'the page body has a frame again: ' + r.trim());
+  // any side), no outline, no box-shadow standing in for one. Walked as CSS rules (comments out, @media bodies entered)
+  // so a one-line media rule, a selector list or a missing space before `{` cannot hide one.
+  const offending = tsvFrameDecls(PAGE);
+  assert.ok(offending.checked > 0, 'no .tsk-view rule found');
+  assert.deepEqual(offending.hits, [], 'the page body has a frame again');
   const at = (re) => { const i = body.search(re); assert.ok(i >= 0, 'missing: ' + re); return i; };
   // Search and the count share the top row, the count to the right.
   const top = body.slice(at(/<div class="tsk-toprow">/), at(/<div class="tsk-ctrls" id="tsk-filters">/));
@@ -213,3 +214,35 @@ test('#3949 Needs Your Decision stays live: a change in WHO needs the person re-
   failed.TSK.needs = unread;   // what a failed read leaves
   assert.deepEqual(failed.tick(idle), { loads: 1, paints: 0 }, 'after a failed read, the next tick reads again');
 });
+
+/* #3949: every declaration that draws a frame on `.tsk-view` itself (the last compound of a selector, not a
+   descendant such as `.tsk-view .tsk-tile`), from every <style> block, at any @-rule depth. */
+function tsvFrameDecls(html) {
+  const css = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)].map((m) => m[1]).join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
+  const hits = []; let checked = 0;
+  const walk = (text) => {
+    let i = 0;
+    while (i < text.length) {
+      const open = text.indexOf('{', i); if (open < 0) return;
+      const sel = text.slice(i, open).trim();
+      let depth = 1; let k = open + 1;
+      while (k < text.length && depth) { if (text[k] === '{') depth += 1; else if (text[k] === '}') depth -= 1; k += 1; }
+      const body = text.slice(open + 1, k - 1);
+      if (sel.startsWith('@')) walk(body);
+      else if (sel.split(',').some((part) => /\.tsk-view$/i.test(part.trim().split(/[\s>+~]+/).pop()))) {
+        checked += 1;
+        for (const decl of body.split(';')) {
+          const c = decl.indexOf(':'); if (c < 0) continue;
+          const name = decl.slice(0, c).trim().toLowerCase();
+          const value = decl.slice(c + 1).replace(/!important/i, '').trim().toLowerCase();
+          if (!/^(border(-(top|right|bottom|left|block|inline)(-(start|end))?)?(-(width|style|radius))?|outline(-(width|style))?|box-shadow)$/.test(name)) continue;
+          if (/^(0(px)?|none)(\s+(0(px)?|none))*$/.test(value)) continue;
+          hits.push(sel + ' { ' + name + ': ' + value + ' }');
+        }
+      }
+      i = k;
+    }
+  };
+  walk(css);
+  return { hits, checked };
+}
