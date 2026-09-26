@@ -24674,7 +24674,8 @@ const FR_AGY_SUB = {
 const KEYED_SUB_START = { google: () => FR_AGY_SUB.start(), xai: () => FR_GROK_SUB.start() };
 /* #3568: Gemini's subscription only where it can run (a Mac, runner on); AGY_OFFERED is read before
    the choice is shown (frKeyedConnect). */
-const keyedSubReady = (which) => typeof KEYED_SUB_START[which] === 'function' && (which !== 'google' || AGY_OFFERED !== false);
+const keyedSubReady = (which) => typeof KEYED_SUB_START[which] === 'function'
+  && (which !== 'google' || (AGY_OFFERED !== false && servedPlatform() !== 'win32'));   // agy runs on a Mac only
 let FR_KEYED_GEN = 0;   // an answer, a finished download or an Add from an earlier opening changes nothing
 const frK = (which, part) => document.getElementById('fr-' + FR_KEYED[which].pre + '-' + part);
 const frKeyedPanels = (which) => ['confirm', 'pick', 'sub-step', 'flow'].map((part) => frK(which, part)).filter(Boolean);
@@ -24756,6 +24757,9 @@ async function frKeyedConnect(which) {
     frKeyedShowPick(which);
     return;
   }
+  /* A Gemini CLI download already under way was started for the key path (the subscription does not
+     use it), so when it finishes it goes on to the key step, as before #3568 (review round 7). */
+  if (which === 'google' && keyedSubReady(which)) FR_KEYED_KEY_NEEDS_INSTALL[which] = true;
   frK(which, 'confirm').hidden = false;
   const go = frK(which, 'confirm-go');
   go.disabled = false;
