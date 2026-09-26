@@ -83,3 +83,6 @@ Merged origin/main (677 commits); three conflicts resolved (openFile's refusal t
 
 ## Round 8 review (sonnet): 1 WARNING, not taken; converged
 - [WARNING] normalising backslashes in pjCiteKey means a cite of a file literally named `budget\notes.txt` (legal on macOS) no longer chips. NOT TAKEN, premise checked: openFile's gate 1 refuses any name containing a backslash (on main too: `given.includes('\\')`), so that chip's Show me could never open the file; before this change it was a chip that always failed. Plain text is the honest rendering. No other finding: converged.
+
+## Validation (first run after the merge)
+9910 tests, 0 failed. The browser-check surface gate (#2518) failed: the branch's chip markup in room rows touches the `msg` token that render-unread-edge-3743 asserts on. That check was run on this branch and passes ("all unread-edge checks passed", rc 0). Recorded as a per-check trailer on the next commit, as the gate asks.
