@@ -1798,6 +1798,9 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    ring AND the loudest colour, working is a quarter, idle is absent. Read the
    view in greyscale and it still works. */
 .orgwrap { margin-top: 8px; }
+/* #718: a fleet too big to fit a phone even with its rings brought in (orgFit)
+   scrolls inside the chart's own box, never the whole page sideways. */
+.orgwrap { overflow-x: auto; }
 /* Centred under the chart, per Josh. The chart itself is centred in the page,
    so a line hugging the left edge reads as belonging to the page rather than
    to the drawing it is about. */
@@ -26416,6 +26419,7 @@ function orgStep(nodes, hub, alpha, box) {
 let ORG_LIVE = null;   // { nodes: Map key -> node, hub, size, raf, alpha }
 let ORG_DRAG_MOVED = false;   // the last pointer sequence on the map was a drag, not a click (#381)
 let ORG_POS = new Map(); // last positions by key, so a repaint does not snap back
+let ORG_SIZE = 0;        // the canvas ORG_POS was measured on (#718: a new width starts fresh)
 let ORG_HTML = null;         // the repaint guard's memory
 
 function orgTreeOf(agents) {
@@ -26520,6 +26524,31 @@ function orgPlace(nodes) {
   return { placed, maxR };
 }
 
+/* #718: the chart on a phone. The canvas is a square (maxR + ORG_PAD) * 2 wide,
+   420px for a flat fleet of five, and it was drawn at that width whatever the
+   screen: on a 375px iPhone the whole board scrolled sideways (measured by the
+   mobile-shots harness on every phone size under 430px). When the square does
+   not fit the width it is given, this finds the largest one that does:
+     1. give up the spare room around the outer ring first, down to ORG_PAD_MIN,
+        the drag box's own margin (a node is never kept nearer the edge than that);
+     2. then bring the rings in by k, never below ORG_SQUEEZE_MIN.
+   🔑 THE NODES KEEP THEIR SIZE. Scaling the drawing would shrink a 44px face to
+   34px on an iPhone SE, under the tap floor; moving the rings closer does not,
+   and the simulation's own spacing (orgStep's gap) still keeps them apart.
+   A fleet too big even at the floor keeps its width, and .orgwrap scrolls on its
+   own rather than the page. Desktop (the square fits) is exactly as before. */
+const ORG_PAD = 78;
+const ORG_PAD_MIN = 30;
+const ORG_SQUEEZE_MIN = 0.7;
+function orgFit(maxR, avail) {
+  const natural = Math.round((maxR + ORG_PAD) * 2);
+  if (!(avail > 0) || natural <= avail) return { size: natural, k: 1 };
+  const half = Math.floor(avail / 2);
+  if (maxR + ORG_PAD_MIN <= half) return { size: half * 2, k: 1 };
+  const k = Math.max(ORG_SQUEEZE_MIN, (half - ORG_PAD_MIN) / maxR);
+  return { size: Math.max(half * 2, Math.round((maxR * k + ORG_PAD_MIN) * 2)), k };
+}
+
 function paintOrg() {
   const wrap = document.getElementById('orgview');
   if (!wrap || wrap.hidden) return;
@@ -26550,8 +26579,13 @@ function paintOrg() {
     return;
   }
   const { placed, maxR } = orgPlace(orgTreeOf(agents));
-  const pad = 78;
-  const size = Math.round((maxR + pad) * 2);
+  // #718: fit the width it is given (see orgFit); the rings come in, the nodes do not shrink.
+  const fit = orgFit(maxR, wrap.clientWidth);
+  if (fit.k < 1) for (const spot of placed.values()) spot.r *= fit.k;
+  const size = fit.size;
+  /* Positions kept from a canvas of another size (a phone turned sideways) are
+     in the wrong frame: start this one from the rings instead. */
+  if (ORG_SIZE !== size) { ORG_POS = new Map(); ORG_SIZE = size; }
   /**
    * 🔑 CENTRED ON THE DRAWING, NOT ON THE HUB, and this is the change that does
    * most of the work for "too wide". The hub was pinned to the middle of the
@@ -26884,6 +26918,20 @@ document.getElementById('orgmap').addEventListener('click', (e) => {
   const n = e.target.closest && e.target.closest('.onode');
   if (n && n.dataset.agent) openDetail(n.dataset.agent);
 });
+/* #718: the chart is sized to its width (orgFit), so a new width (a phone turned
+   sideways, a window dragged narrower) repaints it. Only when the width really
+   changed: a phone's address bar showing and hiding fires resize on height alone. */
+(() => {
+  let wasW = 0;
+  window.addEventListener('resize', () => {
+    const wrap = document.getElementById('orgview');
+    if (!wrap || wrap.hidden) return;
+    const w = wrap.clientWidth;
+    if (w === wasW) return;
+    wasW = w;
+    paintOrg();
+  });
+})();
 
 let BOARD_LAYOUT = 'grid';
 function boardApplyVisibility(onAgents) {
