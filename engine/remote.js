@@ -346,7 +346,9 @@ function address() {
 let offEpoch = 0;
 /* #3827: signed calls in flight on this Mac's key (device verbs, a second-factor
    reset). Forget waits for them before it retires and wipes, so none finishes
-   after the wipe and writes into a state dir that no longer belongs to anyone. */
+   after the wipe and writes into a state dir that no longer belongs to anyone.
+   Each carries the retire bound as its own kill timeout (the tunnel sets none),
+   so the wait below always ends with the call ended, not merely abandoned. */
 const signedInFlight = new Set();
 function tracked(p) {
   signedInFlight.add(p);
@@ -818,7 +820,7 @@ async function secondReset() {
   if (!enrolled()) {
     return { ok: false, because: 'this computer is not set up for Plus, so it cannot reset a second factor' };
   }
-  const r = await tracked(setupRun(['second', 'reset', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()]));
+  const r = await tracked(setupRun(['second', 'reset', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, retireTimeoutMs()));
   if (!r.ok) return { ok: false, because: r.because };
   return { ok: true, because: null };
 }
@@ -900,7 +902,9 @@ async function setupComplete(code, name) {
   try { result = await running; } finally { if (registerInFlight === running) registerInFlight = null; }
   if (epoch !== signinEpoch) return cancelledAfter(result, before);
   if (result.ok && macIdHere() !== before) stopChild();
-  if (!result.ok && enrolled() && macIdHere() !== before) fedSetStanding('');
+  if (!result.ok) abandonChangedIdentity(before);
+  // A new identity: the previous account's cached standing does not carry over.
+  if (result.ok && macIdHere() !== before) fedSetStanding('');
   if (result.ok) ensure(localPort);
   // fed gate: cache the coordinator standing if this setup response carried one.
   if (result.ok && result.data && typeof result.data === 'object') fedSetStanding(result.data.standing);
@@ -1000,7 +1004,7 @@ async function deviceAllow(id, name) {
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
   const args = deviceArgs('allow', id, true);
   if (typeof name === 'string' && DEVICE_NAME.test(name.trim())) args.push('--name', name.trim());
-  return parseSaid(await tracked(setupRun(args)));
+  return parseSaid(await tracked(setupRun(args, null, retireTimeoutMs())));
 }
 /** Say no: the coordinator drops the request and the phone is told. Writes
     nothing on this Mac; a fresh sign-in may ask again. */
@@ -1008,7 +1012,7 @@ async function deviceDeny(id) {
   { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
-  const r = parseSaid(await tracked(setupRun(deviceArgs('deny', id, true))));
+  const r = parseSaid(await tracked(setupRun(deviceArgs('deny', id, true), null, retireTimeoutMs())));
   if (r.ok) {
     const denied = { ...read().denied, [id]: Math.floor(Date.now() / 1000) };
     /* Bounded: the newest 50, so a file cannot grow without limit. */
@@ -1023,7 +1027,7 @@ async function deviceRemove(id) {
   { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
-  return parseSaid(await tracked(setupRun(deviceArgs('remove', id, false))));
+  return parseSaid(await tracked(setupRun(deviceArgs('remove', id, false), null, retireTimeoutMs())));
 }
 
 /* ---- Sign in THIS computer (#3149 journey 2). The in-app wizard replaces the
@@ -1181,6 +1185,17 @@ const SIGNIN_CANCELLED = { ok: false, because: 'the sign-in was cancelled' };
    still succeeded, the Mac now has an identity the person asked to leave: the
    switch goes off (it may have been on before the sign-in) and no tunnel runs,
    so the ensure tick cannot bring it online. */
+/* A register that failed AFTER writing a new identity (the tunnel writes the new
+   key, id and address first, the certificate last): what is left is the new id
+   beside the old certificate, which no tunnel may run on. The old certificate
+   belongs to a key that is gone, so it is dropped: the directory is then half
+   registered, and the next register retires that id first. (#3827) */
+function abandonChangedIdentity(before) {
+  if (macIdHere() === before) return;
+  stopChild();
+  for (const f of ['tls.crt', 'tls.key']) { try { fs.rmSync(path.join(STATE_DIR(), f), { force: true }); } catch { /* the register writes them again */ } }
+  fedSetStanding('');
+}
 const macIdHere = () => { try { return fs.readFileSync(path.join(STATE_DIR(), 'mac_id'), 'utf8').trim() || null; } catch { return null; } };
 function cancelledAfter(result, before) {
   // What is on disk, not only what the program said: a register killed by its
@@ -1484,9 +1499,9 @@ function turnOnAfterSignin() {
 }
 
 async function signinRegister(name) {
-  // First, before every path (the #1010 shortcut included): one register at a time (the
-  // page gives up waiting long before a register with a certificate is done, and a
-  // Try again must not start a second into the same directory), and none while
+  // First, before every path (the #1010 shortcut included): one register at a time (a
+  // page that lost its connection can press Try again while the first is still
+  // out, and a second must not start into the same directory), and none while
   // this computer is being forgotten.
   { const b = busy(); if (b) return b; }
   /* #3796 addendum 6 (Josh: "support either capital or lowercase"): the coordinator lowercases a
@@ -1524,8 +1539,8 @@ async function signinRegister(name) {
       return { ok: true, because: null, data: { stage: 'registered', address: have, name, standing: '', alreadySetUp: true } };
     }
   }
-  // After the shortcut: a register the page gave up on (it waits 15s, a
-  // certificate takes about a minute) finishes, clears the session and is set up;
+  // After the shortcut: a register the page gave up on (a dropped connection, a
+  // closed tab) finishes, clears the session and is set up;
   // a Try again at the same name is answered above, not sent to the code steps.
   if (!signinSession || typeof signinSession.token !== 'string') {
     // Already set up at exactly this name, switched off, no sign-in running (a
@@ -1562,9 +1577,7 @@ async function signinRegister(name) {
   // cancel must never do is let this switch it on.
   if (epoch !== signinEpoch) return cancelledAfter(r, before);
   if (!r.ok) {
-    // Killed by its bound after it wrote a new identity: that identity is on disk,
-    // and the old account's standing must not carry over to it.
-    if (enrolled() && macIdHere() !== before) fedSetStanding('');
+    abandonChangedIdentity(before);
     return r;
   }
   signinSession = null;   // the token is spent; it must not linger in this process

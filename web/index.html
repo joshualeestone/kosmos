@@ -36250,6 +36250,7 @@ const PLUS_CODE_WORDS = {
   noEmail: 'Type the email first.',
 };
 const PLUS_ASK_TIMEOUT_MS = 15000;
+const PLUS_REGISTER_TIMEOUT_MS = 7 * 60 * 1000;
 let PLUS_COUNTDOWN = null;
 /* #3796: the wizard's resend is a small LINK, not a button, so "busy" is aria-disabled on it
    (styled dim and unclickable) and the click handler checks it. A button keeps .disabled
@@ -36410,17 +36411,18 @@ function plusSiMsg(text) {
    returns without touching the wizard, so an abandoned sign-in can never repaint the next one
    (a late verify moving it to a step, a late refusal writing into its status line). */
 let PLUS_SI_EPOCH = 0;
-async function plusSiPost(path, body) {
+async function plusSiPost(path, body, timeoutMs) {
   const epoch = PLUS_SI_EPOCH;
-  const r = await plusSiPostRaw(path, body);
+  const r = await plusSiPostRaw(path, body, timeoutMs);
   return epoch === PLUS_SI_EPOCH ? r : { ok: false, stale: true, because: '' };
 }
-async function plusSiPostRaw(path, body) {
+async function plusSiPostRaw(path, body, timeoutMs) {
+  const waitMs = timeoutMs || PLUS_ASK_TIMEOUT_MS;
   /* A timeout, like the enrol send's own (plus-send-code): a hung request must be
      able to say it is waiting and can fail, not leave a disabled button forever.
      PLUS_ASK_TIMEOUT_MS is the same 15s the enrol flow uses. */
   const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), PLUS_ASK_TIMEOUT_MS);
+  const timer = setTimeout(() => ctl.abort(), waitMs);
   try {
     const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}), signal: ctl.signal });
     const data = await res.json().catch(() => null);
@@ -36428,7 +36430,7 @@ async function plusSiPostRaw(path, body) {
     return { ok: true, data: data || {} };
   } catch (err) {
     return { ok: false, because: (err && err.name === 'AbortError')
-      ? ('the sign-in service has not answered in ' + Math.round(PLUS_ASK_TIMEOUT_MS / 1000) + ' seconds; check this computer is online and try again')
+      ? ('the sign-in service has not answered in ' + Math.round(waitMs / 1000) + ' seconds; check this computer is online and try again')
       : 'this computer could not reach the sign-in service' };
   } finally { clearTimeout(timer); }
 }
@@ -36735,7 +36737,10 @@ async function plusSiDoRegister(name, owned) {
     const tail = document.getElementById('plus-si-owned-tail'); if (tail) tail.textContent = '...';
     const o = document.getElementById('plus-si-owned'); if (o) o.focus();
   }
-  const r = await plusSiPost('/api/remote/signin-register', { name });
+  /* #3827: a register includes the certificate (about a minute; the engine bounds it at
+     five, plus a minute to retire an earlier half sign-in), so the page must not give up
+     at the 15s every other step uses and tell a healthy sign-in to check it is online. */
+  const r = await plusSiPost('/api/remote/signin-register', { name }, PLUS_REGISTER_TIMEOUT_MS);
   PLUS_SI_REGISTERING = false;
   if (r.stale) return;
   btn.disabled = false;

@@ -161,6 +161,14 @@ if (args[0] === 'signin') {
     if (name === 'taken') { process.stderr.write('the coordinator said no (409): a Mac on this account already has that name\\n'); process.exit(1); }
     // The coordinator's own sentences, as the tunnel prints them (setup.rs: "Kosmos+ said no (<code>): <words>").
     if (mode.includes('register-409')) { process.stderr.write('Kosmos+ said no (409): The name ' + name + ' is already in use by a Mac on this account, at ' + name + '.kosmos.invalid. If that is this Mac, it is already signed in. If it is a different Mac, turn it off there first, or pick another name.\\n'); process.exit(1); }
+    // A rename whose certificate step fails: the new key, id and address are
+    // written (write_registration), then the fetch fails.
+    if (mode.includes('write-then-fail')) {
+      const d3 = flag('--state-dir'); fs.mkdirSync(d3, { recursive: true });
+      for (const f of ['mac_id', 'mac_key', 'coordinator_pubkey', 'allow_list']) fs.writeFileSync(path.join(d3, f), f === 'mac_id' ? 'mac-' + name : 'fake');
+      fs.writeFileSync(path.join(d3, 'address'), name + '.kosmos.invalid\\n');
+      process.stderr.write('Error: Kosmos+ answered 502 for /v1/mac/cert: bad gateway\\n'); process.exit(1);
+    }
     if (mode.includes('slow-fail')) { const until = Date.now() + 2500; while (Date.now() < until) { /* wait */ } process.stderr.write('Kosmos+ said no (409): that name is taken\\n'); process.exit(1); }
     if (mode.includes('register-taken')) { process.stderr.write('Kosmos+ said no (409): that name is taken\\n'); process.exit(1); }
     // #3827: a register that is still out when Sign out or Forget lands (busy wait: no timers here).
@@ -207,7 +215,7 @@ if (args[0] === 'signin') {
   process.exit(1);
 }
 // A device verb on a dead network (signed_request sets no timeout of its own).
-if (args[0] === 'devices' && mode.includes('hung-devices')) { const until = Date.now() + Number(process.env.FAKE_DEVICE_HANG_MS || 3000); while (Date.now() < until) { /* wait */ } }
+if (args[0] === 'devices' && mode.includes('hung-devices')) { const until = Date.now() + Number(process.env.FAKE_DEVICE_HANG_MS || 3000); while (Date.now() < until) { /* wait */ } fs.appendFileSync(${JSON.stringify(RECORD)}, JSON.stringify(['devices-done']) + '\\n'); }
 if (args[0] === 'devices') {
   const verb = args[1];
   if (mode === 'devices-fail') {
@@ -2021,5 +2029,104 @@ test('#3827: a device verb hanging on a dead network cannot hang Forget', async 
     delete process.env.FAKE_TUNNEL_MODE;
     delete process.env.FAKE_DEVICE_HANG_MS;
     delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
+  }
+});
+
+test('#3827: a rename that fails after writing its new id is retired on the next try, and no tunnel runs on the mix', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  const dir = process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote');
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  remote.ensure(4600);
+  assert.ok(remote.currentChildPid(), 'fixture: a tunnel runs');
+  const orig = process.stderr.write;
+  try {
+    process.stderr.write = () => true;
+    process.env.FAKE_TUNNEL_MODE = 'write-then-fail';
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const failed = await remote.signinRegister('theirs');
+    assert.equal(failed.ok, false, 'fixture: the certificate step failed');
+    assert.equal(remote.currentChildPid(), null, 'a tunnel kept running beside a new id and the old certificate');
+    assert.ok(!fs.existsSync(nodePath.join(dir, 'tls.crt')), 'the old certificate was left beside the new id');
+    delete process.env.FAKE_TUNNEL_MODE;
+    fs.rmSync(RECORD, { force: true });
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const again = await remote.signinRegister('theirs');
+    assert.equal(again.ok, true, again.because);
+    assert.notEqual(again.data && again.data.alreadySetUp, true, 'the retry was answered by the shortcut over the mixed identity');
+    const calls = recorded().map((c) => (c[0] === 'signin' ? 'signin ' + c[1] : c[0]));
+    assert.ok(calls.indexOf('retire') >= 0 && calls.indexOf('retire') < calls.indexOf('signin register'), 'the failed new id was not retired first: ' + JSON.stringify(calls));
+  } finally {
+    process.stderr.write = orig;
+    delete process.env.FAKE_TUNNEL_MODE;
+    remote.setOn(false);
+    await remote.forget();
+  }
+});
+
+test('#3827: a signed call on a dead network is ended by its own bound', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  process.env.FAKE_TUNNEL_MODE = 'hung-devices';
+  process.env.FAKE_DEVICE_HANG_MS = '4000';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000';
+  process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '800';
+  try {
+    const t0 = Date.now();
+    const r = await remote.deviceAllow('dev-1', 'iPhone');
+    assert.equal(r.ok, false);
+    assert.ok(Date.now() - t0 < 3000, 'a hung signed call was not ended by its bound (' + (Date.now() - t0) + 'ms)');
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.FAKE_DEVICE_HANG_MS;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
+    await remote.forget();
+  }
+});
+
+test('#3827: Forget lets a signed call already out finish before it retires', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  process.env.FAKE_TUNNEL_MODE = 'hung-devices';
+  process.env.FAKE_DEVICE_HANG_MS = '700';
+  try {
+    fs.rmSync(RECORD, { force: true });
+    const allowing = remote.deviceAllow('dev-1', 'iPhone');
+    await new Promise((r) => setTimeout(r, 100));
+    await remote.forget();
+    await allowing;
+    const calls = recorded().map((c) => c[0]);
+    assert.ok(calls.indexOf('devices-done') >= 0 && calls.indexOf('devices-done') < calls.indexOf('retire'), 'Forget retired while a signed call was still out: ' + JSON.stringify(calls));
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.FAKE_DEVICE_HANG_MS;
+  }
+});
+
+test('#3827: a successful rename replaces the running tunnel with one on the new identity', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  remote.ensure(4600);
+  const before = remote.currentChildPid();
+  assert.ok(before, 'fixture: a tunnel runs');
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    assert.equal((await remote.signinRegister('theirs')).ok, true, 'fixture: renamed');
+    const after = remote.currentChildPid();
+    assert.ok(after, 'no tunnel after the rename');
+    assert.notEqual(after, before, 'the tunnel from the old identity kept running after the rename');
+  } finally {
+    remote.setOn(false);
+    await remote.forget();
   }
 });
