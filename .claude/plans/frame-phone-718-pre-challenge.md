@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: frame-phone-718
-diff_hash: aeb1967307f4fa0873d7a56e0a261f8899da4028c764c02594f8e15fc53fff51
+diff_hash: 1f0b340635d959dfbb7f2ef76b331160f6828a89574a399b10edc9940e4a5a6d
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-26T15:05:42Z
+timestamp: 2026-09-26T15:28:43Z
 iterations: 8
 converged: true
 ---
@@ -18,6 +18,13 @@ Chromium and WebKit, before the next review; each new arm has a control measured
 fix undone. The branch was rebased twice onto a moving main during the run (the only conflict
 was the reason-grep count, re-measured: 173, then 174). The final check passes 190 of 190 on
 the final base, and the full validation on that base is 10015 tests, 0 failed.
+
+**Rebase after approval (2026-09-26T15:28Z):** #3977 merged first (8df7ce5ab), so this branch was
+rebased onto it. The only conflict was the reason-grep count, re-measured at 175 (main's 174 + this
+check's one site). On that base the browser check passes 190 of 190 in Chromium and WebKit. The local
+full validation could not run there: release 0.6.97 reserved the machine until 10:54 CDT, and
+the validation helper refuses while a release holds it. The 10015 / 0 full suite above is the previous
+base; the suite on this base is the PR's CI `test` job, which is the result to read for it.
 
 **Iterations:** 8 (blind reviews, alternating Opus and Sonnet)
 **Converged:** Yes
