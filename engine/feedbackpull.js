@@ -152,6 +152,7 @@ async function defaultGet(url, tok) {
   const send = !!(tok && tokenMayGoTo(url));
   const res = await fetchBounded(url, send ? { headers: { authorization: 'Bearer ' + tok } } : undefined);
   if (!res || !res.ok) {
+    try { if (res && res.body && typeof res.body.cancel === 'function') await res.body.cancel(); } catch { /* release only */ }
     // A refusal after the token was WITHHELD is the host rule, not the token: say so,
     // so the hint below does not send anyone to refile a token that is fine.
     let host = '';
@@ -241,16 +242,16 @@ async function pull(dir, opts) {
   // could read NOTHING is not reported as a success.
   let unreadable = 0;
   let lastGetError = '';
-  let lastGetDenied = false;
+  // Reads refused although the token WAS sent. The listing came from that token's own
+  // store, so this is not a wrong store: the read path wants another URL or auth form.
+  let denied = 0;
   for (const b of (Array.isArray(blobs) ? blobs : [])) {
     if (!b || typeof b.url !== 'string') { skipped += 1; continue; }
     let text;
     try { text = await tp.get(b.url, tok); }
     catch (e) {
       skipped += 1; unreadable += 1; lastGetError = String((e && e.message) || e);
-      // Sticky: ANY read denied WITH the token means it may be for the wrong store,
-      // even when a later read failed another way (a 404 on a blob deleted mid-pull).
-      if (/HTTP 40[13]\b/.test(lastGetError) && !/token withheld/.test(lastGetError)) lastGetDenied = true;
+      if (/HTTP 40[13]\b/.test(lastGetError) && !/token withheld/.test(lastGetError)) denied += 1;
       continue;
     }
     let rec;
@@ -266,21 +267,28 @@ async function pull(dir, opts) {
     } catch { skipped += 1; }
   }
   const total = Array.isArray(blobs) ? blobs.length : 0;
+  /* The real wrong-store case (kosmos#3878): after the migration the reports live in
+     the PRIVATE store, so a listing served from a PUBLIC blob host means the token
+     filed as FEEDBACK_TOKEN_TARGET is still the old public store's. That listing
+     succeeds and its reads succeed, so nothing above can see it; the host says it. */
+  const fromPublicStore = (Array.isArray(blobs) ? blobs : []).some((b) => {
+    try { return b && /\.public\./.test(new URL(b.url).hostname); } catch { return false; }
+  });
   if (written === 0 && unreadable > 0) {
     return {
       ok: false, written, skipped, total, dir: target,
       because: 'the store listed ' + total + ' report(s) and none was pulled: ' + unreadable + ' could not be read'
         + (skipped > unreadable ? ', ' + (skipped - unreadable) + ' were malformed or not written' : '')
         + ' (last read error: ' + lastGetError + ')'
-        + (lastGetDenied
-          ? '. The token filed as ' + FEEDBACK_TOKEN_TARGET + ' may be for the wrong store: reports are in the private feedback store (kosmos#3878).'
+        + (denied
+          ? '. ' + denied + ' were refused although the store\'s own token was sent: the read path may need a different URL or auth form.'
           : '.'),
-      unreadable,
+      unreadable, denied,
     };
   }
   // A partial pull is still ok, but says how many could not be read and why, so a
   // mostly-failed pull is not mistaken for a clean one.
-  return { ok: true, written, skipped, unreadable, lastGetError: unreadable ? lastGetError : '', total, dir: target };
+  return { ok: true, written, skipped, unreadable, denied, lastGetError: unreadable ? lastGetError : '', fromPublicStore, total, dir: target };
 }
 
 /**
@@ -291,7 +299,15 @@ async function pull(dir, opts) {
  */
 function summaryLines(r) {
   const out = ['pulled ' + r.written + ' report(s)' + (r.skipped ? ' (' + r.skipped + ' skipped)' : '') + ' to ' + r.dir];
-  if (r.unreadable) out.push(r.unreadable + ' report(s) could not be read (last error: ' + r.lastGetError + ')');
+  if (r.unreadable) {
+    out.push(r.unreadable + ' report(s) could not be read'
+      + (r.denied ? ', ' + r.denied + ' of them refused although the token was sent' : '')
+      + ' (last error: ' + r.lastGetError + ')');
+  }
+  if (r.fromPublicStore) {
+    out.push('note: these came from a PUBLIC blob store. Since kosmos#3878 the reports are kept in the private feedback store; refile '
+      + FEEDBACK_TOKEN_TARGET + ' with that store\'s token.');
+  }
   return out;
 }
 
