@@ -602,8 +602,12 @@ async function taskBuilt(ctx, args) {
   const rest = args.slice(2);
   const clear = rest.includes('--clear');
   const note = rest.filter((a) => a !== '--clear').join(' ');
+  if (clear && note) { ctx.err('--clear takes the mark off, so it takes no note. Run it without the note.'); return 2; }
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '' });
-  if (!r.reached) return ctx.unreachable('mark that task');
+  if (!r.reached) {
+    return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The mark may have been recorded; marking again is safe.')
+      : ctx.unreachable('mark that task');
+  }
   if (r.json && r.json.task) {
     ctx.out(clear ? 'Took the built mark off task ' + num + ' on ' + project + '.'
       : 'Marked task ' + num + ' on ' + project + ' built, waiting to be released or checked. Closing it clears the mark.');

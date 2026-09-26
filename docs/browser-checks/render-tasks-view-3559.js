@@ -268,9 +268,21 @@ function chk(ok, label, extra) {
         await page.waitForTimeout(200);
         const builtRows = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row')].map((r) => ({
           t: r.querySelector('.tl').textContent, why: [...r.querySelectorAll('.why')].map((x) => x.textContent).join(' ') })));
-        chk(builtRows.length === 1 && builtRows[0].t === 'Ship the signup form' && /^Marked built by Rex .+: waiting on the release$/.test(builtRows[0].why),
+        chk(builtRows.length === 1 && builtRows[0].t === 'Ship the signup form' && /^Marked built by Rex .+: waiting on the release Not built yet$/.test(builtRows[0].why),
           `${tag} the Built but waiting tile shows the marked task, with who marked it and what is left`, JSON.stringify(builtRows));
+        /* Review round 1: the person takes a mistaken mark off from the row; the task stays open (Assigned), and the
+           tile is at 0. Marked again by the engine after, so the checks below see the fixture as it was. */
+        await page.click('#tsk-groups [data-unbuild]');
+        await page.waitForFunction(() => document.querySelector('#tsk-tiles [data-tile="built"] .num').textContent === '0', null, { timeout: 5000 }).catch(() => {});
+        const after = await page.evaluate(() => ({ n: document.querySelector('#tsk-tiles [data-tile="built"] .num').textContent,
+          msg: document.getElementById('tsk-msg').textContent,
+          row: (TSK.data || []).find((t) => t.sentence === 'Ship the signup form') }));
+        chk(after.n === '0' && after.row && after.row.state === 'assigned' && /no longer marked built/.test(after.msg),
+          `${tag} Not built yet takes the mark off and the task stays open`, JSON.stringify({ n: after.n, state: after.row && after.row.state, msg: after.msg }));
         await page.click('#tsk-tiles [data-tile="built"]'); // back to everything
+        tasks.setBuilt(news.id, 3, { by: 'rex', note: 'waiting on the release' });
+        await page.evaluate(() => tskLoad());
+        await page.waitForTimeout(300);
         /* A focused CHECKBOX keeps focus through a reload (its row shares its key, so a first-match
            restore would land on the row, which cannot take focus). */
         await page.focus('#tsk-groups input[data-key="' + launch.id + '#2"]');

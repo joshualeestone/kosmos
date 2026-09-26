@@ -210,3 +210,18 @@ test('a failed read leaves a quiet could-not-read line, never a false empty stat
   assert.match(acts.innerHTML, /could not read/i, 'a failed read must not read as "nothing happened"');
   assert.doesNotMatch(acts.innerHTML, /Nothing yet/, 'a read failure must not show the empty state');
 });
+
+test('#3951: marked built (by an agent, with its note; by the person) and the mark going read as words', async () => {
+  const acts = await render([
+    { at: minsAgo(9), kind: 'built', by: 'mona', note: 'waiting on the release' },
+    { at: minsAgo(7), kind: 'built', by: 'operator' },
+    { at: minsAgo(5), kind: 'unbuilt', reason: 'new work' },
+    { at: minsAgo(3), kind: 'unbuilt', by: 'operator' },
+  ]);
+  const html = acts.innerHTML;
+  assert.match(html, /Mona marked it built: waiting on the release/);
+  assert.match(html, /You marked it built</);
+  assert.match(html, /No longer built: new work was added/);
+  assert.match(html, /Built mark taken off/);
+  assert.doesNotMatch(html, />built<|>unbuilt</, 'a bare kind word leaked through');
+});

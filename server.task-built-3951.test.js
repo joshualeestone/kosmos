@@ -137,6 +137,7 @@ test('Windows `task built` marks with the agent token and a note; --clear takes 
   assert.match(c.out, /Took the built mark off/);
   assert.equal('builtAt' in stored(n), false);
   assert.equal((await win(['task', 'built', projectId])).code, 2);
+  assert.equal((await win(['task', 'built', projectId, String(n), '--clear', 'a note'], minted.token)).code, 2, '--clear with a note is refused');
   assert.equal((await win(['task', 'built', projectId, 'two'])).code, 2);
   tasks.close(projectId, n);
   const refused = await win(['task', 'built', projectId, String(n)], minted.token);
@@ -170,6 +171,13 @@ test('Mac `kosmos task built` marks with the agent token and a quoted note; --cl
   assert.equal('builtAt' in stored(n), false);
   assert.equal((await mac(['task', 'built', projectId])).code, 2);
   assert.equal((await mac(['task', 'built', projectId, 'two'])).code, 2);
+  /* Review round 1: a control byte in the note is dropped, not a broken request; --clear takes no note. */
+  const ctl = await mac(['task', 'built', projectId, String(n), 'colour\u0001ed \u001b[0mout\fput'], { KOSMOS_AGENT_TOKEN: minted.token });
+  assert.equal(ctl.code, 0, ctl.out);
+  assert.equal(stored(n).builtNote, 'coloured [0moutput');
+  const both = await mac(['task', 'built', projectId, String(n), '--clear', 'a note'], { KOSMOS_AGENT_TOKEN: minted.token });
+  assert.equal(both.code, 2);
+  assert.ok('builtAt' in stored(n), 'a refused --clear with a note took the mark off');
   const help = await mac(['task']);
   assert.match(help.out, /kosmos task built <project-id> <task-number>/);
 });

@@ -2303,8 +2303,13 @@ cmd_task() {
       for _b in "$@"; do
         if [ "$_b" = "--clear" ]; then clear=true; else note="${note:+$note }$_b"; fi
       done
+      if [ "$clear" = true ] && [ -n "$note" ]; then
+        say "--clear takes the mark off, so it takes no note. Run it without the note."; exit 2
+      fi
       local esc_note esc_pane
-      esc_note=$(printf '%s' "$note" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r\n' '   ')
+      # Control bytes other than tab, CR and newline would make the JSON invalid (review round 1): dropped, as
+      # cmd_post drops them; tab, CR and newline become spaces.
+      esc_note=$(printf '%s' "$note" | LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g' | LC_ALL=C tr '\t\r\n' '   ')
       esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
       local _tok=""   # the agent token only in its own hex shape, as reply and post take it
       case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac

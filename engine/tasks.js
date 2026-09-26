@@ -270,15 +270,22 @@ function create(projectId, { sentence, detail, who, parent, made: origin } = {},
  */
 function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
   let changed;
+  let droppedForWork = false;
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
     const parts = fn(partsOf(t), t, p);
     if (!parts) throw new Error('that did not change anything');
     changed = { ...t, parts };
-    /* #3951: the built mark does not outlive the work it described: a new part is new work, and a task that is now
-       closed is done (a later reopen must not bring back a stale "built"). */
-    if (dropBuilt || progressOf(changed).closed) changed = withoutBuilt(changed);
+    /* #3951: the built mark does not outlive the work it described: a new part, or a part put back, is new work
+       (`dropBuilt`, a flag or a question asked after `fn` ran), and a task that is now closed is done (a later
+       reopen must not bring back a stale "built"). */
+    const closedNow = progressOf(changed).closed;
+    const forWork = typeof dropBuilt === 'function' ? !!dropBuilt() : !!dropBuilt;
+    if ((forWork || closedNow) && t.builtAt) {
+      changed = withoutBuilt(changed);
+      droppedForWork = forWork && !closedNow;
+    }
     /* ⚠️ `who` is DROPPED once parts are stored, not kept in step. Two fields
        answering "who is on this" is two things that disagree the first time
        one of them is edited, and every reader would then have to know which
@@ -286,6 +293,8 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
     delete changed.who;
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
+  /* The history says why the mark went (review round 1); a close says so itself. */
+  if (droppedForWork) taskchat.record(projectId, changed.number, { kind: 'unbuilt', reason: 'new work' });
   return changed;
 }
 
@@ -482,7 +491,7 @@ function setPartClosed(projectId, n, partId, closedAt) {
       if (before !== after) taskTransition = after ? 1 : -1;
     }
     return next;
-  });
+  }, { dropBuilt: () => partTransition && !closedAt });   // #3951 (review round 1): a part put back is new work
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
   if (partTransition) taskchat.record(projectId, Number(n), { kind: closedAt ? 'part-closed' : 'part-reopened', partId: Number(partId) });
   if (taskTransition) taskchat.record(projectId, Number(n), { kind: taskTransition > 0 ? 'closed' : 'reopened' });
@@ -508,7 +517,7 @@ function withoutBuilt(t) {
  */
 function setBuilt(projectId, n, { by = null, note = '' } = {}) {
   const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
-  if (said.length > BUILT_NOTE_MAX) return { ok: false, because: `keep the note under ${BUILT_NOTE_MAX} characters` };
+  if (said.length > BUILT_NOTE_MAX) return { ok: false, because: `keep the note to ${BUILT_NOTE_MAX} characters or fewer` };
   const who = typeof by === 'string' && by.trim() ? by.trim().slice(0, WHO_MAX) : null;
   let changed = null;
   let closed = false;
@@ -521,7 +530,7 @@ function setBuilt(projectId, n, { by = null, note = '' } = {}) {
       return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
     });
   } catch (err) {
-    return { ok: false, because: String((err && err.message) || err) };
+    return { ok: false, because: String((err && err.message) || err), code: err && err.code };
   }
   if (closed) return { ok: false, closed: true, because: 'that task is closed already, so it is not waiting on anything' };
   taskchat.record(projectId, changed.number, { kind: 'built', by: who, ...(said ? { note: said } : {}) });
@@ -542,7 +551,7 @@ function clearBuilt(projectId, n, { by = null } = {}) {
       return had ? { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) } : p;
     });
   } catch (err) {
-    return { ok: false, because: String((err && err.message) || err) };
+    return { ok: false, because: String((err && err.message) || err), code: err && err.code };
   }
   if (had) taskchat.record(projectId, changed.number, { kind: 'unbuilt', by: who });
   return { ok: true, task: changed, changed: had };

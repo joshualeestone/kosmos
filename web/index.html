@@ -3511,6 +3511,9 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tksub.done .tksub-t { color: var(--k-ink-2); text-decoration: line-through; }
 .tksubs-done { margin: 10px 0 0; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .tsk-row .meta button:hover { text-decoration: underline; text-decoration-color: var(--gold); }
+/* #3951: "Not built yet" on a built row, a quiet text action like the row's other buttons. */
+.tsk-row .tsk-unbuild { border: 0; background: none; padding: 0 0 0 4px; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer; }
+.tsk-row .tsk-unbuild:hover { text-decoration: underline; text-decoration-color: var(--gold); }
 .tsk-row .why { font-size: .8125rem; color: var(--k-ink-2); margin-top: 4px; }
 .tsk-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 120px; }
 .tsk-who { display: inline-flex; align-items: center; gap: 6px; font: 600 .8125rem var(--font-ui); color: var(--k-ink); padding: 2px 9px;
@@ -46168,7 +46171,9 @@ function tskRow(t, at) {
   const builtLine = t.state !== 'built' ? ''
     : '<div class="why">Marked built' + (t.builtBy ? ' by ' + esc(t.builtBy === 'operator' ? 'you' : tskAgentName(t.builtBy)) : '')
       + (t.builtAt ? ' ' + esc(agoWords(Date.now() - Date.parse(t.builtAt))) : '')
-      + (t.builtNote ? ': ' + esc(t.builtNote) : '') + '</div>';
+      + (t.builtNote ? ': ' + esc(t.builtNote) : '')
+      /* Review round 1: the person can take a mistaken mark off without closing the task. */
+      + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '">Not built yet</button></div>';
   return '<div class="tsk-row' + (on ? ' sel' : '') + (place.depth ? ' d' + place.depth : '') + '" data-key="' + esc(tskKey(t)) + '">'
     + '<input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
     /* The row no longer repeats its state in a status group (the heading says it), so there the
@@ -46437,6 +46442,30 @@ async function tskCloseParent(key) {
   msg.focus();
   tskLoad();
 }
+/* #3951 (review round 1): take the built mark off one task, from the screen. The task stays open. */
+async function tskUnbuild(key) {
+  if (TSK.busy) return;
+  const msg = document.getElementById('tsk-msg');
+  const i = key.lastIndexOf('#');
+  const projectId = key.slice(0, i);
+  const number = Number(key.slice(i + 1));
+  TSK.busy = true;
+  try {
+    const r = await fetch('/api/project/' + encodeURIComponent(projectId) + '/task/' + number + '/built', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clear: true }),
+    });
+    const body = await r.json().catch(() => ({}));
+    msg.textContent = r.ok && body.task ? 'Task ' + number + ' is no longer marked built. It stays open.'
+      : asSentence(body.error || 'the mark was not taken off');
+  } catch {
+    msg.textContent = 'We could not reach Kosmos, so the mark is still there.';
+  } finally {
+    TSK.busy = false;
+  }
+  msg.tabIndex = -1;
+  msg.focus();
+  tskLoad();
+}
 async function tskBulkClose() {
   if (TSK.busy || !TSK.sel.size) return;
   const msg = document.getElementById('tsk-msg');
@@ -46485,7 +46514,7 @@ async function tskBulkClose() {
    same control: an agent's button repeats on every row it holds, and a row and its checkbox share a
    key. The dropdowns (#3949: project, Created:, Group by, Sort) keep their own focus, since a repaint
    replaces only their options. */
-const TSK_FOCUS_KEYS = ['data-fold', 'data-close-parent', 'data-open-task', 'data-open-project', 'data-agent', 'data-tile', 'data-proj', 'data-key'];
+const TSK_FOCUS_KEYS = ['data-fold', 'data-close-parent', 'data-unbuild', 'data-open-task', 'data-open-project', 'data-agent', 'data-tile', 'data-proj', 'data-key'];
 function tskFocusMark(el) {
   const panel = document.getElementById('panel-tasks');
   if (!el || !panel || !panel.contains(el)) return null;
@@ -46524,6 +46553,7 @@ document.getElementById('panel-tasks').addEventListener('click', (e) => {
   if ((b = el('[data-tile]'))) { TSK.tile = TSK.tile === b.dataset.tile ? null : b.dataset.tile; tskPaintKeepingFocus(b); return; }
   if ((b = el('[data-fold]'))) { const k = b.dataset.fold; if (TSK.fold.has(k)) TSK.fold.delete(k); else TSK.fold.add(k); tskPaintKeepingFocus(b); return; }
   if ((b = el('[data-close-parent]'))) { tskCloseParent(b.dataset.closeParent); return; }
+  if ((b = el('[data-unbuild]'))) { tskUnbuild(b.dataset.unbuild); return; }
   if ((b = el('[data-open-task]'))) { tskOpenTask(b.dataset.openTask); return; }
   if ((b = el('[data-open-project]'))) { tskOpenProject(b.dataset.openProject); return; }
   if ((b = el('[data-agent]'))) { openDetail(b.dataset.agent); return; }
@@ -46811,6 +46841,9 @@ function tkActPhrase(ev, p) {
     case 'said': { const who = nameOf(ev.who); return (who ? who + ': ' : '') + (ev.text || ''); }
     case 'closed': return 'Marked done';
     case 'reopened': return 'Put back';
+    /* #3951: who marked it built and what was left; and why the mark went. */
+    case 'built': { const who = ev.by === 'operator' ? 'You' : nameOf(ev.by); return (who ? who + ' marked it built' : 'Marked built') + (ev.note ? ': ' + ev.note : ''); }
+    case 'unbuilt': return ev.reason === 'new work' ? 'No longer built: new work was added' : 'Built mark taken off';
     default: return String(ev.kind);
   }
 }

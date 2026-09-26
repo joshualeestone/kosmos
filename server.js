@@ -13705,8 +13705,9 @@ const server = http.createServer((req, res) => {
                         roster read and one commitments reading per agent for
                         the whole request
          waitingOnPerson tasks.waitingOnPerson: its agent needs the person about it (#3949)
-         state          tasks.taskState: closed / nobody / decision / working / assigned
+         state          tasks.taskState: closed / decision / built / nobody / working / assigned
          lastActivityAt the newest transcript event, else created/closed
+       A task's own builtAt / builtBy / builtNote (#3951, set by POST .../built) ride every row as stored.
        Added fields only, and only on ?view=tasks, which also leaves out archived
        projects' tasks (the view does not list them) except the one `withArchived` names. */
     const roster = safeRoster();
@@ -15139,7 +15140,9 @@ const server = http.createServer((req, res) => {
 
   /* #3951: mark a task built, waiting to ship (Josh's "Built but waiting" tile), or take the mark off. Body
      { note?, clear?, from_pane? }. Who marked it: the screen is 'operator'; a process is named by its agent token
-     (a token that does not resolve is refused, as the message route does) or else its pane. No valve: the mark is
+     (a token that does not resolve is refused, as the message route does) or else its pane. The pane name is
+     advisory, as on the message route: a local process can claim any pane, so the builder it names is a label, not
+     a proof (an enforcing board still needs the board token to reach this at all). No valve: the mark is
      one idempotent field set per task, and a re-mark only refreshes it. A closed task is refused (409): closing
      already cleared the mark. The block is not re-synced: the mark changes nothing an agent's instructions list. */
   const taskBuilt = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/built$/);
@@ -15166,7 +15169,8 @@ const server = http.createServer((req, res) => {
         ? tasks.clearBuilt(id, taskBuilt[2], { by })
         : tasks.setBuilt(id, taskBuilt[2], { by, note: typeof body.note === 'string' ? body.note : '' });
       if (!out.ok) {
-        const code = out.closed ? 409 : (/no project by that name|no task by that number/.test(out.because) ? 404 : 400);
+        const code = out.closed ? 409 : out.code === 'UNREADABLE' ? 500
+          : (/no project by that name|no task by that number/.test(out.because) ? 404 : 400);
         sendJson(res, code, { error: out.because });
         return;
       }

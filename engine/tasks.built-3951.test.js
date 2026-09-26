@@ -131,3 +131,29 @@ test('taskState order: closed, then decision, then built, then nobody, working a
   assert.equal(tasks.taskState({ number: 1, who: null }), 'nobody');
   assert.equal(tasks.taskState({ number: 1, who: null, waitingOnPerson: true }), 'nobody', 'nobody holds it, so no decision');
 });
+
+test('a part put back on a built task is new work: the mark goes, and the history says why (review round 1)', () => {
+  const { id, n } = freshTask(null);
+  tasks.addPart(id, n, { sentence: 'piece two' });
+  const parts = tasks.partsOf(stored(id, n));
+  tasks.setPartClosed(id, n, parts[0].id, new Date().toISOString());
+  tasks.setBuilt(id, n, { by: 'operator' });
+  /* Control: re-closing an already closed part is no transition, and keeps the mark. */
+  tasks.setPartClosed(id, n, parts[0].id, new Date().toISOString());
+  assert.ok('builtAt' in stored(id, n), 'CONTROL: a re-close with no transition dropped the mark');
+  tasks.setPartClosed(id, n, parts[0].id, null);
+  assert.equal('builtAt' in stored(id, n), false, 'a part put back left the task built');
+  const ev = taskchat.read(id, n).filter((e) => e.kind === 'unbuilt').pop();
+  assert.ok(ev && ev.reason === 'new work', JSON.stringify(ev));
+});
+
+test('adding a part records why the mark went; a close drops it without an unbuilt line (the close says it)', () => {
+  const { id, n } = freshTask();
+  tasks.setBuilt(id, n, { by: 'rex' });
+  tasks.addPart(id, n, { sentence: 'one more' });
+  assert.ok(taskchat.read(id, n).some((e) => e.kind === 'unbuilt' && e.reason === 'new work'));
+  const { id: id2, n: n2 } = freshTask();
+  tasks.setBuilt(id2, n2, { by: 'rex' });
+  tasks.close(id2, n2);
+  assert.equal(taskchat.read(id2, n2).some((e) => e.kind === 'unbuilt'), false);
+});
