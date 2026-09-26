@@ -14130,6 +14130,7 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
     });
     assert.equal(r14.status, 200, r14.body);
   } finally {
+    resetHeardBudgetForTests(); // this test spent mara's allowance; later tests must not inherit it
     chatEngine.setRunner(null);
     board.restore();
   }
@@ -14162,6 +14163,9 @@ test('#3961: the paging allowance is per assignee, every route says when it skip
     // The parts valve counts across ALL projects and earlier tests in this file made parts.
     for (const q of projectsEngine3961.readAll()) tasksEngine3961.agePartWritesForTests(q.id, 3700);
     const valveBefore = tasksEngine3961.partValve().count;
+    // The ceiling must stay far above one agent's allowance, or the two collapse back
+    // into one shared count, which is the defect this card fixed.
+    assert.ok(HEARD_RUNAWAY_MAX >= 10 * HEARD_PER_AGENT_MAX, 'the fleet ceiling is too close to one agent\'s allowance');
     let placed = 0;
     for (let i = 0; i < HEARD_PER_AGENT_MAX; i += 1) {
       const r = await api('/tasks', { sentence: 'Errand ' + i, who: 'mara' });
