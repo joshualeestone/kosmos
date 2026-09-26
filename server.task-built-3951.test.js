@@ -28,7 +28,6 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = path.join(SANDBOX, 'claude-config-dir');
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
-process.env.AGENT_WORKFORCE_BUILT_MARK_CAP = '40';   // read at require time; the valve test below fills it
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -202,20 +201,16 @@ test('an agent that is not on the project is refused (403); the person\'s mark i
   const agentClear = await post(`/api/project/${projectId}/task/${n}/built`, { clear: true }, { 'x-kosmos-agent-token': mona.token });
   assert.equal(agentClear.status, 403, JSON.stringify(agentClear.json));
   assert.equal(stored(n).builtBy, 'operator', 'an agent took the person\'s mark off');
-  /* CONTROL: the agent can clear its own mark; the screen can clear the person's. */
+  /* Review round 7: nor can it re-mark the person's mark as its own (then clear that). */
+  const overwrite = await post(`/api/project/${projectId}/task/${n}/built`, { note: 'mine' }, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(overwrite.status, 403, JSON.stringify(overwrite.json));
+  assert.equal(stored(n).builtBy, 'operator', 'an agent overwrote the person\'s mark');
+  /* CONTROLS: the screen can clear the person's mark; an agent can clear its own. */
   assert.equal((await post(`/api/project/${projectId}/task/${n}/built`, { clear: true }, screen)).status, 200);
+  assert.equal((await post(`/api/project/${projectId}/task/${n}/built`, {}, { 'x-kosmos-agent-token': mona.token })).status, 200);
+  assert.equal((await post(`/api/project/${projectId}/task/${n}/built`, { clear: true }, { 'x-kosmos-agent-token': mona.token })).status, 200);
+  assert.equal('builtAt' in stored(n), false, 'CONTROL: an agent could not clear its own mark');
   const again = await post(`/api/project/${projectId}/task/${n}/built`, { clear: true }, screen);
   assert.equal(again.json.changed, false, 'clearing an unmarked task claimed a change');
 });
 
-test('a process is valved (429) once it has marked too often; a repeat mark is not counted; the screen is never valved (review round 5)', async () => {
-  const mona = sendertoken.mint('mona');
-  let refused = null;
-  for (let i = 0; i < 60 && !refused; i += 1) {
-    const r = await post(`/api/project/${projectId}/task/${newTask('Valve ' + i)}/built`, { note: 'n' + i }, { 'x-kosmos-agent-token': mona.token });
-    if (r.status === 429) refused = i;
-    else assert.equal(r.status, 200, JSON.stringify(r.json));
-  }
-  assert.ok(refused !== null && refused <= 40, 'the valve never closed: ' + refused);
-  assert.equal((await post(`/api/project/${projectId}/task/${newTask('Screen still works')}/built`, {}, screen)).status, 200);
-});

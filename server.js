@@ -15154,7 +15154,8 @@ const server = http.createServer((req, res) => {
      (a token that does not resolve is refused, as the message route does) or else its pane. The pane name is
      advisory, as on the message route: a local process can claim any pane, so the builder it names is a label, not
      a proof (an enforcing board still needs the board token to reach this at all). An identified agent may mark or
-     clear only tasks in projects it is on, and only the screen clears the person's own mark (review round 5). A
+     clear only tasks in projects it is on (any task there: membership is per project, as for task messages), and
+     only the screen changes the person's own mark, clearing or re-marking (review rounds 5 and 7). A
      process the board cannot name (no token, no known pane) is not held to membership: it is refused nothing the
      message route would refuse it, it is valved, and it is recorded as builtBy null (review round 6). The real
      boundary is the board token. A
@@ -15190,9 +15191,11 @@ const server = http.createServer((req, res) => {
           sendJson(res, 403, { error: 'that agent is not on this project, so it cannot mark its tasks' });
           return;
         }
+        /* The person's own mark is changed only from the screen, in either direction (review round 7: a process
+           could re-mark it as its own and then clear that). */
         const now = proj && tasks.byNumber(proj, taskBuilt[2]);
-        if (body.clear === true && now && now.builtBy === 'operator') {
-          sendJson(res, 403, { error: 'the person marked this task built, so only the person can take the mark off' });
+        if (now && now.builtAt && now.builtBy === 'operator') {
+          sendJson(res, 403, { error: 'the person marked this task built, so only the person can change that mark' });
           return;
         }
       }
