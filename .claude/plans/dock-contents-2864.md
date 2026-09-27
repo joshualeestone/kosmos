@@ -70,7 +70,11 @@ tools/test-install.sh is not in CI (GitHub), but every release cut runs it: tool
 runs it with KOSMOS_INSTALL_GATE=1, which stops at "the release gate stops here (#624)". The
 #2864 update, control and stub checks sit before that stop, so every cut runs them (about
 six extra installer runs added to the cut's gate); the
-deep-locked on/off pass sits after it, so only a full `yarn test:install` does. The PR carries
+deep-locked on/off pass and the wedge leg sit after it, so only a full `yarn test:install`
+runs them. The wedge leg is the one check where the REAL /usr/bin/perl is refused by the kernel
+(an immutable folder) and the swap fields are carried across the home-folder retry, so a
+release cut does not exercise that real refusal; the stub checks it does run cover the
+fallback logic, not the kernel's answer. The PR carries
 this branch's full run.
 
 ## Weakest part

@@ -3078,7 +3078,7 @@ make_app() {
         # replaced before it) is left and named, as make_app_swap_taken does. Its name is
         # swept like any stage. Only if this rebuild fails does the step fail.
         if [ -e "$stage/Contents" ] && ! bundle_is_ours "$stage"; then
-          info "note: the folder that was in the Kosmos icon's place could not be proven to be this install's, so it was left as $stage"
+          info "note: the hidden stage folder could not be proven to be this install's, so it was left as $stage"
         else
           rm -rf "$stage" 2>/dev/null || true
         fi
@@ -3326,7 +3326,8 @@ if [ "$APP_SKIP_ICON" != "yes" ] && [ -z "${KOSMOS_APP_DIR:-}" ] && [ "$APP_DIR"
 fi
 APP_MADE=no
 # #2864: which way make_app put the icon in place (swap | rename | rename-swap-skipped |
-# rename-swap-refused), and the last attempted swap's errno and folder,
+# rename-swap-refused; none when make_app did not run or did not complete, read it
+# with made=), and the last attempted swap's errno and folder,
 # recorded in the app-bundle log line so a report of duplicate Dock icons can be read.
 APP_PATH=none
 APP_SWAP_ERRNO=none

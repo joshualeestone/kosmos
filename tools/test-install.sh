@@ -816,7 +816,7 @@ chk "the install log records app_path=rename-swap-refused for that run" "[ \"\$(
 chk "and it got there by the whole-bundle fallback (a new folder), so the failure was really taken" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" != \"$APP_INO3\" ]"
 # A swap call that claims success but moved nothing is caught by the inode proof, and
 # the fallback installs a complete app (the stage was never touched).
-printf '#!/bin/sh\nexit 0\n' > "$SB/perl-lies"; chmod +x "$SB/perl-lies"
+printf '#!/bin/sh\nprintf 0\nexit 0\n' > "$SB/perl-lies"; chmod +x "$SB/perl-lies"
 APP_INO4="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app" 2>/dev/null || echo none)"
 AB_N="$(ab_lines "$SB/home/logs/install.log")"
 RC=0; cat "$SETUP" | KOSMOS_SWAP_PERL="$SB/perl-lies" sh > "$SB/update-swaplies.log" 2>&1 || RC=$?
@@ -824,6 +824,7 @@ chk "that run wrote its own app-bundle line (so the log checks below read this r
 chk "a swap that did nothing is not believed: install still exits 0" "rc_ok $RC"
 chk "and the app is complete and runnable" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ] && [ -f \"$SB/apps/Kosmos.app/Contents/Info.plist\" ]"
 chk "the install log records app_path=rename-swap-refused for that run" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* app_path=\\([^ ]*\\).*/\\1/')\" = rename-swap-refused ]"
+chk "the log keeps the call's own claim (swap_errno=0) beside rename-swap-refused" "grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | grep -q ' swap_errno=0 '"
 chk "and the fallback ran (a new folder): the zero exit was not taken as a swap" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" != \"$APP_INO4\" ]"
 # The stub below repeats the installer's syscall; pin the two to the same call, or a
 # change to the installer's flags would leave this case testing a stale shape.
