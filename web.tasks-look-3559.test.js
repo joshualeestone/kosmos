@@ -144,3 +144,14 @@ test('a closed task has no claim agent, whatever its parts say (closing leaves p
   assert.equal(tasks.claimWho({ number: 6, closedAt: '2026-09-25T00:00:00Z', parts: [{ id: 1, who: 'rex', closedAt: null }] }), null);
   assert.equal(tasks.claimWho({ number: 7, closedAt: null, parts: [{ id: 1, who: 'rex', closedAt: null }] }), 'rex', 'an open task lost its agent (control)');
 });
+
+test('#4053 (option C v2): every tile, the "cannot tell" one included, draws its badge before the number', () => {
+  const m = SCRIPT.match(/getElementById\('tsk-tiles'\)\.innerHTML = [\s\S]*?\}\)\.join\(''\);/);
+  assert.ok(m, 'the tile painter moved');
+  const rows = m[0].match(/'<span class="tsk-mkrow">' \+ tskBadge\(g\.k\) \+ '<span class="num">/g) || [];
+  assert.equal(rows.length, 2, 'a tile branch lost its badge row');
+  for (const k of ['decision', 'working', 'assigned', 'nobody', 'built', 'closed']) {
+    assert.match(SCRIPT, new RegExp('\\n  ' + k + ": '<"), 'no icon for the ' + k + ' tile');
+  }
+  assert.match(SCRIPT, /aria-hidden="true" focusable="false"/, 'the badge icon is read aloud');
+});

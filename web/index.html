@@ -3567,6 +3567,9 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
   background-image: linear-gradient(45deg, transparent 50%, var(--k-ink-2) 50%),
                     linear-gradient(135deg, var(--k-ink-2) 50%, transparent 50%); }
 .tsk-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(138px, 1fr)); gap: 10px; margin: 16px 0 4px; }
+/* #4053: one shared tile height (Josh's taller tiles), across rows too: a lone short tile on a wrapped row
+   would otherwise size to itself. */
+#tsk-tiles { grid-auto-rows: 1fr; }
 .tsk-tile { background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 12px; padding: 16px 16px 15px; cursor: pointer;
   text-align: left; font: inherit; color: inherit; display: flex; flex-direction: column; justify-content: flex-start; gap: 10px; min-height: 108px; }
 .tsk-tile:hover { background: var(--agent-msg); }

@@ -586,6 +586,7 @@ function chk(ok, label, extra) {
            19px line icon beside its number, the label below it 10px on, 16px 16px 15px padding and one shared height
            (at least 108px). Needs Your Decision with a count (Max's 1, restored above) is red: badge, and a red-tinted
            fill that no other tile has. */
+        await page.mouse.move(0, 0); // no tile hovered from an earlier real click (review)
         const c2 = await page.evaluate(() => {
           const probe = (v, prop) => { const e = document.createElement('span'); e.style[prop] = v; document.getElementById('panel-tasks').appendChild(e);
             const c = getComputedStyle(e)[prop]; e.remove(); return c; };
@@ -611,6 +612,17 @@ function chk(ok, label, extra) {
           `${tag} each tile has its 36px tinted badge with a 19px icon before the number, 16px padding, a 10px gap and one shared height (#4053)`, JSON.stringify(c2));
         chk(dec && dec.n === '1' && dec.badgeRed && dec.redFill && c2.filter((x) => x.redFill).length === 1 && c2.filter((x) => x.badgeRed).length === 1,
           `${tag} Needs Your Decision with a count has a red badge and the only red-tinted fill (#4053)`, JSON.stringify(dec));
+        /* Review: one shared height must hold when the row wraps too. Five columns leaves Completed (a one-line
+           label) alone on the second row, where it would size to itself without the rule. */
+        {
+          const five = await page.evaluate(() => {
+            const g = document.getElementById('tsk-tiles'); const was = g.style.width; g.style.width = (5 * 138 + 4 * 10 + 20) + 'px';
+            const tops = new Set(); const hs = new Set();
+            for (const t of g.querySelectorAll('.tsk-tile')) { const r = t.getBoundingClientRect(); tops.add(Math.round(r.top)); hs.add(Math.round(r.height)); }
+            g.style.width = was; return { rows: tops.size, heights: [...hs] };
+          });
+          chk(five.rows === 2 && five.heights.length === 1, `${tag} with the tiles wrapped (five across), every tile keeps one height (#4053 review)`, JSON.stringify(five));
+        }
         /* Review: the red fill outranks the shared selected rule, so selecting the red tile must still show (deeper red, red edge). */
         {
           await page.mouse.move(0, 0);
