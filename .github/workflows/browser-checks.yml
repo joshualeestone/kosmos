@@ -192,6 +192,7 @@ jobs:
       # the real status.snapshot(), which throws without tmux; on the runner that read as a check
       # failure every night until #4076. A selected render-talk needs it here too.
       - name: 'install tmux (#3973, #4119)'
+        timeout-minutes: 10
         run: brew install tmux
       # #4119: WHICH CHECKS THIS DIFF TOUCHES, beyond the fixed allowlist below. On 2026-09-26 two
       # page PRs passed this job and broke a check outside the allowlist, found only at the 0.7.01
