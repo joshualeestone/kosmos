@@ -3,6 +3,11 @@
 /**
  * The top-left toast, in the state where an update landed behind an open tab.
  *
+ * #3955 (Josh, 2026-09-26: "It looks terrible and it's gigantic ... it says 'You're looking at the
+ * previous version.' That doesn't make sense"; Mona Lisa's mock): both update states are now one
+ * small chip with one action. The page-is-old state reads "Reload to finish updating" and never
+ * says "Kosmos updated" while the old page is on screen; the offer reads "An update is available".
+ *
  * 🛑 JOSH ASKED FOR THIS IN HIS OWN WORDS, 2026-08-22: "maybe if we push an
  * update we still pop the message at the top left to say, Kosmos has been
  * updated. Refresh your browser to install it". The wording moved because by
@@ -27,7 +32,7 @@ function toast({ baked, served, offer, updating = false, later = null, engine = 
     querySelector: () => (baked === undefined ? null : { getAttribute: () => baked }),
   };
   new Function('document', 'esc', 'UPDATING_NOW', 'SERVED_VERSION', 'updateLaterSuppresses', 'UPD_CONFIRM_OPENER', 'OFFER', 'ENGINE_STALE',
-    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'renderUpdateToast'])
+    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'updateSafeReload', 'renderUpdateToast'])
     + '\nrenderUpdateToast(OFFER);')(doc, (x) => String(x), updating, served, (v) => later === v, null, offer, engine);
   return { html: slot.innerHTML, v: slot.dataset.v, listeners };
 }
@@ -51,9 +56,10 @@ test('a board running older engine code than the disk says so, and outranks both
 
 test('a page older than the running Kosmos says so, and offers the one thing that fixes it', () => {
   const t = toast({ baked: '0.2.75', served: '0.2.76' });
-  assert.match(t.html, /Kosmos updated/);
-  assert.match(t.html, /You are looking at the previous version/);
-  assert.match(t.html, /ut-reload/);
+  assert.match(t.html, /Reload to finish updating/);
+  assert.match(t.html, /id="ut-reload">Reload</);
+  /* #3955: "Kosmos updated" over the old page read as done, and "previous version" as nonsense. */
+  assert.doesNotMatch(t.html, /Kosmos updated|previous version/, 'the old page claimed the update was done');
 });
 
 test('it does not say install, and it does not say refresh your browser', () => {
@@ -73,24 +79,29 @@ test('one action: no Later and nothing to close', () => {
   assert.equal((t.html.match(/<button/g) || []).length, 1);
 });
 
-test('it carries no version number, and the shipped toast still does', () => {
-  /* 📌 "You are looking at the previous version" is true and actionable without
-     one, and both numbers are on the Settings line for anybody who wants them. */
+test('#3955: neither chip carries a version number (the confirm and Settings name it)', () => {
   const stale = toast({ baked: '0.2.75', served: '0.2.76' });
   assert.ok(!/0\.2\.7[56]/.test(stale.html));
   const offer = toast({ baked: '0.2.76', served: '0.2.76', offer: { version: '0.2.77' } });
-  assert.match(offer.html, /Kosmos 0\.2\.77/, 'the offer stopped naming the version it is offering');
+  assert.match(offer.html, /An update is available/);
+  assert.ok(!/0\.2\.77/.test(offer.html), 'the chip grew a version number back');
 });
 
-test('the two states are one component in two tones', () => {
+test('#3955: the offer is one small chip with one action, Update (no Later)', () => {
+  const offer = toast({ baked: '0.2.76', served: '0.2.76', offer: { version: '0.2.77' } });
+  assert.equal((offer.html.match(/<button/g) || []).length, 1);
+  assert.match(offer.html, /id="ut-install">Update</);
+  assert.doesNotMatch(offer.html, /ut-later|Later/);
+});
+
+test('#3955: both states are the one chip component (Mona Lisa\'s mock A and B)', () => {
   const stale = toast({ baked: '0.2.75', served: '0.2.76' });
   const offer = toast({ baked: '0.2.76', served: '0.2.76', offer: { version: '0.2.77' } });
-  assert.match(stale.html, /class="utoast stale"/);
-  assert.match(offer.html, /class="utoast"/);
-  /* The tone is a variable on the component, not a second component. */
+  assert.match(stale.html, /^<div class="uchip" role="status">/);
+  assert.match(offer.html, /^<div class="uchip" role="status">/);
+  assert.match(PAGE, /\.uchip \{ display: inline-flex;[^}]*height: 30px;/, 'the chip is not the small one-line shape');
+  // The engine state keeps its own (unchanged) look.
   assert.match(PAGE, /\.utoast\.stale \{ --utone: var\(--label-2\); \}/);
-  assert.match(PAGE, /:root:not\(\[data-theme="light"\]\) \.utoast\.stale \{ --utone: var\(--label-2\); \}/);
-  assert.match(PAGE, /:root\[data-theme="dark"\] \.utoast\.stale \{ --utone: var\(--label-2\); \}/);
 });
 
 test('when both are true, the reload state wins', () => {
@@ -99,8 +110,8 @@ test('when both are true, the reload state wins', () => {
      compounds the staleness rather than resolving it, and the person would be
      acting on a screen already wrong about what it is. */
   const t = toast({ baked: '0.2.75', served: '0.2.76', offer: { version: '0.2.77' } });
-  assert.match(t.html, /Kosmos updated/);
-  assert.ok(!/Update available/.test(t.html), 'it offered an install from a page that is already behind');
+  assert.match(t.html, /Reload to finish updating/);
+  assert.ok(!/update is available/.test(t.html), 'it offered an install from a page that is already behind');
 });
 
 test('an install in flight owns the slot', () => {
@@ -127,10 +138,191 @@ test('the same page is not repainted every five seconds', () => {
     querySelector: () => ({ getAttribute: () => '0.2.75' }),
   };
   const run = new Function('document', 'esc', 'UPDATING_NOW', 'SERVED_VERSION', 'updateLaterSuppresses', 'ENGINE_STALE',
-    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'renderUpdateToast'])
+    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'updateSafeReload', 'renderUpdateToast'])
     + '\nreturn renderUpdateToast;')(doc, (x) => String(x), false, '0.2.76', () => false, null);
   run(null);
   slot.innerHTML = 'MARKED';
   run(null);
   assert.equal(slot.innerHTML, 'MARKED', 'the toast repainted itself over an unchanged state');
+});
+
+/* #3955: the page reloads itself, but only when that cannot lose anything. */
+function safeReload({ hidden = true, served = '0.2.76', sending = {}, drafts = {}, typed = [], attached = null, modal = false, already = null } = {}) {
+  const store = { 'kosmos-auto-reloaded': already };
+  let reloaded = 0;
+  const doc = { hidden };
+  // Fields the person typed into (the page's own 'input' listener collects them), with what they hold now.
+  const typedSet = new Set(typed.map((v) => ({ value: v, isConnected: true })));
+  const ss = { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = v; } };
+  const win = { location: { reload: () => { reloaded += 1; } } };
+  const got = new Function('document', 'sessionStorage', 'window', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
+    'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen', 'UPDATE_TYPED', 'ATTACH_PENDING',
+    page.liftAll(SCRIPT, ['updateSafeReload']) + '\nreturn updateSafeReload(' + JSON.stringify(served) + ');')(
+    doc, ss, win, !!sending.talk, !!sending.pj, sending.reply || null, !!sending.term,
+    drafts.talk || {}, drafts.term || {}, drafts.pj || {}, drafts.room || {}, () => modal, typedSet,
+    attached || { room: {}, agent: {} });
+  return { got, reloaded, store };
+}
+
+test('#3955: an old page in the background with nothing in hand reloads itself, once per version', () => {
+  const r = safeReload();
+  assert.equal(r.got, true);
+  assert.equal(r.reloaded, 1);
+  assert.equal(r.store['kosmos-auto-reloaded'], '0.2.76');
+  assert.equal(safeReload({ already: '0.2.76' }).reloaded, 0, 'a board that keeps serving an old page would make a reload loop');
+  assert.equal(safeReload({ already: '0.2.75' }).reloaded, 1, 'CONTROL: a newer version reloads again');
+});
+
+test('#3955: it never reloads a page someone is looking at, sending from, typing in, attaching to, or reading a window over', () => {
+  /* Typed, not filled (review round 1): the page fills boxes itself (an agent's instructions), and
+     only fields the person typed into count; the page collects those with one 'input' listener. */
+  assert.match(SCRIPT, /document\.addEventListener\('input', \(e\) => \{\s*if \(!updateTypedBox\(e\.target\)\) return;[\s\S]{0,400}?UPDATE_TYPED\.add\(e\.target\);\s*\}, true\);/, 'typed words boxes are not remembered in the capture phase');
+  assert.doesNotMatch(page.liftAll(SCRIPT, ['updateSafeReload']), /querySelectorAll\('textarea'\)/, 'every filled textarea blocks the reload again');
+  assert.equal(safeReload({ hidden: false }).reloaded, 0, 'reloaded the page in front of the person');
+  assert.equal(safeReload({ sending: { talk: true } }).reloaded, 0, 'reloaded mid-send');
+  assert.equal(safeReload({ sending: { reply: { project: 'p', id: 1 } } }).reloaded, 0, 'reloaded mid-reply');
+  assert.equal(safeReload({ drafts: { talk: { april: 'half a thought' } } }).reloaded, 0, 'lost a draft');
+  assert.equal(safeReload({ drafts: { room: { p: { text: 'draft' } } } }).reloaded, 0, 'lost a room draft');
+  assert.equal(safeReload({ typed: ['a task comment, half typed'] }).reloaded, 0, 'lost words typed into a field');
+  assert.equal(safeReload({ attached: { room: { p1: [{ name: 'a.png' }] }, agent: {} } }).reloaded, 0, 'lost a file waiting to be sent');
+  assert.equal(safeReload({ modal: true }).reloaded, 0, 'reloaded under an open window');
+  assert.equal(safeReload({ drafts: { talk: { april: '   ' } }, typed: ['', '  '] }).reloaded, 1, 'CONTROL: blank drafts and emptied fields are not words');
+});
+
+test('#3955 round 2: a field removed from the page is let go, and holds no words', () => {
+  const src = page.liftAll(SCRIPT, ['updateSafeReload']);
+  assert.match(src, /if \(t\.isConnected === false\) UPDATE_TYPED\.delete\(t\);/, 'removed fields pile up in UPDATE_TYPED for the life of the tab');
+  const gone = { value: 'typed, then the box was closed', isConnected: false };
+  const typed = new Set([gone]);
+  let reloaded = 0;
+  const got = new Function('document', 'sessionStorage', 'window', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
+    'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen', 'UPDATE_TYPED', 'ATTACH_PENDING', src + '\nreturn updateSafeReload("0.2.76");')(
+    { hidden: true }, { getItem: () => null, setItem() {} }, { location: { reload: () => { reloaded += 1; } } },
+    false, false, null, false, {}, {}, {}, {}, () => false, typed, { room: {}, agent: {} });
+  assert.equal(got, true);
+  assert.equal(reloaded, 1, 'a closed box\'s words blocked the reload');
+  assert.equal(typed.size, 0, 'the removed field was kept');
+});
+
+test('#3955 round 3: only boxes that hold words count as typed (not a dropdown, checkbox or slider)', () => {
+  const box = new Function(page.liftAll(SCRIPT, ['updateTypedBox']) + '\nreturn updateTypedBox;')();
+  assert.equal(box({ tagName: 'TEXTAREA' }), true);
+  assert.equal(box({ tagName: 'INPUT', type: 'text' }), true);
+  assert.equal(box({ tagName: 'INPUT', type: '' }), true, 'an input with no type is a text box');
+  assert.equal(box({ tagName: 'DIV', isContentEditable: true }), true, 'a rich-text composer would lose its words (round 6)');
+  assert.equal(box({ tagName: 'DIV', isContentEditable: false }), false, 'CONTROL: a plain div is not a box');
+  for (const type of ['tel', 'password', 'number', 'email', 'search', 'url']) {
+    assert.equal(box({ tagName: 'INPUT', type }), true, 'words typed into a ' + type + ' box would be lost (round 5)');
+  }
+  for (const t of [{ tagName: 'SELECT' }, { tagName: 'INPUT', type: 'checkbox' }, { tagName: 'INPUT', type: 'range' }, { tagName: 'INPUT', type: 'radio' }]) {
+    assert.equal(box(t), false, (t.type || t.tagName) + ' would stop the reload for the rest of the tab');
+  }
+});
+
+test('#3955 round 3: the old-page chip runs the safe reload, and every value the reload reads is declared on the page', () => {
+  const r = page.liftAll(SCRIPT, ['renderUpdateToast']);
+  const stale = r.slice(r.indexOf('pageIsStale(SERVED_VERSION)'));
+  assert.match(stale.slice(0, 200), /updateSafeReload\(SERVED_VERSION\);/, 'the stale chip no longer tries the safe reload');
+  /* The reload guards each value with typeof (a missing one is skipped silently), so a rename would
+     turn a check off with the tests still green: pin that each is declared under this name. */
+  for (const name of ['TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING', 'TALK_DRAFTS', 'TERM_DRAFTS',
+    'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'ATTACH_PENDING', 'UPDATE_TYPED', 'PJ_POSTING', 'ATTACH_UPLOADING', 'CREATING', 'START_FLIGHT', 'RST_BUSY', 'WATCHING_AGENTS', 'PENDING_AVATAR']) {
+    assert.match(PAGE, new RegExp('^(let|const) ' + name + '\\b', 'm'), name + ' is not declared on the page: the reload\'s check on it is off');
+  }
+  assert.match(PAGE, /^function tipModalOpen\(/m, 'tipModalOpen is gone: the reload would ignore open windows');
+});
+
+test('#3955 round 5: a box that is hidden but still holds typed words blocks the reload (a kept New task draft)', () => {
+  const src = page.liftAll(SCRIPT, ['updateSafeReload']);
+  assert.doesNotMatch(src, /offsetParent|closest\('\[hidden\]'\)/, 'a hidden box is treated as saved again');
+  const kept = { value: 'Rewrite the handoff checklist', isConnected: true, offsetParent: null, closest: () => ({}) };
+  let reloaded = 0;
+  new Function('document', 'sessionStorage', 'window', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
+    'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen', 'UPDATE_TYPED', 'ATTACH_PENDING', src + '\nreturn updateSafeReload("0.2.76");')(
+    { hidden: true }, { getItem: () => null, setItem() {} }, { location: { reload: () => { reloaded += 1; } } },
+    false, false, null, false, {}, {}, {}, {}, () => false, new Set([kept]), { room: {}, agent: {} });
+  assert.equal(reloaded, 0, 'a New task draft kept in a hidden dialog was reloaded away');
+});
+
+test('#3955 round 7: the reload reads a rich-text box by its words (textContent)', () => {
+  const src = page.liftAll(SCRIPT, ['updateSafeReload']);
+  const box = { isContentEditable: true, textContent: 'a rich-text draft', value: undefined, isConnected: true };
+  let reloaded = 0;
+  new Function('document', 'sessionStorage', 'window', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
+    'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen', 'UPDATE_TYPED', 'ATTACH_PENDING', src + '\nreturn updateSafeReload("0.2.76");')(
+    { hidden: true }, { getItem: () => null, setItem() {} }, { location: { reload: () => { reloaded += 1; } } },
+    false, false, null, false, {}, {}, {}, {}, () => false, new Set([box]), { room: {}, agent: {} });
+  assert.equal(reloaded, 0, 'a rich-text draft was reloaded away');
+});
+
+test('#3955 round 9: a file still uploading, or a room post in flight, holds the automatic reload', () => {
+  const src = page.liftAll(SCRIPT, ['updateSafeReload']);
+  const run = (uploading, posting) => {
+    let reloaded = 0;
+    new Function('document', 'sessionStorage', 'window', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
+      'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen', 'UPDATE_TYPED', 'ATTACH_PENDING', 'ATTACH_UPLOADING', 'PJ_POSTING',
+      src + '\nreturn updateSafeReload("0.2.76");')(
+      { hidden: true }, { getItem: () => null, setItem() {} }, { location: { reload: () => { reloaded += 1; } } },
+      false, false, null, false, {}, {}, {}, {}, () => false, new Set(), { room: {}, agent: {} }, uploading, posting);
+    return reloaded;
+  };
+  assert.equal(run(0, false), 1, 'CONTROL: an idle hidden page reloads');
+  assert.equal(run(1, false), 0, 'a reload cut off a file still uploading');
+  assert.equal(run(0, true), 0, 'a reload cut off a room post in flight');
+});
+
+test('#3955 round 9: every upload counts itself up and back down, whatever happens to it', () => {
+  const src = page.liftAll(SCRIPT, ['attachUpload']);
+  assert.match(src, /ATTACH_UPLOADING \+= 1;[\s\S]*try \{[\s\S]*finally \{\s*ATTACH_UPLOADING = Math\.max\(0, ATTACH_UPLOADING - 1\);/,
+    'the upload count is not raised before the try and lowered in its finally');
+});
+
+test('#3955 round 10: typing lets go of boxes that have left the page, so the set cannot grow for the life of a tab', () => {
+  const src = SCRIPT.slice(SCRIPT.indexOf('const UPDATE_TYPED = new Set();'), SCRIPT.indexOf('function updateSafeReload('));
+  let handler = null;
+  const document = { addEventListener: (type, fn) => { if (type === 'input') handler = fn; } };
+  const typed = new Function('document', src + '\nreturn UPDATE_TYPED;')(document);
+  assert.ok(handler, 'CONTROL: the input listener was installed');
+  const gone = { tagName: 'TEXTAREA', isConnected: false };
+  const live = { tagName: 'TEXTAREA', isConnected: true };
+  typed.add(gone);
+  handler({ target: live });
+  assert.equal(typed.has(gone), false, 'a box that left the page was kept');
+  assert.equal(typed.has(live), true, 'CONTROL: the box typed into now is remembered');
+});
+
+test('#3955 round 12: an agent being created, one starting, or a restore running holds the automatic reload', () => {
+  const src = page.liftAll(SCRIPT, ['updateSafeReload']);
+  const run = (creating, start, rst) => {
+    let reloaded = 0;
+    new Function('document', 'sessionStorage', 'window', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
+      'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen', 'UPDATE_TYPED', 'ATTACH_PENDING', 'CREATING', 'START_FLIGHT', 'RST_BUSY',
+      src + '\nreturn updateSafeReload("0.2.76");')(
+      { hidden: true }, { getItem: () => null, setItem() {} }, { location: { reload: () => { reloaded += 1; } } },
+      false, false, null, false, {}, {}, {}, {}, () => false, new Set(), { room: {}, agent: {} }, creating, start, rst);
+    return reloaded;
+  };
+  assert.equal(run(false, null, false), 1, 'CONTROL: an idle hidden page reloads');
+  assert.equal(run(true, null, false), 0, 'a reload dropped an agent being created');
+  assert.equal(run(false, { name: 'a' }, false), 0, 'a reload dropped an agent starting');
+  assert.equal(run(false, null, true), 0, 'a reload dropped a restore');
+});
+
+test('#3955 round 13: a new agent still being watched for, or a photo waiting to go up, holds the automatic reload', () => {
+  const src = page.liftAll(SCRIPT, ['updateSafeReload']);
+  const run = (watching, avatar) => {
+    let reloaded = 0;
+    new Function('document', 'sessionStorage', 'window', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
+      'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen', 'UPDATE_TYPED', 'ATTACH_PENDING', 'WATCHING_AGENTS', 'PENDING_AVATAR',
+      src + '\nreturn updateSafeReload("0.2.76");')(
+      { hidden: true }, { getItem: () => null, setItem() {} }, { location: { reload: () => { reloaded += 1; } } },
+      false, false, null, false, {}, {}, {}, {}, () => false, new Set(), { room: {}, agent: {} }, watching, avatar);
+    return reloaded;
+  };
+  assert.equal(run(0, null), 1, 'CONTROL: an idle hidden page reloads');
+  assert.equal(run(1, null), 0, 'a reload cut off the watch for a new agent (its photo and project tell)');
+  assert.equal(run(0, { blob: 1 }), 0, 'a reload dropped a staged photo');
+  const w = SCRIPT.slice(SCRIPT.indexOf('async function watchForAgent('), SCRIPT.indexOf('async function watchForAgentNow('));
+  assert.match(w, /WATCHING_AGENTS \+= 1;\s*try \{ return await watchForAgentNow\([^)]*\); \} finally \{ WATCHING_AGENTS = Math\.max\(0, WATCHING_AGENTS - 1\); \}/,
+    'the watch is not counted up before and down in a finally');
 });

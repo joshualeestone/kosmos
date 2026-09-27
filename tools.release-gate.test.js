@@ -462,7 +462,7 @@ function versions_entry(version, minutesStale = 0) {
   return `<article id="v${version.replace(/\./g, '-')}"><span class="rel-d">${when}</span></article>\n`;
 }
 
-function git_sandbox(version, { diverge = 'none' } = {}) {
+function git_sandbox(version, { diverge = 'none', whatsNewFor = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-'));
   const git = (...a) => {
     const r = spawnSync('git', ['-C', dir, ...a], { encoding: 'utf8' });
@@ -479,6 +479,21 @@ function git_sandbox(version, { diverge = 'none' } = {}) {
      and returns 0, which reads as "did not refuse". */
   fs.cpSync(path.join(__dirname, 'tools', 'lib'), path.join(dir, 'tools', 'lib'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'sandbox', version }, null, 2));
+  /* #3955: step 1b-ii checks web/whats-new.json with tools/whats-new-check.js (and engine/whatsnew.js);
+     the sandbox carries both and a committed highlights file for the version being cut, so the arms
+     past step 1 exercise that check in place rather than dying on a missing module. */
+  fs.copyFileSync(path.join(__dirname, 'tools', 'whats-new-check.js'), path.join(dir, 'tools', 'whats-new-check.js'));
+  fs.mkdirSync(path.join(dir, 'engine'), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, 'engine', 'whatsnew.js'), path.join(dir, 'engine', 'whatsnew.js'));
+  fs.mkdirSync(path.join(dir, 'web'), { recursive: true });
+  // For the version the arms CUT: the next patch of `version` (0.6.02 -> 0.6.03), padding kept.
+  const parts = String(version).split('.');
+  const last = parts[parts.length - 1];
+  parts[parts.length - 1] = String(Number(last) + 1).padStart(last.length, '0');
+  const cutVersion = parts.join('.');
+  // whatsNewFor: a file for another version (round 9: the arm that proves the real script refuses it).
+  fs.writeFileSync(path.join(dir, 'web', 'whats-new.json'), JSON.stringify({ version: whatsNewFor || cutVersion,
+    highlights: [{ icon: 'spark', title: 'A sandbox highlight', line: 'Here so the cut reaches the step under test.' }] }));
   /* The site check runs before the guard, so the arms need one to get past it.
      ⚠️ IT LIVES OUTSIDE THE REPO, which is both what the real thing is (a
      separate chaoskosmos-site checkout) and what keeps these arms honest: with
@@ -545,7 +560,7 @@ function tmpdirIn(dir) {
   return t;
 }
 
-function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending = null } = {}) {
+function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending = null, noWhatsNew = false } = {}) {
   /* #1455: the pending-entry shape. The operator may leave the entry as a FILE
      carrying TIMESTAMP instead of hand-stamping the page, and step 1 accepts that as a
      second valid state. Written into the REPO (not the site) because that is where
@@ -605,6 +620,9 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
          exported would redirect the pending arms away from the sandbox fixture and they
          would go red as if the guard were broken rather than the harness. */
       KOSMOS_ENTRY_FILE: undefined,
+      /* #3955: the highlights opt-out is set only by the arm that tests it; an operator's exported
+         one would otherwise let every arm past the check it is meant to exercise. */
+      KOSMOS_CUT_NO_WHATS_NEW: noWhatsNew ? '1' : undefined,
       KOSMOS_STEP1_PAST_BOUND: undefined,
       KOSMOS_LATE_PAST_BOUND: undefined,
       KOSMOS_FUTURE_BOUND: undefined,
@@ -862,6 +880,36 @@ test('#1455: a MALFORMED pending entry is refused at step 1, not after the build
    consistent with "that failure mode stopped occurring". THREE separate things
    in the script make the field unconditional, and a regression need only
    remove one of them. Each is asserted below, so each can fail on its own. */
+
+// #3955 round 9: the highlights check, driven through the REAL release.sh (the text of the call sites
+// is pinned in tools.whats-new-check-3955.test.js; these prove the script stops on the answer).
+test('#3955: a highlights file for another version stops the cut at 1b-ii, before anything is bumped', () => {
+  const { dir, home, site } = git_sandbox('0.6.02', { whatsNewFor: '0.6.02' });
+  const r = run_git(dir, '0.6.03', home, site);
+  assert.match(r.said, /not ready for 0\.6\.03/, r.said.slice(0, 800));
+  assert.doesNotMatch(r.said, /== 2\. the version, in one place ==/, 'a cut with last release\'s highlights reached step 2');
+  assert.equal(r.touched, false, 'the version was bumped before the refusal');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
+test('#3955: KOSMOS_CUT_NO_WHATS_NEW=1 lets the same cut through, and says there will be no window', () => {
+  const { dir, home, site } = git_sandbox('0.6.02', { whatsNewFor: '0.6.02' });
+  const r = run_git(dir, '0.6.03', home, site, { noWhatsNew: true });
+  assert.match(r.said, /KOSMOS_CUT_NO_WHATS_NEW=1: 0\.6\.03 ships with no highlights/, r.said.slice(0, 800));
+  assert.match(r.said, /== 2\. the version, in one place ==/, 'the opt-out did not get past the check');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
+test('#3955 round 11: with the opt-out set and a real highlights file for the version, the cut says the window WILL show', () => {
+  const { dir, home, site } = git_sandbox('0.6.02');   // its whats-new.json is for 0.6.03, the cut version
+  const r = run_git(dir, '0.6.03', home, site, { noWhatsNew: true });
+  assert.match(r.said, /the highlights check is not enforced; web\/whats-new\.json is for 0\.6\.03, so the "Kosmos has been updated" window will show/, r.said.slice(0, 800));
+  assert.doesNotMatch(r.said, /0\.6\.03 ships with no highlights/, 'the cut claimed no window over a real highlights file');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
 
 test('#1449: the cut completion line can never omit its step', () => {
   const s = fs.readFileSync(REAL, 'utf8');

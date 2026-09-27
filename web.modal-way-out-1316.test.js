@@ -40,8 +40,8 @@ test('the sweep still covers every modal, and the count is the assertion', () =>
   const found = modals();
   assert.ok(found.length >= 12,
     `only ${found.length} modals found; the sweep stopped seeing them, so every assertion below is vacuous`);
-  assert.ok(found.length <= 17,
-    `${found.length} modals now, up from 16. A new one joined the page: sweep it, then raise this number.`);
+  assert.ok(found.length <= 18,   // 18: #3955's Kosmos has been updated window
+    `${found.length} modals now, up from 18 (#3955 added the 18th). A new one joined the page: sweep it, then raise this number.`);
 });
 
 /**
@@ -56,6 +56,9 @@ test('the sweep still covers every modal, and the count is the assertion', () =>
  * A table costs more lines and says what was actually checked.
  */
 const ESCAPES_VIA = {
+  /* #3955: the "Kosmos has been updated" window. Its Escape is a document keydown listener that finds
+     the window by id and closes it first (its backdrop id sits in WN_HTML so this sweep can name it). */
+  whatsnew:         /getElementById\('whatsnew'\);\n\s*if \(!back \|\| wnCovered\(\)\) return;\n\s*if \(e\.key === 'Escape'\)/,
   updconfirm:       /Escape[\s\S]{0,300}updconfirm/,
   'hist-modal':     /Escape[\s\S]{0,300}hist-modal/,
   'pol-modal':      /pol-modal'\)\.hidden\) return;/,
