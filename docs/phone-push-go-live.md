@@ -208,10 +208,31 @@ No deploy step copies a key file, and the template only holds its path.
 
 ## Step 4. Get the iOS app onto testers' phones [Josh for signing and upload; fleet for the build]
 
+**Done now, before Apple's approval (kosmos #4089):**
+- **The Team ID has one home, `ios/Signing.xcconfig`** (`DEVELOPMENT_TEAM`, empty today). The Xcode
+  project and the archive script both read it from there.
+- **`ios/tools/archive.sh --build <N>`** archives, exports for App Store Connect
+  (`ios/tools/ExportOptions.plist`) and checks the exported `.ipa`. `--upload` then sends that same
+  checked file. Details are in `ios/README.md`, "Signing, archive and upload".
+- **The push check on the exported app is automatic.** `ios/tools/check-ipa-entitlements.sh` runs
+  inside `archive.sh`, and nothing uploads unless `aps-environment` reads `production`.
+- **The app icon and the navy launch screen are in an asset catalog** (`ios/Kosmos/Assets.xcassets`,
+  icon from `assets/Kosmos-1024.png`). It compiles on GitHub's macOS runner, and iOS CI checks the
+  built app carries both. It does not compile on the Mac mini until an iOS runtime is installed
+  there (`xcodebuild -downloadPlatform iOS`), which matters only for building on that Mac.
+
+**Waits on Apple approving the org (#3643):**
+- **Set `DEVELOPMENT_TEAM` in `ios/Signing.xcconfig`** to the Kosmos Agent Manager, Inc. Team ID
+  [Josh supplies the id; fleet makes the change]. One line; signing is `Automatic`. Signing under
+  any other team gives device tokens the coordinator's key cannot send to.
+- **The App Store Connect app record** for `io.kosmos.app`, under that org [Josh: the seller name
+  is permanent, Step 1 item 2].
+- **An App Store Connect API key** for the upload (`ASC_KEY_PATH`, `ASC_KEY_ID`, `ASC_ISSUER_ID`),
+  filed with `/add-secret` [Josh creates it; it can upload builds under his org]. Without one,
+  `archive.sh` still exports and checks, and the checked `.ipa` goes up through Apple's Transporter
+  app.
+
 **Setup (one time):**
-- Set `DEVELOPMENT_TEAM` in `ios/Kosmos.xcodeproj` to the Kosmos Agent Manager, Inc. Team ID
-  [Josh supplies the id; fleet makes the change]. It is absent today, and signing is `Automatic`.
-  Signing under any other team gives device tokens the coordinator's key cannot send to.
 - The entitlement file `ios/Kosmos.entitlements` already asks for push
   (`aps-environment = development`). Xcode switches it to production when the build is
   exported for distribution.
@@ -226,9 +247,9 @@ No deploy step copies a key file, and the template only holds its path.
   network only over HTTPS through Apple's own `URLSession` and `WKWebView`, keeps the session in the
   iOS Keychain, and contains no encryption code of its own.
 - **Push entitlement.** `ios/Kosmos.entitlements` says `aps-environment = development`, and the
-  export for distribution is expected to set `production`. Check it on the exported app before
-  upload: unzip the exported `.ipa` and run `codesign -d --entitlements - Payload/Kosmos.app`; it
-  must show `production`.
+  export for distribution is expected to set `production`. `archive.sh` checks the exported `.ipa`
+  and stops before upload if it does not (`ios/tools/check-ipa-entitlements.sh`; by hand, unzip the
+  `.ipa` and run `codesign -d --entitlements - Payload/Kosmos.app`).
 - **iPhone only.** The app targets iPhone only (`TARGETED_DEVICE_FAMILY = 1`, Liu Kang,
   2026-09-25): iPad layouts are not designed or tested, and no iPad screenshots are needed. iPad is
   not ruled out, though: an iPhone-only app still installs on an iPad in a scaled iPhone window, App
@@ -241,13 +262,12 @@ No deploy step copies a key file, and the template only holds its path.
 - **No purchase inside the app.** The sign-in page hides checkout, prices and the billing portal
   inside the iOS app (kosmos-relay #117). Anything said to App Review about where Kosmos+ is sold
   is Josh's.
-- **Waiting on the iOS simulator runtime** (`xcodebuild -downloadPlatform iOS`): the app icon (the
-  artwork is ready: `assets/Kosmos-1024.png`, 1024 px, full bleed, no transparency) and a navy
-  launch screen. Both need an asset catalog, which does not compile on a Mac without the runtime.
-  The store rejects an upload with no app icon, so this must land before the first TestFlight build.
+- **App icon and launch screen.** In the asset catalog and checked in CI (above). The store rejects
+  an upload with no app icon; that is now covered.
 
 **Build and upload:**
-- Archive, then upload to TestFlight [Josh, or an agent holding upload access he grants].
+- `ios/tools/archive.sh --build <N> --upload`, with the build number higher than any uploaded
+  before [Josh, or an agent holding the upload key he grants].
 - **The app's own choice of server:**
   - It reads its provisioning profile at runtime and tells the coordinator `sandbox` or
     `production`.

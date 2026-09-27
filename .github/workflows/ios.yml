@@ -9,8 +9,14 @@
 # WHAT GREEN CERTIFIES: the UIKit-free logic (ios/LogicTests/run.sh lists the
 # files) passes its suite on macOS,
 # the app compiles and links for the simulator with signing off (Debug and
-# Release), and both built apps carry the four permission strings. It does NOT
-# certify running on a simulator or device, a signed build, or APNs delivery.
+# Release), both built apps carry the four permission strings, the app icon and
+# the navy launch screen (#4089), an unsigned device archive builds, and the
+# exported-app push check can fail as well as pass. It does NOT certify running
+# on a simulator or device, a signed build or export, or APNs delivery.
+#
+# The asset catalog (icon, launch colour) only compiles on a Mac with an iOS
+# simulator runtime installed; the runner has one, the Mac mini does not yet, so
+# this workflow is where the icon and launch screen are proven (#4089).
 
 name: ios
 
@@ -47,6 +53,7 @@ jobs:
         run: |
           xcodebuild -version
           xcrun swiftc --version
+          xcrun simctl list runtimes
 
       # The suite prints one VERDICT line last. Assert that line, not only the exit
       # code, so a run cut off before it cannot read as green.
@@ -78,3 +85,30 @@ jobs:
             tools/check-usage-strings.sh "build/$config-iphonesimulator/Kosmos.app/Info.plist" | tee "$RUNNER_TEMP/usage-$config.log"
             grep -q '^VERDICT: PASS' "$RUNNER_TEMP/usage-$config.log"
           done
+
+      # #4089: App Store Connect refuses an upload with no icon. Check the apps just built.
+      - name: App icon and launch screen are in the built app (Debug and Release)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          for config in Debug Release; do
+            tools/check-app-assets.sh "build/$config-iphonesimulator/Kosmos.app" | tee "$RUNNER_TEMP/assets-$config.log"
+            grep -q '^VERDICT: PASS' "$RUNNER_TEMP/assets-$config.log"
+          done
+
+      # #4089: the same archive command tools/archive.sh runs, with signing off, so a
+      # project change that breaks archiving goes red before the day of the first upload.
+      - name: Device archive builds (unsigned)
+        working-directory: ios
+        run: |
+          xcodebuild -project Kosmos.xcodeproj -scheme Kosmos -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Kosmos.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO archive
+          test -d "$RUNNER_TEMP/Kosmos.xcarchive/Products/Applications/Kosmos.app"
+
+      # #4089: the check archive.sh runs before any upload, shown able to fail.
+      - name: Exported-app push check (production aps-environment)
+        run: |
+          set -o pipefail
+          ios/tools/test-check-ipa-entitlements.sh | tee "$RUNNER_TEMP/ipa-check.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/ipa-check.log"

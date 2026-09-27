@@ -1,0 +1,8 @@
+// The ONE place the Apple Team ID lives (kosmos #4089, #718).
+//
+// Empty until Apple approves the Kosmos Agent Manager, Inc. developer org (#3643). Then set it to
+// that org's 10-character Team ID and nothing else: the Xcode project reads it from here (this file
+// is the app target's base configuration), and tools/archive.sh reads it from here for the export.
+// Signing under any other team gives device tokens the coordinator's APNs key cannot send to
+// (docs/phone-push-go-live.md, Step 1).
+DEVELOPMENT_TEAM =
