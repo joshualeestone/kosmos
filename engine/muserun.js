@@ -156,6 +156,9 @@ function runTurn(input) {
       if (!inst.installed) { fail(inst.because); return; }
       const t = turnArgs(input);
       if (t.error) { fail(t.error); return; }
+      // #3939 3c-1: when this turn began, so a refusal does not undo a sign-in made while it ran.
+      const startedAt = Date.now();
+      const atStart = musestatus.fileAtStart();   // the credential this turn begins with (round 5)
       stop = runMuse(inst.bin, t.args, { cwd: t.workspace }, (err, stdout, stderr) => {
         const parsed = parseEvents(stdout);
         const exitCode = err ? (typeof err.code === 'number' ? err.code : null) : 0;
@@ -165,10 +168,17 @@ function runTurn(input) {
         else if (err && err.killed) because = TIMED_OUT;
         else if (err && /already in use/.test(String(stderr || ''))) because = 'Muse Code is still working on this agent\'s last turn';
         // Singular and plural both appear in the captures (round 1).
-        else if (err && /missing meta credential/.test(String(stderr || ''))) because = 'Muse Code is not signed in on this computer';
+        else if (err && /missing meta credential/.test(String(stderr || ''))) {
+          because = 'Muse Code is not signed in on this computer';
+          // #3939 slice 3c-1: from now on GET /api/muse says so too, until a sign-in or a completed
+          // turn after this. It never throws, and the turn's answer does not depend on it.
+          musestatus.markSignedOut(startedAt, atStart, Date.now());
+        }
         // Timed out only when Kosmos stopped it (round 1): another signal is a crash, not a timeout.
         else if (err) because = COULD_NOT_RUN;
         else if (!parsed.done) because = 'Muse Code stopped before finishing the turn';
+        // #3939 3c-1: a completed turn proves the sign-in (a terminal `muse login` is seen only this way).
+        if (!err && parsed.done) musestatus.markTurnSignedIn(startedAt);
         finish({ ok: !err && parsed.done, exitCode, sessionId: parsed.sessionId, model: parsed.model, text: parsed.text, done: parsed.done, because });
       });
     } catch {

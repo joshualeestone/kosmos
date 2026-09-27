@@ -36,6 +36,7 @@ function setup(flow) {
   process.env.AGENT_WORKFORCE_MUSE_SIGNIN_SOCKET = 'kosmos-muse-signin-test-' + process.pid + '-' + flow;
   process.env.AGENT_WORKFORCE_MUSE = '1';
   signin.resetForTests();
+  fs.rmSync(musestatus.eventsFolder(), { recursive: true, force: true });   // no event carries into the next test (round 5)
   fs.rmSync(musestatus.signedInMarker(), { force: true });
   require('./live-execution').allowLiveExecution();   // a real tmux on a private socket, on purpose
   // A wrapper keeps the fake's settings explicit, whatever environment a tmux server was started with.
@@ -64,6 +65,9 @@ test('#3939: the sign-in shows Meta\'s code, presses Enter once, and ends signed
   const t = setup('normal');
   try {
     assert.equal(musestatus.signedIn().signedIn, false, 'CONTROL: not signed in before');
+    // #3939 3c-1: an earlier refused turn left a "signed out" note; this sign-in must end it.
+    musestatus.markSignedOut();
+    assert.notEqual(musestatus.latest().note, null, 'CONTROL: the note is there before');
     const started = signin.start();
     assert.equal(started.ok, true, JSON.stringify(started));
     await until(() => signin.status().code === 'WXYZ-1234', 15000, 'the code');
@@ -79,6 +83,8 @@ test('#3939: the sign-in shows Meta\'s code, presses Enter once, and ends signed
     assert.match(log, /^xdg:unset$/m, 'XDG_CONFIG_HOME was set for muse');
     assert.equal(signin.status().code, undefined, 'a used code is still shown after the sign-in ended');
     assert.equal(signin.status().url, undefined, 'the used code is still served inside the address (round 5)');
+    // Round 5: the note stays (another board may have written a newer one); the later mark wins.
+    assert.notEqual(musestatus.latest().note, null, 'a sign-in deleted the "signed out" note');
     assert.deepEqual(musestatus.signedIn(), { signedIn: true, how: 'kosmos' });
     assert.throws(() => execFileSync(TMUX, ['-L', process.env.AGENT_WORKFORCE_MUSE_SIGNIN_SOCKET, 'has-session', '-t', signin.SESSION], { stdio: 'ignore' }), 'the session outlived the sign-in');
   } finally { t.cleanup(); }
@@ -192,6 +198,7 @@ test('#3939: the screen words: the last one drawn counts, and the code is the cu
 test('#3939: signed in from Muse\'s own file: a providers.meta entry counts, an empty one (after logout) does not', () => {
   const file = musestatus.authFile();
   fs.rmSync(musestatus.signedInMarker(), { force: true });
+  fs.rmSync(musestatus.eventsFolder(), { recursive: true, force: true });
   fs.mkdirSync(path.dirname(file), { recursive: true });
   try {
     fs.writeFileSync(file, JSON.stringify({ schema_version: 1, providers: {} }));
@@ -413,15 +420,15 @@ test('#3939 round 7: a retry restarts the give-up clock', { skip: !onMac && 'the
 });
 
 test('#3939 round 8: a sign-in Kosmos could not record is not reported done', { skip: !onMac && 'the flag is Mac only' }, () => {
-  const marker = musestatus.signedInMarker();
+  const marker = musestatus.eventsFolder();   // slice 3c-1: marks are events in this folder
   const { done } = scripted(PROMPT + '\nWaiting for approval... Esc cancel\nLogged in. Credential saved.\n');
   fs.rmSync(marker, { recursive: true, force: true });
-  fs.mkdirSync(marker, { recursive: true });   // a folder where the mark goes: the write cannot succeed
+  fs.writeFileSync(marker, 'not a folder');   // a file where the events go: the write cannot succeed
   try {
     signin.tickForTests();
     assert.equal(signin.status().state, 'failed', 'a sign-in with no record was reported done');
     assert.match(signin.status().because, /could not record it/);
-    assert.equal(fs.statSync(marker).isDirectory(), true, 'CONTROL: the obstacle was still in place');
+    assert.equal(fs.statSync(marker).isFile(), true, 'CONTROL: the obstacle was still in place');
   } finally { done(); fs.rmSync(marker, { recursive: true, force: true }); }
 });
 
