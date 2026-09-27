@@ -281,6 +281,15 @@ carrying #161:
 - A refused open (the `kosmos-open` command above with `--es address evil.example.com`) does
   nothing, and the sign-in page's next "Open my Kosmos" still goes full screen.
 
+## Performance measurements
+
+Before emulator or physical-phone timing runs, require a quiet machine with `bash
+tools/heavy-gate.sh --twice --quiet-box --except-cwd <measurement-worktree>`. The
+opt-in `--quiet-box` check includes full validation suites, which ordinary heavy-gate
+mode intentionally allows to overlap. Without it, another suite can consume the host
+CPU and spoil browser-startup, paint, and jank measurements without making the gate
+read busy.
+
 ## Push (notification delegation)
 
 Push itself is the coordinator's web push, not anything in this module: the

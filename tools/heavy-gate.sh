@@ -2,7 +2,7 @@
 # kosmos#3805: is it safe to start a heavy run (a full suite, browser checks, a screenshot sheet)?
 # One shared answer, instead of a check hand-rolled per agent (Liu Kang's rule, 2026-09-25).
 #
-#   bash tools/heavy-gate.sh [--except-cwd DIR] [--twice] [--quiet]
+#   bash tools/heavy-gate.sh [--except-cwd DIR] [--twice] [--quiet] [--quiet-box]
 #
 # Run it, never source it: sourced, it refuses with exit 2 (do not start). Run by zsh, it
 # re-runs itself under bash, because zsh does not split words the way the parsing below needs.
@@ -26,6 +26,8 @@
 #     rule out other agents' runs there too). DIR must be a checkout (it has a .git), so a parent
 #     folder passed by mistake is exit 2, not a clear.
 # --quiet: print nothing on stdout, not even the CLEAR/BUSY verdict; read the exit code.
+# --quiet-box: for timing-sensitive work, also count a live tools/run-tests.sh validation
+#   suite. The default deliberately does not count validation suites, which may overlap.
 # --twice: clear only if two reads, KOSMOS_HG_TWICE_SECONDS apart (default 60, whole seconds;
 #   anything else is exit 2), are both clear.
 # Every candidate is printed with the reason it counts or does not; its command is cut to
@@ -56,12 +58,13 @@ fi
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 
-EXCEPT="" ; TWICE=0 ; QUIET=0 ; EXCEPT_SET=0
+EXCEPT="" ; TWICE=0 ; QUIET=0 ; QUIET_BOX=0 ; EXCEPT_SET=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --except-cwd) EXCEPT_SET=1; EXCEPT="${2:-}"; shift 2 || shift ;;
     --twice) TWICE=1; shift ;;
     --quiet) QUIET=1; shift ;;
+    --quiet-box) QUIET_BOX=1; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *) echo "heavy-gate: unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -97,7 +100,8 @@ claim_line() {
 }
 
 # Live snapshot in the seam's format. Every shell that has a release.sh or browser-checks.sh
-# word in its arguments is a candidate; classify decides whether it is RUNNING the script.
+# word in its arguments is a candidate. In --quiet-box mode, run-tests.sh is one too.
+# classify decides whether it is RUNNING the script.
 # How far up the parent chain to look for a node --test runner. A test fixture sits a few hops
 # below it (node, a wrapper shell, the script); a deeper chain stops early and fails toward busy.
 ANCESTOR_DEPTH=10
@@ -108,7 +112,7 @@ live_snapshot() {
   local p q cwd cmd anc depth listing
   listing="$(ps -axo pid=,command= 2>/dev/null)" || return 3
   printf '%s\n' "$listing" | awk '$1 == 1 { f = 1 } END { exit !f }' || return 3
-  printf '%s\n' "$listing" | awk '$2 ~ /(^|\/)(bash|sh|zsh)$/ { for (i = 3; i <= NF; i++) if ($i ~ /(^|\/)(release|browser-checks)\.sh$/) { print $1; next } }' |
+  printf '%s\n' "$listing" | awk -v quiet_box="$QUIET_BOX" '$2 ~ /(^|\/)(bash|sh|zsh)$/ { for (i = 3; i <= NF; i++) if ($i ~ /(^|\/)(release|browser-checks)\.sh$/ || (quiet_box == 1 && $i ~ /(^|\/)run-tests\.sh$/)) { print $1; next } }' |
   while read -r p; do
     cmd="$(ps -o command= -p "$p" 2>/dev/null)"
     # Gone means ps no longer knows the pid; a live pid whose cwd lsof cannot read keeps an
@@ -149,7 +153,7 @@ script_of() (
       esac
       lead="$w"
     fi
-    case "$w" in */tools/release.sh|*/tools/browser-checks.sh|tools/release.sh|tools/browser-checks.sh)
+    case "$w" in */tools/release.sh|*/tools/browser-checks.sh|tools/release.sh|tools/browser-checks.sh|*/tools/run-tests.sh|tools/run-tests.sh)
       printf '%s' "$w"; exit 0 ;; esac
   done
   printf '%s' "$lead"
@@ -203,7 +207,9 @@ classify() {
     script="$(script_of "$cmd")"
     case "$script" in
       */tools/release.sh|*/tools/browser-checks.sh|tools/release.sh|tools/browser-checks.sh) ;;
+      */tools/run-tests.sh|tools/run-tests.sh) [ "$QUIET_BOX" = 1 ] || script="" ;;
       release.sh|browser-checks.sh|./release.sh|./browser-checks.sh) case "$cwd" in */tools|"") ;; *) script="" ;; esac ;;
+      run-tests.sh|./run-tests.sh) if [ "$QUIET_BOX" = 1 ]; then case "$cwd" in */tools|"") ;; *) script="" ;; esac; else script=""; fi ;;
       *) script="" ;;
     esac
     if [ -z "$script" ]; then say "  ignore $pid: mentions the name but does not run it ($show)"; continue; fi
