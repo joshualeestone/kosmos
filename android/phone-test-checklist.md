@@ -6,8 +6,8 @@ screenshot is always enough: press the power and volume-down buttons together.
 
 Some steps depend on updates that are not switched on yet, so they are marked:
 
-- **Wait for the server update**: a Kosmos+ server update. Part of it is ready and you switch it on
-  when you choose; the notification part (Kano's) is finished but not switched on yet either.
+- **Wait for the server update**: one Kosmos+ server update, ready now, which you switch on when
+  you choose.
 - **Wait for the Mac update**: a Kosmos release for your Mac. Three separate Mac-side pieces are
   involved, listed in the table at the end; one of them may already be on your Mac.
 
@@ -43,6 +43,7 @@ second sign-in step, the same one you use on the web.
 - There is no way to buy or subscribe inside the app. It only signs you in. That is deliberate.
   (#718)
 - A small "Running in Chrome" note may show at the bottom the first time. Tap **Got it**.
+- If it asks whether Kosmos may send you notifications, tap **Allow**.
 
 **If it looks different:** a screenshot of the first screen, especially if you see an address bar.
 
@@ -77,15 +78,18 @@ no message; or the "did not open in the app" sentence.
 
 ## 5. Your Mac asleep
 
-Put your Mac to sleep (or close its lid), then on the phone reopen Kosmos from its icon and tap
-**Open my Kosmos**. Screenshot what the phone shows, then wake the Mac. (#4086, #4093)
+Put your Mac to sleep (or close its lid). On the phone, close Kosmos completely (swipe it away from
+the recent apps), open it from its icon, and tap **Open my Kosmos**. Screenshot what the phone
+shows, then wake the Mac. (#4086, #4093)
 
-Better wording for when your Mac is not answering is written but not switched on yet, so there is
-no wrong answer here. We just want to see it on a real phone.
+You will probably see the Kosmos page saying Kosmos couldn't open and to check your connection,
+even though your phone is online. Better wording for when your Mac is not answering is written but
+not switched on yet, so there is no wrong answer here. We just want to see it on a real phone.
 
 ## 6. Turn on notifications on the phone
 
-Reopen Kosmos from its icon to get back to the sign-in page, and tap **Notify me on this phone**. If
+Close Kosmos completely (swipe it away from the recent apps) and open it from its icon to get back
+to the sign-in page, then tap **Notify me on this phone**. If
 the phone asks whether **Kosmos** may send you notifications, tap **Allow**. The page then says the
 phone will be notified when an agent posts or needs you. (#4140, #718)
 
@@ -95,7 +99,8 @@ phone will be notified when an agent posts or needs you. (#4140, #718)
 
 **Wait for the Mac update.** Your Mac cannot send notifications to a phone yet: phone notifications
 are switched off in Kosmos on the Mac until the release that turns them on, and after it you switch
-them on in Kosmos on the Mac: **Settings, This computer, Phone notifications, Turn on**. Before that, asking an agent to need you sends nothing to
+them on in Kosmos on the Mac: **Settings, Computer**, then **Turn on** next to "Buzz my phone when
+an agent needs me". Before that, asking an agent to need you sends nothing to
 the phone, and that is expected. (#718)
 
 Once they are on, ask an agent to need you (or wait for one to), with the phone locked or on its
@@ -104,6 +109,9 @@ home screen.
 **You should see:** a notification titled like "Scorpion needs you", with the **Kosmos planet icon**
 (a small circle with a ring around it), both at the top of the screen and when you pull the shade
 down. Not Chrome's round logo. (#4151)
+
+The Mac sends at most one of these per agent every five minutes, so to try again, use a different
+agent or wait five minutes. (#718)
 
 **If it looks different:** pull the shade down and screenshot it.
 
@@ -121,6 +129,9 @@ This needs step 7 working first.
     the recent apps) before testing this. A notification that arrived before that still opens the
     old way, in a browser window. The phone can also take up to a day to pick up the new
     behaviour, so if the first tap still opens a browser window, try again later that day.
+  - If your board opens on its home page instead of that agent, your Mac does not have its part yet
+    (the server update and the Mac update arrive separately); tell us which Kosmos version your Mac
+    runs.
   - The extra tap on **Open my Kosmos** is deliberate for now. If it annoys you, tell us.
 
 **If it looks different:** a screenshot of what the tap opened.
@@ -165,10 +176,13 @@ android README):
 
 | What you will notice | Step | Needs |
 |---|---|---|
-| Your board opens full screen, not with an address bar | 4 | the server update (relay #171, ready) and the Mac piece from relay #161 (probably already in Kosmos 0.6.97 or later) |
-| Notifications reach the phone at all | 7 | the Mac release that turns phone notifications on (not made yet), then switching them on in the Mac's Settings |
-| A notification tap opens the agent inside the app | 8 | the server update including Kano's notification change, and a Mac release carrying its Mac half (both in relay #174, finished, not switched on yet; #4140) |
-| The sign-in page loads a little faster than it already does | 9 | the server update (relay #169, ready) |
+| Your board opens full screen, not with an address bar | 4 | the server update, and a Mac piece probably already in Kosmos 0.6.97 or later (relay #171, #161) |
+| Notifications reach the phone at all | 7 | the Mac release that turns phone notifications on (not made yet), then switching them on in the Mac's Settings (#718) |
+| A notification tap opens the agent inside the app | 8 | the server update, and the Mac release carrying the part that keeps the agent (relay #174, #4140) |
+| The sign-in page loads a little faster than it already does | 9 | the server update (relay #169) |
+
+One more change on the card's list, relay #170, only changes a plain web page this script does not
+reach, so no step tests it.
 
 Everything else works now: installing, signing in, allowing the phone on your Mac, turning on
 notifications on the phone, the Mac-asleep check, and the no-connection page. How fast it opens

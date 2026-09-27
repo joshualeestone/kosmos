@@ -18,8 +18,8 @@ tap with and without the in-app marker).
 ## Decisions
 - Steps follow the order Josh meets them, not the card order.
 - "Wait for the server update" is written into each affected step, with the before-update behaviour
-  said plainly, plus one table at the end. As of #3763's last entry, relay #169, #171, #172 and
-  #173 are merged and not live; Kano's push-tap-4140 has no PR yet.
+  said plainly, plus one table at the end. As of 13:08Z, relay #169 and #171 to #174 are merged
+  and not live (the live build is 660ef70); #174 is Kano's push-tap-4140.
 - vc3 is named as Liu Kang's install note names it: Kosmos-android-test.apk, 0.1.2, in his Files.
 - Three kinds of "wait": the server update (relay #169 and #171 ready; Kano's #4140 merged as
   relay #174 at 13:08Z, not deployed, which also carries the Mac's gate.html half), the Mac update for the full-screen board (tunnel with relay #161), and the Mac release
