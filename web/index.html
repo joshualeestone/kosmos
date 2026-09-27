@@ -25909,7 +25909,8 @@ function agySubDriver(pre, onReady) { return {
       this.next = 'check';
       AGY_INSTALLED = true;
       this.say('Ready. Gemini runs on your Google subscription on this computer: pick Google Gemini (Google subscription) when you create an agent.', '', false, true);
-      this.winReady();
+      // onReady is async since #4082: guarded like the Mac call sites, so a failure is never an unhandled rejection.
+      try { Promise.resolve(this.winReady()).catch(() => {}); } catch { /* same */ }
     } else if (state === 'failed') {
       this.winId = null;
       this.winShowPaste(false);
@@ -57918,9 +57919,13 @@ async function frOpenaiSubConnected(_account) {
      after the accounts read below (seconds; a person may Tab on meanwhile), and focus goes to the box BEFORE the
      repaint writes it (Grok's order), so its live region reads the connected box once. */
   const was = document.activeElement;
-  const lost = FR_STEP === 5 && (!was || was === document.body || (!!sub && typeof sub.contains === 'function' && sub.contains(was)));
+  /* The picker too (review round 6): Connect pressed again while this sign-in was still in flight re-shows the
+     picker with focus in it, the poll keeps running, and the picker hides here as well. */
+  const pick = document.getElementById('fr-openai-pick');
+  const within = (el) => !!el && typeof el.contains === 'function' && el.contains(was);
+  const lost = typeof FR_STEP !== 'undefined' && FR_STEP === 5 && (!was || was === document.body || within(sub) || within(pick));
   if (sub) sub.hidden = true;
-  const pick = document.getElementById('fr-openai-pick'); if (pick) pick.hidden = true;
+  if (pick) pick.hidden = true;
   const box = document.getElementById('fr-openai-msg');
   if (box && lost) {
     if (box.setAttribute) box.setAttribute('tabindex', '-1');

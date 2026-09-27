@@ -30,7 +30,10 @@ function run(focusId, { paintFails = false, during = null } = {}) {
   const doc = { body: { id: 'body' }, activeElement: null };
   const el = (id) => (els[id] || (els[id] = { id, hidden: false, textContent: '', attrs: {},
     setAttribute(k, v) { this.attrs[k] = v; }, focus() { doc.activeElement = this; },
-    contains(x) { return !!x && typeof x.id === 'string' && x.id.startsWith('fr-openai-sub-'); } }));
+    contains(x) {
+      const pre = { 'fr-openai-sub-step': 'fr-openai-sub-', 'fr-openai-pick': 'fr-openai-pick-' }[this.id];
+      return !!pre && !!x && typeof x.id === 'string' && x.id.startsWith(pre);
+    } }));
   doc.getElementById = el;
   doc.activeElement = focusId === 'body' ? doc.body : el(focusId);
   const fn = new Function('document', 'paintAccounts', 'frPaintOpenai', `
@@ -61,6 +64,13 @@ test('#4082: from the page itself too (focus already dropped), and even when the
   const r = run('body', { paintFails: true });
   await r.fn({}).catch(() => {});
   assert.equal(r.doc.activeElement, r.el('fr-openai-msg'));
+});
+
+test('#4082: focus in the re-shown picker (Connect pressed again mid sign-in) also lands on the box when it connects', async () => {
+  const r = run('fr-openai-pick-sub');
+  await r.fn({});
+  assert.equal(r.el('fr-openai-pick').hidden, true);
+  assert.equal(r.doc.activeElement, r.el('fr-openai-msg'), 'focus was left in the hidden picker');
 });
 
 test('#4082 CONTROL: a person who has moved on keeps their place', async () => {
