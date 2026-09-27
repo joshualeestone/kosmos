@@ -149,3 +149,25 @@ test('#4043: the supervisor writes the hook before every agy launch, and cannot 
   assert.ok(launch > -1 && call < launch, 'agyhooks must run BEFORE agy is launched, or the first turn reports nothing');
   assert.match(branch.slice(0, launch), /_AGY_BRIDGE="\$\(cd "\$\(dirname "\$0"\)"/, 'the bridge must be the copy beside the supervisor');
 });
+
+test('#4043: the installed copy finds the engine through the engine-path pointer (no engine/ beside it)', () => {
+  const dir = path.join(SB, 'support', 'bin');
+  fs.mkdirSync(dir, { recursive: true });
+  const engine = path.join(__dirname);
+  fs.writeFileSync(path.join(dir, 'engine-path'), engine + '\n');
+  assert.equal(bridge.engineDir(dir), engine, 'the supportDir copy could not find the engine, so no board token would be sent');
+  assert.equal(bridge.engineDir(path.join(SB, 'nowhere')), null, 'control: no pointer and no engine beside it is null, not a guess');
+});
+
+test('#4043: the command-line entry always exits 0 and says why on stderr when it cannot write', () => {
+  const d = workdir();
+  fs.mkdirSync(path.join(d, '.agents'));
+  fs.writeFileSync(path.join(d, '.agents', 'hooks.json'), '{ not json');
+  const r = spawnSync(process.execPath, [path.join(__dirname, 'agyhooks.js'), d, '/opt/node', '/b.js'], { encoding: 'utf8' });
+  assert.equal(r.status, 0, 'a hook we could not write must never stop the launch');
+  assert.match(r.stderr, /not valid JSON/);
+  const ok = workdir();
+  const r2 = spawnSync(process.execPath, [path.join(__dirname, 'agyhooks.js'), ok, '/opt/node', '/b.js'], { encoding: 'utf8' });
+  assert.equal(r2.status, 0);
+  assert.ok(readHooks(ok)[hooks.HOOK_NAME], 'control: the CLI writes the hook');
+});
