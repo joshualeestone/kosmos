@@ -77,3 +77,8 @@ With the flag on, on a Mac with Muse Code installed, a person can pick Meta in A
 - Tests now pin the current-try cut (after a retry the expired code is never shown, and a new code carried only in the address is paired with its own address) and both halves of round 9's waiting path: a retry that reaches waiting with no code ends, and a retry's code drawn straight to waiting can itself expire and be retried. Three controls red.
 - Comments fixed: the round 3 wording that round 5 reversed, and the test wrapper's stated reason. The not-installed fallback is musestatus's own sentence.
 - DEFERRED to a follow-up card (https://github.com/joshualeestone/kosmos/issues/4195): share the tmux plumbing (wrapper, live, shq, tmuxBin, socket, deliveryUnknown) with agysignin.js. Extracting it changes the shipped Gemini sign-in, which is outside this flag-gated slice.
+
+## 3a review round 12 (decided)
+- The screen is read with the pane's whole history (capture-pane -S -), not only the 40 visible rows. A chatty Muse can scroll its code off screen before the Press line. Proved with a real tmux "chatty" fake flow (50 lines between the code and the prompt); control red.
+- The 20-minute limit is checked after the screen is read, so an approval drawn in the last tick is taken.
+- Noted for #4195: agysignin reads visible rows only too.
