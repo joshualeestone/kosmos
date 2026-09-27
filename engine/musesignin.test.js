@@ -69,6 +69,7 @@ test('#3939: the sign-in shows Meta\'s code, presses Enter once, and ends signed
     await until(() => signin.status().state === 'done', 15000, 'the sign-in to finish');
     const log = t.logText();
     assert.equal((log.match(/^press:/gm) || []).length, 1, 'Enter was not pressed exactly once: ' + log);
+    assert.doesNotMatch(log, /^stray:/m, 'a second key went to muse while it was still on the code screen: ' + log);
     assert.match(log, /^press:Enter$/m);
     assert.match(log, /^args:login$/m);
     assert.match(log, /^env:1\|1\|1$/m, 'MUSE_LOGIN, MUSE_NO_AUTO_UPDATE and MUSE_NO_MODIFY_PATH were not all set');

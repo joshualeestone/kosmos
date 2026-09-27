@@ -16,6 +16,9 @@ FLOW="${FAKE_MUSE_FLOW:-normal}"
 prompt() {
   printf 'To sign in, open https://auth.meta.com/device?user_code=%s\nand enter the code: %s\nPress Enter to open it in your browser: ' "$1" "$1"
   k=$(key); say "press:$k"
+  # Slow to redraw, as a real program can be; any key sent meanwhile is logged as stray.
+  sleep 1
+  while IFS= read -rsn1 -t 0.2 x; do say "stray:${x:-Enter}"; done
   printf '\nOpening your browser...\nWaiting for approval... Esc cancel\n'
 }
 if [ "$FLOW" = "strange" ]; then printf 'Something new that no screen in Kosmos knows about.\n'; sleep 120; exit 0; fi
