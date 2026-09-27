@@ -74,7 +74,7 @@ const chk = (ok, label, extra) => {
         return enc({ ok: true, id: 'mine000000000001', state: 'starting' });
       }
       if (/\/api\/muse\/signin$/.test(u)) { if (window.__holdStatus) await window.__holdStatus; return enc(window.__status); }
-      if (/\/api\/accounts(\?|$)/.test(u)) { window.__accountsPainted += 1; return enc({ accounts: [] }); }
+      if (/\/api\/accounts(\?|$)/.test(u)) { window.__accountsPainted += 1; return enc({ accounts: window.__accounts || [] }); }
       return enc({});
     };
   });
@@ -334,6 +334,51 @@ const chk = (ok, label, extra) => {
   await q(() => document.getElementById('acct-muse-cancel').focus());
   await q(() => acctPick('claude', { focus: false })); await settle();
   chk(await q(() => !!document.activeElement && document.activeElement.classList.contains('pcombo-trigger')), 'Muse\'s step put away with focus inside leaves focus on the provider picker', await act());
+
+  /* ---- #3939 slice 3c-2: the Meta Muse row in Settings, AI Models ---- */
+  const MUSE_ROW = { provider: 'meta', providerName: 'Meta', dir: null, label: null, name: null, isDefault: false, email: null, authMode: 'muse', keyTail: null,
+    connection: { state: 'connected', checkedLive: false, badge: 'signed_in_unverified' } };
+  await q(() => { closeAcctAdd(); window.__accounts = []; }); await settle();
+  await q(() => paintAccounts()); await settle();
+  chk(await q(() => !document.querySelector('#set-accounts [data-muse-row]')), 'no Meta Muse row when the list has none (CONTROL)');
+  await q((row) => { window.__accounts = [row, { provider: 'openai', providerName: 'OpenAI', dir: '/h/.codex', email: null, keyTail: 'ab12', authMode: 'apikey', connection: { state: 'connected', badge: 'working' } }]; }, MUSE_ROW);
+  await q(() => paintAccounts()); await settle();
+  const row = await q(() => {
+    const r = document.querySelector('#set-accounts [data-muse-row]');
+    if (!r) return null;
+    const box = r.closest('.acct-prov');
+    const head = box && box.querySelector('.acct-prov-name');
+    return {
+      text: r.textContent.replace(/\s+/g, ' ').trim(),
+      buttons: [...r.querySelectorAll('button')].map((b) => b.textContent.trim()),
+      claudeBits: r.querySelectorAll('[data-check-claude], [data-reauth], [data-share], [data-forget-provider], [data-remove]').length,
+      group: head ? head.textContent.trim() : '',
+      claudeGroup: /Claude/.test(head ? head.textContent : ''),
+    };
+  });
+  chk(row && /Meta account/.test(row.text) && /through Muse Code/.test(row.text) && /Signed in/.test(row.text), 'the Meta Muse row says what it is and that it is signed in', JSON.stringify(row));
+  chk(row && row.buttons.length === 1 && row.buttons[0] === 'Sign in again', 'its only action is Sign in again', JSON.stringify(row && row.buttons));
+  chk(row && row.claudeBits === 0, 'none of a Claude row\'s actions are on it', JSON.stringify(row));
+  chk(row && row.group === 'Meta', 'it is grouped under its own Meta heading, not Claude\'s', JSON.stringify(row && row.group));
+  // Sign in again, Muse offered: Add a provider opens on Meta's step, focus on its Start.
+  const rowPostsBefore = await q(() => window.__posts.length);
+  await q(() => { window.__museOn = true; document.querySelector('#set-accounts [data-muse-reauth]').click(); });
+  await page.waitForTimeout(300);
+  const again = await q(() => ({
+    modal: !document.getElementById('acct-add-modal').hidden,
+    step: !document.getElementById('acct-muse-flow').hidden,
+    pick: document.getElementById('acct-provider-pick').value,
+    focus: document.activeElement && document.activeElement.id,
+    claude: !document.getElementById('acct-claude-flow').hidden,
+  }));
+  chk(again.modal && again.step && again.pick === 'meta' && again.focus === 'acct-muse-go' && !again.claude, 'Sign in again opens Add a provider on Meta\'s step, focus on Start, never Claude\'s sign-in', JSON.stringify(again));
+  chk(await q(() => window.__posts.length) === rowPostsBefore, 'Sign in again starts nothing by itself (the person presses Start)', String(await q(() => window.__posts.length) - rowPostsBefore));
+  // Sign in again, Muse no longer offered: the dialog says so rather than opening on nothing.
+  await q(() => { closeAcctAdd(); window.__museOn = false; document.querySelector('#set-accounts [data-muse-reauth]').click(); });
+  await page.waitForTimeout(300);
+  const gone = await q(() => ({ note: document.getElementById('acct-add-note').textContent, step: !document.getElementById('acct-muse-flow').hidden }));
+  chk(/not available on this computer/.test(gone.note) && !gone.step, 'Sign in again with Muse no longer offered says so, and opens no step', JSON.stringify(gone));
+  await q(() => { closeAcctAdd(); window.__accounts = []; });
 
   chk(errs.length === 0, 'no page errors', errs.join(' | '));
   await browser.close();
