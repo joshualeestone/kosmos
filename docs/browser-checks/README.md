@@ -80,7 +80,8 @@ be reached that way, so it says so on its first lines:
 and runs on every page change. `render-fields` and `contrast` carry it. A check that is red on
 the CI runner for a reason that is not the PR's (the nightly card, #3973) is listed in the
 tool's `KNOWN_RED` and left out of this selection, with a line saying so. Run the selector
-yourself to see what a branch will run, and why:
+yourself to see what a branch will run, and why. A change to `test-support/`, the driver,
+or a `web/` file other than `index.html` still runs the allowlist only:
 
     node tools/bc-pr-select.js origin/main HEAD
 
