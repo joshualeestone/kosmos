@@ -345,25 +345,25 @@ test('the LIVE scan (ps, lsof, the ancestor walk) through a fake ps and lsof on 
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const bin = path.join(dir, 'bin');
   fs.mkdirSync(bin);
-  /* table: pid, ppid, cwd, command (tab-separated), read by the fakes below */
+  /* table: pid, ppid, cwd, command ('|'-separated; the assert below keeps '|' out of every value), read by the fakes below */
   fs.writeFileSync(path.join(bin, 'ps'), `#!/bin/bash
 T="$FAKE_PS_TABLE"
 if [ -n "\${FAKE_PS_FAIL:-}" ]; then echo "ps: Operation not permitted" >&2; exit 1; fi
-if [ "$*" = "-axo pid=,command=" ]; then awk -F'\t' '{ print $1 " " $4 }' "$T"; exit 0; fi
+if [ "$*" = "-axo pid=,command=" ]; then awk -F'|' '{ print $1 " " $4 }' "$T"; exit 0; fi
 field=""; pid=""
 while [ $# -gt 0 ]; do case "$1" in -o) field="$2"; shift 2 ;; -p) pid="$2"; shift 2 ;; *) shift ;; esac; done
-line="$(awk -F'\t' -v p="$pid" '$1 == p' "$T")"
+line="$(awk -F'|' -v p="$pid" '$1 == p' "$T")"
 [ -n "$line" ] || exit 1
 case "$field" in
-  command=) printf '%s\n' "$line" | cut -f4 ;;
-  ppid=) printf '%s\n' "$line" | cut -f2 ;;
+  command=) printf '%s\n' "$line" | cut -d'|' -f4 ;;
+  ppid=) printf '%s\n' "$line" | cut -d'|' -f2 ;;
   *) printf '  PID\n%s\n' "$pid" ;;
 esac
 `, { mode: 0o755 });
   fs.writeFileSync(path.join(bin, 'lsof'), `#!/bin/bash
 pid=""
 while [ $# -gt 0 ]; do case "$1" in -p) pid="$2"; shift 2 ;; *) shift ;; esac; done
-cwd="$(awk -F'\t' -v p="$pid" '$1 == p { print $3 }' "$FAKE_PS_TABLE")"
+cwd="$(awk -F'|' -v p="$pid" '$1 == p { print $3 }' "$FAKE_PS_TABLE")"
 [ -n "$cwd" ] || exit 1
 printf 'p%s\nfcwd\nn%s\n' "$pid" "$cwd"
 `, { mode: 0o755 });
@@ -380,9 +380,10 @@ printf 'p%s\nfcwd\nn%s\n' "$pid" "$cwd"
     ['932', '931', WORK, 'sh -c x'],
     ['933', '932', WORK, 'bash tools/release.sh 0.6.9'],
   ];
+  assert.ok(rows.every((row) => row.every((v) => !v.includes('|'))), 'a value contains the table separator');
   const live = (table, extra = {}) => {
-    const f = path.join(dir, 'table.tsv');
-    fs.writeFileSync(f, table.map((r) => r.join('\t')).join('\n') + '\n');
+    const f = path.join(dir, 'table.txt');
+    fs.writeFileSync(f, table.map((r) => r.join('|')).join('\n') + '\n');
     const env = { ...process.env, PATH: bin + ':' + process.env.PATH, FAKE_PS_TABLE: f, KOSMOS_HG_CLAIM: FREE, ...extra };
     delete env.KOSMOS_HG_SNAPSHOT;
     const r = spawnSync('bash', [TOOL], { encoding: 'utf8', env });
