@@ -44,4 +44,9 @@ supported install lacks it. Without it the `subgrid` value would be dropped and 
 lift its tile again, as before.
 
 Coverage given up: at desktop width the full $176,332 now fits the cost tile, so the #3137 abbreviation
-is shown needed only at 390 wide (the phone arm), not at desktop.
+is shown needed only at 390 wide (the phone arm), not at desktop. And the 12px margin is measured for a
+7-character headline: the human-cost formatter reads $1B or more as $1000.0M (8 characters, there is no B
+band), which would sit tighter on a phone. That formatter is not changed here.
+
+The stat row's numbers keep their size (`clamp(20px,6cqi,36px)`): Josh's "a little smaller" was about the
+big pair crowding their edges; the baseline, divider and centring fixes cover both rows.

@@ -108,10 +108,10 @@ function readUsage(page) {
         const fig = box && box.querySelector('.tv-fig');
         if (!fig) return null;
         const orig = fig.textContent;
-        fig.textContent = '$176,332,000,000'; const fullOverflows = fig.scrollWidth > fig.clientWidth + 1;
+        fig.textContent = '$176,332,000,000'; const wideOverflows = fig.scrollWidth > fig.clientWidth + 1;
         fig.textContent = '$176.3K'; const abbrFits = fig.scrollWidth <= fig.clientWidth + 1;
         fig.textContent = orig;
-        return { fullOverflows, abbrFits };
+        return { wideOverflows, abbrFits };
       })(),
       heroDays: heroText.includes('Active Days on Kosmos'),
       // #2840 charts4: four per-class daily mini-charts, each with an svg.
@@ -207,7 +207,7 @@ function readUsage(page) {
     ok(v.heroYears, 'the Years of Human Work stat (10) is shown');
     ok(v.heroApi, 'the Equivalent Token API Cost stat abbreviates its thousands figure to $1.2K (#3137, was the clipping $1,152)');
     ok(v.heroFigsFit, 'no hero stat tile clips its figure -- every .tv-fig fits its box after the #3137 abbreviation');
-    ok(v.tileFitControl && v.tileFitControl.fullOverflows && v.tileFitControl.abbrFits,
+    ok(v.tileFitControl && v.tileFitControl.wideOverflows && v.tileFitControl.abbrFits,
       'CONTROL: a figure too wide for the cost tile overflows it and the abbreviated $176.3K fits (#3137, non-vacuous fit proof) -- '
       + JSON.stringify(v.tileFitControl));
     ok(v.heroDays, 'the Active Days on Kosmos eyebrow is shown');
@@ -329,7 +329,8 @@ function readUsage(page) {
     // widths. Whether a real label wraps depends on the machine's monospace font, so the measure sets one short and
     // one long label in each row itself (the uneven wrap that used to lift a tile), then puts the real text back.
     const measureAlign = () => p.evaluate(() => {
-      const LONG = 'A LABEL LONG ENOUGH TO WRAP ONTO TWO LINES';
+      /* Long enough to wrap in a full-width stacked phone tile at any monospace the machine has, not just ours. */
+      const LONG = 'A LABEL LONG ENOUGH TO WRAP ONTO TWO LINES IN THE WIDEST TILE ON THE PAGE, WHATEVER FONT THE MACHINE USES';
       const textBox = (el) => { const r = document.createRange(); r.selectNodeContents(el); return { rect: r.getBoundingClientRect(), lines: r.getClientRects().length }; };
       const row = (sel) => {
         const boxes = [...document.querySelectorAll(sel)];

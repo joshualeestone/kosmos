@@ -2673,9 +2673,10 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    is fixed at ~544px on desktop, so a vw clamp would size the number to the whole screen
    and a production-scale headline ($135.0M / 150.0B) would overflow its box and be clipped
    by the overflow:hidden above. cqi tracks the column that actually bounds the text. */
-/* #4083: a little smaller than 8cqi (Josh: "too close to the edges"), sized so the widest likely value, $999.9K
-   or 999.9M, keeps at least 12px off the tile edges on a desktop and on a 390px phone (the measurements are in
-   .claude/plans/tokentiles-4083.md; render-token-usage-2617.js asserts the 12px). */
+/* #4083: a little smaller than 8cqi (Josh: "too close to the edges"), sized so a 7-character headline ($135.0M,
+   $999.9K, 150.0B) keeps at least 12px off the tile edges on a desktop and on a 390px phone (the measurements are
+   in .claude/plans/tokentiles-4083.md; render-token-usage-2617.js asserts the 12px). A human cost of $1B or more
+   reads $1000.0M, 8 characters, and sits tighter than that on a phone. */
 .tv-fbox .tv-fig { font-size: clamp(18px,6cqi,64px); padding: clamp(18px,4.5vw,34px) 10px; }
 .tv-fbox.gold .tv-fig { color: var(--gold); }
 .tv-fbox.green .tv-fig { color: var(--ok, #1f7a4d); }
