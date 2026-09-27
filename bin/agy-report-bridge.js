@@ -11,13 +11,15 @@
  *   PreInvocation -> PostInvocation -> Stop, in that order; every payload carries conversationId,
  *   workspacePaths, transcriptPath and modelName; Stop adds fullyIdle, terminationReason and error.
  * agy's payload does NOT name its own event, so the hook passes the event name as argv[2]
- * (`agy-report-bridge.js Stop`), and create.js writes the hooks that way.
+ * (`agy-report-bridge.js Stop`); engine/agyhooks.js writes the hooks that way.
  *
  * The map (report states), and what is deliberately NOT mapped:
- *   PreInvocation -> working   (a model call is starting: the agent is thinking)
- *   PostToolUse   -> working   (a heartbeat between tool steps)
+ *   PreInvocation -> working   (a model call is starting; it fires before EVERY model call,
+ *                               which follows every tool, so it is also the heartbeat)
  *   Stop          -> idle      (the loop ended; fullyIdle false or an error still ends the turn,
  *                               and the agent is alive at its prompt, so idle, never stuck working)
+ *   PostToolUse   -> NOT HOOKED: PreInvocation already follows each tool, and each hook is a node
+ *                    start inside agy's loop (hooks run synchronously and block it).
  *   PreToolUse    -> NOT HOOKED at all: in agy it is a PERMISSION GATE (its answer decides
  *                    whether a tool runs), and Kosmos must not take over agy's permission
  *                    decisions to get a status.
@@ -25,24 +27,60 @@
  *
  * ⚠️ THIS MUST NEVER BREAK THE AGENT OR SLOW IT MUCH. agy expects JSON on stdout: `{}` (no change)
  * is printed FIRST, before anything else can fail. Every failure is swallowed and the exit code is
- * 0. PreInvocation runs before EVERY model call, so a board that is down costs at most
- * STDIN_TIMEOUT_MS + TIMEOUT_MS per call, and both are kept short.
+ * 0, and the process exits explicitly (an open stdin must not keep it alive). A repeated `working`
+ * within THROTTLE_MS on the same pane is not sent at all (no requires, no POST): the same per-pane
+ * 60s heartbeat as install/kosmos-report-hook.sh; a change of state always sends. A board that is
+ * down costs at most STDIN_TIMEOUT_MS + TIMEOUT_MS on a call that does send.
  */
 
 const TIMEOUT_MS = 1500;
 const STDIN_TIMEOUT_MS = 1000;
+/* The working heartbeat, per pane: the Claude hook's figure. */
+const THROTTLE_MS = 60 * 1000;
 
 const STATE_FOR_EVENT = Object.freeze({
   PreInvocation: 'working',
-  PostToolUse: 'working',
   Stop: 'idle',
 });
+
+/* The per-pane marker: "<state> <epoch ms>" of the last report sent. */
+function markerFile(env) {
+  const os = require('node:os');
+  const path = require('node:path');
+  const pane = String((env || process.env).TMUX_PANE || 'nopane').replace(/[^A-Za-z0-9_-]/g, '_');
+  return path.join(os.tmpdir(), 'kosmos-agy-throttle', pane);
+}
+
+/* Whether this report should be sent: always for a change of state, and for a repeated `working`
+   only once THROTTLE_MS has passed. Records what it lets through. Never throws; on any doubt, send. */
+function shouldSend(state, nowMs, env) {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const file = markerFile(env);
+  let last = null;
+  try {
+    const [s, t] = fs.readFileSync(file, 'utf8').trim().split(' ');
+    last = { state: s, at: Number(t) };
+  } catch { /* no marker yet */ }
+  if (last && state === 'working' && last.state === 'working' && Number.isFinite(last.at) && nowMs - last.at < THROTTLE_MS) return false;
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, state + ' ' + nowMs);
+  } catch { /* a marker we cannot write only costs a duplicate report */ }
+  return true;
+}
 
 function readStdin() {
   return new Promise((resolve) => {
     let data = '';
     let done = false;
-    const finish = () => { if (!done) { done = true; resolve(data); } };
+    const finish = () => {
+      if (done) return;
+      done = true;
+      /* Let go of stdin: an agy that left it open would otherwise keep this process alive. */
+      try { process.stdin.destroy(); } catch { /* already closed */ }
+      resolve(data);
+    };
     try {
       process.stdin.setEncoding('utf8');
       process.stdin.on('data', (chunk) => { data += chunk; });
@@ -99,6 +137,7 @@ async function main() {
   try { payload = JSON.parse(raw || ''); } catch { /* the event name alone still reports */ }
   const mapped = reportFor(eventName, payload);
   if (!mapped) return;
+  if (!shouldSend(mapped.state, Date.now(), process.env)) return;
 
   const port = Number(process.env.KOSMOS_PORT) || 16180;
   const headers = { 'content-type': 'application/json' };
@@ -123,7 +162,7 @@ async function main() {
 }
 
 if (require.main === module) {
-  main().catch(() => { /* never break the agent */ });
+  main().catch(() => { /* never break the agent */ }).finally(() => process.exit(0));
 }
 
-module.exports = { STATE_FOR_EVENT, TIMEOUT_MS, STDIN_TIMEOUT_MS, reportFor, buildBody, engineDir };
+module.exports = { STATE_FOR_EVENT, TIMEOUT_MS, STDIN_TIMEOUT_MS, THROTTLE_MS, markerFile, shouldSend, reportFor, buildBody, engineDir };

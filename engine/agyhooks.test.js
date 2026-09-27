@@ -24,16 +24,16 @@ let n = 0;
 const workdir = () => { n += 1; const d = path.join(SB, 'work ' + n); fs.mkdirSync(d, { recursive: true }); return d; };
 const readHooks = (d) => JSON.parse(fs.readFileSync(path.join(d, '.agents', 'hooks.json'), 'utf8'));
 
-test('#4043: a fresh workdir gets the kosmos-report hook: working before a model call and after a tool, idle at stop', () => {
+test('#4043: a fresh workdir gets the kosmos-report hook: working before each model call, idle at stop', () => {
   const d = workdir();
   const r = hooks.ensureHooks(d, '/opt/node', '/support/bin/agy-report-bridge.js');
   assert.deepEqual(r, { ok: true, changed: true, why: null });
   const h = readHooks(d)[hooks.HOOK_NAME];
-  assert.deepEqual(Object.keys(h).sort(), ['PostToolUse', 'PreInvocation', 'Stop']);
+  assert.deepEqual(Object.keys(h).sort(), ['PreInvocation', 'Stop']);
   assert.match(h.PreInvocation[0].command, / PreInvocation$/);
-  assert.equal(h.PostToolUse[0].matcher, '*');
   assert.match(h.Stop[0].command, / Stop$/);
   assert.equal(h.PreToolUse, undefined, 'PreToolUse is agy\'s permission gate and must never be hooked');
+  assert.equal(h.PostToolUse, undefined, 'PostToolUse adds a node start per step inside agy\'s blocking loop');
 });
 
 test('#4043: the person\'s own hooks are kept, and a second run changes nothing', () => {
@@ -75,11 +75,10 @@ test('#4043: the hook command really runs through sh -c, from paths with spaces 
 
 test('#4043: the bridge maps the three hooked events, never needs_you, and ignores anything else', () => {
   assert.deepEqual(bridge.reportFor('PreInvocation', {}), { state: 'working', text: '' });
-  assert.deepEqual(bridge.reportFor('PostToolUse', {}), { state: 'working', text: '' });
   assert.deepEqual(bridge.reportFor('Stop', { fullyIdle: true, error: '' }), { state: 'idle', text: '' });
   assert.equal(bridge.reportFor('Stop', { fullyIdle: false, error: 'boom' }).state, 'idle', 'an errored turn is still over');
   assert.match(bridge.reportFor('Stop', { error: 'boom' }).text, /boom/);
-  for (const ev of ['PreToolUse', 'PostInvocation', 'Notification', '', undefined]) assert.equal(bridge.reportFor(ev, {}), null, String(ev));
+  for (const ev of ['PreToolUse', 'PostToolUse', 'PostInvocation', 'Notification', '', undefined]) assert.equal(bridge.reportFor(ev, {}), null, String(ev));
   assert.ok(!Object.values(bridge.STATE_FOR_EVENT).includes('needs_you'), '#4006: no event may map to needs_you');
 });
 
@@ -100,4 +99,53 @@ test('#4043: run as agy runs it, the bridge answers {} first and exits 0 fast ev
   assert.equal(r.status, 0);
   assert.equal(r.stdout.trim(), '{}', 'agy reads stdout as the hook\'s answer; it must be exactly {}');
   assert.ok(Date.now() - start < (bridge.STDIN_TIMEOUT_MS + bridge.TIMEOUT_MS + 3000), 'the bridge stalled the agent');
+});
+
+test('#4043: a repeated working is sent once per THROTTLE_MS per pane; a change of state always goes', () => {
+  const env = { TMUX_PANE: '%throttle-' + process.pid };
+  try { fs.rmSync(bridge.markerFile(env), { force: true }); } catch { /* none */ }
+  const t = 1_000_000;
+  assert.equal(bridge.shouldSend('working', t, env), true, 'the first working goes');
+  assert.equal(bridge.shouldSend('working', t + 1000, env), false, 'a repeat inside the window is held');
+  assert.equal(bridge.shouldSend('idle', t + 2000, env), true, 'a change of state always goes');
+  assert.equal(bridge.shouldSend('working', t + 3000, env), true, 'and so does the change back');
+  assert.equal(bridge.shouldSend('working', t + 3000 + bridge.THROTTLE_MS, env), true, 'a heartbeat once the window has passed');
+  const other = { TMUX_PANE: '%throttle-other-' + process.pid };
+  assert.equal(bridge.shouldSend('working', t + 3001, other), true, 'panes are throttled separately');
+  for (const e of [env, other]) { try { fs.rmSync(bridge.markerFile(e), { force: true }); } catch { /* none */ } }
+});
+
+test('#4043: a board that never answers costs at most the bridge\'s own budget', async () => {
+  const http = require('node:http');
+  const server = http.createServer(() => { /* never answer */ });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%slow-' + process.pid };
+  try { fs.rmSync(bridge.markerFile(env), { force: true }); } catch { /* none */ }
+  const { spawn } = require('node:child_process');
+  const start = Date.now();
+  const code = await new Promise((resolve) => {
+    const p = spawn(process.execPath, [BRIDGE_FILE, 'Stop'], { env, stdio: ['pipe', 'pipe', 'ignore'] });
+    p.stdin.end(JSON.stringify({ fullyIdle: true, error: '' }));
+    p.on('exit', resolve);
+  });
+  const took = Date.now() - start;
+  server.closeAllConnections(); server.close();
+  try { fs.rmSync(bridge.markerFile(env), { force: true }); } catch { /* none */ }
+  assert.equal(code, 0);
+  assert.ok(took < bridge.STDIN_TIMEOUT_MS + bridge.TIMEOUT_MS + 3000, 'the bridge held agy for ' + took + 'ms on a silent board');
+  assert.ok(took >= bridge.TIMEOUT_MS - 200, 'control: it did wait on the silent board (' + took + 'ms), so the bound was exercised');
+});
+
+test('#4043: the supervisor writes the hook before every agy launch, and cannot fail the launch (SOURCE pin)', () => {
+  /* The launch needs tmux and agy, so the order is pinned in source, as
+     supervisor.pane-reach-1160.test.js pins agytrust's. */
+  const sh = fs.readFileSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
+  const branch = sh.slice(sh.indexOf('elif [ "$RUNNER" = antigravity ]; then'));
+  assert.ok(branch.length > 0, 'the antigravity branch moved: re-anchor this pin');
+  const call = branch.indexOf('"$NODE_BIN" "$_eng/agyhooks.js" "$WORKDIR" "$NODE_BIN" "$_AGY_BRIDGE" >/dev/null || true');
+  const launch = branch.indexOf('new-session');
+  assert.ok(call > -1, 'the supervisor no longer runs agyhooks for an agy agent');
+  assert.ok(launch > -1 && call < launch, 'agyhooks must run BEFORE agy is launched, or the first turn reports nothing');
+  assert.match(branch.slice(0, launch), /_AGY_BRIDGE="\$\(cd "\$\(dirname "\$0"\)"/, 'the bridge must be the copy beside the supervisor');
 });

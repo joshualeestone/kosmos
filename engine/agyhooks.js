@@ -30,13 +30,16 @@ function shQuote(s) {
   return "'" + String(s).replace(/'/g, "'\\''") + "'";
 }
 
-/** The Kosmos entry: PreInvocation and PostToolUse report working, Stop reports idle. No PreToolUse:
-    in agy it is a permission gate, and Kosmos does not take over agy's permission decisions. */
+/** The Kosmos entry: PreInvocation reports working (it fires before every model call, which
+    follows every tool, so it is also the heartbeat), Stop reports idle. Not PostToolUse (a second
+    node start per step inside agy's blocking loop, for nothing PreInvocation does not say), and
+    not PreToolUse (in agy a permission gate; Kosmos does not take over agy's permission decisions).
+    ⚠️ Unix only: `sh -c` quoting. agy runs hooks with `cmd /c` on Windows, where Kosmos does not
+    run agy agents yet; only the bash supervisor calls this. */
 function kosmosEntry(nodeBin, bridge) {
   const handler = (event) => ({ type: 'command', command: `${shQuote(nodeBin)} ${shQuote(bridge)} ${event}`, timeout: HANDLER_TIMEOUT_S });
   return {
     PreInvocation: [handler('PreInvocation')],
-    PostToolUse: [{ matcher: '*', hooks: [handler('PostToolUse')] }],
     Stop: [handler('Stop')],
   };
 }
