@@ -36,6 +36,11 @@ when a listed file passes again or is no longer run.
   runs the script on windows-latest.
 - ci.main-runs-finish-4021.test.js: windows.yml added to PINNED_WORKFLOWS (its control demanded it).
 
+## Proven on the runner before the PR (temporary push trigger, since reverted)
+- Run 36356771856 at 4c12c93: success; 73 passed, 3 failed, all 3 known red; 0 new, 0 stale.
+- CONTROL, run 36357499968 at e773de8 (win32handoff taken off KNOWN_RED): failure, "NEW RED
+  engine/win32handoff.test.js". So the job can go red on a new failure, not only report one.
+
 ## Decided
 - CI on a GitHub Windows runner, free on this public repo, over the options below.
 - Rejected: the whole suite on Windows (always red on POSIX-mode tests, and so walked past);
