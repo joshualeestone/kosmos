@@ -376,9 +376,37 @@ const chk = (ok, label, extra) => {
   // Sign in again, Muse no longer offered: the dialog says so rather than opening on nothing.
   await q(() => { closeAcctAdd(); window.__museOn = false; document.querySelector('#set-accounts [data-muse-reauth]').click(); });
   await page.waitForTimeout(300);
-  const gone = await q(() => ({ note: document.getElementById('acct-add-note').textContent, step: !document.getElementById('acct-muse-flow').hidden }));
-  chk(/not available on this computer/.test(gone.note) && !gone.step, 'Sign in again with Muse no longer offered says so, and opens no step', JSON.stringify(gone));
-  await q(() => { closeAcctAdd(); window.__accounts = []; });
+  // Round 1: the line must be SEEN, not only present (it was written into a hidden element).
+  const gone = await q(() => { const p = document.getElementById('acct-add-pick-say'); return { say: p && p.textContent, seen: !!p && p.checkVisibility(), role: p && p.getAttribute('role'), step: !document.getElementById('acct-muse-flow').hidden }; });
+  chk(/not available on this computer/.test(gone.say) && gone.seen && gone.role === 'status' && !gone.step, 'Sign in again with Muse no longer offered says so where it is seen and announced, and opens no step', JSON.stringify(gone));
+  // A live answer afterwards ends that stale line (round 1, N3).
+  await q(async () => { window.__museOn = true; await museAsk(); });
+  chk(await q(() => document.getElementById('acct-add-pick-say').hidden), 'a later live answer takes the stale "not available" line away');
+  // Round 1, W2: another provider picked while the answer is out is left alone.
+  await q(() => { closeAcctAdd(); window.__museOn = true; window.__holdMuse = new Promise((r) => { window.__releaseMuse = r; }); document.querySelector('#set-accounts [data-muse-reauth]').click(); });
+  await settle();
+  await choose('openai'); await settle();
+  await q(() => window.__releaseMuse()); await page.waitForTimeout(200);
+  const kept = await q(() => ({ pick: document.getElementById('acct-provider-pick').value, muse: !document.getElementById('acct-muse-flow').hidden }));
+  chk(kept.pick === 'openai' && !kept.muse, 'a late answer does not take over a provider picked meanwhile', JSON.stringify(kept));
+  // Round 1, W3: closed and reopened while the answer is out: the fresh dialog is left alone.
+  await q(() => { closeAcctAdd(); window.__museOn = true; window.__holdMuse = new Promise((r) => { window.__releaseMuse = r; }); document.querySelector('#set-accounts [data-muse-reauth]').click(); });
+  await settle();
+  await q(() => { closeAcctAdd(); openAcctAdd(); }); await settle();
+  await q(() => window.__releaseMuse()); await page.waitForTimeout(200);
+  const fresh = await q(() => ({ pick: document.getElementById('acct-provider-pick').value, muse: !document.getElementById('acct-muse-flow').hidden }));
+  chk(fresh.pick === '' && !fresh.muse, 'an answer from an earlier visit does not drive a freshly opened dialog', JSON.stringify(fresh));
+  await q(() => { closeAcctAdd(); });
+  // Round 1, W5: the Connections box never counts Meta Muse as thinking for agents (no agent runs on it yet).
+  await q((row) => { window.__accounts = [row]; }, MUSE_ROW);
+  await q(() => paintConnLive()); await settle();
+  const connOnly = await q(() => document.getElementById('conn-live').textContent);
+  chk(/Meta Muse is signed in, but no agent can run on it yet/.test(connOnly) && !/thinking for your agents/.test(connOnly), 'with only Meta Muse the Connections box says so, never that it thinks for agents', connOnly);
+  await q((row) => { window.__accounts = [row, { provider: 'openai', providerName: 'OpenAI', dir: '/h/.codex', email: null, keyTail: 'ab12', authMode: 'apikey', connection: { state: 'connected', badge: 'working' } }]; }, MUSE_ROW);
+  await q(() => paintConnLive()); await settle();
+  const connTwo = await q(() => document.getElementById('conn-live').textContent);
+  chk(/^One account /.test(connTwo), 'beside an OpenAI account it counts one account, not two', connTwo);
+  await q(() => { window.__accounts = []; });
 
   chk(errs.length === 0, 'no page errors', errs.join(' | '));
   await browser.close();

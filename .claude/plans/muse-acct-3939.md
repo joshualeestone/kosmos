@@ -37,3 +37,26 @@ The create-agent option and running an agent on Muse (3c-3), the first-run guide
 That no other page path reads a.provider === 'anthropic' implicitly through a route this
 survey missed. The browser check exercises the create-agent picker with only a Muse row
 and an OpenAI row to catch the likeliest miss.
+
+## Review round 1 (opus): 0 blockers, 6 warnings, 5 nits, all addressed
+- W1: "not available" went into a hidden element. It now goes into #acct-add-pick-say
+  beside the picker (role=status), and the check requires it to be visible.
+- W2/W3: a late /api/muse answer took over a provider picked meanwhile, or drove a
+  freshly reopened dialog. A visit counter (openAcctAdd/closeAcctAdd bump it) and "the
+  picker still empty" guard it; both races are browser-check arms.
+- W4: the row's explanation claimed only "the last time Kosmos saw it work"; it now names
+  all three sources the answer comes from.
+- W5: the Connections box counted Meta Muse as "thinking for your agents". It is left out
+  until an agent can run on it (3c-3), and with only Muse the box says "Meta Muse is signed
+  in, but no agent can run on it yet" rather than the false "Nothing is connected yet".
+- W6: the server test could not see the row dropped from the response; it now requires
+  `...museSub]` in the sendJson line.
+- N1: the function moved below acctGeminiSignInAgain, so #3998's comment sits on its own
+  function again. N2: a throw is said beside the picker. N3: a live answer clears a stale
+  "not available". N4: Sign in again waits on the open's own /api/muse read.
+- N5 (for 3c-3, recorded here): once the create form's Meta option is enabled,
+  fillCreateAccounts would list this row as an option with an empty value and its empty
+  fallback would speak of "the Meta Muse key"; vendorPicksModel('meta') is false. 3c-3
+  must give Meta its own create branch, as #3998 did for the Gemini subscription.
+- Two eval-sliced tests (web.reauth-1492, web.connect-success-1656) were given the new
+  names (ACCT_ADD_VISIT, ACCT_MUSE_ASKING, acctAddPickSay), as slice 3b did for its helpers.

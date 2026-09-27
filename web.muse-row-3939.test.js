@@ -61,4 +61,7 @@ test('#3939 3c-2: the server builds the row only when Muse is on, installed and 
   assert.match(block, /provider: 'meta', providerName: 'Meta'/);
   assert.match(block, /authMode: 'muse'/);
   assert.match(block, /badge: 'signed_in_unverified'/);
+  // Round 1: the row must reach the response, not only be built.
+  const send = src.slice(src.indexOf('sendJson(res, 200, { accounts:', at), src.indexOf('\n', src.indexOf('sendJson(res, 200, { accounts:', at)));
+  assert.match(send, /\.\.\.museSub\]/, 'the Meta Muse row is built but never sent');
 });
