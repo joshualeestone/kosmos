@@ -772,13 +772,22 @@ if [ -z "$adopt" ]; then
     #   --model                        : only when a model was recorded; empty lets agy pick.
     # The pane's own directory is agy's workspace (it has no --cwd). The person signs in to
     # Antigravity inside this pane with their own Google account; Kosmos never reads or reuses
-    # agy's stored sign-in. No hooks yet: status comes in a later slice.
+    # agy's stored sign-in. Status comes from agy's own hooks (#4043, below).
     # agy asks "trust this folder?" on every new folder and has no flag to skip it (measured
     # 2026-09-25), so pre-answer it here, before every launch. Best-effort, like
     # ensure-launch-trust.js below for Claude: if it cannot write, the prompt shows instead.
     if [ -n "${_eng:-}" ] && [ -f "$_eng/agytrust.js" ] && [ -n "${NODE_BIN:-}" ]; then
       "$NODE_BIN" "$_eng/agytrust.js" "$WORKDIR" >/dev/null || true  # stderr (why, if it could not) goes to the agent log
     fi
+    # #4043: agy's own hooks tell the board what it is doing (working / idle), in place of "Can't
+    # tell". Before every launch, make the workdir's .agents/hooks.json carry Kosmos's one entry
+    # (kosmos-report -> the report bridge beside this script, run by the bundled node). The person's
+    # other hooks are kept; a file that is not JSON is left alone. Best-effort, never blocks launch.
+    _AGY_BRIDGE="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)/agy-report-bridge.js"
+    if [ -n "${_eng:-}" ] && [ -f "$_eng/agyhooks.js" ] && [ -n "${NODE_BIN:-}" ] && [ -f "$_AGY_BRIDGE" ]; then
+      "$NODE_BIN" "$_eng/agyhooks.js" "$WORKDIR" "$NODE_BIN" "$_AGY_BRIDGE" >/dev/null || true
+    fi
+    unset _AGY_BRIDGE
     _AGY_ARGS=(--dangerously-skip-permissions)
     [ -n "${MODEL:-}" ] && _AGY_ARGS+=(--model "$MODEL")
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \

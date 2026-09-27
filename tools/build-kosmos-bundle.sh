@@ -111,6 +111,10 @@ chmod +x "$STAGE/app/bin/gemini-report-bridge.js"
 # would leave every grok agent's self-report pointing at a missing file.
 cp "$REPO/bin/grok-report-bridge.js" "$STAGE/app/bin/"
 chmod +x "$STAGE/app/bin/grok-report-bridge.js"
+# #4043: the Antigravity report bridge, same reason: the supervisor points every agy agent's
+# hooks at it, so a bundle without it would leave their status on "Can't tell".
+cp "$REPO/bin/agy-report-bridge.js" "$STAGE/app/bin/"
+chmod +x "$STAGE/app/bin/agy-report-bridge.js"
 # The app icon artwork, when it exists: the installer looks for
 # app/assets/Kosmos.icns is the ONE asset that ships, named explicitly
 # per this file's own explicit-list rule: a wildcard copy of assets/

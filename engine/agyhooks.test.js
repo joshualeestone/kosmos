@@ -1,0 +1,103 @@
+'use strict';
+
+/**
+ * #4043: Antigravity status through agy's own hooks. engine/agyhooks.js writes Kosmos's one hook
+ * into an agent's `.agents/hooks.json`; bin/agy-report-bridge.js is what that hook runs.
+ *
+ *   node --test engine/agyhooks.test.js
+ */
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { execFileSync, spawnSync } = require('node:child_process');
+
+const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'agyhooks-'));
+process.on('exit', () => { try { fs.rmSync(SB, { recursive: true, force: true }); } catch { /* best effort */ } });
+const hooks = require('./agyhooks');
+const bridge = require('../bin/agy-report-bridge');
+const BRIDGE_FILE = path.join(__dirname, '..', 'bin', 'agy-report-bridge.js');
+
+let n = 0;
+const workdir = () => { n += 1; const d = path.join(SB, 'work ' + n); fs.mkdirSync(d, { recursive: true }); return d; };
+const readHooks = (d) => JSON.parse(fs.readFileSync(path.join(d, '.agents', 'hooks.json'), 'utf8'));
+
+test('#4043: a fresh workdir gets the kosmos-report hook: working before a model call and after a tool, idle at stop', () => {
+  const d = workdir();
+  const r = hooks.ensureHooks(d, '/opt/node', '/support/bin/agy-report-bridge.js');
+  assert.deepEqual(r, { ok: true, changed: true, why: null });
+  const h = readHooks(d)[hooks.HOOK_NAME];
+  assert.deepEqual(Object.keys(h).sort(), ['PostToolUse', 'PreInvocation', 'Stop']);
+  assert.match(h.PreInvocation[0].command, / PreInvocation$/);
+  assert.equal(h.PostToolUse[0].matcher, '*');
+  assert.match(h.Stop[0].command, / Stop$/);
+  assert.equal(h.PreToolUse, undefined, 'PreToolUse is agy\'s permission gate and must never be hooked');
+});
+
+test('#4043: the person\'s own hooks are kept, and a second run changes nothing', () => {
+  const d = workdir();
+  fs.mkdirSync(path.join(d, '.agents'));
+  const mine = { 'lint-checker': { PostToolUse: [{ matcher: 'run_command', hooks: [{ command: './lint.sh' }] }] } };
+  fs.writeFileSync(path.join(d, '.agents', 'hooks.json'), JSON.stringify(mine));
+  assert.equal(hooks.ensureHooks(d, '/opt/node', '/b.js').changed, true);
+  const after = readHooks(d);
+  assert.deepEqual(after['lint-checker'], mine['lint-checker'], 'the person\'s hook changed');
+  assert.ok(after[hooks.HOOK_NAME]);
+  const mtime = fs.statSync(path.join(d, '.agents', 'hooks.json')).mtimeMs;
+  assert.deepEqual(hooks.ensureHooks(d, '/opt/node', '/b.js'), { ok: true, changed: false, why: null });
+  assert.equal(fs.statSync(path.join(d, '.agents', 'hooks.json')).mtimeMs, mtime, 'an unchanged entry was rewritten');
+  assert.equal(hooks.ensureHooks(d, '/opt/node', '/moved/b.js').changed, true, 'a moved bridge must update the entry');
+});
+
+test('#4043: a hooks.json that is not a JSON object is left exactly as it is', () => {
+  for (const body of ['{ not json', '[1,2]', '"text"']) {
+    const d = workdir();
+    fs.mkdirSync(path.join(d, '.agents'));
+    fs.writeFileSync(path.join(d, '.agents', 'hooks.json'), body);
+    const r = hooks.ensureHooks(d, '/opt/node', '/b.js');
+    assert.equal(r.ok, false);
+    assert.equal(fs.readFileSync(path.join(d, '.agents', 'hooks.json'), 'utf8'), body, 'a file we cannot parse was changed');
+  }
+});
+
+test('#4043: the hook command really runs through sh -c, from paths with spaces and a quote', () => {
+  const dir = path.join(SB, "Application Support", "it's here");
+  fs.mkdirSync(dir, { recursive: true });
+  const fakeBridge = path.join(dir, 'fake bridge.js');
+  const out = path.join(SB, 'argv.json');
+  fs.writeFileSync(fakeBridge, `require('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify(process.argv.slice(2)));`);
+  const entry = hooks.kosmosEntry(process.execPath, fakeBridge);
+  execFileSync('sh', ['-c', entry.Stop[0].command]);
+  assert.deepEqual(JSON.parse(fs.readFileSync(out, 'utf8')), ['Stop'], 'the quoted command did not reach the bridge with its event');
+});
+
+test('#4043: the bridge maps the three hooked events, never needs_you, and ignores anything else', () => {
+  assert.deepEqual(bridge.reportFor('PreInvocation', {}), { state: 'working', text: '' });
+  assert.deepEqual(bridge.reportFor('PostToolUse', {}), { state: 'working', text: '' });
+  assert.deepEqual(bridge.reportFor('Stop', { fullyIdle: true, error: '' }), { state: 'idle', text: '' });
+  assert.equal(bridge.reportFor('Stop', { fullyIdle: false, error: 'boom' }).state, 'idle', 'an errored turn is still over');
+  assert.match(bridge.reportFor('Stop', { error: 'boom' }).text, /boom/);
+  for (const ev of ['PreToolUse', 'PostInvocation', 'Notification', '', undefined]) assert.equal(bridge.reportFor(ev, {}), null, String(ev));
+  assert.ok(!Object.values(bridge.STATE_FOR_EVENT).includes('needs_you'), '#4006: no event may map to needs_you');
+});
+
+test('#4043: the report is marked auto, so a turn ending cannot erase a deliberate blocked', () => {
+  const b = bridge.buildBody('idle', '', { TMUX_PANE: '%7' });
+  assert.equal(b.auto, true);
+  assert.equal(b.from_pane, '%7');
+});
+
+test('#4043: run as agy runs it, the bridge answers {} first and exits 0 fast even with no board', () => {
+  const start = Date.now();
+  const r = spawnSync(process.execPath, [BRIDGE_FILE, 'Stop'], {
+    input: JSON.stringify({ conversationId: 'x', fullyIdle: true, error: '' }),
+    env: { ...process.env, KOSMOS_PORT: '9' }, // nothing listens on port 9
+    encoding: 'utf8',
+    timeout: 15000,
+  });
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout.trim(), '{}', 'agy reads stdout as the hook\'s answer; it must be exactly {}');
+  assert.ok(Date.now() - start < (bridge.STDIN_TIMEOUT_MS + bridge.TIMEOUT_MS + 3000), 'the bridge stalled the agent');
+});

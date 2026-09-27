@@ -111,6 +111,8 @@ cp "$REPO/bin/gemini-report-bridge.js" "$STAGE/app/bin/"
 # gemini bridge above -- the tools.build-windows-570 cross-builder test fails the
 # moment one platform ships a bin/ file the other does not.
 cp "$REPO/bin/grok-report-bridge.js" "$STAGE/app/bin/"
+# #4043: the agy report bridge ships on both platforms (the cross-builder test requires bin/ to match).
+cp "$REPO/bin/agy-report-bridge.js" "$STAGE/app/bin/"
 
 # #2007: the browser-open helper. It mirrors bash cmd_open's nonce flow so the
 # ENFORCING Windows board (it runs unsandboxed) authenticates the browser instead
