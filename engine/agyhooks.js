@@ -34,7 +34,7 @@ function shQuote(s) {
     follows every tool, so it is also the heartbeat), Stop reports idle, and PreToolUse/PostToolUse
     are hooked for agy's ask_question tool ONLY (needs_you while it waits for the person, working
     once answered). No other tool is hooked: a hook per tool is a node start inside agy's blocking
-    loop, and PreToolUse is agy's permission gate (the bridge answers allow, as the launch flag does).
+    loop, and PreToolUse is agy's permission gate (the bridge answers {} there: no decision).
     ⚠️ Unix only: `sh -c` quoting. agy runs hooks with `cmd /c` on Windows, where Kosmos does not
     run agy agents yet; only the bash supervisor calls this. */
 function kosmosEntry(nodeBin, bridge) {

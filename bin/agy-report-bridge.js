@@ -18,13 +18,12 @@
  *                               which follows every tool, so it is also the heartbeat)
  *   Stop          -> idle      (the loop ended; fullyIdle false or an error still ends the turn,
  *                               and the agent is alive at its prompt, so idle, never stuck working)
- *   PostToolUse   -> NOT HOOKED: PreInvocation already follows each tool, and each hook is a node
- *                    start inside agy's loop (hooks run synchronously and block it).
  *   PreToolUse    -> needs_you, ONLY for agy's `ask_question` tool (hooked with that matcher
  *                    alone; the payload's toolCall.name is checked again here): agy is stopped,
  *                    waiting for the person to answer (Gemini-Sub's spec, #4043). Its answer is
- *                    `{"decision":"allow"}`, which is what --dangerously-skip-permissions (the
- *                    supervisor's launch flag) decides anyway, so nothing about agy changes.
+ *                    `{}` like every other event: agy handles an empty decision as no decision
+ *                    (its 1.0.16 changelog), so nothing about agy's permissions changes. The
+ *                    question is agy's own tool schema: args.questions[].question.
  *   PostToolUse   -> working, ONLY for `ask_question`: the person answered, the turn goes on.
  *   Everything else in PreToolUse/PostToolUse is NOT hooked: PreToolUse is agy's permission gate,
  *                    and a hook per tool is a node start inside agy's blocking loop.
@@ -52,10 +51,10 @@ const STATE_FOR_EVENT = Object.freeze({
 /* agy's tool that asks the person something and waits (Gemini-Sub's spec, #4043). */
 const ASK_TOOL = 'ask_question';
 
-/* What agy reads on stdout: PreToolUse needs a decision, and `allow` is what the launch flag
-   (--dangerously-skip-permissions) decides anyway; every other event takes `{}` (no change). */
-function answerFor(eventName) {
-  return eventName === 'PreToolUse' ? '{"decision":"allow"}' : '{}';
+/* What agy reads on stdout: `{}` for every event, PreToolUse included (an empty decision is no
+   decision since agy 1.0.16), so Kosmos never makes a permission decision for agy. */
+function answerFor() {
+  return '{}';
 }
 
 /* The per-pane marker: "<state> <epoch ms>" of the last report sent. */
@@ -117,9 +116,12 @@ function reportFor(eventName, payload) {
     const name = payload && payload.toolCall && payload.toolCall.name;
     if (eventName === 'PreToolUse' && name !== ASK_TOOL) return null;
     if (eventName === 'PreToolUse') {
+      /* agy's schema (1.2.11 binary): args = { questions: [{ question, options, is_multi_select }] }. */
       const args = (payload.toolCall && payload.toolCall.args) || {};
-      const q = [args.Question, args.question, args.Prompt, args.prompt, args.Text, args.text].find((v) => typeof v === 'string' && v.trim());
-      return { state, text: q ? q.trim() : 'Antigravity is asking you a question' };
+      const qs = (Array.isArray(args.questions) ? args.questions : [])
+        .map((q) => (q && typeof q.question === 'string' ? q.question.trim() : ''))
+        .filter(Boolean);
+      return { state, text: qs.length ? qs.join(' / ') : 'Antigravity is asking you a question' };
     }
     return { state, text: '' };
   }

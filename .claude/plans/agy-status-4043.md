@@ -10,8 +10,9 @@ terminationReason, error. The payload does not name its event. A fresh self-repo
 over the scraped UNKNOWN in reconcileReport (checked by calling it: working -> working, idle -> idle).
 
 ## Change
-- bin/agy-report-bridge.js: event from argv; prints `{}` FIRST (agy reads stdout as the answer);
-  PreInvocation/PostToolUse -> working, Stop -> idle (an error named in the text); POST budget 1.5s,
+- bin/agy-report-bridge.js: event from argv; prints `{}` FIRST for EVERY event (agy reads stdout as the
+  answer; an empty decision is no decision since agy 1.0.16); PreInvocation -> working, Stop -> idle,
+  ask_question PreToolUse -> needs_you, ask_question PostToolUse -> working (an error named in the text); POST budget 1.5s,
   stdin 1s, since PreInvocation runs before every model call; auto:true; exit 0 always.
 - engine/agyhooks.js: merges one `kosmos-report` entry into <workdir>/.agents/hooks.json; keeps the
   person's other hooks; leaves a non-JSON file alone; atomic write only on change; sh-quoted paths.
@@ -20,7 +21,8 @@ over the scraped UNKNOWN in reconcileReport (checked by calling it: working -> w
 - create.js installs the bridge into supportDir/bin like its three siblings; both bundle scripts ship it.
 
 ## Rejected
-- Hooking PreToolUse: in agy it is a permission gate; any answer changes whether a tool runs.
+- Hooking PreToolUse for any tool but ask_question, or answering it with a decision: it is agy's
+  permission gate. For ask_question the answer is `{}`, no decision.
 - Mapping an idle loop, or any event but a real ask_question, to needs_you (#4006).
 - Liveness from the conversation db (card's fallback): not built. An agent shows "Can't tell" until
   its first hook fires, and a `working` report goes stale after REPORT_WORKING_DECAY (~5 min, measured
@@ -52,6 +54,11 @@ over the scraped UNKNOWN in reconcileReport (checked by calling it: working -> w
 ## Added after convergence (Splinter, 2026-09-26 20:59, from Gemini-Sub's spec on the card)
 - agy's `ask_question` tool: PreToolUse (matcher `^ask_question$` only) -> needs_you with the question
   as the text; PostToolUse (same matcher) -> working. The bridge re-checks toolCall.name. PreToolUse
-  answers `{"decision":"allow"}`: the launch flag --dangerously-skip-permissions decides allow anyway,
-  so agy's behaviour does not change. Unmeasured live: the ask_question args key (Question/question/...
+  answers `{}` (superseded below: first `allow`, then `{}` after review 3). Unmeasured live: the ask_question args key (Question/question/...
   tried, a fixed sentence otherwise) and PreToolUse firing for it. Release check #3.
+- Review iteration 3 (opus): the question is at args.questions[].question (agy's schema, from the
+  binary) -> read there; `allow` was an unmeasured active decision -> `{}`; header/plan contradictions
+  fixed; the stdout test isolated its pane.
+- RISK, stated: a needs_you never decays; if the person cancels an ask_question and agy fires neither
+  PostToolUse nor Stop (unmeasured), the card reads Needs you until the next prompt's PreInvocation.
+  Release check #4: cancel an ask_question and see what fires.

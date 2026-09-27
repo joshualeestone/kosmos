@@ -75,7 +75,7 @@ test('#4043: the hook command really runs through sh -c, from paths with spaces 
   assert.deepEqual(JSON.parse(fs.readFileSync(out, 'utf8')), ['Stop'], 'the quoted command did not reach the bridge with its event');
 });
 
-test('#4043: the bridge maps the three hooked events, never needs_you, and ignores anything else', () => {
+test('#4043: the bridge maps its hooked events, needs_you only for a real ask_question, and ignores anything else', () => {
   assert.deepEqual(bridge.reportFor('PreInvocation', {}), { state: 'working', text: '' });
   assert.deepEqual(bridge.reportFor('Stop', { fullyIdle: true, error: '' }), { state: 'idle', text: '' });
   assert.equal(bridge.reportFor('Stop', { fullyIdle: false, error: 'boom' }).state, 'idle', 'an errored turn is still over');
@@ -84,11 +84,12 @@ test('#4043: the bridge maps the three hooked events, never needs_you, and ignor
   /* needs_you only from a real ask_question (Gemini-Sub's spec), never from anything idle (#4006). */
   assert.equal(bridge.reportFor('PreToolUse', { toolCall: { name: 'run_command', args: {} } }), null, 'another tool was reported as needs_you');
   assert.equal(bridge.reportFor('PreToolUse', {}), null, 'a PreToolUse with no tool named was reported');
-  assert.deepEqual(bridge.reportFor('PreToolUse', { toolCall: { name: 'ask_question', args: { Question: 'Deploy now?' } } }), { state: 'needs_you', text: 'Deploy now?' });
+  /* agy's own schema (1.2.11): questions[].question. */
+  assert.deepEqual(bridge.reportFor('PreToolUse', { toolCall: { name: 'ask_question', args: { questions: [{ question: 'Deploy now?', options: ['yes', 'no'] }] } } }), { state: 'needs_you', text: 'Deploy now?' });
+  assert.equal(bridge.reportFor('PreToolUse', { toolCall: { name: 'ask_question', args: { questions: [{ question: 'A?' }, { question: 'B?' }] } } }).text, 'A? / B?');
   assert.equal(bridge.reportFor('PreToolUse', { toolCall: { name: 'ask_question', args: {} } }).text, 'Antigravity is asking you a question', 'the route refuses a needs_you with no reason');
   assert.deepEqual(bridge.reportFor('PostToolUse', {}), { state: 'working', text: '' }, 'answered: back to working');
-  assert.equal(bridge.answerFor('PreToolUse'), '{"decision":"allow"}', 'PreToolUse must answer with a decision; allow is what the launch flag decides');
-  for (const ev of ['PreInvocation', 'Stop', 'PostToolUse']) assert.equal(bridge.answerFor(ev), '{}');
+  for (const ev of ['PreToolUse', 'PreInvocation', 'Stop', 'PostToolUse']) assert.equal(bridge.answerFor(ev), '{}', ev + ': Kosmos never makes a decision for agy');
 });
 
 test('#4043: the report is marked auto, so a turn ending cannot erase a deliberate blocked', () => {
@@ -101,7 +102,7 @@ test('#4043: run as agy runs it, the bridge answers {} first and exits 0 fast ev
   const start = Date.now();
   const r = spawnSync(process.execPath, [BRIDGE_FILE, 'Stop'], {
     input: JSON.stringify({ conversationId: 'x', fullyIdle: true, error: '' }),
-    env: { ...process.env, KOSMOS_PORT: '9' }, // nothing listens on port 9
+    env: { ...process.env, KOSMOS_PORT: '9', TMUX_PANE: '%stdout-' + process.pid }, // nothing listens on port 9
     encoding: 'utf8',
     timeout: 15000,
   });
@@ -179,4 +180,14 @@ test('#4043: the command-line entry always exits 0 and says why on stderr when i
   const r2 = spawnSync(process.execPath, [path.join(__dirname, 'agyhooks.js'), ok, '/opt/node', '/b.js'], { encoding: 'utf8' });
   assert.equal(r2.status, 0);
   assert.ok(readHooks(ok)[hooks.HOOK_NAME], 'control: the CLI writes the hook');
+});
+
+test('#4043: run for an ask_question, the bridge answers exactly {} (no permission decision)', () => {
+  const r = spawnSync(process.execPath, [BRIDGE_FILE, 'PreToolUse'], {
+    input: JSON.stringify({ toolCall: { name: 'ask_question', args: { questions: [{ question: 'Go?' }] } } }),
+    env: { ...process.env, KOSMOS_PORT: '9', TMUX_PANE: '%pretool-' + process.pid },
+    encoding: 'utf8', timeout: 15000,
+  });
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout.trim(), '{}');
 });
