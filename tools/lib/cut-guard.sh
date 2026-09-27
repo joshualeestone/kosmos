@@ -7,6 +7,7 @@ if ! . "$_kosmos_cut_guard_lib_dir/process-fixture.sh"; then
   # is unavailable, so a missing library can only over-refuse, never turn a
   # live cut into an empty process list.
   _kosmos_pid_has_node_test_ancestor() { return 1; }
+  _kosmos_pid_is_test_fixture() { return 1; }
 fi
 unset _kosmos_cut_guard_lib_dir
 
@@ -61,15 +62,17 @@ _kosmos_drop_self_subtree() {
   done
 }
 
-# Read `pid cmdline` lines and remove only fixtures whose live ancestry proves
-# they belong to Node's test runner. An unreadable ancestry stays in the list,
-# which preserves the guard's refuse-rather-than-guess posture.
+# Read `pid cmdline` lines and remove only proven unit-test fixtures: a node --test ancestor, or
+# a cwd or script in the run-tests.sh sandbox (the same rule heavy-gate uses). An unreadable pid
+# stays in the list, which preserves the guard's refuse-rather-than-guess posture.
 _kosmos_drop_node_test_fixtures() {
-  local line pid
+  local line pid script re='^[0-9]+ +(/bin/)?(ba)?sh +(([^ ]*/)?tools/(release|browser-checks)\.sh)( |$)'
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     pid="${line%% *}"
-    _kosmos_pid_has_node_test_ancestor "$pid" && continue
+    script=""
+    [[ "$line" =~ $re ]] && script="${BASH_REMATCH[3]}"
+    _kosmos_pid_is_test_fixture "$pid" "$script" && continue
     printf '%s\n' "$line"
   done
 }
@@ -323,6 +326,11 @@ kosmos_refuse_if_browser_run_live() {
     # should the function ever be changed to return non-zero, and it matches the
     # sibling path.
     out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self" || true)"
+  fi
+  # #4206 follow-up: a unit test's browser-checks.sh fixture is not a run, by the same rule as
+  # the cut guard's. An unreadable pid stays in.
+  if [ -n "$out" ]; then
+    out="$(printf '%s\n' "$out" | _kosmos_drop_node_test_fixtures || true)"
   fi
   if [ "$rc" -ge 2 ]; then
     echo "could not tell whether another browser run is live (the probe exited $rc); refusing to guess for $what. KOSMOS_HARNESS_IGNORE_CUT=1 runs anyway." >&2

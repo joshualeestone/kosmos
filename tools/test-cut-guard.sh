@@ -84,6 +84,38 @@ out="$(KOSMOS_RUN_MARKER_DIR="$T/markers-empty" KOSMOS_CUT_PROBE="$T/probe-live"
 [ "$rc" -ne 0 ] && has "$out" "86263" && pass "a missing fixture classifier keeps the candidate and refuses" \
   || fail "a missing fixture classifier failed open (rc=$rc, out=$out)"
 
+# #4206 follow-up: the run-tests.sh sandbox rule (heavy-gate's) now reaches the cut guard too. A
+# fixture that detached from node --test is marked by its cwd in a kt<digits> folder. Live sleeps
+# through the probe seam, never a pgrep-visible release.sh. The negative control runs from / so it
+# cannot land in a kt folder even where TMPDIR itself is one (run-tests.sh on Linux).
+mkdir -p "$T/tmp/kt4206"
+( cd "$T/tmp/kt4206" && exec sleep 30 ) & kt_fx=$!
+( cd / && exec sleep 30 ) & kt_real=$!
+sleep 0.3
+printf '#!/bin/sh\nprintf "%s bash tools/release.sh 0.5.99\\n"\n' "$kt_fx" > "$T/probe-kt-fixture"; chmod +x "$T/probe-kt-fixture"
+printf '#!/bin/sh\nprintf "%s bash tools/release.sh 0.5.99\\n"\n' "$kt_real" > "$T/probe-kt-real"; chmod +x "$T/probe-kt-real"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-kt-fixture" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "a release.sh fixture running in the run-tests.sh sandbox (no node ancestor) is not a cut" \
+  || fail "a kt-sandbox fixture refused the cut (rc=$rc, out=$out)"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-kt-real" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && has "$out" "$kt_real"; } && pass "but the same candidate outside any sandbox still refuses, and is named" \
+  || fail "the sandbox rule also hid a real cut (rc=$rc, out=$out)"
+
+# #4206 follow-up: the browser-run guard reads the same fixture rule. Its self pid is one that does
+# not exist, so the self-subtree exclusion cannot be what drops a candidate here.
+printf '#!/bin/sh\nprintf "86263 bash tools/browser-checks.sh\\n"\n' > "$T/bprobe-live"; chmod +x "$T/bprobe-live"
+out="$(KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-fixture" KOSMOS_BC_PROBE="$T/bprobe-live" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "a browser-checks.sh fixture beneath node --test is not a browser run" \
+  || fail "a node --test browser-checks fixture refused the run (rc=$rc, out=$out)"
+out="$(KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_BC_PROBE="$T/bprobe-live" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && pass "the same browser-checks.sh without node --test ancestry still refuses" \
+  || fail "the browser guard's fixture filter hid a real run (rc=$rc, out=$out)"
+printf '#!/bin/sh\nprintf "%s bash tools/browser-checks.sh\\n"\n' "$kt_fx" > "$T/bprobe-kt"; chmod +x "$T/bprobe-kt"
+out="$(KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_BC_PROBE="$T/bprobe-kt" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "a browser-checks.sh fixture in the run-tests.sh sandbox is not a browser run" \
+  || fail "a kt-sandbox browser-checks fixture refused the run (rc=$rc, out=$out)"
+kill "$kt_fx" "$kt_real" 2>/dev/null; wait "$kt_fx" "$kt_real" 2>/dev/null
+
 # --- #1713: the MIRROR guard, kosmos_refuse_if_harness_live, shown red, green,
 # --- and unable to answer via its own KOSMOS_HARNESS_PROBE seam. Reuses the
 # --- probe-quiet/probe-dead fixtures above (exit 1 / exit 3 are guard-agnostic).
