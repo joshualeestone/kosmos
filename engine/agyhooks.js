@@ -82,15 +82,39 @@ function kosmosEntry(nodeBin, bridge, withToolHooks = true) {
  * file in a worktree or submodule), with no git binary: git under launchd can be a shim that fails
  * (the Xcode licence), and a failing check must not read as "not a repository".
  */
-function gitRootOf(dir) {
-  let d;
-  try { d = fs.realpathSync(dir); } catch { d = path.resolve(String(dir)); }
+/* The real path, or for a path that does not exist yet (a .agents not made yet) its nearest existing
+   ancestor's real path plus the rest: /var is /private/var on a Mac, and the ceiling is compared real. */
+function realOrResolved(p) {
+  let d = path.resolve(String(p));
+  const rest = [];
+  for (;;) {
+    try { return path.join(fs.realpathSync(d), ...rest); } catch { /* not there yet */ }
+    const up = path.dirname(d);
+    if (up === d) return path.resolve(String(p));
+    rest.unshift(path.basename(d));
+    d = up;
+  }
+}
+function gitRootOf(dir, stopAt) {
+  let d = realOrResolved(dir);
+  /* Kosmos's own workers folder is the ceiling for the folders under it: a repository ABOVE it (a
+     person's `~/.git`) says nothing about Kosmos's agent folders and must not blank every card. */
+  const ceiling = stopAt ? realOrResolved(stopAt) : null;
+  const under = ceiling && (d === ceiling || d.startsWith(ceiling + path.sep));
   for (;;) {
     try { fs.lstatSync(path.join(d, '.git')); return d; } catch { /* not here */ }
+    if (under && d === ceiling) return null;
     const up = path.dirname(d);
     if (up === d) return null;
     d = up;
   }
+}
+
+/* Kosmos's workers folder (store.workersRootFor, the same answer create.workersDir gives), or null. A
+   supervisor whose environment lacks a non-default root gets the default: the full walk then runs,
+   which can only refuse more, never less. */
+function workersRoot() {
+  try { return require('./store').workersRootFor(process.env, require('node:os').homedir()); } catch { return null; }
 }
 
 /* Replace `target` with `body`, keeping its mode, through a temp file removed on failure (agytrust's). */
@@ -123,7 +147,8 @@ function writeKeepingMode(target, body) {
  */
 function ensureHooks(workdir, nodeBin, bridge, withToolHooks = true) {
   if (!workdir || !nodeBin || !bridge) return { ok: false, changed: false, why: 'missing workdir, node or bridge' };
-  const repo = gitRootOf(workdir);
+  const ceiling = workersRoot();
+  const repo = gitRootOf(workdir, ceiling);
   if (repo) return { ok: false, changed: false, why: workdir + ' is inside the git project ' + repo + ', so Kosmos does not put its hook there (it would be committed with this Mac\'s paths)' };
   const dir = path.join(workdir, '.agents');
   const link = path.join(dir, 'hooks.json');
@@ -133,6 +158,10 @@ function ensureHooks(workdir, nodeBin, bridge, withToolHooks = true) {
   if (isLink) {
     try { file = fs.realpathSync(link); } catch { return { ok: false, changed: false, why: link + ' is a link to a file that is gone, so it was left alone' }; }
   }
+  /* Where the write actually lands (through a linked hooks.json or a linked .agents) gets the same
+     check: a dotfiles repo behind a link is still a repository. */
+  const targetRepo = gitRootOf(path.dirname(file), ceiling);
+  if (targetRepo) return { ok: false, changed: false, why: file + ' is inside the git project ' + targetRepo + ', so Kosmos does not put its hook there' };
   let current = {};
   let raw = null;
   try { raw = fs.readFileSync(file, 'utf8'); } catch (err) {
@@ -149,7 +178,12 @@ function ensureHooks(workdir, nodeBin, bridge, withToolHooks = true) {
   const want = kosmosEntry(nodeBin, bridge, withToolHooks);
   const had = current[HOOK_NAME];
   if (had && typeof had === 'object' && typeof had.enabled === 'boolean') want.enabled = had.enabled;
-  if (JSON.stringify(current[HOOK_NAME]) === JSON.stringify(want)) return { ok: true, changed: false, why: null };
+  /* Same entry whatever order its keys are in (the person's `enabled` may sit anywhere), so an
+     unchanged file is never rewritten or reordered. */
+  const same = had && typeof had === 'object' && !Array.isArray(had)
+    && Object.keys(had).length === Object.keys(want).length
+    && Object.keys(want).every((k) => JSON.stringify(had[k]) === JSON.stringify(want[k]));
+  if (same) return { ok: true, changed: false, why: null };
   const next = { ...current, [HOOK_NAME]: want };
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });

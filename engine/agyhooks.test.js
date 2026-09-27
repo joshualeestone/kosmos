@@ -354,3 +354,56 @@ test('#4043: a two-part agy version is read as x.y.0', () => {
   assert.equal(hooks.toolHooksSafe('2.0'), true);
   assert.equal(hooks.toolHooksSafe('1.1'), false, '1.1 is 1.1.0, older than 1.1.9');
 });
+
+test('#4043: a hooks.json linked INTO a git project is refused too (a dotfiles repo behind a link)', () => {
+  const repo = path.join(SB, 'dotrepo-' + process.pid);
+  fs.mkdirSync(path.join(repo, '.git'), { recursive: true });
+  const target = path.join(repo, 'hooks.json');
+  fs.writeFileSync(target, '{}');
+  const d = workdir();
+  fs.mkdirSync(path.join(d, '.agents'));
+  fs.symlinkSync(target, path.join(d, '.agents', 'hooks.json'));
+  const r = hooks.ensureHooks(d, '/opt/node', '/b.js');
+  assert.equal(r.ok, false, 'the hook was written through a link into a repository');
+  assert.equal(fs.readFileSync(target, 'utf8'), '{}', 'the repository\'s file changed');
+  /* And a linked .agents folder. */
+  const d2 = workdir();
+  fs.mkdirSync(path.join(repo, 'agents'));
+  fs.symlinkSync(path.join(repo, 'agents'), path.join(d2, '.agents'));
+  assert.equal(hooks.ensureHooks(d2, '/opt/node', '/b.js').ok, false, 'a linked .agents into a repository was written');
+  assert.equal(fs.existsSync(path.join(repo, 'agents', 'hooks.json')), false);
+});
+
+test('#4043: a repository ABOVE the workers folder (a person\'s ~/.git) does not blank Kosmos\'s own agents', () => {
+  const home = path.join(SB, 'home-' + process.pid);
+  const root = path.join(home, 'work', 'workers');
+  const agent = path.join(root, 'kitty');
+  fs.mkdirSync(path.join(home, '.git'), { recursive: true });
+  fs.mkdirSync(agent, { recursive: true });
+  assert.equal(hooks.gitRootOf(agent, root), null, 'a home-level repo counted against a Kosmos agent folder');
+  assert.equal(hooks.gitRootOf(agent), fs.realpathSync(home), 'control: without the ceiling the walk does find it');
+  fs.mkdirSync(path.join(agent, '.git'));
+  assert.equal(hooks.gitRootOf(agent, root), fs.realpathSync(agent), 'a repo INSIDE the workers folder still counts');
+  const outside = path.join(home, 'projects', 'app');
+  fs.mkdirSync(outside, { recursive: true });
+  assert.equal(hooks.gitRootOf(outside, root), fs.realpathSync(home), 'a folder outside the workers root gets the full walk');
+  const prev = process.env.AGENT_WORKFORCE_WORKERS;
+  process.env.AGENT_WORKFORCE_WORKERS = root;
+  try {
+    fs.rmSync(path.join(agent, '.git'), { recursive: true });
+    assert.equal(hooks.ensureHooks(agent, '/opt/node', '/b.js').ok, true, 'ensureHooks does not use the workers ceiling');
+  } finally {
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_WORKERS; else process.env.AGENT_WORKFORCE_WORKERS = prev;
+  }
+});
+
+test('#4043: an unchanged entry whose keys are in another order (enabled first) is not rewritten', () => {
+  const d = workdir();
+  hooks.ensureHooks(d, '/opt/node', '/b.js');
+  const file = path.join(d, '.agents', 'hooks.json');
+  const entry = readHooks(d)[hooks.HOOK_NAME];
+  fs.writeFileSync(file, JSON.stringify({ [hooks.HOOK_NAME]: { enabled: false, ...entry } }));
+  const before = fs.readFileSync(file, 'utf8');
+  assert.equal(hooks.ensureHooks(d, '/opt/node', '/b.js').changed, false, 'the person\'s file was rewritten with nothing different');
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+});

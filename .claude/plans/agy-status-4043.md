@@ -81,3 +81,10 @@ over the scraped UNKNOWN in reconcileReport (checked by calling it: working -> w
   user-level ~/.gemini/config/hooks.json was rejected: it fires for every agy session the person runs,
   not only Kosmos's. (W3) a symlinked hooks.json is written through, keeping link and mode (agytrust's
   pattern); a dangling link is left alone. (NIT) `x.y` versions read as x.y.0.
+- Review iteration 8 (opus): (W1) the write target behind a linked hooks.json or a linked .agents is
+  checked for a git project too (a dotfiles repo). (W2) a repo ABOVE Kosmos's workers folder (a
+  person's ~/.git) no longer blanks every created agent: the .git walk stops at store.workersRootFor
+  (the create.workersDir answer); a folder outside it gets the full walk; a supervisor env missing a
+  non-default root falls back to the full walk, which can only refuse more. Found while fixing it: a
+  not-yet-made .agents resolved without /var -> /private/var, so paths are now resolved through their
+  nearest existing ancestor. (NIT) an unchanged entry in another key order is no longer rewritten.
