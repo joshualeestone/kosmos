@@ -105,6 +105,7 @@ kosmos_mark_run browser
 # #1079: a durable record of every run, so a retry no longer depends on a person
 # reading scrollback. It can never fail a run; see the lib's header.
 . "$REPO/tools/lib/browser-run-log.sh"
+. "$REPO/tools/lib/bc-quarantine.sh"
 # #1818: the frozen-runner child (the re-exec in the freeze block below) runs the
 # checks while the PARENT stays alive as a live page layer that has ALREADY passed
 # this guard. Parent and child are one logical run, but they carry different run
@@ -705,16 +706,6 @@ wait_up() {
 # attempt's output is captured as well as streamed, and on the final failure
 # the check's own FAIL and error lines are kept and printed under its label.
 REASONS=()
-# #4160: after a check exits 0, did it say it was QUARANTINED (ran none of its
-# assertions)? Case-insensitive, whole word, so "quarantined" in any casing counts.
-# Returns 0 and records it when it did, so the caller prints QUARANTINED, not PASS.
-bc_quarantine_note() {
-  local label="$1" cap="$2"
-  grep -qiwE 'quarantined' "$cap" || return 1
-  QUARANTINED+=("$label")
-  log "QUARANTINED  $label (exited 0 but says it did not run its assertions; this is not a pass)"
-  return 0
-}
 run_one() {
   local label="$1"; shift
   # #2445: CI ALLOWLIST. When KOSMOS_BC_CI_ALLOWLIST is set (a space- or comma-
@@ -1748,19 +1739,9 @@ if [ -n "${KOSMOS_BC_CI_ALLOWLIST:-}" ]; then
   fi
 fi
 
-# #4160: a quarantined check did not run. Refuse the run unless the operator said, in
-# the environment, to cut without it; the override is printed so the log shows it.
-if [ "${#QUARANTINED[@]}" -gt 0 ]; then
-  log "quarantined (did NOT run): ${QUARANTINED[*]}"
-  if [ "${KOSMOS_BC_ALLOW_QUARANTINE:-}" = 1 ]; then
-    log "‼️  QUARANTINE OVERRIDE (KOSMOS_BC_ALLOW_QUARANTINE=1): this run is green WITHOUT: ${QUARANTINED[*]}"
-  else
-    for _q in "${QUARANTINED[@]}"; do
-      FAILED+=("$_q (QUARANTINED: exited 0 without running its assertions)")
-      REASONS+=("$_q:"$'\n'"           it says QUARANTINED, so it checked nothing. Fix it, or set KOSMOS_BC_ALLOW_QUARANTINE=1 to go on without it (printed in the log).")
-    done
-  fi
-fi
+# #4160: a quarantined check did not run, so it fails the run unless overridden
+# (tools/lib/bc-quarantine.sh). Before the FAILED gate so it lands in FAILED.
+bc_quarantine_verdict
 
 if [ "${#FAILED[@]}" -gt 0 ]; then
   log "FAILED:  ${FAILED[*]}"
