@@ -1453,3 +1453,21 @@ test('#3995 gap 4: the short-chunk walk stays cheap with 2,000 held values on te
     assert.ok(ms < 1500, `the short walk cost ${ms}ms`);
   } finally { setKnownSecrets([]); }
 });
+
+test('#3995 gap 4 review round 2: a label glued AFTER a short chunk, the label kept readable, and 2ndFloorLounge left in its sentence', () => {
+  const held = j('Zq8vLm3pRt6w', 'Xy9kHb2nWc4d');
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{3}/g);
+    const after = mask(chunks.map((c, i) => `${c}-part${i}`).join(' then ') + '.').text;
+    for (const c of chunks) assert.ok(!after.includes(c), `a chunk with a label after it survived: ${c}: ${after}`);
+    for (let i = 0; i < chunks.length; i += 1) assert.ok(after.includes(`-part${i}`), `the label after chunk ${i} was masked: ${after}`);
+    const before = mask(chunks.map((c) => `part-${c}`).join(' then ') + '.').text;
+    assert.equal((before.match(/part-/g) || []).length, chunks.length, 'a label before a chunk was masked with it: ' + before);
+  } finally { setKnownSecrets([]); }
+  setKnownSecrets(['2ndFloorLounge']);
+  try {
+    const text = 'Reserve the 2nd conference space on Floor near the executive Lounge for the offsite.';
+    assert.equal(mask(text).text, text, 'an ordinary sentence spelling a password made of words was masked');
+  } finally { setKnownSecrets([]); }
+});

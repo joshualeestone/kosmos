@@ -49,3 +49,15 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
   assembled. It is 24 now, and asserts it splits whole.
 - Deferred NIT: the first path to reach a position wins (as in the word walk); a coincidental path can leave a real
   chunk unmasked in a partial way.
+
+## Review round 2 (Sonnet), what changed
+- BLOCKER fixed: a label glued AFTER a short chunk (Zq8-part0) hid it; shortPieces now offers the part before the
+  first = - _ as well as after the last. Tested; red on the previous commit.
+- BLOCKER fixed: a held 2ndFloorLounge was masked out of "the 2nd ... Floor ... Lounge" (an ordinal is not all one
+  case). Ordinals count as plain words, and a completed walk masks only when at least SHORT_WALK_MIN_KEYLIKE (2)
+  pieces are not plain words. Tested; red on the previous commit.
+- Only the piece is masked, not a label glued to it (as the word walk's pieceSpan does). Tested.
+- The spellability check's inner steps are charged, one unit per 16 (chunksOf), and the budget's comment says what
+  it was measured against. The #3769 cost tests pass (charging every step withheld them).
+- Deferred NIT: shortPieces offers one head and one tail per separator, not PIECE_VARIANTS_MAX of each; a chunk under
+  OPENING_LEN with several labels glued on both sides is not tried every way.

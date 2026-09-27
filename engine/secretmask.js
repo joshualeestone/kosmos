@@ -413,8 +413,8 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *  - a held form with its own - or _ regrouped with + or / (its grams and walked form keep its own separators);
  *  - a group joined by + / = that is all lowercase letters with no digit, when it is under FRAGMENT_LEN;
  *  - a value with symbols in it, given without its opening, with spaces around its symbols;
- *  - a key cut into chunks under OPENING_LEN every one of which is a plain word or number (shortChunkSpans refuses
- *    those, since ordinary text spells a password made of words);
+ *  - a key cut into chunks under OPENING_LEN with fewer than SHORT_WALK_MIN_KEYLIKE chunks that are not plain words or
+ *    numbers (shortChunkSpans refuses those, since ordinary text spells a password made of words);
  *  - a first chunk of OPENING_LEN or more followed by chunks under it with long text between (neither walk's reach
  *    carries it: the word walk extends only on pieces of OPENING_LEN or more);
  *  - a held form over WORD_WALK_MAX_FORM characters;
@@ -723,11 +723,15 @@ function wordSkippingSpans(text) {
  *  - it advances only on runs that are EXACTLY the form's next characters (as written, or with glue taken off:
  *    _Zq8_, p0=Zq8, part-Zq8), each within SPLIT_REACH times the form's length of non-space characters of the last
  *    run that advanced it;
- *  - it masks nothing unless the WHOLE form is assembled, then piece by piece, and nothing when every piece is a plain
- *    word or number (a password made of words, MyPassword123, is spelled by "My Password ... 123" in ordinary text:
- *    review round 1, the Administrator1 case of review round 3 again).
+ *  - it masks nothing unless the WHOLE form is assembled, then piece by piece (the piece, not a label glued to it),
+ *    and nothing when fewer than SHORT_WALK_MIN_KEYLIKE pieces are other than plain words or numbers (a password made
+ *    of words, MyPassword123 or 2ndFloorLounge, is spelled by ordinary text: review rounds 1 and 2).
  * Returns [from, to) spans, or null when the walk ran past SHORT_WALK_BUDGET (withheld, as the word walk is).
  */
+/* The word walk's figure, and its unit: one per candidate form, per run visited, per state, and per 16 steps of the
+   spellability check (chunksOf). Measured on this branch (review round 2's probes: 2,000 forms by 4,000 short runs, 2,000
+   near-cap forms sharing one opening, one 20,000-character run): 200 to 600ms, withheld at the budget rather
+   than hanging. */
 const SHORT_WALK_BUDGET = 1250000;
 function shortPieces(run) {
   const out = new Set([run]);
@@ -735,17 +739,24 @@ function shortPieces(run) {
   if (trimmed) out.add(trimmed);
   for (const sep of ['=', '-', '_']) {
     const k = trimmed.lastIndexOf(sep);
-    if (k > 0 && k < trimmed.length - 1) out.add(trimmed.slice(k + 1));
+    if (k > 0 && k < trimmed.length - 1) out.add(trimmed.slice(k + 1));   // a label before it (part-Zq8)
+    const h = trimmed.indexOf(sep);
+    if (h > 0 && h < trimmed.length - 1) out.add(trimmed.slice(0, h));    // a label after it (Zq8-part0, review round 2)
   }
   return [...out];
 }
+/* A plain word or number, as ordinary text writes one: all lower, all upper, Titlecase, digits, or an ordinal (2nd). */
 function plainWordRun(t) {
-  return /^[0-9]+$/.test(t) || /^(?:[a-z]+|[A-Z]+|[A-Z][a-z]+)$/.test(t);
+  return /^[0-9]+(?:st|nd|rd|th)?$/i.test(t) || /^(?:[a-z]+|[A-Z]+|[A-Z][a-z]+)$/.test(t);
 }
+/* A completed short walk masks only when at least this many of its pieces are NOT plain words (review round 2: one
+   was not enough; a held 2ndFloorLounge was masked out of "the 2nd ... Floor ... Lounge"). A random key cut into
+   chunks of three or fewer has many; a sentence spelling a password made of words has few. */
+const SHORT_WALK_MIN_KEYLIKE = 2;
 function shortChunkSpans(text) {
   if (!knownByShort.size) return [];
   const runs = [];
-  for (const m of text.matchAll(/[A-Za-z0-9_+/=-]+/g)) runs.push([m.index, m.index + m[0].length, shortPieces(m[0])]);
+  for (const m of text.matchAll(/[A-Za-z0-9_+/=-]+/g)) runs.push([m.index, m.index + m[0].length, shortPieces(m[0]), m[0]]);
   if (runs.length < 2) return [];
   const present = new Set();
   let longest = 0;
@@ -761,8 +772,13 @@ function shortChunkSpans(text) {
     const ok = new Uint8Array(f.length + 1);
     ok[f.length] = 1;
     for (let i = f.length - 1; i >= at; i -= 1) {
-      for (let l = 1; l <= longest && i + l <= f.length && !ok[i]; l += 1) if (ok[i + l] && present.has(f.slice(i, i + l))) ok[i] = 1;
-      if ((budget -= 1) < 0) break;
+      let steps = 0;
+      for (let l = 1; l <= longest && i + l <= f.length && !ok[i]; l += 1) {
+        if (ok[i + l] && present.has(f.slice(i, i + l))) ok[i] = 1;
+        steps += 1;
+      }
+      /* Charged as the word walk charges a comparison: one unit per 16 characters' worth (chunksOf). */
+      if ((budget -= chunksOf(steps)) < 0) break;
     }
     spellable.set(key, ok[at] === 1);
     return ok[at] === 1;
@@ -806,8 +822,13 @@ function shortChunkSpans(text) {
           }
           if (moved) lastAt = runs[s][1];
         }
-        if (!done || done.every(([, t]) => plainWordRun(t))) continue;
-        for (const [i] of done) spans.push([runs[i][0], runs[i][1]]);
+        if (!done || done.filter(([, t]) => !plainWordRun(t)).length < SHORT_WALK_MIN_KEYLIKE) continue;
+        /* Only the piece, not a label glued to it (review round 2; the word walk's pieceSpan does the same). */
+        for (const [i, t] of done) {
+          const run = runs[i][3];
+          const at = run.endsWith(t) ? run.length - t.length : Math.max(0, run.indexOf(t));
+          spans.push([runs[i][0] + at, runs[i][0] + at + t.length]);
+        }
       }
     }
   }
