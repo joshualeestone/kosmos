@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: plus-pane-4080
-diff_hash: 3f304c57ab5d87c85f249ca0db6fa9cd35f16842e29a56b1e840485c9042fffb
+diff_hash: 795f4b2873dd949ca7ed45994319fefa9e3996582b14a54823b15a6afe6e646e
 subdir_audit: passed
 timestamp: 2026-09-27T05:11:06Z
 converged: true
@@ -38,3 +38,7 @@ No issues found. NO NEW FINDINGS.
 - render-plus-panel-3829: ALL PASS, incl. switch, box, no address, logo, bottom row, dialog focus, Tab wrap, Escape from body, overlay, closed-then-answered reset, switch PUT, and #4079's Remove arms. Control on main's page: the #4080 arms FAIL.
 - Harness on the branch: render-plus-panel-3829, render-plus-signin-3478, render-plus-gate-1615, render-plus-stars-3778, render-unread-edge-3743, render-agentdm-3414, render-fed-plus-gate: all PASS.
 - web.*.test.js on the final files: 1912/1912. Full suite: 0 test failures (its exit 1 was the surface gate, since cleared with a trailer after render-fed-plus-gate passed). #1720 and #2518 gates pass.
+
+## After the rebase onto main (01:05 CDT)
+- One conflict: web.modal-way-out-1316 ceiling; main added #3955's window (18), this adds plus-lost-modal (19). Both are in ESCAPES_VIA.
+- Retested on the rebased tree: modal-way-out, consolidated-980, lost-phone, plus-stale, plus-tab, second-factor-copy 43/43; render-plus-panel-3829 ALL PASS.
