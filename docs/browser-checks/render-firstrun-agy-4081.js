@@ -72,7 +72,13 @@ const chk = (ok, label, extra) => {
   await page.goto(PAGE);
   const q = (fn, arg) => page.evaluate(fn, arg);
   const wait = (ms) => q((t) => new Promise((r) => setTimeout(r, t)), ms);
-  const shot = async (name) => { if (SHOTS) await page.locator('#fr-gemini-sub-step:not([hidden]), #fr-gemini-pick:not([hidden])').first().screenshot({ path: path.join(SHOTS, name + '.png') }); };
+  // The Gemini step while it shows, else the whole model step (after Ready the step is hidden).
+  const shot = async (name) => {
+    if (!SHOTS) return;
+    const step = page.locator('#fr-gemini-sub-step:not([hidden]), #fr-gemini-pick:not([hidden])');
+    const target = (await step.count()) ? step.first() : page.locator('#fr-pane-5');
+    await target.screenshot({ path: path.join(SHOTS, name + '.png'), timeout: 5000 });
+  };
   const look = () => q(() => {
     const v = (id) => { const e = document.getElementById(id); return !!e && !e.hidden; };
     const go = document.getElementById('fr-gemini-sub-go');
