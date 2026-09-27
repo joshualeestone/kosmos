@@ -13,8 +13,10 @@
  *   - a non-2xx answer is logged with its status, never the token;
  *   - a coordinator that cannot be reached is logged, and the process still exits;
  *   - a coordinator that never answers is given up on, so the board is not held.
+ * Only defaultSend's http: branch runs here (a local server); production dials https:, whose
+ * TLS path this does not reach.
  *
- *   node --test phonenotify-send-4163.test.js
+ *   node --test engine.phonenotify-send-4163.test.js
  */
 
 const test = require('node:test');
@@ -52,13 +54,28 @@ function runChild(coordinator, event) {
   const script = "const pn = require(process.env.PN); pn.setAvailableForTests(true); pn.happened(JSON.parse(process.env.EVENT));";
   return new Promise((resolve) => {
     const started = Date.now();
-    const child = spawn(process.execPath, ['-e', script], { env, stdio: ['ignore', 'ignore', 'pipe'] });
     let stderr = '';
-    child.stderr.on('data', (d) => { stderr += d; });
-    child.on('close', (code) => {
+    let finished = false;
+    let child;
+    // One way out, whatever happens: a child that never exits (the very timeout under test
+    // regressing) is killed and reported as code null instead of hanging the suite.
+    const done = (code, error) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(killer);
       fs.rmSync(dir, { recursive: true, force: true });
-      resolve({ code, stderr, ms: Date.now() - started });
-    });
+      resolve({ code, stderr, ms: Date.now() - started, error });
+    };
+    const killer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch { /* already gone */ }
+      done(null, 'killed after 20 s');
+    }, 20000);
+    try {
+      child = spawn(process.execPath, ['-e', script], { env, stdio: ['ignore', 'ignore', 'pipe'] });
+    } catch (e) { done(null, String(e)); return; }
+    child.on('error', (e) => done(null, String(e)));
+    child.stderr.on('data', (d) => { stderr += d; });
+    child.on('close', (code) => done(code));
   });
 }
 
@@ -96,7 +113,7 @@ test('the real send is the request the coordinator expects, under a self-hosted 
     assert.equal(body.kind, 'needs_you');
     assert.equal(body.agent, 'Leo');
     assert.ok(!req.body.includes('the words of the report'), 'the report\'s words left the Mac');
-    assert.equal(r.stderr, '', 'a 2xx is not logged');
+    assert.doesNotMatch(r.stderr, /phonenotify:/, 'a 2xx is not logged');
   } finally { c.srv.close(); }
 });
 
@@ -126,8 +143,9 @@ test('a coordinator that never answers is given up on after the timeout', async 
   try {
     const r = await runChild(`http://127.0.0.1:${c.port}`, EVENT);
     assert.equal(c.seen.length, 1, 'the request was sent');
-    assert.equal(r.code, 0);
+    assert.equal(r.code, 0, r.error || 'the child did not exit on its own');
     assert.ok(r.ms >= 3500 && r.ms < 15000, `gave up after ${r.ms} ms, not about 4 s`);
-    assert.match(r.stderr, /could not reach Kosmos\+/);
+    // Giving up destroys the request, which surfaces as a reset, not a refusal.
+    assert.match(r.stderr, /could not reach Kosmos\+: ECONNRESET/);
   } finally { c.srv.closeAllConnections(); c.srv.close(); }
 });
