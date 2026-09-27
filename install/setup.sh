@@ -38,7 +38,8 @@
 # /Applications it only ever replaces a Kosmos icon it can prove it created
 # itself (by the icon's own contents); its write check creates and removes
 # one empty hidden folder there; and the icon is assembled in a hidden
-# .Kosmos.app.stage.<pid> folder beside its spot. On an update of an icon it
+# .Kosmos.app.stage.<pid> folder beside its spot (.Kosmos.app.stage.<pid>.r if it
+# has to be built again). On an update of an icon it
 # created, its Contents is exchanged with the existing one in a single step
 # (#2864), so the Kosmos.app folder a Dock icon points at stays the same, and
 # the stage folder, now holding the OLD Contents, is deleted while it still proves
@@ -3127,9 +3128,13 @@ make_app() {
   rm -rf "$aside" 2>/dev/null \
     || info "note: could not remove the leftover hidden folder $aside; drag it to the Trash to finish."
   # rename: nothing was there to update; rename-swap-skipped: an update the swap was
-  # not attempted on (switched off, not provably ours, no perl); rename-swap-refused:
-  # the swap was attempted and did not take (swap_errno is what the call reported; a 0
-  # there means the call claimed success but the inode proof found nothing moved).
+  # not attempted on (switched off, not macOS, no perl, the icon or its Contents not a
+  # plain folder, or a stat or the physical-path proof coming back empty; an icon that
+  # is not provably ours never gets here, the rename refuses it first);
+  # rename-swap-refused: the swap was attempted and did not take, or its staged folder
+  # was found in neither place and was rebuilt as .Kosmos.app.stage.<pid>.r. swap_errno
+  # is what the call reported: a 0 means it claimed success though nothing moved (or,
+  # in the neither-place case, may have moved); none means it printed nothing.
   if [ "$_swap_tried" = yes ]; then APP_PATH=rename-swap-refused
   elif [ "$_had_app" = yes ]; then APP_PATH=rename-swap-skipped
   else APP_PATH=rename; fi

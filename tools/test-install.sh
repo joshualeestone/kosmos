@@ -814,6 +814,7 @@ chk "a failed swap still installs (exits 0)" "rc_ok $RC"
 chk "after a failed swap the app is complete and runnable, not a husk" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ] && [ -f \"$SB/apps/Kosmos.app/Contents/Info.plist\" ]"
 chk "the install log records app_path=rename-swap-refused for that run" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* app_path=\\([^ ]*\\).*/\\1/')\" = rename-swap-refused ]"
 chk "and it got there by the whole-bundle fallback (a new folder), so the failure was really taken" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" != \"$APP_INO3\" ]"
+chk "the failed-swap run leaves no stage or aside folder behind" "[ -z \"\$(ls -A \"$SB/apps\" | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ]"
 # A swap call that claims success but moved nothing is caught by the inode proof, and
 # the fallback installs a complete app (the stage was never touched).
 printf '#!/bin/sh\nprintf 0\nexit 0\n' > "$SB/perl-lies"; chmod +x "$SB/perl-lies"
@@ -826,6 +827,7 @@ chk "and the app is complete and runnable" "[ -x \"$SB/apps/Kosmos.app/Contents/
 chk "the install log records app_path=rename-swap-refused for that run" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* app_path=\\([^ ]*\\).*/\\1/')\" = rename-swap-refused ]"
 chk "the log keeps the call's own claim (swap_errno=0) beside rename-swap-refused" "grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | grep -q ' swap_errno=0 '"
 chk "and the fallback ran (a new folder): the zero exit was not taken as a swap" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" != \"$APP_INO4\" ]"
+chk "the did-nothing-swap run leaves no stage or aside folder behind" "[ -z \"\$(ls -A \"$SB/apps\" | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ]"
 # The stub below repeats the installer's syscall; pin the two to the same call, or a
 # change to the installer's flags would leave this case testing a stale shape.
 chk "the stub's swap call is the installer's own (488, AT_FDCWD, flags 18)" "grep -qF 'syscall(488, -2, \$ARGV[0], -2, \$ARGV[1], 18)' \"$SETUP\""
@@ -842,6 +844,7 @@ chk "a swap that happened but said it failed: install exits 0" "rc_ok $RC"
 chk "and it is believed by where the folder is: the SAME Kosmos.app folder" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" = \"$APP_INO5\" ]"
 chk "the install log records app_path=swap for that run" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* app_path=\\([^ ]*\\).*/\\1/')\" = swap ]"
 chk "with the NEW Contents in it, not the old one put back by the rename" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app/Contents\")\" != \"$CONTENTS_INO5\" ] && [ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ]"
+chk "the swapped-then-failed run leaves no stage or aside folder behind (the old Contents came back in the stage and was deleted)" "[ -z \"\$(ls -A \"$SB/apps\" | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ]"
 chk "the stub itself carries the installer's call (so the pin covers both copies)" "grep -qF 'syscall(488, -2, \\\$ARGV[0], -2, \\\$ARGV[1], 18)' \"$SB/perl-swaps-then-fails\""
 # The staged folder in NEITHER place (something moved it; the stub stands in): the stage
 # is built again and installed by the whole-bundle rename, so the app is REFRESHED (new
@@ -882,7 +885,11 @@ chk "the install log records app_path=swap for that run" "[ \"\$(grep 'app-bundl
 chk "what came back is kept, not deleted" "[ -n \"\$(ls -A \"$SB/apps\" | grep -E '^\\.Kosmos\\.app\\.stage\\.')\" ]"
 chk "and it is named" "grep -q 'could not be proven to be this install' \"$SB/update-foreign.log\""
 chk "the app itself is complete and ours" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ] && grep -qF '\"kosmosHome\":\"$SB/home\"' \"$SB/apps/Kosmos.app/Contents/Resources/kosmos-install.json\""
-rm -rf "$SB/apps"/.Kosmos.app.stage.* 2>/dev/null || true
+# Remove only the one folder the installer named, so a stray stage from any other run
+# still fails the "none left" check below.
+FOREIGN_LEFT="$(sed -n 's/.*so it was left as //p' "$SB/update-foreign.log" | tail -1)"
+chk "the kept folder is named by its path, beside the app" "case \"$FOREIGN_LEFT\" in \"$SB/apps/.Kosmos.app.stage.\"*) true ;; *) false ;; esac"
+[ -n "$FOREIGN_LEFT" ] && rm -rf "$FOREIGN_LEFT" 2>/dev/null || true
 # CONTROL for the residue checks: the same pipeline must SEE a residue name when one
 # is there, or "none left" could pass on any folder.
 mkdir -p "$SB/residue-control/.Kosmos.app.stage.0"
