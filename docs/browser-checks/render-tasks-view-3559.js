@@ -29,7 +29,7 @@
  *    window edges and the window's bottom, the task cards shaded with the ground, in the tab view and the
  *    consolidated column (whose rail stays unpainted); a status group with no tasks is not listed (18:16),
  *    and an emptied list shows one line ("No tasks match" / "No tasks yet."); the Close bar is sticky,
- *  - light, dark, a 760-wide and a 390-wide window (the search goes full width), with no sideways
+ *  - light, dark, a 760-wide and a 390-wide window, with no sideways
  *    scroll.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
@@ -133,7 +133,7 @@ function chk(ok, label, extra) {
       rail: !!panel.querySelector('aside, .tsk-rail'),   // the rail was an <aside>
       hint: /Tap a tile to see only that group/.test(panel.innerText),
       selShown: document.getElementById('tsk-projsel').getClientRects().length > 0,
-      /* #3949 positions: the count beside the search; Project and Created: on one row above the tiles;
+      /* #3949 positions: Project and Created: on one row above the tiles;
          Group by and Sort on one row under them. */
       /* #3949 (Josh, 19:30): the count is the title; the search is compact, to the right of Sort. */
       title: document.getElementById('tsk-title').textContent.trim(),
@@ -317,7 +317,18 @@ function chk(ok, label, extra) {
         const closedW = await sw();
         chk(slash === 'tsk-search' && openW >= 200, `${tag} "/" focuses the search and it opens`, JSON.stringify({ slash, openW }));
         chk(keptW >= 200, `${tag} while it holds a search it stays open after you leave it`, String(keptW));
-        chk(after.q === '' && after.value === '' && after.focused !== 'tsk-search' && closedW <= 40 && after.rows >= 7, `${tag} Esc clears the search, closes it, and brings every row back`, JSON.stringify({ after, closedW }));
+        chk(after.q === '' && after.value === '' && after.focused === 'tsk-search' && closedW <= 40 && after.rows >= 7, `${tag} Esc clears the search, closes it, keeps focus in it, and brings every row back`, JSON.stringify({ after, closedW }));
+        await page.keyboard.type('l');
+        const reopenW = await sw();
+        await page.keyboard.press('Escape');
+        await page.evaluate(() => document.getElementById('tsk-search').blur());
+        chk(reopenW >= 200, `${tag} typing again after Esc opens it again`, String(reopenW));
+        /* "/" from a control inside the Tasks view (a tile button) focuses the search too. */
+        await page.focus('#tsk-tiles [data-tile="nobody"]');
+        await page.keyboard.press('/');
+        const fromTile = await page.evaluate(() => document.activeElement && document.activeElement.id);
+        await page.evaluate(() => document.getElementById('tsk-search').blur());
+        chk(fromTile === 'tsk-search', `${tag} "/" from a tile inside the view focuses the search`, JSON.stringify(fromTile));
         /* The count and its projects come from the same filtered tasks: a search that leaves one task on one project
            says so (review round 11: the project count had been unfiltered, "1 Task on 2 Projects"). */
         await page.fill('#tsk-search', 'podcast');
@@ -339,6 +350,17 @@ function chk(ok, label, extra) {
         await page.waitForTimeout(200);
         const closed = await page.evaluate(() => ![...document.querySelectorAll('[aria-modal="true"]')].some((m) => m.getClientRects().length > 0));
         chk(modal.open && modal.before === 'nt-back' && modalAfter === 'nt-back' && closed, `${tag} "/" with a modal open leaves focus in the modal`, JSON.stringify({ modal, modalAfter, closed }));
+        /* And with the modal open but focus on the page itself (a confirm button that disabled and blurred itself):
+           the aria-modal guard is what stops it here, not the "inside the view" guard. */
+        await page.click('#tsk-new');
+        await page.waitForTimeout(300);
+        const bodyModal = await page.evaluate(() => { document.activeElement && document.activeElement.blur && document.activeElement.blur();
+          return { open: [...document.querySelectorAll('[aria-modal="true"]')].some((m) => m.getClientRects().length > 0), focus: document.activeElement === document.body }; });
+        await page.keyboard.press('/');
+        const bodyAfter = await page.evaluate(() => document.activeElement && document.activeElement.id);
+        await page.evaluate(() => { const b = document.getElementById('nt-back'); if (b) b.click(); });
+        await page.waitForTimeout(200);
+        chk(bodyModal.open && bodyModal.focus && bodyAfter !== 'tsk-search', `${tag} "/" with a modal open and focus on the page does not reach the search`, JSON.stringify({ bodyModal, bodyAfter }));
       }
       if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, `tasks-${theme}-${width}.png`), fullPage: true }); }
 

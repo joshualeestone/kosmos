@@ -109,7 +109,7 @@ test('#3949 the layout: no Projects rail, the count in the title, Project and Cr
   assert.ok(offending.checked > 0, 'no .tsk-view rule found');
   assert.deepEqual(offending.hits, [], 'the page body has a frame again');
   const at = (re) => { const i = body.search(re); assert.ok(i >= 0, 'missing: ' + re); return i; };
-  // #3949 (Josh, 09-26 18:03): two bands. The top one holds the title, search, filters and tiles; the white one
+  // #3949 (Josh, 09-26 18:03): two bands. The top one holds the title, filters and tiles; the white one
   // starts at Group by / Sort and holds the groups and the bulk bar. (The colours are read as pixels in the browser check.)
   const bandAt = at(/<div class="tsk-band">/); const belowAt = at(/<div class="tsk-below">/);
   for (const id of ['tsk-title', 'tsk-projsel', 'tsk-tiles']) {

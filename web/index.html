@@ -3464,6 +3464,9 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .tsk-search input::placeholder { color: transparent; }
 .tsk-search:focus-within input, .tsk-search.open input { width: 280px; padding-right: 34px; cursor: text; }
 .tsk-search:focus-within input::placeholder, .tsk-search.open input::placeholder { color: var(--k-ink-2); }
+/* Esc closes it while it keeps focus, until the person types again or leaves it. */
+.tsk-search.shut input { width: 38px; padding-right: 0; }
+.tsk-search.shut input::placeholder { color: transparent; }
 @media (prefers-reduced-motion: reduce) { .tsk-search input { transition: none; } }
 .tsk-search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
 .tsk-search button { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: 0; background: none; cursor: pointer;
@@ -14780,12 +14783,12 @@ window.kosmosMeasureScrollbarWidth();
      are not drawn at all rather than guessed. No
      coloured left bars anywhere (Josh, 12:52): the status mark is a round dot beside the label. -->
 <!-- #3949 (Josh, 2026-09-26): no left Projects column; the body takes the full width. Projects is a
-     dropdown on one line with Created:, the search is about half as wide with the open-task count to its
-     right, five single-label tiles (Needs Your Decision red), and Group by and Sort under the tiles. -->
+     dropdown on one line with Created:, the title is the count ("30 Tasks on 2 Projects"), the single-label tiles
+     (Needs Your Decision red), and Group by, Sort and a compact search under the tiles. -->
 <section class="panel panel-wide" id="panel-tasks" hidden>
   <div class="tsk-view">
     <div class="tsk-main">
-      <!-- #3949 (Josh, 09-26 18:03): two bands. The top one (title, search, filters, tiles) keeps the page's ground;
+      <!-- #3949 (Josh, 09-26 18:03): two bands. The top one (title, filters, tiles) keeps the page's ground;
            everything from Group by / Sort down sits on white, full width, and the task cards are shaded. -->
       <div class="tsk-band">
       <p class="tsk-crumb" id="tsk-crumb"></p>
@@ -46575,7 +46578,9 @@ function tskPaint() {
      number the separate "N open tasks across M projects" line used to give). Scoped to one project it names it
      ("5 Tasks on Newsletter"), as the title did before. Until the tasks are read it just says Tasks. */
   /* N is the projects those same open tasks are on, from the same filtered array, so the title can never say
-     "1 Task on 2 Projects" (review round 11). With nothing open it is just "0 Tasks". */
+     "1 Task on 2 Projects" (review round 11). With nothing open and no project picked it is just "0 Tasks"; with a
+     project picked it names it ("0 Tasks on Newsletter"). It counts before the tile: the title is the total the
+     tiles break down, and a picked tile is a view within it (as the count line it replaced was). */
   const onProjects = new Set(open.map((t) => t.projectId)).size;
   document.getElementById('tsk-title').textContent = !TSK.data ? 'Tasks'
     : open.length + (open.length === 1 ? ' Task' : ' Tasks')
@@ -46884,7 +46889,8 @@ document.getElementById('panel-tasks').addEventListener('toggle', (e) => {
 }, true);
 document.getElementById('tsk-search').addEventListener('input', (e) => {
   TSK.q = e.target.value;
-  document.getElementById('tsk-qclear').hidden = !TSK.q;
+  document.getElementById('tsk-searchbox').classList.remove('shut');
+  document.getElementById('tsk-qclear').hidden = !String(TSK.q).trim();
   tskSearchOpen();
   tskPaint();
 });
@@ -46893,16 +46899,20 @@ function tskSearchOpen() {
   const box = document.getElementById('tsk-searchbox');
   if (box) box.classList.toggle('open', !!String(TSK.q).trim());
 }
-document.getElementById('tsk-search').addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape') return;
-  // Esc clears and closes it, and nothing else on the page reacts to this Esc.
+document.getElementById('tsk-searchbox').addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229) return;   // an IME's own Esc cancels its conversion
+  // Esc (from the field or its clear button) clears and closes it, and nothing else on the page reacts to this Esc.
+  // Focus stays in the field (a keyboard user keeps their place); "shut" closes it until they type again.
   e.preventDefault(); e.stopPropagation();
-  e.target.value = ''; TSK.q = '';
+  const q = document.getElementById('tsk-search');
+  q.value = ''; TSK.q = '';
   document.getElementById('tsk-qclear').hidden = true;
-  tskSearchOpen();
-  e.target.blur();
+  const box = document.getElementById('tsk-searchbox');
+  box.classList.add('shut');
+  q.focus();
   tskPaint();
 });
+document.getElementById('tsk-search').addEventListener('blur', () => document.getElementById('tsk-searchbox').classList.remove('shut'));
 /* "/" focuses the search while the Tasks view is on screen and the person is not typing somewhere else. Cmd-F is left
    to the browser's own find. */
 document.addEventListener('keydown', (e) => {
