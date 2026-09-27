@@ -29,7 +29,8 @@ REFERENCE = os.path.join(HERE, '..', 'moto-g-play-2024-4090', 'api35-signin.png'
 CROP = (60, 580, 400, 635)       # the "Sign in to Kosmos+" heading at 720x1600
 MATCH_BELOW = 12.0                # mean absolute difference per channel, 0..255
 TIMEOUT_S = 25.0
-COMPONENT = 'io.kosmos.app/io.kosmos.app.KosmosLauncherActivity'
+# An APK from before #4113 (the #4101 APK) launches through the stock LauncherActivity instead.
+COMPONENT = os.environ.get('KOSMOS_LAUNCH_COMPONENT', 'io.kosmos.app/io.kosmos.app.KosmosLauncherActivity')
 
 
 def adb(*args, **kw):
@@ -54,8 +55,10 @@ def one_run(ref_crop, keep=None):
     start = subprocess.Popen([ADB, 'shell', 'am', 'start', '-W', '-n', COMPONENT],
                              stdout=subprocess.PIPE, text=True)
     first_d = None
+    starts = []
     while time.monotonic() - t0 < TIMEOUT_S:
         t = time.monotonic()
+        starts.append(t)
         img = capture()
         d = distance(img, ref_crop)
         if first_d is None:
@@ -64,9 +67,15 @@ def one_run(ref_crop, keep=None):
             out = start.communicate(timeout=30)[0]
             if keep:
                 img.save(keep)
-            return round((t - t0) * 1000), first_d, d, parse_times(out)
+            return round((t - t0) * 1000), first_d, d, parse_times(out), interval_ms(starts)
     start.communicate(timeout=30)
-    return None, first_d, None, {}
+    return None, first_d, None, {}, interval_ms(starts)
+
+
+def interval_ms(starts):
+    """Median time between capture starts: the paint time is only known to within this."""
+    gaps = [b - a for a, b in zip(starts, starts[1:])]
+    return round(statistics.median(gaps) * 1000) if gaps else None
 
 
 def parse_times(out):
@@ -88,14 +97,14 @@ def main():
     one_run(ref_crop)   # unmeasured: first launch after install
     rows, missed = [], 0
     for n in range(1, runs + 1):
-        paint, first_d, d, times = one_run(ref_crop, os.path.join(HERE, f'{label}-cold-{n}.png'))
+        paint, first_d, d, times, step = one_run(ref_crop, os.path.join(HERE, f'{label}-cold-{n}.png'))
         if paint is None:
             missed += 1
         rows.append((n, times.get('LaunchState', ''), times.get('TotalTime', ''),
-                     times.get('WaitTime', ''), paint, round(first_d, 1), d if d is None else round(d, 1)))
+                     times.get('WaitTime', ''), paint, round(first_d, 1), d if d is None else round(d, 1), step))
         print(label, *rows[-1], sep='\t', flush=True)
     with open(os.path.join(HERE, f'{label}.tsv'), 'w') as f:
-        f.write('run\tlaunch_state\ttotal_ms\twait_ms\tpaint_ms\tfirst_frame_distance\tmatch_distance\n')
+        f.write('run\tlaunch_state\ttotal_ms\twait_ms\tpaint_ms\tfirst_frame_distance\tmatch_distance\tcapture_interval_ms\n')
         for row in rows:
             f.write('\t'.join('' if v is None else str(v) for v in row) + '\n')
     if missed:
