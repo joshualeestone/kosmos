@@ -61079,7 +61079,9 @@ function tipTourRender(card, auto) {
     const need = card.offsetHeight + TIP_GAP + TIP_PAD + 4;   // the card, its arrow gap, tipPlace's pad, and 4px measured slack (fractional tops)
     /* On screen, too close to the top for the card, and taller than the room the card needs: the tall-place case. A
        shorter place has room below it or beside it, so a flat card there is some other case, left alone. */
-    if (r.top > 0 && r.top < need && r.bottom > need) {
+    /* ...and only when the window can scroll up the whole shortfall: a part-way scroll would move the page and still
+       leave the card flat. */
+    if (r.top > 0 && r.top < need && r.bottom > need && window.scrollY >= need - r.top) {
       window.scrollBy(0, r.top - need);
       tipLayout(TIP_OPEN, card);
     }
@@ -61141,7 +61143,7 @@ function tipLayout(t, card) {
        with a ring-shaped hole cut in it, so nothing in the app has to be lifted above it. */
     const st = TIP_PLACES[TIP_STEP];
     const halo = document.getElementById('tippins');
-    const el = st && st.sel ? document.querySelector(st.sel) : null;
+    const el = st && st.sel ? tipTarget(st.sel) : null;   // the same element tipPlace places against (#4108)
     halo.innerHTML = '';
     let dim = false;
     if (el && tipVisible(st.sel)) {

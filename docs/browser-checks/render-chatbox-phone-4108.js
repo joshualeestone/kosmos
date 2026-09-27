@@ -266,6 +266,9 @@ function heightOf(page, sel) {
                 }
                 /* Only a step whose card would otherwise go flat may scroll: here that is the Conversation step, or none. */
                 chk(w.scrolled.every((t) => t === 'Conversation'), `${tag} the tip scrolls the page only for the Conversation step (a pointing card is never moved)`, JSON.stringify(w.scrolled));
+                /* At ordinary text size the Conversation step is flat without the fix (measured, both engines), so here the
+                   page MUST have made room: if a layout change ever gives the room back, this says the fix went unused. */
+                if (scale === 1) chk(w.scrolled.includes('Conversation'), `${tag} the page made room for the Conversation step (the fix ran)`, JSON.stringify(w.scrolled));
                 chk(w.steps.length === 4, `${tag} the project tip walked all four steps`, String(w.steps.length));
               } else {
                 for (const st of w.steps) console.log(`MEASURE  ${tag} ${tipId} tip, ${st.title || '?'}: ${JSON.stringify(st)}`);
