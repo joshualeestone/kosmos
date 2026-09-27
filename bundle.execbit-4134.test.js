@@ -104,7 +104,8 @@ test('every tree file the bundle makes executable is 100755 in git', () => {
 test('the script is actually read: the known executable bridges and the command are in the set', () => {
   const targets = chmodTargets(real()).map((t) => t.dst);
   const fromRepo = placements(real()).filter((p) => p.fromRepo && targets.includes(p.dst)).map((p) => p.src);
-  for (const want of ['bin/agent-supervisor.sh', 'bin/codex-report-bridge.js', 'bin/agy-report-bridge.js', 'install/kosmos', 'install/kosmos-report-hook.sh']) {
+  for (const want of ['bin/agent-supervisor.sh', 'bin/board-watchdog.sh', 'bin/codex-report-bridge.js', 'bin/gemini-report-bridge.js',
+    'bin/grok-report-bridge.js', 'bin/agy-report-bridge.js', 'install/kosmos', 'install/kosmos-report-hook.sh']) {
     assert.ok(fromRepo.includes(want), want + ' was not found among the chmod +x files from the tree: ' + JSON.stringify(fromRepo));
   }
 });

@@ -33,5 +33,9 @@ The parser reads single-line `cp "<src>" "$STAGE/<dst>"` and `chmod +x "$STAGE/<
 written another way is not paired, so its chmod target fails as untraced; a chmod written another way
 (`chmod 755`, a variable path, a loop) fails as unread. A mode set by something that is not `chmod`
 (`install -m 755`, a tar extract into $STAGE) is not seen at all: none exists in the script today.
-The test reads git's index; the cut reads the checked-out file, which agrees with core.fileMode on. A cp that is NOT followed by chmod but copies a 100755 file is out of scope: cp keeps the
+The test reads git's index; the cut reads the checked-out file, which agrees with core.fileMode on.
+Pairing is by line order, with no model of `if`/`else`: a chmod is credited to the last cp above it
+whichever branch runs. Today the only path with two cps (runtime/bin/node, one per branch) takes
+both from outside the tree, so both are skipped either way. A future path copied from the tree in
+one branch and from elsewhere in the other could be checked against the wrong source. A cp that is NOT followed by chmod but copies a 100755 file is out of scope: cp keeps the
 mode, so bundle and tree agree.
