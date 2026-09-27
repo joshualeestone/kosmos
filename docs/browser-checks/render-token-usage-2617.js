@@ -381,6 +381,7 @@ function readUsage(page) {
     // the four headers are the same height. Measured on the name's text node with a Range, since the
     // name span also holds the tag and its box alone cannot say how many lines the name took. A baseline
     // is where a zero-size inline-block sits on its line, placed for the reading and removed at once.
+    // Under 0.5px, because flex-start (top-aligned) puts the two fonts' baselines exactly 1px apart.
     const measureCards = () => p.evaluate(() => [...document.querySelectorAll('#usage-charts4 .tv-mini')].map((c) => {
       const nm = c.querySelector('.tv-nm'), tg = c.querySelector('.tv-tg'), tot = c.querySelector('.tv-tot'), mh = c.querySelector('.tv-mh');
       const node = nm && [...nm.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
@@ -423,7 +424,7 @@ function readUsage(page) {
       ok(cards.length === 4 && cards.every((c) => c.tagBelow), `${at}: each class card's tag sits below its name, not beside it (#4242) -- ${JSON.stringify(cards.map((c) => c.tagBelow))}`);
       ok(cards.length === 4 && cards.every((c) => c.totOneLine), `${at}: each class card's total is on one line (#4242) -- ${JSON.stringify(cards.map((c) => c.totOneLine))}`);
       ok(cards.length === 4 && cards.every((c) => c.clear), `${at}: each class card's total is clear of its name and inside the card (#4242) -- ${JSON.stringify(cards.map((c) => c.clear))}`);
-      ok(cards.length === 4 && cards.every((c) => c.base <= 1), `${at}: each class card's total sits on its name's baseline (#4242) -- ${JSON.stringify(cards.map((c) => c.base))}`);
+      ok(cards.length === 4 && cards.every((c) => c.base < 0.5), `${at}: each class card's total sits on its name's baseline (#4242) -- ${JSON.stringify(cards.map((c) => c.base))}`);
     };
     for (const [at, want, go] of views) {
       const sec = await go();
