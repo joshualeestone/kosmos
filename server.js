@@ -967,9 +967,12 @@ function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
          record keeps only the last writer. Read through toldOverride (#1228). */
       ready: (name) => {
         const r = board();
-        const card = Array.isArray(r) ? r.find((a) => a && a.sessionName === name) : null;
-        if (card && card.state === STATE.STOPPED) return true;
-        const st = projects.toldOverride(instructions.staleness(name), name, all);
+        // Our card for this name (mtimeOf has already required one), and its own session, as the
+        // status route reads staleness: the name alone can date it from another conversation.
+        const card = Array.isArray(r) ? r.find((a) => a && a.sessionName === name && a.isNamedOurs === true) : null;
+        if (!card) return false;
+        if (card.state === STATE.STOPPED) return true;
+        const st = projects.toldOverride(instructions.staleness(name, undefined, card.session), name, all);
         return !!(st && st.state === instructions.STALENESS.CURRENT);
       },
       retell: (name, id) => retellMember(name, id, board()),

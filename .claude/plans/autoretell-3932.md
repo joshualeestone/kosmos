@@ -75,6 +75,7 @@ cost is a reload before their save, not an overwrite.
 - A retell that fails, even for a passing reason, is not retried until the file changes again: the
   notice's Try again retries sooner. A list of "passing" reasons to auto-retry was rejected: it would
   be a second copy of tellAgent's reasons, and drift.
-- Tests: engine/autoretell.test.js (12), server.test.js "#3932" (end-to-end: no file, settle window,
-  retell writes the block and keeps the person's words, the listed line typed once, second tick no-op).
+- Tests: engine/autoretell.test.js (12), server.test.js, two "#3932" tests (a running agent end to end: no file, settle window,
+  retell writes the block and keeps the person's words, the listed line typed once, second tick no-op),
+  and a STOPPED agent named Or.Two, re-told though staleness reads stale.
 - Mutations: dropping the settle, newer-than-verdict or acted checks each reds the unit tests.
