@@ -26,7 +26,7 @@ function check(cond, msg) { if (!cond) problems.push(msg); }
 // covering the viewport, and stacked above the board. If all hold, the board is
 // occluded no matter what is painted beneath it.
 // kosmos#3973: the root may give up a gutter only as wide as a real scrollbar, measured on a
-// scratch scroller the page's CSS does not style, so a root that itself shrank or moved cannot become
+// scratch scroller (the page styles it only as it styles the root's own scrollbar), so a root that itself shrank or moved cannot become
 // the yardstick that passes a short bar or cover. Compared within 1px (a fractional root rounds
 // either way); a CSS zoom on the root would scale the scratch scroller and is not supported here.
 async function coverIsOccluding(page) {
@@ -50,7 +50,7 @@ async function coverIsOccluding(page) {
       // stable gutter reserved and nothing to scroll, Chromium reports clientWidth WITH the empty gutter
       // on a classic-scrollbar machine (1280 of 1280 while html is 1265 wide), and a fixed layer cannot
       // paint that gutter, so a correct cover failed by 15px there and passed on overlay scrollbars.
-      // floor: zoom lays the root out fractionally (the page's own 1px vwMatches tolerance). The
+      // floor: a fractional root width rounds either way (the page's own 1px vwMatches tolerance). The
       // bottom stays on clientHeight: scrollbar-gutter reserves only the vertical scrollbar's strip.
       covers: r.left <= 0 && r.top <= 0
         && r.right >= Math.floor(root.right)

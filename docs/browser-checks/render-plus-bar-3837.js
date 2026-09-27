@@ -44,7 +44,7 @@ function chk(ok, label, extra) {
 // the #1309 stable gutter on a classic-scrollbar machine when the page does not scroll (so the bar read
 // 15px short there and exact on overlay scrollbars).
 // kosmos#3973: the root may give up a gutter only as wide as a real scrollbar, measured on a
-// scratch scroller the page's CSS does not style, so a root that itself shrank or moved cannot become
+// scratch scroller (the page styles it only as it styles the root's own scrollbar), so a root that itself shrank or moved cannot become
 // the yardstick that passes a short bar or cover. Compared within 1px (a fractional root rounds
 // either way); a CSS zoom on the root would scale the scratch scroller and is not supported here.
 const bar = (page) => page.evaluate(() => {
