@@ -80,3 +80,62 @@ test('#3935 keyTokens: every key-shaped token of a line with spaces, and no name
   ];
   for (const [line, want] of cases) assert.deepEqual(keyTokens(line), want, line);
 });
+
+test('#4111 a value assigned to a public NAME (MODEL, REGION, VERSION) is not held; a secret-like NAME still is', () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-known-')));
+  try {
+    const data = path.join(root, 'data');
+    const put = (p, text) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, text); };
+    put(path.join(data, 'secrets', 'openai.env'), [
+      'OPENAI_MODEL=gpt-4o-mini-2024-07-18',
+      'export AWS_REGION=eu-central-1-zone9x',
+      'api_version: 2024-10-21-preview',
+      '"model": "claude-sonnet-4-20250514",',
+      'OPENAI_API_KEY=sk-proj-held0123456789abcdefXYZ',
+      'MODEL_API_KEY=modelkey0123456789abcdefXY',
+      'IMAGE_MODEL=dall-e-3-hd # old key Zq8vLm3pRt6wXy9kHb2nWc4d',
+      'BEDROCK_MODEL=anthropic.claude-3-5-sonnet-20240620-v1:0',
+      'FT_MODEL=ft:gpt-4o-mini-2024-07-18:acme:custom:9xYz12',
+      'MODEL_PASSPHRASE=Pw7vLm3pRt6wXy9kHb2nWc4d',
+      'CF_ZONE_ID=0123456789abcdef0123456789abcdef',
+      'CHAT_MODEL=gpt-4o-2024-11-20 # was gpt-4o-2024-11-20 before the switch',
+      'API_VERSION=2 # old key Vr2vLm3pRt6wXy9kHb2nWc4d',
+      'TZ=UTC # key UTCq8vLm3pRt6wXy9kHbUTC2n',
+      'REGION=us-east-1;TOKEN=Rg1vLm3pRt6wXy9kHb2nWc4d',
+      'PRIVKEY_VERSION=Pk9vLm3pRt6wXy9kHb2nWc4d',
+      'MODEL=gpt-4o:Mc5vLm3pRt6wXy9kHb2nWc4dAA',
+      'REGION=us-east-1&token=Rt5vLm3pRt6wXy9kHb2nWc4d',
+      'LOCALE=Lc3vLm3pRt6wXy9kHb2nWc4d',
+      'model: gemini-1.5-pro-002  # default',
+      '- model: mistral-large-2407',
+      'VERSION=550e8400-e29b-41d4-a716-446655440000',
+    ].join('\n') + '\n');
+    put(path.join(data, 'secrets', 'model.txt'), 'DEFAULT_MODEL=gpt-4o-2024-08-06\n');
+    put(path.join(data, 'secrets', 'settings.json'), '{\n  "defaultModel": "gpt-4.1-2025-04-14",\n  "modelId": "o3-mini-2025-01-31"\n}\n');
+    const got = new Set(collect({ dataRoot: data, home: path.join(root, 'nohome') }));
+    for (const pub of ['gpt-4o-mini-2024-07-18', 'eu-central-1-zone9x', '2024-10-21-preview', 'claude-sonnet-4-20250514', 'gpt-4o-2024-08-06',
+      'claude-3-5-sonnet-20240620', 'gpt-4.1-2025-04-14', 'o3-mini-2025-01-31', 'gpt-4o-2024-11-20', 'gemini-1.5-pro-002',
+      'mistral-large-2407']) {
+      assert.ok(![...got].some((v) => v.includes(pub) && !/\n/.test(v)), `a public ${pub} was held: ${[...got].filter((v) => v.includes(pub))}`);
+    }
+    assert.ok(!got.has('OPENAI_MODEL=gpt-4o-mini-2024-07-18'), 'the public NAME=value line was held (the mask would walk it)');
+    assert.ok(!got.has('DEFAULT_MODEL=gpt-4o-2024-08-06'), 'a one-line file that is a public assignment was held whole');
+    assert.ok(got.has('sk-proj-held0123456789abcdefXYZ'), 'CONTROL: a key under a secret NAME was not held');
+    assert.ok(got.has('modelkey0123456789abcdefXY'), 'CONTROL: a NAME with a secret part (MODEL_API_KEY) must still be held');
+    assert.ok(got.has('Zq8vLm3pRt6wXy9kHb2nWc4d'), 'a key in a comment on a public line was dropped with the line');
+    assert.ok(got.has('Pw7vLm3pRt6wXy9kHb2nWc4d'), 'CONTROL: a secret named after a model (MODEL_PASSPHRASE) was not held');
+    assert.ok(got.has('0123456789abcdef0123456789abcdef'), 'CONTROL: a Cloudflare zone id (CF_ZONE_ID) is still held');
+    for (const k of ['Vr2vLm3pRt6wXy9kHb2nWc4d', 'UTCq8vLm3pRt6wXy9kHbUTC2n', 'Rg1vLm3pRt6wXy9kHb2nWc4d', 'Pk9vLm3pRt6wXy9kHb2nWc4d',
+      'Mc5vLm3pRt6wXy9kHb2nWc4dAA', 'Rt5vLm3pRt6wXy9kHb2nWc4d', 'Lc3vLm3pRt6wXy9kHb2nWc4d', '550e8400-e29b-41d4-a716-446655440000']) {
+      assert.ok(got.has(k), `a key on a public line (short value, glued assignment, glued secret word) was not held whole: ${k}`);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('#4111 isPublicName: a public part and no secret part', () => {
+  const { isPublicName } = require('./knownsecrets');
+  for (const n of ['OPENAI_MODEL', 'model', 'AWS_REGION', 'api.version', 'TZ', 'default-model', 'defaultModel', 'modelId', 'OPENAI_MODEL_ID', 'model.name', 'AWS_REGIONS', 'SUPPORTED_LOCALES', 'API_VERSIONS']) assert.equal(isPublicName(n), true, n);
+  for (const n of ['MODEL_API_KEY', 'OPENAI_API_KEY', 'REGION_TOKEN', 'DATABASE_URL', 'API_HOST', 'VERSION_SECRET', 'MODELX',
+    'MODEL_PASSPHRASE', 'REGION_BEARER', 'model.api-key', 'model-secret', 'modelToken', 'REGION_TOKEN_VERSION', 'CF_ZONE_ID', 'SESSION_ID', 'ID',
+    'PRIVKEY_VERSION', 'APITOKEN_MODEL', 'SECRETKEY_REGION', 'ACCESSKEY_VERSION', 'apiKeyModel', 'APIVERSION', 'MODELNAME']) assert.equal(isPublicName(n), false, n);
+});
