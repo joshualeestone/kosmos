@@ -3621,11 +3621,21 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
   #panel-tasks :is(input:not([type=checkbox]):not([type=radio]), select, textarea) { font-size: 16px; }
   #panel-tasks select.tsk-sel { height: auto; min-height: 44px; }
   #panel-tasks :is(#tsk-new, #tsk-bclose, #tsk-bclear) { min-height: 44px; }
-  #panel-tasks .tsk-search input { min-height: 44px; }
+  #panel-tasks .tsk-search input { min-height: 44px; min-width: 44px; }
+  #panel-tasks .tsk-search svg { left: 14px; }   /* centred in the 44px collapsed field */
+  #panel-tasks :is(.tsk-search:focus-within, .tsk-search.open) input { padding-right: 44px; }   /* typed text clears the 44px clear button */
   #panel-tasks .tsk-search button { width: 44px; height: 44px; right: 0; }
+  #panel-tasks #tsk-bnote { min-height: 44px; }
   #panel-tasks .tsk-row .tsk-hit { padding: 14px; margin: -14px; }
-  #panel-tasks .tsk-row .tl { display: flex; align-items: center; min-height: 44px; }
-  #panel-tasks .tsk-row .meta button { display: inline-flex; align-items: center; min-height: 44px; }
+  /* Short one-line buttons grow to 44px themselves. */
+  #panel-tasks :is(.tsk-row .meta button:not(.tsk-chip), .tsk-row .tsk-unbuild, .tsk-crumb button) { display: inline-flex; align-items: center; min-height: 44px; vertical-align: middle; }
+  /* The title stays an inline button, so a long one wraps like text on the line of its #12 (review: flex, and then
+     inline-flex, pushed it below). Its tap area grows with padding, and an equal negative margin keeps the lines. */
+  #panel-tasks .tsk-row .tl { padding-block: 13px; margin-block: -13px; }
+  #panel-tasks details.tsk-fold summary { padding: 14px 0; }
+  /* Drawn pills keep their look; an invisible overlay makes the tap area 44px tall. */
+  #panel-tasks :is(.tsk-row .meta button.tsk-chip, .tsk-who) { position: relative; }
+  #panel-tasks :is(.tsk-row .meta button.tsk-chip, .tsk-who)::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 44px; margin-top: -22px; }
 }
 .tsk-row .t { min-width: 0; }
 .tsk-row .tl { border: 0; background: none; padding: 0; font: 600 .9375rem var(--font-ui); color: var(--k-ink); cursor: pointer; text-align: left; }

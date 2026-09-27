@@ -200,9 +200,18 @@ function chk(ok, label, extra) {
           .filter(vis).map((e) => [e.id || e.className, parseFloat(getComputedStyle(e).fontSize)]);
         const t = (q) => [...document.querySelectorAll(q)].filter(vis).map((e) => [q, e.id || e.className || e.tagName, box(e)]);
         const targets = [...t('#tsk-new'), ...t('#panel-tasks select.tsk-sel'), ...t('#tsk-search'),
-          ...t('#tsk-groups .tsk-row .tsk-hit'), ...t('#tsk-groups .tsk-row .tl'), ...t('#tsk-groups .tsk-row .meta button')];
+          ...t('#tsk-groups .tsk-row .tsk-hit'), ...t('#tsk-groups .tsk-row .tl'), ...t('#tsk-groups .tsk-row .meta button:not(.tsk-chip)'),
+          ...t('#tsk-groups .tsk-row .tsk-unbuild'), ...t('#tsk-crumb button'), ...t('#panel-tasks details.tsk-fold summary'), ...t('#tsk-bnote')];
+        /* Drawn pills keep their look; their tap area is an overlay (review round 1). */
+        const pills = [...document.querySelectorAll('#tsk-groups .tsk-row .meta button.tsk-chip, #panel-tasks .tsk-who')].filter(vis)
+          .map((e) => [e.className, Math.round(parseFloat(getComputedStyle(e, '::after').height) || 0), box(e)[1]]);
+        /* The title stays on its task number's line (review round 1: display:flex had pushed it below). */
+        const lines = [...document.querySelectorAll('#tsk-groups .tsk-row')].filter(vis).map((r) => { const n = r.querySelector('.n'), tl = r.querySelector('.tl');
+          if (!n || !tl) return null; const a = n.getBoundingClientRect(), b = tl.getBoundingClientRect(); const mid = (a.top + a.bottom) / 2; return mid >= b.top && mid <= b.bottom; }).filter((x) => x !== null);
+        const searchW = Math.round(document.getElementById('tsk-search').getBoundingClientRect().width);
+        const tlH = Math.max(0, ...[...document.querySelectorAll('#tsk-groups .tsk-row .tl')].filter(vis).map((e) => box(e)[1]));
         const hover = matchMedia('(hover: none)').matches;
-        return { hover, fields, targets, sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth };
+        return { hover, fields, targets, pills, lines, searchW, tlH, sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth };
       });
       if (label.startsWith('phone')) {
         chk(m.hover, `[${label}] the phone reports hover: none (so the touch rules apply)`, String(m.hover));
@@ -211,11 +220,14 @@ function chk(ok, label, extra) {
         const shortOnes = m.targets.filter(([, , [, h]]) => h < 44);
         const narrowHit = m.targets.filter(([q, , [w]]) => /tsk-hit/.test(q) && w < 44);
         chk(m.targets.length >= 6 && shortOnes.length === 0 && narrowHit.length === 0, `[${label}] every Tasks tap target is 44px tall, the checkbox's tap area 44px wide too (#4226)`, JSON.stringify(shortOnes.concat(narrowHit).slice(0, 6)));
+        chk(m.lines.length > 0 && m.lines.every(Boolean), `[${label}] each task title stays on the line of its task number (#4226 review)`, JSON.stringify(m.lines));
+        chk(m.searchW >= 44, `[${label}] the collapsed search is 44px wide (#4226 review)`, String(m.searchW));
+        chk(m.pills.length > 0 && m.pills.every(([, hit]) => hit >= 44), `[${label}] drawn pills keep their size and get a 44px tap overlay (#4226 review)`, JSON.stringify(m.pills));
         chk(!m.sideways, `[${label}] no sideways scroll`, String(m.sideways));
       } else {
         const phoneSized = m.fields.filter(([, px]) => px >= 16);
         const hits = m.targets.filter(([q, , [w]]) => /tsk-hit/.test(q) && w >= 44);
-        chk(!m.hover && phoneSized.length === 0 && hits.length === 0, `[${label}] with a mouse the Tasks fields and checkboxes keep their desktop size (#4226)`, JSON.stringify({ hover: m.hover, phoneSized, hits: hits.length }));
+        chk(!m.hover && phoneSized.length === 0 && hits.length === 0 && m.tlH < 44 && m.pills.every(([, hit]) => hit < 44), `[${label}] with a mouse the Tasks fields and checkboxes keep their desktop size (#4226)`, JSON.stringify({ hover: m.hover, phoneSized, hits: hits.length, tlH: m.tlH, pills: m.pills }));
       }
       await ctx.close();
     }
