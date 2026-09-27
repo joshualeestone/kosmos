@@ -407,6 +407,12 @@ const chk = (ok, label, extra) => {
   await page.waitForTimeout(300);
   const busy = await q(() => ({ say: document.getElementById('acct-add-pick-say').textContent, pick: document.getElementById('acct-provider-pick').value, muse: !document.getElementById('acct-muse-flow').hidden }));
   chk(/Finish or stop the sign-in that is under way/.test(busy.say) && busy.pick === 'claude' && !busy.muse, 'Sign in again while another sign-in is under way says so, and does not lay Meta\'s step over it', JSON.stringify(busy));
+  // Round 4: when that sign-in ends (here in failure), the line no longer asks to finish or stop it.
+  await q(() => acctFlowPaint({ phase: 'failed', because: 'Claude closed before the sign-in finished' })); await settle();
+  chk(await q(() => document.getElementById('acct-add-pick-say').textContent === ''), 'the "under way" line goes when that sign-in ends in failure');
+  // Round 4: the line takes room only while it speaks (the page reset gives every element no margin).
+  const gap = await q(() => { const p = document.getElementById('acct-add-pick-say'); const empty = getComputedStyle(p).marginTop; acctAddPickSay('x'); const full = getComputedStyle(p).marginTop; acctAddPickSay(''); return { empty, full }; });
+  chk(gap.empty === '0px' && gap.full !== '0px', 'the line beside the picker takes room only while it has something to say', JSON.stringify(gap));
   await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); });
   // Round 1, W5: the Connections box never counts Meta Muse as thinking for agents (no agent runs on it yet).
   await q((row) => { window.__accounts = [row]; }, MUSE_ROW);

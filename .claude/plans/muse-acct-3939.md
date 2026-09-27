@@ -86,3 +86,14 @@ picker lists only the Claude row. Both arms go red when acctProvider forgets Met
   real attribute names. N3: the unit test asserts the move picker excludes the row. N4:
   README row describes the 3c-2 arms. N5 (web tests reading a relative path): pre-existing,
   noted; run them from the repo root.
+
+## Review round 4 (sonnet): 0 blockers, 2 warnings, 2 nits
+- W1 FIXED: the "under way" line outlived the sign-in it named when that sign-in failed
+  (reproduced). acctFlowPaint's flow-ended point clears it (as museAsk clears a stale
+  "not available"). Browser-check arm.
+- W2 FIXED: the round-3 CSS was inert (the page reset gives every element no margin) and
+  its comment overstated it. It now adds the gap while the line speaks
+  (:not(:empty) { margin: 10px 0 0 }), measured by getComputedStyle both ways.
+- N3: commented that the move picker's Claude arm excludes the row by memoryShared, not
+  by provider. N4 ACCEPTED: the 3 s fallback reads the option's last answer, the same as
+  the Gemini row's accepted #3998 behaviour.

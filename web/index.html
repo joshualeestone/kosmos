@@ -7214,9 +7214,10 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
    something to say; the region itself is never hidden (a live region must stay in the tree to be heard).
    Its place in the rail head is set with the consolidated rules (the head wraps, the notice takes a line). */
 .alist-pjn:not(:empty) { padding: 6px 0 2px; }
-/* #3939 slice 3c-2 (review round 3): the line beside the Add a provider picker is never hidden either, so it
-   is heard the first time it speaks; it takes room only while it has something to say. */
-.acct-add-pick-say:empty { margin: 0 !important; }
+/* #3939 slice 3c-2 (review rounds 3 and 4): the line beside the Add a provider picker is never hidden either,
+   so it is heard the first time it speaks; it takes room only while it has something to say (the reset
+   gives every element no margin, so the gap is added here, not taken away). */
+.acct-add-pick-say:not(:empty) { margin: 10px 0 0; }
 .pnotice { display: flex; gap: 10px; align-items: flex-start; padding: 13px 15px; border-radius: 10px;
   background: var(--k-sunk, rgba(20,22,26,.05)); border: 1px solid var(--k-rule); margin: 0 0 12px; }
 .pn-b { flex: 1 1 auto; min-width: 0; }
@@ -23668,6 +23669,9 @@ function acctFlowPaint(st) {
   flow.hidden = true;
   codeRow.hidden = true;
   btn.disabled = false;
+  /* #3939 slice 3c-2 (review round 4): the sign-in this flow ran has ended, so the line beside the picker
+     no longer asks the person to finish or stop it. */
+  { const say = document.getElementById('acct-add-pick-say'); if (say && say.textContent === MUSE_BUSY) acctAddPickSay(''); }
   if (focusWasInFlow && phase !== 'connected') acctFocusAfterFlow(btn);
   if (phase === 'connected') {
     /* kosmos#977: say the STATE, not where to go looking for it. "The new
