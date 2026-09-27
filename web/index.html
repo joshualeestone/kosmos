@@ -1897,6 +1897,11 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    z-index 1 and was covering the name and title of any agent drawn near it
    (Josh, 2026-08-23 14:21, screenshot). Above the hub, below a drag. */
 .orgmap .onode:hover, .orgmap .onode:focus-within, .orgmap .onode:focus-visible { z-index: 2; }
+/* #4052: every node is a layer of its own too, so the raised z-index above can reorder layers instead of
+   repainting the nodes around the one hovered. Measured, not proven: with only the faces layered (below), S41
+   went red in 2 of its 6 attempts; with the nodes layered as well, it passed all 12 attempts over 11 runs
+   (Chromium; the figures are in .claude/plans/orghover-4052.md). */
+.orgmap .onode { will-change: transform; }
 .wires { position: absolute; inset: 0; width: 100%; height: 100%; }
 .hub {
   position: absolute; transform: translate(-50%, -50%);
@@ -1941,7 +1946,16 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 /* 🔑 THE CONTENTS ARE DIMMED, WHATEVER THEY ARE, so a face with a photo and a
    face with initials get the same treatment. The disc stays opaque either way,
    which is what stops a wire crossing it. */
-.onode .face > * { opacity: .5; transition: opacity .12s ease; }
+/* #4052 (Josh, 2026-09-26: hovering agents on the org chart made the cluster icons "jiggle and shift about maybe 1
+   or 2 pixels"): will-change keeps every face's contents on a layer of its own from the start. Without it the
+   browser layers a face only while its opacity animates, re-rasterizing the faces around it, so a neighbouring
+   cluster's circles (pictures at fractional positions) were redrawn a pixel over each time another agent was
+   hovered (measured in Chromium). No box moved; render-swarm-ui-3564.js S41 compares the pixels. The hover
+   callout animates its opacity the same way and gets the same treatment, as a precaution. With the node layer
+   above, the cost is three small layers per agent (node, face contents, callout), plus a clip mask for a face
+   with a picture, while the chart is shown; unmeasured on a large fleet. Keep it to the org chart's 44px
+   nodes, and do not widen these selectors to the grid or list. */
+.onode .face > * { opacity: .5; transition: opacity .12s ease; will-change: opacity; }
 .onode:hover .face > *, .onode:focus-visible .face > * { opacity: 1; }
 .onode:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 4px; border-radius: 50%; }
 /* #2576/#2577: the outer ring is now the CONTEXT gauge, drawn on EVERY node by
@@ -2033,7 +2047,7 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
   bottom: 50px; background: var(--gold-bright); border: 2px solid var(--gold-bright);
   border-radius: 9px; padding: 6px 12px; font: 600 14px var(--font-ui);
   display: inline-flex; align-items: center; text-align: left; line-height: 1.15;
-  color: #14161a; opacity: 0; transition: opacity .12s ease;
+  color: #14161a; opacity: 0; transition: opacity .12s ease; will-change: opacity;   /* #4052: a precaution, the same as the faces (not measured to matter in Chromium) */
 }
 /* #2683: opacity AND pointer-events move together, so the callout is clickable
    exactly when it is visible -- pressable when shown (#284), inert (and unable to
