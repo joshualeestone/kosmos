@@ -29,10 +29,14 @@ const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 test('#111: the room keeps its question box until the agent page carries blocking questions (Gate 1)', () => {
   const GATE = 'the room\'s question box is gone: that is #111\'s PR two, which needs Gate 1 met (the agent page '
     + 'carries a blocking question a person can see and answer, shown by a browser walk) and Splinter\'s OK first';
-  assert.match(PAGE, /id="pj-thread"/, GATE + ' (#pj-thread, the box\'s container, is missing)');
-  assert.match(PAGE, /id="pj-question"/, GATE + ' (#pj-question is missing)');
-  /* The box sits INSIDE the thread, which is why deleting the thread takes it too (#111's first paragraph). */
-  const threadAt = PAGE.indexOf('id="pj-thread"');
-  const questionAt = PAGE.indexOf('id="pj-question"');
-  assert.ok(threadAt > -1 && questionAt > threadAt, GATE + ' (#pj-question is no longer after #pj-thread in the markup)');
+  /* Anchored on the ELEMENTS (an opening tag carrying the id), not on the bare text: the page mentions ids in
+     comments, and a comment naming one ahead of the markup would otherwise decide the order check (review 1). */
+  const threadTag = /<div\b[^>]*\bid="pj-thread"/.exec(PAGE);
+  const questionTag = /<div\b[^>]*\bid="pj-question"/.exec(PAGE);
+  assert.ok(threadTag, GATE + ' (the #pj-thread element, the box\'s container, is missing)');
+  assert.ok(questionTag, GATE + ' (the #pj-question element is missing)');
+  /* The box sits INSIDE the thread, which is why deleting the thread takes it too (#111's first paragraph). This
+     checks only a text-order proxy for that nesting: the question element opens after the thread element. It
+     catches the box moved out ahead of the thread; it does not prove real DOM nesting. */
+  assert.ok(questionTag.index > threadTag.index, GATE + ' (#pj-question no longer opens after #pj-thread in the markup)');
 });
