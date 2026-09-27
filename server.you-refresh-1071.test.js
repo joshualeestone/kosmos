@@ -177,7 +177,9 @@ test('#1071 CONTROL: with NOTHING saved, an existing block is kept, not stripped
   /* you.tellAgent removes the block when there is no record. The form can never
      produce that state; a boot pass could (a new world, a misrooted data dir), so
      the boot pass must not run the removal at all. */
-  const text = `# Mine\n\n${projects.YOU_START}\n## Who you work for\n\nPat Doe. Runs the bakery\n${projects.YOU_END}\n`;
+  /* More than instructions.MIN_CHARS of the person's own text, so a removal would
+     be a real write, not one the size floor refuses whatever the boot order. */
+  const text = `# Mine\n\nRules I wrote myself, long enough to stand alone.\n\n${projects.YOU_START}\n## Who you work for\n\nPat Doe. Runs the bakery\n${projects.YOU_END}\n`;
   const sb = sandbox([{ name: 'pp-younone-discord', file: text }], null);
   try {
     await boot(sb);
@@ -204,5 +206,20 @@ test('#1071: a drifted colleagues block is healed on the same pass, the person\'
     assert.equal(got.slice(e, e + after_.length), after_, 'bytes below the colleagues block kept');
     assert.equal(got.slice(s, e).includes('OLD TEXT'), false, 'the drifted text is replaced');
     assert.equal(got.slice(s, e).includes(messages.blockBody()), true, 'with the current block body');
+  } finally { fs.rmSync(sb, { recursive: true, force: true }); }
+});
+
+test('#1071: an About-you record that cannot be trusted is SAID at boot, and nothing is written', async () => {
+  /* state 'unknown': tellAgent would refuse every agent, so the boot pass skips,
+     and the skip must not be silent the way a missing sibling line would be. */
+  const text = '# Mine\n\nRules I wrote myself, long enough to stand alone.\n';
+  const sb = sandbox([{ name: 'pp-youbad-discord', file: text }], null);
+  try {
+    fs.writeFileSync(path.join(sb, 'data', store.APP, 'you.json'), '{ not json');
+    const r = await boot(sb);
+    assert.match(r.err, /could not refresh what agents know about who they work for[^\n]*About-you record: the record on disk is not something we can read/,
+      'an unreadable record must be named on stderr');
+    const got = fs.readFileSync(fileOf(sb, 'pp-youbad'), 'utf8');
+    assert.equal(got.includes(projects.YOU_START), false, 'no About-you block may be written from a record we cannot read');
   } finally { fs.rmSync(sb, { recursive: true, force: true }); }
 });
