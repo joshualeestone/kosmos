@@ -23,7 +23,10 @@ import java.util.regex.Pattern;
  */
 final class AddressChoice {
 
-    /** The URL to open: https://name.kosmosplus.com/#kst=token. */
+    /**
+     * The URL to open: https://name.kosmosplus.com/#kst=token, or with a notification tap's agent
+     * https://name.kosmosplus.com/?tab=detail&agent=session#kst=token (#4171).
+     */
     final String target;
     /**
      * Whether the intent carried this app's nonce. Every Mac's assetlinks.json vouches for this
@@ -45,7 +48,15 @@ final class AddressChoice {
     /** Every address is opened over https. */
     private static final String HTTPS = "https://";
     /** Where the board reads the handoff token from (the board's #kst= fragment reader). */
-    private static final String KST_FRAGMENT = "/#kst=";
+    private static final String KST_FRAGMENT = "#kst=";
+    /** The board's agent deep link, read at boot by web/index.html (#718, #4171). */
+    private static final String AGENT_QUERY = "?tab=detail&agent=";
+
+    /**
+     * A tapped notification's agent session: web/sw.js TAP_SESSION, the coordinator's tap_session
+     * and the iOS app's isAgentSession use the same rule. AddressChoiceTest pins it to sw.js.
+     */
+    static final Pattern AGENT_SESSION = Pattern.compile("[a-z0-9][a-z0-9_-]{0,63}");
 
     // KST1.<base64url>.<base64url> (kosmos-relay crates/proto token.rs): the only characters a
     // handoff token has, so nothing else can ride into the URL through it.
@@ -67,6 +78,15 @@ final class AddressChoice {
      */
     static AddressChoice choose(String coordinatorHost, String chosen, List<String> addresses,
                                 String token, String issuedNonce, String givenNonce) {
+        return choose(coordinatorHost, chosen, addresses, token, issuedNonce, givenNonce, null);
+    }
+
+    /**
+     * As above, plus the agent a notification tap was about (#4171). An agent that fails
+     * AGENT_SESSION is dropped and the board home opens instead; it never refuses the address.
+     */
+    static AddressChoice choose(String coordinatorHost, String chosen, List<String> addresses,
+                                String token, String issuedNonce, String givenNonce, String agent) {
         String pick = macHost(chosen, coordinatorHost);
         if (pick == null || token == null || !TOKEN.matcher(token).matches()) return null;
 
@@ -88,7 +108,8 @@ final class AddressChoice {
         if (fullScreen) {
             for (String h : hosts) origins.add(HTTPS + h);
         }
-        return new AddressChoice(HTTPS + pick + KST_FRAGMENT + token, fullScreen, origins);
+        String path = "/" + (agent != null && AGENT_SESSION.matcher(agent).matches() ? AGENT_QUERY + agent : "");
+        return new AddressChoice(HTTPS + pick + path + KST_FRAGMENT + token, fullScreen, origins);
     }
 
     /**

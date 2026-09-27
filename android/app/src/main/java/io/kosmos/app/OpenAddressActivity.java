@@ -31,11 +31,13 @@ import com.google.androidbrowserhelper.trusted.TwaLauncher;
  */
 public class OpenAddressActivity extends Activity {
 
-    // The intent:// extras the sign-in page sets (S.address, S.addresses, S.kst, S.nonce).
+    // The intent:// extras the sign-in page sets (S.address, S.addresses, S.kst, S.nonce, and
+    // S.agent after a notification tap, #4171).
     static final String EXTRA_ADDRESS = "address";
     static final String EXTRA_ADDRESSES = "addresses";   // comma-separated hosts
     static final String EXTRA_TOKEN = "kst";
     static final String EXTRA_NONCE = "nonce";
+    static final String EXTRA_AGENT = "agent";   // an agent session id; AddressChoice checks it
 
     private static final String STATE_BROWSER_LAUNCHED = "browserLaunched";
     // Log lines name the failure only: the extras carry a sign-in token and the person's address.
@@ -52,7 +54,7 @@ public class OpenAddressActivity extends Activity {
             return;
         }
         AddressChoice choice = null;
-        String address = null, addresses = null, token = null, nonce = null;
+        String address = null, addresses = null, token = null, nonce = null, agent = null;
         boolean readable;
         try {
             Intent in = getIntent();
@@ -60,6 +62,7 @@ public class OpenAddressActivity extends Activity {
             addresses = in.getStringExtra(EXTRA_ADDRESSES);
             token = in.getStringExtra(EXTRA_TOKEN);
             nonce = in.getStringExtra(EXTRA_NONCE);
+            agent = in.getStringExtra(EXTRA_AGENT);
             readable = true;
         } catch (RuntimeException unreadableExtras) {   // e.g. BadParcelableException from another app
             Log.w(TAG, "open intent extras unreadable, ignored: "
@@ -71,7 +74,7 @@ public class OpenAddressActivity extends Activity {
                     getString(R.string.hostName), address, AddressChoice.split(addresses), token,
                     getSharedPreferences(KosmosLauncherActivity.PREFS, MODE_PRIVATE)
                             .getString(KosmosLauncherActivity.PREF_NONCE, null),
-                    nonce);
+                    nonce, agent);
             if (choice == null) Log.i(TAG, "open intent refused by AddressChoice, ignored");
         }
 

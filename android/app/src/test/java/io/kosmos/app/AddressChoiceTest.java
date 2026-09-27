@@ -6,9 +6,15 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.junit.Test;
 
@@ -205,6 +211,54 @@ public class AddressChoiceTest {
                     AddressChoice.choose(COORD, "hers.kosmosplus.com", HERS, t, N, N));
         }
         assertNotNull(AddressChoice.choose(COORD, "hers.kosmosplus.com", HERS, repeat('a', 4096), N, N));
+    }
+
+    // ---- the agent a notification tap was about (#4171). The session cases mirror the iOS
+    // app's (ios/LogicTests/main.swift, "tap deep link to the agent") case for case. ----
+
+    private static final String HOME = "https://hers.kosmosplus.com/#kst=" + TOKEN;
+
+    private static String withAgent(String agent) {
+        return AddressChoice.choose(COORD, "hers.kosmosplus.com", HERS, TOKEN, N, N, agent).target;
+    }
+
+    @Test public void aValidAgentOpensThatAgentBeforeTheTokenFragment() {
+        assertEquals("https://hers.kosmosplus.com/?tab=detail&agent=leo#kst=" + TOKEN, withAgent("leo"));
+        assertEquals("https://hers.kosmosplus.com/?tab=detail&agent=release-notes_2#kst=" + TOKEN,
+                withAgent("release-notes_2"));
+        assertEquals("a 1-character session is accepted",
+                "https://hers.kosmosplus.com/?tab=detail&agent=a#kst=" + TOKEN, withAgent("a"));
+        assertFalse("a 64-character session is accepted (control)", HOME.equals(withAgent(repeat('a', 64))));
+    }
+
+    @Test public void noAgentOrABadOneOpensTheBoardHomeAndNeverRefusesTheAddress() {
+        assertEquals(HOME, withAgent(null));
+        assertEquals("the six-argument form is unchanged", HOME,
+                AddressChoice.choose(COORD, "hers.kosmosplus.com", HERS, TOKEN, N, N).target);
+        String[] bad = { "", "Leo", "leo.x", "a/b", "../x", "leo?tab=settings", "leo&agent=x",
+                "leo#x", "http://evil", "leo%2Fx", "le o", "l\u0435o", "-leo", "_leo", repeat('a', 65) };
+        for (String a : bad) {
+            assertEquals("should drop agent: " + a, HOME, withAgent(a));
+        }
+    }
+
+    @Test public void theAgentFollowsTheChoiceIntoACustomTab() {
+        AddressChoice c = AddressChoice.choose(COORD, "hers.kosmosplus.com", HERS, TOKEN, N,
+                "fedcba9876543210fedcba9876543210", "leo");
+        assertFalse(c.fullScreen);
+        assertEquals("https://hers.kosmosplus.com/?tab=detail&agent=leo#kst=" + TOKEN, c.target);
+    }
+
+    @Test public void aGoodAgentCannotRescueABadAddress() {
+        assertNull(AddressChoice.choose(COORD, "evil.example.com", HERS, TOKEN, N, N, "leo"));
+    }
+
+    @Test public void theAgentRuleIsTheServiceWorkersTapSession() throws IOException {
+        // Two derivations of one fact drift (CLAUDE.md): pin this rule to web/sw.js's TAP_SESSION.
+        String sw = new String(Files.readAllBytes(new File("../../web/sw.js").toPath()), StandardCharsets.UTF_8);
+        Matcher m = Pattern.compile("const TAP_SESSION = /\\^(.+)\\$/;").matcher(sw);
+        assertTrue("web/sw.js declares TAP_SESSION as an anchored regex", m.find());
+        assertEquals(m.group(1), AddressChoice.AGENT_SESSION.pattern());
     }
 
     // ---- the page's comma list ----
