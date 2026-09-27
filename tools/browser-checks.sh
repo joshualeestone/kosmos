@@ -313,6 +313,12 @@ RETRIED=()
 # must not exit 0 green (test-filter-matching-nothing-exits-zero).
 SKIPPED=()
 CI_MATCHED=()
+# #4160: checks that exited 0 but said they were QUARANTINED, i.e. did not run their
+# assertions. regress-a-night did exactly that for twelve days (#1079) and every run
+# counted it as a pass, because run_one only saw exit 0. A quarantined check is listed
+# here, never under PASS, and the summary refuses the run unless the operator sets
+# KOSMOS_BC_ALLOW_QUARANTINE=1, which is printed. So a green run means every check ran.
+QUARANTINED=()
 # #1079: how many RICH boards booted this run. The card's hypothesis is that this
 # fifth concurrent server is what makes the heaviest check retry, so it is the
 # one variable the run log has to carry.
@@ -699,6 +705,16 @@ wait_up() {
 # attempt's output is captured as well as streamed, and on the final failure
 # the check's own FAIL and error lines are kept and printed under its label.
 REASONS=()
+# #4160: after a check exits 0, did it say it was QUARANTINED (ran none of its
+# assertions)? Case-insensitive, whole word, so "quarantined" in any casing counts.
+# Returns 0 and records it when it did, so the caller prints QUARANTINED, not PASS.
+bc_quarantine_note() {
+  local label="$1" cap="$2"
+  grep -qiwE 'quarantined' "$cap" || return 1
+  QUARANTINED+=("$label")
+  log "QUARANTINED  $label (exited 0 but says it did not run its assertions; this is not a pass)"
+  return 0
+}
 run_one() {
   local label="$1"; shift
   # #2445: CI ALLOWLIST. When KOSMOS_BC_CI_ALLOWLIST is set (a space- or comma-
@@ -734,7 +750,8 @@ run_one() {
   sec "$label"
   HEADED=0 NODE_PATH="$PW_NODE_PATH" "$@" 2>&1 | tee "$cap"; local rc="${PIPESTATUS[0]}"
   if [ "$rc" -eq 0 ]; then
-    log "PASS  $label"; rm -f "$cap"
+    bc_quarantine_note "$label" "$cap" || log "PASS  $label"
+    rm -f "$cap"
     return 0
   fi
   # ⚠️ 126 AND 127 ARE NOT ASSERTIONS. They mean the thing could not be run
@@ -752,7 +769,8 @@ run_one() {
   log "⚠️  $label failed once, retrying (flaky-timeout guard). A retried pass is reported, not hidden."
   RETRIED+=("$label")
   if HEADED=0 NODE_PATH="$PW_NODE_PATH" "$@" 2>&1 | tee "$cap"; [ "${PIPESTATUS[0]}" -eq 0 ]; then
-    log "PASS  $label (on retry: treat repeated retries as a finding, not noise)"; rm -f "$cap"
+    bc_quarantine_note "$label" "$cap" || log "PASS  $label (on retry: treat repeated retries as a finding, not noise)"
+    rm -f "$cap"
     return 0
   fi
   log "FAIL  $label (failed twice)"
@@ -1730,6 +1748,20 @@ if [ -n "${KOSMOS_BC_CI_ALLOWLIST:-}" ]; then
   fi
 fi
 
+# #4160: a quarantined check did not run. Refuse the run unless the operator said, in
+# the environment, to cut without it; the override is printed so the log shows it.
+if [ "${#QUARANTINED[@]}" -gt 0 ]; then
+  log "quarantined (did NOT run): ${QUARANTINED[*]}"
+  if [ "${KOSMOS_BC_ALLOW_QUARANTINE:-}" = 1 ]; then
+    log "‼️  QUARANTINE OVERRIDE (KOSMOS_BC_ALLOW_QUARANTINE=1): this run is green WITHOUT: ${QUARANTINED[*]}"
+  else
+    for _q in "${QUARANTINED[@]}"; do
+      FAILED+=("$_q (QUARANTINED: exited 0 without running its assertions)")
+      REASONS+=("$_q:"$'\n'"           it says QUARANTINED, so it checked nothing. Fix it, or set KOSMOS_BC_ALLOW_QUARANTINE=1 to go on without it (printed in the log).")
+    done
+  fi
+fi
+
 if [ "${#FAILED[@]}" -gt 0 ]; then
   log "FAILED:  ${FAILED[*]}"
   # #2518: the same list, one entry per "|", for machines. Entries can contain spaces
@@ -1739,5 +1771,9 @@ if [ "${#FAILED[@]}" -gt 0 ]; then
   for r in ${REASONS[@]+"${REASONS[@]}"}; do log "  $r"; done
   exit 1
 fi
-log "all page checks passed"
+if [ "${#QUARANTINED[@]}" -gt 0 ]; then
+  log "every page check that ran passed; ${#QUARANTINED[@]} quarantined and did not run (override above)"
+else
+  log "all page checks passed"
+fi
 exit 0
