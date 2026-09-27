@@ -3537,6 +3537,8 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .tsk-search.shut input { width: 38px; padding-right: 0; }
 .tsk-search.shut input::placeholder { color: transparent; }
 @media (prefers-reduced-motion: reduce) { .tsk-search input { transition: none; } }
+/* #4095 follow-up (0.7.01 cut, render-fields): the .tsk-below band is white, so its fields take --k-bg, the fill the app gives fields on a white surface (as .dbox and .pjcol do), rather than the band's own white. */
+.tsk-below select.tsk-sel, .tsk-below .tsk-search input { background-color: var(--k-bg); }
 .tsk-search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
 .tsk-search button { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: 0; background: none; cursor: pointer;
   color: var(--k-ink-2); font: 600 1rem var(--font-ui); width: 26px; height: 26px; border-radius: 7px; }
