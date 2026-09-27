@@ -10,9 +10,13 @@ import android.os.Bundle;
 import android.util.Log;
 
 import androidx.browser.customtabs.CustomTabsCallback;
+import androidx.browser.customtabs.CustomTabsClient;
+import androidx.browser.customtabs.CustomTabsServiceConnection;
+import androidx.browser.customtabs.CustomTabsSession;
 
 import com.google.androidbrowserhelper.trusted.LauncherActivity;
 import com.google.androidbrowserhelper.trusted.QualityEnforcer;
+import com.google.androidbrowserhelper.trusted.TwaProviderPicker;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -33,9 +37,11 @@ public final class KosmosLauncherActivity extends LauncherActivity {
     private static final String TAG = "KosmosLauncherActivity";
 
     private final AtomicBoolean errorShown = new AtomicBoolean(false);
+    private CustomTabsServiceConnection warmConnection;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        warmBrowser();
         super.onCreate(savedInstanceState);
         if (!hasInternetNetwork()) {
             showLoadError();
@@ -79,6 +85,47 @@ public final class KosmosLauncherActivity extends LauncherActivity {
         String nonce = HandoffNonce.fresh();
         getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(PREF_NONCE, nonce).commit();
         return url.buildUpon().encodedFragment(HandoffNonce.FRAGMENT_KEY + "=" + nonce).build();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (warmConnection != null) {
+            unbindService(warmConnection);
+            warmConnection = null;
+        }
+        super.onDestroy();
+    }
+
+    /**
+     * #4109: starts the browser before LauncherActivity's own launch, and asks it to preload the
+     * sign-in page. TwaLauncher (Android Browser Helper 2.5.0) binds and warms up only as part of
+     * launching, and never calls mayLaunchUrl. This is the plain launchUrl, not getLaunchingUrl(),
+     * which mints a new nonce on every call.
+     */
+    private void warmBrowser() {
+        if (!hasInternetNetwork()) return;
+        TwaProviderPicker.Action action = TwaProviderPicker.pickProvider(getPackageManager());
+        if (action.provider == null || action.launchMode == TwaProviderPicker.LaunchMode.BROWSER) return;
+        final Uri page = Uri.parse(getString(R.string.launchUrl));
+        CustomTabsServiceConnection connection = new CustomTabsServiceConnection() {
+            @Override
+            public void onCustomTabsServiceConnected(android.content.ComponentName name, CustomTabsClient client) {
+                client.warmup(0);
+                CustomTabsSession session = client.newSession(null);
+                if (session != null) session.mayLaunchUrl(page, null, null);
+            }
+
+            @Override
+            public void onServiceDisconnected(android.content.ComponentName name) {
+            }
+        };
+        try {
+            if (CustomTabsClient.bindCustomTabsService(this, action.provider, connection)) {
+                warmConnection = connection;
+            }
+        } catch (RuntimeException e) {
+            Log.w(TAG, "could not warm the browser; launching without it", e);
+        }
     }
 
     private boolean hasInternetNetwork() {
