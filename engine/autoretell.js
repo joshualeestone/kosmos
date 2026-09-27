@@ -27,6 +27,9 @@
  * are all injected, so the decision is testable without a board.
  */
 
+/* Ten seconds: long enough that a save made in bursts (an editor's autosave, a paste then a fix)
+   settles before we write, short enough that the person sees the row clear while still looking at
+   it. The sweep's own 30s timer means the real wait is 10 to 40 seconds. */
 const SETTLE_MS = 10 * 1000;
 const COULD_NOT = 'could_not';
 

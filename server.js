@@ -948,7 +948,15 @@ function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
     let roster;   // read only when somebody is due: a board with no could_not member costs one store read
     return require('./engine/autoretell').sweepOnce({
       projects: projects.readAll(),
-      mtimeOf: (name) => { const f = instructions.fileFor(name); return f ? fs.statSync(f).mtimeMs : null; },
+      /* Loose to notice, exact to permit: `fileFor` resolves through `store.safeKey`, so a member
+         spelled `An.gel` would read `angel`'s file. Only a name that IS its own key is looked at. */
+      mtimeOf: (name) => {
+        let key = null;
+        try { key = store.safeKey(name); } catch { key = null; }
+        if (key !== name) return null;
+        const f = instructions.fileFor(name);
+        return f ? fs.statSync(f).mtimeMs : null;
+      },
       now,
       acted,
       retell: (name, id) => retellMember(name, id, roster === undefined ? (roster = safeRoster()) : roster),

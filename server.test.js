@@ -15303,7 +15303,7 @@ test('#3932: once the person fixes the file an Act row asked about, the board re
 
     const rows = autoretellTick(mtime + SETTLE_MS, acted);
     assert.deepEqual(rows, [{ name: 'rhea', id, state: eng.TOLD.TOLD }], 'the fixed agent was not re-told');
-    assert.equal(toldOf().state, eng.TOLD.TOLD, 'the stored verdict still reads could_not after the retell');
+    assert.equal(toldOf().state, eng.TOLD.TOLD, 'the retell did not flip the stored verdict to told');
     const after = fs.readFileSync(file, 'utf8');
     assert.match(after, /Autoretell Fixture/, 'the retell did not write the project into the file');
     assert.match(after, /My own notes\./, 'the retell lost the person\'s own words');
@@ -15312,6 +15312,16 @@ test('#3932: once the person fixes the file an Act row asked about, the board re
     // A later sweep with nothing new does nothing, and types nothing.
     assert.deepEqual(autoretellTick(mtime + SETTLE_MS + 60000, acted), []);
     assert.equal(spoke.length, 1, 'the line was typed twice for one fix');
+
+    /* A lookalike member (`Rh.ea`, which safeKey folds to `rhea`) with a could_not verdict is not
+       re-told when rhea's file changes: loose to notice, exact to permit. */
+    { const all = eng.readAll(); for (const p of all) if (p.id === id) {
+      p.agents = [...p.agents, 'Rh.ea'];
+      p.told = { ...p.told, 'Rh.ea': { state: eng.TOLD.COULD_NOT, because: 'x', at: new Date(verdictAt).toISOString() } };
+    } eng.writeAll(all); }
+    const later = mtime + 120000;
+    fs.utimesSync(file, new Date(later), new Date(later));
+    assert.deepEqual(autoretellTick(later + SETTLE_MS, acted), [], 'a lookalike name was re-told off the real agent\'s file');
   } finally {
     eng.speakOfMembership = realSpeak;
     board.restore();
