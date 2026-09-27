@@ -42,6 +42,7 @@ render-dm-reply-4256.js (R1 to R8, red on main) and server.test.js "#4256" (red 
 
 ## Weakest premise
 
-The room-reply browser check (render-room-reply-3745.js) boots a real board and was not run here;
-the room-side changes are a CSS selector list and a `repaintReactions` condition that is still true
-for room rows. The release runner runs it.
+Measured in Playwright Chromium only (the new check, and the 14 checks the #2518 surface gate names,
+all run on this branch and green, including render-room-reply-3745.js, 44 PASS, on its own sandboxed
+board). Not measured in Safari on Josh's Mac. The agent-side wording ("answers your message, posted
+09:30") is new copy an agent reads, not the person; it mirrors the room's.
