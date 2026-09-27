@@ -89,9 +89,13 @@ out="$(KOSMOS_RUN_MARKER_DIR="$T/markers-empty" KOSMOS_CUT_PROBE="$T/probe-live"
 # through the probe seam, never a pgrep-visible release.sh. The negative control runs from / so it
 # cannot land in a kt folder even where TMPDIR itself is one (run-tests.sh on Linux).
 mkdir -p "$T/tmp/kt4206"
+# Waits until PID's cwd is DIR (up to 3s), so an arm never reads a process that has not moved yet:
+# a late cd would leave the test's own cwd, and a control could then pass for the wrong reason.
+wait_cwd() { local i=0; while [ "$i" -lt 30 ]; do [ "$(lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n '/^n/{s/^n//p;q;}')" = "$2" ] && return 0; sleep 0.1; i=$((i+1)); done; return 1; }
 ( cd "$T/tmp/kt4206" && exec sleep 30 ) & kt_fx=$!
 ( cd / && exec sleep 30 ) & kt_real=$!
-sleep 0.3
+wait_cwd "$kt_fx" "$(cd "$T/tmp/kt4206" && pwd -P)" || fail "the kt fixture sleep never reached its cwd, so its arms cannot answer"
+wait_cwd "$kt_real" "/" || fail "the / control sleep never reached its cwd, so its arms cannot answer"
 printf '#!/bin/sh\nprintf "%s bash tools/release.sh 0.5.99\\n"\n' "$kt_fx" > "$T/probe-kt-fixture"; chmod +x "$T/probe-kt-fixture"
 printf '#!/bin/sh\nprintf "%s bash tools/release.sh 0.5.99\\n"\n' "$kt_real" > "$T/probe-kt-real"; chmod +x "$T/probe-kt-real"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-kt-fixture" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
@@ -114,12 +118,16 @@ printf '#!/bin/sh\nprintf "%s bash tools/browser-checks.sh\\n"\n' "$kt_fx" > "$T
 out="$(KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_BC_PROBE="$T/bprobe-kt" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "a browser-checks.sh fixture in the run-tests.sh sandbox is not a browser run" \
   || fail "a kt-sandbox browser-checks fixture refused the run (rc=$rc, out=$out)"
+printf '#!/bin/sh\nprintf "%s bash tools/browser-checks.sh\\n"\n' "$kt_real" > "$T/bprobe-real"; chmod +x "$T/bprobe-real"
+out="$(KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_BC_PROBE="$T/bprobe-real" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && has "$out" "$kt_real"; } && pass "but the same live browser run outside any sandbox still refuses, and is named" \
+  || fail "the browser guard's sandbox rule hid a real run (rc=$rc, out=$out)"
 kill "$kt_fx" "$kt_real" 2>/dev/null; wait "$kt_fx" "$kt_real" 2>/dev/null
 
 # The SCRIPT half of the sandbox rule: cwd /, but the script it runs sits in a kt folder. Its
 # control is the same line with a script path outside any sandbox.
 ( cd / && exec sleep 30 ) & kt_script=$!
-sleep 0.3
+wait_cwd "$kt_script" "/" || fail "the kt-script sleep never reached /, so its arms cannot answer"
 printf '#!/bin/sh\nprintf "%s bash %s/tools/release.sh 0.5.99\\n"\n' "$kt_script" "$T/tmp/kt4206" > "$T/probe-kt-script"; chmod +x "$T/probe-kt-script"
 printf '#!/bin/sh\nprintf "%s bash /opt/kosmos/tools/release.sh 0.5.99\\n"\n' "$kt_script" > "$T/probe-plain-script"; chmod +x "$T/probe-plain-script"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-kt-script" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
@@ -134,12 +142,15 @@ kill "$kt_script" 2>/dev/null; wait "$kt_script" 2>/dev/null
 # ${TMPDIR}/kosmos-release.<X>/kosmos-<sha> (measured on a 0.7.03 cut, with the double slash macOS
 # TMPDIR produces). That cwd and that script path must never read as a sandbox fixture, including
 # through the rule's "directly under this shell's TMPDIR" branch, so TMPDIR is set to its parent.
-FROZEN="$T/T//kosmos-release.msHOlx/kosmos-aad0d84cd3e8"
+# Rooted under /tmp BY NAME, not under $T: where mktemp honours TMPDIR (Linux, under run-tests.sh)
+# $T sits inside a kt<digits> folder, and a frozen tree built there would rightly read as a fixture.
+FR="$(mktemp -d /tmp/cutguard-frozen.XXXXXX)"; trap 'rm -rf "$T" "$FR"' EXIT
+FROZEN="$FR/T//kosmos-release.msHOlx/kosmos-aad0d84cd3e8"
 mkdir -p "$FROZEN/tools"
 ( cd "$FROZEN" && exec sleep 30 ) & frozen=$!
-sleep 0.3
+wait_cwd "$frozen" "$(cd "$FROZEN" && pwd -P)" || fail "the frozen-tree sleep never reached its cwd, so its arm cannot answer"
 printf '#!/bin/sh\nprintf "%s bash %s/tools/release.sh 0.7.03\\n"\n' "$frozen" "$FROZEN" > "$T/probe-frozen"; chmod +x "$T/probe-frozen"
-out="$(TMPDIR="$T/T/" KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-frozen" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+out="$(TMPDIR="$FR/T/" KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-frozen" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
 { [ "$rc" -ne 0 ] && has "$out" "$frozen"; } && pass "a real cut running from its frozen build tree under TMPDIR still refuses, and is named" \
   || fail "a REAL cut's frozen build tree was dropped as a fixture (rc=$rc, out=$out)"
 kill "$frozen" 2>/dev/null; wait "$frozen" 2>/dev/null

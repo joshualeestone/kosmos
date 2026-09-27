@@ -59,6 +59,16 @@ is not live today, but the predicate's safety should not depend on its caller: t
 ps assignments now end in `|| x=""`. No test can separate the two (any caller of the predicate is in
 such a context), so the measurement is the evidence.
 
+## Review 3
+
+- The frozen-tree arm was rooted under the test's `$T`, which sits in a kt folder where `mktemp`
+  honours TMPDIR (Linux under run-tests.sh), so the real-cut control would have gone red there. It is
+  now rooted under /tmp by name. Latent here: macOS mktemp ignores TMPDIR, and no Linux job runs
+  test:shell.
+- The arms wait (up to 3s) for each sleep to reach its cwd instead of a fixed 0.3s, so a late process
+  cannot make a control pass for the wrong reason.
+- The browser guard's kt arm gained a live-pid negative control.
+
 ## Weakest premise
 
 The negative control runs from `/` so it cannot sit in a kt folder. A machine whose $TMPDIR were `/`

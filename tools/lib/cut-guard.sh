@@ -1,4 +1,5 @@
-# #4206: share the exact Node test-runner classifier with heavy-gate. This file
+# #4206: share heavy-gate's fixture rules (a node --test ancestor, and a cwd or script
+# in run-tests.sh's kt<digits> sandbox) through tools/lib/process-fixture.sh. This file
 # is sourced by Bash callers, so BASH_SOURCE resolves this library even when the
 # caller's cwd is elsewhere.
 _kosmos_cut_guard_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
