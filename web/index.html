@@ -61992,7 +61992,6 @@ async function asbSend() {
     msg.textContent = 'We could not get that to the assistant: ' + pjSentence('we could not reach it');
   } finally {
     document.getElementById('asp-send').disabled = false;
-    await new Promise((r) => setTimeout(r, 1500));   // TEMP #4203 control: widen the send-to-repaint gap
     await asbPoll(true);
     ASB.sending = false;
     asbPaint();   // Send reflects `sending` in asbPaint: paint again now it is done
