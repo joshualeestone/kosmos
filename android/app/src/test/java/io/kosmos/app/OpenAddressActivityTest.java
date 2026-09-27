@@ -48,6 +48,21 @@ public class OpenAddressActivityTest {
         assertNull(activity.customTabUrl);
     }
 
+    @Test public void aTappedAgentOpensThatAgent() {
+        Intent tap = openIntent(NONCE).putExtra(OpenAddressActivity.EXTRA_AGENT, "leo");
+        TestActivity activity = create(tap, NONCE);
+
+        assertEquals("https://hers.kosmosplus.com/?tab=detail&agent=leo#kst=" + TOKEN,
+                activity.twaChoice.target);
+    }
+
+    @Test public void aBadAgentExtraStillOpensTheAddress() {
+        Intent tap = openIntent(NONCE).putExtra(OpenAddressActivity.EXTRA_AGENT, "leo?tab=settings");
+        TestActivity activity = create(tap, NONCE);
+
+        assertEquals("https://hers.kosmosplus.com/#kst=" + TOKEN, activity.twaChoice.target);
+    }
+
     private static Intent openIntent(String nonce) {
         return new Intent()
                 .putExtra(OpenAddressActivity.EXTRA_ADDRESS, ADDRESS)
