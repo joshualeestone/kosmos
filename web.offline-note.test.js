@@ -17,15 +17,15 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
 const page = require('./test-support/page');
 const SCRIPT = page.scriptOf(PAGE);
 
-function slotAfter(calls, { baked = '0.2.87', host = '127.0.0.1:16180' } = {}) {
+function slotAfter(calls, { baked = '0.2.87', host = '127.0.0.1:16180', hostname } = {}) {
   const slot = { dataset: {}, innerHTML: '' };
   const doc = {
     getElementById: (id) => (id === 'uoffline-slot' ? slot : null),
     querySelector: () => (baked === undefined ? null : { getAttribute: () => baked }),
   };
   const fn = new Function('document', 'esc', 'location',
-    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
-    doc, (x) => String(x == null ? '' : x), host === null ? null : { host },
+    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.liftConst(SCRIPT, 'MAC_ASLEEP_SENTENCE')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
+    doc, (x) => String(x == null ? '' : x), host === null ? null : { host, hostname },
   );
   for (const down of calls) fn(down);
   return slot;
@@ -178,7 +178,7 @@ function deviceSlotAfter(calls) {
     querySelector: () => ({ getAttribute: () => '0.2.87' }),
   };
   const fn = new Function('document', 'esc', 'location',
-    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
+    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.liftConst(SCRIPT, 'MAC_ASLEEP_SENTENCE')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
     doc, (x) => String(x == null ? '' : x), { host: 'mac.kosmosplus.com' },
   );
   for (const [down, off] of calls) fn(down, off);
@@ -202,7 +202,7 @@ test('#718 state 1: a change of which end is offline repaints the note, and reco
   const held = deviceSlotAfter([[true, true]]);
   held.innerHTML = 'MARKED';
   const again = new Function('document', 'esc', 'location',
-    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
+    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.liftConst(SCRIPT, 'MAC_ASLEEP_SENTENCE')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
     { getElementById: () => held, querySelector: () => null }, (x) => String(x), { host: 'h' });
   again(true, true);
   assert.equal(held.innerHTML, 'MARKED', 'the offline note rewrote itself over an unchanged state');
@@ -273,7 +273,7 @@ test('it does not re-announce itself on every poll while the condition holds', (
 function slotAfterAgain(slot) {
   const doc = { getElementById: () => slot, querySelector: () => ({ getAttribute: () => '0.2.87' }) };
   new Function('document', 'esc', 'location',
-    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
+    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.liftConst(SCRIPT, 'MAC_ASLEEP_SENTENCE')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
     doc, (x) => String(x), { host: 'h' },
   )(true);
 }
@@ -339,4 +339,18 @@ test('#718 state 1: a good status read clears the offline flag with the sign-in 
   const src = page.lift(SCRIPT, 'tick');
   assert.match(src, /BOARD_NEEDS_SIGNIN = false;[^\n]*\n\s*BOARD_SIGNED_OUT = false;\n\s*BOARD_DEVICE_OFFLINE = false;/,
     'the successful read no longer clears BOARD_DEVICE_OFFLINE beside the sign-in flags');
+});
+
+test('#718 state 2: through Kosmos+, the note says it is the Mac, why, and what to do from a phone', () => {
+  const slot = slotAfter([true], { host: 'leo.kosmosplus.com', hostname: 'leo.kosmosplus.com' });
+  assert.match(slot.innerHTML, /Your Mac is not answering/);
+  assert.match(slot.innerHTML, /asleep or turned off/);
+  assert.match(slot.innerHTML, /check this phone or computer.s own connection/, 'no word about the phone\'s own connection, which state 1 cannot see');
+  assert.match(slot.innerHTML, /Nothing answered at leo\.kosmosplus\.com\./);
+  assert.ok(!/on this computer/.test(slot.innerHTML), 'a phone was told its own computer is not answering');
+  assert.ok(!/Applications folder/.test(slot.innerHTML), 'a desktop-only remedy on a phone');
+  // CONTROL: the Mac's own window keeps the Mac copy and its remedy.
+  const mac = slotAfter([true], { host: '127.0.0.1:16180', hostname: '127.0.0.1' });
+  assert.match(mac.innerHTML, /Kosmos is not answering on this computer/);
+  assert.match(mac.innerHTML, /Applications folder/);
 });

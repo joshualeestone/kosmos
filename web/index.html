@@ -19792,6 +19792,24 @@ function paintOfflineNote(down, deviceIsOffline) {
       + '</div></div>';
     return;
   }
+  /* #718 state 2: through Kosmos+ the person is not at the Mac, so "on this computer" names
+     the wrong machine and "open Kosmos from your Applications folder" is not something a phone
+     can do. Say it is the Mac, the usual reason (asleep or off), and what to do about it from
+     here; and since a phone on a captive portal also reads as online (state 1 cannot see it),
+     point at its own connection too. */
+  let remote = false;
+  try { remote = kplusRemote(); } catch { /* a document with no location is not remote */ }
+  if (remote) {
+    let at = '';
+    try { if (location && location.host) at = ' Nothing answered at ' + esc(location.host) + '.'; }
+    catch { /* no location: the sentence stands on its own */ }
+    slot.innerHTML = '<div class="utoast stale" role="status">'
+      + '<span class="udot" aria-hidden="true"></span>'
+      + '<div class="utxt"><b>Your Mac is not answering</b>'
+      + '<small>' + MAC_ASLEEP_SENTENCE + at + '</small>'
+      + '</div></div>';
+    return;
+  }
   /* Both details are knowable with nothing answering: the version is baked into
      this page, and the host is what this page was loaded from. */
   const v = bakedVersion();
@@ -28831,6 +28849,8 @@ let BOARD_DEVICE_OFFLINE = false;
 function deviceOffline() {
   return kplusRemote() && typeof navigator !== 'undefined' && navigator.onLine === false;
 }
+/* #718 state 2: what a phone or remote computer is told when the Mac behind Kosmos+ does not answer. */
+const MAC_ASLEEP_SENTENCE = 'It may be asleep or turned off. Wake it and make sure Kosmos is open on it, and this page asks again by itself. If your Mac is on, check this phone or computer\'s own connection.';
 const OFFLINE_SENTENCE = 'This phone or computer is not connected to the internet, so it cannot reach your Mac. The board tries again by itself when you are online again.';
 function deviceOfflineHtml() {
   return '<div class="pj-empty boardfail">'
@@ -28902,8 +28922,9 @@ function boardEmpty() {
   if (BOARD_LOOK_FAILED) {
     return '<div class="pj-empty boardfail">'
       + '<p><b>We cannot read your agents right now.</b><br>'
-      + 'This is not the same as having none. Something on this computer did '
-      + 'not answer, so we are not telling you the board is empty. ('
+      + 'This is not the same as having none. Something on '
+      + (kplusRemote() ? 'your Mac' : 'this computer') // #718 state 2: through Kosmos+, "this computer" is the phone
+      + ' did not answer, so we are not telling you the board is empty. ('
       + esc(BOARD_LOOK_FAILED) + ')</p>'
       /* #274: the moment a person most needs to look for themselves is the
          moment `tmux ls` says "command not found", because Kosmos ships its
@@ -28920,7 +28941,8 @@ function boardEmpty() {
          same shape the connect step already uses for "Already use Terminal?",
          which is the pattern rather than an invention. */
       /* win32-board-copy (W-24): Windows has no person-facing kosmos command. */
-      + (onWindows() ? '' : '<details class="fr-hatch"><summary>Already use Terminal?</summary>'
+      /* #718 state 2: and none through Kosmos+, where the person is not at the Mac to type it. */
+      + (onWindows() || kplusRemote() ? '' : '<details class="fr-hatch"><summary>Already use Terminal?</summary>'
       + 'Run <code>kosmos agents</code> to look for yourself.</details>')
       + '<button class="btn" type="button" data-board-retry>Try again</button>'
       + '</div>';

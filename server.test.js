@@ -3341,6 +3341,7 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
   new Function('document', 'checked', 'esc', 'err', 'BOARD_SEEN', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN', 'BOARD_SIGNED_OUT', 'BOARD_DEVICE_OFFLINE', 'deviceOffline', 'setAgentsGrouped', 'orgBoxPlain',
     /* win32-board-copy: boardEmpty asks the platform copy layer ("not Windows" here). */
     require('./test-support/page').PLATFORM_COPY_FNS.map(pageFnSource).join('\n') + '\n'
+    + pageFnSource('kplusRemote') + '\n'
     + script.slice(beAt, beEnd) + '\n' + script.slice(from, end))(
     { getElementById: (id) => els[id] }, checked, (s) => String(s), { message: 'boom' },
     true, 'boom', false, false, false, () => false, () => {}, (cleared) => { orgBoxResets.push(cleared); }); // #3387: setAgentsGrouped no-op (the catch resets the grouped head; not under test here)
