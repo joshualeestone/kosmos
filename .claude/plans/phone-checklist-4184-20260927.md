@@ -20,11 +20,21 @@ tap with and without the in-app marker).
 - "Wait for the server update" is written into each affected step, with the before-update behaviour
   said plainly, plus one table at the end. As of #3763's last entry, relay #169, #171, #172 and
   #173 are merged and not live; Kano's push-tap-4140 has no PR yet.
-- vc3 is named by its file, Kosmos-android-vc3.apk (Sub-Zero's Files per #4165); which Files it
-  reaches Josh from is Liu Kang's call.
+- vc3 is named as Liu Kang's install note names it: Kosmos-android-test.apk, 0.1.2, in his Files.
+- Three kinds of "wait": the server update (relay #169 and #171 ready; Kano's #4140 still being
+  built), the Mac update for the full-screen board (tunnel with relay #161), and the Mac release
+  that turns phone notifications on (engine/phonenotify.js PHONE_APP_CAN_RECEIVE is false on main;
+  docs/phone-push-go-live.md: "The board ships with notifications locked off").
+- No "expected certificate warning" line: that note is DEV_NOTICE, shown only in dev mode, and the
+  live service is not in dev mode. A certificate warning on a real address means stop.
+- The pre-update notification tap matches the live service worker (read 2026-09-27): it opens
+  https://<address>/?tab=detail&agent=<session> in a browser window. Liu Kang's install note says
+  the same.
 - The adb recipe sits at the end, marked as for us.
 
 ## Weakest part
-Step 7's "before the server update" behaviour is inferred from Kano's no-marker control on the AVD,
-not seen against the live server, so it says "may". The Mac approval code format is from two codes
-seen on the AVD. What would change my mind: Josh's first run showing a different before-update tap.
+The first draft said notifications and the certificate warning worked as seen on the emulator; both
+came from the local test server, not the live one (challenge-loop iteration 1). The current steps
+were checked against main and the live service, but no step has been run on the real phone. The Mac
+asleep step (5) has no settled expected result on purpose. What would change my mind: anything Josh
+sees that this script calls expected and that the cards do not.
