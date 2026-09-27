@@ -57,3 +57,9 @@ With the flag on, on a Mac with Muse Code installed, a person can pick Meta in A
 ## 3a review round 7 (decided)
 - A retry send that timed out counts as sent, following the enterOnce rule that a timeout says nothing about delivery. No second r can follow, and NO_NEW_CODE ends the sign-in if the keys never arrived. Control red.
 - Tests for four branches that had none, each control red: a timed-out Enter is not re-armed; a slow tmux is not a gone session; a send that goes out clears the failure count; a retry restarts the give-up clock. The "no expired code" message is one constant.
+
+## 3a review round 8 (decided)
+- A sign-in whose mark Kosmos could not write ends "failed" ("could not record it"), not "done". On a Mac the mark is the only record Kosmos reads. Control red.
+- One signinRefusalStatus helper serves the agy, win32 agy and muse sign-in routes (convention 5; it was a third copy).
+- The exit marker uses underscores, so it can never match the device-code shape.
+- Watch item for the Mortals run, deliberately not changed: screen matching is by substring, inherited from agysignin. A Mac help line that merely mentions "Opening your browser" would read as that screen.
