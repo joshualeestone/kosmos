@@ -1,0 +1,132 @@
+'use strict';
+
+/**
+ * #4134: every file the bundle `chmod +x`'s from the tree is executable IN the tree.
+ *
+ * tools/build-kosmos-bundle.sh copies files out of the repo and marks some of them executable.
+ * The cut (tools/lib/release-freeze.sh release_bundle_matches_tree, step 4b) then refuses a bundle
+ * whose file's executable bit differs from the tree's copy. So a file committed 100644 that the
+ * bundle makes executable passes every pre-merge test (the bridges' own tests run them with
+ * `node <file>`, and the bundle tests compare lists and bytes) and is found only at cut time:
+ * #4043 committed bin/agy-report-bridge.js as 100644 and the 0.7.01 cut refused it.
+ *
+ * The set is READ FROM THE SCRIPT, not kept here: each `chmod +x "$STAGE/..."` is paired with the
+ * `cp` that put the file there. A `cp` from `$REPO/...` must be 100755 in the git index. A `cp`
+ * from anything else (the connector, a downloaded runtime) has no tree copy and is skipped, by
+ * name of its source. A chmod target no `cp` accounts for fails: the test does not know that
+ * shape yet and must be taught it, rather than skip it silently.
+ *
+ *   node --test bundle.execbit-4134.test.js
+ */
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { execFileSync } = require('node:child_process');
+
+const ROOT = __dirname;
+const SCRIPT = path.join(ROOT, 'tools', 'build-kosmos-bundle.sh');
+
+/* The placements a script makes: [{ dst, src, fromRepo }], `dst` relative to $STAGE. */
+function placements(text) {
+  const out = [];
+  for (const line of text.split('\n')) {
+    const m = line.match(/^\s*cp\s+(?:-[a-zA-Z]+\s+)*"([^"]+)"\s+"\$STAGE\/([^"]+)"\s*$/);
+    if (!m) continue;
+    const [, src, to] = m;
+    const repo = src.match(/^\$REPO\/(.+)$/);
+    const dst = to.endsWith('/') ? to + path.basename(src) : to;
+    out.push({ dst, src: repo ? repo[1] : src, fromRepo: !!repo });
+  }
+  return out;
+}
+
+/* Every `chmod +x` target under $STAGE, relative to it. */
+function chmodTargets(text) {
+  const out = [];
+  for (const line of text.split('\n')) {
+    if (!/^\s*chmod\s+\+x\s/.test(line)) continue;
+    for (const m of line.matchAll(/"\$STAGE\/([^"]+)"/g)) out.push(m[1]);
+  }
+  return out;
+}
+
+/* What is wrong, as sentences: a tree file the bundle makes executable that the index holds
+   non-executable, and a chmod target nothing here can trace to a source. */
+function problems(text, modeOf) {
+  const placed = placements(text);
+  const out = [];
+  for (const dst of chmodTargets(text)) {
+    const p = placed.filter((x) => x.dst === dst).pop();
+    if (!p) { out.push('the bundle makes ' + dst + ' executable, and this test cannot tell where it comes from'); continue; }
+    if (!p.fromRepo) continue;   // not from the tree: nothing in git to hold a mode
+    const mode = modeOf(p.src);
+    if (mode !== '100755') out.push(p.src + ' is ' + (mode || 'not in the index') + ' in git, and the bundle makes it executable (' + dst + ')');
+  }
+  return out;
+}
+
+/* The mode git records for a path, from the index. */
+function gitModeOf(cwd) {
+  return (rel) => {
+    const line = execFileSync('git', ['ls-files', '-s', '--', rel], { cwd, encoding: 'utf8' }).trim();
+    return line ? line.split(/\s+/)[0] : null;
+  };
+}
+
+// The node runtime is placed by a tar extract, not a cp: the one chmod target with no cp. Named
+// here, with where it comes from, so a new untraced target still fails.
+const NOT_A_CP = { 'runtime/bin/node': 'extracted from the Node.js download, not copied from the tree' };
+const real = () => fs.readFileSync(SCRIPT, 'utf8');
+const realProblems = (modeOf) => problems(real(), modeOf).filter((s) => !Object.keys(NOT_A_CP).some((k) => s.includes('makes ' + k + ' executable')));
+
+test('every tree file the bundle makes executable is 100755 in git', () => {
+  assert.deepEqual(realProblems(gitModeOf(ROOT)), []);
+});
+
+test('the script is actually read: the known executable bridges and the command are in the set', () => {
+  const fromRepo = placements(real()).filter((p) => p.fromRepo && chmodTargets(real()).includes(p.dst)).map((p) => p.src);
+  for (const want of ['bin/agent-supervisor.sh', 'bin/codex-report-bridge.js', 'bin/agy-report-bridge.js', 'install/kosmos', 'install/kosmos-report-hook.sh']) {
+    assert.ok(fromRepo.includes(want), want + ' was not found among the chmod +x files from the tree: ' + JSON.stringify(fromRepo));
+  }
+  // And the carve-out is still needed: a name that no longer appears would hide nothing, silently.
+  for (const k of Object.keys(NOT_A_CP)) assert.ok(chmodTargets(real()).includes(k), k + ' is no longer made executable; drop it from NOT_A_CP');
+});
+
+test('CONTROL: a file planted as 100644 in a real git index is caught, and its 100755 twin is not', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'execbit-4134-'));
+  try {
+    const git = (...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' });
+    git('init', '-q');
+    fs.mkdirSync(path.join(dir, 'bin'));
+    fs.writeFileSync(path.join(dir, 'bin', 'plain.js'), '#!/usr/bin/env node\n');
+    fs.writeFileSync(path.join(dir, 'bin', 'exec.js'), '#!/usr/bin/env node\n');
+    git('add', 'bin/plain.js', 'bin/exec.js');
+    git('update-index', '--chmod=-x', 'bin/plain.js');
+    git('update-index', '--chmod=+x', 'bin/exec.js');
+    const script = [
+      'cp "$REPO/bin/plain.js" "$STAGE/app/bin/"',
+      'chmod +x "$STAGE/app/bin/plain.js"',
+      'cp "$REPO/bin/exec.js" "$STAGE/app/bin/exec.js"',
+      'chmod +x "$STAGE/app/bin/exec.js"',
+    ].join('\n');
+    const found = problems(script, gitModeOf(dir));
+    assert.equal(found.length, 1, JSON.stringify(found));
+    assert.match(found[0], /^bin\/plain\.js is 100644 in git/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('CONTROL: the real script with one bridge read as 100644 names that bridge', () => {
+  const tree = gitModeOf(ROOT);
+  const found = realProblems((rel) => (rel === 'bin/codex-report-bridge.js' ? '100644' : tree(rel)));
+  assert.deepEqual(found, ['bin/codex-report-bridge.js is 100644 in git, and the bundle makes it executable (app/bin/codex-report-bridge.js)']);
+});
+
+test('CONTROL: a chmod target no cp accounts for fails rather than being skipped', () => {
+  assert.deepEqual(problems('chmod +x "$STAGE/app/bin/mystery"', () => '100755'),
+    ['the bundle makes app/bin/mystery executable, and this test cannot tell where it comes from']);
+  // A source outside the tree is traced, and skipped: it has no mode in git.
+  assert.deepEqual(problems('cp "$TUNNEL_BIN" "$STAGE/app/bin/kosmos-tunnel"\nchmod +x "$STAGE/app/bin/kosmos-tunnel"', () => null), []);
+});
