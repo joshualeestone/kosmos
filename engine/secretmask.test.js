@@ -1864,6 +1864,8 @@ test('#4111 a model id from a secrets file is not masked out of the guide prose 
     const out = mask(`your key is ${key} ok`).text;
     assert.equal(out, `your key is ${MASK} ok`, `CONTROL: the key held beside it was shown: ${out}`);
   } finally { setKnownSecrets([]); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('#4112: many held Anthropic keys and a guide reply naming sk-ant-api03- again and again is checked, not withheld; a key split after it is still caught', () => {
   /* 200 held keys, deterministic (a seeded generator, not Math.random), so which next characters they have is fixed. */
   let seed = 4112;
