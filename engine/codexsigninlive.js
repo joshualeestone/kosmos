@@ -141,11 +141,14 @@ const inflight = new Map();
 /* #3997 round 4: a run started before a reset (a test's, or a board restart's) must not write into the cache after
    it, so every run carries the generation it started in. */
 let generation = 0;
+/* #4064: answers are also recorded on the observed per-dir store (record below), which this does NOT clear: a test that
+   resets here between cases clears that too (observed._clearForTest), or it inherits the previous case's green. */
 function resetForTest() { cache.clear(); inflight.clear(); runner = defaultRunner; generation += 1; }
 /* #4064: every answer this cache keeps is also recorded on the observed per-dir store, dated when it was learned, as
    the Grok check's is: a live one keeps a working ChatGPT sign-in green for the observed freshness window rather than
    only this cache's 30s (reopening AI Models no longer flashes amber), and a dead one forgets that green. Here, at the
    cache write, so every caller counts (the list, Check now, codexauthprobe), not only a later read of the list.
+   An answer that says nothing (unknown: codex could not reach ChatGPT) changes nothing, as with the Grok check.
    /api/accounts reads it for ChatGPT rows only. */
 function record(dir, verdict, at) {
   if (!dir) return;

@@ -43,6 +43,13 @@ Also: inside the observed window a DEAD sign-in shows green on reopen for one ch
 red when the check answers). That is the same trade the Grok check makes and the reverse of the amber flash this fixes;
 the browser check's dead arm expects `green > red` and fails only on green after red.
 
+## Decided, not missed: a check with no answer keeps the green (review 3)
+A check that gets no answer (unknown: codex missing, a timeout, ChatGPT unreachable) neither records nor forgets, so a
+green confirmed inside the observed window stays green, where main went back to amber once the 30s cache went. That is
+the Grok check's rule and codexsigninlive's own ("no answer changes nothing", #1316/#1916): being unable to reach
+ChatGPT is not evidence the sign-in stopped working. A server test pins it. What would change my mind: a report of a
+sign-in that died and stayed green because every check after it came back empty.
+
 ## Decided, not missed: Check now finishing after a newer check (review 2)
 `livenessNow` (Check now) writes its answer unconditionally, by design (#3997 round 3: it must beat a check started
 against an older sign-in). So if a list check that started AFTER it finishes first and answers dead, and Check now then

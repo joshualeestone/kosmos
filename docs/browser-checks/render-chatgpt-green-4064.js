@@ -160,4 +160,4 @@ const runs = (seen) => seen.filter((c, i) => i === 0 || c !== seen[i - 1]).join(
   }
   console.log(fail.length ? `render-chatgpt-green-4064: ${fail.length} failed` : 'render-chatgpt-green-4064: all passed');
   process.exit(fail.length ? 1 : 0);
-})();
+})().catch((e) => { console.error(e); process.exit(1); });

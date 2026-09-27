@@ -97,6 +97,17 @@ test('#4064 a ChatGPT sign-in confirmed a minute ago is still green on reopen wh
   } finally { release(); await settle(); }
 });
 
+test('#4064 decided: a check that gets no answer leaves a recent green standing (unknown changes nothing, as for Grok)', async () => {
+  await recordGreen();
+  codexsigninlive.setRunner(async () => ({ ok: false }));   // codex could not reach ChatGPT: no report at all
+  advanceClock(61 * 1000);
+  await accounts();
+  await settle();
+  const row = await openaiRow();
+  assert.equal(row.connection.state, 'unknown', 'setup: the re-check did not come back without an answer');
+  assert.equal(row.connection.badge, 'working', 'a check with no answer took away a green confirmed a minute ago: ' + JSON.stringify(row.connection));
+});
+
 test('#4064 control: a dead answer after a recorded green shows the sign-in as not connected, not green', async () => {
   await recordGreen();
   codexsigninlive.setRunner(async () => ({ ok: true, stdout: DOC('warning') }));
