@@ -57945,9 +57945,12 @@ async function frOpenaiSubConnected(_account) {
   // paintAccounts refreshes the row list; frPaintOpenai paints the SAME gold
   // connected box the key path uses -- a subscription carries no keyTail, so it
   // reads "This computer is signed in." with no key suffix, which is exactly right.
-  // If the repaint fails, the sentence above stays: it already says what happened.
-  await paintAccounts();
-  await frPaintOpenai({ connected: true, justAdded: true });
+  // If the repaint fails, the sentence above stays: it already says what happened (as Gemini's path does; this runs in
+  // the poll's interval callback, where a rejection would go unhandled).
+  try {
+    await paintAccounts();
+    await frPaintOpenai({ connected: true, justAdded: true });
+  } catch { /* the sentence stands */ }
 }
 document.getElementById('fr-openai-pick-sub').addEventListener('click', () => frOpenaiChoose('sub'));
 document.getElementById('fr-openai-pick-key').addEventListener('click', () => frOpenaiChoose('key'));
