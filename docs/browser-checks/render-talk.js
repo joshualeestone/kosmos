@@ -1237,7 +1237,9 @@ function unreachableStates() {
          `refreshWhens` updates those words in place. This block now checks that
          contract (kosmos 0.7.01 cut, 2026-09-26): after a time-only repaint the
          thread was not rewritten, the words DID move (so the repaint really saw a
-         later clock), and the reader's `scrollTop` held. */
+         later clock), and a reader parked at the floor is still at the floor. The
+         old contract this block measured (2026-08-20: a same-height innerHTML
+         rewrite keeps scrollTop) was retired by #3966, since no rewrite happens. */
       const clockOnly = await page.evaluate(async () => {
         const at = new Date(Date.now() - 65 * 1000).toISOString();
         /* ⚠️ COUNT RAISED 8 -> 30 (#3414). The agent-DM rebuild made
@@ -1261,14 +1263,16 @@ function unreachableStates() {
         await paintTalk('april', 'April');
         const t = document.getElementById('d-dmthread');
         t.scrollTop = t.scrollHeight;
+        // Every fixture row shares one `at`, so the first time span is a fixture row's.
         const when = () => { const w = t.querySelector('.mwhen[data-at]'); return w ? w.textContent : null; };
+        const floorGap = () => Math.round(t.scrollHeight - t.scrollTop - t.clientHeight);
         const first = t.firstElementChild;
-        const before = { top: Math.round(t.scrollTop), key: t.__lastThread, whenBefore: when(),
+        const before = { top: Math.round(t.scrollTop), gap: floorGap(), key: t.__lastThread, whenBefore: when(),
           scrolls: t.scrollHeight > t.clientHeight };
         const real = Date.now;
         Date.now = () => real() + 120000;
         try { await paintTalk('april', 'April'); } finally { Date.now = real; }
-        return { ...before, after: Math.round(t.scrollTop), whenAfter: when(),
+        return { ...before, after: Math.round(t.scrollTop), gapAfter: floorGap(), whenAfter: when(),
           rewrote: t.__lastThread !== before.key || t.firstElementChild !== first };
       });
       if (!clockOnly.scrolls) {
@@ -1284,9 +1288,11 @@ function unreachableStates() {
       if (clockOnly.rewrote) {
         problems.push(`[${theme}] clock: a repaint where only the time moved REWROTE the thread (#3966: that rewrite is the flash)`);
       }
-      if (clockOnly.scrolls && clockOnly.after !== clockOnly.top) {
-        problems.push(`[${theme}] clock: a repaint where only the time phrase moved took the reader `
-          + `from ${clockOnly.top} to ${clockOnly.after}`);
+      if (clockOnly.scrolls && Math.abs(clockOnly.gapAfter - clockOnly.gap) > 1) {
+        /* Distance from the floor, not scrollTop: "a minute ago" -> "3 minutes ago" can wrap a line and
+           grow the thread, and a reader still pinned at the floor would then read as moved. */
+        problems.push(`[${theme}] clock: a repaint where only the time moved took the reader `
+          + `from ${clockOnly.gap}px above the floor to ${clockOnly.gapAfter}px`);
       }
 
       /* 7. THE TWO 404s, which are one status and two different facts.
