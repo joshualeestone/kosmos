@@ -25,7 +25,7 @@ function lift(name) {
   return PAGE.slice(start, end);
 }
 
-function run(focusId, { paintFails = false } = {}) {
+function run(focusId, { paintFails = false, during = null } = {}) {
   const els = {};
   const doc = { body: { id: 'body' }, activeElement: null };
   const el = (id) => (els[id] || (els[id] = { id, hidden: false, textContent: '', attrs: {},
@@ -36,7 +36,7 @@ function run(focusId, { paintFails = false } = {}) {
   const fn = new Function('document', 'paintAccounts', 'frPaintOpenai', `
     let ACCT_OPENAI_SUB_SESSION = 's1'; const FR_STEP = 5;
     ${lift('frOpenaiSubConnected')}
-    return frOpenaiSubConnected;`)(doc, async () => {}, async () => { if (paintFails) throw new Error('offline'); });
+    return frOpenaiSubConnected;`)(doc, async () => { if (during) during(el); }, async () => { if (paintFails) throw new Error('offline'); });
   return { fn, doc, el };
 }
 
@@ -59,4 +59,10 @@ test('#4082 CONTROL: a person who has moved on keeps their place', async () => {
   const r = run('fr-grok-connect');
   await r.fn({});
   assert.equal(r.doc.activeElement, r.el('fr-grok-connect'), 'focus was taken from outside the step');
+});
+
+test('#4082: focus moves before the accounts read, so a person who Tabs on during it keeps their place', async () => {
+  const r = run('fr-openai-sub-cancel', { during: (el) => el('fr-grok-connect').focus() });
+  await r.fn({});
+  assert.equal(r.doc.activeElement, r.el('fr-grok-connect'), 'focus was pulled back to the box after the person moved on');
 });

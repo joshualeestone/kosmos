@@ -26055,6 +26055,19 @@ function agySubDriver(pre, onReady) { return {
 }; }
 const FR_AGY_SUB = agySubDriver('fr-gemini-sub-', async () => {
   FR_AGY_READY = true;
+  /* #4082: the step hides on Ready, and focus inside it (the paste box's Continue, or the step itself) fell to the
+     page: a keyboard or screen-reader user lost their place. Decided NOW, before the repaint's accounts read (which
+     can take seconds, and a person may Tab on meanwhile), and only when focus is lost: the page, or the step. Focus
+     goes to Gemini's own box BEFORE the repaint writes it, Grok's order, so its live region reads the box once. */
+  const box = document.getElementById('fr-gemini-msg');
+  const step = document.getElementById('fr-gemini-sub-step');
+  const was = document.activeElement;
+  const lost = (typeof FR_STEP === 'undefined' || FR_STEP === 5)
+    && (!was || was === document.body || (!!step && typeof step.contains === 'function' && step.contains(was)));
+  if (box && lost) {
+    if (box.setAttribute) box.setAttribute('tabindex', '-1');
+    if (box.focus) box.focus();
+  }
   const painting = frPaintKeyed();   // the row reads Connected and the step offers Next (review round 3)
   /* Not dependent on the accounts read (review round 9: frPaintKeyed returns early if it fails). */
   { const b = document.getElementById('fr-gemini-connect');
@@ -26062,21 +26075,9 @@ const FR_AGY_SUB = agySubDriver('fr-gemini-sub-', async () => {
   if (typeof FR_STEP !== 'undefined' && FR_STEP === 5 && !(typeof FR !== 'undefined' && FR && FR.subscription && FR.subscription.state === 'connected')) {
     frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) }, null);
   }
-  /* #4082: the step hides on Ready, and focus inside it (the paste box's Continue) fell to the page: a keyboard or
-     screen-reader user lost their place. As Grok's first-run success does, focus lands on Gemini's own connected
-     box once the row is painted (its live region reads it). Only when focus was lost (on the page, or in the step
-     that just hid): a person who moved on keeps their place. The box says something even if the repaint failed. */
+  // A focused box never stays empty: if the repaint failed, it still says what happened (read by its live region).
   try { await painting; } catch { /* the sentence below stands in for the box */ }
-  if (typeof FR_STEP !== 'undefined' && FR_STEP !== 5) return;
-  const box = document.getElementById('fr-gemini-msg');
-  const step = document.getElementById('fr-gemini-sub-step');
-  const a = document.activeElement;
-  const lost = !a || a === document.body || (!!step && typeof step.contains === 'function' && step.contains(a));
-  if (box && lost) {
-    if (!String(box.textContent || '').trim()) box.textContent = 'Google Gemini (Google subscription) is ready.';
-    if (box.setAttribute) box.setAttribute('tabindex', '-1');
-    if (box.focus) box.focus();
-  }
+  if (box && lost && !String(box.textContent || '').trim()) box.textContent = 'Google Gemini (Google subscription) is ready.';
 }).wire();
 /* #3874: Settings, Add a provider. Ready records the signed-in fact every screen reads (the create
    hint, the guided setup's Gemini row on its next paint), but paints nothing of first run's. */
@@ -57908,11 +57909,18 @@ async function frOpenaiSubConnected(_account) {
   ACCT_OPENAI_SUB_SESSION = null;
   // #2913: no name field -- the subscription account is identified by its email.
   const sub = document.getElementById('fr-openai-sub-step');
-  /* #4082: read before the step hides: focus on its link or Stop falls to the page once it does. */
+  /* #4082: read before the step hides: focus on its link or Stop falls to the page once it does. Decided now, not
+     after the accounts read below (seconds; a person may Tab on meanwhile), and focus goes to the box BEFORE the
+     repaint writes it (Grok's order), so its live region reads the connected box once. */
   const was = document.activeElement;
-  const lost = !was || was === document.body || (!!sub && typeof sub.contains === 'function' && sub.contains(was));
+  const lost = FR_STEP === 5 && (!was || was === document.body || (!!sub && typeof sub.contains === 'function' && sub.contains(was)));
   if (sub) sub.hidden = true;
   const pick = document.getElementById('fr-openai-pick'); if (pick) pick.hidden = true;
+  const box = document.getElementById('fr-openai-msg');
+  if (box && lost) {
+    if (box.setAttribute) box.setAttribute('tabindex', '-1');
+    if (box.focus) box.focus();
+  }
   // paintAccounts refreshes the row list; frPaintOpenai paints the SAME gold
   // connected box the key path uses -- a subscription carries no keyTail, so it
   // reads "This computer is signed in." with no key suffix, which is exactly right.
@@ -57920,14 +57928,8 @@ async function frOpenaiSubConnected(_account) {
     await paintAccounts();
     await frPaintOpenai({ connected: true, justAdded: true });
   } finally {
-    /* As Grok's and now Gemini's first-run successes: focus lands on the connected box (a live region), only if
-       it was lost, and never on an empty box. */
-    const box = document.getElementById('fr-openai-msg');
-    if (box && lost && FR_STEP === 5) {
-      if (!String(box.textContent || '').trim()) box.textContent = 'GPT is connected.';
-      if (box.setAttribute) box.setAttribute('tabindex', '-1');
-      if (box.focus) box.focus();
-    }
+    // A focused box never stays empty: if the repaint failed, it still says what happened.
+    if (box && lost && !String(box.textContent || '').trim()) box.textContent = 'GPT is connected.';
   }
 }
 document.getElementById('fr-openai-pick-sub').addEventListener('click', () => frOpenaiChoose('sub'));

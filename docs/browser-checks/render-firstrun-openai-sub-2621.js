@@ -118,6 +118,9 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       connectFlipped: btn ? (btn.textContent || '').includes('Connected') : false,
       subCleared: !vis('fr-openai-sub-step'),
       pickCleared: !vis('fr-openai-pick'),
+      /* #4082: the picker the person pressed is hidden, so focus was lost: it lands on the connected box, not the page. */
+      focusOnBox: !!msg && document.activeElement === msg,
+      focusedIs: document.activeElement ? (document.activeElement.id || document.activeElement.tagName) : null,
     };
   });
 
@@ -188,6 +191,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   if (!/OpenAI GPT Codex is connected/.test(after.says)) problems.push('the connected box did not read "OpenAI GPT Codex is connected": ' + JSON.stringify(after.says));
   if (/API key ending/.test(after.says)) problems.push('a subscription connect wrongly showed an "API key ending" suffix: ' + JSON.stringify(after.says));
   if (!after.connectFlipped) problems.push('the Connect button did not flip to Connected after a subscription connect');
+  if (!after.focusOnBox) problems.push('#4082: after the subscription connected, keyboard focus was not on the connected box (it is on ' + JSON.stringify(after.focusedIs) + ')');
   if (!(after.subCleared && after.pickCleared)) problems.push('the connected paint left the picker or sub-step visible over the gold box');
 
   console.log('  ' + JSON.stringify({ ...r, ...after }));
