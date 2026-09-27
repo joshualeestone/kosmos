@@ -6,7 +6,7 @@
  * list row named just "device"; Mona Lisa's sketch on the card). Four states, each asserted and shot:
  *   off         -> the pill says Off, Turn on is the one primary action, no address chip;
  *   connected   -> a green Connected pill, the address in ONE chip with Copy and Open, one plain line,
- *                  Turn off quiet, and View my account pointing at the web account;
+ *                  Pause quiet (it was Turn off; #4079), and View my account pointing at the web account;
  *   one request -> a compact card: the device, when, one device-neutral sentence, then the code LARGE in
  *                  boxes directly above Allow / Deny (#3952); no Not now, no Not me; the request is NOT repeated in the devices list;
  *   two requests-> one stale (older than an hour, faded) and one unnamed ("Unknown device").
@@ -130,7 +130,7 @@ const STATES = {
         chk(v.pill === 'Connected' && v.pillState === 'up', `${t} a green Connected pill`, v.pill);
         chk(v.chip && v.chipAddr === ADDR && v.open === 'https://' + ADDR + '/', `${t} the address in one chip with Open to it`, JSON.stringify({ chip: v.chip, a: v.chipAddr, open: v.open }));
         chk(v.status === 'To use Kosmos on another device, sign in at login.kosmosplus.com.' && !v.copy, `${t} one plain line under the chip (Josh's 17:30 wording), and no Copy`, v.status);
-        chk(v.sw === 'Turn off' && v.swClass === 'plus-quiet', `${t} Turn off is quiet, not a headline button`, v.sw + ' ' + v.swClass);
+        chk(v.sw === 'Pause' && v.swClass === 'plus-quiet', `${t} Pause (was Turn off, #4079) is quiet, not a headline button`, v.sw + ' ' + v.swClass);
         chk(v.account === 'https://login.kosmosplus.com/', `${t} View my account opens the web account`, v.account);
       }
       if (key === 'off' || key === 'connected' || key === 'down') chk(!v.cardShown, `${t} CONTROL: no request, no card`);
@@ -198,6 +198,56 @@ const STATES = {
       chk(!v.listNames.some((n) => n === 'device') && v.listNames.includes('Unknown device'), `${t} an unnamed devices-list row reads "Unknown device", never just "device"`, JSON.stringify(v.listNames));
       chk(v.listNames.includes('This computer (Kosmos app)'), `${t} this Mac's own sign-in row reads "This computer (Kosmos app)" (ICK's finding)`, JSON.stringify(v.listNames));
       if (SHOTS) { await page.setViewportSize({ width: 1400, height: 1300 }); await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(200); await page.screenshot({ path: path.join(SHOTS, `3829-${key}.png`) }); }
+      chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+      await page.close();
+    }
+    /* #4079: Disconnect this computer. Three outcomes of the engine's /api/remote/forget, each on a connected
+       pane: the account was told (the pane goes back to not connected and says it is done), the account could
+       not be told (the same, saying the address may still show on the account), and the engine failed (the
+       pane stays connected and says so). The confirm is checked to survive the 5-second repaint and to cancel. */
+    const UNTOLD = 'this computer is forgotten here, but your Kosmos+ account could not be updated (the coordinator did not answer); its address may still show on your account page until you remove it there';
+    for (const mode of ['told', 'untold', 'fails']) {
+      const t = `[disconnect ${mode}]`;
+      let enrolled = true; let forgets = 0;
+      const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+      const errs = []; page.on('pageerror', (e) => errs.push(e.message));
+      const json = (o, status) => ({ status: status || 200, contentType: 'application/json', body: JSON.stringify(o) });
+      const base = STATES.connected.remote;
+      await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? (enrolled ? base : { configured: true, on: false, ok: true, enrolled: false, status: { state: 'off' } }) : { ok: true })));
+      await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: [], email: 'you@example.com', self_device_id: 'd-self' })));
+      await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: true, allowed: [], pending: [], self_device_id: 'd-self' })));
+      await page.route('**/api/remote/forget', (route) => {
+        forgets += 1;
+        if (mode === 'fails') return route.fulfill(json({ error: 'we could not forget this computer: the tunnel program did not start' }, 500));
+        enrolled = false;
+        return route.fulfill(json(mode === 'told' ? { ok: true, retired: true, address: ADDR, because: null } : { ok: true, retired: false, address: ADDR, because: UNTOLD }));
+      });
+      await page.goto(BASE, { waitUntil: 'networkidle' });
+      if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+      await page.evaluate(() => showTab('settings'));
+      await page.click('#s-nav button[data-go="plus"]');
+      await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
+      const vis = (sel) => page.evaluate((s) => { const e = document.querySelector(s); return !!(e && !e.closest('[hidden]') && e.getBoundingClientRect().height > 0); }, sel);
+      chk(await vis('#plus-forget-go'), `${t} a connected computer shows Disconnect this computer`);
+      chk(!(await vis('#plus-forget-ask')), `${t} the confirm is closed to begin with`);
+      await page.click('#plus-forget-go');
+      await page.waitForTimeout(5600);   // one 5-second repaint of the pane
+      chk(await vis('#plus-forget-ask') && await vis('#plus-forget-yes') && !(await vis('#plus-forget-go')), `${t} the confirm opens and is still open after the 5-second repaint`);
+      const sure = await page.textContent('#plus-forget-sure');
+      chk(/leaves your Kosmos Plus account/.test(sure) && /address is freed/.test(sure) && /connect it again later by signing in/.test(sure), `${t} the confirm says what happens and how to come back`, sure);
+      await page.click('#plus-forget-no');
+      chk(!(await vis('#plus-forget-ask')) && await vis('#plus-forget-go') && forgets === 0, `${t} Cancel closes it and nothing was sent`, 'forgets=' + forgets);
+      await page.click('#plus-forget-go');
+      await page.click('#plus-forget-yes');
+      await page.waitForTimeout(700);
+      const after = await page.evaluate(() => ({ state1: !document.getElementById('plus-state1').hidden, flow: !document.getElementById('plus-flow').hidden,
+        forgot: (document.getElementById('plus-forgot-msg') || {}).textContent || '', forgotShown: !document.getElementById('plus-forgot-msg').hidden,
+        inPane: (document.getElementById('plus-forget-msg') || {}).textContent || '' }));
+      chk(forgets === 1, `${t} Disconnect sends one request`, 'forgets=' + forgets);
+      if (mode === 'told') chk(after.state1 && !after.flow && after.forgotShown && /^This computer is disconnected from Kosmos Plus\./.test(after.forgot), `${t} the pane goes back to not connected and says it is done`, JSON.stringify(after));
+      if (mode === 'untold') chk(after.state1 && !after.flow && after.forgotShown && /could not be updated/.test(after.forgot) && /may still show on your account page/.test(after.forgot) && !/is disconnected from Kosmos Plus\./.test(after.forgot), `${t} it says the account could not be told and the address may still show, never "done"`, JSON.stringify(after));
+      if (mode === 'fails') chk(!after.state1 && after.flow && /^This computer is still connected: /.test(after.inPane), `${t} a failed disconnect keeps the connected pane and says it is still connected`, JSON.stringify(after));
+      if (SHOTS && mode !== 'fails') { await page.screenshot({ path: path.join(SHOTS, `4079-after-${mode}.png`) }); }
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await page.close();
     }
