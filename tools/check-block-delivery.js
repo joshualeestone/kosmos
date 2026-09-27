@@ -17,8 +17,10 @@
  *
  *   node tools/check-block-delivery.js
  *
- * Read-only. It prints a table and CHANGES NOTHING. Syncing rewrites the files
- * agents boot from, and #1071 is explicit that the decision belongs to a person.
+ * Read-only. It prints a table and CHANGES NOTHING. What moves a block into the
+ * files agents boot from is elsewhere: the board refreshes some blocks at every
+ * start (#1649, #1676, #3614, #1071), and the working rules wait for the
+ * person's consent (#539).
  *
  * 🔑 A ZERO HAS TWO CAUSES AND THIS TOOL REFUSES TO MERGE THEM. A block can be
  * absent because it was never delivered, or because THERE IS NOTHING TO
@@ -96,7 +98,7 @@ function entitled(name, agents, text) {
       const swarm = require(path.join(REPO, 'engine', 'swarm.js'));
       /* ⚠️ readProfile answers {} for a missing OR unreadable profile, so "not a
          swarm" and "could not look" arrive looking the same. A profile FILE that
-         exists but reads empty is CANNOT TELL, whatever the agent carries. With no
+         exists but yields no fields is CANNOT TELL, whatever the agent carries. With no
          file, an agent carrying the block is CANNOT TELL too, never STALE. Those
          agents ride on the list as `unsure`, so the rest of the row still reads. */
       const leads = []; const unsure = [];
@@ -238,6 +240,6 @@ if (colleaguesShort) {
   console.log('Note: colleagues is added at birth to role-template agents only; an agent made');
   console.log('from custom instructions lacks it by design, so its count is an upper bound.');
 }
-console.log('This tool CHANGES NOTHING. Syncing rewrites the files agents boot from (#1071).');
+console.log('This tool CHANGES NOTHING. The board refreshes some blocks at start; the working rules wait for consent (#539).');
 /* Exit 0 always: this is a REPORT, and a non-zero here would wire a standing
    fleet condition into every caller's failure path. A number is the output. */

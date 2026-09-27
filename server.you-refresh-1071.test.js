@@ -115,7 +115,7 @@ test('#1071: an existing agent without the block gets it on a plain board start,
     assert.equal(after.includes(projects.YOU_START), true,
       'a plain board start must put the About-you block into an existing agent, with nobody saving the form');
     assert.equal(after.includes(NEW_LINE), true, 'the delivered block must carry the saved answers');
-    assert.equal(after.startsWith(mine.replace(/\n$/, '')), true,
+    assert.equal(after.startsWith(mine), true,
       'the person\'s own text must come through unchanged ahead of the block');
     assert.equal(after.split(projects.YOU_START).length - 1, 1, 'exactly one block, not one per refresh');
   } finally { fs.rmSync(sb, { recursive: true, force: true }); }

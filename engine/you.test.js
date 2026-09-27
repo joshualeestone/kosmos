@@ -119,6 +119,25 @@ test('tellAgent writes the block for a tied agent, and an absent record removes 
   }
 });
 
+test('#1071: addOnly never removes the block, even when the record is gone by the time it writes', () => {
+  you.save(GOOD);
+  plantAgent('addonly', BOOT);
+  const roster = fleet.install([fleet.agent('addonly', { state: 'idle' })]).agents;
+  try {
+    assert.equal(you.tellAgent('addonly', roster, { addOnly: true }).state, projects.TOLD.TOLD,
+      'with a saved record, addOnly writes like any tell');
+    const withBlock = fs.readFileSync(bootFile('addonly'), 'utf8');
+    assert.ok(withBlock.includes(you.START), 'precondition: the block is there');
+    fs.rmSync(you.FILE);
+    const r = you.syncEveryone(roster, { addOnly: true });
+    assert.equal(r.length, 1);
+    assert.equal(r[0].state, projects.TOLD.COULD_NOT, 'addOnly with no record must refuse, not report a removal as told');
+    assert.equal(fs.readFileSync(bootFile('addonly'), 'utf8'), withBlock, 'the file must be byte for byte unchanged');
+  } finally {
+    fleet.restore();
+  }
+});
+
 test('the tell refuses what its siblings refuse: untied names, missing files, unreadable rosters', () => {
   you.save(GOOD);
   plantAgent('borrowed', BOOT);

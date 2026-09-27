@@ -6,7 +6,8 @@ Guards: Liu Kang m1859.
 ## Finished means
 - A plain board start puts the About-you block ("Who you work for") into every tied agent that has
   an instructions file, and refreshes a stale one. Only when a record is saved: with none it does
-  nothing (tellAgent would remove the block, a state the form cannot reach but a boot could).
+  nothing (tellAgent would remove the block, a state the form cannot reach but a boot could),
+  and each per-agent write runs with `addOnly`, so a record gone mid-pass is refused, not removed.
   Writes stay inside managed markers: the About-you span, plus the existing colleagues span, which
   tellAgent heals when drifted (projects.healColleagues; never adds one).
 - `tools/check-block-delivery.js` has a row for every block in `projects.ALL_MARKERS()`, and reports
@@ -35,6 +36,7 @@ bug); really behind v15 on all 8, awaiting the consented refresh (#539).
   kept; two blocks left alone and the refusal named on stderr; no file invented; nothing saved
   keeps an existing block (red with the saved-guard removed); a drifted colleagues block healed. Red without the fix on both delivery arms; a
   mutation that writes outside the markers fails the byte arm.
+- engine/you.test.js: addOnly with the record gone leaves the file byte for byte (red without it).
 - tools/test-block-delivery.sh: row count equals ALL_MARKERS()/2; swarm lead/non-lead/unreadable
   profile (red with the swarm branch removed); doctrine behind/current; doctrine
   never STALE. All four new checks fail against origin/main's tool.

@@ -17637,12 +17637,14 @@ if (require.main === module) {
      block, an arm the form never reaches (a save cannot produce an empty record).
      At boot it would: a new world or a data root resolving somewhere unexpected
      would strip the person's name from every agent on the next start. So the
-     boot pass adds and refreshes, and never removes.
+     boot pass adds and refreshes, and never removes: the check below skips the
+     pass, and `addOnly` refuses the removal per agent (engine/you.test.js pins it).
 
      ⚠️ tellAgent also heals an EXISTING colleagues block (projects.healColleagues),
      so this pass rewrites that block too when its text has drifted; it never adds
-     one. That heal therefore rides only on a saved record; a boot refresh of the
-     colleagues block in its own right would be a sibling of this one. */
+     one. That heal therefore rides only on a saved record (an unknown one skips
+     it too); a boot refresh of the colleagues block in its own right would be a
+     sibling of this one. */
   try {
     const record = you.read();
     if (record.state === 'unknown') {
@@ -17651,7 +17653,7 @@ if (require.main === module) {
       process.stderr.write(`Kosmos could not refresh what agents know about who they work for; they keep the text they have. The About-you record: ${record.because || 'no reason given'}\n`);
     }
     if (record.state === 'saved') {
-      const told = you.syncEveryone(safeRoster());
+      const told = you.syncEveryone(safeRoster(), { addOnly: true });
       const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
       if (stuck.length) {
         const why = (stuck[0] && stuck[0].because) || 'no reason given';
