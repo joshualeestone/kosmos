@@ -11,8 +11,9 @@
  * #3967 (Josh 2026-09-26) removed the first edge (an inset shadow on the bubble box) because it did not wrap the
  * bubble's tail. It is back (2026-09-27) as a 1px outline of bubble AND tail: a drop-shadow filter on the bubble,
  * with the wing carving itself by a mask so nothing else is painted for the filter to trace. The arms read the
- * drawn outline, its fade, the tail inside it (U17, by pixels, with a read bubble as the control) and the newest
- * bubble's bottom stroke when the thread is scrolled to its end (U18).
+ * drawn outline, its fade, the tail inside it (U17, by pixels, with a read bubble as the control; U17b: the wing
+ * carves its own curve, so the outline follows the curve and not the wing's box; U17c: no kink where the tail meets
+ * the bubble) and the strokes of bubbles at the thread's ends (U18 bottom, U18b top).
  *
  * Unread is the app's own count as the thread opens (a DM's dmUnread, a
  * project's unread) plus any agent message that lands while it is open. History never shows it.
@@ -98,19 +99,42 @@ function chk(ok, label, extra) {
     const wing = async (h) => { const bb = await h.boundingBox(); return goldIn({ x: bb.x - 9, y: bb.y + bb.height - 18, width: 8, height: 18 }); };
     const wingUnread = await wing(bds[3]), wingRead = await wing(bds[0]);
     chk(wingUnread >= 6 && wingRead === 0, 'U17 the outline goes round the tail: gold on the unread bubble\'s wing, none on a read one', JSON.stringify({ wingUnread, wingRead }));
+    // U17b: the wing carves ITS OWN curve (the mask), so the outline follows the curve. Without the mask the whole wing
+    // box would be outlined; its top-left corner, well outside the crescent, is where that shows.
+    const wingBox = async (h) => { const bb = await h.boundingBox(); return goldIn({ x: bb.x - 9, y: bb.y + bb.height - 21, width: 4, height: 4 }); };
+    const boxCorner = await wingBox(bds[3]);
+    chk(boxCorner === 0, 'U17b the outline follows the tail\'s curve, not the wing\'s box (no gold at the box\'s top-left corner)', 'gold=' + boxCorner);
+    // U17c: the bottom stroke runs unbroken where the tail meets the bubble (a rounded inner wing corner left a notch
+    // there, which the outline traced as a V-shaped kink).
+    const junction = async (h) => { const bb = await h.boundingBox(); return goldIn({ x: bb.x - 2, y: bb.y + bb.height, width: 10, height: 1 }); };
+    const joinRow = await junction(bds[3]);
+    chk(joinRow >= 9, 'U17c the bottom stroke has no kink where the tail meets the bubble', 'gold columns=' + joinRow + ' of 10');
 
     // U18: scrolled to the end, the newest bubble's bottom stroke shows (a filter is not scrollable content; the DM
     // thread's 2px bottom padding keeps it inside). CONTROL: the same strip on a read bubble has no gold.
     await page.evaluate(() => { const t = document.getElementById('d-dmthread'); t.scrollTop = t.scrollHeight; });
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));   // painted at the new scroll (WebKit)
     const under = async (h) => { const bb = await h.boundingBox(); return goldIn({ x: bb.x + 20, y: bb.y + bb.height, width: 40, height: 2 }); };
     const underNewest = await under(bds[3]), underRead = await under(bds[0]);
     chk(underNewest >= 20 && underRead === 0, 'U18 scrolled to the end, the newest unread bubble\'s bottom stroke is not cut off', JSON.stringify({ underNewest, underRead }));
+    // U18b: the same at the TOP: an unread bubble first in the thread, scrolled to the top, keeps its top stroke (the
+    // thread's 2px top padding). Marked by hand and measured at once, before the read clock could clear it.
+    const overTop = await (async () => {
+      await page.evaluate(() => { const t = document.getElementById('d-dmthread'); t.scrollTop = 0; document.querySelector('#d-dmthread .msg:not(.you) .msg-bd').setAttribute('data-unread', ''); });
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+      const bb = await bds[0].boundingBox();
+      const n = await goldIn({ x: bb.x + 20, y: bb.y - 1, width: 40, height: 1 });
+      await page.evaluate(() => document.querySelector('#d-dmthread .msg:not(.you) .msg-bd').removeAttribute('data-unread'));
+      await page.evaluate(() => { const t = document.getElementById('d-dmthread'); t.scrollTop = t.scrollHeight; });   // back to the newest, which U2 reads
+      return n;
+    })();
+    chk(overTop >= 20, 'U18b an unread bubble first in the thread keeps its top stroke at scroll 0', 'gold=' + overTop);
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, 'unread-dm-before-read.png') }); }
 
     // U2: on screen with the window in front, the edge goes after a moment, and it fades rather than snapping.
     const tr = await page.evaluate(() => { const b = document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')[0], cs = getComputedStyle(b), af = getComputedStyle(b, '::after');
       return { prop: cs.transitionProperty, dur: cs.transitionDuration, maskDelay: af.transitionDelay, maskProp: af.transitionProperty }; });
-    chk(tr.prop === 'filter' && tr.dur === '1.2s' && tr.maskProp === 'visibility' && tr.maskDelay === '1.2s', 'U2 the outline fades over 1.2s, and the tail\'s ground mask comes back only once the fade has ended', JSON.stringify(tr));
+    chk(tr.prop === 'filter, outline-color' && tr.dur === '1.2s, 0.3s' && tr.maskProp === 'visibility' && tr.maskDelay === '1.2s', 'U2 the outline fades over 1.2s, and the tail\'s ground mask comes back only once the fade has ended', JSON.stringify(tr));
     await page.waitForTimeout(2600);
     const u2 = await dmState();
     chk(u2.length === 4 && u2.every((r) => !r.unread), 'U2 once on screen a moment, the edge goes', JSON.stringify(u2.map((r) => r.unread)));
@@ -136,8 +160,9 @@ function chk(ok, label, extra) {
 
     // U5: reduced motion drops the edge without the fade (U2 is the CONTROL: the same read, 1.2s, without it).
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    const tr5 = await page.evaluate(() => getComputedStyle(document.querySelector('#d-dmthread .msg:not(.you) .msg-bd')).transitionDuration);
-    chk(tr5 === '0s', 'U5 with reduced motion there is no fade', tr5);
+    const tr5 = await page.evaluate(() => { const b = document.querySelector('#d-dmthread .msg:not(.you) .msg-bd');
+      return { dur: getComputedStyle(b).transitionDuration, maskDelay: getComputedStyle(b, '::after').transitionDelay, wingDelay: getComputedStyle(b, '::before').transitionDelay }; });
+    chk(tr5.dur.split(',').every((d) => d.trim() === '0s') && tr5.maskDelay === '0s' && tr5.wingDelay === '0s', 'U5 with reduced motion there is no fade and nothing waits for one', JSON.stringify(tr5));
     await page.emulateMedia({ reducedMotion: 'no-preference' });
 
     // U6: the project room, through pjMarkSeen and paintRoom: three unread, the newest three agent posts have it.

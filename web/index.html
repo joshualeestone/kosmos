@@ -6054,14 +6054,18 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    painted around it, and the ::after ground mask is exactly something else painted (a ground-coloured
    block the filter would outline). So:
      1. the wing carves ITSELF with a mask, the same curve the ::after mask carves (a crescent outside
-        the 12px by 16px ellipse whose centre is 12px out from the bubble edge and 16px up from its
-        bottom, seen from the wing's box as 4px left of it and 4px down). This is on every agent
+        the ellipse of radii 12px and 16px whose centre is 12px out from the bubble edge and 16px up
+        from its bottom, seen from the wing's box as 4px left of it and 4px down). This is on every agent
         bubble, read or not: it only removes wing that the ::after mask paints over anyway, so a read
         bubble looks exactly as before;
      2. while unread, the ::after mask is hidden (the wing no longer needs it) and the bubble carries
         four 1px drop-shadows, one per side, which together are a 1px outline of the true shape;
      3. once read, the outline fades over 1.2s and the ::after mask comes back only when the fade has
-        ended (a delayed visibility), so the fade never outlines the mask's block.
+        ended (a delayed visibility), so the fade never outlines the mask's block;
+     4. while unread the wing's inner (bubble-side) bottom corner is square. Rounded, it leaves a small
+        notch where it meets the bubble's 6px corner: faint on a read bubble, a V-shaped kink once the
+        outline traces it. The corner sits under the bubble, so squaring it only fills the notch. It
+        rounds again only after the fade, like the mask.
    No layout changes (a filter and a mask take no room), so the scroll repin is untouched. The guide's
    replies (.asp-m.him) have no tail and take the same outline. Reduced motion: no fade, no delay.
    render-unread-edge-3743.js pins the drawn outline, its fade, and that the tail is inside it. */
@@ -6071,13 +6075,17 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   mask: linear-gradient(#000, #000) right top / 12px 100% no-repeat,
     radial-gradient(12px 16px at -4px 0, transparent calc(100% - .5px), #000 calc(100% + .5px)) left bottom / 8px 16px no-repeat;
 }
-.msg:not(.you) .msg-bd, .asp-m.him { transition: filter 1.2s ease-out; }
+.msg:not(.you) .msg-bd, .asp-m.him { transition: filter 1.2s ease-out, outline-color .3s; }   /* outline-color: the jump flash's own fade (.msg-flash), which this rule outranks */
 .msg:not(.you) .msg-bd::after { transition: visibility 0s linear 1.2s; }
-.msg:not(.you) .msg-bd[data-unread], .asp-m.him[data-unread] { transition: none;
+.msg:not(.you) .msg-bd::before { transition: border-bottom-right-radius 0s linear 1.2s; }
+.msg:not(.you) .msg-bd[data-unread], .asp-m.him[data-unread] { transition: outline-color .3s;
   filter: drop-shadow(1px 0 0 var(--unread-edge)) drop-shadow(-1px 0 0 var(--unread-edge)) drop-shadow(0 1px 0 var(--unread-edge)) drop-shadow(0 -1px 0 var(--unread-edge)); }
 .msg:not(.you) .msg-bd[data-unread]::after { visibility: hidden; transition: none; }
+.msg:not(.you) .msg-bd[data-unread]::before { border-bottom-right-radius: 0; transition: none; }
+/* A jump to an unread message flashes its own ring; the outline would trace round that ring too. */
+.msg-flash:not(.you) .msg-bd[data-unread] { filter: none; }
 @media (prefers-reduced-motion: reduce) {
-  .msg:not(.you) .msg-bd, .asp-m.him, .msg:not(.you) .msg-bd::after { transition: none; }
+  .msg:not(.you) .msg-bd, .asp-m.him, .msg:not(.you) .msg-bd::after, .msg:not(.you) .msg-bd::before { transition: none; }
 }
 /* hover coherence (#2921): the wing darkens with the bubble on hover, so it does not stay
    unshaded while the body dims. Only the colored ::before takes the overlay; the ::after
@@ -6399,10 +6407,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    only gilded commit in the product. Recorded as an alignment item rather than
    silently resolved either way. */
 .dmthread { display: flex; flex-direction: column; gap: 12px; min-height: 7rem;
-  max-height: 15rem; overflow-y: auto; padding-right: 4px; padding-bottom: 2px; }
-/* padding-bottom 2px (#3743): an unread message's gold outline is drawn 1px OUTSIDE the bubble (a filter), and
-   a filter does not count as scrollable content, so scrolled to the bottom the newest bubble's bottom stroke was
-   cut off. It is there all the time, not only while something is unread, so reading a message moves nothing. */
+  max-height: 15rem; overflow-y: auto; padding-right: 4px; padding-block: 2px; }
+/* padding-block 2px (#3743): an unread message's gold outline is drawn 1px OUTSIDE the bubble (a filter), and
+   a filter does not count as scrollable content, so the stroke of a bubble at either end of the thread was cut
+   off (the newest one scrolled to the bottom, or the first one in a thread that does not scroll). It is there
+   all the time, not only while something is unread, so reading a message moves nothing. */
 /* 🛑 #3414 ORPHANED, PENDING A FOCUSED CLEANUP: dmRow now emits the room's `.msg`
    markup, so the `.dm` / `.dm.mine` / `.dm.theirs` / `.dm-b` / `.dm-w` RULES below
    match nothing rendered any more. They are inert (dead selectors have no effect),
