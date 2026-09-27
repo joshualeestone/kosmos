@@ -70,7 +70,7 @@ const isPageScoped = (src) => PAGE_SCOPE.test(src.split('\n').slice(0, 5).join('
 /* Checks that are red on the runner for a reason that is not the PR's, per the nightly card
    (#3973). Selecting one would turn every page PR that touches it red for someone else's defect,
    so it is left out and printed as left out. Each entry names why; remove it when the nightly
-   shows it green. The fixed allowlist and the cut still run it. */
+   shows it green. */
 const KNOWN_RED = {
   'render-provider-combobox-1040': '#3973: red on the macos-latest runner, unexplained, passes on a dev Mac',
 };
