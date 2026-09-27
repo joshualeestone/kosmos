@@ -134,7 +134,7 @@ test('#3568: Gemini by subscription sorts beside Gemini (review round 1: it sank
 
 /* Review round 3: the headline flow itself, "Sign in with Subscription" on the Gemini row. The page's
    FR_AGY_SUB runs as written, against a stand-in page and scripted route answers. */
-function agyFlow(answers) {
+function agyFlow(answers, { frStep = 5 } = {}) {
   const at = PAGE.indexOf('let FR_AGY_READY = false;');
   const end = PAGE.indexOf('const KEYED_SUB_START', at);
   assert.ok(at > 0 && end > at, 'FR_AGY_SUB moved; re-anchor');
@@ -158,16 +158,19 @@ function agyFlow(answers) {
   let painted = 0;
   // eslint-disable-next-line no-new-func
   const successes = [];
-  const api = new Function('document', 'fetch', 'paintAgyOption', 'frPaintKeyed', 'setTimeout', 'acctShowSuccess', 'frCheckRow', 'paintAccounts', `
+  const nexts = [];
+  const api = new Function('document', 'fetch', 'paintAgyOption', 'frPaintKeyed', 'setTimeout', 'acctShowSuccess', 'frCheckRow', 'paintAccounts',
+    'FR_STEP', 'frActions', 'frGo', 'frStepAfter', `
     let AGY_INSTALLED = null; let AGY_OFFERED = null;
     ${PAGE.slice(at, end)}
     return { FR_AGY_SUB, ACCT_AGY_SUB, ready: () => FR_AGY_READY, offered: () => AGY_OFFERED };
   `)(doc, fetchStub, () => {}, () => { painted += 1; }, (fn) => setImmediate(fn),
-    (label, box) => successes.push([label, box]), (o) => 'BOX:' + o.title + '|' + o.detail, async () => {});
+    (label, box) => successes.push([label, box]), (o) => 'BOX:' + o.title + '|' + o.detail, async () => {},
+    frStep, (primary) => nexts.push(primary && primary.label), () => {}, (n) => n + 1);
   const view = () => ({ text: el('fr-gemini-sub-code').textContent, button: el('fr-gemini-sub-go').hidden ? '' : el('fr-gemini-sub-go').textContent,
     stop: !el('fr-gemini-sub-cancel-row').hidden });
   const settle = async (pred, n = 200) => { for (let i = 0; i < n && !pred(); i++) await new Promise((r) => setImmediate(r)); };
-  return { ...api, view, posts, bodies, el, settle, successes, painted: () => painted, active: () => doc.activeElement };
+  return { ...api, view, posts, bodies, el, settle, successes, painted: () => painted, active: () => doc.activeElement, nexts };
 }
 
 test('#3998: Sign in with Subscription walks not installed -> Install -> Sign in (hidden) -> paste the code -> Ready, with no Terminal', async () => {
@@ -204,14 +207,14 @@ test('#3998: Sign in with Subscription walks not installed -> Install -> Sign in
 });
 
 /* #4082: the step hides on Ready; focus that was inside it (the paste box's Continue) must not fall to the page. */
-function agyToReady() {
+function agyToReady(opts) {
   return agyFlow({
     '/api/antigravity/check': [{ installed: true, signedIn: false }],
     'POST /api/antigravity/signin': [{ ok: true, id: 'a1b2c3d4e5f60718', state: 'starting' }],
     'GET /api/antigravity/signin': [{ id: 'a1b2c3d4e5f60718', state: 'code', url: 'https://accounts.google.com/o/oauth2/auth?x=1' },
       { id: 'a1b2c3d4e5f60718', state: 'code', url: 'https://accounts.google.com/o/oauth2/auth?x=1' }, { id: 'a1b2c3d4e5f60718', state: 'done' }],
     '/api/antigravity/signin/code': [{ ok: true, state: 'checking' }],
-  });
+  }, opts);
 }
 async function agyWalk(f, focusId) {
   const step = f.el('fr-gemini-sub-step');
@@ -232,6 +235,17 @@ test('#4082: on Ready, focus that was in the step lands on Gemini\'s connected b
   assert.equal(f.active(), box, 'focus was left on a control in the hidden step: ' + (f.active() && f.active().id));
   assert.equal(box.attrs.tabindex, '-1', 'the box is not focusable');
   assert.match(box.textContent, /Gemini/, 'focus landed on an empty box (the repaint stand-in paints nothing here)');
+});
+test('#4082: off the model step (first run moved on), focus is not moved, and Next is not offered', async () => {
+  const f = agyToReady({ frStep: 6 });
+  await agyWalk(f, 'fr-gemini-sub-paste-go');
+  assert.equal(f.active(), f.el('fr-gemini-sub-paste-go'), 'focus was moved although first run is not on this step');
+  assert.deepEqual(f.nexts, []);
+});
+test('#4082 CONTROL: on the model step, Ready offers Next (the harness reaches the real branch)', async () => {
+  const f = agyToReady();
+  await agyWalk(f, 'fr-gemini-sub-paste-go');
+  assert.deepEqual(f.nexts, ['Next']);
 });
 test('#4082 CONTROL: a person who has moved on keeps their place', async () => {
   const f = agyToReady();
