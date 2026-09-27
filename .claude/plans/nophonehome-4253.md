@@ -49,6 +49,17 @@ suppressing when `AGENT_WORKFORCE_DATA` is set (`install/setup.sh:1320` sets it 
 - The feedback URL has a structural guard only (its send is an hourly sweep a short boot never
   reaches); the test file says so.
 
+## Review 2
+
+- No boot path to the real endpoint found (every harness boot, the test:shell chain, the env -i reboot
+  simulation, the smoke boot); the real team-board deploy is correctly untouched.
+- The depth reader never closed a function: `\}` followed by `\b` cannot match. It closes a column-0
+  `}` now, pinned by a direct test on a small script (the old regex reds it).
+- test-install.sh's boot pattern skipped the real first installer run (a `VAR= sh` prefix) and anchored
+  on a later one; widened, and a test asserts it finds the first (the old pattern reds it).
+- run-tests.sh boots nothing in its own text, so only the top-level check applies to it; the test says
+  so.
+
 ## Weakest premise
 
 A harness started outside these three entry points (a check run by hand with node, a /verify-live

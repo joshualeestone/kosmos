@@ -106,7 +106,7 @@ function topLevel(lines, i) {
     if (/^\s*#/.test(l)) continue;
     if (/^[A-Za-z_][A-Za-z0-9_]*\s*\(\)\s*\{?\s*$/.test(l) || /^(if|for|while|until|case)\b/.test(l)) {
       if (!/\b(fi|done|esac)\s*;?\s*$/.test(l) && !/\}\s*;?\s*$/.test(l.replace(/\(\)\s*\{\s*$/, ''))) depth += 1;
-    } else if (/^(\}|fi|done|esac)\b/.test(l)) {
+    } else if (/^\}(?:[\s;]|$)|^(fi|done|esac)\b/.test(l)) {
       depth = Math.max(0, depth - 1);
     }
   }
@@ -125,7 +125,7 @@ function firstBootLine(lines) {
 const HARNESSES = [
   ['tools/browser-checks.sh', 'browser-checks.sh', null],
   ['tools/run-tests.sh', 'run-tests.sh', null],
-  ['tools/test-install.sh', 'test-install.sh', /\$SETUP"? *\| *(env .*)?sh\b/],
+  ['tools/test-install.sh', 'test-install.sh', /\$SETUP"? *\| *(env .*|(\S+=\S* +)*)sh\b/],
 ];
 
 for (const [file, name, bootRe] of HARNESSES) {
@@ -139,6 +139,8 @@ for (const [file, name, bootRe] of HARNESSES) {
       assert.ok(topLevel(lines, i), `${name}'s \`export ${v}=\` on line ${i + 1} is inside a function or block that may never run`);
       const value = lines[i].slice(`export ${v}=`.length).replace(/^["']|["']$/g, '');
       assert.match(value, LOOPBACK, `${name} points ${v} somewhere other than this machine: ${value}`);
+      /* run-tests.sh boots no board in its own text (its children do), so it has no
+         boot line and only the top-level check applies to it. */
       const boot = bootRe ? lines.findIndex((l) => !/^\s*#/.test(l) && bootRe.test(l)) : firstBootLine(lines);
       if (bootRe) assert.ok(boot >= 0, `could not find ${name}'s first installer run`);
       if (boot >= 0) assert.ok(i < boot, `${name} sets ${v} on line ${i + 1}, after its first board boot on line ${boot + 1}`);
@@ -174,4 +176,30 @@ test('#4253: test-install.sh\'s env -i reboot simulation carries both phone-home
   for (const v of ['AGENT_WORKFORCE_CREATED_URL', 'AGENT_WORKFORCE_FEEDBACK_URL']) {
     assert.ok(new RegExp(`\\b${v}=`).test(block), `the env -i reboot simulation does not set ${v}, so that board phones home`);
   }
+});
+
+test('#4253: the block-depth reader closes a function at its column-0 brace', () => {
+  const src = [
+    'helper() {',
+    '  echo hi',
+    '}',
+    'export AFTER=1',
+    'wrapped() {',
+    'export INSIDE=1',
+    '}',
+    'if true; then',
+    'export IN_IF=1',
+    'fi',
+  ];
+  assert.equal(topLevel(src, 3), true, 'an export after a closed function is top level');
+  assert.equal(topLevel(src, 5), false, 'an export inside a function body is not');
+  assert.equal(topLevel(src, 8), false, 'an export inside an if is not');
+});
+
+test('#4253: test-install.sh\'s first installer run is the first one in the file', () => {
+  const lines = fs.readFileSync(path.join(REPO, 'tools/test-install.sh'), 'utf8').split('\n');
+  const re = HARNESSES.find(([, n]) => n === 'test-install.sh')[2];
+  const first = lines.findIndex((l) => !/^\s*#/.test(l) && /\$SETUP"? *\|/.test(l) && /\bsh\b/.test(l));
+  const found = lines.findIndex((l) => !/^\s*#/.test(l) && re.test(l));
+  assert.equal(found, first, `the boot pattern finds line ${found + 1}, but the first installer run is line ${first + 1}`);
 });
