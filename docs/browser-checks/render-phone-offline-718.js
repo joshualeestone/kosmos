@@ -86,13 +86,16 @@ const waitFor = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 9000
       await page.evaluate(() => showTab('agents'));
 
       // Back online: asked again at once (the online event), not at the next five-second poll.
+      // Go online just after a scheduled poll has gone out, so the next one is about five seconds
+      // away and any read inside 700ms can only come from the online listener.
+      const polled = await page.waitForRequest((r) => /\/api\/status(\?|$)/.test(r.url()), { timeout: 9000 }).then(() => true, () => false);
       const asked = [];
       page.on('request', (r) => { if (/\/api\/status(\?|$)/.test(r.url())) asked.push(Date.now()); });
       const t0 = Date.now();
       await ctx.setOffline(false);
       await page.waitForTimeout(700);
       const soon = asked.filter((t) => t - t0 < 700).length;
-      chk(soon > 0, 'S1 back online: the board asks again at once', 'status reads within 700ms: ' + soon);
+      chk(polled && soon > 0, 'S1 back online: the board asks again at once', 'aligned to a poll: ' + polled + ', status reads within 700ms: ' + soon);
       const cleared = await waitFor(page, () => !/You are offline/.test(((document.getElementById('uoffline-slot') || {}).textContent || '')
         + ((document.getElementById('grid') || {}).textContent || '')));
       chk(cleared, 'S1 back online: You are offline is gone', JSON.stringify(await read(page)).slice(0, 160));

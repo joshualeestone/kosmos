@@ -322,3 +322,12 @@ test('nothing outside the poll ever paints it', () => {
   assert.equal(inPage - 1, inTick,
     'something outside the poll calls it, so the note can appear with no failed poll behind it');
 });
+
+test('#718 state 1: coming back online asks again at once, for the agents and the projects', () => {
+  /* The browser check times this in a real page; this pins the wiring itself, so removing the
+     listener, or dropping either read from it, goes red here without a browser. */
+  const m = SCRIPT.match(/window\.addEventListener\('online',\s*\(\)\s*=>\s*\{([^}]*)\}\);/);
+  assert.ok(m, 'no online listener on the window');
+  assert.match(m[1], /\btick\(\)/, 'the online listener no longer re-reads the agents');
+  assert.match(m[1], /\bloadProjects\(\)/, 'the online listener no longer re-reads the projects');
+});
