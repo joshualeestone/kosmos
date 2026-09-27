@@ -177,3 +177,6 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 - A code still on agy's prompt is being checked: read as refused only after 90 s (an empty prompt still after 20 s), and code() never types over it. Weakest premise: agy clears its prompt when it refuses a code; if it leaves the code there, a refusal shows after 90 s instead of 20.
 - A shown window ends two hours after Show however busy its screen is (a spinner counts as a change).
 - One budget: repeat ready-screen asks spend MAX_CHECKS with unknown screens; the stated total is MAX_CHECKS + 2 (the first ready look and one on exit).
+
+## After convergence: CI on the merge with main (decided)
+- #3957's route check (added to main after the branch's validation) counts only exact path comparisons and forbids startsWith route families. The sign-in route is now four exact comparisons; an unknown sub-address falls through to the board's own 404. Rebased onto main; the diff changed, so validation and a review round run again before the proof is rewritten.

@@ -7953,11 +7953,13 @@ const server = http.createServer((req, res) => {
     catch { sendJson(res, 500, { ok: false, error: 'we could not forget that just now' }); }
     return;
   }
-  if (pathname.startsWith('/api/antigravity/signin')) {
+  /* Four exact addresses, not a startsWith family (#3957's route check counts only exact comparisons,
+     and an unknown sub-address falls through to the board's own 404). */
+  if (pathname === '/api/antigravity/signin' || pathname === '/api/antigravity/signin/code'
+    || pathname === '/api/antigravity/signin/show' || pathname === '/api/antigravity/signin/stop') {
     const signin = require('./engine/agysignin');
     const agy = require('./engine/agystatus');
     const sub = pathname.slice('/api/antigravity/signin'.length);
-    if (!['', '/code', '/show', '/stop'].includes(sub)) { req.resume(); sendJson(res, 404, { error: 'there is nothing at that address' }); return; }
     if (sub === '' && req.method === 'GET') {
       try { sendJson(res, 200, signin.status()); } catch { sendJson(res, 500, { error: 'we could not read the sign-in just now' }); }
       return;
@@ -8006,7 +8008,7 @@ const server = http.createServer((req, res) => {
       }).catch(() => sendJson(res, 400, { ok: false, error: 'we could not read that request' }));
       return;
     }
-    // (every sub-address was answered above; an unknown one is refused 404 at the top)
+    // (every one of the four addresses was answered above; any other falls through to the board 404)
     return;
   }
   /**
