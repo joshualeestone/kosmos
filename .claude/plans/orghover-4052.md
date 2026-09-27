@@ -54,9 +54,10 @@ The fix is measured, not proven: the jiggle was intermittent, and 0 red in 12 at
 rarer, not that it is impossible. If S41 goes red now and then in CI, read it as this race first, not
 as a new regression, and look at the pixel figure it prints (a real shift measured 10/255).
 
-Text on a layer of its own can lose subpixel antialiasing, which could soften it on a non-Retina display.
-On this chart no names show at rest (hover only), so the only text on these layers is the hover callout,
-which already sat on a layer during its transition. Unmeasured on a non-Retina display.
+Text on a layer of its own can lose subpixel antialiasing, which could soften it on a non-Retina display
+(and on Windows, where WebView2 uses ClearType). No names show at rest on this chart, but the layers do
+carry text: the initials in every face without a picture (`.oinit`, at rest), the unread-count badge on
+a node, and the hover callout. Those are what to look at. Unmeasured on a non-Retina display.
 
 Josh sees it in the Mac app, a WKWebView. It is reproduced and fixed here in Chromium only. Playwright's
 WebKit drew no cluster in the fixture (so its run compared nothing and proves nothing), and it is not the

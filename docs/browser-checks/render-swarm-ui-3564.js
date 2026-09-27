@@ -495,8 +495,9 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
               const b = f.getBoundingClientRect();
               /* What an element paints can reach past its box: a box-shadow (the working glow is about 21px) and an
                  outline. Each box grows by that reach before the overlap test, so a glow over a neighbour is cover.
-                 Only those two are modelled: a hover that paints further some other way (a filter drop-shadow, a
-                 scale transform, a wide border) must be added here, or S41 will read its paint as a shift. */
+                 Only those two are modelled (a box that grows, from a border or a scale, already shows in the rects); paint
+                 that spills past a box some other way, such as a filter drop-shadow, must be added here, or S41 will read it
+                 as a shift. */
               const reach = (e) => { const cs = getComputedStyle(e); let r = 0;
                 if (cs.boxShadow && cs.boxShadow !== 'none') for (const sh of cs.boxShadow.split(/,(?![^(]*\))/)) {
                   const px = (sh.match(/-?[\d.]+px/g) || []).map(parseFloat);
