@@ -61053,10 +61053,21 @@ function tipTourRender(card, auto) {
     tipTourRender(card, false);
   });
   /* A step whose place is below the fold (a short window) is brought into view once, as the step opens. */
-  if (st && st.sel) { try { document.querySelector(st.sel)?.scrollIntoView({ block: 'nearest' }); } catch { /* an older webview */ } }
+  const stepEl = st && st.sel ? document.querySelector(st.sel) : null;
+  if (stepEl) { try { stepEl.scrollIntoView({ block: 'nearest' }); } catch { /* an older webview */ } }
   tipAnnounce(card);
   tipLayout(TIP_OPEN, card);
-  /* It takes focus, unless it opened by itself while the person is typing somewhere. */
+  /* #4108: a place that nearly fills the window (a project's Conversation on a phone) can leave the card no room above
+     or below it by a few pixels, and the card then goes flat, pointing at nothing. Scroll up just enough for the card
+     to sit above it, and place it again. Only then: a card that found a pointing place is never moved. */
+  if (stepEl && card.classList.contains('flat')) {
+    const r = stepEl.getBoundingClientRect();
+    const need = card.offsetHeight + 12 + 12 + 4;   // the card, its arrow gap, tipPlace's pad, and slack for fractional pixels
+    if (r.top > 0 && r.top < need && r.bottom > need) {
+      window.scrollBy(0, r.top - need);
+      tipLayout(TIP_OPEN, card);
+    }
+  }  /* It takes focus, unless it opened by itself while the person is typing somewhere. */
   const ae = document.activeElement;
   const busy = auto && !!ae && ae !== document.body && ae.matches('input, textarea, select, [contenteditable=""], [contenteditable="true"]');
   if (!busy) card.querySelector('.tip-go').focus();

@@ -14,6 +14,15 @@
  * Controls, measured: on main's page every phone arm reds in both engines (the Direct Message box
  * and its search 44px, the room box 40px, the room search 24px); desktop is 40px and 22px on both.
  *
+ * The re-land (0.7.03, after #4162 reverted this for 0.7.01): the taller room box left the project tip's
+ * Conversation step 2px short of room above its column at 375, so the card went flat (render-room-msgbox-2806
+ * caught it). This check now also walks the project tip at 360 and 375 in both engines, and at 375 with
+ * Android's larger text (x1.3, Chromium only: its mobile emulation honours -webkit-text-size-adjust on px text as
+ * Android's font scale does; WebKit ignores it). Every step must point, sit fully on screen, and have its area
+ * in view. Measured: without the tip fix the Conversation step goes flat at 360 and 375 in both engines; the x1.3
+ * case points even without the fix (the layout leaves room there), so it guards against a future break and does
+ * not reproduce this one.
+ *
  *   node docs/browser-checks/render-chatbox-phone-4108.js            # headed
  *   HEADED=0 node docs/browser-checks/render-chatbox-phone-4108.js   # headless
  *   ENGINES=chromium,webkit HEADED=0 node docs/browser-checks/render-chatbox-phone-4108.js
@@ -176,6 +185,57 @@ function heightOf(page, sel) {
           }
           chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));
           await ctx.close();
+        }
+        /* The taller room box must not cost the project tip its arrow (main, 0.7.01: render-room-msgbox-2806 at 375
+           caught the Conversation step going flat, 2px short of room above the column). Walked with the tip's own Next
+           button at 360 and 375, and at 375 with Android's larger text (Chromium's mobile emulation honours
+           -webkit-text-size-adjust on px text as Android's font scale does; WebKit ignores it, so Chromium only). At
+           every step the card points, the WHOLE card is on screen, and its area is in view. */
+        const TIP_CASES = [[360, 1], [375, 1]].concat(engine === 'chromium' ? [[375, 1.3]] : []);
+        for (const [width, scale] of TIP_CASES) {
+          const tag = `[${engine} ${width}x${PHONE[1]}${scale !== 1 ? ' text x' + scale : ''}]`;
+          const ctx = await browser.newContext({ viewport: { width, height: PHONE[1] }, hasTouch: true, isMobile: engine === 'chromium' });
+          const page = await ctx.newPage();
+          try {
+            await open(page, base, 'room', pid);
+            if (scale !== 1) {
+              const grew = await page.evaluate((pct) => {
+                const el = document.getElementById('pj-post'); const before = parseFloat(getComputedStyle(el).fontSize);
+                document.documentElement.style.webkitTextSizeAdjust = pct; document.documentElement.style.textSizeAdjust = pct;
+                return { before, after: parseFloat(getComputedStyle(el).fontSize) };
+              }, Math.round(scale * 100) + '%');
+              chk(grew.after > grew.before * 1.2, `${tag} setup: the larger text took effect`, JSON.stringify(grew));
+              await page.waitForTimeout(200);
+            }
+            const opened = await page.evaluate(() => {
+              if (typeof TIPS === 'undefined' || typeof tipShow !== 'function') return { error: 'TIPS/tipShow missing' };
+              const t = TIPS.find((x) => x.id === 'project'); if (!t || !t.steps) return { error: 'no stepped project tip' };
+              window.scrollTo(0, 0); tipShow(t); return { n: TIP_PLACES.length };
+            });
+            if (opened.error) { chk(false, `${tag} the project tip opens`, opened.error); continue; }
+            const steps = [];
+            for (let i = 0; i < opened.n; i += 1) {
+              await page.waitForTimeout(250);
+              steps.push(await page.evaluate(() => {
+                const card = document.getElementById('tipcard'); const st = TIP_PLACES[TIP_STEP];
+                const target = st && st.sel && document.querySelector(st.sel);
+                if (!card || card.hidden || !target) return { title: st && st.title, error: 'no card or no target' };
+                const C = card.getBoundingClientRect(), T = target.getBoundingClientRect();
+                const vw = window.visualViewport ? window.visualViewport.width : innerWidth, vh = window.visualViewport ? window.visualViewport.height : innerHeight;
+                return { title: st.title, pointing: !/\bflat\b/.test(card.className),
+                  cardOnScreen: C.top >= 0 && C.bottom <= vh && C.left >= 0 && C.right <= vw,
+                  areaInView: T.bottom > 0 && T.top < vh && T.right > 0 && T.left < vw };
+              }));
+              await page.evaluate(() => { const go = document.querySelector('#tipcard .tip-go'); if (go) go.click(); });
+            }
+            for (const st of steps) {
+              chk(!st.error && st.pointing && st.cardOnScreen && st.areaInView,
+                `${tag} the project tip's ${st.title || '?'} step points at its area, fully on screen`, JSON.stringify(st));
+            }
+            chk(steps.length === 4, `${tag} the project tip walked all four steps`, String(steps.length));
+          } catch (e) {
+            chk(false, `${tag} the project tip walk ran`, String(e.message || e).split('\n')[0]);
+          } finally { await ctx.close(); }
         }
       } finally {
         await browser.close();
