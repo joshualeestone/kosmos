@@ -45,7 +45,7 @@
 # this install's own (and is left and named if it does not). A fresh install, or an
 # icon the swap cannot be used on, is renamed into place instead, with the replaced
 # icon renamed aside as
-# .Kosmos.app.old.<pid> until the swap completes (an interrupted run can leave
+# .Kosmos.app.old.<pid> until that rename completes (an interrupted run can leave
 # either hidden folder behind; --uninstall sweeps both when it can prove they
 # are this install's own, and names anything it leaves). macOS may show its own one-time
 # "Terminal wants to manage apps" dialog for the icon step. It never
@@ -3572,6 +3572,11 @@ fi
 # Two different uses of the word "swap" share this line: sys_stale=swap (older) means
 # the system folder's whole-bundle rename failed; app_path=swap (#2864) means the
 # Contents exchange was taken. Renaming the older value would break log history.
+# app_path describes the LAST make_app call (the home-folder retry, when one ran);
+# swap_errno and swap_dir describe the last swap ATTEMPTED, which can be the system
+# folder's refused one. So app_path=rename beside swap_dir=/Applications means the
+# system folder refused the swap and the icon went to ~/Applications, not that a
+# rename happened in /Applications.
 { printf '[%s] app-bundle: made=%s skip_icon=%s skip_reason=%s fresh_install=%s sys_stale=%s sys_failed=%s home_foreign=%s app_path=%s swap_errno=%s swap_dir=%s\n' \
   "$$" "$APP_MADE" "$APP_SKIP_ICON" "${APP_SKIP_REASON:-none}" "$FRESH_INSTALL" \
   "${APP_SYS_STALE:-no}" "${APP_SYS_FAILED:-no}" "${APP_HOME_FOREIGN:-no}" "${APP_PATH:-none}" "${APP_SWAP_ERRNO:-none}" "${APP_SWAP_DIR:-none}" \
