@@ -250,6 +250,25 @@ function chk(ok, label, extra) {
       chk(band.every((p) => same(p, tok.bg)), `${tag} the top band keeps the page's ground to both edges`, JSON.stringify({ band, bg: tok.bg }));
       chk(below.every((p) => same(p, tok.surface)), `${tag} from Group by down it is the surface (white) to both edges`, JSON.stringify({ below, surface: tok.surface }));
       chk(same(card, tok.bg) && same(tilePx, tok.surface), `${tag} the task cards are shaded with the ground; the tiles stay the surface`, JSON.stringify({ card, tile: tilePx }));
+      /* #4216 (Josh's #3949 "both edges"): on a machine that draws classic scrollbars (Windows, a Mac set to show them,
+         the CI runner) the tab layout reserves a scrollbar gutter, painted the canvas's colour, so the white band used
+         to stop 15px short. The Tasks view reserves none now. Read at the WINDOW's edge (innerWidth), not the layout's:
+         the strip lives outside clientWidth. Where no classic scrollbar exists there is no gutter to test, and the arm
+         says so rather than passing silently. */
+      {
+        const g = await page.evaluate(() => ({ inner: innerWidth, client: document.documentElement.clientWidth,
+          sbw: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--scrollbar-width')) || 0,
+          measured: document.documentElement.hasAttribute('data-scrollbar-measured'),
+          scrolls: document.documentElement.scrollHeight > document.documentElement.clientHeight,
+          gutter: getComputedStyle(document.documentElement).scrollbarGutter }));
+        if (g.sbw > 0 && g.measured && !g.scrolls) {
+          const edge = await px(g.inner - 2, geo.belowY);
+          chk(g.client === g.inner && g.gutter === 'auto' && same(edge, tok.surface),
+            `${tag} classic scrollbars (${g.sbw}px): no reserved gutter on Tasks, so the white band reaches the window's right edge (#4216)`, JSON.stringify({ g, edge }));
+        } else {
+          console.log(`INFO  ${tag} #4216 gutter arm not applicable here: ` + JSON.stringify(g));
+        }
+      }
       chk(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), `${tag} the full-width band adds no sideways scroll`);
       /* #3949/#3951 (Josh): six single-label tiles in his order; Completed is a tile and still the fold below. */
       chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['decision', 'working', 'assigned', 'nobody', 'built', 'closed']), `${tag} the tiles are Josh's six groups in his order, each from a recorded state`, JSON.stringify(a.tiles.map((t) => t.k)));

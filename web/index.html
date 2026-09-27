@@ -2939,6 +2939,13 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
      nothing to drop or pad for. Both rules wait for data-scrollbar-measured, so if the width
      cannot be measured the gutter stays (A1q). */
   html[data-scrollbar-measured]:not([data-layout="consolidated"]):has(> body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { scrollbar-gutter: auto; }
+  /* #4216 (Josh's #3949 ruling: the Tasks bands reach both edges). A reserved gutter paints the canvas colour only,
+     and this view has two bands (ground above, surface below), so no canvas colour can match both. So the Tasks view
+     reserves no gutter, the same way the talk view does and with the same guard. A page that fits has no strip; a list
+     long enough to scroll gets a real scrollbar there. The header does not move either way: its padding (below)
+     counts whatever width the page gives up. The cost: on a classic-scrollbar machine the list shifts 15px the
+     moment it grows long enough to scroll. */
+  html[data-scrollbar-measured]:not([data-layout="consolidated"]):has(> body > #panel-tasks:not([hidden])) { scrollbar-gutter: auto; }
   /* On every wide view the header's right padding is --space-8 plus the scrollbar width less the width the page is
      actually giving up to a gutter or scrollbar there (100vw - 100% - the body's two --space-8
      sides, which .apphead's negative margins cancel). The controls then sit at one x whether or not
