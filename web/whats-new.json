@@ -2,5 +2,6 @@
   {"icon":"phone","title":"Chat boxes a little taller on a phone","line":"The message and search boxes in an agent's chat and a project room are a little taller on a phone, so they are easier to tap."},
   {"icon":"phone","title":"When your Mac is not answering","line":"Through Kosmos Plus, an open board says your Mac is not answering, that it may be asleep or turned off, and what to do."},
   {"icon":"spark","title":"Your phone says when it is offline","line":"Through Kosmos Plus, a phone or computer with no internet is told it is offline, not that Kosmos is not answering."},
-  {"icon":"swarm","title":"Undo an org chart upload","line":"After Create the team makes agents, Undo lists what it will remove, then removes only the agents it made."}
+  {"icon":"swarm","title":"Undo an org chart upload","line":"After Create the team makes agents, Undo lists what it will remove, then removes only the agents it made."},
+  {"icon":"tasks","title":"Tasks easier to use on a phone","line":"Tapping a field no longer makes the screen zoom in, and every button and link on the Tasks page is easy to tap."}
 ]}
