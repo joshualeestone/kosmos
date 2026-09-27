@@ -70,9 +70,8 @@ is the only check that sees the page.
 ## Which checks a page PR runs (#4119)
 
 The PR-time `browser-checks` job runs a fixed DOM-state allowlist, plus the checks
-the diff touches, named by `tools/bc-pr-select.js`: a check whose
-`// Browser-check-surface:` tokens or whose own queried ids and classes appear in the
-changed lines of `web/index.html`, and every check the PR edits. A check that judges
+the diff touches, named by `tools/bc-pr-select.js` (its header lists every way a check
+is selected, and each selected check is printed with its reason). A check that judges
 the whole page rather than named elements (every field, every piece of text) can never
 be reached that way, so it says so on its first lines:
 
@@ -80,9 +79,8 @@ be reached that way, so it says so on its first lines:
 
 and runs on every page change. `render-fields` and `contrast` carry it. A check that is red on
 the CI runner for a reason that is not the PR's (the nightly card, #3973) is listed in the
-tool's `KNOWN_RED` and left out of this selection, with a line saying so; the allowlist, the
-nightly and the cut still run it. Run the selector yourself to see what a branch will run, and
-why:
+tool's `KNOWN_RED` and left out of this selection, with a line saying so. Run the selector
+yourself to see what a branch will run, and why:
 
     node tools/bc-pr-select.js origin/main HEAD
 
