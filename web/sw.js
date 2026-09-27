@@ -13,7 +13,9 @@
  * only when the network is unreachable.
  */
 
-const SHELL_CACHE = 'kosmos-shell-v1';
+/* v2 (#4103): a phone whose offline copy of '/' became the relay's sign-in page drops it on activate (the old cache
+   is deleted below) and re-caches the board, now checked, at install. */
+const SHELL_CACHE = 'kosmos-shell-v2';
 
 /* The shell is the one HTML file (served at /) plus the manifest and the two
    install icons the manifest names. Everything else is live data over the
@@ -25,17 +27,56 @@ const SHELL_ASSETS = [
   '/icons/kosmos-512.png',
 ];
 
+/* #4103: only the BOARD may become the offline copy of '/'. A signed-out phone's navigation through the relay comes
+   back as the relay's own sign-in page, a same-origin 200, and caching it made the app open offline to that page.
+   The board's <head> carries <meta name="kosmos-version"> near its top (server.js stamps its value); a page without
+   it is not the board. Read from a CLONE, and only its first bytes (the marker is under 1KB in), so the response
+   handed to the page is untouched and a large board is not read twice. A marker inside the page, not a response
+   header, because the relay is a separate service and may not pass our headers through. */
+const SHELL_MARK = '<meta name="kosmos-version"';
+const SHELL_SCAN_BYTES = 16384;
+async function isBoardShell(res) {
+  try {
+    const body = res && res.body;
+    if (!body || typeof body.getReader !== 'function') return false;
+    const reader = body.getReader();
+    const dec = new TextDecoder();
+    let seen = '';
+    while (seen.length < SHELL_SCAN_BYTES) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      seen += dec.decode(value, { stream: true });
+      if (seen.slice(0, SHELL_SCAN_BYTES).includes(SHELL_MARK)) break;
+    }
+    reader.cancel().catch(() => {});
+    // Only the scanned prefix counts, however large the chunks the body arrived in.
+    return seen.slice(0, SHELL_SCAN_BYTES).includes(SHELL_MARK);
+  } catch (_e) { return false; }
+}
+/* Put a navigation's response into the cache as '/', only when it is the board. `probe` and `copy` are two clones
+   taken before the response is handed to the page. */
+async function cacheShellIfBoard(probe, copy) {
+  if (!(await isBoardShell(probe))) return false;
+  const cache = await caches.open(SHELL_CACHE);
+  await cache.put('/', copy);
+  return true;
+}
+
 self.addEventListener('install', (event) => {
   /* The board is a single long-lived tab; take over as soon as ready rather
      than waiting for every tab to close. */
   self.skipWaiting();
-  event.waitUntil(
-    caches.open(SHELL_CACHE)
-      .then((cache) => cache.addAll(SHELL_ASSETS))
-      // A cold install with no network must still install: the fetch handler
-      // falls back to the network, so a failed pre-cache is not fatal.
-      .catch(() => {})
-  );
+  event.waitUntil((async () => {
+    const cache = await caches.open(SHELL_CACHE);
+    // #4103: '/' is fetched and checked like a navigation (a signed-out install must not pre-cache the relay's
+    // sign-in page); the manifest and icons are cached as before.
+    await cache.addAll(SHELL_ASSETS.filter((a) => a !== '/')).catch(() => {});
+    const res = await fetch('/');
+    if (res && res.ok && res.type === 'basic') await cacheShellIfBoard(res.clone(), res.clone());
+  })()
+    // A cold install with no network must still install: the fetch handler
+    // falls back to the network, so a failed pre-cache is not fatal.
+    .catch(() => {}));
 });
 
 self.addEventListener('activate', (event) => {
@@ -65,13 +106,15 @@ self.addEventListener('fetch', (event) => {
       try {
         const res = await fetch(req);
         // Only cache a real, same-origin 200 -- never an enforcing board's 302
-        // bootstrap redirect or an opaque response.
+        // bootstrap redirect or an opaque response -- and only when it is the
+        // board itself, not the relay's sign-in page (#4103).
         if (res && res.ok && res.type === 'basic') {
+          const probe = res.clone();
           const copy = res.clone();
           // waitUntil so the browser keeps the worker alive until the write
           // lands: respondWith resolves when `res` is returned, and a dangling
           // cache write after that can be cut short when the worker is killed.
-          event.waitUntil(caches.open(SHELL_CACHE).then((c) => c.put('/', copy)).catch(() => {}));
+          event.waitUntil(cacheShellIfBoard(probe, copy).catch(() => {}));
         }
         return res;
       } catch (_e) {
