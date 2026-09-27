@@ -1,5 +1,6 @@
 package io.kosmos.app;
 
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.net.ConnectivityManager;
@@ -109,12 +110,12 @@ public final class KosmosLauncherActivity extends LauncherActivity {
         if (!shouldWarm(restored, hasInternetNetwork(), action.provider, action.launchMode)) return;
         CustomTabsServiceConnection connection = new CustomTabsServiceConnection() {
             @Override
-            public void onCustomTabsServiceConnected(android.content.ComponentName name, CustomTabsClient client) {
+            public void onCustomTabsServiceConnected(ComponentName name, CustomTabsClient client) {
                 client.warmup(0);
             }
 
             @Override
-            public void onServiceDisconnected(android.content.ComponentName name) {
+            public void onServiceDisconnected(ComponentName name) {
             }
         };
         try {
