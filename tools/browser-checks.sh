@@ -812,7 +812,7 @@ sb1="$(new_sandbox)"
 # shape sb4 seeds for render-accounts-openai, and a projects dir so it is a real install's state),
 # rather than seeding the run-wide home that other checks expect to hold no accounts.
 mkdir -p "$sb1/home/.claude/projects"
-printf '{"oauthAccount":{"emailAddress":"night@example.com"}}' > "$sb1/home/.claude.json"
+printf '{"oauthAccount":{"emailAddress":"other@example.com"}}' > "$sb1/home/.claude.json"
 if AGENT_WORKFORCE_HOME="$sb1/home" boot_board "$sb1" "$P1"; then
   # ⚠️ NODE_PATH on the --seed extraction too: regress-a-night.js requires
   # playwright at module load, BEFORE it reaches the --seed branch, so pulling
