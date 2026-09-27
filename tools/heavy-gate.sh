@@ -107,7 +107,6 @@ claim_line() {
 # word in its arguments is a candidate. In --quiet-box mode, run-tests.sh is one too.
 # classify decides whether it is RUNNING the script.
 # The parent chain is walked by tools/lib/fixture-classify.sh (depth and stop rule there).
-ANC_SEP="$KOSMOS_FX_ANC_SEP"   # joins ancestor commands; see KOSMOS_HG_SNAPSHOT above
 # Exits 3 when the process table cannot be read: ps failing, or a listing without pid 1 (which
 # every Mac has), would otherwise look exactly like "nothing running" and read clear.
 live_snapshot() {
