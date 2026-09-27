@@ -259,7 +259,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     });
     /* #3738 (Josh 08:51): "Josh, Kosmos Guide", no pill, no footer, one opening message, the new placeholder. */
     chk(head.who === 'Josh, Kosmos Guide' && !head.tag && !head.noteShown, 'B3 headed "Josh, Kosmos Guide", with no pill and no footer line (#3738)', JSON.stringify(head));
-    chk(head.him[0] === 'Hi I\'m Josh, an AI Assistant to help you get your Kosmos setup. What can I help you with?' && head.him.length === 2 && head.place === 'Ask about Kosmos\u2026',
+    chk(head.him[0] === 'Hi I\'m Josh, an AI Assistant to help you get your Kosmos setup. I am context aware, so I can help with whatever screen you are stuck on or even with troubleshooting agents. What can I help you with?' && head.him.length === 2 && head.place === 'Ask about Kosmos\u2026',
       'B3 the opening message (Josh\'s words, #3947) is the first guide bubble, then the thread; the box says "Ask about Kosmos..."', JSON.stringify(head));
     chk(head.focus === 'asp-say', 'B3 and puts the cursor in the box', JSON.stringify(head));
     /* The two lines Josh cut are gone from the page, its scripts included, so no template or fallback can bring

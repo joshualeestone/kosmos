@@ -72,7 +72,7 @@ test('#3034: the setup guide speaks as the builder, says it is an AI, follows th
   // One copy of the tag (review round 2): setup-assistant re-exports the same value.
   assert.equal(require('./setup-assistant').GUIDE_TAG, roles.GUIDE_TAG, 'two copies of the AI tag drifted');
   // #3947: Josh's words, verbatim, are the opening line, and the bubble shows the same line.
-  assert.equal(roles.GUIDE_GREETING, "Hi I'm Josh, an AI Assistant to help you get your Kosmos setup. What can I help you with?");
+  assert.equal(roles.GUIDE_GREETING, "Hi I'm Josh, an AI Assistant to help you get your Kosmos setup. I am context aware, so I can help with whatever screen you are stuck on or even with troubleshooting agents. What can I help you with?");
   assert.equal(role.firstAction, roles.GUIDE_GREETING);
   const web = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'web', 'index.html'), 'utf8');
   const shown = web.match(/open\.className = 'asp-m him asp-open';\s*open\.textContent = '((?:[^'\\]|\\.)*)';/);
