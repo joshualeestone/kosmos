@@ -1,0 +1,5 @@
+# before: installed io.kosmos.app vc2 (vector ic_notification), 2026-09-27T09:19:01Z
+    NotificationRecord(0x0398c5ac: pkg=io.kosmos.app user=UserHandle{0} id=-1 tag=p#https://login.kosmosplus.com/#010002 importance=3 key=0|io.kosmos.app|-1|p#https://login.kosmosplus.com/#010002|10207: Notification(channel=general_channel_id shortcut=null contentView=null vibrate=null sound=null tick defaults=0 flags=ONLY_ALERT_ONCE color=0x00000000 groupKey=Web:login.kosmosplus.com vis=PRIVATE publicVersion=Notification(channel=sites shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=0 color=0x00000000 vis=PRIVATE)))
+      opPkg=io.kosmos.app
+      icon=Icon(typ=RESOURCE pkg=com.android.chrome id=0x7f090256)
+    time="2026-09-27 04:18:32" type=NOTIFICATION_INTERRUPTION package=io.kosmos.app channelId=general_channel_id flags=0x0 

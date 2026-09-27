@@ -127,7 +127,10 @@
 
             <!-- Status-bar icon for delegated notifications. Android draws it as a
                  white-on-transparent silhouette, so it is a separate monochrome drawable,
-                 not the full-colour launcher icon. -->
+                 not the full-colour launcher icon. It must be a bitmap (PNG per density),
+                 never a vector: androidx.browser hands it to the browser through
+                 BitmapFactory.decodeResource, which returns null for a vector (#4151).
+                 Pinned by IconResourceTest. -->
             <meta-data
                 android:name="android.support.customtabs.trusted.SMALL_ICON"
                 android:resource="@drawable/ic_notification" />
