@@ -50,6 +50,12 @@ mark is supplied as the Android 13 monochrome layer, so themed icons use the
 person's wallpaper palette instead of falling back to the legacy square PNG.
 The legacy density PNGs remain the fallback for Android 7.
 
+## Load failure recovery
+
+`KosmosLauncherActivity` keeps the Android Browser Helper TWA launch path, including its quality checks, and adds two native recovery doors. A launch with no active internet network opens `LoadErrorActivity` before Chrome can paint its own offline page. A top-level navigation that Chrome reports as failed opens the same activity from the Custom Tabs callback. Retry clears the failed task and starts a fresh TWA launch, so restoring connectivity is enough to continue.
+
+The recovery screen is an Android layout rather than a WebView. Its light and dark colours follow the shell theme and its Retry action is 48dp tall.
+
 The launch activity supplies the same gold and K as both its native window
 background and androidbrowserhelper's TWA splash metadata. This covers the
 native handoff and Chrome's TWA startup without a white frame between them.

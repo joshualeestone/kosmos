@@ -9,4 +9,13 @@
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
     </style>
+    <style name="KosmosLoadErrorTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowBackground">@color/load_error_background</item>
+        <item name="android:colorAccent">@color/load_error_button</item>
+        <item name="android:statusBarColor">@color/load_error_background</item>
+        <item name="android:navigationBarColor">@color/load_error_background</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
 </resources>
