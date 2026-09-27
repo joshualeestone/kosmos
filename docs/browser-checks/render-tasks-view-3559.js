@@ -228,11 +228,23 @@ function chk(ok, label, extra) {
         const tiles = r('#tsk-tiles'); const under = r('#tsk-under'); const list = r('#tsk-groups .tsk-list');
         /* #4053: a counted Needs Your Decision is red-tinted by design (asserted below), so the surface is read on In progress. */
         const tile = r('#tsk-tiles [data-tile="working"]');
-        /* clientWidth/Height, not innerWidth/Height: a classic scrollbar (headed, "Always show scroll bars", Windows)
-           sits inside the inner box, and a read there is the scrollbar, not the page. */
-        return { w: document.documentElement.clientWidth, h: document.documentElement.clientHeight, bandY: Math.round((tiles.top + tiles.bottom) / 2), belowY: Math.round(under.top + under.height / 2),
+        /* The right edge is the ROOT's box, not innerWidth (a classic scrollbar sits inside the inner box) and not
+           clientWidth either (#4213, the #3973 class): with classic scrollbars and a page that does not scroll, the
+           #1309 stable gutter is reserved and left empty, clientWidth still counts it, and a read 2px from that
+           edge lands in the gutter. rootOk keeps this yardstick honest: the root may give up a gutter only as wide
+           as a scratch scroller's scrollbar (within 1px), as render-plus-bar-3837 does (#4076). */
+        const root = document.documentElement.getBoundingClientRect();
+        const probe = document.createElement('div');
+        probe.style.cssText = 'position:absolute;top:-999px;left:0;width:100px;height:100px;overflow:scroll';
+        document.documentElement.appendChild(probe);
+        const sbw = probe.offsetWidth - probe.clientWidth;
+        probe.remove();
+        const gutter = innerWidth - root.right;
+        return { w: Math.floor(root.right), rootOk: Math.abs(root.left) <= 1 && (Math.abs(gutter) <= 1 || Math.abs(gutter - sbw) <= 1),
+          gutter: Math.round(gutter), sbw, h: document.documentElement.clientHeight, bandY: Math.round((tiles.top + tiles.bottom) / 2), belowY: Math.round(under.top + under.height / 2),
           listX: Math.round(list.left + 6), listY: Math.round(list.top + 6), tileX: Math.round(tile.left + 6), tileY: Math.round(tile.top + 6) }; });
       const same = (p, q) => p.every((v, i) => Math.abs(v - q[i]) <= 2);
+      chk(geo.rootOk, `${tag} the page layout spans the window, less at most a scrollbar-wide reserved gutter (the right-edge yardstick)`, JSON.stringify({ w: geo.w, gutter: geo.gutter, sbw: geo.sbw }));
       const band = [await px(1, geo.bandY), await px(geo.w - 2, geo.bandY)];
       const below = [await px(1, geo.belowY), await px(geo.w - 2, geo.belowY)];
       const card = await px(geo.listX, geo.listY); const tilePx = await px(geo.tileX, geo.tileY);
