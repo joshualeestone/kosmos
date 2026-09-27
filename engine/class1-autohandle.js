@@ -6,8 +6,9 @@
  * want all auto-clear stuff cleared.").
  *
  * WHAT IT AUTOMATES. When an agent is parked on Claude Code's own folder-trust /
- * bypass prompt, the board records a STANDING `needs_you` written by the lifecycle
- * hook (by:'auto'). Today a person resolves it by clicking the /trust-and-restart
+ * bypass prompt, the board's screen scrape reads it as needs_you with the trust
+ * dialog as its evidence (#4169: the hook's by:'auto' PermissionRequest report is a
+ * TOOL prompt and is no longer treated as this case). Today a person resolves it by clicking the /trust-and-restart
  * button (server.js:5147), which does NOT keystroke the live dialog - it writes the
  * folder-trust key through the SAME writer the create/relaunch path uses
  * (create.trustAgentFolder) and then restarts the agent, so the relaunch reads the
@@ -27,7 +28,9 @@
  *  - Fires ONLY on the stable class-1 seam: a standing report with
  *    found && state === 'needs_you' && by === 'auto' - via selfreport's own
  *    exported `isAutoPermissionWait` (the same predicate record()'s clobber-guard
- *    uses). It NEVER fires on
+ *    uses). In the ARMED sweep that `by: 'auto'` comes only from the trust-dialog
+ *    scrape (standingFromAgent, #4169); a raw by:'auto' tool-permission report maps to
+ *    a value that is not class-1. It NEVER fires on
  *    by:'agent' (class 2, the agent's OWN substantive question, which must be kept
  *    and surfaced, never auto-cleared - Josh: "do NOT silently drop these"),
  *    by:'operator', or a by:null legacy line (absence is not agent-typed and is
@@ -173,7 +176,7 @@ function planClass1Handle(standing, attempts, now, opts) {
   return {
     act: 'trust-and-restart',
     recentAttempts,
-    because: 'a standing by:auto needs_you (Claude Code trust/permission prompt); write the folder-trust key and restart so the relaunch clears it, invisibly',
+    because: 'a standing class-1 wait (Claude Code\'s folder-trust prompt); write the folder-trust key and restart so the relaunch clears it, invisibly',
   };
 }
 
@@ -289,15 +292,10 @@ function sweepClass1(names, deps, now, opts) {
  * auto-clearing it would drop a real request), operator/legacy reports, and a non-trust
  * SCRAPED needs_you (a scraped question that is NOT the trust dialog - stays red).
  *
- * SAFETY LIMIT, stated honestly (this replaces an earlier overclaim that "a working scrape
- * wins"): reconcileReport does NOT decay a reported needs_you (rule 6), so a by:'auto'
- * report whose agent has since moved on - but has not yet written a fresher self-report -
- * still cards as needs_you/auto and would be handled. Two things bound it, neither of which
- * is "the scrape wins": (a) an agent's own next report (a working/idle heartbeat)
- * OVERWRITES a standing by:'auto' needs_you (#2456 makes it clearable), so a stale by:'auto'
- * self-clears once the agent acts; and (b) the loop-guard restarts at most maxAttempts per
- * window, then escalates. A trust-DIALOG scrape has no staleness problem - the screen shows
- * the dialog right now.
+ * STALENESS (#4169 closed the old limit): a stale by:'auto' report used to be handled, because
+ * reconcileReport does not decay a reported needs_you (rule 6). A by:'auto' report alone is no
+ * longer class-1, so a stale one is left alone; the trust-DIALOG scrape that remains has no
+ * staleness problem, since the screen shows the dialog right now.
  */
 function standingFromAgent(agent, isTrustDialogEvidence) {
   const rawBy = (agent && agent.stateReportedBy) || null;
@@ -332,7 +330,8 @@ function standingFromAgent(agent, isTrustDialogEvidence) {
     : (arm === 'tool-permission' ? 'auto-tool-permission' : rawBy);   // internal adapter value: not class-1
   /* The card's runner as the card says it: a string, or null for a row that could not say (see planClass1Handle). */
   const runner = agent && typeof agent.runner === 'string' ? agent.runner : (agent && agent.runner === null ? null : '');
-  /* What the log names (#4169: which arm fired, and the prompt behind it). */
+  /* What the log names (#4169: which arm fired, and the prompt behind it). Only a trust-dialog plan is ever logged
+     today; the tool-permission prompt is filled too, for a caller that wants to say what it left alone. */
   const prompt = String((arm === 'trust-dialog' ? agent.stateEvidence : agent && agent.because) || '').replace(/\s+/g, ' ').trim().slice(0, 120);
   return { found: true, state: agent && agent.state, by, runner, arm, prompt };
 }
@@ -400,7 +399,7 @@ function pruneAttempts(attempts, now, opts) {
  *   - now, opts: forwarded to the planner / recordAttempt / pruneAttempts.
  *   - trustAgentFolder(sessionName), restart(sessionName, cause), RESTARTED: executor deps.
  *   - isTrustDialogEvidence(evidence): status.isTrustDialogEvidence, for the trust-dialog
- *     scrape trigger. Absent -> only the by:'auto' self-report path fires.
+ *     scrape trigger, the ONLY class-1 trigger (#4169). Absent -> nothing is handled.
  *   - log(record): optional, called once per NON-none agent with {name, session, act, handled, because, arm, prompt}
  *     (#4169: `arm` is which trigger fired, 'trust-dialog' today; `prompt` is the screen line or report behind it).
  * @returns {{results: Array, attempts: Map}}

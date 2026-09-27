@@ -115,6 +115,9 @@ test('#4006: a quiet Grok agent whose by:auto needs_you reached the card is NEVE
   // longer sends it, but a report already on file, or another runner's, must still never trigger a restart).
   const b = installBoard([
     { name: 'elon', runner: 'grok', command: 'grok-native', report: { state: 'needs_you', because: 'Waiting for your next prompt', auto: true } },
+    // #4169 made a bare by:auto report plan 'none' before the runner rule is reached, so a Grok agent AT the trust dialog
+    // (the one class-1 trigger left) is what still proves the runner rule on a real card.
+    { name: 'elontrust', runner: 'grok', command: 'grok-native', paneState: 'needs_you', screen: TRUST_DIALOG_SCREEN },
     { name: 'casey', paneState: 'needs_you', screen: TRUST_DIALOG_SCREEN },   // CONTROL: a Claude agent at the trust dialog (#4169)
   ]);
   try {
@@ -126,7 +129,11 @@ test('#4006: a quiet Grok agent whose by:auto needs_you reached the card is NEVE
     const { results } = class1.sweepOnce({ roster: b.agents, attempts: new Map(), now: 1e6, ...d });
     const act = {};
     for (const r of results) act[r.session] = r.act;
+    const elonTrust = b.agents.find((a) => a.sessionName === b.keyOf.elontrust);
+    assert.equal(elonTrust.runner, 'grok', 'precondition: the trust-dialog Grok card carries the grok runner');
+    assert.ok(status.isTrustDialogEvidence(elonTrust.stateEvidence), 'precondition: the Grok card shows the trust dialog: ' + JSON.stringify(elonTrust.stateEvidence));
     assert.equal(act[b.keyOf.elon], 'none', 'the grok agent was planned for a restart');
+    assert.equal(act[b.keyOf.elontrust], 'none', 'a grok agent at a trust-dialog screen was planned for a restart (the #4006 runner rule)');
     assert.equal(act[b.keyOf.casey], 'trust-and-restart', 'CONTROL: the Claude agent is still handled');
     assert.deepEqual(d.calls.filter((c) => c[0] === 'restart').map((c) => c[1]), [b.keyOf.casey]);
   } finally { b.restore(); }

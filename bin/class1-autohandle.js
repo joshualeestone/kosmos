@@ -35,6 +35,9 @@ function main(argv) {
   // real attemptsFor.
   const plans = sweepClass1(names, { read: (n) => selfreport.read(n) }, Date.now());
   process.stdout.write('class1-autohandle DRY-RUN (no action taken)\n');
+  /* #4169: this reads raw self-reports, with no screen. The board acts ONLY on the folder-trust dialog it sees on screen, so a
+     by:auto tool prompt that plans trust-and-restart here is NOT restarted by the board. */
+  process.stdout.write('note: from self-reports only; the board restarts only for the folder-trust dialog it sees on screen\n');
   for (const { name, plan } of plans) {
     process.stdout.write(`  ${name}: ${plan.act} - ${plan.because}\n`);
   }

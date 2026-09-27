@@ -32,10 +32,18 @@ fired and the prompt behind it, so tomorrow's board.log can show the count near 
   a pane.
 
 ## Decided, not missed
-- The dry-run bin (bin/class1-autohandle.js) reads raw self-reports through sweepClass1 and still PRINTS
-  trust-and-restart for a by:auto report. It takes no action, so it is left; noted here.
-- A tool-permission prompt now waits for a person, as a class-2 question does. In bypass mode these are the few
-  commands Claude Code still asks about; before, the restart hid them and the relaunched agent met them again.
+- **What changes for people (Liu Kang m1469):** those prompts (kill, pkill, ps, find /, adb) now WAIT visibly as
+  needs_you until someone answers, instead of silently restarting the agent and wiping its context. That is better, and
+  it has a cost: an unattended agent can now sit on one such prompt overnight, where before it was restarted (and met the
+  prompt again later, having lost its work). The trade is named, not hidden.
+- The dry-run bin (bin/class1-autohandle.js) reads raw self-reports and still PRINTS trust-and-restart for a by:auto
+  report; it takes no action, and now says in its output that the board acts only on the trust dialog it sees on screen.
+
+## Open (not covered by this fix)
+- scorpion 03:30:34 was restarted after an ordinary `working` report, not a permission prompt. Next I would look at:
+  whether scorpion's pane showed the folder-trust dialog at a relaunch just before (a real class-1), or whether a by:auto
+  needs_you card had not yet been cleared (the staleness the old header named). The new log line
+  (`[arm=...; prompt="..."]`) names the arm the next time any restart happens.
 
 ## Weakest part
 The one restart after an ordinary `working` report (scorpion 03:30) is unexplained by this; it may be a real trust
