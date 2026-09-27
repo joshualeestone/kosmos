@@ -268,7 +268,12 @@ function chk(ok, label, extra) {
           const leak = read();
           panel.hidden = false;
           if (!had) root.removeAttribute('data-scrollbar-classic');
-          return { had, sbw, measured, forced, leak, surface: probe('var(--k-surface)'), layout: root.getAttribute('data-layout') || 'tabs' }; });
+          /* Where the band checks above sample, and what sits there: CI draws classic scrollbars, this Mac does not. */
+          const tiles = document.getElementById('tsk-tiles').getBoundingClientRect(); const by = Math.round((tiles.top + tiles.bottom) / 2);
+          const at = document.elementFromPoint(root.clientWidth - 2, by); const b = document.body.getBoundingClientRect();
+          const where = { client: root.clientWidth, inner: innerWidth, body: [Math.round(b.left), Math.round(b.right)], at: at && (at.id || String(at.className).slice(0, 30) || at.tagName) };
+          return { had, sbw, measured, forced, leak, where, surface: probe('var(--k-surface)'), layout: root.getAttribute('data-layout') || 'tabs' }; });
+        console.log(`INFO  ${tag} #4216 where the edge reads land: ` + JSON.stringify(canvas.where));
         if (canvas.layout !== 'consolidated') {
           chk(canvas.had === (canvas.sbw > 0) && (canvas.had ? canvas.measured === canvas.surface : canvas.measured !== canvas.surface),
             `${tag} the Tasks canvas follows the measured scrollbars (${canvas.sbw}px): surface only where a gutter exists (#4216)`, JSON.stringify(canvas));
