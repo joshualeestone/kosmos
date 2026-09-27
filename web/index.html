@@ -9770,9 +9770,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-talk-box .composerbox .attachbtn,
   #d-talk-box .composerbox #d-emoji-btn { width: 44px; height: 44px; }
   #d-talk-box .composerbox .cpost { min-height: 44px; min-width: 64px; }
-  /* #4108: 48px, Android's comfortable target (Josh's Moto is 360 wide); the room's box too. */
+  /* #4108: 48px, Android's comfortable target (Josh's Moto is 360 wide), and the project room's
+     message box and search the same. The room box's @-mention mirror is sized to it at paint time. */
   #d-talk-box .composerbox .cinput { font-size: 16px; min-height: 48px; }
-  .pj-say.composerbox #pj-say { min-height: 48px; }
+  #pj-post, #pj-room-search { min-height: 48px; }
   /* The compact header above already names the agent, so the "Direct Message to <name>"
      caption would say it twice; the search takes the row. Hidden visually only, so the
      conversation keeps its heading for screen-reader heading navigation. */
