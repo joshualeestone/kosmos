@@ -135,7 +135,8 @@ function status() {
 /* The screen's text; null when the session is gone (muse exited); undefined when tmux did not answer
    this once, which is not muse exiting. */
 function screen() {
-  try { return tmux(['capture-pane', '-p', '-J', '-t', SESSION]); } catch { /* gone, or slow? */ }
+  // The whole history (-S -), not only the visible rows (round 12): a chatty Muse can scroll its code off screen.
+  try { return tmux(['capture-pane', '-p', '-J', '-S', '-', '-t', SESSION]); } catch { /* gone, or slow? */ }
   try { tmux(['has-session', '-t', SESSION]); return undefined; } catch (e) {
     return deliveryUnknown(e) || (e && e.kosmosInternal) ? undefined : null;
   }
@@ -245,9 +246,8 @@ function enterOnce(mine) {
 }
 function tick() {
   const mine = S;
-  if (mine && mine.timer && now() - mine.startedAt > GIVE_UP_MS) { end('failed', GAVE_UP); return; }
   try {
-    step();
+    step();   // first (round 12): an approval drawn in the last tick is read before the limit ends it
   } catch (e) {
     if (!mine || S !== mine || !mine.timer) return;
     mine.keyFailures = (mine.keyFailures || 0) + 1;
@@ -256,6 +256,7 @@ function tick() {
       logLine('tmux kept failing (' + ((e && (e.code || e.message)) || 'unknown') + ')');
     }
   }
+  if (S === mine && mine && mine.timer && now() - mine.startedAt > GIVE_UP_MS) end('failed', GAVE_UP);
 }
 
 function shq(v) { return "'" + String(v).replace(/'/g, "'\\''") + "'"; }

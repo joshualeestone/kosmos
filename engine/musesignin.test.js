@@ -515,3 +515,12 @@ test('#3939 round 11: a retry\'s code drawn straight to waiting can itself expir
     assert.equal(signin.retry(id).ok, true, 'a second retry was refused after a code drawn straight to waiting');
   } finally { done(); }
 });
+
+test('#3939 round 12: a code scrolled above the visible rows is still read (the whole history)', { skip: skip || (!onMac && 'the flag is Mac only'), timeout: 30000 }, async () => {
+  const t = setup('chatty');
+  try {
+    signin.start();
+    await until(() => signin.status().code === 'WXYZ-1234', 15000, 'the code from above the visible rows');
+    await until(() => signin.status().state === 'done', 15000, 'the sign-in to finish');
+  } finally { t.cleanup(); }
+});
