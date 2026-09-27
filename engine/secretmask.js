@@ -265,7 +265,14 @@ function addWalked(w, walked) {
      held value's hex (review round 3: a reply withheld with 50 values held). A form with its own - or _ is indexed
      without them too, since a reply cutting it into short chunks drops them (the word walk skips them instead). */
   {
-    for (const form of /[-_]/.test(w) ? [w, w.replace(/[-_]+/g, '')] : [w]) {
+    /* And, after a KNOWN vendor prefix, the body on its own (review round 23: a reply that leaves out sk-ant-api03- and
+       starts with a body chunk like p-Y was never walked, since the prefix-less form is cut at the last - or _ in the
+       first 16 characters, inside the body). */
+    const vendor = w.match(SHORT_PUBLIC_HEAD);
+    const bodies = vendor && w.length > vendor[0].length ? [w.slice(vendor[0].length)] : [];
+    const forms = [];
+    for (const v of [w, ...bodies]) { forms.push(v); if (/[-_]/.test(v)) forms.push(v.replace(/[-_]+/g, '')); }
+    for (const form of forms) {
       /* Each form is checked, not the value: a UUID-shaped secret is hex once its - are taken out (review round 6). */
       if (form.length < MIN_VALUE_LEN || /^[0-9a-f]+$/i.test(form)) continue;
       /* How much of this form is the value's public head (sk-ant-api03-): used to assemble it, never masked where a
@@ -273,7 +280,8 @@ function addWalked(w, walked) {
       /* Only a KNOWN public prefix, and exactly it: any - or _ in the first 16 characters would make a licence-style
          key's own chunks (Ab3-Zq8-vLm-...) a "head" and leave them showing. */
       const known = w.match(SHORT_PUBLIC_HEAD);
-      shortHead.set(form, known ? (form === w ? known[0].length : known[0].replace(/[-_]+/g, '').length) : 0);
+      const isBody = bodies.length && (form === bodies[0] || form === bodies[0].replace(/[-_]+/g, ''));
+      shortHead.set(form, known && !isBody ? (form === w ? known[0].length : known[0].replace(/[-_]+/g, '').length) : 0);
       for (let l = 2; l < OPENING_LEN; l += 1) {   // the short walk starts from two or three characters
         const h = form.slice(0, l);
         if (!knownByShort.has(h)) knownByShort.set(h, []);
@@ -313,7 +321,8 @@ let knownByOpening = new Map();
 let knownByShort = new Map();
 /* #3995 gap 4: per short-index form, the length of its public head (0 when it has none). */
 let shortHead = new Map();
-/* The public key prefixes a guide names in pieces, EXACTLY (review round 22: a bare sk- let "wherever the next - falls"
+/* Kept beside PATTERNS (the key shapes at the top of this file): a vendor added there with a public prefix belongs here
+   too. The public key prefixes a guide names in pieces, EXACTLY (review round 22: a bare sk- let "wherever the next - falls"
    become the head, so a held sk-Ab3-... showed its own Ab3). The head is the matched prefix and nothing more. */
 const SHORT_PUBLIC_HEAD = /^(?:sk-ant-(?:api|admin|oat|sid)\d\d-|sk-(?:proj|svcacct|admin)-|sk-or-v\d-|(?:sk|rk)_(?:live|test)_|xai-|gh[pousr]_|github_pat_|glpat-|xox[abprs]-)/;
 const NOT_KEY_CHARS = /[^A-Za-z0-9_+/=-]+/g;
@@ -427,7 +436,9 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *  - pieces out of order or reversed;
  *  - by this walk, an opening piece shorter than OPENING_LEN (shortChunkSpans masks the whole key; fragmentsIn a
  *    rest of FRAGMENT_LEN or more); a PARTIAL try that starts that way and is never completed is masked by neither
- *    (an abandoned first try IS masked when a full retry follows within reach: review round 17), and a repeated,
+ *    (the short walk masks only a whole key: pieces under OPENING_LEN on their own cannot be told from ordinary tokens,
+ *    so a PARTIAL_MIN-style rule for them would mask ordinary text; a key with its last chunk cut short shows; an
+ *    abandoned first try IS masked when a full retry follows within reach: review round 17), and a repeated,
  *    regrouped or abandoned copy's TWO-character chunks (only pieces of three or more are masked off the key's own
  *    path, since a two-character slice of a key is an ordinary token like c4 as often as not: review round 18);
  *  - a held value madeOfWords takes for words and numbers;
@@ -1010,6 +1021,9 @@ function shortChunkSpans(text) {
     const reachBack = ns[runs[first][0]] - SPLIT_REACH * f.length;
     for (let k = first - 1; k >= 0 && ns[runs[k][1]] >= reachBack && budget >= 0; k -= 1) nearPieces(k, f, head, cuts);
     for (let k = first + 1; k < last && budget >= 0; k += 1) nearPieces(k, f, head, cuts);
+    /* And one reach after the last chunk, as before the first (review round 23: a regrouped repeat after the key showed). */
+    const reachOn = ns[runs[last][1]] + SPLIT_REACH * f.length;
+    for (let k = last + 1; k < runs.length && ns[runs[k][0]] <= reachOn && budget >= 0; k += 1) nearPieces(k, f, head, cuts);
     if (budget < 0) return null;
     for (const [i, t, pos] of done) {
       if (pos <= head) continue;   // wholly inside the public head: assembled from, not masked

@@ -264,3 +264,12 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
   it the same way (the word walk), so the assertion was removed and the test keeps what this change is about.
 - Deferred NITs: canSpell recomputes for from = 2 and 3 separately (at most twice the work); nearPieces' alignment
   accepts any aligned occurrence of the slice in the form (errs toward masking).
+
+## Review round 23 (Opus), what changed
+- BLOCKER fixed: a vendor key given WITHOUT its prefix, its body starting with - or _ (p-Yj08..., t_QCf...), was never
+  walked (5 to 17 percent of such keys): the prefix-less form is cut at the last - or _ in the first 16 characters,
+  inside the body. After a known vendor prefix, the body is now indexed as a form of its own (head 0), with and without
+  its separators. Tested with sk-ant-api03 and sk-proj keys; red on the previous commit.
+- Off-path copies are also masked up to one reach after the key's last chunk (a regrouped repeat after it showed).
+- Not covered gives the reason for no partial-try rule in the short walk (short pieces alone are ordinary tokens), and
+  SHORT_PUBLIC_HEAD's comment ties it to PATTERNS.

@@ -1739,3 +1739,21 @@ test('#3995 gap 4 review round 22: a held value that only starts with sk- is not
     for (const c of ['Zq8', 'vLm', '3pR', 't6w', 'Xy9', 'kHb', '2nW', 'c4d', 'Q7e']) assert.ok(!t.includes(c), `${c} showed: ${t}`);
   } finally { setKnownSecrets([]); }
 });
+
+test('#3995 gap 4 review round 23: a vendor key given without its prefix, its body starting with - or _, is masked; a repeat after the key too', () => {
+  for (const held of ['sk-ant-api03-p-Yj08Pngzzcw9-49qzWLsGQpUqB9iRXkJxVC1gbAA', 'sk-proj-t_QCfZq8vLm3pRt6wXy9kHb2nWc4d']) {
+    setKnownSecrets([held]);
+    try {
+      const body = held.replace(/^(?:sk-ant-api03-|sk-proj-)/, '');
+      const chunks = body.match(/.{1,3}/g);
+      const t = mask('Here: ' + chunks.join(' then ') + ' done').text;
+      const shown = chunks.filter((c) => /[A-Za-z0-9]{2}/.test(c) && t.includes(' ' + c + ' '));
+      assert.ok(shown.length <= 1, `${held}: chunks showed: ${shown.join(',')}: ${t}`);
+    } finally { setKnownSecrets([]); }
+  }
+  setKnownSecrets([j('Zq8vLm3pRt6w', 'Xy9kHb2nWc4d')]);
+  try {
+    const t = mask('Zq8 then vLm then 3pR then t6w then Xy9 then kHb then 2nW then c4d. Then again Zq8vLm.').text;
+    assert.ok(!t.includes('Zq8vLm'), 'a regrouped repeat after the key showed: ' + t);
+  } finally { setKnownSecrets([]); }
+});
