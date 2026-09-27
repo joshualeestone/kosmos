@@ -18,10 +18,10 @@
  *     counts as a change, Kosmos's own included, so an unrelated Kosmos write can trigger a retell
  *     (typing the "listed" line only if that retell succeeds);
  *   - and at least SETTLE_MS old, so a file still being saved in bursts is left alone;
- *   - and `ready(name)`: the caller's word that retelling now would not hide anything. A RUNNING agent
- *     whose file a person changed after it started has not read that change, and a retell writes the
- *     file as Kosmos, which the board would then read as "told it on its screen". Such an agent is
- *     left for its restart, and the change is not spent: it is retold once it has restarted;
+ *   - and `ready(name)`: the caller's word that retelling now would not hide anything. A retell
+ *     writes the file as Kosmos, which the board then reads as "told it on its screen"; an agent that
+ *     may be running on an older copy of the file has not read the change. The caller decides (see
+ *     server.js autoretellTick); a not-ready agent's change is not spent and is looked at again;
  *   - one retell per change: `acted` remembers the mtime acted on per agent. A retell that stores a
  *     verdict moves `told.at` past the mtime anyway, so a failure, even a passing one, is not
  *     retried until the file changes again: the notice's Try again is the way to retry sooner. The
@@ -40,9 +40,9 @@ const SETTLE_MS = 10 * 1000;
    the chat layer). engine/autoretell.test.js pins the two equal. */
 const COULD_NOT = 'could_not';
 
-/* The agents to re-tell now, as [{ name, id, mtime }], `id` being one project whose stored verdict
-   for it is could_not (the retell writes every project the agent is on; `id` only picks which
-   project's answer is `said` rather than `alsoSaid`). */
+/* The agents to re-tell now, as [{ name, id, mtime }], `id` being the project holding the newest
+   verdict. The retell writes every project the agent is on; `id` only picks which project's answer
+   is `said` rather than `alsoSaid`, and the sweep does not use that split. */
 function due({ projects, mtimeOf, now, acted, ready }) {
   const verdictAt = new Map();   // name -> { at, id, state }, the newest verdict of any state
   for (const p of Array.isArray(projects) ? projects : []) {

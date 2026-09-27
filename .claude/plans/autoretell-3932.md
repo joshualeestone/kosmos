@@ -56,11 +56,16 @@ cost is a reload before their save, not an overwrite.
 - Candidates: the NEWEST could_not verdict across the agent's projects; the file must be newer than it.
 - No valve: one retell per settled change to the file. Any write counts, Kosmos's own too (an
   unrelated Kosmos write can cost one extra retell, which types nothing on a could_not).
-- A RUNNING agent whose file changed after it started is left for its restart (the `ready` check),
-  whoever wrote it, and the change is not spent. Retelling it would write the file as Kosmos, and
-  `toldOverride` would then show "told it on its screen" for an agent that never read the person's
-  change. Found in review 2; review 4 found the first version (skip only non-Kosmos writers) was
-  beaten by a person's edit followed by any Kosmos write, since the record keeps only the last writer.
+- Readiness (the `ready` check, server.js autoretellTick): a card reading `stopped` is ready (it reads
+  its file when it next starts). Any other card may be running, and is ready only when staleness reads
+  `current` (it started after the file's last change). Stale, whoever wrote it, and unknown wait for
+  its restart; the change is not spent. Retelling an agent running on an older copy would write the
+  file as Kosmos, and `toldOverride` would then show "told it on its screen" for an agent that never
+  read the person's change. Review 2 found the problem; review 4 found the writer-based version beaten
+  by a person's edit followed by any Kosmos write (the record keeps only the last writer); review 6
+  found a stopped agent with a surviving transcript held back and an unknown start let through.
+- The exact-name gate is tellAgent's own: the board holds the exact name as one of ours (review 5
+  found `name === safeKey(name)` shut out real agents like `Or.Two`).
 - COST: for a running agent the Act row clears only after its restart, not seconds after the fix.
   The commonest row ("no instructions file yet", fixed under a running agent) always takes this path.
   The follow-up page copy must not promise that it clears by itself while the agent runs. Written on

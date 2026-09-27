@@ -946,7 +946,7 @@ function retellMember(name, id, roster) {
 const AUTORETELL_ACTED = new Map();
 function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
   try {
-    let roster;   // read only when somebody is due: a board with no could_not member costs one store read
+    let roster;   // read only when some member's newest verdict is could_not
     const board = () => (roster === undefined ? (roster = safeRoster()) : roster);
     return autoretell.sweepOnce({
       projects: projects.readAll(),
@@ -961,11 +961,16 @@ function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
       },
       now,
       acted,
-      /* A running agent whose file changed since it started waits for its restart, whoever wrote
-         it: the write record keeps only the last writer. Read through toldOverride (#1228). */
+      /* A stopped agent reads its file when it next starts, so it is ready. Any other card may be
+         running, and is ready only once staleness says it started after the file's last change
+         (current): stale or unknown waits for its restart, whoever wrote the file, since the write
+         record keeps only the last writer. Read through toldOverride (#1228). */
       ready: (name) => {
+        const r = board();
+        const card = Array.isArray(r) ? r.find((a) => a && a.sessionName === name) : null;
+        if (card && card.state === 'stopped') return true;
         const st = projects.toldOverride(instructions.staleness(name), name);
-        return !(st && st.state === instructions.STALENESS.STALE);
+        return !!(st && st.state === instructions.STALENESS.CURRENT);
       },
       retell: (name, id) => retellMember(name, id, board()),
       log: (r) => process.stdout.write(`autoretell: ${r.name} on ${r.id} -> ${r.state}\n`),

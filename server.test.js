@@ -15309,6 +15309,9 @@ test('#3932: once the person fixes the file an Act row asked about, the board re
   const { SETTLE_MS } = require('./engine/autoretell');
   const board = fleet.install([fleet.agent('rhea', { state: 'idle' })]);
   const realSpeak = eng.speakOfMembership;
+  const instr = require('./engine/instructions');
+  const realStaleness = instr.staleness;
+  const storeBefore = eng.readAll();
   const spoke = [];
   const acted = new Map();
   try {
@@ -15337,22 +15340,23 @@ test('#3932: once the person fixes the file an Act row asked about, the board re
     assert.deepEqual(autoretellTick(mtime + SETTLE_MS - 1, acted), [], 'rewrote the file inside the settle window');
     assert.equal(fs.readFileSync(file, 'utf8'), edited, 'the file changed inside the settle window');
 
-    /* Running, on a change a person made after it started: left for its restart, file untouched.
-       (The sandbox has no session, so staleness reads unknown; this is the running case.) */
-    const instr = require('./engine/instructions');
-    const realStaleness = instr.staleness;
-    try {
-      instr.staleness = () => ({ state: instr.STALENESS.STALE, wroteBy: { who: 'person', because: null } });
-      assert.deepEqual(autoretellTick(mtime + SETTLE_MS, acted), [], 'retold a running agent that has not read the person\'s change');
-      assert.equal(fs.readFileSync(file, 'utf8'), edited, 'wrote the file under a running agent that has not read the person\'s change');
-      instr.staleness = () => ({ state: instr.STALENESS.STALE, wroteBy: null });
-      assert.deepEqual(autoretellTick(mtime + SETTLE_MS, acted), [], 'retold a running agent on a hand edit nobody attributed');
-      /* A person's edit and then any Kosmos write: the record says kosmos, the agent still has not
-         read the person's change. */
-      instr.staleness = () => ({ state: instr.STALENESS.STALE, wroteBy: { who: 'kosmos', because: 'x' } });
-      assert.deepEqual(autoretellTick(mtime + SETTLE_MS, acted), [], 'retold a running agent because the last write was Kosmos\'s');
-    } finally { instr.staleness = realStaleness; }
+    /* rhea is running (idle). Stale by anyone, or unknown, leaves it for its restart with the file
+       untouched; the sandbox has no session, so each reading is stubbed. */
+    const running = [
+      [{ state: instr.STALENESS.STALE, wroteBy: { who: 'person', because: null } }, 'a person\'s change it has not read'],
+      [{ state: instr.STALENESS.STALE, wroteBy: null }, 'a hand edit nobody attributed'],
+      // A person's edit and then any Kosmos write: the record says kosmos, the agent still has not read it.
+      [{ state: instr.STALENESS.STALE, wroteBy: { who: 'kosmos', because: 'x' }, editedAt: new Date(mtime).toISOString() }, 'the last write being Kosmos\'s'],
+      [{ state: instr.STALENESS.UNKNOWN, wroteBy: null }, 'a start time the board cannot read'],
+    ];
+    for (const [reading, why] of running) {
+      instr.staleness = () => reading;
+      assert.deepEqual(autoretellTick(mtime + SETTLE_MS, acted), [], 'retold a running agent on ' + why);
+      assert.equal(fs.readFileSync(file, 'utf8'), edited, 'wrote the file under a running agent on ' + why);
+    }
 
+    // It restarts after the fix: current. Now it is re-told.
+    instr.staleness = () => ({ state: instr.STALENESS.CURRENT, wroteBy: null });
     const rows = autoretellTick(mtime + SETTLE_MS, acted);
     assert.deepEqual(rows, [{ name: 'rhea', id, state: eng.TOLD.TOLD }], 'the fixed agent was not re-told');
     assert.equal(toldOf().state, eng.TOLD.TOLD, 'the retell did not flip the stored verdict to told');
@@ -15378,20 +15382,29 @@ test('#3932: once the person fixes the file an Act row asked about, the board re
     assert.equal(fs.readFileSync(file, 'utf8'), beforeLookalike, 'a lookalike name\'s retell wrote the real agent\'s file');
   } finally {
     eng.speakOfMembership = realSpeak;
+    instr.staleness = realStaleness;
+    eng.writeAll(storeBefore);
     board.restore();
   }
 });
 
-test('#3932: a real agent whose name is not in canonical form (Or.Two) is still re-told after its fix', async () => {
+test('#3932: a STOPPED agent whose name is not in canonical form (Or.Two) is re-told after its fix', async () => {
   const { autoretellTick } = require('./server');
   const eng = require('./engine/projects');
   const { SETTLE_MS } = require('./engine/autoretell');
-  const board = fleet.install([fleet.agent('Or.Two', { state: 'idle' })]);
+  const board = fleet.install([fleet.agent('Or.Two', { state: 'stopped' })]);
   const realSpeak = eng.speakOfMembership;
+  const instr = require('./engine/instructions');
+  const realStaleness = instr.staleness;
+  const storeBefore = eng.readAll();
   try {
+    /* Stopped reads its file when it next starts, so a stale reading (a surviving transcript's
+       birth time) does not hold it back. */
+    instr.staleness = () => ({ state: instr.STALENESS.STALE, wroteBy: { who: 'person', because: null } });
     eng.speakOfMembership = () => ({ state: 'told' });
     const card = (JSON.parse((await req('/api/status')).body).agents || []).find((a) => a.sessionName === 'Or.Two');
     assert.ok(card, 'precondition: the board holds Or.Two under exactly that name');
+    assert.equal(card.state, 'stopped', 'precondition: Or.Two reads stopped');
     const made = await req('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'Autoretell Canon', folder: mkTemp('aw-autoretell-canon-'), agents: [] }) });
     assert.equal(made.status, 200, made.body);
@@ -15407,9 +15420,11 @@ test('#3932: a real agent whose name is not in canonical form (Or.Two) is still 
     const mtime = at + 1000;
     fs.utimesSync(file, new Date(mtime), new Date(mtime));
     const rows = autoretellTick(mtime + SETTLE_MS, new Map());
-    assert.deepEqual(rows.map((r) => r.name), ['Or.Two'], 'a real agent was never re-told because its name is not its own safeKey');
+    assert.deepEqual(rows.map((r) => r.name), ['Or.Two'], 'a stopped real agent was not re-told (its name is not its own safeKey, or stale held it back)');
   } finally {
     eng.speakOfMembership = realSpeak;
+    instr.staleness = realStaleness;
+    eng.writeAll(storeBefore);
     board.restore();
   }
 });
