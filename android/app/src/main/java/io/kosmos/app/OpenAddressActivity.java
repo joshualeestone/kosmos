@@ -85,6 +85,12 @@ public class OpenAddressActivity extends Activity {
             return;
         }
 
+        launchTrustedWebActivity(choice);
+    }
+
+    // Package-visible so Robolectric can replace the browser boundary while still driving the
+    // real onCreate decision. The production implementation remains the only TWA construction.
+    void launchTrustedWebActivity(AddressChoice choice) {
         TrustedWebActivityIntentBuilder builder = new TrustedWebActivityIntentBuilder(
                 Uri.parse(choice.target));
         builder.setAdditionalTrustedOrigins(choice.trustedOrigins);
@@ -124,7 +130,8 @@ public class OpenAddressActivity extends Activity {
         if (launcher != null) launcher.destroy();
     }
 
-    private void openInCustomTab(Uri uri) {
+    // Package-visible for the same reason as launchTrustedWebActivity.
+    void openInCustomTab(Uri uri) {
         CustomTabsIntent tab = new CustomTabsIntent.Builder()
                 .setUrlBarHidingEnabled(false)
                 .setShowTitle(false)

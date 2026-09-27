@@ -137,14 +137,16 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon -Dorg.gradle.java.installations.paths="$JAVA_HOME"
 
       # #2854: the app's JVM unit tests. A test task that runs zero tests exits 0 and reads
-      # green, so the step also reads every report and fails unless the address suite is
+      # green, so the step also reads every report and fails unless all security suites are
       # among them, every suite ran at least one test, and none failed, errored or was skipped.
       - name: Unit tests
         working-directory: android
         run: |
           ./gradlew :app:testDebugUnitTest --no-daemon -Dorg.gradle.java.installations.paths="$JAVA_HOME"
           dir=app/build/test-results/testDebugUnitTest
-          test -f "$dir/TEST-io.kosmos.app.AddressChoiceTest.xml" || { echo "no AddressChoiceTest report in $dir: the suite did not run"; exit 1; }
+          for suite in AddressChoiceTest OpenAddressActivityTest KosmosLauncherActivityTest; do
+            test -f "$dir/TEST-io.kosmos.app.$suite.xml" || { echo "no $suite report in $dir: the suite did not run"; exit 1; }
+          done
           for r in "$dir"/TEST-*.xml; do
             head -2 "$r" | tail -1
             grep -Eq '<testsuite [^>]*tests="[1-9][0-9]*"' "$r" || { echo "zero tests ran in $r"; exit 1; }
