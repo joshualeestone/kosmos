@@ -137,6 +137,14 @@ const BOARD_NOT_SIGNED_IN = /This board is not signed in/i;
     const pjBtn = await page.$('#pj-list [data-device-signin]');
     const pjBtnShown = pjBtn ? await pjBtn.isVisible().catch(() => false) : false;
     check('projects 401 signed_out: #pj-list shows its own Sign in button', pjBtnShown);
+    // #pj-list has its own delegated click handler, which runs first: the press must still reload.
+    const pjHere = page.url();
+    let pjNavigated = false;
+    page.on('request', (req) => { if (req.isNavigationRequest() && req.frame() === page.mainFrame() && req.url() === pjHere) pjNavigated = true; });
+    let pjClickErr = '';
+    if (pjBtnShown) await pjBtn.click({ timeout: 3000 }).catch((e) => { pjClickErr = String(e && e.message || e).split('\n')[0]; });
+    await page.waitForTimeout(900);
+    check('projects 401 signed_out: the #pj-list Sign in reloads this page', pjNavigated, pjClickErr);
     await ctx.close();
   }
 
