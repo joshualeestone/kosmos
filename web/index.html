@@ -46719,6 +46719,9 @@ function openProjectTasks(id) {
   const q = document.getElementById('tsk-search');
   if (q) q.value = '';
   document.getElementById('tsk-qclear').hidden = true;
+  // #3949: close the compact search now, not at the next paint (in the column that paint waits for the read).
+  const box = document.getElementById('tsk-searchbox');
+  if (box) box.classList.remove('open', 'shut');
   if (document.body.classList.contains('consolidated')) openConsolidatedTasks();
   else showTab('tasks');
 }

@@ -246,7 +246,7 @@ function tsvFrameDecls(html) {
           const c = decl.indexOf(':'); if (c < 0) continue;
           const name = decl.slice(0, c).trim().toLowerCase();
           const value = decl.slice(c + 1).replace(/!important/i, '').trim().toLowerCase();
-          if (!/^(border(-(top|right|bottom|left|block|inline)(-(start|end))?)?(-(width|style|radius))?|outline(-(width|style))?|box-shadow)$/.test(name)) continue;
+          if (!/^(border(-(top|right|bottom|left|block|inline)(-(start|end))?)?(-(width|style|radius))?|border-(top|bottom|start|end)-(left|right|start|end)-radius|outline(-(width|style))?|box-shadow)$/.test(name)) continue;
           if (/^(0(px)?|none)(\s+(0(px)?|none))*$/.test(value)) continue;
           // A shorthand whose width is 0 or whose style is none draws nothing (`border: 0 solid black`).
           if (/^(border(-(top|right|bottom|left|block|inline)(-(start|end))?)?|outline)$/.test(name) && /(^|\s)(0(px)?|none)(\s|$)/.test(value.replace(/\([^)]*\)/g, ''))) continue;

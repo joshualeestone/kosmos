@@ -320,6 +320,13 @@ function chk(ok, label, extra) {
         chk(after.q === '' && after.value === '' && after.focused === 'tsk-search' && closedW <= 40 && after.rows >= 7, `${tag} Esc clears the search, closes it, keeps focus in it, and brings every row back`, JSON.stringify({ after, closedW }));
         await page.keyboard.type('l');
         const reopenW = await sw();
+        /* An IME's own Esc (cancelling a conversion) is not the search's: a composing Escape leaves the search alone. */
+        const ime = await page.evaluate(() => { const q = document.getElementById('tsk-search');
+          q.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true }));
+          const a = { value: q.value, q: TSK.q };
+          q.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 229, bubbles: true, cancelable: true }));
+          return { a, b: { value: q.value, q: TSK.q } }; });
+        chk(ime.a.value === 'l' && ime.a.q === 'l' && ime.b.value === 'l', `${tag} an Escape during an IME composition does not clear the search`, JSON.stringify(ime));
         await page.keyboard.press('Escape');
         await page.evaluate(() => document.getElementById('tsk-search').blur());
         chk(reopenW >= 200, `${tag} typing again after Esc opens it again`, String(reopenW));
