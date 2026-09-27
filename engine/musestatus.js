@@ -90,14 +90,18 @@ function enabled(platform = process.platform) {
 /* The mark Kosmos leaves when ITS sign-in ended "Logged in." (engine/musesignin.js writes it). On a
    Mac, Muse keeps the sign-in in the login Keychain, which Kosmos never reads: an item named "meta"
    could be anybody's. */
-function signedInMarker() { return path.join(require('./store').ROOT, 'muse-signin', 'signed-in.json'); }
+function signinFolder() { return path.join(require('./store').ROOT, 'muse-signin'); }   // the sign-in's folder, and its mark's
+function signedInMarker() { return path.join(signinFolder(), 'signed-in.json'); }
 /* Muse's own file store (the file backend, and every non-Mac build): XDG_CONFIG_HOME, else ~/.config. */
 function authFile() {
   const base = process.env.XDG_CONFIG_HOME || path.join(runners.homeDir(), '.config');
   return path.join(base, 'muse', 'auth.json');
 }
 
-/** { signedIn, how }: a file check, never a run, never the Keychain, never a value read out. */
+/** { signedIn, how }: a file check, never a run, never the Keychain, never a value read out.
+    Known gap (round 1): the mark is not cleared by a `muse logout` or a removed Keychain item, so it can
+    say yes after a sign-out. Slice 3c clears it when a turn reports "missing meta credential"; no screen
+    reads this before then. */
 function signedIn() {
   try {
     const j = JSON.parse(fs.readFileSync(authFile(), 'utf8'));
@@ -115,4 +119,4 @@ const REAL = { runVersion };
 function setRunnerForTests(fn, opts) { if (fn) runVersion = fn; if (opts && opts.hardCapMs) hardCapMs = opts.hardCapMs; if (opts && opts.timeoutMs) timeoutMs = opts.timeoutMs; }
 function resetForTests() { runVersion = REAL.runVersion; hardCapMs = VERSION_HARD_CAP_MS; timeoutMs = VERSION_TIMEOUT_MS; }
 
-module.exports = { installed, version, parseVersion, enabled, signedIn, signedInMarker, authFile, VERSION_TIMEOUT_MS, VERSION_HARD_CAP_MS, VERSION_UNKNOWN_BECAUSE, CHECK_FAILED_BECAUSE, setRunnerForTests, resetForTests };
+module.exports = { installed, version, parseVersion, enabled, signedIn, signinFolder, signedInMarker, authFile, VERSION_TIMEOUT_MS, VERSION_HARD_CAP_MS, VERSION_UNKNOWN_BECAUSE, CHECK_FAILED_BECAUSE, setRunnerForTests, resetForTests };

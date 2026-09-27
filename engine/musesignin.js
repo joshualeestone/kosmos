@@ -16,7 +16,6 @@
  * or log the code. On a Mac the sign-in lands in Muse's own default store (the login Keychain).
  */
 const fs = require('node:fs');
-const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const musestatus = require('./musestatus');
@@ -36,6 +35,13 @@ const MAX_KEY_FAILURES = 5;
 const PANE_COLS = 120;
 const PANE_ROWS = 40;
 const UNKNOWN = 'Muse Code is showing a step Kosmos does not recognise';
+const EXPIRED = 'The code expired before it was approved';
+const CLOSED = 'Muse Code\'s sign-in closed before it finished';
+/* An Enter that did not move Muse off the code screen this long is sent once more, then named (round 1). */
+const RESEND_MS = 5000;
+/* The line the session prints when muse has exited, so its last screen can still be read (round 1:
+   `muse login` exits after "Logged in.", and the session going with it read as a failure). */
+const EXITED = 'KOSMOS-MUSE-EXITED';
 const NOT_MINE = 'That sign-in has ended or another one has started';
 const COULD_NOT_START = 'Kosmos could not start Muse Code\'s sign-in just now';
 
@@ -59,6 +65,10 @@ function screenOf(text) {
 /* Meta's address and the code, from the lines BEFORE the last "Press Enter" (the current try's).
    Weakest premise: the Mac wording was not captured; a device code is letters and digits in dashed groups. */
 const CODE_RE = /\b[A-Z0-9]{3,}(?:-[A-Z0-9]{3,})+\b/g;
+/* The code as the address carries it (?user_code=), used when no dashed code is printed (round 1). */
+function codeFromUrl(url) {
+  try { const c = new URL(url).searchParams.get('user_code'); return c && /^[A-Za-z0-9-]{4,32}$/.test(c) ? c : null; } catch { return null; }
+}
 function promptOf(text) {
   const t = String(text);
   const cut = t.lastIndexOf('Press Enter to open it in your browser');
@@ -67,7 +77,8 @@ function promptOf(text) {
   const own = before.slice(Math.max(0, before.lastIndexOf('expired before it was approved')));
   const urls = own.match(/https:\/\/\S+/g);
   const codes = own.replace(/https:\/\/\S+/g, ' ').match(CODE_RE);
-  return { url: urls ? urls[urls.length - 1] : null, code: codes ? codes[codes.length - 1] : null };
+  const url = urls ? urls[urls.length - 1] : null;
+  return { url, code: codes ? codes[codes.length - 1] : (url ? codeFromUrl(url) : null) };
 }
 
 function tmuxBin() { return tmuxBinCached || (tmuxBinCached = require('./create').binPaths().tmuxBin); }
@@ -89,7 +100,6 @@ let tmux = (args) => {
 let museBin = () => musestatus.installed();
 let now = () => Date.now();
 let tickMs = TICK_MS;
-let folderRoot = () => require('./store').ROOT;
 
 /* ---- one sign-in at a time ------------------------------------------------------------------ */
 let S = null;   // { id, state, url, code, because, folder, startedAt, seenAt, screen, pressed, timer, keyFailures }
@@ -126,7 +136,7 @@ function end(state, because) {
 function markSignedIn() {
   const file = musestatus.signedInMarker();
   try {
-    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    fs.mkdirSync(musestatus.signinFolder(), { recursive: true, mode: 0o700 });
     fs.writeFileSync(file, JSON.stringify({ at: new Date(now()).toISOString() }) + '\n', { mode: 0o600 });
   } catch (e) { logLine('could not record the sign-in (' + ((e && e.code) || 'unknown') + ')'); }
 }
@@ -138,27 +148,40 @@ function step() {
   if (S !== mine || !mine.timer) return;
   if (text === undefined) return;
   if (text === null) {
-    // Gone. After "Logged in." the tick that saw it has already ended the sign-in, so this is an early exit.
-    end('failed', 'Muse Code\'s sign-in closed before it finished');
+    /* Gone (the session, not only muse: the exit line keeps the session). Two misses in a row, as
+       agysignin needs (round 1): one failed has-session must not end a sign-in mid-approval. */
+    mine.gone = (mine.gone || 0) + 1;
+    if (mine.gone >= 2) end('failed', CLOSED);
     return;
   }
+  mine.gone = 0;
+  const exited = text.includes(EXITED);
   const t = now();
   const drawn = screenOf(text);
   if (drawn !== mine.screen) { mine.screen = drawn; mine.seenAt = t; }
   if (drawn === 'done') { markSignedIn(); end('done'); return; }
   if (drawn === 'unsaved') { end('failed', 'Muse Code signed in but could not save the sign-in on this computer'); return; }
+  if (exited) { end('failed', CLOSED); return; }
   if (drawn === 'expired') {
-    if (mine.state !== 'expired') { mine.state = 'expired'; mine.code = null; mine.url = null; mine.pressed = false; mine.because = 'The code expired before it was approved'; }
+    // After a retry, the old expiry line is the last one until Muse draws the new code (round 1).
+    if (mine.retrying) return;
+    if (mine.state !== 'expired') { mine.state = 'expired'; mine.code = null; mine.url = null; mine.pressed = null; mine.because = EXPIRED; }
     return;
   }
   if (drawn === 'press') {
+    mine.retrying = false;
     const p = promptOf(text);
     if (!p.code || !p.url) { if (t - mine.seenAt > STUCK_MS) { mine.state = 'stuck'; mine.because = UNKNOWN; } return; }
-    mine.code = p.code; mine.url = p.url; mine.because = null;
+    mine.code = p.code; mine.url = p.url; mine.because = null; mine.state = 'code';
     /* Enter once per code: Muse only waits for the approval after it (Homer), and it opens Meta's page
        in the browser itself. Marked before sending: a second Enter would land on the next screen. */
-    if (mine.pressed !== p.code) { mine.pressed = p.code; keys('Enter'); }
-    mine.state = 'code';
+    if (mine.pressed !== p.code) { mine.pressed = p.code; mine.pressedAt = t; mine.resent = false; keys('Enter'); return; }
+    /* Still on the same code's prompt well after the Enter (round 1: a send that failed is never sent
+       again otherwise, and Muse never polls): once more, then named. */
+    if (t - mine.pressedAt > RESEND_MS) {
+      if (!mine.resent) { mine.resent = true; mine.pressedAt = t; keys('Enter'); }
+      else { mine.state = 'stuck'; mine.because = 'Muse Code did not start waiting for the approval'; }
+    }
     return;
   }
   if (drawn === 'waiting') { if (mine.code) mine.state = 'code'; return; }
@@ -166,7 +189,7 @@ function step() {
 }
 function tick() {
   const mine = S;
-  if (mine && mine.timer && now() - mine.startedAt > GIVE_UP_MS) { end('expired', 'The code expired before it was approved'); return; }
+  if (mine && mine.timer && now() - mine.startedAt > GIVE_UP_MS) { end('expired', EXPIRED); return; }
   try {
     step();
     if (mine) mine.keyFailures = 0;
@@ -192,13 +215,15 @@ function start() {
   const inst = museBin();
   if (!inst || !inst.installed) return { ok: false, because: (inst && inst.because) || 'Muse Code is not on this computer' };
   if (tmux === REAL.tmux && !live(tmuxBin(), ['-L', socket(), 'new-session', '-s', SESSION])) return { ok: false, because: COULD_NOT_START };
-  const folder = path.join(folderRoot(), 'muse-signin');
+  const folder = musestatus.signinFolder();
   try { fs.mkdirSync(folder, { recursive: true, mode: 0o700 }); } catch { return { ok: false, because: 'Kosmos could not make a folder for the sign-in' }; }
   try { tmux(['kill-session', '-t', SESSION]); } catch { /* none running */ }
   try {
     // -f /dev/null: this private server never reads the person's ~/.tmux.conf.
+    /* Not exec (round 1): when muse exits, the shell prints the exit line and waits, so its last screen
+       ("Logged in." or not) is still there to read. Ending the sign-in kills the session. */
     tmux(['-f', '/dev/null', 'new-session', '-d', '-s', SESSION, '-x', String(PANE_COLS), '-y', String(PANE_ROWS), '-c', folder,
-      'exec env ' + LOGIN_ENV.join(' ') + ' ' + shq(inst.bin) + ' login']);
+      'env ' + LOGIN_ENV.join(' ') + ' ' + shq(inst.bin) + ' login; printf "\\n%s %s\\n" ' + EXITED + ' "$?"; exec sleep 3600']);
   } catch (e) {
     logLine('could not start (' + ((e && (e.code || e.message)) || 'unknown') + ')');
     return { ok: false, because: COULD_NOT_START };
@@ -214,12 +239,13 @@ function isMine(id) { return !!S && typeof id === 'string' && id === S.id; }
 /** After "expired": Muse asks for r then Enter to print a new code. */
 function retry(id) {
   if (!isMine(id)) return { ok: false, because: NOT_MINE };
-  if (!S.timer || S.state !== 'expired') return { ok: false, because: 'There is no expired code to replace' };
+  if (!S.timer || S.state !== 'expired' || S.retrying) return { ok: false, because: 'There is no expired code to replace' };
   // The screen, not the state, right before typing: an r on any other screen is keystrokes there.
   const text = screen();
   if (typeof text !== 'string' || screenOf(text) !== 'expired') return { ok: false, because: 'There is no expired code to replace' };
   try { keys('-l', 'r'); keys('Enter'); } catch { return { ok: false, because: 'Kosmos could not ask Muse Code for a new code' }; }
-  S.state = 'starting'; S.because = null; S.seenAt = now(); S.screen = null;
+  // The give-up clock is the new code's (round 1), and the old expiry is ignored until it is drawn.
+  S.state = 'starting'; S.because = null; S.seenAt = now(); S.screen = null; S.startedAt = now(); S.retrying = true;
   return { ok: true };
 }
 function stop(id) {
@@ -229,21 +255,20 @@ function stop(id) {
 }
 
 /* ---- tests -------------------------------------------------------------------------------- */
-const REAL = { tmux, museBin, now, folderRoot };
+const REAL = { tmux, museBin, now };
 function setForTests(o) {
   if (o.tmux) tmux = o.tmux;
   if (o.museBin) museBin = o.museBin;
   if (o.now) now = o.now;
-  if (o.folderRoot) folderRoot = o.folderRoot;
   if (o.tickMs) tickMs = o.tickMs;
 }
 function tickForTests() { tick(); }
 function resetForTests() {
   if (S && S.timer) clearInterval(S.timer);
   S = null;
-  ({ tmux, museBin, now, folderRoot } = REAL);
+  ({ tmux, museBin, now } = REAL);
   tickMs = TICK_MS;
 }
 
-module.exports = { start, status, retry, stop, socket, SESSION, SCREENS, LOGIN_ENV, NOT_MINE, STUCK_MS, GIVE_UP_MS, screenOf, promptOf,
+module.exports = { start, status, retry, stop, socket, SESSION, SCREENS, LOGIN_ENV, NOT_MINE, COULD_NOT_START, STUCK_MS, GIVE_UP_MS, RESEND_MS, EXITED, screenOf, promptOf,
   setForTests, tickForTests, resetForTests };

@@ -328,7 +328,8 @@ test('#3939 slice 3: /api/muse is off without the flag; with it, the sign-in sta
   delete process.env.AGENT_WORKFORCE_MUSE;
   const signin = require('./engine/musesignin');
   const calls = [];
-  signin.setForTests({ tmux: (args) => { calls.push(args.join(' ')); if (args[0] === 'capture-pane') throw new Error('none'); return ''; }, folderRoot: () => dir });
+  signin.setForTests({ tmux: (args) => { calls.push(args.join(' ')); if (args[0] === 'capture-pane') throw new Error('none'); return ''; } });
+  const xdg = process.env.XDG_CONFIG_HOME; delete process.env.XDG_CONFIG_HOME;   // Muse's file is read from the sandbox home only
   try {
     // Off: nothing but "not enabled", and a start is refused before anything runs.
     assert.deepEqual(json(await req('/api/muse')), { enabled: false });
@@ -343,7 +344,7 @@ test('#3939 slice 3: /api/muse is off without the flag; with it, the sign-in sta
     assert.equal(o.status, 200, o.body);
     const id = json(o).id;
     assert.match(String(id), /^[0-9a-f]{16}$/);
-    assert.ok(calls.some((c) => c.startsWith('-f /dev/null new-session -d -s muse-signin') && c.endsWith("'" + bin + "' login")), 'muse login was not started in the hidden session: ' + calls.join(' | '));
+    assert.ok(calls.some((c) => c.startsWith('-f /dev/null new-session -d -s muse-signin') && c.includes("'" + bin + "' login;")), 'muse login was not started in the hidden session: ' + calls.join(' | '));
     assert.equal(json(await req('/api/muse/signin')).state, 'starting');
     const post = (p, who) => req(p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: who }) });
     assert.equal((await post('/api/muse/signin/stop', '0000000000000000')).status, 409, 'another sign-in\'s Stop ended this one');
@@ -351,5 +352,5 @@ test('#3939 slice 3: /api/muse is off without the flag; with it, the sign-in sta
     assert.equal((await post('/api/muse/signin/stop', id)).status, 200);
     assert.equal(json(await req('/api/muse/signin')).state, 'stopped');
     assert.equal((await req('/api/muse/signin/nowhere', { method: 'POST' })).status, 404);
-  } finally { signin.resetForTests(); delete process.env.AGENT_WORKFORCE_MUSE; delete process.env.AGENT_WORKFORCE_MUSE_BIN; }
+  } finally { signin.resetForTests(); delete process.env.AGENT_WORKFORCE_MUSE; delete process.env.AGENT_WORKFORCE_MUSE_BIN; if (xdg !== undefined) process.env.XDG_CONFIG_HOME = xdg; }
 });

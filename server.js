@@ -8213,7 +8213,7 @@ const server = http.createServer((req, res) => {
       let r;
       try { r = signin.start(); } catch (e) {
         if (require('./engine/live-execution').inTestProcess() && /for real inside a test/.test(String(e && e.message))) throw e;
-        sendJson(res, 500, { ok: false, error: 'Kosmos could not start Muse Code\'s sign-in just now' }); return;
+        sendJson(res, 500, { ok: false, error: signin.COULD_NOT_START }); return;
       }
       sendJson(res, r.ok ? 200 : 400, r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
       return;

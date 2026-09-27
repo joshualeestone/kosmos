@@ -42,9 +42,11 @@ function setup(flow) {
   const wrapper = path.join(dir, 'muse');
   fs.writeFileSync(wrapper, '#!/bin/bash\nexport FAKE_MUSE_LOG=' + JSON.stringify(log) + '\nexport FAKE_MUSE_FLOW=' + flow
     + '\nexec /bin/bash ' + JSON.stringify(FAKE) + ' "$@"\n', { mode: 0o755 });
-  signin.setForTests({ museBin: () => ({ installed: true, bin: wrapper }), folderRoot: () => dir, tickMs: 200 });
+  signin.setForTests({ museBin: () => ({ installed: true, bin: wrapper }), tickMs: 200 });
   const cleanup = () => {
     try { execFileSync(TMUX, ['-L', process.env.AGENT_WORKFORCE_MUSE_SIGNIN_SOCKET, 'kill-server'], { stdio: 'ignore' }); } catch { /* none */ }
+    // kill-server leaves the socket file behind (round 1: dozens piled up); remove this run's own.
+    try { fs.rmSync(path.join(process.env.TMUX_TMPDIR || '/private/tmp', 'tmux-' + process.getuid(), process.env.AGENT_WORKFORCE_MUSE_SIGNIN_SOCKET), { force: true }); } catch { /* none */ }
     signin.resetForTests();
     require('./live-execution').resetForTests();
     delete process.env.AGENT_WORKFORCE_MUSE;
@@ -121,6 +123,36 @@ test('#3939: a failed save, an early exit and a strange screen each end in words
     skew = signin.STUCK_MS + 1000;
     await until(() => signin.status().state === 'stuck', 5000, 'stuck');
     assert.match(signin.status().because, /does not recognise/);
+  } finally { t.cleanup(); }
+});
+
+test('#3939 round 1: a slow new code keeps the retry, and a second retry is refused rather than typed onto it', { skip: skip || (!onMac && 'the flag is Mac only'), timeout: 40000 }, async () => {
+  const t = setup('slowretry');
+  try {
+    const { id } = signin.start();
+    await until(() => signin.status().state === 'expired', 15000, 'the expiry');
+    assert.deepEqual(signin.retry(id), { ok: true });
+    await new Promise((r) => setTimeout(r, 1200));   // the old expiry line is still the last one drawn
+    assert.equal(signin.status().state, 'starting', 'the retry fell back to expired while the new code was on its way');
+    assert.equal(signin.retry(id).ok, false, 'a second retry was taken while the first was still arriving');
+    await until(() => signin.status().code === 'QRST-5678', 15000, 'the second code');
+    await until(() => signin.status().state === 'done', 15000, 'the sign-in to finish');
+    assert.doesNotMatch(t.logText(), /^press:r$/m, 'a retry key landed on the new code screen');
+  } finally { t.cleanup(); }
+});
+
+test('#3939 round 1: an Enter that did not move Muse on is sent once more', { skip: skip || (!onMac && 'the flag is Mac only'), timeout: 30000 }, async () => {
+  const t = setup('deaf');
+  const realNow = Date.now; let skew = 0;
+  signin.setForTests({ now: () => realNow() + skew });
+  try {
+    signin.start();
+    await until(() => /^press:Enter$/m.test(t.logText()), 15000, 'the first Enter');
+    await new Promise((r) => setTimeout(r, 600));
+    assert.doesNotMatch(t.logText(), /press-again/, 'CONTROL: no second Enter before the wait');
+    skew = signin.RESEND_MS + 1000;
+    await until(() => signin.status().state === 'done', 15000, 'the sign-in to finish after the second Enter');
+    assert.match(t.logText(), /^press-again:Enter$/m);
   } finally { t.cleanup(); }
 });
 
