@@ -35,3 +35,6 @@ the phone, and neither remedy can be done from it.
 The card's "Something on your Mac did not answer" also shows for a read the Mac answered with an
 error (a 500), as "this computer" did before. Making the card tell an answered error from silence
 is its own change.
+
+## State (2026-09-27, for a restarted session)
+- Stacked on phone-offline-718. Challenge loop: iteration 1 done (header exception, Windows gate, browser check waits for the card), all pushed. Next: iteration 2 review, then full suite + browser checks, proof, PR (merge held with state 1 by the 0.7.01 page hold).
