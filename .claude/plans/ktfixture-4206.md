@@ -96,6 +96,11 @@ such a context), so the measurement is the evidence.
 - The live-pid sandbox arms SKIP loudly where lsof is missing, rather than going red on the tool.
 - The frozen arm's comment no longer claims the double slash reaches the matcher.
 
+## Review 8
+
+- The six assertions that a refusal names a live pid use has_pid, a whole-number match, instead of a
+  substring match that a sibling pid containing the digits could satisfy.
+
 ## Weakest premise
 
 The negative control runs from `/` so it cannot sit in a kt folder. A machine whose $TMPDIR were `/`

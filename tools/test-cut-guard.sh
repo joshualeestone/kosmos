@@ -13,6 +13,9 @@ fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }
 has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
+# A pid named in OUT as a whole number: plain has() would pass if pid 123 were only a substring of a
+# sibling pid 91234 printed there instead (#4206 review 8).
+has_pid() { case " $1 " in *[!0-9]"$2"[!0-9]*) return 0;; *) return 1;; esac; }
 printf '#!/bin/sh\nprintf "99999 bash tools/release.sh 0.5.54\\n"\n' > "$T/probe-live"; chmod +x "$T/probe-live"
 printf '#!/bin/sh\nexit 1\n' > "$T/probe-quiet"; chmod +x "$T/probe-quiet"
 printf '#!/bin/sh\nexit 3\n' > "$T/probe-dead"; chmod +x "$T/probe-dead"
@@ -71,7 +74,7 @@ out="$(KOSMOS_CUT_SELF_PID="$cut_self" KOSMOS_CUT_PROBE="$T/probe-real-self" kos
 [ "$rc" -eq 0 ] && pass "a live caller pid presented as release.sh does not refuse ITSELF" \
   || fail "a live caller pid refused itself: rc=$rc out=$out"
 out="$(KOSMOS_CUT_SELF_PID="$cut_self" KOSMOS_CUT_PROBE="$T/probe-real-two" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
-{ [ "$rc" -ne 0 ] && has "$out" "$cut_other"; } && pass "but a SECOND live pid presented as release.sh is refused and named" \
+{ [ "$rc" -ne 0 ] && has_pid "$out" "$cut_other"; } && pass "but a SECOND live pid presented as release.sh is refused and named" \
   || fail "a second live cut candidate proceeded: rc=$rc out=$out"
 kill "$cut_self" "$cut_other" 2>/dev/null; wait "$cut_self" "$cut_other" 2>/dev/null
 
@@ -105,7 +108,7 @@ out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/pro
 [ "$rc" -eq 0 ] && pass "a release.sh fixture running in the run-tests.sh sandbox (no node ancestor) is not a cut" \
   || fail "a kt-sandbox fixture refused the cut (rc=$rc, out=$out)"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-kt-real" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
-{ [ "$rc" -ne 0 ] && has "$out" "$kt_real"; } && pass "but the same candidate outside any sandbox still refuses, and is named" \
+{ [ "$rc" -ne 0 ] && has_pid "$out" "$kt_real"; } && pass "but the same candidate outside any sandbox still refuses, and is named" \
   || fail "the sandbox rule also hid a real cut (rc=$rc, out=$out)"
 
 # #4206 follow-up: the browser-run guard reads the same fixture rule. Its self pid is one that does
@@ -123,7 +126,7 @@ out="$(KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none
   || fail "a kt-sandbox browser-checks fixture refused the run (rc=$rc, out=$out)"
 printf '#!/bin/sh\nprintf "%s bash tools/browser-checks.sh\\n"\n' "$kt_real" > "$T/bprobe-real"; chmod +x "$T/bprobe-real"
 out="$(KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_BC_PROBE="$T/bprobe-real" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
-{ [ "$rc" -ne 0 ] && has "$out" "$kt_real"; } && pass "but the same live browser run outside any sandbox still refuses, and is named" \
+{ [ "$rc" -ne 0 ] && has_pid "$out" "$kt_real"; } && pass "but the same live browser run outside any sandbox still refuses, and is named" \
   || fail "the browser guard's sandbox rule hid a real run (rc=$rc, out=$out)"
 kill "$kt_fx" "$kt_real" 2>/dev/null; wait "$kt_fx" "$kt_real" 2>/dev/null
 
@@ -137,7 +140,7 @@ out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/pro
 [ "$rc" -eq 0 ] && pass "a release.sh whose SCRIPT is in the run-tests.sh sandbox (cwd /) is not a cut" \
   || fail "a kt-script fixture refused the cut (rc=$rc, out=$out)"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-plain-script" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
-{ [ "$rc" -ne 0 ] && has "$out" "$kt_script"; } && pass "but the same pid running a script outside any sandbox still refuses" \
+{ [ "$rc" -ne 0 ] && has_pid "$out" "$kt_script"; } && pass "but the same pid running a script outside any sandbox still refuses" \
   || fail "the script rule also hid a real cut (rc=$rc, out=$out)"
 kill "$kt_script" 2>/dev/null; wait "$kt_script" 2>/dev/null
 
@@ -156,7 +159,7 @@ wait_cwd "$frozen" "$(cd "$FROZEN" && pwd -P)" || fail "the frozen-tree sleep ne
 printf '#!/bin/sh\nprintf "%s bash %s/tools/release.sh 0.7.03\\n"\n' "$frozen" "$(cd "$FROZEN" && pwd -P)" > "$T/probe-frozen"; chmod +x "$T/probe-frozen"
 FRT="$(cd "$FR/T" && pwd -P)/"
 out="$(TMPDIR="$FRT" KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-frozen" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
-{ [ "$rc" -ne 0 ] && has "$out" "$frozen"; } && pass "a real cut running from its frozen build tree under TMPDIR still refuses, and is named" \
+{ [ "$rc" -ne 0 ] && has_pid "$out" "$frozen"; } && pass "a real cut running from its frozen build tree under TMPDIR still refuses, and is named" \
   || fail "a REAL cut's frozen build tree was dropped as a fixture (rc=$rc, out=$out)"
 kill "$frozen" 2>/dev/null; wait "$frozen" 2>/dev/null
 
@@ -169,7 +172,7 @@ mkdir -p "$BCFROZEN/tools"
 wait_cwd "$bcfrozen" "$(cd "$BCFROZEN" && pwd -P)" || fail "the browser frozen-tree sleep never reached its cwd, so its arm cannot answer"
 printf '#!/bin/sh\nprintf "%s bash %s/tools/browser-checks.sh\\n"\n' "$bcfrozen" "$(cd "$BCFROZEN" && pwd -P)" > "$T/bprobe-frozen"; chmod +x "$T/bprobe-frozen"
 out="$(TMPDIR="$FRT" KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_BC_PROBE="$T/bprobe-frozen" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
-{ [ "$rc" -ne 0 ] && has "$out" "$bcfrozen"; } && pass "a real browser run from its frozen tree under TMPDIR still refuses, and is named" \
+{ [ "$rc" -ne 0 ] && has_pid "$out" "$bcfrozen"; } && pass "a real browser run from its frozen tree under TMPDIR still refuses, and is named" \
   || fail "a REAL browser run's frozen tree was dropped as a fixture (rc=$rc, out=$out)"
 kill "$bcfrozen" 2>/dev/null; wait "$bcfrozen" 2>/dev/null
 fi
