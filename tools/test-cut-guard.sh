@@ -4,6 +4,11 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib/cut-guard.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+# A pid proven dead at runtime (#4206 review 11). The guards now run a real lsof and ancestry walk on
+# every candidate, so a fixed probe pid is only safe where it cannot be handed out: 99999 holds on
+# macOS (pids stop at 99998) but not on Linux (pid_max is often 4194304). A reused pid would need the
+# counter to wrap within this run.
+( : ) & DEAD=$!; wait "$DEAD"
 # #1796: isolate the run-marker dir so the always-on marker arm reads THIS test's
 # fixtures, never a real marker a live run on this box may have left in the default
 # /tmp dir. The existing arms below get an empty dir (marker arm inert); the marker
@@ -16,10 +21,10 @@ has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
 # A pid named in OUT as a whole number: plain has() would pass if pid 123 were only a substring of a
 # sibling pid 91234 printed there instead (#4206 review 8).
 has_pid() { case " $1 " in *[!0-9]"$2"[!0-9]*) return 0;; *) return 1;; esac; }
-printf '#!/bin/sh\nprintf "99999 bash tools/release.sh 0.5.54\\n"\n' > "$T/probe-live"; chmod +x "$T/probe-live"
+printf '#!/bin/sh\nprintf "'"$DEAD"' bash tools/release.sh 0.5.54\\n"\n' > "$T/probe-live"; chmod +x "$T/probe-live"
 printf '#!/bin/sh\nexit 1\n' > "$T/probe-quiet"; chmod +x "$T/probe-quiet"
 printf '#!/bin/sh\nexit 3\n' > "$T/probe-dead"; chmod +x "$T/probe-dead"
-printf '#!/bin/sh\n[ "$1" = 99999 ] && printf "node --test tools.release-gate.test.js\\nbash tools/run-tests.sh\\n"\n' > "$T/ancestor-fixture"; chmod +x "$T/ancestor-fixture"
+printf '#!/bin/sh\n[ "$1" = '"$DEAD"' ] && printf "node --test tools.release-gate.test.js\\nbash tools/run-tests.sh\\n"\n' > "$T/ancestor-fixture"; chmod +x "$T/ancestor-fixture"
 printf '#!/bin/sh\nexit 0\n' > "$T/ancestor-none"; chmod +x "$T/ancestor-none"
 
 out="$(KOSMOS_CUT_PROBE="$T/probe-live" kosmos_refuse_if_cut_live "a full run" 2>&1)"; rc=$?
@@ -57,11 +62,11 @@ out="$(KOSMOS_CUT_SELF_PID=4242 KOSMOS_CUT_PROBE="$T/probe-self" kosmos_refuse_i
 [ "$rc" -eq 0 ] && pass "the caller's own release.sh is not a reason to refuse itself" \
   || fail "the caller's own release.sh is not a reason to refuse itself (rc=$rc, $out)"
 
-printf '#!/bin/sh\nprintf "4242 bash tools/release.sh 0.5.99\\n99999 bash tools/release.sh 0.5.98\\n"\n' > "$T/probe-two"; chmod +x "$T/probe-two"
+printf '#!/bin/sh\nprintf "4242 bash tools/release.sh 0.5.99\\n'"$DEAD"' bash tools/release.sh 0.5.98\\n"\n' > "$T/probe-two"; chmod +x "$T/probe-two"
 out="$(KOSMOS_CUT_SELF_PID=4242 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-two" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
 [ "$rc" -ne 0 ] && pass "ANOTHER cut still refuses once self is excluded" \
   || fail "excluding self also excluded a real second cut, so the guard cannot fire (rc=$rc)"
-has_pid "$out" "99999" && pass "and it names the OTHER cut, not itself" || fail "it named the wrong process: $out"
+has_pid "$out" "$DEAD" && pass "and it names the OTHER cut, not itself" || fail "it named the wrong process: $out"
 
 # Use ordinary live pids through the probe seam. A test process genuinely named
 # tools/release.sh would be visible to every agent's pgrep and could block a real
@@ -84,7 +89,7 @@ kill "$cut_self" "$cut_other" 2>/dev/null; wait "$cut_self" "$cut_other" 2>/dev/
 mkdir -p "$T/lone-lib"
 cp "$HERE/lib/cut-guard.sh" "$T/lone-lib/cut-guard.sh"
 out="$(KOSMOS_RUN_MARKER_DIR="$T/markers-empty" KOSMOS_CUT_PROBE="$T/probe-live" bash -c '. "$1" 2>/dev/null; kosmos_refuse_if_cut_live "a cut"' _ "$T/lone-lib/cut-guard.sh" 2>&1)"; rc=$?
-[ "$rc" -ne 0 ] && has_pid "$out" "99999" && pass "a missing fixture classifier keeps the candidate and refuses" \
+[ "$rc" -ne 0 ] && has_pid "$out" "$DEAD" && pass "a missing fixture classifier keeps the candidate and refuses" \
   || fail "a missing fixture classifier failed open (rc=$rc, out=$out)"
 
 # #4206 follow-up: the run-tests.sh sandbox rule (heavy-gate's) now reaches the cut guard too. A
@@ -113,12 +118,12 @@ out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/pro
 
 # #4206 follow-up: the browser-run guard reads the same fixture rule. Its self pid is one that does
 # not exist, so the self-subtree exclusion cannot be what drops a candidate here.
-printf '#!/bin/sh\nprintf "99999 bash tools/browser-checks.sh\\n"\n' > "$T/bprobe-live"; chmod +x "$T/bprobe-live"
+printf '#!/bin/sh\nprintf "'"$DEAD"' bash tools/browser-checks.sh\\n"\n' > "$T/bprobe-live"; chmod +x "$T/bprobe-live"
 out="$(KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-fixture" KOSMOS_BC_PROBE="$T/bprobe-live" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "a browser-checks.sh fixture beneath node --test is not a browser run" \
   || fail "a node --test browser-checks fixture refused the run (rc=$rc, out=$out)"
 out="$(KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_BC_PROBE="$T/bprobe-live" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
-{ [ "$rc" -ne 0 ] && has_pid "$out" "99999"; } && pass "the same browser-checks.sh without node --test ancestry still refuses, and is named" \
+{ [ "$rc" -ne 0 ] && has_pid "$out" "$DEAD"; } && pass "the same browser-checks.sh without node --test ancestry still refuses, and is named" \
   || fail "the browser guard's fixture filter hid a real run (rc=$rc, out=$out)"
 printf '#!/bin/sh\nprintf "%s bash tools/browser-checks.sh\\n"\n' "$kt_fx" > "$T/bprobe-kt"; chmod +x "$T/bprobe-kt"
 out="$(KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_BC_PROBE="$T/bprobe-kt" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
@@ -171,7 +176,8 @@ kill "$kt_script" 2>/dev/null; wait "$kt_script" 2>/dev/null
 # made: lsof and pwd -P both normalize it, so the matcher sees a single-slash path.
 # Rooted under /tmp BY NAME, not under $T: where mktemp honours TMPDIR (Linux, under run-tests.sh)
 # $T sits inside a kt<digits> folder, and a frozen tree built there would rightly read as a fixture.
-FR="$(mktemp -d /tmp/cutguard-frozen.XXXXXX)"; trap 'rm -rf "$T" "$FR"' EXIT
+FR="$(mktemp -d /tmp/cutguard-frozen.XXXXXX)" && [ -n "$FR" ] || { echo "FAIL  no frozen root (mktemp failed), so the frozen-tree arms cannot run"; exit 1; }
+trap 'rm -rf "$T" "$FR"' EXIT
 FROZEN="$FR/T//kosmos-release.msHOlx/kosmos-aad0d84cd3e8"
 mkdir -p "$FROZEN/tools"
 ( cd "$FROZEN" && exec sleep 30 ) & frozen=$!

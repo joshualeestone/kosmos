@@ -16,6 +16,11 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # would sit in a kt<digits> folder, and the real-path decoy below, a genuine browser-checks.sh run
 # from $T, would then rightly read as a unit-test fixture and stop testing the guard (#4206).
 T="$(mktemp -d /tmp/bcguard.XXXXXX)"; trap 'rm -rf "$T"' EXIT
+# A pid proven dead at runtime (#4206 review 11). The guards now run a real lsof and ancestry walk on
+# every candidate, so a fixed probe pid is only safe where it cannot be handed out: 99999 holds on
+# macOS (pids stop at 99998) but not on Linux (pid_max is often 4194304). A reused pid would need the
+# counter to wrap within this run.
+( : ) & DEAD=$!; wait "$DEAD"
 # #2271: isolate every guard call below from the SHARED machine's real run-markers. The guard checks
 # the marker dir (via _kosmos_marker_dir) IN ADDITION to KOSMOS_BC_PROBE, so on a busy box a foreign
 # browser-checks run's marker leaked PAST the process probe and RED this test inside the cut's step-3
@@ -28,7 +33,7 @@ pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }
 has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
 
-printf '#!/bin/sh\nprintf "99999 bash tools/browser-checks.sh\\n"\n' > "$T/probe-live"; chmod +x "$T/probe-live"
+printf '#!/bin/sh\nprintf "'"$DEAD"' bash tools/browser-checks.sh\\n"\n' > "$T/probe-live"; chmod +x "$T/probe-live"
 printf '#!/bin/sh\nexit 1\n' > "$T/probe-quiet"; chmod +x "$T/probe-quiet"
 printf '#!/bin/sh\nexit 3\n' > "$T/probe-dead"; chmod +x "$T/probe-dead"
 

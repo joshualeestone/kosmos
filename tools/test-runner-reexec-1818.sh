@@ -169,8 +169,13 @@ fi
 # whole cause. The arms also `-u KOSMOS_BC_SELF_PID` (a guard input:
 # kosmos_refuse_if_browser_run_live reads it to decide "self" for its subtree
 # exclusion) so no inherited value can shift what the guard treats as its own run.
+# A pid proven dead at runtime (#4206 review 11). The guards now run a real lsof and ancestry walk on
+# every candidate, so a fixed probe pid is only safe where it cannot be handed out: 99999 holds on
+# macOS (pids stop at 99998) but not on Linux (pid_max is often 4194304). A reused pid would need the
+# counter to wrap within this run.
+( : ) & DEAD=$!; wait "$DEAD"
 probe="$T/probe-live"
-printf '#!/bin/sh\nprintf "99999 bash tools/browser-checks.sh\\n"\n' > "$probe"; chmod +x "$probe"
+printf '#!/bin/sh\nprintf "'"$DEAD"' bash tools/browser-checks.sh\\n"\n' > "$probe"; chmod +x "$probe"
 
 # CONTROL: no FROZEN_RUNNER, no harness override, a live probe -> must refuse.
 out="$(cd "$REPO" && env -u KOSMOS_HARNESS_IGNORE_CUT -u KOSMOS_BC_FROZEN_RUNNER -u KOSMOS_BC_SELF_PID \

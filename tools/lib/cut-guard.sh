@@ -1,5 +1,7 @@
-# #4206: share heavy-gate's fixture rules (a node --test ancestor, and a cwd or script
-# in run-tests.sh's kt<digits> sandbox) through tools/lib/process-fixture.sh. This file
+# #4206: share heavy-gate's sandbox PATH rule (a cwd or script in run-tests.sh's
+# kt<digits> sandbox) through tools/lib/process-fixture.sh, beside a node --test ancestor check.
+# heavy-gate keeps its own cwd read and ancestry walk, and differs on purpose: it drops a pid that
+# has already exited, where these guards count it and refuse. This file
 # is sourced by Bash callers, so BASH_SOURCE resolves this library even when the
 # caller's cwd is elsewhere.
 _kosmos_cut_guard_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -64,7 +66,7 @@ _kosmos_drop_self_subtree() {
 }
 
 # Read `pid cmdline` lines and remove only proven unit-test fixtures: a node --test ancestor, or
-# a cwd or script in the run-tests.sh sandbox (the same rule heavy-gate uses). A pid whose ancestry
+# a cwd or script in the run-tests.sh sandbox (the same path rule heavy-gate uses). A pid whose ancestry
 # and cwd cannot be read stays in the list unless its script path is in the sandbox, which preserves
 # the guard's refuse-rather-than-guess posture.
 _kosmos_drop_test_fixtures() {
@@ -270,7 +272,7 @@ kosmos_refuse_if_cut_live() {
   # #4206: release gate tests execute real tools/release.sh fixtures, so their
   # command is intentionally indistinguishable from a cut. Drop a candidate that is a
   # proven unit-test fixture: a node --test ancestor, or a cwd or script in run-tests.sh's
-  # kt<digits> sandbox (tools/lib/process-fixture.sh, the rule heavy-gate uses). An
+  # kt<digits> sandbox (tools/lib/process-fixture.sh, the path rule heavy-gate uses). An
   # unreadable pid stays counted.
   if [ -n "$out" ]; then
     out="$(printf '%s\n' "$out" | _kosmos_drop_test_fixtures || true)"
@@ -331,7 +333,9 @@ kosmos_refuse_if_browser_run_live() {
     out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self" || true)"
   fi
   # #4206 follow-up: a unit test's browser-checks.sh fixture is not a run, by the same rule as
-  # the cut guard's. An unreadable pid stays in unless its script path is in the sandbox.
+  # the cut guard's. An unreadable pid stays in unless its script path is in the sandbox. This
+  # filters the process list only; the run-marker check is not filtered, and fixtures stay out of it
+  # by sandboxing HOME.
   if [ -n "$out" ]; then
     out="$(printf '%s\n' "$out" | _kosmos_drop_test_fixtures || true)"
   fi

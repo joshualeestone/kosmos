@@ -124,6 +124,19 @@ such a context), so the measurement is the evidence.
   runs in the same suite. The rule has one home, so a second copy of its boundary tests here would be
   two copies of one fact.
 
+## Review 11
+
+- The probe pid is one proven dead at runtime, in test-cut-guard.sh, test-browser-run-guard.sh and
+  test-runner-reexec-1818.sh: the guards now run a real lsof and ancestry walk on it, and 99999 is
+  only unassignable on macOS.
+- The comments say heavy-gate shares the PATH rule, not the whole rule: it keeps its own cwd read and
+  walk, and drops an exited pid where the guards count it.
+- The `||` fallbacks are described as defensive (no caller today can hit them), the regex's match on
+  any folder named T or tmp is stated as accepted, the browser filter's comment says the marker check
+  is not filtered, and a failed mktemp for the frozen root fails the test instead of rooting it at /.
+- Not changed: the live sleeps can outlive an aborted run by up to 30 seconds (the EXIT trap removes
+  directories only); harmless, and a kill in the trap would need every pid defined before it fires.
+
 ## Weakest premise
 
 The negative control runs from `/` so it cannot sit in a kt folder. A machine whose $TMPDIR were `/`
