@@ -47,3 +47,6 @@ Kosmos+ is the same case). "your Mac", as state 3 and the Kosmos+ copy say.
 navigator.onLine false is reliable, but a phone on a captive portal or a dead Wi-Fi says online
 and fails every fetch; that still reads as "your Mac is not answering". State 2's copy has to
 allow for that, since the page cannot tell those apart.
+
+## State (2026-09-27, for a restarted session)
+- Challenge loop converged at iteration 4; browser checks green on 935115ae6. The only red in its full runs is the #4159 flake (PR #4168). Next: after #4168 merges, rebase onto main, full suite, proof, PR (merge waits for the 0.7.01 page hold). PR body drafted at /tmp/pr-body-phone-offline-718.md.
