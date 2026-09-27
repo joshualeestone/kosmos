@@ -8185,6 +8185,50 @@ const server = http.createServer((req, res) => {
     // (every one of the four addresses was answered above; any other falls through to the board 404)
     return;
   }
+  /* #3939 slice 3: Meta's Muse Code. Behind AGENT_WORKFORCE_MUSE=1 on a Mac (engine/musestatus.enabled):
+     off, /api/muse says only { enabled: false } and nothing can start. The sign-in is `muse login`
+     driven out of sight (engine/musesignin.js); the screen starts it, reads the code, retries an
+     expired one, and stops it. Exact addresses (#3957). */
+  if (pathname === '/api/muse' && req.method === 'GET') {
+    const muse = require('./engine/musestatus');
+    try {
+      if (!muse.enabled()) { sendJson(res, 200, { enabled: false }); return; }
+      const inst = muse.installed();
+      const s = inst.installed ? muse.signedIn() : { signedIn: false };
+      sendJson(res, 200, { enabled: true, installed: inst.installed, because: inst.because, signedIn: s.signedIn });
+    } catch { sendJson(res, 500, { error: 'we could not check Muse Code just now' }); }
+    return;
+  }
+  if (pathname === '/api/muse/signin' || pathname === '/api/muse/signin/retry' || pathname === '/api/muse/signin/stop') {
+    const signin = require('./engine/musesignin');
+    const sub = pathname.slice('/api/muse/signin'.length);
+    if (sub === '' && req.method === 'GET') {
+      try { sendJson(res, 200, signin.status()); } catch { sendJson(res, 500, { error: 'we could not read the sign-in just now' }); }
+      return;
+    }
+    if (req.method !== 'POST') { req.resume(); sendJson(res, 405, { error: 'that is not something this address does' }); return; }
+    const refusal = (r) => (r.because === signin.NOT_MINE ? 409 : 400);
+    if (sub === '') {
+      req.resume();
+      let r;
+      try { r = signin.start(); } catch (e) {
+        if (require('./engine/live-execution').inTestProcess() && /for real inside a test/.test(String(e && e.message))) throw e;
+        sendJson(res, 500, { ok: false, error: 'Kosmos could not start Muse Code\'s sign-in just now' }); return;
+      }
+      sendJson(res, r.ok ? 200 : 400, r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
+      return;
+    }
+    // Retry and Stop name the sign-in they mean, so one tab never acts on a sign-in another tab started.
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      const id = body && typeof body.id === 'string' ? body.id : '';
+      let r;
+      try { r = sub === '/retry' ? signin.retry(id) : signin.stop(id); } catch { sendJson(res, 500, { ok: false, error: 'Kosmos could not reach the sign-in just now' }); return; }
+      sendJson(res, r.ok ? 200 : refusal(r), r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
+    }).catch(() => sendJson(res, 400, { ok: false, error: 'we could not read that request' }));
+    return;
+  }
   /**
    * Start (or join) a runner install. Idempotent on purpose: a second
    * Confirm while a download runs gets the RUNNING job, and Confirm on an
