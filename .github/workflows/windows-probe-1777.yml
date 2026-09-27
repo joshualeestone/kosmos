@@ -12,7 +12,7 @@ permissions:
 jobs:
   probe:
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
@@ -40,8 +40,8 @@ jobs:
           while IFS= read -r f; do
             [ -n "$f" ] || continue
             start=$(date +%s)
-            if timeout 300 node --test "$f" > out.txt 2>&1; then r=PASS; pass=$((pass+1)); else r="FAIL($?)"; fail=$((fail+1)); fi
+            if timeout 300 node --test "$f" < /dev/null > out.txt 2>&1; then r=PASS; pass=$((pass+1)); else r="FAIL($?)"; fail=$((fail+1)); fi
             echo "$r $(( $(date +%s) - start ))s $f" | tee -a probe-result.txt
-            case "$r" in FAIL*) grep -E "^not ok|# (tests|pass|fail)|Error|error" out.txt | head -12 | sed 's/^/    /' ;; esac
+            case "$r" in FAIL*) grep -E "^not ok|^# (tests|pass|fail) |^✖|Error" out.txt | head -25 | sed 's/^/    /' ;; esac
           done < probe-files.txt
           echo "TOTAL pass=$pass fail=$fail"
