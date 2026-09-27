@@ -1,0 +1,10 @@
+// The ONE place the Apple Team ID lives (#3643). Both build configurations of the Kosmos target
+// read it (project.pbxproj baseConfigurationReference), and tools/archive.sh reads it for the
+// export, so the day Apple approves Kosmos Agent Manager, Inc. this line is the whole change:
+//
+//     DEVELOPMENT_TEAM = ABCDE12345
+//
+// Empty until then. Simulator builds and CI sign nothing, so they do not need it; archive.sh
+// refuses to run while it is empty. Any other team gives device tokens the coordinator's push
+// key cannot send to (docs/phone-push-go-live.md, Step 4).
+DEVELOPMENT_TEAM =

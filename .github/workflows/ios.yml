@@ -9,7 +9,9 @@
 # WHAT GREEN CERTIFIES: the UIKit-free logic (ios/LogicTests/run.sh lists the
 # files) passes its suite on macOS,
 # the app compiles and links for the simulator with signing off (Debug and
-# Release), and both built apps carry the four permission strings. It does NOT
+# Release), both built apps carry the four permission strings, the Release app
+# carries the app icon and the navy launch screen (#3643), and the .ipa
+# entitlements check archive.sh relies on can both pass and fail. It does NOT
 # certify running on a simulator or device, a signed build, or APNs delivery.
 
 name: ios
@@ -47,6 +49,9 @@ jobs:
         run: |
           xcodebuild -version
           xcrun swiftc --version
+          # #3643: the app icon's asset catalog compiles only with an iOS simulator runtime
+          # installed. Printed so a red asset step can be told apart from a runner without one.
+          xcrun simctl list runtimes
 
       # The suite prints one VERDICT line last. Assert that line, not only the exit
       # code, so a run cut off before it cannot read as green.
@@ -78,3 +83,39 @@ jobs:
             tools/check-usage-strings.sh "build/$config-iphonesimulator/Kosmos.app/Info.plist" | tee "$RUNNER_TEMP/usage-$config.log"
             grep -q '^VERDICT: PASS' "$RUNNER_TEMP/usage-$config.log"
           done
+
+      # #3643: the app icon and the navy launch screen, read from the Release app just built
+      # (the store build is Release). This is the step that needs the simulator runtime.
+      - name: App icon and launch screen are in the built app
+        working-directory: ios
+        run: |
+          set -o pipefail
+          tools/check-app-assets.sh build/Release-iphonesimulator/Kosmos.app | tee "$RUNNER_TEMP/assets.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/assets.log"
+
+      # #3643: archive.sh refuses to upload unless the exported .ipa's push entitlement is
+      # production. Nothing can be exported here (no team, no signing), so the checker it relies
+      # on is proven against two ad-hoc-signed stand-ins: production must pass, development must fail.
+      - name: The .ipa entitlements check can pass and can fail
+        run: |
+          set -o pipefail
+          work="$RUNNER_TEMP/ipa"
+          mkdir -p "$work"
+          printf 'int main(void){return 0;}\n' > "$work/m.c"
+          clang -o "$work/bin" "$work/m.c"
+          make_ipa() {
+            rm -rf "$work/P"; mkdir -p "$work/P/Payload/Kosmos.app"
+            cp "$work/bin" "$work/P/Payload/Kosmos.app/Kosmos"
+            printf '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>aps-environment</key><string>%s</string></dict></plist>' "$2" > "$work/e.plist"
+            codesign -f -s - --entitlements "$work/e.plist" "$work/P/Payload/Kosmos.app"
+            (cd "$work/P" && zip -qr "$work/$1.ipa" Payload)
+          }
+          make_ipa prod production
+          make_ipa dev development
+          ios/tools/check-ipa-entitlements.sh "$work/prod.ipa" | tee "$work/prod.log"
+          grep -q '^VERDICT: PASS' "$work/prod.log"
+          if ios/tools/check-ipa-entitlements.sh "$work/dev.ipa" > "$work/dev.log"; then
+            echo "a development-signed .ipa passed the check"; cat "$work/dev.log"; exit 1
+          fi
+          grep -q '^VERDICT: FAIL' "$work/dev.log"
+          echo "production passes, development fails"

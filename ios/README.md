@@ -59,23 +59,29 @@ xcodebuild -project Kosmos.xcodeproj -target Kosmos -sdk iphoneos26.5 \
 Verified green on this box (Xcode 26.6, iOS SDK 26.5) producing
 `build/Debug-iphoneos/Kosmos.app`.
 
-## Buildable, not yet runnable, and no committed app icon (both gated on the same thing)
+## The app icon needs the iOS simulator runtime to build (#3643)
 
-`xcrun simctl list runtimes` is empty: no iOS simulator runtimes are installed,
-and the device *platform* support that `-scheme`/`-destination` wants is not
-installed either. Installing it is `xcodebuild -downloadPlatform iOS`, a large
-admin download and a **Josh operator action**. Two consequences, both waiting on
-that one step:
+`xcrun simctl list runtimes` is empty on the fleet Macs: no iOS simulator runtimes are installed.
+Compiling an app-icon asset catalog triggers per-device *thinning*, which queries those runtimes
+and fails (`No available simulator runtimes for platform iphonesimulator`). So:
 
-1. **Running** the app in a simulator is a separate later step.
-2. **The app icon is deferred.** Compiling an app-icon asset catalog triggers
-   per-device *thinning*, which queries the (absent) platform runtimes and
-   fails (`No available simulator runtimes for platform iphonesimulator`). So
-   this skeleton ships with no wired app icon. Once the platform is installed,
-   add an `AppIcon` asset catalog and set `ASSETCATALOG_COMPILER_APPICON_NAME`. The artwork is
-   `assets/Kosmos-1024.png` (1024 px, full bleed, no transparency, as iOS wants).
+1. **On a Mac without the runtime the app no longer builds**, because `Kosmos/Assets.xcassets`
+   holds the app icon (from `assets/Kosmos-1024.png`) and the navy launch colour. Install it with
+   `xcodebuild -downloadPlatform iOS` (a large download, a Josh action on the fleet Macs) or rely
+   on CI.
+2. **CI builds it.** The GitHub macOS runner has the runtime; `.github/workflows/ios.yml` compiles
+   the catalog and checks the icon and launch screen in the built app
+   (`tools/check-app-assets.sh`).
+3. **Running** the app in a simulator also needs the runtime.
 
-Neither blocks the build deliverable, which is compile+link against the SDK.
+## Release: archive, export and upload (#3643)
+
+- **Team ID:** `Team.xcconfig`, the only place it is set. Empty until Apple approves the company.
+- **`tools/archive.sh`:** archives Release, exports a signed `.ipa` with `ExportOptions.plist`,
+  prints its entitlements and stops unless push is `production`
+  (`tools/check-ipa-entitlements.sh`). `--upload` then sends it to App Store Connect; without it
+  nothing leaves the Mac. The steps that wait on approval are in `docs/phone-push-go-live.md`,
+  Step 4.
 
 ## Push: how the app registers for notifications (#718)
 
@@ -126,8 +132,8 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
 - **No white flash:** the WebView is navy until the first page paints. Safe areas behave as in
   Safari: a page that opts in with `viewport-fit=cover` (sign-in, the gate) pads for the notch and
   home bar itself, and WebKit keeps any other page (the board today) clear of them.
-- **Not yet:** a navy launch screen needs an asset catalog or a launch storyboard, and both need
-  the iOS platform installed (see "Buildable, not yet runnable" above).
+- **Launch screen:** navy (`LaunchBackground` in `Kosmos/Assets.xcassets`, named by
+  `Kosmos-Info.plist`), so launch, the WebView and the sign-in page are one colour.
 
 ### Tests that run without a simulator
 

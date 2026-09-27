@@ -8,6 +8,8 @@
 
 /* Begin PBXFileReference section */
 		K0000000000000000000002 /* Kosmos.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Kosmos.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		K0000000000000000000020 /* Team.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Team.xcconfig; sourceTree = "<group>"; };
+		K0000000000000000000021 /* Kosmos-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Kosmos-Info.plist"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -33,6 +35,8 @@
 			isa = PBXGroup;
 			children = (
 				K0000000000000000000001 /* Kosmos */,
+				K0000000000000000000020 /* Team.xcconfig */,
+				K0000000000000000000021 /* Kosmos-Info.plist */,
 				K0000000000000000000005 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -177,7 +181,9 @@
 		};
 		K000000000000000000000E /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = K0000000000000000000020 /* Team.xcconfig */;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
@@ -188,7 +194,7 @@
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Kosmos saves images you choose to your Photos.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_FILE = "Kosmos-Info.plist";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -206,7 +212,9 @@
 		};
 		K000000000000000000000F /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = K0000000000000000000020 /* Team.xcconfig */;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
@@ -217,7 +225,7 @@
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Kosmos saves images you choose to your Photos.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_FILE = "Kosmos-Info.plist";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
