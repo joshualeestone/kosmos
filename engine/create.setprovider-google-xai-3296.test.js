@@ -243,9 +243,12 @@ test('#3568: switching to Antigravity is refused with the flag off and allowed w
     assert.equal(acct.outcome, create.OUTCOME.REFUSED);
     assert.match(acct.because, /cannot be given an account/);
     assert.notEqual((create.readJob(withAcct) || {}).runner, 'antigravity', 'a refused switch must not rewrite the job');
-    // Windows has no Antigravity launch path: the switch refuses there, as create and installJob do.
+    // #3568: with its Windows switch OFF (engine/win32agy.js; on by default) the switch refuses there, as create and installJob do.
     const other = born('sw-agy-win', 'claude');
-    const win = create.setProvider(other, 'antigravity', { ...BINS, antigravityBin: AGY_BIN, platform: 'win32' });
+    require('./win32agy').setSwitchForTests(() => false);
+    let win;
+    try { win = create.setProvider(other, 'antigravity', { ...BINS, antigravityBin: AGY_BIN, platform: 'win32' }); }
+    finally { require('./win32agy').setSwitchForTests(null); }
     assert.equal(win.outcome, create.OUTCOME.REFUSED);
     assert.match(win.because, /Windows/);
     assert.notEqual((create.readJob(other) || {}).runner, 'antigravity', 'a refused switch must not rewrite the job');

@@ -914,6 +914,9 @@ function describe(project, roster, all) {
       state: (card && card.isNamedOurs) ? card.state : 'unknown',
       /* #4006: its needs_you is a restart that did not come back, not a question (the thread must not claim one). */
       restartFailed: Boolean(card && card.isNamedOurs && card.disruption && card.disruption.failed === true),
+      /* #4034: which program runs it, so the project thread can find a Gemini question box (chat.questionIn). Same
+         tied gate as `state`: a pane we cannot tie to this name is not known to be this agent's program. */
+      runner: (card && card.isNamedOurs && typeof card.runner === 'string' && card.runner) ? card.runner : null,
       /* #763/#2837: the project the member's state is about, when it said -- a
          needs_you question (#763) or a working state (#2837). */
       stateProject: (card && card.isNamedOurs && typeof card.stateProject === 'string' && card.stateProject && (knownIds === null || knownIds.has(card.stateProject))) ? card.stateProject : null,

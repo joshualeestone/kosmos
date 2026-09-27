@@ -1,4 +1,4 @@
-// Browser-check-surface: create-kind create-swarm create-swarm-max create-swarm-cap create-swarm-cap-sub create-swarm-warn d-swarm d-swarm-panel d-swarm-stop d-swarm-max d-swarm-cap d-swarm-cap-sub d-swarm-why swmini swc
+// Browser-check-surface: orgmap create-kind create-swarm create-swarm-max create-swarm-cap create-swarm-cap-sub create-swarm-warn d-swarm d-swarm-panel d-swarm-stop d-swarm-max d-swarm-cap d-swarm-cap-sub d-swarm-why swmini swc
 'use strict';
 
 /**
@@ -62,6 +62,7 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     let crewState = null;
     let crewNoSwarm = false;   // S28: the crew's row without its swarm field
     let putFail = null;   // S26: an answer that refuses the change   // S23: the crew's board state (null = as the fleet says)   // S11: no poll may land while it checks the merge
+    let orgBranch = false;
     let crewSwarm = { maxHelpers: 5, activeHelpers: 3, tokensToday: 2461380, dailyTokenLimit: 6000000, active: true, pausedBecause: null, helperTokenRatio: null, metered: true };
     await page.route('**/api/status', async (route) => {
       while (holdStatus) await new Promise((res) => setTimeout(res, 100));
@@ -70,9 +71,15 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       if (engineOn) {
         j.swarms = true;
         for (const a of j.agents || []) { if (a.sessionName === 'crew' && crewState) a.state = crewState; }
+        /* S40 (#4040): a branch, hub > crew (a swarm) > rex > crew2 (a two-helper swarm, the least round cluster,
+           at the end of it). */
+        if (orgBranch) for (const a of j.agents || []) {
+          if (a.sessionName === 'rex') a.profile = { ...(a.profile || {}), reportsTo: 'crew' };
+          if (a.sessionName === 'crew2') a.profile = { ...(a.profile || {}), reportsTo: 'rex' };
+        }
         if (crewNoSwarm) { for (const a of j.agents || []) if (a.sessionName === 'crew') { delete a.swarm; a.__noSwarm = true; } }
         for (const a of j.agents || []) if (!a.__noSwarm) a.swarm = a.sessionName === 'crew' ? { ...crewSwarm }
-          : a.sessionName === 'crew2' ? { maxHelpers: 4, activeHelpers: 1, tokensToday: 1000, dailyTokenLimit: 2000000, active: true, pausedBecause: null, helperTokenRatio: null, metered: true } : null;
+          : a.sessionName === 'crew2' ? { maxHelpers: orgBranch ? 2 : 4, activeHelpers: 1, tokensToday: 1000, dailyTokenLimit: 2000000, active: true, pausedBecause: null, helperTokenRatio: null, metered: true } : null;
       } else {
         /* The engine is on main now and always answers; "without the engine" is a board from before it, which
            sends neither the flag nor the field. */
@@ -342,6 +349,78 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     chk(same(listDraw), 'S31 the list row draws the swarm as the grid does: five circles, the same picture, no badge, not clipped (#3946)', JSON.stringify({ gridDraw, listDraw }));
     chk(same(orgDraw), 'S31 the org chart node draws the swarm as the grid does: five circles, the same picture, no badge, not clipped (#3946)', JSON.stringify({ gridDraw, orgDraw }));
 
+    // S40 (#4040, Josh: the connecting line "goes above agent clusters avatars"): no wire reaches into any node's
+    // picture. A cluster has no opaque disc behind it, so z-order cannot hide a wire there (the page's wires are
+    // already under the nodes, which is why elementFromPoint cannot see this); the wire has to stop at the edge.
+    // Measured on a branch: a swarm under the hub, an agent under it, and a swarm at the end of the branch.
+    orgBranch = true;
+    await page.click('[data-scope="agents"] .vt[data-layout="org"]');
+    /* Every agent has a wire to the hub before the branch arrives (reportsTo rides the next /api/status poll), so
+       wait until the branch is DRAWN: rex's wire starts nearer crew than the hub, and crew2's nearer rex. */
+    chk(await waitFor(page, () => {
+      const map = document.getElementById('orgmap');
+      const svg = map && map.querySelector('svg');
+      const w = (n) => map.querySelector('line[data-for="' + n + '"]');
+      const c = (sel) => { const e = map.querySelector(sel); if (!e) return null; const b = e.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; };
+      if (!svg || !w('rex') || !w('crew2')) return false;
+      const r = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal, k = vb && vb.width ? r.width / vb.width : 1;
+      const start = (l) => ({ x: r.left + Number(l.getAttribute('x1')) * k, y: r.top + Number(l.getAttribute('y1')) * k });
+      const hub = c('.hub'), crew = c('.onode[data-agent="crew"]'), rex = c('.onode[data-agent="rex"]');
+      if (!hub || !crew || !rex) return false;
+      const d = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
+      return d(start(w('rex')), crew) < d(start(w('rex')), hub) && d(start(w('crew2')), rex) < d(start(w('crew2')), hub);
+    }, null, 20000), 'S40 precondition: the branch is drawn (rex wired from crew, crew2 from rex), not the flat ring');
+    await page.waitForTimeout(1500);   // let the layout settle; the read below is one frame either way
+    /* Measured against what is DRAWN: every circle of every cluster, and every agent's disc. A wire may not come
+       within a drawn circle (a pixel of antialiasing allowed). */
+    const s40 = await page.evaluate(() => {
+      const map = document.getElementById('orgmap');
+      const svg = map.querySelector('svg');
+      const r = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal, k = vb && vb.width ? r.width / vb.width : 1;
+      const at = (x, y) => ({ x: r.left + Number(x) * k, y: r.top + Number(y) * k });
+      const round = (e) => { const b = e.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2, r: Math.min(b.width, b.height) / 2 }; };
+      const drawn = [];
+      for (const n of map.querySelectorAll('.onode')) {
+        const circles = [...n.querySelectorAll('.face > .swc .swd')];
+        if (circles.length) for (const g of circles) drawn.push({ who: n.dataset.agent + ' circle', ...round(g) });
+        else drawn.push({ who: n.dataset.agent + ' disc', ...round(n.querySelector('.face')) });
+      }
+      const wires = [...map.querySelectorAll('line[data-for]')].filter((l) => l.getAttribute('visibility') !== 'hidden')
+        .map((l) => ({ who: l.dataset.for, a: at(l.getAttribute('x1'), l.getAttribute('y1')), b: at(l.getAttribute('x2'), l.getAttribute('y2')) }));
+      const dist = (p, a, b) => { const dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy;
+        const t = L2 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / L2)) : 0;
+        return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy)); };
+      /* Every cluster circle, and the discs at the wire's own two ends: an unrelated agent's opaque disc hides a
+         wire passing under it, which is not what #4040 is about. */
+      const ends = (w) => [w.who, ({ rex: 'crew', crew2: 'rex' })[w.who]];
+      const into = [];
+      for (const w of wires) for (const c of drawn) {
+        if (c.who.endsWith(' disc') && !ends(w).includes(c.who.split(' ')[0])) continue;
+        const d = dist(c, w.a, w.b); if (d < c.r - 1) into.push(w.who + ' into ' + c.who + ' ' + d.toFixed(1) + '<' + c.r.toFixed(1));
+      }
+      /* And both ends reach their pictures: a wire ending well short of its node reads as detached. The child
+         end is the wire's own node; the parent end is the branch's (rex under crew, crew2 under rex). */
+      const parentOf = { rex: 'crew', crew2: 'rex' };
+      const short = (who, p) => { const own = drawn.filter((c) => c.who.startsWith(who + ' '));
+        return Math.min(...own.map((c) => Math.hypot(c.x - p.x, c.y - p.y) - c.r)); };
+      const gap = [];
+      for (const w of wires) {
+        const near = short(w.who, w.b);
+        if (!(near < 6)) gap.push(w.who + ' ends ' + near.toFixed(1) + 'px short of ' + w.who);
+        if (parentOf[w.who]) { const far = short(parentOf[w.who], w.a); if (!(far < 6)) gap.push(w.who + ' starts ' + far.toFixed(1) + 'px short of ' + parentOf[w.who]); }
+      }
+      return { wires: wires.map((w) => w.who), clusters: [...new Set(drawn.filter((c) => c.who.endsWith('circle')).map((c) => c.who.split(' ')[0]))], into, gap };
+    });
+    chk(s40.clusters.includes('crew') && s40.clusters.includes('crew2') && ['crew', 'rex', 'crew2'].every((w) => s40.wires.includes(w)),
+      'S40 precondition: two clusters on the chart, and a wire to each of crew, rex and crew2', JSON.stringify(s40));
+    chk(s40.into.length === 0, 'S40 no wire runs into a drawn circle or disc: each stops at the node\'s edge (#4040)', JSON.stringify(s40.into));
+    chk(s40.gap.length === 0, 'S40 and each wire still reaches both its nodes: neither end is more than 6px short of its picture', JSON.stringify(s40.gap));
+    orgBranch = false;
+    await page.click('[data-scope="agents"] .vt[data-layout="grid"]');
+    /* The reset rides the next /api/status poll: wait until it has landed (crew2 back to four circles) so no later
+       arm reads S40's branch or its two-helper crew2. */
+    chk(await waitFor(page, () => document.querySelectorAll('#grid [data-agent="crew2"] .swd').length === 4, null, 20000),
+      'S40 teardown: the next poll has put crew2 back to four helpers', await page.evaluate(() => document.querySelectorAll('#grid [data-agent="crew2"] .swd').length));
     // S41 (#4052, Josh: hovering other agents on the org chart makes the cluster icons "jiggle and shift about maybe 1
     // or 2 pixels"): hovering any agent moves no cluster's box (the hovered one included), and not a single pixel of
     // a cluster it is not on. The pixels are the point: a box that does not move can still be drawn a pixel over (a

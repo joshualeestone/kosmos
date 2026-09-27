@@ -98,10 +98,12 @@ function superviseCodexStreaming(spec, opts) {
   const stream = o.stream || NO_STREAM;
   const mayStart = typeof o.mayStart === 'function' ? o.mayStart : () => true;
   /* Which per-turn runner this is. Anything but gemini/grok is codex, as before. */
-  const runner = win32keyed.isKeyedRunner(s.runner) ? String(s.runner) : 'codex';
+  /* #3568: 'antigravity' (Google's agy) is per-turn too, through engine/win32agy.js. */
+  const runner = win32keyed.isKeyedRunner(s.runner) || s.runner === 'antigravity' ? String(s.runner) : 'codex';
   const runTurn = typeof o.runTurn === 'function' ? o.runTurn
     : runner === 'codex' ? win32codex.runCodexTurn
-      : (t) => win32keyed.runKeyedTurn(Object.assign({ runner }, t));
+      : runner === 'antigravity' ? (t) => require('./win32agy').runAgyTurn(Object.assign({ name: s.name }, t))
+        : (t) => win32keyed.runKeyedTurn(Object.assign({ runner }, t));
   const prepare = typeof o.prepare === 'function' ? o.prepare : (meta) => win32create.prepareSession(meta);
   const retireRun = typeof o.retireRun === 'function' ? o.retireRun
     : (name, instance) => win32create.retireRun(name, instance);
@@ -158,7 +160,8 @@ function superviseCodexStreaming(spec, opts) {
        same helper a streaming claude child uses, so the account rule cannot drift. */
     turnEnv = o.env || win32launch.childEnv(process.env, p.token, s.configDir, cliDir, runner);
     /* gemini/grok: the account's key (or none, for a Grok subscription), see win32keyed. */
-    if (!o.env && runner !== 'codex') turnEnv = win32keyed.turnEnv(runner, turnEnv, s.configDir || null);
+    if (!o.env && runner === 'antigravity') turnEnv = require('./win32agy').turnEnv(turnEnv);
+    else if (!o.env && runner !== 'codex') turnEnv = win32keyed.turnEnv(runner, turnEnv, s.configDir || null);
     /* Idle until it is told something -- measured true of a streaming claude agent,
        and true here: nothing runs until a message arrives. Presence is stamped now
        (pid + id), which is what makes `win32codexlive` see this agent as up. */
