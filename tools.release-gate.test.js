@@ -263,6 +263,17 @@ test('standing at 0.6.99, 0.7.00 gets through', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('#4046: standing at 0.6.99, 0.7.01 gets through (each platform takes the next free number)', () => {
+  /* Baron's ruling on #4046: Windows took 0.7.00, so the Mac opens the 0.7 line at 0.7.01. Measured
+     on the card; pinned here so the guard's comment and its code cannot drift apart again. */
+  const dir = sandbox('0.6.99');
+  const r = run(dir, '0.7.01');
+  assert.match(r.said, /no site checkout at/, r.said.slice(0, 300));
+  assert.ok(!/last of the 0\.6 line|past the end/.test(r.said), r.said.slice(0, 300));
+  assert.equal(r.touched, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('standing at 0.6.99, the unpadded 0.7.0 is refused', () => {
   /* 🛑 The likeliest thing to be typed, because it is the ordinary spelling
      everywhere else in software, and it is the exact failure the padded scheme
