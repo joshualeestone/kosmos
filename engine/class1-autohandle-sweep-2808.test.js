@@ -239,3 +239,17 @@ test('#4169: the log record names the arm that fired and the prompt behind it', 
     assert.match(logged[0].prompt, /^Quick safety check:/, 'the log does not name the screen line behind the restart');
   } finally { b.restore(); }
 });
+
+test('#4169: an ESCALATE log record names the arm and the prompt too', () => {
+  const b = installBoard([{ name: 'escstuck', paneState: 'needs_you', screen: TRUST_DIALOG_SCREEN }]);
+  try {
+    const d = fakeDeps();
+    const book = new Map();
+    const logged = [];
+    for (const now of [1_000, 2_000, 3_000]) class1.sweepOnce({ roster: b.agents, attempts: book, now, ...d, log: (r) => logged.push(r) });
+    const esc = logged.find((r) => r.act === 'escalate');
+    assert.ok(esc, 'setup: the third tick did not escalate: ' + JSON.stringify(logged.map((r) => r.act)));
+    assert.equal(esc.arm, 'trust-dialog');
+    assert.match(esc.prompt, /^Quick safety check:/);
+  } finally { b.restore(); }
+});

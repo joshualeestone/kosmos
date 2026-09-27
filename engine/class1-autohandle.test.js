@@ -310,7 +310,7 @@ test('#4169: a by:auto card ALONE (the hook\'s tool-permission prompt) is NOT cl
   assert.equal(s.arm, 'tool-permission');
   assert.notEqual(s.by, 'auto', 'a tool-permission prompt was mapped to the class-1 marker');
   assert.equal(isClass1(s), false);
-  assert.equal(s.prompt, 'asking permission to use Bash: kill 4242', 'the log line cannot name the prompt');
+  assert.equal(s.prompt, 'asking permission to use Bash', 'the prompt must name the tool and never carry the command line (it can hold a secret)');
   assert.equal(planClass1Handle(s, [], Date.now()).act, 'none', 'a tool-permission prompt was planned for trust-and-restart');
   // The same, with the scrape predicate supplied but the screen NOT showing the trust dialog.
   assert.equal(planClass1Handle(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', stateEvidence: 'Do you want to proceed?' }, isTrustDialogEvidence), [], Date.now()).act, 'none');
@@ -360,7 +360,7 @@ test('DEFENSE-IN-DEPTH standingFromAgent: a self-reported by:agent is NOT promot
 test('DEFENSE-IN-DEPTH standingFromAgent: a self-reported by:operator is likewise not promoted by a trust scrape', () => {
   assert.equal(isClass1(standingFromAgent({ state: 'needs_you', stateReportedBy: 'operator', stateEvidence: TRUST_ROW }, isTrustDialogEvidence)), false);
 });
-test('CONTROL standingFromAgent: with NO isTrustDialogEvidence dep, only by:auto fires (a scrape does not)', () => {
+test('CONTROL standingFromAgent: with NO isTrustDialogEvidence dep, nothing fires (a scrape needs the dep; #4169: by:auto alone never did since)', () => {
   assert.equal(isClass1(standingFromAgent({ state: 'needs_you', stateReportedBy: null, stateEvidence: TRUST_ROW })), false);
 });
 test('CONTROL standingFromAgent: an operator/legacy card is NOT class-1', () => {

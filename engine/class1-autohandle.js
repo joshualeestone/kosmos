@@ -332,7 +332,10 @@ function standingFromAgent(agent, isTrustDialogEvidence) {
   const runner = agent && typeof agent.runner === 'string' ? agent.runner : (agent && agent.runner === null ? null : '');
   /* What the log names (#4169: which arm fired, and the prompt behind it). Only a trust-dialog plan is ever logged
      today; the tool-permission prompt is filled too, for a caller that wants to say what it left alone. */
-  const prompt = String((arm === 'trust-dialog' ? agent.stateEvidence : agent && agent.because) || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  /* A tool prompt's report carries the whole command line, which can hold a secret (a token in a curl header), so only
+     the part before the command ("asking permission to use Bash") is kept; the trust dialog's line is a fixed screen. */
+  const said = arm === 'trust-dialog' ? agent.stateEvidence : String((agent && agent.because) || '').split(':')[0];
+  const prompt = String(said || '').replace(/\s+/g, ' ').trim().slice(0, 120);
   return { found: true, state: agent && agent.state, by, runner, arm, prompt };
 }
 
