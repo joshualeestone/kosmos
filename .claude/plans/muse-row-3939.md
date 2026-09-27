@@ -95,3 +95,28 @@ others.
 - N1: the wall-clock limit is stated in signedIn's comment (a clock stepped back can
   misorder records made within the step). N2: docstring lists a new credential in
   Muse's file as a restore. N3: the sign-in tests remove the note in setup.
+
+## Review round 6 (sonnet): 1 blocker, 1 warning, 2 nits -- redesign to append-only events
+- BLOCKER FIXED: every earlier round tested ordering inside ONE process; two board
+  processes (they share this folder) could interleave a read-decide-write, leaving an
+  older note on disk or deleting a newer one (both reproduced). Records are now
+  append-only EVENTS: each observation is its own file, created once by rename, with
+  its kind and integer time in the NAME. The answer is a pure read (latest mark vs
+  latest note, tie signed out), so a late or out-of-order write is simply not the
+  latest. Nothing is rewritten; the only deletes are pruning events older than the
+  newest of their own kind, which can never change the answer, and slice 3a's single
+  mark file when a save fails (nothing writes it any more). Tested by placing events
+  straight into the folder in both arrival orders.
+- WARNING (decided, recorded as a premise): the digest hashes the whole meta entry. If
+  Muse keeps a self-updating field there (lastUsed, a refreshed expiry), the file backend
+  would read a still-refused credential as new. The entry's shape has never been
+  captured, and on a Mac the sign-in lives in the Keychain (the #3939 Mortals run), so
+  the file branch is not reached while Muse is Mac only. Revisit with a real capture.
+- NITs: crypto required once at the top; the atomic-write comment no longer implies it
+  solves ordering (ordering is the events' job).
+- Kosmos's own sign-in and a failed save now go through musestatus (markKosmosSignedIn,
+  markSaveFailed), so there is one writer for the folder.
+
+## Weakest premise (updated)
+Two: that "missing meta credential" is the only way Muse reports a lost sign-in, and
+that Muse's meta entry in auth.json has no self-updating field (file backend only).

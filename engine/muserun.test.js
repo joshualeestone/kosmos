@@ -282,7 +282,7 @@ test('#3939 round 3: on anything but a Mac, runTurn refuses before running anyth
 test('#3939 3c-1: a refused turn ends the signed-in answer; a crash does not; a sign-in during the turn survives; a completed turn restores it', { timeout: 30000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
   const musestatus = require('./musestatus');
   const markIn = () => { fs.mkdirSync(musestatus.signinFolder(), { recursive: true }); fs.writeFileSync(musestatus.signedInMarker(), '{}\n'); };
-  const clean = () => { fs.rmSync(musestatus.signedInMarker(), { force: true }); fs.rmSync(musestatus.signedOutMarker(), { force: true }); };
+  const clean = () => { fs.rmSync(musestatus.signedInMarker(), { force: true }); fs.rmSync(musestatus.eventsFolder(), { recursive: true, force: true }); };
   const was = process.env.XDG_CONFIG_HOME;
   process.env.XDG_CONFIG_HOME = fs.mkdtempSync(path.join(SANDBOX, 'xdg-'));   // never the real auth.json (round 1)
   gate.allowLiveExecution();

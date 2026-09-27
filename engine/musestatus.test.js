@@ -130,10 +130,9 @@ test('#3939 round 2: version() resolves (never rejects) even if finding muse thr
   } finally { runners.resolveBin = real; }
 });
 
-/* ---- #3939 slice 3c-1: what Kosmos has seen about the credential ------------------------------ */
-/* Times are set INSIDE the records, never through file mtimes: an mtime keeps fractions of a
-   millisecond that Date.now() drops, which made an earlier version of these tests fail at random
-   (review round 3). */
+/* ---- #3939 slice 3c-1: what Kosmos has seen about the credential, as events -------------------- */
+/* Times are explicit (a fixed clock), never file mtimes: an mtime keeps fractions of a millisecond
+   that Date.now() drops (review round 3). */
 
 const withXdg = (fn) => {
   const was = process.env.XDG_CONFIG_HOME;
@@ -147,67 +146,89 @@ const writeAuth = (xdg, text) => {
   fs.writeFileSync(f, typeof text === 'string' ? text : JSON.stringify({ providers: text }));
   return f;
 };
-const clean = () => { fs.rmSync(muse.signedInMarker(), { force: true }); fs.rmSync(muse.signedOutMarker(), { force: true }); };
-const markAt = (ms) => { fs.mkdirSync(muse.signinFolder(), { recursive: true }); fs.writeFileSync(muse.signedInMarker(), JSON.stringify({ at: ms }) + '\n'); };
-const T = 1700000000000;   // a fixed clock: every ordering below is explicit
+const clean = () => { fs.rmSync(muse.signedInMarker(), { force: true }); fs.rmSync(muse.eventsFolder(), { recursive: true, force: true }); };
+const T = 1700000000000;
+// An event written straight into the folder, as another board process would: the order of arrival is the test's.
+const place = (kind, at, body) => {
+  fs.mkdirSync(muse.eventsFolder(), { recursive: true });
+  fs.writeFileSync(path.join(muse.eventsFolder(), String(at).padStart(15, '0') + '-' + kind + '-9.' + Math.random().toString(36).slice(2, 8) + '.json'), body === undefined ? '{}\n' : body);
+};
+const events = () => fs.readdirSync(muse.eventsFolder()).filter((n) => n.endsWith('.json') && !n.startsWith('.'));
 
 test('#3939 3c-1: a refusal ends an earlier mark; a mark after it wins; a tie is signed out', () => withXdg(() => {
   clean();
-  markAt(T);
+  muse.markKosmosSignedIn(T);
   assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'kosmos' }, 'CONTROL: signed in before');
   assert.equal(muse.markSignedOut(T + 10), true);
   assert.deepEqual(muse.signedIn(), { signedIn: false, how: null }, 'the mark outlived a refused turn');
-  markAt(T + 20);
+  muse.markKosmosSignedIn(T + 20);
   assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'kosmos' }, 'a mark after the refusal was not believed');
-  markAt(T + 10);
+  clean();
+  muse.markKosmosSignedIn(T + 10); place('note', T + 10);
   assert.equal(muse.signedIn().signedIn, false, 'a mark at the same moment as the refusal read as signed in');
   clean();
 }));
 
-test('#3939 3c-1: a refusal from a turn that began BEFORE a sign-in finished does not undo it (round 1)', () => withXdg(() => {
+test('#3939 3c-1: a refusal from a turn that began BEFORE a sign-in finished writes nothing (round 1)', () => withXdg(() => {
   clean();
-  markAt(T + 50);
-  assert.equal(muse.markSignedOut(T + 40), false, 'the stale refusal wrote a note over the new sign-in');
+  muse.markKosmosSignedIn(T + 50);
+  assert.equal(muse.markSignedOut(T + 40), false, 'the stale refusal wrote');
   assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'kosmos' });
   clean();
 }));
 
 test('#3939 3c-1: a success that began BEFORE a refusal does not undo it, either order of finishing (rounds 2 and 3)', () => withXdg(() => {
-  // Round 2: the refusal is written first, then the older success finishes.
   clean();
   muse.markSignedOut(T + 50);
   assert.equal(muse.markTurnSignedIn(T + 40), false, 'an older success wrote over a newer refusal');
   assert.equal(muse.signedIn().signedIn, false);
   assert.equal(muse.markTurnSignedIn(T + 60), true, 'CONTROL: a success that began after the refusal counts');
   assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'kosmos' });
-  // Round 3: the older success finishes FIRST (no note yet), then the newer turn is refused.
   clean();
-  assert.equal(muse.markTurnSignedIn(T), true);           // turn A began at T and finished at T+30
+  assert.equal(muse.markTurnSignedIn(T), true);           // turn A began at T and finished first
   assert.equal(muse.markSignedOut(T + 10), true, 'a refusal from a turn that began after A was dropped');
   assert.equal(muse.signedIn().signedIn, false, 'a slow success hid a later refusal');
   clean();
 }));
 
-test('#3939 3c-1: neither record ever moves back in time', () => withXdg(() => {
+test('#3939 3c-1 round 6: events from other boards, arriving in ANY order, never lose the newest fact', () => withXdg(() => {
+  // Two refusals race: the older one lands last. The newer still decides.
   clean();
-  muse.markSignedOut(T + 50); muse.markSignedOut(T + 20);
-  assert.equal(JSON.parse(fs.readFileSync(muse.signedOutMarker(), 'utf8')).at, T + 50, 'the note moved back');
+  place('note', T + 100); place('note', T + 90);
+  muse.markKosmosSignedIn(T + 95);
+  assert.equal(muse.latest().note.at, T + 100, 'a late, older note displaced the newer one');
+  assert.equal(muse.signedIn().signedIn, false, 'a sign-in between two refusals read as signed in');
+  // A success never removes a note, even one that looked damaged (round 6 scenario B).
   clean();
-  markAt(T + 50); muse.markTurnSignedIn(T + 20);
-  assert.equal(JSON.parse(fs.readFileSync(muse.signedInMarker(), 'utf8')).at, T + 50, 'the mark moved back');
+  place('note', T + 50, 'garbled');
+  place('note', T + 100);                                  // another board's genuine, later refusal
+  muse.markTurnSignedIn(T + 60);
+  assert.equal(events().filter((n) => /-note-/.test(n)).some((n) => n.startsWith(String(T + 100).padStart(15, '0'))), true, 'a success deleted a newer refusal');
+  assert.equal(muse.signedIn().signedIn, false, 'a success hid another board\'s later refusal');
   clean();
 }));
 
-test('#3939 3c-1: a mark from before this slice (an ISO time, or none) is still read', () => withXdg(() => {
+test('#3939 3c-1: older events of a kind are pruned; the newest of each stays; nothing temporary is left', () => withXdg(() => {
+  clean();
+  muse.markSignedOut(T); muse.markTurnSignedIn(T + 10); muse.markSignedOut(T + 20); muse.markTurnSignedIn(T + 30);
+  const names = events();
+  assert.equal(names.filter((n) => /-mark-/.test(n)).length, 1, 'older marks were not pruned: ' + names);
+  assert.equal(names.filter((n) => /-note-/.test(n)).length, 1, 'older notes were not pruned: ' + names);
+  assert.deepEqual(fs.readdirSync(muse.eventsFolder()).filter((n) => n.endsWith('.tmp')), [], 'a temporary file was left');
+  assert.deepEqual(muse.latest(), { mark: T + 30, note: { at: T + 20, metaDigest: null, fileUnread: false } });
+  clean();
+}));
+
+test('#3939 3c-1: slice 3a\'s single mark file (an ISO time, or none) is still read as a mark', () => withXdg(() => {
   clean();
   fs.mkdirSync(muse.signinFolder(), { recursive: true });
   fs.writeFileSync(muse.signedInMarker(), JSON.stringify({ at: new Date(T + 10).toISOString() }) + '\n');
-  assert.equal(muse.markSignedOut(T + 20), true, 'CONTROL: a refusal after an ISO mark is written');
-  assert.equal(muse.signedIn().signedIn, false, 'an ISO mark before the refusal read as signed in');
+  assert.equal(muse.markSignedOut(T + 20), true, 'CONTROL: a refusal after the old mark is written');
+  assert.equal(muse.signedIn().signedIn, false, 'an old mark before the refusal read as signed in');
   fs.writeFileSync(muse.signedInMarker(), JSON.stringify({ at: new Date(T + 30).toISOString() }) + '\n');
-  assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'kosmos' }, 'an ISO mark after the refusal was not believed');
-  fs.writeFileSync(muse.signedInMarker(), '{}\n');   // no time at all: the mtime, which is now, after T+20
-  assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'kosmos' }, 'a mark with no time was not read');
+  assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'kosmos' }, 'an old mark after the refusal was not believed');
+  fs.writeFileSync(muse.signedInMarker(), '{}\n');   // no time at all: its mtime, which is now, after T+20
+  assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'kosmos' }, 'an old mark with no time was not read');
   clean();
 }));
 
@@ -221,105 +242,61 @@ test('#3939 3c-1: Muse\'s own file counts again only for a DIFFERENT credential,
   assert.equal(muse.signedIn().signedIn, false, 'a rewrite (another provider, keys reordered) revived the refused credential');
   writeAuth(xdg, '{"providers":{"meta":{"token":"new"}}}');
   assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'file' }, 'a new credential was not believed');
-  writeAuth(xdg, {});                              // `muse logout` leaves {"providers":{}}
-  assert.equal(muse.signedIn().signedIn, false, 'an emptied file read as signed in');
-  assert.doesNotMatch(fs.readFileSync(muse.signedOutMarker(), 'utf8'), /"t"|token/, 'the note kept the credential, not a digest');
-  clean();
-}));
-
-test('#3939 3c-1: a Muse file that could not be read at the refusal does not come back as signed in (round 3)', () => withXdg((xdg) => {
-  clean();
-  const f = writeAuth(xdg, { meta: { token: 't' } });
-  fs.chmodSync(f, 0o000);
-  try { muse.markSignedOut(T); } finally { fs.chmodSync(f, 0o600); }
-  assert.equal(JSON.parse(fs.readFileSync(muse.signedOutMarker(), 'utf8')).fileUnread, true, 'CONTROL: the failed read was recorded');
-  assert.equal(muse.signedIn().signedIn, false, 'the refused credential came back once the file read again');
-  assert.equal(muse.markTurnSignedIn(T + 10), true, 'CONTROL: a later completed turn still restores the answer');
-  assert.equal(muse.signedIn().signedIn, true);
-  clean();
-}));
-
-test('#3939 3c-1: a note that cannot be read is a refusal, and a completed turn clears it (round 3)', () => withXdg((xdg) => {
-  clean();
-  writeAuth(xdg, { meta: { token: 'x' } });
-  markAt(T);
-  fs.writeFileSync(muse.signedOutMarker(), 'not json');
-  assert.deepEqual(muse.signedIn(), { signedIn: false, how: null }, 'an unreadable note let the file or the mark answer yes');
-  assert.equal(muse.markTurnSignedIn(T + 10), true, 'an unreadable note blocked every later turn');
-  assert.equal(fs.existsSync(muse.signedOutMarker()), false);
-  assert.equal(muse.signedIn().signedIn, true);
-  clean();
-}));
-
-test('#3939 3c-1: markSignedOut and markTurnSignedIn never throw, and say false when they could not write', () => withXdg(() => {
-  clean();
-  const folder = muse.signinFolder();
-  fs.rmSync(folder, { recursive: true, force: true });
-  fs.writeFileSync(folder, 'not a folder');   // nothing can be written under a file
-  try {
-    let a; let b;
-    assert.doesNotThrow(() => { a = muse.markSignedOut(T); b = muse.markTurnSignedIn(T); });
-    assert.equal(a, false); assert.equal(b, false);
-  } finally { fs.rmSync(folder, { force: true }); }
-}));
-
-test('#3939 3c-1 round 4: a late refusal never rewrites a newer note\'s digest, in either direction', () => withXdg((xdg) => {
-  // A: a new credential arrives after the newer refusal; an older refusal reporting late must not mark it refused.
-  clean();
-  writeAuth(xdg, { meta: { token: 'X' } });
-  assert.equal(muse.markSignedOut(T + 50), true);
-  writeAuth(xdg, { meta: { token: 'Y' } });
-  assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'file' }, 'CONTROL: a new credential answers yes');
-  const before = fs.readFileSync(muse.signedOutMarker(), 'utf8');
-  assert.equal(muse.markSignedOut(T + 10), false, 'a late, older refusal wrote');
-  assert.equal(fs.readFileSync(muse.signedOutMarker(), 'utf8'), before, 'a late refusal rewrote the newer note');
-  assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'file' }, 'a late refusal marked a never-refused credential refused');
-  // B: the file is briefly empty when the late refusal reports; the refused credential then reappears.
-  clean();
-  writeAuth(xdg, { meta: { token: 'X' } });
-  muse.markSignedOut(T + 50);
   writeAuth(xdg, {});
-  muse.markSignedOut(T + 10);
-  writeAuth(xdg, { meta: { token: 'X' } });
-  assert.equal(muse.signedIn().signedIn, false, 'the still-refused credential read as signed in after a late refusal');
+  assert.equal(muse.signedIn().signedIn, false, 'an emptied file read as signed in');
+  for (const n of events()) assert.doesNotMatch(fs.readFileSync(path.join(muse.eventsFolder(), n), 'utf8'), /"t"|token/, 'an event kept the credential');
   clean();
 }));
 
-test('#3939 3c-1 round 5: the refused credential is the one the turn STARTED with, not the file at report time', () => withXdg((xdg) => {
-  // A: a good credential written during the turn is not recorded as refused.
+test('#3939 3c-1: the refused credential is the one the turn STARTED with (rounds 4 and 5)', () => withXdg((xdg) => {
   clean();
   writeAuth(xdg, { meta: { token: 'X' } });
   let atStart = muse.fileAtStart();
   writeAuth(xdg, { meta: { token: 'Y' } });           // `muse login` while the turn ran
   muse.markSignedOut(T, atStart);
   assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'file' }, 'a credential written mid-turn was recorded as refused');
-  // B: a logout mid-turn does not erase which credential was refused.
   clean();
   writeAuth(xdg, { meta: { token: 'X' } });
   atStart = muse.fileAtStart();
   writeAuth(xdg, {});                                  // `muse logout` while the turn ran
   muse.markSignedOut(T, atStart);
-  writeAuth(xdg, { meta: { token: 'X' } });            // the refused credential comes back (a restore)
+  writeAuth(xdg, { meta: { token: 'X' } });            // the refused credential comes back
   assert.equal(muse.signedIn().signedIn, false, 'the refused credential read as signed in after a mid-turn logout');
+  // Round 4: a late, older refusal writes nothing, so it cannot replace the newer note's digest.
+  clean();
+  writeAuth(xdg, { meta: { token: 'X' } });
+  muse.markSignedOut(T + 50);
+  writeAuth(xdg, { meta: { token: 'Y' } });
+  assert.equal(muse.markSignedOut(T + 10), false, 'a late, older refusal wrote');
+  assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'file' }, 'a late refusal marked a never-refused credential refused');
   clean();
 }));
 
-test('#3939 3c-1 round 5: a success leaves the note alone (another board may have written a newer one), and still wins', () => withXdg(() => {
+test('#3939 3c-1: a Muse file unread at the refusal, or a note body that cannot be read, never makes the file answer yes', () => withXdg((xdg) => {
   clean();
-  muse.markSignedOut(T);
-  assert.equal(muse.markTurnSignedIn(T + 10), true);
-  assert.equal(fs.existsSync(muse.signedOutMarker()), true, 'a success deleted the note');
-  assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'kosmos' }, 'CONTROL: the later mark wins over the note it left');
-  muse.markSignedOut(T + 20);                          // the next refusal still wins in turn
-  assert.equal(muse.signedIn().signedIn, false);
+  const f = writeAuth(xdg, { meta: { token: 't' } });
+  fs.chmodSync(f, 0o000);
+  let atStart;
+  try { atStart = muse.fileAtStart(); } finally { fs.chmodSync(f, 0o600); }
+  assert.equal(atStart.fileUnread, true, 'CONTROL: the failed read was seen');
+  muse.markSignedOut(T, atStart);
+  assert.equal(muse.signedIn().signedIn, false, 'the refused credential came back once the file read again');
+  clean();
+  place('note', T, 'not json');
+  assert.equal(muse.signedIn().signedIn, false, 'a garbled note let the file answer yes');
+  assert.equal(muse.markTurnSignedIn(T + 10), true, 'CONTROL: a later completed turn still restores the answer');
+  assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'kosmos' });
   clean();
 }));
 
-test('#3939 3c-1 round 5: records are renamed into place and leave no temporary file', () => withXdg(() => {
+test('#3939 3c-1: the writers never throw; they say false when they could not write', () => withXdg(() => {
   clean();
-  muse.markSignedOut(T); muse.markTurnSignedIn(T + 10);
-  const left = fs.readdirSync(muse.signinFolder()).filter((n) => n.endsWith('.tmp'));
-  assert.deepEqual(left, [], 'a temporary file was left behind');
-  assert.equal(JSON.parse(fs.readFileSync(muse.signedInMarker(), 'utf8')).at, T + 10, 'CONTROL: the mark was written');
-  clean();
+  fs.mkdirSync(muse.signinFolder(), { recursive: true });
+  fs.writeFileSync(muse.eventsFolder(), 'not a folder');   // nothing can be written under a file
+  try {
+    let a; let b;
+    assert.doesNotThrow(() => { a = muse.markSignedOut(T); b = muse.markTurnSignedIn(T); });
+    assert.equal(a, false); assert.equal(b, false);
+    assert.throws(() => muse.markKosmosSignedIn(T), 'CONTROL: Kosmos\'s own sign-in is told its mark was not written');
+  } finally { fs.rmSync(muse.eventsFolder(), { force: true }); }
 }));

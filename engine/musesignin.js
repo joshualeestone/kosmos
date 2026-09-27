@@ -170,12 +170,9 @@ function end(state, because) {
 /* True when the mark is written. On a Mac it is the ONLY record Kosmos reads (the sign-in is in the
    Keychain), so a sign-in it could not record is not reported done (round 8). */
 function markSignedIn() {
-  const file = musestatus.signedInMarker();
   try {
-    fs.mkdirSync(musestatus.signinFolder(), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(file, JSON.stringify({ at: now() }) + '\n', { mode: 0o600 });
-    // #3939 slice 3c-1: the "signed out" note is left alone. This mark is later than any refusal so
-    // far, so it wins, and deleting could remove a newer refusal from another board (round 5).
+    // #3939 slice 3c-1: one more event (review round 6); nothing is rewritten or deleted.
+    musestatus.markKosmosSignedIn(now());
     return true;
   } catch (e) { logLine('could not record the sign-in (' + ((e && e.code) || 'unknown') + ')'); return false; }
 }
@@ -204,7 +201,7 @@ function step() {
   }
   if (drawn === 'unsaved') {
     // Kosmos has just seen the save fail: an older mark must not answer yes beside it (round 9).
-    try { fs.rmSync(musestatus.signedInMarker(), { force: true }); } catch { /* none */ }
+    musestatus.markSaveFailed(now());
     end('failed', UNSAVED); return;
   }
   if (exited) { end('failed', CLOSED); return; }

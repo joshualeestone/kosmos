@@ -14,6 +14,7 @@
  */
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
 const runners = require('./runners');
 
@@ -92,29 +93,30 @@ function enabled(platform = process.platform) {
    could be anybody's. */
 function signinFolder() { return path.join(require('./store').ROOT, 'muse-signin'); }   // the sign-in's folder, and its mark's
 function signedInMarker() { return path.join(signinFolder(), 'signed-in.json'); }
-/* #3939 slice 3c-1: what Kosmos has SEEN about the credential, as two records in the sign-in folder.
-   Each carries its own time, an integer from Date.now() written INSIDE the file. File mtimes are
-   never compared: they keep fractions of a millisecond that Date.now() drops, so an mtime can read
-   as later than a clock taken after it (review round 3).
-   - The MARK (signed-in.json): Muse worked. `at` is when that was known to be true: a completed turn's
-     START (it proves the credential it began with), or the moment Kosmos's own sign-in finished.
-   - The NOTE (signed-out.json): Muse refused. `at` is the refused turn's START.
-   The answer is whichever is later; a tie is signed out, the safe direction. So a slow success cannot
-   hide a refusal from a turn that began after it (round 3), and a refusal cannot undo a sign-in that
-   finished after the refused turn began (round 1).
-   Muse's own auth.json (the file backend) counts after a refusal only when its meta entry is a
-   DIFFERENT credential from the one refused: the note keeps a canonical digest of the entry the
-   refused turn STARTED with, never the entry, so a rewrite for any other reason does not revive it. */
-function signedOutMarker() { return path.join(signinFolder(), 'signed-out.json'); }
+/* #3939 slice 3c-1: what Kosmos has SEEN about the credential, as APPEND-ONLY EVENTS (review round 6).
+   Several boards on one Mac share this folder, so any read-decide-write can interleave with another
+   process. Nothing here reads a record and then rewrites or deletes it: every observation is its own
+   file, created once, and the answer is a pure read that takes the latest of each kind. A write that
+   lands late or out of order is simply not the latest, so no interleaving can lose a newer fact.
+   - A MARK: Muse worked. Its time is when that was known to be true: a completed turn's START (it
+     proves the credential it began with), or the moment Kosmos's own sign-in finished.
+   - A NOTE: Muse refused. Its time is the refused turn's START, and it keeps a canonical digest of
+     Muse's own auth.json meta entry as it was when that turn STARTED (never the entry), plus whether
+     the file could be read then.
+   The latest mark against the latest note decides; a tie is signed out, the safe direction.
+   Times are integers from Date.now() in the event's NAME, never file mtimes (those keep fractions of a
+   millisecond that Date.now() drops, round 3). The signed-in.json of slice 3a is read as one more mark. */
+function eventsFolder() { return path.join(signinFolder(), 'events'); }
+const EVENT_NAME = /^(\d{15})-(mark|note)-[a-z0-9.]+\.json$/;
 /* Canonical: keys sorted at every depth, so the same credential written in another key order is the
    same credential (review round 2). */
 const canonical = (v) => (Array.isArray(v) ? '[' + v.map(canonical).join(',') + ']'
   : v && typeof v === 'object' ? '{' + Object.keys(v).sort().map((k) => JSON.stringify(k) + ':' + canonical(v[k])).join(',') + '}'
   : JSON.stringify(v));
-const metaDigest = (meta) => require('node:crypto').createHash('sha256').update(canonical(meta)).digest('hex');
+const metaDigest = (meta) => crypto.createHash('sha256').update(canonical(meta)).digest('hex');
 /* { meta, unread }: the meta entry, or null when there is none. `unread` when the file is there but
-   could not be read or parsed (permissions, or Muse part-way through rewriting it): that is not the
-   same as "no entry" (review round 3). */
+   could not be read or parsed (permissions, or Muse part-way through rewriting it): not the same as
+   "no entry" (round 3). */
 function readMeta() {
   let text;
   try { text = fs.readFileSync(authFile(), 'utf8'); } catch (e) { return { meta: null, unread: !(e && e.code === 'ENOENT') }; }
@@ -125,84 +127,98 @@ function readMeta() {
     return { meta: meta && typeof meta === 'object' && Object.keys(meta).length ? meta : null, unread: false };
   } catch { return { meta: null, unread: true }; }
 }
-/* A record's time. A mark from before this slice holds an ISO string, or nothing: read that too, and
-   fall back to the file's mtime floored to the millisecond. null when there is no record. */
-function readRecord(file) {
-  let st;
-  try { st = fs.statSync(file); } catch (e) { return e && e.code === 'ENOENT' ? null : { at: Infinity, unreadable: true }; }
-  let j;
-  try { j = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return { at: Infinity, unreadable: true }; }
-  let at = j && j.at;
-  if (typeof at === 'string') at = Date.parse(at);
-  if (typeof at !== 'number' || !Number.isFinite(at)) at = Math.floor(st.mtimeMs);
-  return { at, unreadable: false, j };
-}
-/* The note as the answer reads it. One that is there but cannot be read is a refusal with no digest
-   and an infinite time (fail closed: "signed out" asks the person to act, never a false yes). That
-   includes the note vanishing between the stat and the read: that one read answers signed out. */
-function readNote() {
-  const r = readRecord(signedOutMarker());
-  if (!r) return null;
-  if (r.unreadable) return { at: Infinity, digest: null, fileUnread: false, unreadable: true };
-  return { at: r.at, digest: typeof r.j.metaDigest === 'string' ? r.j.metaDigest : null, fileUnread: r.j.fileUnread === true, unreadable: false };
-}
-// An unreadable mark is NO mark (never a yes), the same safe direction as an unreadable note's refusal.
-function readMark() { const r = readRecord(signedInMarker()); return r && !r.unreadable ? r.at : null; }
-
-/** Record that Muse refused the credential for a turn that STARTED at `startedAt` (ms). Writes nothing
-    when the mark is LATER than that start (a sign-in finished while the refused turn ran, round 1), and
-    never moves an existing note back in time. True when it wrote. Never throws. */
-/* Written to a temporary file and renamed into place, so a reader in another board process (several
-   boards on one Mac share this folder, review round 5) sees the old record or the new one, never half
-   of one. */
-function writeRecord(file, obj) {
-  fs.mkdirSync(signinFolder(), { recursive: true, mode: 0o700 });
-  const tmp = file + '.' + process.pid + '.' + Math.random().toString(36).slice(2) + '.tmp';
-  try {
-    fs.writeFileSync(tmp, JSON.stringify(obj) + '\n', { mode: 0o600 });
-    fs.renameSync(tmp, file);
-  } catch (e) { try { fs.rmSync(tmp, { force: true }); } catch { /* none */ } throw e; }
-}
-/** What Muse's own file holds, as the note records it: taken when a turn STARTS, because a refusal
-    is about the credential the turn began with, not whatever the file holds when it reports
-    (review round 5: a `muse login` or `logout` during the turn). */
+/** What Muse's own file holds, as a note records it: taken when a turn STARTS, because a refusal is
+    about the credential the turn began with (round 5: a `muse login` or `logout` during the turn). */
 function fileAtStart() {
   const { meta, unread } = readMeta();
   return { metaDigest: meta ? metaDigest(meta) : null, fileUnread: unread };
 }
 
+/* The latest event of each kind: { mark: at | null, note: { at, metaDigest, fileUnread } | null }.
+   A note whose body cannot be read keeps its time (from its name) and fails closed for Muse's file
+   (fileUnread): it can never make the file answer yes. */
+function latest() {
+  let mark = null; let note = null; let noteName = null;
+  let names = [];
+  try { names = fs.readdirSync(eventsFolder()); } catch { /* no events yet */ }
+  for (const n of names) {
+    const m = EVENT_NAME.exec(n);
+    if (!m) continue;
+    const at = Number(m[1]);
+    if (m[2] === 'mark') { if (mark === null || at > mark) mark = at; }
+    else if (note === null || at > note.at || (at === note.at && n > noteName)) { note = { at }; noteName = n; }
+  }
+  // Slice 3a's single mark file, read as one more mark (an ISO or integer `at`, else its mtime).
+  try {
+    const st = fs.statSync(signedInMarker());
+    let at;
+    try { const j = JSON.parse(fs.readFileSync(signedInMarker(), 'utf8')); at = typeof j.at === 'string' ? Date.parse(j.at) : j.at; } catch { at = undefined; }
+    if (typeof at !== 'number' || !Number.isFinite(at)) at = Math.floor(st.mtimeMs);
+    if (st.isFile() && (mark === null || at > mark)) mark = at;
+  } catch { /* none */ }
+  if (note) {
+    try {
+      const j = JSON.parse(fs.readFileSync(path.join(eventsFolder(), noteName), 'utf8'));
+      note.metaDigest = typeof j.metaDigest === 'string' ? j.metaDigest : null;
+      note.fileUnread = j.fileUnread === true;
+    } catch { note.metaDigest = null; note.fileUnread = true; }
+  }
+  return { mark, note };
+}
+
+/* One new event file, created by rename so no reader ever sees half of one. Then, best effort, older
+   events of the same kind are removed: an event older than the newest of its kind never decides
+   anything, so removing it cannot change the answer, whatever another process does meanwhile. */
+function record(kind, at, body) {
+  const dir = eventsFolder();
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const name = String(at).padStart(15, '0') + '-' + kind + '-' + process.pid + '.' + crypto.randomBytes(6).toString('hex') + '.json';
+  const tmp = path.join(dir, '.' + name + '.tmp');
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(body) + '\n', { mode: 0o600 });
+    fs.renameSync(tmp, path.join(dir, name));
+  } catch (e) { try { fs.rmSync(tmp, { force: true }); } catch { /* none */ } throw e; }
+  try {
+    const mine = fs.readdirSync(dir).map((n) => EVENT_NAME.exec(n)).filter((m) => m && m[2] === kind);
+    const newest = Math.max(...mine.map((m) => Number(m[1])));
+    for (const m of mine) if (Number(m[1]) < newest) fs.rmSync(path.join(dir, m[0]), { force: true });
+  } catch { /* pruning is housekeeping; the answer never depends on it */ }
+}
+
+/** Record that Muse refused the credential for a turn that STARTED at `startedAt` (ms), with Muse's
+    file as it was then (`atStart`, from fileAtStart). Writes nothing when a later event already
+    decides (a sign-in that finished while the turn ran, round 1; a newer refusal, round 4). True when
+    it wrote. Never throws. */
 function markSignedOut(startedAt = Date.now(), atStart = null) {
   try {
-    const mark = readMark();
-    if (mark !== null && mark > startedAt) return false;
-    // A newer refusal is already the freshest fact: a late one adds nothing, and must not replace the
-    // newer note's digest with whatever Muse's file holds NOW (review round 4).
-    const old = readNote();
-    if (old && !old.unreadable && old.at > startedAt) return false;
+    const now = latest();
+    if (now.mark !== null && now.mark > startedAt) return false;
+    if (now.note && now.note.at > startedAt) return false;
     const file = atStart || fileAtStart();
-    writeRecord(signedOutMarker(), { at: startedAt, metaDigest: file.metaDigest, fileUnread: file.fileUnread });
+    record('note', startedAt, { metaDigest: file.metaDigest, fileUnread: file.fileUnread });
     return true;
   } catch { return false; }
 }
 /** A completed turn that STARTED at `startedAt` proves the credential it began with: the strongest
-    evidence Kosmos sees, and the only way a terminal `muse login` on the Keychain is ever seen. Writes
-    nothing when a refusal is as late or later (another agent's turn began after this one and was
-    refused, round 2); never moves the mark back. An unreadable note is removed rather than left to
-    block every later turn (round 3). True when it wrote. Never throws. */
+    evidence Kosmos sees, and the only way a terminal `muse login` on the Keychain is ever seen.
+    Writes nothing when a refusal is as late or later (round 2). True when it wrote. Never throws. */
 function markTurnSignedIn(startedAt = Date.now()) {
   try {
-    const note = readNote();
-    // Records are renamed into place, so an unreadable note is real damage, not a write in progress:
-    // removed rather than left to block every later turn (round 3).
-    if (note && note.unreadable) fs.rmSync(signedOutMarker(), { force: true });
-    else if (note && note.at >= startedAt) return false;
-    const mark = readMark();
-    const at = mark !== null && mark > startedAt ? mark : startedAt;
-    // The note is NOT removed (review round 5): the later mark already wins, and another board process
-    // may have written a newer refusal since the check above.
-    writeRecord(signedInMarker(), { at });
+    const now = latest();
+    if (now.note && now.note.at >= startedAt) return false;
+    if (now.mark !== null && now.mark >= startedAt) return false;   // nothing to add
+    record('mark', startedAt, {});
     return true;
   } catch { return false; }
+}
+/** Kosmos's own sign-in finished at `at`: a mark. Throws on a failed write (the sign-in must not say
+    done when nothing was recorded). */
+function markKosmosSignedIn(at = Date.now()) { record('mark', at, {}); }
+/** Kosmos's own sign-in saw Muse fail to SAVE the credential at `at`: a note, so an older mark cannot
+    answer yes beside the failure (slice 3a round 9). Never throws. */
+function markSaveFailed(at = Date.now()) {
+  try { fs.rmSync(signedInMarker(), { force: true }); } catch { /* none */ }
+  try { const f = fileAtStart(); record('note', at, { metaDigest: f.metaDigest, fileUnread: f.fileUnread }); return true; } catch { return false; }
 }
 /* Muse's own file store (the file backend, and every non-Mac build): XDG_CONFIG_HOME, else ~/.config. */
 function authFile() {
@@ -217,10 +233,9 @@ function authFile() {
     any turn has run it can still say yes. Times are this Mac's wall clock: a clock stepped back can
     misorder records made within the step (a stated limit, review round 5). */
 function signedIn() {
-  const note = readNote();
+  const { mark, note } = latest();
   const { meta } = readMeta();
-  if (meta && (!note || (!note.unreadable && !note.fileUnread && note.digest !== metaDigest(meta)))) return { signedIn: true, how: 'file' };
-  const mark = readMark();
+  if (meta && (!note || (!note.fileUnread && note.metaDigest !== metaDigest(meta)))) return { signedIn: true, how: 'file' };
   if (mark !== null && (!note || mark > note.at)) return { signedIn: true, how: 'kosmos' };
   return { signedIn: false, how: null };
 }
@@ -231,4 +246,4 @@ const REAL = { runVersion };
 function setRunnerForTests(fn, opts) { if (fn) runVersion = fn; if (opts && opts.hardCapMs) hardCapMs = opts.hardCapMs; if (opts && opts.timeoutMs) timeoutMs = opts.timeoutMs; }
 function resetForTests() { runVersion = REAL.runVersion; hardCapMs = VERSION_HARD_CAP_MS; timeoutMs = VERSION_TIMEOUT_MS; }
 
-module.exports = { installed, version, parseVersion, enabled, NOT_INSTALLED_BECAUSE, signedIn, signinFolder, signedInMarker, signedOutMarker, markSignedOut, markTurnSignedIn, fileAtStart, authFile, VERSION_TIMEOUT_MS, VERSION_HARD_CAP_MS, VERSION_UNKNOWN_BECAUSE, CHECK_FAILED_BECAUSE, setRunnerForTests, resetForTests };
+module.exports = { installed, version, parseVersion, enabled, NOT_INSTALLED_BECAUSE, signedIn, signinFolder, signedInMarker, eventsFolder, latest, markSignedOut, markTurnSignedIn, markKosmosSignedIn, markSaveFailed, fileAtStart, authFile, VERSION_TIMEOUT_MS, VERSION_HARD_CAP_MS, VERSION_UNKNOWN_BECAUSE, CHECK_FAILED_BECAUSE, setRunnerForTests, resetForTests };
