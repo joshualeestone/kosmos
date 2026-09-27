@@ -43,12 +43,12 @@ function boardEmpty(state) {
      on screen, and a stub would let an escaping bug through the one branch
      that renders a value this code did not write. */
   // eslint-disable-next-line no-new-func
-  return new Function('BOARD_SEEN', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN', 'BOARD_SIGNED_OUT',
+  return new Function('BOARD_SEEN', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN', 'BOARD_SIGNED_OUT', 'BOARD_DEVICE_OFFLINE',
     /* win32-board-copy: both painters now ask the platform copy layer, which answers
        "not Windows" here (no stamped meta), so this file keeps asserting the Mac board. */
     page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS) + '\n'
-    + lift('esc') + '\n' + lift('boardSigninHtml') + '\n' + page.liftConst(SCRIPT, 'ORG_SIGNED_OUT_SENTENCE') + '\n' + page.liftConst(SCRIPT, 'DEVICE_SIGNIN_BUTTON') + '\n' + lift('deviceSignedOutHtml') + '\n' + lift('boardEmpty')
-    + '\nreturn boardEmpty();')(state.seen, state.failed, state.signin || false, state.signedOut || false);
+    + lift('esc') + '\n' + lift('boardSigninHtml') + '\n' + page.liftConst(SCRIPT, 'ORG_SIGNED_OUT_SENTENCE') + '\n' + page.liftConst(SCRIPT, 'DEVICE_SIGNIN_BUTTON') + '\n' + lift('deviceSignedOutHtml') + '\n' + page.liftConst(SCRIPT, 'OFFLINE_SENTENCE') + '\n' + lift('deviceOfflineHtml') + '\n' + lift('boardEmpty')
+    + '\nreturn boardEmpty();')(state.seen, state.failed, state.signin || false, state.signedOut || false, state.offline || false);
 }
 
 const LOOKING = { seen: false, failed: null };
@@ -213,4 +213,19 @@ test('the projects list gets its own Sign in button and says projects (#718 stat
   assert.match(html, /Sign in again to see your projects/);
   assert.match(html, /data-device-signin/, 'the projects card has no Sign in button');
   assert.ok(!/data-board-retry/.test(html), 'Try again is offered on the projects card');
+});
+
+test('a phone or computer with no network renders YOU ARE OFFLINE, and outranks the rest (#718 state 1)', () => {
+  /* A read that never got an answer also sets BOARD_LOOK_FAILED, so the offline branch must
+     win over the generic card, whose "Something on this computer did not answer" blames the Mac. */
+  const html = boardEmpty({ seen: true, failed: 'Load failed', offline: true });
+  assert.match(html, /You are offline\./);
+  assert.match(html, /This phone or computer is not connected to the internet, so it cannot reach your Mac\./);
+  assert.ok(!/We cannot read your agents|Something on this computer/.test(html), 'the offline phone was told the Mac did not answer');
+  assert.match(html, /data-board-retry/, 'the offline card lost its Try again');
+  assert.ok(!/kosmos agents|Already use Terminal/.test(html), 'a terminal hatch on a phone that cannot reach the Mac');
+  // Offline is known before anything about the sign-in could be: it outranks both sign-in states.
+  assert.match(boardEmpty({ seen: true, failed: 'x', offline: true, signedOut: true, signin: true }), /You are offline\./);
+  // CONTROL: the same failed read without the flag is the generic card.
+  assert.match(boardEmpty({ seen: true, failed: 'Load failed' }), /We cannot read your agents/);
 });

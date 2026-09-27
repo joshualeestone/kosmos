@@ -19760,7 +19760,7 @@ function agoWords(ms) {
  * job; a dismiss on a live condition is a note that lies on the next glance;
  * and a countdown would imply the page knows something about the recovery.
  */
-function paintOfflineNote(down) {
+function paintOfflineNote(down, deviceIsOffline) {
   const slot = document.getElementById('uoffline-slot');
   if (!slot) return;
   if (!down) {
@@ -19777,8 +19777,21 @@ function paintOfflineNote(down) {
     delete slot.dataset.on;
     return;
   }
-  if (slot.dataset.on === '1') return;   // already saying it; do not re-announce
-  slot.dataset.on = '1';
+  /* #718 state 1: the note says which end is offline, and a change of end is a change of
+     message, so the key is which one it is saying rather than only that it is saying one. */
+  const which = deviceIsOffline ? 'device' : 'mac';
+  if (slot.dataset.on === which) return;   // already saying it; do not re-announce
+  slot.dataset.on = which;
+  if (deviceIsOffline) {
+    /* Not "on this computer", and no version or host line: nothing on the Mac was asked,
+       so there is nothing about it to report. The remedy is the person's own connection. */
+    slot.innerHTML = '<div class="utoast stale" role="status">'
+      + '<span class="udot" aria-hidden="true"></span>'
+      + '<div class="utxt"><b>You are offline</b>'
+      + '<small>This phone or computer is not connected to the internet, so it cannot reach your Mac.</small>'
+      + '</div></div>';
+    return;
+  }
   /* Both details are knowable with nothing answering: the version is baked into
      this page, and the host is what this page was loaded from. */
   const v = bakedVersion();
@@ -20079,6 +20092,7 @@ async function tick() {
     BOARD_LOOK_FAILED = null;
     BOARD_NEEDS_SIGNIN = false; // #2023: a successful read means this browser is authed.
     BOARD_SIGNED_OUT = false;
+    BOARD_DEVICE_OFFLINE = false;
     // ⚠️ The picker is repainted here rather than only on open, because the
     // add-a-project flow suppresses the projects poll while it is up. Without
     // this, a person who opened it before the first status landed kept an empty
@@ -20610,6 +20624,7 @@ async function tick() {
        no-answer must clear it, or the board draws "not signed in" AND "not
        answering" at once -- the self-contradiction #268 exists to forbid. */
     if (!answered) { BOARD_NEEDS_SIGNIN = false; BOARD_SIGNED_OUT = false; }
+    BOARD_DEVICE_OFFLINE = !answered && deviceOffline();   // #718 state 1
     /* 🔑 HERE, AND NOWHERE ELSE, WHICH IS THE WHOLE OF THE SECOND RULE. This
        branch runs only once a poll has RETURNED a failure; while the first one
        is merely in flight nothing has called it, so nothing is drawn. On a slow
@@ -20622,7 +20637,7 @@ async function tick() {
        subsystem that could not be read, and the board's own box carries the
        engine's sentence; painting "not answering" over it would be the screen
        contradicting itself, and the person would believe the louder half. */
-    paintOfflineNote(!answered);
+    paintOfflineNote(!answered, BOARD_DEVICE_OFFLINE);
     const addViewOnFail = document.getElementById('pj-add-view');
     if (addViewOnFail && !addViewOnFail.hidden) paintAddAgents();
     // #3124: the failed poll owns the stamp; stop the ~1s ager repainting an age
@@ -20682,7 +20697,8 @@ async function tick() {
       const kept = orgNote.querySelector && orgNote.querySelector('[data-device-signin]')
         && orgNote.textContent.startsWith(ORG_SIGNED_OUT_SENTENCE + ' ');
       if (!kept) orgNote.innerHTML = esc(ORG_SIGNED_OUT_SENTENCE) + ' ' + DEVICE_SIGNIN_BUTTON;
-    } else orgNote.textContent = BOARD_NEEDS_SIGNIN ? SIGNIN_SENTENCE
+    } else orgNote.textContent = BOARD_DEVICE_OFFLINE ? OFFLINE_SENTENCE
+      : BOARD_NEEDS_SIGNIN ? SIGNIN_SENTENCE
       : 'We cannot read the agents right now, so this is not drawn. It is not saying there are none.';
     /* The tiles are claims too. Left alone they hold last-success numbers
        beside "we cannot see them" -- concrete headline counts asserting a
@@ -28803,6 +28819,25 @@ function relaySignedOut(status, body) {
 }
 const ORG_SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos. Your Mac and your agents are fine.';
 const DEVICE_SIGNIN_BUTTON = '<button class="btn" type="button" data-device-signin>Sign in</button>';
+/* #718 state 1: a read that got no answer, from a phone or computer reaching the Mac through
+   Kosmos+, while the browser says it has no network. Then the thing that is offline is the
+   device in the person's hand, not the Mac, and "not answering on this computer" blames the
+   wrong one. Only through Kosmos+ (kplusRemote): on the Mac itself the board is reached over
+   loopback, which works with no network at all, so a failure there is Kosmos not answering
+   whatever navigator.onLine says. Only navigator.onLine === false: true means "has some
+   network", which is no proof the internet is reachable, so it proves nothing either way.
+   Set and cleared at the same points as BOARD_SIGNED_OUT. */
+let BOARD_DEVICE_OFFLINE = false;
+function deviceOffline() {
+  return kplusRemote() && typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+const OFFLINE_SENTENCE = 'This phone or computer is not connected to the internet, so it cannot reach your Mac. The board comes back by itself when you are online again.';
+function deviceOfflineHtml() {
+  return '<div class="pj-empty boardfail">'
+    + '<p><b>You are offline.</b><br>' + OFFLINE_SENTENCE + '</p>'
+    + '<button class="btn" type="button" data-board-retry>Try again</button>'
+    + '</div>';
+}
 const SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos, so it cannot see your agents or projects. Your Mac and your agents are fine. Sign in again from the Agents or Projects page.';
 function deviceSignedOutHtml(what) {
   return '<div class="pj-empty boardfail">'
@@ -28861,6 +28896,7 @@ function boardSigninHtml() {
  */
 function boardEmpty() {
   // #2023: a not-signed-in board is a known state with a remedy, not "cannot read".
+  if (BOARD_DEVICE_OFFLINE) return deviceOfflineHtml();
   if (BOARD_SIGNED_OUT) return deviceSignedOutHtml();
   if (BOARD_NEEDS_SIGNIN) return boardSigninHtml();
   if (BOARD_LOOK_FAILED) {
@@ -47072,6 +47108,7 @@ async function loadProjects() {
   const mine = ++PJ_GEN;
   let got403 = false; // #2023: did THIS read get a 403 (not-signed-in), specifically?
   let gotSignedOut = false; // #718 state 3: did THIS read get the relay's signed-out 401?
+  let reached = false; // #718 state 1: did THIS read get any answer at all?
   // Returns whether THIS call's read is the one that landed (true on either
   // outcome, success or recorded failure; false when a newer call retired
   // it). Callers that branch on PJ_READ_FAILED right after awaiting need to
@@ -47079,6 +47116,7 @@ async function loadProjects() {
   // (round 21).
   try {
     const res = await fetch('/api/projects');
+    reached = true;
     got403 = res.status === 403; // #2023: captured before json(), so a 403 with an unparseable body still flags.
     const body = await res.json();
     gotSignedOut = relaySignedOut(res.status, body);
@@ -47130,6 +47168,7 @@ async function loadProjects() {
     PJ_AGENTS_UNREADABLE = body.agentsUnreadable === true;
     PJ_READ_FAILED = false;
     BOARD_NEEDS_SIGNIN = false; BOARD_SIGNED_OUT = false; // #2023 / #718 state 3: a readable projects response means this browser is authed.
+    BOARD_DEVICE_OFFLINE = false;
     /* After the outcome is recorded, never before: the sentence's "no
        projects" verdict reads PJ_READ_FAILED, and a read that recovers on an
        empty board would otherwise paint one poll of the wrong sentence. */
@@ -47141,6 +47180,7 @@ async function loadProjects() {
     // (a sticky true drew the signin remedy over a genuine outage).
     BOARD_NEEDS_SIGNIN = got403;
     BOARD_SIGNED_OUT = gotSignedOut;
+    BOARD_DEVICE_OFFLINE = !reached && deviceOffline();   // #718 state 1
     PJ_READ_FAILED = true;
     paintPjNone();
     // ⚠️ Reported where the person is LOOKING, not only into the list. Both the
@@ -47149,7 +47189,8 @@ async function loadProjects() {
     // showing the state from before the change with no error anywhere visible.
     // A screen asserting a state nobody checked is the failure this whole app
     // is built against, and it had crept back in through an error path.
-    const note = BOARD_SIGNED_OUT ? SIGNED_OUT_SENTENCE : BOARD_NEEDS_SIGNIN ? SIGNIN_SENTENCE
+    const note = BOARD_DEVICE_OFFLINE ? OFFLINE_SENTENCE
+      : BOARD_SIGNED_OUT ? SIGNED_OUT_SENTENCE : BOARD_NEEDS_SIGNIN ? SIGNIN_SENTENCE
       : 'We cannot read your projects right now. This is not saying you have none, it is saying we cannot see them.';
     // ⚠️ Through the SAME change-guard as the success path. The poll re-enters
     // here every 5 seconds while the store stays unreadable, and these are
@@ -47161,7 +47202,8 @@ async function loadProjects() {
        since dragend is delegated on #pj-list a detached node's dragend never fires to
        clear PJ_DRAGGING. paintProjects self-heals a stranded flag as a backstop, but not
        detaching in the first place keeps the drag itself alive through a transient blip. */
-    if (!PJ_DRAGGING) setIfChanged(document.getElementById('pj-list'), BOARD_SIGNED_OUT ? deviceSignedOutHtml('projects')
+    if (!PJ_DRAGGING) setIfChanged(document.getElementById('pj-list'), BOARD_DEVICE_OFFLINE ? deviceOfflineHtml()
+      : BOARD_SIGNED_OUT ? deviceSignedOutHtml('projects')
       : BOARD_NEEDS_SIGNIN ? boardSigninHtml()
       : '<div class="err"><b>We cannot read your projects right now.</b><br>'
       + 'This is not saying you have none, it is saying we cannot see them.</div>');
@@ -62409,6 +62451,9 @@ document.addEventListener('animationstart', (e) => {
 paintBuildLine(null);
 tick();
 setInterval(tick, 5000);
+/* #718 state 1: the moment this phone or computer is back online, ask again rather than
+   leaving "You are offline" up until the next poll. The same pair Try again runs. */
+window.addEventListener('online', () => { tick(); loadProjects(); });
 /* #3124: age the freshness stamp on its own ~1s cadence, independent of when
    polls land, so a board that goes quiet ages visibly instead of freezing on
    the last "just now". A helper nothing calls is the defect this file is written

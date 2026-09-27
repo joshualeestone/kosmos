@@ -97,12 +97,12 @@ test('a server that ANSWERED with a refusal is not "not answering": the note pai
     // The catch branch repaints the board's failure state; everything it
     // touches beyond the note is a stub, so the only thing measured here is
     // the one call this test is about.
-    await new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN', 'BOARD_SIGNED_OUT', 'setNavBadge', 'ringNewAgentMessages', 'setAgentsGrouped', 'orgBoxPlain',
-      `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'tick')}\nreturn tick();`)(
+    await new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN', 'BOARD_SIGNED_OUT', 'BOARD_DEVICE_OFFLINE', 'setNavBadge', 'ringNewAgentMessages', 'setAgentsGrouped', 'orgBoxPlain',
+      `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'deviceOffline')}\n${page.lift(SCRIPT, 'tick')}\nreturn tick();`)(
       (down) => painted.push(down),
       fetchImpl,
       { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] },
-      0, () => '', () => {}, null, null, false, false, () => {}, () => {}, () => {}, () => {}, // #3301: ringNewAgentMessages / #3387: setAgentsGrouped / #718: orgBoxPlain no-ops (tick calls them; not under test here)
+      0, () => '', () => {}, null, null, false, false, false, () => {}, () => {}, () => {}, () => {}, // #3301: ringNewAgentMessages / #3387: setAgentsGrouped / #718: orgBoxPlain no-ops (tick calls them; not under test here)
     );
     return painted;
   };
@@ -128,7 +128,7 @@ test('#2023: BOARD_NEEDS_SIGNIN does not latch -- a non-403 outcome after a 403 
   const stub = () => ({ dataset: {}, innerHTML: '', className: '', textContent: '', hidden: true, closest: () => null, querySelector: () => null, querySelectorAll: () => [] });
   let fetchImpl;
   const tick = new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'SIGNIN_SENTENCE', 'ORG_SIGNED_OUT_SENTENCE', 'DEVICE_SIGNIN_BUTTON', 'esc', 'setNavBadge', 'ringNewAgentMessages', 'setAgentsGrouped', 'orgBoxPlain',
-    `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'tick')}\nreturn tick;`)(
+    `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'deviceOffline')}\n${page.lift(SCRIPT, 'tick')}\nreturn tick;`)(
     () => {}, (...a) => fetchImpl(...a), { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] }, 0, () => '', () => {}, null, null, page.liftConst(SCRIPT, 'SIGNIN_SENTENCE'), page.liftConst(SCRIPT, 'ORG_SIGNED_OUT_SENTENCE'), new Function(page.liftConst(SCRIPT, 'DEVICE_SIGNIN_BUTTON') + '\nreturn DEVICE_SIGNIN_BUTTON;')(), (x) => String(x), () => {}, () => {}, () => {}, () => {}, // #3301: ringNewAgentMessages / #3387: setAgentsGrouped / #718: orgBoxPlain no-ops (tick calls them; not under test here)
   );
   delete globalThis.BOARD_NEEDS_SIGNIN;
@@ -168,6 +168,82 @@ test("#718 state 3: only the relay's explicit signed_out:true counts as signed o
   assert.equal(relaySignedOut(401, { signed_out: 'true' }), false, 'a string is not the relay field');
   assert.equal(relaySignedOut(401, null), false, 'an unparseable body is not signed out');
   assert.equal(relaySignedOut(403, { signed_out: true }), false, 'the board-token 403 has its own state');
+});
+
+function deviceSlotAfter(calls) {
+  /* calls: [down, deviceIsOffline] pairs, driven through the real paintOfflineNote. */
+  const slot = { dataset: {}, innerHTML: '' };
+  const doc = {
+    getElementById: (id) => (id === 'uoffline-slot' ? slot : null),
+    querySelector: () => ({ getAttribute: () => '0.2.87' }),
+  };
+  const fn = new Function('document', 'esc', 'location',
+    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
+    doc, (x) => String(x == null ? '' : x), { host: 'mac.kosmosplus.com' },
+  );
+  for (const [down, off] of calls) fn(down, off);
+  return slot;
+}
+
+test('#718 state 1: an offline phone is told it is offline, not that the Mac is not answering', () => {
+  const said = deviceSlotAfter([[true, true]]).innerHTML;
+  assert.match(said, /You are offline/);
+  assert.match(said, /This phone or computer is not connected to the internet, so it cannot reach your Mac\./);
+  assert.ok(!/not answering|on this computer|Applications folder|Nothing answered at/.test(said), 'the offline note blamed the Mac or gave a desktop remedy');
+  assert.ok(!/<button/.test(said), 'the note grew a control; the board card carries Try again');
+});
+
+test('#718 state 1: a change of which end is offline repaints the note, and recovery clears it', () => {
+  const slot = deviceSlotAfter([[true, true], [true, false]]);
+  assert.match(slot.innerHTML, /Kosmos is not answering on this computer/, 'back online but the Mac silent still said the phone was offline');
+  assert.match(deviceSlotAfter([[true, false], [true, true]]).innerHTML, /You are offline/, 'the Mac note stuck after the phone went offline');
+  assert.equal(deviceSlotAfter([[true, true], [false, false]]).innerHTML, '');
+  // Unchanged, it is not re-announced.
+  const held = deviceSlotAfter([[true, true]]);
+  held.innerHTML = 'MARKED';
+  const again = new Function('document', 'esc', 'location',
+    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
+    { getElementById: () => held, querySelector: () => null }, (x) => String(x), { host: 'h' });
+  again(true, true);
+  assert.equal(held.innerHTML, 'MARKED', 'the offline note rewrote itself over an unchanged state');
+});
+
+test('#718 state 1: only a Kosmos+ view with the browser saying offline counts as the device offline', () => {
+  const deviceOffline = (hostname, onLine) => new Function('location', 'navigator',
+    `${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'deviceOffline')}\nreturn deviceOffline();`)({ hostname }, { onLine });
+  assert.equal(deviceOffline('mac.kosmosplus.com', false), true);
+  assert.equal(deviceOffline('mac.kosmosplus.com', true), false, 'onLine true proves nothing, so it must not claim offline');
+  assert.equal(deviceOffline('mac.kosmosplus.com', undefined), false, 'a browser that does not say is not offline');
+  // On the Mac itself the board is loopback, which works with no network: a failure there is Kosmos.
+  assert.equal(deviceOffline('127.0.0.1', false), false);
+  assert.equal(deviceOffline('localhost', false), false);
+});
+
+test('#718 state 1: tick sets the offline flag only when nothing answered, and it does not latch', async () => {
+  const stub = () => ({ dataset: {}, innerHTML: '', className: '', textContent: '', hidden: true, closest: () => null, querySelector: () => null, querySelectorAll: () => [] });
+  let fetchImpl;
+  const painted = [];
+  const nav = { onLine: false };
+  const tick = new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'SIGNIN_SENTENCE', 'ORG_SIGNED_OUT_SENTENCE', 'OFFLINE_SENTENCE', 'esc', 'setNavBadge', 'ringNewAgentMessages', 'setAgentsGrouped', 'orgBoxPlain', 'location', 'navigator',
+    `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'deviceOffline')}\n${page.lift(SCRIPT, 'tick')}\nreturn tick;`)(
+    (down, off) => painted.push([down, off]), (...a) => fetchImpl(...a), { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] }, 0, () => '', () => {}, null, null,
+    page.liftConst(SCRIPT, 'SIGNIN_SENTENCE'), page.liftConst(SCRIPT, 'ORG_SIGNED_OUT_SENTENCE'), page.liftConst(SCRIPT, 'OFFLINE_SENTENCE'), (x) => String(x), () => {}, () => {}, () => {}, () => {},
+    { hostname: 'mac.kosmosplus.com', search: '' }, nav,
+  );
+  delete globalThis.BOARD_DEVICE_OFFLINE;
+  const reject = () => Promise.reject(new TypeError('Load failed'));
+  const refuse = () => Promise.resolve({ ok: false, status: 502, json: () => Promise.resolve({ error: 'bad gateway' }) });
+  fetchImpl = reject; nav.onLine = false; await tick();
+  assert.equal(globalThis.BOARD_DEVICE_OFFLINE, true, 'no answer while the browser says offline did not set the flag');
+  assert.deepEqual(painted.pop(), [true, true], 'the note was not told the device is offline');
+  fetchImpl = reject; nav.onLine = true; await tick();
+  assert.equal(globalThis.BOARD_DEVICE_OFFLINE, false, 'back online with the Mac silent still claimed the phone was offline');
+  assert.deepEqual(painted.pop(), [true, false]);
+  fetchImpl = refuse; nav.onLine = false; await tick();
+  assert.equal(globalThis.BOARD_DEVICE_OFFLINE, false, 'something ANSWERED, so the device is not offline, whatever onLine says');
+  delete globalThis.BOARD_DEVICE_OFFLINE;
+  delete globalThis.BOARD_NEEDS_SIGNIN;
+  delete globalThis.BOARD_SIGNED_OUT;
 });
 
 test('a poll that works clears it in the same paint', () => {

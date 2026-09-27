@@ -1420,6 +1420,8 @@ fi
 # in first run and Settings, falls back to codex's own words, and a Mac browser sign-in is unchanged.
 # render-plus-bar-3837 boots its OWN board (#3837 F, the Kosmos+ remote bar): it reaches it through 127.0.0.1 (no bar)
 # and through remote.test, which Chromium maps to loopback and the board is told to accept (AGENT_WORKFORCE_ALLOWED_HOSTS).
+# render-phone-offline-718 boots its OWN board the same way (#718 state 1): through remote.test at phone width, taken
+# offline by network emulation, it must say "You are offline"; the Mac's own window offline keeps the Mac's copy.
 # kosmos#3929: the list lives in docs/browser-checks/gated.txt, one name per line, sorted (it was
 # ONE ~4 KB line here, so every PR adding a check conflicted with every other). Read into an
 # array FIRST, so no check's node process can consume the list from stdin mid-loop.
