@@ -60823,6 +60823,16 @@ let TIPS_STARTED = false;
    querySelector calls each time. */
 const TIPS_CHECK_MS = 1200;
 let TIP_PLACES = [];            // the tour's steps whose place is on screen
+/* tipPlace's spacing: the card's gap from what it points at, and its distance from the window's edge. Named once so
+   the tour's make-room step (#4108, tipTourRender) asks for exactly the room tipPlace needs. */
+const TIP_GAP = 12, TIP_PAD = 12;
+/* The first SHOWING match for a tip's selector (several layouts can carry it; only one shows). tipPlace places against
+   it, and the tour's make-room step measures the same element. */
+function tipTarget(sel) {
+  try {
+    return sel ? [...document.querySelectorAll(sel)].find((x) => { const r = x.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !x.closest('[hidden]'); }) || null : null;
+  } catch { return null; }   // :has() in an older webview
+}
 let TIP_STEP = 0;               // the tour step showing
 let TIP_AUTO = false;           // the open tip showed by itself
 /* var, not let: the status handler (tick, far above) writes this, and a let would only be safe for as
@@ -61053,7 +61063,7 @@ function tipTourRender(card, auto) {
     tipTourRender(card, false);
   });
   /* A step whose place is below the fold (a short window) is brought into view once, as the step opens. */
-  const stepEl = st && st.sel ? document.querySelector(st.sel) : null;
+  const stepEl = st && st.sel ? tipTarget(st.sel) : null;
   if (stepEl) { try { stepEl.scrollIntoView({ block: 'nearest' }); } catch { /* an older webview */ } }
   tipAnnounce(card);
   tipLayout(TIP_OPEN, card);
@@ -61066,7 +61076,7 @@ function tipTourRender(card, auto) {
      (a scroll or a resize), because moving the page while the person scrolls it would fight their hand. */
   if (stepEl && card.classList.contains('flat')) {
     const r = stepEl.getBoundingClientRect();
-    const need = card.offsetHeight + 12 + 12 + 4;   // the card, its arrow gap, tipPlace's pad, and 4px measured slack (fractional tops)
+    const need = card.offsetHeight + TIP_GAP + TIP_PAD + 4;   // the card, its arrow gap, tipPlace's pad, and 4px measured slack (fractional tops)
     /* On screen, too close to the top for the card, and taller than the room the card needs: the tall-place case. A
        shorter place has room below it or beside it, so a flat card there is some other case, left alone. */
     if (r.top > 0 && r.top < need && r.bottom > need) {
@@ -61176,10 +61186,7 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true, width = '' 
   if (card.style.width !== width) card.style.width = width;
   /* The first match that is on screen: a selector list names the tab layout's target and the
      consolidated layout's, and only one of them is showing. */
-  let el = null;
-  try {
-    el = sel ? [...document.querySelectorAll(sel)].find((x) => { const r = x.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !x.closest('[hidden]'); }) || null : null;
-  } catch { el = null; }   // :has() in an older webview
+  const el = tipTarget(sel);
   /* A card taller than the window gives its words just enough scroll to fit, measured, not budgeted. They are a
      tab stop only while they scroll, so a keyboard can reach the hidden part and a short tip adds no stop. */
   const bd = card.querySelector('.tip-bd');
@@ -61199,7 +61206,7 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true, width = '' 
       bd.removeAttribute('tabindex'); bd.removeAttribute('role'); bd.removeAttribute('aria-label');
     }
   }
-  const w = card.offsetWidth, h = card.offsetHeight, pad = 12;
+  const w = card.offsetWidth, h = card.offsetHeight, pad = TIP_PAD;
   const pageW = document.documentElement.getBoundingClientRect().width;
   if (!el || !el.getBoundingClientRect().width) {
     card.className = 'tipcard flat';
@@ -61226,8 +61233,8 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true, width = '' 
      while pageW can be fractional, so an exact test could refuse every place that fits. */
   const onScreen = (left, top) => top >= pad && top + h <= vh - pad && left >= pad - 1 && left + w <= pageW - pad + 1;
   const right = { cls: 'left', left: r.right + 14, top: sideTop };
-  const below = { cls: 'up', left: midLeft, top: r.bottom + 12 };
-  const above = { cls: 'down', left: midLeft, top: r.top - 12 - h };
+  const below = { cls: 'up', left: midLeft, top: r.bottom + TIP_GAP };
+  const above = { cls: 'down', left: midLeft, top: r.top - TIP_GAP - h };
   const leftSide = { cls: 'right', left: r.left - 14 - w, top: sideTop };
   /* A target off screen gets no arrow: a side place clamps onto the screen and would point at nothing.
      The scroll listener places the card again, arrow and all, once the target is in view. */
@@ -61255,7 +61262,7 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true, width = '' 
     const room = Math.floor(Math.max(pageW - r.right - 14 - pad, r.left - 14 - pad));
     if (room >= 220 && room < w) return tipPlace(card, sel, true, { key, avoid, width: room + 'px' });
   }
-  if (!cands.length) cands.push({ ...below, cls: offScreen ? 'flat' : below.cls, top: Math.max(pad, Math.min(r.bottom + 12, vh - h - pad)) });
+  if (!cands.length) cands.push({ ...below, cls: offScreen ? 'flat' : below.cls, top: Math.max(pad, Math.min(r.bottom + TIP_GAP, vh - h - pad)) });
   /* The target itself is kept clear too (with the ring's margin): the card points at it, never sits on it. */
   const covered = (avoid ? tipCoveredControls(el) : []).concat([{ l: r.left - 6, t: r.top - 6, r: r.right + 6, b: r.bottom + 6 }]);
   const hitsAt = (left, top) => { let n = 0; for (const q of covered) if (q.l < left + w && q.r > left && q.t < top + h && q.b > top) n++; return n; };

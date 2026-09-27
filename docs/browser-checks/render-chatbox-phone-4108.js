@@ -21,7 +21,10 @@
  * Android's font scale does; WebKit ignores it). Every step must point, sit fully on screen, and have its area
  * in view. Measured: without the tip fix the Conversation step goes flat at 360 and 375 in both engines; the x1.3
  * case points even without the fix (the layout leaves room there), so it guards against a future break and does
- * not reproduce this one.
+ * not reproduce this one. The make-room step is in the tour code every stepped tip shares, so the agent page's tip
+ * and the board's tour are walked at the same sizes: wherever the page made room, that card must then point, fully
+ * on screen; their other steps are printed as MEASURE lines, not judged (this card does not own them). And only a
+ * step whose card would otherwise go flat may scroll the page (the project tip: the Conversation step, or none).
  *
  *   node docs/browser-checks/render-chatbox-phone-4108.js            # headed
  *   HEADED=0 node docs/browser-checks/render-chatbox-phone-4108.js   # headless
@@ -101,6 +104,54 @@ async function open(page, base, where, pid) {
     await page.waitForSelector('#pj-post', { state: 'visible', timeout: 8000 });
   }
   await page.waitForTimeout(300);
+}
+
+/* Android's larger text, as Chromium's mobile emulation honours it (see the header). Says so if it did not take. */
+async function textScaled(page, tag, scale) {
+  const grew = await page.evaluate((pct) => {
+    const el = document.body; const probe = document.createElement('span'); probe.style.fontSize = '16px'; probe.textContent = 'x'; el.appendChild(probe);
+    const before = parseFloat(getComputedStyle(probe).fontSize);
+    document.documentElement.style.webkitTextSizeAdjust = pct; document.documentElement.style.textSizeAdjust = pct;
+    const after = parseFloat(getComputedStyle(probe).fontSize); probe.remove();
+    return { before, after };
+  }, Math.round(scale * 100) + '%');
+  chk(grew.after > grew.before * 1.2, `${tag} setup: the larger text took effect`, JSON.stringify(grew));
+  await page.waitForTimeout(200);
+  return grew.after > grew.before * 1.2;
+}
+
+/* Opens a stepped tip with the real tipShow and walks it with its own Next button. For each step: whether the card
+   points, the WHOLE card is on screen, its area is in view, and whether the tour scrolled the page for it. */
+async function walkTip(page, tipId) {
+  const opened = await page.evaluate((id) => {
+    if (typeof TIPS === 'undefined' || typeof tipShow !== 'function') return { error: 'TIPS/tipShow missing' };
+    if (typeof tipClose === 'function') tipClose({ record: false });
+    /* Count the tour's own scrolls per step, so "a card that already points is never moved" is measured, not read. */
+    window.__tipScrolls = [];
+    if (!window.__sbOrig) window.__sbOrig = window.scrollBy.bind(window);
+    window.scrollBy = function (...a) { const st = TIP_PLACES[TIP_STEP]; window.__tipScrolls.push(st ? st.title : '?'); return window.__sbOrig(...a); };
+    const t = TIPS.find((x) => x.id === id); if (!t || !t.steps) return { error: 'no stepped ' + id + ' tip' };
+    window.scrollTo(0, 0); tipShow(t); return { n: TIP_PLACES.length };
+  }, tipId);
+  if (opened.error) return opened;
+  const steps = [];
+  for (let i = 0; i < opened.n; i += 1) {
+    await page.waitForTimeout(250);
+    steps.push(await page.evaluate(() => {
+      const card = document.getElementById('tipcard'); const st = TIP_PLACES[TIP_STEP];
+      const target = st && st.sel && (typeof tipTarget === 'function' ? tipTarget(st.sel) : document.querySelector(st.sel));
+      if (!card || card.hidden || !target) return { title: st && st.title, error: 'no card or no target' };
+      const C = card.getBoundingClientRect(), T = target.getBoundingClientRect();
+      const vw = window.visualViewport ? window.visualViewport.width : innerWidth, vh = window.visualViewport ? window.visualViewport.height : innerHeight;
+      return { title: st.title, pointing: !/\bflat\b/.test(card.className),
+        cardOnScreen: C.top >= 0 && C.bottom <= vh && C.left >= 0 && C.right <= vw,
+        areaInView: T.bottom > 0 && T.top < vh && T.right > 0 && T.left < vw,
+        scrolledHere: (window.__tipScrolls || []).includes(st.title) };
+    }));
+    await page.evaluate(() => { const go = document.querySelector('#tipcard .tip-go'); if (go) go.click(); });
+  }
+  const scrolled = await page.evaluate(() => { if (typeof tipClose === 'function') tipClose({ record: false }); return window.__tipScrolls || []; });
+  return { steps, scrolled };
 }
 
 function heightOf(page, sel) {
@@ -190,58 +241,41 @@ function heightOf(page, sel) {
            caught the Conversation step going flat, 2px short of room above the column). Walked with the tip's own Next
            button at 360 and 375, and at 375 with Android's larger text (Chromium's mobile emulation honours
            -webkit-text-size-adjust on px text as Android's font scale does; WebKit ignores it, so Chromium only). At
-           every step the card points, the WHOLE card is on screen, and its area is in view. */
+           every step the card points, the WHOLE card is on screen, and its area is in view.
+           The make-room step lives in the tour code every stepped tip shares, so the agent page's tip and the board's tour
+           are walked too: wherever it scrolled, the card must then point and be fully on screen (their other steps are
+           reported, not judged: this card does not own them). */
         const TIP_CASES = [[360, 1], [375, 1]].concat(engine === 'chromium' ? [[375, 1.3]] : []);
         for (const [width, scale] of TIP_CASES) {
           const tag = `[${engine} ${width}x${PHONE[1]}${scale !== 1 ? ' text x' + scale : ''}]`;
           const ctx = await browser.newContext({ viewport: { width, height: PHONE[1] }, hasTouch: true, isMobile: engine === 'chromium' });
           const page = await ctx.newPage();
           try {
-            await open(page, base, 'room', pid);
-            if (scale !== 1) {
-              const grew = await page.evaluate((pct) => {
-                const el = document.getElementById('pj-post'); const before = parseFloat(getComputedStyle(el).fontSize);
-                document.documentElement.style.webkitTextSizeAdjust = pct; document.documentElement.style.textSizeAdjust = pct;
-                return { before, after: parseFloat(getComputedStyle(el).fontSize) };
-              }, Math.round(scale * 100) + '%');
-              chk(grew.after > grew.before * 1.2, `${tag} setup: the larger text took effect`, JSON.stringify(grew));
-              await page.waitForTimeout(200);
+            for (const [where, tipId] of [['room', 'project'], ['agent', 'agentpage'], ['board', 'tour']]) {
+              if (where === 'board') {
+                await page.goto(base, { waitUntil: 'networkidle' });
+                if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+              } else await open(page, base, where, pid);
+              if (scale !== 1 && !(await textScaled(page, tag, scale))) continue;
+              const w = await walkTip(page, tipId);
+              if (w.error) { chk(tipId !== 'project', `${tag} the ${tipId} tip opens`, w.error); continue; }
+              if (tipId === 'project') {
+                for (const st of w.steps) {
+                  chk(!st.error && st.pointing && st.cardOnScreen && st.areaInView,
+                    `${tag} the project tip's ${st.title || '?'} step points at its area, fully on screen`, JSON.stringify(st));
+                }
+                /* Only a step whose card would otherwise go flat may scroll: here that is the Conversation step, or none. */
+                chk(w.scrolled.every((t) => t === 'Conversation'), `${tag} the tip scrolls the page only for the Conversation step (a pointing card is never moved)`, JSON.stringify(w.scrolled));
+                chk(w.steps.length === 4, `${tag} the project tip walked all four steps`, String(w.steps.length));
+              } else {
+                for (const st of w.steps) console.log(`MEASURE  ${tag} ${tipId} tip, ${st.title || '?'}: ${JSON.stringify(st)}`);
+                for (const st of w.steps.filter((x) => x.scrolledHere)) {
+                  chk(!st.error && st.pointing && st.cardOnScreen, `${tag} the ${tipId} tip's ${st.title} step, where the page made room, points fully on screen`, JSON.stringify(st));
+                }
+              }
             }
-            const opened = await page.evaluate(() => {
-              if (typeof TIPS === 'undefined' || typeof tipShow !== 'function') return { error: 'TIPS/tipShow missing' };
-              /* Count the fix's own scrolls per step, so "a card that already points is never moved" is measured, not read. */
-              window.__tipScrolls = [];
-              const sb = window.scrollBy.bind(window);
-              window.scrollBy = function (...a) { const st = TIP_PLACES[TIP_STEP]; window.__tipScrolls.push(st ? st.title : '?'); return sb(...a); };
-              const t = TIPS.find((x) => x.id === 'project'); if (!t || !t.steps) return { error: 'no stepped project tip' };
-              window.scrollTo(0, 0); tipShow(t); return { n: TIP_PLACES.length };
-            });
-            if (opened.error) { chk(false, `${tag} the project tip opens`, opened.error); continue; }
-            const steps = [];
-            for (let i = 0; i < opened.n; i += 1) {
-              await page.waitForTimeout(250);
-              steps.push(await page.evaluate(() => {
-                const card = document.getElementById('tipcard'); const st = TIP_PLACES[TIP_STEP];
-                const target = st && st.sel && document.querySelector(st.sel);
-                if (!card || card.hidden || !target) return { title: st && st.title, error: 'no card or no target' };
-                const C = card.getBoundingClientRect(), T = target.getBoundingClientRect();
-                const vw = window.visualViewport ? window.visualViewport.width : innerWidth, vh = window.visualViewport ? window.visualViewport.height : innerHeight;
-                return { title: st.title, pointing: !/\bflat\b/.test(card.className),
-                  cardOnScreen: C.top >= 0 && C.bottom <= vh && C.left >= 0 && C.right <= vw,
-                  areaInView: T.bottom > 0 && T.top < vh && T.right > 0 && T.left < vw };
-              }));
-              await page.evaluate(() => { const go = document.querySelector('#tipcard .tip-go'); if (go) go.click(); });
-            }
-            for (const st of steps) {
-              chk(!st.error && st.pointing && st.cardOnScreen && st.areaInView,
-                `${tag} the project tip's ${st.title || '?'} step points at its area, fully on screen`, JSON.stringify(st));
-            }
-            /* Only a step whose card would otherwise go flat may scroll: here that is the Conversation step, or none. */
-            const scrolled = await page.evaluate(() => window.__tipScrolls || []);
-            chk(scrolled.every((t) => t === 'Conversation'), `${tag} the tip scrolls the page only for the Conversation step (a pointing card is never moved)`, JSON.stringify(scrolled));
-            chk(steps.length === 4, `${tag} the project tip walked all four steps`, String(steps.length));
           } catch (e) {
-            chk(false, `${tag} the project tip walk ran`, String(e.message || e).split('\n')[0]);
+            chk(false, `${tag} the tip walks ran`, String(e.message || e).split('\n')[0]);
           } finally { await ctx.close(); }
         }
       } finally {
