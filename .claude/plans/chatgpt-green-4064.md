@@ -43,6 +43,15 @@ Also: inside the observed window a DEAD sign-in shows green on reopen for one ch
 red when the check answers). That is the same trade the Grok check makes and the reverse of the amber flash this fixes;
 the browser check's dead arm expects `green > red` and fails only on green after red.
 
+## Decided, not missed: Check now finishing after a newer check (review 2)
+`livenessNow` (Check now) writes its answer unconditionally, by design (#3997 round 3: it must beat a check started
+against an older sign-in). So if a list check that started AFTER it finishes first and answers dead, and Check now then
+answers live, the live wins. That race predates this branch; with this change the live is also recorded. It is not a
+5 minute stuck green: after the check's 30s cache every reopen runs a fresh check, and a dead answer forgets the green
+within one check, the same bound as the dead-reopen trade above. It needs two checks seconds apart to disagree, a real
+change of sign-in state mid-check. Fixing it means dating each cache entry by when its run STARTED and changing Check
+now's precedence, a #3997 behaviour change wider than this card, so it is left and named here.
+
 ## Decided, not missed: a new sign-in in the same folder
 Nothing on main invalidates on a sign-in: the check's cache is keyed by folder alone (`homeKey(dir)`), and an agent's
 recorded success is too, for 5 minutes. With this change a check's green is carried the same way, so a DIFFERENT account

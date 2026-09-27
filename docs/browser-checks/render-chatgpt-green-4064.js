@@ -46,6 +46,10 @@ catch {
   console.log('render-chatgpt-green-4064: playwright is not on NODE_PATH - SKIPPED, not passed.');
   process.exit(0);
 }
+/* An empty fleet: the tmux variable points at /bin/echo, so the pane reads come from here, never from a live tmux
+   (engine/status.tmux-bin.test.js). */
+const fleet = require('../../test-support/fleet');
+fleet.install([]);
 const srv = require('../../server.js');
 const codexsigninlive = require('../../engine/codexsigninlive');
 
