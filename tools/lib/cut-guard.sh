@@ -334,8 +334,9 @@ kosmos_refuse_if_browser_run_live() {
   fi
   # #4206 follow-up: a unit test's browser-checks.sh fixture is not a run, by the same rule as
   # the cut guard's. An unreadable pid stays in unless its script path is in the sandbox. This
-  # filters the process list only; the run-marker check is not filtered, and fixtures stay out of it
-  # by sandboxing HOME.
+  # filters the process list only; the run-marker check is not filtered. run-tests.sh does not
+  # sandbox HOME, so a fixture that runs the real script must point HOME or KOSMOS_RUN_MARKER_DIR at
+  # its own directory (test-cut-parallel-region.sh does), or it writes a marker this check will see.
   if [ -n "$out" ]; then
     out="$(printf '%s\n' "$out" | _kosmos_drop_test_fixtures || true)"
   fi

@@ -137,6 +137,15 @@ such a context), so the measurement is the evidence.
 - Not changed: the live sleeps can outlive an aborted run by up to 30 seconds (the EXIT trap removes
   directories only); harmless, and a kill in the trap would need every pid defined before it fires.
 
+## Review 12
+
+- The browser filter's comment no longer says fixtures stay out of the marker check by sandboxing
+  HOME: run-tests.sh does not sandbox HOME, so it now states the obligation (point HOME or
+  KOSMOS_RUN_MARKER_DIR at the fixture's own directory) instead of claiming it is met.
+- Not changed: cut-guard.sh now has three near-identical script-matching regexes (the cut and browser
+  pgrep filters, and the fixture script-word extractor). They agree today and the extractor is pinned
+  by the Review 9 and 10 arms; folding them into one is a refactor beyond this card.
+
 ## Weakest premise
 
 The negative control runs from `/` so it cannot sit in a kt folder. A machine whose $TMPDIR were `/`
