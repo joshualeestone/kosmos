@@ -98,6 +98,27 @@ test('#3997 ChatGPT: a check that FINISHED without an answer is not "checking" (
   assert.ok(!row.connection.liveCheckPending, 'a finished check still says it is under way');
 });
 
+test('#3997 round 14: a ChatGPT check that finishes DURING the same read is "checking" only if it found an answer the row does not show yet', async () => {
+  // The Grok check holds this read for ~120ms (under its 200ms wait); the ChatGPT check settles at once, before the
+  // row is drawn but after this read listed it (the second arm's first assertion proves the race is exercised).
+  grokSignIn(3 * 3600 * 1000);
+  grokAccounts.setFetcher(async () => { await new Promise((r) => setTimeout(r, 120)); return { status: 200 }; });
+  codexsigninlive.setRunner(async () => ({ ok: false }));
+  const none = (await accounts()).find((a) => a.provider === 'openai');
+  assert.equal(none.connection.state, 'unknown', JSON.stringify(none.connection));
+  assert.ok(!none.connection.liveCheckPending, 'a check that finished with no answer during the read still says checking');
+  codexsigninlive.resetForTest();
+  grokAccounts.resetSubscriptionLiveForTest();
+  observed._clearForTest();
+  grokAccounts.setFetcher(async () => { await new Promise((r) => setTimeout(r, 120)); return { status: 200 }; });
+  codexsigninlive.setRunner(async () => ({ ok: true, stdout: DOC('ok') }));
+  const found = (await accounts()).find((a) => a.provider === 'openai');
+  assert.equal(found.connection.state, 'unknown', 'this read already showed the answer: the arm does not exercise the race');
+  assert.equal(found.connection.liveCheckPending, true, 'an answer that arrived during the read gets no follow-up read');
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal((await accounts()).find((a) => a.provider === 'openai').connection.state, 'connected');
+});
+
 test('#3997 ChatGPT Check now runs its OWN check, never the one opening the list started (review round 3)', async () => {
   // Opening the list starts a check against the sign-in as it was (it will answer dead); meanwhile the person signs in
   // again and presses Check now, which must ask afresh and answer from the new sign-in.

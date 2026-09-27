@@ -155,3 +155,14 @@ Design and measurements are on the card (comment 5849157780).
   pending row can say (then green), stopping at the bound, none without a pending row (control), none while a Check
   now is in flight; Check now's expired and connected answers.
 - web.badge-observed-1921.test.js, web.openai-row-2568.test.js updated to the new vocabulary.
+
+## Validation and review round 14 (Sonnet), what changed
+- Full validation found two guards this branch broke that no single-file round ran: engine.reachable (the Grok
+  check's test seam, now excused by name with its reason) and web.account-qualifier #1659 (it looked for
+  "paintAccounts()" and found nothing once the function took opts; it now matches any parameter list, and every
+  writer to the message line still cancels first).
+- Round 14: a ChatGPT check that finished during the same read (while the Grok check held it) still said "checking",
+  because "running" was recorded before the wait. It is now judged when the row is drawn: running now, or finished
+  with a real answer the row does not show yet (so the follow-up read shows it). Tested; red on the previous commit.
+- NIT noted: in the minute before a Grok key's margin, Check now is still offered and answers "expired" at once
+  (no request is sent).

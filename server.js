@@ -7732,7 +7732,12 @@ const server = http.createServer((req, res) => {
           if (!prev || o.at > prev.at) obsByOpenaiDir.set(acct.dir, { outcome: o.outcome, at: o.at });
         }
         const openai = openaiRows.map((a) => {
-          const pending = openaiPending.has(a.dir) && a.connection && a.connection.state === 'unknown';
+          /* Checking = still running NOW, or it finished during this read with a real answer the row does not show
+             yet (the next read shows it). One that finished with no answer is not checking (review round 14: the
+             snapshot above alone still said so). */
+          const now = openaiPending.has(a.dir) ? codexsigninlive.checkState(a.dir) : null;
+          const pending = a.connection && a.connection.state === 'unknown' && (now === 'running'
+            || (now === 'fresh' && codexsigninlive.livenessCached(a.dir).verdict !== 'unknown'));
           const base = { ...a, offerable: !named || path.resolve(String(a.dir || '')) === onlyDir,
             ...(pending ? { connection: { ...a.connection, liveCheckPending: true } } : {}) };
           const obs = a.dir ? obsByOpenaiDir.get(a.dir) : null;
