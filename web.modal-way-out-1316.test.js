@@ -40,8 +40,8 @@ test('the sweep still covers every modal, and the count is the assertion', () =>
   const found = modals();
   assert.ok(found.length >= 12,
     `only ${found.length} modals found; the sweep stopped seeing them, so every assertion below is vacuous`);
-  assert.ok(found.length <= 18,   // 18: #3955's Kosmos has been updated window
-    `${found.length} modals now, up from 18 (#3955 added the 18th). A new one joined the page: sweep it, then raise this number.`);
+  assert.ok(found.length <= 19,   // 18: #3955's Kosmos has been updated window; 19: #4080's Lost your phone? dialog
+    `${found.length} modals now, up from 19 (#4080 added plus-lost-modal as the 19th). A new one joined the page: sweep it, then raise this number.`);
 });
 
 /**
@@ -91,6 +91,9 @@ const ESCAPES_VIA = {
      its two buttons and restores focus to the opener on close. The regex pins that exact mechanism,
      not mere Escape/id co-occurrence. */
   'plus-gate-modal': /plus-gate-modal'\)\.hidden\) hidePlusGate/,
+  /* #4080: "Lost your phone?" (the second-step reset), the same machinery: a document-level Escape guarded on
+     hidden, and a Tab trap between Close and Reset; Close returns focus to the link. */
+  'plus-lost-modal': /plus-lost-modal'\)\.hidden\) plusLostClose/,
 };
 
 test('every modal has a named way out with Escape, and the table covers them all', () => {

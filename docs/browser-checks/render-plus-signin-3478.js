@@ -386,7 +386,7 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(!(await visible(page, '#plus-si-second-recover')), `[${key}] #3796 CONTROL: the recovery line starts hidden`);
         await page.click('#plus-si-second-help');
         const rec = (await page.textContent('#plus-si-second-recover')).trim();
-        chk((await visible(page, '#plus-si-second-recover')) && /I lost my phone/.test(rec), `[${key}] #3796 "Can't get a code?" opens the recovery path`, JSON.stringify(rec));
+        chk((await visible(page, '#plus-si-second-recover')) && /Lost your phone\?/.test(rec), `[${key}] #3796 "Can't get a code?" opens the recovery path`, JSON.stringify(rec));
         await page.fill('#plus-si-second-in', '654321');   // #3942: auto-submits
       } else if (verifyStage === 'enrol_second_factor') {
         await page.waitForSelector('#plus-si-enrol', { state: 'visible', timeout: 5000 });

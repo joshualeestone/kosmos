@@ -144,7 +144,6 @@ test('#743: a slower poll cannot revert a faster user click (or vice versa)', ()
     'plus-status': { textContent: '' },
     'plus-enrol': { hidden: false },
     'plus-devices': { hidden: false },
-    'plus-second': { hidden: false },
   };
   const pending = [];
   const fetchImpl = () => new Promise((resolve) => { pending.push(resolve); });

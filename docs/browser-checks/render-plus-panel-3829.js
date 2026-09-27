@@ -6,7 +6,7 @@
  * list row named just "device"; Mona Lisa's sketch on the card). Four states, each asserted and shot:
  *   off         -> the pill says Off, Turn on is the one primary action, no address chip;
  *   connected   -> a green Connected pill, the address in ONE chip with Copy and Open, one plain line,
- *                  Pause quiet (it was Turn off; #4079), and View my account pointing at the web account;
+ *                  the #4080 switch (it was Pause, before that Turn off), and View account pointing at the web account;
  *   one request -> a compact card: the device, when, one device-neutral sentence, then the code LARGE in
  *                  boxes directly above Allow / Deny (#3952); no Not now, no Not me; the request is NOT repeated in the devices list;
  *   two requests-> one stale (older than an hour, faded) and one unnamed ("Unknown device").
@@ -162,6 +162,18 @@ const STATES = {
           await page.waitForTimeout(150);
           const shut = await page.evaluate(() => ({ open: !document.getElementById('plus-lost-modal').hidden, focus: document.activeElement && document.activeElement.id }));
           chk(!shut.open && shut.focus === 'plus-lost-open', `${t} #4080: Escape closes it and focus returns to the link`, JSON.stringify(shut));
+          /* Review round 1: Escape must work with focus fallen to <body> (the reset disables itself mid-request), and
+             Tab must stay inside the dialog (aria-modal). */
+          await page.click('#plus-lost-open');
+          await page.waitForTimeout(100);
+          await page.keyboard.press('Tab');   // Close -> Reset
+          await page.keyboard.press('Tab');   // Reset -> wraps to Close
+          const wrapped = await page.evaluate(() => document.activeElement && document.activeElement.id);
+          await page.evaluate(() => { if (document.activeElement) document.activeElement.blur(); });
+          await page.keyboard.press('Escape');
+          await page.waitForTimeout(100);
+          const bodyEsc = await page.evaluate(() => document.getElementById('plus-lost-modal').hidden);
+          chk(wrapped === 'plus-lost-close' && bodyEsc, `${t} #4080: Tab stays inside the dialog, and Escape closes it even with focus on the page`, JSON.stringify({ wrapped, closed: bodyEsc }));
           if (SHOTS) { await page.setViewportSize({ width: 1400, height: 1000 }); await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(200); await page.screenshot({ path: path.join(SHOTS, '4080-connected.png') }); await page.setViewportSize({ width: 1400, height: 950 }); }
           /* The switch pauses: pressing it sends on:false (the route stub answers ok and the next paint re-reads). */
           const put = new Promise((res) => page.on('request', (rq) => { if (/\/api\/remote$/.test(rq.url()) && rq.method() === 'PUT') res(rq.postData()); }));
