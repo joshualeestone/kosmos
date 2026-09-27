@@ -33,9 +33,11 @@ concurrency:
 jobs:
   windows:
     runs-on: windows-latest
-    # Measured on the runner: the 76 selected files take about 11 minutes one at a time. The
-    # script bounds each test (60s) and each file (15m), so this only catches a hang in the runner.
-    timeout-minutes: 40
+    # Measured on the runner: the selected files take about 12 minutes one at a time. The script
+    # bounds each test (60s) and each file (15m), and starts no file after 33 minutes (the rest are
+    # reported NOT RUN, a red). 33 + 15 = 48, so at 55 the job always ends with the script's
+    # verdict, never cancelled mid-file (a cancel reads as a fail with no reason, #3499).
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
       # Node 26, as test.yml (#1794): the suite is written on node 26.

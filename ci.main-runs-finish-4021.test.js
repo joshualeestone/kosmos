@@ -20,8 +20,8 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 
-/* Every workflow that runs on a push to main: the suite, and the two app builds (#3499 keeps the
-   three in lockstep). A new push-to-main workflow belongs in this list. */
+/* Every workflow that runs on a push to main: the suite, the two app builds (#3499 keeps those
+   three in lockstep) and the Windows tests (#1777). A new push-to-main workflow belongs here. */
 const PINNED_WORKFLOWS = ['test.yml', 'android.yml', 'ios.yml', 'windows.yml'];
 const MAIN_BRANCH = 'main';
 const MAIN_REF = 'refs/heads/' + MAIN_BRANCH;

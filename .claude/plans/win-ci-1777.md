@@ -17,8 +17,10 @@ when a listed file passes again or is no longer run.
 
 ## Measured on windows-latest (probe runs 36354845848 to 36356612430)
 - `fs.constants.O_NOFOLLOW` is undefined, and `path.delimiter` is `;`.
-- 76 selected files (the 73, plus platform, store, windows-coupling-audit-1732): 73 pass, 3 fail,
-  and the suite takes about 11 minutes. The slowest file is win32apply at 431s; it hung under the
+- The #1777 decision comment counted the 50 `engine/win32*` files; the probes widened that to
+  every `engine/*win32*` file (73), which catches win32-only tests such as runners.win32-codex.
+  76 files (the 73, plus platform, store, windows-coupling-audit-1732): 73 pass, 3 fail, about
+  11 minutes. The slowest file is win32apply, at 431s and 481s on two runs; it hung under the
   first probe, which left stdin open.
 - The reds:
   - projects.win32-reveal and trust.win32-key-2281 compare a path with its 8.3 short name
@@ -26,11 +28,16 @@ when a listed file passes again or is no longer run.
   - win32handoff's zone-by-interface-name arm: Windows zones are numeric. Filed as #4258.
 
 ## Build
-- tools/windows-tests.js: selects `engine/*win32*.test.js` plus ALSO, and runs each with stdin
-  closed, a 60s per-test timeout and a 15m per-file timeout. It judges against KNOWN_RED
-  (file -> card). Pure selectFiles/judge are exported. Zero files selected is a failure.
-- .github/workflows/windows.yml: windows-latest, node 26. Push to main and pull_request, with the
-  same concurrency shape as test.yml (#4021: never cancel a main run).
+- tools/windows-tests.js: selects `*win32*.test.js` in engine/ and at the root (the root adds
+  engine.connect-win32-install-570 and five web.* files), plus ALSO. It runs each with stdin
+  closed, a 60s per-test timeout and a 15m per-file timeout, and starts no file after 33 minutes
+  (the rest are NOT RUN, a red). It prints per-file test and skip counts, and flags a file over half
+  its cap. KNOWN_RED maps a file to its card AND the exact tests expected to fail: any other failing
+  test, a kill, or a failure with no test named is a new red; a listed test that passes is stale.
+  Pure selectFiles/failingTests/judge are exported. Zero files selected is a failure.
+- .github/workflows/windows.yml: windows-latest, node 26, timeout 55m (above the 33m start budget
+  plus one 15m file). Push to main and pull_request, with the same concurrency shape as test.yml
+  (#4021: never cancel a main run).
 - engine/windows-tests-1777.test.js: selection (synthetic and real tree), the verdict (new red,
   known, stale, missing), that KNOWN_RED names selected files and cards, and that the workflow
   runs the script on windows-latest.
@@ -51,7 +58,10 @@ when a listed file passes again or is no longer run.
 ## Weakest part
 - windows-latest is Windows Server, run as an admin, with no Kosmos user setup. A green there is
   evidence about Windows, not about a user's Windows 11 laptop.
-- The job's verdict is only as good as the list. A known red hides new failures inside the same
-  file until its card is fixed.
+- The job's verdict is only as good as the list. Listing by test name means a known red no longer
+  hides other failures in its file, but it does hide a CHANGE inside a listed test (it fails for a
+  new reason) until its card is fixed.
+- On a per-file timeout, only the `node --test` process is killed; its child can outlive it on
+  Windows and share the runner with the next files.
 - About 11 minutes a run. If the runner turns out flaky (the same sha red, then green), the job
   gets walked past like any always-red check. The timeouts are there to tell a hang from a slow run.
