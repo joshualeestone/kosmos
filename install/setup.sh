@@ -2995,6 +2995,37 @@ make_app() {
   # partially gut a tree, so the visible Kosmos.app is only ever complete
   # (old) or complete (new). The aside copy is deleted best-effort and its
   # name is swept by --uninstall.
+  # 🔑 #2864: AN UPDATE SWAPS Contents, SO THE Kosmos.app FOLDER ITSELF STAYS
+  # THE SAME ONE. A Dock icon the person kept is a bookmark to that folder, and
+  # renaming a new folder into place (below) made every kept icon stale: the Dock
+  # then drew the running app as a second icon, and "Keep in Dock" on it added a
+  # duplicate (measured on #2864: two kept Kosmos entries pointing at bundles
+  # created 09-11 and 09-12). renameatx_np(RENAME_SWAP) exchanges the two Contents
+  # folders in ONE step, so the visible app is only ever complete old or complete
+  # new, the same guarantee as the rename below. It runs only on an existing real
+  # folder we can prove is ours; if anything about it fails, the whole-bundle
+  # rename below runs exactly as before. Called through /usr/bin/perl because a
+  # shell has no swap; 488 is SYS_renameatx_np, -2 AT_FDCWD, 2 RENAME_SWAP.
+  if [ "$(uname -s)" = Darwin ] && [ "${KOSMOS_CONTENTS_SWAP:-on}" != off ] \
+     && [ -d "$app" ] && [ ! -L "$app" ] && [ -d "$app/Contents" ] && [ ! -L "$app/Contents" ] \
+     && [ -x "${KOSMOS_SWAP_PERL:-/usr/bin/perl}" ] && bundle_is_ours "$app"; then
+    # Proof the swap HAPPENED, not only that the call returned 0: the app's Contents
+    # must now be the very folder that was staged. Otherwise nothing moved, $stage
+    # is untouched, and the rename below is safe to run.
+    local _staged_ino
+    _staged_ino="$(stat -f %i "$stage/Contents" 2>/dev/null)" || _staged_ino=""
+    if [ -n "$_staged_ino" ] \
+       && "${KOSMOS_SWAP_PERL:-/usr/bin/perl}" -e 'exit(syscall(488, -2, $ARGV[0], -2, $ARGV[1], 2) == 0 ? 0 : 1)' \
+         "$stage/Contents" "$app/Contents" 2>/dev/null \
+       && [ "$(stat -f %i "$app/Contents" 2>/dev/null)" = "$_staged_ino" ]; then
+      # $stage now holds the OLD Contents; it is ours, and swept by the loop at the
+      # top of the next run if this delete is interrupted.
+      rm -rf "$stage" 2>/dev/null \
+        || info "note: could not remove the leftover hidden folder $stage; drag it to the Trash to finish."
+      make_app_register "$app"
+      return 0
+    fi
+  fi
   local aside
   aside="$(dirname "$app")/.Kosmos.app.old.$$"
   rm -rf "$aside" 2>/dev/null || true
@@ -3028,7 +3059,12 @@ make_app() {
   fi
   rm -rf "$aside" 2>/dev/null \
     || info "note: could not remove the leftover hidden folder $aside; drag it to the Trash to finish."
+  make_app_register "$app"
+  return 0
+}
 
+make_app_register() {
+  local app="$1"
   # ⚠️ TELL macOS THE APP EXISTS. A freshly created bundle is not in the
   # LaunchServices database, and until it is, it can show a generic icon or
   # behave oddly when opened. Measured: straight after creation, lsregister knew
