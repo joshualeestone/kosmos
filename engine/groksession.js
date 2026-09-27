@@ -146,8 +146,8 @@ function singleCallFloor(used, sessionDir) {
   try {
     const u = JSON.parse(fs.readFileSync(path.join(sessionDir, 'usage.json'), 'utf8'));
     const turns = u && Array.isArray(u.turns) ? u.turns : [];
-    const last = turns.length === 1 ? turns[0] : null;
-    if (last && last.modelCalls === 1 && typeof last.inputTokens === 'number' && last.inputTokens > used) return last.inputTokens;
+    const only = turns.length === 1 ? turns[0] : null;
+    if (only && only.modelCalls === 1 && typeof only.inputTokens === 'number' && only.inputTokens > used) return only.inputTokens;
   } catch { /* no usage.json: Grok's own gauge stands */ }
   return used;
 }
