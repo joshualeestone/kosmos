@@ -31,6 +31,13 @@ the phone, and neither remedy can be done from it.
   use for it. The address that did not answer stays: it says which Mac.
 - Wording reversible; "your Mac" as the Kosmos+ and state 3 copy say.
 
+## Deliberately not done (challenge loop)
+- A Windows board reached remotely keeps its Windows copy (Kosmos.exe remedy, "this computer"):
+  the Kosmos+ wording is gated on not-Windows, and a test pins that it never says "your Mac".
+  Kosmos+ remote access reaches Macs today (no Windows path in the connector, no remote copy in
+  windowsCopyTable), the same call as state 3. If Windows gets remote access, this arm needs a
+  windowsCopyTable entry.
+
 ## Weakest part
 The card's "Something on your Mac did not answer" also shows for a read the Mac answered with an
 error (a 500), as "this computer" did before. Making the card tell an answered error from silence
