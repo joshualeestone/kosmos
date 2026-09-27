@@ -27,21 +27,9 @@ jobs:
         run: |
           echo "node: $(node --version)"; echo "image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
           node -e "console.log('O_NOFOLLOW', require('fs').constants.O_NOFOLLOW, 'delimiter', JSON.stringify(require('path').delimiter))"
-      - name: each platform-sensitive test file, one at a time
+      - name: the three reds, full output
         run: |
-          node -e '
-            const fs = require("fs");
-            const pick = fs.readdirSync("engine").filter(f => /win32.*\.test\.js$/.test(f)
-              || ["platform.test.js","store.test.js","windows-coupling-audit-1732.test.js"].includes(f));
-            fs.writeFileSync("probe-files.txt", pick.map(f => "engine/" + f).join("\n") + "\n");
-            console.log(pick.length + " files");
-          '
-          pass=0; fail=0; : > probe-result.txt
-          while IFS= read -r f; do
-            [ -n "$f" ] || continue
-            start=$(date +%s)
-            if timeout 600 node --test --test-timeout=60000 "$f" < /dev/null > out.txt 2>&1; then r=PASS; pass=$((pass+1)); else r="FAIL($?)"; fail=$((fail+1)); fi
-            echo "$r $(( $(date +%s) - start ))s $f" | tee -a probe-result.txt
-            case "$r" in FAIL*) grep -E "^✖|Error|# (tests|pass|fail|skipped) " out.txt | head -30 | sed 's/^/    /' ;; esac
-          done < probe-files.txt
-          echo "TOTAL pass=$pass fail=$fail"
+          for f in engine/projects.win32-reveal.test.js engine/trust.win32-key-2281.test.js engine/win32handoff.test.js; do
+            echo "######## $f"
+            node --test --test-timeout=60000 "$f" < /dev/null 2>&1 | grep -vE "^\s*(✔|ℹ)" | head -150
+          done
