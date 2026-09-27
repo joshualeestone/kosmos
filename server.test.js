@@ -2182,10 +2182,14 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   const script = raw.match(/<script>([\s\S]*?)<\/script>/)[1];
 
-  const ids = ['d-file', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save',
+  const ids = ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save',
     'd-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-msg', 'd-untied'];
   const els = {};
-  for (const id of ids) els[id] = { id, disabled: false, hidden: false, value: '', textContent: '' };
+  // setAttribute/removeAttribute: #4038 names the button's reason (aria-describedby) only while it is disabled.
+  for (const id of ids) {
+    els[id] = { id, disabled: false, hidden: false, value: '', textContent: '', attrs: {},
+      setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; } };
+  }
   const document = { getElementById: (id) => els[id] || null };
 
   // ⚠️ Brace-matched, not "up to the next function". The first version sliced
@@ -2245,10 +2249,13 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
 
   // `d-name` joined this list WITH the control, not after it: a new sibling
   // does not inherit its neighbours' guard just by sitting beside them.
-  for (const id of ['d-file', 'd-remove', 'd-save', 'd-role', 'd-rename']) {
+  /* #4038: 'd-file-btn', the VISIBLE Change picture button, with its hidden input: left live, its click did nothing. */
+  for (const id of ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename']) {
     assert.equal(els[id].disabled, true, `${id} was still offered`);
   }
   assert.equal(els['d-untied'].hidden, false, 'nothing explained why the writes are gone');
+  // #4038: the disabled button names that sentence for assistive tech, and only while disabled (below).
+  assert.equal(els['d-file-btn'].attrs['aria-describedby'], 'd-untied', 'the disabled Change picture button names no reason');
   // ⚠️ And the sentence must not be a tautology. For an untied card the display
   // name is FORCED to the raw session name, so a message built from both read
   // "we found a session called research, but not the one research's own session
@@ -2297,9 +2304,11 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
 
   // And a tied card gets everything back.
   run(tiedCard, tiedCard.isNamedOurs);
-  for (const id of ['d-file', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save']) {
+  for (const id of ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save']) {
     assert.equal(els[id].disabled, false, `${id} stayed withdrawn for a tied agent`);
   }
+  // #4038: a hidden element still describes whatever points at it, so a live button must point at no reason.
+  assert.equal(els['d-file-btn'].attrs['aria-describedby'], undefined, 'a live Change picture button still names a reason');
   assert.equal(els['d-untied'].hidden, true, 'the explanation stayed up for a tied agent');
 });
 
@@ -7177,7 +7186,14 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
        (the red triangle + red status), so the real cardStOf and its CARD_ST table join the
        prelude. A stub would let this pass while the shipped needs-you condition differed. */
     + pageConstSource('CARD_ST') + '\n'
-    + pageFnSource('cardStOf') + '\n';
+    + pageFnSource('cardStOf') + '\n'
+    /* #3991: pjMember draws the memory ring (lrowRing) and the presence dot (memberDotClass,
+       which reads boardMods), so the real ones join the prelude. */
+    + pageFnSource('pctOf') + '\n'
+    + pageFnSource('memBand') + '\n'
+    + pageFnSource('lrowRing') + '\n'
+    + pageFnSource('boardMods') + '\n'
+    + pageFnSource('memberDotClass') + '\n';
   const member = pageFunction('pjMember', prelude);
   const toldLine = pageFunction('pjToldLine', TOLD_PRELUDE);
 
@@ -7308,7 +7324,14 @@ test('#2711 item 16: pjMember takes a state wash class, for working/needs-you/id
     + pageFnSource('restartingLabel') + '\n'
     + pageFnSource('stateCopyOf') + '\n'
     + pageConstSource('CARD_ST') + '\n'
-    + pageFnSource('cardStOf') + '\n';
+    + pageFnSource('cardStOf') + '\n'
+    /* #3991: pjMember draws the memory ring (lrowRing) and the presence dot (memberDotClass,
+       which reads boardMods), so the real ones join the prelude. */
+    + pageFnSource('pctOf') + '\n'
+    + pageFnSource('memBand') + '\n'
+    + pageFnSource('lrowRing') + '\n'
+    + pageFnSource('boardMods') + '\n'
+    + pageFnSource('memberDotClass') + '\n';
   const member = pageFunction('pjMember', prelude);
 
   // Real produced roster rows, not hand-built stand-ins (fixture-discipline):
@@ -8745,7 +8768,7 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
   // own earlier in the file, and a forward search finds that one.
   const from = script.lastIndexOf('  const copy = stateCopyOf(a)', dmAt);
   assert.ok(from > -1 && from < dmAt, 'the state copy lookup moved away from the badge');
-  const TAIL = "dtask.hidden = !dtask.textContent || (a.state === 'needs_you');";
+  const TAIL = "dtask.hidden = !taskText || (a.state === 'needs_you');";
   const end = script.indexOf(TAIL, from);
   assert.ok(end > from, 'the detail task line vanished');
   const body = script.slice(from, end + TAIL.length);
@@ -8753,7 +8776,7 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
   const els = {};
   const doc = {
     getElementById: (id) => {
-      if (!els[id]) els[id] = { className: '', innerHTML: '', textContent: '', hidden: false };
+      if (!els[id]) els[id] = { className: '', innerHTML: '', textContent: '', hidden: false, dataset: {} };
       return els[id];
     },
   };

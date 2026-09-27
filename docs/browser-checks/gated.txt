@@ -14,6 +14,7 @@ render-agent-files-3614
 render-agent-lines
 render-agent-msg-gray-2805
 render-agent-nav
+render-agent-pill-3958
 render-agentdm-3414
 render-agentpage-fullwidth-2012
 render-alltasks
@@ -22,6 +23,7 @@ render-assistant-bubble-3034
 render-assistant-hosted-3660
 render-autohello-2686
 render-autohello-switch-2716
+render-avatar-4038
 render-bubblepop-2407
 render-build-marker-2066
 render-busy-anim-3421
@@ -90,6 +92,7 @@ render-inline-field-errors-2606
 render-keyed-install-3713
 render-long-title
 render-made-before
+render-member-ring-3991
 render-memory-controls
 render-mention-blue-2922
 render-model-change
@@ -162,6 +165,7 @@ render-talk-fill-2622
 render-talk-search
 render-tasks
 render-tasks-view-3559
+render-thread-steady-3966
 render-title-descender-3438
 render-tophead-consolidated-2282
 render-tophead-stable-2624

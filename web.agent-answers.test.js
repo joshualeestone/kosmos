@@ -149,7 +149,7 @@ test('a reply is escaped on its way to the screen', () => {
   // eslint-disable-next-line no-new-func
   const dmRow = new Function(
     'let CURRENT = ' + JSON.stringify(pick(card)) + '; let LAST = []; let YOU_PIC = false; let DISC_TINTS = ["#dfe5ea"]; let DISC_INKS = ["#4a5560"];\n'
-    + ['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'pjAvatarVer', 'discTint', 'discInk', 'discIndex', 'initials', 'dmRow', 'pjRich', 'pjRichSpans', 'pjListDepth'].map(slice).join('\n')
+    + ['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjWhenLive', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'pjAvatarVer', 'discTint', 'discInk', 'discIndex', 'initials', 'dmRow', 'pjRich', 'pjRichSpans', 'pjListDepth'].map(slice).join('\n')
     + '; return dmRow;',
   )();
 
@@ -194,7 +194,7 @@ test('a placed message is silent whatever the agent was doing; the did-not-deliv
   const lift = (n) => page.lift(SCRIPT, n);
   // eslint-disable-next-line no-new-func
   const pjVerdict = new Function(
-    ['esc', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict'].map(lift).join('\n')
+    ['esc', 'pjWhen', 'pjWhenPart', 'pjWhenLive', 'pjSentence', 'placedWords', 'pjVerdict'].map(lift).join('\n')
     + '; return pjVerdict;',
   )();
   const at = new Date().toISOString();
@@ -248,7 +248,7 @@ test('the person’s own row carries its time now that the receipt may say nothi
   // eslint-disable-next-line no-new-func
   const dmRow = new Function(
     'let CURRENT = ' + JSON.stringify(pick(card)) + '; let LAST = []; let YOU_PIC = false; let DISC_TINTS = ["#dfe5ea"]; let DISC_INKS = ["#4a5560"];\n'
-    + ['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'pjAvatarVer', 'discTint', 'discInk', 'discIndex', 'initials', 'dmRow', 'pjRich', 'pjRichSpans', 'pjListDepth'].map(lift).join('\n')
+    + ['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjWhenLive', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'pjAvatarVer', 'discTint', 'discInk', 'discIndex', 'initials', 'dmRow', 'pjRich', 'pjRichSpans', 'pjListDepth'].map(lift).join('\n')
     + '; return dmRow;',
   )();
   const at = new Date().toISOString();
@@ -257,7 +257,8 @@ test('the person’s own row carries its time now that the receipt may say nothi
   /* #3414: the operator's own row drops the "You" label (matches the room's #3130 rule and
      Josh's UPDATED screenshot -- a user bubble shows only its time). The timestamp now lives
      INSIDE the bubble (.msg-t), so assert the time is present, without "You". */
-  assert.match(mine, /class="msg-t">just now/, 'a message that worked lost its timestamp with its receipt');
+  /* #3966: the time is a live span inside .msg-t, so the thread can refresh it in place. */
+  assert.match(mine, /class="msg-t"><span class="mwhen" data-at="[^"]*">just now</, 'a message that worked lost its timestamp with its receipt');
   assert.doesNotMatch(mine, /Placed into/, 'the receipt Josh asked to have removed is still drawn');
   /* ⚠️ THE CONTROL: a row with a genuine did-not-deliver verdict DOES still say
      it, so the "no receipt on a placed message" assertion above cannot be

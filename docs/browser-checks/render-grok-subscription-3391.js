@@ -1,4 +1,4 @@
-// Browser-check-surface: acct-grok-flow acct-grok-pick acct-grok-sub-go fr-grok-sub-step data-grok-reauth
+// Browser-check-surface: acct-grok-flow acct-grok-pick acct-grok-sub-go fr-grok-sub-step data-grok-reauth devcode devcode-cell devcode-note
 'use strict';
 /**
  * kosmos#3391 part 2: a Grok SUBSCRIPTION sign-in, started from Settings > AI Models and from
@@ -99,6 +99,36 @@ const chk = (ok, label, extra) => {
   await page.waitForTimeout(800);
   const q = (fn, arg) => page.evaluate(fn, arg);
   const tick = () => q(() => window.__tick());
+  /* #3952 (Josh 09-26): the code on its own row, one box per character, grouped as xAI groups it, and the line that
+     heads off xAI's "terminal" wording. Read off the rendered page: boxes, their text, one row, and their size. */
+  const boxesIn = (id) => q((i) => {
+    const host = document.getElementById(i);
+    const row = host && host.querySelector('.devcode');
+    const cells = row ? [...row.querySelectorAll('.devcode-cell')] : [];
+    const rects = cells.map((c) => c.getBoundingClientRect());
+    const note = host && host.querySelector('.devcode-note');
+    return { cells: cells.length, dashes: row ? row.querySelectorAll('.devcode-dash').length : 0,
+      text: cells.map((c) => c.textContent).join(''), label: row ? row.getAttribute('aria-label') : null, role: row ? row.getAttribute('role') : null,
+      oneRow: rects.length > 0 && rects.every((b) => Math.abs(b.top - rects[0].top) < 1),
+      minW: rects.length ? Math.min(...rects.map((b) => b.width)) : 0, minH: rects.length ? Math.min(...rects.map((b) => b.height)) : 0,
+      note: note ? note.textContent : '',
+      // What a person copies by selecting the row: one run, never one character per line (a flex layout did that).
+      copied: row ? row.innerText : '',
+      // Every box inside the host's own width (a phone must never cut the code off), and where it breaks, it breaks at
+      // the dash: each group stays on one row.
+      inside: !!host && rects.every((b) => b.right <= host.getBoundingClientRect().right + 0.5 && b.left >= host.getBoundingClientRect().left - 0.5),
+      groupsWhole: row ? [...row.querySelectorAll('.devcode-grp')].every((g) => { const cs = [...g.querySelectorAll('.devcode-cell')].map((c) => c.getBoundingClientRect().top); return cs.every((t) => Math.abs(t - cs[0]) < 1); }) : false };
+  }, id);
+  const narrowOk = (b, text) => b.cells === text.length && b.inside && b.groupsWhole && b.minW >= 20;
+  const atPhone = async (id) => {
+    await page.setViewportSize({ width: 360, height: 800 }); await page.waitForTimeout(150);
+    const b = await boxesIn(id);
+    if (process.env.SHOTS) await page.locator('#' + id).screenshot({ path: require('node:path').join(process.env.SHOTS, id + '-360.png') });
+    await page.setViewportSize({ width: 1100, height: 1000 }); await page.waitForTimeout(150);
+    return b;
+  };
+  const boxesOk = (b, text, label) => b.cells === text.length && b.dashes === 1 && b.text === text && b.label === label && b.role === 'img'
+    && b.copied === text.slice(0, 4) + '-' + text.slice(4) && b.oneRow && b.minW >= 24 && b.minH >= 30 && /xAI's page says "terminal": it means this code here in Kosmos\./.test(b.note);
   const G = (id) => q((i) => { const e = document.getElementById(i); return e ? { hidden: e.hidden, text: e.textContent, disabled: e.disabled, href: e.getAttribute('href') } : null; }, id);
 
   /* ---------------- Settings, AI Models ---------------- */
@@ -152,6 +182,16 @@ const chk = (ok, label, extra) => {
   chk(mid.starts.length === 1 && !('reauthDir' in mid.starts[0]), 'a new sign-in POSTs start with no reauthDir', JSON.stringify(mid.starts));
   chk(mid.linkShown && /user_code=QWER-TYUI/.test(mid.link) && /QWER-TYUI/.test(mid.code) && mid.stop && mid.go && /Confirm the code/.test(mid.msg),
     'the link, the code, a way to stop and what to do are shown while it waits', JSON.stringify(mid));
+  const setBoxes = await boxesIn('acct-grok-sub-code');
+  chk(boxesOk(setBoxes, 'QWERTYUI', 'Q W E R, T Y U I'), '#3952 Settings: the code in big boxes on one row, 4 - 4, with the "terminal" line', JSON.stringify(setBoxes));
+  if (process.env.SHOTS) await page.locator('#acct-grok-sub-code').screenshot({ path: require('node:path').join(process.env.SHOTS, 'grok-code-settings.png') });
+  // The code line is not redrawn by a poll while the code is unchanged, so a person's selection in it survives.
+  await q(() => { window.__dc = document.querySelector('#acct-grok-sub-code .devcode'); });
+  await tick();
+  const kept = await q(() => !!window.__dc && document.querySelector('#acct-grok-sub-code .devcode') === window.__dc);
+  chk(kept, '#3952 a poll does not redraw an unchanged code (a selection in it survives, review round 5)');
+  const setPhone = await atPhone('acct-grok-sub-code');
+  chk(narrowOk(setPhone, 'QWERTYUI'), '#3952 Settings at 360px: every box inside its box, groups whole (review round 1)', JSON.stringify(setPhone));
 
   await q(() => { window.__status = { state: 'connected', account: { provider: 'xai', email: 'me@example.com', authMode: 'subscription', dir: '/h/.grok-work1' } }; });
   await tick();
@@ -356,6 +396,11 @@ const chk = (ok, label, extra) => {
   });
   chk(frSwitch.starts.length === 1 && !('reauthDir' in frSwitch.starts[0]) && /CCCC-DDDD/.test(frSwitch.code) && /Confirm the code/.test(frSwitch.msg),
     'first run\'s sign-in starts at once as a new account and shows its code', JSON.stringify(frSwitch));
+  const frBoxes = await boxesIn('fr-grok-sub-code');
+  chk(boxesOk(frBoxes, 'CCCCDDDD', 'C C C C, D D D D'), '#3952 first run: the code in big boxes on one row, 4 - 4, with the "terminal" line', JSON.stringify(frBoxes));
+  if (process.env.SHOTS) await page.locator('#fr-grok-sub-code').screenshot({ path: require('node:path').join(process.env.SHOTS, 'grok-code-firstrun.png') });
+  const frPhone = await atPhone('fr-grok-sub-code');
+  chk(narrowOk(frPhone, 'CCCCDDDD'), '#3952 first run at 360px: every box inside its box, groups whole (review round 1)', JSON.stringify(frPhone));
 
   // Choosing the key instead ends the sign-in on the engine (the two cannot both be open).
   const toKey = await q(async () => {

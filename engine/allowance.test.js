@@ -337,3 +337,97 @@ test('setup tells the person about the status line only when one was really adde
   assert.equal(run(null).stdout, '', 'setup claimed a status line it did not add');
   assert.equal(run({ type: 'command', command: 'bash mine.sh' }).stdout, '', 'setup claimed somebody else\'s status line as ours');
 });
+
+/* #3946 part 2: the calibration, tokens per point of the weekly figure. */
+function weeklyFile(dir, usedPct, resetsAt, history) {
+  fs.writeFileSync(path.join(dir, statusline.FILE), JSON.stringify({ usedPct, resetsAt, at: history[history.length - 1][0], history }));
+}
+const DAY = 24 * 3600 * 1000;
+
+test('calibration: tokens today over (points moved + 1) since a reading from before today, stored for later', () => {
+  const dir = freshDir();
+  const now = Date.now();
+  const dayStart = now - 6 * 3600 * 1000;
+  weeklyFile(dir, 44, FUTURE, [[dayStart - 3600e3, 40, FUTURE], [now - 60e3, 44, FUTURE]]);
+  const got = allowance.calibrate(dir, 4e6, { now, dayStart });
+  // 4 points measured can be just under 5 real ones (the figure is a whole number): 4e6 / 5.
+  assert.equal(got.tokensPerPoint, 8e5);
+  assert.deepEqual(allowance.readCalibration(dir, now), { tokensPerPoint: 8e5, points: 4, tokens: 4e6, day: dayStart, at: now });
+});
+
+test('calibration: no reading from before today is no calibration, not a guess', () => {
+  const dir = freshDir();
+  const now = Date.now();
+  const dayStart = now - 6 * 3600 * 1000;
+  weeklyFile(dir, 44, FUTURE, [[dayStart + 60e3, 40, FUTURE], [now - 60e3, 44, FUTURE]]);
+  assert.equal(allowance.pointsSince(allowance.readWeekly(dir, now), dayStart), null);
+  assert.equal(allowance.calibrate(dir, 4e6, { now, dayStart }), null);
+});
+
+test('calibration: a day that moved too little keeps the stored one; last week\'s baseline is never used', () => {
+  const dir = freshDir();
+  const now = Date.now();
+  const dayStart = now - 6 * 3600 * 1000;
+  weeklyFile(dir, 44, FUTURE, [[dayStart - 3600e3, 40, FUTURE], [now - 60e3, 44, FUTURE]]);
+  allowance.calibrate(dir, 4e6, { now, dayStart });
+  weeklyFile(dir, 41, FUTURE, [[dayStart - 3600e3, 40, FUTURE], [now - 60e3, 41, FUTURE]]);
+  assert.equal(allowance.calibrate(dir, 9e9, { now, dayStart }).tokensPerPoint, 8e5, 'one point replaced the stored calibration');
+  const other = freshDir();
+  weeklyFile(other, 5, FUTURE, [[dayStart - 3600e3, 90, FUTURE - 7 * 86400], [now - 60e3, 5, FUTURE]]);
+  assert.equal(allowance.pointsSince(allowance.readWeekly(other, now), dayStart), null, 'a reading from the previous week was a baseline');
+});
+
+test('calibration: a new day\'s estimate on fewer points than the stored one keeps the stored one; on as many, replaces it', () => {
+  const dir = freshDir();
+  const now = Date.now();
+  const dayStart = now - 6 * 3600 * 1000;
+  fs.writeFileSync(path.join(dir, allowance.CALIBRATION_FILE), JSON.stringify({ tokensPerPoint: 1e6, points: 8, at: now - DAY }));
+  weeklyFile(dir, 43, FUTURE, [[dayStart - 3600e3, 40, FUTURE], [now - 60e3, 43, FUTURE]]);
+  assert.equal(allowance.calibrate(dir, 9e9, { now, dayStart }).tokensPerPoint, 1e6, 'a 3-point morning replaced an 8-point day');
+  weeklyFile(dir, 48, FUTURE, [[dayStart - 3600e3, 40, FUTURE], [now - 60e3, 48, FUTURE]]);
+  assert.equal(allowance.calibrate(dir, 18e6, { now, dayStart }).tokensPerPoint, 2e6, 'CONTROL: an 8-point day did not replace it');
+  assert.equal(allowance.readCalibration(dir, now).at, now, 'the replacement was not stored');
+});
+
+test('calibration: a stored one older than CALIBRATION_REPLACE_AGE_MS is replaced by any qualifying day, even on fewer points', () => {
+  const dir = freshDir();
+  const now = Date.now();
+  const dayStart = now - 6 * 3600 * 1000;
+  weeklyFile(dir, 43, FUTURE, [[dayStart - 3600e3, 40, FUTURE], [now - 60e3, 43, FUTURE]]);
+  fs.writeFileSync(path.join(dir, allowance.CALIBRATION_FILE), JSON.stringify({ tokensPerPoint: 1e6, points: 15, at: now - allowance.CALIBRATION_REPLACE_AGE_MS + 3600e3 }));
+  assert.equal(allowance.calibrate(dir, 8e6, { now, dayStart }).tokensPerPoint, 1e6, 'CONTROL: a young 15-point one was replaced by 3 points');
+  fs.writeFileSync(path.join(dir, allowance.CALIBRATION_FILE), JSON.stringify({ tokensPerPoint: 1e6, points: 15, at: now - allowance.CALIBRATION_REPLACE_AGE_MS - 3600e3 }));
+  assert.equal(allowance.calibrate(dir, 8e6, { now, dayStart }).tokensPerPoint, 2e6, 'an old 15-point one held off a qualifying day');
+});
+
+test('calibration: the day\'s token count only grows (an agent stopped mid-day does not lower it); an unread count changes nothing', () => {
+  const dir = freshDir();
+  const now = Date.now();
+  const dayStart = now - 6 * 3600 * 1000;
+  weeklyFile(dir, 44, FUTURE, [[dayStart - 3600e3, 40, FUTURE], [now - 60e3, 44, FUTURE]]);
+  assert.equal(allowance.calibrate(dir, 10e6, { now, dayStart }).tokensPerPoint, 2e6);
+  // An agent left the roster: the same day's count reads lower, the points have not moved.
+  assert.equal(allowance.calibrate(dir, 5e6, { now: now + 60e3, dayStart }).tokensPerPoint, 2e6, 'a smaller count the same day lowered it');
+  // CONTROL: a larger count is taken.
+  assert.equal(allowance.calibrate(dir, 15e6, { now: now + 120e3, dayStart }).tokensPerPoint, 3e6, 'CONTROL: a larger count was not taken');
+  // A count not read in full (NaN) keeps the stored one and writes nothing.
+  const before = fs.statSync(path.join(dir, allowance.CALIBRATION_FILE)).mtimeMs;
+  assert.equal(allowance.calibrate(dir, NaN, { now: now + 180e3, dayStart }).tokensPerPoint, 3e6);
+  assert.equal(allowance.readCalibration(dir, now + 180e3).at, now + 120e3, 'an unread count rewrote the calibration');
+  assert.equal(fs.statSync(path.join(dir, allowance.CALIBRATION_FILE)).mtimeMs, before);
+  // Yesterday's count is not carried into a new day.
+  const nextDay = dayStart + DAY;
+  weeklyFile(dir, 50, FUTURE, [[nextDay - 3600e3, 44, FUTURE], [nextDay + 3600e3, 50, FUTURE]]);
+  assert.equal(allowance.calibrate(dir, 7e6, { now: nextDay + 3600e3, dayStart: nextDay }).tokensPerPoint, 1e6, 'yesterday\'s count was carried into today');
+});
+
+test('calibration: a stored one older than a week, or from the future, is not used', () => {
+  const dir = freshDir();
+  const now = Date.now();
+  fs.writeFileSync(path.join(dir, allowance.CALIBRATION_FILE), JSON.stringify({ tokensPerPoint: 1e6, at: now - allowance.CALIBRATION_MAX_AGE_MS - 1 }));
+  assert.equal(allowance.readCalibration(dir, now), null);
+  fs.writeFileSync(path.join(dir, allowance.CALIBRATION_FILE), JSON.stringify({ tokensPerPoint: 1e6, at: now + DAY }));
+  assert.equal(allowance.readCalibration(dir, now), null);
+  fs.writeFileSync(path.join(dir, allowance.CALIBRATION_FILE), JSON.stringify({ tokensPerPoint: -5, at: now }));
+  assert.equal(allowance.readCalibration(dir, now), null);
+});

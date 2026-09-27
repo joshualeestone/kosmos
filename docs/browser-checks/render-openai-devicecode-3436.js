@@ -48,8 +48,8 @@ const CODE = 'Q7RT-4KXWZ';
 
 /* One page per arm. `platform` stamps the served meta the way server.js does and runs
    the copy layer; `start` and `status` are what the stubbed engine answers. */
-async function arm(browser, { platform, where, start, status }) {
-  const page = await browser.newPage({ viewport: { width: 900, height: 1000 } });
+async function arm(browser, { platform, where, start, status, width }) {
+  const page = await browser.newPage({ viewport: { width: width || 900, height: 1000 } });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('file://' + PAGE);
@@ -96,6 +96,13 @@ async function arm(browser, { platform, where, start, status }) {
       codeText: code ? (code.textContent || '').replace(/\s+/g, ' ').trim() : '',
       codeCell: code && code.querySelector('.fr-cmd-row .fr-cmd') ? code.querySelector('.fr-cmd-row .fr-cmd').textContent : null,
       hasCopy: !!(code && code.querySelector('[data-copy-command]')),
+      // #3952: the code in boxes, one per character, above the Copy row; no xAI line on OpenAI's screen.
+      boxText: code ? [...code.querySelectorAll('.devcode-cell')].map((c) => c.textContent).join('') : '',
+      boxDashes: code ? code.querySelectorAll('.devcode-dash').length : 0,
+      boxNote: !!(code && code.querySelector('.devcode-note')),
+      // The Copy cell holds the code as text only, hidden to the eye (else the code shows twice, review round 5).
+      copyHidden: (() => { const e = code && code.querySelector('.fr-cmd-row .fr-cmd'); if (!e) return false; const cs = getComputedStyle(e); return cs.position === 'absolute' && /rect\(0px,? 0px,? 0px,? 0px\)/.test(cs.clip); })(),
+      boxInside: !!code && [...code.querySelectorAll('.devcode-cell')].every((c) => c.getBoundingClientRect().right <= code.getBoundingClientRect().right + 0.5 && c.getBoundingClientRect().width >= 20),
       how: how ? how.textContent.replace(/\s+/g, ' ').trim() : null,
       openText: open ? open.textContent.trim() : null,
       starts: window.__starts,
@@ -131,6 +138,9 @@ async function arm(browser, { platform, where, start, status }) {
   const device = { start: { sessionId: 's1', mode: 'device' }, status: { state: 'awaiting-code', authUrl: URL, userCode: CODE } };
   const winFirstRun = await arm(browser, { platform: 'win32', where: 'firstrun', ...device });
   const winSettings = await arm(browser, { platform: 'win32', where: 'settings', ...device });
+  // #3952 review round 1: on a 360px phone the boxes once sat inside the copy row's scrolling cell, showing 3 of 9.
+  const winPhoneFr = await arm(browser, { platform: 'win32', where: 'firstrun', width: 360, ...device });
+  const winPhoneSet = await arm(browser, { platform: 'win32', where: 'settings', width: 360, ...device });
   const winRaw = await arm(browser, { platform: 'win32', where: 'firstrun', start: { sessionId: 's2', mode: 'device' },
     status: { state: 'awaiting-code', authUrl: URL, instructions: 'Open ' + URL + ' and type the word Codex shows you.' } });
   const mac = await arm(browser, { platform: 'darwin', where: 'firstrun', start: { sessionId: 's3', mode: 'browser' },
@@ -138,6 +148,11 @@ async function arm(browser, { platform, where, start, status }) {
   await browser.close();
 
   const problems = [];
+  for (const [name, r] of Object.entries({ winPhoneFr, winPhoneSet })) {
+    if (r.error) { problems.push(name + ': arm setup failed: ' + r.error); continue; }
+    if (r.boxText !== CODE.replace(/-/g, '') || !r.boxInside) problems.push(name + ': #3952 at 360px not every box is inside the code line, readable: ' + JSON.stringify({ boxText: r.boxText, boxInside: r.boxInside }));
+    if (r.codeCell !== CODE) problems.push(name + ': #3952 at 360px the Copy cell no longer holds exactly the code: ' + JSON.stringify(r.codeCell));
+  }
   for (const [name, r] of Object.entries({ winFirstRun, winSettings, winRaw, mac })) {
     if (r.error) problems.push(name + ': arm setup failed: ' + r.error);
     if (r.errors && r.errors.length) problems.push(name + ': page errors: ' + r.errors.join(' | '));
@@ -151,6 +166,9 @@ async function arm(browser, { platform, where, start, status }) {
     if (r.openText !== 'Open the sign-in page again') problems.push(name + ': the open link does not say it reopens the page: ' + JSON.stringify(r.openText));
     if (r.starts !== 1) problems.push(name + ': one click on Sign in with ChatGPT asked the engine to start ' + r.starts + ' time(s), not once');
     if (r.goShown) problems.push(name + ': a second Sign in with ChatGPT button is still on screen after the sign-in started');
+    if (r.boxText !== CODE.replace(/-/g, '') || r.boxDashes !== (CODE.match(/-/g) || []).length) problems.push(name + ': #3952 the code is not drawn one box per character, grouped as OpenAI prints it: ' + JSON.stringify({ boxText: r.boxText, boxDashes: r.boxDashes }));
+    if (r.boxNote) problems.push(name + ': #3952 xAI\'s "terminal" line is on an OpenAI screen');
+    if (!r.copyHidden) problems.push(name + ': #3952 the Copy cell shows the code as text beside the boxes (shown twice)');
     if (!r.hasCopy) problems.push(name + ': no Copy button beside the code');
     else if (!/^(Copied|Select it and copy)$/.test(r.copySays || '')) problems.push(name + ': pressing Copy gave no answer: ' + JSON.stringify(r.copySays));
     if (!/^Kosmos opens OpenAI.s sign-in page in your browser and shows you a short code/.test(r.how || '')) problems.push(name + ': the explainer is not the Windows sentence: ' + JSON.stringify(r.how));

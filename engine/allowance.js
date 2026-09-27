@@ -147,4 +147,88 @@ function readWeekly(accountDir, now = Date.now()) {
   return { usedPct: reading.usedPct, resetsAt: reading.resetsAt, at: j.at, history };
 }
 
-module.exports = { MARKER, scriptPath, stableNode, commandFor, isOurs, ensureStatusLine, readWeekly };
+/* ---- The calibration (#3946 item 10): tokens per point of the weekly figure ----
+
+   Kosmos cannot see the weekly allowance as a number of tokens; the provider does
+   not publish it. What it can see is the figure MOVE while Kosmos's own agents on
+   that account spend tokens it counts. Tokens counted today, divided by the points
+   the figure moved today, is how many tokens one point of this account's week is
+   worth. A swarm's "3% a day" is then 3 times that.
+
+   The figure is a whole number, so the points it moved can be under-read by up to
+   one; tokens are divided by points + 1 (calibrate's test pins it). The baseline is
+   taken only from a reading made BEFORE today, never from today's first one, which
+   would leave the day's first tokens counted with no points behind them. */
+
+/* Points the figure must have moved today before a day's numbers are trusted: one
+   point is a whole-number step of the provider's rounding, too coarse to divide by. */
+const MIN_CALIBRATION_POINTS = 2;
+/* A stored calibration older than this is not used: it describes a week that is over. */
+const CALIBRATION_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
+/* Past this age any qualifying day replaces it, so one heavy day cannot hold until it expires. */
+const CALIBRATION_REPLACE_AGE_MS = 3 * 24 * 3600 * 1000;
+const CALIBRATION_FILE = 'kosmos-weekly-calibration.json';
+
+/**
+ * Points the weekly figure moved since `dayStart` (epoch ms), or null when there is
+ * no baseline: the figure must have a reading from BEFORE dayStart in the same week.
+ */
+function pointsSince(weekly, dayStart) {
+  if (!weekly || !Array.isArray(weekly.history)) return null;
+  const sameWeek = (r) => Math.abs(r[2] - weekly.resetsAt) < statusline.SAME_WEEK_TOLERANCE_SECONDS;
+  const before = weekly.history.filter((r) => r[0] < dayStart && sameWeek(r));
+  if (!before.length) return null;
+  const base = before[before.length - 1][1];
+  return Math.max(0, weekly.usedPct - base);
+}
+
+/** The stored calibration for an account, or null when there is none young enough. */
+function readCalibration(accountDir, now = Date.now()) {
+  if (typeof accountDir !== 'string') return null;
+  let j;
+  try { j = JSON.parse(fs.readFileSync(path.join(accountDir, CALIBRATION_FILE), 'utf8')); } catch { return null; }
+  if (!j || typeof j.tokensPerPoint !== 'number' || !Number.isFinite(j.tokensPerPoint) || j.tokensPerPoint <= 0) return null;
+  if (typeof j.at !== 'number' || !(now - j.at < CALIBRATION_MAX_AGE_MS) || j.at > now) return null;
+  return { tokensPerPoint: j.tokensPerPoint, points: Number.isFinite(j.points) ? j.points : 0,
+    tokens: Number.isFinite(j.tokens) ? j.tokens : null, day: Number.isFinite(j.day) ? j.day : null, at: j.at };
+}
+
+/**
+ * Update an account's calibration from today's numbers and return the one to use:
+ * today's, when the figure moved at least MIN_CALIBRATION_POINTS since a baseline
+ * from before today and at least as many points as the stored one rests on (or the
+ * stored one is older than CALIBRATION_REPLACE_AGE_MS); otherwise
+ * the last stored one (readCalibration); otherwise null.
+ * `tokensToday` is every Kosmos agent's tokens on this account since `dayStart`,
+ * counted the way the swarm limit counts them (swarm.meter), or NaN when a count was not
+ * read in full this time (nothing is updated then). Never throws.
+ */
+function calibrate(accountDir, tokensToday, { now = Date.now(), dayStart } = {}) {
+  try {
+    const weekly = readWeekly(accountDir, now);
+    const points = Number.isFinite(dayStart) ? pointsSince(weekly, dayStart) : null;
+    const stored = readCalibration(accountDir, now);
+    /* A day's estimate replaces the stored one once it rests on at least as many points, or
+       once the stored one is older than CALIBRATION_REPLACE_AGE_MS. */
+    const enough = points !== null && points >= MIN_CALIBRATION_POINTS
+      && (!stored || points >= stored.points || now - stored.at > CALIBRATION_REPLACE_AGE_MS);
+    /* Tokens counted today only grow: an agent stopped or removed mid-day drops out of the roster, and a
+       meter that restarted reads less than it had, but neither un-spends what the figure already moved for.
+       So the day's count is the most it has been (kept with the calibration, for today only). */
+    const sameDay = stored && stored.day === dayStart && Number.isFinite(stored.tokens);
+    const counted = Number.isFinite(tokensToday) ? Math.max(tokensToday, sameDay ? stored.tokens : 0) : NaN;
+    if (enough && counted > 0) {
+      const next = { tokensPerPoint: counted / (points + 1), points, tokens: counted, day: dayStart, at: now };
+      if (sameDay && stored.points === points && stored.tokens === counted) return stored;   // nothing moved: no write
+      const file = path.join(accountDir, CALIBRATION_FILE);
+      const tmp = file + '.' + process.pid + '.new';
+      try { fs.writeFileSync(tmp, JSON.stringify(next) + '\n'); fs.renameSync(tmp, file); }
+      catch { try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ } }
+      return next;
+    }
+  } catch { /* fall through to what is stored */ }
+  return readCalibration(accountDir, now);
+}
+
+module.exports = { MARKER, scriptPath, stableNode, commandFor, isOurs, ensureStatusLine, readWeekly,
+  MIN_CALIBRATION_POINTS, CALIBRATION_MAX_AGE_MS, CALIBRATION_REPLACE_AGE_MS, CALIBRATION_FILE, pointsSince, readCalibration, calibrate };

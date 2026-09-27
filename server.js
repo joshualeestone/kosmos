@@ -1782,6 +1782,22 @@ function taskMessageValveRecord() {
   taskMessageSends.push(Date.now());
 }
 
+/* #3951 (review round 5): the built route's own breaker, the same runaway breaker as task messages and parts (#4019,
+   500 an hour shared by all agents unless AGENT_WORKFORCE_BUILT_MARK_CAP says otherwise; 0 switches agent marks off),
+   counted only for a PROCESS mark that changed something. A repeat of the same mark records nothing and is not
+   counted; the person is never valved. Its own counter, so marks and messages do not starve each other. */
+const BUILT_MARK_CAP_PER_HOUR = taskMsgCapFrom(process.env.AGENT_WORKFORCE_BUILT_MARK_CAP);
+let builtMarks = [];
+function builtMarkRefusal(now = Date.now()) {
+  builtMarks = builtMarks.filter((t) => t >= now - AGENT_RUNAWAY_WINDOW_MS);
+  if (BUILT_MARK_CAP_PER_HOUR === 0) {
+    return { because: 'agent built marks are switched off on this computer (AGENT_WORKFORCE_BUILT_MARK_CAP is 0); the person can still take a mark off from the screen', retryAfterSecs: null };
+  }
+  const r = runawayRefusal(builtMarks, { noun: 'built marks', did: 'made', pausing: 'agent built marks', again: 'mark tasks built',
+    screen: 'take a mark off' }, { now, limit: BUILT_MARK_CAP_PER_HOUR });
+  return r && { because: r.because, retryAfterSecs: r.retryAfterSecs };
+}
+
 // #3485: the community feed's flood valve, a sliding window like the task valve
 // above but PER AGENT (keyed on the authenticated identity), not fleet-wide. The
 // submit routes are board-token gated (fleet agents only, not the public), but a
@@ -2579,6 +2595,51 @@ function wrongWorldRefusal(req, pathname) {
    the outbox drain refuse exactly the same replies. */
 function agentReplyProblem(text) {
   return chat.messageProblem(text) || chat.storedProblem(text) || messages.markerProblem(text) || null;
+}
+
+/* #3946 item 10: before the daily-limit sweep, measure each Claude account's calibration
+   and re-derive each % swarm's token limit from it. Every account is measured, swarm or
+   not, so the create screen can offer the % for an account's first swarm. The calibration
+   needs every Kosmos agent's tokens today on the account: a swarm's share of the week is
+   measured against all of them. Counted with swarm.meter, the same count the limit enforces.
+   Accounts are keyed on the folder's real path, so two spellings of one folder are one account. */
+function calibrateSwarmAllowances(roster, now = Date.now(), tokensFor = null) {
+  const swarmMod = require('./engine/swarm');
+  const allowance = require('./engine/allowance');
+  const status = require('./engine/status');
+  const rows = swarmMod.sweepRows(roster);
+  const dirOf = new Map();
+  const tokens = new Map();
+  for (const c of Array.isArray(roster) ? roster : []) {
+    if (!c || c.isNamedOurs !== true || !c.sessionName) continue;
+    let dir = status.claudeAccountDirOf(c.sessionName);
+    if (!dir) continue;
+    try { dir = fs.realpathSync(dir); } catch { /* not there yet: its own spelling */ }
+    dirOf.set(c.sessionName, dir);
+    /* A count not read to its end this time (metered false with tokens behind it, or a meter call that ran
+       out of its read budget) leaves the account's number unknown for this tick: NaN, so calibrate keeps
+       what it has. An agent with no transcript today counts zero. */
+    let n = 0;
+    if (c.swarm && Number.isFinite(c.swarm.tokensToday)) n = c.swarm.metered === false && c.swarm.tokensToday > 0 ? NaN : c.swarm.tokensToday;
+    else if (tokensFor) { try { n = tokensFor(c.sessionName); } catch { n = NaN; } }
+    else {
+      try {
+        const file = status.transcriptFor(c.sessionName);
+        if (file) { const m = swarmMod.meter(file, now, status.ownsFor(c.sessionName)); n = m.complete ? m.tokensToday : NaN; }
+      } catch { n = NaN; }
+    }
+    tokens.set(dir, (tokens.has(dir) ? tokens.get(dir) : 0) + n);
+  }
+  const cal = new Map();
+  for (const [dir, n] of tokens) {
+    cal.set(dir, allowance.calibrate(dir, n, { now, dayStart: swarmMod.startOfDay(now) }));
+  }
+  if (!rows.length) return [];
+  return swarmMod.rederiveLimits(rows, {
+    readProfile: (n) => store.readProfile(n),
+    writeProfile: (n, patch) => store.writeProfile(n, patch),
+    calibrationFor: (n) => cal.get(dirOf.get(n)) || null,
+  });
 }
 
 /* #3564: what the daily-limit sweep acts through, for one roster. Named so its wiring is
@@ -4255,7 +4316,16 @@ const server = http.createServer((req, res) => {
                 profile,
                 /* #3564: a swarm that is not running is still a swarm (its settings, unmeasured), so the
                    screen offers its On/Off and not the provider switch create refuses for a swarm. */
-                swarm: (() => { try { return require('./engine/swarm').offlineCardField(profile); } catch { return null; } })(),
+                swarm: (() => {
+                  try {
+                    const sw = require('./engine/swarm');
+                    if (!sw.settingsOf(profile)) return null;
+                    /* #3946: its account's calibration too, so a stopped % swarm keeps its % on screen. */
+                    let cal = null;
+                    try { cal = require('./engine/allowance').readCalibration(require('./engine/status').claudeAccountDirOf(k.name)); } catch { cal = null; }
+                    return sw.offlineCardField(profile, cal);
+                  } catch { return null; }
+                })(),
                 plannedModelName: plannedFor({ sessionName: k.name, isNamedOurs: true }),
                 /* #149/#150: same field the roster rows carry, same meaning.
                    A stopped agent with no launch file is exactly the state
@@ -5379,6 +5449,15 @@ const server = http.createServer((req, res) => {
         if (!swarm.settingsOf(profile)) { sendJson(res, 404, { ok: false, because: 'that agent is not a swarm' }); return; }
         const problem = swarm.patchProblem(body);
         if (problem) { sendJson(res, 400, { ok: false, because: problem }); return; }
+        /* #3946: a new share of the weekly allowance takes effect now on a calibrated account,
+           not a minute later at the next sweep, and its tokens are the account's, whatever
+           token number came with it; uncalibrated, the token limit stands. */
+        if (Number.isInteger(body.dailyAllowancePct)) {
+          let cal = null;
+          try { cal = require('./engine/allowance').readCalibration(require('./engine/status').claudeAccountDirOf(name)); } catch { cal = null; }
+          const t = swarm.limitFromAllowance(body.dailyAllowancePct, cal);
+          if (t) body.dailyTokenLimit = t;
+        }
         const next = swarm.applyPatch(profile, body);
         store.writeProfile(name, { swarm: next });
         const told = 'maxHelpers' in body ? swarm.tellLead(name, next.maxHelpers) : null;
@@ -5695,6 +5774,7 @@ const server = http.createServer((req, res) => {
           kind: body.kind,
           maxHelpers: body.maxHelpers,
           dailyTokenLimit: body.dailyTokenLimit,
+          dailyAllowancePct: body.dailyAllowancePct, // #3946: the share of the weekly allowance, when chosen
           // Validated above; composed into the file BEFORE the session starts
           // (#323), so the addAgent below finds the block already there.
           projects: projectsToJoin,
@@ -7648,9 +7728,14 @@ const server = http.createServer((req, res) => {
             now: nowMs,
             freshMs: freshWindow,
           });
+          /* #3946: whether this account's weekly allowance can be read as tokens, so the
+             create screen offers the % limit only where it means something. */
+          let cal = null;
+          try { cal = a.dir ? require('./engine/allowance').readCalibration(a.dir) : null; } catch { cal = null; }
           return {
             provider: 'anthropic', providerName: 'Anthropic / Claude', ...a,
             connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs },
+            weeklyTokensPerPoint: cal ? Math.round(cal.tokensPerPoint) : null,
           };
         });
         /* 🛑 `offerable` TRAVELS WITH THE ROW, for the same reason `memoryShared` does
@@ -13705,8 +13790,9 @@ const server = http.createServer((req, res) => {
                         roster read and one commitments reading per agent for
                         the whole request
          waitingOnPerson tasks.waitingOnPerson: its agent needs the person about it (#3949)
-         state          tasks.taskState: closed / nobody / decision / working / assigned
+         state          tasks.taskState: closed / decision / built / nobody / working / assigned
          lastActivityAt the newest transcript event, else created/closed
+       A task's own builtAt / builtBy / builtNote (#3951, set by POST .../built) ride every row as stored.
        Added fields only, and only on ?view=tasks, which also leaves out archived
        projects' tasks (the view does not list them) except the one `withArchived` names. */
     const roster = safeRoster();
@@ -15134,6 +15220,84 @@ const server = http.createServer((req, res) => {
         sendJson(res, code, { error: msg || 'we could not change what that task is part of' });
       }
     }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #3951: mark a task built, waiting to ship (Josh's "Built but waiting" tile), or take the mark off. Body
+     { note?, clear?, from_pane? }. Who marked it: the screen is the person (builtByPerson); a process is named by its agent token
+     (a token that does not resolve is refused, as the message route does) or else its pane. The pane name is
+     advisory, as on the message route: a local process can claim any pane, so the builder it names is a label, not
+     a proof (an enforcing board still needs the board token to reach this at all). An identified agent may mark or
+     clear only tasks in projects it is on (any task there: membership is per project, as for task messages), and
+     only the screen changes the person's own mark, clearing or re-marking (review rounds 5 and 7). A
+     process the board cannot name (no token, no known pane) is not held to membership: it is refused nothing the
+     message route would refuse it, it is valved, and it is recorded as builtBy null (review round 6); its mark frees
+     no agent (review round 11). The real
+     boundary is the board token, and the person's own mark rests on the screen posture (isViaScreen), advisory
+     as on the bulk-close route: a local process that claims to be the screen is taken at its word (review round 13). A
+     process is valved (builtMarkRefusal, the runaway breaker); the same mark again records nothing and is not counted. Marking a closed
+     task is refused (409); clearing one is a no-op answered `changed: false` (review round 10), since closing
+     already cleared the mark. The block is not re-synced: the mark changes nothing on an agent's instructions list. */
+  const taskBuilt = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/built$/);
+  if (taskBuilt && req.method === 'POST') {
+    const id = decodeSegment(taskBuilt[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || '{}'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      const viaScreen = isViaScreen(req, body);
+      const roster = safeRoster();
+      if (roster === null && presentedAgentToken(req, body)) {
+        sendJson(res, 503, { error: 'we could not check which agents are running, so the task was not marked' });
+        return;
+      }
+      const tokenSender = senderFromAgentToken(req, body, roster);
+      if (tokenSender && !tokenSender.ok) { sendJson(res, 403, { error: tokenSender.because }); return; }
+      const fromPane = typeof body.from_pane === 'string' ? body.from_pane : '';
+      /* A pane nobody could look up is not an unnamed caller (review round 11): say so, as for a token. */
+      if (roster === null && fromPane && !viaScreen) {
+        sendJson(res, 503, { error: 'we could not check which agents are running, so the task was not marked' });
+        return;
+      }
+      /* The pane as /api/post resolves it (review round 13): the CLI sends tmux's %N, which no roster target equals;
+         messages.resolveSender asks tmux for its session and ties it to a card. A pane that does not resolve leaves
+         the caller unnamed. */
+      const byPane = !tokenSender && fromPane ? messages.resolveSender(fromPane, roster) : null;
+      const card = tokenSender ? tokenSender.card : (byPane && byPane.ok ? byPane.card : null);
+      const by = viaScreen ? null : ((card && card.sessionName) || null);
+      if (!viaScreen) {
+        /* Membership first, so a non-member hears why, not the breaker (review round 15). */
+        const proj = projects.readAll().find((x) => x.id === id) || null;   // the stored record: agents are names
+        if (card && proj && !(proj.agents || []).includes(card.sessionName)) {
+          sendJson(res, 403, { error: 'that agent is not on this project, so it cannot mark its tasks' });
+          return;
+        }
+        const refused = builtMarkRefusal();
+        if (refused) {
+          if (refused.retryAfterSecs !== null) res.setHeader('retry-after', String(refused.retryAfterSecs));
+          sendJson(res, 429, { error: refused.because, ...(refused.retryAfterSecs !== null ? { retry_after_secs: refused.retryAfterSecs } : {}) });
+          return;
+        }
+      }
+      /* The person's own mark is changed only from the screen, in either direction (review round 7: a process could
+         re-mark it as its own and then clear that), checked inside the write (review round 9). The person is a flag,
+         not a name, so an agent named "operator" is not the person. */
+      const as = { by, person: viaScreen, refusePersonMark: !viaScreen };
+      const out = body.clear === true
+        ? tasks.clearBuilt(id, taskBuilt[2], as)
+        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? body.note : '' });
+      if (!out.ok) {
+        const code = out.person ? 403 : out.closed ? 409 : out.code === 'UNREADABLE' ? 500
+          : (/no project by that name|no task by that number/.test(out.because) ? 404 : 400);
+        sendJson(res, code, { error: out.because });
+        return;
+      }
+      if (!viaScreen && out.changed) builtMarks.push(Date.now());
+      sendJson(res, 200, { task: out.task, changed: out.changed === true });
+    }).catch((err) => {
+      sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
+    });
     return;
   }
 
@@ -16582,6 +16746,7 @@ function start(port = PORT) {
         try {
           const roster = safeRoster();
           const swarmMod = require('./engine/swarm');
+          try { calibrateSwarmAllowances(roster); } catch { /* the limit in tokens still holds */ }
           swarmMod.sweepOnce(swarmMod.sweepRows(roster), swarmSweepDeps(roster));
         } catch { /* best-effort; the card still shows today's tokens against the limit */ }
       }, 60 * 1000);
@@ -17127,6 +17292,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  calibrateSwarmAllowances, // #3946: the sweep's calibration step, for its test
   HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
   get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker); read it when needed, a destructured copy goes stale after setTaskMsgCapForTests

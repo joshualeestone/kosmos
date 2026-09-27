@@ -71,7 +71,7 @@ const openDoor = async (p, base) => {
     });
   });
   await new Promise((r) => gh.listen(GHDEV_PORT, '127.0.0.1', r));
-  const readGh = () => p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'GitHub'); const door = pill.closest('.boardrow').nextElementSibling; return { text: door.innerText.replace(/\s+/g, ' ').trim(), drawn: door.getBoundingClientRect().height > 0, buttons: [...door.querySelectorAll('button')].map((x) => x.innerText.trim()), links: [...door.querySelectorAll('a')].map((a) => a.href) }; });
+  const readGh = () => p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'GitHub'); const door = pill.closest('.boardrow').nextElementSibling; return { cells: door.querySelectorAll('.devcode-cell').length, text: door.innerText.replace(/\s+/g, ' ').trim(), drawn: door.getBoundingClientRect().height > 0, buttons: [...door.querySelectorAll('button')].map((x) => x.innerText.trim()), links: [...door.querySelectorAll('a')].map((a) => a.href) }; });
   // A per-install id can still be pasted through the product's own route, for
   // anyone running their own GitHub app; the walk uses it so the stub GitHub
   // sees a known id rather than the shipped one.
@@ -81,7 +81,7 @@ const openDoor = async (p, base) => {
   say('absent gh, engine on: the no-install road is offered, says Kosmos holds the key, and the install road stays beside it', d.buttons.some((x) => /Connect without installing/.test(x)) && /This is a key Kosmos holds for you/.test(d.text) && d.links.some((l) => /cli\.github\.com/.test(l)), d.text.slice(-200));
   await p.evaluate(() => { document.querySelector('[data-svc-connect="GitHub"]').click(); });
   await p.waitForTimeout(2500); d = await readGh();
-  say('no-install road after Connect: GitHub’s code and device link, with Stop', /WALK-9876/.test(d.text) && d.links.some((l) => /github\.com\/login\/device/.test(l)) && /Stop this sign-in/.test(d.text), d.text.slice(0, 160));
+  say('no-install road after Connect: GitHub’s code (one box per character, #3952) and device link, with Stop', d.cells === 8 && /WALK-9876/.test(d.text) && d.links.some((l) => /github\.com\/login\/device/.test(l)) && /Stop this sign-in/.test(d.text), d.text.slice(0, 160));
   await p.waitForTimeout(7000); d = await readGh();
   say('no-install road finished: Connected as the account GitHub names, with Forget, no code', /Connected as devwalker/.test(d.text) && d.buttons.some((x) => /Forget/.test(x)) && !/WALK-9876/.test(d.text), d.text.slice(0, 160));
   await p.evaluate(() => { document.querySelector('[data-svc-forget="GitHub"]').click(); });
@@ -94,8 +94,8 @@ const openDoor = async (p, base) => {
   say('present gh: Connect is offered with the promise beneath it', d.buttons.includes('Connect') && /never sees (a|your) password/.test(d.text), d.text.slice(-120));
   await p.evaluate(() => { document.querySelector('[data-svc-connect="GitHub"]').click(); });
   await p.waitForTimeout(2500);
-  d = await p.evaluate(() => { const door = document.querySelector('[data-svc-cancel]') ? document.querySelector('[data-svc-cancel]').closest('.svc-door') : null; return door ? { text: door.innerText.replace(/\s+/g, ' ').trim(), drawn: door.getBoundingClientRect().height > 0, links: [...door.querySelectorAll('a')].map((a) => a.href) } : null; });
-  say('after Connect: the one-time code and the GitHub device URL are on the door, with Stop', !!d && /WALK-1234/.test(d.text) && d.links.some((l) => /github\.com\/login\/device/.test(l)) && /Stop this sign-in/.test(d.text), d ? d.text.slice(0, 160) : 'no door');
+  d = await p.evaluate(() => { const door = document.querySelector('[data-svc-cancel]') ? document.querySelector('[data-svc-cancel]').closest('.svc-door') : null; return door ? { cells: door.querySelectorAll('.devcode-cell').length, text: door.innerText.replace(/\s+/g, ' ').trim(), drawn: door.getBoundingClientRect().height > 0, links: [...door.querySelectorAll('a')].map((a) => a.href) } : null; });
+  say('after Connect: the one-time code (one box per character, #3952) and the GitHub device URL are on the door, with Stop', !!d && d.cells === 8 && /WALK-1234/.test(d.text) && d.links.some((l) => /github\.com\/login\/device/.test(l)) && /Stop this sign-in/.test(d.text), d ? d.text.slice(0, 160) : 'no door');
   // the person finishes on GitHub: the fake gh exits 0 when the marker appears
   fs.writeFileSync(MARK, '1');
   await p.waitForTimeout(3500);
