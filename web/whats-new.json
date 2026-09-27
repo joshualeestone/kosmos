@@ -1,7 +1,7 @@
-{"version":"0.7.03","highlights":[
-  {"icon":"shield","title":"Gemini on your Google subscription","line":"Sign in on Google's own page, and Gemini gets its own row in AI Models."},
-  {"icon":"chat","title":"See what your Gemini agents are doing","line":"Gemini agents on a Google subscription can now show Working, Idle or Needs you on their card."},
-  {"icon":"phone","title":"A simpler Kosmos Plus page","line":"One switch to pause Kosmos Plus, one box that says where to sign in, and a way to remove this computer."},
-  {"icon":"tasks","title":"A clearer Tasks page","line":"Every task grouped by where the work is, each status with its own icon, and Needs Your Decision in red."},
-  {"icon":"spark","title":"Clearer sign-in status in AI Models","line":"When Kosmos has only checked a sign-in, it says checked, not that an agent used it."}
+{"version":"0.7.05","highlights":[
+  {"icon":"phone","title":"Bigger chat boxes on a phone","line":"The message and search boxes in an agent's chat and a project room are taller on a phone, so they are easy to tap."},
+  {"icon":"phone","title":"Your phone says when your Mac is asleep","line":"Through Kosmos Plus, a Mac that does not answer is shown as asleep or turned off, with what to do to wake it."},
+  {"icon":"shield","title":"Offline is not the same as your Mac","line":"A phone or computer with no internet is told it is offline, instead of being told your Mac is not answering."},
+  {"icon":"swarm","title":"Undo an org-chart import","line":"After an import makes agents, Undo lists what it will remove, then removes only the agents that import made."},
+  {"icon":"spark","title":"A refused sign-in check says so","line":"In AI Models, when Check now finds a Claude sign-in refused, it says Kosmos checked it, not that a request failed."}
 ]}
