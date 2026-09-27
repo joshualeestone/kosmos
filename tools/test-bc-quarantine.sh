@@ -18,11 +18,14 @@ printf 'PASS  regress-a-night QUARANTINED for this cut (stale click)\n' > "$TMP/
 printf 'PASS  all 55 assertions\n' > "$TMP/pass.out"
 printf 'playwright is not on NODE_PATH - SKIPPED, not passed\n' > "$TMP/skip.out"
 printf 'PASS  quarantined in lower case is not the token\n' > "$TMP/lower.out"
-printf 'PASS  the quarantinedness of nothing\n' > "$TMP/partial.out"
 printf 'PASS  a quarantined post is hidden from the feed\n' > "$TMP/modpass.out"
+printf 'PASS  x QUARANTINEDX\n' > "$TMP/longer.out"
+printf 'PASS  x XQUARANTINED\n' > "$TMP/prefixed.out"
 printf 'QUARANTINED: PASS regress-a-night\n' > "$TMP/order.out"
-printf 'Passed QUARANTINED\n' > "$TMP/mixed.out"
-printf 'hid 1 QUARANTINED post\nPASS  moderation\n' > "$TMP/modsplit.out"
+printf '\033[32mPASS\033[0m x QUARANTINED\n' > "$TMP/colour.out"
+printf 'PASSED regress-a-night QUARANTINED\n' > "$TMP/passed.out"
+printf 'regress-a-night QUARANTINED for this cut\n' > "$TMP/nopass.out"
+printf 'skipping: QUARANTINED\nPASS  x\n' > "$TMP/split.out"
 printf 'PASS  x QUARANTINED\n\377\376 bad \303\n' > "$TMP/badbyte.out"
 
 # --- the #1079 output is QUARANTINED, not PASS ------------------------------------
@@ -31,25 +34,27 @@ if bc_quarantine_note regress-a-night "$TMP/q.out"; then ok "the #1079 output is
 [ "${QUARANTINED[*]:-}" = regress-a-night ] && ok "it is recorded by label" || bad "QUARANTINED=${QUARANTINED[*]:-}"
 case "$LOGGED" in *"QUARANTINED  regress-a-night"*) ok "it is logged as QUARANTINED" ;; *) bad "log: $LOGGED" ;; esac
 
-# --- an ordinary pass and the honest skip are untouched --------------------------
+# --- a real pass, the honest skip, the lower-case status and near-miss words stay passes ---
 reset
-bc_quarantine_note ok-check "$TMP/pass.out" && bad "a real pass was taken as quarantined" || ok "a real pass stays a pass"
-bc_quarantine_note skip-check "$TMP/skip.out" && bad "the honest SKIPPED was taken as quarantined" || ok "the honest SKIPPED is not a quarantine"
-bc_quarantine_note partial "$TMP/partial.out" && bad "a longer word containing it matched" || ok "whole word only"
-bc_quarantine_note modsplit "$TMP/modsplit.out" && bad "quarantined on a non-PASS line was taken as a quarantine" || ok "quarantined outside a PASS line is not a quarantine"
-bc_quarantine_note order "$TMP/order.out" && ok "either order counts (quarantined before PASS)" || bad "QUARANTINED before PASS was missed"
-bc_quarantine_note mixed "$TMP/mixed.out" && bad "a lower-case Passed was taken as PASS" || ok "PASS is matched as written, as in the source test"
-QUARANTINED=()
+for f in pass skip lower modpass longer prefixed; do
+  bc_quarantine_note "$f" "$TMP/$f.out" && bad "$f.out was taken as quarantined" || ok "$f.out stays a pass"
+done
+[ "${#QUARANTINED[@]}" -eq 0 ] && ok "none of those were recorded" || bad "QUARANTINED=${QUARANTINED[*]:-}"
+
+# --- the token counts however PASS is written, or with no PASS (review round 11) ---
+reset
+for f in order colour passed nopass split; do
+  bc_quarantine_note "$f" "$TMP/$f.out" && ok "$f.out is a quarantine" || bad "$f.out read as a pass"
+done
+[ "${#QUARANTINED[@]}" -eq 5 ] && ok "all five were recorded" || bad "QUARANTINED=${QUARANTINED[*]:-}"
+
+# --- output that cannot be read fails closed ---------------------------------------
+reset
 bc_quarantine_note gone "$TMP/missing.out" && ok "an unreadable capture fails closed, not PASS" || bad "a missing capture read as a pass"
 case "$LOGGED" in *"QUARANTINED  gone (its output could not be read"*) ok "and says it could not read it" ;; *) bad "log: $LOGGED" ;; esac
-QUARANTINED=()
-[ "${#QUARANTINED[@]}" -eq 0 ] && ok "none of those were recorded" || bad "QUARANTINED=${QUARANTINED[*]:-}"
-QUARANTINED=()
+reset
 LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 bc_quarantine_note badbyte "$TMP/badbyte.out" && ok "an invalid byte in the output under a UTF-8 locale still reads the token (review round 9)" || bad "an invalid byte turned a quarantine into PASS"
 case "$LOGGED" in *"QUARANTINED  badbyte (exited 0"*) ok "and it is the token match, not the unreadable fallback" ;; *) bad "log: $LOGGED" ;; esac
-QUARANTINED=()
-bc_quarantine_note lower "$TMP/lower.out" && bad "lower-case quarantined was taken as the token" || ok "lower-case quarantined is not the token (a real moderation status)"
-bc_quarantine_note modpass "$TMP/modpass.out" && bad "a full pass reporting on quarantined posts was refused" || ok "a full pass that reports on quarantined posts stays a pass (review round 6)"
 
 # --- the verdict: refused without the override ------------------------------------
 reset
@@ -125,4 +130,4 @@ out="$(run1e 0.7.02)"; rc=$?
 case "$rc:$out" in 1:*"✖ planted control"*) ok "step 1e names a failing test that is not a quarantine finding" ;; *) bad "step 1e on a broken control (rc=$rc): $out" ;; esac
 
 echo "bc-quarantine: $passes passed, $fails failed"
-[ "$fails" -eq 0 ] && [ "$passes" -eq 35 ] || { echo "expected 35 passes and 0 failures"; exit 1; }
+[ "$fails" -eq 0 ] && [ "$passes" -eq 39 ] || { echo "expected 39 passes and 0 failures"; exit 1; }

@@ -647,7 +647,7 @@ if [ "$_q_rc" -ne 0 ]; then
   echo "a browser-check quarantine expires at $V, or a check says PASS and exits before its browser starts:"
   # The failing tests by name (a node --test ✖ line) and the problems they report, so a failure
   # for any other reason (a control, a syntax error) names itself rather than printing a pass line.
-  printf '%s\n' "$_q_out" | grep -E "^✖ |says PASS|expired|QUARANTINED together|wrong place|Error" | grep -v "^✖ failing tests" | head -12 || true
+  printf '%s\n' "$_q_out" | grep -E "^✖ |says PASS|expired|print QUARANTINED|wrong place|Error|not found" | grep -v "^✖ failing tests" | head -12 || true
   echo "fix the check (see browser-checks-quarantine-guard.test.js) before cutting $V."
   exit 1
 fi

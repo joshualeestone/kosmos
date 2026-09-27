@@ -16,25 +16,23 @@
 # without booting a board or a browser.
 
 ## bc_quarantine_note <label> <captured-output-file>
-## After a check exited 0: returns 0 and records it when a PASS line in its output
-## says QUARANTINED (both upper case as written, whole words, either order), so the caller prints nothing more; returns
-## 1 when none does, so the caller logs its PASS. Only a PASS line with the capitalised
-## token counts: the product has a "quarantined" moderation status, and a check asserting on
-## it must not read as skipped. The same rule as browser-checks-quarantine-guard.test.js.
+## After a check exited 0: returns 0 and records it when its output has the whole word
+## QUARANTINED, upper case as written, on any line (with PASS, a coloured PASS, PASSED, or no
+## PASS at all), so the caller prints nothing more; returns 1 when it does not, so the caller
+## logs its PASS. Only the capitalised token counts: the product has a lower-case
+## "quarantined" moderation status, and a check reporting on it must not read as skipped.
 bc_quarantine_note() {
   local label="$1" cap="$2"
-  # One output line with PASS and QUARANTINED, upper case as written, whole words, either order:
-  # the rule browser-checks-quarantine-guard.test.js holds a marked quarantine to. Case-sensitive
-  # on purpose: QUARANTINED in capitals is the token, and "quarantined" in lower case is a real
-  # moderation status a fully-run check can report on (review round 6). awk, not a grep pipe:
-  # under pipefail an early-exiting `grep -q` reads as a failure (SIGPIPE).
+  # The token alone, not PASS-and-token: requiring PASS on the same line let a coloured PASS,
+  # PASSED, or a line with no PASS through as a pass (review round 11). Case-sensitive on
+  # purpose (review round 6). awk, not a grep pipe: under pipefail an early-exiting `grep -q`
+  # reads as a failure (SIGPIPE).
   # LC_ALL=C: under a UTF-8 locale macOS awk exits 2 on one invalid byte anywhere in the output,
   # and an error read as "no match" would log a quarantined check as PASS (review round 9). The
   # patterns are ASCII, so the C locale changes nothing else. 0 = match, 1 = no match, anything
   # else = the output could not be read, which fails CLOSED: it cannot be shown to be a pass.
   local rc=0
-  LC_ALL=C awk '$0 ~ /(^|[^A-Za-z0-9_])PASS([^A-Za-z0-9_]|$)/ && $0 ~ /(^|[^A-Za-z0-9_])QUARANTINED([^A-Za-z0-9_]|$)/ { f = 1 }
-       END { exit !f }' "$cap" 2>/dev/null || rc=$?
+  LC_ALL=C awk '/(^|[^A-Za-z0-9_])QUARANTINED([^A-Za-z0-9_]|$)/ { f = 1 } END { exit !f }' "$cap" 2>/dev/null || rc=$?
   case "$rc" in
     0) log "QUARANTINED  $label (exited 0 but says it did not run its assertions; this is not a pass)" ;;
     1) return 1 ;;

@@ -1712,8 +1712,9 @@ fi
 
 sec "browser checks summary"
 # #4160: a quarantined check did not run, so it fails the run unless overridden
-# (tools/lib/bc-quarantine.sh). Before the run log and the FAILED gate, so the log counts
-# the refusal and it lands in FAILED.
+# (tools/lib/bc-quarantine.sh). Before the run log and the FAILED gate, so a refusal lands in
+# FAILED and the log counts it. Under the override it is not a failure and the log's failed
+# count does not include it; the printed override line is the record of that run.
 bc_quarantine_verdict
 # #1079: recorded BEFORE the exit paths below, so a FAILED run lands in the log
 # too. A log that only captures successful runs cannot answer a question about
