@@ -43522,7 +43522,8 @@ document.addEventListener('click', (e) => {
        (an update or another tab minting it mid-poll); that self-corrects on the
        next poll and never leaves a stale value standing -- the no-latch invariant
        the anti-latch tests pin. Do not "fix" this by serialising the two writers;
-       there is no divergent outcome to order. */
+       there is no divergent outcome to order. BOARD_SIGNED_OUT has the same two
+       writers; its declaration says what happens when they disagree. */
     Promise.all([Promise.resolve(tick()), Promise.resolve(loadProjects())]).then(done, done);
     return;
   }

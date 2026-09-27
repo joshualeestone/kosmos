@@ -108,6 +108,10 @@ const BOARD_NOT_SIGNED_IN = /This board is not signed in/i;
     page.on('request', (r) => { if (/\/api\/status(\?|$)/.test(r.url())) polls += 1; });
     const noteBtn = await page.$('#orgnote [data-device-signin]');
     const cardBtn = await page.$('#grid [data-device-signin]');
+    // Keyboard focus is what the keep is for, so hold focus on the card's button through the poll.
+    if (cardBtn) await cardBtn.focus().catch(() => {});
+    const focusedBefore = cardBtn ? await cardBtn.evaluate((n) => document.activeElement === n).catch(() => false) : false;
+    check('agents 401 signed_out: the card\'s Sign in button takes keyboard focus', focusedBefore);
     await page.waitForTimeout(6500);
     // Proof a poll ran in the wait; without one, "kept" would be true for nothing.
     check('agents 401 signed_out: a poll ran while the buttons were watched', polls >= 1, 'status reads: ' + polls);
@@ -115,6 +119,8 @@ const BOARD_NOT_SIGNED_IN = /This board is not signed in/i;
     check('agents 401 signed_out: the org note keeps the same Sign in button across a poll', kept);
     const cardKept = cardBtn ? await cardBtn.evaluate((n) => n.isConnected).catch(() => false) : false;
     check('agents 401 signed_out: the card keeps the same Sign in button across a poll', cardKept);
+    const focusedAfter = cardBtn ? await cardBtn.evaluate((n) => document.activeElement === n).catch(() => false) : false;
+    check('agents 401 signed_out: the card\'s Sign in button still has keyboard focus after a poll', focusedAfter);
     await ctx.close();
   }
 
