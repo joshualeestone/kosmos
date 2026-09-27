@@ -86,6 +86,7 @@ function setKnownSecrets(values) {
     heldValues.push(k);
   }
   const heldSet = new Set(heldValues);
+  heldAsGiven = new Set(heldValues.map((v) => v.replace(NOT_KEY_CHARS, '')));   // #3995: a held value itself, not an encoding
   notWalked = new Set(heldValues.filter((k) => envLike(k, heldSet)));
   for (const k of heldValues) {
     const buf = Buffer.from(k, 'utf8');
@@ -106,6 +107,8 @@ function setKnownSecrets(values) {
      is 12 characters or more). */
   knownByPrefix = new Map();
   knownByOpening = new Map();
+  knownByShort = new Map();
+  shortHead = new Map();
   knownGrams = new Set();
   const walked = new Set();
   for (const f of knownForms) {
@@ -258,6 +261,42 @@ function addWalked(w, walked) {
      (review round 5). Such a value is still masked whole, and across lines by the separator copies. */
   if (!/[A-Za-z0-9]/.test(w.slice(0, OPENING_LEN))) return;
   walked.add(w);
+  /* #3995 gap 4: and by its first two and three characters, for the short-chunk walk. Not a hex form (0-9 a-f
+     only): a numbered guide's lone letters and digits spell every one, and each lone digit then walked against every
+     held value's hex (review round 3: a reply withheld with 50 values held). A form with its own - or _ is indexed
+     without them too, since a reply cutting it into short chunks drops them (the word walk skips them instead). */
+  {
+    /* And, after a KNOWN vendor prefix, the body on its own (review round 23: a reply that leaves out sk-ant-api03- and
+       starts with a body chunk like p-Y was never walked, since the prefix-less form is cut at the last - or _ in the
+       first 16 characters, inside the body). */
+    const vendor = w.match(SHORT_PUBLIC_HEAD);
+    const bodies = vendor && w.length > vendor[0].length ? [w.slice(vendor[0].length)] : [];
+    const forms = [];
+    for (const v of [w, ...bodies]) { forms.push(v); if (/[-_]/.test(v)) forms.push(v.replace(/[-_]+/g, '')); }
+    for (const form of forms) {
+      const isBody = bodies.length > 0 && (form === bodies[0] || form === bodies[0].replace(/[-_]+/g, ''));
+      /* Each form is checked, not the value: a UUID-shaped secret is hex once its - are taken out (review round 6). A
+         vendor key's body is walked even when it is hex (review round 24: sk-proj-3f9a... given without its prefix
+         leaked): its prefix says it is a key, not stray hex, and it is one form per held value, not every encoding. */
+      /* And a held value that is itself hex (review round 29): the numbered-guide case was its ENCODINGS, walked from
+         lone digits. What makes walking a hex token safe is the limit on hex-looking runs a hex form may skip between
+         two pieces (SHORT_HEX_SKIP_MAX, in shortChunkSpans). Encodings stay out. */
+      /* Only a value that is hex exactly as held: a UUID's dash-stripped form stays out (round 6: 2,000 held UUIDs made a
+         numbered list withheld). */
+      const heldHex = form === w && heldAsGiven.has(form);
+      if (form.length < MIN_VALUE_LEN || (!isBody && !heldHex && /^[0-9a-f]+$/i.test(form))) continue;
+      /* How much of this form is the value's public head (sk-ant-api03-): used to assemble it, never masked where a
+         guide names it (review round 15), as the word walk leaves a public prefix readable. */
+      /* Only a KNOWN public prefix, and exactly it: any - or _ in the first 16 characters would make a licence-style
+         key's own chunks (Ab3-Zq8-vLm-...) a "head" and leave them showing. */
+      shortHead.set(form, vendor && !isBody ? (form === w ? vendor[0].length : vendor[0].replace(/[-_]+/g, '').length) : 0);
+      for (let l = 2; l < OPENING_LEN; l += 1) {   // the short walk starts from two or three characters
+        const h = form.slice(0, l);
+        if (!knownByShort.has(h)) knownByShort.set(h, []);
+        knownByShort.get(h).push(form);   // walked values are distinct already; a rare repeat only walks twice
+      }
+    }
+  }
   const o = w.slice(0, OPENING_LEN);
   if (!knownByOpening.has(o)) knownByOpening.set(o, []);
   knownByOpening.get(o).push(w);
@@ -286,6 +325,17 @@ function madeOfWords(v) {
 let knownByPrefix = new Map();
 /* The held forms the word walk assembles (key characters only), by their first OPENING_LEN characters (#3935). */
 let knownByOpening = new Map();
+/* #3995 gap 4: the walked forms by their first 2 and 3 characters (shortChunkSpans). */
+let knownByShort = new Map();
+/* #3995 gap 4: each held value as given (key characters only), so the short index can tell a value that IS hex (a hex
+   token, walked) from a hex ENCODING of one (kept out). */
+let heldAsGiven = new Set();
+/* #3995 gap 4: per short-index form, the length of its public head (0 when it has none). */
+let shortHead = new Map();
+/* Kept beside PATTERNS (the key shapes at the top of this file): a vendor added there with a public prefix belongs here
+   too. The public key prefixes a guide names in pieces, EXACTLY (review round 22: a bare sk- let "wherever the next - falls"
+   become the head, so a held sk-Ab3-... showed its own Ab3). The head is the matched prefix and nothing more. */
+const SHORT_PUBLIC_HEAD = /^(?:sk-ant-(?:api|admin|oat|sid)\d\d-|sk-(?:proj|svcacct|admin)-|sk-or-v\d-|(?:sk|rk)_(?:live|test)_|xai-|gh[pousr]_|github_pat_|glpat-|xox[abprs]-)/;
 const NOT_KEY_CHARS = /[^A-Za-z0-9_+/=-]+/g;
 /* The board also holds whole files (engine/knownsecrets.js, up to 64KB) and their encodings. A form that
    long is not a key someone spells out in pieces, and the walk's reach grows with the form's length, so
@@ -293,8 +343,8 @@ const NOT_KEY_CHARS = /[^A-Za-z0-9_+/=-]+/g;
    that repeated its opening cost over a second). Longer forms are still masked whole by known_secret. */
 const WORD_WALK_MAX_FORM = 1024;
 /* The shortest first piece that starts a walk, and the width of the held forms' opening index. Shorter and
-   ordinary words would start walks against every held value sharing their letters; the cost is that a key
-   cut into chunks of three or fewer, with words between them, is not caught (stated under wordSkippingSpans). */
+   ordinary words would start walks against every held value sharing their letters. A key cut into chunks of
+   three or fewer is left to shortChunkSpans (#3995 gap 4), which masks only a whole key. */
 const OPENING_LEN = 4;
 /* A key's own separators, which a reply may drop where it splits the key (sk-ant-api03 then the rest). */
 const SKIPPABLE = new Set(['-', '_']);
@@ -395,8 +445,13 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *
  * Not covered:
  *  - pieces out of order or reversed;
- *  - an opening piece shorter than OPENING_LEN characters, when the rest is split again into runs under
- *    FRAGMENT_LEN (a longer rest is masked by fragmentsIn);
+ *  - by this walk, an opening piece shorter than OPENING_LEN (shortChunkSpans masks the whole key; fragmentsIn a
+ *    rest of FRAGMENT_LEN or more); a PARTIAL try that starts that way and is never completed is masked by neither
+ *    (the short walk masks only a whole key: pieces under OPENING_LEN on their own cannot be told from ordinary tokens,
+ *    so a PARTIAL_MIN-style rule for them would mask ordinary text; a key with its last chunk cut short shows; an
+ *    abandoned first try IS masked when a full retry follows within reach: review round 17), and a repeated,
+ *    regrouped or abandoned copy's TWO-character chunks (only pieces of three or more are masked off the key's own
+ *    path, since a two-character slice of a key is an ordinary token like c4 as often as not: review round 18);
  *  - a held value madeOfWords takes for words and numbers;
  *  - a partial try (one that never completes) with under PARTIAL_MIN characters after its opening, counted in
  *    non-word pieces of OPENING_LEN or more; a try that reaches it is masked piece by piece;
@@ -404,6 +459,34 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *  - a held form with its own - or _ regrouped with + or / (its grams and walked form keep its own separators);
  *  - a group joined by + / = that is all lowercase letters with no digit, when it is under FRAGMENT_LEN;
  *  - a value with symbols in it, given without its opening, with spaces around its symbols;
+ *  - a key cut into chunks under OPENING_LEN with fewer than SHORT_WALK_MIN_KEYLIKE chunks that are not plain words or
+ *    numbers (shortChunkSpans refuses those, since ordinary text spells a password made of words). That includes
+ *    a key given ONE character at a time with words between (every single character is a plain word), a
+ *    key in chunks of two where fewer than SHORT_WALK_MIN_KEYLIKE of the pairs are key-like (a pair is plain when it
+ *    is two letters with a vowel, a digit pair, or an uppercase letter with a digit), and a single-case key whose
+ *    chunks read as words by wordLike's vowel test;
+ *  - a key whose FIRST chunk is one character (the short walk starts only from two or three);
+ *  - a chunk with a number glued straight onto it, no separator (0Zq8 1vLm ..., or Zq80 vLm1 ...);
+ *  - short chunks and words joined into ONE run by - _ or / (Zq8-and-vLm-and-..., Zq8_then_vLm_...): the short walk
+ *    advances only to later runs, and joins cover at most four neighbouring parts (main leaks it too);
+ *  - EVERY time, not at a rate: a value made wholly of label-shaped groups (one letter and one or two digits, or the
+ *    reverse: A12B34C56..., A1B2C3...), a serial or licence-key shape, cut into those groups. Each group reads as a
+ *    plain label (Q1, V2), so no piece is key-like; the same rule is what keeps a held Q1Q2Q3Q4Q5Q6 out of a sentence
+ *    about quarters, and the two cannot be told apart by their pieces (review rounds 10 and 26);
+ *  - (a false mask, the other side of SHORT_WALK_MIN_KEYLIKE) a held value shaped like configuration rather than a key,
+ *    such as a model id held from a settings file (gpt-4o-mini-2024-07-18), is masked out of prose that names it;
+ *  - an uppercase-and-digit key (A-Z 0-9) in chunks of two: its vowel pairs, labels and digit pairs all read as plain,
+ *    so some show in full, more the shorter the key: measured in review round 29 on 400 keys per length, in twos
+ *    26 percent at 16 characters, 14 at 20, 1 at 32; in threes 5 percent at 16, 3 at 20 (an AWS key id), 0 at 32;
+ *  - a key both spaced one character at a time AND cut into short chunks with words between (the short walk reads
+ *    the text, not the single-spacing copy the word walk also reads);
+ *  - the hex ENCODINGS of held values, and a UUID-shaped value (hex once its - are taken out), cut into chunks under
+ *    OPENING_LEN (not walked short, see addWalked); a held value that is itself hex as held, and a vendor key's hex body,
+ *    ARE walked, skipping at most SHORT_HEX_SKIP_MAX hex-looking runs between two pieces (so a hex key with MORE hex-
+ *    looking tokens, with a digit, between its chunks, such as several numbers of two or more digits, shows);
+ *  - a first chunk of OPENING_LEN or more followed by chunks under it, once the text from the first chunk runs past
+ *    SPLIT_REACH times the key's length in all (the word walk extends its reach only on pieces of OPENING_LEN or
+ *    more, and the short walk starts only from a chunk under OPENING_LEN);
  *  - a held form over WORD_WALK_MAX_FORM characters;
  *  - pieces that overlap (a character given twice, at the end of one piece and the start of the next);
  *  - a key split across two replies (the mask is per message).
@@ -700,6 +783,303 @@ function wordSkippingSpans(text) {
   }
   return spans;
 }
+/*
+ * #3995 gap 4: a held value cut into chunks SHORTER than OPENING_LEN with words between them ("Zq8 and vLm and 3pR").
+ * No word walk starts there (OPENING_LEN keeps ordinary short words from starting walks), no run reaches
+ * FRAGMENT_LEN, and no run is long enough for the catch-all. So a second, stricter walk:
+ *  - it starts at a run of two or three characters that begins a walked form, and only when the rest of the form
+ *    can be spelled from runs present in the text at all (checked once per form; without it every "a", "0" or "eyJ"
+ *    in a long reply scanned its whole reach and a reply was withheld at the budget, review round 1);
+ *  - it advances only on runs that are EXACTLY the form's next characters (as written, or with glue taken off:
+ *    _Zq8_, p0=Zq8, part-Zq8), each within SPLIT_REACH times the form's length of non-space characters of the last
+ *    run that advanced it;
+ *  - it masks nothing unless the WHOLE form is assembled, then piece by piece (the piece, not a label glued to it),
+ *    and nothing when fewer than SHORT_WALK_MIN_KEYLIKE pieces are other than plain words or numbers (a password made
+ *    of words, MyPassword123 or 2ndFloorLounge, is spelled by ordinary text: review rounds 1 and 2).
+ * Returns [from, to) spans, or null when the walk ran past SHORT_WALK_BUDGET (withheld, as the word walk is).
+ */
+/* The word walk's figure. Unit: one per candidate form, per queued point, per run visited, and per 16 characters the
+   spellability check slices (chunksOf).
+   Measured (2,000 held values unless said):
+   - review round 2: 2,000 forms by 4,000 short runs, near-cap forms sharing one opening, one 20,000-character run:
+     200 to 600ms, withheld at the budget rather than hanging;
+   - review round 12: a crafted 135,000-character reply with 6,000 runs: 2.4s against main's 1.5s, not withheld;
+   - review round 17: held values of 400 to 1,000 characters on 8,000 random one- to three-character tokens: withheld
+     (about 1s; main is not), crafted; realistic texts (code, grids, chess, JWTs) unchanged at 1 to 2.5x main;
+   - review round 31, with held hex values walked (round 29): 2,000 held 32-hex values on 60,000 random 1- to
+     3-character hex tokens (180KB): 3.7s against main's 1.1s, not withheld; 95KB of numbered prose 449ms against 224ms. */
+const SHORT_WALK_BUDGET = 1250000;
+/* The pieces a run offers, each with WHERE it sits in the run ([from, to)), so the mask covers that place and not the
+   first place the same letters happen to appear (review round 15: in t6wx/t6w/q the chunk is the middle part). */
+function shortPieces(run) {
+  const out = new Map();
+  /* Every place a piece sits (review round 16: 3pR-3pR recorded only the first, so the second copy showed). */
+  /* A Set of places already put, not a scan of the list (review round 19: a run of one part repeated thousands of times,
+     a pasted solid-colour base64 image, cost quadratic time before any budget was charged). */
+  const seen = new Set();
+  const put = (t, a, b) => {
+    if (!t) return;
+    const key = a + ':' + b + ':' + t;
+    if (seen.has(key)) return;
+    seen.add(key);
+    if (!out.has(t)) out.set(t, []);
+    out.get(t).push([a, b]);
+  };
+  put(run, 0, run.length);
+  const lead = run.length - run.replace(/^[-+_/]+/, '').length;
+  const trimmed = run.slice(lead).replace(/[-+_/]+$/, '');
+  put(trimmed, lead, lead + trimmed.length);
+  /* Every part between = _ + / - (review rounds 8 and 14: a label before, after or around a chunk: part-Zq8,
+     Zq8-part0, x0-Zq8-y0, Zq8+part0, Zq8/part0), and runs of up to four consecutive parts with the separators taken out
+     (review round 15: two chunks in one run, 3pR/t6w, were never tried together). */
+  if (/[=_+/-]/.test(trimmed)) {
+    const parts = [];
+    for (const m of trimmed.matchAll(/[^=_+/-]+/g)) parts.push([m[0], lead + m.index, lead + m.index + m[0].length]);
+    for (const [t, a, b] of parts) put(t, a, b);
+    for (let i = 0; i < parts.length; i += 1) {
+      let t = parts[i][0];
+      for (let k = i + 1; k < parts.length && k < i + 4; k += 1) { t += parts[k][0]; put(t, parts[i][1], parts[k][2]); }
+    }
+  }
+  return out;
+}
+/* A plain word or number, as ordinary text writes one: digits or an ordinal (2nd), or letters in one case shape
+   (lower, upper, Titlecase) that are either under three characters or read as a word by wordLike's vowel test
+   (review round 4: case shape alone called "zqv" a word, so an all-lowercase key never counted as key-like). */
+function plainWordRun(t) {
+  if (/^[0-9]+(?:st|nd|rd|th)?$/i.test(t)) return true;
+  /* A label: one letter and one or two digits, or the other way round (Q1, V2, A10, 4K, 3D; review round 10: a held
+     Q1Q2Q3Q4Q5Q6 was masked out of a sentence about quarters). */
+  if (/^(?:[A-Z][0-9]{1,2}|[0-9]{1,2}[A-Z])$/.test(t)) return true;   // uppercase only: 8v and 3p are key text (round 12)
+  /* Mixed-case units and platform names a guide writes as words (review round 11: a held dBmGHzkHzmAh was masked out of
+     a spec line). */
+  if (/^(?:[kMGT]?Hz|dBm?|mAh|[kmM]?Wh|[kmM]W|mL|pH|iOS|iPadOS|macOS|tvOS|watchOS|visionOS)$/.test(t)) return true;
+  if (!/^(?:[a-z]+|[A-Z]+|[A-Z][a-z]+)$/.test(t)) return false;
+  /* One character is always plain. Two letters are a word only with a vowel in them (My, Up, Go, In): review round 12
+     measured that calling every two-character piece plain left more than half of random keys cut in twos in full. */
+  if (t.length === 1) return true;
+  if (t.length === 2) return /[aeiouy]/i.test(t);
+  return wordLike(t);
+}
+/* A completed short walk masks only when at least this many of its pieces are NOT plain words (review round 2: one
+   was not enough; a held 2ndFloorLounge was masked out of "the 2nd ... Floor ... Lounge"). A random key cut into
+   chunks of three or fewer has many; a sentence spelling a password made of words has few. */
+const SHORT_WALK_MIN_KEYLIKE = 2;
+/* How many hex-looking runs a hex form's walk may skip between two of its pieces (see shortChunkSpans). */
+const SHORT_HEX_SKIP_MAX = 3;
+function shortChunkSpans(text) {
+  if (!knownByShort.size) return [];
+  /* Nothing is built unless some run offers a two- or three-character opening of a short-indexed form (review round 20:
+     building every run's pieces first cost 16s on a 5MB log of slugs that shared nothing with any held value). The
+     openings are tested as shortPieces makes them: the run and its trimmed form when short, each part between
+     = _ + / -, and joins of neighbouring parts of three characters or fewer (review round 21: A+b and Q/x opened the walk
+     but not the gate, so such keys leaked). Note a common word opens it too ("AI" when a Google key is held), so the
+     build's cost still grows with a long reply of short runs; it is charged, and withheld past the budget. */
+  const opensShort = (run) => {
+    if (run.length <= 3 && knownByShort.has(run)) return true;
+    const trimmed = run.replace(/^[-+_/]+/, '').replace(/[-+_/]+$/, '');
+    if (trimmed.length <= 3 && trimmed.length >= 2 && knownByShort.has(trimmed)) return true;
+    if (!/[=_+/-]/.test(trimmed)) return false;
+    const parts = trimmed.split(/[=_+/-]+/).filter(Boolean);
+    for (let i = 0; i < parts.length; i += 1) {
+      let t = '';
+      for (let k = i; k < parts.length && k < i + 4; k += 1) {
+        t += parts[k];
+        if (t.length > 3) break;
+        if (t.length >= 2 && knownByShort.has(t)) return true;
+      }
+    }
+    return false;
+  };
+  let opens = false;
+  for (const m of text.matchAll(/[A-Za-z0-9_+/=-]+/g)) if (opensShort(m[0])) { opens = true; break; }
+  if (!opens) return [];
+  let budget = SHORT_WALK_BUDGET;   // declared first: building the pieces, canSpell and the search all charge it
+  const runs = [];
+  for (const m of text.matchAll(/[A-Za-z0-9_+/=-]+/g)) {
+    const where = shortPieces(m[0]);
+    if ((budget -= chunksOf(where.size * 4)) < 0) return null;   // the build's work, charged as the rest is
+    runs.push([m.index, m.index + m[0].length, [...where.keys()], m[0], where]);
+  }
+  if (runs.length < 2) return [];
+  /* hexBefore[i]: how many runs before run i look like hex tokens: two or more characters, 0-9 a-f only, WITH a digit
+     (review round 31: be, add, Dec and face are words, and counting them leaked a hex key given with prose between). */
+  const hexBefore = new Int32Array(runs.length + 1);
+  for (let i = 0; i < runs.length; i += 1) {
+    const r = runs[i][3];
+    hexBefore[i + 1] = hexBefore[i] + (r.length >= 2 && /^[0-9a-f]+$/i.test(r) && /[0-9]/.test(r) ? 1 : 0);
+  }
+  const present = new Set();
+  const at = new Map();   // piece -> the runs offering it, in order
+  runs.forEach((r, i) => { for (const t of r[2]) { present.add(t); if (!at.has(t)) at.set(t, []); at.get(t).push(i); } });
+  /* Only the lengths some run has are tried, and each slice is charged by its length (review round 3). */
+  const lengths = [...new Set([...present].map((t) => t.length))].sort((a, b) => a - b);
+  /* Whether f from `at` to its end can be spelled from runs present in the text at all (a word break over `present`),
+     once per form and start: a form the text cannot spell is never walked (review round 1: 2,000 held values each
+     walked from every "0" in a long table withheld it). */
+  const spellable = new Map();
+  const viable = new Map();
+  const canSpell = (f, from) => {
+    const key = from + '|' + f;
+    if (spellable.has(key)) return spellable.get(key);
+    const ok = new Uint8Array(f.length + 1);
+    ok[f.length] = 1;
+    for (let i = f.length - 1; i >= from; i -= 1) {
+      for (const l of lengths) {
+        if (i + l > f.length || ok[i]) break;
+        if (!ok[i + l]) continue;
+        budget -= chunksOf(l);   // a slice of l characters, hashed: charged as the word walk charges a comparison
+        if (present.has(f.slice(i, i + l))) ok[i] = 1;
+      }
+      if (budget < 0) break;
+    }
+    spellable.set(key, ok[from] === 1);
+    return ok[from] === 1;
+  };
+  let ns = null;
+  /* Completed walks by form and the run they finished on: only the LATEST start is masked (review round 3: an earlier
+     mention of the key's first characters walked through the prose between and masked a "1" and a "2" on the way;
+     the word walk keeps the latest start for the same reason). */
+  const completed = new Map();
+  /* Latest start first, with one set of explored points per form shared by every start (review round 9: each mention
+     of a shared opening re-walked every form, so a reply naming a JWT header's chunks was withheld). A point a later
+     start already explored can only complete at runs that start already completed at, which the latest-start rule
+     keeps; so an earlier start skips it, and the work per form is bounded by its points, not by its mentions.
+     A point that was queued but never expanded (the search stops at its first completion) is skipped too, so an
+     earlier start whose only way to finish runs through such a point is not tried; that is the abandoned-first-try
+     case named under "Not covered". */
+  const seenByForm = new Map();
+  for (let r = runs.length - 1; r >= 0; r -= 1) {
+    for (const open of runs[r][2]) {
+      if (open.length >= OPENING_LEN) continue;   // the word walk starts these
+      /* Not from a single character (review round 5): text listing single characters ("A B C ... 0 1 2") makes
+         every form spellable, and each lone character then walked against every held value and the reply was
+         withheld. A single character still continues a walk. */
+      if (open.length < 2) continue;
+      /* The forms this opening could complete, worked out once per opening (a long table repeats "0" hundreds of
+         times against the same 2,000 forms). */
+      let cands = viable.get(open);
+      if (!cands) {
+        cands = (knownByShort.get(open) || []).filter((f) => canSpell(f, open.length));
+        if (budget < 0) return null;
+        viable.set(open, cands);
+      }
+      for (const f of cands) {
+        if ((budget -= 1) < 0) return null;
+        if (!ns) {
+          ns = new Int32Array(text.length + 1);
+          for (let i = 0; i < text.length; i += 1) ns[i + 1] = ns[i] + (/\s/.test(text[i]) ? 0 : 1);
+        }
+        const bound = SPLIT_REACH * f.length;
+        /* A hex form (a held hex token, a vendor key's hex body) may skip at most SHORT_HEX_SKIP_MAX hex-looking runs
+           between two of its pieces: lone a to f letters and digits spell any hex form, so a path hopping over hex-dense
+           text (a dump, a numbered hex list) masked its tokens and line numbers (review round 27), while ordinary prose
+           between a real key's chunks skips words (review round 30: a total-span cap, the first fix, broke that). */
+        const hexForm = /^[0-9a-f]+$/i.test(f);
+        /* Only the runs that ARE the form's next piece are visited (review round 7: scanning every run in reach, and
+           charging each, withheld a reply that listed its characters and named a shared opening like eyJ): from each
+           reached point, the few piece lengths the text has, looked up in `at`, and the next such runs within reach
+           of the run that got there. Every path is followed, not only the first to reach a point. */
+        const queue = [{ pos: open.length, run: r, prev: null, piece: open }];
+        if (!seenByForm.has(f)) seenByForm.set(f, new Set());
+        const seen = seenByForm.get(f);
+        let end = null;
+        for (let qi = 0; qi < queue.length && !end; qi += 1) {
+          const node = queue[qi];
+          if ((budget -= 1) < 0) return null;
+          for (const l of lengths) {
+            if (node.pos + l > f.length) break;
+            budget -= chunksOf(l);
+            const list = at.get(f.slice(node.pos, node.pos + l));
+            if (!list) continue;
+            let lo = 0, hi = list.length;
+            while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid] <= node.run) lo = mid + 1; else hi = mid; }
+            for (let k = lo; k < list.length; k += 1) {
+              const s = list[k];
+              if (ns[runs[s][0]] - ns[runs[node.run][1]] > bound) break;
+              if (hexForm && hexBefore[s] - hexBefore[node.run + 1] > SHORT_HEX_SKIP_MAX) break;
+              if ((budget -= 1) < 0) return null;
+              const key = (node.pos + l) + ':' + s;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              const next = { pos: node.pos + l, run: s, prev: node, piece: f.slice(node.pos, node.pos + l) };
+              if (next.pos === f.length) { end = next; break; }
+              queue.push(next);
+            }
+            if (end) break;
+          }
+        }
+        let done = null;
+        if (end) { done = []; for (let n = end; n; n = n.prev) done.unshift([n.run, n.piece, n.pos]); }
+        if (!done || done.filter(([, t]) => !plainWordRun(t)).length < SHORT_WALK_MIN_KEYLIKE) continue;
+        const key = f + '|' + done[done.length - 1][0];
+        const had = completed.get(key);
+        if (!had) completed.set(key, { done, head: shortHead.get(f) || 0 });   // starts run latest first: the first completion here is the latest
+      }
+    }
+  }
+  const spans = [];
+  const nearPieces = (k, f, head, cuts) => {
+    budget -= runs[k][4].size;   // the masking after a completion is charged too (review round 20)
+    for (const [t, places] of runs[k][4]) {
+      /* Three characters or more (review round 18: "c4" in "White played c4" is a slice of many keys; a two-character
+         coincidence is ordinary, a three-character non-plain one is not). */
+      if (t.length < 3 || plainWordRun(t)) continue;
+      /* Only a slice that lines up with the key's own chunks at one end at least (starts or ends where the completed path
+         cut it): a slice across two chunks at neither end is an ordinary token as easily (review round 19: "TLS" spanned
+         EFT and LSU). One end, since a path that ends on a run written without separators (2nWc4d) leaves no cut inside. */
+      let aligned = false;
+      for (let q = f.indexOf(t, head); q >= 0 && !aligned; q = f.indexOf(t, q + 1)) aligned = cuts.has(q) || cuts.has(q + t.length);
+      if (!aligned) continue;
+      for (const [a, b] of places) spans.push([runs[k][0] + a, runs[k][0] + b]);
+    }
+  };
+  const pieceSpan = (i, t) => {
+    /* Only the piece, where it sits in its run (not a label glued to it: review rounds 2 and 15); every place it sits
+       when it is not a plain word (review round 16), the first when it is. */
+    const places = runs[i][4].get(t);
+    for (const [a, b] of plainWordRun(t) ? places.slice(0, 1) : places) spans.push([runs[i][0] + a, runs[i][0] + b]);
+  };
+  for (const [key, { done, head }] of completed) {
+    const f = key.slice(0, key.lastIndexOf('|'));
+    const first = done[0][0], last = done[done.length - 1][0];
+    /* Every run near the key holding a piece that is a non-plain slice of it (past its public head), from one reach
+       before the first chunk to the last: the search ends on the shortest path, so a regrouped repeat (2nW/c4d, Zq8vLm
+       3pRt6w) or an abandoned first try left chunks off the path showing (review round 17). Non-plain only, so an
+       ordinary "1" or "the" nearby stays (review rounds 3 and 11). */
+    /* Where the path cut the key: each piece's ends, and inside a joined piece (Xy9kHb2nWc4d written Xy9-kHb-2nW-c4d)
+       every separator it spanned in its run. */
+    const cuts = new Set([0]);
+    for (const [i, t, pos] of done) {
+      const from = pos - t.length;
+      cuts.add(from); cuts.add(pos);
+      const [a, b] = runs[i][4].get(t)[0];
+      let n = 0;
+      for (const ch of runs[i][3].slice(a, b)) { if (/[=_+/-]/.test(ch)) cuts.add(from + n); else n += 1; }
+    }
+    const reachBack = ns[runs[first][0]] - SPLIT_REACH * f.length;
+    for (let k = first - 1; k >= 0 && ns[runs[k][1]] >= reachBack && budget >= 0; k -= 1) nearPieces(k, f, head, cuts);
+    for (let k = first + 1; k < last && budget >= 0; k += 1) nearPieces(k, f, head, cuts);
+    /* And one reach after the last chunk, as before the first (review round 23: a regrouped repeat after the key showed). */
+    const reachOn = ns[runs[last][1]] + SPLIT_REACH * f.length;
+    for (let k = last + 1; k < runs.length && ns[runs[k][0]] <= reachOn && budget >= 0; k += 1) nearPieces(k, f, head, cuts);
+    if (budget < 0) return null;
+    for (const [i, t, pos] of done) {
+      if (pos <= head) continue;   // wholly inside the public head: assembled from, not masked
+      pieceSpan(i, t);
+      /* And every other copy of the same piece between the key's first and last chunk: the search keeps one path,
+         which can run through a repeated copy and leave the one that was really the key's showing (review rounds 9
+         and 10). Not for a piece that is a plain word ("is", "the", "2"): its copies are ordinary words (review round
+         11), and what a repeated plain-word chunk can leave showing is that word. */
+      if (t.length >= 3 && !plainWordRun(t)) {
+        const copies = at.get(t) || [];
+        budget -= copies.length;   // charged, as nearPieces is (review round 24)
+        for (const k of copies) if (k !== i && k > first && k < last) pieceSpan(k, t);
+      }
+    }
+  }
+  return budget < 0 ? null : spans;   // the masking above spent past the budget: withheld, as elsewhere
+}
 /* How many characters of text[from, to) are not whitespace, counting no further than `cap + 1`. */
 function nonSpaceIn(text, from, to, cap = Infinity) {
   let n = 0;
@@ -847,6 +1227,10 @@ function maskFresh(text) {
     const words = wordSkippingSpans(original);
     if (!words) { hit('split_search_limit'); return { text: UNCHECKED, fired: report() }; }
     for (const s of words) spans.push(s);
+    /* #3995 gap 4: and chunks shorter than OPENING_LEN, assembled whole or not at all. */
+    const shorts = shortChunkSpans(original);
+    if (!shorts) { hit('split_search_limit'); return { text: UNCHECKED, fired: report() }; }
+    for (const s of shorts) spans.push(s);
     for (const s of fragmentsIn(original)) spans.push(s);
     /* #3995: and with the characters no key uses deleted, except whitespace: a held password with symbols in it,
        given without its opening (Lm3p#Rt6w$Xy9k), is cut by them into runs under FRAGMENT_LEN. Whitespace stays,

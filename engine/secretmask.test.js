@@ -1387,3 +1387,461 @@ test('#3995 review round 3: a / + or = inside the opening, labels glued to a gro
     assert.equal(mask(para).text, para, 'text dense with paths and sums was changed or withheld');
   } finally { setKnownSecrets([]); }
 });
+
+test('#3995 gap 4: a held key cut into chunks of three or fewer with words between is masked, whole or not at all', () => {
+  const held = j('Zq8vLm3pRt6w', 'Xy9kHb2nWc4d');
+  setKnownSecrets([held]);
+  try {
+    const threes = held.match(/.{3}/g);
+    const a = mask(threes.join(' and '));
+    for (const c of threes) assert.ok(!a.text.includes(c), `the chunk ${c} survived: ${a.text}`);
+    assert.ok(a.fired.some((f) => f.kind === 'split_secret'), JSON.stringify(a.fired));
+    assert.ok(a.text.includes(' and '), 'the words between the chunks were masked too: ' + a.text);
+    const mixed = ['Zq', '8vL', 'm3', 'pRt', '6w', 'Xy9', 'kH', 'b2n', 'Wc', '4d'];
+    assert.equal(mixed.join(''), held, 'the mixed split does not spell the key');
+    const b = mask('Your key, piece by piece: ' + mixed.join(', then ') + '. Keep it safe.');
+    for (const c of mixed) assert.ok(!new RegExp('(^|[^A-Za-z0-9])' + c + '([^A-Za-z0-9]|$)').test(b.text), `the chunk ${c} survived: ${b.text}`);
+    assert.ok(b.text.startsWith('Your key, piece by piece: ') && b.text.endsWith('. Keep it safe.'), b.text);
+    // A partial try (the first half only) is not assembled, so nothing is masked by this walk.
+    const half = threes.slice(0, 4).join(' and ');
+    assert.equal(mask(half).text, half);
+  } finally { setKnownSecrets([]); }
+  // Review round 1: a first chunk that is all lowercase (or digits, as a hex form's often is) starts one too, and
+  // glue on the chunks (italics, a label with = or -) is taken off.
+  const lower = j('zqvLm3pRt6wX', 'y9kHb2nWc4dQ');
+  assert.equal(lower.length % 3, 0, 'the fixture must split into whole chunks of three');
+  setKnownSecrets([lower, held]);
+  try {
+    const t = mask(lower.match(/.{3}/g).join(' and ')).text;
+    for (const c of lower.match(/.{3}/g)) assert.ok(!t.includes(c), `lowercase first chunk: ${c} survived: ${t}`);
+    for (const glued of [(c) => `_${c}_`, (c, i) => `p${i}=${c}`, (c) => `part-${c}`]) {
+      const g = mask(held.match(/.{3}/g).map(glued).join(' then ')).text;
+      for (const c of held.match(/.{3}/g)) assert.ok(!g.includes(c), `glued chunk ${c} survived: ${g}`);
+    }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 1: a held password made of words is not masked out of the ordinary sentence that spells it', () => {
+  for (const [held, text] of [
+    ['MyPassword123', 'My Password must be at least 123 characters? No: My Password needs 12 characters.'],
+    ['MySecret2024', 'My Secret Santa list for 2024 is ready.'],
+    ['UpDown2024Go', 'Up and Down in 2024, then Go to Settings.'],
+    ['Go2Settings99', 'Go 2 Settings then pick option 99.'],
+  ]) {
+    setKnownSecrets([held]);
+    try { assert.equal(mask(text).text, text, `${held}: an ordinary sentence was masked`); } finally { setKnownSecrets([]); }
+  }
+});
+
+test('#3995 gap 4 review round 1: a reply naming a held value\'s opening many times is not withheld', () => {
+  const jwt = (i) => j('eyJhbGciOiJIUzI1NiJ9.', 'eyJzdWIiOiJ1c2VyJHtpfSJ9'.replace('JHtpfSJ9', String(i).padStart(8, '0')), '.', 'Qm4tZr8wLp2xNc6vHb9yKd3sFg7j'.repeat(20));
+  setKnownSecrets(Array.from({ length: 10 }, (_, i) => jwt(i)));
+  try {
+    const text = 'A token like this begins with eyJ and has three parts separated by dots, so it is easy to spot. '.repeat(100);
+    assert.equal(mask(text).text, text, 'a reply naming eyJ was changed or withheld');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4: the short-chunk walk stays cheap with 2,000 held values on text full of key-like short runs', () => {
+  const rnd = (n, seed) => { let x = seed; let out = ''; const A = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'; for (let i = 0; i < n; i += 1) { x = (x * 1103515245 + 12345) % 2147483648; out += A[x % A.length]; } return out; };
+  setKnownSecrets(Array.from({ length: 2000 }, (_, i) => rnd(24, i + 1)));
+  try {
+    const text = Array.from({ length: 4000 }, (_, i) => rnd(3, 90000 + i)).join(' and ');
+    let r;
+    const ms = cpuMillisecondsOf(() => { r = mask(text); });
+    assert.notEqual(r.text, UNCHECKED, 'withheld at the short walk budget');
+    assert.ok(ms < 1500, `the short walk cost ${ms}ms`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 2: a label glued AFTER a short chunk, the label kept readable, and 2ndFloorLounge left in its sentence', () => {
+  const held = j('Zq8vLm3pRt6w', 'Xy9kHb2nWc4d');
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{3}/g);
+    const after = mask(chunks.map((c, i) => `${c}-part${i}`).join(' then ') + '.').text;
+    for (const c of chunks) assert.ok(!after.includes(c), `a chunk with a label after it survived: ${c}: ${after}`);
+    for (let i = 0; i < chunks.length; i += 1) assert.ok(after.includes(`-part${i}`), `the label after chunk ${i} was masked: ${after}`);
+    const before = mask(chunks.map((c) => `part-${c}`).join(' then ') + '.').text;
+    assert.equal((before.match(/part-/g) || []).length, chunks.length, 'a label before a chunk was masked with it: ' + before);
+  } finally { setKnownSecrets([]); }
+  setKnownSecrets(['2ndFloorLounge']);
+  try {
+    const text = 'Reserve the 2nd conference space on Floor near the executive Lounge for the offsite.';
+    assert.equal(mask(text).text, text, 'an ordinary sentence spelling a password made of words was masked');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 3: a numbered guide is not withheld with many held values, a key with its own - is assembled, and only the latest start is masked', () => {
+  const rnd = (n, seed) => { let x = seed; let out = ''; const A = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'; for (let i = 0; i < n; i += 1) { x = (x * 1103515245 + 12345) % 2147483648; out += A[x % A.length]; } return out; };
+  setKnownSecrets(Array.from({ length: 100 }, (_, i) => rnd(40, 500 + i)));
+  try {
+    const guide = Array.from({ length: 200 }, (_, i) => `${i + 1}. Step ${i + 1}: choose option a, b, c or d (e.g. c), i.e. the ${i % 3 + 1}st one; see section ${i % 9} f and x ${i % 7}.`).join('\n');
+    const r = mask(guide);
+    assert.equal(r.text, guide, 'a numbered guide was changed or withheld: ' + JSON.stringify(r.fired));
+  } finally { setKnownSecrets([]); }
+  setKnownSecrets([j('Ab3-Zq8-vLm', '-3pR-t6w')]);
+  try {
+    const t = mask('Ab3 then Zq8 then vLm then 3pR then t6w').text;
+    for (const c of ['Ab3', 'Zq8', 'vLm', '3pR', 't6w']) assert.ok(!t.includes(c), `a key with its own - leaked ${c}: ${t}`);
+  } finally { setKnownSecrets([]); }
+  setKnownSecrets([j('Zq812vLm3pR', 't6wXy9kHb2nW')]);
+  try {
+    const t = mask('Zq8 is step 1, and 2 is next. The key: Zq8 12 vLm 3pR t6w Xy9 kHb 2nW').text;
+    // The ordinary "1" and "2" stay; the earlier Zq8 is the key's own chunk, which review round 17 masks too.
+    assert.ok(t.includes(' is step 1, and 2 is next. The key: '), 'an earlier mention masked ordinary text: ' + t);
+    for (const c of ['vLm', '3pR', 't6w', 'Xy9', 'kHb', '2nW']) assert.ok(!t.includes(c), `the key's chunk ${c} survived: ${t}`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 4: an all-lowercase key in chunks of three is masked; word passwords still are not', () => {
+  const held = 'zqvlmprtwxykhbnwcdfgjksx';
+  setKnownSecrets([held]);
+  try {
+    const t = mask(held.match(/.{3}/g).join(' and ')).text;
+    const left = held.match(/.{3}/g).filter((c) => t.includes(c));
+    assert.equal(left.length, 0, `an all-lowercase key leaked ${left.length} chunks: ${t}`);
+  } finally { setKnownSecrets([]); }
+  for (const [pw, text] of [['MyPassword123', 'My Password must be at least 123 characters.'], ['2ndFloorLounge', 'Reserve the 2nd conference space on Floor near the executive Lounge.']]) {
+    setKnownSecrets([pw]);
+    try { assert.equal(mask(text).text, text, `${pw} masked from ordinary text`); } finally { setKnownSecrets([]); }
+  }
+});
+
+test('#3995 gap 4 review round 5: text full of single characters is not withheld with held values', () => {
+  const rnd = (n, seed) => { let x = seed; let out = ''; const A = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'; for (let i = 0; i < n; i += 1) { x = (x * 1103515245 + 12345) % 2147483648; out += A[x % A.length]; } return out; };
+  setKnownSecrets(Array.from({ length: 200 }, (_, i) => rnd(32, 700 + i)));
+  try {
+    const abc = 'Allowed: ' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'.split('').join(' ') + '. ';
+    const text = abc.repeat(10);
+    assert.equal(mask(text).text, text, 'a list of single characters was changed or withheld');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 6: UUID-shaped held values do not make a numbered list withheld', () => {
+  const hex = (n, seed) => { let x = seed; let out = ''; for (let i = 0; i < n; i += 1) { x = (x * 1103515245 + 12345) % 2147483648; out += '0123456789abcdef'[(x >>> 16) % 16]; } return out; };   // high bits: the low bits of this generator repeat every 16
+  const uuid = (seed) => { const h = hex(32, seed); return [h.slice(0, 8), h.slice(8, 12), h.slice(12, 16), h.slice(16, 20), h.slice(20)].join('-'); };
+  const held = Array.from({ length: 2000 }, (_, i) => uuid(3000 + i));
+  assert.equal(new Set(held).size, held.length, 'the fixture values are not distinct');
+  setKnownSecrets(held);
+  try {
+    const text = Array.from({ length: 500 }, (_, i) => `${i}: a b c d e f 0 1 2 3 4 5 6 7 8 9 and more.`).join('\n');
+    assert.equal(mask(text).text, text, 'a numbered list was changed or withheld');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 7: a reply that lists characters and names a shared opening (eyJ) is not withheld', () => {
+  const b64 = (n, seed) => { let x = seed; let out = ''; const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'; for (let i = 0; i < n; i += 1) { x = (x * 1103515245 + 12345) % 2147483648; out += A[(x >>> 16) % 64]; } return out; };
+  const held = Array.from({ length: 20 }, (_, i) => j('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.', 'eyJ', b64(80, 900 + i), '.', b64(43, 1900 + i)));
+  assert.equal(new Set(held).size, held.length, 'the fixture values are not distinct');
+  setKnownSecrets(held);
+  try {
+    const abc = 'Allowed: ' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'.split('').join(' ') + '.\n';
+    const text = abc + 'A token begins with eyJ, like eyJ... and ey is the start.\n'.repeat(300);
+    const r = mask(text);
+    assert.equal(r.text, text, 'the reply was changed or withheld: ' + JSON.stringify(r.fired));
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 8: a short chunk with a label glued on both sides is masked, the labels kept', () => {
+  const held = 'Zq8-vLm-3pR-t6w-Xy9-kHb';
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.split('-');
+    for (const glue of [(c, i) => `x${i}-${c}-y${i}`, (c, i) => `var_${c}_tmp${i}`]) {
+      const t = mask(chunks.map(glue).join(' then ') + '.').text;
+      for (const c of chunks) assert.ok(!t.includes(c), `a chunk glued on both sides survived: ${c}: ${t}`);
+      for (let i = 0; i < chunks.length; i += 1) assert.ok(t.includes(`x${i}-`) || t.includes(`_tmp${i}`), `the label for chunk ${i} was masked: ${t}`);
+    }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 9: a reply naming a JWT header\'s own short chunks, with a character list, is not withheld', () => {
+  const b64 = (n, seed) => { let x = seed; let out = ''; const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'; for (let i = 0; i < n; i += 1) { x = (x * 1103515245 + 12345) % 2147483648; out += A[(x >>> 16) % 64]; } return out; };
+  const held = Array.from({ length: 20 }, (_, i) => j('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.', 'eyJ', b64(150, 3900 + i), '.', b64(43, 4900 + i)));
+  assert.equal(new Set(held).size, held.length, 'the fixture values are not distinct');
+  setKnownSecrets(held);
+  try {
+    const abc = 'Allowed: ' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'.split('').join(', ') + '.\n';
+    const text = abc + 'A token begins with eyJ, then hb, Gc, iO and so on.\n'.repeat(100);
+    const r = mask(text);
+    assert.equal(r.text, text, 'the reply was changed or withheld: ' + JSON.stringify(r.fired));
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 10: labels like Q1 are plain words, and a repeated chunk inside the key is masked in every copy', () => {
+  for (const [held, text] of [
+    ['Q1Q2Q3Q4Q5Q6', 'In Q1 we grew, in Q2 we grew more, in Q3 we plateaued, in Q4 we recovered, then Q5 was slow, and Q6 was strong.'],
+    ['V1V2V3V4V5V6', 'We shipped V1 first, then V2 with fixes, then V3 for stability, then V4 for perf, then V5 for polish, then V6 for launch.'],
+  ]) {
+    setKnownSecrets([held]);
+    try { assert.equal(mask(text).text, text, `${held}: labels in ordinary prose were masked`); } finally { setKnownSecrets([]); }
+  }
+  setKnownSecrets(['Zq8vLmPxKcR9']);
+  try {
+    const t = mask('Zq8 aaaa vLm bbbb vLm cccc PxK dddd cR9 end').text;
+    for (const c of ['Zq8', 'vLm', 'PxK', 'cR9']) assert.ok(!t.includes(c), `the chunk ${c} survived: ${t}`);
+    assert.ok(t.includes('aaaa') && t.includes('dddd'), 'the words between were masked: ' + t);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 11: ordinary words that are also a key chunk are not masked elsewhere, and units are plain words', () => {
+  setKnownSecrets(['Zq8theXy9kHb']);
+  try {
+    const input = 'Zq8 goes first; the next is the word the, then the Xy9, and the kHb last.';
+    const t = mask(input).text;
+    for (const c of ['Zq8', 'Xy9', 'kHb']) assert.ok(!t.includes(c), `the chunk ${c} survived: ${t}`);
+    // One "the" is the key's own piece on its path; every other copy is an ordinary word and stays.
+    const count = (x) => (x.match(/\bthe\b/g) || []).length;
+    assert.equal(count(t), count(input) - 1, 'ordinary copies of "the" were masked: ' + t);
+  } finally { setKnownSecrets([]); }
+  for (const [held, text] of [['dBmGHzkHzmAh', 'Specs: 20 dBm, 5 GHz, 32 kHz, 5000 mAh battery.'], ['iOSiPadOS17a', 'Update to iOS or iPadOS 17 on a device.']]) {
+    setKnownSecrets([held]);
+    try { assert.equal(mask(text).text, text, `${held}: a spec line was masked`); } finally { setKnownSecrets([]); }
+  }
+});
+
+test('#3995 gap 4 review round 12: a mixed key cut into chunks of TWO with words between is masked', () => {
+  const held = j('Zq8vLm3pRt6w', 'Xy9kHb2nWc4d');
+  setKnownSecrets([held]);
+  try {
+    const pairs = held.match(/.{2}/g);
+    const t = mask(pairs.join(' and ')).text;
+    const left = pairs.filter((c) => new RegExp('(^|[^A-Za-z0-9])' + c + '([^A-Za-z0-9]|$)').test(t));
+    assert.equal(left.length, 0, `pairs left showing: ${left.join(',')}: ${t}`);
+  } finally { setKnownSecrets([]); }
+  const rnd = (n, seed) => { let x = seed; let out = ''; const A = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'; for (let i = 0; i < n; i += 1) { x = (x * 1103515245 + 12345) % 2147483648; out += A[(x >>> 16) % A.length]; } return out; };
+  let leaked = 0;
+  for (let k = 0; k < 50; k += 1) {
+    const key = rnd(24, 7000 + k);
+    setKnownSecrets([key]);
+    try { const text = key.match(/.{2}/g).join(' and '); if (mask(text).text === text) leaked += 1; } finally { setKnownSecrets([]); }
+  }
+  assert.ok(leaked <= 3, `${leaked} of 50 random keys cut in twos showed in full`);
+});
+
+test('#3995 gap 4 review round 14: short chunks glued to a label by + or /, or carrying base64 padding, are masked', () => {
+  const held = j('Zq8vLm3pRt6w', 'Xy9kHb2nWc4d');
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{3}/g);
+    for (const glue of [(c, i) => `${c}+part${i}`, (c, i) => `${c}/part${i}`, (c) => `${c}=`]) {
+      const t = mask(chunks.map(glue).join(' then ') + ' done.').text;
+      for (const c of chunks) assert.ok(!t.includes(c), `a glued chunk survived: ${c}: ${t}`);
+    }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 15: two chunks joined in one run are tried together, and a chunk is masked where it sits in its run', () => {
+  const held = j('Zq8vLm3pRt6w', 'Xy9kHb2nWc4d');
+  setKnownSecrets([held]);
+  try {
+    for (const sep of ['/', '+', '-', '_', '=']) {
+      const t = mask(`Zq8 and vLm and 3pR${sep}t6w and Xy9 and kHb and 2nW and c4d`).text;
+      for (const c of ['Zq8', 'vLm', '3pR', 't6w', 'Xy9', 'kHb', '2nW', 'c4d']) assert.ok(!t.includes(c), `joined by ${sep}: ${c} survived: ${t}`);
+    }
+    const t = mask('Zq8 and vLm and 3pR and see t6wx/t6w/q and Xy9 and kHb and 2nW and c4d').text;
+    assert.ok(t.includes('t6wx/'), 'the label t6wx was masked instead of the chunk: ' + t);
+    assert.ok(!/\/t6w\//.test(t), 'the real chunk t6w between the separators stayed visible: ' + t);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 16: a chunk written twice inside one run is masked in both places', () => {
+  const held = j('Zq8vLm3pRt6w', 'Xy9kHb2nWc4d');
+  setKnownSecrets([held]);
+  try {
+    for (const sep of ['-', '_', '+', '/', '=']) {
+      const t = mask(`Zq8 and vLm and 3pR${sep}3pR and t6w and Xy9 and kHb and 2nW and c4d`).text;
+      assert.ok(!t.includes('3pR'), `joined by ${sep}: a copy of 3pR showed: ${t}`);
+    }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 17: a key repeated regrouped, or retried after an abandoned first try, is masked in full', () => {
+  const held = j('Zq8vLm3pRt6w', 'Xy9kHb2nWc4d');
+  const chunks = held.match(/.{3}/g);
+  setKnownSecrets([held]);
+  try {
+    for (const input of [
+      `Type ${chunks.join(' then ')} (the last part is 2nW/c4d).`,
+      `Type ${chunks.join(' then ')}. Grouped: Zq8vLm 3pRt6w Xy9kHb 2nWc4d.`,
+      `In pieces: ${chunks.join(' then ')}. In one line: Zq8-vLm-3pR-t6w-Xy9-kHb-2nW-c4d.`,
+      `The key is ${chunks.slice(0, 7).join(' then ')}; sorry, again: ${chunks.join(' then ')}.`,
+    ]) {
+      const t = mask(input).text;
+      for (const c of chunks) assert.ok(!new RegExp('(^|[^A-Za-z0-9])' + c + '([^A-Za-z0-9]|$)').test(t), `${c} showed: ${t}`);
+    }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 18: an ordinary two-character token that is a slice of the key is not masked near it', () => {
+  setKnownSecrets([j('Zq8vLm3pRt6w', 'Xy9kHb2nWc4d')]);
+  try {
+    const t = mask('Zq8 and vLm and White played c4 last move and 3pR and t6w and Xy9 and kHb and 2nW and c4d').text;
+    assert.ok(t.includes('White played c4 last move'), 'an ordinary c4 was masked: ' + t);
+    for (const c of ['Zq8', 'vLm', '3pR', 't6w', 'Xy9', 'kHb', '2nW', 'c4d']) assert.ok(!new RegExp('(^|[^A-Za-z0-9])' + c + '([^A-Za-z0-9]|$)').test(t), `${c} showed: ${t}`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 19: a pasted run of one part repeated thousands of times stays cheap, and a slice across two chunks is not masked before the key', () => {
+  setKnownSecrets([j('Zq8vLm3pRt6w', 'Xy9kHb2nWc4d')]);
+  try {
+    const blob = 'Here is the image: data:image/raw;base64,' + '/wAA'.repeat(8000);
+    let r;
+    const ms = cpuMillisecondsOf(() => { r = mask(blob); });
+    assert.equal(r.text, blob);
+    assert.ok(ms < 1500, `a repeated-part run cost ${ms}ms`);
+  } finally { setKnownSecrets([]); }
+  setKnownSecrets(['DJOIITCPC87MQS447TEFTLSU']);
+  try {
+    const t = mask('The relay is automatic over TLS; it is a byte pipe. Paste: DJO then IIT then CPC then 87M then QS4 then 47T then EFT then LSU.').text;
+    assert.ok(t.startsWith('The relay is automatic over TLS;'), 'a slice across two chunks was masked: ' + t);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 20: a large pasted log of slugs sharing nothing with any held value costs little', () => {
+  const text = Array.from({ length: 16000 }, (_, i) => `item-${i}_part+${i % 7}/rev=${i % 13}-build-${i % 5}_final`).join(' ');
+  // Baseline: 50 held HEX values of the same length. The word walk and every other copy run for them as for any value,
+  // but hex is kept out of the short index, so the difference is the short walk's own cost.
+  setKnownSecrets(Array.from({ length: 50 }, (_, i) => j('3f9a2c7e1b4d8f6a0c5e9b2d', String(i).padStart(4, '0'))));
+  let base;
+  try { base = cpuMillisecondsOf(() => { mask(text + ' '); }); } finally { setKnownSecrets([]); }
+  setKnownSecrets(Array.from({ length: 50 }, (_, i) => j('Zq8vLm3pRt6wXy9kHb2nWc4d', String(i).padStart(4, '0'))));
+  try {
+    let r;
+    const ms = cpuMillisecondsOf(() => { r = mask(text); });
+    assert.equal(r.text, text);
+    assert.ok(ms < base * 1.5 + 100, `a slug log cost ${ms}ms against ${base}ms without the short walk's held values`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 21: a key whose second character is + / = or - is still walked in short chunks', () => {
+  for (const [held, first] of [['A+b9Zq8vLm3pRt6wXy9k', 'A+b'], ['Q/xZq8vLm3pRt6wXy9k2', 'Q/x'], ['Q=xZq8vLm3pRt6wXy9k2', 'Q=x']]) {
+    setKnownSecrets([held]);
+    try {
+      const rest = held.slice(3).match(/.{1,3}/g);
+      const t = mask([first, ...rest].join(' and ')).text;
+      for (const c of [first, ...rest]) assert.ok(!new RegExp('(^|[^A-Za-z0-9+/=-])' + c.replace(/[+/=]/g, '\\$&') + '([^A-Za-z0-9+/=-]|$)').test(t), `${held}: ${c} showed: ${t}`);
+    } finally { setKnownSecrets([]); }
+  }
+});
+
+test('#3995 gap 4 review round 22: a held value that only starts with sk- is not given a public head; a real vendor key in chunks is masked', () => {
+  setKnownSecrets([j('sk-', 'Ab3-vLm3pRt6wXy9kHb2nW')]);
+  try {
+    const t = mask('sk and Ab3 and vLm and 3pR and t6w and Xy9 and kHb and 2nW').text;
+    assert.ok(!t.includes('Ab3'), 'a secret chunk after a bare sk- showed: ' + t);
+  } finally { setKnownSecrets([]); }
+  setKnownSecrets([j('sk-ant-', 'api03-', 'Zq8vLm3pRt6wXy9kHb2nWc4dQ7eF')]);
+  try {
+    const t = mask('Every key starts with sk-ant-api03-. Yours: Zq8 then vLm then 3pR then t6w then Xy9 then kHb then 2nW then c4d then Q7e then F done').text;
+    // (Whether the named prefix itself stays readable here is the word walk's call, the same as on main.)
+    for (const c of ['Zq8', 'vLm', '3pR', 't6w', 'Xy9', 'kHb', '2nW', 'c4d', 'Q7e']) assert.ok(!t.includes(c), `${c} showed: ${t}`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 23: a vendor key given without its prefix, its body starting with - or _, is masked; a repeat after the key too', () => {
+  for (const held of [j('sk-ant-', 'api03-', 'p-Yj08Pngzzcw9-49qzWLsGQpUqB9iRXkJxVC1gbAA'), j('sk-', 'proj-', 't_QCfZq8vLm3pRt6wXy9kHb2nWc4d')]) {
+    setKnownSecrets([held]);
+    try {
+      const body = held.replace(/^(?:sk-ant-api03-|sk-proj-)/, '');
+      const chunks = body.match(/.{1,3}/g);
+      const t = mask('Here: ' + chunks.join(' then ') + ' done').text;
+      const shown = chunks.filter((c) => /[A-Za-z0-9]{2}/.test(c) && t.includes(' ' + c + ' '));
+      // One chunk may show: a body starting with - or _ opens with a chunk holding that separator (p-Y), which the check
+      // above counts only when it is written in the text exactly as sliced; every other chunk must be masked.
+      assert.ok(shown.length <= 1, `${held}: chunks showed: ${shown.join(',')}: ${t}`);
+    } finally { setKnownSecrets([]); }
+  }
+  setKnownSecrets([j('Zq8vLm3pRt6w', 'Xy9kHb2nWc4d')]);
+  try {
+    const t = mask('Zq8 then vLm then 3pR then t6w then Xy9 then kHb then 2nW then c4d. Then again Zq8vLm.').text;
+    assert.ok(!t.includes('Zq8vLm'), 'a regrouped repeat after the key showed: ' + t);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 24: a vendor key whose body is hex, given without its prefix in short chunks, is masked', () => {
+  setKnownSecrets([j('sk-', 'proj-', '3f9a2c7e1b4d8f6a0c5e9b2d17aa22bb')]);
+  try {
+    const chunks = '3f9a2c7e1b4d8f6a0c5e9b2d17aa22bb'.match(/.{1,3}/g);
+    const t = mask('Here it is, without the prefix: ' + chunks.join(' then ') + ' done.').text;
+    const shown = chunks.filter((c) => c.length === 3 && t.includes(' ' + c + ' '));
+    assert.equal(shown.length, 0, 'chunks of a hex body showed: ' + shown.join(',') + ': ' + t);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 26 (pinned limit): a value made wholly of label-shaped groups, cut into them, is not masked by the short walk', () => {
+  // Stated under Not covered: the rule that keeps Q1Q2Q3... out of prose about quarters cannot tell A12B34C56... apart.
+  setKnownSecrets(['A12B34C56D78E90F123']);
+  try {
+    const t = 'A12 and B34 and C56 and D78 and E90 and F12 and 3';
+    assert.equal(mask(t).text, t, 'the stated limit changed; update the Not covered list and this test');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 27: hex-dense numbered lines do not assemble a held hex vendor body across them', () => {
+  const crypto = require('node:crypto');
+  // Five held OpenRouter-shaped keys (hex bodies), five fresh texts: the previous commit masked some text most times.
+  const gen = (seed) => { let x = seed; let out = ''; for (let i = 0; i < 64; i += 1) { x = (x * 1103515245 + 12345) % 2147483648; out += '0123456789abcdef'[(x >>> 16) % 16]; } return out; };
+  // Built by joining, as this file's fakes are, so the file itself does not read as a leaked key.
+  const held = [j('sk-or-', 'v1-', gen(5100)), ...[1, 2, 3, 4].map((k) => j('sk-or-', 'v1-', gen(5100 + k)))];
+  setKnownSecrets(held);
+  try {
+    const hex = (n) => crypto.randomBytes(n).toString('hex').slice(0, n);
+    for (let round = 0; round < 5; round += 1) {
+      const lines = Array.from({ length: 300 }, (_, i) => `${i + 1}. Step ${'abcdef'[i % 6]} ${i % 10} ${hex(2)} ${hex(2)} ${hex(3)} then click ${hex(2)}`);
+      const text = lines.join('\n');
+      const bare = text.replace(/[^0-9a-f]/g, '');
+      if (held.some((h) => bare.includes(h.slice(9)))) continue;   // a draw that really contains a body proves nothing
+      const r = mask(text);
+      assert.equal(r.text, text, 'hex-dense lines were masked: ' + JSON.stringify(r.fired));
+    }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 29: a held value that is itself hex is walked in short chunks; hex text around it is not masked', () => {
+  const crypto = require('node:crypto');
+  const tokens = Array.from({ length: 50 }, () => crypto.randomBytes(16).toString('hex'));
+  setKnownSecrets(tokens);
+  try {
+    for (const tok of tokens.slice(0, 5)) {
+      const chunks = tok.match(/.{1,3}/g);
+      const t = mask('Token: ' + chunks.join(' and ') + ' ok').text;
+      const shown = chunks.filter((c) => c.length === 3 && t.includes(' ' + c + ' '));
+      assert.equal(shown.length, 0, `a hex token's chunks showed: ${shown.join(',')}: ${t}`);
+    }
+    const dump = Array.from({ length: 300 }, (_, i) => `${String(i * 16).padStart(8, '0')}: ${crypto.randomBytes(16).toString('hex').match(/.{2}/g).join(' ')}`).join('\n');
+    const bare = dump.replace(/[^0-9a-f]/g, '');
+    if (!tokens.some((tk) => bare.includes(tk))) assert.equal(mask(dump).text, dump, 'a hexdump was masked');
+    const list = Array.from({ length: 500 }, (_, i) => `${i + 1}. ${crypto.randomBytes(2).toString('hex').slice(0, 3)} ${crypto.randomBytes(1).toString('hex')}`).join('\n');
+    assert.equal(mask(list).text, list, 'a numbered list of hex tokens was masked');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 30: a hex key with ordinary prose between its short chunks is masked', () => {
+  const crypto = require('node:crypto');
+  for (let k = 0; k < 10; k += 1) {
+    const key = crypto.randomBytes(16).toString('hex');
+    setKnownSecrets([key]);
+    try {
+      const chunks = key.match(/.{2}/g);
+      const t = mask('Sure, here is your recovery code, one chunk per step so it is easy to copy:\n' + chunks.map((c, i) => `Step ${i + 1}, please type this carefully: ${c}`).join('\n')).text;
+      const shown = chunks.filter((c) => new RegExp(': ' + c + '$', 'm').test(t));
+      assert.ok(shown.length <= 1, `a hex key's chunks showed: ${shown.join(',')}`);
+    } finally { setKnownSecrets([]); }
+  }
+});
+
+test('#3995 gap 4 review round 31: a hex key given with ordinary words made of hex letters between its chunks is masked', () => {
+  const crypto = require('node:crypto');
+  for (let k = 0; k < 8; k += 1) {
+    const key = crypto.randomBytes(16).toString('hex');
+    setKnownSecrets([key]);
+    try {
+      const chunks = key.match(/.{2}/g);
+      const t = mask(chunks.map((c) => `Be sure you add the next one (as of Dec 2025) and it should be: ${c}`).join('\n')).text;
+      const shown = chunks.filter((c) => new RegExp(': ' + c + '$', 'm').test(t));
+      assert.ok(shown.length <= 1, `chunks showed: ${shown.join(',')}`);
+    } finally { setKnownSecrets([]); }
+  }
+});
