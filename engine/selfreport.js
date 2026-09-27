@@ -119,7 +119,9 @@ function cappedSentence(value, cap) {
 /* #2808 class-1: the ONE definition of "this standing report is an AUTO permission/
    trust wait" (a lifecycle-hook-written needs_you). record()'s #2456 clobber-guard
    below and engine/class1-autohandle.js's auto-handle BOTH key the class-1-vs-class-2
-   line on it, so it lives here once and is exported rather than inlined in two places
+   line on it (#4169: the board's armed sweep narrows it further in standingFromAgent, where
+   only the folder-trust dialog on screen is restarted; a by:auto report alone is a tool prompt
+   and is left for a person), so it lives here once and is exported rather than inlined in two places
    (the two-derivations-of-one-fact defect this codebase names as its most-shipped).
    A DELIBERATE needs_you (by:'agent'/'operator') is NOT this; nor is a legacy by:null
    line (provenance unknown); nor any non-needs_you state. */

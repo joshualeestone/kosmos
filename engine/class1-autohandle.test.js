@@ -303,23 +303,34 @@ test('CONTROL sweep: a throwing attemptsFor does not crash the sweep; the agent 
 const TRUST_ROW = 'Quick safety check: Is this a project you created or one you trust?';
 const isTrustDialogEvidence = (e) => typeof e === 'string' && /^Quick safety check:/.test(e);
 
-test('standingFromAgent: a by:auto card maps to a class-1 standing', () => {
-  assert.deepEqual(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto' }), { found: true, state: 'needs_you', by: 'auto', runner: '' });
+test('#4169: a by:auto card ALONE (the hook\'s tool-permission prompt) is NOT class-1, and is never planned for a restart', () => {
+  // Measured on Mortals, 2026-09-27: 18 of 19 matched restarts followed "asking permission to use Bash: kill ...". A restart
+  // cannot answer a tool prompt; it only throws the agent's context away. Only the trust-dialog scrape is class-1 now.
+  const s = standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', because: 'asking permission to use Bash: kill 4242' });
+  assert.equal(s.arm, 'tool-permission');
+  assert.notEqual(s.by, 'auto', 'a tool-permission prompt was mapped to the class-1 marker');
+  assert.equal(isClass1(s), false);
+  assert.equal(s.prompt, 'asking permission to use Bash', 'the prompt must name the tool and never carry the command line (it can hold a secret)');
+  assert.equal(planClass1Handle(s, [], Date.now()).act, 'none', 'a tool-permission prompt was planned for trust-and-restart');
+  // The same, with the scrape predicate supplied but the screen NOT showing the trust dialog.
+  assert.equal(planClass1Handle(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', stateEvidence: 'Do you want to proceed?' }, isTrustDialogEvidence), [], Date.now()).act, 'none');
   assert.equal(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', runner: 'grok' }).runner, 'grok', 'the card\'s runner is carried to the plan');
 });
 
 test('#4006: a by:auto needs_you on a NON-Claude agent is never restarted; a Claude one still is', () => {
   // Josh's Grok agent, 2026-09-26: an ordinary "Waiting for your next prompt" reached here as needs_you by:auto,
   // and the handler restarted it (and the restart did not come back). Only Claude Code has the trust prompt.
+  // #4169: a trust-dialog card, the only class-1 trigger left, so the runner rule still guards something real.
+  const trustCard = (runner) => standingFromAgent({ state: 'needs_you', stateReportedBy: null, stateEvidence: TRUST_ROW, runner }, isTrustDialogEvidence);
   for (const runner of ['grok', 'gemini', 'codex', 'antigravity']) {
-    const plan = planClass1Handle(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', runner }), [], Date.now());
+    const plan = planClass1Handle(trustCard(runner), [], Date.now());
     assert.equal(plan.act, 'none', `a ${runner} agent was planned for a restart: ${plan.because}`);
   }
   // A card that could not say what it runs (runner null, a paneless row) fails closed.
-  assert.equal(planClass1Handle(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', runner: null }), [], Date.now()).act, 'none', 'an unknown runner was restarted');
+  assert.equal(planClass1Handle(trustCard(null), [], Date.now()).act, 'none', 'an unknown runner was restarted');
   // CONTROL: the same wait on a Claude agent (no runner, or 'claude') is still handled.
   for (const runner of [undefined, '', 'claude']) {
-    const plan = planClass1Handle(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', runner }), [], Date.now());
+    const plan = planClass1Handle(trustCard(runner), [], Date.now());
     assert.equal(plan.act, 'trust-and-restart', `a Claude agent (runner ${JSON.stringify(runner)}) is no longer handled`);
   }
 });
@@ -349,7 +360,7 @@ test('DEFENSE-IN-DEPTH standingFromAgent: a self-reported by:agent is NOT promot
 test('DEFENSE-IN-DEPTH standingFromAgent: a self-reported by:operator is likewise not promoted by a trust scrape', () => {
   assert.equal(isClass1(standingFromAgent({ state: 'needs_you', stateReportedBy: 'operator', stateEvidence: TRUST_ROW }, isTrustDialogEvidence)), false);
 });
-test('CONTROL standingFromAgent: with NO isTrustDialogEvidence dep, only by:auto fires (a scrape does not)', () => {
+test('CONTROL standingFromAgent: with NO isTrustDialogEvidence dep, nothing fires (a scrape needs the dep; #4169: by:auto alone never did since)', () => {
   assert.equal(isClass1(standingFromAgent({ state: 'needs_you', stateReportedBy: null, stateEvidence: TRUST_ROW })), false);
 });
 test('CONTROL standingFromAgent: an operator/legacy card is NOT class-1', () => {
@@ -382,4 +393,26 @@ test('pruneAttempts: drops entries whose window has fully expired (bounds the Ma
   pruneAttempts(book, now);
   assert.equal(book.has('gone'), false);
   assert.deepEqual(book.get('here'), [now - 1000]);
+});
+
+test('#4169: arm names the trigger that DECIDED; a by:agent card showing trust evidence has none', () => {
+  assert.equal(standingFromAgent({ state: 'needs_you', stateReportedBy: 'agent', stateEvidence: TRUST_ROW }, isTrustDialogEvidence).arm, null);
+  assert.equal(standingFromAgent({ state: 'needs_you', stateReportedBy: null, stateEvidence: TRUST_ROW }, isTrustDialogEvidence).arm, 'trust-dialog');
+  assert.equal(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', stateEvidence: TRUST_ROW }, isTrustDialogEvidence).arm, 'trust-dialog');
+});
+
+test('#4169: the standing shape from a card is pinned whole', () => {
+  assert.deepEqual(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', because: 'asking permission to use Bash: kill 1' }),
+    { found: true, state: 'needs_you', by: 'auto-tool-permission', runner: '', arm: 'tool-permission', prompt: 'asking permission to use Bash' });
+  assert.deepEqual(standingFromAgent({ state: 'needs_you', stateReportedBy: null, stateEvidence: TRUST_ROW }, isTrustDialogEvidence),
+    { found: true, state: 'needs_you', by: 'auto', runner: '', arm: 'trust-dialog', prompt: TRUST_ROW });
+  // A by:auto card that is not waiting names no arm (only a waiting card can be a prompt).
+  assert.equal(standingFromAgent({ state: 'working', stateReportedBy: 'auto' }).arm, null);
+});
+
+test('#4169: the board.log line names the arm and the prompt', () => {
+  const { formatLogLine } = require('./class1-autohandle');
+  const line = formatLogLine({ name: 'Kano', session: 'kano', act: 'trust-and-restart', handled: true, because: 'wrote the key', arm: 'trust-dialog', prompt: 'Quick safety check: Is this' });
+  assert.equal(line, 'class1-autohandle: Kano (kano) handled (trust+restart) - wrote the key [arm=trust-dialog; prompt="Quick safety check: Is this"]\n');
+  assert.match(formatLogLine({ name: 'A', session: 'a', act: 'escalate', because: 'b' }), /ESCALATED .* \[arm=unknown; prompt=""\]\n$/);
 });

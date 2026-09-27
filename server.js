@@ -16821,15 +16821,16 @@ function start(port = PORT) {
       if (ahSweep && typeof ahSweep.unref === 'function') ahSweep.unref();
       /* #2808 class-1 (c): the INVISIBLE auto-handle sweep. Josh LOCKED 2026-09-14
          16:49 - "auto-handler #1 invisibly. i want all auto-clear stuff cleared." When
-         an agent is parked on Claude Code's own folder-trust / bypass prompt, its
-         lifecycle hook self-reports a by:'auto' needs_you (class 1). Prevention landed in
+         an agent is parked on Claude Code's own folder-trust / bypass prompt, the board's
+         screen scrape reads that dialog (class 1; #4169: the hook's by:'auto' report is any TOOL
+         prompt and is no longer treated as this). Prevention landed in
          #3087 (the launch shim re-writes trust+bypass every relaunch); this is the live
          handle for a prompt that surfaces ANYWAY (a relaunch before #3087, a
          create-before-shim race, or a #2173 config divergence). Each tick reads the
          RECONCILED roster and, for every CLAUDE agent (#4006: a card whose runner is another
          runner, or unknown, is never restarted; only Claude Code has this prompt) whose
-         reconciled state is needs_you AND was self-reported by:'auto', writes the folder-trust
-         key + restarts it
+         reconciled state is needs_you AND whose screen shows the folder-trust dialog, writes the
+         folder-trust key + restarts it
          (class1autohandle.sweepOnce -> the SAME create.trustAgentFolder + remove.restart
          the manual /trust-and-restart button uses; NO send-keys - a mis-fired keystroke
          into a real conversation is the whole hazard), so the relaunch clears it and the
@@ -16863,7 +16864,8 @@ function start(port = PORT) {
             restart: removal.restart,
             RESTARTED: removal.OUTCOME.RESTARTED,
             isTrustDialogEvidence, // the scrape-detected folder-trust trigger (no by:'auto' for that dialog)
-            log: (r) => process.stdout.write(`class1-autohandle: ${r.name} (${r.session}) ${r.act === 'escalate' ? 'ESCALATED (restart not clearing it, left red)' : (r.handled ? 'handled (trust+restart)' : 'attempted')} - ${r.because}\n`),
+            /* #4169: the line names the arm that fired and the prompt behind it, so a restart can be told from a mistake. */
+            log: (r) => process.stdout.write(class1autohandle.formatLogLine(r)),
           });
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_CLASS1_AUTOHANDLE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_CLASS1_AUTOHANDLE_MS) : 60 * 1000); // the env is the test seam only

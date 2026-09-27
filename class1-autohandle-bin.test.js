@@ -65,3 +65,18 @@ test('bin: multiple names each get a line; a leading flag among them is dropped'
   assert.match(r.stdout, new RegExp(a + ': none'));
   assert.match(r.stdout, new RegExp(b + ': none'));
 });
+
+test('#4169 bin: gives the board\'s answer: a by:auto tool-prompt self-report plans none, and the note says why', () => {
+  // A real by:auto tool-permission self-report in the sandbox store (<data>/Kosmos/selfreports, the shape the hook writes).
+  // Before #4169 the dry-run planned trust-and-restart for it; the board now leaves it for a person, and so must this.
+  const name = 'toolprompt-' + process.pid;
+  fs.mkdirSync(nodePath.join(SANDBOX, 'Kosmos', 'selfreports'), { recursive: true });
+  fs.writeFileSync(nodePath.join(SANDBOX, 'Kosmos', 'selfreports', name + '.jsonl'), JSON.stringify({
+    v: 1, state: 'needs_you', because: 'asking permission to use Bash: kill 4242', on: null, owner: null, until: null, project: null,
+    by: 'auto', at: new Date().toISOString() }) + '\n');
+  const r = run([name]);
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /note: from self-reports only; the board restarts only for the folder-trust dialog, which shows only on screen/);
+  assert.match(r.stdout, new RegExp(name + ': none'), 'the dry-run and the board disagree about a tool prompt: ' + r.stdout);
+  assert.doesNotMatch(r.stdout, /trust-and-restart/);
+});
