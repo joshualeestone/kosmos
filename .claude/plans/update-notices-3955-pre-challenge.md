@@ -14,7 +14,7 @@ converged: true
 
 **Iterations:** 16, alternating opus and sonnet reviewers (round 16: sonnet), plus Josh's review of the built window (his ruling, applied between rounds 10 and 11, approved "That's perfect").
 **Converged:** Yes. Iteration 16 found no BLOCKER, WARNING or CONVENTION (two NITs, left: a forensic comment naming the old #newsbar, and a debug-only value in a browser check).
-**Fixed:** every BLOCKER and WARNING raised. **Deferred:** as recorded in the plan (a Retry-free failed read is n/a here; drag-to-close shared with every .rm-back dialog; document shortcuts under the window). **Asked (awaiting user):** 0.
+**Fixed:** every BLOCKER and WARNING raised. **Deferred:** as recorded in the plan (drag-to-close, shared with every .rm-back dialog; other document shortcuts under the open window; the two round-16 NITs). **Asked (awaiting user):** 0.
 
 Full validation passed at 3422ae8b9, after merging current main (validation-log hash 87b073b8e665, the diff_hash above): 10550 tests, 10395 pass, 0 fail; subdir audit passed. Both browser-check gates pass. render-reload-toast (64 PASS, light and dark, including the 3:1 keyboard ring) and render-update-toast run green against a sandbox board.
 
