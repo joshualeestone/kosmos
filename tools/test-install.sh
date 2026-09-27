@@ -825,15 +825,14 @@ chk "a swap that happened but said it failed: install exits 0" "rc_ok $RC"
 chk "and it is believed by where the folder is: the SAME Kosmos.app folder" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" = \"$APP_INO5\" ]"
 chk "with the NEW Contents in it, not the old one put back by the rename" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app/Contents\")\" != \"$CONTENTS_INO5\" ] && [ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ]"
 chk "the stub itself carries the installer's call (so the pin covers both copies)" "grep -qF 'syscall(488, -2, \\\$ARGV[0], -2, \\\$ARGV[1], 18)' \"$SB/perl-swaps-then-fails\""
-# The staged folder in NEITHER place (something moved it; the stub stands in): the app
-# is still a complete Kosmos we can prove is ours, so the install keeps it and succeeds.
-# Failing here would send the installer on to ~/Applications, i.e. a second Kosmos.app.
+# The staged folder in NEITHER place (something moved it; the stub stands in): the stage
+# is built again and installed by the whole-bundle rename, so the app is REFRESHED (new
+# Contents), not kept stale and reported as made, and not failed into ~/Applications.
 printf '#!/bin/sh\nmv "$3" "$3.moved"\nexit 1\n' > "$SB/perl-moves-it"; chmod +x "$SB/perl-moves-it"
-APP_INO6="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app")"
 CONTENTS_INO6="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app/Contents")"
 RC=0; cat "$SETUP" | KOSMOS_SWAP_PERL="$SB/perl-moves-it" sh > "$SB/update-neither.log" 2>&1 || RC=$?
 chk "a staged folder found in neither place: install exits 0" "rc_ok $RC"
-chk "and the existing app is kept as it was (same folder, same Contents)" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" = \"$APP_INO6\" ] && [ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app/Contents\")\" = \"$CONTENTS_INO6\" ] && [ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ]"
+chk "and the app is refreshed: NEW Contents, complete and runnable" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app/Contents\")\" != \"$CONTENTS_INO6\" ] && [ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ] && [ -f \"$SB/apps/Kosmos.app/Contents/Info.plist\" ]"
 chk "and its stage is cleaned up, not left behind" "[ -z \"\$(ls -A \"$SB/apps\" | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ]"
 # CONTROL for the residue checks: the same pipeline must SEE a residue name when one
 # is there, or "none left" could pass on any folder.

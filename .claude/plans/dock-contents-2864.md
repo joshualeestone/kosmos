@@ -44,14 +44,17 @@ tools/test-install.sh proves all of it, with a control showing today's path give
 ## Review rounds 2 and 3 (applied)
 - Flags 18 refuse every link in a path, including /var -> /private/var, so the call now gets the
   folder's physical path (the installer test caught the silent fallback under /var).
-- A staged folder found in neither place keeps the app when it is still provably ours: failing
-  there sends the caller on to ~/Applications, and a second Kosmos.app is the duplicate itself.
+- A staged folder found in neither place is built again and installed by the whole-bundle
+  rename (round 4): keeping the old app and returning success hid a stale bundle from the #2028
+  notice, and failing sends the caller on to ~/Applications, a second Kosmos.app.
 
 ## Weakest part
 That the Dock follows the folder's identity (the bookmark's file id and creation date) is
 reasoned from the measured bookmarks, not watched on a Dock: no Dock was driven here. What
 would change my mind: a kept icon going stale after an update that kept the folder's inode.
-Next thing to watch on a real Dock: with the folder's identity now constant, the Dock may keep a
+Also unverified: whether macOS App Management treats changing entries inside Kosmos.app as a
+protected modification; if so the swap gets EPERM (the fallback runs, safe) and an update may show
+a "prevented from modifying apps" notice. Next thing to watch on a real Dock: with the folder's identity now constant, the Dock may keep a
 cached icon image after an update (the 2026-08-17 icon-refresh hypothesis in make_app_register).
 
 ## Merge

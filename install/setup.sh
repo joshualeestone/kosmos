@@ -3042,18 +3042,18 @@ make_app() {
         return 0
       fi
       if [ "$(/usr/bin/stat -f %i "$stage/Contents" 2>/dev/null)" != "$_staged_ino" ]; then
-        # The staged folder is in neither place: something else moved it, or the
-        # first stat above failed. The stage is this run's own, so it is removed
-        # without the ownership proof. If the app is still a complete Kosmos we can
-        # prove is ours, keep it and succeed: failing here sends the caller on to
-        # ~/Applications, and a second Kosmos.app there is the duplicate this exists
-        # to prevent. Otherwise fail the step as any other make_app failure does.
+        # The staged folder is in neither place: something else moved it, or a stat
+        # after the swap failed. The stage is this run's own, so it is removed without
+        # the ownership proof and built again, and the whole-bundle rename below
+        # installs it: the app is refreshed (not left stale and reported as made), and
+        # in the same folder, never a second Kosmos.app in ~/Applications, which a
+        # failure here would lead the caller to.
         rm -rf "$stage" 2>/dev/null || true
-        if bundle_is_ours "$app"; then
-          make_app_register "$app"
-          return 0
+        /bin/mkdir "$stage" 2>/dev/null || return 1
+        if ! build_app_bundle "$stage"; then
+          rm -rf "$stage" 2>/dev/null || true
+          return 1
         fi
-        return 1
       fi
       # The staged Contents is still in $stage: nothing moved, so the rename is safe.
     fi
