@@ -424,3 +424,48 @@ test('#3939 round 8: a sign-in Kosmos could not record is not reported done', { 
     assert.equal(fs.statSync(marker).isDirectory(), true, 'CONTROL: the obstacle was still in place');
   } finally { done(); fs.rmSync(marker, { recursive: true, force: true }); }
 });
+
+/* Round 9: Muse may draw the code and go straight to waiting, with no Press line. */
+const CODE_ONLY = (c) => 'To sign in, open https://auth.meta.com/device?user_code=' + c + '\nand enter the code: ' + c + '\n';
+test('#3939 round 9: a code followed straight by waiting is shown, and no Enter is sent', { skip: !onMac && 'the flag is Mac only' }, () => {
+  const { st, done } = scripted(CODE_ONLY('WXYZ-1234') + 'Waiting for approval... Esc cancel\n');
+  try {
+    signin.tickForTests();
+    assert.equal(signin.status().code, 'WXYZ-1234', 'the code was never shown');
+    assert.equal(signin.status().state, 'code');
+    assert.deepEqual(st.sent, [], 'an Enter went to a Muse that was already waiting');
+  } finally { done(); }
+});
+
+test('#3939 round 9: after a retry, a new code drawn straight to waiting is shown; no code at all is named', { skip: !onMac && 'the flag is Mac only' }, () => {
+  const { st, done } = scripted(EXPIRED_TEXT);
+  try {
+    signin.tickForTests();
+    const id = signin.status().id;
+    assert.deepEqual(signin.retry(id), { ok: true });
+    st.text = EXPIRED_TEXT + CODE_ONLY('QRST-5678') + 'Waiting for approval... Esc cancel\n';
+    signin.tickForTests();
+    assert.equal(signin.status().code, 'QRST-5678', 'the retry\'s new code was never read');
+    assert.deepEqual(st.sent, ['r Enter'], 'more than the retry\'s own keys were sent');
+  } finally { done(); }
+  const b = scripted('Waiting for approval... Esc cancel\n');
+  try {
+    signin.tickForTests();
+    assert.equal(signin.status().state, 'starting', 'CONTROL: not named before the wait');
+    b.st.skew = signin.STUCK_MS + 1000;
+    signin.tickForTests();
+    assert.equal(signin.status().state, 'stuck', 'a waiting screen with no code was waited on silently');
+  } finally { b.done(); }
+});
+
+test('#3939 round 9: a failed save clears an older mark, so it cannot answer yes beside the failure', { skip: !onMac && 'the flag is Mac only' }, () => {
+  const marker = musestatus.signedInMarker();
+  const { done } = scripted(PROMPT + '\nWaiting for approval... Esc cancel\nlogin succeeded but saving failed: failed to write credential file\n');
+  fs.writeFileSync(marker, '{"at":"earlier"}\n');
+  try {
+    assert.equal(musestatus.signedIn().signedIn, true, 'CONTROL: the older mark answers yes');
+    signin.tickForTests();
+    assert.equal(signin.status().state, 'failed');
+    assert.equal(musestatus.signedIn().signedIn, false, 'an older mark still answered yes beside a failed save');
+  } finally { done(); fs.rmSync(marker, { force: true }); }
+});
