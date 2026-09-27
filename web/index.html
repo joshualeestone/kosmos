@@ -46637,7 +46637,7 @@ function tskPaint() {
       .map(([, ts]) => {
         const n = ts.filter((t) => t.state !== 'closed').length;
         return '<section class="tsk-grp"><h3>' + esc(ts[0].projectName) + '<span class="count">' + n + ' open</span></h3>' + tskList(ts) + '</section>';
-      }).join('') || '<p class="tsk-empty">No tasks match.</p>';
+      }).join('') || '<p class="tsk-empty">' + (TSK.tile || TSK.proj || TSK.win ? 'No tasks match.' : 'No tasks yet.') + '</p>';
   } else {
     groups.innerHTML = TSK_GROUPS.filter((g) => !TSK.tile || TSK.tile === g.k).map((g) => {
       const ts = sorted.filter((t) => t.state === g.k);
@@ -46904,6 +46904,7 @@ function tskSearchOpen() {
 }
 document.getElementById('tsk-searchbox').addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229) return;   // an IME's own Esc cancels its conversion
+  if (e.defaultPrevented) return;   // already taken (a tour tip closes on it first, in the capture phase)
   // Esc (from the field or its clear button) clears and closes it, and nothing else on the page reacts to this Esc.
   // Focus stays in the field (a keyboard user keeps their place); "shut" closes it until they type again.
   e.preventDefault(); e.stopPropagation();
@@ -46925,7 +46926,9 @@ document.addEventListener('keydown', (e) => {
   const pt = document.getElementById('panel-tasks');
   if (!pt || pt.hidden || !pt.getClientRects().length) return;
   const t = e.target;
-  if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+  // A text field or a select keeps its "/" (a row's checkbox, a radio or a button input does not: review round 18).
+  const textish = t && t.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|reset|image|range|color|file)$/i.test(t.type || '');
+  if (t && (t.isContentEditable || textish || /^(TEXTAREA|SELECT)$/.test(t.tagName))) return;
   // From anywhere on the page (the Tasks tab just clicked keeps focus in Chrome) except a dialog: never from inside one,
   // and never while a modal is showing (the app's modals are role="dialog"/"alertdialog" boxes with aria-modal, not
   // <dialog>, and focus can sit on the page behind one when its button disables itself).
@@ -46935,7 +46938,10 @@ document.addEventListener('keydown', (e) => {
   // tab, review round 17). The same test as tipMenuOpen(): a popup trigger that is expanded, the burger, or the world
   // switcher. Not any aria-expanded="true": an open subtask fold chip or project row is a disclosure, not a popup,
   // and "/" must still work from it (review round 16).
-  if (document.querySelector('[aria-haspopup][aria-expanded="true"], #burger[aria-expanded="true"], #worldsw-btn[aria-expanded="true"]')) return;
+  // Only a trigger that is on screen: a combobox left expanded inside a closed dialog, or a burger left open when the
+  // window widened past it, is not an open menu and must not switch "/" off for the session (review round 18).
+  if ([...document.querySelectorAll('[aria-haspopup][aria-expanded="true"], #burger[aria-expanded="true"], #worldsw-btn[aria-expanded="true"]')]
+    .some((b) => b.getClientRects().length > 0)) return;
   if (t && t.closest && t.closest('#worldsw-menu, #userpop-menu')) return;
   if ([...document.querySelectorAll('#worldsw-menu, #userpop-menu')].some((m) => !m.hidden && m.getClientRects().length > 0)) return;
   e.preventDefault();
