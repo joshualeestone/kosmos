@@ -440,6 +440,9 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     const drawnAsClusters = await page.evaluate((cs) => cs.every((c) => document.querySelectorAll('.onode[data-agent="' + c + '"] .face > .swc .swd').length >= 2), clusters);
     chk(drawnAsClusters, 'S41 precondition: crew and crew2 are drawn as clusters, so the comparison below is of clusters');
     if (settled && drawnAsClusters) {
+    /* No status poll lands while comparing: a poll can repaint the chart (new pictures), which would read as a shift
+       that no hover caused. Held here, released below. */
+    holdStatus = true;
     await page.waitForTimeout(600);
     const MARGIN = 6;
     const shot = async (c) => {
@@ -473,6 +476,7 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       await page.mouse.move(2, 2);
       await page.waitForTimeout(400);
     }
+    holdStatus = false;
     chk(moved.length === 0, 'S41 hovering an agent moves no cluster\'s box, nor a pixel around a cluster it is not on (#4052)', JSON.stringify(moved));
     }
     await page.click('[data-scope="agents"] .vt[data-layout="grid"]');
