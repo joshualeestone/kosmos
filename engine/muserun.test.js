@@ -155,10 +155,22 @@ test('#3939 round 1: at the timeout, what the launcher started is stopped too (i
   run.setForTests({ turnTimeoutMs: 300, hardCapMs: 20000 });
   gate.allowLiveExecution();
   try {
-    const t0 = Date.now();
-    const r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    /* #4159: on a loaded machine the 300 ms timeout can stop the launcher before it has started
+       its child. Then there is no child and this case has not run, so run the turn again, up to
+       TRIES times; the stop itself is checked on a turn where the child did start. */
+    const TRIES = 5;
+    let r;
+    let waited = 0;
+    for (let i = 0; i < TRIES; i += 1) {
+      fs.rmSync(pidFile, { force: true });
+      const t0 = Date.now();
+      r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+      waited = Date.now() - t0;
+      if (fs.existsSync(pidFile)) break;
+    }
+    assert.ok(fs.existsSync(pidFile), 'in ' + TRIES + ' turns the launcher never started its child before the timeout, so this case did not run (#4159)');
     // Without the group stop, the child holds the output open and the turn waits for it to end on its own.
-    assert.ok(Date.now() - t0 < 3000, 'the turn waited ' + (Date.now() - t0) + ' ms on a child the launcher started');
+    assert.ok(waited < 3000, 'the turn waited ' + waited + ' ms on a child the launcher started');
     assert.equal(r.because, run.TIMED_OUT);
     const pid = Number(fs.readFileSync(pidFile, 'utf8').trim());
     await new Promise((res) => setTimeout(res, 200));
