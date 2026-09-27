@@ -2634,6 +2634,14 @@ function handoffFileSnap(session) {
   }
 }
 
+/* A sign-in route's refusal: 409 when it named a sign-in that has ended or been replaced (its module's
+   NOT_MINE), else 400. One derivation for the agy, win32 agy and muse sign-ins (#3939 review round 8). */
+function signinRefusalStatus(r, notMine) { return r && r.because === notMine ? 409 : 400; }
+/* The live-execution gate's test-process throw (a test that forgot its seam): a sign-in start route
+   rethrows it so it stays loud in tests, rather than turning it into a 500. One derivation (round 10). */
+function isGateThrowInTest(e) {
+  return require('./engine/live-execution').inTestProcess() && /for real inside a test/.test(String(e && e.message));
+}
 function sendJson(res, code, obj) {
   res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' });
   res.end(JSON.stringify(obj));
@@ -8156,7 +8164,7 @@ const server = http.createServer((req, res) => {
     if (req.method !== 'POST') { req.resume(); sendJson(res, 405, { error: 'that is not something this address does' }); return; }
     /* A request naming a sign-in that has ended or been replaced is a conflict (409) on every
        route, so a screen can tell it apart from a refused code. */
-    const refusal = (r) => (r.because === signin.NOT_MINE ? 409 : 400);
+    const refusal = (r) => signinRefusalStatus(r, signin.NOT_MINE);
     // Only STARTING needs the subscription to be offered: Stop and Show must work on a sign-in already
     // running, whatever changed since.
     if (sub === '' && !agy.offered()) { req.resume(); sendJson(res, 400, { ok: false, error: 'Gemini on a Google subscription is not offered on this computer' }); return; }
@@ -8167,7 +8175,7 @@ const server = http.createServer((req, res) => {
          The live-execution gate's test-process throw is not caught here: it must stay loud in tests. */
       let r;
       try { r = signin.start(); } catch (e) {
-        if (require('./engine/live-execution').inTestProcess() && /for real inside a test/.test(String(e && e.message))) throw e;
+        if (isGateThrowInTest(e)) throw e;
         sendJson(res, 500, { ok: false, error: 'Kosmos could not start Antigravity\'s sign-in just now' }); return;
       }
       sendJson(res, r.ok ? 200 : 400, r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
@@ -8198,6 +8206,51 @@ const server = http.createServer((req, res) => {
       return;
     }
     // (every one of the four addresses was answered above; any other falls through to the board 404)
+    return;
+  }
+  /* #3939 slice 3: Meta's Muse Code. Behind AGENT_WORKFORCE_MUSE=1 on a Mac (engine/musestatus.enabled):
+     off, /api/muse says only { enabled: false } and nothing can start. The sign-in is `muse login`
+     driven out of sight (engine/musesignin.js); the screen starts it, reads the code, retries an
+     expired one, and stops it. Exact addresses (#3957). With the flag off, the three sign-in routes
+     still answer (idle, or a refusal naming no sign-in): nothing can start, so nothing runs. */
+  if (pathname === '/api/muse' && req.method === 'GET') {
+    const muse = require('./engine/musestatus');
+    try {
+      if (!muse.enabled()) { sendJson(res, 200, { enabled: false }); return; }
+      const inst = muse.installed();
+      const s = inst.installed ? muse.signedIn() : { signedIn: false };
+      sendJson(res, 200, { enabled: true, installed: inst.installed, because: inst.because, signedIn: s.signedIn });
+    } catch { sendJson(res, 500, { error: 'we could not check Muse Code just now' }); }
+    return;
+  }
+  if (pathname === '/api/muse/signin' || pathname === '/api/muse/signin/retry' || pathname === '/api/muse/signin/stop') {
+    const signin = require('./engine/musesignin');
+    const sub = pathname.slice('/api/muse/signin'.length);
+    if (sub === '' && req.method === 'GET') {
+      try { sendJson(res, 200, signin.status()); } catch { sendJson(res, 500, { error: 'we could not read the sign-in just now' }); }
+      return;
+    }
+    if (req.method !== 'POST') { req.resume(); sendJson(res, 405, { error: 'that is not something this address does' }); return; }
+    const refusal = (r) => signinRefusalStatus(r, signin.NOT_MINE);
+    if (sub === '') {
+      req.resume();
+      let r;
+      try { r = signin.start(); } catch (e) {
+        if (isGateThrowInTest(e)) throw e;
+        sendJson(res, 500, { ok: false, error: signin.COULD_NOT_START }); return;
+      }
+      sendJson(res, r.ok ? 200 : 400, r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
+      return;
+    }
+    // Retry and Stop name the sign-in they mean, so one tab never acts on a sign-in another tab started.
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      const id = body && typeof body.id === 'string' ? body.id : '';
+      let r;
+      try { r = sub === '/retry' ? signin.retry(id) : signin.stop(id); } catch { sendJson(res, 500, { ok: false, error: 'Kosmos could not reach the sign-in just now' }); return; }
+      sendJson(res, r.ok ? 200 : refusal(r), r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
+    }).catch(() => sendJson(res, 400, { ok: false, error: 'we could not read that request' }));
     return;
   }
   /**
@@ -8240,7 +8293,7 @@ const server = http.createServer((req, res) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       const id = body && typeof body.id === 'string' ? body.id : '';
-      const conflict = (r) => (r.because === signin.NOT_MINE ? 409 : 400);
+      const conflict = (r) => signinRefusalStatus(r, signin.NOT_MINE);
       try {
         if (sub === '') {
           const r = await require('./engine/agystatus').openForSignIn();

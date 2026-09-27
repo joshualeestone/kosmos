@@ -319,3 +319,38 @@ test('#3998 round 15: a throw while starting the sign-in is a 500, not a board t
     assert.equal(alive.status, 200, 'the board did not answer after the throw');
   } finally { signin.resetForTests(); delete process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN; fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('#3939 slice 3: /api/muse is off without the flag; with it, the sign-in starts, reads back, refuses another tab, and stops', { skip: process.platform !== 'darwin' && 'the Muse flag is Mac only' }, async () => {
+  const dir = path.join(SANDBOX, 'museroutes'); fs.mkdirSync(dir, { recursive: true });
+  const bin = path.join(dir, 'muse');
+  fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  process.env.AGENT_WORKFORCE_MUSE_BIN = bin;
+  delete process.env.AGENT_WORKFORCE_MUSE;
+  const signin = require('./engine/musesignin');
+  const calls = [];
+  signin.setForTests({ tmux: (args) => { calls.push(args.join(' ')); if (args[0] === 'capture-pane') throw new Error('none'); return ''; } });
+  const xdg = process.env.XDG_CONFIG_HOME; delete process.env.XDG_CONFIG_HOME;   // Muse's file is read from the sandbox home only
+  try {
+    // Off: nothing but "not enabled", and a start is refused before anything runs.
+    assert.deepEqual(json(await req('/api/muse')), { enabled: false });
+    const off = await req('/api/muse/signin', { method: 'POST' });
+    assert.equal(off.status, 400);
+    assert.equal(json(off).error, signin.NOT_ON);
+    assert.deepEqual(calls, [], 'tmux ran with the flag off');
+    process.env.AGENT_WORKFORCE_MUSE = '1';
+    const on = json(await req('/api/muse'));
+    assert.deepEqual(on, { enabled: true, installed: true, because: null, signedIn: false });
+    const o = await req('/api/muse/signin', { method: 'POST' });
+    assert.equal(o.status, 200, o.body);
+    const id = json(o).id;
+    assert.match(String(id), /^[0-9a-f]{16}$/);
+    assert.ok(calls.some((c) => c.startsWith('-f /dev/null new-session -d -s muse-signin') && c.includes('exec /bin/sh -c ') && c.includes(bin) && c.includes(' login;')), 'muse login was not started in the hidden session: ' + calls.join(' | '));
+    assert.equal(json(await req('/api/muse/signin')).state, 'starting');
+    const post = (p, who) => req(p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: who }) });
+    assert.equal((await post('/api/muse/signin/stop', '0000000000000000')).status, 409, 'another sign-in\'s Stop ended this one');
+    assert.equal((await post('/api/muse/signin/retry', id)).status, 400, 'a retry was taken with no expired code');
+    assert.equal((await post('/api/muse/signin/stop', id)).status, 200);
+    assert.equal(json(await req('/api/muse/signin')).state, 'stopped');
+    assert.equal((await req('/api/muse/signin/nowhere', { method: 'POST' })).status, 404);
+  } finally { signin.resetForTests(); delete process.env.AGENT_WORKFORCE_MUSE; delete process.env.AGENT_WORKFORCE_MUSE_BIN; if (xdg !== undefined) process.env.XDG_CONFIG_HOME = xdg; }
+});
