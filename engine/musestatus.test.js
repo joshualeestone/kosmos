@@ -227,3 +227,30 @@ test('#3939 3c-1: markSignedOut and markTurnSignedIn never throw, and say false 
     assert.equal(a, false); assert.equal(b, false);
   } finally { fs.rmSync(folder, { force: true }); }
 }));
+
+test('#3939 3c-1 round 2: a completed turn that began BEFORE a fresher refusal does not undo it', () => withXdg(() => {
+  clean();
+  markAt(T0);
+  muse.markSignedOut();                          // another agent's turn was refused just now
+  noteAt(T0 + 50);
+  assert.equal(muse.signedIn().signedIn, false, 'CONTROL: signed out after the refusal');
+  assert.equal(muse.markTurnSignedIn((T0 + 40) * 1000), false, 'a slow success from before the refusal wrote the mark');
+  assert.equal(muse.signedIn().signedIn, false, 'a slow success from before the refusal undid it');
+  assert.equal(muse.markTurnSignedIn((T0 + 60) * 1000), true, 'a success that began after the refusal was refused');
+  assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'kosmos' });
+  clean();
+}));
+
+test('#3939 3c-1 round 2: the same credential in another key order is the same credential', () => withXdg((xdg) => {
+  clean();
+  const f = path.join(xdg, 'muse', 'auth.json');
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, '{"providers":{"meta":{"token":"t","expiresAt":5,"extra":{"a":1,"b":2}}}}');
+  muse.markSignedOut();
+  assert.equal(muse.signedIn().signedIn, false, 'CONTROL: refused');
+  fs.writeFileSync(f, '{"providers":{"meta":{"extra":{"b":2,"a":1},"expiresAt":5,"token":"t"}}}');
+  assert.equal(muse.signedIn().signedIn, false, 'the refused credential, keys reordered, read as a new one');
+  fs.writeFileSync(f, '{"providers":{"meta":{"extra":{"b":2,"a":1},"expiresAt":6,"token":"t"}}}');
+  assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'file' }, 'CONTROL: a real change still counts');
+  clean();
+}));

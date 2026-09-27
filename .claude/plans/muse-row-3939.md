@@ -44,3 +44,13 @@ others.
   gone; the argument is the turn's start. N3: nothing is deleted any more, so a failed
   rm cannot fail open; an unreadable note fails closed. N4: every 3c-1 test sandboxes
   XDG_CONFIG_HOME.
+
+## Review round 2 (sonnet): 2 blockers, 0 warnings, 3 nits, all fixed
+- B1: a slow completed turn that began before another agent's refusal undid it
+  (several agents share one Mac-wide credential). markTurnSignedIn(startedAt) now
+  mirrors markSignedOut's guard: it writes nothing when a note is newer than its start.
+  Tested in the unit and through a real slow turn.
+- B2: the digest hashed JSON.stringify, so the same credential in another key order
+  read as new. It now hashes a canonical form (keys sorted at every depth).
+- Nits: the note's field is metaDigest; the stat-then-read window is documented as
+  deliberately failing closed; both mark writers write the same shape.

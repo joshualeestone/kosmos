@@ -319,6 +319,16 @@ test('#3939 3c-1: a refused turn ends the signed-in answer; a crash does not; a 
     r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
     assert.equal(r.ok, true, 'CONTROL: the turn completed');
     assert.deepEqual(musestatus.signedIn(), { signedIn: true, how: 'kosmos' }, 'a completed turn did not restore the answer');
+
+    // Round 2: a slow success that began BEFORE another agent's refusal must not undo it.
+    clean(); markIn();
+    fakeMuse('sleep 1\ncat > /dev/null\ncat "' + path.join(SANDBOX, 'turn.jsonl') + '"');
+    const slow = run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    await new Promise((res) => setTimeout(res, 300));
+    musestatus.markSignedOut();                        // another agent's turn was refused meanwhile
+    r = await slow;
+    assert.equal(r.ok, true, 'CONTROL: the slow turn completed');
+    assert.equal(musestatus.signedIn().signedIn, false, 'a slow success from before the refusal undid it');
   } finally {
     run.resetForTests(); clean();
     if (was === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = was;

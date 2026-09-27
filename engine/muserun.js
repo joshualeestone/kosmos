@@ -177,7 +177,7 @@ function runTurn(input) {
         else if (err) because = COULD_NOT_RUN;
         else if (!parsed.done) because = 'Muse Code stopped before finishing the turn';
         // #3939 3c-1: a completed turn proves the sign-in (a terminal `muse login` is seen only this way).
-        if (!err && parsed.done) musestatus.markTurnSignedIn();
+        if (!err && parsed.done) musestatus.markTurnSignedIn(startedAt);
         finish({ ok: !err && parsed.done, exitCode, sessionId: parsed.sessionId, model: parsed.model, text: parsed.text, done: parsed.done, because });
       });
     } catch {

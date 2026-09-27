@@ -101,7 +101,12 @@ function signedInMarker() { return path.join(signinFolder(), 'signed-in.json'); 
      from the one refused. The note keeps a digest of the refused entry, never the entry itself, so a
      rewrite of the file for any other reason (another provider added) does not revive it. */
 function signedOutMarker() { return path.join(signinFolder(), 'signed-out.json'); }
-const metaDigest = (meta) => require('node:crypto').createHash('sha256').update(JSON.stringify(meta)).digest('hex');
+/* Canonical: keys sorted at every depth, so the same credential written in another key order is the
+   same credential (review round 2). */
+const canonical = (v) => (Array.isArray(v) ? '[' + v.map(canonical).join(',') + ']'
+  : v && typeof v === 'object' ? '{' + Object.keys(v).sort().map((k) => JSON.stringify(k) + ':' + canonical(v[k])).join(',') + '}'
+  : JSON.stringify(v));
+const metaDigest = (meta) => require('node:crypto').createHash('sha256').update(canonical(meta)).digest('hex');
 function readMeta() {
   try {
     const j = JSON.parse(fs.readFileSync(authFile(), 'utf8'));
@@ -111,13 +116,15 @@ function readMeta() {
   } catch { return null; }   // no file, or not Muse's
 }
 /* The note as the answer reads it. A note that is there but cannot be read counts as a refusal with
-   no digest (fail closed: "signed out" is the answer that asks the person to act, never a false yes). */
+   no digest (fail closed: "signed out" is the answer that asks the person to act, never a false yes).
+   Deliberately so too when the note vanishes between the stat and the read (a completed turn removing
+   it): that one read answers signed out, and the next answers from the mark. */
 function readNote() {
   let st;
   try { st = fs.statSync(signedOutMarker()); } catch (e) { return e && e.code === 'ENOENT' ? null : { mtimeMs: Infinity, digest: null, unreadable: true }; }
   let j;
   try { j = JSON.parse(fs.readFileSync(signedOutMarker(), 'utf8')); } catch { return { mtimeMs: st.mtimeMs, digest: null, unreadable: true }; }
-  return { mtimeMs: st.mtimeMs, digest: j && typeof j.meta === 'string' ? j.meta : null, unreadable: false };
+  return { mtimeMs: st.mtimeMs, digest: j && typeof j.metaDigest === 'string' ? j.metaDigest : null, unreadable: false };
 }
 function markMtime() { try { return fs.statSync(signedInMarker()).mtimeMs; } catch { return null; } }
 
@@ -131,17 +138,21 @@ function markSignedOut(startedAt) {
     if (mark !== null && typeof startedAt === 'number' && mark >= startedAt) return false;
     const meta = readMeta();
     fs.mkdirSync(signinFolder(), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(signedOutMarker(), JSON.stringify({ meta: meta ? metaDigest(meta) : null }) + '\n', { mode: 0o600 });
+    fs.writeFileSync(signedOutMarker(), JSON.stringify({ metaDigest: meta ? metaDigest(meta) : null }) + '\n', { mode: 0o600 });
     return true;
   } catch { return false; }
 }
 /** A completed turn is the strongest proof Kosmos sees that Muse is signed in: write the mark and
     end any note (review round 1). A terminal `muse login` on the Keychain backend is only ever seen
-    this way. Never throws. */
-function markTurnSignedIn() {
+    this way. The mirror of markSignedOut's guard (review round 2): a turn that began BEFORE a refusal
+    was written (another agent's, after the credential went) writes nothing, or a slow success would
+    undo a fresher refusal. True when it wrote. Never throws. */
+function markTurnSignedIn(startedAt) {
   try {
+    const note = readNote();
+    if (note && typeof startedAt === 'number' && note.mtimeMs >= startedAt) return false;
     fs.mkdirSync(signinFolder(), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(signedInMarker(), JSON.stringify({ at: new Date().toISOString(), how: 'turn' }) + '\n', { mode: 0o600 });
+    fs.writeFileSync(signedInMarker(), JSON.stringify({ at: new Date().toISOString() }) + '\n', { mode: 0o600 });
     fs.rmSync(signedOutMarker(), { force: true });
     return true;
   } catch { return false; }
