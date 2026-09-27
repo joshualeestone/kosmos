@@ -13,3 +13,6 @@ local.properties
 .idea/
 *.iml
 captures/
+
+# Python bytecode from the evidence harnesses
+__pycache__/

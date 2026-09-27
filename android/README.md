@@ -57,6 +57,14 @@ The legacy density PNGs remain the fallback for Android 7.
 
 `KosmosLauncherActivity` keeps the Android Browser Helper TWA launch path, including its quality checks, and adds two native recovery doors. A launch with no active internet network opens `LoadErrorActivity` before Chrome can paint its own offline page. A top-level navigation that Chrome reports as failed opens the same activity from the Custom Tabs callback. Retry clears the failed task and starts a fresh TWA launch, so restoring connectivity is enough to continue.
 
+## Browser warmup
+
+Before Android Browser Helper launches the TWA, `KosmosLauncherActivity` binds to the browser's Custom Tabs service and calls `warmup` (#4109). Browser Helper 2.5.0 binds only as part of its own launch, and on current Chrome it skips `warmup` altogether (`ChromeLegacyUtils.supportsLaunchWithoutWarmup`). The early bind is skipped offline, when no browser supports Custom Tabs, and when the activity is being recreated (Browser Helper then finishes without launching). It is unbound in `onDestroy`.
+
+It does not call `mayLaunchUrl`. A speculative load belongs to the Custom Tabs session that asked for it, and Browser Helper launches on its own session, so a preload from this session is not used. The launch session must not preload either: the launch URL carries a fresh handoff nonce in its fragment (#2854), and a page preloaded without it would open without the nonce.
+
+The before and after measurements, and the harness that took them, are in `evidence/cct-warmup-4109/`.
+
 The recovery screen is an Android layout rather than a WebView. Its light and dark colours follow the shell theme and its Retry action is 48dp tall.
 
 The launch activity supplies the same gold and K as both its native window

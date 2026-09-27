@@ -4,8 +4,8 @@
 For each run: force-stop io.kosmos.app and com.android.chrome, wait two seconds, start the
 launcher with `am start -W`, and poll screenshots until a fixed crop around the "Sign in to
 Kosmos+" heading matches the reference frame. The paint time is from just before `am start` to
-the start of the first matching capture, so it is read to the nearest capture interval (a few
-hundred milliseconds on the emulator), exactly as the #4101 README warns.
+the start of the first matching capture, so it is known only to within one capture interval,
+which each run records (capture_interval_ms), as the #4101 README warns.
 
   python3 measure-cold-paint.py <apk> <label> [runs=7]
 
@@ -38,8 +38,12 @@ def adb(*args, **kw):
 
 
 def capture():
+    """One screenshot, or None when screencap returned nothing usable (counts as no match)."""
     out = adb('exec-out', 'screencap', '-p').stdout
-    return Image.open(io.BytesIO(out)).convert('RGB')
+    try:
+        return Image.open(io.BytesIO(out)).convert('RGB')
+    except (OSError, ValueError):
+        return None
 
 
 def distance(img, ref_crop):
@@ -60,6 +64,8 @@ def one_run(ref_crop, keep=None):
         t = time.monotonic()
         starts.append(t)
         img = capture()
+        if img is None:
+            continue
         d = distance(img, ref_crop)
         if first_d is None:
             first_d = d
