@@ -77,6 +77,18 @@ width, at 540px or narrower.
   in practice and the extreme is pinned to degrade cleanly (#4244 files the `1000.0M` edge).
 - The CSS comment's card width is 238px, as measured; the README row says only what the arms pin.
 
+## Review 4
+
+- The usage section is a NAMED container (`usage`) and the class cards' query names it, so a container
+  added between them (`.dbox` is shared by every Settings section) cannot silently move the line. The
+  two older usage queries stay unnamed: a name on the container does not change what they measure.
+- The same-height arm runs with the widest total too (it lived only in the first loop), and each view
+  carries its expected section width as a field rather than parsing it out of its label.
+- Not changed: the baseline arm catches flex-start by a 1px gap between these two fonts. A font stack
+  with closer metrics could let flex-start through (a false green, never a flaky red, since baseline
+  alignment reads 0 by construction). Enlarging the total for the reading was rejected: it can wrap the
+  name and move the marker off its first line.
+
 ## Weakest premise
 
 The names are short enough to fit on one line beside the total in a 236px card (the capped desktop column), with about 10px to spare at the widest total. A longer class name, or a

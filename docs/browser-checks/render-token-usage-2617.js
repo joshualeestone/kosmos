@@ -418,21 +418,21 @@ function readUsage(page) {
     // The cards stack once the usage section is 540px or narrower (a container query on #s-sec-usage), so
     // a 541px section is the narrowest two-up section and 540 the widest stacked one. 1280 is the capped
     // 544px column, where the card is narrowest (the gap grows with the window).
-    const views = [['desktop', 2, () => atWindow(1280)], ['a 541px section', 2, () => atSection(541)], ['a 540px section', 1, () => atSection(540)], ['phone', 1, () => atWindow(390)]];
+    const views = [['desktop', 2, null, () => atWindow(1280)], ['a 541px section', 2, 541, () => atSection(541)], ['a 540px section', 1, 540, () => atSection(540)], ['phone', 1, null, () => atWindow(390)]];
     const armsAt = (at, cards) => {
       ok(cards.length === 4 && cards.every((c) => c.name && c.nameLines === 1), `${at}: each class card's name is on one line (#4242) -- ${JSON.stringify(cards.map((c) => c.name + ':' + c.nameLines))}`);
       ok(cards.length === 4 && cards.every((c) => c.tagBelow), `${at}: each class card's tag sits below its name, not beside it (#4242) -- ${JSON.stringify(cards.map((c) => c.tagBelow))}`);
       ok(cards.length === 4 && cards.every((c) => c.totOneLine), `${at}: each class card's total is on one line (#4242) -- ${JSON.stringify(cards.map((c) => c.totOneLine))}`);
       ok(cards.length === 4 && cards.every((c) => c.clear), `${at}: each class card's total is clear of its name and inside the card (#4242) -- ${JSON.stringify(cards.map((c) => c.clear))}`);
       ok(cards.length === 4 && cards.every((c) => c.base < 0.5), `${at}: each class card's total sits on its name's baseline (#4242) -- ${JSON.stringify(cards.map((c) => c.base))}`);
+      ok(cards.length === 4 && Math.max(...cards.map((c) => c.head)) - Math.min(...cards.map((c) => c.head)) <= 1, `${at}: the four class card headers are the same height (#4242) -- ${JSON.stringify(cards.map((c) => c.head))}`);
     };
-    for (const [at, want, go] of views) {
+    for (const [at, want, secWant, go] of views) {
       const sec = await go();
       const cards = await measureCards(), n = await cols();
-      if (at.endsWith('section')) ok(sec === parseInt(at.slice(2), 10), `${at}: the window was sized to give that section (#4242) -- got ${sec}px`);
+      if (secWant !== null) ok(sec === secWant, `${at}: the window was sized to give that section (#4242) -- got ${sec}px`);
       ok(n === want, `${at}: the class cards are ${want === 2 ? 'two-up' : 'stacked'} (#4242) -- ${n} column(s) in a ${sec}px section`);
       armsAt(at, cards);
-      ok(cards.length === 4 && Math.max(...cards.map((c) => c.head)) - Math.min(...cards.map((c) => c.head)) <= 1, `${at}: the four class card headers are the same height (#4242) -- ${JSON.stringify(cards.map((c) => c.head))}`);
     }
     // The stacking follows the SECTION, not the window: at a 1280 window, a section narrowed to 500px
     // stacks. A viewport query at any width below 1280 would leave it two-up.

@@ -2719,7 +2719,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    .dbody), so a plain viewport media query never fires there -- the exact trap the
    predecessor cards documented. The table+donut row (.tv-wtr) needs more than 544px
    side by side, so it keys off the container instead. */
-#s-sec-usage { container-type: inline-size; }
+#s-sec-usage { container-type: inline-size; container-name: usage; }
 .tv-days { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 clamp(16px,3vw,24px); }
 .tv-dnum { display: flex; gap: 4px; }
 .tv-dbox { font: 700 clamp(16px,2.7vw,22px)/1.2 var(--font-mono); color: var(--gold); text-align: center; }
@@ -2760,8 +2760,8 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 /* #4242: one column once the usage section is 540px or narrower, not at a viewport width. Measured with a
    wide total (999.9M and 99.9%): a 238px card fits its header (the section's capped 544px) and a name wraps
    in a 226px card (a 513px section, a 561px window, which the old 560px viewport query left two-up).
-   #s-sec-usage is already the inline-size container. */
-@container (max-width: 540px) { .tv-charts4 { grid-template-columns: 1fr; } }
+   Named, so a container added between them (.dbox is shared by every Settings section) cannot move it. */
+@container usage (max-width: 540px) { .tv-charts4 { grid-template-columns: 1fr; } }
 .tv-mini { border: 1px solid var(--k-rule); border-radius: 14px; padding: 14px 16px; background: var(--k-bg); }
 /* #4242: the tag sits on its own line under the name, and the total never wraps, so every card's
    header is the same two lines in the two-column layout (a tag inline beside the name wrapped
