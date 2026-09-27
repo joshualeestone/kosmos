@@ -9,3 +9,4 @@ Card #4081, a #3998 follow-up (round 25 deferred it). The Settings step has rend
 
 ## Found, not fixed here
 - After Ready, the step hides and keyboard focus falls to the page (document.activeElement is the body). A small accessibility gap in first run; filed as its own card rather than widening a check-only change.
+- Round 1: Ready is asserted as what first run does (the step closes, Gemini's row reads Connected and is disabled, FR_AGY_READY), not text in a hidden line; the second sign-in uses real clicks and typing (Playwright refuses hidden controls); the Stop's sign-in id is checked; the surface header names every id the check keys on. Mutation control: removing the done branch's onReady turns the check red.

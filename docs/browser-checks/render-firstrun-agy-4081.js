@@ -1,4 +1,4 @@
-// Browser-check-surface: fr-gemini-sub-paste-row fr-gemini-sub-paste fr-gemini-sub-paste-go fr-gemini-sub-page fr-gemini-sub-show-row fr-gemini-sub-cancel
+// Browser-check-surface: fr-gemini-sub-paste-row fr-gemini-sub-paste fr-gemini-sub-paste-go fr-gemini-sub-page fr-gemini-sub-show-row fr-gemini-sub-cancel fr-gemini-pick fr-gemini-pick-sub fr-gemini-sub-step fr-gemini-sub-go fr-gemini-sub-code fr-gemini-sub-cancel-row fr-gemini-connect
 'use strict';
 /**
  * kosmos#4081 (a #3998 follow-up): first run's Gemini subscription step, in a real browser. The
@@ -55,6 +55,7 @@ const chk = (ok, label, extra) => {
         if (!post) return enc({ id, ...(window.__signin.length > 1 ? window.__signin.shift() : window.__signin[0]) });
         window.__posts.push(which);
         if (which === 'code') { const b = JSON.parse(opts.body || '{}'); window.__codeSent = b.code; window.__codeId = b.id; }
+        if (which === 'stop') window.__stopId = JSON.parse(opts.body || '{}').id;   // which sign-in the Stop named
         return enc({ ok: true, id, state: which === 'signin' ? 'starting' : 'checking' });
       }
       if (/\/api\/antigravity\/(check|install)$/.test(u) && post) {
@@ -100,7 +101,7 @@ const chk = (ok, label, extra) => {
   await q(() => document.getElementById('fr-gemini-pick-sub').click());
   await wait(400);
   const b = await look();
-  chk(b.step && b.posts.includes('check') && b.button === 'Sign in with Google' && !b.paste,
+  chk(b.step && b.posts.includes('check') && b.button === 'Sign in with Google' && !b.paste && /could not confirm it is signed in/.test(b.text),
     'Sign in with Subscription checks Antigravity, then offers Sign in with Google (no box yet)', JSON.stringify(b));
 
   await q((u) => { window.__signin = [{ state: 'code', url: u }]; document.getElementById('fr-gemini-sub-go').click(); }, URL_G);
@@ -123,19 +124,33 @@ const chk = (ok, label, extra) => {
   await q(() => document.getElementById('fr-gemini-sub-cancel').click());
   await wait(400);
   const e = await look();
-  chk(e.posts.includes('stop') && e.pick && !e.step, 'Stop this sign-in stops it on the board and goes back to the choice', JSON.stringify(e));
+  const stopId = await q(() => window.__stopId);
+  chk(e.posts.includes('stop') && stopId === ID && e.pick && !e.step, 'Stop this sign-in stops THIS sign-in on the board and goes back to the choice', JSON.stringify({ e, stopId }));
 
-  // Again, to the end: a pasted code goes to the board with the sign-in's id, and the step says Ready.
-  await q(() => { window.__posts.length = 0; window.__check = [{ installed: true, signedIn: null }]; document.getElementById('fr-gemini-pick-sub').click(); });
+  // Again, to the end, with real clicks and typing (Playwright refuses hidden controls): signing in
+  // again after a Stop must work for a person, not only for a script.
+  await q(() => { window.__posts.length = 0; window.__check = [{ installed: true, signedIn: null }]; });
+  await page.click('#fr-gemini-pick-sub', { timeout: 3000 });
   await wait(400);
-  await q((u) => { window.__signin = [{ state: 'code', url: u }]; document.getElementById('fr-gemini-sub-go').click(); }, URL_G);
+  const g1 = await look();
+  chk(g1.step && g1.button === 'Sign in with Google', 'after a Stop, Sign in with Subscription opens the step again', JSON.stringify(g1));
+  await q((u) => { window.__signin = [{ state: 'code', url: u }]; }, URL_G);
+  await page.click('#fr-gemini-sub-go', { timeout: 3000 });
   await wait(1500);
-  await q((code) => { document.getElementById('fr-gemini-sub-paste').value = code; window.__signin = [{ state: 'setup', step: 'terms' }, { state: 'done' }]; document.getElementById('fr-gemini-sub-paste-go').click(); }, CODE);
+  const g2 = await look();
+  chk(g2.paste && g2.focus === 'fr-gemini-sub-paste', 'and the paste box shows again, focus in it', JSON.stringify(g2));
+  await page.fill('#fr-gemini-sub-paste', CODE, { timeout: 3000 });
+  await q(() => { window.__signin = [{ state: 'setup', step: 'terms' }, { state: 'done' }]; });
+  await page.click('#fr-gemini-sub-paste-go', { timeout: 3000 });
   await wait(2800);
   const f = await look();
   const sent = await q(() => ({ code: window.__codeSent, id: window.__codeId }));
-  chk(sent.code === CODE && sent.id === ID && /^Ready\./.test(f.text) && !f.paste && !f.stop,
-    'the pasted code goes to the board with the sign-in\'s id, and the step ends on Ready', JSON.stringify({ sent, f }));
+  const row = await q(() => { const b = document.getElementById('fr-gemini-connect');
+    return { text: b.textContent.trim(), disabled: b.disabled, ready: typeof FR_AGY_READY !== 'undefined' && FR_AGY_READY === true }; });
+  // Round 1 (#4081 review): Ready must be what first run DOES, not words in a hidden line.
+  chk(sent.code === CODE && sent.id === ID && !f.step && !f.stop && /Connected/.test(row.text) && row.disabled && row.ready,
+    'the pasted code goes to the board with the sign-in\'s id, and first run moves on: the step closes and Gemini\'s row reads Connected',
+    JSON.stringify({ sent, f, row }));
   await shot('firstrun-gemini-ready-4081');
 
   chk(errs.length === 0, 'no page errors', errs.join(' | '));
