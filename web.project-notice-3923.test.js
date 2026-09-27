@@ -84,17 +84,27 @@ test('#3923: nothing wrong says nothing (success and not_tried included)', () =>
   assert.equal(pjNotice(rows({ leo: 'told', april: 'not_tried' })), '');
 });
 
-test('#3923: each shape as the design draws it (Wait, Act then retry twice, Explain), one agent each', () => {
+test('#3923: each shape as the design draws it (Wait, Act, Act then retry, Explain), one agent each', () => {
   const { pjNotice } = notice();
   const wait = pjNotice(rows({ leo: 'we could not write to its instructions' }));
   assert.equal(text(wait), 'Kosmos could not update leo’s instructions for this project. Saving did not work this time. It may work on another try. Try again');
   assert.match(wait, /data-pn-retry="leo"/);
 
   const act = pjNotice(rows({ april: 'it has no instructions file yet, and we will not create one' }));
-  assert.equal(text(act), 'Kosmos could not update april’s instructions for this project. april has no instructions file, and Kosmos will not create one. Give april some instructions, then try again. Try again');
-  // A fix the person makes, then a retry: nothing else re-tells the agent, so the button is how it is picked up.
-  assert.match(act, /data-pn-retry="april"/, 'a change-something row must offer Try again after the fix');
+  assert.equal(text(act), 'Kosmos could not update april’s instructions for this project. april has no instructions file, and Kosmos will not create one. Give april some instructions, and Kosmos will pick this up when april next starts.');
+  // #3932: a fix to the file is picked up by the board itself, so Act offers no button (Mona's design).
+  assert.doesNotMatch(act, /data-pn-retry/, 'an Act row offers no Try again: the board re-tells after the fix');
   assert.match(act, /<b class="pnfix">Give april/);
+  // The other three file fixes are Act too, each with the same promise.
+  for (const [because, fix] of [
+    ['its instructions contain 2 Kosmos project blocks', 'Leave one Kosmos project section in april’s instructions, and Kosmos will pick this up when april next starts.'],
+    ['taking this out would leave its instructions almost empty', 'Add to april’s instructions, and Kosmos will pick this up when april next starts.'],
+    ['its instructions are already at the size limit', 'Shorten april’s instructions, and Kosmos will pick this up when april next starts.'],
+  ]) {
+    const html = pjNotice(rows({ april: because }));
+    assert.ok(text(html).endsWith(fix), because + ': ' + text(html));
+    assert.doesNotMatch(html, /data-pn-retry/, because + ' offered a Try again');
+  }
 
   const retry = pjNotice(rows({ mikey: 'we could not find an agent with exactly this name on this computer' }));
   assert.equal(text(retry), 'Kosmos could not update mikey’s instructions for this project. Kosmos cannot find mikey running on this computer. Start mikey, then try again. Try again');
@@ -122,7 +132,8 @@ test('#3923: several agents: the header counts, each row carries its own why and
   }));
   assert.match(text(html), /^Kosmos could not update 3 agents’ instructions for this project\./);
   assert.equal((html.match(/class="pnrow"/g) || []).length, 3, 'one row per failing agent; the told one says nothing');
-  assert.equal((html.match(/data-pn-retry=/g) || []).length, 2, 'leo (Wait) and april (fix, then retry) get a button; casey (Explain) does not');
+  assert.equal((html.match(/data-pn-retry=/g) || []).length, 1, 'leo (Wait) gets a button; april (Act) and casey (Explain) do not');
+  assert.doesNotMatch(html, /data-pn-retry="april"/);
   assert.doesNotMatch(html, /data-pn-retry="casey"/);
   assert.match(html, /aria-label="Try again for leo"/, 'each button names its agent for a screen reader');
   assert.match(html, /<span class="pnwho">leo<\/span><span class="pnwhy">Saving did not work this time\. It may work on another try\./);

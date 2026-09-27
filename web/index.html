@@ -45743,9 +45743,11 @@ function pjToldLine(told) {
 
 /**
  * #3923: the project notice (Mona Lisa's design). The variable is what the person must do, not
- * the kind of failure: WAIT (the reason and Try again), RETRY (the reason, a fix ending "then try
- * again", and Try again: nothing else re-tells an agent after a fix), EXPLAIN (a sentence saying
- * nothing can be done yet, no button). Keyed on the engine's EXACT singular becauses (the same keys
+ * the kind of failure: WAIT (the reason and Try again), ACT (the reason and a fix to the agent's
+ * instructions, no button: the board re-tells the agent once the file changes, #3932, and the agent
+ * reads it when it next starts), RETRY (the reason, a fix ending "then try again", and Try again,
+ * for fixes that are not a file change), EXPLAIN (a sentence saying nothing can be done yet, no
+ * button). Keyed on the engine's EXACT singular becauses (the same keys
  * as projects.js GROUP_BECAUSE, plus the instruction reader's refusals); an unknown one is treated
  * as WAIT with the engine's own sentence, because an unknown cause is what one honest retry is for.
  * `solo` is the agent's name when the notice is about one agent (the sentence names it), null
@@ -45757,14 +45759,14 @@ const PJ_NOTICE = [
   // Somebody saved the file mid-write; nothing was lost, and a retry reads it fresh.
   // (The raw editor sentence is matched too: verdicts saved before tellAgent translated it keep it.)
   [/^its instructions changed while we were writing to them$|changed since you opened them, reload before saving/, 'wait', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions changed while Kosmos was writing to them, so Kosmos left them as they were.'],
-  [/^it has no instructions file yet, and we will not create one$/, 'retry', (n) => (n ? n + ' has' : 'It has') + ' no instructions file, and Kosmos will not create one.',
-    (name) => 'Give ' + name + ' some instructions, then try again.'],
-  [/^its instructions contain \d+ Kosmos project blocks/, 'retry', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions hold more than one Kosmos project section, so Kosmos cannot tell which is its own.',
-    (name) => 'Leave one Kosmos project section in ' + name + '\u2019s instructions, then try again.'],
-  [/^taking this out would leave its instructions almost empty$/, 'retry', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are too short for Kosmos to change safely.',
-    (name) => 'Add to ' + name + '\u2019s instructions, then try again.'],
-  [/^its instructions are already at the size limit$/, 'retry', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are already at the size limit.',
-    (name) => 'Shorten ' + name + '\u2019s instructions, then try again.'],
+  [/^it has no instructions file yet, and we will not create one$/, 'act', (n) => (n ? n + ' has' : 'It has') + ' no instructions file, and Kosmos will not create one.',
+    (name) => 'Give ' + name + ' some instructions' + ', and Kosmos will pick this up when ' + name + ' next starts.'],
+  [/^its instructions contain \d+ Kosmos project blocks/, 'act', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions hold more than one Kosmos project section, so Kosmos cannot tell which is its own.',
+    (name) => 'Leave one Kosmos project section in ' + name + '\u2019s instructions' + ', and Kosmos will pick this up when ' + name + ' next starts.'],
+  [/^taking this out would leave its instructions almost empty$/, 'act', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are too short for Kosmos to change safely.',
+    (name) => 'Add to ' + name + '\u2019s instructions' + ', and Kosmos will pick this up when ' + name + ' next starts.'],
+  [/^its instructions are already at the size limit$/, 'act', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are already at the size limit.',
+    (name) => 'Shorten ' + name + '\u2019s instructions' + ', and Kosmos will pick this up when ' + name + ' next starts.'],
   [/^we could not find an agent with exactly this name on this computer$/, 'retry', (n) => 'Kosmos cannot find ' + (n || 'it') + ' running on this computer.',
     (name) => 'Start ' + name + ', then try again.'],
   [/^something is running under this name, but we cannot tell that it is this agent$/, 'retry', (n) => 'Something is running under ' + (n ? n + '\u2019s' : 'its') + ' name, but Kosmos cannot tell that it is ' + (n || 'the same agent') + '.',

@@ -1144,7 +1144,13 @@ async function main() {
        focus on its own Try again, and announce no success on the hidden status line. */
     const retry = await (async () => {
       const btn = await page.$('#pj-one-notice [data-pn-retry]');
-      if (!btn) return { missing: true };
+      /* #3932: with claudebot running, this fixture's reason is "no instructions file", an Act row:
+         the board re-tells after the fix, so it has no button and says it will pick this up. That
+         branch is asserted by what it says, never skipped; without the promise it is a failure. */
+      if (!btn) {
+        const said = await page.evaluate(() => (document.getElementById('pj-one-notice') || {}).textContent || '');
+        return /will pick this up when .+ next starts\./.test(said) ? { act: true, still: true, focusOnRetry: true, said: '' } : { missing: true, text: said };
+      }
       await btn.focus();
       await btn.click();
       // Both the answer AND the focus: the handler places focus after its own read, which a background
@@ -1202,7 +1208,7 @@ async function main() {
     const railOff = await railRead();
     const rail = { on: railOn, off: railOff };
     if (railOn.missing || !/instructions for this project/.test(railOn.text) || railOn.role !== 'status' || railOn.live !== 'polite'
-        || !railOn.inHead || !railOn.headShown || !railOn.retry || !railOn.rows
+        || !railOn.inHead || !railOn.headShown || (!railOn.retry && !retry.act) || !railOn.rows
         || !(railOn.gap >= 0 && railOn.gap <= 12) || !railOn.leftIn || !railOn.rightIn || railOn.height < 20
         || Math.abs(railOn.headLessNotice - railOn.bare) > 1
         || railOff.text) {
