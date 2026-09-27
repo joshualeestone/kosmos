@@ -7883,7 +7883,7 @@ const server = http.createServer((req, res) => {
      hands agy the code the person pastes. POST starts (replacing any other), GET reads the state,
      /code and /stop name the sign-in they mean by the id the start answered. Windows only: anywhere
      else these addresses do not exist. Starting needs the subscription to be offered (its switch on). */
-  if (pathname === '/api/antigravity/win32signin' || pathname.startsWith('/api/antigravity/win32signin/')) {
+  if (pathname === '/api/antigravity/win32signin' || pathname === '/api/antigravity/win32signin/code' || pathname === '/api/antigravity/win32signin/stop') {
     if (process.platform !== 'win32') { req.resume(); sendJson(res, 404, { error: 'there is nothing at that address' }); return; }
     const signin = require('./engine/win32agysignin');
     const sub = pathname.slice('/api/antigravity/win32signin'.length);
