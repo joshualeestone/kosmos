@@ -5,7 +5,7 @@
  * for an hour was cancelled, so a red main showed first at a release cut's step 3. A PR's
  * superseded run is still cancelled (that is the #3499 contention fix).
  *
- * A SOURCE pin on every workflow that runs on a push to main (test.yml, android.yml, ios.yml):
+ * A SOURCE pin on every workflow that runs on a push to main (test.yml, android.yml, ios.yml, windows.yml):
  * GitHub evaluates the expression and nothing here can run it, so the test reads the text and
  * evaluates the expression for both refs. It also pins the group key, since cancel-in-progress is
  * decided by the NEW run: a group shared by main and PRs, or by two workflows, would let another
@@ -22,7 +22,7 @@ const path = require('node:path');
 
 /* Every workflow that runs on a push to main: the suite, and the two app builds (#3499 keeps the
    three in lockstep). A new push-to-main workflow belongs in this list. */
-const PINNED_WORKFLOWS = ['test.yml', 'android.yml', 'ios.yml'];
+const PINNED_WORKFLOWS = ['test.yml', 'android.yml', 'ios.yml', 'windows.yml'];
 const MAIN_BRANCH = 'main';
 const MAIN_REF = 'refs/heads/' + MAIN_BRANCH;
 const A_PR_REF = 'refs/pull/4021/merge';

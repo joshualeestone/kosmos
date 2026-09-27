@@ -1,0 +1,51 @@
+# #1777: the Windows tests, run on Windows.
+#
+# The fleet develops and tests on macOS, where the engine's Windows tests either simulate win32
+# or skip the arms that need it, so the `test` job's green says nothing about Windows. This job
+# runs those files (tools/windows-tests.js says which, and how it judges) on a real Windows
+# runner. Measured before it was written (#1777): on windows-latest, Windows tests that are green
+# on every Mac failed, and win32-only tests that no Mac runs had never run anywhere.
+#
+# ADVISORY, like `test`: nothing here gates a merge. A red is a Windows defect or a test that
+# assumes macOS, and either way it is news the Mac suite cannot give.
+#
+# WHAT A GREEN IS NOT: windows-latest is a Windows Server image, run as an admin, with no Kosmos
+# user setup. It is evidence about Windows, not about a user's Windows 11 laptop.
+#
+# Free: this repo is public, so GitHub-hosted Windows minutes cost nothing.
+
+name: windows
+
+on:
+  push:
+    # Main only, as in test.yml (#3499): a PR runs this once, via pull_request.
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+# As test.yml (#4021): cancel a superseded run of the same ref, never a run on main.
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    # Measured on the runner: the 76 selected files take about 11 minutes one at a time. The
+    # script bounds each test (60s) and each file (15m), so this only catches a hang in the runner.
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      # Node 26, as test.yml (#1794): the suite is written on node 26.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: which node is this
+        shell: bash
+        run: |
+          echo "node:  $(node --version 2>&1 || echo ABSENT)"
+          echo "image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
+      - name: the Windows tests, on Windows (#1777)
+        run: node tools/windows-tests.js
