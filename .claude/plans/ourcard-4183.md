@@ -28,7 +28,9 @@ uses `.isNamedOurs` positively (`=== true`, `== true`, or bare truthy). A negate
 `!== true` is not flagged. It scans server.js and every non-test .js under engine/, recursively. The
 only line allowed is ourCard's own, and a control requires the scan to find it. A second test pins the
 spellings it claims to see and the ones it must not flag (projects.js's `borrowed` filter). Not seen:
-a copy split across lines, a destructured parameter, files outside those roots (tools/, bin/). Review 1
+a copy split across lines, a destructured parameter, bracket access (`a['isNamedOurs']`), a tie through
+set membership rather than one name (engine/tasks.js `holders.has(card.sessionName)`, a different
+check, out of scope here), and files outside those roots (tools/, bin/). Review 1
 widened it from the `=== true` spelling only, and added the recursion.
 
 ## Evidence

@@ -123,7 +123,9 @@ test('#1228: toldOverride can reuse a store list a caller already holds', () => 
    Flagged: a line comparing `.sessionName` (== or ===) that also uses `.isNamedOurs`
    positively (`=== true`, `== true` or bare truthy; not `!a.isNamedOurs`, not `!== true`).
    Scanned: server.js and every non-test .js under engine/, recursively. Not seen: a copy split
-   across lines, a destructured parameter, and files outside those roots (tools/, bin/). */
+   across lines, a destructured parameter, bracket access (a['isNamedOurs']), a tie through set
+   membership rather than one name (engine/tasks.js's holders.has(card.sessionName)), and files
+   outside those roots (tools/, bin/). */
 function engineFiles(dir) {
   const out = [];
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
