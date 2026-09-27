@@ -28798,7 +28798,7 @@ const SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmo
 function deviceSignedOutHtml(what) {
   return '<div class="pj-empty boardfail">'
     + '<p><b>Sign in again to see your ' + (what === 'projects' ? 'projects' : 'agents') + '.</b><br>'
-    + 'This phone or computer was signed out of your Kosmos. Your Mac and your agents are fine.</p>'
+    + esc(ORG_SIGNED_OUT_SENTENCE) + '</p>'
     + '<button class="btn" type="button" data-device-signin>Sign in</button>'
     + '</div>';
 }
