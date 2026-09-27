@@ -50,3 +50,6 @@ With the flag on, on a Mac with Muse Code installed, a person can pick Meta in A
 - The 20-minute limit is a final failure with its own reason, not an expiry that looks retryable. Control red.
 - Failed sends are counted per send, not per tick. A failure that proves the Enter never went out re-arms it, so a tmux that keeps failing reaches "could not reach" with a single code. Control red.
 - The used code leaves the address too (dropCode, one helper for end and expiry). Control red. r and Enter go in one send.
+
+## 3a review round 6 (decided)
+- The live-execution gate is pinned by a test, as agysignin's C3 is: with the gate closed, start() throws in a test and records nothing. The control (start's pre-check removed, so the gate's throw is swallowed) went red. The exit line's constant goes through shq like the binary.
