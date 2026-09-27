@@ -223,12 +223,15 @@ public class AddressChoiceTest {
     }
 
     @Test public void aValidAgentOpensThatAgentBeforeTheTokenFragment() {
-        assertEquals("https://hers.kosmosplus.com/?tab=detail&agent=leo#kst=" + TOKEN, withAgent("leo"));
+        assertEquals("https://hers.kosmosplus.com/?tab=detail&agent=leo#kst=" + TOKEN,
+                withAgent("leo"));
         assertEquals("https://hers.kosmosplus.com/?tab=detail&agent=release-notes_2#kst=" + TOKEN,
                 withAgent("release-notes_2"));
         assertEquals("a 1-character session is accepted",
                 "https://hers.kosmosplus.com/?tab=detail&agent=a#kst=" + TOKEN, withAgent("a"));
-        assertFalse("a 64-character session is accepted (control)", HOME.equals(withAgent(repeat('a', 64))));
+        assertEquals("a 64-character session is accepted (control)",
+                "https://hers.kosmosplus.com/?tab=detail&agent=" + repeat('a', 64) + "#kst=" + TOKEN,
+                withAgent(repeat('a', 64)));
     }
 
     @Test public void noAgentOrABadOneOpensTheBoardHomeAndNeverRefusesTheAddress() {
@@ -255,7 +258,8 @@ public class AddressChoiceTest {
 
     @Test public void theAgentRuleIsTheServiceWorkersTapSession() throws IOException {
         // Two derivations of one fact drift (CLAUDE.md): pin this rule to web/sw.js's TAP_SESSION.
-        String sw = new String(Files.readAllBytes(new File("../../web/sw.js").toPath()), StandardCharsets.UTF_8);
+        String sw = new String(Files.readAllBytes(new File("../../web/sw.js").toPath()),
+                StandardCharsets.UTF_8);
         Matcher m = Pattern.compile("const TAP_SESSION = /\\^(.+)\\$/;").matcher(sw);
         assertTrue("web/sw.js declares TAP_SESSION as an anchored regex", m.find());
         assertEquals(m.group(1), AddressChoice.AGENT_SESSION.pattern());

@@ -108,7 +108,8 @@ final class AddressChoice {
         if (fullScreen) {
             for (String h : hosts) origins.add(HTTPS + h);
         }
-        String path = "/" + (agent != null && AGENT_SESSION.matcher(agent).matches() ? AGENT_QUERY + agent : "");
+        boolean withAgent = agent != null && AGENT_SESSION.matcher(agent).matches();
+        String path = "/" + (withAgent ? AGENT_QUERY + agent : "");
         return new AddressChoice(HTTPS + pick + path + KST_FRAGMENT + token, fullScreen, origins);
     }
 
