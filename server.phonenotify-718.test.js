@@ -212,10 +212,39 @@ test('needs_you names the project it stands under, carried forward when the repo
 
 test('turning on always mints a fresh token, one turn-on at a time', async () => {
   enrol();
-  await Promise.all([
-    call('PUT', '/api/phone-notify', { body: { on: true } }),
-    call('PUT', '/api/phone-notify', { body: { on: true } }),
-  ]);
+  /* #4136: the two turn-ons must really overlap. Fired as two HTTP PUTs, the first could finish its mint before the
+     second reached turnOn on a loaded Mac, and two mints one after the other is correct, so the test went red with
+     nothing wrong. Here the mint is held open (the fake tunnel logs its call, then waits for GATE) until the SECOND
+     request has reached turnOn, so a second mint can only mean the one-at-a-time rule failed. */
+  const GATE = path.join(SANDBOX, 'mint-gate');
+  const gated = path.join(SANDBOX, 'gated-tunnel');
+  fs.writeFileSync(gated, `#!/bin/bash
+{ printf 'ARGV:'; printf ' %s' "$@"; printf '\\nSTDIN:'; cat; printf '\\n'; } >> "${TUNNEL_LOG}"
+n=0; while [ ! -f "${GATE}" ] && [ $n -lt 1500 ]; do sleep 0.02; n=$((n + 1)); done
+printf '{"token":"${MINTED}"}\\n'
+`, { mode: 0o755 });
+  const realTurnOn = phonenotify.turnOn;
+  let arrived = 0;
+  const openGate = () => { try { fs.writeFileSync(GATE, ''); } catch { /* already open */ } };
+  const fallback = setTimeout(openGate, 20000);   // a request that never arrives fails the count below, not the run
+  phonenotify.turnOn = (...args) => {
+    arrived += 1;
+    if (arrived === 2) openGate();
+    return realTurnOn(...args);
+  };
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = gated;
+  try {
+    await Promise.all([
+      call('PUT', '/api/phone-notify', { body: { on: true } }),
+      call('PUT', '/api/phone-notify', { body: { on: true } }),
+    ]);
+  } finally {
+    clearTimeout(fallback);
+    phonenotify.turnOn = realTurnOn;
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL;
+    fs.rmSync(GATE, { force: true });
+  }
+  assert.equal(arrived, 2, 'both turn-ons reached phonenotify.turnOn (the overlap this test needs)');
   const mints = () => (fs.readFileSync(TUNNEL_LOG, 'utf8').match(/ARGV: mac-request/g) || []).length;
   assert.equal(mints(), 1, 'two concurrent turn-ons each minted');
   await call('PUT', '/api/phone-notify', { body: { on: false } });
