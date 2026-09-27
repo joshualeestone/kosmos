@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: walkfix-0705
-diff_hash: a30ee7ec4a597e07762b27b8bc6056891c04a6a69dcbedf1577fdb80578e828d
+diff_hash: cf212958e033b6278807a2a62e6885a659f373ace266fe81de9a6d98a6670215
 subdir_audit: passed
 timestamp: 2026-09-27T20:20:01Z
 converged: true
@@ -28,3 +28,7 @@ Not run: iteration 1 found no defect; both LOWs answered.
 - render-plus-panel-3829 spacing arm: PASS on the branch, FAIL on main. web.walk-0705: 3/3, FAIL 3/3 on main.
 - render-plus-stars-3778 and render-plus-signin-3478 (flagged by #2518) run on the branch: pass; trailers added.
 - web.*.test.js 1997/0; full suite 10791 pass, 0 fail, exit 0.
+- CI selected render-reload-toast for this PR (it touches What's New) and it failed 'centred' there: the check compared the
+  dialog's centre with innerWidth/2, which includes the classic-scrollbar gutter CI draws. It opens What's New with FOUR
+  highlights, so the odd-tile rule does not apply. Locally it passes on branch and on main. Fixed in the check
+  (clientWidth/2, the page width a fixed dialog centres in); re-run locally: pass.
