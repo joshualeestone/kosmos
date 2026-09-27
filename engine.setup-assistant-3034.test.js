@@ -657,3 +657,40 @@ test('SETTING: a patch sets one or both keys as booleans, and the other key is k
   assert.deepEqual(setupAssistant.mergeSetting(stored, { asked: true }), { on: false, asked: true }, 'setting asked turned the bubble back on');
   assert.deepEqual(setupAssistant.mergeSetting({}, { on: false }), { on: false, asked: false });
 });
+
+/* #4230: a guide made before a photo change keeps the old photo (copied at creation). On start it gets the current one,
+   but only when its picture is byte-for-byte a retired bundled photo: a picture the person chose is never touched. */
+function guideWithPicture(bytes) {
+  setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' });
+  const file = require('./engine/instructions').fileFor('Josh');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(path.join(path.dirname(file), setupAssistant.GUIDE_MARKER), 'Josh\n');
+  if (bytes) store.saveAvatar('Josh', 'image/png', bytes);
+}
+const shaOf = (b) => require('node:crypto').createHash('sha256').update(b).digest('hex');
+
+test('#4230 REFRESH: a guide still wearing a retired photo gets the current bundled one', () => {
+  guideWithPicture(PNG_1x1);
+  const changed = setupAssistant.refreshGuideAvatar(undefined, new Set([shaOf(PNG_1x1)]));
+  assert.equal(changed, true);
+  assert.equal(shaOf(fs.readFileSync(store.avatarPath('Josh'))), shaOf(fs.readFileSync(setupAssistant.guideAvatarPath())), 'the guide does not wear the shipped photo');
+});
+
+test('#4230 REFRESH: a picture the person chose is never replaced', () => {
+  guideWithPicture(PNG_1x1);
+  const changed = setupAssistant.refreshGuideAvatar(undefined, new Set(['0'.repeat(64)]));
+  assert.equal(changed, false);
+  assert.equal(shaOf(fs.readFileSync(store.avatarPath('Josh'))), shaOf(PNG_1x1), 'a chosen picture was replaced');
+});
+
+test('#4230 REFRESH: no guide, or a guide with no picture, changes nothing', () => {
+  assert.equal(setupAssistant.refreshGuideAvatar(undefined, new Set([shaOf(PNG_1x1)])), false);
+  guideWithPicture(null);
+  assert.equal(setupAssistant.refreshGuideAvatar(undefined, new Set([shaOf(PNG_1x1)])), false);
+  assert.equal(store.avatarPath('Josh'), null);
+});
+
+test('#4230: the shipped photo is not itself retired (it would replace itself forever)', () => {
+  assert.equal(setupAssistant.RETIRED_GUIDE_AVATARS.has(shaOf(fs.readFileSync(setupAssistant.guideAvatarPath()))), false);
+  assert.ok(setupAssistant.RETIRED_GUIDE_AVATARS.size >= 1);
+});

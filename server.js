@@ -16827,6 +16827,8 @@ function start(port = PORT) {
     };
     const onListening = () => {
       server.removeListener('error', onError);
+      // #4230: an existing setup guide still wearing a retired bundled photo gets the current one.
+      setImmediate(() => { try { setupAssistant.refreshGuideAvatar(); } catch { /* best-effort */ } });
       // #2528: the board reached `listening`, so the world it booted into serves --
       // clear that world's failed-boot counter. A world only accrues attempts while
       // it fails to reach this point, so a healthy world's count returns to zero
