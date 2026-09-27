@@ -14807,7 +14807,7 @@ window.kosmosMeasureScrollbarWidth();
         <div class="tsk-search" id="tsk-searchbox" role="search">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5" stroke-linecap="round"/></svg>
           <input id="tsk-search" type="search" autocomplete="off" spellcheck="false"
-                 placeholder="Search tasks" aria-label="Search tasks by what they say, number, project or agent">
+                 placeholder="Search tasks" aria-keyshortcuts="/" aria-label="Search tasks by what they say, number, project or agent">
           <button type="button" id="tsk-qclear" aria-label="Clear search" hidden>&times;</button>
         </div>
       </div>
@@ -46574,9 +46574,12 @@ function tskPaint() {
   /* #3949 (Josh, 09-26 19:30): the title IS the count: "30 Tasks on 2 Projects" (open tasks in the current scope, the
      number the separate "N open tasks across M projects" line used to give). Scoped to one project it names it
      ("5 Tasks on Newsletter"), as the title did before. Until the tasks are read it just says Tasks. */
+  /* N is the projects those same open tasks are on, from the same filtered array, so the title can never say
+     "1 Task on 2 Projects" (review round 11). With nothing open it is just "0 Tasks". */
+  const onProjects = new Set(open.map((t) => t.projectId)).size;
   document.getElementById('tsk-title').textContent = !TSK.data ? 'Tasks'
-    : open.length + (open.length === 1 ? ' Task' : ' Tasks') + ' on '
-      + (picked ? picked.name : projectsList.length + (projectsList.length === 1 ? ' Project' : ' Projects'));
+    : open.length + (open.length === 1 ? ' Task' : ' Tasks')
+      + (picked ? ' on ' + picked.name : open.length ? ' on ' + onProjects + (onProjects === 1 ? ' Project' : ' Projects') : '');
   tskSearchOpen();   // the compact search's open state follows TSK.q on every paint, whoever changed it
   /* #3949: Created: and Group by are dropdowns (they were button rows). */
   tskOptions(document.getElementById('tsk-win'), TSK_WINDOWS.map(([l, d]) => '<option value="' + d + '"' + (TSK.win === d ? ' selected' : '') + '>' + esc(l) + '</option>').join(''), String(TSK.win));
@@ -46908,7 +46911,10 @@ document.addEventListener('keydown', (e) => {
   if (!pt || pt.hidden || !pt.getClientRects().length) return;
   const t = e.target;
   if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-  if (document.querySelector('dialog[open]')) return;
+  // Only from the page itself (nothing focused) or from inside the Tasks view: never from an open modal (the app's
+  // modals are role="dialog"/"alertdialog" boxes with aria-modal, not <dialog>), whose own buttons may hold focus.
+  if (!(t === document.body || t === document.documentElement || pt.contains(t))) return;
+  if ([...document.querySelectorAll('[aria-modal="true"]')].some((m) => m.getClientRects().length > 0)) return;
   e.preventDefault();
   document.getElementById('tsk-search').focus();
 });

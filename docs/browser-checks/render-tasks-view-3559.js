@@ -1,4 +1,4 @@
-// Browser-check-surface: panel-tasks tsk-tiles tsk-groups tsk-search tsk-bulk rail-projects-tasks tsk-view tsk-band tsk-below tsk-list
+// Browser-check-surface: panel-tasks tsk-tiles tsk-groups tsk-search tsk-bulk rail-projects-tasks tsk-view tsk-band tsk-below tsk-list tsk-title tsk-searchbox
 'use strict';
 /**
  * The Tasks view on a screen (#3559): the third top-level tab, every task on every project,
@@ -14,9 +14,10 @@
  *    category is drawn (they are not guessed). Built but waiting's task is marked by the engine
  *    (tasks.setBuilt), and its row says who marked it and what is left. Needs Your Decision's task is a real one: its agent
  *    (Max) reports a question about its project, and the pane is asking,
- *  - #3949 layout: no left Projects column; search about half the width with the open-task count to
- *    its right; Project and Created: dropdowns on one row; Group by and Sort dropdowns under the
- *    tiles; no tile hint,
+ *  - #3949 layout: no left Projects column; the title is the count ("7 Tasks on 2 Projects", the projects
+ *    those open tasks are on) with no separate count line; Project and Created: dropdowns on one row;
+ *    Group by, Sort and a compact search (after Sort, "/" focuses it, Esc clears it) under the tiles;
+ *    no tile hint,
  *  - a row sits in the group its evidence says (the agent that named its task is In progress),
  *  - the search filters as you type (sentence, number, project, agent), and combines with the
  *    project dropdown,
@@ -317,6 +318,27 @@ function chk(ok, label, extra) {
         chk(slash === 'tsk-search' && openW >= 200, `${tag} "/" focuses the search and it opens`, JSON.stringify({ slash, openW }));
         chk(keptW >= 200, `${tag} while it holds a search it stays open after you leave it`, String(keptW));
         chk(after.q === '' && after.value === '' && after.focused !== 'tsk-search' && closedW <= 40 && after.rows >= 7, `${tag} Esc clears the search, closes it, and brings every row back`, JSON.stringify({ after, closedW }));
+        /* The count and its projects come from the same filtered tasks: a search that leaves one task on one project
+           says so (review round 11: the project count had been unfiltered, "1 Task on 2 Projects"). */
+        await page.fill('#tsk-search', 'podcast');
+        await page.waitForTimeout(200);
+        const oneTitle = await page.evaluate(() => document.getElementById('tsk-title').textContent.trim());
+        await page.fill('#tsk-search', '');
+        await page.evaluate(() => document.getElementById('tsk-search').blur());
+        chk(oneTitle === '1 Task on 1 Project', `${tag} a search leaving one task titles it "1 Task on 1 Project"`, JSON.stringify(oneTitle));
+        /* "/" never reaches past an open modal: New task's dialog open, focus on its own Cancel button, "/" leaves focus
+           there (review round 11: the guard had looked for a <dialog> the app does not use). */
+        await page.click('#tsk-new');
+        await page.waitForTimeout(300);
+        const modal = await page.evaluate(() => { const b = document.getElementById('nt-back'); if (b) b.focus();
+          const open = [...document.querySelectorAll('[aria-modal="true"]')].some((m) => m.getClientRects().length > 0);
+          return { open, before: document.activeElement && document.activeElement.id }; });
+        await page.keyboard.press('/');
+        const modalAfter = await page.evaluate(() => document.activeElement && document.activeElement.id);
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(200);
+        const closed = await page.evaluate(() => ![...document.querySelectorAll('[aria-modal="true"]')].some((m) => m.getClientRects().length > 0));
+        chk(modal.open && modal.before === 'nt-back' && modalAfter === 'nt-back' && closed, `${tag} "/" with a modal open leaves focus in the modal`, JSON.stringify({ modal, modalAfter, closed }));
       }
       if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, `tasks-${theme}-${width}.png`), fullPage: true }); }
 

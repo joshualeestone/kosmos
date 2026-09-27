@@ -14,7 +14,7 @@
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-alltasks.js
  */
-// Browser-check-surface: pj-alltasks tkFace tsk-crumb tsk-new nt-projrow nt-proj
+// Browser-check-surface: pj-alltasks tkFace tsk-crumb tsk-new nt-projrow nt-proj tsk-title
 // ⚠️ `tkFace` here fires only when a line CONTAINING that literal changes (a
 // signature or a call site). The gate keeps `+`/`-` diff-body lines and not context,
 // so an edit to the function BODY -- which is where #2762 lived -- does not trip it.
