@@ -89,7 +89,10 @@ test('#4043: the bridge maps its hooked events, needs_you only for a real ask_qu
   assert.equal(bridge.reportFor('PreToolUse', { toolCall: { name: 'ask_question', args: { questions: [{ question: 'A?' }, { question: 'B?' }] } } }).text, 'A? / B?');
   assert.equal(bridge.reportFor('PreToolUse', { toolCall: { name: 'ask_question', args: {} } }).text, 'Antigravity is asking you a question', 'the route refuses a needs_you with no reason');
   assert.deepEqual(bridge.reportFor('PostToolUse', {}), { state: 'working', text: '' }, 'answered: back to working');
-  for (const ev of ['PreToolUse', 'PreInvocation', 'Stop', 'PostToolUse']) assert.equal(bridge.answerFor(ev), '{}', ev + ': Kosmos never makes a decision for agy');
+  for (const ev of ['PreInvocation', 'Stop', 'PostToolUse']) assert.equal(bridge.answerFor(ev), '{}', ev + ': a non-gate event answers {}');
+  assert.equal(bridge.answerFor('PreToolUse', { toolCall: { name: 'ask_question' } }), '{"decision":"allow"}', 'PreToolUse must allow ask_question (a missing decision denies it)');
+  assert.equal(bridge.answerFor('PreToolUse', { toolCall: { name: 'run_command' } }), '{"decision":"ask"}', 'any other tool gets agy\'s own prompt, never allow');
+  assert.equal(bridge.answerFor('PreToolUse', null), '{"decision":"ask"}', 'no payload: agy\'s own prompt, never allow');
 });
 
 test('#4043: the report is marked auto, so a turn ending cannot erase a deliberate blocked', () => {
@@ -184,7 +187,7 @@ test('#4043: the command-line entry always exits 0 and says why on stderr when i
   assert.ok(readHooks(ok)[hooks.HOOK_NAME], 'control: the CLI writes the hook');
 });
 
-test('#4043: run for an ask_question, the bridge answers exactly {} (no permission decision)', () => {
+test('#4043: run for an ask_question, the bridge answers {"decision":"allow"}, exactly as agy reads it', () => {
   const r = spawnSync(process.execPath, [BRIDGE_FILE, 'PreToolUse'], {
     input: JSON.stringify({ toolCall: { name: 'ask_question', args: { questions: [{ question: 'Go?' }] } } }),
     env: { ...process.env, KOSMOS_PORT: '9', TMUX_PANE: '%pretool-' + process.pid },
@@ -192,7 +195,7 @@ test('#4043: run for an ask_question, the bridge answers exactly {} (no permissi
   });
   try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: '9', TMUX_PANE: '%pretool-' + process.pid }), { force: true }); } catch { /* none */ }
   assert.equal(r.status, 0);
-  assert.equal(r.stdout.trim(), '{}');
+  assert.equal(r.stdout.trim(), '{"decision":"allow"}');
 });
 
 test('#4043: agents without a pane never share one throttle marker', () => {
@@ -406,4 +409,60 @@ test('#4043: an unchanged entry whose keys are in another order (enabled first) 
   const before = fs.readFileSync(file, 'utf8');
   assert.equal(hooks.ensureHooks(d, '/opt/node', '/b.js').changed, false, 'the person\'s file was rewritten with nothing different');
   assert.equal(fs.readFileSync(file, 'utf8'), before);
+});
+
+/* #4043, the 0.7.01 regression: agy 1.2.11's PreToolUse contract, as MEASURED LIVE on 2026-09-27 (real interactive
+   agy, the served bridge, a private tmux socket; Ice Cream Kitty on the card). What agy does with a hook's stdout:
+     {}                       -> DENIED ("tool call denied by pre-tool hook"), measured
+     {"decision":""}          -> DENIED, measured
+     {"decision":"allow"}     -> runs; the question is shown and waits for the person, measured
+   and, from agy's own hooks guide (decision is REQUIRED): deny denies; ask / force_ask prompt the person first.
+   A reply that does not parse, or is not an object, is treated as a deny here (the conservative reading). */
+function agyPreToolOutcome(stdout) {
+  let o;
+  try { o = JSON.parse(String(stdout).trim()); } catch { return 'deny'; }
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return 'deny';
+  if (o.decision === 'allow') return 'run';
+  if (o.decision === 'ask' || o.decision === 'force_ask') return 'prompt';
+  return 'deny';   // deny, missing, empty, or unknown
+}
+
+test('#4043: agy\'s measured contract: an empty or missing decision DENIES the tool (the model this guard uses)', () => {
+  assert.equal(agyPreToolOutcome('{}'), 'deny', 'measured: {} denies');
+  assert.equal(agyPreToolOutcome('{"decision":""}'), 'deny', 'measured: an empty decision denies');
+  assert.equal(agyPreToolOutcome('{"decision":"allow"}'), 'run', 'measured: allow runs the tool');
+  assert.equal(agyPreToolOutcome(''), 'deny');
+  /* From agy's guide, NOT measured: ask prompts the person. Load-bearing for the fallback below, so named as such. */
+  assert.equal(agyPreToolOutcome('{"decision":"ask"}'), 'prompt', 'guide (unmeasured): ask prompts the person');
+});
+
+test('#4043 review 1: an unexpected tool, or no payload, reaching the bridge is NEVER auto-allowed (fails safe to agy\'s prompt)', () => {
+  /* The hooks file is read by any agy started in that folder, not only the one the supervisor launches with
+     --dangerously-skip-permissions; if PreToolUse's matcher were ignored there, an answer keyed on the event name
+     alone would auto-allow every tool. */
+  for (const [label, input] of [['run_command', JSON.stringify({ toolCall: { name: 'run_command', args: { CommandLine: 'rm -rf x' } } })],
+    ['no payload', ''], ['garbage', 'not json']]) {
+    const r = spawnSync(process.execPath, [BRIDGE_FILE, 'PreToolUse'], {
+      input, env: { ...process.env, KOSMOS_PORT: '9', TMUX_PANE: '%unexp-' + process.pid }, encoding: 'utf8', timeout: 15000,
+    });
+    try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: '9', TMUX_PANE: '%unexp-' + process.pid }), { force: true }); } catch { /* none */ }
+    assert.equal(r.status, 0, label);
+    const lines = r.stdout.split('\n').filter(Boolean);
+    assert.equal(lines.length, 1, label + ': exactly one answer, got ' + JSON.stringify(r.stdout));
+    assert.equal(agyPreToolOutcome(lines[0]), 'prompt', label + ': agy would ' + agyPreToolOutcome(lines[0]) + ' on ' + lines[0]);
+  }
+});
+
+test('#4043: the bridge\'s REAL PreToolUse answer lets agy run ask_question (so {} = deny cannot come back)', () => {
+  /* The bytes agy actually reads: the bridge run as agy runs it, not answerFor() called in-process. */
+  const r = spawnSync(process.execPath, [BRIDGE_FILE, 'PreToolUse'], {
+    input: JSON.stringify({ toolCall: { name: 'ask_question', args: { questions: [{ question: 'Red or blue?' }] } } }),
+    env: { ...process.env, KOSMOS_PORT: '9', TMUX_PANE: '%contract-' + process.pid },
+    encoding: 'utf8', timeout: 15000,
+  });
+  try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: '9', TMUX_PANE: '%contract-' + process.pid }), { force: true }); } catch { /* none */ }
+  assert.equal(r.status, 0);
+  const firstLine = r.stdout.split('\n')[0];
+  assert.equal(agyPreToolOutcome(firstLine), 'run',
+    `agy would ${agyPreToolOutcome(firstLine)} ask_question on this answer (${JSON.stringify(firstLine)}): the agent could not ask its person anything`);
 });
