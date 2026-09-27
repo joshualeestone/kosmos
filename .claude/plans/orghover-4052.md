@@ -19,14 +19,20 @@ the cluster icons jiggle and shift about maybe 1 or 2 pixels".
 ## The change
 
 `.onode .face > * { will-change: opacity }`: every face's contents sit on a layer of their own from the
-start, so hovering one node no longer changes how its neighbours are layered and rasterized.
+start, so hovering one node no longer changes how its neighbours are layered and rasterized. The hover
+callout animates its opacity the same way and gets the same property (not measured to matter in
+Chromium; it is the likeliest leftover in WebKit, so it is not left out). The cost is one small layer
+per face and per callout while the chart is shown.
 
 ## The check
 
 `render-swarm-ui-3564.js` S41: on the settled org chart (preconditions: settled, and crew and crew2
-really drawn as clusters), hover each of rex, crew and crew2 in turn and assert no cluster's box moves
-(the hovered one included, so a border or scale planted on hover reds it) and no pixel of a cluster that
-is not hovered changes (a CONTROL shows two untouched captures are identical). The hovered cluster's own
+really drawn as clusters; the comparison is skipped rather than run on a chart that failed them), hover
+each of rex, crew and crew2 in turn and assert no cluster element's box moves (the hovered one included:
+a border planted on hover squeezed it from 44 to 40px and reddened the check) and no pixel changes in
+the area around a cluster that is not hovered (its face plus 6px, since a cluster may draw past its
+face), unless something the raised hovered node paints lies over it. A CONTROL shows two untouched
+captures are identical. Measured red with will-change removed ("hovering crew2: crew's pixels moved"). The hovered cluster's own
 pixels change by design (half to full strength).
 
 ## Rejected

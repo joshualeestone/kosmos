@@ -422,10 +422,11 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     chk(await waitFor(page, () => document.querySelectorAll('#grid [data-agent="crew2"] .swd').length === 4, null, 20000),
       'S40 teardown: the next poll has put crew2 back to four helpers', await page.evaluate(() => document.querySelectorAll('#grid [data-agent="crew2"] .swd').length));
     // S41 (#4052, Josh: hovering other agents on the org chart makes the cluster icons "jiggle and shift about maybe 1
-    // or 2 pixels"): hovering any agent moves no cluster's box (the hovered one included), and not a single pixel of
-    // a cluster it is not on. The pixels are the point: a box that does not move can still be drawn a pixel over (a
-    // re-rasterized layer), which a getBoundingClientRect guard alone cannot see. (A hovered cluster's own pixels
-    // change by design: it goes from half to full strength.)
+    // or 2 pixels"): hovering any agent moves no cluster's box (the hovered one included), and no pixel in the area
+    // around a cluster it is not on (its face plus a 6px margin, since a cluster may draw past its face). The pixels
+    // are the point: a box that does not move can still be drawn a pixel over (a re-rasterized layer), which a
+    // getBoundingClientRect guard alone cannot see. (A hovered cluster's own pixels change by design: it goes from
+    // half to full strength.)
     await page.click('[data-scope="agents"] .vt[data-layout="org"]');
     await page.mouse.move(2, 2);
     const clusters = ['crew', 'crew2'];
@@ -436,10 +437,15 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     let settled = false;
     for (let i = 0; i < 40 && !settled; i += 1) { const a = await boxes(); await page.waitForTimeout(500); settled = a === await boxes(); }
     chk(settled, 'S41 precondition: the org chart has settled (the clusters stopped moving on their own)');
-    chk(await page.evaluate((cs) => cs.every((c) => document.querySelectorAll('.onode[data-agent="' + c + '"] .face > .swc .swd').length >= 2), clusters),
-      'S41 precondition: crew and crew2 are drawn as clusters, so the comparison below is of clusters');
+    const drawnAsClusters = await page.evaluate((cs) => cs.every((c) => document.querySelectorAll('.onode[data-agent="' + c + '"] .face > .swc .swd').length >= 2), clusters);
+    chk(drawnAsClusters, 'S41 precondition: crew and crew2 are drawn as clusters, so the comparison below is of clusters');
+    if (settled && drawnAsClusters) {
     await page.waitForTimeout(600);
-    const shot = (c) => page.locator('.onode[data-agent="' + c + '"] .face').screenshot();
+    const MARGIN = 6;
+    const shot = async (c) => {
+      const b = await page.evaluate((c2) => { const r = document.querySelector('.onode[data-agent="' + c2 + '"] .face').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; }, c);
+      return page.screenshot({ clip: { x: Math.max(0, b.x - MARGIN), y: Math.max(0, b.y - MARGIN), width: b.w + 2 * MARGIN, height: b.h + 2 * MARGIN } });
+    };
     const base = {};
     for (const c of clusters) base[c] = await shot(c);
     const baseBoxes = await boxes();
@@ -453,18 +459,22 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       if (await boxes() !== baseBoxes) moved.push('hovering ' + who + ': a cluster\'s box moved ' + await boxes());
       for (const c of clusters) {
         if (c === who) continue;
-        const covered = await page.evaluate(([w, c2]) => {   // the hovered agent's callout lying over it is not a shift
-          const k = document.querySelector('.onode[data-agent="' + w + '"] .callout'), f = document.querySelector('.onode[data-agent="' + c2 + '"] .face');
-          if (!k || !f) return false;
-          const a = k.getBoundingClientRect(), b = f.getBoundingClientRect();
-          return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-        }, [who, c]);
+        /* The hovered node is raised (z-index 2): anything it paints (callout, ring, badges) lying over the compared
+           area is not a shift. Its painted extent is the union of it and every element inside it. */
+        const covered = await page.evaluate(([w, c2, m]) => {
+          const n = document.querySelector('.onode[data-agent="' + w + '"]'), f = document.querySelector('.onode[data-agent="' + c2 + '"] .face');
+          if (!n || !f) return false;
+          const b = f.getBoundingClientRect();
+          return [n, ...n.querySelectorAll('*')].some((e) => { const a = e.getBoundingClientRect();
+            return a.width > 0 && a.height > 0 && a.left < b.right + m && b.left - m < a.right && a.top < b.bottom + m && b.top - m < a.bottom; });
+        }, [who, c, MARGIN]);
         if (!covered && !base[c].equals(await shot(c))) moved.push('hovering ' + who + ': ' + c + '\'s pixels moved');
       }
       await page.mouse.move(2, 2);
       await page.waitForTimeout(400);
     }
-    chk(moved.length === 0, 'S41 hovering an agent moves no cluster\'s box, nor a pixel of a cluster it is not on (#4052)', JSON.stringify(moved));
+    chk(moved.length === 0, 'S41 hovering an agent moves no cluster\'s box, nor a pixel around a cluster it is not on (#4052)', JSON.stringify(moved));
+    }
     await page.click('[data-scope="agents"] .vt[data-layout="grid"]');
     await page.waitForTimeout(400);
 
