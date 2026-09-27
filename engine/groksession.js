@@ -124,6 +124,32 @@ function forWorkdir(dir, home) {
 }
 
 /**
+ * #4039 follow-up, MEASURED on Grok Build 1.0.41 (grok-4.6, three real turns, 2026-09-26):
+ * contextTokensUsed IS Grok's own context gauge, and once a model call has returned it tracks
+ * the real prompt within 0.3% (40,783 vs 40,922). Before the session's first call returns it
+ * holds a pre-call estimate without the system prompt and tools (2,716 vs a real 40,111), and a
+ * session whose only turn made ONE model call keeps that estimate. Once any call has returned the
+ * gauge is right, so this is a FIRST-turn defect only.
+ * usage.json's per-turn inputTokens is a SUM over the turn's calls (about 2x on a two-call
+ * turn), so it is never occupancy -- EXCEPT when that turn's modelCalls is exactly 1, where it
+ * is that one call's whole prompt. So: take the larger of the two only when usage.json holds
+ * exactly ONE turn and it made ONE call (the measured case). A later single-call turn is left
+ * alone: after a compaction the gauge drops and an old turn's prompt would pin the ring high.
+ * Both files are written at the end of that same turn, so contextUsedAt (signals.json's mtime)
+ * still dates the figure. Never throws; any doubt keeps Grok's own figure.
+ */
+function singleCallFloor(used, sessionDir) {
+  if (used == null) return used;
+  try {
+    const u = JSON.parse(fs.readFileSync(path.join(sessionDir, 'usage.json'), 'utf8'));
+    const turns = u && Array.isArray(u.turns) ? u.turns : [];
+    const last = turns.length === 1 ? turns[0] : null;
+    if (last && last.modelCalls === 1 && typeof last.inputTokens === 'number' && last.inputTokens > used) return last.inputTokens;
+  } catch { /* no usage.json: Grok's own gauge stands */ }
+  return used;
+}
+
+/**
  * What the board needs from a Grok session -- the SAME contract codexsession.read
  * and geminisession.read return, so status.js reads all four providers through one
  * shape.
@@ -137,28 +163,6 @@ function forWorkdir(dir, home) {
  * mtime when usage is known, null otherwise (see the read() body for why the mtime,
  * not last_active_at); the freshness anchor a future account badge must gate on.
  */
-/**
- * #4039 follow-up, MEASURED on Grok Build 1.0.41 (grok-4.6, three real turns, 2026-09-26):
- * contextTokensUsed IS Grok's own context gauge, and once a model call has returned it tracks
- * the real prompt within 0.3% (40,783 vs 40,922). Before the session's first call returns it
- * holds a pre-call estimate without the system prompt and tools (2,716 vs a real 40,111), and a
- * session whose only turn made ONE model call keeps that estimate.
- * usage.json's per-turn inputTokens is a SUM over the turn's calls (about 2x on a two-call
- * turn), so it is never occupancy -- EXCEPT when that turn's modelCalls is exactly 1, where it
- * is that one call's whole prompt. So: take the larger of the two only in that case. Never
- * throws; any doubt keeps Grok's own figure.
- */
-function singleCallFloor(used, sessionDir) {
-  if (used == null) return used;
-  try {
-    const u = JSON.parse(fs.readFileSync(path.join(sessionDir, 'usage.json'), 'utf8'));
-    const turns = u && Array.isArray(u.turns) ? u.turns : [];
-    const last = turns[turns.length - 1];
-    if (last && last.modelCalls === 1 && typeof last.inputTokens === 'number' && last.inputTokens > used) return last.inputTokens;
-  } catch { /* no usage.json: Grok's own gauge stands */ }
-  return used;
-}
-
 function read(dir, home) {
   /* NOTE for the status-wiring slice: unlike codexsession/geminisession, this reader
      never returns NO_READING.UNREADABLE. forWorkdir must PARSE summary.json to match

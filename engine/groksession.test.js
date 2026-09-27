@@ -9,8 +9,9 @@
  * split is the whole point of these fixtures -- a reader that read signals in snake_case
  * would return null on every real file while a snake_case fixture passed, so the fixture
  * MUST match the real wire names. Cross-checked 2026-09-26 against real Grok Build 1.0.41
- * sessions on Agent1s (#4039): the reader returned contextUsed 2716 / contextWindow 500000,
- * model grok-4.6, on a copy of an answered session, and the signals.json keys are these.
+ * sessions on Agent1s (#4039): the signals.json keys are these, and on a copy of an answered
+ * one-call session the reader returned contextWindow 500000, model grok-4.6, and contextUsed 2716
+ * before the single-call floor (40111 with it; see singleCallFloor).
  *
  * ⚠️ A SANDBOXED GROK HOME, set before the module loads, exactly as the codex/gemini
  * reader tests do -- the real ~/.grok holds the operator's own sessions.
@@ -251,4 +252,11 @@ test('usage.json absent, malformed, or smaller: Grok\'s own contextTokensUsed st
     if (body != null) fs.writeFileSync(nodePath.join(SANDBOX, 'sessions', 'enc-usage', 's', 'usage.json'), body);
     assert.equal(grok.read(WORKDIR).contextUsed, 40291, label);
   }
+});
+
+test('the floor is the FIRST turn only: a later single-call turn after a compaction never pins the ring high', () => {
+  reset();
+  writeSession({ encDir: 'enc-usage', sessionId: 'compacted', cwd: WORKDIR, model: 'grok-4.6', numMessages: 40, lastActive: '2026-09-27T04:00:00Z', lastTurn: 'x', tokensUsed: 30000, windowTokens: 500000 });
+  writeUsage('compacted', [{ turnNumber: 1, inputTokens: 900000, modelCalls: 3 }, { turnNumber: 2, inputTokens: 380000, modelCalls: 1 }]);
+  assert.equal(grok.read(WORKDIR).contextUsed, 30000, 'an old single-call turn\'s 380000 overrode the gauge after it dropped');
 });
