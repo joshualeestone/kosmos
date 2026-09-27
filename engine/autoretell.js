@@ -15,8 +15,8 @@
  *     could_not;
  *   - its instruction file's mtime must be newer than that verdict (`told.at`), so a file nobody
  *     touched since the failure is never retried (a retry would fail the same way). Any later write
- *     counts as a change, Kosmos's own included, so an unrelated Kosmos write can cost one extra
- *     retell; nothing is typed into the agent on a could_not;
+ *     counts as a change, Kosmos's own included, so an unrelated Kosmos write can trigger a retell
+ *     (typing the "listed" line only if that retell succeeds);
  *   - and at least SETTLE_MS old, so a file still being saved in bursts is left alone;
  *   - and `ready(name)`: the caller's word that retelling now would not hide anything. A RUNNING agent
  *     whose file a person changed after it started has not read that change, and a retell writes the

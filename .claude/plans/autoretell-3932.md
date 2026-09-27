@@ -23,11 +23,11 @@ fix already made, until the next project change. #3923 (merged as PR #4000) adde
    syncAgent (a throw becomes COULD_NOT with a fixed sentence), then speak 'listed' for each newly
    added project the agent is still on; return { told, said, alsoSaid }. The route calls it unchanged
    in behaviour (its 404/409/500/429 guards stay in the route).
-2. On the board poll (or a light interval, like the swarm sweep, gated on liveExecutionAllowed): for
-   each project, for each member whose stored `told[name].state === could_not`, if the agent's
-   instruction file (create.instructionFile(name)) has an mtime newer than `Date.parse(told.at)`, and
-   that mtime is at least SETTLE_MS (10s) old, call retellMember once. Remember the mtime acted on per
-   member, so one fix triggers one retell, not one per poll.
+2. A light interval (built as a 30s timer like the swarm sweep, gated on liveExecutionAllowed): for
+   each member whose newest stored verdict is could_not, if the agent's instruction file has an mtime
+   newer than that verdict and at least SETTLE_MS (10s) old, call retellMember once. Remember the
+   mtime acted on per member, so one fix triggers one retell, not one per sweep. (As built below
+   corrects the details.)
 3. Tests: a could_not member whose file changes after its verdict is retold once (verdict flips to told,
    the line is spoken once); an unchanged file is not; a file changed within SETTLE_MS is not yet; a
    member who left is not; a second poll with no new change does nothing (the one-shot memory).
@@ -56,13 +56,18 @@ cost is a reload before their save, not an overwrite.
 - Candidates: the NEWEST could_not verdict across the agent's projects; the file must be newer than it.
 - No valve: one retell per settled change to the file. Any write counts, Kosmos's own too (an
   unrelated Kosmos write can cost one extra retell, which types nothing on a could_not).
-- A RUNNING agent whose file was changed after it started by anyone but Kosmos is left for its
-  restart (the `ready` check), and the change is not spent. Retelling it would write the file as
-  Kosmos, and `toldOverride` would then show "told it on its screen" for an agent that never read
-  the person's change. Found in review 2.
+- A RUNNING agent whose file changed after it started is left for its restart (the `ready` check),
+  whoever wrote it, and the change is not spent. Retelling it would write the file as Kosmos, and
+  `toldOverride` would then show "told it on its screen" for an agent that never read the person's
+  change. Found in review 2; review 4 found the first version (skip only non-Kosmos writers) was
+  beaten by a person's edit followed by any Kosmos write, since the record keeps only the last writer.
+- COST: for a running agent the Act row clears only after its restart, not seconds after the fix.
+  The commonest row ("no instructions file yet", fixed under a running agent) always takes this path.
+  The follow-up page copy must not promise that it clears by itself while the agent runs. Written on
+  the card too.
 - A retell that fails, even for a passing reason, is not retried until the file changes again: the
   notice's Try again retries sooner. A list of "passing" reasons to auto-retry was rejected: it would
   be a second copy of tellAgent's reasons, and drift.
-- Tests: engine/autoretell.test.js (9), server.test.js "#3932" (end-to-end: no file, settle window,
+- Tests: engine/autoretell.test.js (12), server.test.js "#3932" (end-to-end: no file, settle window,
   retell writes the block and keeps the person's words, the listed line typed once, second tick no-op).
 - Mutations: dropping the settle, newer-than-verdict or acted checks each reds the unit tests.

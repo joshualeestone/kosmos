@@ -959,14 +959,11 @@ function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
       },
       now,
       acted,
-      /* A running agent whose file changed after it started, by anyone but Kosmos, waits for its
-         restart: a retell now would write the file as Kosmos and the board would say the agent was
-         told, though it never read the person's change. Unknown (not running, or no start time)
-         is ready: the agent reads its file when it next starts. Through toldOverride like every
-         staleness read (#1228): a Kosmos write it has been told about reads told, which is ready. */
+      /* A running agent whose file changed since it started waits for its restart, whoever wrote
+         it: the write record keeps only the last writer. Read through toldOverride (#1228). */
       ready: (name) => {
         const st = projects.toldOverride(instructions.staleness(name), name);
-        return !(st && st.state === instructions.STALENESS.STALE && !(st.wroteBy && st.wroteBy.who === 'kosmos'));
+        return !(st && st.state === instructions.STALENESS.STALE);
       },
       retell: (name, id) => retellMember(name, id, roster === undefined ? (roster = safeRoster()) : roster),
       log: (r) => process.stdout.write(`autoretell: ${r.name} on ${r.id} -> ${r.state}\n`),

@@ -15347,6 +15347,10 @@ test('#3932: once the person fixes the file an Act row asked about, the board re
       assert.equal(fs.readFileSync(file, 'utf8'), edited, 'wrote the file under a running agent that has not read the person\'s change');
       instr.staleness = () => ({ state: instr.STALENESS.STALE, wroteBy: null });
       assert.deepEqual(autoretellTick(mtime + SETTLE_MS, acted), [], 'retold a running agent on a hand edit nobody attributed');
+      /* A person's edit and then any Kosmos write: the record says kosmos, the agent still has not
+         read the person's change. */
+      instr.staleness = () => ({ state: instr.STALENESS.STALE, wroteBy: { who: 'kosmos', because: 'x' } });
+      assert.deepEqual(autoretellTick(mtime + SETTLE_MS, acted), [], 'retold a running agent because the last write was Kosmos\'s');
     } finally { instr.staleness = realStaleness; }
 
     const rows = autoretellTick(mtime + SETTLE_MS, acted);
@@ -15369,7 +15373,9 @@ test('#3932: once the person fixes the file an Act row asked about, the board re
     } eng.writeAll(all); }
     const later = mtime + 120000;
     fs.utimesSync(file, new Date(later), new Date(later));
+    const beforeLookalike = fs.readFileSync(file, 'utf8');
     assert.deepEqual(autoretellTick(later + SETTLE_MS, acted), [], 'a lookalike name was re-told off the real agent\'s file');
+    assert.equal(fs.readFileSync(file, 'utf8'), beforeLookalike, 'a lookalike name\'s retell wrote the real agent\'s file');
   } finally {
     eng.speakOfMembership = realSpeak;
     board.restore();
