@@ -50,3 +50,11 @@ screen waited. ask_question skipped (Escape): needs_you, working, idle. No denia
 Measured on agy 1.2.11 only. `ask`'s meaning comes from agy's guide and runs B/C, not from a contract test; an agy that
 changed `allow` or `ask` would need the live check again. The contract test models 1.2.11, it does not run agy. The
 PreToolUse matcher being honoured is still assumed, which is why the answer no longer depends on it.
+
+## Review 2 (sonnet): two WARNs fixed, one accepted
+- FIXED: `answered` was set before the write, so a throwing write left the exit-path fallback a no-op (no answer at
+  all). It is now set only after a write that did not throw.
+- FIXED: `process.exit` right after a write does not guarantee a pipe is flushed; a truncated answer is a deny. The exit
+  path now waits (bounded 500ms) for stdout to drain.
+- ACCEPTED, not new here: a PreToolUse hook reads stdin (<=1s) and POSTs (<=1.5s) before exiting, inside agy's 5s handler
+  timeout. Measured live at 12:52 with this commit: the question showed and waited normally.

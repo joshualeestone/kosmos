@@ -194,10 +194,21 @@ function engineDir(here) {
 }
 
 let answered = false;
+/* One answer, marked written only once the write did not throw, so the exit-path fallback still answers if the
+   real one failed (review 2). */
 function answer(text) {
   if (answered) return;
-  answered = true;
-  try { process.stdout.write(text + '\n'); } catch { /* nothing to do */ }
+  try { process.stdout.write(text + '\n'); answered = true; } catch { /* the exit path tries again */ }
+}
+/* Resolves once everything written to stdout has been handed to the pipe: process.exit right after a write does
+   not guarantee a pipe is flushed (review 2), and a truncated answer is a deny to agy. Bounded, so a stuck pipe
+   cannot hold agy's hook past its timeout. */
+function flushed() {
+  return new Promise((resolve) => {
+    const t = setTimeout(resolve, 500);
+    t.unref?.();
+    try { process.stdout.write('', () => { clearTimeout(t); resolve(); }); } catch { clearTimeout(t); resolve(); }
+  });
 }
 
 async function main() {
@@ -239,7 +250,11 @@ async function main() {
 
 if (require.main === module) {
   main().catch(() => { /* never break the agent */ })
-    .finally(() => { if ((process.argv[2] || '') === 'PreToolUse') answer(ASK); process.exit(0); });
+    .finally(async () => {
+      if ((process.argv[2] || '') === 'PreToolUse') answer(ASK);
+      await flushed();
+      process.exit(0);
+    });
 }
 
 module.exports = { STATE_FOR_EVENT, ASK_TOOL, ALLOW, ASK, answerFor, throttleKey, TIMEOUT_MS, STDIN_TIMEOUT_MS, THROTTLE_MS, markerFile, shouldSend, reportFor, buildBody, engineDir };
