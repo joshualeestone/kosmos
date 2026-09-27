@@ -115,3 +115,10 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
   chunks of two, and names base64 padding on a short chunk (Zq8=).
 - Noted, the weakest premise measured: S3EC2K8s2024 is masked out of "Deploy to S3, then EC2, then K8s in 2024"
   (three mixed pieces). A password made of tech tokens with digits is indistinguishable from a key by this rule.
+
+## Review round 8 (Sonnet), what changed
+- BLOCKER fixed: a short chunk with a label glued on both sides in one run (x0-Zq8-y0, var_Zq8_tmp0) was never tried;
+  shortPieces offered only the part before the first separator and after the last. It now offers every part between
+  = - _. Tested for both shapes, labels kept readable; red on the previous commit.
+- The budget is declared before canSpell, which charges it (it worked only by call order). canSpell's position
+  parameter no longer shadows the piece index.

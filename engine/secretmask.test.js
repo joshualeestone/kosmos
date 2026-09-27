@@ -1541,3 +1541,16 @@ test('#3995 gap 4 review round 7: a reply that lists characters and names a shar
     assert.equal(r.text, text, 'the reply was changed or withheld: ' + JSON.stringify(r.fired));
   } finally { setKnownSecrets([]); }
 });
+
+test('#3995 gap 4 review round 8: a short chunk with a label glued on both sides is masked, the labels kept', () => {
+  const held = 'Zq8-vLm-3pR-t6w-Xy9-kHb';
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.split('-');
+    for (const glue of [(c, i) => `x${i}-${c}-y${i}`, (c, i) => `var_${c}_tmp${i}`]) {
+      const t = mask(chunks.map(glue).join(' then ') + '.').text;
+      for (const c of chunks) assert.ok(!t.includes(c), `a chunk glued on both sides survived: ${c}: ${t}`);
+      assert.ok(/x0-|var_/.test(t), 'the labels were masked with the chunks: ' + t);
+    }
+  } finally { setKnownSecrets([]); }
+});

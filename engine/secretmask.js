@@ -431,7 +431,7 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *  - a key whose FIRST chunk is one character (the short walk starts only from two or three);
  *  - a key both spaced one character at a time AND cut into short chunks with words between (the short walk reads
  *    the text, not the single-spacing copy the word walk also reads);
- *  - a short chunk glued to a label by + or / with no other glue (Zq8+part2);
+ *  - a short chunk glued to a label by + or / with no other glue (Zq8+part2; = - _ labels on either side are taken off);
  *  - anything that is hex (0-9 a-f only) cut into chunks under OPENING_LEN: the hex encodings of held values AND a
  *    held value that is itself hex (a raw hex token). Neither is walked short (see addWalked);
  *  - a first chunk of OPENING_LEN or more followed by chunks under it, once the text from the first chunk runs past
@@ -757,12 +757,9 @@ function shortPieces(run) {
   const out = new Set([run]);
   const trimmed = run.replace(/^[-+_/]+/, '').replace(/[-+_/]+$/, '');
   if (trimmed) out.add(trimmed);
-  for (const sep of ['=', '-', '_']) {
-    const k = trimmed.lastIndexOf(sep);
-    if (k > 0 && k < trimmed.length - 1) out.add(trimmed.slice(k + 1));   // a label before it (part-Zq8)
-    const h = trimmed.indexOf(sep);
-    if (h > 0 && h < trimmed.length - 1) out.add(trimmed.slice(0, h));    // a label after it (Zq8-part0, review round 2)
-  }
+  /* Every part between = - _ (review round 8: a label on BOTH sides, x0-Zq8-y0 or var_Zq8_tmp0, left only the labels
+     to try): a label before (part-Zq8), after (Zq8-part0, review round 2), or around it. */
+  if (/[=_-]/.test(trimmed)) for (const part of trimmed.split(/[=_-]+/)) if (part) out.add(part);
   return [...out];
 }
 /* A plain word or number, as ordinary text writes one: digits or an ordinal (2nd), or letters in one case shape
@@ -790,14 +787,15 @@ function shortChunkSpans(text) {
   /* Whether f from `at` to its end can be spelled from runs present in the text at all (a word break over `present`),
      once per form and start: a form the text cannot spell is never walked (review round 1: 2,000 held values each
      walked from every "0" in a long table withheld it). */
+  let budget = SHORT_WALK_BUDGET;   // declared before canSpell, which charges it
   const spellable = new Map();
   const viable = new Map();
-  const canSpell = (f, at) => {
-    const key = at + '|' + f;
+  const canSpell = (f, from) => {
+    const key = from + '|' + f;
     if (spellable.has(key)) return spellable.get(key);
     const ok = new Uint8Array(f.length + 1);
     ok[f.length] = 1;
-    for (let i = f.length - 1; i >= at; i -= 1) {
+    for (let i = f.length - 1; i >= from; i -= 1) {
       for (const l of lengths) {
         if (i + l > f.length || ok[i]) break;
         if (!ok[i + l]) continue;
@@ -806,11 +804,10 @@ function shortChunkSpans(text) {
       }
       if (budget < 0) break;
     }
-    spellable.set(key, ok[at] === 1);
-    return ok[at] === 1;
+    spellable.set(key, ok[from] === 1);
+    return ok[from] === 1;
   };
   let ns = null;
-  let budget = SHORT_WALK_BUDGET;
   /* Completed walks by form and the run they finished on: only the LATEST start is masked (review round 3: an earlier
      mention of the key's first characters walked through the prose between and masked a "1" and a "2" on the way;
      the word walk keeps the latest start for the same reason). */
