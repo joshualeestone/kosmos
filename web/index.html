@@ -3632,6 +3632,11 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
   /* The title stays an inline button, so a long one wraps like text on the line of its #12 (review: flex, and then
      inline-flex, pushed it below). Its tap area grows with padding, and an equal negative margin keeps the lines. */
   #panel-tasks .tsk-row .tl { padding-block: 13px; margin-block: -13px; }
+  /* Real room for those areas, so no two overlap (review round 2: the title's area ran under the project link, and
+     stacked agent pills' overlays overlapped; the later one won the tap and opened the wrong thing). The meta line
+     starts below the title's area, and stacked pills sit 22px apart so their 44px areas meet without overlapping. */
+  #panel-tasks .tsk-row .meta { margin-top: 13px; }
+  #panel-tasks .tsk-side { gap: 22px; }
   #panel-tasks details.tsk-fold summary { padding: 14px 0; }
   /* Drawn pills keep their look; an invisible overlay makes the tap area 44px tall. */
   #panel-tasks :is(.tsk-row .meta button.tsk-chip, .tsk-who) { position: relative; }

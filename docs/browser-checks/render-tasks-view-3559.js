@@ -194,7 +194,8 @@ function chk(ok, label, extra) {
       await page.evaluate(() => showTab('tasks'));
       await page.waitForFunction(() => document.querySelectorAll('#tsk-groups .tsk-row').length > 0, null, { timeout: 8000 });
       const m = await page.evaluate(() => {
-        const vis = (e) => e && e.getClientRects().length > 0 && !e.closest('[hidden]');
+        /* A shut <details> keeps its contents' boxes in Chromium without drawing them, so those do not count (only its summary shows). */
+        const vis = (e) => e && e.getClientRects().length > 0 && !e.closest('[hidden]') && !(e.closest('details:not([open])') && !e.closest('summary'));
         const box = (e) => { const r = e.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; };
         const fields = [...document.querySelectorAll('#panel-tasks :is(input:not([type=checkbox]):not([type=radio]), select, textarea)')]
           .filter(vis).map((e) => [e.id || e.className, parseFloat(getComputedStyle(e).fontSize)]);
@@ -209,9 +210,21 @@ function chk(ok, label, extra) {
         const lines = [...document.querySelectorAll('#tsk-groups .tsk-row')].filter(vis).map((r) => { const n = r.querySelector('.n'), tl = r.querySelector('.tl');
           if (!n || !tl) return null; const a = n.getBoundingClientRect(), b = tl.getBoundingClientRect(); const mid = (a.top + a.bottom) / 2; return mid >= b.top && mid <= b.bottom; }).filter((x) => x !== null);
         const searchW = Math.round(document.getElementById('tsk-search').getBoundingClientRect().width);
+        /* A size is not a tap: where two areas overlap the later one wins (review round 2). So tap the edges of each
+           area and see which control answers. */
+        const hitMiss = [];
+        for (const tl of [...document.querySelectorAll('#tsk-groups .tsk-row .tl')].filter(vis)) {
+          tl.scrollIntoView({ block: 'center' }); const r = tl.getBoundingClientRect(); const x = r.left + Math.min(r.width / 2, 24);
+          for (const y of [r.top + 2, r.bottom - 2]) { const e = document.elementFromPoint(x, y); if (!e || e.closest('[data-open-task]') !== tl) hitMiss.push(['title', tl.textContent.slice(0, 20), Math.round(y - r.top), e && (e.className || e.tagName)]); }
+        }
+        for (const w of [...document.querySelectorAll('#panel-tasks .tsk-who')].filter(vis)) {
+          w.scrollIntoView({ block: 'center' }); const r = w.getBoundingClientRect(); const x = r.left + r.width / 2, cy = (r.top + r.bottom) / 2;
+          for (const y of [cy - 20, cy + 20]) { const e = document.elementFromPoint(x, y); if (!e || e.closest('.tsk-who') !== w) hitMiss.push(['who', w.textContent.trim().slice(0, 12), Math.round(y - cy), e && (e.className || e.tagName)]); }
+        }
+        scrollTo(0, 0);
         const tlH = Math.max(0, ...[...document.querySelectorAll('#tsk-groups .tsk-row .tl')].filter(vis).map((e) => box(e)[1]));
         const hover = matchMedia('(hover: none)').matches;
-        return { hover, fields, targets, pills, lines, searchW, tlH, sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth };
+        return { hover, fields, targets, pills, lines, searchW, tlH, hitMiss, sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth };
       });
       if (label.startsWith('phone')) {
         chk(m.hover, `[${label}] the phone reports hover: none (so the touch rules apply)`, String(m.hover));
@@ -223,6 +236,7 @@ function chk(ok, label, extra) {
         chk(m.lines.length > 0 && m.lines.every(Boolean), `[${label}] each task title stays on the line of its task number (#4226 review)`, JSON.stringify(m.lines));
         chk(m.searchW >= 44, `[${label}] the collapsed search is 44px wide (#4226 review)`, String(m.searchW));
         chk(m.pills.length > 0 && m.pills.every(([, hit]) => hit >= 44), `[${label}] drawn pills keep their size and get a 44px tap overlay (#4226 review)`, JSON.stringify(m.pills));
+        chk(m.hitMiss.length === 0, `[${label}] a tap at the edge of each title's and each agent's 44px area lands on that control, not a neighbour (#4226 review)`, JSON.stringify(m.hitMiss.slice(0, 6)));
         chk(!m.sideways, `[${label}] no sideways scroll`, String(m.sideways));
       } else {
         const phoneSized = m.fields.filter(([, px]) => px >= 16);
