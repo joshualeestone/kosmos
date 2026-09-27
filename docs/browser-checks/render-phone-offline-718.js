@@ -128,7 +128,13 @@ const waitFor = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 9000
       chk(!OFFLINE.test(r.note + r.grid + r.pj), 'CONTROL B: an online phone is not told it is offline', (r.note + ' | ' + r.grid).slice(0, 160));
       // #718 state 2: through Kosmos+ it is the person's Mac, asleep or off, and a phone cannot open an Applications folder.
       chk(/Your Mac is not answering/.test(r.note) && /asleep or turned off/.test(r.note), 'S2: the note names the Mac and why', r.note.slice(0, 160));
-      chk(!MAC_BLAMED.test(r.note + r.grid) && !/Applications folder/.test(r.note), 'S2: no "this computer" and no desktop-only remedy on a phone', (r.note + ' | ' + r.grid).slice(0, 200));
+      chk(!/Applications folder/.test(r.note), 'S2: no desktop-only remedy on a phone', r.note.slice(0, 200));
+      // The card paints on its own poll: wait for it before reading what it says.
+      const carded = await waitFor(page, () => /We cannot read your agents/.test(((document.getElementById('grid') || {}).textContent || '') + ((document.getElementById('alist') || {}).textContent || '')));
+      const r2 = await read(page);
+      const hatch = await page.evaluate(() => /Already use Terminal/.test(((document.getElementById('grid') || {}).textContent || '') + ((document.getElementById('alist') || {}).textContent || '')));
+      chk(carded && /Something on your Mac did not answer/.test(r2.grid) && !MAC_BLAMED.test(r2.note + r2.grid), 'S2: the agents card names your Mac, not this computer', r2.grid.slice(0, 200));
+      chk(carded && !hatch, 'S2: no Terminal hatch for a person who is not at the Mac', r2.grid.slice(0, 120));
       await ctx.close();
     }
   } catch (e) {
