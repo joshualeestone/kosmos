@@ -225,21 +225,25 @@ function check(name, pass, detail) {
     /Created 3 agents/.test(kept.count) && kept.undo && kept.back && kept.focus === 'orgchart-undo' && removeCalls.length === 0,
     JSON.stringify({ kept, removeCalls }));
 
+  // Head of Sales is refused by its PLAN (asked first), so Remove them must not send it a DELETE.
+  plans = { 'head-of-sales': { ok: false, because: 'that agent is busy; try again in a moment' } };
   removal = {
-    'head-of-sales': { outcome: 'refused', because: 'that agent is busy; try again in a moment' },
     engineer: { outcome: 'partial', recorded: true, because: 'Engineer has been stopped, but something called engineer is still running.' },
   };
   await page.click('#orgchart-undo');
   await page.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
+  const goLabel = await page.evaluate(() => document.getElementById('orgchart-undo-go').textContent);
+  check('Remove them counts only the ones the engine will remove', /Remove these 2 agents/.test(goLabel), JSON.stringify(goLabel));
   await page.click('#orgchart-undo-go');
+  plans = {};
   await page.waitForFunction(() => /Removed/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 5000 });
   const undone = await page.evaluate(() => ({
     count: document.getElementById('orgchart-count').textContent,
     items: [...document.getElementById('orgchart-list').querySelectorAll('li')].map((li) => li.textContent),
     undo: { visible: !document.getElementById('orgchart-undo').hidden, text: document.getElementById('orgchart-undo').textContent },
   }));
-  check('Remove them asks the engine to remove exactly the three created agents, once each',
-    JSON.stringify(removeCalls.slice().sort()) === JSON.stringify(['engineer', 'head-of-sales', 'marketing-lead']),
+  check('Remove them asks the engine to remove the two it can, once each, and never the one its plan refused',
+    JSON.stringify(removeCalls.slice().sort()) === JSON.stringify(['engineer', 'marketing-lead']),
     JSON.stringify(removeCalls));
   check('Undo reports each answer: a partial the engine recorded counts as removed with its sentence, a refusal stays',
     /Removed 2 of 3/.test(undone.count)

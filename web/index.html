@@ -43006,7 +43006,7 @@ function orgchartUndoAsking(on) {
   const keep = document.getElementById('orgchart-undo-keep');
   const back = document.getElementById('orgchart-edit');
   const preview = document.getElementById('orgchart-preview');
-  if (go) { go.hidden = !on; go.disabled = false; }
+  if (go) { go.hidden = !on; if (!on) go.disabled = false; }   // asking decides its own enablement
   if (keep) keep.hidden = !on;
   if (back) back.hidden = on;
   if (preview) preview.disabled = on;
