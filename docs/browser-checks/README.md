@@ -67,6 +67,22 @@ from the moment it landed. (#1720 is this fix, not the incident.) Before you mov
 directory for it and read what each hit ASSERTS -- or run the browser gate, which
 is the only check that sees the page.
 
+## Which checks a page PR runs (#4119)
+
+The PR-time `browser-checks` job runs a fixed DOM-state allowlist, plus the checks
+the diff touches, named by `tools/bc-pr-select.js`: a check whose
+`// Browser-check-surface:` tokens or whose own queried ids and classes appear in the
+changed lines of `web/index.html`, and every check the PR edits. A check that judges
+the whole page rather than named elements (every field, every piece of text) can never
+be reached that way, so it says so on its first lines:
+
+    // Browser-check-scope: page
+
+and runs on every page change. `render-fields` and `contrast` carry it. Run the
+selector yourself to see what a branch will run, and why:
+
+    node tools/bc-pr-select.js origin/main HEAD
+
 ## The composition check
 
 `regress-a-night.js` is the odd one here and worth knowing about. Every other

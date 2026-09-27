@@ -1,3 +1,4 @@
+// Browser-check-scope: page  (#4119: it sweeps every field and control on the page, so it runs on any page change; tools/bc-pr-select.js)
 /**
  * The field and control invariants, measured in a real browser, in BOTH schemes.
  *

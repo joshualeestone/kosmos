@@ -155,9 +155,15 @@ jobs:
     # a hung run + further allowlist growth, without clipping an honest slow one. (The
     # FULL page-check suite never runs in this job; it runs at the cut's 3b and nightly
     # in browser-checks-full.yml, #2518.)
-    timeout-minutes: 40
+    # #4119: 60, up from 40. The selected checks add a measured median of about 9 min and a max
+    # of about 27 min to a ~7 min allowlist run; 40 would clip the largest page diffs.
+    timeout-minutes: 60
     steps:
+      # #4119: full history, so the selection step below can diff the PR against its merge
+      # base (base.sha...HEAD). A shallow clone has no merge base and the diff would fail.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       # Match test.yml's node pin: the checks boot node fixture servers, and the
       # suite is written for node 26 (the developer Macs). Drift arrives here as a
       # legible line rather than later as an unrelated red.
@@ -175,6 +181,31 @@ jobs:
       # needed. Idempotent, non-interactive -- CI-safe.
       - name: provision the pinned Playwright runtime (#1594)
         run: bash tools/provision-pw.sh
+      # #4119: tmux, as browser-checks-full.yml installs it (#3973). render-talk's reopen arm reads
+      # the real status.snapshot(), which throws without tmux; on the runner that read as a check
+      # failure every night until #4076. A selected render-talk needs it here too.
+      - name: 'install tmux (#3973, #4119)'
+        run: brew install tmux
+      # #4119: WHICH CHECKS THIS DIFF TOUCHES, beyond the fixed allowlist below. On 2026-09-26 two
+      # page PRs passed this job and broke a check outside the allowlist, found only at the 0.7.01
+      # cut (about 3 hours of release): #3985 broke render-talk, #4095 broke render-fields.
+      # tools/bc-pr-select.js names every check whose #2518 surface tokens, or whose own queried
+      # selectors, appear in the changed lines of web/index.html; every check marked
+      # `// Browser-check-scope: page` (it sweeps the whole page, so no selector reaches it); and
+      # every check the PR edits. Each is printed with its reason. Measured over the 40 page
+      # commits before this change, using the runner's own per-check times: median +20 checks,
+      # about +9 min; p90 about +14 min; max about +27 min. The full set is about 37 min.
+      # A selected check that goes red fails this job, like an allowlisted one: the point is that
+      # the PR author sees it, not the cut.
+      - name: 'the checks this page diff touches (tools/bc-pr-select.js, #4119)'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -o pipefail
+          node tools/bc-pr-select.js "$BASE_SHA" HEAD | tee "$RUNNER_TEMP/bc-selected.tsv"
+          names="$(cut -f1 "$RUNNER_TEMP/bc-selected.tsv" | tr '\n' ' ')"
+          echo "selected: $(wc -l < "$RUNNER_TEMP/bc-selected.tsv" | tr -d ' ') checks this diff touches"
+          echo "KOSMOS_BC_PR_SELECTED=$names" >> "$GITHUB_ENV"
       # The page gate itself, exactly as the cut runs it at 3b: strict version so a
       # drifted runtime is a hard stop, not a silent lie. Its exit code gates this
       # job -- non-zero fails the PR check, which is the whole point. 126/127 means
@@ -270,4 +301,12 @@ jobs:
             render-win32-board-copy
             render-fed-plus-gate
             render-waiting-badge-4025
-        run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
+        # #4119: the fixed allowlist PLUS the checks the selection step named, deduplicated. The
+        # driver's never-ran guard covers both: a named check that did not run reds the job.
+        run: |
+          extra=""
+          for n in ${KOSMOS_BC_PR_SELECTED:-}; do
+            case " $KOSMOS_BC_CI_ALLOWLIST $extra " in *" $n "*) ;; *) extra="$extra $n" ;; esac
+          done
+          echo "running the allowlist plus$( [ -n "$extra" ] && echo "$extra" || echo ' nothing else' )"
+          KOSMOS_BC_CI_ALLOWLIST="$KOSMOS_BC_CI_ALLOWLIST$extra" KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
