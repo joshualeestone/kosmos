@@ -109,6 +109,14 @@ test('editing a shared lib-*.js helper selects every check that requires it', ()
   assert.ok(!why.has('lib-sandbox-guard'), 'a helper is not a check and must not be named');
 });
 
+test('editing a fixture under docs/browser-checks/ selects every check that loads it', () => {
+  const users = sel.referrersOf('fixtures/agent-card.json');
+  assert.ok(users.includes('render-talk'), `render-talk loads fixtures/agent-card.json; found only ${users.join(' ')}`);
+  const why = sel.select('', ['fixtures/agent-card.json']);
+  assert.match((why.get('render-talk') || []).join(' '), /changed fixtures\/agent-card\.json/);
+  assert.equal(sel.select('', ['README.md']).size, 0, 'a file no check names selects nothing');
+});
+
 test('only a plain check name is ever emitted, since the workflow reads the list unquoted', () => {
   const why = sel.select('', ['render-talk', 'render-talk $(touch x)', 'a b']);
   assert.deepEqual([...why.keys()], ['render-talk']);

@@ -11,7 +11,8 @@
  * only, and reads the changed (+/-) lines.
  *
  * FIVE WAYS A CHECK IS SELECTED, each printed as its reason:
- *   `changed`  the PR edits the check's own file, or a `lib-*.js` helper the check requires.
+ *   `changed`  the PR edits the check's own file, a `lib-*.js` helper the check requires, or
+ *              another file under docs/browser-checks/ (a fixture) whose name the check's source uses.
  *   `surface`  its `// Browser-check-surface:` tokens (#2518), through
  *              `tools/bc-surface-map.sh covering`. Reused, not reimplemented, so the two cannot drift.
  *   `selector` an id or class the check's own source asks the page for appears whole-token in a
@@ -159,6 +160,16 @@ function requirersOf(lib) {
     .map((f) => f.slice(0, -3));
 }
 
+/* A changed file under docs/browser-checks/ that is not a check (a fixture) can break every check
+   that loads it; those are the checks whose source names it. */
+function referrersOf(rel) {
+  if (/\.md$/.test(rel) || rel === 'gated.txt') return []; // docs and the run list, not fixtures
+  const base = path.basename(rel);
+  return fs.readdirSync(CHECKS)
+    .filter((f) => f.endsWith('.js') && f !== rel && stripComments(fs.readFileSync(path.join(CHECKS, f), 'utf8')).includes(base))
+    .map((f) => f.slice(0, -3));
+}
+
 function select(diff, changedChecks = []) {
   const text = changedLines(diff);
   const can = runnable();
@@ -170,7 +181,8 @@ function select(diff, changedChecks = []) {
     why.get(name).push(reason);
   };
   for (const n of changedChecks) {
-    if (/^lib-/.test(n)) for (const r of requirersOf(n)) add(r, `changed ${n}`);
+    if (/[./]/.test(n)) for (const r of referrersOf(n)) add(r, `changed ${n}`);
+    else if (/^lib-/.test(n)) for (const r of requirersOf(n)) add(r, `changed ${n}`);
     else add(n, 'changed');
   }
   if (text) selectByPage(diff, text, add);
@@ -211,9 +223,11 @@ function main(argv) {
   let why;
   try {
     diff = git(['diff', `${base}...${head}`, '--', 'web/index.html']);
-    // A check the PR edits runs too: a changed assertion is only proven by running it.
+    // A check the PR edits runs too: a changed assertion is only proven by running it. A top-level
+    // .js is a check or lib by name; any other file is passed by its path under the directory.
     changedChecks = git(['diff', '--name-only', `${base}...${head}`, '--', 'docs/browser-checks/'])
-      .split('\n').map((f) => f.match(/^docs\/browser-checks\/([\w-]+)\.js$/)).filter(Boolean).map((m) => m[1]);
+      .split('\n').filter(Boolean).map((f) => f.replace(/^docs\/browser-checks\//, ''))
+      .map((f) => (/^[\w-]+\.js$/.test(f) ? f.slice(0, -3) : f));
     // The diff keeps its header, so bc-surface-map.sh file-scopes it as the gate does.
     why = select(diff, changedChecks);
   } catch (e) {
@@ -226,5 +240,5 @@ function main(argv) {
   return 0;
 }
 
-module.exports = { KNOWN_RED, isPageScoped, requirersOf, selectorsOf, namesOf, pageIndex, stripComments, hits, changedLines, runnable, select, PAGE_SCOPE };
+module.exports = { KNOWN_RED, isPageScoped, requirersOf, referrersOf, selectorsOf, namesOf, pageIndex, stripComments, hits, changedLines, runnable, select, PAGE_SCOPE };
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
