@@ -14,38 +14,45 @@ Every step says who can do it:
 Every step also says how to check it worked and how to undo it. Do the steps in order. A step
 that fails stops the list: undo it, fix the cause, and start that step again.
 
-Facts here were read from the code on 2026-09-24 (kosmos `main` at 8c4ca1d5, kosmos-relay `main` at
-50a846b). The Android facts were re-read later that day at kosmos `main` 677eacde (the last commit
-of #3644), and the asset-links facts at kosmos-relay `main` 6e2da95. The Android no-purchase
-item was read on 2026-09-25 at kosmos-relay `main` 879542d (live build `eac39e6`). "Where things
-stand today", step 3's status and step 5's asset-links item were re-read on 2026-09-25 against live
-build `59b0962` (kosmos #3764). Both repos move on, so treat the file and the name as what to search for, not the commit or the line.
+Facts here were re-read on 2026-09-27 from kosmos `main` at `1901b9e57`,
+kosmos-relay `main` at `ad43f2a0`, the live coordinator's `/v1/meta`, and the
+deploy rows on #3763. Both repos move on, so the named files and checks are
+the durable references. Commit ids say exactly what was checked this time.
 
 ## Where things stand today
 
-- **Production runs the code, but not the push settings.**
-  - Production runs build `59b0962` (`curl -s https://coordinator.kosmosplus.com/v1/meta`), which
-    contains kosmos-relay #103, #104 (the APNs routes, the APNs sender and the sign-in page's
-    session bridge) and #109 (the Digital Asset Links file for the Android app). Each was checked
-    with `git merge-base --is-ancestor <merge commit> 59b0962`.
-  - The settings are not there. `deploy/kosmos-coordinator.env.template` sets no `KOSMOS_PUSH`,
-    and its four `KOSMOS_APNS_*` lines are still commented out. The deploy that made `59b0962` live
-    (2026-09-25 15:17) measured the box's env identical to that template, 20 of 20 variables
-    (kosmos #3763).
-  - So today production **sends browser web push for real** (no `KOSMOS_PUSH=log`) and **refuses
-    every app registration** (`KOSMOS_APNS_BUNDLE_IDS` unset). Steps 2 and 3 are still to do.
-- **The tunnel's `mac-request` verb is merged** (kosmos-relay #103). The board needs it to turn
-  notifications on. No released Kosmos bundle carries it yet.
-- **The board ships with notifications locked off.**
-  - `PHONE_APP_CAN_RECEIVE` is `false` in `engine/phonenotify.js`.
-  - While it is false the Settings section is hidden, turning on is refused, and nothing is sent.
-- **The iOS app registers for notifications** (kosmos #3635) **and a tap opens the right Mac**
-  (kosmos #3642), both merged. Neither has run on a simulator or a phone yet; step 4 has the
-  simulator check.
-- **The Android app shows notifications under its own name** (kosmos #3644, Sonya, merged). It
-  opens `https://login.kosmosplus.com/` and delegates notifications to the app.
+- **The live coordinator is still build `660ef70`.** Its `/v1/meta` says so.
+  The #3763 queue says relay #169, #172, #173 and both halves of #174 are not
+  live. Relay #171 is also later than the live build. One coordinator deploy
+  from current relay `main` turns on compressed public pages, the full-screen
+  Android handoff, the tested push transport and pruning, and #174's
+  notification-tap routing. Relay #170's Mac-offline answer is relay-server
+  code, so it needs the separate relay deploy in Step 3c. Neither deploy ships
+  #174's `gate.html`, which is tunnel code and waits for the Mac release.
+- **Production web push is real, while APNs registration remains off.**
+  `coordinator/src/main.rs` selects `VapidSender` unless `KOSMOS_PUSH=log`.
+  The four APNs settings remain commented in
+  `deploy/kosmos-coordinator.env.template`, so `KOSMOS_APNS_BUNDLE_IDS` allows
+  no iOS app registration. Steps 2, 3 and 8 describe the separate APNs rollout.
+- **The next Mac/tunnel release has two jobs.** The tunnel must contain relay
+  #161's per-Mac asset links and #174's sign-in gate that preserves the waiting
+  agent. The board change in the same release flips `PHONE_APP_CAN_RECEIVE`.
+  It is still `false` in `engine/phonenotify.js`, so Settings stays hidden and
+  no released Mac can send phone events yet.
+- **Android vc3 is built and proven.** The signed `io.kosmos.app` versionCode 3,
+  versionName 0.1.2 APK is in Liu Kang's Files. Evidence in
+  `android/evidence/vc3-4165/` proves install over vc2, sign-in, offline Retry,
+  and a real notification with the Kosmos icon. Evidence in
+  `android/evidence/tap-agent-4171/` proves the APK opens the waiting agent.
+- **The iOS shell is implemented but has no signed phone build.** It registers
+  for notifications and routes a tap to the named Mac. Apple organisation,
+  signing and TestFlight steps remain in Steps 1 and 4.
 
 ## Step 1. Josh's decisions and keys [Josh]
+
+**Turns on after:** nothing by itself. These decisions and credentials are
+inputs to the coordinator env deploy in Steps 2 and 3 and the signed iOS build
+in Step 4.
 
 These have to exist before anything else. None of them is something an agent can create.
 
@@ -94,6 +101,9 @@ on the approval, and development keeps testing against Kano's mock APNs meanwhil
 record and its seller name cannot be undone, which is why item 2 is Josh's decision.
 
 ## Step 2. Put the APNs settings into the coordinator's env template [fleet]
+
+**Turns on after:** the coordinator deploy in Step 3. A Mac release or APK
+cannot supply these server settings.
 
 A kosmos-relay PR, reviewed like any other. The four `KOSMOS_APNS_*` lines are already in
 `deploy/kosmos-coordinator.env.template` as commented placeholders with no values (Kano, kosmos-relay
@@ -157,6 +167,15 @@ probably cannot sit under `/root` or `/home`, and the service user must be able 
 
 ## Step 3. Deploy the coordinator with sending held back [Josh]
 
+**Carries:** the coordinator portions of relay #169, #171, #172, #173 and
+#174, plus the APNs registration settings from Step 2. The #3763 rows are
+the deployment record. This does not carry relay #161 or #174's `gate.html`,
+because those are tunnel code for the Mac release in Steps 6 and 7.
+The content checks are `coordinator/src/lib.rs` for public-page compression,
+`coordinator/src/signin.html` for full-screen handoff behavior,
+`coordinator/src/push.rs` for real delivery and pruning, and
+`coordinator/src/sw.js` for notification-tap routing.
+
 **Not done yet.** The coordinator has been deployed several times since this doc was written, but
 always with the template as it stands, so no deploy so far has held sending back or turned on app
 registration. This step is the first deploy after step 2's template change.
@@ -206,7 +225,24 @@ No deploy step copies a key file, and the template only holds its path.
 - **Rehearsal:** `bash deploy/drill-rollback.sh` rehearses the binary restore against a copy of
   the database, read-only.
 
+### 3c. Deploy the relay's Mac-offline answer [Josh]
+
+Relay #170 changes `crates/relay/src/redirect.rs` and `crates/relay/src/serve.rs`,
+not the coordinator. A relay deploy from current relay `main` makes plain HTTP
+show the Kosmos “Mac is offline” answer when no tunnel is connected, instead
+of sending a dead redirect. It needs no env change or migration. This deploy
+does not alter the APK, Mac bundle or coordinator.
+
+**Check:** exercise one address with no connected Mac and confirm the plain
+HTTP response is the offline page; then confirm a connected Mac still receives
+the request. Relay #170's `crates/e2e/tests/http_redirect.rs` is the code-level
+control. Record the live build and rollback anchor on #3763 when deployed.
+
 ## Step 4. Get the iOS app onto testers' phones [Josh for signing and upload; fleet for the build]
+
+**Carries:** a signed TestFlight build. It turns on native APNs registration
+and tap handling on an iPhone after Step 3 allows the bundle id. It does not
+open the Mac's send lock or make Step 8's log-only coordinator send for real.
 
 **Done now, before Apple's approval (kosmos #4089):**
 - **The Team ID has one home, `ios/Signing.xcconfig`** (`DEVELOPMENT_TEAM`, empty today). The Xcode
@@ -275,36 +311,26 @@ No deploy step copies a key file, and the template only holds its path.
   - A TestFlight or App Store install should say `production`. That is reasoned from how Apple
     re-signs those builds, not yet measured.
 
-**Pre-go-live check on the simulator** [fleet, once Josh has installed the iOS simulator
-runtime with `xcodebuild -downloadPlatform iOS`]. The tap handler (kosmos #3642) has been built
-and its address check tested, but the part that loads the board has never run. Run it on a
-simulator before any real phone:
-- Deliver a notification with `xcrun simctl push <device> io.kosmos.app payload.json`, where
-  `payload.json` is `{"aps":{"alert":{"title":"Leo needs you","body":"in Kosmos"}},"address":"<mac>.kosmosplus.com","kind":"needs_you","id":"test:1"}`.
-- Four cases, each landing on `https://<mac>.kosmosplus.com/`:
-  1. a cold launch from the tap (app not running);
-  2. a tap with the app open;
-  3. the same payload pushed and tapped twice in a row, which should load the board both times;
-  4. a tap while the biometric lock shows, which should land on the board after unlocking. This
-     needs a test build with `KosmosConfig.requireBiometricUnlock` set to `true` (a constant,
-     `false` in the shipped app).
-- The device log shows `[Push] tapped notification opens <mac>.kosmosplus.com` for each.
-- A payload whose `address` is not a Mac under `kosmosplus.com` leaves the app where it is.
-
-**Check, on a phone with the TestFlight build:**
-1. Open the app and sign in on the coordinator page.
-2. Allow notifications.
-3. The coordinator log shows the registration. With sending still held back, a later event shows
-   `apns (log only, no key configured): would notify` in place of a real send.
+**On-device check:** use Sonya's single phone script on #4184,
+`android/phone-test-checklist.md`, once a signed iOS build exists. That script
+owns the user-visible sequence and screenshots. This guide only owns which
+deploy or release makes each capability available.
 
 **Undo:** expire the build in TestFlight. Nothing public has shipped.
 
 ## Step 5. Get the Android app onto testers' phones [Josh for the Play account, policy and deploys; fleet for the rest]
 
-Sonya owns these facts (her message of 2026-09-24).
+**Carries:** the signed vc3 APK, independently of a coordinator or Mac release.
+It is already in Liu Kang's Files. Installing it turns on the native launcher,
+browser warmup, native offline Retry page, Kosmos notification icon, and the
+agent deep-link receiver. Full-screen handoff and tap routing also require the
+coordinator deploy in Step 3; a signed-out deep link retaining its agent also
+requires the tunnel/Mac release in Steps 6 and 7.
 
-**Already on `main`:** notification delegation and the `https://login.kosmosplus.com/` launch URL
-(kosmos #3644).
+**Already on `main`:** notification delegation, the
+`https://login.kosmosplus.com/` launch URL, Kosmos icon resources and the
+waiting-agent receiver. `android/evidence/vc3-4165/` and
+`android/evidence/tap-agent-4171/` record the AVD proofs.
 
 **The coordinator serves the Digital Asset Links file** [code merged; Josh for the deploy]:
 - Where: `https://login.kosmosplus.com/.well-known/assetlinks.json`.
@@ -363,23 +389,19 @@ Android app by kosmos-relay #121 (five commits).
   to `var CAN_BUY_HERE = !IN_IOS_APP;` is not enough: #121's Android tests in
   `coordinator/tests/page/signin.test.js` would then fail. Once an Android build is on any Play
   track, this puts checkout back inside a Play-distributed app.
-- **Phone checks:** listed in kosmos-relay's plan `.claude/plans/android-no-purchase-718.md`
-  ("Weakest part"; after an undo, read it from history); the full tester script is card kosmos
-  #3699, to be corrected against a real phone.
+- **Phone checks:** use Sonya's #4184 script,
+  `android/phone-test-checklist.md`. Do not copy its sequence here.
 
 **Upload:** to Play's Internal testing track [Josh, or whoever he gives Console access].
 
-**Check:**
+**Artifact checks:**
 - `keytool -printcert -jarfile app-release.aab` shows the upload key's SHA-256. Sonya built and
   checked this AAB on the #3644 branch before it merged.
 - `curl -sS -D- https://login.kosmosplus.com/.well-known/assetlinks.json`: read the body, not
   just the 200.
 - Google's checker:
   `https://digitalassetlinks.googleapis.com/v1/statements:list?source.web.site=https://login.kosmosplus.com&relation=delegate_permission/common.handle_all_urls`.
-- On a phone: install, sign in, allow notifications (the prompt should be the app's, not
-  Chrome's). A push shows the Kosmos name and icon.
-- Mortals has an Android emulator (used for #3699) but no phone; install, notification and push
-  checks need a phone.
+- On a phone, follow #4184's `android/phone-test-checklist.md`.
 
 **Undo:**
 - Remove the testing release in Play Console.
@@ -388,6 +410,11 @@ Android app by kosmos-relay #121 (five commits).
   (see the no-purchase item above).
 
 ## Step 6. Rebuild the tunnel with `mac-request` [fleet builds; shipping it is Josh's tunnel release]
+
+**Carries:** relay #161's per-Mac Digital Asset Links and relay #174's
+`gate.html` deep-link preservation, as well as the already merged
+`mac-request` verb. Building prepares these changes; only the Mac release in
+Step 7 puts them on people's computers.
 
 This step is required before step 7, not optional housekeeping (Liu Kang posted the release order
 on #718, 2026-09-24).
@@ -400,10 +427,12 @@ rather than breaking them; a rebuilt tunnel is what turns #3626's fix on. The tu
 (`tools/build-kosmos-bundle.sh` takes `KOSMOS_TUNNEL_BIN`, default
 `~/work/kosmos-relay/dist/kosmos-tunnel`).
 
-**The copy on this machine is too old.** It was built from `9984170` and answers
-`unrecognized subcommand 'mac-request'`. A board release cut from it today would ship a tunnel
-that cannot turn notifications on. The board would then tell people "Kosmos on this computer
-needs an update before phone notifications can be turned on" (`engine/phonenotify.js`).
+**The prepared copy on Mortals is not current enough for this cut.** Its
+`dist/kosmos-tunnel.commit` is `1180088`, so it has `mac-request` and #161,
+but it predates #174's `gate.html`. Rebuild it from current relay `main` before
+the Mac cut. A released board with an older connector tells people “Kosmos on
+this computer needs an update before phone notifications can be turned on”
+(`engine/phonenotify.js`).
 
 **Command:** in kosmos-relay at `main`, `bash tools/build-tunnel-release.sh`, which writes
 `dist/kosmos-tunnel` plus `.commit` and `.sha256`.
@@ -427,6 +456,11 @@ needs an update before phone notifications can be turned on" (`engine/phonenotif
 **Undo:** nothing has shipped. The binary only reaches people inside a board release (step 7).
 
 ## Step 7. The board release that opens the lock [Josh signs off the release notes and the promote; fleet builds]
+
+**Carries:** the rebuilt tunnel from Step 6 and the Kosmos board change that
+sets `PHONE_APP_CAN_RECEIVE` to `true`. The coordinator deploy and APK do not
+open this lock. Until this Mac release is promoted, Macs expose no phone
+notification switch and send no phone events.
 
 **Code change, one kosmos PR:**
 - Flip `PHONE_APP_CAN_RECEIVE` to `true` in `engine/phonenotify.js`.
@@ -476,6 +510,10 @@ KOSMOS_CUT_CHANNEL=staging bash tools/release.sh <version>
 
 ## Step 8. Let the coordinator send [Josh]
 
+**Carries:** a second coordinator env deploy. This turns APNs delivery from
+log-only to real sending after the apps and Mac release are ready. It changes
+neither the APK nor the tunnel/Mac bundle.
+
 **Command:** in `deploy/kosmos-coordinator.env.template`, change `KOSMOS_PUSH=log` to
 `#KOSMOS_PUSH=` (declared unset), then redeploy with `INSTALL_ENV=1`.
 - Do not simply delete the line. The coverage check refuses an env that drops a var the box has,
@@ -497,26 +535,25 @@ stops once the service restarts.
 
 ## Step 9. Prove it end to end [fleet, with a person holding a phone]
 
-**Kano's pipeline check:**
-- The pipeline check lives in kosmos-relay (`docs/live-push-check.sh`, run as step 6 of
-  `docs/demo-runbook.md`). It proves Mac, to coordinator, to push service, to the screen, on a
-  local coordinator with Chrome web push.
-- It has no APNs part and does not touch production.
-- Kano is writing the end-to-end check for the app path in kosmos-relay `docs/`. Use his doc for
-  that; it is not repeated here.
+Use Sonya's #4184 script, `android/phone-test-checklist.md`, for the real
+phone sequence, pass conditions and screenshots. Do not maintain a second
+sequence here. Run only the portions whose carrier is live:
 
-**The live check, on the real services:**
-1. A Mac on the new board turns notifications on.
-2. A phone with the TestFlight or internal Android build is signed in to the same account.
-3. An agent on that Mac reports `needs_you`.
-4. The phone shows "<agent> needs you".
-5. Tapping it opens that Mac's board. If the app has not been signed in to that Mac before, the
-   Mac's own sign-in gate appears instead.
-6. Turning notifications off on the Mac stops the next one.
+- vc3 artifact steps after installing the APK from Liu Kang's Files;
+- coordinator-dependent steps after Step 3's deploy;
+- signed-out agent preservation after Steps 6 and 7's Mac/tunnel release;
+- real delivery after Step 8.
+
+The relay's `docs/live-push-check.sh` remains a local Chrome web-push pipeline
+check. It has no APNs part and does not replace #4184's phone script.
 
 **Undo:** step 8's undo stops all sending.
 
 ## Step 10. Public app releases [Josh]
+
+**Carries:** the already tested phone shell to public App Store or Play users.
+Most page behavior still arrives through coordinator deploys, and Mac-side
+notification behavior still arrives through Kosmos releases.
 
 - **iOS:** App Store review and release. A phased release can be paused in App Store Connect.
 - **Android:** Production track, as a staged rollout (for example 10%). First, Josh reads the Play
@@ -528,12 +565,14 @@ stops once the service restarts.
 
 ## Known gaps (not decided here)
 
-- **A tapped Android notification opens the Mac's own address**
-  (`https://<mac>.kosmosplus.com/`). Only `login.kosmosplus.com` is the app's verified origin, so
-  the Mac's page opens with a URL bar. That is the undecided half of #2854 (Splinter and Josh).
+- **Phone notification sending is still locked off on the Mac.** This is a
+  release gate, not missing implementation: `PHONE_APP_CAN_RECEIVE` remains
+  `false` in `engine/phonenotify.js`. Step 7 names the release that changes it.
+- **Relay #175 is not on relay `main` as of this check.** Relay #173 validates
+  base64url and the P-256 point, but #175's exact 16-byte auth-secret rule does
+  not ride a coordinator deploy until that PR merges. Re-read relay `main`
+  before Step 3 rather than treating the card title as shipped code.
 - **iOS shows no Approve or Deny buttons on a notification** (#3870). They were registered but
   nothing carried the choice to the Mac, so they are hidden for the first store submission.
   Building them for real needs an authenticated call from the phone to the Mac, a ruling on
   whether Face ID is required, and the Mac saying whether a `needs_you` is a permission prompt.
-- **One coordinator doc is out of date.** kosmos-relay `docs/coordinator-api.md` still says web
-  push goes to "a PushSender that tonight logs". `coordinator/src/main.rs` sends for real.
