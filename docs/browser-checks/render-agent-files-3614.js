@@ -10,8 +10,8 @@
  *    "Open in Finder" there (#3757: it moved to the Files screen),
  *  - #3757: an agent with no files shows no Files section at all (no empty sentence),
  *  - #3757: View All shows at the right of the "Files" header and opens the Files screen, which lists
- *    them all with Open in Finder; #3994: it shows with ANY file, even one (Una), not only when there
- *    are more than the list shows (10),
+ *    them all with Open in Finder on a computer; #4088 hides that computer-side action on a phone;
+ *    #3994: View All shows with ANY file, even one (Una), not only when there are more than the list shows (10),
  *  - clicking a row reaches the opener with that file (the opener is stubbed, nothing opens),
  *  - "Open in Finder" makes the folder on first use and reaches the opener with it,
  *  - #3757: the nav's labels are the agent title's size (#d-meta), and its boxes are shorter,
@@ -212,7 +212,9 @@ function chk(ok, label, extra) {
           return { screen: vis(document.getElementById('d-sec-files')), rows: document.querySelectorAll('#d-filesall-list .pj-doc').length,
             finder: vis(document.getElementById('d-files-finder')) };
         });
-        chk(oneSc.screen && oneSc.rows === 1 && oneSc.finder, `${tag} #3994: View All with one file opens the Files screen, with Open in Finder`, JSON.stringify(oneSc));
+        const finderExpected = width > 640;
+        chk(oneSc.screen && oneSc.rows === 1 && oneSc.finder === finderExpected,
+          `${tag} #3994/#4088: View All with one file opens the Files screen, with the computer-side Finder action hidden only on phone`, JSON.stringify(oneSc));
         if (theme === 'light' && width === 1400) await shot(page1, '3994-one-file-files-screen');
       }
       await page1.close();
@@ -256,7 +258,9 @@ function chk(ok, label, extra) {
           title: (document.getElementById('d-filesall-h') || {}).textContent, focus: document.activeElement && document.activeElement.id,
           rowHeights, backBox: { width: Math.round(back.width), height: Math.round(back.height) } };
       });
-      chk(sc.screen && !sc.talk && sc.rows === 14 && sc.finder && sc.title === 'Files', `${tag} #3757: View All opens the Files screen: every file, and Open in Finder`, JSON.stringify(sc));
+      const finderExpected = width > 640;
+      chk(sc.screen && !sc.talk && sc.rows === 14 && sc.finder === finderExpected && sc.title === 'Files',
+        `${tag} #3757/#4088: View All opens every file, with the computer-side Finder action hidden only on phone`, JSON.stringify(sc));
       chk(sc.focus === 'd-sec-files', `${tag} #3757: focus moves to the Files screen`, JSON.stringify(sc));
       if (width === 412) {
         chk(sc.rowHeights.length === 14 && sc.rowHeights.every((h) => h >= 44), `${tag} #718: every Files-screen row is at least 44px tall`, JSON.stringify(sc));
