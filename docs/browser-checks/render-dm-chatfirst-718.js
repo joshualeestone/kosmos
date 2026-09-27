@@ -17,7 +17,7 @@
  *   - while typing the thread still shows some conversation, focus on Post does not bring the
  *     header back, and searching keeps the search row while the rest steps aside;
  *   - on any touchscreen past the phone width (a phone turned sideways, a tablet) the search box and
- *     the text box are 16px and the search row is at least 44px (48 since #4108); a mouse at 1280 keeps 13px and 15px;
+ *     the text box are 16px and the search row is 44px; a mouse at 1280 keeps 13px and 15px;
  *   - and at 800 and 1280 the Talk section keeps its stacked or side-by-side layout: the body is
  *     not locked, the 800px page still scrolls, and the tiles keep their box layout.
  *   - the visualViewport listener itself, driven through a stubbed window.visualViewport: the
