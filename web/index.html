@@ -13378,6 +13378,11 @@ window.kosmosMeasureScrollbarWidth();
           <div class="importrow">
             <button class="btn uprime" type="button" id="orgchart-create">Create the team</button>
             <button class="btn" type="button" id="orgchart-edit">Back to the list</button>
+            <!-- #1280: the bulk create's undo (Josh: "a preview with a count before it
+                 commits, and an undo"). Shown only after a create made something. -->
+            <button class="btn" type="button" id="orgchart-undo" hidden></button>
+            <button class="btn uprime" type="button" id="orgchart-undo-go" hidden>Remove them</button>
+            <button class="btn" type="button" id="orgchart-undo-keep" hidden>Keep them</button>
           </div>
         </div>
         <p class="rolelimit" id="orgchart-msg" role="status" aria-live="polite" hidden></p>
@@ -42834,6 +42839,14 @@ let ORGCHART_PARSED = null;
    on any mode change (pickMode) so a late /api/team response cannot yank the
    screen after the operator switched away or reopened the form. */
 let ORGCHART_GEN = 0;
+/* #1280: the agents the last Create made ({ name, shownAs }), which is exactly what
+   Undo removes: never a re-read of the board, so Undo cannot reach an agent this
+   run did not create. Emptied by a fresh preview or a closed panel. */
+let ORGCHART_CREATED = [];
+// The create's result as painted, so Keep them can put it back exactly (refused rows and all).
+let ORGCHART_RESULT = null;
+// True while /api/team is answering: Preview waits, so a late create result is never thrown away.
+let ORGCHART_CREATING = false;
 
 /* The derived-name length ceiling. It MIRRORS engine/create.nameProblem's 32-char
    cap (engine/create.js) so a client-derived candidate is not rejected for length
@@ -42844,6 +42857,7 @@ const ORGCHART_NAME_MAX = 32;
 
 function resetOrgchartPreview() {
   ORGCHART_PARSED = null;
+  ORGCHART_GEN += 1;   // an Undo still asking or removing must not paint over what comes next
   const box = document.getElementById('orgchart-preview-box');
   if (box) box.hidden = true;
   const list = document.getElementById('orgchart-list');
@@ -42854,6 +42868,10 @@ function resetOrgchartPreview() {
   if (msg) { msg.textContent = ''; msg.hidden = true; }
   const create = document.getElementById('orgchart-create');
   if (create) create.disabled = false;
+  ORGCHART_CREATED = [];
+  const undo = document.getElementById('orgchart-undo');
+  if (undo) { undo.hidden = true; undo.disabled = false; }
+  orgchartUndoAsking(false);
 }
 
 /* A title (or a person's name, when opted in) into a machine name the engine
@@ -42933,6 +42951,7 @@ function parseOrgchart(text, useNames) {
 }
 
 document.getElementById('orgchart-preview').addEventListener('click', () => {
+  if (ORGCHART_CREATING) return;
   const rows = parseOrgchart(
     document.getElementById('orgchart-text').value,
     document.getElementById('orgchart-usenames').checked,
@@ -42955,6 +42974,11 @@ document.getElementById('orgchart-preview').addEventListener('click', () => {
       + (r.person ? ' <span class="dhint">named ' + esc(r.person) + '</span>' : '')
       + ' <span class="dhint">&rarr; ' + esc(r.name) + '</span></li>').join('');
   document.getElementById('orgchart-create').disabled = false;
+  // A new preview is a new batch: the last run's Undo no longer applies to this screen.
+  ORGCHART_GEN += 1;
+  ORGCHART_CREATED = [];
+  document.getElementById('orgchart-undo').hidden = true;
+  orgchartUndoAsking(false);
   box.hidden = false;
 });
 
@@ -42981,6 +43005,9 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
     + (ORGCHART_PARSED.length === 1 ? ' agent…' : ' agents…');
   const members = ORGCHART_PARSED.map((r) => ({ name: r.name, role: 'own', label: r.label }));
   let result = null;
+  const previewBtn = document.getElementById('orgchart-preview');
+  ORGCHART_CREATING = true;
+  previewBtn.disabled = true;
   try {
     const res = await fetch('/api/team', {
       method: 'POST',
@@ -42988,7 +43015,9 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
       body: JSON.stringify({ creator: 'operator', purpose: 'Imported from an org chart', members }),
     });
     result = await res.json().catch(() => null);
+    ORGCHART_CREATING = false; previewBtn.disabled = false;
   } catch (err) {
+    ORGCHART_CREATING = false; previewBtn.disabled = false;
     if (gen !== ORGCHART_GEN) return;   // superseded during the fetch
     btn.disabled = false;
     msg.hidden = false;
@@ -43040,6 +43069,176 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
      more, "Back to the list" reopens the paste box; editing and re-previewing
      arms a fresh parse. */
   btn.disabled = true;
+  ORGCHART_CREATED = created.filter((c) => c && c.name).map((c) => ({ name: String(c.name), shownAs: c.shownAs || c.name }));
+  ORGCHART_RESULT = { count: countEl.textContent, list: listEl.innerHTML };
+  showOrgchartUndo();
+});
+
+function showOrgchartUndo() {
+  const undo = document.getElementById('orgchart-undo');
+  const n = ORGCHART_CREATED.length;
+  undo.hidden = n === 0;
+  undo.disabled = false;
+  undo.textContent = n === 1 ? 'Undo: remove this agent' : 'Undo: remove these ' + n + ' agents';
+}
+
+/* While Undo is asking or removing, the other buttons in the row step aside: Back to the list
+   would hide the box mid-run and leave the answers unseen. */
+function orgchartUndoAsking(on) {
+  const go = document.getElementById('orgchart-undo-go');
+  const keep = document.getElementById('orgchart-undo-keep');
+  const back = document.getElementById('orgchart-edit');
+  const preview = document.getElementById('orgchart-preview');
+  if (go) { go.hidden = !on; if (!on) go.disabled = false; }   // asking decides its own enablement
+  if (keep) keep.hidden = !on;
+  if (back) back.hidden = on;
+  if (preview) preview.disabled = on;
+}
+
+// Each agent's removal plan from the engine (GET /api/agent/:name/removal), keyed by name.
+let ORGCHART_UNDO_PLANS = {};
+
+/* #1280 (Liu Kang m1601): before it acts, Undo names every agent it will remove and how many,
+   the way the preview counts before a create. The list is ORGCHART_CREATED only, so an agent
+   that existed before the import (refused as taken by create.createAgent) is never on it.
+   What removal keeps and loses is the engine's own words from its plan, as the Remove dialog
+   shows them; a plan that refuses shows its reason here, before anything is pressed. */
+/* The ask states one agent's keeps and loses for all (the first plan the engine answered).
+   A plan whose loses differ (an agent Kosmos cannot start again) says so on its own row. */
+let ORGCHART_FIRST_PLAN = null;
+function orgchartLosesDiffer(plan) {
+  if (!ORGCHART_FIRST_PLAN || !Array.isArray(plan.loses)
+    || JSON.stringify(plan.loses) === JSON.stringify(ORGCHART_FIRST_PLAN.loses)) return '';
+  return ' <span class="dhint">this one loses: ' + esc(plan.loses.join('; ')) + '</span>';
+}
+
+async function orgchartUndoAsk() {
+  const n = ORGCHART_CREATED.length;
+  if (!n) return;
+  const gen = ORGCHART_GEN;
+  const undo = document.getElementById('orgchart-undo');
+  const countEl = document.getElementById('orgchart-count');
+  const listEl = document.getElementById('orgchart-list');
+  const msg = document.getElementById('orgchart-msg');
+  undo.disabled = true;
+  document.getElementById('orgchart-preview').disabled = true;
+  document.getElementById('orgchart-edit').hidden = true;
+  countEl.textContent = 'Checking ' + (n === 1 ? 'the agent…' : 'the ' + n + ' agents…');
+  const plans = {};
+  // Read-only, so asked together (the removals themselves go one at a time).
+  const answers = await Promise.all(ORGCHART_CREATED.map((c) =>
+    fetch('/api/agent/' + encodeURIComponent(c.name) + '/removal', { cache: 'no-store' })
+      .then((res) => res.json().catch(() => null), () => null)));
+  if (gen !== ORGCHART_GEN) return;
+  ORGCHART_CREATED.forEach((c, i) => { plans[c.name] = answers[i]; });
+  ORGCHART_FIRST_PLAN = ORGCHART_CREATED.map((c) => plans[c.name]).find((p) => p && p.ok === true) || null;
+  ORGCHART_UNDO_PLANS = plans;
+  countEl.textContent = 'Undo will remove '
+    + (n === 1 ? 'this agent, the one this import made:' : 'these ' + n + ' agents, the ones this import made:');
+  listEl.innerHTML = ORGCHART_CREATED.map((c) => {
+    const plan = plans[c.name];
+    const note = plan && plan.ok === false
+      ? ' <span class="dhint">cannot be removed: ' + esc(plan.because || plan.error || 'no reason given') + '</span>'
+      : plan && plan.ok === true ? orgchartLosesDiffer(plan)
+      : ' <span class="dhint">we could not check this one first' + (plan && plan.error ? ': ' + esc(plan.error) : '') + '</span>';
+    return '<li>' + esc(c.shownAs) + ' <span class="dhint">&rarr; ' + esc(c.name) + '</span>' + note + '</li>';
+  }).join('');
+  const first = ORGCHART_FIRST_PLAN;
+  const canAny = ORGCHART_CREATED.some((c) => !(plans[c.name] && plans[c.name].ok === false));
+  msg.hidden = false;
+  msg.textContent = !canAny ? 'None of these can be removed right now.'
+    : 'Any that is working now stops.'
+      + (first && first.reassurance ? ' ' + first.reassurance : '')
+      + (first && Array.isArray(first.keeps) ? ' Each keeps: ' + first.keeps.join('; ') + '.' : '')
+      + (first && Array.isArray(first.loses) ? ' Each loses: ' + first.loses.join('; ') + '.' : '');
+  undo.hidden = true;
+  orgchartUndoAsking(true);
+  const go = document.getElementById('orgchart-undo-go');
+  const willRemove = ORGCHART_CREATED.filter((c) => !(plans[c.name] && plans[c.name].ok === false));
+  go.textContent = !willRemove.length ? 'Nothing to remove'
+    : willRemove.length === 1 ? 'Remove ' + willRemove[0].shownAs : 'Remove these ' + willRemove.length + ' agents';
+  go.disabled = !canAny;
+  document.getElementById('orgchart-undo-keep').textContent = n === 1 ? 'Keep ' + ORGCHART_CREATED[0].shownAs : 'Keep them';
+  document.getElementById('orgchart-undo-keep').focus();
+}
+
+document.getElementById('orgchart-undo').addEventListener('click', orgchartUndoAsk);
+
+document.getElementById('orgchart-undo-keep').addEventListener('click', () => {
+  orgchartUndoAsking(false);
+  const msg = document.getElementById('orgchart-msg');
+  msg.textContent = ''; msg.hidden = true;
+  if (ORGCHART_RESULT) {
+    document.getElementById('orgchart-count').textContent = ORGCHART_RESULT.count;
+    document.getElementById('orgchart-list').innerHTML = ORGCHART_RESULT.list;
+  }
+  showOrgchartUndo();
+  document.getElementById('orgchart-undo').focus();
+});
+
+/* #1280: Remove them, pressed after orgchartUndoAsk named the agents. One at a time through the
+   board's own removal (DELETE /api/agent/:name/removal). An engine `partial` can mean removed
+   but still running, or not removed at all, so after the run the removed list decides: an agent
+   on it counts as removed (with the engine's sentence when it had one), and only one that is not
+   is offered again. If the panel is left mid-run the loop stops sending and paints nothing; what
+   it already removed shows under Show removed agents. */
+document.getElementById('orgchart-undo-go').addEventListener('click', async () => {
+  if (!ORGCHART_CREATED.length) return;
+  const gen = ORGCHART_GEN;
+  const countEl = document.getElementById('orgchart-count');
+  const listEl = document.getElementById('orgchart-list');
+  const msg = document.getElementById('orgchart-msg');
+  const todo = ORGCHART_CREATED.slice();
+  document.getElementById('orgchart-undo-go').disabled = true;
+  document.getElementById('orgchart-undo-keep').hidden = true;
+  countEl.textContent = 'Removing ' + todo.length + (todo.length === 1 ? ' agent…' : ' agents…');
+  const answers = [];
+  for (const c of todo) {
+    const plan = ORGCHART_UNDO_PLANS[c.name];
+    if (plan && plan.ok === false) {   // the engine already said no: do not ask it again
+      answers.push({ c, out: { outcome: 'refused', because: plan.because || plan.error }, reached: true });
+      continue;
+    }
+    let out = null;
+    let reached = true;
+    try {
+      const res = await fetch('/api/agent/' + encodeURIComponent(c.name) + '/removal', { method: 'DELETE' });
+      out = await res.json().catch(() => null);
+    } catch (err) { reached = false; }
+    if (gen !== ORGCHART_GEN) { if (typeof paintRemoved === 'function') paintRemoved(); return; }
+    answers.push({ c, out, reached });
+  }
+  let onList = null;   // null: the removed list could not be read, so only `removed` counts
+  try {
+    const res = await fetch('/api/removed', { cache: 'no-store' });
+    const body = res.ok ? await res.json().catch(() => null) : null;
+    if (body && Array.isArray(body.agents)) onList = new Set(body.agents.map((a) => a && a.name));
+  } catch (err) { onList = null; }
+  if (gen !== ORGCHART_GEN) return;
+  const rows = answers.map(({ c, out, reached }) => {
+    const clean = Boolean(out && out.outcome === 'removed');
+    // A clean removal's `because` only repeats that it was removed; any other answer is worth reading.
+    const said = clean ? '' : ((out && (out.because || out.error)) || '');
+    const done = clean || Boolean(onList && onList.has(c.name));
+    return { c, done, said: said || (done ? '' : (reached ? 'Kosmos did not answer in a way we could read' : 'we could not reach Kosmos')) };
+  });
+  const left = rows.filter((r) => !r.done).map((r) => r.c);
+  ORGCHART_CREATED = left;
+  orgchartUndoAsking(false);
+  msg.textContent = ''; msg.hidden = true;
+  const removed = rows.length - left.length;
+  countEl.textContent = !left.length
+    ? 'Removed ' + removed + (removed === 1 ? ' agent.' : ' agents.')
+      + ' Nothing was deleted: Show removed agents on your board puts any of them back.'
+    : 'Removed ' + removed + ' of ' + rows.length + '. '
+      + left.length + (left.length === 1 ? ' is still on your board:' : ' are still on your board:');
+  listEl.innerHTML = rows.map((r) => '<li>' + esc(r.c.shownAs) + ' <span class="dhint">'
+    + (r.done ? 'removed' + (r.said ? ', but ' + esc(r.said) : '') : 'not removed: ' + esc(r.said)) + '</span></li>').join('');
+  ORGCHART_RESULT = { count: countEl.textContent, list: listEl.innerHTML };
+  showOrgchartUndo();
+  const undo = document.getElementById('orgchart-undo');
+  (undo.hidden ? document.getElementById('orgchart-edit') : undo).focus();
+  if (typeof paintRemoved === 'function') paintRemoved();
 });
 
 /* 🛑 THE ARROW-KEY HANDLER THAT WAS HERE IS DELETED, and nothing replaced it.
