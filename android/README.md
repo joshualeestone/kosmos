@@ -328,10 +328,12 @@ push through a local coordinator was posted by `io.kosmos.app` with the Kosmos i
 (#4151; `evidence/notif-icon-4151/`). No push has been shown on a physical phone yet,
 and delegation needs the coordinator to serve `assetlinks.json` (above).
 
-**Where a tap goes (open, not decided here).** The coordinator's `sw.js` opens
-`https://<mac-name>.kosmosplus.com/` on a tap, the person's own Mac, which is a
-different origin from `login.kosmosplus.com`. Per-Mac origins cannot be listed in
-this app's verified set (one subdomain per user, and Digital Asset Links has no
-wildcards), so that page is expected to open with a URL bar or in a browser tab
-rather than as the bare app. Expected, not yet measured on a device. This is the same undecided half of #2854 as how the board is shown
-after sign-in, and it stays with the relay architecture decision.
+**Where a tap goes.** Today the coordinator's `sw.js` opens the person's own Mac,
+`https://<mac-name>.kosmosplus.com/?tab=detail&agent=<session>`, in a browser window with a URL
+bar, because Chrome owns the tap: `notificationclick` runs in Chrome and calls
+`clients.openWindow`, which carries none of this app's nonce, so the address opens in plain Chrome
+(#4140). Measured on the API 35 Moto emulator on 2026-09-27. kosmos-relay #174 (merged, live with
+the next coordinator deploy and, for its Mac half, the next Mac release) sends the tap through this
+app instead: the sign-in page opens in the app, and "Open my Kosmos" hands the address and agent to
+`OpenAddressActivity`, which should open it full screen. The URL it opens is measured (#4171;
+`evidence/tap-agent-4171/`); the full-screen board is not yet seen on a device.

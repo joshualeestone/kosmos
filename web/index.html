@@ -9798,15 +9798,22 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-talk-box .composerbox .attachbtn,
   #d-talk-box .composerbox #d-emoji-btn { width: 44px; height: 44px; }
   #d-talk-box .composerbox .cpost { min-height: 44px; min-width: 64px; }
-  #d-talk-box .composerbox .cinput { font-size: 16px; min-height: 44px; }   /* a 44px target (Raiden's #718 re-sweep) */
+  /* #4108: 48px, Android's comfortable target (Josh's Moto is 360 wide), and the project room's
+     message box and search the same. The room box's @-mention mirror is sized to it at paint time. */
+  #d-talk-box .composerbox .cinput { font-size: 16px; min-height: 48px; }
+  #pj-post, #pj-room-search { min-height: 48px; }
+  /* The searches sit in a bordered .tsearch pill with 4px of padding above and below: at 48px the
+     input would make a 58px pill. The pill drops its vertical padding here, so it is the input's
+     48px plus its 1px border (50), and the conversation keeps its room. */
+  #d-talk-search-wrap.tsearch, .pjmidhead .tsearch:has(#pj-room-search) { padding-top: 0; padding-bottom: 0; }
   /* The compact header above already names the agent, so the "Direct Message to <name>"
      caption would say it twice; the search takes the row. Hidden visually only, so the
      conversation keeps its heading for screen-reader heading navigation. */
   #d-talk-box .d-talk-caprow { margin-bottom: 6px; }
   #d-talk-box #d-talk-label { position: absolute; width: 1px; height: 1px; overflow: hidden;
     clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
-  #d-talk-box .d-talk-caprow #d-talk-search-wrap { flex: 1 1 auto; min-height: 44px; }
-  #d-talk-box #d-talk-search { min-height: 44px; }
+  #d-talk-box .d-talk-caprow #d-talk-search-wrap { flex: 1 1 auto; min-height: 48px; }
+  #d-talk-box #d-talk-search { min-height: 48px; }
   /* 16px or iOS zooms the page when the search box takes focus (as for the composer above). */
   #d-talk-box #d-talk-search { font-size: 16px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back { margin: 4px 0 0; min-height: 44px; }
@@ -9858,8 +9865,11 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    takes focus. (hover: none) is the room's touch query (PJ_TOUCH_MQ); a mouse keeps the desktop sizes. */
 @media (hover: none) {
   #d-talk-box .composerbox .cinput, #d-talk-box #d-talk-search { font-size: 16px; }
-  #d-talk-box #d-talk-search-wrap { min-height: 44px; }
-  #d-talk-box #d-talk-search { min-height: 44px; }
+  /* #4108: 48 as in the phone block above; this block comes later, so it would otherwise win there.
+     So a touch tablet gets the 48px agent search too; the message boxes and the room's pair stay 48
+     only at phone width, deliberately (the card is the phone). */
+  #d-talk-box #d-talk-search-wrap { min-height: 48px; }
+  #d-talk-box #d-talk-search { min-height: 48px; }
   /* #3916: the Instructions pill also owns Skills. Keep both editors out of iOS focus zoom
      and their actions thumb-sized when a phone is sideways or the screen is a touch tablet. */
   #d-sec-instr textarea,
@@ -22637,7 +22647,10 @@ async function paintAccounts(opts) {
     const workingWhy = fromCheck
       ? 'This sign-in answered a check by Kosmos recently' + (ageStr ? ' (' + ageStr + ')' : '') + ', so it is working.'
       : 'a real request on this account succeeded recently' + (ageStr ? ' (' + ageStr + ')' : '') + '. This is an observed outcome, not a probe.';
-    const rejectedWhy = 'a real request on this account was rejected' + (ageStr ? ' (' + ageStr + ')' : '') + '. The sign-in needs renewing.';
+    /* #4139 follow-up: Claude's Check now records a refusal too, and that was a check, not an agent's request. */
+    const rejectedWhy = fromCheck
+      ? 'This sign-in was refused when Kosmos checked it' + (ageStr ? ' (' + ageStr + ')' : '') + '. The sign-in needs renewing.'
+      : 'a real request on this account was rejected' + (ageStr ? ' (' + ageStr + ')' : '') + '. The sign-in needs renewing.';
     // #3136 (Josh, 6.68): the PILL now reads a neutral "Signed in" (Josh saw "not recently
     // checked" and read it as "not connected" though he was). The "not verified live" nuance
     // moves here, into the tooltip, and nudges toward the "Check now" button beside the badge
@@ -60818,6 +60831,19 @@ let TIPS_STARTED = false;
    querySelector calls each time. */
 const TIPS_CHECK_MS = 1200;
 let TIP_PLACES = [];            // the tour's steps whose place is on screen
+/* tipPlace's spacing: the card's gap from what it points at, and its distance from the window's edge. Named once so
+   the tour's make-room step (#4108, tipTourRender) asks for exactly the room tipPlace needs. */
+const TIP_GAP = 12, TIP_PAD = 12;
+/* The make-room step's extra room: a place's top is fractional, and without these 4px the card measured a fraction of a
+   pixel short at 375 (#4108). Measured, not derived. */
+const TIP_ROOM_SLACK = 4;
+/* The first SHOWING match for a tip's selector (several layouts can carry it; only one shows). tipPlace places against
+   it, and the tour's make-room step measures the same element. */
+function tipTarget(sel) {
+  try {
+    return sel ? [...document.querySelectorAll(sel)].find((x) => { const r = x.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !x.closest('[hidden]'); }) || null : null;
+  } catch { return null; }   // :has() in an older webview
+}
 let TIP_STEP = 0;               // the tour step showing
 let TIP_AUTO = false;           // the open tip showed by itself
 /* var, not let: the status handler (tick, far above) writes this, and a let would only be safe for as
@@ -61048,9 +61074,30 @@ function tipTourRender(card, auto) {
     tipTourRender(card, false);
   });
   /* A step whose place is below the fold (a short window) is brought into view once, as the step opens. */
-  if (st && st.sel) { try { document.querySelector(st.sel)?.scrollIntoView({ block: 'nearest' }); } catch { /* an older webview */ } }
+  const stepEl = st && st.sel ? tipTarget(st.sel) : null;
+  if (stepEl) { try { stepEl.scrollIntoView({ block: 'nearest' }); } catch { /* an older webview */ } }
   tipAnnounce(card);
   tipLayout(TIP_OPEN, card);
+  /* #4108: a place that nearly fills the window (a project's Conversation on a phone) can leave the card no room above
+     or below it by a few pixels, and the card then goes flat, pointing at nothing. Scroll the window up just enough for
+     the card to sit above it, and place it again (tipPlace measures the place afresh). Only then: a card that found a
+     pointing place is never moved.
+     Its limits, on purpose: it scrolls the WINDOW, so a place inside an inner scroller, or a window already at the top,
+     gets no room and keeps the flat card it has today; it acts once, as the step opens, never on a later relayout
+     (a scroll or a resize), because moving the page while the person scrolls it would fight their hand; and the few
+     pixels it scrolls are not undone when the step changes or the tour closes (like the scrollIntoView above). */
+  if (stepEl && card.classList.contains('flat')) {
+    const r = stepEl.getBoundingClientRect();
+    const need = card.offsetHeight + TIP_GAP + TIP_PAD + TIP_ROOM_SLACK;   // the card, its arrow gap, tipPlace's pad, and the slack
+    /* The tall-place case only: on screen, its top too close to the window's top for the card, and its bottom past the
+       line the card needs (a place that ends above that line has room below it, so a flat card there is some other
+       case, left alone); and only when the window can scroll up the whole shortfall, since a part-way scroll would move
+       the page and still leave the card flat. */
+    if (r.top > 0 && r.top < need && r.bottom > need && window.scrollY >= need - r.top) {
+      window.scrollBy(0, r.top - need);
+      tipLayout(TIP_OPEN, card);
+    }
+  }
   /* It takes focus, unless it opened by itself while the person is typing somewhere. */
   const ae = document.activeElement;
   const busy = auto && !!ae && ae !== document.body && ae.matches('input, textarea, select, [contenteditable=""], [contenteditable="true"]');
@@ -61108,7 +61155,7 @@ function tipLayout(t, card) {
        with a ring-shaped hole cut in it, so nothing in the app has to be lifted above it. */
     const st = TIP_PLACES[TIP_STEP];
     const halo = document.getElementById('tippins');
-    const el = st && st.sel ? document.querySelector(st.sel) : null;
+    const el = st && st.sel ? tipTarget(st.sel) : null;   // the same element tipPlace places against (#4108)
     halo.innerHTML = '';
     let dim = false;
     if (el && tipVisible(st.sel)) {
@@ -61153,10 +61200,7 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true, width = '' 
   if (card.style.width !== width) card.style.width = width;
   /* The first match that is on screen: a selector list names the tab layout's target and the
      consolidated layout's, and only one of them is showing. */
-  let el = null;
-  try {
-    el = sel ? [...document.querySelectorAll(sel)].find((x) => { const r = x.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !x.closest('[hidden]'); }) || null : null;
-  } catch { el = null; }   // :has() in an older webview
+  const el = tipTarget(sel);
   /* A card taller than the window gives its words just enough scroll to fit, measured, not budgeted. They are a
      tab stop only while they scroll, so a keyboard can reach the hidden part and a short tip adds no stop. */
   const bd = card.querySelector('.tip-bd');
@@ -61176,7 +61220,7 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true, width = '' 
       bd.removeAttribute('tabindex'); bd.removeAttribute('role'); bd.removeAttribute('aria-label');
     }
   }
-  const w = card.offsetWidth, h = card.offsetHeight, pad = 12;
+  const w = card.offsetWidth, h = card.offsetHeight, pad = TIP_PAD;
   const pageW = document.documentElement.getBoundingClientRect().width;
   if (!el || !el.getBoundingClientRect().width) {
     card.className = 'tipcard flat';
@@ -61203,8 +61247,8 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true, width = '' 
      while pageW can be fractional, so an exact test could refuse every place that fits. */
   const onScreen = (left, top) => top >= pad && top + h <= vh - pad && left >= pad - 1 && left + w <= pageW - pad + 1;
   const right = { cls: 'left', left: r.right + 14, top: sideTop };
-  const below = { cls: 'up', left: midLeft, top: r.bottom + 12 };
-  const above = { cls: 'down', left: midLeft, top: r.top - 12 - h };
+  const below = { cls: 'up', left: midLeft, top: r.bottom + TIP_GAP };
+  const above = { cls: 'down', left: midLeft, top: r.top - TIP_GAP - h };
   const leftSide = { cls: 'right', left: r.left - 14 - w, top: sideTop };
   /* A target off screen gets no arrow: a side place clamps onto the screen and would point at nothing.
      The scroll listener places the card again, arrow and all, once the target is in view. */
@@ -61232,7 +61276,7 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true, width = '' 
     const room = Math.floor(Math.max(pageW - r.right - 14 - pad, r.left - 14 - pad));
     if (room >= 220 && room < w) return tipPlace(card, sel, true, { key, avoid, width: room + 'px' });
   }
-  if (!cands.length) cands.push({ ...below, cls: offScreen ? 'flat' : below.cls, top: Math.max(pad, Math.min(r.bottom + 12, vh - h - pad)) });
+  if (!cands.length) cands.push({ ...below, cls: offScreen ? 'flat' : below.cls, top: Math.max(pad, Math.min(r.bottom + TIP_GAP, vh - h - pad)) });
   /* The target itself is kept clear too (with the ring's margin): the card points at it, never sits on it. */
   const covered = (avoid ? tipCoveredControls(el) : []).concat([{ l: r.left - 6, t: r.top - 6, r: r.right + 6, b: r.bottom + 6 }]);
   const hitsAt = (left, top) => { let n = 0; for (const q of covered) if (q.l < left + w && q.r > left && q.t < top + h && q.b > top) n++; return n; };

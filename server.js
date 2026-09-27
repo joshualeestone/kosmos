@@ -37,6 +37,21 @@ const path = require('node:path');
 const LAUNCH_ENV_OVERRIDES = Object.fromEntries(Object.entries(process.env)
   .filter(([key]) => key === 'PORT' || key.startsWith('AGENT_WORKFORCE_')));
 const worldRegistryBase = require('./engine/worldenv').bootstrapWorldEnv(process.env);
+/* #4199: next, right after the world bootstrap above (which must stay the FIRST engine require: see
+   server.worldenv-order.test.js): when this file IS the board (not required by a test), every line it writes into
+   board.log starts with a UTC time, so a restart can be matched to what an agent was doing. Only when stdout/stderr is
+   a regular file (board.log under launchd or nohup); a pipe or a terminal is left alone. See engine/logstamp.js. The
+   bootstrap's own named-world lines (#1704/#2528, none on the default world) come before this and carry no time. */
+if (require.main === module) {
+  const logstamp = require('./engine/logstamp');
+  const shared = logstamp.sameFile(1, 2) ? { atLineStart: true } : undefined;   // both to board.log: one line state
+  /* Where board.log is: install/kosmos puts the app at $KOSMOS_HOME/app/server.js and the log at
+     $KOSMOS_HOME/logs/board.log, so it is ../logs/board.log from here (KOSMOS_HOME itself is not exported to the board,
+     so it is not read; engine/logstamp.test.js pins this layout against install/kosmos). */
+  const logPaths = [path.join(__dirname, '..', 'logs', 'board.log')];
+  logstamp.install(process.stdout, 1, { shared, logPaths });
+  logstamp.install(process.stderr, 2, { shared, logPaths });
+}
 // `STATE` travels with them: the thread route compares a member's state, and a
 // literal there is a comparison that silently stops matching the day the engine
 // renames one.
@@ -2619,6 +2634,14 @@ function handoffFileSnap(session) {
   }
 }
 
+/* A sign-in route's refusal: 409 when it named a sign-in that has ended or been replaced (its module's
+   NOT_MINE), else 400. One derivation for the agy, win32 agy and muse sign-ins (#3939 review round 8). */
+function signinRefusalStatus(r, notMine) { return r && r.because === notMine ? 409 : 400; }
+/* The live-execution gate's test-process throw (a test that forgot its seam): a sign-in start route
+   rethrows it so it stays loud in tests, rather than turning it into a 500. One derivation (round 10). */
+function isGateThrowInTest(e) {
+  return require('./engine/live-execution').inTestProcess() && /for real inside a test/.test(String(e && e.message));
+}
 function sendJson(res, code, obj) {
   res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' });
   res.end(JSON.stringify(obj));
@@ -7843,7 +7866,7 @@ const server = http.createServer((req, res) => {
             provider: 'anthropic', providerName: 'Anthropic / Claude', ...a,
             /* #4139: which outcome the badge came from, so a green from Check now does not claim an agent's request. */
             connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
-              ...(obs ? { observedFrom: obs === checkObs ? 'check' : 'agent' } : {}) },
+              ...(obs && v.observedAt != null ? { observedFrom: obs === checkObs ? 'check' : 'agent' } : {}) },   // a stale one decided nothing (#4139 follow-up)
             weeklyTokensPerPoint: cal ? Math.round(cal.tokensPerPoint) : null,
           };
         });
@@ -8141,7 +8164,7 @@ const server = http.createServer((req, res) => {
     if (req.method !== 'POST') { req.resume(); sendJson(res, 405, { error: 'that is not something this address does' }); return; }
     /* A request naming a sign-in that has ended or been replaced is a conflict (409) on every
        route, so a screen can tell it apart from a refused code. */
-    const refusal = (r) => (r.because === signin.NOT_MINE ? 409 : 400);
+    const refusal = (r) => signinRefusalStatus(r, signin.NOT_MINE);
     // Only STARTING needs the subscription to be offered: Stop and Show must work on a sign-in already
     // running, whatever changed since.
     if (sub === '' && !agy.offered()) { req.resume(); sendJson(res, 400, { ok: false, error: 'Gemini on a Google subscription is not offered on this computer' }); return; }
@@ -8152,7 +8175,7 @@ const server = http.createServer((req, res) => {
          The live-execution gate's test-process throw is not caught here: it must stay loud in tests. */
       let r;
       try { r = signin.start(); } catch (e) {
-        if (require('./engine/live-execution').inTestProcess() && /for real inside a test/.test(String(e && e.message))) throw e;
+        if (isGateThrowInTest(e)) throw e;
         sendJson(res, 500, { ok: false, error: 'Kosmos could not start Antigravity\'s sign-in just now' }); return;
       }
       sendJson(res, r.ok ? 200 : 400, r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
@@ -8183,6 +8206,51 @@ const server = http.createServer((req, res) => {
       return;
     }
     // (every one of the four addresses was answered above; any other falls through to the board 404)
+    return;
+  }
+  /* #3939 slice 3: Meta's Muse Code. Behind AGENT_WORKFORCE_MUSE=1 on a Mac (engine/musestatus.enabled):
+     off, /api/muse says only { enabled: false } and nothing can start. The sign-in is `muse login`
+     driven out of sight (engine/musesignin.js); the screen starts it, reads the code, retries an
+     expired one, and stops it. Exact addresses (#3957). With the flag off, the three sign-in routes
+     still answer (idle, or a refusal naming no sign-in): nothing can start, so nothing runs. */
+  if (pathname === '/api/muse' && req.method === 'GET') {
+    const muse = require('./engine/musestatus');
+    try {
+      if (!muse.enabled()) { sendJson(res, 200, { enabled: false }); return; }
+      const inst = muse.installed();
+      const s = inst.installed ? muse.signedIn() : { signedIn: false };
+      sendJson(res, 200, { enabled: true, installed: inst.installed, because: inst.because, signedIn: s.signedIn });
+    } catch { sendJson(res, 500, { error: 'we could not check Muse Code just now' }); }
+    return;
+  }
+  if (pathname === '/api/muse/signin' || pathname === '/api/muse/signin/retry' || pathname === '/api/muse/signin/stop') {
+    const signin = require('./engine/musesignin');
+    const sub = pathname.slice('/api/muse/signin'.length);
+    if (sub === '' && req.method === 'GET') {
+      try { sendJson(res, 200, signin.status()); } catch { sendJson(res, 500, { error: 'we could not read the sign-in just now' }); }
+      return;
+    }
+    if (req.method !== 'POST') { req.resume(); sendJson(res, 405, { error: 'that is not something this address does' }); return; }
+    const refusal = (r) => signinRefusalStatus(r, signin.NOT_MINE);
+    if (sub === '') {
+      req.resume();
+      let r;
+      try { r = signin.start(); } catch (e) {
+        if (isGateThrowInTest(e)) throw e;
+        sendJson(res, 500, { ok: false, error: signin.COULD_NOT_START }); return;
+      }
+      sendJson(res, r.ok ? 200 : 400, r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
+      return;
+    }
+    // Retry and Stop name the sign-in they mean, so one tab never acts on a sign-in another tab started.
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      const id = body && typeof body.id === 'string' ? body.id : '';
+      let r;
+      try { r = sub === '/retry' ? signin.retry(id) : signin.stop(id); } catch { sendJson(res, 500, { ok: false, error: 'Kosmos could not reach the sign-in just now' }); return; }
+      sendJson(res, r.ok ? 200 : refusal(r), r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
+    }).catch(() => sendJson(res, 400, { ok: false, error: 'we could not read that request' }));
     return;
   }
   /**
@@ -8225,7 +8293,7 @@ const server = http.createServer((req, res) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       const id = body && typeof body.id === 'string' ? body.id : '';
-      const conflict = (r) => (r.because === signin.NOT_MINE ? 409 : 400);
+      const conflict = (r) => signinRefusalStatus(r, signin.NOT_MINE);
       try {
         if (sub === '') {
           const r = await require('./engine/agystatus').openForSignIn();
