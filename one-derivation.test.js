@@ -115,3 +115,29 @@ test('#1228: toldOverride can reuse a store list a caller already holds', () => 
   const unused = projects.toldOverride(verdict, 'told-agent', []);
   assert.equal(unused.state, 'stale', 'an explicit empty list was not honoured');
 });
+
+/* #4183: the exact-name permit ("loose to notice, exact to permit") is one function,
+   projects.ourCard, which heldExactly and every caller go through. A hand copy of the
+   predicate is the drift this file exists for: the rule gained isNamedOurs once, after a
+   lookalike rewrote a real agent's instructions, and a copy would not have. Line-based, so a
+   copy split across lines is not seen; the control below proves the scan finds the one line
+   that is allowed. */
+test('#4183: the exact-name permit is spelled only in projects.ourCard', () => {
+  const engineDir = nodePath.join(__dirname, 'engine');
+  const files = ['server.js', ...fs.readdirSync(engineDir)
+    .filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'))
+    .map((f) => nodePath.join('engine', f))];
+  const hits = [];
+  for (const rel of files) {
+    fs.readFileSync(nodePath.join(__dirname, rel), 'utf8').split('\n').forEach((line, i) => {
+      if (/^\s*(\*|\/\/)/.test(line)) return;
+      if (/\.sessionName\s*===/.test(line) && /\.isNamedOurs\s*===\s*true/.test(line)) hits.push(`${rel}:${i + 1}`);
+    });
+  }
+  const allowed = hits.filter((h) => h.startsWith(nodePath.join('engine', 'projects.js') + ':'));
+  assert.equal(allowed.length, 1, 'the scan did not find ourCard\'s own line, so it is looking in the wrong place: ' + JSON.stringify(hits));
+  const src = fs.readFileSync(nodePath.join(__dirname, 'engine', 'projects.js'), 'utf8').split('\n');
+  const at = Number(allowed[0].split(':').pop()) - 1;
+  assert.ok(/function ourCard/.test(src.slice(Math.max(0, at - 3), at + 1).join('\n')), 'the one allowed line is not inside ourCard: ' + allowed[0]);
+  assert.deepEqual(hits.filter((h) => h !== allowed[0]), [], 'a hand copy of the exact-name permit; call projects.ourCard or heldExactly');
+});
