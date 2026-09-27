@@ -13363,6 +13363,11 @@ window.kosmosMeasureScrollbarWidth();
           <div class="importrow">
             <button class="btn uprime" type="button" id="orgchart-create">Create the team</button>
             <button class="btn" type="button" id="orgchart-edit">Back to the list</button>
+            <!-- #1280: the bulk create's undo (Josh: "a preview with a count before it
+                 commits, and an undo"). Shown only after a create made something. -->
+            <button class="btn" type="button" id="orgchart-undo" hidden></button>
+            <button class="btn uprime" type="button" id="orgchart-undo-go" hidden>Remove them</button>
+            <button class="btn" type="button" id="orgchart-undo-keep" hidden>Keep them</button>
           </div>
         </div>
         <p class="rolelimit" id="orgchart-msg" role="status" aria-live="polite" hidden></p>
@@ -42751,6 +42756,10 @@ let ORGCHART_PARSED = null;
    on any mode change (pickMode) so a late /api/team response cannot yank the
    screen after the operator switched away or reopened the form. */
 let ORGCHART_GEN = 0;
+/* #1280: the agents the last Create made ({ name, shownAs }), which is exactly what
+   Undo removes: never a re-read of the board, so Undo cannot reach an agent this
+   run did not create. Emptied by a fresh preview or a closed panel. */
+let ORGCHART_CREATED = [];
 
 /* The derived-name length ceiling. It MIRRORS engine/create.nameProblem's 32-char
    cap (engine/create.js) so a client-derived candidate is not rejected for length
@@ -42771,6 +42780,10 @@ function resetOrgchartPreview() {
   if (msg) { msg.textContent = ''; msg.hidden = true; }
   const create = document.getElementById('orgchart-create');
   if (create) create.disabled = false;
+  ORGCHART_CREATED = [];
+  const undo = document.getElementById('orgchart-undo');
+  if (undo) { undo.hidden = true; undo.disabled = false; }
+  orgchartUndoAsking(false);
 }
 
 /* A title (or a person's name, when opted in) into a machine name the engine
@@ -42872,6 +42885,10 @@ document.getElementById('orgchart-preview').addEventListener('click', () => {
       + (r.person ? ' <span class="dhint">named ' + esc(r.person) + '</span>' : '')
       + ' <span class="dhint">&rarr; ' + esc(r.name) + '</span></li>').join('');
   document.getElementById('orgchart-create').disabled = false;
+  // A new preview is a new batch: the last run's Undo no longer applies to this screen.
+  ORGCHART_CREATED = [];
+  document.getElementById('orgchart-undo').hidden = true;
+  orgchartUndoAsking(false);
   box.hidden = false;
 });
 
@@ -42957,6 +42974,101 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
      more, "Back to the list" reopens the paste box; editing and re-previewing
      arms a fresh parse. */
   btn.disabled = true;
+  ORGCHART_CREATED = created.filter((c) => c && c.name).map((c) => ({ name: String(c.name), shownAs: c.shownAs || c.name }));
+  showOrgchartUndo();
+});
+
+function showOrgchartUndo() {
+  const undo = document.getElementById('orgchart-undo');
+  const n = ORGCHART_CREATED.length;
+  undo.hidden = n === 0;
+  undo.disabled = false;
+  undo.textContent = n === 1 ? 'Undo: remove this agent' : 'Undo: remove these ' + n + ' agents';
+}
+
+function orgchartUndoAsking(on) {
+  const go = document.getElementById('orgchart-undo-go');
+  const keep = document.getElementById('orgchart-undo-keep');
+  if (go) { go.hidden = !on; go.disabled = false; }
+  if (keep) keep.hidden = !on;
+}
+
+/* #1280: what the undo says before it acts. Every name it will remove, and how many, the way
+   the preview counts before a create. The list is ORGCHART_CREATED only: the engine counts a
+   member as created only when create.createAgent made it, and createAgent refuses a name that
+   is already taken (a folder, or a name on the removed list), so an agent that existed before
+   the import is in refused[], never here. */
+function orgchartUndoAsk() {
+  const n = ORGCHART_CREATED.length;
+  if (!n) return;
+  document.getElementById('orgchart-count').textContent = 'Undo will remove '
+    + (n === 1 ? 'this agent, the one this import made:' : 'these ' + n + ' agents, the ones this import made:');
+  document.getElementById('orgchart-list').innerHTML = ORGCHART_CREATED.map((c) =>
+    '<li>' + esc(c.shownAs) + ' <span class="dhint">&rarr; ' + esc(c.name) + '</span></li>').join('');
+  const msg = document.getElementById('orgchart-msg');
+  msg.hidden = false;
+  msg.textContent = 'Any that has started working stops where it is. Nothing is deleted: '
+    + 'its folder and anything it has written stay on this Mac, and Show removed agents on your board starts any of them again.';
+  document.getElementById('orgchart-undo').hidden = true;
+  orgchartUndoAsking(true);
+}
+
+document.getElementById('orgchart-undo').addEventListener('click', orgchartUndoAsk);
+
+document.getElementById('orgchart-undo-keep').addEventListener('click', () => {
+  orgchartUndoAsking(false);
+  const msg = document.getElementById('orgchart-msg');
+  msg.textContent = ''; msg.hidden = true;
+  const n = ORGCHART_CREATED.length;
+  document.getElementById('orgchart-count').textContent = 'Kept ' + n + (n === 1 ? ' agent.' : ' agents.');
+  document.getElementById('orgchart-list').innerHTML = ORGCHART_CREATED.map((c) =>
+    '<li>' + esc(c.shownAs) + ' <span class="dhint">kept</span></li>').join('');
+  showOrgchartUndo();
+});
+
+/* #1280: Undo removes the agents the last Create made, one at a time, through the
+   board's own removal (DELETE /api/agent/:name/removal), only after orgchartUndoAsk has
+   named them and the person pressed Remove them. Removal deletes nothing (engine/remove.js)
+   and Show removed agents puts any of them back. Each answer is shown as the engine gave
+   it; one it could not remove stays, so Undo can ask again for just those. */
+document.getElementById('orgchart-undo-go').addEventListener('click', async () => {
+  if (!ORGCHART_CREATED.length) return;
+  const gen = ORGCHART_GEN;
+  const countEl = document.getElementById('orgchart-count');
+  const listEl = document.getElementById('orgchart-list');
+  const msg = document.getElementById('orgchart-msg');
+  const todo = ORGCHART_CREATED.slice();
+  document.getElementById('orgchart-undo-go').disabled = true;
+  document.getElementById('orgchart-undo-keep').hidden = true;
+  countEl.textContent = 'Removing ' + todo.length + (todo.length === 1 ? ' agent…' : ' agents…');
+  const rows = [];
+  const left = [];
+  for (const c of todo) {
+    let out = null;
+    let reached = true;
+    try {
+      const res = await fetch('/api/agent/' + encodeURIComponent(c.name) + '/removal', { method: 'DELETE' });
+      out = await res.json().catch(() => null);
+    } catch (err) { reached = false; }
+    if (gen !== ORGCHART_GEN) return;   // the panel was left or reopened: do not touch it
+    const done = Boolean(out && out.outcome === 'removed');
+    rows.push({ c, done, because: done ? '' : ((out && (out.because || out.error))
+      || (reached ? 'Kosmos did not answer in a way we could read' : 'we could not reach Kosmos')) });
+    if (!done) left.push(c);
+  }
+  ORGCHART_CREATED = left;
+  orgchartUndoAsking(false);
+  msg.textContent = ''; msg.hidden = true;
+  const removed = rows.length - left.length;
+  countEl.textContent = !left.length
+    ? 'Removed ' + removed + (removed === 1 ? ' agent.' : ' agents.')
+      + ' Nothing was deleted: Show removed agents on your board puts any of them back.'
+    : 'Removed ' + removed + ' of ' + rows.length + '. '
+      + left.length + (left.length === 1 ? ' is still on your board:' : ' are still on your board:');
+  listEl.innerHTML = rows.map((r) => '<li>' + esc(r.c.shownAs) + ' <span class="dhint">'
+    + (r.done ? 'removed' : 'not removed: ' + esc(r.because)) + '</span></li>').join('');
+  showOrgchartUndo();
+  if (typeof paintRemoved === 'function') paintRemoved();
 });
 
 /* 🛑 THE ARROW-KEY HANDLER THAT WAS HERE IS DELETED, and nothing replaced it.
