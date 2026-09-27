@@ -2692,6 +2692,15 @@ function blockBody(projects, sessionName) {
   ].join('\n');
 }
 
+/* Exact to permit (#3932 shares it with tellAgent): our card for this exact name, or null. A roster
+   that is not a list is "could not look", which is not permission. */
+function ourCard(sessionName, roster) {
+  return Array.isArray(roster) ? (roster.find((a) => a && a.sessionName === sessionName && a.isNamedOurs === true) || null) : null;
+}
+function heldExactly(sessionName, roster) {
+  return module.exports.ourCard(sessionName, roster) !== null;
+}
+
 /**
  * Write the managed block into one agent's instruction file.
  *
@@ -2728,7 +2737,7 @@ function tellAgent(sessionName, projects, roster) {
     // enough permission to rewrite that agent's boot file. Remove gates the
     // equivalent destructive action on exactly this flag, and the status engine
     // states the rule outright: every read keyed on a pane name needs it.
-    if (!Array.isArray(roster) || !roster.some((a) => a && a.sessionName === sessionName && a.isNamedOurs === true)) {
+    if (!module.exports.heldExactly(sessionName, roster)) {
       return {
         state: TOLD.COULD_NOT,
         /**
@@ -2985,7 +2994,7 @@ module.exports = {
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE, BRIEF_PENDING_NOTES_BEFORE_AUDIENCE,
-  findBlock, spliceBlock, removeBlock, blockBody, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership,
+  findBlock, spliceBlock, removeBlock, blockBody, ourCard, heldExactly, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
   folderPathPreview, makeFolder, revealFolder, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile,
   isUnderTmpDir, tmpFolderRefused,

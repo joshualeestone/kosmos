@@ -15303,6 +15303,142 @@ test('#3923: Try again (?retell=1) re-tells a current member and never re-adds o
   }
 });
 
+test('#3932: once the person fixes the file an Act row asked about, the board re-tells the agent, once', async () => {
+  const { autoretellTick } = require('./server');
+  const eng = require('./engine/projects');
+  const { SETTLE_MS } = require('./engine/autoretell');
+  const board = fleet.install([fleet.agent('rhea', { state: 'idle' })]);
+  const realSpeak = eng.speakOfMembership;
+  const instr = require('./engine/instructions');
+  const realStaleness = instr.staleness;
+  const storeBefore = eng.readAll();
+  const spoke = [];
+  const acted = new Map();
+  const file = instr.fileFor('rhea');
+  try {
+    eng.speakOfMembership = (who, proj, kind) => { spoke.push([who, proj && proj.id, kind]); return { state: 'told' }; };
+    fs.rmSync(file, { force: true });
+    const made = await req('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Autoretell Fixture', folder: mkTemp('aw-autoretell-'), agents: ['rhea'] }) });
+    assert.equal(made.status, 200, made.body);
+    const id = JSON.parse(made.body).project.id;
+    const toldOf = () => ((eng.readAll().find((p) => p.id === id) || {}).told || {}).rhea || {};
+    const verdict = toldOf();
+    assert.equal(verdict.state, eng.TOLD.COULD_NOT, 'precondition: an agent with no instructions file could not be told: ' + JSON.stringify(verdict));
+    const verdictAt = Date.parse(verdict.at);
+    spoke.length = 0;
+
+    // Nothing fixed yet: no file, nothing to do.
+    assert.deepEqual(autoretellTick(verdictAt + 60000, acted), [], 'a retell with no file to write into');
+
+    // The person makes the file. Dated one second after the verdict so the clock is ours.
+    fs.mkdirSync(nodePath.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '# rhea\n\nMy own notes.\n');
+    const mtime = verdictAt + 1000;
+    fs.utimesSync(file, new Date(mtime), new Date(mtime));
+    const edited = fs.readFileSync(file, 'utf8');
+    assert.deepEqual(autoretellTick(mtime + SETTLE_MS - 1, acted), [], 'rewrote the file inside the settle window');
+    assert.equal(fs.readFileSync(file, 'utf8'), edited, 'the file changed inside the settle window');
+
+    /* rhea is running (idle). Stale by anyone, or unknown, leaves it for its restart with the file
+       untouched; the sandbox has no session, so each reading is stubbed. */
+    const running = [
+      [{ state: instr.STALENESS.STALE, wroteBy: { who: 'person', because: null } }, 'a person\'s change it has not read'],
+      [{ state: instr.STALENESS.STALE, wroteBy: null }, 'a hand edit nobody attributed'],
+      // A person's edit and then any Kosmos write: the record says kosmos, the agent still has not read it.
+      [{ state: instr.STALENESS.STALE, wroteBy: { who: 'kosmos', because: 'x' }, editedAt: new Date(mtime).toISOString() }, 'the last write being Kosmos\'s'],
+      [{ state: instr.STALENESS.UNKNOWN, wroteBy: null }, 'a start time the board cannot read'],
+    ];
+    // The card's own session reaches staleness, as the status route passes it.
+    let asked = null;
+    instr.staleness = (...args) => { asked = args; return running[0][0]; };
+    autoretellTick(mtime + SETTLE_MS, acted);
+    assert.equal(asked && asked[2], 'rhea-discord', 'staleness was read without the card\'s own session: ' + JSON.stringify(asked));
+    for (const [reading, why] of running) {
+      instr.staleness = () => reading;
+      assert.deepEqual(autoretellTick(mtime + SETTLE_MS, acted), [], 'retold a running agent on ' + why);
+      assert.equal(fs.readFileSync(file, 'utf8'), edited, 'wrote the file under a running agent on ' + why);
+    }
+
+    // It restarts after the fix: current. Now it is re-told.
+    instr.staleness = () => ({ state: instr.STALENESS.CURRENT, wroteBy: null });
+    const rows = autoretellTick(mtime + SETTLE_MS, acted);
+    assert.deepEqual(rows, [{ name: 'rhea', id, state: eng.TOLD.TOLD }], 'the fixed agent was not re-told');
+    assert.equal(toldOf().state, eng.TOLD.TOLD, 'the retell did not flip the stored verdict to told');
+    const after = fs.readFileSync(file, 'utf8');
+    assert.match(after, /Autoretell Fixture/, 'the retell did not write the project into the file');
+    assert.match(after, /My own notes\./, 'the retell lost the person\'s own words');
+    assert.deepEqual(spoke, [['rhea', id, 'listed']], 'the running agent was not told its instructions now list the project');
+
+    // A later sweep with nothing new does nothing, and types nothing.
+    assert.deepEqual(autoretellTick(mtime + SETTLE_MS + 60000, acted), []);
+    assert.equal(spoke.length, 1, 'the line was typed twice for one fix');
+
+    /* A lookalike member (`Rh.ea`, which safeKey folds to `rhea`) with a could_not verdict is not
+       re-told when rhea's file changes: loose to notice, exact to permit. */
+    { const all = eng.readAll(); for (const p of all) if (p.id === id) {
+      p.agents = [...p.agents, 'Rh.ea'];
+      p.told = { ...p.told, 'Rh.ea': { state: eng.TOLD.COULD_NOT, because: 'x', at: new Date(verdictAt).toISOString() } };
+    } eng.writeAll(all); }
+    const later = mtime + 120000;
+    fs.utimesSync(file, new Date(later), new Date(later));
+    /* The rows assertion is held by the exact-name permit in the sweep's `ready`: without it Rh.ea
+       is retold and comes back as a could_not row. The file assertion is belt and braces, since
+       tellAgent's own gate refuses Rh.ea as well: it fails only if both gates are gone. */
+    const beforeLookalike = fs.readFileSync(file, 'utf8');
+    assert.deepEqual(autoretellTick(later + SETTLE_MS, acted), [], 'a lookalike name was re-told off the real agent\'s file');
+    assert.equal(fs.readFileSync(file, 'utf8'), beforeLookalike, 'a lookalike name\'s retell wrote the real agent\'s file');
+  } finally {
+    eng.speakOfMembership = realSpeak;
+    instr.staleness = realStaleness;
+    eng.writeAll(storeBefore);
+    fs.rmSync(file, { force: true });
+    board.restore();
+  }
+});
+
+test('#3932: a STOPPED agent whose name is not in canonical form (Or.Two) is re-told after its fix', async () => {
+  const { autoretellTick } = require('./server');
+  const eng = require('./engine/projects');
+  const { SETTLE_MS } = require('./engine/autoretell');
+  const board = fleet.install([fleet.agent('Or.Two', { state: 'stopped' })]);
+  const realSpeak = eng.speakOfMembership;
+  const instr = require('./engine/instructions');
+  const realStaleness = instr.staleness;
+  const storeBefore = eng.readAll();
+  const file = instr.fileFor('Or.Two');
+  try {
+    /* Stopped reads its file when it next starts, so a stale reading (a surviving transcript's
+       birth time) does not hold it back. */
+    instr.staleness = () => ({ state: instr.STALENESS.STALE, wroteBy: { who: 'person', because: null } });
+    eng.speakOfMembership = () => ({ state: 'told' });
+    const card = (JSON.parse((await req('/api/status')).body).agents || []).find((a) => a.sessionName === 'Or.Two');
+    assert.ok(card, 'precondition: the board holds Or.Two under exactly that name');
+    assert.equal(card.state, 'stopped', 'precondition: Or.Two reads stopped');
+    const made = await req('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Autoretell Canon', folder: mkTemp('aw-autoretell-canon-'), agents: [] }) });
+    assert.equal(made.status, 200, made.body);
+    const id = JSON.parse(made.body).project.id;
+    const at = Date.now() - 120000;
+    { const all = eng.readAll(); for (const p of all) if (p.id === id) {
+      p.agents = ['Or.Two'];
+      p.told = { 'Or.Two': { state: eng.TOLD.COULD_NOT, because: 'it has no instructions file yet, and we will not create one', at: new Date(at).toISOString() } };
+    } eng.writeAll(all); }
+    fs.mkdirSync(nodePath.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '# Or.Two\n\nMy own notes.\n');
+    const mtime = at + 1000;
+    fs.utimesSync(file, new Date(mtime), new Date(mtime));
+    const rows = autoretellTick(mtime + SETTLE_MS, new Map());
+    assert.deepEqual(rows.map((r) => [r.name, r.state]), [['Or.Two', eng.TOLD.TOLD]], 'a stopped real agent was not re-told (its name is not its own safeKey, or stale held it back)');
+  } finally {
+    eng.speakOfMembership = realSpeak;
+    instr.staleness = realStaleness;
+    eng.writeAll(storeBefore);
+    fs.rmSync(nodePath.dirname(file), { recursive: true, force: true });
+    board.restore();
+  }
+});
+
 test('#4006: an agent whose restart did not come back reads needs_you, and its thread does not claim a question', async () => {
   const disruption = require('./engine/disruption');
   const board = fleet.install([fleet.agent('zeta', { state: 'stopped' })]);

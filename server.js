@@ -894,8 +894,91 @@ const readConnectionsShelf = inflight.collapse(() => {
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
 const projects = require('./engine/projects');
+const autoretell = require('./engine/autoretell');
 /* #3923: when each agent-made Try again (`?retell=1`) happened, for its own hourly bound. */
 const RETELL_RECENT = [];
+/* #3923 / #3932: re-tell one CURRENT member, the core of the project notice's Try again
+   (`?retell=1`) and of the sweep that re-tells an agent once its instruction file is fixed
+   (engine/autoretell.js). The callers own their guards (the route's 404/409/500/429); this
+   writes the verdict and types the "listed" line for each project it newly wrote. It calls
+   `projects.syncAgent` and `projects.speakOfMembership` through the module, never a local
+   binding, so the tests that stub them reach both callers. */
+function retellMember(name, id, roster) {
+  let told;
+  try {
+    told = projects.syncAgent(name, roster);
+  } catch (err) {
+    // A fixed sentence: the raw message can carry a file path and an error code, which is not
+    // something to put in front of the person with a Try again beside it.
+    console.error('[kosmos] #3923 retell ' + name + ': ' + String((err && err.message) || err));
+    told = { state: projects.TOLD.COULD_NOT, because: 'we could not write to its instructions' };
+  }
+  let retold = null;
+  try { retold = projects.get(id, roster); } catch { retold = null; }
+  /* ⚠️ A retry that puts THIS project into the block makes `toldOverride` read the stored TOLD
+     as "told it on its screen". So the running agent is told on its screen, with the "listed"
+     line: the add path may already have typed the join line (it does whatever the write did),
+     so this says what is newly true rather than announcing the join twice (#304). Only when this project was newly
+     written (`added`, not `changed`: the same write may add or drop some other project), and
+     only while the agent is still on it: a leave landing mid-request must not be announced
+     as a join. A no-op retry repeats nothing (#304). */
+  /* Every project the write newly added is announced, not only this one: an earlier failed add
+     elsewhere is stored on each of the agent's projects, so pressing Try again here can be what
+     finally writes that other project in, and its stored TOLD reads as "told it on its screen"
+     too. `said` stays this project's answer; `alsoSaid` carries the others by id. */
+  let said = null;
+  const alsoSaid = {};
+  const added = (told && told.state === projects.TOLD.TOLD && Array.isArray(told.added)) ? told.added : [];
+  for (const pid of added) {
+    let proj = null;
+    try { proj = pid === id ? retold : projects.get(pid, roster); } catch { proj = null; }
+    const on = !!(proj && (proj.agents || []).some((a) => a && (a.sessionName || a) === name));
+    if (!on) continue;
+    const one = projects.speakOfMembership(name, proj, 'listed', roster);
+    if (pid === id) said = one; else alsoSaid[pid] = one;
+  }
+  return { project: retold, told, said, alsoSaid };
+}
+/* #3932: one pass of the sweep that re-tells an agent once the person fixes what the notice's Act
+   row asked (engine/autoretell.js decides). The timer that calls it is gated on live execution;
+   this is the unit a test drives. `acted` is the one-retell-per-change memory, kept for the life
+   of the board. */
+const AUTORETELL_ACTED = new Map();
+function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
+  try {
+    let roster;   // read only when some member's newest verdict is could_not
+    const board = () => (roster === undefined ? (roster = safeRoster()) : roster);
+    const all = projects.readAll();
+    return autoretell.sweepOnce({
+      projects: all,
+      /* Loose to notice: a stat, no roster, so a member that never gets fixed costs no snapshot.
+         `fileFor` folds names through `store.safeKey` (`An.gel` reads `angel`'s file); the exact-name
+         permit is in `ready`. */
+      mtimeOf: (name) => {
+        const f = instructions.fileFor(name);
+        return f ? fs.statSync(f).mtimeMs : null;
+      },
+      now,
+      acted,
+      /* A stopped agent reads its file when it next starts, so it is ready. Any other card may be
+         running, and is ready only once staleness says it started after the file's last change
+         (current): stale or unknown waits for its restart, whoever wrote the file, since the write
+         record keeps only the last writer. Read through toldOverride (#1228). */
+      ready: (name) => {
+        // Exact to permit, tellAgent's own rule: our card for this exact name. Staleness is read with
+        // the card's own session, as the status route does: the name alone can date it from
+        // another conversation.
+        const card = projects.ourCard(name, board());
+        if (!card) return false;
+        if (card.state === STATE.STOPPED) return true;
+        const st = projects.toldOverride(instructions.staleness(name, undefined, card.session), name, all);
+        return !!(st && st.state === instructions.STALENESS.CURRENT);
+      },
+      retell: (name, id) => retellMember(name, id, board()),
+      log: (r) => process.stdout.write(`autoretell: ${r.name} on ${r.id} -> ${r.state}${r.because ? ' (' + r.because + ')' : ''}\n`),
+    });
+  } catch { return []; /* best-effort; the notice's Try again still works */ }
+}
 const { accountProblemOf } = require('./engine/accountproblem'); // #3723
 const federation = require('./engine/federation');
 /* #3311: one room seat per federated project. What arrives is recorded in the
@@ -15818,39 +15901,7 @@ const server = http.createServer((req, res) => {
         }
         RETELL_RECENT.push(now);
       }
-      let told;
-      try {
-        told = projects.syncAgent(name, roster);
-      } catch (err) {
-        // A fixed sentence: the raw message can carry a file path and an error code, which is not
-        // something to put in front of the person with a Try again beside it.
-        console.error('[kosmos] #3923 retell ' + name + ': ' + String((err && err.message) || err));
-        told = { state: projects.TOLD.COULD_NOT, because: 'we could not write to its instructions' };
-      }
-      let retold = null;
-      try { retold = projects.get(id, roster); } catch { retold = null; }
-      /* ⚠️ A retry that puts THIS project into the block makes `toldOverride` read the stored TOLD
-         as "told it on its screen". So the running agent is told on its screen, with the "listed"
-         line: the add path may already have typed the join line (it does whatever the write did),
-         so this says what is newly true rather than announcing the join twice (#304). Only when this project was newly
-         written (`added`, not `changed`: the same write may add or drop some other project), and
-         only while the agent is still on it: a leave landing mid-request must not be announced
-         as a join. A no-op retry repeats nothing (#304). */
-      /* Every project the write newly added is announced, not only this one: an earlier failed add
-         elsewhere is stored on each of the agent's projects, so pressing Try again here can be what
-         finally writes that other project in, and its stored TOLD reads as "told it on its screen"
-         too. `said` stays this project's answer; `alsoSaid` carries the others by id. */
-      let said = null;
-      const alsoSaid = {};
-      const added = (told && told.state === projects.TOLD.TOLD && Array.isArray(told.added)) ? told.added : [];
-      for (const pid of added) {
-        let proj = null;
-        try { proj = pid === id ? retold : projects.get(pid, roster); } catch { proj = null; }
-        const on = !!(proj && (proj.agents || []).some((a) => a && (a.sessionName || a) === name));
-        if (!on) continue;
-        const one = projects.speakOfMembership(name, proj, 'listed', roster);
-        if (pid === id) said = one; else alsoSaid[pid] = one;
-      }
+      const { project: retold, told, said, alsoSaid } = retellMember(name, id, roster);
       sendJson(res, 200, { project: retold, told, said, alsoSaid, agentsUnreadable: roster === null });
       return;
     }
@@ -17013,6 +17064,17 @@ function start(port = PORT) {
         } catch { /* best-effort; the card still shows today's tokens against the limit */ }
       }, 60 * 1000);
       if (swarmSweep && typeof swarmSweep.unref === 'function') swarmSweep.unref();
+      /* #3932: re-tell an agent once the person fixes what the project notice's Act row asked
+         (engine/autoretell.js decides: a could_not member whose instruction file changed after its
+         verdict and has been still for ten seconds, once per change). It rewrites instruction files
+         and types into panes, so it is gated on the live-execution opt-in like the sweeps above:
+         inert under test. Operator brake AGENT_WORKFORCE_AUTORETELL_OFF=1. Own timer, unref'd,
+         best-effort. */
+      const autoretellSweep = setInterval(() => {
+        if (!liveExecution.liveExecutionAllowed() || process.env.AGENT_WORKFORCE_AUTORETELL_OFF === '1') return;
+        autoretellTick();
+      }, 30 * 1000);
+      if (autoretellSweep && typeof autoretellSweep.unref === 'function') autoretellSweep.unref();
       const feedbackSweep = setInterval(() => {
         try { feedbacksend.sendDailyOnce(feedback.today()); } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) : 60 * 60 * 1000); // the env is the test seam only
@@ -17560,6 +17622,7 @@ module.exports = {
   get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker); read it when needed, a destructured copy goes stale after setTaskMsgCapForTests
   taskMsgCapFrom, setTaskMsgCapForTests, // #3959: how the operator's value is read, and the test seam
   resetRetellForTests: () => { RETELL_RECENT.length = 0; }, // #3923: the agent-made retry bound, emptied between tests
+  autoretellTick, // #3932: one pass of the re-tell-after-a-fix sweep
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
   federateOut, // #3311: what leaves this computer for a federated room, exported so the agent arm is tested
