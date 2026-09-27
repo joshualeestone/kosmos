@@ -385,8 +385,8 @@ function canonicalAddress(bare) {
  * Round 5, findings 1 and 3: is this address one of this machine's own, so a board of this user could be
  * listening on it? Returns the spelling to probe it by, or null when it is not this machine's. Loopback
  * (127/8, ::1) always is. Anything else must be an address one of this machine's interfaces has, compared
- * without its zone, and a zone (`%14`, or `%en0` where the platform takes interface names as zones; Windows does
- * not, #4258, see zoneNamesInterface) must name that interface: the
+ * without its zone, and a zone (`%14`, `%en0`) must name that interface, by scope id or by name (on Windows a
+ * name never reaches here: see windowsZoneAsLibuvReadsIt, #4258): the
  * same link-local address on another adapter is another address.
  *
  * Round 6, finding 1: a link-local address WITHOUT a zone (as a host name's lookup gives this PC's own) is
@@ -409,7 +409,7 @@ function thisMachinesSpellings(address, interfaces) {
     for (const i of list || []) {
       if (canonicalAddress(String(i.address)) !== bare) continue;
       if (zone !== null) {
-        if (zoneNamesInterface(zone, name, i.scopeid)) return [text];
+        if (String(i.scopeid) === zone || name.toLowerCase() === zone) return [text];
         continue;
       }
       const spelling = isLinkLocalAddress(bare) && i.scopeid ? bare + '%' + i.scopeid : text;
@@ -420,16 +420,21 @@ function thisMachinesSpellings(address, interfaces) {
 }
 
 /**
- * #4258: does `zone` (lower-cased, after the `%`) name this interface? By its numeric scope id on every
- * platform; by its NAME only where the platform takes names as zones. Windows does not: its zones are the
- * numeric scope id, and libuv reads a Windows zone as a number (a name reads as scope 0), so a name-zoned
- * address there is not one a board could have bound, and is not looked on. `platform` replaces
- * process.platform in a test.
+ * #4258: the bind host as Windows reads it. Windows zones are the numeric scope id, and libuv reads a Windows
+ * zone with atoi (read from libuv source, not measured), so a zone by interface NAME (`%Wi-Fi`, `%Ethernet 2`)
+ * reads as scope 0: no zone. Whether Windows then lets a board bind that address is not measured either, so
+ * the look stays conservative and takes the address as unzoned, which probes it through every interface that
+ * has it (the unzoned path of thisMachinesSpellings). A numeric zone, a non-IPv6 host, and every host on
+ * another platform are returned unchanged. `platform` replaces process.platform in a test.
  */
-function zoneNamesInterface(zone, name, scopeid, platform) {
-  if (String(scopeid) === zone) return true;
-  if ((platform || process.platform) === 'win32') return false;
-  return String(name).toLowerCase() === zone;
+function windowsZoneAsLibuvReadsIt(bound, platform) {
+  if ((platform || process.platform) !== 'win32') return bound;
+  const at = String(bound).indexOf('%');
+  if (at < 0) return bound;
+  const zone = bound.slice(at + 1);
+  if (/^[0-9]+$/.test(zone)) return bound;
+  const bare = bound.slice(0, at);
+  return require('node:net').isIP(bare) === 6 ? bare : bound;
 }
 
 /* fe80::/10, the link-local range: its first ten bits are 1111111010, so its first group is fe80 to febf. */
@@ -446,10 +451,10 @@ function isLinkLocalAddress(bare) {
  * A board cannot listen on an address this machine does not have (server.listen fails), so no other
  * address is ever probed, and no probe crosses the network to another machine. A name that does not
  * resolve, or does not resolve within BIND_HOST_LOOKUP_TIMEOUT_MS, adds nothing: a board could not have
- * bound it either. `lookup` replaces dns.lookup in a test.
+ * bound it either. `lookup` replaces dns.lookup in a test, and `platform` process.platform (#4258).
  */
-async function bindHostProbeAddresses(env, lookup, interfaces) {
-  const bound = require('./bindhost').bindHost(env).replace(/^\[(.*)\]$/, '$1');
+async function bindHostProbeAddresses(env, lookup, interfaces, platform) {
+  const bound = windowsZoneAsLibuvReadsIt(require('./bindhost').bindHost(env).replace(/^\[(.*)\]$/, '$1'), platform);
   if (!bound || BIND_HOSTS_COVERED_BY_LOOPBACK.has(bound.toLowerCase())) return [];
   let found = [bound];
   if (require('node:net').isIP(bound) === 0) {
@@ -476,9 +481,9 @@ async function bindHostProbeAddresses(env, lookup, interfaces) {
  * connections, so the loopbacks cover it. A board bound to an address set only in ANOTHER process's
  * environment cannot be seen from here; the board task's state is the backstop (the plan's known limits).
  */
-async function boardProbeAddresses(env, lookup, interfaces) {
+async function boardProbeAddresses(env, lookup, interfaces, platform) {
   const addresses = [BOARD_LOOPBACK_V4, BOARD_LOOPBACK_V6];
-  for (const address of await bindHostProbeAddresses(env, lookup, interfaces)) {
+  for (const address of await bindHostProbeAddresses(env, lookup, interfaces, platform)) {
     if (!addresses.some((known) => known.toLowerCase() === address.toLowerCase())) addresses.push(address);
   }
   return addresses;
@@ -501,12 +506,12 @@ function opennessRank(answer) {
  * slowest probe rather than their sum (plus resolving a bind host name, when there is one). The most open
  * answer wins, with the address it came from (`host`). The uninstall and the move read it with
  * boardMayBeOpen; the launcher's hand-off does not use it and still asks 127.0.0.1 alone (#2983).
- * `probeOne` replaces probeBoard, `lookup` replaces dns.lookup, and `interfaces` replaces os.networkInterfaces()
- * in a test.
+ * `probeOne` replaces probeBoard, `lookup` replaces dns.lookup, `interfaces` replaces os.networkInterfaces()
+ * and `platform` replaces process.platform, in a test.
  */
-async function probeBoardOnEveryAddress(port, env, probeOne, lookup, interfaces) {
+async function probeBoardOnEveryAddress(port, env, probeOne, lookup, interfaces, platform) {
   const look = typeof probeOne === 'function' ? probeOne : probeBoard;
-  const answers = await Promise.all((await boardProbeAddresses(env, lookup, interfaces)).map(async (host) => {
+  const answers = await Promise.all((await boardProbeAddresses(env, lookup, interfaces, platform)).map(async (host) => {
     let answer;
     try {
       answer = { ...(await look(port, host, { connectTimeoutMs: CONNECT_TIMEOUT_MS })), host };
@@ -776,5 +781,5 @@ async function decideHandOff(o) {
 module.exports = {
   handOffToTask, buildIdentity, boardIdentity, probeBoard, boardMayBeOpen, probeBoardOnEveryAddress, cannotTellIfOpenSentence, PROBE_OUTCOMES, EVERY_ADDRESS_LOOK_WORST_MS, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS,
   BOARD_STARTED_BY_TASK_HEADER, boardStartedByTaskHeaderValue, startedByTaskFromHeader, SERVE_HERE_SIGNAL_ENV, signalServingHere,
-  zoneNamesInterface,
+  windowsZoneAsLibuvReadsIt,
 };

@@ -583,9 +583,10 @@ test('🛑 win32-installer-native round 5 findings 1 and 3: the bind host is res
     const otherZone = linkLocal.address + '%' + (Number(linkLocal.scopeid) + 100000);
     assert.ok((await addressesFor({ KOSMOS_BIND_HOST: byScope })).includes(byScope), 'case E: a zoned link-local bind host of this machine was not looked on');
     /* #4258: an interface NAME is a zone only where the platform takes names as zones (a Mac's `en0`).
-       Windows zones are the numeric scope id (case E above), so there a name-zoned bind host is not looked on. */
+       Windows zones are the numeric scope id, and it reads a name zone as no zone, so there the address is
+       looked on through its interface's scope id instead, whatever the name is (with a space or without). */
     if (process.platform === 'win32') {
-      assert.ok(!(await addressesFor({ KOSMOS_BIND_HOST: byName })).includes(byName), 'on Windows a bind host zoned by interface name was looked on');
+      assert.ok((await addressesFor({ KOSMOS_BIND_HOST: byName })).includes(byScope), 'on Windows a bind host zoned by interface name was not looked on through its scope id');
     } else {
       assert.ok((await addressesFor({ KOSMOS_BIND_HOST: byName })).includes(byName), 'a link-local bind host zoned by interface name was not looked on');
     }
@@ -598,15 +599,33 @@ test('🛑 win32-installer-native round 5 findings 1 and 3: the bind host is res
   }
 });
 
-test('#4258: a zone names an interface by scope id everywhere, and by name only where names are zones (not Windows)', () => {
-  const { zoneNamesInterface } = require('./win32handoff');
-  assert.equal(zoneNamesInterface('14', 'Ethernet 2', 14, 'win32'), true, 'a Windows numeric zone');
-  assert.equal(zoneNamesInterface('ethernet', 'Ethernet', 14, 'win32'), false, 'a Windows zone by name was taken (libuv reads it as scope 0)');
-  assert.equal(zoneNamesInterface('wi-fi', 'Wi-Fi', 9, 'win32'), false, 'a space-free Windows name was taken as a zone');
-  assert.equal(zoneNamesInterface('en0', 'en0', 7, 'darwin'), true, 'a Mac zone by name');
-  assert.equal(zoneNamesInterface('7', 'en0', 7, 'darwin'), true, 'a Mac numeric zone');
-  assert.equal(zoneNamesInterface('en1', 'en0', 7, 'darwin'), false, 'another interface\'s name');
-  assert.equal(zoneNamesInterface('8', 'en0', 7, 'linux'), false, 'another scope id');
+test('#4258: on Windows a zone by interface name reads as no zone, so the address is looked on through its scope id', async () => {
+  const { windowsZoneAsLibuvReadsIt } = require('./win32handoff');
+  const LL = 'fe80::1234:5678:9abc:def0';
+  assert.equal(windowsZoneAsLibuvReadsIt(LL + '%Wi-Fi', 'win32'), LL, 'a space-free Windows name zone');
+  assert.equal(windowsZoneAsLibuvReadsIt(LL + '%Ethernet 2', 'win32'), LL, 'a Windows name zone with a space');
+  assert.equal(windowsZoneAsLibuvReadsIt(LL + '%14', 'win32'), LL + '%14', 'a Windows numeric zone is kept');
+  assert.equal(windowsZoneAsLibuvReadsIt(LL + '%en0', 'darwin'), LL + '%en0', 'a Mac name zone is kept');
+  assert.equal(windowsZoneAsLibuvReadsIt('board.example', 'win32'), 'board.example', 'a host name is not a zoned address');
+  assert.equal(windowsZoneAsLibuvReadsIt('192.0.2.1%x', 'win32'), '192.0.2.1%x', 'only an IPv6 literal is read this way');
+
+  /* The whole look, with this PC's interfaces and platform stood in: what a removal would actually probe. */
+  const REFUSED_LOOK = { answering: false, outcome: 'refused', identity: null, startedByTask: null };
+  const interfaces = {
+    'Wi-Fi': [{ address: LL, family: 'IPv6', scopeid: 9, internal: false }],
+    'Ethernet 2': [{ address: LL, family: 'IPv6', scopeid: 14, internal: false }],
+  };
+  const lookedOn = async (host, platform) => {
+    const asked = [];
+    await probeBoardOnEveryAddress(9, { KOSMOS_BIND_HOST: host }, async (port, h) => { asked.push(h); return REFUSED_LOOK; },
+      async () => { throw Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' }); }, interfaces, platform);
+    return asked.sort();
+  };
+  const everyInterface = ['127.0.0.1', '::1', LL + '%9', LL + '%14'].sort();
+  assert.deepEqual(await lookedOn(LL + '%Wi-Fi', 'win32'), everyInterface, 'a Windows bind host zoned by a space-free name was not looked on through its interfaces');
+  assert.deepEqual(await lookedOn(LL + '%Ethernet 2', 'win32'), everyInterface, 'a Windows bind host zoned by a name with a space was not looked on through its interfaces');
+  assert.deepEqual(await lookedOn(LL + '%14', 'win32'), ['127.0.0.1', '::1', LL + '%14'].sort(), 'a Windows numeric zone looked beyond its own interface');
+  assert.deepEqual(await lookedOn(LL + '%Wi-Fi', 'darwin'), ['127.0.0.1', '::1', LL + '%Wi-Fi'].sort(), 'off Windows a name zone is looked on by that name');
 });
 
 /* ---- the round 6 review, fixed in round 7 ------------------------------------ */
