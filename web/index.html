@@ -26053,14 +26053,29 @@ function agySubDriver(pre, onReady) { return {
     } finally { if (live()) this.busy = false; }   // a superseded press must not free a newer one
   },
 }; }
-const FR_AGY_SUB = agySubDriver('fr-gemini-sub-', () => {
+const FR_AGY_SUB = agySubDriver('fr-gemini-sub-', async () => {
   FR_AGY_READY = true;
-  frPaintKeyed();   // the row reads Connected and the step offers Next (review round 3)
+  const painting = frPaintKeyed();   // the row reads Connected and the step offers Next (review round 3)
   /* Not dependent on the accounts read (review round 9: frPaintKeyed returns early if it fails). */
   { const b = document.getElementById('fr-gemini-connect');
     if (b) { b.innerHTML = '<span aria-hidden="true">✓</span> Connected'; b.disabled = true; if (b.classList) b.classList.add('is-connected'); if (b.setAttribute) b.setAttribute('aria-label', 'Gemini is connected'); } }
   if (typeof FR_STEP !== 'undefined' && FR_STEP === 5 && !(typeof FR !== 'undefined' && FR && FR.subscription && FR.subscription.state === 'connected')) {
     frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) }, null);
+  }
+  /* #4082: the step hides on Ready, and focus inside it (the paste box's Continue) fell to the page: a keyboard or
+     screen-reader user lost their place. As Grok's first-run success does, focus lands on Gemini's own connected
+     box once the row is painted (its live region reads it). Only when focus was lost (on the page, or in the step
+     that just hid): a person who moved on keeps their place. The box says something even if the repaint failed. */
+  try { await painting; } catch { /* the sentence below stands in for the box */ }
+  if (typeof FR_STEP !== 'undefined' && FR_STEP !== 5) return;
+  const box = document.getElementById('fr-gemini-msg');
+  const step = document.getElementById('fr-gemini-sub-step');
+  const a = document.activeElement;
+  const lost = !a || a === document.body || (!!step && typeof step.contains === 'function' && step.contains(a));
+  if (box && lost) {
+    if (!String(box.textContent || '').trim()) box.textContent = 'Google Gemini (Google subscription) is ready.';
+    if (box.setAttribute) box.setAttribute('tabindex', '-1');
+    if (box.focus) box.focus();
   }
 }).wire();
 /* #3874: Settings, Add a provider. Ready records the signed-in fact every screen reads (the create
@@ -57892,13 +57907,28 @@ async function frOpenaiSubConnected(_account) {
   // for signature-parity with the Settings mirror acctOpenaiSubConnected(account).
   ACCT_OPENAI_SUB_SESSION = null;
   // #2913: no name field -- the subscription account is identified by its email.
-  const sub = document.getElementById('fr-openai-sub-step'); if (sub) sub.hidden = true;
+  const sub = document.getElementById('fr-openai-sub-step');
+  /* #4082: read before the step hides: focus on its link or Stop falls to the page once it does. */
+  const was = document.activeElement;
+  const lost = !was || was === document.body || (!!sub && typeof sub.contains === 'function' && sub.contains(was));
+  if (sub) sub.hidden = true;
   const pick = document.getElementById('fr-openai-pick'); if (pick) pick.hidden = true;
   // paintAccounts refreshes the row list; frPaintOpenai paints the SAME gold
   // connected box the key path uses -- a subscription carries no keyTail, so it
   // reads "This computer is signed in." with no key suffix, which is exactly right.
-  await paintAccounts();
-  await frPaintOpenai({ connected: true, justAdded: true });
+  try {
+    await paintAccounts();
+    await frPaintOpenai({ connected: true, justAdded: true });
+  } finally {
+    /* As Grok's and now Gemini's first-run successes: focus lands on the connected box (a live region), only if
+       it was lost, and never on an empty box. */
+    const box = document.getElementById('fr-openai-msg');
+    if (box && lost && FR_STEP === 5) {
+      if (!String(box.textContent || '').trim()) box.textContent = 'GPT is connected.';
+      if (box.setAttribute) box.setAttribute('tabindex', '-1');
+      if (box.focus) box.focus();
+    }
+  }
 }
 document.getElementById('fr-openai-pick-sub').addEventListener('click', () => frOpenaiChoose('sub'));
 document.getElementById('fr-openai-pick-key').addEventListener('click', () => frOpenaiChoose('key'));

@@ -167,7 +167,7 @@ function agyFlow(answers) {
   const view = () => ({ text: el('fr-gemini-sub-code').textContent, button: el('fr-gemini-sub-go').hidden ? '' : el('fr-gemini-sub-go').textContent,
     stop: !el('fr-gemini-sub-cancel-row').hidden });
   const settle = async (pred, n = 200) => { for (let i = 0; i < n && !pred(); i++) await new Promise((r) => setImmediate(r)); };
-  return { ...api, view, posts, bodies, el, settle, successes, painted: () => painted };
+  return { ...api, view, posts, bodies, el, settle, successes, painted: () => painted, active: () => doc.activeElement };
 }
 
 test('#3998: Sign in with Subscription walks not installed -> Install -> Sign in (hidden) -> paste the code -> Ready, with no Terminal', async () => {
@@ -201,6 +201,42 @@ test('#3998: Sign in with Subscription walks not installed -> Install -> Sign in
   assert.equal(f.view().button, '');
   assert.equal(f.view().stop, false, 'no Stop once it is ready');
   assert.equal(f.painted(), 1, 'the row must be repainted as connected');
+});
+
+/* #4082: the step hides on Ready; focus that was inside it (the paste box's Continue) must not fall to the page. */
+function agyToReady() {
+  return agyFlow({
+    '/api/antigravity/check': [{ installed: true, signedIn: false }],
+    'POST /api/antigravity/signin': [{ ok: true, id: 'a1b2c3d4e5f60718', state: 'starting' }],
+    'GET /api/antigravity/signin': [{ id: 'a1b2c3d4e5f60718', state: 'code', url: 'https://accounts.google.com/o/oauth2/auth?x=1' },
+      { id: 'a1b2c3d4e5f60718', state: 'code', url: 'https://accounts.google.com/o/oauth2/auth?x=1' }, { id: 'a1b2c3d4e5f60718', state: 'done' }],
+    '/api/antigravity/signin/code': [{ ok: true, state: 'checking' }],
+  });
+}
+async function agyWalk(f, focusId) {
+  const step = f.el('fr-gemini-sub-step');
+  step.contains = (x) => !!x && typeof x.id === 'string' && x.id.startsWith('fr-gemini-sub-');
+  await f.FR_AGY_SUB.start();   // installed, not signed in: Sign in with Google
+  await f.FR_AGY_SUB.start();   // the hidden sign-in starts
+  await f.settle(() => !f.el('fr-gemini-sub-paste-row').hidden);
+  f.el('fr-gemini-sub-paste').value = '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v-TZgGLs9n';
+  f.el(focusId).focus();
+  await f.FR_AGY_SUB.sendCode();
+  await f.settle(() => f.ready());
+  for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));   // onReady awaits the repaint
+}
+test('#4082: on Ready, focus that was in the step lands on Gemini\'s connected box, not the page', async () => {
+  const f = agyToReady();
+  await agyWalk(f, 'fr-gemini-sub-paste-go');
+  const box = f.el('fr-gemini-msg');
+  assert.equal(f.active(), box, 'focus was left on a control in the hidden step: ' + (f.active() && f.active().id));
+  assert.equal(box.attrs.tabindex, '-1', 'the box is not focusable');
+  assert.match(box.textContent, /Gemini/, 'focus landed on an empty box (the repaint stand-in paints nothing here)');
+});
+test('#4082 CONTROL: a person who has moved on keeps their place', async () => {
+  const f = agyToReady();
+  await agyWalk(f, 'fr-grok-connect');
+  assert.equal(f.active(), f.el('fr-grok-connect'), 'focus was taken from outside the step');
 });
 
 test('#3998: Settings ends a signed-in Gemini subscription on the gold connected box, like GPT and Grok', async () => {
