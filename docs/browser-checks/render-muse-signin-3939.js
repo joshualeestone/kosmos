@@ -407,6 +407,28 @@ const chk = (ok, label, extra) => {
   const connTwo = await q(() => document.getElementById('conn-live').textContent);
   chk(/^One account /.test(connTwo), 'beside an OpenAI account it counts one account, not two', connTwo);
   await q(() => { window.__accounts = []; });
+  /* Round 2: the create-agent form, through its own functions and its own elements. With only Meta Muse
+     and an OpenAI account, the form must start on OpenAI (Muse is not a Claude account), and its Claude
+     account picker must never list the Muse row. */
+  const OPENAI_ROW = { provider: 'openai', providerName: 'OpenAI', dir: '/h/.codex', email: 'o@example.com', keyTail: null, authMode: 'chatgpt', connection: { state: 'connected', badge: 'working' } };
+  const CLAUDE_ROW = { provider: 'anthropic', providerName: 'Anthropic', dir: '/h/.claude-a', email: 'c@example.com', isDefault: true, memoryShared: true, connection: { state: 'connected', badge: 'working' } };
+  const createPick = await q(([m, o]) => {
+    CREATE_ACCOUNTS = [m, o];
+    resetCreateProvider();
+    return document.getElementById('create-provider').value;
+  }, [MUSE_ROW, OPENAI_ROW]);
+  chk(createPick === 'openai', 'the create form starts on OpenAI when the only other account is Meta Muse (Muse is not a Claude account)', createPick);
+  // No shared history on the Claude row: the case where the picker falls back to every working row.
+  const claudeList = await q(([m, c]) => {
+    CREATE_ACCOUNTS = [m, { ...c, memoryShared: false }];
+    document.getElementById('create-provider').value = 'anthropic';
+    fillCreateAccounts();
+    return [...document.getElementById('create-account').options].map((o) => o.value + '|' + o.textContent.trim());
+  }, [MUSE_ROW, CLAUDE_ROW]);
+  chk(claudeList.length === 1 && claudeList[0].startsWith('/h/.claude-a'), 'the Claude account picker lists the Claude account and never the Meta Muse row', JSON.stringify(claudeList));
+  const withCtl = await q(([c]) => { CREATE_ACCOUNTS = [c, { ...c, dir: '/h/.claude-b', email: 'd@example.com', isDefault: false }]; document.getElementById('create-provider').value = 'anthropic'; fillCreateAccounts(); return document.getElementById('create-account').options.length; }, [CLAUDE_ROW]);
+  chk(withCtl >= 2, 'CONTROL: the same picker does list two real Claude accounts', String(withCtl));
+  await q(() => { CREATE_ACCOUNTS = []; });
 
   chk(errs.length === 0, 'no page errors', errs.join(' | '));
   await browser.close();

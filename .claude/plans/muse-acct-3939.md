@@ -35,8 +35,10 @@ The create-agent option and running an agent on Muse (3c-3), the first-run guide
 
 ## Weakest premise
 That no other page path reads a.provider === 'anthropic' implicitly through a route this
-survey missed. The browser check exercises the create-agent picker with only a Muse row
-and an OpenAI row to catch the likeliest miss.
+survey missed. The browser check runs the create form's own resetCreateProvider and
+fillCreateAccounts on its real elements (round 2): with Muse + OpenAI it starts on OpenAI,
+and with Muse + a Claude row that has no shared history (the fallback case) the Claude
+picker lists only the Claude row. Both arms go red when acctProvider forgets Meta.
 
 ## Review round 1 (opus): 0 blockers, 6 warnings, 5 nits, all addressed
 - W1: "not available" went into a hidden element. It now goes into #acct-add-pick-say
@@ -60,3 +62,12 @@ and an OpenAI row to catch the likeliest miss.
   must give Meta its own create branch, as #3998 did for the Gemini subscription.
 - Two eval-sliced tests (web.reauth-1492, web.connect-success-1656) were given the new
   names (ACCT_ADD_VISIT, ACCT_MUSE_ASKING, acctAddPickSay), as slice 3b did for its helpers.
+
+## Review round 2 (sonnet): 0 blockers, 1 warning, 2 nits
+- WARNING FIXED: the plan claimed the browser check exercised the create-agent picker; it
+  did not (only a unit-level predicate). It now does, through the form's own functions and
+  elements, including the no-shared-history fallback where the leak would show (a blank
+  option). Both arms were red under the acctProvider mutation.
+- NITs ACCEPTED: the per-request require mirrors agySub's; the order of the 'meta' check
+  in acctProvider is moot while ACCT_KEYED_ROUTE has no 'meta' (the authMode check stays
+  first for a future Meta key).
