@@ -44,10 +44,19 @@ const CODE_RETRY_MS = 20000;    // the code screen still showing this long after
    it with Google), a refusal is read only after this much longer wait. */
 const CODE_STALE_MS = 90000;
 const CODE_PROMPT = 'Paste the authorization code:';
-/* What sits on agy's code prompt now: '' when it is empty (waiting for a code). */
+/* One tmux call: capture, send-keys, has-session answer at once on a live server; this long means stuck. */
+const TMUX_CALL_MS = 5000;
+/* macOS `open` on the window script: Terminal can take a while to come up the first time. */
+const OPEN_MS = 15000;
+/* What sits on agy's code prompt now: '' when it is empty (waiting for a code). Round 28: the prompt's
+   own line and the next one only (agy may echo the code on the line below), not anything drawn under. */
 function promptText(text) {
-  const at = String(text).lastIndexOf(CODE_PROMPT);
-  return at < 0 ? '' : String(text).slice(at + CODE_PROMPT.length).trim();
+  const t = String(text);
+  const at = t.lastIndexOf(CODE_PROMPT);
+  if (at < 0) return '';
+  const rest = t.slice(at + CODE_PROMPT.length).split('\n');
+  const same = (rest[0] || '').trim();
+  return same || (rest[1] || '').trim();
 }
 /* Asking agy whether it is signed in costs a prompt on the person's subscription, so one sign-in
    asks at most this many times, however long it sits on a screen Kosmos does not know. The whole
@@ -122,11 +131,11 @@ let tmux = (args) => {
   try { bin = tmuxBin(); } catch (e) { const x = new Error('Kosmos could not find tmux: ' + (e && e.message)); x.kosmosInternal = true; throw x; }
   if (!live(bin, full)) throw new Error('live execution is off');
   // stderr piped, not inherited (round 21): the speculative kill before a start is not an error line in the board's log.
-  return execFileSync(bin, full, { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] });
+  return execFileSync(bin, full, { encoding: 'utf8', timeout: TMUX_CALL_MS, stdio: ['ignore', 'pipe', 'pipe'] });
 };
 let openFile = (file, done) => {
   if (!live('/usr/bin/open', [file])) { done(new Error('live execution is off')); return; }
-  execFile('/usr/bin/open', [file], { timeout: 15000 }, (err) => done(err));
+  execFile('/usr/bin/open', [file], { timeout: OPEN_MS }, (err) => done(err));
 };
 let confirmSignedIn = () => require('./agystatus').check();
 let agyBin = () => require('./agystatus').installed();

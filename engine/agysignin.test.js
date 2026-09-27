@@ -17,10 +17,14 @@ function findTmux() {
   try { return execFileSync('/bin/sh', ['-c', 'command -v tmux'], { encoding: 'utf8' }).trim() || null; } catch { return null; }
 }
 const TMUX = findTmux();
+/* Every temp folder a test makes is removed when the file ends (round 28: they piled up per run). */
+const MADE = [];
+function tmpRoot(prefix) { const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix)); MADE.push(d); return d; }
+test.after(() => { for (const d of MADE) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* gone */ } } });
 const skip = TMUX ? false : 'no tmux on this machine (CI installs it in test.yml)';
 
 function setup(flow) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-signin-test-'));
+  const dir = tmpRoot('agy-signin-test-');
   const log = path.join(dir, 'fake.log');
   process.env.AGENT_WORKFORCE_TMUX_BIN = TMUX;
   process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET = 'kosmos-agy-signin-test-' + process.pid + '-' + flow;
@@ -130,7 +134,7 @@ test('#3998: a check that answers after its sign-in was stopped and restarted ne
   let screenNow = 'Your browser should open automatically. If not:\n\nPaste the authorization code:\n';
   s.setForTests({
     agyBin: () => ({ installed: true, bin: '/bin/true' }),
-    folderRoot: () => fs.mkdtempSync(path.join(os.tmpdir(), 'agy-stale-')),
+    folderRoot: () => tmpRoot('agy-stale-'),
     tmux: (args) => { if (args[0] === 'capture-pane') return screenNow; if (args[0] === 'kill-session') killed.push(args.join(' ')); return ''; },
     confirmSignedIn: () => gate,   // the FIRST session's check hangs until released
   });
@@ -160,7 +164,7 @@ test('#3998: a recognised screen that does not move on becomes stuck (a changed 
   const sent = [];
   s.setForTests({
     agyBin: () => ({ installed: true, bin: '/bin/true' }),
-    folderRoot: () => fs.mkdtempSync(path.join(os.tmpdir(), 'agy-t-')),
+    folderRoot: () => tmpRoot('agy-t-'),
     now: () => t0,
     // The menu with the cursor NOT on Google OAuth: Kosmos must not press Enter, and must not wait forever.
     tmux: (args) => { if (args[0] === 'capture-pane') return 'Select login method:\n  1. Google OAuth\n> 2. Use a Google Cloud project\n'; if (args[0] === 'send-keys') sent.push(args.slice(3).join(' ')); return ''; },
@@ -179,7 +183,7 @@ test('#3998: a recognised screen that does not move on becomes stuck (a changed 
 /* ---- the round-2 review's cases, on a scripted screen (no tmux) ---------------------------- */
 function scripted(s, first) {
   const st = { screen: first, sent: [], killed: 0, t: 1000000, checks: 0, answer: { signedIn: null }, captureThrows: null, hasSession: true };
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-scripted-'));   // its own folder, never a shared one
+  const root = tmpRoot('agy-scripted-');   // its own folder, never a shared one
   st.root = root;
   s.resetForTests();
   s.setForTests({
@@ -377,7 +381,7 @@ test('#3998 C3: with the live-execution gate closed, a start that would run tmux
   const s = require('./agysignin');
   s.resetForTests();
   require('./live-execution').resetForTests();
-  s.setForTests({ agyBin: () => ({ installed: true, bin: '/bin/true' }), folderRoot: () => fs.mkdtempSync(path.join(os.tmpdir(), 'agy-t-')) });
+  s.setForTests({ agyBin: () => ({ installed: true, bin: '/bin/true' }), folderRoot: () => tmpRoot('agy-t-') });
   try {
     assert.throws(() => s.start(), /for real inside a test/);
     assert.equal(s.status().state, 'idle');
@@ -1120,5 +1124,21 @@ test('#3998 round 26: a shown window ends two hours after Show however busy its 
     assert.notEqual(s.status().state, 'failed', 'CONTROL: still running before two hours');
     for (let i = 0; i < 3; i++) { st.screen = 'spinner x' + i; st.t += 60000; s.tickForTests(); await settle(); }
     assert.equal(s.status().state, 'failed', 'a shown window with a spinner ran past two hours');
+  } finally { s.resetForTests(); }
+});
+
+/* ---- review round 28 --------------------------------------------------------------------- */
+test('#3998 round 28: the prompt is read on its own line and the next, not from anything drawn further down', () => {
+  const s = require('./agysignin');
+  const CODE = 'Your browser should open automatically. If not:\n\nhttps://accounts.google.com/o/oauth2/auth?x=1\n\nPaste the authorization code:\n';
+  const C = '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v';
+  const st = scripted(s, CODE);
+  try {
+    const { id } = s.start();
+    s.tickForTests();
+    assert.equal(s.code(C, id).ok, true);
+    st.screen = CODE + '\n\n  Press Ctrl+C to cancel\n';   // an empty prompt with a hint drawn further down
+    st.t += 25000; s.tickForTests();
+    assert.equal(s.status().state, 'code', 'a hint under an empty prompt was read as a held code (a refusal waited 90 s)');
   } finally { s.resetForTests(); }
 });

@@ -486,3 +486,20 @@ test('#3998 round 26: leaving the step does not stop a sign-in whose window the 
   f.FR_AGY_SUB.leave();
   assert.equal(f.posts.includes('/api/antigravity/signin/stop'), false, 'closing the dialog cut off the window the person is finishing it in');
 });
+
+test('#3998 round 28: Stop this sign-in stops it even with its window open', async () => {
+  const f = agyFlow({
+    '/api/antigravity/check': [{ installed: true, signedIn: null }],
+    'POST /api/antigravity/signin': [{ ok: true, id: 'feedc0de00000003' }],
+    'GET /api/antigravity/signin': [{ id: 'feedc0de00000003', state: 'stuck', shown: true, because: 'x' }],
+    '/api/antigravity/signin/stop': [{ ok: true }],
+  });
+  await f.FR_AGY_SUB.start();
+  await f.FR_AGY_SUB.start();
+  await f.settle(() => /window is open/.test(f.view().text));
+  f.FR_AGY_SUB.stop();
+  assert.ok(f.posts.includes('/api/antigravity/signin/stop'), 'Stop this sign-in left the sign-in running because its window was open');
+  const page = require('node:fs').readFileSync(require('node:path').join(__dirname, 'web', 'index.html'), 'utf8');
+  assert.match(page, /getElementById\('fr-gemini-sub-cancel'\)[\s\S]{0,200}FR_AGY_SUB\.stop\(\)/, 'the first-run Stop button does not stop');
+  assert.match(page, /getElementById\('acct-gemini-sub-cancel'\)[\s\S]{0,120}ACCT_AGY_SUB\.stop\(\)/, 'the Settings Stop button does not stop');
+});

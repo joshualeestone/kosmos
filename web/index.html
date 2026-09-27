@@ -25411,6 +25411,7 @@ async function acctGeminiKeyPath() {
 document.getElementById('acct-gemini-pick-key').addEventListener('click', () => acctGeminiKeyPath());
 document.getElementById('acct-gemini-sub-go').addEventListener('click', () => ACCT_AGY_SUB.start());
 document.getElementById('acct-gemini-sub-cancel').addEventListener('click', () => {
+  ACCT_AGY_SUB.stop();   // round 28: Stop stops it, window open or not
   // Back to the choice, as Grok's does, so "Use an API key" is one press away.
   /* A check that found it not offered here (AGY_OFFERED false) leaves nothing to choose between:
      the key step, the way the step's own words ("Press Stop this sign-in to use an API key") say. */
@@ -25513,6 +25514,12 @@ function agySubDriver(pre, onReady) { return {
   sendingCode: false,   // #3998: a code is on its way (a second press is ignored)
   codeError: '',   // #3998: why the last pasted code was refused, until the person types again
   windowOpen: false,   // #3998 round 26: the sign-in's window is open and the person is driving it
+  /* Round 28: the person pressed Stop this sign-in. That stops it even with its window open (only the
+     passive ways out, closing the dialog or switching provider, leave an open window running). */
+  stop() {
+    if (this.signing) { this.signing = false; this.windowOpen = false; this.post('/api/antigravity/signin/stop', { id: this.signinId }); }
+    this.leave();
+  },
   leave() {
     this.gen += 1; this.busy = false; this.next = 'check';
     /* A sign-in nobody is watching any more ends, rather than waiting out its half hour. Not one whose
@@ -26050,7 +26057,7 @@ const FR_GROK_SUB = grokSubDriver({
 });
 document.getElementById('fr-gemini-sub-cancel').addEventListener('click', () => {
   // #3568, as Grok's below: back to the choice, so the key is one press away.
-  FR_AGY_SUB.leave();
+  FR_AGY_SUB.stop();   // round 28: Stop stops it, window open or not
   frKeyedShowPick('google');
 });
 document.getElementById('fr-grok-sub-cancel').addEventListener('click', () => {

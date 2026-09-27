@@ -180,3 +180,8 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 
 ## After convergence: CI on the merge with main (decided)
 - #3957's route check (added to main after the branch's validation) counts only exact path comparisons and forbids startsWith route families. The sign-in route is now four exact comparisons; an unknown sub-address falls through to the board's own 404. Rebased onto main; the diff changed, so validation and a review round run again before the proof is rewritten.
+
+## Review round 28 (decided)
+- Stop this sign-in stops it even with its window open (a driver stop(), used by both Stop buttons). Round 26's leave-it-running applies only to the passive ways out: closing the dialog, switching provider, cancelling first run.
+- The code prompt is read on its own line and the next (where agy shows what is typed), not from anything drawn further down, so a hint under an empty prompt is not a held code.
+- The tmux call and `open` timeouts are named (TMUX_CALL_MS, OPEN_MS); the engine tests remove every temp folder they make.
