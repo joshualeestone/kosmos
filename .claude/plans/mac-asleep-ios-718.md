@@ -24,6 +24,11 @@ failed secure connection to the Mac's own address. That blames Kosmos+ when the 
 - **Wording**: "Your Mac isn't answering" / "It may be asleep or turned off. Wake it, then try
   again." iOS copy keeps the contractions the app already uses. "your Mac", as the Kosmos+ copy
   says. Reversible; Josh or Mona Lisa may prefer other words.
+- **Only the no-answer codes name the Mac** (timed out, cannot connect, connection lost, failed
+  secure connection). A certificate error or a bad response on a Mac's address means the Mac
+  answered (the tunnel ends TLS on the Mac), so "may be asleep" would send someone to wake a Mac
+  that is on; a DNS failure is the phone's own lookup. Those keep the Kosmos+ wording (challenge
+  loop iteration 1).
 - **No auto-retry** for a Mac not answering: only the offline case retries on reconnect, because
   only there does the phone learn something changed.
 - Icon `desktopcomputer` for the Mac case, so it does not look like the cloud case.
