@@ -22,9 +22,13 @@
  *   PreToolUse    -> needs_you, ONLY for agy's `ask_question` tool (hooked with that matcher
  *                    alone; the payload's toolCall.name is checked again here): agy is stopped,
  *                    waiting for the person to answer (Gemini-Sub's spec, #4043). Its answer is
- *                    `{}` like every other event: agy handles an empty decision as no decision
- *                    (its 1.0.16 changelog), so nothing about agy's permissions changes. The
- *                    question is agy's own tool schema: args.questions[].question.
+ *                    `{"decision":"allow"}`: agy's PreToolUse contract REQUIRES a decision, and
+ *                    MEASURED LIVE on agy 1.2.11 (2026-09-27, the served 0.7.01 bytes) both `{}` and
+ *                    `{"decision":""}` DENY the tool ("tool call denied by pre-tool hook"), so the
+ *                    person was never asked. `allow` is what agy does with no hook at all here: the
+ *                    supervisor launches agy with --dangerously-skip-permissions, and the matcher
+ *                    lets only ask_question reach this answer. The question is agy's own tool
+ *                    schema: args.questions[].question.
  *   PostToolUse   -> working, ONLY for `ask_question`: the person answered, the turn goes on.
  *   Everything else in PreToolUse/PostToolUse is NOT hooked: PreToolUse is agy's permission gate,
  *                    and a hook per tool is a node start inside agy's blocking loop.
@@ -56,10 +60,13 @@ const STATE_FOR_EVENT = Object.freeze({
 /* agy's tool that asks the person something and waits (Gemini-Sub's spec, #4043). */
 const ASK_TOOL = 'ask_question';
 
-/* What agy reads on stdout: `{}` for every event, PreToolUse included (an empty decision is no
-   decision since agy 1.0.16), so Kosmos never makes a permission decision for agy. */
-function answerFor() {
-  return '{}';
+/* What agy reads on stdout. PreToolUse (reached only by ask_question) answers `{"decision":"allow"}`:
+   agy's contract requires a decision, and on agy 1.2.11 `{}` and `{"decision":""}` were MEASURED to deny
+   the tool (#4043's 0.7.01 regression: an agy agent could not ask its person anything). Every other event
+   answers `{}`, which its contract expects. Pinned against agy's measured contract in agyhooks.test.js. */
+const ALLOW = '{"decision":"allow"}';
+function answerFor(eventName) {
+  return eventName === 'PreToolUse' ? ALLOW : '{}';
 }
 
 /* Whose throttle this is: the pane, else the agent's launch token (hashed), else the process that

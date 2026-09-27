@@ -25,8 +25,8 @@ const HOOK_NAME = 'kosmos-report';
 /* Seconds agy gives a handler; the bridge itself gives up well inside it (TIMEOUT_MS + STDIN). */
 const HANDLER_TIMEOUT_S = 5;
 /* The oldest agy whose tool hooks are safe to write (its changelog, read from the 1.2.11 binary):
-   before 1.0.16 an empty PreToolUse answer (our `{}`) failed the tool with "unknown pre-tool hook
-   decision", which would break ask_question itself; before 1.1.9 PostToolUse fired on every step and
+   before 1.0.16 an empty PreToolUse decision failed the tool with "unknown pre-tool hook decision",
+   which would break ask_question itself; before 1.1.9 PostToolUse fired on every step and
    ignored its matcher, a node start per step. 1.1.9 covers both. */
 const MIN_TOOL_HOOKS = [1, 1, 9];
 
@@ -56,7 +56,8 @@ function shQuote(s) {
     follows every tool, so it is also the heartbeat), Stop reports idle, and PreToolUse/PostToolUse
     are hooked for agy's ask_question tool ONLY (needs_you while it waits for the person, working
     once answered). No other tool is hooked: a hook per tool is a node start inside agy's blocking
-    loop, and PreToolUse is agy's permission gate (the bridge answers {} there: no decision).
+    loop, and PreToolUse is agy's permission gate: the bridge answers `{"decision":"allow"}` there, since a
+    missing or empty decision is a DENY on agy 1.2.11 (measured live, #4043's 0.7.01 regression).
     ⚠️ Unix only: `sh -c` quoting. agy runs hooks with `cmd /c` on Windows, where Kosmos does not
     run agy agents yet; only the bash supervisor calls this.
     `withToolHooks` false (an agy older than MIN_TOOL_HOOKS, or one whose version is unknown) leaves
