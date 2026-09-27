@@ -11746,7 +11746,7 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" id="acct-muse-code" hidden style="margin:8px 0 0;"></p>
       <div class="frow" id="acct-muse-retry-row" hidden style="margin-top:8px;"><button class="btn uprime" id="acct-muse-retry" type="button">Get a new code</button></div>
       <div class="frow" id="acct-muse-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="acct-muse-cancel" type="button">Stop this sign-in</button></div>
-      <p class="dhint" id="acct-muse-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+      <p class="dhint" id="acct-muse-say" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
     </div>
     <!-- #3874: Gemini connects with a Google SUBSCRIPTION or a key, so where the subscription is
          offered (a Mac, runner on: keyedSubReady('google')) picking Gemini shows this choice first,
@@ -25849,7 +25849,7 @@ function museOffered() {
 const ACCT_MUSE = (() => {
   let id = null; let poll = null; let gen = 0; let retrying = false;
   const el = (x) => document.getElementById('acct-muse-' + x);
-  const say = (t) => { const m = el('msg'); if (m) m.textContent = t; };
+  const say = (t) => { const m = el('say'); if (m) m.textContent = t; };   // 'say', not 'msg' (the surface gate maps that token)
   const stopPoll = () => { if (poll) { clearInterval(poll); poll = null; } };
   // Each address written out whole (#3957 reads every page fetch's URL as a literal).
   const post = (which, body) => {
@@ -25980,7 +25980,7 @@ document.getElementById('acct-muse-go').addEventListener('click', () => ACCT_MUS
 document.getElementById('acct-muse-retry').addEventListener('click', () => ACCT_MUSE.retry());
 document.getElementById('acct-muse-cancel').addEventListener('click', () => {
   ACCT_MUSE.leave();
-  const m = document.getElementById('acct-muse-msg'); if (m) m.textContent = 'Sign-in stopped.';
+  const m = document.getElementById('acct-muse-say'); if (m) m.textContent = 'Sign-in stopped.';
   document.getElementById('acct-muse-go').focus();
 });
 /* #3874: Gemini's choice in Settings, or put it away (which !== 'google'). Called from acctApikeyShow

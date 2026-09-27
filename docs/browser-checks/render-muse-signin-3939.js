@@ -146,7 +146,7 @@ const chk = (ok, label, extra) => {
   chk(!code.hidden && code.cells === 'WXYZ1234', 'the code shows in the #3952 boxes', JSON.stringify(code));
   const link = await G('acct-muse-open');
   chk(link.href === 'https://auth.meta.com/device?user_code=WXYZ-1234' && !(await G('acct-muse-open-row')).hidden, 'Meta\'s page is a link', link.href);
-  chk(/Confirm the code on Meta's page/.test((await G('acct-muse-msg')).text), 'it says what to do', (await G('acct-muse-msg')).text);
+  chk(/Confirm the code on Meta's page/.test((await G('acct-muse-say')).text), 'it says what to do', (await G('acct-muse-say')).text);
 
   // Expired: a new code, asked for by this sign-in's id.
   await q(() => { window.__status = { id: 'mine000000000001', state: 'expired', because: 'The code expired before it was approved' }; });
@@ -161,7 +161,7 @@ const chk = (ok, label, extra) => {
   await q(() => { window.__status = { id: 'mine000000000001', state: 'done' }; });
   const before = await q(() => window.__accountsPainted);
   await tick();
-  chk(/Signed in to Meta Muse/.test((await G('acct-muse-msg')).text), 'done says so', (await G('acct-muse-msg')).text);
+  chk(/Signed in to Meta Muse/.test((await G('acct-muse-say')).text), 'done says so', (await G('acct-muse-say')).text);
   chk(await q((b) => window.__accountsPainted > b, before), 'done repaints the accounts');
   chk(!(await G('acct-muse-go')).hidden && (await G('acct-muse-cancel-row')).hidden, 'after done, Stop goes and the button is back');
 
@@ -170,7 +170,7 @@ const chk = (ok, label, extra) => {
   await settle();
   const postsBefore = await q(() => window.__posts.length);
   await tick();
-  chk(/Another sign-in started/.test((await G('acct-muse-msg')).text), 'a poll naming another sign-in ends this one in words', (await G('acct-muse-msg')).text);
+  chk(/Another sign-in started/.test((await G('acct-muse-say')).text), 'a poll naming another sign-in ends this one in words', (await G('acct-muse-say')).text);
   chk((await G('acct-muse-code')).hidden, 'another sign-in\'s code is never shown here');
   chk(await q((n) => window.__polls.size === 0 && window.__posts.length === n, postsBefore), 'and nothing is sent for it');
 
@@ -178,14 +178,14 @@ const chk = (ok, label, extra) => {
   await q(() => { window.__status = { id: 'mine000000000001', state: 'failed', because: 'Muse Code signed in but could not save the sign-in on this computer' }; document.getElementById('acct-muse-go').click(); });
   await settle();
   await tick();
-  const failed = await G('acct-muse-msg');
+  const failed = await G('acct-muse-say');
   chk(/could not save the sign-in/.test(failed.text) && /try again/.test(failed.text), 'a failure is said in words', failed.text);
   chk((await G('acct-muse-go')).disabled === false && !(await G('acct-muse-go')).hidden, 'the button re-arms after a failure');
 
   // A refused start is said in words.
   await q(() => { window.__startAnswer = [400, { ok: false, error: 'Muse Code is not on this computer' }]; document.getElementById('acct-muse-go').click(); });
   await settle();
-  chk(/not on this computer/.test((await G('acct-muse-msg')).text), 'a refused start is said in words', (await G('acct-muse-msg')).text);
+  chk(/not on this computer/.test((await G('acct-muse-say')).text), 'a refused start is said in words', (await G('acct-muse-say')).text);
   await q(() => { window.__startAnswer = null; });
 
   // Stop, and closing the dialog, each stop the engine's sign-in by id.
@@ -194,7 +194,7 @@ const chk = (ok, label, extra) => {
   await q(() => document.getElementById('acct-muse-cancel').click());
   await settle();
   chk(await q(() => { const p = window.__posts[window.__posts.length - 1]; return p.path === '/stop' && p.id === 'mine000000000001'; }), 'Stop stops the engine\'s sign-in by id');
-  chk(/Sign-in stopped/.test((await G('acct-muse-msg')).text), 'Stop says so');
+  chk(/Sign-in stopped/.test((await G('acct-muse-say')).text), 'Stop says so');
   await q(() => document.getElementById('acct-muse-go').click());
   await settle();
   await q(() => closeAcctAdd());
@@ -229,7 +229,7 @@ const chk = (ok, label, extra) => {
   await settle();
   await q(() => document.getElementById('acct-muse-cancel').click()); await settle();
   await q(() => { window.__releaseRetry(); window.__holdRetry = null; }); await settle();
-  chk(/Sign-in stopped/.test((await G('acct-muse-msg')).text), 'a retry answered after Stop paints nothing', (await G('acct-muse-msg')).text);
+  chk(/Sign-in stopped/.test((await G('acct-muse-say')).text), 'a retry answered after Stop paints nothing', (await G('acct-muse-say')).text);
   // A failure while focus is on Stop brings focus back to the button.
   await running();
   await q(() => document.getElementById('acct-muse-cancel').focus());
@@ -238,14 +238,14 @@ const chk = (ok, label, extra) => {
   // Idle (the board restarted mid sign-in) is not "another sign-in".
   await running();
   await q(() => { window.__status = { state: 'idle' }; }); await tick();
-  chk(/ended before it finished/.test((await G('acct-muse-msg')).text), 'an idle poll says the sign-in ended, not that another started', (await G('acct-muse-msg')).text);
+  chk(/ended before it finished/.test((await G('acct-muse-say')).text), 'an idle poll says the sign-in ended, not that another started', (await G('acct-muse-say')).text);
   // A poll answered after Stop paints nothing.
   await running();
   await q(() => { window.__holdStatus = new Promise((r) => { window.__releaseStatus = r; }); window.__tickP = window.__tick(); });
   await settle();
   await q(() => document.getElementById('acct-muse-cancel').click()); await settle();
   await q(async () => { window.__releaseStatus(); window.__holdStatus = null; await window.__tickP; }); await settle();
-  chk((await G('acct-muse-code')).hidden && /Sign-in stopped/.test((await G('acct-muse-msg')).text), 'a poll answered after Stop paints nothing', (await G('acct-muse-msg')).text);
+  chk((await G('acct-muse-code')).hidden && /Sign-in stopped/.test((await G('acct-muse-say')).text), 'a poll answered after Stop paints nothing', (await G('acct-muse-say')).text);
   // A start answered after the dialog closed is stopped by its own id.
   await q(() => { window.__holdStart = new Promise((r) => { window.__releaseStart = r; }); window.__startAnswer = [200, { ok: true, id: 'late000000000009', state: 'starting' }]; });
   await choose('meta'); await settle();
@@ -291,12 +291,12 @@ const chk = (ok, label, extra) => {
   await q(() => { window.__museInstalled = true; closeAcctAdd(); openAcctAdd(); }); await settle();
   await running();
   await q(() => { window.__status = { id: 'mine000000000001', state: 'stuck', because: 'Muse Code did not start waiting for the approval', url: 'https://auth.meta.com/device?user_code=WXYZ-1234', code: 'WXYZ-1234' }; }); await tick();
-  const stuckCode = await q(() => ({ msg: document.getElementById('acct-muse-msg').textContent, code: !document.getElementById('acct-muse-code').hidden,
+  const stuckCode = await q(() => ({ msg: document.getElementById('acct-muse-say').textContent, code: !document.getElementById('acct-muse-code').hidden,
     link: !document.getElementById('acct-muse-open-row').hidden, retry: !document.getElementById('acct-muse-retry-row').hidden, stop: !document.getElementById('acct-muse-cancel-row').hidden }));
   chk(/did not start waiting/.test(stuckCode.msg) && stuckCode.code && stuckCode.link && !stuckCode.retry && stuckCode.stop,
     'stuck with a code: says why, keeps the code and link (Meta\'s page may still take it), offers Stop, no retry', JSON.stringify(stuckCode));
   await q(() => { window.__status = { id: 'mine000000000001', state: 'stuck', because: 'Muse Code is showing a step Kosmos does not recognise' }; }); await tick();
-  const stuckBare = await q(() => ({ msg: document.getElementById('acct-muse-msg').textContent, code: !document.getElementById('acct-muse-code').hidden, stop: !document.getElementById('acct-muse-cancel-row').hidden }));
+  const stuckBare = await q(() => ({ msg: document.getElementById('acct-muse-say').textContent, code: !document.getElementById('acct-muse-code').hidden, stop: !document.getElementById('acct-muse-cancel-row').hidden }));
   chk(/does not recognise/.test(stuckBare.msg) && !stuckBare.code && stuckBare.stop, 'stuck with no code: says why, no code, Stop offered', JSON.stringify(stuckBare));
   await q(() => document.getElementById('acct-muse-cancel').click()); await settle();
 
@@ -327,7 +327,7 @@ const chk = (ok, label, extra) => {
   await q(() => { closeAcctAdd(); openAcctAdd(); }); await settle();
   await running();
   await q(() => { window.__status = { id: 'mine000000000001', state: 'failed', because: 'Muse Code did not send a new code, so start the sign-in again' }; }); await tick();
-  const twice = (await G('acct-muse-msg')).text;
+  const twice = (await G('acct-muse-say')).text;
   chk(!/You can try again/.test(twice) && /start the sign-in again/.test(twice), 'a reason that says to start again is not told twice', twice);
   // Put away with focus inside: focus goes to the provider picker.
   await running();
