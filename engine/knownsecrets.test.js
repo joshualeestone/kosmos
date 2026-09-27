@@ -80,3 +80,36 @@ test('#3935 keyTokens: every key-shaped token of a line with spaces, and no name
   ];
   for (const [line, want] of cases) assert.deepEqual(keyTokens(line), want, line);
 });
+
+test('#4111 a value assigned to a public NAME (MODEL, REGION, VERSION) is not held; a secret-like NAME still is', () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-known-')));
+  try {
+    const data = path.join(root, 'data');
+    const put = (p, text) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, text); };
+    put(path.join(data, 'secrets', 'openai.env'), [
+      'OPENAI_MODEL=gpt-4o-mini-2024-07-18',
+      'export AWS_REGION=eu-central-1-zone9x',
+      'api_version: 2024-10-21-preview',
+      '"model": "claude-sonnet-4-20250514",',
+      'OPENAI_API_KEY=sk-proj-held0123456789abcdefXYZ',
+      'MODEL_API_KEY=modelkey0123456789abcdefXY',
+      'IMAGE_MODEL=dall-e-3-hd # old key Zq8vLm3pRt6wXy9kHb2nWc4d',
+    ].join('\n') + '\n');
+    put(path.join(data, 'secrets', 'model.txt'), 'DEFAULT_MODEL=gpt-4o-2024-08-06\n');
+    const got = new Set(collect({ dataRoot: data, home: path.join(root, 'nohome') }));
+    for (const pub of ['gpt-4o-mini-2024-07-18', 'eu-central-1-zone9x', '2024-10-21-preview', 'claude-sonnet-4-20250514', 'gpt-4o-2024-08-06']) {
+      assert.ok(![...got].some((v) => v.includes(pub) && !/\n/.test(v)), `a public ${pub} was held: ${[...got].filter((v) => v.includes(pub))}`);
+    }
+    assert.ok(!got.has('OPENAI_MODEL=gpt-4o-mini-2024-07-18'), 'the public NAME=value line was held (the mask would walk it)');
+    assert.ok(!got.has('DEFAULT_MODEL=gpt-4o-2024-08-06'), 'a one-line file that is a public assignment was held whole');
+    assert.ok(got.has('sk-proj-held0123456789abcdefXYZ'), 'CONTROL: a key under a secret NAME was not held');
+    assert.ok(got.has('modelkey0123456789abcdefXY'), 'CONTROL: a NAME with a secret part (MODEL_API_KEY) must still be held');
+    assert.ok(got.has('Zq8vLm3pRt6wXy9kHb2nWc4d'), 'a key in a comment on a public line was dropped with the line');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('#4111 isPublicName: a public part and no secret part', () => {
+  const { isPublicName } = require('./knownsecrets');
+  for (const n of ['OPENAI_MODEL', 'model', 'AWS_REGION', 'api.version', 'TZ', 'default-model']) assert.equal(isPublicName(n), true, n);
+  for (const n of ['MODEL_API_KEY', 'OPENAI_API_KEY', 'REGION_TOKEN', 'DATABASE_URL', 'API_HOST', 'VERSION_SECRET', 'MODELX']) assert.equal(isPublicName(n), false, n);
+});

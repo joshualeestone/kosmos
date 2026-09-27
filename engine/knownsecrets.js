@@ -35,13 +35,22 @@ function readSmall(file) {
 function valuesIn(text, out) {
   if (typeof text !== 'string') return;
   const whole = text.trim();
-  if (whole) out.add(whole);
+  /* #4111: a one-line file that is a public assignment (OPENAI_MODEL=gpt-4o-mini) holds nothing, like the line. */
+  const wholeAssignment = /\n/.test(whole) ? null : parseAssignment(whole);
+  if (whole && !(wholeAssignment && isPublicName(wholeAssignment.name))) out.add(whole);
   for (const line of text.split(/\r?\n/)) {
     const t = line.trim();
     if (!t) continue;
+    const a = parseAssignment(t);
+    /* #4111: neither the line nor its value is held when the NAME says the value is public. Both must go: the mask
+       walks a NAME=value line whose value is NOT held (engine/secretmask.js isEnvLine), which would mask pieces of
+       it in prose. Every OTHER key-shaped token on the line is still held (a key in a trailing comment). */
+    if (a && isPublicName(a.name)) {
+      for (const tok of keyTokens(t)) if (tok !== a.value) out.add(tok);
+      continue;
+    }
     out.add(t);
-    const value = assignedValue(t);
-    if (value) out.add(value);
+    if (a) out.add(a.value);
     for (const tok of keyTokens(t)) out.add(tok);
   }
 }
@@ -51,18 +60,36 @@ function valuesIn(text, out) {
    "name": "value". Trimmed and unquoted. engine/secretmask.js reads the same function: a line whose value is held
    on its own here is masked whole there but not walked, so its NAME stays readable. One parser, two uses. */
 function assignedValue(line) {
+  const a = parseAssignment(line);
+  return a ? a.value : null;
+}
+
+/* The NAME and value of a secrets-file assignment, or null: the one parser behind assignedValue. */
+function parseAssignment(line) {
   if (typeof line !== 'string') return null;
   /* A commented-out assignment (# OLD_API_KEY=value, review round 28) still holds a real value. */
   const t = line.trim().replace(/^#\s*/, '');
   /* YAML and JSON values with no space in them (review round 28: "Note: see the wiki" is prose, not a value). */
   /* The env value is a quoted string or one token (review round 30: "(.*)" took a trailing comment or sentence). */
-  const m = /^(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*=("[^"]*"|'[^']*'|\S+)/.exec(t)
-    || /^[A-Za-z_][A-Za-z0-9_.-]*:\s+(\S+)$/.exec(t)
-    || /^"[A-Za-z_][A-Za-z0-9_.-]*"\s*:\s*("[^\s"]*"|[^\s,]+),?$/.exec(t);
+  const m = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=("[^"]*"|'[^']*'|\S+)/.exec(t)
+    || /^([A-Za-z_][A-Za-z0-9_.-]*):\s+(\S+)$/.exec(t)
+    || /^"([A-Za-z_][A-Za-z0-9_.-]*)"\s*:\s*("[^\s"]*"|[^\s,]+),?$/.exec(t);
   if (!m) return null;
-  const value = m[1].trim().replace(/^["']|["']$/g, '');
+  const value = m[2].trim().replace(/^["']|["']$/g, '');
   /* Padding is not a value (review round 31: Zq8v...Q1== read as NAME "Zq8v...Q1" and value "="). */
-  return value && !/^=+$/.test(value) ? value : null;
+  return value && !/^=+$/.test(value) ? { name: m[1], value } : null;
+}
+
+/* #4111: a NAME that says its value is public configuration, not a secret: OPENAI_MODEL, model, AWS_REGION,
+   API_VERSION. The setup guide names such values constantly (a model id such as gpt-4o-mini-2024-07-18 has digits and
+   no words, so it is key-shaped), and holding one masked the guide's own prose. A NAME with any secret-like part
+   (MODEL_API_KEY, REGION_TOKEN) is not public, whatever else it says. URL, HOST and ENDPOINT are deliberately NOT
+   public here: a URL can carry a token or a password, and holding one costs only a masked address. */
+const PUBLIC_NAME_PARTS = new Set(['MODEL', 'MODELS', 'REGION', 'VERSION', 'ZONE', 'LOCALE', 'LANG', 'LANGUAGE', 'TZ', 'TIMEZONE']);
+const SECRET_NAME_PARTS = /^(KEY|KEYS|APIKEY|TOKEN|TOKENS|SECRET|SECRETS|PASSWORD|PASSWD|PASS|PWD|AUTH|CREDENTIAL|CREDENTIALS|PRIVATE|SIG|SIGNATURE|SALT|COOKIE|SESSION|DSN|CERT|PEM)$/;
+function isPublicName(name) {
+  const parts = String(name).toUpperCase().split(/[_.-]+/).filter(Boolean);
+  return parts.some((p) => PUBLIC_NAME_PARTS.has(p)) && !parts.some((p) => SECRET_NAME_PARTS.test(p));
 }
 
 /* The key-shaped tokens of a secrets-file line (#3935). The mask does not walk a line with spaces in it (a comment,
@@ -134,4 +161,4 @@ function collect({ dataRoot = null, home = null } = {}) {
   return [...out].filter((v) => v.length >= 12);
 }
 
-module.exports = { collect, KEY_FILES, assignedValue, keyTokens };
+module.exports = { collect, KEY_FILES, assignedValue, keyTokens, isPublicName };

@@ -473,8 +473,10 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *    reverse: A12B34C56..., A1B2C3...), a serial or licence-key shape, cut into those groups. Each group reads as a
  *    plain label (Q1, V2), so no piece is key-like; the same rule is what keeps a held Q1Q2Q3Q4Q5Q6 out of a sentence
  *    about quarters, and the two cannot be told apart by their pieces (review rounds 10 and 26);
- *  - (a false mask, the other side of SHORT_WALK_MIN_KEYLIKE) a held value shaped like configuration rather than a key,
- *    such as a model id held from a settings file (gpt-4o-mini-2024-07-18), is masked out of prose that names it;
+ *  - (a false mask, the other side of SHORT_WALK_MIN_KEYLIKE) a held value shaped like configuration rather than a key
+ *    is masked out of prose that names it. The collector no longer holds one assigned to a public NAME (OPENAI_MODEL,
+ *    AWS_REGION, API_VERSION: engine/knownsecrets.js isPublicName, #4111), so this is left for a model id held some
+ *    other way: a bare one-line file, or a NAME with no public part (DEFAULT=gpt-4o-mini-2024-07-18);
  *  - an uppercase-and-digit key (A-Z 0-9) in chunks of two: its vowel pairs, labels and digit pairs all read as plain,
  *    so some show in full, more the shorter the key: measured in review round 29 on 400 keys per length, in twos
  *    26 percent at 16 characters, 14 at 20, 1 at 32; in threes 5 percent at 16, 3 at 20 (an AWS key id), 0 at 32;
