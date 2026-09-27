@@ -1902,8 +1902,22 @@ test('the map is checked in BOTH directions: a new engine sentence cannot skip i
   const youSrc = fs.readFileSync(path.join(__dirname, 'you.js'), 'utf8');
   const wfSrc = fs.readFileSync(path.join(__dirname, 'workerfile.js'), 'utf8');
   const seen = new Set();
+  /* ⚠️ ONE MORE NAMED EXCEPTION (#1071), with its own proof, like FOLDER below.
+     you.tellAgent's addOnly refusal is returned only when a caller passes
+     `addOnly`, and the only caller that does is the board-start pass, which
+     writes stderr and never a group line. So it has no plural row on purpose.
+     Asserted, not assumed: if a second caller starts passing addOnly, or the
+     sentence gains a row, this fails and the exception must be re-decided. */
+  const ADD_ONLY = 'nothing is saved about the person, so the block was left as it is';
+  assert.ok(youSrc.includes(ADD_ONLY), 'the addOnly refusal moved out of you.js; re-point this exception');
+  const serverSrc = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.equal((serverSrc.match(/addOnly:\s*true/g) || []).length, 1,
+    'addOnly has a second caller; its refusal may now reach a group line and needs a plural row');
+  assert.ok(/you\.syncEveryone\(safeRoster\(\), \{ addOnly: true \}\)/.test(serverSrc),
+    'the one addOnly caller is no longer the board-start pass');
+  assert.equal(projects.groupBecause(ADD_ONLY), null, 'the addOnly refusal gained a row; drop this exception');
   for (const [where, src] of [['projects.js', stripped], ['you.js', youSrc]]) {
-    const authored = verdictsIn(src);
+    const authored = verdictsIn(src).filter((v) => v !== ADD_ONLY);
     // CONTROL: the scan found sentences at all. A scan matching nothing
     // satisfies the loop vacuously, which is the failure this test exists to
     // prevent one level down, and it is what caught the previous version
