@@ -82,3 +82,16 @@ others.
   nothing when a newer note exists. Both scenarios are tests.
 - NIT FIXED: Kosmos's own sign-in writes an integer `at` like the other writer.
 - NIT FIXED: an unreadable mark is no mark (never a yes); commented as deliberate.
+
+## Review round 5 (opus): 0 blockers, 2 warnings, 3 nits
+- W1 FIXED: the refused credential's digest was taken when the refusal REPORTED, so a
+  `muse login` or `logout` during the turn recorded the wrong one (both reproduced).
+  runTurn takes musestatus.fileAtStart() beside startedAt and passes it on.
+- W2 FIXED: several boards on one Mac share the sign-in folder, and a success's
+  check-then-delete could remove another board's newer refusal. Successes (a completed
+  turn and Kosmos's own sign-in) no longer delete the note: the later mark already
+  wins. Records are written to a temp file and renamed, so "unreadable" means real
+  damage, never a write in progress (only then is a note removed).
+- N1: the wall-clock limit is stated in signedIn's comment (a clock stepped back can
+  misorder records made within the step). N2: docstring lists a new credential in
+  Muse's file as a restore. N3: the sign-in tests remove the note in setup.

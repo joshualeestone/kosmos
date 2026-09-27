@@ -284,3 +284,42 @@ test('#3939 3c-1 round 4: a late refusal never rewrites a newer note\'s digest, 
   assert.equal(muse.signedIn().signedIn, false, 'the still-refused credential read as signed in after a late refusal');
   clean();
 }));
+
+test('#3939 3c-1 round 5: the refused credential is the one the turn STARTED with, not the file at report time', () => withXdg((xdg) => {
+  // A: a good credential written during the turn is not recorded as refused.
+  clean();
+  writeAuth(xdg, { meta: { token: 'X' } });
+  let atStart = muse.fileAtStart();
+  writeAuth(xdg, { meta: { token: 'Y' } });           // `muse login` while the turn ran
+  muse.markSignedOut(T, atStart);
+  assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'file' }, 'a credential written mid-turn was recorded as refused');
+  // B: a logout mid-turn does not erase which credential was refused.
+  clean();
+  writeAuth(xdg, { meta: { token: 'X' } });
+  atStart = muse.fileAtStart();
+  writeAuth(xdg, {});                                  // `muse logout` while the turn ran
+  muse.markSignedOut(T, atStart);
+  writeAuth(xdg, { meta: { token: 'X' } });            // the refused credential comes back (a restore)
+  assert.equal(muse.signedIn().signedIn, false, 'the refused credential read as signed in after a mid-turn logout');
+  clean();
+}));
+
+test('#3939 3c-1 round 5: a success leaves the note alone (another board may have written a newer one), and still wins', () => withXdg(() => {
+  clean();
+  muse.markSignedOut(T);
+  assert.equal(muse.markTurnSignedIn(T + 10), true);
+  assert.equal(fs.existsSync(muse.signedOutMarker()), true, 'a success deleted the note');
+  assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'kosmos' }, 'CONTROL: the later mark wins over the note it left');
+  muse.markSignedOut(T + 20);                          // the next refusal still wins in turn
+  assert.equal(muse.signedIn().signedIn, false);
+  clean();
+}));
+
+test('#3939 3c-1 round 5: records are renamed into place and leave no temporary file', () => withXdg(() => {
+  clean();
+  muse.markSignedOut(T); muse.markTurnSignedIn(T + 10);
+  const left = fs.readdirSync(muse.signinFolder()).filter((n) => n.endsWith('.tmp'));
+  assert.deepEqual(left, [], 'a temporary file was left behind');
+  assert.equal(JSON.parse(fs.readFileSync(muse.signedInMarker(), 'utf8')).at, T + 10, 'CONTROL: the mark was written');
+  clean();
+}));

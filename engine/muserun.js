@@ -158,6 +158,7 @@ function runTurn(input) {
       if (t.error) { fail(t.error); return; }
       // #3939 3c-1: when this turn began, so a refusal does not undo a sign-in made while it ran.
       const startedAt = Date.now();
+      const atStart = musestatus.fileAtStart();   // the credential this turn begins with (round 5)
       stop = runMuse(inst.bin, t.args, { cwd: t.workspace }, (err, stdout, stderr) => {
         const parsed = parseEvents(stdout);
         const exitCode = err ? (typeof err.code === 'number' ? err.code : null) : 0;
@@ -171,7 +172,7 @@ function runTurn(input) {
           because = 'Muse Code is not signed in on this computer';
           // #3939 slice 3c-1: from now on GET /api/muse says so too, until a sign-in or a completed
           // turn after this. It never throws, and the turn's answer does not depend on it.
-          musestatus.markSignedOut(startedAt);
+          musestatus.markSignedOut(startedAt, atStart);
         }
         // Timed out only when Kosmos stopped it (round 1): another signal is a crash, not a timeout.
         else if (err) because = COULD_NOT_RUN;

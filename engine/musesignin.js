@@ -174,8 +174,8 @@ function markSignedIn() {
   try {
     fs.mkdirSync(musestatus.signinFolder(), { recursive: true, mode: 0o700 });
     fs.writeFileSync(file, JSON.stringify({ at: now() }) + '\n', { mode: 0o600 });
-    // #3939 slice 3c-1: a sign-in after a refused turn ends the "signed out" note.
-    try { fs.rmSync(musestatus.signedOutMarker(), { force: true }); } catch { /* none */ }
+    // #3939 slice 3c-1: the "signed out" note is left alone. This mark is later than any refusal so
+    // far, so it wins, and deleting could remove a newer refusal from another board (round 5).
     return true;
   } catch (e) { logLine('could not record the sign-in (' + ((e && e.code) || 'unknown') + ')'); return false; }
 }

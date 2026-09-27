@@ -36,6 +36,7 @@ function setup(flow) {
   process.env.AGENT_WORKFORCE_MUSE_SIGNIN_SOCKET = 'kosmos-muse-signin-test-' + process.pid + '-' + flow;
   process.env.AGENT_WORKFORCE_MUSE = '1';
   signin.resetForTests();
+  fs.rmSync(musestatus.signedOutMarker(), { force: true });   // a note never carries into the next test (round 5)
   fs.rmSync(musestatus.signedInMarker(), { force: true });
   require('./live-execution').allowLiveExecution();   // a real tmux on a private socket, on purpose
   // A wrapper keeps the fake's settings explicit, whatever environment a tmux server was started with.
@@ -82,7 +83,8 @@ test('#3939: the sign-in shows Meta\'s code, presses Enter once, and ends signed
     assert.match(log, /^xdg:unset$/m, 'XDG_CONFIG_HOME was set for muse');
     assert.equal(signin.status().code, undefined, 'a used code is still shown after the sign-in ended');
     assert.equal(signin.status().url, undefined, 'the used code is still served inside the address (round 5)');
-    assert.equal(fs.existsSync(musestatus.signedOutMarker()), false, 'a sign-in left the "signed out" note behind');
+    // Round 5: the note stays (another board may have written a newer one); the later mark wins.
+    assert.equal(fs.existsSync(musestatus.signedOutMarker()), true, 'a sign-in deleted the "signed out" note');
     assert.deepEqual(musestatus.signedIn(), { signedIn: true, how: 'kosmos' });
     assert.throws(() => execFileSync(TMUX, ['-L', process.env.AGENT_WORKFORCE_MUSE_SIGNIN_SOCKET, 'has-session', '-t', signin.SESSION], { stdio: 'ignore' }), 'the session outlived the sign-in');
   } finally { t.cleanup(); }

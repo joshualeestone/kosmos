@@ -103,8 +103,8 @@ function signedInMarker() { return path.join(signinFolder(), 'signed-in.json'); 
    hide a refusal from a turn that began after it (round 3), and a refusal cannot undo a sign-in that
    finished after the refused turn began (round 1).
    Muse's own auth.json (the file backend) counts after a refusal only when its meta entry is a
-   DIFFERENT credential from the one refused: the note keeps a canonical digest of the refused entry,
-   never the entry, so a rewrite for any other reason does not revive it. */
+   DIFFERENT credential from the one refused: the note keeps a canonical digest of the entry the
+   refused turn STARTED with, never the entry, so a rewrite for any other reason does not revive it. */
 function signedOutMarker() { return path.join(signinFolder(), 'signed-out.json'); }
 /* Canonical: keys sorted at every depth, so the same credential written in another key order is the
    same credential (review round 2). */
@@ -152,7 +152,26 @@ function readMark() { const r = readRecord(signedInMarker()); return r && !r.unr
 /** Record that Muse refused the credential for a turn that STARTED at `startedAt` (ms). Writes nothing
     when the mark is LATER than that start (a sign-in finished while the refused turn ran, round 1), and
     never moves an existing note back in time. True when it wrote. Never throws. */
-function markSignedOut(startedAt = Date.now()) {
+/* Written to a temporary file and renamed into place, so a reader in another board process (several
+   boards on one Mac share this folder, review round 5) sees the old record or the new one, never half
+   of one. */
+function writeRecord(file, obj) {
+  fs.mkdirSync(signinFolder(), { recursive: true, mode: 0o700 });
+  const tmp = file + '.' + process.pid + '.' + Math.random().toString(36).slice(2) + '.tmp';
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(obj) + '\n', { mode: 0o600 });
+    fs.renameSync(tmp, file);
+  } catch (e) { try { fs.rmSync(tmp, { force: true }); } catch { /* none */ } throw e; }
+}
+/** What Muse's own file holds, as the note records it: taken when a turn STARTS, because a refusal
+    is about the credential the turn began with, not whatever the file holds when it reports
+    (review round 5: a `muse login` or `logout` during the turn). */
+function fileAtStart() {
+  const { meta, unread } = readMeta();
+  return { metaDigest: meta ? metaDigest(meta) : null, fileUnread: unread };
+}
+
+function markSignedOut(startedAt = Date.now(), atStart = null) {
   try {
     const mark = readMark();
     if (mark !== null && mark > startedAt) return false;
@@ -160,9 +179,8 @@ function markSignedOut(startedAt = Date.now()) {
     // newer note's digest with whatever Muse's file holds NOW (review round 4).
     const old = readNote();
     if (old && !old.unreadable && old.at > startedAt) return false;
-    const { meta, unread } = readMeta();
-    fs.mkdirSync(signinFolder(), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(signedOutMarker(), JSON.stringify({ at: startedAt, metaDigest: meta ? metaDigest(meta) : null, fileUnread: unread }) + '\n', { mode: 0o600 });
+    const file = atStart || fileAtStart();
+    writeRecord(signedOutMarker(), { at: startedAt, metaDigest: file.metaDigest, fileUnread: file.fileUnread });
     return true;
   } catch { return false; }
 }
@@ -174,13 +192,15 @@ function markSignedOut(startedAt = Date.now()) {
 function markTurnSignedIn(startedAt = Date.now()) {
   try {
     const note = readNote();
+    // Records are renamed into place, so an unreadable note is real damage, not a write in progress:
+    // removed rather than left to block every later turn (round 3).
     if (note && note.unreadable) fs.rmSync(signedOutMarker(), { force: true });
     else if (note && note.at >= startedAt) return false;
     const mark = readMark();
     const at = mark !== null && mark > startedAt ? mark : startedAt;
-    fs.mkdirSync(signinFolder(), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(signedInMarker(), JSON.stringify({ at }) + '\n', { mode: 0o600 });
-    fs.rmSync(signedOutMarker(), { force: true });
+    // The note is NOT removed (review round 5): the later mark already wins, and another board process
+    // may have written a newer refusal since the check above.
+    writeRecord(signedInMarker(), { at });
     return true;
   } catch { return false; }
 }
@@ -193,7 +213,9 @@ function authFile() {
 /** { signedIn, how }: a file check, never a run, never the Keychain, never a value read out.
     Known gap (round 1 of slice 3a): nothing sees a `muse logout` or a removed Keychain item by
     itself. From slice 3c-1 the first refused turn ends the answer; a completed turn that BEGAN after
-    that refusal, or a Kosmos sign-in, restores it. Before any turn has run it can still say yes. */
+    that refusal, a Kosmos sign-in, or a different credential in Muse's own file restores it. Before
+    any turn has run it can still say yes. Times are this Mac's wall clock: a clock stepped back can
+    misorder records made within the step (a stated limit, review round 5). */
 function signedIn() {
   const note = readNote();
   const { meta } = readMeta();
@@ -209,4 +231,4 @@ const REAL = { runVersion };
 function setRunnerForTests(fn, opts) { if (fn) runVersion = fn; if (opts && opts.hardCapMs) hardCapMs = opts.hardCapMs; if (opts && opts.timeoutMs) timeoutMs = opts.timeoutMs; }
 function resetForTests() { runVersion = REAL.runVersion; hardCapMs = VERSION_HARD_CAP_MS; timeoutMs = VERSION_TIMEOUT_MS; }
 
-module.exports = { installed, version, parseVersion, enabled, NOT_INSTALLED_BECAUSE, signedIn, signinFolder, signedInMarker, signedOutMarker, markSignedOut, markTurnSignedIn, authFile, VERSION_TIMEOUT_MS, VERSION_HARD_CAP_MS, VERSION_UNKNOWN_BECAUSE, CHECK_FAILED_BECAUSE, setRunnerForTests, resetForTests };
+module.exports = { installed, version, parseVersion, enabled, NOT_INSTALLED_BECAUSE, signedIn, signinFolder, signedInMarker, signedOutMarker, markSignedOut, markTurnSignedIn, fileAtStart, authFile, VERSION_TIMEOUT_MS, VERSION_HARD_CAP_MS, VERSION_UNKNOWN_BECAUSE, CHECK_FAILED_BECAUSE, setRunnerForTests, resetForTests };
