@@ -26,4 +26,11 @@ Card #3939. Slice 1 (merged 03bf99deb) finds Muse and reads its version. Splinte
 - The stdout and stderr streams have their own 'error' listeners: an unlistened stream error would crash the whole board, not just the turn (engine/fedseats.js guards the same).
 - runMuse returns a stop; the hard cap calls it, so an answer after the cap never leaves muse running behind it (tested: without the stop, the child outlived the answer).
 - The output cap counts raw bytes. The default approval mode is named. The redacted refusal is tested (the prompt never reaches the log; the command is still named).
-- Left: the pid-reuse window of kill(-pid) (the group is killed only while its pipes are open, which is when it exists); no direct test of a stream 'error' (no seam to raise one on the real child).
+- Left: no direct test of a stream 'error' (no seam to raise one on the real child). (The pid-reuse note that was here was wrong; see round 3.)
+
+## Review round 3 (decided)
+- Round 2's premise "the group exists while its pipes are open" was false (measured by the reviewer: a helper in its own session holds the output after the launcher exits, and the group number is gone). Now, once the launcher has exited, stopping drops the output and never signals -pid. Tested with process.kill recorded; the control without the guard went red.
+- Left, deliberately: a group member the launcher leaves behind after exiting is not signalled at the timeout. Signalling a number that may be reused is worse on a shared Mac; the turn still ends on time.
+- Off a Mac, runTurn refuses before running anything: the AGENT_WORKFORCE_MUSE_BIN override passes slice 1's platform check, and the stop is POSIX. Tested; control red.
+- The byte cap has a seam and a test (control red). Every runTurn test has a timeout, and the busy/sign-in test shortens the turn, so a regression fails in seconds instead of hanging ten minutes.
+- Kosmos's own stop (overflow, timeout) is named before stderr is read.
