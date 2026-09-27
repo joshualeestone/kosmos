@@ -3051,13 +3051,7 @@ make_app() {
       # happened but reported failure must not fall through to the rename below,
       # which would then install $stage, by now the OLD Contents.
       if [ "$(/usr/bin/stat -f %i "$app/Contents" 2>/dev/null)" = "$_staged_ino" ]; then
-        # $stage now holds the OLD Contents. If this delete is interrupted, the loop at
-        # the top of the next run sweeps it while it still proves ours; a delete that
-        # got far enough to make it unprovable leaves it for --uninstall to name.
-        rm -rf "$stage" 2>/dev/null \
-          || info "note: could not remove the leftover hidden folder $stage; drag it to the Trash to finish."
-        APP_PATH=swap
-        make_app_register "$app"
+        make_app_swap_taken "$app" "$stage"
         return 0
       fi
       if [ "$(/usr/bin/stat -f %i "$stage/Contents" 2>/dev/null)" != "$_staged_ino" ]; then
@@ -3065,10 +3059,7 @@ make_app() {
         # after the swap failed. Look once more: if the app now holds the staged
         # Contents after all, the swap was taken.
         if [ "$(/usr/bin/stat -f %i "$app/Contents" 2>/dev/null)" = "$_staged_ino" ]; then
-          rm -rf "$stage" 2>/dev/null \
-            || info "note: could not remove the leftover hidden folder $stage; drag it to the Trash to finish."
-          APP_PATH=swap
-          make_app_register "$app"
+          make_app_swap_taken "$app" "$stage"
           return 0
         fi
         # Otherwise build again, in a FRESH folder (a stage that cannot be fully
@@ -3130,6 +3121,25 @@ make_app() {
   else APP_PATH=rename; fi
   make_app_register "$app"
   return 0
+}
+
+# #2864: the swap was taken, so $stage now holds the Contents that WAS in the app.
+# It is deleted only while it still proves ours: if the folder in the app's place was
+# replaced between the ownership proof and the swap (someone with write access to the
+# folder), what came back is not ours to delete, so it is left and named instead. If
+# the delete is interrupted, the next run's opening sweep takes it while it still
+# proves ours; a delete that got far enough to make it unprovable leaves it for
+# --uninstall to name.
+make_app_swap_taken() {
+  local app="$1" stage="$2"
+  if bundle_is_ours "$stage"; then
+    rm -rf "$stage" 2>/dev/null \
+      || info "note: could not remove the leftover hidden folder $stage; drag it to the Trash to finish."
+  else
+    info "note: the folder that was in the Kosmos icon's place could not be proven to be this install's, so it was left as $stage"
+  fi
+  APP_PATH=swap
+  make_app_register "$app"
 }
 
 make_app_register() {

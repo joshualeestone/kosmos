@@ -855,6 +855,18 @@ chk "the swap refuses a path through a planted link (non-zero)" "[ \"$RC\" != 0 
 chk "and the link's target keeps its own Contents" "[ \"\$(cat \"$NF/victim.app/Contents/v\")\" = victim ] && [ \"\$(cat \"$NF/stage/Contents/v\")\" = staged ]"
 RC=0; /usr/bin/perl -e "exit($SWAPCALL == 0 ? 0 : 1)" "$NF/stage/Contents" "$NF/ok.app/Contents" 2>/dev/null || RC=$?
 chk "CONTROL: the same call on a link-free path swaps" "[ \"$RC\" = 0 ] && [ \"\$(cat \"$NF/ok.app/Contents/v\")\" = staged ]"
+# What the swap hands back is deleted only while it proves ours: a stub that really swaps
+# and then makes the returned Contents someone else's (a foreign kosmos-install.json, as
+# if the folder had been replaced between the proof and the swap) must see it kept and
+# named, not deleted. The harness removes it afterwards so the residue checks below hold.
+printf '#!/bin/sh\n/usr/bin/perl -e "syscall(488, -2, \\$ARGV[0], -2, \\$ARGV[1], 18)" "$3" "$4"\nprintf %%s %s > "$3/Resources/kosmos-install.json"\nexit 0\n' "'{\"kosmosHome\":\"/somebody/else\"}'" > "$SB/perl-swaps-foreign"; chmod +x "$SB/perl-swaps-foreign"
+RC=0; cat "$SETUP" | KOSMOS_SWAP_PERL="$SB/perl-swaps-foreign" sh > "$SB/update-foreign.log" 2>&1 || RC=$?
+chk "a swap that hands back someone else's Contents: install exits 0" "rc_ok $RC"
+chk "the install log records app_path=swap for that run" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* app_path=\\([^ ]*\\).*/\\1/')\" = swap ]"
+chk "what came back is kept, not deleted" "[ -n \"\$(ls -A \"$SB/apps\" | grep -E '^\\.Kosmos\\.app\\.stage\\.')\" ]"
+chk "and it is named" "grep -q 'could not be proven to be this install' \"$SB/update-foreign.log\""
+chk "the app itself is complete and ours" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ] && grep -qF '\"kosmosHome\":\"$SB/home\"' \"$SB/apps/Kosmos.app/Contents/Resources/kosmos-install.json\""
+rm -rf "$SB/apps"/.Kosmos.app.stage.* 2>/dev/null || true
 # CONTROL for the residue checks: the same pipeline must SEE a residue name when one
 # is there, or "none left" could pass on any folder.
 mkdir -p "$SB/residue-control/.Kosmos.app.stage.0"
