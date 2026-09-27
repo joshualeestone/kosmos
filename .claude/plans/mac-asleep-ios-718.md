@@ -40,3 +40,6 @@ common case (Kano's list).
 
 ## What would change my mind
 A relay outage showing up often enough that "your Mac" misleads people: then add the probe.
+
+## State (2026-09-27, for a restarted session)
+- Challenge loop converged at iteration 2 (e84ebe125). Its full suite's only red was the #4159 flake. Next: after #4168 merges, rebase onto main, full suite, proof, PR (ios-only, allowed during the hold). PR body drafted at /tmp/pr-body-mac-asleep-ios-718.md.
