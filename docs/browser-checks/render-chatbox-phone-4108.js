@@ -5,12 +5,13 @@
  * The re-sweep measured the agent page's message box at 40px and its conversation search at 42px
  * on a phone: under the 48dp Android asks for (and Josh's Moto G Play is 360 wide). This drives the
  * REAL page from the REAL server and reads, at 360x800 (touch):
- *   - the agent Direct Message box (#d-say), its conversation search (#d-talk-search) and the
- *     project room's box (#pj-say) are each at least 48px tall;
- *   - the page is no wider than the screen;
+ *   - the agent Direct Message box (#d-say) and its conversation search (#d-talk-search), and the
+ *     project room's message box (#pj-post) and search (#pj-room-search), are each at least 48px tall;
+ *   - the page is no wider than the screen, and the room box's @-mention mirror still covers it;
  * and at 1280x800 (a mouse) each box keeps the height it had before (DESKTOP, measured on main).
  *
- * Controls: see the README row (main's page reds the phone arms).
+ * Controls, measured: on main's page every phone arm reds in both engines (the Direct Message box
+ * and its search 44px, the room box 40px, the room search 24px); desktop is 40px and 22px on both.
  *
  *   node docs/browser-checks/render-chatbox-phone-4108.js            # headed
  *   HEADED=0 node docs/browser-checks/render-chatbox-phone-4108.js   # headless
@@ -57,9 +58,10 @@ const NAMES = ['ada', 'bram'];
 const BOXES = [
   { sel: '#d-say', name: 'the Direct Message box', where: 'agent' },
   { sel: '#d-talk-search', name: 'the conversation search', where: 'agent' },
-  { sel: '#pj-say', name: 'the project room box', where: 'room' },
+  { sel: '#pj-post', name: 'the project room box', where: 'room' },
+  { sel: '#pj-room-search', name: 'the project room search', where: 'room' },
 ];
-const DESKTOP = { '#d-say': null, '#d-talk-search': null, '#pj-say': null };
+const DESKTOP = { '#d-say': 40, '#d-talk-search': 22, '#pj-post': 40, '#pj-room-search': 22 };
 
 const fail = [];
 function chk(ok, label, extra) {
@@ -82,9 +84,9 @@ async function open(page, base, where, pid) {
       await page.waitForSelector('[data-tab="projects"]', { state: 'visible', timeout: 5000 });
     }
     await page.click('[data-tab="projects"]');
-    await page.waitForSelector(`#pj-list .pj-row[data-project="${pid}"]`, { timeout: 8000 });
-    await page.click(`#pj-list .pj-row[data-project="${pid}"]`);
-    await page.waitForSelector('#pj-say', { state: 'visible', timeout: 8000 });
+    await page.waitForSelector(`.pj-row[data-project="${pid}"]`, { state: 'visible', timeout: 8000 });
+    await page.click(`.pj-row[data-project="${pid}"]`);
+    await page.waitForSelector('#pj-post', { state: 'visible', timeout: 8000 });
   }
   await page.waitForTimeout(300);
 }
@@ -136,9 +138,23 @@ function heightOf(page, sel) {
               const m = await heightOf(page, b.sel);
               if (m.missing || !m.shown) { chk(false, `${tag} ${b.name} is showing`, b.sel); continue; }
               if (phone) chk(m.h >= MIN, `${tag} ${b.name} is at least ${MIN}px tall`, `${m.h}px`);
-              else if (DESKTOP[b.sel] === null) console.log(`MEASURE  ${tag} ${b.sel} ${m.h}px`);
               else chk(m.h === DESKTOP[b.sel], `${tag} ${b.name} keeps its desktop height`, `${m.h}px (was ${DESKTOP[b.sel]})`);
             }
+            // The room box's @-mention mirror is drawn over it at paint time; on a taller box it must
+            // still cover the box exactly, or the typed text and the caret come apart.
+            if (phone && where === 'room') {
+              await page.fill('#pj-post', '@ada hello');
+              await page.waitForTimeout(200);
+              const al = await page.evaluate(() => {
+                const t = document.getElementById('pj-post').getBoundingClientRect();
+                const m = document.getElementById('pj-post-mirror').getBoundingClientRect();
+                return { dTop: Math.round(Math.abs(t.top - m.top)), dH: Math.round(Math.abs(t.height - m.height)), t: Math.round(t.height), m: Math.round(m.height) };
+              });
+              chk(al.dTop <= 1 && al.dH <= 1, `${tag} the room box's @-mention mirror still covers the box`, JSON.stringify(al));
+              await page.fill('#pj-post', '');
+            }
+            // SHOTS=<dir> saves the phone screens (the card's before/after pictures).
+            if (phone && process.env.SHOTS) await page.screenshot({ path: path.join(process.env.SHOTS, `${where}-${engine}-${PHONE[0]}.png`) });
             if (phone) {
               const pageW = await page.evaluate(() => document.documentElement.scrollWidth);
               chk(pageW <= PHONE[0], `${tag} the ${where} page is no wider than the screen`, `page ${pageW}px`);
