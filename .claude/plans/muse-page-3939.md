@@ -36,3 +36,10 @@ That no screen needs a Muse row after "done" to make sense. Today, "done" says s
 - Meta goes through acctPick like every live provider, so there is one rule for putting the others away. acctPick shows Muse's step for meta and puts it away otherwise. Control red.
 - Rebased onto main: the reason-grep count is main's 191 plus this check's 2, which is 193, re-measured by the test.
 - Nits left: the poll has no overlap guard (Grok's driver has the same shape); a refused start refocuses the button even if the person tabbed away; the signedIn field is unused until the AI Models row part.
+
+## Review round 4 (decided)
+- Stuck is tested both ways. With a code (the engine's NOT_WAITING), it says why and keeps the code and Meta's link, because Meta's page may still take the code. Stop is offered and no retry. With no code, it says why and offers Stop. Control red.
+- The not-installed fallback is deliberately not a copy of the engine's sentence ("Not ready on this computer"); the engine's `because` is what shows.
+- museAsk's latest read wins (a generation counter), so two quick opens cannot leave the option stale.
+- Not a finding: "no proof file". The proof is written when this loop converges.
+- Noted, not rewritten: during the rebase, one commit's subject began with "#3939" and was taken as a comment, leaving it with no subject line. The PR is squash-merged under its title, so it does not reach main.
