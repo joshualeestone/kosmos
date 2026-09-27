@@ -39,7 +39,10 @@ function main(argv) {
      by:auto tool prompt that plans trust-and-restart here is NOT restarted by the board. */
   process.stdout.write('note: from self-reports only; the board restarts only for the folder-trust dialog it sees on screen\n');
   for (const { name, plan } of plans) {
-    process.stdout.write(`  ${name}: ${plan.act} - ${plan.because}\n`);
+    /* #4169: a self-report cannot show the screen, so a would-restart plan here is only what the board does IF it sees the
+       folder-trust dialog; a by:auto report on its own is a tool prompt, which the board leaves for a person. */
+    const when = plan.act === 'trust-and-restart' ? ' (the board does this ONLY if its screen shows the folder-trust dialog; a tool prompt is left for a person)' : '';
+    process.stdout.write(`  ${name}: ${plan.act}${when} - ${plan.because}\n`);
   }
 }
 

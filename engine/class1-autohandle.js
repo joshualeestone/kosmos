@@ -80,9 +80,16 @@ const DEFAULT_WINDOW_MS = 10 * 60 * 1000;
  * defect this codebase names as its most-shipped). class1-autohandle.test.js pins the
  * two equal across shared fixtures.
  *
+ * 🔑 #4169: the ARMED sweep narrows this line on purpose, in its adapter, not here.
+ * standingFromAgent maps only the folder-trust screen scrape to by:'auto' and a raw
+ * by:'auto' self-report (any tool prompt) to 'auto-tool-permission', so for the board's
+ * restarts class-1 means "the trust dialog is on screen". The predicate itself is left
+ * shared because record()'s clobber-guard is right to treat a tool prompt as clearable.
+ * Change what the board restarts in standingFromAgent, not here.
+ *
  * WIRE-UP #1: Angel's class-2 by/permissionAsk refines the class-1-vs-class-2 line.
- * When it lands, tighten selfreport.isAutoPermissionWait (its single home); this
- * wrapper and everything below follow automatically.
+ * When it lands, tighten selfreport.isAutoPermissionWait (its single home for the
+ * store and the dry-run); the armed sweep's narrowing above still applies on top.
  */
 function isClass1(standing) {
   return selfreport.isAutoPermissionWait(standing);
@@ -125,7 +132,7 @@ function planClass1Handle(standing, attempts, now, opts) {
     // Fail closed: anything we are not certain is class-1 technical junk is left
     // exactly as it is. A class-2 real question reaching here and being handled
     // would silently drop a blocking request and stall the fleet.
-    return { act: 'none', because: 'not a standing by:auto needs_you (class-1) wait' };
+    return { act: 'none', because: 'not a class-1 (folder-trust dialog) wait' };
   }
   /* #4006: the handle clears CLAUDE CODE's folder-trust / bypass prompt. Another runner has no
      such prompt (create.trustAgentFolder is already a no-op for grok), so its by:auto needs_you is
@@ -326,14 +333,16 @@ function standingFromAgent(agent, isTrustDialogEvidence) {
   // Bash: ..." report. The folder-trust dialog never raises a PermissionRequest (see above), so the scrape alone still
   // catches every case this handle exists for. A tool-permission prompt keeps its needs_you card for a person.
   const arm = trustDialogScrape ? 'trust-dialog' : (rawBy === 'auto' ? 'tool-permission' : null);
-  const by = arm === 'trust-dialog' && (!rawBy || rawBy === 'auto') ? 'auto'
+  const by = (arm === 'trust-dialog' && (!rawBy || rawBy === 'auto')) ? 'auto'
     : (arm === 'tool-permission' ? 'auto-tool-permission' : rawBy);   // internal adapter value: not class-1
   /* The card's runner as the card says it: a string, or null for a row that could not say (see planClass1Handle). */
   const runner = agent && typeof agent.runner === 'string' ? agent.runner : (agent && agent.runner === null ? null : '');
   /* What the log names (#4169: which arm fired, and the prompt behind it). Only a trust-dialog plan is ever logged
      today; the tool-permission prompt is filled too, for a caller that wants to say what it left alone. */
   /* A tool prompt's report carries the whole command line, which can hold a secret (a token in a curl header), so only
-     the part before the command ("asking permission to use Bash") is kept; the trust dialog's line is a fixed screen. */
+     the part before the command ("asking permission to use Bash") is kept; the trust dialog's line is a fixed screen.
+     The format is the hook's: "asking permission to use <tool>[: <cmd>]" (install/kosmos-report-hook.sh and
+     engine/kosmos-report-hook.js reportFor); if it changes, change this split with it. */
   const said = arm === 'trust-dialog' ? agent.stateEvidence : String((agent && agent.because) || '').split(':')[0];
   const prompt = String(said || '').replace(/\s+/g, ' ').trim().slice(0, 120);
   return { found: true, state: agent && agent.state, by, runner, arm, prompt };
