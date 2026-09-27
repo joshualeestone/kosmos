@@ -242,10 +242,14 @@ case "$_v_major.$_v_minor" in
         echo " so only one spelling may ever be published. If that has changed, this guard is in tools/release.sh.)"
         exit 1 ;;
       *)
-        echo "$V is past the end of the 0.$_v_minor line. 0.$_v_minor.99 is the last one; after it comes 0.$((_v_minor + 1)).00."
+        echo "$V is past the end of the 0.$_v_minor line. 0.$_v_minor.99 is the last one; after it comes the 0.$((_v_minor + 1)) line (0.$((_v_minor + 1)).00, or its next free number)."
         exit 1 ;;
     esac
-    # Standing at the end of a line, only the next line's first version will do.
+    # Standing at the end of a line, only STAYING on it is refused. Nothing here checks that V is on the
+    # next line or moves forward at all (0.8.00 or 0.5.50 would get past this guard): it only insists on
+    # leaving the finished line. On the next line, any number may be taken, not only its first (.00):
+    # Mac and Windows each take the next free number (#4046, Baron 2026-09-26), so when Windows has taken
+    # 0.7.00 the Mac opens the line at 0.7.01.
     # Except a RE-CUT of that same .99: a cut that aborted after its step-2 bump leaves main at
     # 0.x.99, and the retry asks for 0.x.99 again. That is not staying on the line, it is finishing
     # the same release (2026-09-26: the 0.6.99 re-cut was refused here). This only brings .99 in line
@@ -257,11 +261,65 @@ case "$_v_major.$_v_minor" in
     _p_rest="${_prev#*.}"
     _p_minor="${_p_rest%%.*}"
     if [ "${_prev##*.}" = "99" ] && [ "$_p_minor" = "$_v_minor" ] && [ "$V" != "$_prev" ]; then
-      echo "0.$_p_minor.99 is the last of the 0.$_p_minor line: the next version is 0.$((_p_minor + 1)).00, not $V."
-      echo "(Josh's ruling, 2026-08-28. If that has changed, this guard is in tools/release.sh.)"
+      echo "0.$_p_minor.99 is the last of the 0.$_p_minor line: the next version is on the 0.$((_p_minor + 1)) line (0.$((_p_minor + 1)).00, or its next free number), not $V."
+      echo "(Josh's ruling, 2026-08-28; the next free number per #4046, 2026-09-26. If that has changed, this guard is in tools/release.sh.)"
       exit 1
     fi ;;
 esac
+# #4075: a cut moves FORWARD, and by at most one line. The guards above refuse a wrong SPELLING
+# and staying on a finished line; nothing compared V with the version this checkout is at, so a
+# typo such as 0.5.01 for 0.7.01 (backwards) or 0.8.00 from 0.6.x (a whole line skipped) got past
+# them. Equal is allowed: a re-cut of a version whose cut aborted after its bump (see above).
+# Skipping patch numbers within a line is allowed (an aborted cut can burn one). A deliberate
+# jump (a new major, say) is KOSMOS_ALLOW_VERSION_JUMP=1, like KOSMOS_ALLOW_STALE_TUNNEL below.
+# Compared as three NUMBERS, the way engine/update.js compares them for every install.
+# The override is read once and UNSET here, so nothing this cut runs inherits it: step 3 runs the test
+# suite, whose release-gate tests spawn copies of this script and must still see their refusals (review r1).
+# Defence in depth: the test sandbox also strips it, and that strip is what its tests exercise.
+_allow_jump="${KOSMOS_ALLOW_VERSION_JUMP:-}"
+unset KOSMOS_ALLOW_VERSION_JUMP
+# A version is three numbers, always (the override does not waive this), with no leading zero on the major or
+# the minor: 0.07.00 is 0.7.00 to every install, a second spelling (see the 0.6 guard above). The patch keeps its
+# padding. Checked in bash before node sees it, so "--version" or "-p" can never be read as node's own option.
+_VER_RE='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.[0-9]+$'
+if ! [[ "$V" =~ $_VER_RE ]]; then
+  echo "$V is not three numbers in this repo's spelling: a version here is 0.x.yy (no leading zero before x)."
+  exit 1
+fi
+# _prev is this checkout's package.json, read before step 1 fetches. A checkout behind origin makes the backwards
+# arm more lenient, but can make the skip and major arms refuse a version that is right for origin; their
+# messages say to pull first.
+if [ "$_allow_jump" != "1" ] && ! [[ "$_prev" =~ $_VER_RE ]]; then
+  # Fail closed: if this checkout's own version is not three numbers, nothing can say V moves forward.
+  echo "this checkout is at \"$_prev\", which is not three numbers, so $V cannot be checked as moving forward."
+  echo "(#4075. Fix package.json's version, or KOSMOS_ALLOW_VERSION_JUMP=1 if you mean to cut anyway.)"
+  exit 1
+fi
+if [ "$_allow_jump" != "1" ]; then
+  _fwd="$(node -e '
+    const [v, c] = [process.argv[1], process.argv[2]].map((s) => s.split(".").map(Number));
+    const cmp = (v[0] - c[0]) || (v[1] - c[1]) || (v[2] - c[2]);
+    console.log(cmp < 0 ? "backwards" : v[0] !== c[0] ? "major" : v[1] > c[1] + 1 ? "skip" : "ok");' -- "$V" "$_prev")"
+  case "$_fwd" in
+    ok) ;;
+    backwards)
+      echo "$V is older than $_prev, the version this checkout is at: a cut only moves forward."
+      echo "(#4075. If you really mean to publish an older number: KOSMOS_ALLOW_VERSION_JUMP=1.)"
+      exit 1 ;;
+    skip)
+      _c_rest="${_prev#*.}"; _c_minor="${_c_rest%%.*}"
+      echo "$V skips a line: this checkout is at $_prev, so the next line is ${_prev%%.*}.$((10#$_c_minor + 1)), not $_v_major.$_v_minor."
+      echo "(#4075. If this checkout is behind origin, pull first. If you really mean to skip it: KOSMOS_ALLOW_VERSION_JUMP=1.)"
+      exit 1 ;;
+    major)
+      echo "$V changes the major version from $_prev. That is a deliberate step, not a typo to let through."
+      echo "(#4075. If this checkout is behind origin, pull first. If you mean it: KOSMOS_ALLOW_VERSION_JUMP=1.)"
+      exit 1 ;;
+    *)
+      echo "the version check could not compare $V with $_prev ($_fwd): refusing rather than guessing."
+      exit 1 ;;
+  esac
+fi
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
@@ -538,6 +596,30 @@ kosmos_versions_entry_gate_or_pending "$V" "$SITE/versions.html" "Nothing has be
   "Stamp it for when you expect to PUBLISH, about 15 minutes out -- a stamp written now, or already minutes old, is stale by step 7. Or leave it as an entry file carrying TIMESTAMP (see docs/releasing.md) and the deploy stamps it for you." \
   "$KOSMOS_STEP1_PAST_BOUND" "$KOSMOS_ENTRY_FILE" || exit 1
 
+step "== 1b-ii. the What's new highlights are for this version (#3955) =="
+# The "Kosmos has been updated" window shows web/whats-new.json's highlights, written by the operator
+# and committed to main before the cut, beside the versions entry (agreed with Baron, #3955). A file
+# left from the last release would show nothing (the board serves it only for its own version), so a
+# cut whose file is not for $V stops HERE, before anything is built or bumped.
+# KOSMOS_CUT_NO_WHATS_NEW=1 is the hotfix opt-out: the check is not enforced. With no highlights file for
+# $V the release shows no window (the version is recorded quietly); the message says which is true
+# (round 11: an opt-out left exported from a last hotfix must not claim "no window" over a real file for
+# $V; round 12: a check that could not run is said as such, not as "no highlights").
+whats_new_optout_note() {   # $1: the tree to read. Informs, never refuses.
+  local rc=0
+  node "$1/tools/whats-new-check.js" "$V" "$1/web/whats-new.json" >/dev/null 2>&1 || rc=$?
+  case "$rc" in
+    0) echo "KOSMOS_CUT_NO_WHATS_NEW=1: the highlights check is not enforced; web/whats-new.json is for $V, so the \"Kosmos has been updated\" window will show." ;;
+    3) echo "KOSMOS_CUT_NO_WHATS_NEW=1: $V ships with no highlights, so there will be no \"Kosmos has been updated\" window for it." ;;
+    *) echo "KOSMOS_CUT_NO_WHATS_NEW=1: the highlights check could not run (exit $rc), so whether $V shows a \"Kosmos has been updated\" window is not known." ;;
+  esac
+}
+if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" = "1" ]; then
+  whats_new_optout_note "$REPO"
+else
+  node "$REPO/tools/whats-new-check.js" "$V" "$REPO/web/whats-new.json" || exit 1
+fi
+
 step "== 1c. the signing key answers, before anything is bumped or built (#3579) =="
 # Step 4 signs Developer ID. A locked login keychain (any plain SSH session, or a cut
 # detached from the session that unlocked it) made 0.6.91's first cuts die THERE, after
@@ -677,6 +759,16 @@ DEPLOYED=0
 trap '_rc=$?; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had" "$_ptr_had" "$BUILD_ROOT" "$_staging_ptr_had"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
 REPO="$BUILD"
 release_freeze_notice "$SHA" "$BUILD"
+step "== 2b-ii. the What's new highlights, again, in the tree that ships (#3955) =="
+# The shared checkout can move between step 1 and the freeze (two cuts in a row were fast-forwarded
+# mid-run on 2026-08-24, per step 2b), so the file 1b-ii read is checked again as FROZEN. A refusal here
+# leaves the bump already pushed, as a step 7 versions-entry refusal would; it means the file changed
+# under the cut, which is worth stopping for.
+if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" != "1" ]; then
+  node "$BUILD/tools/whats-new-check.js" "$V" "$BUILD/web/whats-new.json" || exit 1
+else
+  whats_new_optout_note "$BUILD"   # round 12: what actually ships is said again, from the frozen tree
+fi
 
 # #2017: do not run the gated steps (the suite here AND the browser layer at 3b)
 # into a box some OTHER heavy job is saturating. #1962 reserves the box against

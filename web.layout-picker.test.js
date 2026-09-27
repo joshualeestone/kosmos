@@ -191,7 +191,7 @@ test('piece five: the consolidated header stays as a top bar (#2282), keeps its 
      header's bottom margin onto the slots (so the gap appears only when a notice
      is actually on screen), which mentions them for a reason that is the
      opposite of hiding. Now it forbids the hiding itself. */
-  for (const slot of ['#utoast-slot', '#unote-slot', '#uoffline-slot', '#unews-slot']) {
+  for (const slot of ['#utoast-slot', '#uoffline-slot']) {   // #3955 removed #unote-slot and #unews-slot
     const rules = decls.match(new RegExp('[^{}]*' + slot + '[^{}]*\\{[^}]*\\}', 'g')) || [];
     for (const r of rules) {
       assert.doesNotMatch(r, /display:\s*none|visibility:\s*hidden/, 'a notice slot is styled away: ' + r.trim());
@@ -247,17 +247,8 @@ test('piece six: the board notice bars do not sit over the consolidated grid', (
      (the board-management chrome kept for the tab view) must still be hidden. */
   assert.match(block, /> #removed-wrap, [^{]*> #restart-wrap \{ display: none; \}/, 'the removed/restart bars still stack over the grid');
   assert.doesNotMatch(block, /> #found-wrap|> #scan-wrap|> #found-scan-trigger/, '#3048: the removed discovery bars must be gone from the consolidated-hide list');
-  /* Control: the news line is NOT hidden here; it has a home in the header slot.
-     Comments stripped for the same reason as piece five above -- a comment
-     explaining what this protects must not be able to fail it. */
-  /* ⚠️ SAME WIDENING AS PIECE FIVE: this forbade MENTIONING the news line, as a
-     proxy for hiding it. kosmos#1188 gives #unews-slot a margin so the header's
-     old bottom gap appears only when a notice is on screen, which mentions it in
-     order to show it properly. The property is that it is not hidden. */
-  const newsRules = stripCssComments(block).match(/[^{}]*(?:#unews-slot|#newsbar)[^{}]*\{[^}]*\}/g) || [];
-  for (const r of newsRules) {
-    assert.doesNotMatch(r, /display:\s*none|visibility:\s*hidden/, 'the news line was hidden rather than relocated: ' + r.trim());
-  }
+  /* #3955: the news line (#newsbar, #unews-slot) is gone; the "Kosmos has been updated" window
+     replaced it, so there is no longer a line here to guard against being hidden. */
 });
 
 /**

@@ -17,4 +17,8 @@
     <string name="hostName">login.kosmosplus.com</string>
     <string name="providerAuthority">io.kosmos.app.fileprovider</string>
     <string name="assetStatements">[{ \"relation\": [\"delegate_permission/common.handle_all_urls\"], \"target\": { \"namespace\": \"web\", \"site\": \"https://login.kosmosplus.com\" } }]</string>
+    <string name="loadErrorLogoDescription">Kosmos</string>
+    <string name="loadErrorTitle">Kosmos couldn’t open</string>
+    <string name="loadErrorMessage">Check your connection, then try again.</string>
+    <string name="loadErrorRetry">Retry</string>
 </resources>

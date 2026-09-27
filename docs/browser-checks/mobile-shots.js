@@ -186,11 +186,16 @@ const SCREENS = [
   } },
   { name: 'agent-files', owner: 'unowned', go: async (page, data) => {
     await at(page, '?tab=detail&agent=' + data.chatAgent);
+    /* On a phone the agent page opens on its conversation, which hides this short Files list
+       by design (it shows under Profile and the other sections), so step into Profile first. */
+    await page.locator('#d-nav button[data-go="profile"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-files-list .pj-doc', { state: 'visible', timeout: 8000 });
     await page.evaluate(() => document.getElementById('d-files').scrollIntoView({ block: 'start' }));
   } },
   { name: 'agent-files-all', owner: 'unowned', go: async (page, data) => {
     await at(page, '?tab=detail&agent=' + data.chatAgent);
+    // View All sits under the same short list, so the same step into Profile.
+    await page.locator('#d-nav button[data-go="profile"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-files-all', { state: 'visible', timeout: 8000 });
     await page.click('#d-files-all');
     await page.waitForSelector('#d-filesall-list .pj-doc', { state: 'visible', timeout: 5000 });

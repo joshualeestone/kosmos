@@ -111,7 +111,8 @@ test('filtering HIDES rows rather than repainting the list', () => {
   /* 🛑 Rebuilding is forbidden here for a reason that predates search: each row
      carries the state of a button somebody already pressed, and this screen is
      the one place a person presses four in a row. */
-  const handler = PAGE.slice(PAGE.indexOf("document.addEventListener('input'"));
+  // Anchored on the found filter's own box (#3955 added an earlier 'input' listener to the page).
+  const handler = PAGE.slice(PAGE.lastIndexOf("document.addEventListener('input'", PAGE.indexOf("closest('#fr-foundsearch')")));
   const body = handler.slice(0, handler.indexOf('\n});'));
   assert.match(body, /row\.hidden = /, 'the filter no longer hides rows');
   assert.ok(!/innerHTML/.test(body), 'the filter rebuilds markup, which discards pressed rows');

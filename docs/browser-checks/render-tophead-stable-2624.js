@@ -44,7 +44,7 @@ async function measure(page, view, notice) {
   return page.evaluate(([view, notice, NOTICE]) => {
     // Every notice slot off (over file:// the offline notice shows, since no board
     // answers), then one tall notice on when asked for.
-    for (const id of ['utoast-slot', 'unote-slot', 'uabort-slot', 'login-adv-slot', 'unews-slot', 'uoffline-slot']) {
+    for (const id of ['utoast-slot', 'uabort-slot', 'login-adv-slot', 'uoffline-slot']) {   // #3955 removed unote/unews
       const s = document.getElementById(id); if (s) s.style.display = 'none';
     }
     const slot = document.getElementById('login-adv-slot');

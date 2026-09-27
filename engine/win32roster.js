@@ -97,19 +97,108 @@ function defaultRun() {
   return Array.isArray(parsed) ? parsed : null;
 }
 
+/* The same read as `defaultRun`, without blocking: the child runs while the board
+   goes on answering. Calls back with the array, or null on any failure, exactly
+   the shapes `defaultRun` returns. Never throws. */
+function defaultRunAsync(cb) {
+  let bin;
+  try { bin = require('./runners').resolveBin('claude').bin; } catch { cb(null); return; }
+  try {
+    require('node:child_process').execFile(bin, ['agents', '--json'],
+      { encoding: 'utf8', timeout: 15000, maxBuffer: 16 * 1024 * 1024, windowsHide: true },
+      (err, out) => {
+        if (err) { cb(null); return; }
+        let parsed;
+        try { parsed = JSON.parse(out); } catch { cb(null); return; }
+        cb(Array.isArray(parsed) ? parsed : null);
+      });
+  } catch { cb(null); }
+}
+
+/* How long an answer is served as it stands, and how long past that it is still
+   served while a fresh one is fetched in the background. */
+const FRESH_MS = 2000;
+const STALE_MS = 30000;
+
+/**
+ * `claude agents --json`, read ONCE for everybody and kept for a moment.
+ *
+ * 🛑 THIS READ WAS THE BOARD'S WHOLE WAIT ON WINDOWS. Measured on the fleet box:
+ * the call costs ~230ms, and a DM send made THREE of them back to back (the name
+ * gate's `paneRoster`, the snapshot's `listPanes`, and the capture's live read),
+ * a thread GET three more, and every status poll two, all synchronous on the one
+ * thread that answers the page. On a weaker laptop each call is seconds, the
+ * polls queue behind each other, and a person's message sat unanswered for over a
+ * minute while the machine looked idle (one core busy).
+ *
+ * So: an answer younger than `freshMs` is served as it is. One younger than
+ * `staleMs` is served too, and a fresh read starts in the BACKGROUND (one at a
+ * time), so the next request gets it. Only a cold cache (the first read, or a
+ * board nobody has asked for `staleMs`) reads synchronously, as before.
+ *
+ * ⚠️ WHAT IT COSTS: a card can trail the machine by up to one poll plus one read
+ * (an agent that has just stopped still shows for a few seconds). Nothing is
+ * decided off it that the next step does not check again: a send to an agent that
+ * has gone is refused by its own channel, and the loops that must see a process
+ * leave or arrive (`win32stop`, `win32create`) read through `win32live` with the
+ * uncached `defaultRun`, not this.
+ *
+ * ⚠️ A FAILED READ IS KEPT AS null, never as the last good list, so "we could not
+ * look" still reaches every caller as itself.
+ */
+function makeCachedRun(opts) {
+  const o = opts || {};
+  const run = typeof o.run === 'function' ? o.run : defaultRun;
+  const runAsync = typeof o.runAsync === 'function' ? o.runAsync : defaultRunAsync;
+  const now = typeof o.now === 'function' ? o.now : Date.now;
+  const freshMs = Number.isFinite(o.freshMs) ? o.freshMs : FRESH_MS;
+  const staleMs = Number.isFinite(o.staleMs) ? o.staleMs : STALE_MS;
+  let cache = null;       // { at, value }
+  let inFlight = false;
+  function cachedRun() {
+    const t = now();
+    const age = cache ? t - cache.at : Infinity;
+    if (cache && age < freshMs) return cache.value;
+    if (cache && age < staleMs) {
+      if (!inFlight) {
+        inFlight = true;
+        const started = t;
+        try {
+          runAsync((value) => {
+            inFlight = false;
+            // A synchronous read that landed while this one ran is newer; keep it.
+            if (!cache || cache.at <= started) cache = { at: now(), value: Array.isArray(value) ? value : null };
+          });
+        } catch { inFlight = false; }
+      }
+      return cache.value;
+    }
+    const value = run();
+    cache = { at: now(), value: Array.isArray(value) ? value : null };
+    return cache.value;
+  }
+  cachedRun.forget = () => { cache = null; };
+  return cachedRun;
+}
+
+/* The one shared reader the board's roster and live-state sources use, so a
+   request that asks both pays for one read, not two. */
+const cachedRun = makeCachedRun();
+
 /**
  * Build the paneSource function to hand to `status.setPaneSource` on win32.
  *
  * @param {object} [opts]
  * @param {() => (Array|null)} [opts.run] the `claude agents --json` reader,
- *   injectable for tests; returns the parsed array or null on failure.
+ *   injectable for tests; returns the parsed array or null on failure. The
+ *   default is the shared `cachedRun`, not a fresh read per call.
  * @param {{ read: () => object }} [opts.record] the ownership record (default
  *   the real win32sessions), injectable for tests.
  * @returns {() => (string|null)} a paneSource: PANE_COLUMNS text, or null on a
  *   failed look.
  */
 function make(opts) {
-  const run = opts && typeof opts.run === 'function' ? opts.run : defaultRun;
+  const run = opts && typeof opts.run === 'function' ? opts.run : cachedRun;
   const record = opts && opts.record ? opts.record : win32sessions;
   /* #3380: the codex live source, injectable for tests. */
   const codexLive = opts && typeof opts.codexLive === 'function' ? opts.codexLive : win32codexlive.liveSessions;
@@ -177,4 +266,4 @@ function make(opts) {
   };
 }
 
-module.exports = { make, defaultRun, WIN32_COMMAND, isWin32Pane, flat };
+module.exports = { make, defaultRun, defaultRunAsync, makeCachedRun, cachedRun, FRESH_MS, STALE_MS, WIN32_COMMAND, isWin32Pane, flat };

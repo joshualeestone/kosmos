@@ -25,26 +25,40 @@ function check(cond, msg) { if (!cond) problems.push(msg); }
 // What the viewer can actually see: the cover is up (not hidden), opaque, fixed,
 // covering the viewport, and stacked above the board. If all hold, the board is
 // occluded no matter what is painted beneath it.
+// kosmos#3973: the root may give up a gutter only as wide as a real scrollbar, measured on a
+// scratch scroller (the page styles it only as it styles the root's own scrollbar), so a root
+// that itself shrank or moved cannot become the yardstick that passes a short cover. Compared
+// within 1px (a fractional root rounds either way); a CSS zoom on the root would scale the
+// scratch scroller and is not supported here.
 async function coverIsOccluding(page) {
   return page.evaluate(() => {
     const c = document.getElementById('boot-cover');
     if (!c || c.hidden) return { up: false };
     const s = getComputedStyle(c);
     const r = c.getBoundingClientRect();
+    const root = document.documentElement.getBoundingClientRect();
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:absolute;top:-999px;left:0;width:100px;height:100px;overflow:scroll';
+    document.documentElement.appendChild(probe);
+    const sbw = probe.offsetWidth - probe.clientWidth;
+    probe.remove();
+    const gutter = innerWidth - root.right;
     return {
       up: true,
       opaque: s.background !== 'transparent' && s.opacity === '1' && s.display !== 'none',
       fixed: s.position === 'fixed',
-      // getBoundingClientRect() reports layout-viewport coordinates (scrollbar
-      // gutter excluded), so the cover's right/bottom must be compared against
-      // document.documentElement.clientWidth/clientHeight -- the matching
-      // layout-viewport measure. window.innerWidth/innerHeight include the
-      // scrollbar gutter, so a correct full-viewport cover false-fails "covers"
-      // by exactly the scrollbar width whenever a scrollbar is present.
+      // kosmos#3973: the right edge is the ROOT's box, not documentElement.clientWidth. With the #1309
+      // stable gutter reserved and nothing to scroll, Chromium reports clientWidth WITH the empty gutter
+      // on a classic-scrollbar machine (1280 of 1280 while html is 1265 wide), and a fixed layer cannot
+      // paint that gutter, so a correct cover failed by 15px there and passed on overlay scrollbars.
+      // floor: a fractional root width rounds either way (the page's own 1px vwMatches tolerance). The
+      // bottom stays on clientHeight: scrollbar-gutter reserves only the vertical scrollbar's strip.
       covers: r.left <= 0 && r.top <= 0
-        && r.right >= document.documentElement.clientWidth
-        && r.bottom >= document.documentElement.clientHeight,
+        && r.right >= Math.floor(root.right)
+        && r.bottom >= document.documentElement.clientHeight
+        && Math.abs(root.left) <= 1 && (Math.abs(gutter) <= 1 || Math.abs(gutter - sbw) <= 1),
       z: Number(s.zIndex) || 0,
+      yard: { coverRight: Math.round(r.right), rootLeft: Math.round(root.left), rootRight: Math.round(root.right), gutter: Math.round(gutter), sbw },
     };
   });
 }
@@ -70,7 +84,7 @@ async function arm(browser, label, firstRunPayload, expect) {
   const during = await coverIsOccluding(page);
   check(during.up, `${label}: #boot-cover was not up during the gate (the flash is back)`);
   check(during.up && during.opaque && during.fixed && during.covers,
-    `${label}: #boot-cover is up but not occluding (opaque=${during.opaque} fixed=${during.fixed} covers=${during.covers})`);
+    `${label}: #boot-cover is up but not occluding (opaque=${during.opaque} fixed=${during.fixed} covers=${during.covers} ${JSON.stringify(during.yard)})`);
 
   // Release the gate and let the client settle onto its destination.
   released();

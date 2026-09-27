@@ -185,6 +185,10 @@ if command -v ruby >/dev/null 2>&1; then
     ci = fsteps.index(cs)
     fi = fsteps.index { |st| st["id"] == "failed" }
     abort "the detach step must come BEFORE the checks step (else the checks run on a branch)" unless di && ci && di < ci
+    # kosmos#3973: macos-latest ships no tmux; without it the real status.snapshot() in render-talk throws and
+    # live-connect finds no tmux, which the card then reports as check failures, not a missing precondition.
+    ti = fsteps.index { |st| st["run"].to_s =~ /\bbrew install tmux\b/ }
+    abort "browser-checks-full must install tmux BEFORE the checks step (#3973)" unless ti && ci && ti < ci
     abort "the label collector must come AFTER the checks step (else it reads no log)" unless fi && ci && fi > ci
     abort "the checks step must force KOSMOS_SKIP_BROWSER_CHECKS=0 (a skipped run exits 0 and would close the card)" unless cs["run"].to_s.include?("KOSMOS_SKIP_BROWSER_CHECKS=0")
     abort "browser-checks-full must detach HEAD before the checks (the cut runs from a detached, frozen tree; on a branch browser-checks.sh takes a re-exec path the cut never does)" unless fsteps.any? { |st| st["run"].to_s.strip == "git checkout --detach" }

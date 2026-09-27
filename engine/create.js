@@ -2529,6 +2529,18 @@ function grokBridgePath() {
   return path.join(supportDir(), 'bin', 'grok-report-bridge.js');
 }
 
+/* #4043: the Antigravity report bridge, the sibling of the pairs above and for the same #731
+   reason (the `path.join(__dirname, '..', 'bin', ...)` form is what the bundle guard scans for).
+   installSupervisor copies it to supportDir()/bin, beside the supervisor, which points each agy
+   agent's hooks at that copy before every launch (engine/agyhooks.js). */
+function agyBridgeSource() {
+  return path.join(__dirname, '..', 'bin', 'agy-report-bridge.js');
+}
+
+function agyBridgePath() {
+  return path.join(supportDir(), 'bin', 'agy-report-bridge.js');
+}
+
 /**
  * Put the current supervisor where the jobs point, and answer whether it is
  * there.
@@ -2603,6 +2615,13 @@ function installSupervisor() {
     fs.copyFileSync(grokBridgeSource(), grokBridgeStaging);
     fs.chmodSync(grokBridgeStaging, 0o755);
     fs.renameSync(grokBridgeStaging, grokBridgeDest);
+    // #4043: the agy report bridge, same refresh and staging-rename discipline. The supervisor
+    // points each agy agent's .agents/hooks.json at this copy before every launch.
+    const agyBridgeDest = agyBridgePath();
+    const agyBridgeStaging = `${agyBridgeDest}.${process.pid}.new`;
+    fs.copyFileSync(agyBridgeSource(), agyBridgeStaging);
+    fs.chmodSync(agyBridgeStaging, 0o755);
+    fs.renameSync(agyBridgeStaging, agyBridgeDest);
     /* \u2b50 #1139: TELL THE SUPERVISOR WHERE THE ENGINE IS.
        It resolves `sendertoken.js` as `dirname($0)/../engine`, which is true in
        a checkout and in the bundle and FALSE for every real agent -- the two
@@ -2636,12 +2655,13 @@ function installSupervisor() {
     try { fs.rmSync(`${bridgePath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
     try { fs.rmSync(`${geminiBridgePath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
     try { fs.rmSync(`${grokBridgePath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
+    try { fs.rmSync(`${agyBridgePath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
     try { fs.rmSync(path.join(path.dirname(supervisorPath()), `engine-path.${process.pid}.new`), { force: true }); } catch { /* best effort */ }
-    // ⚠️ NAME THE FILE. Several files ride this step (the supervisor and the three
+    // ⚠️ NAME THE FILE. Several files ride this step (the supervisor and the four
     // report bridges); when one is absent the sentence must say WHICH, or a person
     // goes looking for a file that is present (#731: the bridge was missing from the
     // served bundle and the refusal blamed the supervisor, which had shipped).
-    const absent = [supervisorSource(), bridgeSource(), geminiBridgeSource(), grokBridgeSource()].filter((f) => !fs.existsSync(f)).map((f) => path.basename(f));
+    const absent = [supervisorSource(), bridgeSource(), geminiBridgeSource(), grokBridgeSource(), agyBridgeSource()].filter((f) => !fs.existsSync(f)).map((f) => path.basename(f));
     return {
       ok: false,
       missing: Boolean(err && err.code === 'ENOENT' && absent.length),

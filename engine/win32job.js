@@ -124,6 +124,7 @@ function rememberTaskSpec(name, worldId, answer) {
 function setRunner(fn) {
   runFn = typeof fn === 'function' ? fn : null;
   TASK_SPEC_CACHE.clear();
+  PRESENCE_MEMO.clear();
   livenessFn = null; nowFn = null; sleepFn = null;
 }
 
@@ -152,6 +153,8 @@ function schtasksMayRunInThisProcess() {
 }
 
 function run(args) {
+  /* Anything but a read may change a task, so what `presence` remembers goes. */
+  if (!Array.isArray(args) || args[0] !== '/Query') PRESENCE_MEMO.clear();
   if (runFn) return runFn(args);
   /* 🛑 A TEST PROCESS NEVER REACHES THE REAL TASK SCHEDULER, not even to read it.
      The fleet's Windows box runs the suite beside the live fleet, whose tasks
@@ -643,7 +646,42 @@ function remove(name, worldId) {
    so a task named `agent-disabled-bot` reads as off and a non-English Windows reads
    every task as on. Anything that ACTS on the switch reads `taskEnabled`. */
 function presence(name, worldId) {
-  const r = run(['/Query', '/TN', taskName(name, worldId), '/FO', 'LIST']);
+  const tn = taskName(name, worldId);
+  const ttl = presenceTtl();
+  const kept = ttl > 0 ? PRESENCE_MEMO.get(tn) : null;
+  if (kept && Date.now() - kept.at < ttl) return Object.assign({}, kept.answer);
+  const answer = presenceNow(tn);
+  // Only an answer is kept: "we could not look" is asked again next time.
+  if (ttl > 0 && answer.known) PRESENCE_MEMO.set(tn, { at: Date.now(), answer: Object.assign({}, answer) });
+  return answer;
+}
+
+/**
+ * 🔑 ONE LOOK PER AGENT PER MOMENT (send-lag). `presence` is asked several times
+ * per agent by ONE snapshot (the job verdict, "never recorded", "not yet
+ * started", "has a job"), and a snapshot runs on every status poll and every DM
+ * send. Each ask was its own `schtasks /Query`, about 17ms on the fleet box and
+ * far more on a weak laptop, so seven agents cost a status poll ~0.5s of spawns on
+ * the page's only thread. Remembered for a couple of seconds, and forgotten the
+ * moment this process runs anything but a read (see `run`), so Kosmos's own
+ * changes are seen at once. Off under an injected runner unless a test turns it
+ * on, so no stubbed answer outlives the step that set it.
+ */
+const PRESENCE_TTL_MS = 2000;
+const PRESENCE_MEMO = new Map();
+let presenceTtlOverride = null;
+function presenceTtl() {
+  if (presenceTtlOverride !== null) return presenceTtlOverride;
+  return runFn ? 0 : PRESENCE_TTL_MS;
+}
+/* The test seam: a number turns the memo on (or off, 0) even under a runner; null restores the default. */
+function setPresenceTtl(ms) {
+  presenceTtlOverride = Number.isFinite(ms) ? ms : null;
+  PRESENCE_MEMO.clear();
+}
+
+function presenceNow(tn) {
+  const r = run(['/Query', '/TN', tn, '/FO', 'LIST']);
   if (r.ok) {
     /* schtasks prints a localized "Scheduled Task State" / "Status" line. Read
        the DISABLED token rather than a positive spelling: the disabled word is
@@ -996,5 +1034,5 @@ module.exports = {
   install, disable, enable, end, start, running, remove, status, presence, list, machineTaskPaths, kosmosFolderTasks, configDirFor, taskSpec,
   cachedTaskSpec, taskEnabled, taskEnabledFromQuery, csvFields, commandsAreReal, REFUSED_IN_TEST,
   schtasksMayRunInThisProcess,
-  setRunner, setAnchorer, setLiveness, setRunningClock,
+  setRunner, setAnchorer, setLiveness, setRunningClock, setPresenceTtl, PRESENCE_TTL_MS,
 };

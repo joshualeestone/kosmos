@@ -1,4 +1,4 @@
-// Browser-check-surface: panel-tasks tsk-tiles tsk-groups tsk-search tsk-bulk rail-projects-tasks
+// Browser-check-surface: panel-tasks tsk-tiles tsk-groups tsk-search tsk-bulk rail-projects-tasks tsk-view tsk-band tsk-below tsk-list tsk-title tsk-searchbox
 'use strict';
 /**
  * The Tasks view on a screen (#3559): the third top-level tab, every task on every project,
@@ -14,16 +14,22 @@
  *    category is drawn (they are not guessed). Built but waiting's task is marked by the engine
  *    (tasks.setBuilt), and its row says who marked it and what is left. Needs Your Decision's task is a real one: its agent
  *    (Max) reports a question about its project, and the pane is asking,
- *  - #3949 layout: no left Projects column; search about half the width with the open-task count to
- *    its right; Project and Created: dropdowns on one row; Group by and Sort dropdowns under the
- *    tiles; no tile hint,
+ *  - #3949 layout: no left Projects column; the title is the count ("7 Tasks on 2 Projects", the projects
+ *    those open tasks are on) with no separate count line; Project and Created: dropdowns on one row;
+ *    Group by, Sort and a compact search (after Sort, "/" focuses it, Esc clears it) under the tiles;
+ *    no tile hint,
  *  - a row sits in the group its evidence says (the agent that named its task is In progress),
  *  - the search filters as you type (sentence, number, project, agent), and combines with the
  *    project dropdown,
  *  - Group by Project regroups the same rows,
  *  - ticking two rows and Close them closes both, with the note on each history,
  *  - no element in the view carries a coloured left border (Josh, 2026-09-24 12:52),
- *  - light, dark, a 760-wide and a 390-wide window (the search goes full width), with no sideways
+ *  - #3949 (Josh, 2026-09-26): no outer frame around the page body (16:18); two bands (18:03), read as
+ *    pixels: the page's ground from the title to the tiles, the surface (white) from Group by down to both
+ *    window edges and the window's bottom, the task cards shaded with the ground, in the tab view and the
+ *    consolidated column (whose rail stays unpainted); a status group with no tasks is not listed (18:16),
+ *    and an emptied list shows one line ("No tasks match" / "No tasks yet."); the Close bar is sticky,
+ *  - light, dark, a 760-wide and a 390-wide window, with no sideways
  *    scroll.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
@@ -127,9 +133,13 @@ function chk(ok, label, extra) {
       rail: !!panel.querySelector('aside, .tsk-rail'),   // the rail was an <aside>
       hint: /Tap a tile to see only that group/.test(panel.innerText),
       selShown: document.getElementById('tsk-projsel').getClientRects().length > 0,
-      /* #3949 positions: the count beside the search; Project and Created: on one row above the tiles;
+      /* #3949 positions: Project and Created: on one row above the tiles;
          Group by and Sort on one row under them. */
-      subRightOfSearch: rect('tsk-sub').left >= rect('tsk-search').right - 1 && Math.abs(rect('tsk-sub').top - rect('tsk-search').top) < 30,
+      /* #3949 (Josh, 19:30): the count is the title; the search is compact, to the right of Sort. */
+      title: document.getElementById('tsk-title').textContent.trim(),
+      countLine: !!document.getElementById('tsk-sub'),
+      searchRightOfSort: rect('tsk-searchbox').left >= rect('tsk-sort').right - 1 && Math.abs(rect('tsk-searchbox').top - rect('tsk-sort').top) < 30,
+      tilesGap: Math.round(document.querySelector('#panel-tasks .tsk-below').getBoundingClientRect().top - rect('tsk-tiles').bottom),
       filtersAbove: rect('tsk-win').bottom <= rect('tsk-tiles').top && rect('tsk-projsel').bottom <= rect('tsk-tiles').top,
       filtersRow: Math.abs(rect('tsk-projsel').top - rect('tsk-win').top) < 4,
       underBelow: rect('tsk-by').top >= rect('tsk-tiles').bottom && rect('tsk-sort').top >= rect('tsk-tiles').bottom,
@@ -191,10 +201,54 @@ function chk(ok, label, extra) {
       await page.waitForFunction(() => document.querySelectorAll('#tsk-tiles .tsk-tile').length > 0 && document.querySelectorAll('#tsk-groups .tsk-row').length > 0, null, { timeout: 8000 });
       const a = await page.evaluate(read);
       chk(a.visible, `${tag} the Tasks page is on screen`);
-      /* #3880's control: the tab view KEEPS its outer frame (Josh scoped #3880 to the consolidated
-         view); only the column drops it (asserted below), so a rule that removed it everywhere fails here. */
-      const tabFrame = await page.evaluate(() => { const cs = getComputedStyle(document.querySelector('#panel-tasks .tsk-view')); return { w: cs.borderTopWidth, r: cs.borderTopLeftRadius }; });
-      chk(tabFrame.w === '1px' && tabFrame.r === '14px', `${tag} the tab view keeps its outer frame (#3880 is the consolidated view only)`, JSON.stringify(tabFrame));
+      /* #3949 (Josh, 09-26 16:18): the tab view has no outer frame either ("lose the outer thin rounded box stroke");
+         #3880 had removed it only in the consolidated column. The tiles keep their own border (asserted below). */
+      const tabFrame = await page.evaluate(() => { const cs = getComputedStyle(document.querySelector('#panel-tasks .tsk-view'));
+        const tile = getComputedStyle(document.querySelector('#tsk-tiles .tsk-tile'));
+        const side = (k) => cs['border' + k + 'Style'] === 'none' || cs['border' + k + 'Width'] === '0px';
+        return { sides: ['Top', 'Right', 'Bottom', 'Left'].every(side), r: cs.borderTopLeftRadius, outline: cs.outlineStyle,
+          shadow: cs.boxShadow, tileBorder: tile.borderTopWidth }; });
+      chk(tabFrame.sides && tabFrame.r === '0px' && tabFrame.outline === 'none' && tabFrame.shadow === 'none' && tabFrame.tileBorder === '1px',
+        `${tag} the tab view has no outer frame; the tiles keep their own border`, JSON.stringify(tabFrame));
+      /* #3949 (Josh, 09-26 18:03): two bands, read as PIXELS (what he sees, not what the CSS says): the top band
+         (title to tiles) on the page's ground to the window's left and right edges; from Group by down, the surface
+         (white) to both edges and to the bottom of the window; the task cards shaded with the ground; the tiles still
+         the surface. A 1x1 screenshot is read back through a canvas in the page. */
+      const px = async (x, y) => {
+        const b64 = (await page.screenshot({ clip: { x, y, width: 1, height: 1 } })).toString('base64');
+        return page.evaluate((src) => new Promise((ok) => { const i = new Image(); i.onload = () => { const c = document.createElement('canvas');
+          c.width = 1; c.height = 1; const x2 = c.getContext('2d'); x2.drawImage(i, 0, 0); ok([...x2.getImageData(0, 0, 1, 1).data].slice(0, 3)); };
+          i.src = 'data:image/png;base64,' + src; }), b64);
+      };
+      const tok = await page.evaluate(() => { const probe = (v) => { const e = document.createElement('i'); e.style.color = v;
+        document.getElementById('panel-tasks').appendChild(e); const c = getComputedStyle(e).color; e.remove(); return c.match(/\d+/g).slice(0, 3).map(Number); };
+        return { bg: probe('var(--k-bg)'), surface: probe('var(--k-surface)') }; });
+      await page.evaluate(() => scrollTo(0, 0));
+      const geo = await page.evaluate(() => { const r = (sel) => document.querySelector(sel).getBoundingClientRect();
+        const tiles = r('#tsk-tiles'); const under = r('#tsk-under'); const list = r('#tsk-groups .tsk-list'); const tile = r('#tsk-tiles .tsk-tile');
+        /* clientWidth/Height, not innerWidth/Height: a classic scrollbar (headed, "Always show scroll bars", Windows)
+           sits inside the inner box, and a read there is the scrollbar, not the page. */
+        return { w: document.documentElement.clientWidth, h: document.documentElement.clientHeight, bandY: Math.round((tiles.top + tiles.bottom) / 2), belowY: Math.round(under.top + under.height / 2),
+          listX: Math.round(list.left + 6), listY: Math.round(list.top + 6), tileX: Math.round(tile.left + 6), tileY: Math.round(tile.top + 6) }; });
+      const same = (p, q) => p.every((v, i) => Math.abs(v - q[i]) <= 2);
+      const band = [await px(1, geo.bandY), await px(geo.w - 2, geo.bandY)];
+      const below = [await px(1, geo.belowY), await px(geo.w - 2, geo.belowY)];
+      const card = await px(geo.listX, geo.listY); const tilePx = await px(geo.tileX, geo.tileY);
+      /* "To the bottom" is only a claim about the BLEED when the white band itself ends above the window's bottom:
+         with a full list it runs past it and would read white regardless. So empty the list (a search that matches
+         nothing), prove the band ends on screen, then read the window's bottom corners. */
+      await page.fill('#tsk-search', 'zzz no task says this');
+      await page.waitForTimeout(250);
+      const shortEnd = await page.evaluate(() => Math.round(document.querySelector('#panel-tasks .tsk-below').getBoundingClientRect().bottom));
+      const bottom = [await px(1, geo.h - 2), await px(geo.w - 2, geo.h - 2)];
+      await page.fill('#tsk-search', '');
+      await page.waitForTimeout(250);
+      chk(shortEnd < geo.h - 10 && bottom.every((p) => same(p, tok.surface)), `${tag} with a short list the white still reaches the bottom of the window (the bleed, not the list)`, JSON.stringify({ shortEnd, h: geo.h, bottom }));
+      chk(!same(tok.bg, tok.surface), `${tag} CONTROL: the ground and the surface are different colours, so the band checks can fail`, JSON.stringify(tok));
+      chk(band.every((p) => same(p, tok.bg)), `${tag} the top band keeps the page's ground to both edges`, JSON.stringify({ band, bg: tok.bg }));
+      chk(below.every((p) => same(p, tok.surface)), `${tag} from Group by down it is the surface (white) to both edges`, JSON.stringify({ below, surface: tok.surface }));
+      chk(same(card, tok.bg) && same(tilePx, tok.surface), `${tag} the task cards are shaded with the ground; the tiles stay the surface`, JSON.stringify({ card, tile: tilePx }));
+      chk(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), `${tag} the full-width band adds no sideways scroll`);
       /* #3949/#3951 (Josh): six single-label tiles in his order; Completed is a tile and still the fold below. */
       chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['decision', 'working', 'assigned', 'nobody', 'built', 'closed']), `${tag} the tiles are Josh's six groups in his order, each from a recorded state`, JSON.stringify(a.tiles.map((t) => t.k)));
       chk(JSON.stringify(a.tiles.map((t) => t.label)) === JSON.stringify(['Needs Your Decision', 'In progress', 'Assigned but not started', 'Unassigned', 'Built but waiting', 'Completed']), `${tag} each tile is one label`, JSON.stringify(a.tiles.map((t) => t.label)));
@@ -240,12 +294,142 @@ function chk(ok, label, extra) {
       chk(a.bars.length === 0, `${tag} no element carries a coloured left border`, JSON.stringify(a.bars.slice(0, 5)));
       const sideways = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       chk(sideways <= 0, `${tag} no sideways scroll`, String(sideways));
-      if (width <= 760) {
-        chk(a.searchW >= a.mainW - 60, `${tag} a narrow window gives the search the full width`, JSON.stringify({ w: a.searchW, main: a.mainW }));
-      } else {
-        /* #3949 (Josh): about half as wide, with the count to its right. */
-        chk(a.searchW >= a.mainW * 0.4 && a.searchW <= a.mainW * 0.6, `${tag} the search is about half the width`, JSON.stringify({ w: a.searchW, main: a.mainW }));
-        chk(a.subRightOfSearch, `${tag} the open-task count sits to the right of the search`);
+      /* #3949 (Josh, 09-26 19:30): "X Tasks on N Projects" as the title (open tasks: this fixture has 7 on 2 live
+         projects), no separate count line, the search compact to the right of Sort, taller ground under the tiles. */
+      chk(a.title === '7 Tasks on 2 Projects' && !a.countLine, `${tag} the title is the count, "7 Tasks on 2 Projects", and there is no separate count line`, JSON.stringify({ title: a.title, countLine: a.countLine }));
+      chk(a.searchW <= 40, `${tag} at rest the search is compact (the magnifier)`, JSON.stringify({ w: a.searchW }));
+      if (width > 760) chk(a.searchRightOfSort, `${tag} the search sits to the right of Sort`);
+      chk(a.tilesGap >= 30, `${tag} the ground under the tiles is taller (at least 30px before the white)`, String(a.tilesGap));
+      {
+        /* The width animates (.15s): read it once it has settled. */
+        const sw = async () => { await page.waitForTimeout(300); return page.evaluate(() => Math.round(document.getElementById('tsk-search').getBoundingClientRect().width)); };
+        await page.evaluate(() => { document.activeElement && document.activeElement.blur && document.activeElement.blur(); });
+        await page.keyboard.press('/');
+        const slash = await page.evaluate(() => document.activeElement && document.activeElement.id);
+        const openW = await sw();
+        await page.keyboard.type('launch');
+        await page.evaluate(() => document.getElementById('tsk-search').blur());
+        const keptW = await sw();
+        await page.focus('#tsk-search');
+        await page.keyboard.press('Escape');
+        const after = await page.evaluate(() => ({ q: TSK.q, value: document.getElementById('tsk-search').value, focused: document.activeElement && document.activeElement.id,
+          rows: document.querySelectorAll('#tsk-groups .tsk-row').length }));
+        const closedW = await sw();
+        chk(slash === 'tsk-search' && openW >= 200, `${tag} "/" focuses the search and it opens`, JSON.stringify({ slash, openW }));
+        chk(keptW >= 200, `${tag} while it holds a search it stays open after you leave it`, String(keptW));
+        chk(after.q === '' && after.value === '' && after.focused === 'tsk-search' && closedW <= 40 && after.rows >= 7, `${tag} Esc clears the search, closes it, keeps focus in it, and brings every row back`, JSON.stringify({ after, closedW }));
+        await page.keyboard.type('l');
+        const reopenW = await sw();
+        /* An IME's own Esc (cancelling a conversion) is not the search's: a composing Escape leaves the search alone. */
+        const ime = await page.evaluate(() => { const q = document.getElementById('tsk-search');
+          q.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true }));
+          const a = { value: q.value, q: TSK.q };
+          q.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 229, bubbles: true, cancelable: true }));
+          return { a, b: { value: q.value, q: TSK.q } }; });
+        chk(ime.a.value === 'l' && ime.a.q === 'l' && ime.b.value === 'l', `${tag} an Escape during an IME composition does not clear the search`, JSON.stringify(ime));
+        await page.keyboard.press('Escape');
+        await page.evaluate(() => document.getElementById('tsk-search').blur());
+        chk(reopenW >= 200, `${tag} typing again after Esc opens it again`, String(reopenW));
+        /* The usual way in: click the Tasks tab (Chrome leaves focus on it), then "/". */
+        if (width >= 1000) {
+          await page.click('#tabs .tab[data-tab="tasks"]');
+          const onTab = await page.evaluate(() => document.activeElement && document.activeElement.dataset && document.activeElement.dataset.tab);
+          await page.keyboard.press('/');
+          const fromTab = await page.evaluate(() => document.activeElement && document.activeElement.id);
+          await page.evaluate(() => document.getElementById('tsk-search').blur());
+          chk(onTab === 'tasks' && fromTab === 'tsk-search', `${tag} "/" right after clicking the Tasks tab focuses the search`, JSON.stringify({ onTab, fromTab }));
+        }
+        /* Not while a header popover is open: the account menu keeps focus on its button; "/" leaves it there. */
+        {
+          await page.click('#userpop-btn');
+          await page.waitForTimeout(150);
+          const pop = await page.evaluate(() => ({ open: !document.getElementById('userpop-menu').hidden, on: document.activeElement && document.activeElement.id }));
+          await page.keyboard.press('/');
+          const popAfter = await page.evaluate(() => ({ on: document.activeElement && document.activeElement.id, open: !document.getElementById('userpop-menu').hidden }));
+          await page.keyboard.press('Escape');
+          await page.evaluate(() => { const m = document.getElementById('userpop-menu'); if (m && !m.hidden) document.getElementById('userpop-btn').click(); document.activeElement && document.activeElement.blur && document.activeElement.blur(); });
+          chk(pop.open && popAfter.open && popAfter.on !== 'tsk-search', `${tag} "/" with the account menu open does not move focus into the search`, JSON.stringify({ pop, popAfter }));
+        }
+        /* Nor with the narrow-screen nav open: opening it puts focus on its first tab, not on the burger (round 17). */
+        if (width <= 760) {
+          await page.click('#burger');
+          await page.waitForTimeout(150);
+          const nav = await page.evaluate(() => ({ open: document.getElementById('burger').getAttribute('aria-expanded'), on: document.activeElement && (document.activeElement.id || (document.activeElement.dataset && document.activeElement.dataset.tab)) }));
+          await page.keyboard.press('/');
+          const navAfter = await page.evaluate(() => ({ on: document.activeElement && (document.activeElement.id || (document.activeElement.dataset && document.activeElement.dataset.tab)), open: document.getElementById('burger').getAttribute('aria-expanded') }));
+          await page.click('#burger');
+          await page.waitForTimeout(150);
+          await page.evaluate(() => document.activeElement && document.activeElement.blur && document.activeElement.blur());
+          chk(nav.open === 'true' && navAfter.open === 'true' && navAfter.on !== 'tsk-search', `${tag} "/" with the narrow-screen nav open does not move focus into the search`, JSON.stringify({ nav, navAfter }));
+        }
+        /* But an ordinary disclosure that is open (a subtask fold chip, a project row: aria-expanded="true") is not a
+           popover: "/" from it still reaches the search (review round 16). A tile stands in for one here. */
+        {
+          const disc = await page.evaluate(() => { const b = document.querySelector('#tsk-tiles [data-tile="nobody"]'); b.setAttribute('aria-expanded', 'true'); b.focus(); return document.activeElement === b; });
+          await page.keyboard.press('/');
+          const fromDisc = await page.evaluate(() => { const id = document.activeElement && document.activeElement.id; document.querySelector('#tsk-tiles [data-tile="nobody"]').removeAttribute('aria-expanded'); document.getElementById('tsk-search').blur(); return id; });
+          chk(disc && fromDisc === 'tsk-search', `${tag} "/" from an open disclosure (aria-expanded) still focuses the search`, JSON.stringify({ disc, fromDisc }));
+        }
+        /* "/" from a row's checkbox (not a text field) reaches the search; and a popup trigger left expanded but not on
+           screen (a combobox inside a closed dialog) does not switch "/" off (review round 18). */
+        {
+          const cb = await page.evaluate(() => { const c = document.querySelector('#tsk-groups input[type="checkbox"][data-key]'); c.focus(); return document.activeElement === c; });
+          await page.keyboard.press('/');
+          const fromCb = await page.evaluate(() => { const id = document.activeElement && document.activeElement.id; document.getElementById('tsk-search').blur(); return id; });
+          await page.evaluate(() => { const g = document.createElement('div'); g.hidden = true; window.__tskGhost = g;
+            g.innerHTML = '<button type="button" aria-haspopup="listbox" aria-expanded="true">stale</button>'; document.body.appendChild(g); });
+          await page.focus('#tsk-tiles [data-tile="nobody"]');
+          await page.keyboard.press('/');
+          const withGhost = await page.evaluate(() => { const id = document.activeElement && document.activeElement.id; window.__tskGhost.remove(); delete window.__tskGhost; document.getElementById('tsk-search').blur(); return id; });
+          chk(cb && fromCb === 'tsk-search' && withGhost === 'tsk-search', `${tag} "/" works from a row checkbox, and a hidden expanded trigger does not switch it off`, JSON.stringify({ cb, fromCb, withGhost }));
+        }
+        /* After Esc (closed, focus kept), a click on the field opens it again. */
+        {
+          await page.focus('#tsk-search'); await page.keyboard.type('x'); await page.keyboard.press('Escape');
+          const shutW = await sw();
+          await page.click('#tsk-search');
+          const clickW = await sw();
+          await page.evaluate(() => document.getElementById('tsk-search').blur());
+          chk(shutW <= 40 && clickW >= 200, `${tag} after Esc a click on the search opens it again`, JSON.stringify({ shutW, clickW }));
+        }
+        /* "/" from a control inside the Tasks view (a tile button) focuses the search too. */
+        await page.focus('#tsk-tiles [data-tile="nobody"]');
+        await page.keyboard.press('/');
+        const fromTile = await page.evaluate(() => document.activeElement && document.activeElement.id);
+        await page.evaluate(() => document.getElementById('tsk-search').blur());
+        chk(fromTile === 'tsk-search', `${tag} "/" from a tile inside the view focuses the search`, JSON.stringify(fromTile));
+        /* The count and its projects come from the same filtered tasks: a search that leaves one task on one project
+           says so (review round 11: the project count had been unfiltered, "1 Task on 2 Projects"). */
+        await page.fill('#tsk-search', 'podcast');
+        await page.waitForTimeout(200);
+        const oneTitle = await page.evaluate(() => document.getElementById('tsk-title').textContent.trim());
+        await page.fill('#tsk-search', '');
+        await page.evaluate(() => document.getElementById('tsk-search').blur());
+        chk(oneTitle === '1 Task on 1 Project', `${tag} a search leaving one task titles it "1 Task on 1 Project"`, JSON.stringify(oneTitle));
+        /* "/" never reaches past an open modal: New task's dialog open, focus on its own Cancel button, "/" leaves focus
+           there (review round 11: the guard had looked for a <dialog> the app does not use). */
+        await page.click('#tsk-new');
+        await page.waitForTimeout(300);
+        const modal = await page.evaluate(() => { const b = document.getElementById('nt-back'); if (b) b.focus();
+          const open = [...document.querySelectorAll('[aria-modal="true"]')].some((m) => m.getClientRects().length > 0);
+          return { open, before: document.activeElement && document.activeElement.id }; });
+        await page.keyboard.press('/');
+        const modalAfter = await page.evaluate(() => document.activeElement && document.activeElement.id);
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(200);
+        const closed = await page.evaluate(() => ![...document.querySelectorAll('[aria-modal="true"]')].some((m) => m.getClientRects().length > 0));
+        chk(modal.open && modal.before === 'nt-back' && modalAfter === 'nt-back' && closed, `${tag} "/" with a modal open leaves focus in the modal`, JSON.stringify({ modal, modalAfter, closed }));
+        /* And with the modal open but focus on the page itself (a confirm button that disabled and blurred itself):
+           the aria-modal guard is what stops it here, not the "inside the view" guard. */
+        await page.click('#tsk-new');
+        await page.waitForTimeout(300);
+        const bodyModal = await page.evaluate(() => { document.activeElement && document.activeElement.blur && document.activeElement.blur();
+          return { open: [...document.querySelectorAll('[aria-modal="true"]')].some((m) => m.getClientRects().length > 0), focus: document.activeElement === document.body }; });
+        await page.keyboard.press('/');
+        const bodyAfter = await page.evaluate(() => document.activeElement && document.activeElement.id);
+        await page.evaluate(() => { const b = document.getElementById('nt-back'); if (b) b.click(); });
+        await page.waitForTimeout(200);
+        chk(bodyModal.open && bodyModal.focus && bodyAfter !== 'tsk-search', `${tag} "/" with a modal open and focus on the page does not reach the search`, JSON.stringify({ bodyModal, bodyAfter }));
       }
       if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, `tasks-${theme}-${width}.png`), fullPage: true }); }
 
@@ -318,7 +502,46 @@ function chk(ok, label, extra) {
             redDot: getComputedStyle(t.querySelector('.tsk-dot')).backgroundColor === danger,
             head: h ? h.textContent : null, headRedDot: h ? getComputedStyle(h.querySelector('.tsk-dot')).backgroundColor === danger : null };
         });
-        chk(zero.n === 0 && !zero.red && !zero.redDot && zero.head !== null && !zero.headRedDot, `${tag} a zero Needs Your Decision is not red, its dot and its heading's dot included`, JSON.stringify(zero));
+        chk(zero.n === 0 && !zero.red && !zero.redDot, `${tag} a zero Needs Your Decision tile is not red, its dot included`, JSON.stringify(zero));
+        /* #3949 (Josh, 09-26 18:16): a status group with no tasks is not drawn (its tile already says 0): the search
+           leaves only Unassigned, so only Unassigned is listed, and nothing anywhere says "Nothing here". */
+        const drawn = await page.evaluate(() => ({ heads: [...document.querySelectorAll('#tsk-groups .tsk-grp h3, #tsk-groups .tsk-grp summary')].map((h) => h.textContent.replace(/[\d()?]+/g, '').trim()),
+          nothing: /Nothing here/.test(document.getElementById('tsk-groups').textContent) }));
+        chk(zero.head === null && JSON.stringify(drawn.heads) === JSON.stringify(['Unassigned']) && !drawn.nothing,
+          `${tag} only groups with tasks are listed (the empty ones are left to their tiles), and none says Nothing here`, JSON.stringify(drawn));
+        /* A filter that empties the list says so once: the search plus the (zero) In progress tile. */
+        await page.click('#tsk-tiles [data-tile="working"]');
+        const emptied = await page.evaluate(() => ({ grp: document.querySelectorAll('#tsk-groups .tsk-grp').length, text: document.getElementById('tsk-groups').textContent.trim() }));
+        chk(emptied.grp === 0 && /^No tasks match/.test(emptied.text), `${tag} a filter that empties the list shows one "No tasks match" line`, JSON.stringify(emptied));
+        await page.click('#tsk-tiles [data-tile="working"]'); // back
+        /* And with no search at all: the Newsletter project plus the Needs Your Decision tile (its task is Spring
+           launch's) empties the list, and the line is the plain one. */
+        const emptiedNoSearch = await page.evaluate(async () => {
+          const q = document.getElementById('tsk-search'); q.value = ''; q.dispatchEvent(new Event('input', { bubbles: true }));
+          const sel = document.getElementById('tsk-projsel'); const opt = [...sel.options].find((o) => o.textContent.startsWith('Newsletter'));
+          sel.value = opt.value; sel.dispatchEvent(new Event('change', { bubbles: true }));
+          await new Promise((r) => setTimeout(r, 300));
+          document.querySelector('#tsk-tiles [data-tile="decision"]').click();
+          await new Promise((r) => setTimeout(r, 300));
+          const out = { grp: document.querySelectorAll('#tsk-groups .tsk-grp').length, text: document.getElementById('tsk-groups').textContent.trim() };
+          document.querySelector('#tsk-tiles [data-tile="decision"]').click();
+          sel.value = ''; sel.dispatchEvent(new Event('change', { bubbles: true }));
+          await new Promise((r) => setTimeout(r, 300));
+          q.value = 'podcast'; q.dispatchEvent(new Event('input', { bubbles: true }));
+          await new Promise((r) => setTimeout(r, 300));
+          return out;
+        });
+        chk(emptiedNoSearch.grp === 0 && emptiedNoSearch.text === 'No tasks match.', `${tag} with no search, a project and a tile that empty the list show one "No tasks match." line`, JSON.stringify(emptiedNoSearch));
+        /* #3949: with no filter at all and no tasks, the one line says so plainly (not "match"). Driven through the
+           page's own data and painter, then put back. */
+        const noneYet = await page.evaluate(() => {
+          const keep = { data: TSK.data, tile: TSK.tile, proj: TSK.proj, win: TSK.win, q: TSK.q };
+          TSK.data = []; TSK.tile = null; TSK.proj = null; TSK.win = 0; TSK.q = ''; tskPaint();
+          const out = { grp: document.querySelectorAll('#tsk-groups .tsk-grp').length, text: document.getElementById('tsk-groups').textContent.trim() };
+          Object.assign(TSK, keep); tskPaint();
+          return out;
+        });
+        chk(noneYet.grp === 0 && noneYet.text === 'No tasks yet.', `${tag} with no filter and no tasks the one line says "No tasks yet."`, JSON.stringify(noneYet));
         /* And unreadable with nothing listed: the group says it cannot tell, never "Nothing here" (review round 10). */
         const unknownEmpty = await page.evaluate(() => {
           TSK.rosterUnknown = true; tskPaint();
@@ -408,6 +631,15 @@ function chk(ok, label, extra) {
         await page.check('#tsk-groups input[data-key="' + launch.id + '#1"]');
         const barShown = await page.evaluate(() => !document.getElementById('tsk-bulk').hidden);
         chk(barShown, `${tag} ticking rows brings up the Close bar`);
+        /* #3949: the Close bar is sticky to the window's bottom (#3559's position: sticky; bottom: 14px). It only
+           started to stick when the view stopped clipping (the old frame's overflow: hidden made the view its scroll
+           box). Measured in a short window, so the list is always longer than it and sticking is observable. */
+        /* A short window makes the list longer than it whatever the fixture's size, so this cannot quietly skip. */
+        await page.setViewportSize({ width, height: 520 });
+        const stick = await page.evaluate(() => { scrollTo(0, 0); const b = document.getElementById('tsk-bulk').getBoundingClientRect();
+          return { tall: document.getElementById('tsk-groups').getBoundingClientRect().bottom > innerHeight, top: Math.round(b.top), bottom: Math.round(b.bottom), h: innerHeight }; });
+        await page.setViewportSize({ width, height: 1000 });
+        chk(stick.tall && stick.top >= 0 && stick.bottom <= stick.h, `${tag} with a list longer than the window the Close bar stays on screen at the bottom (sticky)`, JSON.stringify(stick));
         /* Clear hides the bar with its own button in it: focus lands on the search, not the body. */
         await page.click('#tsk-bclear');
         const afterClear = await page.evaluate(() => ({ id: document.activeElement.id, sel: TSK.sel.size }));
@@ -484,6 +716,32 @@ function chk(ok, label, extra) {
       });
       chk(frame.w === '0px' && frame.r === '0px' && /rgba\(0, 0, 0, 0\)|transparent/.test(frame.bg), '[consolidated] the view has no outer rounded box (#3880)', JSON.stringify(frame));
       chk(frame.tileW !== null && frame.tileW !== '0px', '[consolidated] the tiles keep their own border', JSON.stringify(frame));
+      /* #3949: the white band bleeds only to the column. The projects rail beside it, at the height of Group by, keeps
+         the page's ground: the column's scroll box is what contains the bleed, and nothing else would. */
+      {
+        const cg = await page.evaluate(() => { const rail = document.getElementById('rail-projects-tasks').closest('aside, nav, section, div[class*="rail"]') || document.getElementById('rail-projects-tasks').parentElement;
+          const r = rail.getBoundingClientRect(); const u = document.getElementById('tsk-under').getBoundingClientRect();
+          const probe = (v) => { const e = document.createElement('i'); e.style.color = v; document.body.appendChild(e); const c = getComputedStyle(e).color; e.remove(); return c.match(/\d+/g).slice(0, 3).map(Number); };
+          return { x: Math.round(r.right - 6), y: Math.round(u.top + u.height / 2), railRight: Math.round(r.right), colLeft: Math.round(document.getElementById('panel-tasks').getBoundingClientRect().left),
+            surface: probe('var(--k-surface)'), bg: probe('var(--k-bg)') }; });
+        const b64 = (await page.screenshot({ clip: { x: cg.x, y: cg.y, width: 1, height: 1 } })).toString('base64');
+        const railPx = await page.evaluate((src) => new Promise((ok) => { const i = new Image(); i.onload = () => { const c = document.createElement('canvas');
+          c.width = 1; c.height = 1; const x2 = c.getContext('2d'); x2.drawImage(i, 0, 0); ok([...x2.getImageData(0, 0, 1, 1).data].slice(0, 3)); };
+          i.src = 'data:image/png;base64,' + src; }), b64);
+        const near = (p, q) => p.every((v, k) => Math.abs(v - q[k]) <= 2);
+        chk(cg.railRight <= cg.colLeft && !near(railPx, cg.surface), '[consolidated] the white band stays in the column: the rail beside it is not painted', JSON.stringify({ cg, railPx }));
+        /* And the bands themselves in the column: ground behind the tiles, surface at Group by, a shaded card. */
+        const readAt = async (x, y) => { const b = (await page.screenshot({ clip: { x, y, width: 1, height: 1 } })).toString('base64');
+          return page.evaluate((src) => new Promise((ok) => { const i = new Image(); i.onload = () => { const c = document.createElement('canvas');
+            c.width = 1; c.height = 1; const x2 = c.getContext('2d'); x2.drawImage(i, 0, 0); ok([...x2.getImageData(0, 0, 1, 1).data].slice(0, 3)); };
+            i.src = 'data:image/png;base64,' + src; }), b); };
+        const cp = await page.evaluate(() => { const r = (q) => document.querySelector(q).getBoundingClientRect(); const col = r('#panel-tasks');
+          const tiles = r('#tsk-tiles'); const under = r('#tsk-under'); const list = r('#tsk-groups .tsk-list');
+          return { x: Math.round(col.left + 4), bandY: Math.round(tiles.bottom + 6), belowY: Math.round(under.top + under.height / 2), lx: Math.round(list.left + 6), ly: Math.round(list.top + 6) }; });
+        const colPx = { band: await readAt(cp.x, cp.bandY), below: await readAt(cp.x, cp.belowY), card: await readAt(cp.lx, cp.ly) };
+        chk(near(colPx.band, cg.bg) && near(colPx.below, cg.surface) && near(colPx.card, cg.bg),
+          '[consolidated] in the column: the ground under the tiles, the surface from Group by, the cards shaded', JSON.stringify({ cp, colPx, bg: cg.bg, surface: cg.surface }));
+      }
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'tasks-from-consolidated.png'), fullPage: false });
       /* From consolidated Kosmos+ settings, Tasks takes the Plus chrome down (#3599's rule). */
       const plus = await page.evaluate(() => {

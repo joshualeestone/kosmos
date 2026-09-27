@@ -1184,9 +1184,6 @@ html { scroll-padding-top: 132px; }
 .utoast .udot { width: 8px; height: 8px; border-radius: 50%; background: var(--utone); flex: 0 0 8px; }
 .utoast .utxt b { display: block; font-size: .8125rem; line-height: 1.3; color: var(--utone); }
 .utoast .utxt small { font-size: .6875rem; color: var(--label-2); }
-.utoast .newsupd { color: inherit; text-decoration: none; }
-.utoast .newsupd:hover b { text-decoration: underline; text-underline-offset: 2px; }
-.utoast .uacts .newsx { font-size: 1.1rem; line-height: 1; }
 /* #655: the news line's link and dismiss, in the toast's own ink and on one line. */
 .utoast .utxt small a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .utoast .uacts button { white-space: nowrap; }
@@ -1217,6 +1214,49 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime,
 .dbox .btn.uprime { background: var(--gold-bright); border-color: var(--gold-bright); color: #14161a; }
 button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .dbox .btn.uprime:hover { background: var(--gold); border-color: var(--gold); color: #14161a; }
+/* #3955: the update chip (Mona Lisa's mock A and B): one line and one gold action, beside the Kosmos
+   switcher in the same slot the old boxes used. Small on purpose (Josh: "It looks terrible and it's
+   gigantic"). */
+.uchip { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 4px 0 12px; border-radius: 999px;
+  background: color-mix(in srgb, var(--gold-bright) 16%, var(--bg-elevated));
+  border: 1px solid color-mix(in srgb, var(--gold-bright) 55%, transparent);
+  font-size: .8125rem; font-weight: 600; white-space: nowrap; color: var(--label); }
+.uchip .udot { width: 7px; height: 7px; border-radius: 50%; background: var(--gold-bright); flex: 0 0 7px; }
+.uchip button { height: 24px; border: 0; border-radius: 999px; padding: 0 12px; background: var(--gold-bright); color: #14161a;
+  font: inherit; font-size: .78rem; font-weight: 700; cursor: pointer; }
+.uchip button:hover { background: var(--gold); }
+.uchip button:focus-visible { outline: 2px solid var(--label); outline-offset: 2px; }
+/* Narrow screens (review round 2): the chip may wrap to two lines rather than run off the right edge. */
+@media (max-width: 480px) {
+  .uchip { white-space: normal; height: auto; min-height: 30px; padding: 3px 4px 3px 10px; max-width: 100%; }
+  .uchip .uchip-t { flex: 1 1 auto; min-width: 0; }
+  .uchip button { flex: none; }
+}
+/* #3955: "Kosmos has been updated" (mock C): a centred card over the dimmed app, tiles two by two. */
+.wn-box { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; text-align: center;
+  background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: 22px;
+  box-shadow: 0 24px 60px rgba(20, 18, 14, .22); padding: 32px 32px 26px; position: relative; }
+/* Josh, 2026-09-26 review: an X top-right instead of Got it. The window opens with focus on itself (no
+   ring at all); a keyboard Tab still shows where it is, in gold, never the black ring. */
+.wn-box:focus { outline: none; }
+.wn-x { position: absolute; top: 14px; right: 14px; width: 32px; height: 32px; border: 0; border-radius: 8px;
+  background: none; color: var(--label-2); font-size: 1.5rem; line-height: 1; cursor: pointer; }
+.wn-x:hover { color: var(--label); background: var(--bg); }
+.wn-mark { display: block; width: 52px; height: 52px; border-radius: 14px; margin: 0 auto; }
+.wn-title { margin: 16px 0 22px; font-size: 1.5rem; letter-spacing: -.01em; color: var(--label); }
+.wn-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; text-align: left; list-style: none; margin: 0; padding: 0; }
+.wn-tiles.one { grid-template-columns: minmax(0, 320px); justify-content: center; }
+.wn-tile { display: flex; gap: 12px; align-items: flex-start; background: var(--bg); border: 1px solid var(--border-strong);
+  border-radius: 14px; padding: 14px; }
+.wn-ico { flex: none; width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--gold-bright) 20%, var(--bg-elevated)); color: var(--gold-edge); }
+.wn-words b { display: block; font-size: .9375rem; margin: 1px 0 2px; color: var(--label); }
+.wn-words span { display: block; font-size: .84rem; line-height: 1.4; color: var(--label-2); }
+.wn-acts { margin-top: 22px; text-align: left; }   /* Josh: the link bottom-left */
+/* --gold-edge, not --gold (round 11): --gold is 2.25:1 on the light theme's white, under 3:1. */
+.wn-x:focus-visible, .wn-more:focus-visible { outline: 2px solid var(--gold-edge); outline-offset: 2px; }
+.wn-more { color: var(--label-2); font-size: .84rem; text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 560px) { .wn-tiles { grid-template-columns: 1fr; } .wn-box { padding: 24px 18px 20px; } }
 /* ⚠️ THE `.dbox` HALVES ARE NOT DECORATION, and the button they save is the one
    Josh named. `#d-send` (Send, on an agent) is a `.btn.uprime` INSIDE a `.dbox`,
    and the dialog skin above sets both a transparent fill (`.dbox .btn`, 0-2-0)
@@ -1328,7 +1368,7 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
    - the tab view's header sat inside .apphead's 24px top padding, consolidated's is
      flush with 8px (Josh's #1303 "no band across the top");
    - both views CENTRED the controls in a row that also holds the update and login
-     notices (#unews-slot, #login-adv-slot), which wrap tall in the tab view because the
+     notices (the update notices, #login-adv-slot), which wrap tall in the tab view because the
      centred tabs squeeze them. So a notice appearing moved the controls in either view.
    The fix, only where the views can be switched (960px and up, layoutConsolidated's
    floor): the tab view adopts consolidated's flush 8px top, both views TOP-align the row
@@ -1711,7 +1751,7 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#utoast-slot:empty, #unote-slot:empty, #uabort-slot:empty, #unews-slot:empty, #uoffline-slot:empty { display: none; }
+#utoast-slot:empty, #uabort-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* #1704 slice-3: the multiple-Kosmos switcher beside the K mark. A disclosure
    button showing the active world's name, opening a menu of the person's worlds
@@ -3432,7 +3472,20 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   --tsk-closed: color-mix(in srgb, var(--k-ink-2) 55%, var(--k-rule));
   --tsk-wash: color-mix(in srgb, var(--gold) 14%, var(--k-surface)); color: var(--k-ink); }
 /* #3949: one column, the full width (the Projects rail is gone; its choice is the dropdown). */
-.tsk-view { min-height: 70vh; background: var(--k-bg); border: 1px solid var(--k-rule); border-radius: 14px; overflow: hidden; }
+/* #3949 (Josh, 09-26 16:18: "lose the outer thin rounded box stroke that's on this page for no reason"): no frame on
+   the tab view either (#3880 had dropped it only in the consolidated column). The tiles and rows keep their boxes. */
+.tsk-view { min-height: 70vh; background: var(--k-bg); }
+/* #3949 (Josh, 09-26 18:03: "keep the background color [at the top] and everything below it to be on a white
+   background, and then slightly shade the task cards"). The lower band is the surface (white; the dark surface in
+   dark mode), bled to the window's edges and down to the bottom with a spread shadow clipped to the sides and below,
+   so it never paints over the band above and never widens the page (a shadow is not scrollable overflow). The view
+   no longer clips: its overflow: hidden clipped the frame's rounded corners, and it also made the view the scroll box
+   of the sticky Close bar (.tsk-bulk), which therefore never stuck. Without it the bar sticks to the window's bottom
+   as #3559 wrote it to (asserted in the browser check). In the consolidated column the panel's own scroll box
+   (overflow-y: auto) is what bounds the bleed to the column; the browser check reads the rail beside it. The cards take the page's ground, the warm off-white. */
+.tsk-below { background: var(--k-surface); box-shadow: 0 0 0 100vmax var(--k-surface); clip-path: inset(0 -100vmax -100vmax);
+  margin-top: 30px; padding-top: 14px; }   /* #3949 (Josh, 19:30): taller ground under the tiles (was 16px) */
+#panel-tasks .tsk-below .tsk-list { background: var(--k-bg); }
 .tsk-main { padding: 25px 26px 110px; min-width: 0; position: relative; }
 .tsk-crumb { font-size: .8125rem; color: var(--k-ink-2); margin: 0 0 2px; min-height: 1.3em; }
 /* Mona's look review of #3701: halve the two big vertical gaps (measured 51px above the title,
@@ -3450,18 +3503,24 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 #panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
 /* #3703: the head carries "+ New task" beside the title, as Mona's mock draws it (.mh / .newbtn). */
 #panel-tasks .tsk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-/* #3949: the search takes about half the width, with the open-task count to its right. */
-.tsk-toprow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; margin: 16px 0 0; }
-.tsk-toprow .tsk-search { flex: 0 1 50%; min-width: 240px; margin: 0; max-width: none; }
-.tsk-sub { color: var(--k-ink-2); font-size: .9375rem; margin: 0; }
+/* #3949 (Josh, 09-26 19:30): the title carries the count ("30 Tasks on 2 Projects"); the separate count line is
+   gone, and the search sits compact to the right of Sort (below). */
 .tsk-ctrls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 14px 0 4px; }
 #tsk-under { margin: 12px 0 4px; }
 .tsk-ctl { display: flex; align-items: center; }
 .tsk-cl { font: 600 .875rem var(--font-ui); color: var(--k-ink-2); margin-right: 6px; white-space: nowrap; }
-.tsk-search { position: relative; margin: 16px 0 0; max-width: 520px; }
+.tsk-search { position: relative; margin: 0; max-width: 100%; }
 .tsk-search svg { position: absolute; left: 11px; top: 50%; width: 16px; height: 16px; margin-top: -8px; color: var(--k-ink-2); pointer-events: none; }
-.tsk-search input { width: 100%; box-sizing: border-box; font: .9375rem var(--font-ui); height: 38px; padding: 0 34px 0 36px; border-radius: 10px;
-  border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink); }
+.tsk-search input { width: 38px; max-width: 100%; box-sizing: border-box; font: .9375rem var(--font-ui); height: 38px; padding: 0 0 0 36px; border-radius: 10px;
+  border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink); cursor: pointer; transition: width .15s ease; }
+/* Closed, it is the magnifier alone (its placeholder hidden); open, it is a field wide enough to read what you type. */
+.tsk-search input::placeholder { color: transparent; }
+.tsk-search:focus-within input, .tsk-search.open input { width: 280px; padding-right: 34px; cursor: text; }
+.tsk-search:focus-within input::placeholder, .tsk-search.open input::placeholder { color: var(--k-ink-2); }
+/* Esc closes it while it keeps focus, until the person types again or leaves it. */
+.tsk-search.shut input { width: 38px; padding-right: 0; }
+.tsk-search.shut input::placeholder { color: transparent; }
+@media (prefers-reduced-motion: reduce) { .tsk-search input { transition: none; } }
 .tsk-search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
 .tsk-search button { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: 0; background: none; cursor: pointer;
   color: var(--k-ink-2); font: 600 1rem var(--font-ui); width: 26px; height: 26px; border-radius: 7px; }
@@ -3552,8 +3611,8 @@ details.tsk-fold summary { cursor: pointer; color: var(--k-ink-2); font-size: .8
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks { grid-column: 2; grid-row: 1; margin: 0; width: 100%;
   padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; }
 /* #3880 (Josh, 2026-09-25 22:01): in the column the view has no outer frame of its own; the title, New task, filters,
-   tiles and list sit on the column's ground unframed. The tiles and the list keep their own borders. The tab view keeps
-   its frame: Josh scoped this to the consolidated view. */
+   tiles and list sit on the column's ground unframed. The tiles and the list keep their own borders. (Since #3949,
+   09-26, the tab view has no frame either; this still drops the column's background.) */
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-view {
   border: 0; border-radius: 0; background: none; }
 /* Mona's look review of #3701: in the column the panel's own top inset already spaces the title,
@@ -3564,7 +3623,6 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-task
   padding: 2px 8px; border-radius: 999px; cursor: pointer; margin-left: 8px; }
 .rail-tasks:hover { color: var(--k-ink); border-color: var(--gold-edge); }
 @media (max-width: 760px) {
-  .tsk-toprow .tsk-search { flex-basis: 100%; }
   .tsk-ctl { flex-wrap: wrap; row-gap: 4px; }
   .tsk-main { padding: 22px 14px 120px; }
   .tsk-row { grid-template-columns: 22px minmax(0, 1fr); }
@@ -4165,7 +4223,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      scrollable -- the update notice was sliced through the middle with
      its status dot off-screen.
      ⚠️ AND IT CLIPPED EXACTLY WHAT THE COMMENT ABOVE PROMISES STAYS
-     VISIBLE: #utoast-slot, #unote-slot, #unews-slot, #uoffline-slot. A
+     VISIBLE: the update and offline slots (#3955 left #utoast-slot and #uoffline-slot). A
      sentence asserting a property is not a guard on it; `web.consolidated-980`
      now pins this so the promise can fail loudly instead of quietly. */
   /* Josh, 2026-08-27: "the design doesn't go all the way to the top. There's a gap
@@ -4180,9 +4238,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
          The four update slots live inside .apphead, and when one shows, that margin is
          what separates it from the board. So it moves ONTO the slots, where it applies
          only when a slot is actually on screen. `#*-slot:empty { display: none }` at the
-         top of this file makes that automatic for three of them. #unews-slot is never
-         :empty (it carries a hidden #newsbar child, as its own comment says), so it
-         needs the :has() test instead. */
+         top of this file makes that automatic for them (#3955 removed #unews-slot, the one
+         that was never :empty). */
       html[data-layout="consolidated"] body.consolidated > .apphead { position: static; margin: 0; padding: 0; border: 0; min-height: 0; }
       /* #2282: the consolidated-only notice-slot bottom-margins are GONE. They existed
          for the OLD collapsed-header design, where a shown update/offline notice was the
@@ -9363,6 +9420,9 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
    and the sign-in link on one line; they wrap on a narrow pane. Link colour is
    first-step.html's on-navy link blue (#7ea0f0), readable on the gradient. */
 .plus-topbar { color: var(--k-ink-2); font-size: .95rem; margin: 0 0 8px; }
+/* #4079: the result of Remove this computer, on the pane the person lands on. */
+.plus-forgot { font-size: .95rem; line-height: 1.5; margin: 0 0 14px; padding: 10px 14px; border: 1px solid var(--k-rule); border-radius: 10px; background: var(--k-surface); color: var(--k-ink); }
+.plus-forgot:focus { outline: none; }
 .plus-cta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 20px; }
 .plus-signin-link { color: #7ea0f0; text-decoration: none; font-weight: 600; font-size: .92rem; }
 .plus-signin-link:hover { text-decoration: underline; }
@@ -9698,6 +9758,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   :is(#d-files, #d-sec-files) .pj-doc { min-height: 44px; }
   #d-files-all { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
   #d-files-back { display: inline-flex; align-items: center; min-height: 44px; }
+  /* #4088: Finder/File Explorer is on the computer running Kosmos, not the phone showing
+     this page. Hide an action the phone cannot fulfil; the file rows remain available. */
+  #d-files-finder { display: none; }
   /* #718 rows 2 and 3: keep the agent's Profile and Instructions forms readable without
      iOS focus zoom, and give their actions a phone-sized target. The desktop percentage
      widths stay above; only the phone lets the long Name help use the form's width. */
@@ -9739,6 +9802,12 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-talk-box .composerbox .cinput, #d-talk-box #d-talk-search { font-size: 16px; }
   #d-talk-box #d-talk-search-wrap { min-height: 44px; }
   #d-talk-box #d-talk-search { min-height: 44px; }
+  /* #3916: the Instructions pill also owns Skills. Keep both editors out of iOS focus zoom
+     and their actions thumb-sized when a phone is sideways or the screen is a touch tablet. */
+  #d-sec-instr textarea,
+  #d-sec-skills :is(input, textarea, select) { font-size: 16px; }
+  #d-sec-instr button,
+  #d-sec-skills :is(input, textarea, select, button) { min-height: 44px; }
 }
 /* The canvases honour prefers-reduced-motion in JS (a single static frame, no
    rAF loop); this makes that intent visible to a source reader too. */
@@ -9910,12 +9979,6 @@ window.kosmosMeasureScrollbarWidth();
          reasoning, drawn 2e4e100). Renders only when a newer version is
          published; role=status per the pack. -->
     <div id="utoast-slot"></div>
-    <!-- #541, moved here for #655 (Josh, 2026-08-24 15:50): the "updated itself
-         while you were away" line lives in the same container as the
-         update-available notice and wears its shape, so it sits with the
-         header instead of pushing the board down. The slot's :empty rule
-         does not apply while this child exists, so the line hides itself. -->
-    <div id="unote-slot"></div>
     <!-- #2055: the update-abort notice. Its own slot so it can co-occur with the
          post-update note and the offline note rather than overwriting either; a
          machine that cannot update is a state worth its own line. -->
@@ -9925,19 +9988,10 @@ window.kosmosMeasureScrollbarWidth();
          the update/offline notices rather than overwriting them; role=status per
          the pack; renders only when data.loginAdvisories is non-empty. -->
     <div id="login-adv-slot"></div>
-    <div id="unews-slot">
-      <div class="utoast stale" id="newsbar" role="status" hidden>
-        <span class="udot" aria-hidden="true"></span>
-        <div class="utxt"><a id="newsbar-link" class="newsupd" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener"><b id="newsbar-text"></b></a></div>
-        <div class="uacts"><button type="button" id="newsbar-ok" class="newsx" aria-label="Close this note">&times;</button></div>
-      </div>
-    </div>
-    <!-- ⚠️ ITS OWN SLOT RATHER THAN SHARING `#unote-slot`, and the reason is a
-         state that really happens: a person updates and then loses the server.
-         Both notes are true at once and they belong in that order, because the
-         first explains the second. Sharing would make this overwrite the
-         post-update note and hide the likeliest cause of the failure at exactly
-         the moment it mattered (Mona Lisa, #269). -->
+    <!-- ⚠️ ITS OWN SLOT, and the reason is a state that really happens: a person
+         updates and then loses the server. Both are true at once (Mona Lisa, #269);
+         since #3955 the post-update message is the "Kosmos has been updated" window,
+         and this line must not overwrite the update chip. -->
     <div id="uoffline-slot"></div>
   </div>
   <!-- The pack's centre column: the nav lives IN the header grid, centred,
@@ -14852,34 +14906,36 @@ window.kosmosMeasureScrollbarWidth();
      are not drawn at all rather than guessed. No
      coloured left bars anywhere (Josh, 12:52): the status mark is a round dot beside the label. -->
 <!-- #3949 (Josh, 2026-09-26): no left Projects column; the body takes the full width. Projects is a
-     dropdown on one line with Created:, the search is about half as wide with the open-task count to its
-     right, five single-label tiles (Needs Your Decision red), and Group by and Sort under the tiles. -->
+     dropdown on one line with Created:, the title is the count ("30 Tasks on 2 Projects"), the single-label tiles
+     (Needs Your Decision red), and Group by, Sort and a compact search under the tiles. -->
 <section class="panel panel-wide" id="panel-tasks" hidden>
   <div class="tsk-view">
     <div class="tsk-main">
+      <!-- #3949 (Josh, 09-26 18:03): two bands. The top one (title, filters, tiles) keeps the page's ground;
+           everything from Group by / Sort down sits on white, full width, and the task cards are shaded. -->
+      <div class="tsk-band">
       <p class="tsk-crumb" id="tsk-crumb"></p>
-      <div class="tsk-head"><h2 id="tsk-title">All tasks</h2><button class="btn uprime" id="tsk-new" type="button"><span aria-hidden="true">+</span> New task</button></div>
-      <!-- #3559 (Josh, 14:39): search, with its own clear button; the browser's native one is hidden.
-           #3949: about half as wide, with the open-task count to its right. -->
-      <div class="tsk-toprow">
-      <div class="tsk-search" role="search">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5" stroke-linecap="round"/></svg>
-        <input id="tsk-search" type="search" autocomplete="off" spellcheck="false"
-               placeholder="Search tasks" aria-label="Search tasks by what they say, number, project or agent">
-        <button type="button" id="tsk-qclear" aria-label="Clear search" hidden>&times;</button>
-      </div>
-      <p class="tsk-sub" id="tsk-sub"></p>
-      </div>
+      <div class="tsk-head"><h2 id="tsk-title">Tasks</h2><button class="btn uprime" id="tsk-new" type="button"><span aria-hidden="true">+</span> New task</button></div>
       <div class="tsk-ctrls" id="tsk-filters">
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-projsel">Project:</label><select class="tsk-sel" id="tsk-projsel"></select></div>
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-win">Created:</label><select class="tsk-sel" id="tsk-win"></select></div>
       </div>
       <div class="tsk-tiles" id="tsk-tiles"></div>
+      </div>
+      <div class="tsk-below">
       <div class="tsk-ctrls" id="tsk-under">
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-by">Group by:</label><select class="tsk-sel" id="tsk-by"></select></div>
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-sort">Sort:</label><select class="tsk-sel" id="tsk-sort">
           <option value="new">Newest first</option><option value="stale">Quietest first</option><option value="old">Oldest first</option>
         </select></div>
+        <!-- #3949 (Josh, 09-26 19:30): the search is a compact control to the right of Sort. It opens when focused or
+             while it holds a search, and closes when empty and left. "/" focuses it; Esc clears and closes it. -->
+        <div class="tsk-search" id="tsk-searchbox" role="search">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5" stroke-linecap="round"/></svg>
+          <input id="tsk-search" type="search" autocomplete="off" spellcheck="false"
+                 placeholder="Search tasks" aria-keyshortcuts="/" aria-label="Search tasks by what they say, number, project or agent">
+          <button type="button" id="tsk-qclear" aria-label="Clear search" hidden>&times;</button>
+        </div>
       </div>
       <p class="fmsg" id="tsk-msg" role="status" aria-live="polite"></p>
       <!-- What a search found, said to a screen reader while focus stays in the search box (the
@@ -14891,6 +14947,7 @@ window.kosmosMeasureScrollbarWidth();
         <input id="tsk-bnote" type="text" maxlength="2000" placeholder="Why these are closing (optional)" aria-label="Closing note">
         <button type="button" class="tsk-pri" id="tsk-bclose">Close them</button>
         <button type="button" id="tsk-bclear">Clear</button>
+      </div>
       </div>
     </div>
   </div>
@@ -15908,6 +15965,9 @@ window.kosmosMeasureScrollbarWidth();
            WIZARD (state 2) rather than the web -- its handler (plusSiEnter) is
            attached once at load and calls preventDefault, so no address is ever set
            here or in JS and the no-hostname guard still needs no pin. -->
+      <!-- #4079: after Remove this computer, what happened, said here because this is the pane the
+           person lands on. Set by the Remove this computer handler, cleared when a sign-in starts. -->
+      <p class="plus-forgot" id="plus-forgot-msg" role="status" aria-live="polite" hidden></p>
       <p class="plus-topbar">Already have Kosmos+? <a id="plus-signin-top" class="plus-signin-pill" href="#">Sign in</a></p>
       <!-- #1615 blue reskin: the wordmark, drawn as ~300 circles that animate in
            over 1.5s (or a single static frame under prefers-reduced-motion), by
@@ -16152,7 +16212,7 @@ window.kosmosMeasureScrollbarWidth();
     <div id="plus-flow" hidden>
       <!-- #3829 (Josh, 16:54: "terribly worded and designed"; Mona Lisa's sketch on the card): status first,
            View my account top right, the address in ONE chip with Copy and Open and one plain line under it,
-           and Turn off a quiet control rather than the headline. Off, Turn on is the one primary action. -->
+           and Pause (Turn off until #4079) a quiet control rather than the headline. Off, Turn on is the one primary action. -->
       <div class="plus-headrow">
         <p class="setname">Use Kosmos from anywhere</p>
         <span class="plus-pill" id="plus-pill" data-state="off">Off</span>
@@ -16263,6 +16323,26 @@ window.kosmosMeasureScrollbarWidth();
           <button class="btn" type="button" id="plus-second-reset">Reset the second step</button>
         </div>
         <p class="dhint" id="plus-second-msg" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
+      </div>
+      <!-- #4079, named "Remove this computer" by Josh's design (#4080, 22:22). (Josh, 22:03: "Is there a way to disconnect my computer running Kosmos from this Kosmos Plus
+           account somehow?"): the engine's Forget (#793, /api/remote/forget) finally has a button. Pause (above,
+           was "Turn off") only stops remote access for now; this removes the computer from the account. Two
+           steps, confirmed in place (the page has no confirm dialog), and the confirm stays until Remove or
+           Cancel: the 5-second repaint does not take it away while it is being read. -->
+      <div id="plus-forget" hidden style="margin-top:16px;">
+        <p class="setname">Remove this computer</p>
+        <p class="fhint">Removes this computer from your Kosmos Plus account. Pause only stops access for now.</p>
+        <div class="frow" id="plus-forget-row">
+          <button class="btn" type="button" id="plus-forget-go">Remove this computer</button>
+        </div>
+        <div id="plus-forget-ask" hidden>
+          <p class="fhint" id="plus-forget-sure">This computer leaves your Kosmos Plus account and its address is freed. Your devices will no longer reach it. You can connect it again later by signing in.</p>
+          <div class="frow">
+            <button class="btn danger-btn" type="button" id="plus-forget-yes">Remove</button>
+            <button class="btn" type="button" id="plus-forget-no">Cancel</button>
+          </div>
+        </div>
+        <p class="dhint" id="plus-forget-msg" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
       </div>
       <p class="fmsg" id="plus-msg" role="alert" aria-live="assertive"></p>
     </div>
@@ -18714,34 +18794,14 @@ let SERVED_VERSION = null;
 let ENGINE_STALE = null;
 
 /**
- * The top-left toast, in two states that share a slot and share nothing else.
- *
- *   Update available   red     a version you do NOT have        Later · Install
- *   Kosmos updated     grey    a version you HAVE, that this
- *                              page does not                    Reload
- *
- * 🔑 THE TONE IS THE ONLY VISUAL DIFFERENCE AND IT CARRIES THE ARGUMENT (Mona
- * Lisa, #270). The red earns its alarm on the first: a version you have not got
- * is a thing to decide about. A stale page is not a problem, it is a fact with
- * a one-click fix, and rendering it in the same red spends the alarm on the
- * less alarming of the two.
- *
- * ⚠️ ONE ACTION, NO LATER AND NO CLOSE. `Later` on the shipped toast defers an
- * install, which is a real change to the machine and worth deferring. Here
- * there is nothing to defer: dismissing would not make the page current, so the
- * button would lie about what it did and the sentence would still be true the
- * moment it vanished. It clears itself on reload, which makes it a state rather
- * than a notice, and states are not dismissible.
- *
- * 🛑 WHEN BOTH ARE TRUE, THE RELOAD STATE WINS, and this is the case that only
- * appeared when it was drawn: page 0.2.75, server 0.2.76, 0.2.77 published.
- * Installing 0.2.77 from a 0.2.75 page compounds the staleness rather than
- * resolving it, and the person would be acting on a screen already wrong about
- * what it is.
- *
- * 📌 NO VERSION NUMBER IN THE SENTENCE. "You are looking at the previous
- * version" is true and actionable without one, and both numbers are on the
- * Settings line for anybody who wants them.
+ * The update notices in the header's #utoast-slot (#3955, Mona Lisa's mock A and B). One small chip,
+ * one line and one gold action, in two states:
+ *   - "An update is available" + Update, when a newer Kosmos is published (the confirm names it);
+ *   - "Reload to finish updating" + Reload, when Kosmos updated under this open page. It never says
+ *     "Kosmos updated" while the old page is on screen, and the page reloads itself when that cannot
+ *     lose anything (updateSafeReload).
+ * The engine-changed-on-disk state keeps its own .utoast shape and outranks both (#338). After an update,
+ * "Kosmos has been updated" is the window whatsNewCheck opens, not a line here.
  */
 /**
  * #2055: the board notice for a silently-aborting update. Angel's engine half
@@ -18834,6 +18894,65 @@ function paintLoginAdvisories(advs) {
   }).join('');
 }
 
+/* #3955: reload an old page by itself, but only when that cannot lose anything: the window is in the
+   background, nothing is on its way, no composer holds a word, no file waits to be sent, nothing the
+   person TYPED is still in a field, and no window is open over the page. Otherwise the chip waits for
+   the person's Reload. Once per board version per tab, so a board that keeps serving an old page can
+   never make a reload loop.
+   Typed, not filled (review round 1): the page fills many boxes itself (an agent's instructions, a
+   project's description), and those are not the person's unsaved words; every field the person has
+   typed into is remembered here (UPDATE_TYPED), and one still holding words blocks the reload. */
+const UPDATE_TYPED = new Set();
+/* Only boxes that hold WORDS (review round 3): a dropdown, checkbox or slider always has a value, and
+   one change to it must not stop the reload for the rest of the tab's life. */
+function updateTypedBox(t) {
+  if (!t || !t.tagName) return false;
+  if (t.tagName === 'TEXTAREA') return true;
+  if (t.isContentEditable) return true;   // a rich-text composer holds words too (round 6), read by textContent below
+  // Every input but the kinds that hold no words (round 5: a phone number or a password is words too).
+  return t.tagName === 'INPUT' && !/^(checkbox|radio|range|color|file|hidden|button|submit|reset|image)$/.test(String(t.type || '').toLowerCase());
+}
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('input', (e) => {
+    if (!updateTypedBox(e.target)) return;
+    /* Let go of boxes no longer on the page as new ones come in (round 10), so a board open for days
+       does not keep every closed dialog's fields alive until an update happens to land. */
+    for (const t of UPDATE_TYPED) if (t.isConnected === false) UPDATE_TYPED.delete(t);
+    UPDATE_TYPED.add(e.target);
+  }, true);   // (contenteditable fires input too)
+}
+function updateSafeReload(servedVersion) {
+  try {
+    if (!document.hidden || !servedVersion) return false;
+    /* The key is written here, not as a page const: tests lift this function alone (round 12). */
+    if (sessionStorage.getItem('kosmos-auto-reloaded') === servedVersion) return false;
+    const busy = [typeof TALK_SENDING !== 'undefined' && TALK_SENDING, typeof PJ_SENDING !== 'undefined' && PJ_SENDING,
+      typeof PJ_REPLY_SENDING !== 'undefined' && PJ_REPLY_SENDING, typeof TERM_SENDING !== 'undefined' && TERM_SENDING,
+      typeof PJ_POSTING !== 'undefined' && PJ_POSTING,   // round 9: a room post in flight
+      /* Round 12: an agent being created or started, or a restore running: a reload would drop the
+         answer the person is waiting for. (A Settings switch's save is a moment and repaints from the
+         board on load, so those are not held for.) */
+      typeof CREATING !== 'undefined' && CREATING, typeof START_FLIGHT !== 'undefined' && !!START_FLIGHT,
+      typeof RST_BUSY !== 'undefined' && RST_BUSY,
+      // Round 13: a new agent still being watched for (its photo and project tell come after), or a photo waiting.
+      typeof WATCHING_AGENTS !== 'undefined' && WATCHING_AGENTS > 0, typeof PENDING_AVATAR !== 'undefined' && !!PENDING_AVATAR,
+      typeof ATTACH_UPLOADING !== 'undefined' && ATTACH_UPLOADING > 0];   // round 9: a file still going up
+    if (busy.some(Boolean)) return false;
+    const drafted = (m) => !!m && Object.values(m).some((v) => (typeof v === 'string' ? v : (v && v.text) || '').trim());
+    if ([typeof TALK_DRAFTS !== 'undefined' && TALK_DRAFTS, typeof TERM_DRAFTS !== 'undefined' && TERM_DRAFTS,
+      typeof PJ_DRAFTS !== 'undefined' && PJ_DRAFTS, typeof PJ_ROOM_DRAFTS !== 'undefined' && PJ_ROOM_DRAFTS].some(drafted)) return false;
+    for (const t of [...UPDATE_TYPED]) if (t.isConnected === false) UPDATE_TYPED.delete(t);   // a removed field holds nothing (and is let go)
+    /* Still holding words, shown or not (round 5): a hidden box is not a saved one (New task keeps its
+       words when closed, #766), so any typed box with words waits for the person's Reload. */
+    if ([...UPDATE_TYPED].some((t) => String(t.isContentEditable ? t.textContent : t.value || '').trim())) return false;
+    const attached = typeof ATTACH_PENDING !== 'undefined' && ATTACH_PENDING;
+    if (attached && Object.values(attached).some((m) => m && Object.values(m).some((v) => Array.isArray(v) ? v.length : !!v))) return false;
+    if (typeof tipModalOpen === 'function' && tipModalOpen()) return false;
+    sessionStorage.setItem('kosmos-auto-reloaded', servedVersion);
+    window.location.reload();
+    return true;
+  } catch { return false; }
+}
 function renderUpdateToast(u) {
   const slot = document.getElementById('utoast-slot');
   /* 🛑 THE ENGINE STATE OUTRANKS BOTH OTHERS (#338). A server behind the code
@@ -18863,15 +18982,18 @@ function renderUpdateToast(u) {
       + '</div>';
     return;
   }
+  /* #3955 (Josh: "You're looking at the previous version. That doesn't make sense"; Mona Lisa's
+     mock B): the page is older than Kosmos. One small chip, never "Kosmos updated" while the old
+     page is showing, and the page reloads itself when that cannot lose anything (updateSafeReload). */
   if (!UPDATING_NOW && pageIsStale(SERVED_VERSION)) {
+    updateSafeReload(SERVED_VERSION);
     if (slot.dataset.v === 'stale') return;
     slot.dataset.v = 'stale';
-    slot.innerHTML = '<div class="utoast stale" role="status">'
+    slot.innerHTML = '<div class="uchip" role="status">'
       + '<span class="udot" aria-hidden="true"></span>'
-      + '<div class="utxt"><b>Kosmos updated</b><small>You are looking at the previous version</small></div>'
-      + '<div class="uacts">'
-      + '<button type="button" class="uprime" id="ut-reload">Reload</button>'
-      + '</div></div>';
+      + '<span class="uchip-t">Reload to finish updating</span>'
+      + '<button type="button" id="ut-reload">Reload</button>'
+      + '</div>';
     document.getElementById('ut-reload').addEventListener('click', () => {
       /* The whole remedy. `reload()` and not a re-render: the stale thing is
          the document, not any state inside it. */
@@ -18884,17 +19006,14 @@ function renderUpdateToast(u) {
   }
   if (slot.dataset.v === u.version) return;      // already showing this one
   slot.dataset.v = u.version;
-  slot.innerHTML = '<div class="utoast" role="status">'
+  /* #3955 (Josh: "we should say 'An update is available,' and that should be it"; Mona Lisa's mock A):
+     one small chip, one action, no version number. The confirm names the version. Later is gone from
+     here; a Later pressed on an older page still quiets its version (updateLaterSuppresses). */
+  slot.innerHTML = '<div class="uchip" role="status">'
     + '<span class="udot" aria-hidden="true"></span>'
-    + '<div class="utxt"><b>Update available</b><small>Kosmos ' + esc(u.version) + '</small></div>'
-    + '<div class="uacts">'
-    + '<button type="button" id="ut-later">Later</button>'
-    + '<button type="button" class="uprime" id="ut-install">Install</button>'
-    + '</div></div>';
-  document.getElementById('ut-later').addEventListener('click', () => {
-    try { localStorage.setItem('kosmos-update-later', JSON.stringify({ v: u.version, at: Date.now() })); } catch { /* shown again next release either way */ }
-    slot.innerHTML = ''; delete slot.dataset.v;
-  });
+    + '<span class="uchip-t">An update is available</span>'
+    + '<button type="button" id="ut-install">Update</button>'
+    + '</div>';
   document.getElementById('ut-install').addEventListener('click', () => {
     // Focus lands on the SAFE answer, same rule as every dialog here: the
     // confirm exists as a deliberate-click gate, and opening it with the
@@ -19322,10 +19441,8 @@ document.getElementById('uc-go').addEventListener('click', async () => {
     return;
   }
   UPDATING_NOW = true;
-  /* The toast says what the poll saw; the FINISH LINE says what actually
-     landed (her rule). The fresh page reads this note and names the
-     version it is really serving. */
-  try { sessionStorage.setItem('kosmos-updated-from', LAST_VERSION || ''); } catch { /* the update still runs */ }
+  /* #3955: what landed is said by the "Kosmos has been updated" window on the fresh page
+     (whatsNewCheck), for a manual update and an automatic one alike. */
   document.getElementById('updconfirm').hidden = true;
   renderUpdateToast(null);
   const back = document.createElement('div');
@@ -19473,32 +19590,6 @@ function updateOverlayLead(reached, version, platform, rollback) {
   return reached ? ('Downloading ' + version + '.') : 'Updating.';
 }
 
-/* "Updated. You are on Kosmos X." -- once, from the first status after a
-   reload that followed an install. Shown ONLY when the served version
-   actually CHANGED: an installer that found nothing to do did not update
-   anything, and saying so would be the stale-label defect at the finish
-   line instead of the start. */
-/* Known hole, erring honest: on the deadline-elapsed reload (installer
-   still running after three minutes), the first status serves the OLD
-   version, the note is consumed, and no "Updated." ever shows for that
-   install. Silence beats a claim we cannot time correctly. */
-let UPDATED_NOTE_DONE = false;
-function updatedNoteOnce(nowVersion) {
-  if (UPDATED_NOTE_DONE) return;
-  UPDATED_NOTE_DONE = true;
-  let from = null;
-  try {
-    from = sessionStorage.getItem('kosmos-updated-from');
-    sessionStorage.removeItem('kosmos-updated-from');
-  } catch { return; }
-  if (!from || !nowVersion || nowVersion === from) return;
-  const slot = document.getElementById('unote-slot');
-  slot.innerHTML = '<div class="utoast" role="status">'
-    + '<span class="udot" aria-hidden="true"></span>'
-    + '<div class="utxt"><b>Updated.</b><small>You are on Kosmos ' + esc(nowVersion) + '.</small></div>'
-    + '<div class="uacts"><button type="button" id="un-ok">OK</button></div></div>';
-  document.getElementById('un-ok').addEventListener('click', () => { slot.innerHTML = ''; });
-}
 
 /**
  * How long ago the board was read, in words a person can take in at a glance.
@@ -19918,7 +20009,6 @@ async function tick() {
     paintLoginAdvisories(data.loginAdvisories); // #3532: warn before a login expires
     paintUpdateAbort(data.updateAbort); // #2055: null-when-healthy; renders only on this successful read
     paintUpdateCard(data.version, data.update, data.updateLook, data.updateManual, data.updateChannel, data.updateRollback);
-    updatedNoteOnce(data.version);
     LAST_VERSION = data.version || LAST_VERSION;
     LAST_BOOTED_AT = data.bootedAt || LAST_BOOTED_AT;
     LAST_UPDATE_LOG = data.updateLog || LAST_UPDATE_LOG;
@@ -29666,6 +29756,18 @@ let TALK_FLIGHT = null;
  * words exist only in the DOM.
  */
 const TALK_DRAFTS = {};
+/**
+ * The person's own message, drawn the moment they press Send, per agent.
+ *
+ * 🛑 THE THREAD USED TO WAIT FOR THE BOARD. The bubble appeared only once the POST
+ * had answered AND the thread had been read again, so every second the board spent
+ * was a second the person looked at a thread without their message in it, and on a
+ * slow Windows laptop that was over a minute. Now the bubble is drawn from what was
+ * typed, marked "Sending…", and the kept row replaces it once the thread holds it.
+ * A send the board never kept is marked as not sent, with the reason, so it never
+ * quietly disappears. { text, startedAt, recorded, failed, because }.
+ */
+const TALK_PENDING = {};
 /* #967: the Terminal tab's respond-in-context box parks its draft per agent too,
    so switching agents never loses a half-typed reply and never carries it onto
    the next agent's window. Mirrors TALK_DRAFTS. */
@@ -29824,6 +29926,30 @@ function dmRow(m, name) {
 }
 
 
+/* The in-flight (or not-kept) message, in the person's own bubble. The pill is
+   the thread's delivery pill: dashed while it is on its way, red if it did not go. */
+function dmPendingRow(p) {
+  const youAv = YOU_PIC
+    ? '<div class="msg-av" aria-hidden="true"><img src="' + youPicUrl() + '" alt=""></div>'
+    : '<div class="msg-av mine" aria-hidden="true"></div>';
+  const pill = p.failed
+    ? '<span class="delivery failed">Not sent. ' + esc(pjSentence(p.because || 'we could not send that')) + '</span>'
+    : '<span class="delivery unsure">Sending…</span>';
+  return '<div class="msg you dm-pending" data-mid="pending:' + esc(String(p.startedAt)) + '">' + youAv
+    + '<div class="msg-b"><div class="msg-bd">'
+    + pjRich(pjWords({ text: p.text }))
+    + '<span class="msg-t">' + pill + '</span></div></div></div>';
+}
+/* Does the kept thread already hold this pending message? A row the person sent,
+   with the same words, kept no earlier than a minute before the press (the board
+   stamps its own clock, which is this computer's or near it). */
+function dmPendingKept(rows, p) {
+  const flat = (t) => String(t == null ? '' : t).replace(/\s+/g, ' ').trim();
+  const want = flat(p.text);
+  return rows.some((m) => m && !m.from && m.kind !== 'kosmos' && flat(m.text) === want
+    && !(Date.parse(m.at) < p.startedAt - 60000));
+}
+
 /* The thread rows, and only them, so the search box can repaint between
    polls without re-fetching (#403). The filter matches what a row SHOWS:
    who said it (as dmWho names them) and the text. */
@@ -29868,7 +29994,15 @@ function paintTalkThread(body, name) {
   const rows = talkFilterRows(allRows, name, TALK_QUERY);
   const filtering = TALK_QUERY.trim() !== '';
   const thread = document.getElementById('d-dmthread');
-  if (body.historyUnfilable && !allRows.length) {
+  /* The person's own message in flight, drawn after the kept rows until the thread
+     holds it (see TALK_PENDING). Not while a search is filtering the thread. */
+  let pending = (dmSession && TALK_PENDING[dmSession]) || null;
+  if (pending && pending.recorded && Array.isArray(body.messages) && dmPendingKept(allRows, pending)) {
+    delete TALK_PENDING[dmSession];
+    pending = null;
+  }
+  const pendingHtml = (pending && !filtering) ? dmPendingRow(pending) : '';
+  if (body.historyUnfilable && !allRows.length && !pendingHtml) {
     /**
      * ⚠️ A THIRD FACT, not a flavour of unreadable. This agent's name cannot be
      * filed under at all, so there is no file to read and there never will be
@@ -29881,7 +30015,7 @@ function paintTalkThread(body, name) {
     setThread(thread, '<p class="dmnone"><b>Nothing said here is kept for ' + esc(name) + '.</b> '
       + esc(pjSentence(body.historyBecause || 'we cannot keep a conversation under this agent’s name'))
       + ' You can still send, and it still arrives.</p>', null);
-  } else if (body.historyBecause && !allRows.length) {
+  } else if (body.historyBecause && !allRows.length && !pendingHtml) {
     // We could not read a store that does exist. ⚠️ The room's load-bearing
     // second sentence rides along: an unreadable file is not evidence that
     // nothing was said, and silence here would render "we could not look" as
@@ -29898,7 +30032,7 @@ function paintTalkThread(body, name) {
        read what you have sent this agent", and that pairing is correct. */
     setThread(thread, '<p class="dmnone">' + esc(pjSentence(body.historyBecause))
       + ' This is not saying you have sent nothing: it is saying we cannot see it.</p>', null);
-  } else if (!allRows.length) {
+  } else if (!allRows.length && !pendingHtml) {
     setThread(thread, '<p class="dmnone">Nothing here yet.</p>', null);
   } else if (filtering && !rows.length) {
     // null count: a no-match paint never scrolls, the room's rule.
@@ -29940,8 +30074,9 @@ function paintTalkThread(body, name) {
        screen and should behave like one. */
     const tailRow = rows.length ? rows[rows.length - 1] : null;
     const threadKey = (filtering ? TALK_QUERY : '') + '\u0000' + rows.length
-      + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '');
-    const dmHtml = rows.map((m) => dmRow(m, name)).join('') + (filtering ? '' : dmOwesLine(body.owes, rows));
+      + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '')
+      + (pendingHtml ? '\u0000' + (pending.failed ? 'failed:' : 'sending:') + pending.startedAt : '');
+    const dmHtml = rows.map((m) => dmRow(m, name)).join('') + pendingHtml + (filtering ? '' : dmOwesLine(body.owes, rows));
     setThread(thread, dmHtml, threadKey);
     if (!filtering && CURRENT && CURRENT.sessionName) unreadEdgeApply(thread, 'dm:' + CURRENT.sessionName);   // #3743
   }
@@ -30337,7 +30472,7 @@ async function paintTalk(sessionName, agentName) {
   /* --- the thread --- */
   const rows = Array.isArray(body.messages) ? body.messages : [];
   const thread = document.getElementById('d-dmthread');
-  thread.__lastBody = body; thread.__lastName = name;
+  thread.__lastBody = body; thread.__lastName = name; thread.__lastSession = sessionName;
   paintTalkThread(body, name);
 
   const older = document.getElementById('d-talk-older');
@@ -30487,6 +30622,18 @@ async function paintTalk(sessionName, agentName) {
   attachPaint(ATTACH_AGENT);   // this agent's pending files, not the last one's
 }
 
+/* Repaint the open thread from its last read, so a pending message shows without a
+   fetch. Only for the agent that is open: another agent's thread is not on screen. */
+function talkPaintPending(sessionName, name) {
+  if (!CURRENT || CURRENT.sessionName !== sessionName) return;
+  const th = document.getElementById('d-dmthread');
+  if (!th) return;
+  /* The last read must be THIS agent's: straight after opening another agent it is
+     still the previous one's, and its first read will draw the pending message. */
+  if (th.__lastSession !== sessionName || !th.__lastBody) return;
+  paintTalkThread(th.__lastBody, th.__lastName || name);
+}
+
 /**
  * Send one message to this agent, and say what became of it.
  *
@@ -30568,6 +30715,10 @@ async function sendTalk(text, attachment) {
     // want to type instead goes.
     if (sendHadFocus) say.focus();
     msg.textContent = 'Sending…';
+    /* The message goes into the thread NOW, before the board has answered (see
+       TALK_PENDING). Painted from the last thread read, so nothing waits on a fetch. */
+    TALK_PENDING[sentName] = { text, startedAt: Date.now(), recorded: false, failed: false, because: null };
+    talkPaintPending(sentName, name);
     const res = await fetch('/api/agent/' + encodeURIComponent(sentName) + '/thread', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -30576,6 +30727,15 @@ async function sendTalk(text, attachment) {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not send that');
     const d = body.delivery || {};
+    /* The kept row takes over from the drawn one once the thread holds it. One the
+       board did not keep stays drawn, as not sent, unless it reached the agent: then
+       the line below says it was not kept, and the bubble goes. */
+    const flying = TALK_PENDING[sentName];
+    if (flying) {
+      if (body.recorded === true) flying.recorded = true;
+      else if (d.state === 'placed') delete TALK_PENDING[sentName];
+      else { flying.failed = true; flying.because = d.because || body.recordedBecause || 'we could not send that'; }
+    }
     const note = d.paneNote ? ' (' + d.paneNote + ')' : '';
     /**
      * ⚠️ RECORDED IS A QUESTION, NOT AN ASSUMPTION, and this is the defect the
@@ -30638,6 +30798,13 @@ async function sendTalk(text, attachment) {
     if (!inThread && body.recordedBecause) line += ' ' + pjSentence(body.recordedBecause);
     if (!flightMoved()) msg.textContent = line;
   } catch (err) {
+    /* Nothing was kept, so the drawn bubble is the only record of the attempt: it
+       stays, marked not sent. The words are still in the box for a retry. */
+    const flying = TALK_PENDING[sentName];
+    if (flying && !flying.recorded) {
+      flying.failed = true;
+      flying.because = (err && err.message) || 'we could not send that';
+    }
     if (!flightMoved()) msg.textContent = pjSentence((err && err.message) || 'we could not send that');
   } finally {
     TALK_SENDING = false;
@@ -32788,40 +32955,160 @@ function conShelfDoor(api, st) {
 }
 
 /* The connect tab's one computed sentence (the taxonomy doc's defect half). */
-/* #541: the one line that makes ship-day visible. */
-async function newsbarCheck() {
+/* #3955 (Josh, 2026-09-26: "a full-screen modal with a dimmed background ... Kosmos has been updated
+   to version number ... some callouts of what the new features are"; Mona Lisa's mock C). Once per
+   version, after the new version is on screen, whether it was a manual Update or an automatic one.
+   The board records the version seen (seen-version.json, #541), so dismissed stays dismissed across
+   restarts and browsers; it replaces the "Kosmos updated to X [x]" line, which lingered.
+   Shown only when: the page on screen IS the board's version (never over an old page, where the
+   update chip says Reload), a version has been seen before (a fresh install records silently: it
+   was not updated, it was installed), and that version is not the one running now. The tiles are
+   web/whats-new.json's highlights, which the board serves only when the file is for this version;
+   without them no window opens and the version is recorded quietly (round 3). */
+const WN_ICONS = Object.freeze({
+  swarm: '<circle cx="12" cy="8" r="3.5"/><circle cx="5.5" cy="16" r="2.5"/><circle cx="18.5" cy="16" r="2.5"/>',
+  tasks: '<path d="M4 6l2 2 3-3"/><path d="M12 7h8"/><path d="M4 13l2 2 3-3"/><path d="M12 14h8"/><path d="M12 20h8"/>',
+  phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
+  list: '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M8 10h8M8 14h5"/>',
+  chat: '<path d="M4 5h16v11H9l-5 4z"/>',
+  shield: '<path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6z"/>',
+  spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M18 6l-2.5 2.5M8.5 15.5L6 18"/>',
+});
+function wnIcon(key) {
+  const inner = Object.prototype.hasOwnProperty.call(WN_ICONS, key) ? WN_ICONS[key] : WN_ICONS.spark;
+  return '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + inner + '</svg>';
+}
+let WN_OPENER = null;
+const WN_VERSIONS_PAGE = 'https://installkosmos.com/versions';
+const WN_MAX_TILES = 5;           // engine/whatsnew.js MAX_HIGHLIGHTS: the board never serves more
+
+/* Made when it is shown and removed when it closes, like the update overlay (.upd-back): the body's
+   direct children are the consolidated grid's rows (web.consolidated-980), and a window seen once per
+   version is not worth a permanent one. The mark is the app's own icon. */
+/* Josh, 2026-09-26 review: the version is in the title (no pill), an X top-right closes it (no Got it),
+   and "See everything that changed" sits bottom-left, linked to this version's entry. */
+/* The backdrop is in the markup too (round 11), so the modal sweep (web.modal-way-out-1316) names it. */
+const WN_HTML = '<div class="rm-back" id="whatsnew">'
+  + '<div class="wn-box" role="dialog" aria-modal="true" aria-labelledby="wn-title" aria-describedby="wn-tiles" tabindex="-1">'
+  + '<button type="button" class="wn-x" id="wn-x" aria-label="Close">&times;</button>'
+  + '<img class="wn-mark" src="/icons/kosmos-192.png" alt="" width="52" height="52">'
+  + '<h2 class="wn-title" id="wn-title">Kosmos has been updated</h2>'
+  + '<ul class="wn-tiles" id="wn-tiles" hidden></ul>'   // no aria-label (round 12): it would replace the tiles as the dialog's description
+  + '<div class="wn-acts">'
+  + '<a class="wn-more" id="wn-more" href="' + WN_VERSIONS_PAGE + '" target="_blank" rel="noreferrer noopener">See everything that changed<span class="vh"> (opens in your browser)</span></a></div>'
+  + '</div></div>';
+function wnOpen(version, highlights) {
+  let back = document.getElementById('whatsnew');
+  if (!back) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = WN_HTML;
+    back = tmp.firstElementChild;
+    document.body.appendChild(back);
+    wnWire(back);
+  }
+  document.getElementById('wn-title').textContent = 'Kosmos has been updated to ' + version;
+  const tiles = document.getElementById('wn-tiles');
+  const list = Array.isArray(highlights) ? highlights.filter((h) => h && typeof h === 'object').slice(0, WN_MAX_TILES) : [];
+  tiles.innerHTML = list.map((h) => '<li class="wn-tile"><span class="wn-ico">' + wnIcon(h.icon) + '</span>'
+    + '<span class="wn-words"><b>' + esc(h.title) + '</b><span>' + esc(h.line) + '</span></span></li>').join('');
+  tiles.hidden = list.length === 0;   // defensive: whatsNewCheck opens the window only with highlights
+  tiles.classList.toggle('one', list.length === 1);
+  document.getElementById('wn-more').href = WN_VERSIONS_PAGE + '#v' + version.replace(/\./g, '-');
+  WN_OPENER = document.activeElement;
+  // The window itself: no ring on open; Tab goes to the X. Never from under a screen drawn over it (round 15).
+  if (!wnCovered()) back.querySelector('.wn-box').focus();
+}
+function wnClose() {
+  const back = document.getElementById('whatsnew');
+  if (!back) return;
+  back.remove();
+  const to = WN_OPENER;
+  WN_OPENER = null;
+  if (to && typeof to.focus === 'function' && document.contains(to)) to.focus();
+}
+function wnWire(back) {
+  back.querySelector('#wn-x').addEventListener('click', wnClose);
+  back.addEventListener('click', (e) => { if (e.target === back) wnClose(); });
+}
+/* On the document, like the page's other dialogs (review round 1): Escape and Tab must work even
+   when focus has slipped to the body behind the window (a click on its text), and focus that lands
+   outside is brought back in. Each does nothing while the window is not up. */
+/* A window drawn over this one (first run, the update overlay) owns the keys and focus. */
+function wnCovered() {
+  // Only windows drawn OVER this one (round 3): the other .rm-back dialogs sit under it at the same layer.
+  return !!document.querySelector('.fr-back:not([hidden]), .upd-back');
+}
+/* In the capture phase, and stopped once handled (round 12): a dialog open UNDER the window keeps its own
+   document-level Escape and Tab handlers, and one Escape must not close both. */
+document.addEventListener('keydown', (e) => {
+  const back = document.getElementById('whatsnew');
+  if (!back || wnCovered()) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); wnClose(); return; }
+  if (e.key !== 'Tab') return;
+  e.stopPropagation();
+  // Two things to press (the X and the link); Tab stays between them while the window is up.
+  const f = [back.querySelector('#wn-x'), back.querySelector('#wn-more')];
+  const at = f.indexOf(document.activeElement);
+  if (at === -1) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); return; }   // round 11: Shift+Tab goes back
+  if (e.shiftKey && at === 0) { e.preventDefault(); f[f.length - 1].focus(); }
+  else if (!e.shiftKey && at === f.length - 1) { e.preventDefault(); f[0].focus(); }
+}, true);
+document.addEventListener('focusin', (e) => {
+  const back = document.getElementById('whatsnew');
+  if (back && !wnCovered() && !back.contains(e.target)) { const box = back.querySelector('.wn-box'); if (box) box.focus(); }
+});
+/* Is `a` a later version than `b` (x.y.z)? null when either is not one. */
+function wnNewer(a, b) {
+  const pa = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(a || ''));
+  const pb = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(b || ''));
+  if (!pa || !pb) return null;
+  for (let i = 1; i <= 3; i++) if (+pa[i] !== +pb[i]) return +pa[i] > +pb[i];
+  return false;
+}
+async function whatsNewCheck() {
   try {
     const res = await fetch('/api/whats-new', { cache: 'no-store' });
     if (!res.ok) return;
     const got = await res.json();
     if (!got || typeof got.current !== 'string') return;
-    /* ⚠️ THE RESPONSE IS READ, AND NOT AS TIDINESS (#39, measured): a fetch
-       whose body nobody consumes leaves the connection counted as in-flight
-       until the Response is garbage-collected, so every FIRST page load on a
-       fresh install carried one request that never finished -- invisible to a
-       person, and a hang to anything that waits for the network to settle
-       (the browser checks' networkidle timed out 9 runs out of 9 on exactly
-       this, and passed on retry because `seen` was recorded by then). */
+    /* ⚠️ THE RESPONSE IS READ, AND NOT AS TIDINESS (#39, measured): a fetch whose body nobody
+       consumes leaves the connection counted as in-flight, and the browser checks' networkidle
+       waited on it (the seen POST below reads its body for the same reason). */
     const record = () => fetch('/api/whats-new/seen', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ version: got.current }),
     }).then((r) => r.text()).catch(() => { /* tried again next load */ });
-    if (!got.seen) { record(); return; } // first sight: silent
+    if (!got.seen) { record(); return; }          // a fresh install: installed, not updated
     if (got.seen === got.current) return;
-    // Josh, 2026-08-24 16:50: short. The whole line is the link (click to
-    // see what changed); the X closes it. No "while you were away".
-    document.getElementById('newsbar-text').textContent = 'Kosmos updated to ' + got.current;
-    document.getElementById('newsbar-link').href =
-      'https://installkosmos.com/versions#v' + got.current.replace(/\./g, '-');
-    const bar = document.getElementById('newsbar');
-    bar.hidden = false;
-    document.getElementById('newsbar-ok').addEventListener('click', () => {
-      bar.hidden = true;
-      record();
-    }, { once: true });
+    /* Only a move UP is an update (review round 1): a rollback or a channel switch to an older
+       version is recorded quietly, never announced as new with the old version's highlights. */
+    if (wnNewer(got.current, got.seen) !== true) { record(); return; }
+    const baked = bakedVersion();
+    if (baked && baked !== got.current) return;   // an old page: the chip says Reload first
+    /* A release with no highlights (a hotfix cut with KOSMOS_CUT_NO_WHATS_NEW=1) shows no window
+       (round 3, as agreed with Baron on the card): it is recorded quietly rather than interrupting
+       people with a title and nothing new. */
+    if (!Array.isArray(got.highlights) || !got.highlights.length) { record(); return; }
+    /* Held while the first-run tour is on screen (Mona Lisa's design review): the tour is the
+       person's current task, and this can wait for it to close. */
+    // A real deadline (round 7): a background tab slows timers, so counting ticks is not an hour.
+    /* An hour, looked at each second. Written here, not as page consts: tests lift this function alone. */
+    /* Round 15: first run and the update overlay too (they draw over the window and keep focus). */
+    const held = () => (typeof TIP_OPEN !== 'undefined' && TIP_OPEN) || (typeof wnCovered === 'function' && wnCovered());
+    const until = Date.now() + 60 * 60 * 1000;
+    while (Date.now() < until && held()) await new Promise((r) => setTimeout(r, 1000));
+    // A tour still open after an hour: recorded quietly rather than opened over it (round 6).
+    if (held()) { record(); return; }
+    /* Recorded as seen when it OPENS (round 6): two tabs reloaded by the same update must not both show
+       it. The cost, accepted: a reload before it was read does not show it again. */
+    /* Round 12: a newer Kosmos landed while it waited: this page is old now (the chip says Reload), so
+       nothing opens and nothing is recorded; the new page announces the new version. */
+    if (typeof SERVED_VERSION !== 'undefined' && SERVED_VERSION && SERVED_VERSION !== got.current) return;
+    record();
+    wnOpen(got.current, got.highlights);
   } catch { /* news can wait */ }
 }
-newsbarCheck();
+whatsNewCheck();
 
 async function paintConnLive() {
   const el = document.getElementById('conn-live');
@@ -38185,8 +38472,10 @@ async function paintPlus() {
      sign-in wizard is over -- clear its flag (typeof-guarded for the test harness). */
   if (typeof PLUS_SIGNIN_ACTIVE !== 'undefined') PLUS_SIGNIN_ACTIVE = false;
   const sw = document.getElementById('plus-switch');
-  sw.textContent = r.on ? 'Turn off' : 'Turn on';
-  /* #3829: on, Turn off is a quiet link; off, Turn on is the one primary action. */
+  /* #4079: the on-state control is Pause (it was Turn off), so it cannot be mistaken for Remove this
+     computer below, which removes the computer from the account. Pause keeps it connected, for later. */
+  sw.textContent = r.on ? 'Pause' : 'Turn on';
+  /* #3829: on, the pause (Pause since #4079) is a quiet link; off, Turn on is the one primary action. */
   sw.className = r.on ? 'plus-quiet' : 'btn uprime';
   const st = document.getElementById('plus-status');
   const stat = r.status || {};
@@ -38232,6 +38521,10 @@ async function paintPlus() {
      shows with the devices, and a fresh paint disarms a half-taken click. */
   document.getElementById('plus-second').hidden = r.enrolled !== true;
   plusSecondDisarm();
+  /* #4079: Remove this computer shows for a connected computer. Its confirm is NOT disarmed here (this runs every 5s).
+     Connected again (any way), an earlier "disconnected" result is no longer true: it goes. */
+  { const f = document.getElementById('plus-forgot-msg'); if (f && !f.hidden) { f.hidden = true; f.textContent = ''; } }
+  { const fg = document.getElementById('plus-forget'); if (fg) fg.hidden = r.enrolled !== true; }
   paintDevices();
 }
 /* The engine's honest-but-technical sentence for a missing binary, said
@@ -38385,6 +38678,61 @@ document.getElementById('plus-second-reset').addEventListener('click', async () 
     }
   } catch { msg.textContent = PLUS_SECOND_WORDS.failed('this computer could not reach its own engine'); }
   plusSecondDisarm();
+});
+
+/* #4079: Remove this computer (it was drafted as Disconnect). The engine (remote.forget) retires the computer at the account while its
+   key exists, then destroys the key; it reports whether the account was told (`retired`) and, when not, a
+   sentence saying the address may still show there. That sentence is shown as it is: never "done" for a
+   disconnect the account did not hear about. */
+const PLUS_FORGET_WORDS = {
+  done: 'This computer is removed from Kosmos Plus. Its address is free, and your devices can no longer reach it. Sign in to connect it again.',
+  /* Not "still connected": a rare engine failure can come after the key is gone. Say only that it did not finish. */
+  failed: (why) => 'Removing it did not finish: ' + why + '. Try again in a moment.',
+};
+function plusForgetArm(on) {
+  const ask = document.getElementById('plus-forget-ask'); const row = document.getElementById('plus-forget-row');
+  if (ask) ask.hidden = !on;
+  if (row) row.hidden = on;
+  /* Focus on Cancel, not Remove: a held or repeated key must not carry straight through the confirm. */
+  if (on) { const n = document.getElementById('plus-forget-no'); if (n) n.focus(); }
+}
+document.getElementById('plus-forget-go').addEventListener('click', () => {
+  const msg = document.getElementById('plus-forget-msg'); msg.hidden = true; msg.textContent = '';
+  plusForgetArm(true);
+});
+document.getElementById('plus-forget-no').addEventListener('click', () => {
+  plusForgetArm(false);
+  document.getElementById('plus-forget-go').focus();
+});
+document.getElementById('plus-forget-yes').addEventListener('click', async () => {
+  const yes = document.getElementById('plus-forget-yes'); const no = document.getElementById('plus-forget-no');
+  const msg = document.getElementById('plus-forget-msg');
+  yes.disabled = true; no.disabled = true; yes.textContent = 'Removing...';
+  let said = null; let ok = false;
+  try {
+    const res = await fetch('/api/remote/forget', { method: 'POST' });
+    said = await res.json().catch(() => null);
+    ok = res.ok && !!(said && said.ok === true);
+  } catch { said = { error: 'this computer could not reach its own engine' }; }
+  yes.disabled = false; no.disabled = false; yes.textContent = 'Remove';
+  if (!ok) {
+    plusForgetArm(false);
+    const why = plusWords((said && said.error) || 'we could not disconnect it').replace(/^we could not forget this computer: /, '').replace(/[.!?]+$/, '');
+    msg.textContent = PLUS_FORGET_WORDS.failed(why);
+    msg.hidden = false;
+    document.getElementById('plus-forget-go').focus();   // the confirm has closed: focus goes back where it began
+    return;
+  }
+  /* Done here. The pane goes back to the not-connected state, and the result is said there. When the
+     account could not be told, the engine's own sentence says so and that the address may still show. */
+  const because = String((said && said.because) || '');
+  const line = said.retired === true || !because ? PLUS_FORGET_WORDS.done
+    : because.charAt(0).toUpperCase() + because.slice(1) + (/[.!?]$/.test(because) ? '' : '.');
+  const out = document.getElementById('plus-forgot-msg');
+  if (out) { out.textContent = line; out.hidden = false; out.dataset.retired = said.retired === true ? '1' : '0'; }
+  plusForgetArm(false);
+  await paintPlus();
+  if (out && !out.hidden && typeof out.focus === 'function') { out.setAttribute('tabindex', '-1'); out.focus(); }
 });
 
 /* #3478: the in-app sign-in wizard (state 2). It drives engine/remote.js's stage
@@ -38585,6 +38933,8 @@ function plusSiClear() {
 function plusSiEnter(e) {
   if (e) e.preventDefault();
   PLUS_SIGNIN_ACTIVE = true;
+  /* #4079: a new sign-in replaces the Remove this computer result. */
+  { const f = document.getElementById('plus-forgot-msg'); if (f) { f.hidden = true; f.textContent = ''; } }
   plusSiMsg('');
   plusSiClear();
   plusSiShow('plus-si-email');
@@ -44712,7 +45062,14 @@ function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine, waiting
  * is correct — nothing on its screen says what it is doing yet. So `unknown` is
  * NOT treated as failure here; the structural facts are.
  */
+/* #3955 round 13: while a new agent is being watched for, its staged photo and its project tell have not
+   gone yet, so the automatic reload waits (WATCHING_AGENTS). */
+let WATCHING_AGENTS = 0;
 async function watchForAgent(name, result, attempt) {
+  WATCHING_AGENTS += 1;
+  try { return await watchForAgentNow(name, result, attempt); } finally { WATCHING_AGENTS = Math.max(0, WATCHING_AGENTS - 1); }
+}
+async function watchForAgentNow(name, result, attempt) {
   MADE_LAST = { name, result };
   // ⚠️ MATCH ON `name` (the board's key), SPEAK `shown`. They differ the moment
   // somebody types a capital, and using one for both would either look for a
@@ -47184,8 +47541,10 @@ function tskRow(t, at) {
 }
 function tskList(rows) {
   const parentKey = (t) => (t.parent == null ? null : String(t.projectId) + '#' + Number(t.parent));
-  return rows.length ? '<div class="tsk-list">' + taskNest(rows, tskKey, parentKey, TSK.fold).map((x) => tskRow(x.t, x)).join('') + '</div>'
-    : '<div class="tsk-list"><p class="tsk-empty">Nothing here.</p></div>';
+  /* #3949 (Josh, 09-26 18:16): no "Nothing here." box. Every caller skips an empty group (its tile shows the 0), so
+     an empty list draws nothing rather than bringing the duplicate back through a new caller. */
+  if (!rows.length) return '';
+  return '<div class="tsk-list">' + taskNest(rows, tskKey, parentKey, TSK.fold).map((x) => tskRow(x.t, x)).join('') + '</div>';
 }
 /* #3861 part 2: a list of task rows, nested. Pure (the tests lift it), shared by the Tasks view and
    the project column. A row goes under its parent only when the parent is IN THIS LIST; otherwise
@@ -47264,15 +47623,23 @@ function tskPaint() {
     tskOptions(sel, '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(p.name) + ' (' + p.open + ')</option>').join(''), TSK.proj || '');
   }
   const picked = TSK.proj ? projMap.get(TSK.proj) : null;
-  document.getElementById('tsk-title').textContent = picked ? picked.name : 'All tasks';
   document.getElementById('tsk-crumb').innerHTML = picked
     ? '<button type="button" data-proj="">All tasks</button> › ' + esc(picked.name) + ' · <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button>'
     : '';
   const scoped = tskScoped(all, TSK, now);
   const open = scoped.filter((t) => t.state !== 'closed');
-  document.getElementById('tsk-sub').textContent = TSK.error && !TSK.data ? ''
-    : open.length + (open.length === 1 ? ' open task' : ' open tasks')
-      + (picked ? '' : ' across ' + projectsList.length + (projectsList.length === 1 ? ' project' : ' projects'));
+  /* #3949 (Josh, 09-26 19:30): the title IS the count: "30 Tasks on 2 Projects" (open tasks in the current scope, the
+     number the separate "N open tasks across M projects" line used to give). Scoped to one project it names it
+     ("5 Tasks on Newsletter"), as the title did before. Until the tasks are read it just says Tasks. */
+  /* N is the projects those same open tasks are on, from the same filtered array, so the title can never say
+     "1 Task on 2 Projects" (review round 11). With nothing open and no project picked it is just "0 Tasks"; with a
+     project picked it names it ("0 Tasks on Newsletter"). It counts before the tile: the title is the total the
+     tiles break down, and a picked tile is a view within it (as the count line it replaced was). */
+  const onProjects = new Set(open.map((t) => t.projectId)).size;
+  document.getElementById('tsk-title').textContent = !TSK.data ? 'Tasks'
+    : open.length + (open.length === 1 ? ' Task' : ' Tasks')
+      + (picked ? ' on ' + picked.name : open.length ? ' on ' + onProjects + (onProjects === 1 ? ' Project' : ' Projects') : '');
+  tskSearchOpen();   // the compact search's open state follows TSK.q on every paint, whoever changed it
   /* #3949: Created: and Group by are dropdowns (they were button rows). */
   tskOptions(document.getElementById('tsk-win'), TSK_WINDOWS.map(([l, d]) => '<option value="' + d + '"' + (TSK.win === d ? ' selected' : '') + '>' + esc(l) + '</option>').join(''), String(TSK.win));
   tskOptions(document.getElementById('tsk-by'), TSK_BYS.map(([k, l]) => '<option value="' + k + '"' + (TSK.by === k ? ' selected' : '') + '>' + esc(l) + '</option>').join(''), TSK.by);
@@ -47324,13 +47691,17 @@ function tskPaint() {
       .map(([, ts]) => {
         const n = ts.filter((t) => t.state !== 'closed').length;
         return '<section class="tsk-grp"><h3>' + esc(ts[0].projectName) + '<span class="count">' + n + ' open</span></h3>' + tskList(ts) + '</section>';
-      }).join('') || '<p class="tsk-empty">No tasks match.</p>';
+      }).join('') || '<p class="tsk-empty">' + (TSK.tile || TSK.proj || TSK.win ? 'No tasks match.' : 'No tasks yet.') + '</p>';
   } else {
     groups.innerHTML = TSK_GROUPS.filter((g) => !TSK.tile || TSK.tile === g.k).map((g) => {
       const ts = sorted.filter((t) => t.state === g.k);
       /* Review round 10: the heading says what its tile says. A zero decision group takes the neutral dot, and
          with the agents unreadable it says it cannot tell, never "0" and never "Nothing here". */
       const unknown = g.k === 'decision' && TSK.rosterUnknown;
+      /* #3949 (Josh, 09-26 18:16: "We already show those in the tiles up top so we don't really need those in there"):
+         a status group with no tasks is the duplicate of its tile's 0, so it is not drawn. The one exception is the
+         decision group that cannot tell (the agents are unreadable): that is a warning, not a zero. */
+      if (!ts.length && !unknown) return '';
       const head = '<h3><span class="tsk-dot" style="--tsk-c:' + tskDot(g, ts.length) + '"></span>' + esc(g.l) + '<span class="count">' + (unknown ? '?' : ts.length) + '</span></h3><p class="why">' + esc(unknown ? TSK_DECISION_UNKNOWN : g.why) + '</p>';
       if (unknown && !ts.length) return '<section class="tsk-grp" data-unknown="1">' + head + '</section>';
       /* Completed is always the fold: finished work is reachable, not in the way. */
@@ -47339,7 +47710,9 @@ function tskPaint() {
         return '<section class="tsk-grp" style="--tsk-c:' + g.c + '"><details class="tsk-fold"' + (TSK.closedOpen || TSK.tile === 'closed' ? ' open' : '') + '><summary>' + esc(g.l) + ' (' + ts.length + ')</summary>' + tskList(ts) + '</details></section>';
       }
       return '<section class="tsk-grp">' + head + tskList(ts) + '</section>';
-    }).join('');
+    }).join('')
+      /* Every group empty: one line, not a column of empty sections. */
+      || '<p class="tsk-empty">' + (TSK.tile || TSK.proj || TSK.win || String(TSK.q).trim() ? 'No tasks match.' : 'No tasks yet.') + '</p>';
   }
   /* #3861 part 2: a folded parent hides its subtasks' rows, and a tick only ever covers a row on
      screen (the rule above), so a tick whose row the fold left out goes too. */
@@ -47400,6 +47773,9 @@ function openProjectTasks(id) {
   const q = document.getElementById('tsk-search');
   if (q) q.value = '';
   document.getElementById('tsk-qclear').hidden = true;
+  // #3949: close the compact search now, not at the next paint (in the column that paint waits for the read).
+  const box = document.getElementById('tsk-searchbox');
+  if (box) box.classList.remove('open', 'shut');
   if (document.body.classList.contains('consolidated')) openConsolidatedTasks();
   else showTab('tasks');
 }
@@ -47570,13 +47946,66 @@ document.getElementById('panel-tasks').addEventListener('toggle', (e) => {
 }, true);
 document.getElementById('tsk-search').addEventListener('input', (e) => {
   TSK.q = e.target.value;
-  document.getElementById('tsk-qclear').hidden = !TSK.q;
+  document.getElementById('tsk-searchbox').classList.remove('shut');
+  document.getElementById('tsk-qclear').hidden = !String(TSK.q).trim();
+  tskSearchOpen();
   tskPaint();
+});
+/* #3949: the compact search stays open while it holds a search (focus opens it through CSS). */
+function tskSearchOpen() {
+  const box = document.getElementById('tsk-searchbox');
+  if (box) box.classList.toggle('open', !!String(TSK.q).trim());
+}
+document.getElementById('tsk-searchbox').addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229) return;   // an IME's own Esc cancels its conversion
+  if (e.defaultPrevented) return;   // already taken (a tour tip closes on it first, in the capture phase)
+  // Esc (from the field or its clear button) clears and closes it, and nothing else on the page reacts to this Esc.
+  // Focus stays in the field (a keyboard user keeps their place); "shut" closes it until they type again.
+  e.preventDefault(); e.stopPropagation();
+  const q = document.getElementById('tsk-search');
+  q.value = ''; TSK.q = '';
+  document.getElementById('tsk-qclear').hidden = true;
+  const box = document.getElementById('tsk-searchbox');
+  box.classList.add('shut');
+  q.focus();
+  tskPaint();
+});
+document.getElementById('tsk-search').addEventListener('blur', () => document.getElementById('tsk-searchbox').classList.remove('shut'));
+// A click on the closed field opens it again, as focus would (it may still hold focus after Esc).
+document.getElementById('tsk-search').addEventListener('mousedown', () => document.getElementById('tsk-searchbox').classList.remove('shut'));
+/* "/" focuses the search while the Tasks view is on screen and the person is not typing somewhere else. Cmd-F is left
+   to the browser's own find. */
+document.addEventListener('keydown', (e) => {
+  if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
+  const pt = document.getElementById('panel-tasks');
+  if (!pt || pt.hidden || !pt.getClientRects().length) return;
+  const t = e.target;
+  // A text field or a select keeps its "/" (a row's checkbox, a radio or a button input does not: review round 18).
+  const textish = t && t.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|reset|image|range|color|file)$/i.test(t.type || '');
+  if (t && (t.isContentEditable || textish || /^(TEXTAREA|SELECT)$/.test(t.tagName))) return;
+  // From anywhere on the page (the Tasks tab just clicked keeps focus in Chrome) except a dialog: never from inside one,
+  // and never while a modal is showing (the app's modals are role="dialog"/"alertdialog" boxes with aria-modal, not
+  // <dialog>, and focus can sit on the page behind one when its button disables itself).
+  if (t && t.closest && t.closest('[role="dialog"], [role="alertdialog"], [aria-modal="true"]')) return;
+  if ([...document.querySelectorAll('[aria-modal="true"]')].some((m) => m.getClientRects().length > 0)) return;
+  // Nor while a header popover or menu is open, wherever focus sits (opening the burger moves focus onto its first
+  // tab, review round 17). The same test as tipMenuOpen(): a popup trigger that is expanded, the burger, or the world
+  // switcher. Not any aria-expanded="true": an open subtask fold chip or project row is a disclosure, not a popup,
+  // and "/" must still work from it (review round 16).
+  // Only a trigger that is on screen: a combobox left expanded inside a closed dialog, or a burger left open when the
+  // window widened past it, is not an open menu and must not switch "/" off for the session (review round 18).
+  if ([...document.querySelectorAll('[aria-haspopup][aria-expanded="true"], #burger[aria-expanded="true"], #worldsw-btn[aria-expanded="true"]')]
+    .some((b) => b.getClientRects().length > 0)) return;
+  if (t && t.closest && t.closest('#worldsw-menu, #userpop-menu')) return;
+  if ([...document.querySelectorAll('#worldsw-menu, #userpop-menu')].some((m) => !m.hidden && m.getClientRects().length > 0)) return;
+  e.preventDefault();
+  document.getElementById('tsk-search').focus();
 });
 document.getElementById('tsk-qclear').addEventListener('click', () => {
   const q = document.getElementById('tsk-search');
   q.value = ''; TSK.q = '';
   document.getElementById('tsk-qclear').hidden = true;
+  tskSearchOpen();
   q.focus();
   tskPaint();
 });
@@ -52385,6 +52814,7 @@ async function attachUpload(file, where) {
   const btn = document.getElementById(where.btnId);
   if (btn) btn.disabled = true;
   msg.textContent = 'Adding ' + file.name + '\u2026';
+  ATTACH_UPLOADING += 1;   // #3955 round 9: a file still going up holds the automatic reload
   try {
     const res = await fetch(where.url(), {
       method: 'PUT',
@@ -52408,6 +52838,7 @@ async function attachUpload(file, where) {
   } catch {
     msg.textContent = 'We could not reach Kosmos to add that file.';
   } finally {
+    ATTACH_UPLOADING = Math.max(0, ATTACH_UPLOADING - 1);
     if (btn) btn.disabled = false;
   }
 }
@@ -52434,6 +52865,8 @@ const ATTACH_AGENT = {
    switch repaints the right chips and a send clears only its own. At most
    ten per message (the route's cap), checked before the upload. */
 const ATTACH_PENDING = { room: {}, agent: {} };
+/* #3955 round 9: files still uploading (ATTACH_PENDING holds a file only once its upload answered). */
+let ATTACH_UPLOADING = 0;
 const ATTACH_MAX = 10;
 function attachTarget(where) {
   return where.key === 'room' ? (PJ_CURRENT || null) : (CURRENT ? CURRENT.sessionName : null);

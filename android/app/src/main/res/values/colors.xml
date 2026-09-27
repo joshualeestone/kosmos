@@ -8,4 +8,9 @@
     <color name="navigation_bar_color_dark">#0c0d0f</color>
     <color name="ic_launcher_background">#d6a62e</color>
     <color name="splash_background">#d6a62e</color>
+    <color name="load_error_background">#faf9f7</color>
+    <color name="load_error_text">#171714</color>
+    <color name="load_error_muted">#66645d</color>
+    <color name="load_error_button">#d6a62e</color>
+    <color name="load_error_button_text">#171714</color>
 </resources>
