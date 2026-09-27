@@ -242,12 +242,14 @@ case "$_v_major.$_v_minor" in
         echo " so only one spelling may ever be published. If that has changed, this guard is in tools/release.sh.)"
         exit 1 ;;
       *)
-        echo "$V is past the end of the 0.$_v_minor line. 0.$_v_minor.99 is the last one; after it comes 0.$((_v_minor + 1)).00."
+        echo "$V is past the end of the 0.$_v_minor line. 0.$_v_minor.99 is the last one; after it comes the 0.$((_v_minor + 1)) line (0.$((_v_minor + 1)).00, or its next free number)."
         exit 1 ;;
     esac
-    # Standing at the end of a line, staying on it is refused; any version on the next line may follow,
-    # not only its first (.00): Mac and Windows each take the next free number (#4046, Baron 2026-09-26),
-    # so when Windows has taken 0.7.00 the Mac opens the line at 0.7.01.
+    # Standing at the end of a line, only STAYING on it is refused. Nothing here checks that V is on the
+    # next line or moves forward at all (0.8.00 or 0.5.50 would get past this guard): it only insists on
+    # leaving the finished line. On the next line, any number may be taken, not only its first (.00):
+    # Mac and Windows each take the next free number (#4046, Baron 2026-09-26), so when Windows has taken
+    # 0.7.00 the Mac opens the line at 0.7.01.
     # Except a RE-CUT of that same .99: a cut that aborted after its step-2 bump leaves main at
     # 0.x.99, and the retry asks for 0.x.99 again. That is not staying on the line, it is finishing
     # the same release (2026-09-26: the 0.6.99 re-cut was refused here). This only brings .99 in line
@@ -260,7 +262,7 @@ case "$_v_major.$_v_minor" in
     _p_minor="${_p_rest%%.*}"
     if [ "${_prev##*.}" = "99" ] && [ "$_p_minor" = "$_v_minor" ] && [ "$V" != "$_prev" ]; then
       echo "0.$_p_minor.99 is the last of the 0.$_p_minor line: the next version is on the 0.$((_p_minor + 1)) line (0.$((_p_minor + 1)).00, or its next free number), not $V."
-      echo "(Josh's ruling, 2026-08-28. If that has changed, this guard is in tools/release.sh.)"
+      echo "(Josh's ruling, 2026-08-28; the next free number per #4046, 2026-09-26. If that has changed, this guard is in tools/release.sh.)"
       exit 1
     fi ;;
 esac

@@ -10,3 +10,4 @@ Card #4046 (Baron's ruling, 2026-09-26 17:15: Mac and Windows each take the next
 ## Decisions
 - Comment and message only; the ruling is Baron's and needed no code (measured on the card).
 - Landed after the 0.7.01 cut finishes, so nothing moves under a running release.
+- Round 1: the comment says only staying on the line is refused (no forward or next-line check exists; a real one would be its own card); the past-the-end message names the next line's .00 or its next free number; the attribution names #4046.
