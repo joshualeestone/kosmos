@@ -157,13 +157,14 @@ test('#3939 round 1: at the timeout, what the launcher started is stopped too (i
   try {
     /* #4159: on a loaded machine the 300 ms timeout can stop the launcher before it has started
        its child. Then there is no child and this case has not run, so run the turn again, up to
-       TRIES times; the stop itself is checked on a turn where the child did start. */
-    /* The child counts as started only when the file holds a real pid: the stop can also land
-       after the shell created the file and before echo wrote to it, and Number('') is 0, which
-       process.kill reads as this whole process group. Stops early on a deadline so the "did not
-       run" message beats the test's own 8 s timeout. */
+       TRIES times; the stop itself is checked on a turn where the child did start. The child
+       counts as started only when the file holds a real pid: the stop can also land after the
+       shell created the file and before echo wrote to it, and Number('') is 0, which
+       process.kill reads as this whole process group. No new turn starts after DEADLINE_MS, which
+       leaves a slow turn room to finish inside the test's 8 s timeout, so a machine too loaded
+       to run this case gets the "did not run" message, not a bare timeout. */
     const TRIES = 5;
-    const DEADLINE_MS = 5000;
+    const DEADLINE_MS = 4000;
     const deadline = Date.now() + DEADLINE_MS;
     const isRealPid = (p) => Number.isInteger(p) && p > 1;   // 0 is our own group, 1 is launchd
     const readPid = () => {
