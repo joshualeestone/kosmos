@@ -774,8 +774,8 @@ wait_for_file "$SB/home/board.pid" 30 || echo "note: $SB/home/board.pid absent a
 PID1="$(cat "$SB/home/board.pid" 2>/dev/null || echo none)"
 # 🔑 #2864: the Kosmos.app FOLDER's inode is what a kept Dock icon follows. Read it
 # (and its Contents') before the update, to assert the update swaps only Contents.
-APP_INO1="$(stat -f %i "$SB/apps/Kosmos.app" 2>/dev/null || echo none)"
-CONTENTS_INO1="$(stat -f %i "$SB/apps/Kosmos.app/Contents" 2>/dev/null || echo none)"
+APP_INO1="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app" 2>/dev/null || echo none)"
+CONTENTS_INO1="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app/Contents" 2>/dev/null || echo none)"
 RC=0; cat "$SETUP" | sh > "$SB/update.log" 2>&1 || RC=$?
 chk "update exits 0" "rc_ok $RC"
 chk "stale file gone (swap, not merge)" "[ ! -e \"$SB/home/app/engine/stale-marker.js\" ]"
@@ -784,33 +784,47 @@ chk "board serves after update" "curl -s -m 2 -o /dev/null http://127.0.0.1:$POR
 
 echo "== #2864: an update keeps the Kosmos.app folder, so a kept Dock icon stays valid =="
 chk "the premise: there was an app folder before the update" "[ \"$APP_INO1\" != none ]"
-chk "an update keeps the SAME Kosmos.app folder (inode $APP_INO1)" "[ \"\$(stat -f %i \"$SB/apps/Kosmos.app\")\" = \"$APP_INO1\" ]"
-chk "an update does replace Contents (the swap happened, not a no-op)" "[ \"\$(stat -f %i \"$SB/apps/Kosmos.app/Contents\")\" != \"$CONTENTS_INO1\" ]"
+chk "an update keeps the SAME Kosmos.app folder (inode $APP_INO1)" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" = \"$APP_INO1\" ]"
+chk "an update does replace Contents (the swap happened, not a no-op)" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app/Contents\")\" != \"$CONTENTS_INO1\" ]"
 chk "the swapped app is complete and runnable" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ] && [ -f \"$SB/apps/Kosmos.app/Contents/Info.plist\" ]"
 chk "no stage or aside folder is left behind by the swap" "[ -z \"\$(ls -A \"$SB/apps\" | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ]"
 # CONTROL, the property the fix exists for: with the swap switched off, the old
 # whole-bundle rename runs and the folder IS a new one. If this ever passes with the
 # same inode, the check above proves nothing.
-APP_INO2="$(stat -f %i "$SB/apps/Kosmos.app")"
+APP_INO2="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app")"
 RC=0; cat "$SETUP" | KOSMOS_CONTENTS_SWAP=off sh > "$SB/update-noswap.log" 2>&1 || RC=$?
 chk "CONTROL: an update with the swap off exits 0" "rc_ok $RC"
-chk "CONTROL: with the swap off the Kosmos.app folder is a NEW one (what made kept Dock icons stale)" "[ \"\$(stat -f %i \"$SB/apps/Kosmos.app\")\" != \"$APP_INO2\" ]"
+chk "CONTROL: with the swap off the Kosmos.app folder is a NEW one (what made kept Dock icons stale)" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" != \"$APP_INO2\" ]"
 chk "CONTROL: and that app is complete and runnable" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ]"
 # A swap that FAILS falls back to the whole-bundle rename: never a half-empty folder.
 printf '#!/bin/sh\nexit 1\n' > "$SB/perl-fails"; chmod +x "$SB/perl-fails"
-APP_INO3="$(stat -f %i "$SB/apps/Kosmos.app")"
+APP_INO3="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app")"
 RC=0; cat "$SETUP" | KOSMOS_SWAP_PERL="$SB/perl-fails" sh > "$SB/update-swapfail.log" 2>&1 || RC=$?
 chk "a failed swap still installs (exits 0)" "rc_ok $RC"
 chk "after a failed swap the app is complete and runnable, not a husk" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ] && [ -f \"$SB/apps/Kosmos.app/Contents/Info.plist\" ]"
-chk "and it got there by the whole-bundle fallback (a new folder), so the failure was really taken" "[ \"\$(stat -f %i \"$SB/apps/Kosmos.app\")\" != \"$APP_INO3\" ]"
+chk "and it got there by the whole-bundle fallback (a new folder), so the failure was really taken" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" != \"$APP_INO3\" ]"
 # A swap call that claims success but moved nothing is caught by the inode proof, and
 # the fallback installs a complete app (the stage was never touched).
 printf '#!/bin/sh\nexit 0\n' > "$SB/perl-lies"; chmod +x "$SB/perl-lies"
-APP_INO4="$(stat -f %i "$SB/apps/Kosmos.app")"
+APP_INO4="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app")"
 RC=0; cat "$SETUP" | KOSMOS_SWAP_PERL="$SB/perl-lies" sh > "$SB/update-swaplies.log" 2>&1 || RC=$?
 chk "a swap that did nothing is not believed: install still exits 0" "rc_ok $RC"
 chk "and the app is complete and runnable" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ] && [ -f \"$SB/apps/Kosmos.app/Contents/Info.plist\" ]"
-chk "and the fallback ran (a new folder): the zero exit was not taken as a swap" "[ \"\$(stat -f %i \"$SB/apps/Kosmos.app\")\" != \"$APP_INO4\" ]"
+chk "and the fallback ran (a new folder): the zero exit was not taken as a swap" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" != \"$APP_INO4\" ]"
+# The dangerous case: the swap HAPPENED but reported failure. Falling through to the
+# whole-bundle rename here would install $stage, by then the OLD Contents. The stub
+# really swaps (flags 18, as the installer passes) and then exits 1.
+printf '#!/bin/sh\n/usr/bin/perl -e "syscall(488, -2, \\$ARGV[0], -2, \\$ARGV[1], 18)" "$3" "$4"\nexit 1\n' > "$SB/perl-swaps-then-fails"; chmod +x "$SB/perl-swaps-then-fails"
+APP_INO5="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app")"
+CONTENTS_INO5="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app/Contents")"
+RC=0; cat "$SETUP" | KOSMOS_SWAP_PERL="$SB/perl-swaps-then-fails" sh > "$SB/update-swapfailslie.log" 2>&1 || RC=$?
+chk "a swap that happened but said it failed: install exits 0" "rc_ok $RC"
+chk "and it is believed by where the folder is: the SAME Kosmos.app folder" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" = \"$APP_INO5\" ]"
+chk "with the NEW Contents in it, not the old one put back by the rename" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app/Contents\")\" != \"$CONTENTS_INO5\" ] && [ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ]"
+# CONTROL for the residue checks: the same pipeline must SEE a residue name when one
+# is there, or "none left" could pass on any folder.
+mkdir -p "$SB/residue-control/.Kosmos.app.stage.0"
+chk "CONTROL: the residue pipeline finds a planted .Kosmos.app.stage.0" "[ -n \"\$(ls -A \"$SB/residue-control\" | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ]"
 chk "no stage or aside folder left after the fallbacks" "[ -z \"\$(ls -A \"$SB/apps\" | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ]"
 # The idempotency check lives HERE, after a SECOND install against the
 # same profile: after one install a count of 1 is guaranteed even with

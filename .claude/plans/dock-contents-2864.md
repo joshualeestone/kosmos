@@ -30,10 +30,23 @@ tools/test-install.sh proves all of it, with a control showing today's path give
 - Stops NEW duplicates only. A Dock that already has two kept Kosmos icons keeps them until the
   person removes the stale one once (release note). No code edits anyone's Dock.
 
+## Review round 1 (applied)
+- /usr/bin/stat by path (a GNU stat on PATH would skip the swap silently).
+- Decide by where the staged folder IS: a swap that happened but reported failure is taken as
+  done; a staged folder found in neither place fails the step instead of guessing. Tested with
+  a stub that really swaps and then exits 1.
+- Flags 18 (RENAME_SWAP | RENAME_NOFOLLOW_ANY): a symlink anywhere in either path makes the call
+  fail (measured ELOOP, the other folder untouched) and the rename fallback runs.
+- A running Kosmos now keeps its bundle path while Contents changes under it (its executable runs
+  on from the old, unlinked file; kosmos-install.json is read at launch). Before, the whole bundle
+  moved aside. Not expected to matter; noted as a new state.
+
 ## Weakest part
 That the Dock follows the folder's identity (the bookmark's file id and creation date) is
 reasoned from the measured bookmarks, not watched on a Dock: no Dock was driven here. What
 would change my mind: a kept icon going stale after an update that kept the folder's inode.
+Next thing to watch on a real Dock: with the folder's identity now constant, the Dock may keep a
+cached icon image after an update (the 2026-08-17 icon-refresh hypothesis in make_app_register).
 
 ## Merge
 Installer is release-lane code: a Splinter/Baron reviewer on #2864 before merging (Liu Kang).

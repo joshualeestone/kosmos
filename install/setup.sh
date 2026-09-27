@@ -38,11 +38,14 @@
 # /Applications it only ever replaces a Kosmos icon it can prove it created
 # itself (by the icon's own contents); its write check creates and removes
 # one empty hidden folder there; and the icon is assembled in a hidden
-# .Kosmos.app.stage.<pid> folder beside its spot and renamed into place,
-# with the replaced icon renamed aside as .Kosmos.app.old.<pid> until the
-# swap completes (an interrupted run can leave either hidden folder
-# behind; --uninstall sweeps both when it can prove they are this
-# install's own, and names anything it leaves). macOS may show its own one-time
+# .Kosmos.app.stage.<pid> folder beside its spot. On an update of an icon it
+# created, its Contents is exchanged with the existing one in a single step
+# (#2864), so the Kosmos.app folder a Dock icon points at stays the same and
+# the stage folder is left holding the OLD Contents; otherwise the new icon is
+# renamed into place, with the replaced icon renamed aside as
+# .Kosmos.app.old.<pid> until the swap completes (an interrupted run can leave
+# either hidden folder behind; --uninstall sweeps both when it can prove they
+# are this install's own, and names anything it leaves). macOS may show its own one-time
 # "Terminal wants to manage apps" dialog for the icon step. It never
 # touches any other app. A fresh
 # install that confirms its own board is running finishes by launching the
@@ -3000,30 +3003,45 @@ make_app() {
   # renaming a new folder into place (below) made every kept icon stale: the Dock
   # then drew the running app as a second icon, and "Keep in Dock" on it added a
   # duplicate (measured on #2864: two kept Kosmos entries pointing at bundles
-  # created 09-11 and 09-12). renameatx_np(RENAME_SWAP) exchanges the two Contents
-  # folders in ONE step, so the visible app is only ever complete old or complete
-  # new, the same guarantee as the rename below. It runs only on an existing real
-  # folder we can prove is ours; if anything about it fails, the whole-bundle
-  # rename below runs exactly as before. Called through /usr/bin/perl because a
-  # shell has no swap; 488 is SYS_renameatx_np, -2 AT_FDCWD, 2 RENAME_SWAP.
+  # created 09-11 and 09-12). renameatx_np exchanges the two Contents folders in
+  # ONE step, so the visible app is only ever complete old or complete new, the
+  # same guarantee as the rename below. It runs only on an existing real folder we
+  # can prove is ours; otherwise the whole-bundle rename below runs as before.
+  # Called through /usr/bin/perl because a shell has no swap: 488 is
+  # SYS_renameatx_np, -2 AT_FDCWD, 18 is RENAME_SWAP (2) | RENAME_NOFOLLOW_ANY (16),
+  # so a symlink planted anywhere in either path makes the call fail rather than
+  # swap someone else's Contents (measured: ELOOP, the other folder untouched).
+  # /usr/bin/stat by path, as elsewhere in this file: a GNU stat first on PATH
+  # reads -f differently and would quietly skip the swap.
+  # Test-only by contract, like KOSMOS_SYS_APP_DIR: KOSMOS_SWAP_PERL points the
+  # harness at a stub. KOSMOS_CONTENTS_SWAP=off is also the switch that restores
+  # the old whole-bundle rename on a machine where the swap misbehaves.
+  local _perl="${KOSMOS_SWAP_PERL:-/usr/bin/perl}"
   if [ "$(uname -s)" = Darwin ] && [ "${KOSMOS_CONTENTS_SWAP:-on}" != off ] \
      && [ -d "$app" ] && [ ! -L "$app" ] && [ -d "$app/Contents" ] && [ ! -L "$app/Contents" ] \
-     && [ -x "${KOSMOS_SWAP_PERL:-/usr/bin/perl}" ] && bundle_is_ours "$app"; then
-    # Proof the swap HAPPENED, not only that the call returned 0: the app's Contents
-    # must now be the very folder that was staged. Otherwise nothing moved, $stage
-    # is untouched, and the rename below is safe to run.
+     && [ -f "$_perl" ] && [ -x "$_perl" ] && bundle_is_ours "$app"; then
     local _staged_ino
-    _staged_ino="$(stat -f %i "$stage/Contents" 2>/dev/null)" || _staged_ino=""
-    if [ -n "$_staged_ino" ] \
-       && "${KOSMOS_SWAP_PERL:-/usr/bin/perl}" -e 'exit(syscall(488, -2, $ARGV[0], -2, $ARGV[1], 2) == 0 ? 0 : 1)' \
-         "$stage/Contents" "$app/Contents" 2>/dev/null \
-       && [ "$(stat -f %i "$app/Contents" 2>/dev/null)" = "$_staged_ino" ]; then
-      # $stage now holds the OLD Contents; it is ours, and swept by the loop at the
-      # top of the next run if this delete is interrupted.
-      rm -rf "$stage" 2>/dev/null \
-        || info "note: could not remove the leftover hidden folder $stage; drag it to the Trash to finish."
-      make_app_register "$app"
-      return 0
+    _staged_ino="$(/usr/bin/stat -f %i "$stage/Contents" 2>/dev/null)" || _staged_ino=""
+    if [ -n "$_staged_ino" ]; then
+      "$_perl" -e 'exit(syscall(488, -2, $ARGV[0], -2, $ARGV[1], 18) == 0 ? 0 : 1)' \
+        "$stage/Contents" "$app/Contents" 2>/dev/null || true
+      # WHERE THE STAGED FOLDER IS decides, never the exit code alone: a swap that
+      # happened but reported failure must not fall through to the rename below,
+      # which would then install $stage, by now the OLD Contents.
+      if [ "$(/usr/bin/stat -f %i "$app/Contents" 2>/dev/null)" = "$_staged_ino" ]; then
+        # $stage now holds the OLD Contents; it is ours, and swept by the loop at the
+        # top of the next run if this delete is interrupted.
+        rm -rf "$stage" 2>/dev/null \
+          || info "note: could not remove the leftover hidden folder $stage; drag it to the Trash to finish."
+        make_app_register "$app"
+        return 0
+      fi
+      if [ "$(/usr/bin/stat -f %i "$stage/Contents" 2>/dev/null)" != "$_staged_ino" ]; then
+        # The staged folder is in neither place: something else moved it. Do not
+        # guess which Contents is where; leave the app as it is and fail the step.
+        return 1
+      fi
+      # The staged Contents is still in $stage: nothing moved, so the rename is safe.
     fi
   fi
   local aside
