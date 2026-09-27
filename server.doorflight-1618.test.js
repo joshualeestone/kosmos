@@ -81,9 +81,9 @@ function heldDoor(name) {
 
 const TOKEN = 'hetzner-token-long-enough-to-be-real-0123456789';
 
-/* Wait until `ready()` is true, polling, up to `ms`. These waits were a fixed
-   150 ms, and the likely cause of the #4066 flake under heavy load (the plan,
-   .claude/plans/doorflight-4066.md, says why it is inferred, not measured). */
+/* Wait until `ready()` is true, polling, up to `ms`. The waits in this file were
+   a fixed 150 ms, the likely cause of the #4066 flake under heavy load (the plan,
+   .claude/plans/doorflight-4066.md, says why that is inferred, not measured). */
 const ARRIVAL_MS = 10_000;
 async function until(ready, what, ms = ARRIVAL_MS) {
   const deadline = Date.now() + ms;
@@ -98,7 +98,7 @@ async function until(ready, what, ms = ARRIVAL_MS) {
    guessing how long that takes. */
 function countShelfRequests() {
   let n = 0;
-  const onRequest = (req) => { if (req.url === '/api/connections') n += 1; };
+  const onRequest = (req) => { if (new URL(req.url, 'http://x').pathname === '/api/connections') n += 1; };
   server.on('request', onRequest);
   return { seen: () => n, stop: () => server.off('request', onRequest) };
 }
@@ -120,8 +120,10 @@ test('#1618: two callers asking for the shelf at once verify each door ONCE', as
     const b = fetch(base + '/api/connections').then((r) => r.json());
     await until(() => arrived.seen() >= 2, 'the server never received both shelf requests');
     await until(() => h.entries() > afterConnect, 'no shelf read reached the verifier');
-    // Both requests are in the server now; an unshared second read shows as a second entry.
-    await new Promise((r) => setTimeout(r, 150));
+    /* The server's own request handler ran before this counter's listener, so both
+       requests have already asked for the shelf. Let the event loop drain so an
+       unshared second read has reached the verifier before counting. */
+    for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
     const during = h.entries() - afterConnect;
     assert.equal(during, 1,
       `the shelf verified this door ${during} times for two concurrent callers, so the reads were not shared`);
@@ -163,10 +165,11 @@ test('#1618: forget() observes its OWN write while a shelf read is in flight', a
        the gate forever, so bound it: a stuck forget() fails here instead of
        hanging the file. */
     const stuck = Symbol('stuck');
+    let timer;
     const gone = await Promise.race([
       h.door.forget(),
-      new Promise((r) => setTimeout(() => r(stuck), ARRIVAL_MS)),
-    ]);
+      new Promise((r) => { timer = setTimeout(() => r(stuck), ARRIVAL_MS); }),
+    ]).finally(() => clearTimeout(timer));
     assert.notEqual(gone, stuck,
       'forget() waited on a shelf read that began before its write, so it shares that read');
     assert.equal(gone.connected, false,
