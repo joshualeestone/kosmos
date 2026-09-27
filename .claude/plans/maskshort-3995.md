@@ -91,3 +91,14 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
 - Noted: iOS17iPadOS17 is masked out of "Update to iOS 17 or iPadOS 17" (two mixed pieces), matching what main already
   does for such values with a longer opening; the weakest premise's shape, recorded.
 - Deferred NIT: the first path to reach a position wins, which can leave a real chunk visible (3 characters, adversarial).
+
+## Review round 6 (Sonnet), what changed
+- BLOCKER fixed: the hex exclusion tested the value before its own - and _ were taken out, so a UUID-shaped secret
+  entered the short index once stripped, and with 2,000 held a numbered list was withheld again. Each form is tested
+  now. Tested with 2,000 distinct UUIDs; red on the previous commit. (My first version of that test passed on the
+  previous commit too: its hex generator used the low bits of a generator whose low bits repeat every 16, so the values
+  were nearly identical. It uses high bits now and asserts the values are distinct.)
+- The short index holds only 2- and 3-character openings (nothing read the 1-character entries); its build no
+  longer scans each list for duplicates.
+- The all-lowercase test asserts every chunk is masked (completion is all or nothing).
+- Not covered: a key both single-spaced and cut into short chunks (the short walk does not read the spacing copy).

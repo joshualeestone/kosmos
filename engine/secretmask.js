@@ -263,13 +263,14 @@ function addWalked(w, walked) {
      only): a numbered guide's lone letters and digits spell every one, and each lone digit then walked against every
      held value's hex (review round 3: a reply withheld with 50 values held). A form with its own - or _ is indexed
      without them too, since a reply cutting it into short chunks drops them (the word walk skips them instead). */
-  if (!/^[0-9a-f]+$/i.test(w)) {
+  {
     for (const form of /[-_]/.test(w) ? [w, w.replace(/[-_]+/g, '')] : [w]) {
-      if (form.length < MIN_VALUE_LEN) continue;
-      for (let l = 1; l < OPENING_LEN; l += 1) {
+      /* Each form is checked, not the value: a UUID-shaped secret is hex once its - are taken out (review round 6). */
+      if (form.length < MIN_VALUE_LEN || /^[0-9a-f]+$/i.test(form)) continue;
+      for (let l = 2; l < OPENING_LEN; l += 1) {   // the short walk starts from two or three characters
         const h = form.slice(0, l);
         if (!knownByShort.has(h)) knownByShort.set(h, []);
-        if (!knownByShort.get(h).includes(form)) knownByShort.get(h).push(form);
+        knownByShort.get(h).push(form);   // walked values are distinct already; a rare repeat only walks twice
       }
     }
   }
@@ -301,7 +302,7 @@ function madeOfWords(v) {
 let knownByPrefix = new Map();
 /* The held forms the word walk assembles (key characters only), by their first OPENING_LEN characters (#3935). */
 let knownByOpening = new Map();
-/* #3995 gap 4: the walked forms by their first 1 to 3 characters (shortChunkSpans). */
+/* #3995 gap 4: the walked forms by their first 2 and 3 characters (shortChunkSpans). */
 let knownByShort = new Map();
 const NOT_KEY_CHARS = /[^A-Za-z0-9_+/=-]+/g;
 /* The board also holds whole files (engine/knownsecrets.js, up to 64KB) and their encodings. A form that
@@ -426,6 +427,8 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *    a key given ONE character at a time with words between (every single character is a plain word), a
  *    single-case key in chunks of two, and a single-case key whose chunks read as words by wordLike's vowel test;
  *  - a key whose FIRST chunk is one character (the short walk starts only from two or three);
+ *  - a key both spaced one character at a time AND cut into short chunks with words between (the short walk reads
+ *    the text, not the single-spacing copy the word walk also reads);
  *  - a short chunk glued to a label by + or / with no other glue (Zq8+part2);
  *  - anything that is hex (0-9 a-f only) cut into chunks under OPENING_LEN: the hex encodings of held values AND a
  *    held value that is itself hex (a raw hex token). Neither is walked short (see addWalked);

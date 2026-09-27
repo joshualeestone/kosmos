@@ -1499,7 +1499,7 @@ test('#3995 gap 4 review round 4: an all-lowercase key in chunks of three is mas
   try {
     const t = mask(held.match(/.{3}/g).join(' and ')).text;
     const left = held.match(/.{3}/g).filter((c) => t.includes(c));
-    assert.ok(left.length <= 2, `an all-lowercase key leaked ${left.length} chunks: ${t}`);
+    assert.equal(left.length, 0, `an all-lowercase key leaked ${left.length} chunks: ${t}`);
   } finally { setKnownSecrets([]); }
   for (const [pw, text] of [['MyPassword123', 'My Password must be at least 123 characters.'], ['2ndFloorLounge', 'Reserve the 2nd conference space on Floor near the executive Lounge.']]) {
     setKnownSecrets([pw]);
@@ -1514,5 +1514,17 @@ test('#3995 gap 4 review round 5: text full of single characters is not withheld
     const abc = 'Allowed: ' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'.split('').join(' ') + '. ';
     const text = abc.repeat(10);
     assert.equal(mask(text).text, text, 'a list of single characters was changed or withheld');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 6: UUID-shaped held values do not make a numbered list withheld', () => {
+  const hex = (n, seed) => { let x = seed; let out = ''; for (let i = 0; i < n; i += 1) { x = (x * 1103515245 + 12345) % 2147483648; out += '0123456789abcdef'[(x >>> 16) % 16]; } return out; };   // high bits: the low bits of this generator repeat every 16
+  const uuid = (seed) => { const h = hex(32, seed); return [h.slice(0, 8), h.slice(8, 12), h.slice(12, 16), h.slice(16, 20), h.slice(20)].join('-'); };
+  const held = Array.from({ length: 2000 }, (_, i) => uuid(3000 + i));
+  assert.equal(new Set(held).size, held.length, 'the fixture values are not distinct');
+  setKnownSecrets(held);
+  try {
+    const text = Array.from({ length: 500 }, (_, i) => `${i}: a b c d e f 0 1 2 3 4 5 6 7 8 9 and more.`).join('\n');
+    assert.equal(mask(text).text, text, 'a numbered list was changed or withheld');
   } finally { setKnownSecrets([]); }
 });
