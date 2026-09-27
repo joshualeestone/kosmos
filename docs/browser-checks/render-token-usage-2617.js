@@ -409,8 +409,8 @@ function readUsage(page) {
     const colsAt = {}; for (const w of [1280, 589, 561, 390]) colsAt[w] = await cols(w);
     ok(colsAt[1280] === 2 && colsAt[589] === 2 && colsAt[561] === 1 && colsAt[390] === 1, `the class cards are two-up at 1280 and 589 and stacked at 561 and 390 (#4242) -- ${JSON.stringify(colsAt)}`);
     // The widest total a card shows (usageAbbr stays under 1000.0M, and a four-digit total's share is at
-    // most 99.9%) at both tightest two-up widths. The fixture's own totals fit without nowrap, so these
-    // are the arms that go red when the total may wrap, or when a narrower card is left two-up.
+    // most 99.9%) at both tightest two-up widths: the arms that go red when a card too narrow for it is
+    // left two-up. They do not test the total's nowrap, which is inert on today's markup (see the CSS).
     const saved = await p.evaluate(() => [...document.querySelectorAll('#usage-charts4 .tv-mini .tv-tot')].map((t) => {
       const pc = t.querySelector('.tv-pc'), was = [t.firstChild.textContent, pc ? pc.textContent : null];
       t.firstChild.textContent = '999.9M'; if (pc) pc.textContent = '99.9%'; return was;

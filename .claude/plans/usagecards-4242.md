@@ -11,7 +11,10 @@ after the name.
 ## The change (web/index.html, CSS only)
 
 - `.tv-tg` is `display: block` under the name (margin-top 2px, no left margin), so the tag has its own line.
-- `.tv-tot` is `white-space: nowrap`, so the total never wraps.
+- `.tv-tot` is `white-space: nowrap`. Measured inert on today's markup: the number and its share are
+  adjacent with no space, so the total has no break opportunity at any width (removing `nowrap` left every
+  arm green, including one that squeezed a card to about 170px). It stays as a guard against a future
+  space between them; no arm claims to test it.
 - `.tv-mh` keeps `align-items: baseline`: a block tag leaves the name's first line as the item's baseline,
   so the total still shares the name's baseline (the property #4083 pins for the tiles above).
 - The cards stack to one column once `#s-sec-usage` (already an inline-size container) is 540px or
@@ -34,7 +37,7 @@ The cards are two-up at 1280 and 589 and stacked at 561 and 390.
 
 Then at 589 and 1280 with the widest total forced into every card (`999.9M` and `99.9%`): the total
 is on one line and each name still fits on one line, clear of it. The fixture's own totals fit even
-without `nowrap`, so these are the arms that go red if the total may wrap.
+without `nowrap` (see above), so these arms pin the fit, not the nowrap.
 
 ## Review 1
 

@@ -2765,7 +2765,9 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .tv-mini { border: 1px solid var(--k-rule); border-radius: 14px; padding: 14px 16px; background: var(--k-bg); }
 /* #4242: the tag sits on its own line under the name, and the total never wraps, so every card's
    header is the same two lines in the two-column layout (a tag inline beside the name wrapped
-   "Cache reads context ingested" to three lines beside its number, while Input fit on one). */
+   "Cache reads context ingested" to three lines beside its number, while Input fit on one).
+   The total has no break opportunity today (the number and its share are adjacent, no space), so
+   nowrap is inert on this markup, measured; it keeps a future space between them from wrapping. */
 .tv-mini .tv-mh { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .tv-mini .tv-nm { font: 600 .875rem var(--font-ui); color: var(--k-ink); }
 .tv-mini .tv-tg { display: block; color: var(--k-ink-2); font-weight: 400; font-size: .75rem; margin-top: 2px; }
