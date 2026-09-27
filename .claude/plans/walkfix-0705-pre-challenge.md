@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: walkfix-0705
-diff_hash: cf212958e033b6278807a2a62e6885a659f373ace266fe81de9a6d98a6670215
+diff_hash: de06cb472726571db12debe8059e2a4400fc1ad37d9e47543b18fa987e97ab76
 subdir_audit: passed
 timestamp: 2026-09-27T20:20:01Z
 converged: true
@@ -30,5 +30,6 @@ Not run: iteration 1 found no defect; both LOWs answered.
 - web.*.test.js 1997/0; full suite 10791 pass, 0 fail, exit 0.
 - CI selected render-reload-toast for this PR (it touches What's New) and it failed 'centred' there: the check compared the
   dialog's centre with innerWidth/2, which includes the classic-scrollbar gutter CI draws. It opens What's New with FOUR
-  highlights, so the odd-tile rule does not apply. Locally it passes on branch and on main. Fixed in the check
-  (clientWidth/2, the page width a fixed dialog centres in); re-run locally: pass.
+  highlights, so the odd-tile rule does not apply. Locally it passes on branch and on main. First fix (clientWidth/2) still failed in CI, where
+  clientWidth reads 1400 with a 15px gutter; the check now measures the dialog against the dimmed layer's own box (what
+  "centred over the dimmed app" means). Re-run locally: pass.
