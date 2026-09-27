@@ -193,7 +193,8 @@ else
   # readable lead without the block is still reported: one bad profile names that agent
   # and does not blank the row.
   mkdir -p "$T/swarm3/lead" "$T/swarm3/lead2"; printf '# agent\n' > "$T/swarm3/lead/CLAUDE.md"; printf '# agent\n' > "$T/swarm3/lead2/CLAUDE.md"
-  AGENT_WORKFORCE_HOME="$SW_HOME" node -e "require('./engine/store').writeProfile('lead2',{kind:'swarm',swarm:{maxHelpers:2}})"
+  AGENT_WORKFORCE_HOME="$SW_HOME" node -e "require('./engine/store').writeProfile('lead2',{kind:'swarm',swarm:{maxHelpers:2}})" \
+    || bad "SWARM SETUP: could not write the second lead's profile (the next verdict is unusable)"
   PF="$(AGENT_WORKFORCE_HOME="$SW_HOME" node -e "const s=require('./engine/store'),p=require('path');process.stdout.write(p.join(s.PROFILES,s.profileFileName('lead')))")"
   cp "$PF" "$T/lead.json.bak" && printf '{ not json' > "$PF"
   row="$(AGENT_WORKFORCE_HOME="$SW_HOME" KOSMOS_WORKERS_DIR="$T/swarm3" node tools/check-block-delivery.js 2>&1 | grep -E '^  swarm ')"
@@ -206,7 +207,7 @@ else
   printf '# agent\n<!-- kosmos:swarm:start -->\nx\n<!-- kosmos:swarm:end -->\n' > "$T/swarm2/ghost/CLAUDE.md"
   row="$(AGENT_WORKFORCE_HOME="$SW_HOME" KOSMOS_WORKERS_DIR="$T/swarm2" node tools/check-block-delivery.js 2>&1 | grep -E '^  swarm ')"
   case "$row" in
-    *"CANNOT TELL"*) ok "a swarm block on an agent with no readable profile is CANNOT TELL, not STALE" ;;
+    *"CANNOT TELL"*) ok "a swarm block on an agent with no profile at all is CANNOT TELL, not STALE" ;;
     *) bad "unreadable-profile swarm case misread: $row" ;;
   esac
 fi

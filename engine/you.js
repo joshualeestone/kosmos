@@ -163,7 +163,7 @@ function blockBody(you) {
  * not be told about is a reportable state, not a fatal one. An ABSENT
  * record removes the block (no residue), same as leaving your last project.
  */
-function tellAgent(sessionName, roster) {
+function tellAgent(sessionName, roster, opts) {
   try {
     if (!projects.heldExactly(sessionName, roster)) {
       return {
@@ -202,6 +202,12 @@ function tellAgent(sessionName, roster) {
     if (record.state === 'unknown') {
       return { state: projects.TOLD.COULD_NOT, because: record.because };
     }
+    /* #1071: the boot pass is ADD-ONLY. It checks the record once before it
+       starts, but this read is per agent, so a record gone in between would
+       take the removal arm below; the option makes the refusal hold here. */
+    if (opts && opts.addOnly && record.state !== 'saved') {
+      return { state: projects.TOLD.COULD_NOT, because: 'nothing is saved about the person, so the block was left as it is' };
+    }
     let next = record.state === 'saved'
       ? projects.spliceBlock(current.text || '', blockBody(record.you), START, END)
       : projects.removeBlock(current.text || '', START, END);
@@ -234,14 +240,14 @@ function tellAgent(sessionName, roster) {
  * here keeps the report about agents rather than strangers. A roster we
  * could not read tells nobody and says so once.
  */
-function syncEveryone(roster) {
+function syncEveryone(roster, opts) {
   if (!Array.isArray(roster)) {
     return [{ agent: null, state: projects.TOLD.COULD_NOT, because: 'we could not check which agents are running' }];
   }
   const told = [];
   for (const a of roster) {
     if (!a || !a.sessionName || a.isNamedOurs !== true) continue;
-    told.push({ agent: a.sessionName, ...tellAgent(a.sessionName, roster) });
+    told.push({ agent: a.sessionName, ...tellAgent(a.sessionName, roster, opts) });
   }
   return told;
 }
