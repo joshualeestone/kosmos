@@ -445,9 +445,22 @@ test('only the printed copy is cut: a real run whose script sits past character 
   const deep = WORK + '/' + 'd/'.repeat(100) + 'tools/release.sh';
   const r = run([['503', WORK, 'bash ' + deep + ' 0.6.99', 'zsh']]);
   assert.equal(r.code, 1, r.out);
-  assert.match(r.out, /COUNTS 503: a real run \(/);
-  assert.match(r.out, /\.\.\.\)\n/);
+  const line = r.stdout.split('\n').find((l) => l.includes('COUNTS 503: a real run ('));
+  assert.ok(line, r.out);
+  // The deciding word was past the cut: the printed command does not contain it, and the
+  // counted line names the script instead.
+  const shown = line.slice(line.indexOf(': a real run (') + 14, line.lastIndexOf('), script '));
+  assert.ok(shown.endsWith('...') && !shown.includes('tools/release.sh'), shown);
+  assert.ok(line.endsWith('), script ' + deep), line);
   // Control: the same command as a -c string only mentions it, however long.
   const c = run([['503', WORK, 'bash -c ' + deep, 'zsh']]);
   assert.equal(c.code, 0, c.out);
+});
+
+test('the cut starts after 160 characters: 160 print whole, 161 are cut', () => {
+  const pad = (n) => { const head = 'sh -c "grep release.sh '; return head + 'x'.repeat(n - head.length - 1) + '"'; };
+  const at = pad(160); const over = pad(161);
+  assert.equal(at.length, 160); assert.equal(over.length, 161);
+  assert.ok(run([['601', WORK, at, 'zsh']]).stdout.includes('(' + at + ')\n'));
+  assert.ok(run([['602', WORK, over, 'zsh']]).stdout.includes('(' + over.slice(0, 160) + '...)\n'));
 });

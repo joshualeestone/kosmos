@@ -28,7 +28,8 @@
 # --quiet: print nothing on stdout, not even the CLEAR/BUSY verdict; read the exit code.
 # --twice: clear only if two reads, KOSMOS_HG_TWICE_SECONDS apart (default 60, whole seconds;
 #   anything else is exit 2), are both clear.
-# Every candidate is printed with the reason it counts or does not.
+# Every candidate is printed with the reason it counts or does not; its command is cut to
+# 160 characters and "...", and a counted run also names its script.
 #
 # Seams for tests (tools.heavy-gate-3805.test.js):
 #   KOSMOS_HG_SNAPSHOT  a file of process lines to use instead of the live table, one per line,
@@ -216,7 +217,7 @@ classify() {
       case "$cwd" in "$EXCEPT"|"$EXCEPT"/*) why="your own run (--except-cwd)" ;; esac
     fi
     if [ -n "$why" ]; then say "  ignore $pid: $why ($cwd: $show)"; continue; fi
-    n=$((n + 1)); say "  COUNTS $pid: a real run (${cwd:-cwd unknown}: $show)"
+    n=$((n + 1)); say "  COUNTS $pid: a real run (${cwd:-cwd unknown}: $show), script $script"
   done
   echo "COUNTED=$n"
 }
