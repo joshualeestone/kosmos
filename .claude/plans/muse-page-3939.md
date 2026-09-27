@@ -27,3 +27,12 @@ That no screen needs a Muse row after "done" to make sense. Today, "done" says s
 - Turned on but Muse Code not installed: the Meta option stays disabled, and its row pill says "Muse Code is not installed" (data-off), as Gemini's and Grok's rows wait until they are ready. Installed again clears the reason. Control red.
 - Tests for acctPick's own stop (the reauth doors reach it without the select's change) and for the double press of Get a new code (one retry). Controls red.
 - One museMetaOption() lookup.
+
+## Review round 3 (decided)
+- The check now sees flag off: there is no reason on the option, and the row's pill reads "Coming soon". It also sees a failed read (a 500 and a throw), which keeps Meta coming soon with no reason. Controls red.
+- The dialog's intro names Meta Muse when it is live, swapping the plain Add screen's sentence only, never a sign-in again's. Control red.
+- An open logo list refreshes when museAsk answers (sel.value = sel.value, as the sibling painters do).
+- "Not installed" is the engine's own reason (GET /api/muse `because`), not a second spelling.
+- Meta goes through acctPick like every live provider, so there is one rule for putting the others away. acctPick shows Muse's step for meta and puts it away otherwise. Control red.
+- Rebased onto main: the reason-grep count is main's 191 plus this check's 2, which is 193, re-measured by the test.
+- Nits left: the poll has no overlap guard (Grok's driver has the same shape); a refused start refocuses the button even if the person tabbed away; the signedIn field is unused until the AI Models row part.
