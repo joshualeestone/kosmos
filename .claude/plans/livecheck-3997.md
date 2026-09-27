@@ -1,0 +1,181 @@
+# livecheck-3997: every signed-in account can turn green, one colour vocabulary (kosmos#3997)
+
+Card: joshualeestone/kosmos#3997. Josh, 2026-09-26 11:24: "only some of these that are signed in are actually green".
+Design and measurements are on the card (comment 5849157780).
+
+## What changes
+- engine/grokaccounts.js `subscriptionLive(dir)`: a FREE check of a Grok subscription, only with a key that has not
+  expired (the models listing grok itself reads; measured 200 real / 401 garbage). Kosmos never renews a key.
+- server.js /api/accounts: Grok subscription rows are checked on the (person-paced) read; `live` is recorded on the
+  dir like an observed request, so the existing overlay greens it; anything else stays signed_in_unverified with the
+  check's reason. ChatGPT sign-ins: a cold cached handshake (codexsigninlive, free) is STARTED without waiting (#1921)
+  and the row carries `liveCheckPending` while it runs.
+- server.js POST /api/accounts/openai/check and /api/accounts/grok/check: free Check now.
+- web/index.html: amber `.acct-unverified` for every unconfirmed sign-in; `.acct-none` (a confirmed negative) moves
+  to --danger red; grey `.acct-unknown` is only "could not check". The ChatGPT row shows its check's verdict (green /
+  red / amber). Check now on ChatGPT and Grok subscription rows. Bounded follow-up reads while a check is under way, never under the person's hands.
+
+## Review round 1 (Sonnet), what changed
+- Grok REFUSING a sign-in (401/403) in this read outranks an earlier Check now green; no answer, or a key that
+  expired as keys do, does not (neither is evidence against the green). Agent observations still count. Tested.
+- The follow-up reads continue every 3.5s while a ChatGPT check is still pending, up to ACCT_FOLLOWUP.max (6), since
+  a dead or slow handshake takes up to about 20s; a single read at 3.5s missed exactly that case. Tested: keeps
+  reading until it can say, stops at the bound.
+- NITs: codexsigninlive required once at the top of server.js; the .acct-none comment names --danger; the Grok title
+  is gated on the subscription kind too; the badge check's "Claude-only" comment names the new field.
+
+## Review round 2 (Opus), what changed
+- BLOCKER (mine, from round 1): a ChatGPT check that finished WITHOUT an answer still read as cold, so the row said
+  "checking" forever and the page re-read six times. codexsigninlive.checkState (fresh / running / cold): pending
+  only while one is running. Tested with a runner that returns no report.
+- Follow-ups never rebuild the list while a Check now is in flight, a Disconnect or Delete is half-pressed, or focus
+  is in the list; they wait a turn, still bounded. (Tested through the in-flight arm; the list is off screen in the
+  check, so focus cannot be placed there.)
+- Grok checks start beside the other providers' checks, and concurrent reads share one request per folder.
+- Check now is not offered on a lapsed or unreadable Grok sign-in; an expired key's title does not point at it, and
+  its answer says "Not until Grok runs again". A refusal is its own answer: the page repaints, and the refusal
+  forgets an earlier Check now green so a later read cannot bring it back (observed.forgetDir).
+- ChatGPT Check now asks afresh, never a cached answer from before a new sign-in (round 3 made it its own run).
+- Stale comments corrected (grokaccounts, openaiaccounts, codexsigninlive, the page's #2568 and Check now notes, the
+  badge check, server.js).
+- Deferred: a Grok row greened by the free check (or Claude's Check now) shows the observed-request title ("an
+  observed outcome, not a probe"); the check writes the same dir store as Claude's #3136 Check now, which has the
+  same wording. Fixing the title for both needs the store to carry where a result came from: follow-up.
+
+## Review round 3 (Sonnet), what changed
+- WARNING: Check now could join a check that opening the list had started against the sign-in from before the person
+  fixed it, and answer from that (up to 20s stale). Check now now runs its own check (codexsigninlive.livenessNow;
+  grokaccounts.subscriptionLiveOnce), never joined to one in flight. Tested with a gated older run (bounded, so the
+  old behaviour fails rather than hangs); invalidate() removed as unused.
+- NIT: a branch in the Grok overlay that could not fire (a live answer is recorded, so never reaches it) removed.
+
+## Review round 4 (Opus), what changed
+- BLOCKER: server.openai-badge-2413.test.js reset to the REAL codex runner, and the list now starts a check, so the
+  file ran `codex doctor` against chatgpt.com with a fake token. It now sets a no-report runner after each reset.
+  Measured with a logging codex stub: 5 doctor runs without the fix (control), 0 with it, across the eight server
+  suites that read /api/accounts.
+- A stale list check can no longer overwrite a newer answer (each run carries its start and generation; a reset stops
+  old runs writing). Check now with no answer leaves a fresh green or red as it was. Each tested and perturbed red.
+- Grok: definite answers kept 30s per folder and key (the follow-up reads no longer ask xAI each time); Check now
+  bypasses and refreshes that. The expired-key title keys on a structured `liveVerdict`, not a sentence match.
+- Busy means a Check now in flight or a half-pressed confirm, not focus alone (a button kept focus after its answer
+  and the row kept saying "checking"). One helper, one scheduler.
+- Premise (#3391), measured: `codex doctor` did not rotate this Mac's ChatGPT token (auth.json last_refresh
+  unchanged at 2026-09-25T03:00Z after a doctor run on 09-26). Caveat: that token was days from expiry; a token near
+  expiry was not measured, and the agent-probe path (codexauthprobe) already runs doctor for homes with agents.
+
+## Review round 5 (Sonnet)
+- WARNING: server.grok-subscription-3391.test.js signs in to Grok and reads /api/accounts with no fetcher stub; safe
+  only because its fixture has no key. It now answers every check itself, so a fixture that grows a key cannot reach
+  xAI. (Round 4's codex stub measurement showed every other suite that reads the route either stubs or has no such
+  account; this reviewer re-audited them.)
+
+## Review round 6 (Opus), what changed
+- A follow-up read no longer wipes the message line (it blanked a "Removed ..." sentence 3.5s later), and a failed
+  follow-up keeps the list the person is looking at. Both in the badge check, both red when reverted.
+- A kept Grok answer is recorded at the time it was learned (it was re-dated on every read, so it could hide a newer
+  agent 401 for up to 30s). Tested, red when reverted.
+- A newer "no answer" no longer blocks an older run's real live or dead. Tested, red when reverted.
+- A dead ChatGPT verdict from Check now that is newer than an agent's success wins (round 7: codexsigninlive.deadIsNewer,
+  unit-tested; its one call in the OpenAI overlay is pinned in the source, comments stripped, since the route test
+  cannot tie an observed agent to an account).
+- A follow-up rebuild puts keyboard focus back on the same control (found again by its data-* attribute).
+- Stale "muted" comments now say amber; the badge check's busy arm is described as what it tests.
+- Deferred NITs: the Check now route's forgetDir has no test of its own (the repaint's list read does the same);
+  the `.armed` half of acctListBusy has no test.
+
+## Review round 7 (Sonnet), what changed
+- The Grok check no longer holds /api/accounts for up to 8s: the read waits at most GROK_CHECK_WAIT_MS (1.5s), then
+  the row says it is checking and the bounded follow-up reads pick up the answer (concurrent reads share the request,
+  the answer is kept 30s). Tested with a 700ms xAI (read under 600ms, next read green, xAI asked once).
+- The Check now button leads with its unique data-check-dir, so focus restoration cannot land on another row's button
+  of the same kind.
+- deadIsNewer unit-tested, and its call pinned (see round 6). Each perturbed red.
+
+## Review round 8 (Opus), what changed
+- A Grok answer that arrived DURING the wait was dated after the read's clock (nowMs), so it read as not fresh and a
+  confirmed sign-in painted amber with no follow-up read: exactly the card's complaint. Grok rows are now judged at
+  the time after the wait. Tested with answers at 0/60/120ms inside a 200ms wait (120ms was red on the old clock).
+- A Grok check under way does not point its title at Check now (badge check arm). Comments say "a sign-in" (ChatGPT or
+  Grok) for the follow-up reads.
+- Deferred NIT: the Grok answer cache keeps one entry per renewed key (a few a day per account).
+
+## Review round 9 (Sonnet), what changed
+- A row that was green from an observation AND still being checked lost its liveCheckPending in the overlay merge, so
+  the page stopped reading again and a newer dead answer could not reach it. Both overlays now keep the flag (Grok
+  tested with a fresh earlier green plus a slow check, red when reverted; OpenAI's is the same one-line merge from
+  base.connection, not driven by a test here for the reason in round 6).
+- The unused codexsigninlive.cachedAt is removed; the Check now button's kind attribute is escaped like the rest.
+
+## Review round 10 (Opus), what changed
+- BLOCKER (mine): server.livecheck-3997.test.js listed an OpenAI API-key account whose check reached the real OpenAI
+  models endpoint (20 requests a run, with a fake key). Its fetcher is now stubbed. Measured with a preload that logs
+  every non-local request: 0 across this file and server.grok-subscription-3391.test.js; 20 with the stub removed.
+- server.grok-subscription-3391.test.js restores its 401 stub after a test instead of clearing it.
+- A follow-up read looks at "busy" again after its fetch (a Check now pressed while it was reading was replaced by a
+  fresh, enabled button). Badge check arm, red without the second look.
+- Deferred NIT: a slow shared Grok list check can replace a newer Check now answer when it finishes; both are real
+  answers for the same key.
+
+## Review rounds 11 (Sonnet) and 12 (Opus), what changed
+- REVERSED the earlier deferral that a slow shared Grok list check may replace a newer Check now answer: round 11
+  showed it repaints the wrong badge for up to 30s right after Check now. A Grok check that finishes after a newer
+  one now neither overwrites it nor reports its own older answer, and a reset stops old runs. Tested, red when reverted.
+- A Grok refusal newer than an agent's success now drops that success (grokaccounts.refusalIsNewer, the sibling of
+  codexsigninlive.deadIsNewer): the row falls to amber, never red. Unit-tested, and its call pinned in the source.
+  Both red when perturbed.
+- The Grok in-flight entry is cleared only by the run that set it.
+- Deferred (round 12): a ChatGPT sign-in with no agent can turn red on a doctor "dead"; this rests on the premise
+  above (doctor near expiry was not measured), which the agent-probe path already relies on. What would change it:
+  a measured doctor run against an expired access token that reports dead while codex itself would renew.
+- Deferred (round 12, already deferred above): a probe-greened Grok row shows the observed-request title.
+- Deferred NITs: in-flight keyed by folder not key (a renewal mid-check joins the old key's check; the next read asks
+  again); injected nowMs vs Date.now() in codexsigninlive's newer-answer guard (test-only callers pass nowMs);
+  livenessNow (Check now) writes over a list check that started after it (intended: Check now is what was asked).
+
+## Decided
+- Pill text stays a short "Signed in" (Josh 6.68, #3136); the reason is in the title.
+- A 401 from Grok is "not confirmed" (amber), never red: grok may renew the key on its next run.
+- No timer: /api/accounts is person-paced by design.
+- Claude: no free check measured, so its Check now stays the paid `claude -p`; follow-up.
+
+## Rejected
+- Running `grok models` to renew an expired key (it rotates the refresh token under a running grok; #3391 rules it out).
+- Awaiting the ChatGPT handshake in the read (#1921).
+- Codex `GET /wham/usage` instead of the existing handshake: the handshake is already the tested check.
+
+## Weakest premise
+- The Grok models URL is the CLI's own route, not a public API. If it moves, the answer is `unknown`: amber, never red.
+
+## Tests (each perturbed red)
+- engine/grokaccounts.livecheck-3997.test.js: live / refused / expired (never sent) / unknown.
+- server.livecheck-3997.test.js: ChatGPT check started on open without waiting, pending, then green; Grok current
+  key green, expired key unverified with reason and never sent; Check now routes (connected / none / unknown, kind 404).
+- docs/browser-checks/render-account-badge-1921.js: amber class and free Check now per row; follow-up reads until a
+  pending row can say (then green), stopping at the bound, none without a pending row (control), none while a Check
+  now is in flight; Check now's expired and connected answers.
+- web.badge-observed-1921.test.js, web.openai-row-2568.test.js updated to the new vocabulary.
+
+## Validation and review round 14 (Sonnet), what changed
+- Full validation found two guards this branch broke that no single-file round ran: engine.reachable (the Grok
+  check's test seam, now excused by name with its reason) and web.account-qualifier #1659 (it looked for
+  "paintAccounts()" and found nothing once the function took opts; it now matches any parameter list, and every
+  writer to the message line still cancels first).
+- Round 14: a ChatGPT check that finished during the same read (while the Grok check held it) still said "checking",
+  because "running" was recorded before the wait. It is now judged when the row is drawn: running now, or finished
+  with a real answer the row does not show yet (so the follow-up read shows it). Tested; red on the previous commit.
+- NIT noted: in the minute before a Grok key's margin, Check now is still offered and answers "expired" at once
+  (no request is sent).
+
+## Review round 15 (Opus), what changed
+- A follow-up turn skipped because the list is busy no longer spends a read: it waits under its own cap (60 turns,
+  about 3.5 minutes), in both places that skip (acctFollowUp and paintAccounts). Before, a Check now or a half-armed
+  Disconnect held for about 21 seconds used up the reads and left a row saying "checking" after its check finished.
+  Browser-check arm: busy for longer than every read allows, then released, and a read follows. Red on the previous
+  commit, green now.
+- A duplicated comment line in the badge check removed.
+- Deferred to #4064 (filed): a ChatGPT green lasts only the 30s check cache, so reopening the screen shows amber
+  for one follow-up read; Grok's green lasts the observed window. Recording ChatGPT's live answer as an observation
+  changes how long a green lasts and has its own races, so it gets its own card and review.
+- Deferred NITs: a HEAD request also starts the checks (nothing shows them); the Grok wait's timer is not cleared
+  when the check wins (unref'd, at most 1.5s); livenessNow's clock (noted above).
