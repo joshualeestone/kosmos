@@ -116,6 +116,34 @@ out="$(KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none
   || fail "a kt-sandbox browser-checks fixture refused the run (rc=$rc, out=$out)"
 kill "$kt_fx" "$kt_real" 2>/dev/null; wait "$kt_fx" "$kt_real" 2>/dev/null
 
+# The SCRIPT half of the sandbox rule: cwd /, but the script it runs sits in a kt folder. Its
+# control is the same line with a script path outside any sandbox.
+( cd / && exec sleep 30 ) & kt_script=$!
+sleep 0.3
+printf '#!/bin/sh\nprintf "%s bash %s/tools/release.sh 0.5.99\\n"\n' "$kt_script" "$T/tmp/kt4206" > "$T/probe-kt-script"; chmod +x "$T/probe-kt-script"
+printf '#!/bin/sh\nprintf "%s bash /opt/kosmos/tools/release.sh 0.5.99\\n"\n' "$kt_script" > "$T/probe-plain-script"; chmod +x "$T/probe-plain-script"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-kt-script" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "a release.sh whose SCRIPT is in the run-tests.sh sandbox (cwd /) is not a cut" \
+  || fail "a kt-script fixture refused the cut (rc=$rc, out=$out)"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-plain-script" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && has "$out" "$kt_script"; } && pass "but the same pid running a script outside any sandbox still refuses" \
+  || fail "the script rule also hid a real cut (rc=$rc, out=$out)"
+kill "$kt_script" 2>/dev/null; wait "$kt_script" 2>/dev/null
+
+# #4206 follow-up (Baron): a REAL cut runs from its frozen build tree under TMPDIR,
+# ${TMPDIR}/kosmos-release.<X>/kosmos-<sha> (measured on a 0.7.03 cut, with the double slash macOS
+# TMPDIR produces). That cwd and that script path must never read as a sandbox fixture, including
+# through the rule's "directly under this shell's TMPDIR" branch, so TMPDIR is set to its parent.
+FROZEN="$T/T//kosmos-release.msHOlx/kosmos-aad0d84cd3e8"
+mkdir -p "$FROZEN/tools"
+( cd "$FROZEN" && exec sleep 30 ) & frozen=$!
+sleep 0.3
+printf '#!/bin/sh\nprintf "%s bash %s/tools/release.sh 0.7.03\\n"\n' "$frozen" "$FROZEN" > "$T/probe-frozen"; chmod +x "$T/probe-frozen"
+out="$(TMPDIR="$T/T/" KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-frozen" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && has "$out" "$frozen"; } && pass "a real cut running from its frozen build tree under TMPDIR still refuses, and is named" \
+  || fail "a REAL cut's frozen build tree was dropped as a fixture (rc=$rc, out=$out)"
+kill "$frozen" 2>/dev/null; wait "$frozen" 2>/dev/null
+
 # --- #1713: the MIRROR guard, kosmos_refuse_if_harness_live, shown red, green,
 # --- and unable to answer via its own KOSMOS_HARNESS_PROBE seam. Reuses the
 # --- probe-quiet/probe-dead fixtures above (exit 1 / exit 3 are guard-agnostic).

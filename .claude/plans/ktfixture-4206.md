@@ -20,8 +20,9 @@ heavy-gate would already drop it. Two points follow up (1 and 4 of #4219, rebase
   in the sandbox. An unreadable cwd is not a fixture.
 - tools/heavy-gate.sh: `in_kt_sandbox` delegates to the library. heavy-gate's behaviour is unchanged.
 - tools/lib/cut-guard.sh: `_kosmos_drop_node_test_fixtures` asks `_kosmos_pid_is_test_fixture`
-  (the script word is read in the guard's own line shape). The load-failure stand-in covers the new
-  predicate too, so a missing library still refuses. kosmos_refuse_if_browser_run_live applies the
+  (the script word is read in the guard's own line shape); renamed `_kosmos_drop_test_fixtures`
+  since it no longer drops only node fixtures. The load-failure stand-in covers the new predicate too
+  (without it a missing library still refuses, via command-not-found; the stand-in removes the noise). kosmos_refuse_if_browser_run_live applies the
   same filter after its self-subtree exclusion.
 - tools/test-cut-guard.sh, in #4211's style (live sleeps through the probe seams, nothing
   pgrep-visible named release.sh or browser-checks.sh):
@@ -30,14 +31,22 @@ heavy-gate would already drop it. Two points follow up (1 and 4 of #4219, rebase
   - on the browser guard: a node --test fixture and a kt fixture are not runs, and the same candidate
     with no ancestry still refuses. The browser guard's self pid is one that does not exist, so
     self-exclusion cannot be what drops a candidate.
+  - the SCRIPT half: a pid whose script is in a kt folder (cwd /) is not a cut, and the same pid with a
+    script outside any sandbox still refuses.
+  - a REAL cut running from its frozen build tree, ${TMPDIR}/kosmos-release.<X>/kosmos-<sha> (Baron,
+    measured on the 0.7.03 cut), with TMPDIR set to its parent, still refuses and is named.
 
 ## Evidence
 
-- test-cut-guard.sh: 0 failures. heavy-gate tests: 39/0. test-browser-run-guard.sh: all clear.
+- test-cut-guard.sh: 0 failures. heavy-gate tests: 39 pass, 0 fail, 1 opt-in live test skipped.
+  test-browser-run-guard.sh: all clear.
 - Mutations:
   - kt cwd check dropped: the two kt arms go red.
   - browser guard filter dropped: the two browser fixture arms go red.
   - every pid a fixture: the negative controls and the pre-existing refusal arms go red (9 failures).
+  - the script check dropped: the kt-script arm goes red.
+  - the sandbox rule widened to any child of TMPDIR: the frozen-build-tree arm goes red (a real cut
+    dropped), which is the mistake that arm exists to catch.
 
 ## Weakest premise
 

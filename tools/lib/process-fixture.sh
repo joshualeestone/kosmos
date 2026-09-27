@@ -1,5 +1,6 @@
 # Shared process classification for guards that must distinguish a real heavy
-# run from a shell fixture launched by Node's test runner (#4206).
+# run from a unit-test fixture (#4206): a shell launched by Node's test runner, or
+# one running in tools/run-tests.sh's kt<digits> sandbox.
 
 # True only when the command itself is a Node test runner. A shell command that
 # mentions `node --test`, an app flag such as --test-endpoint, and a --test flag

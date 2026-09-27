@@ -65,7 +65,7 @@ _kosmos_drop_self_subtree() {
 # Read `pid cmdline` lines and remove only proven unit-test fixtures: a node --test ancestor, or
 # a cwd or script in the run-tests.sh sandbox (the same rule heavy-gate uses). An unreadable pid
 # stays in the list, which preserves the guard's refuse-rather-than-guess posture.
-_kosmos_drop_node_test_fixtures() {
+_kosmos_drop_test_fixtures() {
   local line pid script re='^[0-9]+ +(/bin/)?(ba)?sh +(([^ ]*/)?tools/(release|browser-checks)\.sh)( |$)'
   while IFS= read -r line; do
     [ -n "$line" ] || continue
@@ -266,11 +266,12 @@ kosmos_refuse_if_cut_live() {
     out="$(printf '%s\n' "$out" | grep -v -E "^${self} " || true)"
   fi
   # #4206: release gate tests execute real tools/release.sh fixtures, so their
-  # command is intentionally indistinguishable from a cut. Ignore only a
-  # candidate whose ancestor chain proves it belongs to `node --test`. This is
-  # the same classifier heavy-gate uses; unresolved ancestry remains counted.
+  # command is intentionally indistinguishable from a cut. Drop a candidate that is a
+  # proven unit-test fixture: a node --test ancestor, or a cwd or script in run-tests.sh's
+  # kt<digits> sandbox (tools/lib/process-fixture.sh, the rule heavy-gate uses). An
+  # unreadable pid stays counted.
   if [ -n "$out" ]; then
-    out="$(printf '%s\n' "$out" | _kosmos_drop_node_test_fixtures || true)"
+    out="$(printf '%s\n' "$out" | _kosmos_drop_test_fixtures || true)"
   fi
   if [ "$rc" -ge 2 ]; then
     echo "could not tell whether a cut is running (the probe exited $rc); refusing to guess for $what. KOSMOS_HARNESS_IGNORE_CUT=1 runs anyway." >&2
@@ -330,7 +331,7 @@ kosmos_refuse_if_browser_run_live() {
   # #4206 follow-up: a unit test's browser-checks.sh fixture is not a run, by the same rule as
   # the cut guard's. An unreadable pid stays in.
   if [ -n "$out" ]; then
-    out="$(printf '%s\n' "$out" | _kosmos_drop_node_test_fixtures || true)"
+    out="$(printf '%s\n' "$out" | _kosmos_drop_test_fixtures || true)"
   fi
   if [ "$rc" -ge 2 ]; then
     echo "could not tell whether another browser run is live (the probe exited $rc); refusing to guess for $what. KOSMOS_HARNESS_IGNORE_CUT=1 runs anyway." >&2
