@@ -26,7 +26,10 @@ removal, and shows each answer. A fresh preview or a closed panel drops it.
 
 ## Weakest part
 The claim "a pre-existing agent can never be in created[]" rests on createAgent's name-taken
-guard, which I read but did not re-test here; the browser check mocks /api/team. What would
+guard. It is pinned by engine tests, not by this branch: engine/create.test.js "an existing agent
+is never quietly overwritten", "a name a live session already answers to is refused, even with no
+folder", and "#1279: a member whose slug already exists is refused by name-taken". The browser
+check mocks /api/team, so it proves only that Undo reads created[] and never refused[]. What would
 change my mind: a create path that reports `created` for a name that already existed.
 
 ## Merge
