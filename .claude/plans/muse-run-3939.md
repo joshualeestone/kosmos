@@ -15,3 +15,9 @@ Card #3939. Slice 1 (merged 03bf99deb) finds Muse and reads its version. Splinte
 
 ## Next
 - Slice 3: sign-in state and the provider row, after one signed-in Mac run (Josh approves one device code on the Mortals Mac). Then wiring runTurn into the agent runner.
+
+## Review round 1 (decided)
+- A turn is done only when run.terminal.completed says terminal "completed"; another terminal state is not ok (it read as ok before).
+- Muse runs in its own process group (spawn detached) with input closed and output capped; a timeout stops the whole group, so a launcher that does not exec its binary cannot leave Muse running in the folder. Tested with such a launcher: without the group stop the turn waited for the child to end on its own (the test measures that wait).
+- "Timed out" only when Kosmos stopped it; a crash is "could not run". The not-signed-in words match Muse's singular and plural lines. Too much output is its own sentence.
+- The workspace must be absolute; the symlink resolve is stated as a precaution (only the data folder was measured). The closed-gate test proves nothing ran (a marker file). The refusal log carries <prompt>, never the person's words.

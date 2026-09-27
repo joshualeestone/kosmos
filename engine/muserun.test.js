@@ -41,7 +41,7 @@ test('#3939: turnArgs passes the workspace (real path) on every turn, the sessio
   try { fs.symlinkSync(WORK, link); } catch { /* exists */ }
   const t = run.turnArgs({ workspace: link, sessionId: SID, prompt: '-x looks like a flag' });
   assert.equal(t.error, undefined, JSON.stringify(t));
-  assert.equal(t.workspace, fs.realpathSync(WORK), 'the workspace was not resolved through the symlink (Muse refuses one)');
+  assert.equal(t.workspace, fs.realpathSync(WORK), 'the workspace was not resolved through the symlink (a precaution: Muse refused a data folder through one)');
   const a = t.args;
   assert.deepEqual(a.slice(0, 2), ['exec', '--json']);
   assert.equal(a[a.indexOf('--workspace') + 1], t.workspace);
@@ -56,6 +56,7 @@ test('#3939: turnArgs refuses what Kosmos will not hand Muse', () => {
   assert.match(run.turnArgs({ workspace: WORK, sessionId: 'not-a-uuid', prompt: 'hi' }).error, /session id/);
   assert.match(run.turnArgs({ workspace: WORK, sessionId: SID, prompt: 'hi', approvalMode: 'yolo' }).error, /approval mode/);
   assert.match(run.turnArgs({ workspace: path.join(SANDBOX, 'nowhere'), sessionId: SID, prompt: 'hi' }).error, /not there/);
+  assert.match(run.turnArgs({ workspace: 'agent-folder', sessionId: SID, prompt: 'hi' }).error, /not there/, 'a relative folder was taken (round 1)');
   const file = path.join(SANDBOX, 'a-file'); fs.writeFileSync(file, 'x');
   assert.match(run.turnArgs({ workspace: file, sessionId: SID, prompt: 'hi' }).error, /not a folder/);
 });
@@ -73,6 +74,10 @@ test('#3939: parseEvents reads the session, the model, the answer and whether th
   assert.equal(cut.text, 'Appended the line.', 'the deltas were not joined when there is no final answer');
   assert.equal(cut.unreadable, 1, 'a line that is not JSON was not counted');
   assert.deepEqual(run.parseEvents(''), { sessionId: null, model: null, text: '', done: false, terminal: null, events: 0, unreadable: 0 });
+  // Round 1: a terminal event that is not "completed" is not a finished turn.
+  const failed = run.parseEvents(TURN.split('\n').slice(0, 4).join('\n') + '\n' + ev(90, 'run.terminal.completed', { kind: 'run_terminal_completed', terminal: 'failed', reason: 'x' }));
+  assert.equal(failed.done, false, 'a failed run read as done');
+  assert.equal(failed.terminal, 'failed');
 });
 
 test('#3939: runTurn runs the launcher it found, in the agent\'s folder, and reports a finished turn', { skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
@@ -98,6 +103,15 @@ test('#3939: runTurn says why in words: a busy session, no sign-in, a turn that 
     fakeMuse('echo "missing meta credentials: run muse login or set META_API_KEY" >&2\nexit 1');
     r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
     assert.match(r.because, /not signed in/);
+    fakeMuse('echo "missing meta credential in /x/auth.json: run muse login" >&2\nexit 1');   // Homer's singular line
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.match(r.because, /not signed in/, 'the singular credential line was not read as not signed in');
+    fakeMuse('kill -SEGV $$');
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.because, run.COULD_NOT_RUN, 'a crash was reported as a timeout (round 1)');
+    fakeMuse('cat > /dev/null\ncat "' + path.join(SANDBOX, 'turn.jsonl') + '"');   // reads its input to the end
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.ok, true, 'a Muse that reads its input waited on it (input must be closed, round 1)');
     fakeMuse("echo '" + TURN.split('\n')[2] + "'");   // a delta, then exit 0 with no terminal event
     r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
     assert.equal(r.ok, false, 'an exit 0 with no finished turn read as ok');
@@ -117,16 +131,39 @@ test('#3939: a turn that ignores TERM is stopped by SIGKILL at the timeout', { t
   } finally { gate.resetForTests(); run.resetForTests(); }
 });
 
-test('#3939: runTurn never hangs or rejects: no answer at all, a closed gate, nothing installed', { timeout: 5000 }, async () => {
-  fakeMuse('exit 0');
+test('#3939: runTurn never hangs or rejects: no answer at all, a closed gate, nothing installed', { timeout: 5000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
+  const marker = path.join(SANDBOX, 'ran.txt');
+  fakeMuse('touch "' + marker + '"\nexit 0');
   run.setForTests({ runMuse: () => { /* never calls back */ }, hardCapMs: 200 });
   let r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
-  assert.match(r.because, /did not finish the turn in time/);
+  assert.equal(r.because, run.TIMED_OUT);
   run.resetForTests();
   gate.resetForTests();
-  r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });   // gate closed: nothing runs
+  fs.rmSync(marker, { force: true });
+  r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });   // gate closed
   assert.equal(r.ok, false);
+  assert.equal(fs.existsSync(marker), false, 'with the gate closed, muse ran anyway (round 1)');
   fs.rmSync(path.join(SANDBOX, '.local'), { recursive: true, force: true });
   r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
   assert.match(r.because, /not on this computer|not wired up/);
+});
+
+test('#3939 round 1: at the timeout, what the launcher started is stopped too (its own process group)', { timeout: 8000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
+  const pidFile = path.join(SANDBOX, 'child.pid');
+  fakeMuse('sleep 6 &\necho $! > "' + pidFile + '"\nwait');   // a launcher that does NOT exec its binary
+  run.setForTests({ turnTimeoutMs: 300, hardCapMs: 20000 });
+  gate.allowLiveExecution();
+  try {
+    const t0 = Date.now();
+    const r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    // Without the group stop, the child holds the output open and the turn waits for it to end on its own.
+    assert.ok(Date.now() - t0 < 3000, 'the turn waited ' + (Date.now() - t0) + ' ms on a child the launcher started');
+    assert.equal(r.because, run.TIMED_OUT);
+    const pid = Number(fs.readFileSync(pidFile, 'utf8').trim());
+    await new Promise((res) => setTimeout(res, 200));
+    let alive = true;
+    try { process.kill(pid, 0); } catch { alive = false; }
+    if (alive) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }   // only the PID this test started
+    assert.equal(alive, false, 'the launcher\'s child kept running after the timeout');
+  } finally { gate.resetForTests(); run.resetForTests(); }
 });

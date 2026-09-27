@@ -10,8 +10,8 @@
  *     "session"; `run.model.configured` names the model (payload.model_id).
  *   - A session is pinned to its workspace: a turn without `--workspace` refuses to resume. So every
  *     turn passes `--workspace`.
- *   - Muse refuses a data or workspace path that runs through a symlink (/tmp on macOS is one), so
- *     the workspace is resolved to its real path first.
+ *   - Muse refused a data folder whose path ran through a symlink (/tmp on macOS is one); the
+ *     workspace is resolved to its real path first as a precaution (only the data folder was measured).
  *   - Two turns on one session at once: the second exits 1 ("already in use"). Different sessions
  *     run side by side.
  *   - `muse exec` writes a session register in the REAL ~/Library/Application Support/Muse whatever
@@ -21,7 +21,8 @@
  * its timeout, and has a hard-cap timer of its own, so runTurn() never hangs and never rejects.
  */
 const fs = require('node:fs');
-const { execFile } = require('node:child_process');
+const path = require('node:path');
+const { spawn } = require('node:child_process');
 const musestatus = require('./musestatus');
 
 /* A coding turn can take minutes (Homer's measured turns: 25 to 47 s). Past this, Kosmos stops it. */
@@ -34,6 +35,7 @@ const TURN_MAX_BUFFER = 16 * 1024 * 1024;
 const APPROVAL_MODES = Object.freeze(['untrusted', 'on-request', 'never']);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const COULD_NOT_RUN = 'Kosmos could not run Muse Code just now';
+const TIMED_OUT = 'Muse Code did not finish the turn in time';
 
 /**
  * The arguments for one turn, or { error } when an input is not one Kosmos will hand Muse.
@@ -47,8 +49,10 @@ function turnArgs({ workspace, sessionId, prompt, approvalMode } = {}) {
   if (!UUID_RE.test(String(sessionId || ''))) return { error: 'the session id is not one Muse takes' };
   const mode = approvalMode || 'on-request';
   if (!APPROVAL_MODES.includes(mode)) return { error: 'that approval mode is not one Muse takes' };
+  // Absolute only (round 1): a relative path would resolve against the board's own folder.
+  if (typeof workspace !== 'string' || !path.isAbsolute(workspace)) return { error: 'the agent\'s folder is not there' };
   let real;
-  try { real = fs.realpathSync(String(workspace || '')); } catch { return { error: 'the agent\'s folder is not there' }; }
+  try { real = fs.realpathSync(workspace); } catch { return { error: 'the agent\'s folder is not there' }; }
   try { if (!fs.statSync(real).isDirectory()) return { error: 'the agent\'s folder is not a folder' }; } catch { return { error: 'the agent\'s folder is not there' }; }
   return {
     args: ['exec', '--json', '--workspace', real, '--session-id', String(sessionId), '--approval-mode', mode,
@@ -76,9 +80,10 @@ function parseEvents(jsonl) {
     if (ev.payload_type === 'run.model.configured' && typeof p.model_id === 'string') out.model = p.model_id;
     else if (ev.payload_type === 'run.output.delta' && typeof p.text === 'string') deltas += p.text;
     else if (ev.payload_type === 'run.terminal.completed') {
-      out.done = true;
-      if (typeof p.text === 'string') out.text = p.text;
       if (p.terminal !== undefined) out.terminal = p.terminal;
+      // Finished only when Muse says the run COMPLETED (round 1): another terminal state is not done.
+      out.done = p.terminal === 'completed';
+      if (out.done && typeof p.text === 'string') out.text = p.text;
     }
   }
   if (!out.text) out.text = deltas;
@@ -87,10 +92,32 @@ function parseEvents(jsonl) {
 
 let runMuse = (bin, args, opts, done) => {
   const gate = require('./live-execution');
-  if (!gate.liveExecutionAllowed()) { gate.refuseOrWarn('muserun', bin, args); done(new Error('live execution is off')); return; }
-  // SIGKILL at the timeout (a launcher that ignores TERM would keep the turn waiting); env passed through untouched.
-  execFile(bin, args, { cwd: opts.cwd, timeout: turnTimeoutMs, killSignal: 'SIGKILL', maxBuffer: TURN_MAX_BUFFER, encoding: 'utf8' },
-    (err, stdout, stderr) => done(err, stdout, stderr));
+  // The prompt is the person's words: never in a log line (round 1).
+  if (!gate.liveExecutionAllowed()) { gate.refuseOrWarn('muserun', bin, args.slice(0, -1).concat('<prompt>')); done(new Error('live execution is off')); return; }
+  /* Round 1: its own process group (detached), so a timeout stops the launcher AND anything it started
+     (a launcher that does not exec its binary would otherwise leave Muse editing the folder); input
+     closed, as in every research run; output capped. The environment passes through untouched. */
+  let child;
+  try { child = spawn(bin, args, { cwd: opts.cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'] }); }
+  catch (e) { done(e); return; }
+  let out = ''; let err = ''; let over = false; let killed = false; let finished = false;
+  const killGroup = () => { killed = true; try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* gone */ } } };
+  const timer = setTimeout(killGroup, turnTimeoutMs);
+  const take = (which) => (d) => {
+    if (over) return;
+    if (which === 'out') out += d; else err += d;
+    if (out.length + err.length > TURN_MAX_BUFFER) { over = true; killGroup(); }
+  };
+  child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
+  child.stdout.on('data', take('out')); child.stderr.on('data', take('err'));
+  const end = (e) => { if (finished) return; finished = true; clearTimeout(timer); done(e, out, err); };
+  child.on('error', (e) => end(e));
+  child.on('close', (code, signal) => {
+    if (code === 0 && !killed) { end(null); return; }
+    const e = new Error('muse exited ' + (code === null ? 'on ' + signal : code));
+    e.code = code; e.signal = signal; e.killed = killed; e.overflow = over;
+    end(e);
+  });
 };
 
 /**
@@ -102,7 +129,7 @@ function runTurn(input) {
     let settled = false;
     const finish = (r) => { if (settled) return; settled = true; clearTimeout(cap); resolve(r); };
     const fail = (because) => finish({ ok: false, exitCode: null, sessionId: null, model: null, text: '', done: false, because });
-    const cap = setTimeout(() => fail('Muse Code did not finish the turn in time'), hardCapMs);
+    const cap = setTimeout(() => fail(TIMED_OUT), hardCapMs);
     if (cap.unref) cap.unref();
     try {
       const inst = musestatus.installed();
@@ -114,8 +141,11 @@ function runTurn(input) {
         const exitCode = err ? (typeof err.code === 'number' ? err.code : null) : 0;
         let because = null;
         if (err && /already in use/.test(String(stderr || ''))) because = 'Muse Code is still working on this agent\'s last turn';
-        else if (err && /missing meta credentials/.test(String(stderr || ''))) because = 'Muse Code is not signed in on this computer';
-        else if (err && (err.killed || err.signal)) because = 'Muse Code did not finish the turn in time';
+        // Singular and plural both appear in the captures (round 1).
+        else if (err && /missing meta credential/.test(String(stderr || ''))) because = 'Muse Code is not signed in on this computer';
+        else if (err && err.overflow) because = 'Muse Code said more than Kosmos reads in one turn';
+        // Timed out only when Kosmos stopped it (round 1): another signal is a crash, not a timeout.
+        else if (err && err.killed) because = TIMED_OUT;
         else if (err) because = COULD_NOT_RUN;
         else if (!parsed.done) because = 'Muse Code stopped before finishing the turn';
         finish({ ok: !err && parsed.done, exitCode, sessionId: parsed.sessionId, model: parsed.model, text: parsed.text, done: parsed.done, because });
@@ -136,4 +166,4 @@ function setForTests(o) {
 }
 function resetForTests() { runMuse = REAL.runMuse; turnTimeoutMs = TURN_TIMEOUT_MS; hardCapMs = TURN_HARD_CAP_MS; }
 
-module.exports = { turnArgs, parseEvents, runTurn, APPROVAL_MODES, TURN_TIMEOUT_MS, TURN_HARD_CAP_MS, setForTests, resetForTests };
+module.exports = { turnArgs, parseEvents, runTurn, APPROVAL_MODES, TURN_TIMEOUT_MS, TURN_HARD_CAP_MS, TIMED_OUT, COULD_NOT_RUN, setForTests, resetForTests };
