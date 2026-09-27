@@ -2721,7 +2721,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    .dbody), so a plain viewport media query never fires there -- the exact trap the
    predecessor cards documented. The table+donut row (.tv-wtr) needs more than 544px
    side by side, so it keys off the container instead. */
-#s-sec-usage { container-type: inline-size; }
+#s-sec-usage { container-type: inline-size; container-name: usage; }
 .tv-days { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 clamp(16px,3vw,24px); }
 .tv-dnum { display: flex; gap: 4px; }
 .tv-dbox { font: 700 clamp(16px,2.7vw,22px)/1.2 var(--font-mono); color: var(--gold); text-align: center; }
@@ -2759,12 +2759,21 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 @media (max-width: 520px) { .tv-stats3 { grid-template-columns: 1fr; row-gap: clamp(8px,1.8vw,16px); } .tv-sbox { display: flex; flex-direction: column; grid-row: auto; } }
 /* charts4: the four per-class daily line charts (small multiples). */
 .tv-charts4 { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(10px,2vw,18px); margin-top: 20px; }
-@media (max-width: 560px) { .tv-charts4 { grid-template-columns: 1fr; } }
+/* #4242: one column once the usage section is 540px or narrower, not at a viewport width. Measured with a
+   wide total (999.9M and 99.9%): a 238px card fits its header (the section's capped 544px) and a name wraps
+   in a 226px card (a 513px section, a 561px window, which the old 560px viewport query left two-up).
+   Named, so a container added between them (.dbox is shared by every Settings section) cannot move it. */
+@container usage (max-width: 540px) { .tv-charts4 { grid-template-columns: 1fr; } }
 .tv-mini { border: 1px solid var(--k-rule); border-radius: 14px; padding: 14px 16px; background: var(--k-bg); }
+/* #4242: the tag sits on its own line under the name, and the total never wraps, so every card's
+   header is the same two lines in the two-column layout (a tag inline beside the name wrapped
+   "Cache reads context ingested" to three lines beside its number, while Input fit on one).
+   The total has no break opportunity today (the number and its share are adjacent, no space), so
+   nowrap is inert on this markup, measured; it keeps a future space between them from wrapping. */
 .tv-mini .tv-mh { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .tv-mini .tv-nm { font: 600 .875rem var(--font-ui); color: var(--k-ink); }
-.tv-mini .tv-tg { color: var(--k-ink-2); font-weight: 400; font-size: .75rem; margin-left: 7px; }
-.tv-mini .tv-tot { font: 700 .875rem var(--font-mono); font-variant-numeric: tabular-nums; color: var(--k-ink); }
+.tv-mini .tv-tg { display: block; color: var(--k-ink-2); font-weight: 400; font-size: .75rem; margin-top: 2px; }
+.tv-mini .tv-tot { font: 700 .875rem var(--font-mono); font-variant-numeric: tabular-nums; color: var(--k-ink); white-space: nowrap; }
 .tv-mini .tv-pc { color: var(--k-ink-2); font-weight: 500; margin-left: 6px; }
 .tv-mini svg { width: 100%; height: auto; display: block; }
 /* per-model table + donut, side by side (design .wtr). */
