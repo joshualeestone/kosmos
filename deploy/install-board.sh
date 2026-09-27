@@ -228,7 +228,7 @@ say "app files that would be installed:"
 say "  server.js, package.json"
 say "  engine/*.js excluding *.test.js"
 say "  web/ (whole)"
-say "  bin/agent-supervisor.sh, bin/codex-report-bridge.js, bin/gemini-report-bridge.js, bin/grok-report-bridge.js, bin/board-watchdog.sh"
+say "  bin/agent-supervisor.sh, bin/codex-report-bridge.js, bin/gemini-report-bridge.js, bin/grok-report-bridge.js, bin/agy-report-bridge.js, bin/board-watchdog.sh"
 say "  assets/Kosmos.icns when present"
 echo
 
@@ -262,6 +262,10 @@ stage_app() {
   # test-board-deploy-manifest.sh requires deploy and the release bundle to match.
   cp "$REPO/bin/grok-report-bridge.js" "$_d/bin/" || return 1
   chmod +x "$_d/bin/grok-report-bridge.js"
+  # #4043: the agy report bridge; installSupervisor copies it at every board start, so a board
+  # staged without it would refuse every agent creation (the missing-file path names it).
+  cp "$REPO/bin/agy-report-bridge.js" "$_d/bin/" || return 1
+  chmod +x "$_d/bin/agy-report-bridge.js"
   if [ -f "$REPO/assets/Kosmos.icns" ]; then
     mkdir -p "$_d/assets" && cp "$REPO/assets/Kosmos.icns" "$_d/assets/" || return 1
   fi
