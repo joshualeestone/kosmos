@@ -244,11 +244,19 @@ following a link there from the sign-in page would show Chrome's URL bar.
 So the sign-in page hands the address to the app instead. When it runs inside this
 app and the person taps "Open my Kosmos", it gets its usual short-lived handoff token
 and navigates to an `intent://` link for this package (scheme `kosmos-open`, extras
-`address`, `addresses`, `kst`, `nonce`). `OpenAddressActivity` receives it and launches a new
+`address`, `addresses`, `kst`, `nonce`, and `agent` after a notification tap).
+`OpenAddressActivity` receives it and launches a new
 TWA at `https://<name>.kosmosplus.com/#kst=<token>` with
 `setAdditionalTrustedOrigins` listing that address (and the account's other valid
 addresses). Chrome then verifies each one against its own
 `/.well-known/assetlinks.json`, which every Mac serves since kosmos-relay #161.
+
+After a notification tap (#4171) the page also passes `agent`, the session id of the agent the
+notification was about, and the app opens the board's agent deep link instead,
+`https://<name>.kosmosplus.com/?tab=detail&agent=<session>#kst=<token>`, the same link web push and
+the iOS app open. The app checks the session against the same rule as `web/sw.js` `TAP_SESSION`
+(`^[a-z0-9][a-z0-9_-]{0,63}$`). One that fails is dropped and the board home opens: a bad agent
+never refuses the address. To try it by hand, add `--es agent <session>` to the `am start` below.
 
 Any web page or app can fire that intent, so the app binds it to its own launch:
 `KosmosLauncherActivity` puts a fresh per-launch nonce in the sign-in page's launch
