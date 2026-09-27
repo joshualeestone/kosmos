@@ -6,8 +6,9 @@
    engine/logstamp.js. */
 if (require.main === module) {
   const logstamp = require('./engine/logstamp');
-  logstamp.install(process.stdout, 1);
-  logstamp.install(process.stderr, 2);
+  const shared = logstamp.sameFile(1, 2) ? { atLineStart: true } : undefined;   // both to board.log: one line state
+  logstamp.install(process.stdout, 1, undefined, shared);
+  logstamp.install(process.stderr, 2, undefined, shared);
 }
 
 /**

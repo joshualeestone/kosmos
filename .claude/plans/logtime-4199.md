@@ -19,10 +19,16 @@ inside the board process.
 - server.js, first thing, only when it runs as the board (`require.main === module`): install on stdout (1) and stderr
   (2). At the very top, so even the load-time half-sandbox refusal is stamped.
 
-## Why "only a regular file"
-Every test that spawns the board reads its output through a pipe, and a person running it by hand sees a terminal; both
-are left exactly as they were. board.log under launchd and nohup is a regular file. This targets the file without an env
-switch and without changing any piped reader.
+## Why "only a regular file", and what else that stamps
+board.log under launchd and nohup is a regular file; a person running the board by hand sees a terminal, and the node
+tests that spawn a board read it through a pipe; both are left as they were. Any OTHER file the board's output is sent
+to is stamped too (review 1): tools/browser-checks.sh's fixture `server.log` files. Checked: their readers match text
+without an anchor (wait_up's grep for EADDRINUSE, and its tail); render-thread reads thread-server.js's log, which loads
+server.js as a module, so it is never stamped.
+- stdout and stderr share one line-start state when they are the same file (same device and inode), so a line one
+  starts and the other ends is stamped once.
+- A string written in another encoding (hex, base64) goes through untouched; Buffer writes are decoded with a
+  StringDecoder, so a character split across writes stays whole.
 
 ## Rejected
 - Stamping only class1-autohandle / restart lines (the card's minimum): the time is useful on every line (the "server
@@ -32,9 +38,9 @@ switch and without changing any piped reader.
   the board normally runs.
 
 ## Weakest part
-stdout and stderr share the file but track their own line start. If one writes half a line and the other writes before
-it ends, a time can land mid-line. Lines are written whole almost everywhere, so this is rare and only cosmetic. Node's
-own fatal crash trace is written below process.stderr.write, so it is not stamped.
+Output that does not go through process.stdout/stderr.write carries no time: Node's own fatal crash trace, and child
+processes that inherit the board's stderr (engine/remote.js spawns with stdio 'inherit'). Such a line can also split a
+stamped line. A person reading board.log should expect the odd unstamped line.
 
 ## What would change my mind
 A reader of board.log that matches a line from its start (`^...`). None was found (grep for board.log readers: tests read

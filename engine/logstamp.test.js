@@ -82,5 +82,51 @@ test('#4199 server.js installs the stamp first, for stdout and stderr, only when
   const at = src.indexOf("require('./engine/logstamp')");
   assert.ok(at > 0, 'server.js does not install logstamp');
   assert.ok(src.indexOf('require(', 0) >= at || src.slice(0, at).indexOf("require('") === -1, 'something is required (and could write) before the stamp is installed');
-  assert.match(src.slice(0, at + 300), /if \(require\.main === module\) \{\s*const logstamp = require\('\.\/engine\/logstamp'\);\s*logstamp\.install\(process\.stdout, 1\);\s*logstamp\.install\(process\.stderr, 2\);/);
+  const block = src.slice(src.lastIndexOf('if (require.main === module)', at), at + 600);
+  assert.ok(block.startsWith('if (require.main === module)'), 'the stamp is not inside the board-only guard');
+  assert.match(block, /logstamp\.install\(process\.stdout, 1\b/, 'stdout is not stamped');
+  assert.match(block, /logstamp\.install\(process\.stderr, 2\b/, 'stderr is not stamped');
+  assert.match(block, /logstamp\.sameFile\(1, 2\)/, 'stdout and stderr do not share a line state when they are the same file');
+});
+
+function fileStream() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'logstamp-4199-'));
+  const fd = fs.openSync(path.join(dir, 'f'), 'a');
+  const out = [];
+  return { fd, out, s: { write: (t, enc) => { out.push([t, enc]); return true; } }, done: () => { fs.closeSync(fd); fs.rmSync(dir, { recursive: true, force: true }); } };
+}
+
+test('#4199 install: a UTF-8 character split across two Buffer writes stays whole', () => {
+  const f = fileStream();
+  try {
+    logstamp.install(f.s, f.fd, () => new Date(0));
+    const bytes = Buffer.from('é\n');   // c3 a9 0a
+    f.s.write(bytes.subarray(0, 1)); f.s.write(bytes.subarray(1));
+    assert.equal(f.out.map((x) => x[0]).join(''), '1970-01-01T00:00:00.000Z é\n', 'the character came out broken');
+  } finally { f.done(); }
+});
+
+test('#4199 install: a string in another encoding goes through untouched', () => {
+  const f = fileStream();
+  try {
+    logstamp.install(f.s, f.fd, () => new Date(0));
+    f.s.write('68690a', 'hex');
+    assert.deepEqual(f.out, [['68690a', 'hex']], 'a hex write was stamped or re-encoded');
+  } finally { f.done(); }
+});
+
+test('#4199 install: two streams on the SAME file share one line state, so a line one starts and the other ends is stamped once', () => {
+  const f = fileStream();
+  const g = { out: [], s: null };
+  g.s = { write: (t) => { g.out.push(t); return true; } };
+  try {
+    const shared = { atLineStart: true };
+    logstamp.install(f.s, f.fd, () => new Date(0), shared);
+    logstamp.install(g.s, f.fd, () => new Date(0), shared);
+    f.s.write('half ');
+    g.s.write('the rest\n');
+    f.s.write('next\n');
+    assert.deepEqual([f.out[0][0], g.out[0], f.out[1][0]], ['1970-01-01T00:00:00.000Z half ', 'the rest\n', '1970-01-01T00:00:00.000Z next\n']);
+    assert.equal(logstamp.sameFile(f.fd, f.fd), true);
+  } finally { f.done(); }
 });
