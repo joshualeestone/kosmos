@@ -69,8 +69,8 @@ const isPageScoped = (src) => PAGE_SCOPE.test(src.split('\n').slice(0, 5).join('
 
 /* Checks that are red on the runner for a reason that is not the PR's, per the nightly card
    (#3973). Selecting one would turn every page PR that touches it red for someone else's defect,
-   so it is left out and printed as left out. Each entry names why; remove it when the nightly
-   shows it green. */
+   so it is left out and printed as left out, unless the PR edits the check itself: a fix to it
+   has to be able to show green. Each entry names why; remove it when the nightly shows it green. */
 const KNOWN_RED = {
   'render-provider-combobox-1040': '#3973: red on the macos-latest runner, unexplained, passes on a dev Mac',
 };
@@ -176,7 +176,7 @@ function select(diff, changedChecks = []) {
   if (text) selectByPage(diff, text, add);
   const skipped = new Map();
   for (const [n, reason] of Object.entries(KNOWN_RED)) {
-    if (why.has(n)) { skipped.set(n, `${why.get(n).join('; ')} -- LEFT OUT, known red: ${reason}`); why.delete(n); }
+    if (why.has(n) && !why.get(n).includes('changed')) { skipped.set(n, `${why.get(n).join('; ')} -- LEFT OUT, known red: ${reason}`); why.delete(n); }
   }
   why.skipped = skipped;
   return why;

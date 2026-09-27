@@ -36,6 +36,9 @@
 #     own note for the measured allowlist.
 # So a green here is the DOM-STATE gate, NOT full 3b coverage -- see caveat 2 (which
 # checks are and are not headless-viable) and caveat 3 (the trigger leak).
+# #4119: the checks step ALSO runs the checks this PR's page diff selects
+# (tools/bc-pr-select.js), and those can be timing or paint checks. So a green covers the
+# DOM-state gate plus the selected checks, still not full 3b coverage.
 #
 # ADVISORY, like test.yml: kosmos has no required branch protection (a deliberate
 # beta "merge fast" call, #835), so this cannot block a merge. It is the second
