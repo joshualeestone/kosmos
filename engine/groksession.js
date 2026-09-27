@@ -137,6 +137,28 @@ function forWorkdir(dir, home) {
  * mtime when usage is known, null otherwise (see the read() body for why the mtime,
  * not last_active_at); the freshness anchor a future account badge must gate on.
  */
+/**
+ * #4039 follow-up, MEASURED on Grok Build 1.0.41 (grok-4.6, three real turns, 2026-09-26):
+ * contextTokensUsed IS Grok's own context gauge, and once a model call has returned it tracks
+ * the real prompt within 0.3% (40,783 vs 40,922). Before the session's first call returns it
+ * holds a pre-call estimate without the system prompt and tools (2,716 vs a real 40,111), and a
+ * session whose only turn made ONE model call keeps that estimate.
+ * usage.json's per-turn inputTokens is a SUM over the turn's calls (about 2x on a two-call
+ * turn), so it is never occupancy -- EXCEPT when that turn's modelCalls is exactly 1, where it
+ * is that one call's whole prompt. So: take the larger of the two only in that case. Never
+ * throws; any doubt keeps Grok's own figure.
+ */
+function singleCallFloor(used, sessionDir) {
+  if (used == null) return used;
+  try {
+    const u = JSON.parse(fs.readFileSync(path.join(sessionDir, 'usage.json'), 'utf8'));
+    const turns = u && Array.isArray(u.turns) ? u.turns : [];
+    const last = turns[turns.length - 1];
+    if (last && last.modelCalls === 1 && typeof last.inputTokens === 'number' && last.inputTokens > used) return last.inputTokens;
+  } catch { /* no usage.json: Grok's own gauge stands */ }
+  return used;
+}
+
 function read(dir, home) {
   /* NOTE for the status-wiring slice: unlike codexsession/geminisession, this reader
      never returns NO_READING.UNREADABLE. forWorkdir must PARSE summary.json to match
@@ -164,8 +186,8 @@ function read(dir, home) {
     try { signalsMtime = fs.statSync(signalsPath).mtimeMs; } catch { signalsMtime = null; }
   } catch { signals = null; }
   const num = (v) => (typeof v === 'number' ? v : null);
-  const contextUsed = signals ? num(signals.contextTokensUsed) : null;
   const contextWindow = signals ? num(signals.contextWindowTokens) : null;
+  const contextUsed = signals ? singleCallFloor(num(signals.contextTokensUsed), found.dir) : null;
 
   const lastAt = (typeof s.last_active_at === 'string' && s.last_active_at)
     || (typeof s.updated_at === 'string' && s.updated_at) || null;

@@ -8,8 +8,9 @@
  * is CAMELCASE (#[serde(rename_all="camelCase")]), timestamps are RFC3339. That casing
  * split is the whole point of these fixtures -- a reader that read signals in snake_case
  * would return null on every real file while a snake_case fixture passed, so the fixture
- * MUST match the real wire names. Not yet cross-checked against a live captured session
- * (gated on an xAI key); these tests pin the reader against the authoritative struct shape.
+ * MUST match the real wire names. Cross-checked 2026-09-26 against real Grok Build 1.0.41
+ * sessions on Agent1s (#4039): the reader returned contextUsed 2716 / contextWindow 500000,
+ * model grok-4.6, on a copy of an answered session, and the signals.json keys are these.
  *
  * ⚠️ A SANDBOXED GROK HOME, set before the module loads, exactly as the codex/gemini
  * reader tests do -- the real ~/.grok holds the operator's own sessions.
@@ -223,5 +224,31 @@ test('HOME() resolves each override; GROK_HOME is the storage root, NOT parent-a
     if (saved.a === undefined) delete process.env.AGENT_WORKFORCE_GROK_HOME; else process.env.AGENT_WORKFORCE_GROK_HOME = saved.a;
     if (saved.g === undefined) delete process.env.GROK_HOME; else process.env.GROK_HOME = saved.g;
     if (saved.h === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = saved.h;
+  }
+});
+
+/* #4039 follow-up: the real figures from three measured Grok 1.0.41 turns (see singleCallFloor). */
+function writeUsage(sessionId, turns) {
+  fs.writeFileSync(nodePath.join(SANDBOX, 'sessions', 'enc-usage', sessionId, 'usage.json'), JSON.stringify({ sessionId, turns }));
+}
+
+test('a single-call turn\'s pre-call estimate is floored by that call\'s real prompt; a multi-call SUM is never used', () => {
+  reset();
+  writeSession({ encDir: 'enc-usage', sessionId: 'hi', cwd: WORKDIR, model: 'grok-4.6', numMessages: 9, lastActive: '2026-09-27T02:54:41Z', lastTurn: 'x', tokensUsed: 2716, windowTokens: 500000 });
+  writeUsage('hi', [{ turnNumber: 1, inputTokens: 40111, modelCalls: 1 }]);
+  assert.equal(grok.read(WORKDIR).contextUsed, 40111, 'the measured "say hi" session: 2716 is an estimate, the one call sent 40111');
+
+  reset();
+  writeSession({ encDir: 'enc-usage', sessionId: 'multi', cwd: WORKDIR, model: 'grok-4.6', numMessages: 20, lastActive: '2026-09-27T03:00:00Z', lastTurn: 'x', tokensUsed: 40783, windowTokens: 500000 });
+  writeUsage('multi', [{ turnNumber: 1, inputTokens: 80292, modelCalls: 2 }, { turnNumber: 2, inputTokens: 81382, modelCalls: 2 }]);
+  assert.equal(grok.read(WORKDIR).contextUsed, 40783, 'a two-call turn\'s 81382 is a sum, never occupancy: Grok\'s own gauge stands');
+});
+
+test('usage.json absent, malformed, or smaller: Grok\'s own contextTokensUsed stands', () => {
+  for (const [label, body] of [['absent', null], ['malformed', '{ nope'], ['smaller', JSON.stringify({ turns: [{ inputTokens: 100, modelCalls: 1 }] })]]) {
+    reset();
+    writeSession({ encDir: 'enc-usage', sessionId: 's', cwd: WORKDIR, model: 'grok-4.6', numMessages: 3, lastActive: '2026-09-27T03:00:00Z', lastTurn: 'x', tokensUsed: 40291, windowTokens: 500000 });
+    if (body != null) fs.writeFileSync(nodePath.join(SANDBOX, 'sessions', 'enc-usage', 's', 'usage.json'), body);
+    assert.equal(grok.read(WORKDIR).contextUsed, 40291, label);
   }
 });
