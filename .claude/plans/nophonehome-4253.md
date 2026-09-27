@@ -51,14 +51,28 @@ suppressing when `AGENT_WORKFORCE_DATA` is set (`install/setup.sh:1320` sets it 
 
 ## Review 2
 
-- No boot path to the real endpoint found (every harness boot, the test:shell chain, the env -i reboot
-  simulation, the smoke boot); the real team-board deploy is correctly untouched.
+- Review 2 found no path among the bash harnesses (every harness boot, the test:shell chain, the env -i
+  reboot simulation, the smoke boot). It did not look at node tests, and Review 3 found one that
+  phones home (below). The real team-board deploy is correctly untouched.
 - The depth reader never closed a function: `\}` followed by `\b` cannot match. It closes a column-0
   `}` now, pinned by a direct test on a small script (the old regex reds it).
 - test-install.sh's boot pattern skipped the real first installer run (a `VAR= sh` prefix) and anchored
   on a later one; widened, and a test asserts it finds the first (the old pattern reds it).
 - run-tests.sh boots nothing in its own text, so only the top-level check applies to it; the test says
   so.
+
+## Review 3
+
+- BLOCKER, fixed: server.guide-on-connect-3660.test.js spawns server.js with a hand-built env, so
+  NODE_TEST_CONTEXT never reached the board and every run of its three tests sent a real install ping.
+  It names both URLs now. A new guard scans every *.test.js that spawns server.js and requires a
+  process.env pass-through or the URL (measured: that file was the only one; engine/sandbox.test.js
+  copies process.env key by key). It covers both shapes that boot a board in a child, server.js as
+  the script (11 files) and a `node -e` child requiring it (16), and fails below 20 found, so a matcher
+  gone blind cannot pass. My first floor came from the reviewer's rough count and caught the matcher
+  seeing only the first shape.
+- BLOCKER, fixed: the depth reader did not see `function name {` or `function name() {` openers, so an
+  export inside such a never-called function passed. Both styles are in its self-test now.
 
 ## Weakest premise
 

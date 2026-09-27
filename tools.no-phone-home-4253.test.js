@@ -23,6 +23,10 @@
  *      would pin a line nobody needs.
  *   2. each harness sets the variable as a top-level export (or on the smoke
  *      boot's own environment) BEFORE its first board boot.
+ *   3. every node test that spawns server.js either passes its own environment
+ *      through (so NODE_TEST_CONTEXT reaches the board) or names the URL itself.
+ *      A test that builds the child's env by hand does neither by default, and
+ *      server.guide-on-connect-3660.test.js did exactly that.
  *
  * ⚠️ The daily report's URL is pinned by the second half only. Its send runs on
  * an hourly sweep, so a short harness boot does not reach it and there is no
@@ -104,8 +108,9 @@ function topLevel(lines, i) {
   for (let k = 0; k < i; k += 1) {
     const l = lines[k];
     if (/^\s*#/.test(l)) continue;
-    if (/^[A-Za-z_][A-Za-z0-9_]*\s*\(\)\s*\{?\s*$/.test(l) || /^(if|for|while|until|case)\b/.test(l)) {
-      if (!/\b(fi|done|esac)\s*;?\s*$/.test(l) && !/\}\s*;?\s*$/.test(l.replace(/\(\)\s*\{\s*$/, ''))) depth += 1;
+    if (/^(function\s+)?[A-Za-z_][A-Za-z0-9_]*\s*(\(\))?\s*\{?\s*$/.test(l) && (/\(\)/.test(l) || /^function\s/.test(l))
+        || /^(if|for|while|until|case)\b/.test(l)) {
+      if (!/\b(fi|done|esac)\s*;?\s*$/.test(l) && !/\}\s*;?\s*$/.test(l.replace(/\{\s*$/, ''))) depth += 1;
     } else if (/^\}(?:[\s;]|$)|^(fi|done|esac)\b/.test(l)) {
       depth = Math.max(0, depth - 1);
     }
@@ -190,10 +195,20 @@ test('#4253: the block-depth reader closes a function at its column-0 brace', ()
     'if true; then',
     'export IN_IF=1',
     'fi',
+    'function kw {',
+    'export IN_KW=1',
+    '}',
+    'function kwp() {',
+    'export IN_KWP=1',
+    '}',
+    'export LAST=1',
   ];
   assert.equal(topLevel(src, 3), true, 'an export after a closed function is top level');
   assert.equal(topLevel(src, 5), false, 'an export inside a function body is not');
   assert.equal(topLevel(src, 8), false, 'an export inside an if is not');
+  assert.equal(topLevel(src, 11), false, 'an export inside a `function name {` body is not');
+  assert.equal(topLevel(src, 14), false, 'an export inside a `function name() {` body is not');
+  assert.equal(topLevel(src, 16), true, 'and depth returns to zero after both');
 });
 
 test('#4253: test-install.sh\'s first installer run is the first one in the file', () => {
@@ -202,4 +217,24 @@ test('#4253: test-install.sh\'s first installer run is the first one in the file
   const first = lines.findIndex((l) => !/^\s*#/.test(l) && /\$SETUP"? *\|/.test(l) && /\bsh\b/.test(l));
   const found = lines.findIndex((l) => !/^\s*#/.test(l) && re.test(l));
   assert.equal(found, first, `the boot pattern finds line ${found + 1}, but the first installer run is line ${first + 1}`);
+});
+
+test('#4253: every node test that boots server.js keeps the board from phoning home', () => {
+  /* A test run under node --test has NODE_TEST_CONTEXT, and a board that inherits
+     it stays silent. A child env built by hand drops it, so such a test must name
+     the URL. The check is per FILE and textual: a spawn of server.js with
+     process.execPath, and somewhere in the file either a pass-through of
+     process.env or the URL itself. */
+  const files = require('node:child_process').execFileSync('git', ['-C', REPO, 'ls-files', '*.test.js'], { encoding: 'utf8' })
+    .trim().split('\n').filter(Boolean);
+  // Two shapes boot a board in a child: server.js as the spawned script, or a
+  // `node -e` child whose code requires server.js. Measured 2026-09-27: 11 and 16.
+  const DIRECT = /\b(spawn|spawnSync|fork|execFile|execFileSync)\(\s*process\.execPath\s*,\s*\[[^\]]*?server\.js/s;
+  const VIA_E = (src) => /\b(spawn|spawnSync|execFile|execFileSync)\(\s*process\.execPath\s*,\s*\[\s*["']-e["']/.test(src)
+    && /["'`][^"'`]*require\([^)]*server/.test(src);
+  const SAFE = /\.\.\.process\.env\b|Object\.(keys|entries)\(process\.env\)|Object\.assign\(\{\}, *process\.env|AGENT_WORKFORCE_CREATED_URL|env: *process\.env\b/;
+  const booters = files.filter((f) => { const src = fs.readFileSync(path.join(REPO, f), 'utf8'); return DIRECT.test(src) || VIA_E(src); });
+  assert.ok(booters.length >= 20, `found only ${booters.length} tests that boot server.js (27 on 2026-09-27); the matcher has gone blind`);
+  const bad = booters.filter((f) => !SAFE.test(fs.readFileSync(path.join(REPO, f), 'utf8')));
+  assert.deepEqual(bad, [], `these tests boot server.js with an env that neither passes process.env through nor names AGENT_WORKFORCE_CREATED_URL: ${bad.join(', ')}`);
 });
