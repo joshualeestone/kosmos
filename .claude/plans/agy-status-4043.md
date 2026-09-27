@@ -88,3 +88,6 @@ over the scraped UNKNOWN in reconcileReport (checked by calling it: working -> w
   non-default root falls back to the full walk, which can only refuse more. Found while fixing it: a
   not-yet-made .agents resolved without /var -> /private/var, so paths are now resolved through their
   nearest existing ancestor. (NIT) an unchanged entry in another key order is no longer rewritten.
+- Review iteration 9 (opus): NO NEW FINDINGS of substance (converged). NITs applied: realpathSync.native
+  (a case-differing folder spelling no longer reads as outside the workers root); the doc says only
+  `enabled` of the person's survives on kosmos-report.

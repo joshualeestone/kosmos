@@ -88,7 +88,7 @@ function realOrResolved(p) {
   let d = path.resolve(String(p));
   const rest = [];
   for (;;) {
-    try { return path.join(fs.realpathSync(d), ...rest); } catch { /* not there yet */ }
+    try { return path.join(fs.realpathSync.native(d), ...rest); } catch { /* not there yet */ }
     const up = path.dirname(d);
     if (up === d) return path.resolve(String(p));
     rest.unshift(path.basename(d));
@@ -141,7 +141,9 @@ function writeKeepingMode(target, body) {
  * `git add .` of a new one) it ships a hook that fails with 127 on every teammate's machine, and on
  * this one after Kosmos is gone. So a folder inside a git work tree is left alone and that agent's
  * card keeps saying "Can't tell", with the reason in the agent log.
- * The person's `enabled` flag on Kosmos's entry is kept: turning our hook off must stick.
+ * The person's `enabled` flag on Kosmos's entry is kept: turning our hook off must stick. It is the
+ * ONLY key of theirs that survives there; anything else they add to `kosmos-report` is replaced on the
+ * next launch (their own hooks belong under their own names, which are never touched).
  * A symlinked hooks.json is written through to its target, keeping the link and the file's mode. Returns
  * { ok, changed, why } and never throws.
  */
@@ -156,7 +158,7 @@ function ensureHooks(workdir, nodeBin, bridge, withToolHooks = true) {
   let isLink = false;
   try { isLink = fs.lstatSync(link).isSymbolicLink(); } catch { /* absent */ }
   if (isLink) {
-    try { file = fs.realpathSync(link); } catch { return { ok: false, changed: false, why: link + ' is a link to a file that is gone, so it was left alone' }; }
+    try { file = fs.realpathSync.native(link); } catch { return { ok: false, changed: false, why: link + ' is a link to a file that is gone, so it was left alone' }; }
   }
   /* Where the write actually lands (through a linked hooks.json or a linked .agents) gets the same
      check: a dotfiles repo behind a link is still a repository. */
