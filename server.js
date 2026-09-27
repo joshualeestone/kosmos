@@ -7844,7 +7844,9 @@ const server = http.createServer((req, res) => {
           if (v.badge !== 'working') return base;
           /* From base.connection, which carries liveCheckPending: a green row whose own check is still running must
              still be read again, so a newer dead answer can reach it (review round 9). */
-          return { ...base, connection: { ...(base.connection || a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs } };
+          /* #4139: which outcome made it green, so a check green does not claim an agent's request. */
+          return { ...base, connection: { ...(base.connection || a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
+            observedFrom: obs === checkObs ? 'check' : 'agent' } };
         });
         /* #3296 observability follow-on: the GOOGLE/Gemini observed-overlay badge, the
            exact sibling of the OpenAI overlay above and positive-only for the same reason

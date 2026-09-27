@@ -13,8 +13,8 @@ tooltip expression for both.
 - Tests: server.badge-observed-1921, server.livecheck-3997, web.badge-observed-1921.
 
 ## Decided
-- The OpenAI overlay is left alone: Raiden's unmerged #4064 branch edits it. The contract is on #4064 for him to add
-  one line; until then a ChatGPT check green keeps today's sentence (no worse than now).
+- The OpenAI (ChatGPT) overlay: first left to Raiden's unmerged #4064; once #4064 merged (dcda098fa) without it,
+  this branch added the same one line there, with a server.chatgpt-green-4064 test (red without it).
 - Gemini and API-key rows only go green from an agent, so they need no source.
 - No source (observedFrom absent) keeps the agent sentence: the old behaviour, never a new claim.
 - Weakest premise: "so it is working" for a Claude Check now green. Check now sends a real request, so it holds.
