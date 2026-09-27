@@ -9,7 +9,7 @@ Card: #4112.
   whose next character begins some run in reach, and one- or two-letter words ("a", "and") advance a walk, after
   which it compares every variant of every run in reach.
 
-## Change (engine/secretmask.js wordSkippingSpans), exact
+## Change (engine/secretmask.js wordSkippingSpans): output exact, charge never above main's
 1. A run's variants are grouped by first character; at position q only the group beginning with f[q] is compared
    and charged (a piece matches at q only if it begins with f[q]).
 2. A walk jumps to the next run with a variant beginning with any f[q] for its current positions, through a
@@ -18,7 +18,16 @@ Card: #4112.
    binary search for the last run in reach (the original break), unchanged in meaning.
 - Evidence it is exact: identical output to main on 1,200 randomized split-key replies (358 of 400 masked
   something), and a planted off-by-one in the jump changes 332 of 400. secretmask 90/90, guide-secrets 18/18.
-- Result: 200/20 passes (0.78M units, 0.26 s); 200/200 is 8.1M units, 2.0 s, still over the budget: withheld.
+- Result: 200/20 passes (0.23M units, 0.24 s; main 2.4M, withheld); 200/200 is 2.6M units, 2.0 s (main 27.7M,
+  3.6 s), still over the budget: withheld.
+
+## Review 1 (opus): WARN fixed
+The first version charged each jump (chars + 1), the jump that hits the bound, and each indexed run, so a reply of
+runs that all begin with the keys' next character (40 keys sharing sk-ant-api03-X, lines of X0 X1 ... X39) cost 1.3x
+to 1.6x main and was WITHHELD where main checked it (fail-closed, not a leak). Now a jump and the index are free
+(main built variants uncharged too) and a landed run is charged only for the variants compared, a subset of main's
+charge for that run with the same positions: per walk, never above main. Measured: 900 adversarial inputs, 0 above
+main, total about 7x lower, identical output. The reviewer's reply is a test that fails on the first version.
 
 ## Rejected
 - The card's first suggestion, no walk from a bare public head (sk-ant-api03-): the tail after the head is walked

@@ -512,10 +512,12 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
    reaching it (review round 13): ten held Anthropic keys and a 36,000-character reply repeating a paragraph that
    names sk-ant-api03- 200 times, withheld; whether it trips depends on the keys' random next characters.
    #4112 (2026-09-27, this Mac, Node 26): the walk now jumps between runs that could match and compares only the
-   variants that could, which is exact (identical output on 1,200 randomized split-key replies). With the budget
-   lifted, 200 held keys and a guide reply naming sk-ant-api03- 200 times cost 8.1M units and 2.0s (26.9M and 3.6s
-   before); 20 mentions cost 0.78M and 0.26s (2.5M and 0.54s before, over the budget: withheld). Exhausting the
-   budget now takes about 0.4 to 0.7s. The budget is unchanged: 200 mentions against 200 keys is still withheld. */
+   variants that could. The OUTPUT is exact (identical on 1,200 randomized split-key replies, and on 1,900 in review
+   1), and the CHARGE is never more than it was for any input (see the walk; measured on 900 adversarial inputs:
+   0 higher, about 7x lower in total). With the budget lifted, 200 held keys and a guide reply naming sk-ant-api03-
+   20 times cost 0.23M units and 0.24s (2.4M and 0.52s before, over the budget: withheld); 200 times cost 2.6M units
+   and 2.0s (27.7M and 3.6s before). The budget is unchanged, so the 200-mention reply is still withheld, and an
+   exhausted search still costs about 1s. */
 const WORD_WALK_BUDGET = 1250000;
 /* How many tails after, and heads before, a - or _ one run offers as pieces (review rounds 15 to 19). */
 const PIECE_VARIANTS_MAX = 4;
@@ -658,16 +660,16 @@ function wordSkippingSpans(text) {
   const firstIdx = new Map();
   let idxFrom = -1;
   let idxTo = -1;   // runs [idxFrom, idxTo] are indexed
+  /* Not charged: it builds each run's variants once, which main's walk also did uncharged (it charged per run
+     visited, and still does in the live scan above), and every run it reaches is one a walk would have charged. */
   const ensureIdx = (upTo) => {
     for (let i = Math.max(idxTo + 1, idxFrom); i <= upTo; i += 1) {
-      if ((budget -= 1) < 0) return false;
       for (const c of varsOf(i)[2].keys()) {
         if (!firstIdx.has(c)) firstIdx.set(c, []);
         firstIdx.get(c).push(i);
       }
       idxTo = i;
     }
-    return true;
   };
   /* The first index in the ascending list `arr` greater than `after`, or Infinity. */
   const firstAbove = (arr, after) => {
@@ -750,11 +752,15 @@ function wordSkippingSpans(text) {
              sk-ant-api03- in a reply against 200 held keys otherwise compared every key with every run in reach
              from every mention (ordinary words like "a" and "and" advance a walk by a character or two, and keep
              it comparing), and the reply was withheld whole at 20 mentions. */
+          /* 🔑 THE CHARGE NEVER EXCEEDS MAIN'S (#4112 review 1: charging each jump and each indexed run withheld a
+             reply main checked). Main charged every run in reach at.length x all its variants' cost, and nothing
+             at the bound. Here a jump and the bound are free, and a run landed on is charged only for the variants
+             compared, a subset of main's charge for that same run with the same `at`. So for every walk the charge
+             is at most main's, and a reply main checks within the budget is never withheld here. */
           const chars = new Set();
           for (const [q] of at) if (q < f.length) chars.add(f[q]);
           const limit = lastInReach(s, lastAt, bound);
-          if (!ensureIdx(limit)) return null;
-          if ((budget -= chars.size + 1) < 0) return null;
+          ensureIdx(limit);
           let t = Infinity;
           for (const c of chars) { const i = firstAbove(firstIdx.get(c), s); if (i < t) t = i; }
           if (t > limit) break;

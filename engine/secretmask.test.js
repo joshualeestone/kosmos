@@ -1889,3 +1889,18 @@ test('#4112: many held Anthropic keys and a guide reply naming sk-ant-api03- aga
     for (const piece of [body.slice(3, 50), body.slice(50)]) assert.ok(!masked.includes(piece), 'a piece of the split key was left readable');
   } finally { setKnownSecrets([]); }
 });
+
+test('#4112 review 1: runs that all begin with a held key\'s next character cost no more than they did (a reply main checked is never withheld)', () => {
+  /* 40 held keys sharing sk-ant-api03-X, and a reply of lines naming the prefix then runs X0 X1 ... X39, each of which
+     begins with every key's next character. Charging each jump and each indexed run withheld this reply; main checks it. */
+  /* The reviewer's keys exactly (a fixed comparator, so the order is the same on every run). */
+  const keys = Array.from({ length: 40 }, (_, i) => j('sk-ant-', 'api03-X', ('q7Lm3pRt6wZk9Vb2Nc4Hd8Jf1Gs5Ay0Ue' + i).split('').sort(() => 0.5 - ((i * 7919 + 13) % 11) / 11).join('')));
+  setKnownSecrets(keys);
+  try {
+    const line = 'sk-ant-api03- ' + Array.from({ length: 40 }, (_, i) => 'X' + i).join(' ');
+    const reply = Array.from({ length: 45 }, () => line).join('\n');
+    const out = mask(reply);
+    assert.notEqual(out.text, UNCHECKED, 'withheld: ' + describeFired(out.fired));
+    assert.equal(out.text, reply);
+  } finally { setKnownSecrets([]); }
+});
