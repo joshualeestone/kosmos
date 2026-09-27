@@ -43,7 +43,10 @@ const DIR = nodePath.join(__dirname, 'docs', 'browser-checks');
 const MARKER = /QUARANTINE[ \t]+until=(\d+)\.(\d+)\.(\d+)[ \t]+card=#(\d+):[ \t]*\S/;
 const LAUNCH = /\.launch(?:PersistentContext)?\s*\(/;
 const EXIT0 = /process\.exit\(\s*0?\s*\)/;
-const PASS_STRING = /['"`]\s*PASS\b/;
+/* PASS anywhere inside a one-line string ('✓ PASS', `[${n}] PASS`), not only at its start. */
+const PASS_STRING = /['"`][^'"`\n]*\bPASS\b/;
+const SAYS_QUARANTINED = /['"`][^'"`\n]*QUARANTINED/;
+const COMMENT_LINE = /^\s*(\/\/|\/\*|\*)/;
 
 function parseVersion(v) {
   const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(v).trim());
@@ -58,18 +61,30 @@ function atOrPast(cur, until) {
 /* Returns the problems in one check's source, as strings naming file:line. */
 function scan(name, src, version) {
   const lines = src.split('\n');
-  const launchAt = lines.findIndex((l) => LAUNCH.test(l));
+  /* The LAST launch, ignoring comment lines: a helper defined above the main flow can hold
+     the first `.launch(` (render-fields.js does), and measuring from it would read an early
+     PASS-exit in the main flow as "after the launch" and pass it (review WARNING 2). */
+  let launchAt = -1;
+  lines.forEach((l, i) => { if (!COMMENT_LINE.test(l) && LAUNCH.test(l)) launchAt = i; });
   const problems = [];
   lines.forEach((l, i) => {
     if (!EXIT0.test(l)) return;
     if (launchAt >= 0 && i > launchAt) return;
-    if (!PASS_STRING.test(lines.slice(Math.max(0, i - 3), i + 1).join('\n'))) return;
+    const near = lines.slice(Math.max(0, i - 6), i + 1).join('\n');
+    if (!PASS_STRING.test(near)) return;
     const above = lines.slice(Math.max(0, i - 12), i + 1).join('\n');
     const m = MARKER.exec(above);
     if (!m) {
       problems.push(name + ':' + (i + 1) + ' says PASS and exits 0 before any browser starts, with no '
         + '"QUARANTINE until=<version> card=#<N>: <reason>" marker above it. Either fix the check, or '
         + 'mark the quarantine with the version it must be gone by.');
+      return;
+    }
+    /* The harness can only see a quarantine by the word it prints, so a marked one must print it,
+       or it would satisfy this test and still be logged as PASS (review WARNING 3). */
+    if (!SAYS_QUARANTINED.test(near)) {
+      problems.push(name + ':' + (i + 1) + ' is marked as a quarantine but its PASS line does not say QUARANTINED, '
+        + 'so tools/browser-checks.sh would log it as a pass. Print QUARANTINED in it.');
       return;
     }
     const until = [+m[1], +m[2], +m[3]];
@@ -134,4 +149,35 @@ test('control: the version comparison is numeric, not textual', () => {
   assert.equal(atOrPast([0, 7, 9], [0, 7, 10]), false);
   assert.equal(atOrPast([0, 10, 0], [0, 9, 99]), true);
   assert.deepEqual(parseVersion('0.7.01'), [0, 7, 1]);
+});
+
+test('control (review WARNING 2): the shapes the first scan missed are red', () => {
+  /* A helper above the main flow holds the first launch; the real launch is later. */
+  const helper = [
+    'async function open() { return chromium.launch(); }',
+    '(async () => {',
+    "  console.log('PASS  x QUARANTINED');",
+    '  process.exit(0);',
+    '  const b = await chromium.launch();',
+    '})();',
+  ].join('\n');
+  assert.equal(scan('h.js', helper, [0, 7, 1]).length, 1, 'an early PASS-exit before the LAST launch');
+  /* PASS mid-string, and a launch that exists only in a comment. */
+  const mid = ["// before: chromium.launch({ headless })", "console.log('\u2713 PASS  x');", 'process.exit(0);'].join('\n');
+  assert.equal(scan('m.js', mid, [0, 7, 1]).length, 1, "a PASS mid-string with only a commented launch");
+  /* The PASS string several lines above the exit (multi-line arguments). */
+  const multi = ['console.log(', "  'PASS  x',", '  a,', '  b,', ');', 'process.exit(0);', 'await chromium.launch();'].join('\n');
+  assert.equal(scan('ml.js', multi, [0, 7, 1]).length, 1, 'a PASS five lines above the exit');
+});
+
+test('control (review WARNING 3): a marked quarantine must print QUARANTINED', () => {
+  const quiet = [
+    '  // QUARANTINE until=0.9.00 card=#1079: stale click',
+    "  console.log('PASS  x (skipped for this cut)');",
+    '  process.exit(0);',
+    '  await chromium.launch();',
+  ].join('\n');
+  const p = scan('q.js', quiet, [0, 7, 1]);
+  assert.equal(p.length, 1);
+  assert.match(p[0], /does not say QUARANTINED/);
 });

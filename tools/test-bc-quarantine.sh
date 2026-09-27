@@ -71,5 +71,21 @@ v_line="$(grep -nE '^bc_quarantine_verdict$' "$BC" | cut -d: -f1)"
 f_line="$(grep -nE '^if \[ "\$\{#FAILED\[@\]\}" -gt 0 \]; then$' "$BC" | tail -1 | cut -d: -f1)"
 [ -n "$v_line" ] && [ -n "$f_line" ] && [ "$v_line" -lt "$f_line" ] && ok "the verdict runs before the FAILED gate" || bad "verdict line=$v_line, FAILED gate line=$f_line"
 
+# --- the harness fails CLOSED when the lib does not load (review WARNING 1) ----------
+# Run the harness's own source-and-guard lines, with a REPO that has no lib.
+# Bounded to 6 lines, so a harness with the guard removed never feeds its own body to eval.
+snip="$(awk '/^\. "\$REPO\/tools\/lib\/bc-quarantine\.sh"$/{on=1} on{print; n++} on&&(/refusing to run/||n>=6){exit}' "$BC")"
+case "$snip" in *'declare -F bc_quarantine_note'*'exit 1'*) ok "the source line is followed by a fail-closed guard" ;; *) bad "no fail-closed guard after the source line: $snip" ;; esac
+mkdir -p "$TMP/norepo/tools/lib"
+( unset -f bc_quarantine_note bc_quarantine_verdict; REPO="$TMP/norepo"; eval "$snip" ) >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 1 ] && ok "without the lib the harness refuses (exit 1), not PASS" || bad "without the lib the guard exited $rc"
+( unset -f bc_quarantine_note bc_quarantine_verdict; eval "$snip"; declare -F bc_quarantine_note >/dev/null ) >/dev/null 2>&1 \
+  && ok "with the lib the guard lets it through" || bad "the guard refused with the lib present"
+
+# --- release 3b shows a quarantine in its summary (review NIT 2) -------------------
+pat="$(grep -oE "grep -E '[^']*QUARANTINED[^']*' \"\\\$_page_log\"" "$REPO/tools/release.sh" | sed -E "s/^grep -E '([^']*)'.*/\1/")"
+if [ -n "$pat" ] && printf 'QUARANTINED  regress-a-night (exited 0 ...)\n' | grep -qE "$pat"; then ok "release 3b's summary grep shows the QUARANTINED line"; else bad "release 3b's summary grep (${pat:-not found}) misses QUARANTINED"; fi
+
 echo "bc-quarantine: $passes passed, $fails failed"
-[ "$fails" -eq 0 ] && [ "$passes" -eq 19 ] || { echo "expected 19 passes and 0 failures"; exit 1; }
+[ "$fails" -eq 0 ] && [ "$passes" -eq 23 ] || { echo "expected 23 passes and 0 failures"; exit 1; }

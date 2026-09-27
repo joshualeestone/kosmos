@@ -106,6 +106,10 @@ kosmos_mark_run browser
 # reading scrollback. It can never fail a run; see the lib's header.
 . "$REPO/tools/lib/browser-run-log.sh"
 . "$REPO/tools/lib/bc-quarantine.sh"
+# #4160: fail CLOSED without it. run_one reads `bc_quarantine_note ... || log PASS`, so a
+# missing function (exit 127) would print PASS, which is the exact failure the lib exists to stop.
+declare -F bc_quarantine_note >/dev/null && declare -F bc_quarantine_verdict >/dev/null \
+  || { echo "browser-checks: tools/lib/bc-quarantine.sh did not load; refusing to run (a quarantined check would read as PASS)" >&2; exit 1; }
 # #1818: the frozen-runner child (the re-exec in the freeze block below) runs the
 # checks while the PARENT stays alive as a live page layer that has ALREADY passed
 # this guard. Parent and child are one logical run, but they carry different run
@@ -1706,6 +1710,10 @@ else
 fi
 
 sec "browser checks summary"
+# #4160: a quarantined check did not run, so it fails the run unless overridden
+# (tools/lib/bc-quarantine.sh). Before the run log and the FAILED gate, so the log counts
+# the refusal and it lands in FAILED.
+bc_quarantine_verdict
 # #1079: recorded BEFORE the exit paths below, so a FAILED run lands in the log
 # too. A log that only captures successful runs cannot answer a question about
 # when things go wrong.
@@ -1738,10 +1746,6 @@ if [ -n "${KOSMOS_BC_CI_ALLOWLIST:-}" ]; then
     FAILED+=("KOSMOS_BC_CI_ALLOWLIST matched no checks at all -- refusing to report a green from zero checks")
   fi
 fi
-
-# #4160: a quarantined check did not run, so it fails the run unless overridden
-# (tools/lib/bc-quarantine.sh). Before the FAILED gate so it lands in FAILED.
-bc_quarantine_verdict
 
 if [ "${#FAILED[@]}" -gt 0 ]; then
   log "FAILED:  ${FAILED[*]}"

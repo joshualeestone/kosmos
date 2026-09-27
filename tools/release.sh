@@ -946,7 +946,8 @@ _page_exit=0
 # mistaken for coverage.
 ( cd "$REPO" && env -u AGENT_WORKFORCE_HOME KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
 fi
-grep -E '^PASS |^FAIL |^COULD NOT RUN|^‼️|retried:|all page' "$_page_log" || true
+# #4160: QUARANTINED lines too, so a cut refused for a quarantine says so here.
+grep -E '^PASS |^FAIL |^COULD NOT RUN|^‼️|^QUARANTINED|^quarantined|retried:|all page|every page check' "$_page_log" || true
 if [ "$_page_exit" -eq 126 ] || [ "$_page_exit" -eq 127 ]; then echo "the page gate COULD NOT RUN (exit $_page_exit: bash, node or a program it needs is missing or not executable); this is not a red check. Full output: $_page_log"; exit 1; fi
 [ "$_page_exit" -eq 0 ] || { echo "the page checks are red (exit $_page_exit); full output: $_page_log"; exit 1; }
 rm -f "$_page_log"
