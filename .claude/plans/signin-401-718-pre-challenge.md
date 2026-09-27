@@ -2,29 +2,33 @@
 pre_challenge: true
 method: challenge-loop
 branch: signin-401-718
-diff_hash: c3715710c73609fc825cf5d4c0414e2025d8bdcaefb9feee5d9f8bf6231a6ad5
+diff_hash: a925fa3b6c7689e5cf4498748c8be9fe75621b2f747c42d6c70531df16e35d19
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-27T07:06:46Z
-iterations: 17
+timestamp: 2026-09-27T08:47:32Z
+iterations: 19
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 17 (1-6 in an earlier session, 7-17 in this one)
-**Converged:** Yes, iteration 17 raised no new BLOCKER, WARNING or CONVENTION.
-**Total findings, iterations 7-17:** 22 (0 BLOCKERs, 16 WARNINGs, 6 CONVENTIONs), plus NITs listed below
-**Fixed:** 11 | **Deferred:** 11 (including duplicates of earlier deferrals) | **Asked (awaiting user):** 0
+**Iterations:** 19 (1-6 in an earlier session, 7-19 in this one; 18-19 after a rebase onto main)
+**Converged:** Yes, iteration 17 and again iteration 19 raised no new code BLOCKER, WARNING or CONVENTION.
+**Total findings, iterations 7-19:** 26 (1 process BLOCKER, 19 WARNINGs, 6 CONVENTIONs), plus NITs listed below
+**Fixed:** 12 | **Deferred:** 14 (including duplicates of earlier deferrals) | **Asked (awaiting user):** 0
 
 Iterations 1-6 ran in a session that was restarted; their ledger did not survive. What they fixed is
 recorded in the branch's own commits ("address challenge-loop iteration N findings", N = 1..6). The
 reviewer model for those six is unknown.
 
-Final validation (6j): `yarn test` passed on 2af6df64f (validation-log hash c3715710c736, the same
+Final validation (6j): `yarn test` passed on 6a4e9d9b9 (validation-log hash a925fa3b6c76, the same
 diff this proof hashes), subdir audit passed. The branch's browser check
 (`render-device-signed-out-401-718`) passed through `tools/browser-checks.sh` on the same commit,
-24 checks. Every heavy run went through `tools/heavy-gate.sh --twice`.
+25 checks. Every heavy run went through `tools/heavy-gate.sh --twice`.
+
+Rebases: main moved three times during the run. Each time the only conflict was
+`browser-checks-reason-grep.test.js`'s EXPECTED_SITES counter (this branch adds one site); it was
+resolved to main's count plus one (183, 184, then 188) and the counter test passed each time.
 
 ### Per-Iteration Breakdown
 
@@ -113,7 +117,22 @@ Also this iteration: the initial validation's only red was `engine/updating-988.
 **Self-generated:** 0
 **Converged** -- no new actionable findings.
 
-### Final Ledger (iterations 7-17)
+#### Iteration 18 (after rebasing onto main)
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 2 WARNINGs (+1 duplicate), 0 CONVENTIONs, 4 NITs
+**Self-generated:** 0 of the above
+- [WARNING] render-device-signed-out-401-718.js:127 -- the projects list's Sign in is never clicked --> FIXED (779fb655c, rebased): click must cause a reload; passes
+- [WARNING] web/index.html:19892 -- paintAgentList repaints #alist outside the keep, so opening a project moves focus --> DEFERRED with the plan narrowed: the keep is the poll's; a paint the person caused may move focus
+- duplicate: two pollers, last writer wins (documented at the flag's declaration)
+
+#### Iteration 19
+**Reviewer model:** sonnet
+**New findings:** 1 process BLOCKER, 0 code findings, 1 CONVENTION duplicate, 1 NIT
+**Self-generated:** 0
+- [BLOCKER] the committed proof predated iteration 18's commit --> DEFERRED: correct at that moment and expected mid-run; this regenerated proof is the answer
+**Converged** -- no new actionable code findings.
+
+### Final Ledger (iterations 7-19)
 
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
 |---|------|----------|-----------|--------|-------------|--------|------------|
@@ -134,19 +153,24 @@ Also this iteration: the initial validation's only red was `engine/updating-988.
 | 15 | 15 | WARNING | web/index.html loadProjects | BRANCH | projects button unasserted | FIXED | 544886f3 |
 | 16 | 16 | WARNING | web/index.html loadProjects | BRANCH | no fast anti-latch test | FIXED | 2af6df64 |
 | 17 | 16 | WARNING | render-device-signed-out-401-718.js | BRANCH | focus takes #grid only | FIXED | 2af6df64 |
+| 18 | 18 | WARNING | render-device-signed-out-401-718.js:127 | BRANCH | projects Sign in not clicked | FIXED | 779fb655 |
+| 19 | 18 | WARNING | web/index.html:19892 | BRANCH | second #alist writer | DEFERRED | plan narrowed to the poll |
+| 20 | 19 | BLOCKER (process) | proof file | BRANCH | proof predated a commit | DEFERRED | proof regenerated |
 
 (Shas are the rebased commits where the loop rebased onto main mid-run.)
 
 ### Outstanding questions (ASKED, still unresolved when the run ended)
 - None.
 
-### NITs (non-blocking, across iterations 7-17)
+### NITs (non-blocking, across iterations 7-19)
 - stub() in the browser check keys on object identity with RELAY_401 (iterations 8, 9, 17)
 - the keep-loop test cuts the page by text pattern (10, 12, 16; the endsWith check now fails a short cut)
 - the picker's "needs to sign in again" wording is a third, shorter copy (10, 12, 17)
 - the org note and the cards use two different keep mechanisms (13, 15)
 - the check's top-level .catch prints no FAIL token (8)
 - the new check is not on the CI allowlist, deliberately (7)
+- SIGNED_OUT_SENTENCE is interpolated without esc(), like SIGNIN_SENTENCE; both are fixed literals (16, 19)
+- the org-note querySelector guard exists for test stubs (16, 18)
 
 ### Strengths (across iterations)
 - The state is keyed on the relay's explicit `signed_out: true`, never a bare 401, with controls for a bare 401, the board's 403, a 500 and a normal board.
