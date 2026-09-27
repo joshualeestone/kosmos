@@ -18,17 +18,23 @@ those fixtures; the cut guard used a different rule. That drift is the defect.
 3. tools/lib/cut-guard.sh sources it and drops fixture lines in kosmos_refuse_if_cut_live and
    kosmos_refuse_if_browser_run_live, after self-exclusion. A line the filter empties reads as "no
    other run", as self-exclusion already did.
-4. tools/test-cut-guard.sh: three end-to-end arms through the real pgrep with stubs named
-   tools/release.sh: a node --test fixture is not a cut, a kt-sandbox fixture is not a cut, and the
-   negative control, a plain release.sh outside any sandbox, is still refused and named. Their
-   directory is made under /tmp by name (Linux mktemp honours TMPDIR, which run-tests.sh points at a
-   kt folder). The existing self-check's "a real cut is live" skip now ignores fixtures too, so
-   another agent's yarn test no longer silently disarms it.
+4. tools/test-cut-guard.sh, five arms fed REAL pids through the probe seam (the filter reads the
+   pid's live ancestry and cwd); the processes are plain `sleep`s, so nothing pgrep-visible named
+   tools/release.sh is spawned and this test cannot refuse another agent's real cut while it runs
+   (review 1 found the first version did exactly that). The arms: a process under a real node --test
+   runner is a fixture; one whose cwd is in a kt sandbox is a fixture; the negative control, a plain
+   process, is refused and named; the browser guard still refuses a plain run; and a lone copy of
+   cut-guard.sh with no classifier beside it keeps every line (errs toward refusing). $T is made
+   under /tmp by name (Linux mktemp honours TMPDIR, which run-tests.sh points at a kt folder). The
+   existing self-check's "a real cut is live" skip ignores fixtures too.
+5. If fixture-classify.sh cannot load, cut-guard.sh defines a stand-in that keeps every line, so a
+   caller without set -e (browser-checks.sh) refuses rather than fails open.
 
 ## Evidence
 
 - test-cut-guard.sh: 0 failures. Mutations: filter removed makes both fixture arms red; every pid
-  called a fixture makes the negative control red.
+  called a fixture makes the negative control and the browser arm red; the load fallback removed
+  makes the lone-copy arm red.
 - heavy-gate tests: 39 pass, 0 fail (1 skip, pre-existing). test-browser-run-guard.sh, including the
   deliberate KOSMOS_BC_REALPATH=1 real-path control: all clear. test-machine-claim-1962.sh: 22 arms.
 
@@ -39,6 +45,10 @@ those fixtures; the cut guard used a different rule. That drift is the defect.
   incident was the name arm.
 - kosmos_refuse_if_harness_live (test-install.sh) is unchanged: the card names release.sh and
   browser-checks.sh.
+
+- Pre-existing, not changed here: the end-to-end self-check near the top of test-cut-guard.sh still
+  runs a pgrep-visible `bash tools/release.sh --sleep 4` for a few seconds, which can refuse a real cut
+  on the same box in that window. Same class as review 1's finding; it predates this card.
 
 ## Weakest premise
 

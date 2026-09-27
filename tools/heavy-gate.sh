@@ -58,8 +58,8 @@ fi
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 # #4206: the fixture rules (a node --test ancestor, the run-tests.sh sandbox) live in one library
-# the cut guard shares, so the two cannot drift again. Sourced unguarded: without it this cannot
-# tell a fixture from a run, which is exit 2, do not start.
+# the cut guard shares, so the two cannot drift again. Required: without it this cannot tell a
+# fixture from a run, which is exit 2, do not start.
 . "$REPO/tools/lib/fixture-classify.sh" || { echo "heavy-gate: cannot load tools/lib/fixture-classify.sh; reading as do-not-start" >&2; exit 2; }
 
 EXCEPT="" ; TWICE=0 ; QUIET=0 ; QUIET_BOX=0 ; EXCEPT_SET=0
@@ -106,13 +106,12 @@ claim_line() {
 # Live snapshot in the seam's format. Every shell that has a release.sh or browser-checks.sh
 # word in its arguments is a candidate. In --quiet-box mode, run-tests.sh is one too.
 # classify decides whether it is RUNNING the script.
-# How far up the parent chain to look for a node --test runner. A test fixture sits a few hops
-# below it (node, a wrapper shell, the script); a deeper chain stops early and fails toward busy.
+# The parent chain is walked by tools/lib/fixture-classify.sh (depth and stop rule there).
 ANC_SEP="$KOSMOS_FX_ANC_SEP"   # joins ancestor commands; see KOSMOS_HG_SNAPSHOT above
 # Exits 3 when the process table cannot be read: ps failing, or a listing without pid 1 (which
 # every Mac has), would otherwise look exactly like "nothing running" and read clear.
 live_snapshot() {
-  local p q cwd cmd anc depth listing
+  local p cwd cmd anc listing
   listing="$(ps -axo pid=,command= 2>/dev/null)" || return 3
   printf '%s\n' "$listing" | awk '$1 == 1 { f = 1 } END { exit !f }' || return 3
   printf '%s\n' "$listing" | awk -v quiet_box="$QUIET_BOX" '$2 ~ /(^|\/)(bash|sh|zsh)$/ { for (i = 3; i <= NF; i++) if ($i ~ /(^|\/)(release|browser-checks)\.sh$/ || (quiet_box == 1 && $i ~ /(^|\/)run-tests\.sh$/)) { print $1; next } }' |

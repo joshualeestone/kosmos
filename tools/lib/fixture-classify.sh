@@ -81,12 +81,13 @@ kosmos_fx_pid_is_fixture() {
 
 # Filters guard lines ("<pid> <command...>") on stdin, dropping the ones whose pid is a fixture.
 kosmos_fx_drop_fixtures() {
-  local line pid script re='([^ ]*/tools/(release|browser-checks)\.sh)( |$)'
+  # The script word in the guards' own line shape (pid, then a bash/sh running it), never an argument.
+  local line pid script re='^[0-9]+ +(/bin/)?(ba)?sh +(([^ ]*/)?tools/(release|browser-checks)\.sh)( |$)'
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     pid="${line%% *}"
     script=""
-    [[ "$line" =~ $re ]] && script="${BASH_REMATCH[1]}"
+    [[ "$line" =~ $re ]] && script="${BASH_REMATCH[3]}"
     kosmos_fx_pid_is_fixture "$pid" "$script" >/dev/null && continue
     printf '%s\n' "$line"
   done

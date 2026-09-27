@@ -1,9 +1,10 @@
 # #4206: a matched release.sh / browser-checks.sh that is a unit-test FIXTURE (a node --test
 # ancestor, or the run-tests.sh sandbox) is not a run. The rule is tools/lib/fixture-classify.sh,
 # shared with tools/heavy-gate.sh so the two cannot drift: the drift is what let three agents'
-# `yarn test` validations refuse the Mac 0.7.03 cut. Sourced relative to this file, unguarded: a
-# guard that cannot load its classifier should fail loudly, not quietly count every fixture.
-. "$(dirname "${BASH_SOURCE[0]}")/fixture-classify.sh"
+# `yarn test` validations refuse the Mac 0.7.03 cut. Sourced relative to this file. If it cannot
+# load, the stand-in keeps every line, so the guards count fixtures as runs (refuse) rather than
+# fail open: not every caller runs set -e (browser-checks.sh does not).
+. "$(dirname "${BASH_SOURCE[0]}")/fixture-classify.sh" || kosmos_fx_drop_fixtures() { cat; }
 
 # --- Shared: is a matched process THIS run, or a separate one? (#1391) -------
 # Both guards below match a process by its command line and must then exclude
