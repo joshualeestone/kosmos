@@ -427,7 +427,9 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *  - pieces out of order or reversed;
  *  - by this walk, an opening piece shorter than OPENING_LEN (shortChunkSpans masks the whole key; fragmentsIn a
  *    rest of FRAGMENT_LEN or more); a PARTIAL try that starts that way and is never completed is masked by neither
- *    (an abandoned first try IS masked when a full retry follows within reach: review round 17);
+ *    (an abandoned first try IS masked when a full retry follows within reach: review round 17), and a repeated,
+ *    regrouped or abandoned copy's TWO-character chunks (only pieces of three or more are masked off the key's own
+ *    path, since a two-character slice of a key is an ordinary token like c4 as often as not: review round 18);
  *  - a held value madeOfWords takes for words and numbers;
  *  - a partial try (one that never completes) with under PARTIAL_MIN characters after its opening, counted in
  *    non-word pieces of OPENING_LEN or more; a try that reaches it is masked piece by piece;
@@ -932,7 +934,9 @@ function shortChunkSpans(text) {
   const spans = [];
   const nearPieces = (k, f, head) => {
     for (const [t, places] of runs[k][4]) {
-      if (t.length < 2 || plainWordRun(t) || f.indexOf(t, head) < 0) continue;
+      /* Three characters or more (review round 18: "c4" in "White played c4" is a slice of many keys; a two-character
+         coincidence is ordinary, a three-character non-plain one is not). */
+      if (t.length < 3 || plainWordRun(t) || f.indexOf(t, head) < 0) continue;
       for (const [a, b] of places) spans.push([runs[k][0] + a, runs[k][0] + b]);
     }
   };
@@ -959,7 +963,7 @@ function shortChunkSpans(text) {
          which can run through a repeated copy and leave the one that was really the key's showing (review rounds 9
          and 10). Not for a piece that is a plain word ("is", "the", "2"): its copies are ordinary words (review round
          11), and what a repeated plain-word chunk can leave showing is that word. */
-      if (!plainWordRun(t)) for (const k of at.get(t) || []) if (k !== i && k > first && k < last) pieceSpan(k, t);
+      if (t.length >= 3 && !plainWordRun(t)) for (const k of at.get(t) || []) if (k !== i && k > first && k < last) pieceSpan(k, t);
     }
   }
   return spans;

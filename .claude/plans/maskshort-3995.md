@@ -214,3 +214,10 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
 - The round-8 test asserts every label survives, not one.
 - Deferred NITs: a public head measured by publicHeadCut can reach into secret characters (sk-proj- with _ early,
   main's shared rule); version and architecture strings are the deferred round-13 trade-off.
+
+## Review round 18 (Sonnet), what changed
+- BLOCKER fixed (introduced by my round-17 fix): the nearby-run rule masked any run holding any slice of the key, so
+  an ordinary "c4" between the chunks ("White played c4") was masked. Both off-path rules (nearby slices and repeated
+  copies) now need three characters or more: a two-character slice of a key is an ordinary token as often as not.
+  Tested; red on the previous commit. The cost, named in Not covered: a repeated, regrouped or abandoned copy's
+  TWO-character chunks can show (at most two characters each).

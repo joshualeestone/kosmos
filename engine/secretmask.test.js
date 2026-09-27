@@ -1673,3 +1673,12 @@ test('#3995 gap 4 review round 17: a key repeated regrouped, or retried after an
     }
   } finally { setKnownSecrets([]); }
 });
+
+test('#3995 gap 4 review round 18: an ordinary two-character token that is a slice of the key is not masked near it', () => {
+  setKnownSecrets([j('Zq8vLm3pRt6w', 'Xy9kHb2nWc4d')]);
+  try {
+    const t = mask('Zq8 and vLm and White played c4 last move and 3pR and t6w and Xy9 and kHb and 2nW and c4d').text;
+    assert.ok(t.includes('White played c4 last move'), 'an ordinary c4 was masked: ' + t);
+    for (const c of ['Zq8', 'vLm', '3pR', 't6w', 'Xy9', 'kHb', '2nW', 'c4d']) assert.ok(!new RegExp('(^|[^A-Za-z0-9])' + c + '([^A-Za-z0-9]|$)').test(t), `${c} showed: ${t}`);
+  } finally { setKnownSecrets([]); }
+});
