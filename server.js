@@ -2622,6 +2622,11 @@ function handoffFileSnap(session) {
 /* A sign-in route's refusal: 409 when it named a sign-in that has ended or been replaced (its module's
    NOT_MINE), else 400. One derivation for the agy, win32 agy and muse sign-ins (#3939 review round 8). */
 function signinRefusalStatus(r, notMine) { return r && r.because === notMine ? 409 : 400; }
+/* The live-execution gate's test-process throw (a test that forgot its seam): a sign-in start route
+   rethrows it so it stays loud in tests, rather than turning it into a 500. One derivation (round 10). */
+function isGateThrowInTest(e) {
+  return require('./engine/live-execution').inTestProcess() && /for real inside a test/.test(String(e && e.message));
+}
 function sendJson(res, code, obj) {
   res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' });
   res.end(JSON.stringify(obj));
@@ -8155,7 +8160,7 @@ const server = http.createServer((req, res) => {
          The live-execution gate's test-process throw is not caught here: it must stay loud in tests. */
       let r;
       try { r = signin.start(); } catch (e) {
-        if (require('./engine/live-execution').inTestProcess() && /for real inside a test/.test(String(e && e.message))) throw e;
+        if (isGateThrowInTest(e)) throw e;
         sendJson(res, 500, { ok: false, error: 'Kosmos could not start Antigravity\'s sign-in just now' }); return;
       }
       sendJson(res, r.ok ? 200 : 400, r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
@@ -8216,7 +8221,7 @@ const server = http.createServer((req, res) => {
       req.resume();
       let r;
       try { r = signin.start(); } catch (e) {
-        if (require('./engine/live-execution').inTestProcess() && /for real inside a test/.test(String(e && e.message))) throw e;
+        if (isGateThrowInTest(e)) throw e;
         sendJson(res, 500, { ok: false, error: signin.COULD_NOT_START }); return;
       }
       sendJson(res, r.ok ? 200 : 400, r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
