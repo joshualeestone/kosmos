@@ -29,12 +29,12 @@ const SHELL_ASSETS = [
 
 /* #4103: only the BOARD may become the offline copy of '/'. A signed-out phone's navigation through the relay comes
    back as the relay's own sign-in page, a same-origin 200, and caching it made the app open offline to that page.
-   The board's <head> carries <meta name="kosmos-version"> near its top (server.js stamps its value); a page without
-   it is not the board. Read from a CLONE, and only its first bytes (the marker is under 1KB in), so the response
+   The board's <head> carries <meta name="kosmos-version"> near its top (the build and install scripts stamp its value); a page without
+   it is not the board. Read from a CLONE, and only its first characters (the marker is under 1KB in), so the response
    handed to the page is untouched and a large board is not read twice. A marker inside the page, not a response
    header, because the relay is a separate service and may not pass our headers through. */
 const SHELL_MARK = '<meta name="kosmos-version"';
-const SHELL_SCAN_BYTES = 16384;
+const SHELL_SCAN_CHARS = 16384;   // decoded characters; the marker is ASCII and near the top
 async function isBoardShell(res) {
   try {
     const body = res && res.body;
@@ -42,21 +42,26 @@ async function isBoardShell(res) {
     const reader = body.getReader();
     const dec = new TextDecoder();
     let seen = '';
-    while (seen.length < SHELL_SCAN_BYTES) {
+    while (seen.length < SHELL_SCAN_CHARS) {
       const { done, value } = await reader.read();
       if (done) break;
       seen += dec.decode(value, { stream: true });
-      if (seen.slice(0, SHELL_SCAN_BYTES).includes(SHELL_MARK)) break;
+      if (seen.slice(0, SHELL_SCAN_CHARS).includes(SHELL_MARK)) break;
     }
     reader.cancel().catch(() => {});
     // Only the scanned prefix counts, however large the chunks the body arrived in.
-    return seen.slice(0, SHELL_SCAN_BYTES).includes(SHELL_MARK);
+    return seen.slice(0, SHELL_SCAN_CHARS).includes(SHELL_MARK);
   } catch (_e) { return false; }
 }
 /* Put a navigation's response into the cache as '/', only when it is the board. `probe` and `copy` are two clones
    taken before the response is handed to the page. */
 async function cacheShellIfBoard(probe, copy) {
-  if (!(await isBoardShell(probe))) return false;
+  if (!(await isBoardShell(probe))) {
+    // NOT awaited: a tee'd branch's cancel() resolves only once every branch is cancelled, so awaiting it here would
+    // hold the worker's waitUntil open indefinitely (it did, in the tests). Fire it and let the branch go.
+    try { if (copy && copy.body) copy.body.cancel().catch(() => {}); } catch (_e) { /* nothing held */ }
+    return false;
+  }
   const cache = await caches.open(SHELL_CACHE);
   await cache.put('/', copy);
   return true;
@@ -72,7 +77,7 @@ self.addEventListener('install', (event) => {
     // sign-in page); the manifest and icons are cached as before.
     await cache.addAll(SHELL_ASSETS.filter((a) => a !== '/')).catch(() => {});
     const res = await fetch('/');
-    if (res && res.ok && res.type === 'basic') await cacheShellIfBoard(res.clone(), res.clone());
+    if (res && res.ok && res.type === 'basic' && !res.redirected) await cacheShellIfBoard(res.clone(), res.clone());
   })()
     // A cold install with no network must still install: the fetch handler
     // falls back to the network, so a failed pre-cache is not fatal.
@@ -108,7 +113,8 @@ self.addEventListener('fetch', (event) => {
         // Only cache a real, same-origin 200 -- never an enforcing board's 302
         // bootstrap redirect or an opaque response -- and only when it is the
         // board itself, not the relay's sign-in page (#4103).
-        if (res && res.ok && res.type === 'basic') {
+        // Not a redirected one either: a cached redirected response served to a navigation is a network error.
+        if (res && res.ok && res.type === 'basic' && !res.redirected) {
           const probe = res.clone();
           const copy = res.clone();
           // waitUntil so the browser keeps the worker alive until the write
@@ -131,7 +137,11 @@ self.addEventListener('fetch', (event) => {
      it. NOT stale-while-revalidate -- a hit is returned as-is with no background
      revalidation; freshness comes from the version bump busting the cache, not
      from re-fetching on every hit. */
-  if (SHELL_ASSETS.includes(url.pathname)) {
+  /* '/' is NOT served from here (#4103, review round 1): only a navigation may put '/' in the cache, and only after
+     the board check above. A non-navigation GET of '/' (a script's fetch, a prefetch) goes to the network untouched,
+     so a signed-out one can never write the relay's sign-in page as the offline copy. This branch serves the
+     manifest and the two icons. */
+  if (url.pathname !== '/' && SHELL_ASSETS.includes(url.pathname)) {
     event.respondWith((async () => {
       const hit = await caches.match(req);
       if (hit) return hit;

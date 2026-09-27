@@ -130,15 +130,20 @@ function check(name, pass, detail) {
     const text = hit ? await hit.text() : '';
     return { name, board: text.includes('<meta name="kosmos-version"'), signin: text.includes('KOSMOS-PLUS-SIGNIN-STANDIN') };
   });
-  await page.waitForTimeout(300);
-  const first = await offlineCopy();
-  check('#4103: after a navigation, the offline copy of / is the board', first.board, JSON.stringify(first));
+  /* No fixed waits (review round 1): the write runs under waitUntil after the worker reads the board's head, so
+     poll with a deadline. The first arm deletes the cached '/' and reloads, so it proves the NAVIGATION path cached
+     the board (not the install pre-cache). The second arm watches the whole window: an old worker's poisoning write
+     can land late, so "still the board" is only true if no poisoned copy appears before the deadline. */
+  const until = async (pred, ms) => { const end = Date.now() + ms; let v; do { v = await offlineCopy(); if (pred(v)) return v; await page.waitForTimeout(150); } while (Date.now() < end); return v; };
+  await page.evaluate(async () => { for (const n of await caches.keys()) if (n.startsWith('kosmos-shell-')) await (await caches.open(n)).delete('/'); });
+  await page.reload({ waitUntil: 'load' });
+  const first = await until((v) => v.board, 8000);
+  check('#4103: a navigation caches the board as the offline copy of / (deleted first, so this is the navigation path)', first.board, JSON.stringify(first));
   const SIGNIN = '<!doctype html><html><head><title>Kosmos+ sign in</title></head><body>KOSMOS-PLUS-SIGNIN-STANDIN</body></html>';
   await ctx.route(origin + '/', (route) => route.fulfill({ status: 200, contentType: 'text/html', body: SIGNIN }));
   await page.reload({ waitUntil: 'load' });
   const servedSignin = await page.evaluate(() => document.body && document.body.textContent.includes('KOSMOS-PLUS-SIGNIN-STANDIN'));
-  await page.waitForTimeout(300);
-  const after = await offlineCopy();
+  const after = await until((v) => v.signin || !v.board, 4000);
   await ctx.unroute(origin + '/');
   check('#4103: CONTROL the signed-out reload really served the sign-in page', servedSignin);
   check('#4103: a signed-out navigation does not replace the offline copy (it is still the board)', after.board && !after.signin, JSON.stringify(after));

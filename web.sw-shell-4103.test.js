@@ -75,6 +75,27 @@ test('#4103: install pre-caches the board, never the sign-in page, and still cac
   }
 });
 
+test('#4103: a non-navigation GET of / goes to the network untouched (never cached, never served from the cache)', async () => {
+  const w = worker(async () => page('<html>SIGN-IN</html>'));
+  let responded = false; const waits = [];
+  w.handlers.fetch({ request: { method: 'GET', url: 'https://hers.kosmosplus.com/', mode: 'cors' }, respondWith() { responded = true; }, waitUntil(p) { waits.push(p); } });
+  await Promise.all(waits);
+  assert.equal(responded, false, 'the worker answered a non-navigation GET of /');
+  assert.deepEqual(w.puts, []);
+});
+test('#4103 CONTROL: the manifest still goes through the worker\'s cache', async () => {
+  const w = worker(async () => page('{"name":"Kosmos"}'));
+  let responded = null;
+  w.handlers.fetch({ request: { method: 'GET', url: 'https://hers.kosmosplus.com/manifest.webmanifest', mode: 'cors' }, respondWith(p) { responded = p; }, waitUntil() {} });
+  assert.ok(responded, 'the manifest was not served by the worker');
+});
+test('#4103: a redirected response is not cached as the offline copy', async () => {
+  const r = page(BOARD); Object.defineProperty(r, 'redirected', { value: true });
+  const w = worker(async () => r);
+  await navigate(w, 'https://hers.kosmosplus.com/');
+  assert.deepEqual(w.puts, []);
+});
+
 test('#4103: the shell cache is a new version, so a copy the old worker poisoned is dropped on activate', () => {
   assert.match(src, /const SHELL_CACHE = 'kosmos-shell-v2';/);
 });
