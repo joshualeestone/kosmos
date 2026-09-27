@@ -40,9 +40,11 @@ surface as buildable stubs (#718) are both here now. Full context on the cards
 - iPhone only (`TARGETED_DEVICE_FAMILY = 1`): iPad layouts are not designed or tested. An iPad
   can still run it in a scaled iPhone window, so the board must stay usable there.
 
-## Build (the verifiable deliverable)
+## Build
 
-A green `xcodebuild` against `iphoneos26.5`, from a clean clone, run from `ios/`:
+iOS CI (`.github/workflows/ios.yml`) is where the app is proven to build, because it compiles the
+asset catalog, which needs an iOS runtime (see "App icon and launch screen" below). On a Mac with
+the iOS platform installed, the same build from a clean clone, run from `ios/`, is:
 
 ```
 xcodebuild -project Kosmos.xcodeproj -target Kosmos -sdk iphoneos26.5 \
@@ -56,26 +58,45 @@ xcodebuild -project Kosmos.xcodeproj -target Kosmos -sdk iphoneos26.5 \
 - `CODE_SIGNING_ALLOWED=NO`: this verifies compile+link without a signing
   identity. A real signed build needs a certificate and provisioning.
 
-Verified green on this box (Xcode 26.6, iOS SDK 26.5) producing
-`build/Debug-iphoneos/Kosmos.app`.
+Verified green on this box (Xcode 26.6, iOS SDK 26.5) before the asset catalog landed (#4089).
+Since then the build compiles `Kosmos/Assets.xcassets`, which needs an iOS simulator runtime (next
+section), so on a Mac without one it stops at the asset catalog. iOS CI builds it on GitHub's macOS
+runner, which has the runtime.
 
-## Buildable, not yet runnable, and no committed app icon (both gated on the same thing)
+## App icon and launch screen, compiled in CI (#4089)
 
-`xcrun simctl list runtimes` is empty: no iOS simulator runtimes are installed,
-and the device *platform* support that `-scheme`/`-destination` wants is not
-installed either. Installing it is `xcodebuild -downloadPlatform iOS`, a large
-admin download and a **Josh operator action**. Two consequences, both waiting on
-that one step:
+- `Kosmos/Assets.xcassets` holds `AppIcon` (a byte-for-byte copy of `assets/Kosmos-1024.png`:
+  1024 px, full bleed, no transparency; iOS makes every smaller size from it) and
+  `LaunchBackground`, Kosmos navy `#17233D`, the same colour as `UIColor.kosmosNavy`.
+- `Kosmos-Info.plist` holds only the launch screen (`UILaunchScreen` > `UIColorName =
+  LaunchBackground`); everything else in the Info.plist is still generated from build settings.
+- `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon` wires the icon.
+- Compiling the catalog queries the installed iOS simulator runtimes and fails without one (`No
+  available simulator runtimes for platform iphonesimulator`, measured on this box for both the
+  simulator and the device platform). `xcrun simctl list runtimes` is empty here; installing one is
+  `xcodebuild -downloadPlatform iOS`, a large admin download and a **Josh operator action**. Until
+  then the app builds only in CI, where `tools/check-app-assets.sh` checks the built app carries
+  both names and that the catalog icon is still `assets/Kosmos-1024.png`.
+- Running the app in a simulator waits on the same runtime.
 
-1. **Running** the app in a simulator is a separate later step.
-2. **The app icon is deferred.** Compiling an app-icon asset catalog triggers
-   per-device *thinning*, which queries the (absent) platform runtimes and
-   fails (`No available simulator runtimes for platform iphonesimulator`). So
-   this skeleton ships with no wired app icon. Once the platform is installed,
-   add an `AppIcon` asset catalog and set `ASSETCATALOG_COMPILER_APPICON_NAME`. The artwork is
-   `assets/Kosmos-1024.png` (1024 px, full bleed, no transparency, as iOS wants).
+## Signing, archive and upload (#4089)
 
-Neither blocks the build deliverable, which is compile+link against the SDK.
+- **The Team ID lives in one place: `Signing.xcconfig`** (`DEVELOPMENT_TEAM`), the app target's
+  base configuration. It is empty until Apple approves Kosmos Agent Manager, Inc. (#3643); then it
+  is set to that org's Team ID and nothing else changes.
+- `tools/archive.sh --build <N>` archives the Release app, exports it for App Store Connect with
+  `tools/ExportOptions.plist` (the Team ID is added from `Signing.xcconfig`), and runs
+  `tools/check-ipa-entitlements.sh` on the exported `.ipa`: `aps-environment` must be
+  `production`, `get-task-allow` must not be `true`, and the app must be signed by the team in
+  `Signing.xcconfig` (app identifier `<team>.io.kosmos.app`, team identifier `<team>`). `--upload` then sends that same checked `.ipa` to App Store Connect
+  (it needs an App Store Connect API key: `ASC_KEY_PATH`, `ASC_KEY_ID`, `ASC_ISSUER_ID`).
+- `--build` is required: App Store Connect refuses a build number it has already seen.
+- Until the Team ID is set, `archive.sh` stops at that first check and says so.
+- `-scheme Kosmos` uses the shared scheme committed under `Kosmos.xcodeproj/xcshareddata/`, so
+  archiving does not depend on Xcode creating one.
+- iOS CI builds an unsigned archive with the same command, and runs
+  `tools/test-check-ipa-entitlements.sh`, which signs fake apps with right and wrong entitlements
+  and shows the check passes the first and refuses the rest.
 
 ## Push: how the app registers for notifications (#718)
 
@@ -126,8 +147,8 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
 - **No white flash:** the WebView is navy until the first page paints. Safe areas behave as in
   Safari: a page that opts in with `viewport-fit=cover` (sign-in, the gate) pads for the notch and
   home bar itself, and WebKit keeps any other page (the board today) clear of them.
-- **Not yet:** a navy launch screen needs an asset catalog or a launch storyboard, and both need
-  the iOS platform installed (see "Buildable, not yet runnable" above).
+- **Launch screen:** Kosmos navy, from the asset catalog (see "App icon and launch screen" above),
+  so launch, the WebView before its first paint and the sign-in page are one colour.
 
 ### Tests that run without a simulator
 
