@@ -368,7 +368,9 @@ test('#3939 3c-1 round 7: a failed save blocks an older sign-in but does not con
   muse.markKosmosSignedIn(T);
   muse.markSaveFailed(T + 10);
   assert.equal(muse.signedIn().signedIn, false, 'an older sign-in answered yes beside a failed save');
-  writeAuth(xdg, { meta: { token: 'good' } });
+  clean();
+  writeAuth(xdg, { meta: { token: 'good' } });   // in the file WHILE the save fails
+  muse.markSaveFailed(T + 10);
   assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'file' }, 'a failed save condemned a credential nothing refused');
   clean();
 }));

@@ -331,6 +331,16 @@ test('#3939 3c-1: a refused turn ends the signed-in answer; a crash does not; a 
     r = await slow;
     assert.equal(r.ok, true, 'CONTROL: the slow turn completed');
     assert.equal(musestatus.signedIn().signedIn, false, 'a slow success from before the refusal undid it');
+
+    // Round 7: a refusal that FINISHES after another agent's success began is not beaten by it (overlap).
+    clean();
+    fakeMuse('sleep 1\necho "missing meta credential" >&2\nexit 1');
+    const refusing = run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    await new Promise((res) => setTimeout(res, 300));
+    musestatus.markTurnSignedIn(Date.now());            // another agent's turn began mid-refusal and completed
+    r = await refusing;
+    assert.match(r.because, /not signed in/, 'CONTROL: the slow turn was refused');
+    assert.equal(musestatus.signedIn().signedIn, false, 'an overlapping success hid a refusal that finished after it');
   } finally {
     run.resetForTests(); clean();
     if (was === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = was;

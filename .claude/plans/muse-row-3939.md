@@ -141,3 +141,4 @@ checked against an oracle): no failures.
 - N5: every muserun test sandboxes XDG_CONFIG_HOME.
 - N6: leftover .tmp files older than a minute are pruned.
 - N7: noted (the garbled case's early return); the answer is still asserted there.
+- Two mutation survivors closed: the failed-save test now has Muse's file present during the save, and runTurn has an overlap test (a refusal finishing after another agent's success began).
