@@ -1,6 +1,3 @@
-{"version":"0.7.01","highlights":[
-  {"icon":"shield","title":"Gemini on your Google subscription","line":"Sign in on Google's own page, and Gemini gets its own row in AI Models."},
-  {"icon":"chat","title":"See what your Gemini agents are doing","line":"Gemini agents on a Google subscription can now show Working, Idle or Needs you on their card."},
-  {"icon":"phone","title":"A simpler Kosmos Plus page","line":"One switch to pause Kosmos Plus, one box that says where to sign in, and a way to remove this computer."},
-  {"icon":"tasks","title":"A clearer Tasks page","line":"Every task grouped by where the work is, each status with its own icon, and Needs Your Decision in red."}
+{"version":"0.7.03","highlights":[
+  {"icon":"shield","title":"Clearer sign-in status in AI Models","line":"When Kosmos has only checked a sign-in, it says checked, not that an agent used it."}
 ]}
