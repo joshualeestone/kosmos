@@ -1830,9 +1830,10 @@ const ROUND_30_31_KEYS = [
   'd8d8ec2ae5d4d4cc8b6ae91181628b47',   // repeated key-like pairs (d8 d8, d4 d4)
   '3c16ef22adeace1d1370590365be9433',   // the boundary: exactly two key-like pairs (3c, 1d)
 ];
-/* Which chunks still show, by POSITION: counting by value counts one shown line once per equal chunk. */
-function shownChunks(key, line) {
-  setKnownSecrets([key]);
+/* Which chunks still show, by POSITION: counting by value counts one shown line once per equal chunk. `held` is the
+   key the mask knows (the key itself, unless a control holds another). */
+function shownChunks(key, line, held = key) {
+  setKnownSecrets([held]);
   try {
     const chunks = key.match(/.{2}/g);
     const lines = mask(chunks.map(line).join('\n')).text.split('\n');
@@ -1841,6 +1842,8 @@ function shownChunks(key, line) {
 }
 
 test('#3995 gap 4 review round 30: a hex key with ordinary prose between its short chunks is masked', () => {
+  const unheld = shownChunks(ROUND_30_31_KEYS[0], (c) => `type: ${c}`, ROUND_30_31_KEYS[1]);
+  assert.equal(unheld.length, 16, 'CONTROL: with another key held, every chunk shows (shownChunks can see a chunk)');
   for (const key of ROUND_30_31_KEYS) {
     const shown = shownChunks(key, (c, i) => `Step ${i + 1}, please type this carefully: ${c}`);
     assert.ok(shown.length <= 1, `${key}: a hex key's chunks showed: ${shown.join(',')}`);
