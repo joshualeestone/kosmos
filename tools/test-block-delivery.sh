@@ -189,6 +189,16 @@ else
     *"UNDELIVERED to 1"*"STALE on plain"*) ok "a swarm lead without the block is UNDELIVERED; a non-swarm agent carrying it is STALE" ;;
     *) bad "swarm entitlement misread: $row" ;;
   esac
+  # A lead whose profile FILE exists but cannot be read: not "no lead here".
+  mkdir -p "$T/swarm3/lead"; printf '# agent\n' > "$T/swarm3/lead/CLAUDE.md"
+  PF="$(AGENT_WORKFORCE_HOME="$SW_HOME" node -e "const s=require('./engine/store'),p=require('path');process.stdout.write(p.join(s.PROFILES,s.profileFileName('lead')))")"
+  cp "$PF" "$T/lead.json.bak" && printf '{ not json' > "$PF"
+  row="$(AGENT_WORKFORCE_HOME="$SW_HOME" KOSMOS_WORKERS_DIR="$T/swarm3" node tools/check-block-delivery.js 2>&1 | grep -E '^  swarm ')"
+  cp "$T/lead.json.bak" "$PF"
+  case "$row" in
+    *"CANNOT TELL"*) ok "a lead whose profile exists but cannot be read is CANNOT TELL, not a clean zero" ;;
+    *) bad "unreadable lead profile misread: $row" ;;
+  esac
   mkdir -p "$T/swarm2/ghost"
   printf '# agent\n<!-- kosmos:swarm:start -->\nx\n<!-- kosmos:swarm:end -->\n' > "$T/swarm2/ghost/CLAUDE.md"
   row="$(AGENT_WORKFORCE_HOME="$SW_HOME" KOSMOS_WORKERS_DIR="$T/swarm2" node tools/check-block-delivery.js 2>&1 | grep -E '^  swarm ')"
@@ -234,11 +244,12 @@ fi
 
 # 🔑 TWO WORKING-RULES BLOCKS IN ONE FILE: planFor refuses, and the row says CANNOT TELL
 # and names the agent, rather than calling it behind or current.
-mkdir -p "$T/doct2/dup"
+mkdir -p "$T/doct2/dup" "$T/doct2/plain"
+printf '# agent\n' > "$T/doct2/plain/CLAUDE.md"
 printf '# agent\n<!-- kosmos:doctrine:start -->\nx\n<!-- kosmos:doctrine:end -->\n\n<!-- kosmos:doctrine:start -->\ny\n<!-- kosmos:doctrine:end -->\n' > "$T/doct2/dup/CLAUDE.md"
 row="$(run "$T/doct2" | grep -E '^  doctrine ')"
 case "$row" in
-  *"CANNOT TELL on dup"*) ok "an ambiguous working-rules file reads CANNOT TELL and names the agent" ;;
+  *"CANNOT TELL on dup"*"behind on"*) ok "an ambiguous working-rules file is named CANNOT TELL, and the others behind are still counted" ;;
   *) bad "ambiguous doctrine misread: $row" ;;
 esac
 

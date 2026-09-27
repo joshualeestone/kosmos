@@ -14,8 +14,6 @@
  * about what it must NOT touch (Liu Kang, m1859): text outside the markers
  * survives byte for byte, a file with two blocks is left alone, a missing file
  * is never created, and with nothing saved an existing block is not removed.
- * The first two arms are red without the fix; the controls pass either way and
- * guard against a fix that writes too much.
  *
  * ⚠️ THE SIBLING BOOT REFRESHES RUN IN THE SAME BOOT and append their own blocks
  * (reports, connections, dmfiles) at the END of a file that lacks them. So "byte
