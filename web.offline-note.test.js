@@ -127,9 +127,9 @@ test('#2023: BOARD_NEEDS_SIGNIN does not latch -- a non-403 outcome after a 403 
      body is non-strict, so a bare assignment creates the global. */
   const stub = () => ({ dataset: {}, innerHTML: '', className: '', textContent: '', hidden: true, closest: () => null, querySelector: () => null, querySelectorAll: () => [] });
   let fetchImpl;
-  const tick = new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'SIGNIN_SENTENCE', 'ORG_SIGNED_OUT_SENTENCE', 'esc', 'setNavBadge', 'ringNewAgentMessages', 'setAgentsGrouped', 'orgBoxPlain',
+  const tick = new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'SIGNIN_SENTENCE', 'ORG_SIGNED_OUT_SENTENCE', 'DEVICE_SIGNIN_BUTTON', 'esc', 'setNavBadge', 'ringNewAgentMessages', 'setAgentsGrouped', 'orgBoxPlain',
     `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'tick')}\nreturn tick;`)(
-    () => {}, (...a) => fetchImpl(...a), { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] }, 0, () => '', () => {}, null, null, page.liftConst(SCRIPT, 'SIGNIN_SENTENCE'), page.liftConst(SCRIPT, 'ORG_SIGNED_OUT_SENTENCE'), (x) => String(x), () => {}, () => {}, () => {}, () => {}, // #3301: ringNewAgentMessages / #3387: setAgentsGrouped / #718: orgBoxPlain no-ops (tick calls them; not under test here)
+    () => {}, (...a) => fetchImpl(...a), { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] }, 0, () => '', () => {}, null, null, page.liftConst(SCRIPT, 'SIGNIN_SENTENCE'), page.liftConst(SCRIPT, 'ORG_SIGNED_OUT_SENTENCE'), new Function(page.liftConst(SCRIPT, 'DEVICE_SIGNIN_BUTTON') + '\nreturn DEVICE_SIGNIN_BUTTON;')(), (x) => String(x), () => {}, () => {}, () => {}, () => {}, // #3301: ringNewAgentMessages / #3387: setAgentsGrouped / #718: orgBoxPlain no-ops (tick calls them; not under test here)
   );
   delete globalThis.BOARD_NEEDS_SIGNIN;
   delete globalThis.BOARD_SIGNED_OUT;

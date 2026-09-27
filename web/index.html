@@ -20666,8 +20666,8 @@ async function tick() {
       /* Compared by what the note HOLDS, not by innerHTML: the browser serializes the bare
          attribute back as data-device-signin="", so a string compare never matched. */
       const kept = orgNote.querySelector && orgNote.querySelector('[data-device-signin]')
-        && orgNote.textContent === ORG_SIGNED_OUT_SENTENCE + ' Sign in';
-      if (!kept) orgNote.innerHTML = esc(ORG_SIGNED_OUT_SENTENCE) + ' <button class="btn" type="button" data-device-signin>Sign in</button>';
+        && orgNote.textContent.startsWith(ORG_SIGNED_OUT_SENTENCE + ' ');
+      if (!kept) orgNote.innerHTML = esc(ORG_SIGNED_OUT_SENTENCE) + ' ' + DEVICE_SIGNIN_BUTTON;
     } else orgNote.textContent = BOARD_NEEDS_SIGNIN ? SIGNIN_SENTENCE
       : 'We cannot read the agents right now, so this is not drawn. It is not saying there are none.';
     /* The tiles are claims too. Left alone they hold last-success numbers
@@ -28780,12 +28780,13 @@ function relaySignedOut(status, body) {
   return status === 401 && !!body && body.signed_out === true;
 }
 const ORG_SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos. Your Mac and your agents are fine.';
+const DEVICE_SIGNIN_BUTTON = '<button class="btn" type="button" data-device-signin>Sign in</button>';
 const SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos, so it cannot see your agents or projects. Your Mac and your agents are fine. Sign in again from the Agents or Projects page.';
 function deviceSignedOutHtml(what) {
   return '<div class="pj-empty boardfail">'
     + '<p><b>Sign in again to see your ' + (what === 'projects' ? 'projects' : 'agents') + '.</b><br>'
     + esc(ORG_SIGNED_OUT_SENTENCE) + '</p>'
-    + '<button class="btn" type="button" data-device-signin>Sign in</button>'
+    + DEVICE_SIGNIN_BUTTON
     + '</div>';
 }
 /* One source for the not-signed-in copy so the agents box, the org note and the
