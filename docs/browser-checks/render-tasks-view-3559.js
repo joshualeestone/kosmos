@@ -350,6 +350,18 @@ function chk(ok, label, extra) {
           await page.evaluate(() => { const m = document.getElementById('userpop-menu'); if (m && !m.hidden) document.getElementById('userpop-btn').click(); document.activeElement && document.activeElement.blur && document.activeElement.blur(); });
           chk(pop.open && popAfter.open && popAfter.on !== 'tsk-search', `${tag} "/" with the account menu open does not move focus into the search`, JSON.stringify({ pop, popAfter }));
         }
+        /* Nor with the narrow-screen nav open: opening it puts focus on its first tab, not on the burger (round 17). */
+        if (width <= 760) {
+          await page.click('#burger');
+          await page.waitForTimeout(150);
+          const nav = await page.evaluate(() => ({ open: document.getElementById('burger').getAttribute('aria-expanded'), on: document.activeElement && (document.activeElement.id || (document.activeElement.dataset && document.activeElement.dataset.tab)) }));
+          await page.keyboard.press('/');
+          const navAfter = await page.evaluate(() => ({ on: document.activeElement && (document.activeElement.id || (document.activeElement.dataset && document.activeElement.dataset.tab)), open: document.getElementById('burger').getAttribute('aria-expanded') }));
+          await page.click('#burger');
+          await page.waitForTimeout(150);
+          await page.evaluate(() => document.activeElement && document.activeElement.blur && document.activeElement.blur());
+          chk(nav.open === 'true' && navAfter.open === 'true' && navAfter.on !== 'tsk-search', `${tag} "/" with the narrow-screen nav open does not move focus into the search`, JSON.stringify({ nav, navAfter }));
+        }
         /* But an ordinary disclosure that is open (a subtask fold chip, a project row: aria-expanded="true") is not a
            popover: "/" from it still reaches the search (review round 16). A tile stands in for one here. */
         {

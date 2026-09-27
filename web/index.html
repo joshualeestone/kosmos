@@ -46931,10 +46931,12 @@ document.addEventListener('keydown', (e) => {
   // <dialog>, and focus can sit on the page behind one when its button disables itself).
   if (t && t.closest && t.closest('[role="dialog"], [role="alertdialog"], [aria-modal="true"]')) return;
   if ([...document.querySelectorAll('[aria-modal="true"]')].some((m) => m.getClientRects().length > 0)) return;
-  // Nor while a header popover or menu is open (the world switcher and account menu are plain groups, not dialogs,
-  // and keep focus on their trigger). Named, not any aria-expanded="true": an open subtask fold chip or project row
-  // is a disclosure, and "/" must still work from it (review round 16).
-  if (t && t.closest && t.closest('#burger[aria-expanded="true"], #worldsw-btn[aria-expanded="true"], #userpop-btn[aria-expanded="true"], #worldsw-menu, #userpop-menu')) return;
+  // Nor while a header popover or menu is open, wherever focus sits (opening the burger moves focus onto its first
+  // tab, review round 17). The same test as tipMenuOpen(): a popup trigger that is expanded, the burger, or the world
+  // switcher. Not any aria-expanded="true": an open subtask fold chip or project row is a disclosure, not a popup,
+  // and "/" must still work from it (review round 16).
+  if (document.querySelector('[aria-haspopup][aria-expanded="true"], #burger[aria-expanded="true"], #worldsw-btn[aria-expanded="true"]')) return;
+  if (t && t.closest && t.closest('#worldsw-menu, #userpop-menu')) return;
   if ([...document.querySelectorAll('#worldsw-menu, #userpop-menu')].some((m) => !m.hidden && m.getClientRects().length > 0)) return;
   e.preventDefault();
   document.getElementById('tsk-search').focus();
