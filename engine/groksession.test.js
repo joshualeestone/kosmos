@@ -68,6 +68,7 @@ function writeSession({ encDir, sessionId, cwd, model, numMessages, lastActive, 
 
 function reset() {
   fs.rmSync(nodePath.join(SANDBOX, 'sessions'), { recursive: true, force: true });
+  grok.clearFirstTurnCache(); // a reused session id must not inherit an earlier test's past-turn-1 mark
 }
 
 test('read() returns the codex-shaped contract, with BOTH context halves measured', () => {

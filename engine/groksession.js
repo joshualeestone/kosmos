@@ -248,4 +248,7 @@ function read(dir, home) {
   };
 }
 
-module.exports = { HOME, read, forWorkdir, summaries, summaryOf, SESSIONS };
+/* Tests only: forget which sessions were seen past turn 1, so a sandbox reset starts clean. */
+function clearFirstTurnCache() { PAST_FIRST_TURN.clear(); }
+
+module.exports = { HOME, read, forWorkdir, summaries, summaryOf, SESSIONS, clearFirstTurnCache };
