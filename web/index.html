@@ -20668,8 +20668,11 @@ async function tick() {
        the five-second poll does not rebuild the button under a keyboard's focus. */
     const orgNote = document.getElementById('orgnote');
     if (BOARD_SIGNED_OUT) {
-      const h = esc(ORG_SIGNED_OUT_SENTENCE) + ' <button class="btn" type="button" data-device-signin>Sign in</button>';
-      if (orgNote.innerHTML !== h) orgNote.innerHTML = h;
+      /* Compared by what the note HOLDS, not by innerHTML: the browser serializes the bare
+         attribute back as data-device-signin="", so a string compare never matched. */
+      const kept = orgNote.querySelector && orgNote.querySelector('[data-device-signin]')
+        && orgNote.textContent === ORG_SIGNED_OUT_SENTENCE + ' Sign in';
+      if (!kept) orgNote.innerHTML = esc(ORG_SIGNED_OUT_SENTENCE) + ' <button class="btn" type="button" data-device-signin>Sign in</button>';
     } else orgNote.textContent = BOARD_NEEDS_SIGNIN ? SIGNIN_SENTENCE
       : 'We cannot read the agents right now, so this is not drawn. It is not saying there are none.';
     /* The tiles are claims too. Left alone they hold last-success numbers
