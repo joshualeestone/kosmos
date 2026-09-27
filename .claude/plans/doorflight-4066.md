@@ -11,11 +11,14 @@ The next test (`forget() observes its OWN write...`) had the same fixed 150 ms b
 ## Change (test only)
 
 - `until(ready, what, ms)`: polls every 10 ms up to `ARRIVAL_MS` (10 s), failing with its own message.
-- Test 1 waits for the first entry, then keeps the 150 ms settle so an unshared second read still shows as 2. Load can only make that less sensitive, never fail it falsely.
-- Test 2 waits for `entries() >= 2` instead of the fixed sleep.
+- Test 1 counts `/api/connections` requests from the server's own `request` event and waits until both have ARRIVED, then waits for the first verifier entry, then keeps a 150 ms settle before asserting `=== 1`. Waiting on arrival rather than time means load cannot hide an unshared second read.
+- Test 2 records the entries `connect()` itself made (it calls the verifier twice: `verify`, then its closing `state()`) and waits for one more. **Iteration 1 caught that my first version waited for `>= 2`, which setup already satisfied, so the read was never held and the test could not fail.**
+- Test 2 bounds `forget()` by `ARRIVAL_MS`: if it shares the held read it used to hang the file; now it fails with its own message.
+- Each `finally` releases the gate first, so a timeout cannot leave a fetch blocked.
 
-## Controls (run, both arms)
+## Controls (run, both arms, product restored after each)
 
 - The file: 4 tests, 4 pass.
-- Sharing broken in `server.js` (`inflight.collapse` removed from `readConnectionsShelf`): test 1 red, "verified this door 2 times". Restored.
-- `ARRIVAL_MS = 0` with the ready condition forced false: red, "no shelf read reached the verifier (waited 0 ms)". Restored.
+- A, sharing broken (`inflight.collapse` removed from `readConnectionsShelf` in `server.js`): test 1 red, "verified this door 2 times".
+- B, arrival forced to fail with `ARRIVAL_MS = 0`: red, "no shelf read reached the verifier (waited 0 ms)".
+- C, `state()` collapsed inside `engine/tokendoor.js` (the regression test 2 guards): test 2 red, "forget() waited on a shelf read that began before its write". Before the bound it hung instead.
