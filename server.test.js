@@ -7767,7 +7767,8 @@ test('#3955: the old finish-line note is gone; the update window names the versi
   const fs2 = require('node:fs');
   const page = fs2.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   assert.doesNotMatch(page, /function updatedNoteOnce|id="unote-slot"|Updated\.<\/b><small>You are on Kosmos/);
-  assert.match(page, /'Version ' \+ version/, 'the window does not name the version');
+  // Josh's review (2026-09-26): the version is in the title, no pill.
+  assert.match(page, /'Kosmos has been updated to ' \+ version/, 'the window does not name the version');
 });
 
 test('the check route is POST-only, and Check now clears the Later note before asking', async () => {

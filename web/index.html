@@ -1240,7 +1240,8 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .wn-words b { display: block; font-size: .9375rem; margin: 1px 0 2px; color: var(--label); }
 .wn-words span { display: block; font-size: .84rem; line-height: 1.4; color: var(--label-2); }
 .wn-acts { margin-top: 22px; text-align: left; }   /* Josh: the link bottom-left */
-.wn-x:focus-visible, .wn-more:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+/* --gold-edge, not --gold (round 11): --gold is 2.25:1 on the light theme's white, under 3:1. */
+.wn-x:focus-visible, .wn-more:focus-visible { outline: 2px solid var(--gold-edge); outline-offset: 2px; }
 .wn-more { color: var(--label-2); font-size: .84rem; text-decoration: underline; text-underline-offset: 3px; }
 @media (max-width: 560px) { .wn-tiles { grid-template-columns: 1fr; } .wn-box { padding: 24px 18px 20px; } }
 /* ⚠️ THE `.dbox` HALVES ARE NOT DECORATION, and the button they save is the one
@@ -31958,21 +31959,22 @@ let WN_VERSION = null;
    version is not worth a permanent one. The mark is the app's own icon. */
 /* Josh, 2026-09-26 review: the version is in the title (no pill), an X top-right closes it (no Got it),
    and "See everything that changed" sits bottom-left, linked to this version's entry. */
-const WN_HTML = '<div class="wn-box" role="dialog" aria-modal="true" aria-labelledby="wn-title" tabindex="-1">'
+/* The backdrop is in the markup too (round 11), so the modal sweep (web.modal-way-out-1316) names it. */
+const WN_HTML = '<div class="rm-back" id="whatsnew">'
+  + '<div class="wn-box" role="dialog" aria-modal="true" aria-labelledby="wn-title" aria-describedby="wn-tiles" tabindex="-1">'
   + '<button type="button" class="wn-x" id="wn-x" aria-label="Close">&times;</button>'
   + '<img class="wn-mark" src="/icons/kosmos-192.png" alt="" width="52" height="52">'
   + '<h2 class="wn-title" id="wn-title">Kosmos has been updated</h2>'
   + '<ul class="wn-tiles" id="wn-tiles" aria-label="What is new" hidden></ul>'
   + '<div class="wn-acts">'
   + '<a class="wn-more" id="wn-more" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener">See everything that changed<span class="vh"> (opens in your browser)</span></a></div>'
-  + '</div>';
+  + '</div></div>';
 function wnOpen(version, highlights) {
   let back = document.getElementById('whatsnew');
   if (!back) {
-    back = document.createElement('div');
-    back.className = 'rm-back';
-    back.id = 'whatsnew';
-    back.innerHTML = WN_HTML;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = WN_HTML;
+    back = tmp.firstElementChild;
     document.body.appendChild(back);
     wnWire(back);
   }
@@ -32017,7 +32019,7 @@ document.addEventListener('keydown', (e) => {
   // Two things to press (the X and the link); Tab stays between them while the window is up.
   const f = [back.querySelector('#wn-x'), back.querySelector('#wn-more')];
   const at = f.indexOf(document.activeElement);
-  if (at === -1) { e.preventDefault(); f[0].focus(); return; }
+  if (at === -1) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); return; }   // round 11: Shift+Tab goes back
   if (e.shiftKey && at === 0) { e.preventDefault(); f[f.length - 1].focus(); }
   else if (!e.shiftKey && at === f.length - 1) { e.preventDefault(); f[0].focus(); }
 });

@@ -60,8 +60,11 @@ test('#3955: release.sh runs the check at 1b-ii, after the versions entry and be
   assert.match(block, /node "\$REPO\/tools\/whats-new-check\.js" "\$V" "\$REPO\/web\/whats-new\.json" \|\| exit 1/, 'a refusal does not stop the cut');
   assert.match(block, /if \[ "\$\{KOSMOS_CUT_NO_WHATS_NEW:-\}" = "1" \]; then/, 'no hotfix opt-out');
   /* Twice (round 6): at 1b-ii before the bump, and at 2b-ii on the frozen tree (the shared checkout can
-     move between them). Counted over the whole file, so a respelled third call cannot slip in. */
-  assert.equal((sh.match(/whats-new-check\.js/g) || []).length, 2, 'the cut checks the highlights some other number of times than twice');
+     move between them). Counted over the whole file, so a respelled third call cannot slip in. Round 11
+     adds one call that only informs (the opt-out's message says whether the window will show). */
+  assert.equal((sh.match(/whats-new-check\.js[^\n]*\|\| exit 1/g) || []).length, 2, 'the cut checks the highlights some other number of times than twice');
+  assert.equal((sh.match(/whats-new-check\.js/g) || []).length, 3, 'a call to the check appeared or went that is neither the two refusals nor the opt-out message');
+  assert.match(sh, /whats-new-check\.js" "\$V" "\$REPO\/web\/whats-new\.json" >\/dev\/null 2>&1; then   # informs, never refuses/, 'the opt-out message call can refuse');
   const frozen = at('node "$BUILD/tools/whats-new-check.js" "$V" "$BUILD/web/whats-new.json" || exit 1');
   const freeze = at('REPO="$BUILD"');
   const suite = at('step "== 3.');

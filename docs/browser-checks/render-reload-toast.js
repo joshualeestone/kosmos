@@ -209,7 +209,11 @@ async function seenIsCurrent() {
       const wrapped = await pg.evaluate(() => document.activeElement && document.activeElement.id);
       chk(at === 'wn-x' && wrapped === 'wn-more', theme + ': Tab goes to the X, then the link', at + ' then ' + wrapped);
       // Keyboard focus is shown, and in gold, not the black ring (Josh).
-      const kring = await pg.evaluate(() => { const c = getComputedStyle(document.activeElement); return { style: c.outlineStyle, color: c.outlineColor }; });
+      const kring = await pg.evaluate(() => { const c = getComputedStyle(document.activeElement);
+        return { style: c.outlineStyle, color: c.outlineColor, bg: getComputedStyle(document.querySelector('#whatsnew .wn-box')).backgroundColor }; });
+      // Round 11: the ring is the only focus a keyboard user sees, so it clears 3:1 (WCAG 1.4.11).
+      const kr = ratio(over(rgb(kring.color), rgb(kring.bg)), rgb(kring.bg).c);
+      chk(kr >= 3, theme + ': the keyboard focus ring clears 3:1 on the window', kr.toFixed(2));
       chk(kring.style !== 'none' && !/^rgb\(0, 0, 0\)$|^rgb\(2[0-9], 2[0-9], 2[0-9]\)$/.test(kring.color), theme + ': a keyboard focus ring shows, not black', JSON.stringify(kring));
       await pg.keyboard.press('Tab');
       const wrap2 = await pg.evaluate(() => document.activeElement && document.activeElement.id);

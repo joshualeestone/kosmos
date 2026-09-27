@@ -5,7 +5,7 @@ Card #3955 (Josh, #admin, 2026-09-26 08:11). Design: Mona Lisa's mock on card-sh
 ## What finished looks like
 - Before an update, the top bar shows one small chip beside the Kosmos switcher: "An update is available" with a gold Update. Nothing else about the update is on screen.
 - When Kosmos updated underneath an open page, the same chip reads "Reload to finish updating" with Reload, and the page reloads itself when the window is in the background and nothing is being typed or sent. Nothing says "Kosmos updated" while the old page is showing.
-- After the new version is on screen (a manual Update or an auto-update), a centred window over a dimmed app says "Kosmos has been updated to X.Y.Z" (Josh's review: no version pill), and 1 to 5 tiles (icon, title, one line) from web/whats-new.json when that file is for this version (a release with no highlights shows no window; round 3). Got it or Escape closes it; it is not shown again for that version. A fresh install never shows it.
+- After the new version is on screen (a manual Update or an auto-update), a centred window over a dimmed app says "Kosmos has been updated to X.Y.Z" (Josh's review: no version pill), and 1 to 5 tiles (icon, title, one line) from web/whats-new.json when that file is for this version (a release with no highlights shows no window; round 3). The X, Escape or a click outside closes it; it is not shown again for that version. A fresh install never shows it.
 - The old "Kosmos updated to 0.6.94 [x]" line and the "Updated. You are on Kosmos X" note are gone.
 - A cut refuses when web/whats-new.json is not for the version being cut, unless KOSMOS_CUT_NO_WHATS_NEW=1.
 
@@ -61,7 +61,7 @@ Card #3955 (Josh, #admin, 2026-09-26 08:11). Design: Mona Lisa's mock on card-sh
 
 ## Review round 8 (decided)
 - render-reload-toast.js did not parse: my round-7 edit put a line comment in the middle of a chk() call, swallowing its label and closing paren. Fixed, every touched script now passes node --check / bash -n, and both update checks were RUN against a sandbox board (render-reload-toast: 54 PASS, all good; render-update-toast: OK). The reason-grep test only scans text, so it stayed green on an unparseable file.
-- Clicking outside the window also closes it (the same single wnClose as Got it and Escape, and the app's other dialogs do the same); seen is recorded on open either way.
+- Clicking outside the window also closes it (the same single wnClose as the X and Escape, and the app's other dialogs do the same); seen is recorded on open either way.
 - The highlight limits are enforced at 48 and 140 characters; the "about 40" and "about 120" above are the writing guide, with room left over.
 
 ## Review round 9 (decided)
@@ -82,10 +82,17 @@ Card #3955 (Josh, #admin, 2026-09-26 08:11). Design: Mona Lisa's mock on card-sh
 - Typing lets go of boxes that have left the page (the typed set no longer grows for the life of a tab waiting for an update).
 - The tour wait watches any open tip (TIP_OPEN), which is broader than "the first-run tour" in the prose above: it only ever makes the window wait longer.
 
+## Review round 11 (decided)
+- Three existing tests went red on the branch and are fixed: server.test.js pinned the removed 'Version ' pill (now the title); web.modal-way-out-1316 found an 18th modal it could not name (the backdrop is now in WN_HTML with id="whatsnew", the ceiling is 18 and the table names its Escape); web.found-scale anchored on the page's FIRST 'input' listener (now anchored on the found filter's own box).
+- The keyboard ring is --gold-edge (5.26:1 on the light theme's white; --gold was 2.25:1, under 3:1), still gold; the browser check measures it at 3:1.
+- The opt-out message runs the check anyway and says which is true: the check skipped with a file for the version (the window shows), or no highlights (no window).
+- Shift+Tab from the window itself goes to the link; the dialog is described by its tiles for screen readers.
+- Kept: the .utoast .utxt small a rule (the sign-in and not-answering chips' small text can carry links).
+
 ## Tests
 - The chip's two states and its one button; the stale chip never says "Kosmos updated"; engine-stale still first.
 - Safe reload: reloads when hidden and idle; not when visible, sending, drafting, or a dialog is open.
-- The window: shown for a new version on a fresh page, with tiles; no window without highlights; not on a fresh install; not on an old page; Got it and Escape record seen; focus trapped and returned.
+- The window: shown for a new version on a fresh page, with tiles; no window without highlights; not on a fresh install; not on an old page; seen recorded on open; the X, Escape and a click outside close it; focus trapped and returned.
 - whats-new.json shape (committed file, when present) and the check script's red arms (stale version refused, matching accepted, opt-out accepted, bad icon, too many).
 - release.sh runs the check at 1b-ii before the bump and at 2b-ii on the frozen tree (round 6).
 - Browser check: the three states rendered (shots to the card).

@@ -756,6 +756,15 @@ test('#3955: KOSMOS_CUT_NO_WHATS_NEW=1 lets the same cut through, and says there
   fs.rmSync(site, { recursive: true, force: true });
 });
 
+test('#3955 round 11: with the opt-out set and a real highlights file for the version, the cut says the window WILL show', () => {
+  const { dir, home, site } = git_sandbox('0.6.02');   // its whats-new.json is for 0.6.03, the cut version
+  const r = run_git(dir, '0.6.03', home, site, { noWhatsNew: true });
+  assert.match(r.said, /the highlights check is skipped; web\/whats-new\.json is for 0\.6\.03, so the "Kosmos has been updated" window will show/, r.said.slice(0, 800));
+  assert.doesNotMatch(r.said, /0\.6\.03 ships with no highlights/, 'the cut claimed no window over a real highlights file');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
 test('#1449: the cut completion line can never omit its step', () => {
   const s = fs.readFileSync(REAL, 'utf8');
 
