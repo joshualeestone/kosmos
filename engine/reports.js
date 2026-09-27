@@ -153,7 +153,7 @@ function tellAgent(sessionName, roster, opts) {
        file is read at its next start, so writing it now is exactly right and
        needs no restart. Everything else keeps the roster gate. */
     const vouched = !!(opts && opts.trusted);
-    if (!vouched && (!Array.isArray(roster) || !roster.some((a) => a && a.sessionName === sessionName && a.isNamedOurs === true))) {
+    if (!vouched && !projects.heldExactly(sessionName, roster)) {
       return {
         state: projects.TOLD.COULD_NOT,
         because: !Array.isArray(roster)

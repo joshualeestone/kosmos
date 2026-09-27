@@ -156,7 +156,7 @@ function bodyFor(sessionName) {
 function tellAgent(sessionName, roster, opts) {
   try {
     const vouched = !!(opts && opts.trusted);
-    if (!vouched && (!Array.isArray(roster) || !roster.some((a) => a && a.sessionName === sessionName && a.isNamedOurs === true))) {
+    if (!vouched && !projects.heldExactly(sessionName, roster)) {
       return {
         state: projects.TOLD.COULD_NOT,
         because: !Array.isArray(roster)

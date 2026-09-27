@@ -316,7 +316,7 @@ function stackedBody(policies) {
  */
 function tellAgent(sessionName, roster) {
   try {
-    if (!Array.isArray(roster) || !roster.some((a) => a && a.sessionName === sessionName && a.isNamedOurs === true)) {
+    if (!projects.heldExactly(sessionName, roster)) {
       return {
         state: projects.TOLD.COULD_NOT,
         because: !Array.isArray(roster)

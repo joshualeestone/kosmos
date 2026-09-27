@@ -5248,7 +5248,7 @@ const server = http.createServer((req, res) => {
     const key = decodeSegment(agentSkillRm[2]);
     if (name === null || key === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
     const roster = safeRoster();
-    if (!Array.isArray(roster) || !roster.some((a) => a && a.sessionName === name && a.isNamedOurs === true)) {
+    if (!projects.heldExactly(name, roster)) {
       sendJson(res, 409, { ok: false,
         because: !Array.isArray(roster)
           ? 'we could not check which agents are running, so we will not write into a worker folder on a guess'
@@ -5362,7 +5362,7 @@ const server = http.createServer((req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { throw new Error('we could not read that request'); }
         const roster = safeRoster();
-        if (!Array.isArray(roster) || !roster.some((a) => a && a.sessionName === name && a.isNamedOurs === true)) {
+        if (!projects.heldExactly(name, roster)) {
           sendJson(res, 409, { ok: false,
             because: !Array.isArray(roster)
               ? 'we could not check which agents are running, so we will not write into a worker folder on a guess'

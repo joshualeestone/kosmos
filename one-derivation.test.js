@@ -115,3 +115,55 @@ test('#1228: toldOverride can reuse a store list a caller already holds', () => 
   const unused = projects.toldOverride(verdict, 'told-agent', []);
   assert.equal(unused.state, 'stale', 'an explicit empty list was not honoured');
 });
+
+/* #4183: the exact-name permit ("loose to notice, exact to permit") is one function,
+   projects.ourCard, which heldExactly and every caller go through. A hand copy of the
+   predicate is the drift this file exists for: the rule gained isNamedOurs once, after a
+   lookalike rewrote a real agent's instructions, and a copy would not have.
+   Flagged: a line comparing `.sessionName` (== or ===) that also uses `.isNamedOurs`
+   positively (`=== true`, `== true` or bare truthy; not `!a.isNamedOurs`, not `!== true`).
+   Scanned: server.js and every non-test .js under engine/, recursively. Not seen: a copy split
+   across lines, a destructured parameter, bracket access (a['isNamedOurs']), a tie through set
+   membership rather than one name (engine/tasks.js's holders.has(card.sessionName)), and files
+   outside those roots (tools/, bin/). */
+function engineFiles(dir) {
+  const out = [];
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = nodePath.join(dir, e.name);
+    if (e.isDirectory()) out.push(...engineFiles(full));
+    else if (e.name.endsWith('.js') && !e.name.endsWith('.test.js')) out.push(nodePath.relative(__dirname, full));
+  }
+  return out;
+}
+const PERMIT_LIKE = (line) => /\.sessionName\s*===?/.test(line)
+  && /(?<!!)\b[A-Za-z_$][\w$]*\.isNamedOurs\b(?!\s*!==?)/.test(line);
+test('#4183: the exact-name permit is spelled only in projects.ourCard', () => {
+  const files = ['server.js', ...engineFiles(nodePath.join(__dirname, 'engine'))];
+  const hits = [];
+  for (const rel of files) {
+    fs.readFileSync(nodePath.join(__dirname, rel), 'utf8').split('\n').forEach((line, i) => {
+      if (/^\s*(\*|\/\/)/.test(line)) return;
+      if (PERMIT_LIKE(line)) hits.push({ rel, n: i + 1, line });
+    });
+  }
+  /* The control: the scan must find ourCard's own line, or it is looking in the wrong place. */
+  const projectsRel = nodePath.join('engine', 'projects.js');
+  const src = fs.readFileSync(nodePath.join(__dirname, projectsRel), 'utf8').split('\n');
+  const home = hits.find((h) => h.rel === projectsRel && /function ourCard/.test(src.slice(Math.max(0, h.n - 4), h.n).join('\n')));
+  assert.ok(home, 'the scan did not find ourCard\'s own line, so it is looking in the wrong place: ' + JSON.stringify(hits.map((h) => h.rel + ':' + h.n)));
+  assert.deepEqual(hits.filter((h) => h !== home).map((h) => h.rel + ':' + h.n), [],
+    'a hand copy of the exact-name permit; call projects.ourCard or heldExactly');
+});
+
+test('#4183: the permit scan sees the spellings it claims to, and not a negated flag', () => {
+  for (const line of [
+    "roster.some((a) => a && a.sessionName === name && a.isNamedOurs === true)",
+    "roster.some((a) => a && a.sessionName === name && a.isNamedOurs)",
+    "roster.some((c) => c.sessionName == name && c.isNamedOurs == true)",
+  ]) assert.ok(PERMIT_LIKE(line), 'missed: ' + line);
+  for (const line of [
+    "const borrowed = cards.filter((a) => a.sessionName === name && !a.isNamedOurs)",
+    "roster.some((a) => a.sessionName === name && a.isNamedOurs !== true)",
+    "if (card && card.isNamedOurs) return card",
+  ]) assert.ok(!PERMIT_LIKE(line), 'flagged, wrongly: ' + line);
+});

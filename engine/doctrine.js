@@ -162,7 +162,7 @@ function status(sessionName, now) {
 function refresh(sessionName, roster, opts) {
   try {
     const vouched = !!(opts && opts.trusted);
-    if (!vouched && (!Array.isArray(roster) || !roster.some((a) => a && a.sessionName === sessionName && a.isNamedOurs === true))) {
+    if (!vouched && !projects.heldExactly(sessionName, roster)) {
       return {
         state: 'could_not',
         because: !Array.isArray(roster)

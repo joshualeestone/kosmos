@@ -854,7 +854,7 @@ function describe(project, roster, all) {
     // and reason precisely because it is not tied. The strongest claim in the
     // function was resting on the weakest evidence in it.
     if (project.everSeen && project.everSeen[name] === false
-        && cards.some((a) => a && a.sessionName === name && a.isNamedOurs === true)) {
+        && module.exports.heldExactly(name, cards)) {
       upgraded = upgraded || { ...(project.everSeen || {}) };
       upgraded[name] = true;
     }
