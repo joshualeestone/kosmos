@@ -282,9 +282,22 @@ const chk = (ok, label, extra) => {
   // Turned on but Muse Code not installed: the option stays disabled and says why.
   await q(() => { window.__museInstalled = false; closeAcctAdd(); openAcctAdd(); }); await settle();
   const missing = await q(() => { const o = document.querySelector('#acct-provider-pick option[value="meta"]'); return { disabled: o.disabled, off: o.dataset.off || '' }; });
-  chk(missing.disabled && /not on this computer/.test(missing.off), 'turned on but not installed: the Meta option stays disabled and gives the engine\'s reason', JSON.stringify(missing));
+  chk(missing.disabled && /not on this computer/.test(missing.off) && missing.off !== 'Not ready on this computer', 'turned on but not installed: the Meta option stays disabled and gives the engine\'s reason', JSON.stringify(missing));
   await q(() => { window.__museInstalled = true; closeAcctAdd(); openAcctAdd(); }); await settle();
   chk(await q(() => { const o = document.querySelector('#acct-provider-pick option[value="meta"]'); return !o.disabled && !o.dataset.off; }), 'installed again: live, with no leftover reason');
+
+  /* ---- round 4 of review: stuck, with and without a code ---- */
+  await q(() => { window.__museInstalled = true; closeAcctAdd(); openAcctAdd(); }); await settle();
+  await running();
+  await q(() => { window.__status = { id: 'mine000000000001', state: 'stuck', because: 'Muse Code did not start waiting for the approval', url: 'https://auth.meta.com/device?user_code=WXYZ-1234', code: 'WXYZ-1234' }; }); await tick();
+  const stuckCode = await q(() => ({ msg: document.getElementById('acct-muse-msg').textContent, code: !document.getElementById('acct-muse-code').hidden,
+    link: !document.getElementById('acct-muse-open-row').hidden, retry: !document.getElementById('acct-muse-retry-row').hidden, stop: !document.getElementById('acct-muse-cancel-row').hidden }));
+  chk(/did not start waiting/.test(stuckCode.msg) && stuckCode.code && stuckCode.link && !stuckCode.retry && stuckCode.stop,
+    'stuck with a code: says why, keeps the code and link (Meta\'s page may still take it), offers Stop, no retry', JSON.stringify(stuckCode));
+  await q(() => { window.__status = { id: 'mine000000000001', state: 'stuck', because: 'Muse Code is showing a step Kosmos does not recognise' }; }); await tick();
+  const stuckBare = await q(() => ({ msg: document.getElementById('acct-muse-msg').textContent, code: !document.getElementById('acct-muse-code').hidden, stop: !document.getElementById('acct-muse-cancel-row').hidden }));
+  chk(/does not recognise/.test(stuckBare.msg) && !stuckBare.code && stuckBare.stop, 'stuck with no code: says why, no code, Stop offered', JSON.stringify(stuckBare));
+  await q(() => document.getElementById('acct-muse-cancel').click()); await settle();
 
   chk(errs.length === 0, 'no page errors', errs.join(' | '));
   await browser.close();

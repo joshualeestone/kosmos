@@ -25811,7 +25811,9 @@ const MUSE_SAY = {
 };
 /* The Meta option in Add a provider: one lookup, for museAsk and museOffered. */
 function museMetaOption() { return document.querySelector('#acct-provider-pick option[value="meta"]'); }
+let MUSE_ASK_GEN = 0;   // the latest read wins (round 4: two quick opens could answer out of order)
 async function museAsk() {
+  const mine = ++MUSE_ASK_GEN;
   let on = false; let missing = false;
   try {
     const r = await fetch('/api/muse', { cache: 'no-store' });
@@ -25820,8 +25822,10 @@ async function museAsk() {
        until they are ready); turned on but not installed says so on the row instead of "Coming soon". */
     on = !!(out && out.enabled === true && out.installed === true);
     // The engine's own reason (round 3: one spelling), with a page fallback only when it has none.
-    missing = !!(out && out.enabled === true && out.installed === false) && (pjSentence(out.because) || 'Muse Code is not on this computer');
+    // The engine's own reason; the fallback is deliberately not a copy of it (round 4).
+    missing = !!(out && out.enabled === true && out.installed === false) && (pjSentence(out.because) || 'Not ready on this computer');
   } catch { on = false; }   // a failed read keeps it "coming soon": today's screen, never a guess
+  if (mine !== MUSE_ASK_GEN) return on;
   /* Only disabled is toggled: the logo combobox re-reads it on open (syncOpts), and drops its "Coming
      soon" pill, but its row name is fixed at build, so the option text stays as it is. */
   const opt = museMetaOption();
