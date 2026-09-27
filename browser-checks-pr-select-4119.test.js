@@ -32,7 +32,7 @@ function rows(out) {
 }
 function needCommit(c) {
   try { execFileSync('git', ['cat-file', '-e', `${c}^{commit}`], { cwd: __dirname, stdio: 'ignore' }); }
-  catch { assert.fail(`${c} is not in this clone; the replay cannot run (needs full history)`); }
+  catch { assert.fail(`${c} is not in this clone; the replay cannot run (needs full history: git fetch --unshallow)`); }
 }
 
 test('#3985 replay: render-talk is selected by its own selectors, which the surface map alone misses', () => {
