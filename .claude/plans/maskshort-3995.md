@@ -231,3 +231,15 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
   joined piece on the path. Tested; the round-17 regrouped-repeat shapes still pass.
 - Not covered quotes the measured rate for uppercase-and-digit keys in threes (about one in two hundred), not "0 of 600".
 - The budget comment is rewritten as the unit plus a list of measurements.
+
+## Review round 20 (Sonnet), what changed
+- BLOCKER fixed: shortChunkSpans built every run's pieces before anything could match, and none of it was charged,
+  so a large paste of slug-like tokens sharing nothing with any held value cost 16s against main's 5s at 5.3MB,
+  growing with size and never withheld. It now returns at once unless some 2- or 3-character token in the text opens a
+  short-indexed form (a walk can only start from one), and the build and the masking after a completion are charged to
+  the budget (past it: withheld). Measured on a 16,000-token slug log with 50 held keys: about 950ms CPU on the
+  previous commit, about 400ms now.
+- The round-20 test is a guard against a blow-up (relative to the same log with hex held values, which the short index
+  leaves out), NOT a test that fails on the previous commit: on this loaded Mac the two differ by less than the noise
+  at a size a unit test can afford. The fix rests on the measurement above and on round 20's 5.3MB figures.
+- NIT noted: nearPieces rescans the form per candidate (bounded by the form's length; now charged per run).

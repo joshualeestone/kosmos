@@ -1698,3 +1698,19 @@ test('#3995 gap 4 review round 19: a pasted run of one part repeated thousands o
     assert.ok(t.startsWith('The relay is automatic over TLS;'), 'a slice across two chunks was masked: ' + t);
   } finally { setKnownSecrets([]); }
 });
+
+test('#3995 gap 4 review round 20: a large pasted log of slugs sharing nothing with any held value costs little', () => {
+  const text = Array.from({ length: 16000 }, (_, i) => `item-${i}_part+${i % 7}/rev=${i % 13}-build-${i % 5}_final`).join(' ');
+  // Baseline: 50 held HEX values of the same length. The word walk and every other copy run for them as for any value,
+  // but hex is kept out of the short index, so the difference is the short walk's own cost.
+  setKnownSecrets(Array.from({ length: 50 }, (_, i) => j('3f9a2c7e1b4d8f6a0c5e9b2d', String(i).padStart(4, '0'))));
+  let base;
+  try { base = cpuMillisecondsOf(() => { mask(text + ' '); }); } finally { setKnownSecrets([]); }
+  setKnownSecrets(Array.from({ length: 50 }, (_, i) => j('Zq8vLm3pRt6wXy9kHb2nWc4d', String(i).padStart(4, '0'))));
+  try {
+    let r;
+    const ms = cpuMillisecondsOf(() => { r = mask(text); });
+    assert.equal(r.text, text);
+    assert.ok(ms < base * 1.5 + 100, `a slug log cost ${ms}ms against ${base}ms without the short walk's held values`);
+  } finally { setKnownSecrets([]); }
+});

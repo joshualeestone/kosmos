@@ -832,9 +832,19 @@ function plainWordRun(t) {
 const SHORT_WALK_MIN_KEYLIKE = 2;
 function shortChunkSpans(text) {
   if (!knownByShort.size) return [];
+  /* Nothing is built unless some two- or three-character token in the text opens a short-indexed form (review round 20:
+     building every run's pieces first cost 16s on a 5MB log of slugs that shared nothing with any held value). A walk
+     only ever starts from such a token, so a text with none has nothing to find. */
+  let opens = false;
+  for (const m of text.matchAll(/[A-Za-z0-9]{2,3}(?![A-Za-z0-9])/g)) {
+    if ((m.index === 0 || !/[A-Za-z0-9]/.test(text[m.index - 1])) && knownByShort.has(m[0])) { opens = true; break; }
+  }
+  if (!opens) return [];
+  let budget = SHORT_WALK_BUDGET;   // declared first: building the pieces, canSpell and the search all charge it
   const runs = [];
   for (const m of text.matchAll(/[A-Za-z0-9_+/=-]+/g)) {
     const where = shortPieces(m[0]);
+    if ((budget -= chunksOf(where.size * 4)) < 0) return null;   // the build's work, charged as the rest is
     runs.push([m.index, m.index + m[0].length, [...where.keys()], m[0], where]);
   }
   if (runs.length < 2) return [];
@@ -846,7 +856,6 @@ function shortChunkSpans(text) {
   /* Whether f from `at` to its end can be spelled from runs present in the text at all (a word break over `present`),
      once per form and start: a form the text cannot spell is never walked (review round 1: 2,000 held values each
      walked from every "0" in a long table withheld it). */
-  let budget = SHORT_WALK_BUDGET;   // declared before canSpell, which charges it
   const spellable = new Map();
   const viable = new Map();
   const canSpell = (f, from) => {
@@ -944,6 +953,7 @@ function shortChunkSpans(text) {
   }
   const spans = [];
   const nearPieces = (k, f, head, cuts) => {
+    budget -= runs[k][4].size;   // the masking after a completion is charged too (review round 20)
     for (const [t, places] of runs[k][4]) {
       /* Three characters or more (review round 18: "c4" in "White played c4" is a slice of many keys; a two-character
          coincidence is ordinary, a three-character non-plain one is not). */
@@ -993,7 +1003,7 @@ function shortChunkSpans(text) {
       if (t.length >= 3 && !plainWordRun(t)) for (const k of at.get(t) || []) if (k !== i && k > first && k < last) pieceSpan(k, t);
     }
   }
-  return spans;
+  return budget < 0 ? null : spans;   // the masking above spent past the budget: withheld, as elsewhere
 }
 /* How many characters of text[from, to) are not whitespace, counting no further than `cap + 1`. */
 function nonSpaceIn(text, from, to, cap = Infinity) {
