@@ -74,6 +74,22 @@ suppressing when `AGENT_WORKFORCE_DATA` is set (`install/setup.sh:1320` sets it 
 - BLOCKER, fixed: the depth reader did not see `function name {` or `function name() {` openers, so an
   export inside such a never-called function passed. Both styles are in its self-test now.
 
+## Review 4
+
+- BLOCKER, fixed: the node-test guard judged whole FILES, so one safe spawn (or a comment naming the URL)
+  cleared a second, hand-built one in the same file. It now judges each spawn: it finds the call's `env`
+  and follows only names that carry a whole environment in (the env itself, a helper call, a spread, an
+  Object.assign argument), with a name judged by its last declaration plus later lines that mention it.
+  A property value (`HOME: sb`) is not followed. Comments are stripped. Its self-test pins seven shapes.
+- It covers docs/browser-checks/*.js (they boot boards under browser-checks.sh's export), `'node'` as the
+  program, a server.js path held in a name, and a `node -e` child requiring a named server path.
+  Measured: 47 files boot a board (26 tests, 21 checks), all safe; the floor is 40.
+- Mutations on real files, each red: the guide-on-connect fix removed; a second hand-built spawn added to
+  a file that already has a safe one; a comment naming the URL above an unsafe spawn.
+- My own errors in this round: I set the floor twice from a guess (20, then 40 before measuring 33, then
+  47), and my first per-call version followed every name on every line, which let `boot(sb)` vouch for an
+  unrelated spawn. Both were caught by running the mutation, not by reading.
+
 ## Weakest premise
 
 A harness started outside these three entry points (a check run by hand with node, a /verify-live

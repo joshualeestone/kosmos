@@ -219,22 +219,160 @@ test('#4253: test-install.sh\'s first installer run is the first one in the file
   assert.equal(found, first, `the boot pattern finds line ${found + 1}, but the first installer run is line ${first + 1}`);
 });
 
-test('#4253: every node test that boots server.js keeps the board from phoning home', () => {
+/* ---- the per-call boot analyzer (#4253 reviews 3 and 4) ----
+   Judges each spawn of a board ON ITS OWN, not the file it sits in: a file with
+   one safe spawn and one hand-built env is not safe, and a comment naming the URL
+   is not a fix. Textual, not a JS parser: it balances brackets and ignores
+   comments, which is how these files are written. */
+const SAFE_ENV = /\.\.\.process\.env\b|Object\.(keys|entries)\(process\.env\)|Object\.assign\(\{\}, *process\.env|AGENT_WORKFORCE_CREATED_URL|^\s*process\.env\s*$/;
+
+function stripComments(src) {
+  return src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    .split('\n').map((l) => (/^\s*\/\//.test(l) ? '' : l)).join('\n');
+}
+
+/* The text from `open` (an opening bracket) to its match. */
+function balanced(src, open) {
+  const pairs = { '(': ')', '[': ']', '{': '}' };
+  const stack = [];
+  for (let i = open; i < src.length; i += 1) {
+    const c = src[i];
+    if (pairs[c]) stack.push(pairs[c]);
+    else if (c === stack[stack.length - 1]) { stack.pop(); if (!stack.length) return src.slice(open, i + 1); }
+  }
+  return src.slice(open);
+}
+
+/* The definition text of a name, if the file defines it. */
+function definition(src, name) {
+  const fn = new RegExp(`function\\s+${name}\\s*\\(`).exec(src);
+  if (fn) { const b = src.indexOf('{', fn.index); return b < 0 ? '' : balanced(src, b); }
+  const v = new RegExp(`(?:const|let|var)\\s+${name}\\s*=\\s*`).exec(src);
+  if (!v) return null;
+  const at = v.index + v[0].length;
+  if ('([{'.includes(src[at])) return balanced(src, at);
+  if (src[at] === '`') { let i = at + 1; while (i < src.length && !(src[i] === '`' && src[i - 1] !== '\\')) i += 1; return src.slice(at, i + 1); }
+  const semi = src.indexOf(';', at);
+  return src.slice(at, semi < 0 ? undefined : semi);
+}
+
+/* The `env` option of a call, or null when there is none (the child inherits). */
+function envOf(call) {
+  const short = /[{,]\s*env\s*[,}]/.exec(call);
+  if (short) return 'env';
+  const m = /\benv\s*:\s*/.exec(call);
+  if (!m) return null;
+  let i = m.index + m[0].length;
+  if ('([{'.includes(call[i])) return balanced(call, i);
+  const rest = call.slice(i);
+  const end = rest.search(/[,}\n]/);
+  return rest.slice(0, end < 0 ? undefined : end).trim();
+}
+
+/* The names that carry a WHOLE environment into an expression: the expression
+   itself when it is one name or a call (`env`, `launchEnv()`), a spread
+   (`...base`), or an argument of Object.assign. A property value (`HOME: sb`)
+   brings one key, never NODE_TEST_CONTEXT, so it is not followed. */
+function flows(expr) {
+  const t = String(expr).trim();
+  const out = new Set();
+  const whole = /^([A-Za-z_$][\w$]*)\s*(?:\(|$)/.exec(t);
+  if (whole) out.add(whole[1]);
+  for (const x of t.matchAll(/\.\.\.\s*([A-Za-z_$][\w$]*)/g)) out.add(x[1]);
+  for (const x of t.matchAll(/Object\.assign\(([^)]*)\)/g)) {
+    for (const n of x[1].match(/(?<![.\w$])[A-Za-z_$][\w$]*/g) || []) out.add(n);
+  }
+  out.delete('process');
+  return out;
+}
+
+/* A name's LAST declaration before the call (the whole statement), plus the later
+   lines up to the call that mention it (a loop filling it from process.env), or a
+   function's body. The later lines are checked for safe text, never followed. */
+function region(src, name, callAt) {
+  const re = new RegExp(`(?:const|let|var)\\s+${name}\\s*=\\s*`, 'g');
+  let decl = null; let m;
+  while ((m = re.exec(src)) && m.index < callAt) decl = m;
+  if (!decl) { const d = definition(src, name); return d === null ? null : { stmt: d, later: '' }; }
+  const at = decl.index + decl[0].length;
+  let stmt;
+  if ('([{'.includes(src[at])) stmt = balanced(src, at);
+  else { const semi = src.indexOf(';', at); stmt = src.slice(at, semi < 0 ? callAt : Math.min(semi, callAt)); }
+  const word = new RegExp(`(?<![.\\w$])${name}\\b`);
+  const later = src.slice(at + stmt.length, callAt).split('\n').filter((l) => word.test(l)).join('\n');
+  return { stmt, later };
+}
+
+function envIsSafe(src, expr, callAt, depth = 0) {
+  if (expr === null) return true;
+  if (SAFE_ENV.test(expr)) return true;
+  if (depth > 3) return false;
+  for (const name of flows(expr)) {
+    const r = region(src, name, callAt);
+    if (!r) continue;
+    if (SAFE_ENV.test(r.later) || envIsSafe(src, r.stmt, callAt, depth + 1)) return true;
+  }
+  return false;
+}
+
+/* Every spawn in `raw` that boots a board: server.js as the script (literally, or
+   through a name defined with it), or a `node -e` child whose code requires it.
+   Returns [{ line, safe }]. */
+function boots(raw) {
+  const src = stripComments(raw);
+  const out = [];
+  const re = /\b(spawn|spawnSync|fork|execFile|execFileSync)\(\s*(process\.execPath|['"]node['"])\s*,\s*/g;
+  let m;
+  while ((m = re.exec(src))) {
+    const call = balanced(src, src.indexOf('(', m.index));
+    const argsAt = m.index + m[0].length;
+    const args = src[argsAt] === '[' ? balanced(src, argsAt) : '';
+    const names = args.match(/\b[A-Za-z_$][\w$]*\b/g) || [];
+    const direct = /server\.js/.test(args) || names.some((n) => /server\.js/.test(definition(src, n) || ''));
+    const code = args + '\n' + names.map((n) => definition(src, n) || '').join('\n');
+    const inner = (code.match(/\b[A-Z_][A-Z0-9_]*\b/g) || []).map((n) => definition(src, n) || '').join('\n');
+    const viaE = /^\[\s*['"]-e['"]/.test(args) && /\brequire\(/.test(code)
+      && (/['"`/]server(\.js)?['"`]/.test(code) || /server\.js/.test(inner));
+    if (!direct && !viaE) continue;
+    out.push({ line: src.slice(0, m.index).split('\n').length, safe: envIsSafe(src, envOf(call), m.index) });
+  }
+  return out;
+}
+
+test('#4253: the boot analyzer judges each spawn, not the file', () => {
+  const two = [
+    "spawn(process.execPath, [path.join(REPO, 'server.js')], { env: { ...process.env, PORT: '0' } });",
+    "spawn(process.execPath, [path.join(REPO, 'server.js')], { env: { PATH: process.env.PATH, PORT: '0' } });",
+  ].join('\n');
+  assert.deepEqual(boots(two).map((b) => b.safe), [true, false], 'a safe spawn does not clear its unsafe neighbour');
+  const mention = "// AGENT_WORKFORCE_CREATED_URL is not needed here\nspawn(process.execPath, ['server.js'], { env: { HOME: h } });";
+  assert.deepEqual(boots(mention).map((b) => b.safe), [false], 'a comment naming the URL is not a fix');
+  const viaName = "const SERVER = path.join(REPO, 'server.js');\nspawn('node', [SERVER], { env: { HOME: h } });";
+  assert.deepEqual(boots(viaName).map((b) => b.safe), [false], 'a server.js path held in a name is still a boot');
+  const prop = "const env = { ...process.env };\nfunction other() {}\nspawn(process.execPath, ['server.js'], { env: { PATH: process.env.PATH, HOME: sb } });";
+  assert.deepEqual(boots(prop).map((b) => b.safe), [false], 'process.env.PATH does not make an unrelated env variable the spawn\'s env');
+  const filled = "const env = {};\nfor (const k of Object.keys(process.env)) env[k] = process.env[k];\nspawnSync(process.execPath, ['server.js'], { env: { ...env, PORT: '0' } });";
+  assert.deepEqual(boots(filled).map((b) => b.safe), [true], 'an env filled from process.env after its declaration is safe');
+  const helper = "function launchEnv() { const e = {}; for (const [k, v] of Object.entries(process.env)) e[k] = v; return e; }\nspawn(process.execPath, ['server.js'], { env: launchEnv() });";
+  assert.deepEqual(boots(helper).map((b) => b.safe), [true], 'an env built by a helper is judged by the helper');
+  assert.deepEqual(boots("spawn(process.execPath, ['server.js'], { stdio: 'pipe' });").map((b) => b.safe), [true], 'no env option inherits');
+  assert.deepEqual(boots("execFileSync(process.execPath, ['-e', 'require(\"./server.js\")'], { env: { A: 1 } });").map((b) => b.safe), [false], 'a -e child that requires server.js is a boot');
+  const named = "const SERVER = path.join(__dirname, 'server.js');\nconst code = `require(${JSON.stringify(SERVER)});`;\nspawnSync(process.execPath, ['-e', code], { env: { HOME: h } });";
+  assert.deepEqual(boots(named).map((b) => b.safe), [false], 'a -e child that requires a NAMED server.js path is a boot');
+});
+
+test('#4253: every test and browser check that boots server.js keeps the board from phoning home', () => {
   /* A test run under node --test has NODE_TEST_CONTEXT, and a board that inherits
-     it stays silent. A child env built by hand drops it, so such a test must name
-     the URL. The check is per FILE and textual: a spawn of server.js with
-     process.execPath, and somewhere in the file either a pass-through of
-     process.env or the URL itself. */
-  const files = require('node:child_process').execFileSync('git', ['-C', REPO, 'ls-files', '*.test.js'], { encoding: 'utf8' })
-    .trim().split('\n').filter(Boolean);
-  // Two shapes boot a board in a child: server.js as the spawned script, or a
-  // `node -e` child whose code requires server.js. Measured 2026-09-27: 11 and 16.
-  const DIRECT = /\b(spawn|spawnSync|fork|execFile|execFileSync)\(\s*process\.execPath\s*,\s*\[[^\]]*?server\.js/s;
-  const VIA_E = (src) => /\b(spawn|spawnSync|execFile|execFileSync)\(\s*process\.execPath\s*,\s*\[\s*["']-e["']/.test(src)
-    && /["'`][^"'`]*require\([^)]*server/.test(src);
-  const SAFE = /\.\.\.process\.env\b|Object\.(keys|entries)\(process\.env\)|Object\.assign\(\{\}, *process\.env|AGENT_WORKFORCE_CREATED_URL|env: *process\.env\b/;
-  const booters = files.filter((f) => { const src = fs.readFileSync(path.join(REPO, f), 'utf8'); return DIRECT.test(src) || VIA_E(src); });
-  assert.ok(booters.length >= 20, `found only ${booters.length} tests that boot server.js (27 on 2026-09-27); the matcher has gone blind`);
-  const bad = booters.filter((f) => !SAFE.test(fs.readFileSync(path.join(REPO, f), 'utf8')));
-  assert.deepEqual(bad, [], `these tests boot server.js with an env that neither passes process.env through nor names AGENT_WORKFORCE_CREATED_URL: ${bad.join(', ')}`);
+     it stays silent; a browser check inherits browser-checks.sh's export. A child
+     env built by hand drops both, so such a spawn must name the URL itself. */
+  /* This file is left out: its self-test above holds deliberately unsafe spawns as
+     strings, and its one real boot (the CONTROL) names the URL. */
+  const files = require('node:child_process').execFileSync('git', ['-C', REPO, 'ls-files', '*.test.js', 'docs/browser-checks/*.js'], { encoding: 'utf8' })
+    .trim().split('\n').filter((f) => f && f !== 'tools.no-phone-home-4253.test.js');
+  const all = [];
+  for (const f of files) for (const b of boots(fs.readFileSync(path.join(REPO, f), 'utf8'))) all.push({ f, ...b });
+  const bootFiles = new Set(all.map((b) => b.f));
+  assert.ok(bootFiles.size >= 40, `found only ${bootFiles.size} files that boot server.js; the matcher has gone blind`);
+  const bad = all.filter((b) => !b.safe).map((b) => `${b.f}:${b.line}`);
+  assert.deepEqual(bad, [], `these spawns boot server.js with an env that neither passes process.env through nor names AGENT_WORKFORCE_CREATED_URL: ${bad.join(', ')}`);
 });
