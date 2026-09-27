@@ -1,4 +1,5 @@
 'use strict';
+// Browser-check-scope: page  (#4119: it judges every visible piece of text, so it runs on any page change; tools/bc-pr-select.js)
 
 /**
  * Every visible piece of text clears the AA contrast floor, in both themes.

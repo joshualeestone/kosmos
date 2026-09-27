@@ -143,6 +143,21 @@ if command -v ruby >/dev/null 2>&1; then
     abort "the allowlist job does not run browser-checks.sh with the strict pin" unless runs.(g) =~ /KOSMOS_PW_STRICT_VERSION=1 bash tools\/browser-checks\.sh/
     abort "the allowlist job does not provision Playwright" unless runs.(g).include?("tools/provision-pw.sh")
     abort "the allowlist job is not on macos-latest" unless g["runs-on"] == "macos-latest"
+    # kosmos#4119: the PR job also runs the checks the page diff touches. Without the selection
+    # step, or with its names never reaching the run line, the job silently falls back to the
+    # fixed allowlist that let #3985 (render-talk) and #4095 (render-fields) through on 09-26.
+    gs = g["steps"] || []
+    gco = gs.find { |st| st["uses"].to_s.start_with?("actions/checkout") } or abort "the allowlist job has no checkout"
+    abort "the allowlist job checkout needs fetch-depth: 0 (the selection diffs against the merge base)" unless (gco["with"] || {})["fetch-depth"].to_s == "0"
+    si = gs.index { |st| st["run"].to_s.include?("node tools/bc-pr-select.js") }
+    gi = gs.index { |st| st["run"].to_s =~ /KOSMOS_PW_STRICT_VERSION=1 bash tools\/browser-checks\.sh/ }
+    gti = gs.index { |st| st["run"].to_s =~ /\bbrew install tmux\b/ }
+    abort "the allowlist job does not run tools/bc-pr-select.js (#4119)" unless si
+    abort "the selection step must come BEFORE the checks step" unless gi && si < gi
+    abort "the selection step does not export KOSMOS_BC_PR_SELECTED" unless gs[si]["run"].to_s.include?("KOSMOS_BC_PR_SELECTED=") && gs[si]["run"].to_s.include?("GITHUB_ENV")
+    abort "the selection step must diff against the PR base sha" unless (gs[si]["env"] || {})["BASE_SHA"].to_s.gsub(/\s+/, "") == "${{github.event.pull_request.base.sha}}"
+    abort "the checks step does not add KOSMOS_BC_PR_SELECTED to the allowlist" unless gs[gi]["run"].to_s.include?("KOSMOS_BC_PR_SELECTED") && gs[gi]["run"].to_s =~ /KOSMOS_BC_CI_ALLOWLIST="\$KOSMOS_BC_CI_ALLOWLIST\$extra"/
+    abort "the allowlist job must install tmux BEFORE the checks step (render-talk, #3973/#4119)" unless gti && gti < gi
     f = YAML.load_file(ARGV[1])
     on = f["on"] || f[true] || {}
     trig = on.is_a?(Hash) ? on.keys.map(&:to_s).sort : Array(on).map(&:to_s).sort
