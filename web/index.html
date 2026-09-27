@@ -25999,7 +25999,8 @@ function agySubDriver(pre, onReady) { return {
       this.next = 'check';
       AGY_INSTALLED = true;
       this.say('Ready. Gemini runs on your Google subscription on this computer: pick Google Gemini (Google subscription) when you create an agent.', '', false, true);
-      this.winReady();
+      // onReady is async since #4082: guarded like the Mac call sites, so a failure is never an unhandled rejection.
+      try { Promise.resolve(this.winReady()).catch(() => {}); } catch { /* same */ }
     } else if (state === 'failed') {
       this.winId = null;
       this.winShowPaste(false);
@@ -26143,15 +26144,39 @@ function agySubDriver(pre, onReady) { return {
     } finally { if (live()) this.busy = false; }   // a superseded press must not free a newer one
   },
 }; }
-const FR_AGY_SUB = agySubDriver('fr-gemini-sub-', () => {
+const FR_AGY_SUB = agySubDriver('fr-gemini-sub-', async () => {
   FR_AGY_READY = true;
-  frPaintKeyed();   // the row reads Connected and the step offers Next (review round 3)
+  /* #4082: the step hides on Ready, and focus inside it (the paste box's Continue, or the step itself) fell to the
+     page: a keyboard or screen-reader user lost their place. Decided NOW, before the repaint's accounts read (which
+     can take seconds, and a person may Tab on meanwhile), and only when focus is lost: the page, or the step. Focus
+     goes to Gemini's own box BEFORE the repaint writes it, Grok's order, so its live region reads the box once. */
+  const box = document.getElementById('fr-gemini-msg');
+  const step = document.getElementById('fr-gemini-sub-step');
+  const was = document.activeElement;
+  /* Also lost: Skip (#fr-alt), which the Next that success offers replaces, and Gemini's own Connect, which success
+     disables (review round 7: both measured ending on the page). */
+  const lostOn = [document.getElementById('fr-alt'), document.getElementById('fr-gemini-connect')];
+  const lost = (typeof FR_STEP !== 'undefined' && FR_STEP === 5)
+    && (!was || was === document.body || lostOn.includes(was) || (!!step && typeof step.contains === 'function' && step.contains(was)));
+  /* Collapse the finished step now, as Grok's success does, rather than after the repaint's accounts read: its Stop
+     must not stay on screen and pressable after focus has left it (review round 2). keepSignIn: the box is kept. */
+  if (typeof frKeyedCollapse === 'function') frKeyedCollapse('google', true);
+  if (box && lost) {
+    if (box.setAttribute) box.setAttribute('tabindex', '-1');
+    if (box.focus) box.focus();
+  }
+  /* The result is said NOW, in the box, AFTER focus lands (Grok's order: its live region reads the new sentence
+     once). The step's own Ready line has just hidden with it, and the box would otherwise sit empty for the whole
+     accounts read (review round 3). The repaint replaces it. */
+  if (box) { box.className = 'dhint'; box.textContent = 'Google Gemini (Google subscription) is ready.'; }
+  const painting = frPaintKeyed();   // the row reads Connected and the step offers Next (review round 3)
   /* Not dependent on the accounts read (review round 9: frPaintKeyed returns early if it fails). */
   { const b = document.getElementById('fr-gemini-connect');
     if (b) { b.innerHTML = '<span aria-hidden="true">✓</span> Connected'; b.disabled = true; if (b.classList) b.classList.add('is-connected'); if (b.setAttribute) b.setAttribute('aria-label', 'Gemini is connected'); } }
   if (typeof FR_STEP !== 'undefined' && FR_STEP === 5 && !(typeof FR !== 'undefined' && FR && FR.subscription && FR.subscription.state === 'connected')) {
     frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) }, null);
   }
+  try { await painting; } catch { /* the sentence written above stays: it already says what happened */ }
 }).wire();
 /* #3874: Settings, Add a provider. Ready records the signed-in fact every screen reads (the create
    hint, the guided setup's Gemini row on its next paint), but paints nothing of first run's. */
@@ -58325,13 +58350,40 @@ async function frOpenaiSubConnected(_account) {
   // for signature-parity with the Settings mirror acctOpenaiSubConnected(account).
   ACCT_OPENAI_SUB_SESSION = null;
   // #2913: no name field -- the subscription account is identified by its email.
-  const sub = document.getElementById('fr-openai-sub-step'); if (sub) sub.hidden = true;
-  const pick = document.getElementById('fr-openai-pick'); if (pick) pick.hidden = true;
+  const sub = document.getElementById('fr-openai-sub-step');
+  /* #4082: read before the step hides: focus on its link or Stop falls to the page once it does. Decided now, not
+     after the accounts read below (seconds; a person may Tab on meanwhile), and focus goes to the box BEFORE the
+     repaint writes it (Grok's order), so its live region reads the connected box once. */
+  const was = document.activeElement;
+  /* The picker too (review round 6): Connect pressed again while this sign-in was still in flight re-shows the
+     picker with focus in it, the poll keeps running, and the picker hides here as well. */
+  const pick = document.getElementById('fr-openai-pick');
+  const within = (el) => !!el && typeof el.contains === 'function' && el.contains(was);
+  /* Also lost: Skip (#fr-alt), which the Next that success offers replaces, and GPT's own Connect, which the repaint
+     disables (review round 7: both measured ending on the page). */
+  const lostOn = [document.getElementById('fr-alt'), document.getElementById('fr-openai-connect')];
+  const lost = typeof FR_STEP !== 'undefined' && FR_STEP === 5
+    && (!was || was === document.body || lostOn.includes(was) || within(sub) || within(pick));
+  if (sub) sub.hidden = true;
+  if (pick) pick.hidden = true;
+  const box = document.getElementById('fr-openai-msg');
+  if (box && lost) {
+    if (box.setAttribute) box.setAttribute('tabindex', '-1');
+    if (box.focus) box.focus();
+  }
+  /* The result is said NOW, after focus lands (Grok's order): the poll left its in-progress line in the box ("Finish
+     signing in on the page that opened."), which is wrong once connected and would stay there for the whole accounts
+     read, or for good if the repaint failed (review round 3). The repaint below replaces it with the gold box. */
+  if (box) { box.className = 'dhint'; box.textContent = 'GPT is connected.'; }
   // paintAccounts refreshes the row list; frPaintOpenai paints the SAME gold
   // connected box the key path uses -- a subscription carries no keyTail, so it
   // reads "This computer is signed in." with no key suffix, which is exactly right.
-  await paintAccounts();
-  await frPaintOpenai({ connected: true, justAdded: true });
+  // If the repaint fails, the sentence above stays: it already says what happened (as Gemini's path does; this runs in
+  // the poll's interval callback, where a rejection would go unhandled).
+  try {
+    await paintAccounts();
+    await frPaintOpenai({ connected: true, justAdded: true });
+  } catch { /* the sentence stands */ }
 }
 document.getElementById('fr-openai-pick-sub').addEventListener('click', () => frOpenaiChoose('sub'));
 document.getElementById('fr-openai-pick-key').addEventListener('click', () => frOpenaiChoose('key'));
