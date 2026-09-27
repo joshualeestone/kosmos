@@ -1,3 +1,15 @@
+# #4206: share the exact Node test-runner classifier with heavy-gate. This file
+# is sourced by Bash callers, so BASH_SOURCE resolves this library even when the
+# caller's cwd is elsewhere.
+_kosmos_cut_guard_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if ! . "$_kosmos_cut_guard_lib_dir/process-fixture.sh"; then
+  # Not every caller enables set -e. Keep every candidate when the classifier
+  # is unavailable, so a missing library can only over-refuse, never turn a
+  # live cut into an empty process list.
+  _kosmos_pid_has_node_test_ancestor() { return 1; }
+fi
+unset _kosmos_cut_guard_lib_dir
+
 # --- Shared: is a matched process THIS run, or a separate one? (#1391) -------
 # Both guards below match a process by its command line and must then exclude
 # the caller's OWN run so it does not refuse itself. A single-pid exclusion is
@@ -45,6 +57,19 @@ _kosmos_drop_self_subtree() {
     [ -n "$line" ] || continue
     cpid="${line%% *}"
     _kosmos_pid_is_self_or_descendant "$cpid" "$self" && continue
+    printf '%s\n' "$line"
+  done
+}
+
+# Read `pid cmdline` lines and remove only fixtures whose live ancestry proves
+# they belong to Node's test runner. An unreadable ancestry stays in the list,
+# which preserves the guard's refuse-rather-than-guess posture.
+_kosmos_drop_node_test_fixtures() {
+  local line pid
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    pid="${line%% *}"
+    _kosmos_pid_has_node_test_ancestor "$pid" && continue
     printf '%s\n' "$line"
   done
 }
@@ -236,6 +261,13 @@ kosmos_refuse_if_cut_live() {
   # _kosmos_drop_self_subtree here too; the helper is already shared.
   if [ -n "$out" ] && [ -n "$self" ]; then
     out="$(printf '%s\n' "$out" | grep -v -E "^${self} " || true)"
+  fi
+  # #4206: release gate tests execute real tools/release.sh fixtures, so their
+  # command is intentionally indistinguishable from a cut. Ignore only a
+  # candidate whose ancestor chain proves it belongs to `node --test`. This is
+  # the same classifier heavy-gate uses; unresolved ancestry remains counted.
+  if [ -n "$out" ]; then
+    out="$(printf '%s\n' "$out" | _kosmos_drop_node_test_fixtures || true)"
   fi
   if [ "$rc" -ge 2 ]; then
     echo "could not tell whether a cut is running (the probe exited $rc); refusing to guess for $what. KOSMOS_HARNESS_IGNORE_CUT=1 runs anyway." >&2
