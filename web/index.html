@@ -3567,15 +3567,22 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
   background-image: linear-gradient(45deg, transparent 50%, var(--k-ink-2) 50%),
                     linear-gradient(135deg, var(--k-ink-2) 50%, transparent 50%); }
 .tsk-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(138px, 1fr)); gap: 10px; margin: 16px 0 4px; }
-.tsk-tile { background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 12px; padding: 11px 13px 10px; cursor: pointer;
-  text-align: left; font: inherit; color: inherit; display: flex; flex-direction: column; gap: 1px; }
+.tsk-tile { background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 12px; padding: 16px 16px 15px; cursor: pointer;
+  text-align: left; font: inherit; color: inherit; display: flex; flex-direction: column; justify-content: flex-start; gap: 10px; min-height: 108px; }
 .tsk-tile:hover { background: var(--agent-msg); }
 .tsk-tile[aria-pressed="true"] { background: var(--agent-msg); border-color: var(--gold-edge); }
 .tsk-tile .num { font: 650 1.5rem var(--font-ui); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
-.tsk-tile .lab { font-size: .8125rem; font-weight: 650; }
+.tsk-tile .lab { font-size: .8125rem; font-weight: 650; line-height: 1.3; }
+/* #4053 (Josh picked option C, then "a little taller"): a tinted round badge with the tile's icon, beside the number.
+   The badge takes the tile's own colour, so a zero or "cannot tell" Needs Your Decision is neutral, like its dot. */
+.tsk-mkrow { display: flex; align-items: center; gap: 11px; }
+.tsk-badge { width: 36px; height: 36px; border-radius: 50%; flex: none; display: grid; place-items: center; color: var(--tsk-c);
+  background: color-mix(in srgb, var(--tsk-c) 15%, var(--k-surface)); }
+.tsk-badge svg { width: 19px; height: 19px; }
 /* #3949 (Josh): Needs Your Decision is red, the only tile the person acts on; at zero there is nothing to act on,
    so it is drawn like the others. */
-.tsk-tile[data-tile="decision"]:not([data-n="0"]):not([data-n="unknown"]) { border-color: color-mix(in srgb, var(--danger) 45%, var(--k-rule)); }
+.tsk-tile[data-tile="decision"]:not([data-n="0"]):not([data-n="unknown"]) { border-color: color-mix(in srgb, var(--danger) 45%, var(--k-rule));
+  background: color-mix(in srgb, var(--danger) 9%, var(--k-surface)); }
 .tsk-tile[data-tile="decision"]:not([data-n="0"]):not([data-n="unknown"]) .num, .tsk-tile[data-tile="decision"]:not([data-n="0"]):not([data-n="unknown"]) .lab { color: var(--danger); }
 .tsk-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--tsk-c); margin-right: 6px; vertical-align: 1px; flex: none; }
 .tsk-grp { margin-top: 24px; }
@@ -47438,6 +47445,19 @@ const TSK_GROUPS = [
     why: 'An agent marked these built. They are waiting to be released or checked; close each one once it is live.' },
   { k: 'closed', l: 'Completed', c: 'var(--tsk-closed)', why: 'Finished and closed.' },
 ];
+/* #4053 (option C v2, approved): one line icon per tile, drawn in a tinted badge beside the number. */
+const TSK_ICON = {
+  decision: '<path d="M4 5h16v11H9.5L5 19.5V16H4z"/><path d="M12 8.2v3.6"/><path d="M12 14.3v.01"/>',
+  working: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4h-4"/>',
+  assigned: '<circle cx="9" cy="8" r="3.3"/><path d="M3.5 19.5c0-3.1 2.5-5.5 5.5-5.5"/><circle cx="17" cy="16.5" r="3.9"/><path d="M17 14.6v2l1.3 1.2"/>',
+  nobody: '<path d="M3.5 13 6.3 5.5h11.4l2.8 7.5v5.5h-17z"/><path d="M3.5 13h5l1.2 2.2h4.6l1.2-2.2h5"/>',
+  built: '<path d="M3.5 7.5 12 3.3l8.5 4.2v9L12 20.7l-8.5-4.2z"/><path d="M3.5 7.5 12 11.8l8.5-4.3"/><path d="M12 11.8v8.9"/>',
+  closed: '<circle cx="12" cy="12" r="8.5"/><path d="m8.3 12.3 2.6 2.6 5-5.2"/>',
+};
+function tskBadge(k) {
+  return '<span class="tsk-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'
+    + (TSK_ICON[k] || '') + '</svg></span>';
+}
 const TSK_WINDOWS = [['24h', 1], ['48h', 2], ['1 week', 7], ['1 month', 30], ['All', 0]];
 const TSK_BYS = [['status', 'Status'], ['project', 'Project']];
 /* The dot a group wears, on its tile and its heading alike (review round 10: the heading had kept red at zero).
@@ -47766,10 +47786,10 @@ function tskPaint() {
     if (g.k === 'decision' && TSK.rosterUnknown) {
       const why = TSK_DECISION_UNKNOWN;
       return '<button type="button" class="tsk-tile" data-tile="decision" data-n="unknown" aria-pressed="' + (TSK.tile === g.k) + '" style="--tsk-c:var(--tsk-nobody)" title="' + esc(why) + '" aria-label="' + esc(g.l + ': cannot tell. ' + why) + '">'
-        + '<span class="num">?</span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span></button>';
+        + '<span class="tsk-mkrow">' + tskBadge(g.k) + '<span class="num">?</span></span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span></button>';
     }
     return '<button type="button" class="tsk-tile" data-tile="' + g.k + '" data-n="' + n + '" aria-pressed="' + (TSK.tile === g.k) + '" style="--tsk-c:' + dot + '">'
-      + '<span class="num">' + n + '</span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span></button>';
+      + '<span class="tsk-mkrow">' + tskBadge(g.k) + '<span class="num">' + n + '</span></span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span></button>';
   }).join('');
   const groups = document.getElementById('tsk-groups');
   if (!TSK.data) { groups.innerHTML = TSK.error ? '' : '<p class="tsk-empty">Reading your tasks…</p>'; tskPaintBulk(); return; }

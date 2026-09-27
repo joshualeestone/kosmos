@@ -500,9 +500,12 @@ function chk(ok, label, extra) {
           const h = [...document.querySelectorAll('#tsk-groups .tsk-grp h3')].find((x) => /Needs Your Decision/.test(x.textContent));
           return { n: Number(t.querySelector('.num').textContent), red: getComputedStyle(t.querySelector('.num')).color === danger,
             redDot: getComputedStyle(t.querySelector('.tsk-dot')).backgroundColor === danger,
+            /* #4053: the badge and the tile's fill are neutral at zero too. */
+            redBadge: getComputedStyle(t.querySelector('.tsk-badge')).color === danger,
+            bg: getComputedStyle(t).backgroundColor, other: getComputedStyle(document.querySelector('#tsk-tiles [data-tile="working"]')).backgroundColor,
             head: h ? h.textContent : null, headRedDot: h ? getComputedStyle(h.querySelector('.tsk-dot')).backgroundColor === danger : null };
         });
-        chk(zero.n === 0 && !zero.red && !zero.redDot, `${tag} a zero Needs Your Decision tile is not red, its dot included`, JSON.stringify(zero));
+        chk(zero.n === 0 && !zero.red && !zero.redDot && !zero.redBadge && zero.bg === zero.other, `${tag} a zero Needs Your Decision tile is not red, its dot, badge and fill included`, JSON.stringify(zero));
         /* #3949 (Josh, 09-26 18:16): a status group with no tasks is not drawn (its tile already says 0): the search
            leaves only Unassigned, so only Unassigned is listed, and nothing anywhere says "Nothing here". */
         const drawn = await page.evaluate(() => ({ heads: [...document.querySelectorAll('#tsk-groups .tsk-grp h3, #tsk-groups .tsk-grp summary')].map((h) => h.textContent.replace(/[\d()?]+/g, '').trim()),
@@ -563,16 +566,46 @@ function chk(ok, label, extra) {
           const danger = getComputedStyle(probe).color; probe.remove();
           const h = [...document.querySelectorAll('#tsk-groups .tsk-grp h3')].find((x) => /Needs Your Decision/.test(x.textContent));
           const out = { num: t.querySelector('.num').textContent, n: t.dataset.n, red: getComputedStyle(t.querySelector('.num')).color === danger,
-            label: t.getAttribute('aria-label') || '',
+            label: t.getAttribute('aria-label') || '', redBadge: getComputedStyle(t.querySelector('.tsk-badge')).color === danger,
+            bgSame: getComputedStyle(t).backgroundColor === getComputedStyle(document.querySelector('#tsk-tiles [data-tile="working"]')).backgroundColor,
             headCount: h ? h.querySelector('.count').textContent : null, headRedDot: h ? getComputedStyle(h.querySelector('.tsk-dot')).backgroundColor === danger : null,
             why: h ? h.parentNode.querySelector('.why').textContent : '' };
           TSK.rosterUnknown = false; tskPaint();
           out.after = document.querySelector('#tsk-tiles [data-tile="decision"] .num').textContent;
           return out;
         });
-        chk(unknown.num === '?' && unknown.n === 'unknown' && !unknown.red && /cannot tell/.test(unknown.label) && unknown.after === '1'
+        chk(unknown.num === '?' && unknown.n === 'unknown' && !unknown.red && !unknown.redBadge && unknown.bgSame && /cannot tell/.test(unknown.label) && unknown.after === '1'
           && unknown.headCount === '?' && unknown.headRedDot === false && /cannot tell/.test(unknown.why),
           `${tag} with the agents unreadable, Needs Your Decision says it cannot tell (not 0, not red)`, JSON.stringify(unknown));
+        /* #4053 (Josh picked option C, then taller; approved v2 mock): every tile has a 36px round tinted badge with a
+           19px line icon beside its number, the label below it 10px on, 16px 16px 15px padding and one shared height
+           (at least 108px). Needs Your Decision with a count (Max's 1, restored above) is red: badge, and a red-tinted
+           fill that no other tile has. */
+        const c2 = await page.evaluate(() => {
+          const probe = (v, prop) => { const e = document.createElement('span'); e.style[prop] = v; document.getElementById('panel-tasks').appendChild(e);
+            const c = getComputedStyle(e)[prop]; e.remove(); return c; };
+          const danger = probe('var(--danger)', 'color');
+          const tint = probe('color-mix(in srgb, var(--danger) 9%, var(--k-surface))', 'backgroundColor');
+          return [...document.querySelectorAll('#tsk-tiles .tsk-tile')].map((t) => {
+            const cs = getComputedStyle(t); const row = t.querySelector('.tsk-mkrow'); const b = row && row.querySelector('.tsk-badge');
+            const svg = b && b.querySelector('svg'); const bs = b && getComputedStyle(b); const br = b && b.getBoundingClientRect();
+            const sr = svg && svg.getBoundingClientRect(); const lab = t.querySelector('.lab').getBoundingClientRect();
+            return { k: t.dataset.tile, n: t.dataset.n, badgeFirst: !!(row && row.firstElementChild === b && row.lastElementChild === t.querySelector('.num')),
+              badge: br ? [Math.round(br.width), Math.round(br.height)] : null, round: bs ? bs.borderTopLeftRadius : null,
+              icon: sr ? [Math.round(sr.width), Math.round(sr.height)] : null, paths: svg ? svg.querySelectorAll('path, circle').length : 0,
+              hidden: svg ? svg.getAttribute('aria-hidden') : null, tinted: bs ? bs.backgroundColor !== cs.backgroundColor : false,
+              badgeRed: bs ? bs.color === danger : null, pad: cs.padding, h: Math.round(t.getBoundingClientRect().height),
+              gap: Math.round(lab.top - (row ? row.getBoundingClientRect().bottom : 0)), bg: cs.backgroundColor, redFill: cs.backgroundColor === tint };
+          });
+        });
+        const hs = new Set(c2.map((x) => x.h));
+        const dec = c2.find((x) => x.k === 'decision');
+        chk(c2.length === 6 && c2.every((x) => x.badgeFirst && x.badge && x.badge[0] === 36 && x.badge[1] === 36 && x.round === '50%'
+            && x.icon && x.icon[0] === 19 && x.icon[1] === 19 && x.paths >= 2 && x.hidden === 'true' && x.tinted
+            && x.pad === '16px 16px 15px' && x.h >= 108 && x.gap === 10) && hs.size === 1,
+          `${tag} each tile has its 36px tinted badge with a 19px icon before the number, 16px padding, a 10px gap and one shared height (#4053)`, JSON.stringify(c2));
+        chk(dec && dec.n === '1' && dec.badgeRed && dec.redFill && c2.filter((x) => x.redFill).length === 1 && c2.filter((x) => x.badgeRed).length === 1,
+          `${tag} Needs Your Decision with a count has a red badge and the only red-tinted fill (#4053)`, JSON.stringify(dec));
         /* The same through the wire (review round 11): the route answers rosterUnreadable, and the page's own read
            (tskLoad) takes it; no flag set by hand. The rows are the route's own, with Max's decision as the route
            would derive it with no roster (not a decision). */
