@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: ring-providers-4039
-diff_hash: 2d9dc6c9b45790ec4d269dc9f66f25df222539c377eeddd96d5b77b39e9bdfe4
+diff_hash: 0832430fda4ee8d190a64d60506c5735e27fd0d7fb7b6f2f1bf07cf9bfd6d2ac
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-27T01:57:48Z
@@ -17,7 +17,8 @@ converged: true
 **Total findings:** 2 BLOCKERs, 14 WARNINGs, 6 CONVENTIONs, 17 NITs (from the plan's iteration sections)
 **Fixed:** 2 BLOCKERs, 14 WARNINGs, 5 CONVENTIONs, 15 NITs | **Deferred:** 1 CONVENTION (plan-name timestamp, the repo's prevailing form), 2 NITs (a double parse of field 1, cheap; the effort tier not shown in the model) | **Asked:** 0
 
-Validation PASSED (hash 2d9dc6c9b457) at b0ea95842; subdir CLAUDE.md audit rc 0. Earlier heads also
+Validation PASSED (hash 0832430fda4e) after rebasing onto main (the CLAUDE.md conflict resolved; one
+timing-test red under load ~50 passed alone and on the rerun); earlier 2d9dc6c9b457 at b0ea95842; subdir CLAUDE.md audit rc 0. Earlier heads also
 passed (05f10534f3da, 45f8cb0c91b8). Reviewer models alternated opus/sonnet.
 
 ### Per-Iteration Breakdown
