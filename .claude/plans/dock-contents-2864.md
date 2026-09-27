@@ -43,8 +43,9 @@ tools/test-install.sh proves all of it, with a control showing today's path give
 - The install log's app-bundle line records app_path=swap|rename|rename-swap-skipped|
   rename-swap-refused (per make_app call), and swap_errno plus swap_dir for the last swap
   attempted (0, or why the kernel refused: 1 EPERM such as App Management, 45 ENOTSUP,
-  22 EINVAL, 62 ELOOP), kept across the home-folder retry (reasoned from the code, not driven
-  by a test: no harness case refuses the system folder's swap and then retries), so a report of duplicate icons can
+  22 EINVAL, 62 ELOOP), kept across the home-folder retry (the wedge leg drives this: an
+  immutable system-folder icon refuses the swap, the retry lands in the home folder, and the
+  line carries app_path=rename with the system folder's errno and swap_dir), so a report of duplicate icons can
   say whether the swap ran on that machine, where, and if not, why.
 - A swap hands back the old Contents; it is deleted only while it still proves ours.
 - A staged folder found in neither place is looked for once more, then rebuilt in a fresh

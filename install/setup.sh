@@ -42,8 +42,9 @@
 # created, its Contents is exchanged with the existing one in a single step
 # (#2864), so the Kosmos.app folder a Dock icon points at stays the same, and
 # the stage folder, now holding the OLD Contents, is deleted while it still proves
-# this install's own; otherwise the new icon is
-# renamed into place, with the replaced icon renamed aside as
+# this install's own (and is left and named if it does not). A fresh install, or an
+# icon the swap cannot be used on, is renamed into place instead, with the replaced
+# icon renamed aside as
 # .Kosmos.app.old.<pid> until the swap completes (an interrupted run can leave
 # either hidden folder behind; --uninstall sweeps both when it can prove they
 # are this install's own, and names anything it leaves). macOS may show its own one-time
