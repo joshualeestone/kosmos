@@ -303,23 +303,34 @@ test('CONTROL sweep: a throwing attemptsFor does not crash the sweep; the agent 
 const TRUST_ROW = 'Quick safety check: Is this a project you created or one you trust?';
 const isTrustDialogEvidence = (e) => typeof e === 'string' && /^Quick safety check:/.test(e);
 
-test('standingFromAgent: a by:auto card maps to a class-1 standing', () => {
-  assert.deepEqual(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto' }), { found: true, state: 'needs_you', by: 'auto', runner: '' });
+test('#4169: a by:auto card ALONE (the hook\'s tool-permission prompt) is NOT class-1, and is never planned for a restart', () => {
+  // Measured on Mortals, 2026-09-27: 18 of 19 matched restarts followed "asking permission to use Bash: kill ...". A restart
+  // cannot answer a tool prompt; it only throws the agent's context away. Only the trust-dialog scrape is class-1 now.
+  const s = standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', because: 'asking permission to use Bash: kill 4242' });
+  assert.equal(s.arm, 'tool-permission');
+  assert.notEqual(s.by, 'auto', 'a tool-permission prompt was mapped to the class-1 marker');
+  assert.equal(isClass1(s), false);
+  assert.equal(s.prompt, 'asking permission to use Bash: kill 4242', 'the log line cannot name the prompt');
+  assert.equal(planClass1Handle(s, [], Date.now()).act, 'none', 'a tool-permission prompt was planned for trust-and-restart');
+  // The same, with the scrape predicate supplied but the screen NOT showing the trust dialog.
+  assert.equal(planClass1Handle(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', stateEvidence: 'Do you want to proceed?' }, isTrustDialogEvidence), [], Date.now()).act, 'none');
   assert.equal(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', runner: 'grok' }).runner, 'grok', 'the card\'s runner is carried to the plan');
 });
 
 test('#4006: a by:auto needs_you on a NON-Claude agent is never restarted; a Claude one still is', () => {
   // Josh's Grok agent, 2026-09-26: an ordinary "Waiting for your next prompt" reached here as needs_you by:auto,
   // and the handler restarted it (and the restart did not come back). Only Claude Code has the trust prompt.
+  // #4169: a trust-dialog card, the only class-1 trigger left, so the runner rule still guards something real.
+  const trustCard = (runner) => standingFromAgent({ state: 'needs_you', stateReportedBy: null, stateEvidence: TRUST_ROW, runner }, isTrustDialogEvidence);
   for (const runner of ['grok', 'gemini', 'codex', 'antigravity']) {
-    const plan = planClass1Handle(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', runner }), [], Date.now());
+    const plan = planClass1Handle(trustCard(runner), [], Date.now());
     assert.equal(plan.act, 'none', `a ${runner} agent was planned for a restart: ${plan.because}`);
   }
   // A card that could not say what it runs (runner null, a paneless row) fails closed.
-  assert.equal(planClass1Handle(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', runner: null }), [], Date.now()).act, 'none', 'an unknown runner was restarted');
+  assert.equal(planClass1Handle(trustCard(null), [], Date.now()).act, 'none', 'an unknown runner was restarted');
   // CONTROL: the same wait on a Claude agent (no runner, or 'claude') is still handled.
   for (const runner of [undefined, '', 'claude']) {
-    const plan = planClass1Handle(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', runner }), [], Date.now());
+    const plan = planClass1Handle(trustCard(runner), [], Date.now());
     assert.equal(plan.act, 'trust-and-restart', `a Claude agent (runner ${JSON.stringify(runner)}) is no longer handled`);
   }
 });

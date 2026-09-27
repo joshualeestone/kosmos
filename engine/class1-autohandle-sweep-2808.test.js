@@ -81,9 +81,11 @@ function installBoard(specs) {
   return { agents, keyOf, restore: board.restore };
 }
 
-test('sweepOnce acts on by:auto AND a trust-dialog scrape; never on by:agent / non-trust scrape / working', () => {
+test('sweepOnce acts on a trust-dialog scrape ONLY; never on a by:auto tool prompt / by:agent / non-trust scrape / working', () => {
   const b = installBoard([
-    { name: 'autoperm', report: { state: 'needs_you', because: 'asking permission to use Bash', auto: true } }, // by:auto -> handle
+    // #4169: the hook's tool-permission prompt. It used to be restarted (53 restarts on Mortals in one night); a restart
+    // cannot answer it and wipes the agent's context, so it now keeps its needs_you for a person.
+    { name: 'autoperm', report: { state: 'needs_you', because: 'asking permission to use Bash: kill 4242', auto: true } }, // by:auto -> none
     { name: 'trustdlg', paneState: 'needs_you', screen: TRUST_DIALOG_SCREEN },                                   // trust scrape -> handle
     { name: 'question', report: { state: 'needs_you', because: 'Which venue?' } },                               // by:agent -> none
     { name: 'scrapeq', paneState: 'needs_you' },                                                                 // scraped non-trust needs_you -> none
@@ -94,23 +96,26 @@ test('sweepOnce acts on by:auto AND a trust-dialog scrape; never on by:agent / n
     const { results } = class1.sweepOnce({ roster: b.agents, attempts: new Map(), now: 1e6, ...d });
     const act = {};
     for (const r of results) act[r.session] = r.act;
-    assert.equal(act[b.keyOf.autoperm], 'trust-and-restart', 'a by:auto needs_you is handled');
+    assert.equal(act[b.keyOf.autoperm], 'none', '#4169: a by:auto tool-permission prompt was planned for a restart');
+    const autopermCard = b.agents.find((c) => c.sessionName === b.keyOf.autoperm);
+    assert.equal(autopermCard.state, 'needs_you', 'precondition: the tool prompt reads needs_you on the card');
+    assert.equal(autopermCard.stateReportedBy, 'auto', 'precondition: reported by:auto, the shape that was restarted');
     assert.equal(act[b.keyOf.trustdlg], 'trust-and-restart', 'a live trust-dialog scrape is handled (no by:auto self-report exists for it)');
     assert.equal(act[b.keyOf.question], 'none', 'a by:agent question is NEVER auto-handled');
     assert.equal(act[b.keyOf.scrapeq], 'none', 'a scraped non-trust needs_you stays red');
     assert.equal(act[b.keyOf.busy], 'none', 'a working agent is not touched');
-    // The executor was called ONLY for the two class-1 agents, keyed on their sessionName.
+    // The executor was called ONLY for the trust-dialog agent, keyed on its sessionName.
     const restarted = d.calls.filter((c) => c[0] === 'restart').map((c) => c[1]).sort();
-    assert.deepEqual(restarted, [b.keyOf.autoperm, b.keyOf.trustdlg].sort());
+    assert.deepEqual(restarted, [b.keyOf.trustdlg]);
   } finally { b.restore(); }
 });
 
-test('#4006: a quiet Grok agent whose by:auto needs_you reached the card is NEVER restarted; the Claude one beside it still is', () => {
+test('#4006: a quiet Grok agent whose by:auto needs_you reached the card is NEVER restarted; the Claude one at the trust dialog still is', () => {
   // Josh's Elon, 2026-09-26: grok's turn-end "Waiting for your next prompt" arrived as needs_you by:auto (the bridge no
   // longer sends it, but a report already on file, or another runner's, must still never trigger a restart).
   const b = installBoard([
     { name: 'elon', runner: 'grok', command: 'grok-native', report: { state: 'needs_you', because: 'Waiting for your next prompt', auto: true } },
-    { name: 'casey', report: { state: 'needs_you', because: 'asking permission to use Bash', auto: true } },   // CONTROL: Claude
+    { name: 'casey', paneState: 'needs_you', screen: TRUST_DIALOG_SCREEN },   // CONTROL: a Claude agent at the trust dialog (#4169)
   ]);
   try {
     const elon = b.agents.find((a) => a.sessionName === b.keyOf.elon);
@@ -154,7 +159,7 @@ test('BLOCKER regression: the executor is keyed on the card sessionName, not the
   const b = installBoard([
     // A NAMED agent: display name 'Splinterish' differs from the session key 'blkperm',
     // exactly like the real fleet (session claudebot -> display Splinter).
-    { name: 'blkperm', displayName: 'Splinterish', report: { state: 'needs_you', because: 'asking permission', auto: true } },
+    { name: 'blkperm', displayName: 'Splinterish', paneState: 'needs_you', screen: TRUST_DIALOG_SCREEN },   // #4169: the trust dialog, the one class-1 trigger
   ]);
   try {
     const card = b.agents.find((c) => c.sessionName === b.keyOf.blkperm);
@@ -191,7 +196,7 @@ test('the loop-guard escalates across ticks (real card, carried attempts Map)', 
 test('best-effort: a throwing restart still records the attempt and does not abort the sweep', () => {
   const b = installBoard([
     { name: 'boom', paneState: 'needs_you', screen: TRUST_DIALOG_SCREEN },
-    { name: 'beok', report: { state: 'needs_you', because: 'asking permission', auto: true } },
+    { name: 'beok', paneState: 'needs_you', screen: TRUST_DIALOG_SCREEN },   // #4169: the trust dialog, the one class-1 trigger
   ]);
   try {
     const boomKey = b.keyOf.boom;
@@ -209,5 +214,21 @@ test('best-effort: a throwing restart still records the attempt and does not abo
     assert.equal(boom.handled, false, 'the throwing restart is caught, not handled');
     assert.equal(ok.handled, true, 'the sweep continued to the next agent');
     assert.equal((book.get(boomKey) || []).length, 1, 'the attempt was recorded despite the throw');
+  } finally { b.restore(); }
+});
+
+test('#4169: the log record names the arm that fired and the prompt behind it', () => {
+  const b = installBoard([
+    { name: 'logtrust', paneState: 'needs_you', screen: TRUST_DIALOG_SCREEN },
+    { name: 'logperm', report: { state: 'needs_you', because: 'asking permission to use Bash: pkill -f scratch', auto: true } },
+  ]);
+  try {
+    const d = fakeDeps();
+    const logged = [];
+    class1.sweepOnce({ roster: b.agents, attempts: new Map(), now: 1e6, ...d, log: (r) => logged.push(r) });
+    assert.equal(logged.length, 1, 'only the trust-dialog agent is handled, so only it is logged: ' + JSON.stringify(logged));
+    assert.equal(logged[0].session, b.keyOf.logtrust);
+    assert.equal(logged[0].arm, 'trust-dialog');
+    assert.match(logged[0].prompt, /^Quick safety check:/, 'the log does not name the screen line behind the restart');
   } finally { b.restore(); }
 });

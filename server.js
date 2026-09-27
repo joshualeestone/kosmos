@@ -16858,7 +16858,8 @@ function start(port = PORT) {
             restart: removal.restart,
             RESTARTED: removal.OUTCOME.RESTARTED,
             isTrustDialogEvidence, // the scrape-detected folder-trust trigger (no by:'auto' for that dialog)
-            log: (r) => process.stdout.write(`class1-autohandle: ${r.name} (${r.session}) ${r.act === 'escalate' ? 'ESCALATED (restart not clearing it, left red)' : (r.handled ? 'handled (trust+restart)' : 'attempted')} - ${r.because}\n`),
+            /* #4169: the line names the arm that fired and the prompt behind it, so a restart can be told from a mistake. */
+            log: (r) => process.stdout.write(`class1-autohandle: ${r.name} (${r.session}) ${r.act === 'escalate' ? 'ESCALATED (restart not clearing it, left red)' : (r.handled ? 'handled (trust+restart)' : 'attempted')} - ${r.because} [arm=${r.arm || 'unknown'}; prompt=${JSON.stringify(r.prompt || '')}]\n`),
           });
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_CLASS1_AUTOHANDLE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_CLASS1_AUTOHANDLE_MS) : 60 * 1000); // the env is the test seam only

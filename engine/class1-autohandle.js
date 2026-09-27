@@ -264,9 +264,11 @@ function sweepClass1(names, deps, now, opts) {
  * shape planClass1Handle wants. The armed sweep reads the RECONCILED roster (status.js
  * snapshot / safeRoster).
  *
- * WHAT COUNTS AS CLASS-1 HERE, and why BOTH signals are needed:
- *  1. `stateReportedBy === 'auto'` - a technical prompt the lifecycle hook SELF-REPORTED
- *     (a tool-permission PermissionRequest). This is the paneless / report-driven signal.
+ * WHAT COUNTS AS CLASS-1 HERE (#4169: ONE signal, the trust-dialog scrape):
+ *  1. `stateReportedBy === 'auto'` - a prompt the lifecycle hook SELF-REPORTED (a tool-permission
+ *     PermissionRequest). NO LONGER class-1 (#4169): it fires for ANY tool prompt (a `kill`, a
+ *     `find /`), a restart cannot answer one, and treating it as class-1 restarted working agents
+ *     53 times in one night on Mortals (2026-09-27), wiping their context. It keeps its needs_you.
  *  2. `isTrustDialogEvidence(stateEvidence)` - the live screen shows Claude Code's
  *     FOLDER-TRUST dialog ("Quick safety check:"). This is REQUIRED, not optional: the
  *     folder-trust dialog (the #2129/#2808 root, the case Josh sees "constantly") is NOT
@@ -317,10 +319,22 @@ function standingFromAgent(agent, isTrustDialogEvidence) {
   // this reachable sequence (a by:'agent' report, then a trust-dialog screen on the same
   // session -> card by:null + evidence -> handled), which the earlier defense-in-depth test
   // (a by:'agent' + evidence card, a shape status.js cannot produce) did not.
-  const by = (rawBy === 'auto' || (trustDialogScrape && !rawBy)) ? 'auto' : rawBy;
+  //
+  // 🛑 #4169: ONLY the trust-dialog scrape is class-1 now. A by:'auto' self-report is the lifecycle hook's
+  // PermissionRequest, which fires for ANY tool-permission prompt (a `kill`, a `find /`), not only the folder-trust
+  // dialog; mapped to 'auto' it planned trust-and-restart for every one of them, and a restart cannot answer a tool
+  // prompt: it throws the agent's context away and the relaunched agent meets the prompt again. Measured on Mortals,
+  // 2026-09-27: 18 of the 19 restarts matched in the agents' self-report logs followed an "asking permission to use
+  // Bash: ..." report. The folder-trust dialog never raises a PermissionRequest (see above), so the scrape alone still
+  // catches every case this handle exists for. A tool-permission prompt keeps its needs_you card for a person.
+  const arm = trustDialogScrape ? 'trust-dialog' : (rawBy === 'auto' ? 'tool-permission' : null);
+  const by = arm === 'trust-dialog' && (!rawBy || rawBy === 'auto') ? 'auto'
+    : (arm === 'tool-permission' ? 'auto-tool-permission' : rawBy);   // internal adapter value: not class-1
   /* The card's runner as the card says it: a string, or null for a row that could not say (see planClass1Handle). */
   const runner = agent && typeof agent.runner === 'string' ? agent.runner : (agent && agent.runner === null ? null : '');
-  return { found: true, state: agent && agent.state, by, runner };
+  /* What the log names (#4169: which arm fired, and the prompt behind it). */
+  const prompt = String((arm === 'trust-dialog' ? agent.stateEvidence : agent && agent.because) || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  return { found: true, state: agent && agent.state, by, runner, arm, prompt };
 }
 
 /*
@@ -387,7 +401,8 @@ function pruneAttempts(attempts, now, opts) {
  *   - trustAgentFolder(sessionName), restart(sessionName, cause), RESTARTED: executor deps.
  *   - isTrustDialogEvidence(evidence): status.isTrustDialogEvidence, for the trust-dialog
  *     scrape trigger. Absent -> only the by:'auto' self-report path fires.
- *   - log(record): optional, called once per NON-none agent with {name, session, act, handled}.
+ *   - log(record): optional, called once per NON-none agent with {name, session, act, handled, because, arm, prompt}
+ *     (#4169: `arm` is which trigger fired, 'trust-dialog' today; `prompt` is the screen line or report behind it).
  * @returns {{results: Array, attempts: Map}}
  */
 function sweepOnce(o) {
@@ -404,12 +419,13 @@ function sweepOnce(o) {
     const display = (agent && agent.name) || session; // for logs only
     if (!session) continue;
     let plan;
-    try { plan = planClass1Handle(standingFromAgent(agent, isTrustDialogEvidence), book.get(session) || [], now, opts); }
+    let standing = null;
+    try { standing = standingFromAgent(agent, isTrustDialogEvidence); plan = planClass1Handle(standing, book.get(session) || [], now, opts); }
     catch (err) { results.push({ session, name: display, act: 'none', because: 'plan threw: ' + String((err && err.message) || err) }); continue; }
     if (plan.act !== 'trust-and-restart') {
       results.push({ session, name: display, act: plan.act, because: plan.because });
       // escalate is logged too: it is the "a person should look" divergence signal.
-      if (plan.act === 'escalate' && log) { try { log({ name: display, session, act: 'escalate', handled: false, because: plan.because }); } catch { /* logging never breaks a sweep */ } }
+      if (plan.act === 'escalate' && log) { try { log({ name: display, session, act: 'escalate', handled: false, because: plan.because, arm: standing && standing.arm, prompt: standing && standing.prompt }); } catch { /* logging never breaks a sweep */ } }
       continue;
     }
     // Record the attempt regardless of the outcome: a restart that throws or refuses still
@@ -420,7 +436,7 @@ function sweepOnce(o) {
     try { res = runClass1Handle(session, deps); }
     catch (err) { res = { handled: false, because: 'runClass1Handle threw: ' + String((err && err.message) || err) }; }
     results.push({ session, name: display, act: 'trust-and-restart', handled: !!res.handled, because: res.because });
-    if (log) { try { log({ name: display, session, act: 'trust-and-restart', handled: !!res.handled, because: res.because }); } catch { /* logging never breaks a sweep */ } }
+    if (log) { try { log({ name: display, session, act: 'trust-and-restart', handled: !!res.handled, because: res.because, arm: standing && standing.arm, prompt: standing && standing.prompt }); } catch { /* logging never breaks a sweep */ } }
   }
   pruneAttempts(book, now, opts); // drop entries for agents that left the roster / aged out
   return { results, attempts: book };
