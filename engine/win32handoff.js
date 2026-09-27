@@ -386,7 +386,7 @@ function canonicalAddress(bare) {
  * listening on it? Returns the spelling to probe it by, or null when it is not this machine's. Loopback
  * (127/8, ::1) always is. Anything else must be an address one of this machine's interfaces has, compared
  * without its zone, and a zone (`%14`, or `%en0` where the platform takes interface names as zones; Windows does
- * not, #4258) must name that interface, by scope id or by name: the
+ * not, #4258, see zoneNamesInterface) must name that interface: the
  * same link-local address on another adapter is another address.
  *
  * Round 6, finding 1: a link-local address WITHOUT a zone (as a host name's lookup gives this PC's own) is
@@ -409,7 +409,7 @@ function thisMachinesSpellings(address, interfaces) {
     for (const i of list || []) {
       if (canonicalAddress(String(i.address)) !== bare) continue;
       if (zone !== null) {
-        if (String(i.scopeid) === zone || name.toLowerCase() === zone) return [text];
+        if (zoneNamesInterface(zone, name, i.scopeid)) return [text];
         continue;
       }
       const spelling = isLinkLocalAddress(bare) && i.scopeid ? bare + '%' + i.scopeid : text;
@@ -417,6 +417,19 @@ function thisMachinesSpellings(address, interfaces) {
     }
   }
   return spellings;
+}
+
+/**
+ * #4258: does `zone` (lower-cased, after the `%`) name this interface? By its numeric scope id on every
+ * platform; by its NAME only where the platform takes names as zones. Windows does not: its zones are the
+ * numeric scope id, and libuv reads a Windows zone as a number (a name reads as scope 0), so a name-zoned
+ * address there is not one a board could have bound, and is not looked on. `platform` replaces
+ * process.platform in a test.
+ */
+function zoneNamesInterface(zone, name, scopeid, platform) {
+  if (String(scopeid) === zone) return true;
+  if ((platform || process.platform) === 'win32') return false;
+  return String(name).toLowerCase() === zone;
 }
 
 /* fe80::/10, the link-local range: its first ten bits are 1111111010, so its first group is fe80 to febf. */
@@ -763,4 +776,5 @@ async function decideHandOff(o) {
 module.exports = {
   handOffToTask, buildIdentity, boardIdentity, probeBoard, boardMayBeOpen, probeBoardOnEveryAddress, cannotTellIfOpenSentence, PROBE_OUTCOMES, EVERY_ADDRESS_LOOK_WORST_MS, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS,
   BOARD_STARTED_BY_TASK_HEADER, boardStartedByTaskHeaderValue, startedByTaskFromHeader, SERVE_HERE_SIGNAL_ENV, signalServingHere,
+  zoneNamesInterface,
 };

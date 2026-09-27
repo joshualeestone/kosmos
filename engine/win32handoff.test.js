@@ -582,12 +582,10 @@ test('🛑 win32-installer-native round 5 findings 1 and 3: the bind host is res
     const byName = linkLocal.address + '%' + linkLocal.name;
     const otherZone = linkLocal.address + '%' + (Number(linkLocal.scopeid) + 100000);
     assert.ok((await addressesFor({ KOSMOS_BIND_HOST: byScope })).includes(byScope), 'case E: a zoned link-local bind host of this machine was not looked on');
-    /* #4258: an interface NAME is a zone only where the platform takes names as zones (a Mac's `en0`). Windows
-       zones are the numeric scope id (case E above), and its interface names (`Ethernet 2`) are not zones at
-       all: a space is not even an IPv6 address to net.isIP, so such a bind host is a host name that does not
-       resolve, and adds nothing. So this arm runs where names are zones, and says so where it does not. */
+    /* #4258: an interface NAME is a zone only where the platform takes names as zones (a Mac's `en0`).
+       Windows zones are the numeric scope id (case E above), so there a name-zoned bind host is not looked on. */
     if (process.platform === 'win32') {
-      t.diagnostic('ARM NOT RUN: a bind host zoned by interface name, because Windows zones are numeric (#4258)');
+      assert.ok(!(await addressesFor({ KOSMOS_BIND_HOST: byName })).includes(byName), 'on Windows a bind host zoned by interface name was looked on');
     } else {
       assert.ok((await addressesFor({ KOSMOS_BIND_HOST: byName })).includes(byName), 'a link-local bind host zoned by interface name was not looked on');
     }
@@ -598,6 +596,17 @@ test('🛑 win32-installer-native round 5 findings 1 and 3: the bind host is res
     assert.deepEqual(await addressesFor({ KOSMOS_BIND_HOST: otherZone }), LOOPBACKS, 'a zone this machine does not have was looked on');
     assert.deepEqual(await addressesFor({ KOSMOS_BIND_HOST: 'board.example' }, resolvesTo(byScope)), ['127.0.0.1', '::1', byScope].sort(), 'a name that resolves to a zoned address of this machine was not looked on');
   }
+});
+
+test('#4258: a zone names an interface by scope id everywhere, and by name only where names are zones (not Windows)', () => {
+  const { zoneNamesInterface } = require('./win32handoff');
+  assert.equal(zoneNamesInterface('14', 'Ethernet 2', 14, 'win32'), true, 'a Windows numeric zone');
+  assert.equal(zoneNamesInterface('ethernet', 'Ethernet', 14, 'win32'), false, 'a Windows zone by name was taken (libuv reads it as scope 0)');
+  assert.equal(zoneNamesInterface('wi-fi', 'Wi-Fi', 9, 'win32'), false, 'a space-free Windows name was taken as a zone');
+  assert.equal(zoneNamesInterface('en0', 'en0', 7, 'darwin'), true, 'a Mac zone by name');
+  assert.equal(zoneNamesInterface('7', 'en0', 7, 'darwin'), true, 'a Mac numeric zone');
+  assert.equal(zoneNamesInterface('en1', 'en0', 7, 'darwin'), false, 'another interface\'s name');
+  assert.equal(zoneNamesInterface('8', 'en0', 7, 'linux'), false, 'another scope id');
 });
 
 /* ---- the round 6 review, fixed in round 7 ------------------------------------ */
