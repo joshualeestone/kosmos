@@ -80,6 +80,14 @@ Also unverified: whether macOS App Management treats changing entries inside Kos
 protected modification; if so the swap gets EPERM (the fallback runs, safe) and an update may show
 a "prevented from modifying apps" notice. Next thing to watch on a real Dock: with the folder's identity now constant, the Dock may keep a
 cached icon image after an update (the 2026-08-17 icon-refresh hypothesis in make_app_register).
+Also reasoned: the raw syscall number 488. Perl has no renameatx_np wrapper, so the swap calls
+the kernel by number. The number was checked against this box's SDK only (macOS 26), not a 13.5
+one. XNU's syscall table has kept its numbers since renameatx_np arrived in 10.12 (new calls are
+appended, old ones are never renumbered), so 488 is the same call on every supported release, but
+nothing here tests that on 13.5. If it were wrong, a different call would run with these
+arguments; the inode check stops a false "swap" claim but not that call's own effect. What would
+change my mind: any macOS 13.x or 14.x syscall.h listing 488 as something else. The release test
+on the oldest supported Mac is where that would show.
 
 ## Merge
 Installer is release-lane code: a Splinter/Baron reviewer on #2864 before merging (Liu Kang).
