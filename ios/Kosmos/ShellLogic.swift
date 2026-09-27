@@ -11,8 +11,12 @@ enum Shell {
     enum LoadFailure: Equatable {
         // The phone has no connection: "you're offline" is the whole story.
         case offline
-        // The phone is online but Kosmos+ (or a Mac) did not answer.
+        // The phone is online but Kosmos+ did not answer.
         case unreachable
+        // The phone is online and the address that failed is a Mac's own
+        // (<mac>.kosmosplus.com): the Mac did not answer, usually because it is
+        // asleep, off, or not running Kosmos (#718 state 2).
+        case macUnreachable
         // Anything else that stopped the page, shown with the system's wording.
         case other
     }
@@ -47,6 +51,18 @@ enum Shell {
         // handled the load, which is playing, not failing.
         if domain == "WebKitErrorDomain" && (code == 102 || code == 204) { return nil }
         return .other
+    }
+
+    // The same, told which address failed: an unreachable Mac's own address is the
+    // Mac not answering, not Kosmos+. The coordinator's host, and any host that is not
+    // a Mac's, stay .unreachable.
+    static func loadFailure(domain: String, code: Int, failingHost: String?, coordinator: URL) -> LoadFailure? {
+        guard let failure = loadFailure(domain: domain, code: code) else { return nil }
+        if failure == .unreachable, let host = failingHost?.lowercased(),
+           PushBridge.isMacHost(host, coordinator: coordinator) {
+            return .macUnreachable
+        }
+        return failure
     }
 
     // MARK: - Where a link goes
