@@ -26,7 +26,8 @@
  *  - no element in the view carries a coloured left border (Josh, 2026-09-24 12:52),
  *  - #3949 (Josh, 2026-09-26): no outer frame around the page body (16:18); two bands (18:03), read as
  *    pixels: the page's ground from the title to the tiles, the surface (white) from Group by down to both
- *    edges of the page layout (a reserved scrollbar gutter excluded, #4213, as #4076 did) and the window's bottom, the task cards shaded with the ground, in the tab view and the
+ *    edges of the page layout (a reserved scrollbar gutter excluded, #4213, as #4076 did) and the
+ *    window's bottom, the task cards shaded with the ground, in the tab view and the
  *    consolidated column (whose rail stays unpainted); a status group with no tasks is not listed (18:16),
  *    and an emptied list shows one line ("No tasks match" / "No tasks yet."); the Close bar is sticky,
  *  - light, dark, a 760-wide and a 390-wide window, with no sideways

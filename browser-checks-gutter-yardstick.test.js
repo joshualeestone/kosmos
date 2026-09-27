@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * kosmos#3973: render-boot-no-flash, render-plus-bar-3837 and (#4213) render-tasks-view-3559 each measure
- * their subject against the ROOT's box with a scratch-scroller probe. The copies live inside page.evaluate() callbacks (one of
+ * kosmos#3973: render-boot-no-flash, render-plus-bar-3837 and (#4213) render-tasks-view-3559 each
+ * measure their subject against the ROOT's box with a scratch-scroller probe. The copies live inside page.evaluate() callbacks (one of
  * them races a boot cover that is up for moments), so they are not shared code. Pinned here, as text:
  * the root declaration, the probe, the gutter line and the tolerance expression, each once per file.
  */
