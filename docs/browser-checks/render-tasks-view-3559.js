@@ -26,7 +26,7 @@
  *  - no element in the view carries a coloured left border (Josh, 2026-09-24 12:52),
  *  - #3949 (Josh, 2026-09-26): no outer frame around the page body (16:18); two bands (18:03), read as
  *    pixels: the page's ground from the title to the tiles, the surface (white) from Group by down to both
- *    window edges and the window's bottom, the task cards shaded with the ground, in the tab view and the
+ *    edges of the page layout (a reserved scrollbar gutter excluded, #4213, as #4076 did) and the window's bottom, the task cards shaded with the ground, in the tab view and the
  *    consolidated column (whose rail stays unpainted); a status group with no tasks is not listed (18:16),
  *    and an emptied list shows one line ("No tasks match" / "No tasks yet."); the Close bar is sticky,
  *  - light, dark, a 760-wide and a 390-wide window, with no sideways
@@ -254,13 +254,15 @@ function chk(ok, label, extra) {
       await page.fill('#tsk-search', 'zzz no task says this');
       await page.waitForTimeout(250);
       const shortEnd = await page.evaluate(() => Math.round(document.querySelector('#panel-tasks .tsk-below').getBoundingClientRect().bottom));
+      /* geo.w still holds after the list is emptied: the stable gutter keeps the root's right edge where it was
+         whether or not the page scrolls. */
       const bottom = [await px(1, geo.h - 2), await px(geo.w - 2, geo.h - 2)];
       await page.fill('#tsk-search', '');
       await page.waitForTimeout(250);
       chk(shortEnd < geo.h - 10 && bottom.every((p) => same(p, tok.surface)), `${tag} with a short list the white still reaches the bottom of the window (the bleed, not the list)`, JSON.stringify({ shortEnd, h: geo.h, bottom }));
       chk(!same(tok.bg, tok.surface), `${tag} CONTROL: the ground and the surface are different colours, so the band checks can fail`, JSON.stringify(tok));
-      chk(band.every((p) => same(p, tok.bg)), `${tag} the top band keeps the page's ground to both edges`, JSON.stringify({ band, bg: tok.bg }));
-      chk(below.every((p) => same(p, tok.surface)), `${tag} from Group by down it is the surface (white) to both edges`, JSON.stringify({ below, surface: tok.surface }));
+      chk(band.every((p) => same(p, tok.bg)), `${tag} the top band keeps the page's ground to both edges of the page layout`, JSON.stringify({ band, bg: tok.bg }));
+      chk(below.every((p) => same(p, tok.surface)), `${tag} from Group by down it is the surface (white) to both edges of the page layout`, JSON.stringify({ below, surface: tok.surface }));
       chk(same(card, tok.bg) && same(tilePx, tok.surface), `${tag} the task cards are shaded with the ground; the tiles stay the surface`, JSON.stringify({ card, tile: tilePx }));
       chk(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), `${tag} the full-width band adds no sideways scroll`);
       /* #3949/#3951 (Josh): six single-label tiles in his order; Completed is a tile and still the fold below. */
