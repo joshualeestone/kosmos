@@ -60826,6 +60826,9 @@ let TIP_PLACES = [];            // the tour's steps whose place is on screen
 /* tipPlace's spacing: the card's gap from what it points at, and its distance from the window's edge. Named once so
    the tour's make-room step (#4108, tipTourRender) asks for exactly the room tipPlace needs. */
 const TIP_GAP = 12, TIP_PAD = 12;
+/* The make-room step's extra room: a place's top is fractional, and without these 4px the card measured a fraction of a
+   pixel short at 375 (#4108). Measured, not derived. */
+const TIP_ROOM_SLACK = 4;
 /* The first SHOWING match for a tip's selector (several layouts can carry it; only one shows). tipPlace places against
    it, and the tour's make-room step measures the same element. */
 function tipTarget(sel) {
@@ -61076,7 +61079,7 @@ function tipTourRender(card, auto) {
      (a scroll or a resize), because moving the page while the person scrolls it would fight their hand. */
   if (stepEl && card.classList.contains('flat')) {
     const r = stepEl.getBoundingClientRect();
-    const need = card.offsetHeight + TIP_GAP + TIP_PAD + 4;   // the card, its arrow gap, tipPlace's pad, and 4px measured slack (fractional tops)
+    const need = card.offsetHeight + TIP_GAP + TIP_PAD + TIP_ROOM_SLACK;   // the card, its arrow gap, tipPlace's pad, and the slack
     /* On screen, too close to the top for the card, and taller than the room the card needs: the tall-place case. A
        shorter place has room below it or beside it, so a flat card there is some other case, left alone. */
     /* ...and only when the window can scroll up the whole shortfall: a part-way scroll would move the page and still

@@ -22,7 +22,14 @@ render-room-msgbox-2806 and every render-room-* check pass in both engines.
   screen with its top closer than the card needs (card + 12 gap + 12 pad + 4 slack), scroll up by exactly the shortfall
   and place it again. tipPlace re-measures the area (Liu Kang's guard 1). A card that found a pointing place is never
   moved, so every screen that already worked is unchanged.
-- render-chatbox-phone-4108.js walks the project tip at 360 and 375 in both engines and at 375 with 1.3x text.
+- Named once and shared: TIP_GAP and TIP_PAD (tipPlace's spacing) and TIP_ROOM_SLACK; one tipTarget (the first SHOWING
+  match for a selector) used by tipPlace, the make-room step and tipLayout's ring, so all three measure the same element.
+- The make-room step scrolls only when the window can take the whole shortfall (a part-way scroll would still leave it
+  flat), and only once as the step opens (never on a later relayout: it would fight the person's own scrolling).
+- render-chatbox-phone-4108.js walks the project tip at 360 and 375 in both engines and at 375 with 1.3x text, asserts
+  the page made room for the Conversation step there and scrolled for no other step, and walks the agent-page tip and
+  the board tour at the same sizes (judged only where the page made room; measured: they point at every step and the
+  page never scrolled for them).
 
 ## Rejected
 - Shaving 2px somewhere else in the room layout: it restores a 6px margin that the next pixel of layout takes away.
