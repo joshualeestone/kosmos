@@ -105,6 +105,11 @@ kosmos_mark_run browser
 # #1079: a durable record of every run, so a retry no longer depends on a person
 # reading scrollback. It can never fail a run; see the lib's header.
 . "$REPO/tools/lib/browser-run-log.sh"
+. "$REPO/tools/lib/bc-quarantine.sh"
+# #4160: fail CLOSED without it. run_one reads `bc_quarantine_note ... || log PASS`, so a
+# missing function (exit 127) would print PASS, which is the exact failure the lib exists to stop.
+declare -F bc_quarantine_note >/dev/null && declare -F bc_quarantine_verdict >/dev/null \
+  || { echo "browser-checks: tools/lib/bc-quarantine.sh did not load; refusing to run (a quarantined check would read as PASS)" >&2; exit 1; }
 # #1818: the frozen-runner child (the re-exec in the freeze block below) runs the
 # checks while the PARENT stays alive as a live page layer that has ALREADY passed
 # this guard. Parent and child are one logical run, but they carry different run
@@ -313,6 +318,13 @@ RETRIED=()
 # must not exit 0 green (test-filter-matching-nothing-exits-zero).
 SKIPPED=()
 CI_MATCHED=()
+# #4160: checks that exited 0 but said they were QUARANTINED, i.e. did not run their
+# assertions. regress-a-night did exactly that for twelve days (#1079) and every run
+# counted it as a pass, because run_one only saw exit 0. A quarantined check is listed
+# here, never under PASS (it still counts in `ran:`, which is what was attempted), and the
+# summary refuses the run unless the operator sets
+# KOSMOS_BC_ALLOW_QUARANTINE=1, which is printed. So a green run means every check ran.
+QUARANTINED=()
 # #1079: how many RICH boards booted this run. The card's hypothesis is that this
 # fifth concurrent server is what makes the heaviest check retry, so it is the
 # one variable the run log has to carry.
@@ -734,7 +746,8 @@ run_one() {
   sec "$label"
   HEADED=0 NODE_PATH="$PW_NODE_PATH" "$@" 2>&1 | tee "$cap"; local rc="${PIPESTATUS[0]}"
   if [ "$rc" -eq 0 ]; then
-    log "PASS  $label"; rm -f "$cap"
+    bc_quarantine_note "$label" "$cap" || log "PASS  $label"
+    rm -f "$cap"
     return 0
   fi
   # ⚠️ 126 AND 127 ARE NOT ASSERTIONS. They mean the thing could not be run
@@ -752,7 +765,8 @@ run_one() {
   log "⚠️  $label failed once, retrying (flaky-timeout guard). A retried pass is reported, not hidden."
   RETRIED+=("$label")
   if HEADED=0 NODE_PATH="$PW_NODE_PATH" "$@" 2>&1 | tee "$cap"; [ "${PIPESTATUS[0]}" -eq 0 ]; then
-    log "PASS  $label (on retry: treat repeated retries as a finding, not noise)"; rm -f "$cap"
+    bc_quarantine_note "$label" "$cap" || log "PASS  $label (on retry: treat repeated retries as a finding, not noise)"
+    rm -f "$cap"
     return 0
   fi
   log "FAIL  $label (failed twice)"
@@ -1697,6 +1711,11 @@ else
 fi
 
 sec "browser checks summary"
+# #4160: a quarantined check did not run, so it fails the run unless overridden
+# (tools/lib/bc-quarantine.sh). Before the run log and the FAILED gate, so a refusal lands in
+# FAILED and the log counts it. Under the override it is not a failure and the log's failed
+# count does not include it; the printed override line is the record of that run.
+bc_quarantine_verdict
 # #1079: recorded BEFORE the exit paths below, so a FAILED run lands in the log
 # too. A log that only captures successful runs cannot answer a question about
 # when things go wrong.
@@ -1739,5 +1758,9 @@ if [ "${#FAILED[@]}" -gt 0 ]; then
   for r in ${REASONS[@]+"${REASONS[@]}"}; do log "  $r"; done
   exit 1
 fi
-log "all page checks passed"
+if [ "${#QUARANTINED[@]}" -gt 0 ]; then
+  log "every page check that ran passed; ${#QUARANTINED[@]} quarantined and did not run (override above)"
+else
+  log "all page checks passed"
+fi
 exit 0

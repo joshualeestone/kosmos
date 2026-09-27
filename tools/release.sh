@@ -636,6 +636,22 @@ step "== 1d. the Plus connector is current with kosmos-relay main (#3884) =="
 connector_currency_check "${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}" \
   "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" || exit 1
 
+step "== 1e. no browser-check quarantine expires at $V (#4160) =="
+# A quarantine marked `until=<version>` goes red once package.json reaches it, and main's
+# package.json only reaches $V at step 2's pushed bump. Checked here against $V instead, so an
+# expiring quarantine refuses before the bump rather than aborting the cut after it.
+# Captured once, and the assignment carries its status through `&& ||`, so `set -e` cannot end
+# the script before the message below prints (review round 4).
+_q_out="$( cd "$REPO" && KOSMOS_QUARANTINE_AT_VERSION="$V" node --test "$REPO/browser-checks-quarantine-guard.test.js" 2>&1 )" && _q_rc=0 || _q_rc=$?
+if [ "$_q_rc" -ne 0 ]; then
+  echo "a browser-check quarantine expires at $V, or a check says PASS and exits before its browser starts:"
+  # The failing tests by name (a node --test ✖ line) and the problems they report, so a failure
+  # for any other reason (a control, a syntax error) names itself rather than printing a pass line.
+  printf '%s\n' "$_q_out" | grep -E "^✖ |says PASS|expired|print QUARANTINED|wrong place|Error|not found" | grep -v "^✖ failing tests" | head -12 || true
+  echo "fix the check (see browser-checks-quarantine-guard.test.js) before cutting $V."
+  exit 1
+fi
+
 step "== 2. the version, in one place =="
 node -e "
 const fs=require('fs'),p='$REPO/package.json';
@@ -946,7 +962,8 @@ _page_exit=0
 # mistaken for coverage.
 ( cd "$REPO" && env -u AGENT_WORKFORCE_HOME KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
 fi
-grep -E '^PASS |^FAIL |^COULD NOT RUN|^‼️|retried:|all page' "$_page_log" || true
+# #4160: QUARANTINED lines too, so a cut refused for a quarantine says so here.
+grep -E '^PASS |^FAIL |^COULD NOT RUN|^‼️|^QUARANTINED|^quarantined|retried:|all page|every page check' "$_page_log" || true
 if [ "$_page_exit" -eq 126 ] || [ "$_page_exit" -eq 127 ]; then echo "the page gate COULD NOT RUN (exit $_page_exit: bash, node or a program it needs is missing or not executable); this is not a red check. Full output: $_page_log"; exit 1; fi
 [ "$_page_exit" -eq 0 ] || { echo "the page checks are red (exit $_page_exit); full output: $_page_log"; exit 1; }
 rm -f "$_page_log"
