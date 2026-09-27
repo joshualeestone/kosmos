@@ -32,8 +32,8 @@ each of rex, crew and crew2 in turn and assert no cluster element's box moves (t
 a border planted on hover squeezed it from 44 to 40px and reddened the check) and no pixel changes in
 the area around a cluster that is not hovered (its face plus 6px, since a cluster may draw past its
 face), unless something the raised hovered node paints lies over it. A CONTROL shows two untouched
-captures are identical. Measured red with will-change removed ("hovering crew2: crew's pixels moved"). The hovered cluster's own
-pixels change by design (half to full strength).
+captures are identical. Measured red with will-change removed ("hovering crew2: crew's pixels
+moved"). The hovered cluster's own pixels change by design (half to full strength).
 
 ## Rejected
 
