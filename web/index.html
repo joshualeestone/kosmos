@@ -23994,9 +23994,11 @@ document.getElementById('acct-openai-install-go').addEventListener('click', asyn
 document.getElementById('acct-provider-pick').addEventListener('change', (e) => {
   const which = e.target.value;
   /* #3939: Meta Muse is its own step; any other choice puts it away. */
-  if (which === 'meta' && MUSE_ON) {
+  if (which === 'meta' && museOffered()) {
     document.getElementById('acct-claude-flow').hidden = true;
     document.getElementById('acct-openai-flow').hidden = true;
+    // As acctPick does for every other non-OpenAI choice: a ChatGPT sign-in does not keep running behind this (round 1).
+    acctOpenaiStop(); acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null;
     acctApikeyShow(null);
     acctMuseShow(true);
     document.getElementById('acct-muse-go').focus();
@@ -25807,7 +25809,6 @@ document.getElementById('acct-grok-sub-cancel').addEventListener('click', () => 
    the code (#3952 boxes), offers a new code when one expires, and stops it. The id it keeps is the one its
    OWN start answered, never one read back from the poll (another tab's start replaces the sign-in, and
    this screen then says so rather than driving the other one). */
-let MUSE_ON = false;
 const MUSE_SAY = {
   starting: 'Starting Muse Code\'s sign-in\u2026',
   code: 'Confirm the code on Meta\'s page. Kosmos carries on by itself once you have.',
@@ -25820,15 +25821,19 @@ async function museAsk() {
     const out = r.ok ? await r.json().catch(() => null) : null;
     on = !!(out && out.enabled === true);
   } catch { on = false; }   // a failed read keeps it "coming soon": today's screen, never a guess
-  MUSE_ON = on;
   /* Only disabled is toggled: the logo combobox re-reads it on open (syncOpts), and drops its "Coming
      soon" pill, but its row name is fixed at build, so the option text stays as it is. */
   const opt = document.querySelector('#acct-provider-pick option[value="meta"]');
   if (opt) opt.disabled = !on;
   return on;
 }
+/* Whether Meta Muse is offered right now: the option's own state, the one fact museAsk sets (round 1). */
+function museOffered() {
+  const opt = document.querySelector('#acct-provider-pick option[value="meta"]');
+  return !!opt && !opt.disabled;
+}
 const ACCT_MUSE = (() => {
-  let id = null; let poll = null; let gen = 0;
+  let id = null; let poll = null; let gen = 0; let retrying = false;
   const el = (x) => document.getElementById('acct-muse-' + x);
   const say = (t) => { const m = el('msg'); if (m) m.textContent = t; };
   const stopPoll = () => { if (poll) { clearInterval(poll); poll = null; } };
@@ -25839,21 +25844,35 @@ const ACCT_MUSE = (() => {
     if (which === 'stop') return fetch('/api/muse/signin/stop', init);
     return fetch('/api/muse/signin', init);
   };
+  /* Hide a row; focus inside it moves to Stop while the sign-in runs, else to the button (round 1: #1918,
+     never stranded on a hidden element). A hidden link keeps no address (the 0.6.96 rule). */
+  function hideRow(x) {
+    const row = el(x);
+    if (!row || row.hidden) return;
+    if (row.contains(document.activeElement)) {
+      const stop = el('cancel'); const cr = el('cancel-row');
+      const to = stop && cr && !cr.hidden && !row.contains(stop) ? stop : el('go');
+      if (to) { const g = el('go'); if (to === g) { g.hidden = false; g.disabled = false; } to.focus(); }
+    }
+    row.hidden = true;
+    if (x === 'open-row') { const a = el('open'); if (a) a.setAttribute('href', '#'); }
+  }
   function reset() {
-    for (const x of ['open-row', 'code', 'retry-row', 'cancel-row']) { const e = el(x); if (e) e.hidden = true; }
+    for (const x of ['open-row', 'retry-row', 'cancel-row']) hideRow(x);
+    { const e = el('code'); if (e) e.hidden = true; }
     const c = el('code'); if (c) { c.textContent = ''; c.__devKey = ''; }
     const g = el('go'); if (g) { g.hidden = false; g.disabled = false; }
   }
   function show(st) {
     const a = el('open');
-    if (a && st.url) { a.href = st.url; el('open-row').hidden = false; } else if (a) el('open-row').hidden = true;
+    if (a && st.url) { a.href = st.url; el('open-row').hidden = false; } else hideRow('open-row');
     const c = el('code');
     if (c && st.code) {
       c.hidden = false;
       // #3952: drawn only when the code changes, so a selection in it survives the poll.
       if (c.__devKey !== st.code) { c.innerHTML = devCodeHtml('On that page, confirm this code:', st.code); c.__devKey = st.code; }
     } else if (c) { c.hidden = true; c.textContent = ''; c.__devKey = ''; }
-    el('retry-row').hidden = st.state !== 'expired';
+    if (st.state === 'expired') el('retry-row').hidden = false; else hideRow('retry-row');
   }
   function finish(text) {
     // Focus on a control that is about to go goes back to the button that starts a sign-in.
@@ -25871,6 +25890,8 @@ const ACCT_MUSE = (() => {
       try { const r = await fetch('/api/muse/signin', { cache: 'no-store' }); st = r.ok ? await r.json().catch(() => null) : null; }
       catch { return; }   // a network blip: keep polling
       if (mine !== gen || !st) return;
+      // No sign-in at all (the board restarted, say): not "another one started" (round 1).
+      if (!st.id || st.state === 'idle') { finish('That sign-in ended before it finished. You can try again.'); return; }
       if (st.id !== id) { finish('Another sign-in started, so this one ended.'); return; }
       show(st);
       if (st.state === 'done') {
@@ -25890,10 +25911,12 @@ const ACCT_MUSE = (() => {
     const go = el('go'); if (go) go.disabled = true;
     say(MUSE_SAY.starting);
     let res; let out = null;
+    // A refused or failed start re-arms the button and gives it focus back (round 1: it was disabled under focus).
+    const rearm = (t) => { if (go) { go.disabled = false; go.focus(); } say(t); };
     try { res = await post('start', {}); out = await res.json().catch(() => null); }
-    catch { if (mine === gen) { if (go) go.disabled = false; say('We could not reach Kosmos to start that sign-in. Try again.'); } return; }
+    catch { if (mine === gen) rearm('We could not reach Kosmos to start that sign-in. Try again.'); return; }
     if (mine !== gen) { if (res.ok && out && out.id) post('stop', { id: out.id }).catch(() => {}); return; }
-    if (!res.ok || !out || !out.id) { if (go) go.disabled = false; say(pjSentence(out && (out.error || out.because)) || 'We could not start that sign-in.'); return; }
+    if (!res.ok || !out || !out.id) { rearm(pjSentence(out && (out.error || out.because)) || 'We could not start that sign-in.'); return; }
     id = out.id;
     if (go) go.hidden = true;
     el('cancel-row').hidden = false;
@@ -25904,11 +25927,17 @@ const ACCT_MUSE = (() => {
   async function retry() {
     if (!id) return;
     const mine = gen; const was = id;
+    /* One request at a time (round 1), by a flag rather than disabling the button: disabling a focused
+       button drops focus to the page body. */
+    if (retrying) return;
+    retrying = true;
     let res; let out = null;
-    try { res = await post('retry', { id: was }); out = await res.json().catch(() => null); } catch { say('We could not reach Kosmos to ask for a new code. Try again.'); return; }
+    try { res = await post('retry', { id: was }); out = await res.json().catch(() => null); }
+    catch { retrying = false; if (mine === gen && id === was) say('We could not reach Kosmos to ask for a new code. Try again.'); return; }
+    retrying = false;
     if (mine !== gen || id !== was) return;
     if (!res.ok) { say(pjSentence(out && (out.error || out.because)) || 'We could not ask for a new code.'); return; }
-    el('retry-row').hidden = true;
+    hideRow('retry-row');
     say(MUSE_SAY.starting);
   }
   function leave() {

@@ -66,11 +66,12 @@ const chk = (ok, label, extra) => {
         const body = JSON.parse((opts && opts.body) || '{}');
         window.__posts.push({ path: u.replace(/^.*\/api\/muse\/signin/, '') || '/', id: body.id || null });
         if (/\/stop$/.test(u)) return enc({ ok: true });
-        if (/\/retry$/.test(u)) return enc({ ok: true, id: body.id, state: 'starting' });
+        if (/\/retry$/.test(u)) { if (window.__holdRetry) await window.__holdRetry; return enc({ ok: true, id: body.id, state: 'starting' }); }
+        if (window.__holdStart) await window.__holdStart;
         if (window.__startAnswer) return enc(window.__startAnswer[1], window.__startAnswer[0]);
         return enc({ ok: true, id: 'mine000000000001', state: 'starting' });
       }
-      if (/\/api\/muse\/signin$/.test(u)) return enc(window.__status);
+      if (/\/api\/muse\/signin$/.test(u)) { if (window.__holdStatus) await window.__holdStatus; return enc(window.__status); }
       if (/\/api\/accounts(\?|$)/.test(u)) { window.__accountsPainted += 1; return enc({ accounts: [] }); }
       return enc({});
     };
@@ -186,6 +187,62 @@ const chk = (ok, label, extra) => {
   await choose('meta'); await settle();
   await choose('claude'); await settle();
   chk((await G('acct-muse-flow')).hidden, 'picking another provider puts Muse\'s step away');
+
+  /* ---- round 1 of review: focus, idle, races, switches ---- */
+  const act = () => q(() => (document.activeElement && document.activeElement.id) || document.activeElement.tagName);
+  const running = async () => { await q(() => { window.__status = { id: 'mine000000000001', state: 'code', url: 'https://auth.meta.com/device?user_code=WXYZ-1234', code: 'WXYZ-1234' }; }); await choose('meta'); await settle(); await q(() => document.getElementById('acct-muse-go').click()); await settle(); await tick(); };
+  await q(() => { closeAcctAdd(); openAcctAdd(); }); await settle();
+  await running();
+  // Get a new code: focus goes to Stop, never to a hidden button.
+  await q(() => { window.__status = { id: 'mine000000000001', state: 'expired' }; }); await tick();
+  await q(() => document.getElementById('acct-muse-retry').focus());
+  await q(() => document.getElementById('acct-muse-retry').click()); await settle();
+  chk(await act() === 'acct-muse-cancel', 'after Get a new code, focus is on Stop, not lost', await act());
+  // Expiry while focus is on the link: focus goes to Stop, and the hidden link keeps no address.
+  await q(() => { window.__status = { id: 'mine000000000001', state: 'code', url: 'https://auth.meta.com/device?user_code=QRST-5678', code: 'QRST-5678' }; }); await tick();
+  await q(() => document.getElementById('acct-muse-open').focus());
+  await q(() => { window.__status = { id: 'mine000000000001', state: 'expired' }; }); await tick();
+  chk(await act() === 'acct-muse-cancel', 'an expiry with focus on the link moves focus to Stop', await act());
+  chk((await G('acct-muse-open')).href === '#', 'the hidden link keeps no address', (await G('acct-muse-open')).href);
+  // A retry answered after Stop paints nothing.
+  await q(() => { window.__holdRetry = new Promise((r) => { window.__releaseRetry = r; }); document.getElementById('acct-muse-retry').click(); });
+  await settle();
+  await q(() => document.getElementById('acct-muse-cancel').click()); await settle();
+  await q(() => { window.__releaseRetry(); window.__holdRetry = null; }); await settle();
+  chk(/Sign-in stopped/.test((await G('acct-muse-msg')).text), 'a retry answered after Stop paints nothing', (await G('acct-muse-msg')).text);
+  // A failure while focus is on Stop brings focus back to the button.
+  await running();
+  await q(() => document.getElementById('acct-muse-cancel').focus());
+  await q(() => { window.__status = { id: 'mine000000000001', state: 'failed', because: 'x' }; }); await tick();
+  chk(await act() === 'acct-muse-go', 'a failure with focus on Stop returns focus to the button', await act());
+  // Idle (the board restarted mid sign-in) is not "another sign-in".
+  await running();
+  await q(() => { window.__status = { state: 'idle' }; }); await tick();
+  chk(/ended before it finished/.test((await G('acct-muse-msg')).text), 'an idle poll says the sign-in ended, not that another started', (await G('acct-muse-msg')).text);
+  // A poll answered after Stop paints nothing.
+  await running();
+  await q(() => { window.__holdStatus = new Promise((r) => { window.__releaseStatus = r; }); window.__tickP = window.__tick(); });
+  await settle();
+  await q(() => document.getElementById('acct-muse-cancel').click()); await settle();
+  await q(async () => { window.__releaseStatus(); window.__holdStatus = null; await window.__tickP; }); await settle();
+  chk((await G('acct-muse-code')).hidden && /Sign-in stopped/.test((await G('acct-muse-msg')).text), 'a poll answered after Stop paints nothing', (await G('acct-muse-msg')).text);
+  // A start answered after the dialog closed is stopped by its own id.
+  await q(() => { window.__holdStart = new Promise((r) => { window.__releaseStart = r; }); window.__startAnswer = [200, { ok: true, id: 'late000000000009', state: 'starting' }]; });
+  await choose('meta'); await settle();
+  await q(() => document.getElementById('acct-muse-go').click()); await settle();
+  await q(() => closeAcctAdd()); await settle();
+  await q(() => { window.__releaseStart(); window.__holdStart = null; }); await settle();
+  chk(await q(() => { const p = window.__posts[window.__posts.length - 1]; return p.path === '/stop' && p.id === 'late000000000009' && window.__polls.size === 0; }), 'a start answered after close is stopped by its own id');
+  await q(() => { window.__startAnswer = null; openAcctAdd(); }); await settle();
+  // Switching provider mid sign-in stops it.
+  await running();
+  await choose('claude'); await settle();
+  chk(await q(() => { const p = window.__posts[window.__posts.length - 1]; return p.path === '/stop' && p.id === 'mine000000000001' && window.__polls.size === 0; }), 'switching provider mid sign-in stops it by id');
+  // Meta puts away a key step left open, and a ChatGPT sign-in.
+  await q(() => { document.getElementById('acct-apikey-flow').hidden = false; ACCT_OPENAI_SUB_SESSION = 'sess-1'; });
+  await choose('meta'); await settle();
+  chk((await G('acct-apikey-flow')).hidden, 'picking Meta puts away another provider\'s key step');
+  chk(await q(() => ACCT_OPENAI_SUB_SESSION === null), 'picking Meta ends a ChatGPT sign-in left running');
 
   chk(errs.length === 0, 'no page errors', errs.join(' | '));
   await browser.close();
