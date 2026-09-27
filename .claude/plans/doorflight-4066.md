@@ -22,3 +22,9 @@ The next test (`forget() observes its OWN write...`) had the same fixed 150 ms b
 - A, sharing broken (`inflight.collapse` removed from `readConnectionsShelf` in `server.js`): test 1 red, "verified this door 2 times".
 - B, arrival forced to fail with `ARRIVAL_MS = 0`: red, "no shelf read reached the verifier (waited 0 ms)".
 - C, `state()` collapsed inside `engine/tokendoor.js` (the regression test 2 guards): test 2 red, "forget() waited on a shelf read that began before its write". Before the bound it hung instead.
+
+## Accepted residual (iteration 2)
+
+Test 1 still settles for a fixed 150 ms after both requests have arrived before asserting one verifier entry. That wait can only affect SENSITIVITY: a correct shelf never produces a second entry, so it cannot fail falsely. What it cannot do is prove no second read happened: the route runs through many awaits before it reaches `readConnectionsShelf`, so under extreme load a broken shelf's second read could land after the settle and one run would pass. The next run catches it. Making that deterministic needs a hook in `server.js`, a product change this card does not ask for.
+
+The plan file is `doorflight-4066.md` without a timestamp, like the other plans in this repo; the finders match on the branch name.

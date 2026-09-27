@@ -105,6 +105,7 @@ function countShelfRequests() {
 
 test('#1618: two callers asking for the shelf at once verify each door ONCE', async () => {
   const h = heldDoor('Hetzner');
+  let arrived = null;
   try {
     /* A held token, so the door actually reaches its verifier rather than
        short-circuiting on "no token, not connected". Ungated, or this blocks. */
@@ -114,11 +115,10 @@ test('#1618: two callers asking for the shelf at once verify each door ONCE', as
     assert.ok(afterConnect >= 1, 'connect() never reached the verifier, so the counter below measures nothing');
 
     h.arm();
-    const arrived = countShelfRequests();
+    arrived = countShelfRequests();
     const a = fetch(base + '/api/connections').then((r) => r.json());
     const b = fetch(base + '/api/connections').then((r) => r.json());
     await until(() => arrived.seen() >= 2, 'the server never received both shelf requests');
-    arrived.stop();
     await until(() => h.entries() > afterConnect, 'no shelf read reached the verifier');
     // Both requests are in the server now; an unshared second read shows as a second entry.
     await new Promise((r) => setTimeout(r, 150));
@@ -131,7 +131,10 @@ test('#1618: two callers asking for the shelf at once verify each door ONCE', as
     assert.equal(ra.doors['/api/svc/hetzner'].connected, true);
     assert.deepEqual(Object.keys(ra.doors).sort(), Object.keys(rb.doors).sort(),
       'the two callers were handed different shelves');
-  } finally { h.release(); h.restore(); await h.door.forget().catch(() => {}); }
+  } finally {
+    if (arrived) arrived.stop();
+    h.release(); h.restore(); await h.door.forget().catch(() => {});
+  }
 });
 
 /* 🛑 THE BOUNDARY, AND IT IS BUILT AROUND `forget()` SO THAT IT CAN ACTUALLY FAIL.
