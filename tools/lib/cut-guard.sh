@@ -69,7 +69,7 @@ _kosmos_drop_self_subtree() {
 # 0.5.54`). Anything unreadable stays in the list, which preserves the guard's
 # refuse-rather-than-guess posture.
 _kosmos_drop_fixtures() {
-  local line pid _shell script
+  local line pid _shell script _
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     pid="${line%% *}"

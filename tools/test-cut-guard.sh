@@ -9,6 +9,12 @@ T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 # /tmp dir. The existing arms below get an empty dir (marker arm inert); the marker
 # arms at the end point it at populated fixtures.
 export KOSMOS_RUN_MARKER_DIR="$T/markers-empty"; mkdir -p "$KOSMOS_RUN_MARKER_DIR"
+# #4225: the guards now read a candidate's cwd and ancestry to spot unit-test fixtures. Every candidate here is a made-up
+# pid, so default both reads to "nothing" (not a fixture): no arm may read the REAL process table by accident, where a
+# live process holding that pid could be dropped as a fixture and turn a refusal control red. Arms that test the fixture
+# rule set their own probes.
+printf '#!/bin/sh\nexit 0\n' > "$T/probe-nothing"; chmod +x "$T/probe-nothing"
+export KOSMOS_PROCESS_CWD_PROBE="$T/probe-nothing" KOSMOS_PROCESS_ANCESTOR_PROBE="$T/probe-nothing"
 fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }
@@ -315,6 +321,9 @@ out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_PROCESS_CWD_PROBE
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_PROCESS_CWD_PROBE="$T/cwd-plain" KOSMOS_BC_PROBE="$T/bc-live" bcguard)"; rc=$?
 [ "$rc" -ne 0 ] && has "$out" "another browser-checks run" && pass "#4225 browser-run guard CONTROL: the identical ordinary browser-checks.sh refuses" \
   || fail "#4225 browser-run guard: an ordinary browser run was hidden (rc=$rc, $out)"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_PROCESS_CWD_PROBE="$T/cwd-unreadable" KOSMOS_BC_PROBE="$T/bc-live" bcguard)"; rc=$?
+[ "$rc" -ne 0 ] && has "$out" "another browser-checks run" && pass "#4225 browser-run guard: an unreadable cwd counts as a real run (refuses)" \
+  || fail "#4225 browser-run guard: an unreadable cwd was treated as a fixture (rc=$rc, $out)"
 
 # The library missing: a copy of cut-guard.sh with NO process-fixture.sh beside it, sourced by a caller WITHOUT set -e.
 # Every fixture-shaped candidate must stay counted (over-refuse, never under-refuse).

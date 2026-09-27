@@ -20,6 +20,12 @@ T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 # temp dir so the probe seam fully controls what "live" means; the marker input gets its own
 # controlled arm below, so isolating it here does not lose marker-detection coverage.
 export KOSMOS_RUN_MARKER_DIR="$T/markers"; mkdir -p "$T/markers"
+# #4225: the guards now read a candidate's cwd and ancestry to spot unit-test fixtures. Every candidate here is a made-up
+# pid, so default both reads to "nothing" (not a fixture): no arm may read the REAL process table by accident, where a
+# live process holding that pid could be dropped as a fixture and turn a refusal control red. Arms that test the fixture
+# rule set their own probes.
+printf '#!/bin/sh\nexit 0\n' > "$T/probe-nothing"; chmod +x "$T/probe-nothing"
+export KOSMOS_PROCESS_CWD_PROBE="$T/probe-nothing" KOSMOS_PROCESS_ANCESTOR_PROBE="$T/probe-nothing"
 fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }

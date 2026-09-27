@@ -59,8 +59,8 @@ set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 # #4225: the shared fixture rules (a node --test ancestor, and run-tests.sh's kt sandbox). Without them this gate could
 # not tell a fixture from a real run, so it says "do not start" (2) rather than guess.
-if ! . "$REPO/tools/lib/process-fixture.sh" 2>/dev/null; then
-  echo "heavy-gate: cannot read tools/lib/process-fixture.sh, so a unit-test fixture cannot be told from a real run; do not start" >&2
+if ! . "$REPO/tools/lib/process-fixture.sh"; then
+  echo "heavy-gate: cannot load tools/lib/process-fixture.sh (missing or broken, see above), so a unit-test fixture cannot be told from a real run; do not start" >&2
   exit 2
 fi
 
