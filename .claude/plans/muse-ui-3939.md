@@ -44,3 +44,9 @@ With the flag on, on a Mac with Muse Code installed, a person can pick Meta in A
 
 ## 3a review round 4 (decided)
 - A present-but-empty `providers.meta` entry reads as not signed in, now tested (control red). Nit left: the test's socket cleanup assumes /private/tmp when TMUX_TMPDIR is unset. That is correct on a Mac, and these tests are Mac only.
+
+## 3a review round 5 (decided)
+- A retry that gets no new code now ENDS the sign-in ("start the sign-in again"), rather than allowing another retry. That reverses round 3's re-allow: a second r typed while Meta is slow lands on the late code screen (measured by the reviewer). Control red.
+- The 20-minute limit is a final failure with its own reason, not an expiry that looks retryable. Control red.
+- Failed sends are counted per send, not per tick. A failure that proves the Enter never went out re-arms it, so a tmux that keeps failing reaches "could not reach" with a single code. Control red.
+- The used code leaves the address too (dropCode, one helper for end and expiry). Control red. r and Enter go in one send.
