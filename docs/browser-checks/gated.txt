@@ -105,6 +105,7 @@ render-model-change
 render-model-restart-interstitial
 render-model-spinners-2365
 render-msg-counter-3403
+render-muse-signin-3939
 render-nav-badges-3216
 render-needsyou-dealarm-2808
 render-no-conflict-3729

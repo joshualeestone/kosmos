@@ -311,6 +311,7 @@ jobs:
             render-win32-board-copy
             render-fed-plus-gate
             render-waiting-badge-4025
+            render-muse-signin-3939
         # #4119: the fixed allowlist PLUS the checks the selection step named, deduplicated. The
         # driver's never-ran guard covers both: a named check that did not run reds the job.
         run: |

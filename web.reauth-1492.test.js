@@ -76,12 +76,14 @@ function doors() {
     'ACCT_ADD_TITLE', 'ACCT_ADD_INTRO', 'picked',
     // #3566: openAcctAdd also clears the Gemini/Grok key step (acctApikeyShow(null)).
     'acctApikeyShow',
+    // #3939: openAcctAdd also puts Meta Muse's step away and asks whether it is offered.
+    'acctMuseShow', 'museAsk',
     // #2802: openAcctAdd now also assigns ACCT_ADD_RETURN_FOCUS (the control that
     // opened the modal). Declare it here like ACCT_REAUTH_DIR so the lifted function
     // does not rely on sloppy-mode implicit-global creation (would throw under strict).
     'let ACCT_REAUTH_DIR = null;\nlet ACCT_ADD_RETURN_FOCUS = null;\n' + src);
   const api = fn(dom.document, (w, o) => picked.push([w, o]), () => false, null,
-    'Add a provider', 'Pick which AI provider you want to connect.', picked, () => {});
+    'Add a provider', 'Pick which AI provider you want to connect.', picked, () => {}, () => {}, () => {});
   return { dom, api, picked };
 }
 
