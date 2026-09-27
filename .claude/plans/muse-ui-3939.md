@@ -53,3 +53,7 @@ With the flag on, on a Mac with Muse Code installed, a person can pick Meta in A
 
 ## 3a review round 6 (decided)
 - The live-execution gate is pinned by a test, as agysignin's C3 is: with the gate closed, start() throws in a test and records nothing. The control (start's pre-check removed, so the gate's throw is swallowed) went red. The exit line's constant goes through shq like the binary.
+
+## 3a review round 7 (decided)
+- A retry send that timed out counts as sent, following the enterOnce rule that a timeout says nothing about delivery. No second r can follow, and NO_NEW_CODE ends the sign-in if the keys never arrived. Control red.
+- Tests for four branches that had none, each control red: a timed-out Enter is not re-armed; a slow tmux is not a gone session; a send that goes out clears the failure count; a retry restarts the give-up clock. The "no expired code" message is one constant.
