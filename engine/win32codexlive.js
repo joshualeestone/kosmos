@@ -39,7 +39,7 @@ const win32streamstate = require('./win32streamstate');
 const win32orphan = require('./win32orphan');
 
 /* The runners win32codexsup supervises one turn at a time. */
-const PER_TURN = new Set(['codex', 'gemini', 'grok']);
+const PER_TURN = new Set(['codex', 'gemini', 'grok', 'antigravity']);   // #3568: agy (engine/win32agy.js)
 
 /**
  * The live codex agents, as `claude agents --json`-shaped rows.

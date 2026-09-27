@@ -124,6 +124,42 @@ function forWorkdir(dir, home) {
 }
 
 /**
+ * #4039 follow-up, MEASURED on Grok Build 1.0.41 (grok-4.6, three real turns, 2026-09-26):
+ * contextTokensUsed IS Grok's own context gauge, and once a model call has returned it tracks
+ * the real prompt within 0.3% (40,783 vs 40,922). Before the session's first call returns it
+ * holds a pre-call estimate without the system prompt and tools (2,716 vs a real 40,111), and a
+ * session whose only turn made ONE model call keeps that estimate. Once any call has returned the
+ * gauge is right, so this is a FIRST-turn defect only.
+ * usage.json's per-turn inputTokens is a SUM over the turn's calls (about 2x on a two-call
+ * turn), so it is never occupancy -- EXCEPT when that turn's modelCalls is exactly 1, where it
+ * is that one call's whole prompt. So: take the larger of the two only when usage.json holds
+ * exactly ONE turn and it made ONE call (the measured case). A later single-call turn is left
+ * alone: after a compaction the gauge drops and an old turn's prompt would pin the ring high.
+ * MEASURED: usage.json is written 27-63 ms BEFORE signals.json at the end of a turn (both real
+ * sessions), so contextUsedAt (signals.json's mtime) is never earlier than the floored figure. In
+ * that gap a second turn can briefly read the stale estimate again; the next write corrects it.
+ * MEASURED too: a resume in a NEW process (`grok -r <id>`) appended turn 2 to the same usage.json,
+ * so turns[] is the whole session and "one turn" really means the first. Never throws; any doubt keeps Grok's own figure.
+ */
+/* Session folders already seen past their first turn. usage.json only ever gains turns, so once a
+   session has two the floor can never apply again; remembering that skips re-reading a file that
+   grows every turn, on every status poll of every Grok agent (review 5). One short path per session. */
+const PAST_FIRST_TURN = new Set();
+
+function singleCallFloor(used, sessionDir) {
+  if (used == null) return used;
+  if (PAST_FIRST_TURN.has(sessionDir)) return used;
+  try {
+    const u = JSON.parse(fs.readFileSync(path.join(sessionDir, 'usage.json'), 'utf8'));
+    const turns = u && Array.isArray(u.turns) ? u.turns : [];
+    if (turns.length > 1) PAST_FIRST_TURN.add(sessionDir);
+    const only = turns.length === 1 ? turns[0] : null;
+    if (only && only.modelCalls === 1 && typeof only.inputTokens === 'number' && only.inputTokens > used) return only.inputTokens;
+  } catch { /* no usage.json: Grok's own gauge stands */ }
+  return used;
+}
+
+/**
  * What the board needs from a Grok session -- the SAME contract codexsession.read
  * and geminisession.read return, so status.js reads all four providers through one
  * shape.
@@ -164,8 +200,8 @@ function read(dir, home) {
     try { signalsMtime = fs.statSync(signalsPath).mtimeMs; } catch { signalsMtime = null; }
   } catch { signals = null; }
   const num = (v) => (typeof v === 'number' ? v : null);
-  const contextUsed = signals ? num(signals.contextTokensUsed) : null;
   const contextWindow = signals ? num(signals.contextWindowTokens) : null;
+  const contextUsed = signals ? singleCallFloor(num(signals.contextTokensUsed), found.dir) : null;
 
   const lastAt = (typeof s.last_active_at === 'string' && s.last_active_at)
     || (typeof s.updated_at === 'string' && s.updated_at) || null;
@@ -212,4 +248,7 @@ function read(dir, home) {
   };
 }
 
-module.exports = { HOME, read, forWorkdir, summaries, summaryOf, SESSIONS };
+/* Tests only: forget which sessions were seen past turn 1, so a sandbox reset starts clean. */
+function clearFirstTurnCache() { PAST_FIRST_TURN.clear(); }
+
+module.exports = { HOME, read, forWorkdir, summaries, summaryOf, SESSIONS, clearFirstTurnCache };

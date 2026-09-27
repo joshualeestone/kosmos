@@ -282,6 +282,8 @@ test('one CSS rule hides the Mac-only surfaces, and it is on each one the audits
     'Update Kosmos automatically (P0-5)': /<div class="setrow" id="auto-row" style="margin-top:12px;" data-win-hide>/,
     'its status line': /<p class="dhint" id="auto-msg"[^>]*data-win-hide>/,
     'Open Terminal (W-18)': /<div class="field" data-win-hide>\s*<button class="btn" id="d-open-terminal"/,
+    // #4025: the App icon switch, until a Windows taskbar count exists to switch.
+    'Settings App icon box': /<section class="dbox" data-win-hide>\s*<h3 class="dlab">App icon<\/h3>/,
   };
   for (const [name, re] of Object.entries(HIDDEN_ON_WINDOWS)) assert.match(PAGE, re, `${name} is not hidden on Windows`);
   /* Counted on the MARKUP only (scripts, styles and comments stripped), so the rule and the

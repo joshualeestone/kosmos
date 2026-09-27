@@ -27,6 +27,9 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = nodePath.join(__dirname, 'test-support', 
 
 const runners = require('./engine/runners');
 const grokAccounts = require('./engine/grokaccounts');
+/* #3997: /api/accounts now asks xAI about a subscription whose key has not expired. This file's sign-ins carry no key
+   today, but a fixture that grew one must never reach the real xAI: answer every check here, never the network. */
+grokAccounts.setFetcher(async () => ({ status: 401 }));
 const { start, server } = require('./server');
 
 const FAKE = nodePath.join(SANDBOX, 'fake-grok.sh');
@@ -46,6 +49,7 @@ runners.resolveBin = (p) => (p === 'grok' ? { present: grokPresent, bin: FAKE } 
 let base;
 test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
 test.after(() => {
+  grokAccounts.setFetcher(null);
   runners.resolveBin = _origResolveBin;
   try { server.close(); } catch { /* best effort */ }
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
@@ -141,7 +145,7 @@ test('a key add during a pending sign-in never lands on its slot; a named one is
     assert.ok(fs.existsSync(nodePath.join(keyDir, '.kosmos-grok-apikey')), 'and the key account survived it');
   } finally {
     delete process.env.FAKE_MODE;
-    grokAccounts.setFetcher(null);
+    grokAccounts.setFetcher(async () => ({ status: 401 }));   // #3997: back to answering itself, never the network
   }
 });
 

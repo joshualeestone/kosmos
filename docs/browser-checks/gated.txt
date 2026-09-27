@@ -24,6 +24,7 @@ render-assistant-hosted-3660
 render-autohello-2686
 render-autohello-switch-2716
 render-avatar-4038
+render-brief-note-agents
 render-bubblepop-2407
 render-build-marker-2066
 render-busy-anim-3421
@@ -55,6 +56,8 @@ render-dm-emoji-3744
 render-dm-multiline-3208
 render-dm-phone-718
 render-dm-reactions-3650
+render-dm-send-shows-now
+render-dm-sideways-3969
 render-dm-tapreact-718
 render-docs-subfolders-2245
 render-emoji-mute-2357
@@ -174,6 +177,7 @@ render-type-to-focus-3283
 render-unread-edge-3743
 render-url-state
 render-user-menu-3051
+render-waiting-badge-4025
 render-waiting-phone-718
 render-win32-board-copy
 render-workchip-zero-2157

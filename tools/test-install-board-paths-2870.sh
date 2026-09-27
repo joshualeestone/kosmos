@@ -59,6 +59,7 @@ printf '#!/bin/sh\n'                          > "$FAKE_REPO/bin/board-watchdog.s
 printf '#!/usr/bin/env node\n'                > "$FAKE_REPO/bin/codex-report-bridge.js"
 printf '#!/usr/bin/env node\n'                > "$FAKE_REPO/bin/gemini-report-bridge.js"
 printf '#!/usr/bin/env node\n'                > "$FAKE_REPO/bin/grok-report-bridge.js"
+printf '#!/usr/bin/env node\n'                > "$FAKE_REPO/bin/agy-report-bridge.js"
 
 # A separate real git working tree, for the inside-a-git-tree case.
 GITTREE="$TMP/gittree"

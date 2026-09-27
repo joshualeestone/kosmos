@@ -6,7 +6,8 @@
  * Measured 2026-09-25 on Agent1s (agy 1.2.11, signed in): on every NEW folder agy stops at
  * "Do you trust the contents of this project?", even with --dangerously-skip-permissions, and it
  * has no launch flag to skip it (gemini has --skip-trust, grok --trust). It records the answer per
- * exact folder in ~/.gemini/antigravity-cli/settings.json as `trustedWorkspaces`; a subfolder of a
+ * exact folder in ~/.gemini/antigravity-cli/settings.json as `trustedWorkspaces` (the agy dir is
+ * agyHome() below, which a sandbox moves: AGENT_WORKFORCE_AGY_HOME, then AGENT_WORKFORCE_HOME); a subfolder of a
  * trusted folder is still asked. Without this, every new Antigravity agent sits on that question.
  *
  * The supervisor runs this before each launch (bin/agent-supervisor.sh, antigravity arm).
@@ -28,8 +29,23 @@ const LOCK_WAIT_MS = 5000;
 const LOCK_STALE_MS = 30000;
 const WRITE_TRIES = 3;
 
+/* #4039: agy's storage dir, derived ONCE, here. AGENT_WORKFORCE_AGY_HOME verbatim, else under
+   AGENT_WORKFORCE_HOME (the sandbox the sibling readers honour), else the real home. It lives in this
+   light module (fs/os/path only) because the supervisor forks this file before every agy launch;
+   engine/agysession.js imports it from here rather than the other way round, which would load
+   status.js into that pre-launch step. */
+/* agy's dir under a home root: the one place the relative path is spelled. */
+function agyDirUnder(root) {
+  return path.join(root, '.gemini', 'antigravity-cli');
+}
+
+function agyHome() {
+  return process.env.AGENT_WORKFORCE_AGY_HOME || agyDirUnder(process.env.AGENT_WORKFORCE_HOME || os.homedir());
+}
+
 function settingsPath(home) {
-  return path.join(home || os.homedir(), '.gemini', 'antigravity-cli', 'settings.json');
+  // An explicit `home` is a home root (its tests pass one); otherwise agy's own dir.
+  return path.join(home ? agyDirUnder(home) : agyHome(), 'settings.json');
 }
 
 function sleepMs(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
@@ -151,7 +167,7 @@ function trustAgyFolder(dir, opts) {
   }
 }
 
-module.exports = { trustAgyFolder, settingsPath, _lock: lock }; // _lock: for its test only
+module.exports = { trustAgyFolder, settingsPath, agyHome, _lock: lock }; // _lock: for its test only
 
 // The supervisor calls this as a script: node agytrust.js <folder>. It always exits 0 (the launch
 // goes ahead either way), and says on stderr why it could not add the folder, for the agent's log.

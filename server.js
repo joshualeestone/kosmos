@@ -41,7 +41,7 @@ const worldRegistryBase = require('./engine/worldenv').bootstrapWorldEnv(process
 // literal there is a comparison that silently stops matching the day the engine
 // renames one.
 const {
-  snapshot, paneRoster, countAgents, needsPerson, projectsUnreadTotal, waitingTotal, STATE, modelDisplayName,
+  snapshot, paneRoster, countAgents, needsPerson, projectsUnreadTotal, waitingTotal, waitingBadgeOn, STATE, modelDisplayName,
   /* #1304: the tier vocabulary, imported rather than hand-written. A literal
      'structured' beside a value read off a process command line is exactly the
      two-copies-of-one-fact habit this file criticises elsewhere. */
@@ -773,6 +773,9 @@ const limits = require('./engine/limits');
 const engmode = require('./engine/engmode');
 const accounts = require('./engine/accounts');
 const observed = require('./engine/observed');
+const codexsigninlive = require('./engine/codexsigninlive');   // #3997: the ChatGPT sign-in's free live check
+/* #3997 round 7: how long /api/accounts waits on a Grok subscription's free check before saying it is checking. */
+const GROK_CHECK_WAIT_MS = Number(process.env.AGENT_WORKFORCE_GROK_CHECK_WAIT_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_GROK_CHECK_WAIT_MS) : 1500;
 /* #1304, second half: PigeonPete's live reader. It walks the pane's process tree
    to the claude descendant and reads the environment it is ACTUALLY running
    with, which is a better source than a startup file or a transcript for the
@@ -4481,7 +4484,10 @@ const server = http.createServer((req, res) => {
       const rows = withDmUnread(agents.concat(offline));
       /* #3996: what is waiting on the person, in one number (the Dock badge reads it). The same
          rows the Messages tile sums, after the needs-you and projects counts above are final. */
-      counts.waiting = waitingTotal(counts, rows);
+      /* #4025: null when the person switched the icon count off in Settings; the apps clear the badge on null. */
+      let badgeSettings;
+      try { badgeSettings = store.readSettings(); } catch { badgeSettings = {}; }
+      counts.waiting = waitingBadgeOn(badgeSettings) ? waitingTotal(counts, rows) : null;
       body = JSON.stringify({
         ...snap, agents: rows, counts, connection, version, dependsOnClaude,
         /* #2066: the board reads (version, sourceChannel); the version line and the
@@ -7670,8 +7676,26 @@ const server = http.createServer((req, res) => {
        window converts `cannot tell` back into a confident `not connected`, which
        is the one answer this route exists never to give. If this route ever needs
        to be cheaper still, make the sweep cheaper - do not add a window. */
+    /* #3997: a ChatGPT sign-in's live check (codex's own handshake, codexsigninlive: free) is cached for 30s, so on
+       an idle Mac it is always cold when someone opens this screen, and the row sat grey forever. Start it now for
+       every cold one, WITHOUT waiting (#1921: a render never awaits a handshake); a row whose check is RUNNING says
+       so, and the page reads this route again a few seconds later, a bounded number of times. A check that finished
+       without an answer is not running: its row is simply unconfirmed (review round 2). */
+    const openaiPending = new Set();
+    for (const row of openaiAccounts.list()) {
+      if (!row || row.authMode !== 'chatgpt' || !row.dir) continue;
+      if (codexsigninlive.checkState(row.dir) === 'cold') {
+        codexsigninlive.liveness(row.dir).catch(() => { /* never a verdict: the next read shows what it can */ });
+      }
+      if (codexsigninlive.checkState(row.dir) === 'running') openaiPending.add(row.dir);
+    }
+    /* #3997: and a Grok subscription's free check, started NOW so it runs beside the other providers' checks rather
+       than after them; concurrent reads share one request per folder (grokaccounts.subscriptionLive). */
+    const grokSubStarted = new Map(grokAccounts.list()
+      .filter((a) => a && a.dir && a.authMode === 'subscription')
+      .map((a) => [a.dir, grokAccounts.subscriptionLive(a.dir).catch(() => ({ verdict: 'unknown', because: 'we could not check this sign-in just now' }))]));
     Promise.all([accounts.listLive(), openaiAccounts.listLive(), geminiAccounts.listLive(), grokAccounts.listLive()])
-      .then(([claudeRows, openaiRows, geminiRows, grokRows]) => {
+      .then(async ([claudeRows, openaiRows, geminiRows, grokRows]) => {
         /* #1921: overlay each Claude account's badge with the LAST OBSERVED
            real-call outcome (engine/observed), joined to the account via the SAME
            accountForAgent the status route uses -- NOT a second copy of the
@@ -7765,7 +7789,7 @@ const server = http.createServer((req, res) => {
            account it is a REAL /v1/models liveness proof (openaiaccounts.js:1140), which
            renders green today. Applying the Claude verdict wholesale would DOWNGRADE a
            genuinely-live API key to muted, and would also bypass the tailored #2568
-           chatgpt "not checked live" pill for a signed-in chatgpt row with no traffic.
+           chatgpt pill (amber since #3997) for a signed-in chatgpt row with no traffic.
            So we ONLY upgrade to green on a FRESH observed `ok`; every other verdict
            leaves the OpenAI row exactly as it renders today (grey fallback preserved on
            board restart / stale observation / no observed call -- #2413 acceptance).
@@ -7780,9 +7804,19 @@ const server = http.createServer((req, res) => {
           if (!prev || o.at > prev.at) obsByOpenaiDir.set(acct.dir, { outcome: o.outcome, at: o.at });
         }
         const openai = openaiRows.map((a) => {
-          const base = { ...a, offerable: !named || path.resolve(String(a.dir || '')) === onlyDir };
+          /* Checking = still running NOW, or it finished during this read with a real answer the row does not show
+             yet (the next read shows it). One that finished with no answer is not checking (review round 14: the
+             snapshot above alone still said so). */
+          const now = openaiPending.has(a.dir) ? codexsigninlive.checkState(a.dir) : null;
+          const pending = a.connection && a.connection.state === 'unknown' && (now === 'running'
+            || (now === 'fresh' && codexsigninlive.livenessCached(a.dir).verdict !== 'unknown'));
+          const base = { ...a, offerable: !named || path.resolve(String(a.dir || '')) === onlyDir,
+            ...(pending ? { connection: { ...a.connection, liveCheckPending: true } } : {}) };
           const obs = a.dir ? obsByOpenaiDir.get(a.dir) : null;
           if (!obs) return base;
+          /* A dead verdict from the ChatGPT check that is NEWER than the agent's success wins: the person pressed Check
+             now and was told it is not connected, and an older success must not paint over that (review round 6). */
+          if (a.connection && a.connection.state === 'none' && codexsigninlive.deadIsNewer(a.dir, obs.at)) return base;
           const v = observed.verdict({
             checkLiveState: a.connection && a.connection.state,
             observedOutcome: obs.outcome,
@@ -7793,7 +7827,9 @@ const server = http.createServer((req, res) => {
           // Only a FRESH observed ok greens the row; a stale ok (or any checkLive-derived
           // fallback) must not overwrite the untouched legacy render (see the note above).
           if (v.badge !== 'working') return base;
-          return { ...base, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs } };
+          /* From base.connection, which carries liveCheckPending: a green row whose own check is still running must
+             still be read again, so a newer dead answer can reach it (review round 9). */
+          return { ...base, connection: { ...(base.connection || a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs } };
         });
         /* #3296 observability follow-on: the GOOGLE/Gemini observed-overlay badge, the
            exact sibling of the OpenAI overlay above and positive-only for the same reason
@@ -7858,22 +7894,82 @@ const server = http.createServer((req, res) => {
            so without a fresh working observation it must say so: signed_in_unverified, the muted
            "Signed in" the page draws for a credential that exists but is not confirmed. Without this
            it had no badge and fell through to the page's green legacy pill. */
-        const unverifiedSub = (a) => (a.authMode === 'subscription' && a.connection && a.connection.state === 'connected'
-          ? { ...a, connection: { ...a.connection, badge: 'signed_in_unverified' } } : a);
+        /* #3997: and the FREE live check, run here because this read is person-paced (the route header). A
+           subscription's `live` answer is recorded like an observed request on its dir, so it flows through the
+           same verdict and freshness below; any other answer leaves it unconfirmed, with the reason in the title. */
+        const subChecks = new Map(await Promise.all(grokRows
+          .filter((a) => a.dir && a.authMode === 'subscription' && a.connection && a.connection.state === 'connected' && grokSubStarted.has(a.dir))
+          .map(async (a) => {
+            /* Waited on only briefly (review round 7): a slow xAI must not hold this read, which callers open and
+               re-read. A check still running keeps running (concurrent reads share it, its answer is kept 30s) and
+               the row says it is checking, so the page reads again, as for a ChatGPT sign-in. */
+            const r = await Promise.race([grokSubStarted.get(a.dir), new Promise((res) => {
+              const t = setTimeout(() => res({ verdict: 'pending', because: 'Checking this sign-in now' }), GROK_CHECK_WAIT_MS);
+              if (t.unref) t.unref();
+            })]);
+            if (r.verdict === 'live') observed.sawDir(observed.PROVIDER.XAI, a.dir, observed.OUTCOME.OK, r.at);   // when it was learned, not now
+            /* A refusal forgets an earlier check's green, so a later read that cannot ask again does not bring it
+               back (review round 2); it records no verdict of its own (grok may renew the key). */
+            if (r.verdict === 'refused') observed.forgetDir(observed.PROVIDER.XAI, a.dir);
+            return [a.dir, r];
+          })));
+        const unverifiedSub = (a) => {
+          if (!(a.authMode === 'subscription' && a.connection && a.connection.state === 'connected')) return a;
+          const r = subChecks.get(a.dir);
+          const because = r ? r.because : a.connection.because;
+          return { ...a, connection: { ...a.connection, because, badge: 'signed_in_unverified', liveVerdict: r ? r.verdict : null,
+            ...(r && r.verdict === 'pending' ? { liveCheckPending: true } : {}) } };
+        };
+        /* Judged at the time AFTER the Grok wait (review round 8): an answer that arrived during the wait is dated
+           then, and against the earlier nowMs it read as from the future, so not fresh, and the row stayed amber. */
+        const grokNow = Date.now();
         const grok = grokRows.map((a) => {
-          const obs = a.dir ? obsByGrokDir.get(a.dir) : null;
+          /* Grok REFUSING the sign-in in this read outranks an earlier check's green (review round 1). Only a refusal:
+             no answer, or a key that expired as keys do, is not evidence against a green from a minute ago. An agent's
+             success counts unless the refusal is newer (round 12). */
+          const thisCheck = a.dir ? subChecks.get(a.dir) : null;
+          const agentSeen = a.dir ? obsByGrokDir.get(a.dir) : null;
+          const agentObs = grokAccounts.refusalIsNewer(thisCheck, agentSeen) ? null : agentSeen;
+          const checkObs = a.dir && !(thisCheck && thisCheck.verdict === 'refused') ? observed.readDir(observed.PROVIDER.XAI, a.dir) : null;
+          const obs = (agentObs && checkObs) ? (checkObs.at >= agentObs.at ? checkObs : agentObs) : (agentObs || checkObs);
           if (!obs) return unverifiedSub(a);
           const v = observed.verdict({
             checkLiveState: a.connection && a.connection.state,
             observedOutcome: obs.outcome,
             observedAt: obs.at,
-            now: nowMs,
+            now: grokNow,
             freshMs: freshWindow,
           });
           if (v.badge !== 'working') return unverifiedSub(a);
-          return { ...a, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs } };
+          /* Still being checked in this read: keep saying so, so the page reads again (review round 9). */
+          const stillChecking = thisCheck && thisCheck.verdict === 'pending';
+          return { ...a, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
+            ...(stillChecking ? { liveCheckPending: true } : {}) } };
         });
-        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...grok] });
+        /* #3998 (Josh, 11:34: "it doesn't show up here as a connected subscription"): Gemini on the
+           Google subscription gets its own row, from agystatus's LAST confident answer (a live check
+           costs a prompt on the person's subscription, so it is never run per repaint). No folder:
+           agy keeps its own sign-in, so the row's actions are its own (Sign in again, Remove). */
+        /* provider 'antigravity', NOT 'google': a 'google' row is a Gemini API KEY to every key path
+           on the page (the create menu, the account list sent with a new agent, the move picker, the
+           guided setup's key row), and this row has no key. Grouped under Gemini by providerName.
+           signed_in_unverified: a remembered answer, not a live one, so the muted "Signed in" Grok's
+           subscription row uses. Listed only while agy is still installed. */
+        /* Its own try: a fault in this one row must not turn every account into a 500. */
+        let agySub = [];
+        try {
+          const agy = require('./engine/agystatus');
+          const agyInst = agy.offered() ? agy.installed() : null;
+          const agyLast = agyInst && agyInst.installed ? agy.lastKnown() : null;
+          if (agyLast && agyLast.signedIn) {
+            agySub = [{
+              provider: 'antigravity', providerName: 'Gemini', dir: null, label: null, name: null, isDefault: false,
+              email: null, authMode: 'antigravity', keyTail: null,
+              connection: { state: 'connected', checkedLive: false, checkedAt: agyLast.at, badge: 'signed_in_unverified' },
+            }];
+          }
+        } catch { agySub = []; }
+        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok] });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;
@@ -7897,16 +7993,9 @@ const server = http.createServer((req, res) => {
      prompt on the person's subscription, so a screen calls it only on a press, and concurrent presses
      share one run. signedIn is true, false (not installed) or null (could not confirm). */
   if (pathname === '/api/antigravity' && req.method === 'GET') {
-    sendJson(res, 200, require('./engine/agystatus').installedForScreen());
-    return;
-  }
-  /* #3568: open agy once in Terminal so it launches Google's sign-in in the browser (its documented
-     first-run behaviour). Only on a press; Kosmos types nothing into it. */
-  if (pathname === '/api/antigravity/open' && req.method === 'POST') {
-    req.resume();
-    require('./engine/agystatus').openForSignIn()
-      .then((r) => sendJson(res, r.ok ? 200 : 400, r.ok ? r : { ...r, error: r.because }))
-      .catch(() => sendJson(res, 500, { ok: false, error: 'we could not open Antigravity just now' }));
+    // Its own try (#3998 review round 15): the board has no process-level handler for a throw here.
+    try { sendJson(res, 200, require('./engine/agystatus').installedForScreen()); }
+    catch { sendJson(res, 500, { error: 'we could not check Antigravity just now' }); }
     return;
   }
   /* #3568: install agy with Google's own installer, on a Confirm press (as Kosmos installs every
@@ -7923,6 +8012,76 @@ const server = http.createServer((req, res) => {
     require('./engine/agystatus').check()
       .then((r) => sendJson(res, 200, r))
       .catch(() => sendJson(res, 200, { installed: null, signedIn: null, because: 'we could not check Antigravity just now' }));
+    return;
+  }
+  /* #3998: the Gemini subscription sign-in without a terminal. Kosmos runs agy's interactive sign-in
+     out of sight (engine/agysignin.js) and the screen drives it: start, read the state, hand it the
+     code the person pasted from Google's page, show the hidden window as a last resort, stop. */
+  /* #3998: Remove on the Gemini subscription row. Kosmos forgets the sign-in it remembered, so the
+     row goes; Antigravity's own Google sign-in on this computer is untouched (agy has no sign-out
+     command Kosmos can call), and the row's copy says so. */
+  if (pathname === '/api/antigravity/forget' && req.method === 'POST') {
+    req.resume();
+    try { require('./engine/agystatus').forget(); sendJson(res, 200, { ok: true }); }
+    catch { sendJson(res, 500, { ok: false, error: 'we could not forget that just now' }); }
+    return;
+  }
+  /* Four exact addresses, not a startsWith family (#3957's route check counts only exact comparisons,
+     and an unknown sub-address falls through to the board's own 404). */
+  if (pathname === '/api/antigravity/signin' || pathname === '/api/antigravity/signin/code'
+    || pathname === '/api/antigravity/signin/show' || pathname === '/api/antigravity/signin/stop') {
+    const signin = require('./engine/agysignin');
+    const agy = require('./engine/agystatus');
+    const sub = pathname.slice('/api/antigravity/signin'.length);
+    if (sub === '' && req.method === 'GET') {
+      try { sendJson(res, 200, signin.status()); } catch { sendJson(res, 500, { error: 'we could not read the sign-in just now' }); }
+      return;
+    }
+    if (req.method !== 'POST') { req.resume(); sendJson(res, 405, { error: 'that is not something this address does' }); return; }
+    /* A request naming a sign-in that has ended or been replaced is a conflict (409) on every
+       route, so a screen can tell it apart from a refused code. */
+    const refusal = (r) => (r.because === signin.NOT_MINE ? 409 : 400);
+    // Only STARTING needs the subscription to be offered: Stop and Show must work on a sign-in already
+    // running, whatever changed since.
+    if (sub === '' && !agy.offered()) { req.resume(); sendJson(res, 400, { ok: false, error: 'Gemini on a Google subscription is not offered on this computer' }); return; }
+    if (sub === '') {
+      req.resume();
+      /* A throw while starting (finding tmux resolves every runner's path) must not take the board
+         down for everyone (review round 15): the board has no process-level uncaughtException handler.
+         The live-execution gate's test-process throw is not caught here: it must stay loud in tests. */
+      let r;
+      try { r = signin.start(); } catch (e) {
+        if (require('./engine/live-execution').inTestProcess() && /for real inside a test/.test(String(e && e.message))) throw e;
+        sendJson(res, 500, { ok: false, error: 'Kosmos could not start Antigravity\'s sign-in just now' }); return;
+      }
+      sendJson(res, r.ok ? 200 : 400, r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
+      return;
+    }
+    /* Code, Show and Stop name the sign-in they mean (the id start() answered), so one tab never
+       stops or types into a sign-in another tab started since. */
+    if (sub === '/code' || sub === '/show' || sub === '/stop') {
+      readBody(req).then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const id = body && typeof body.id === 'string' ? body.id : '';
+        if (sub === '/code') {
+          let r;
+          try { r = signin.code(body && body.code, id); } catch { sendJson(res, 500, { ok: false, error: 'Kosmos could not pass the code just now' }); return; }
+          sendJson(res, r.ok ? 200 : refusal(r), r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
+          return;
+        }
+        if (sub === '/stop') {
+          let r;
+          try { r = signin.stop(id); } catch { sendJson(res, 500, { ok: false, error: 'Kosmos could not stop the sign-in just now' }); return; }
+          sendJson(res, r.ok ? 200 : refusal(r), r.ok ? r : { ...r, error: r.because }); return;
+        }
+        signin.show(id)
+          .then((r) => sendJson(res, r.ok ? 200 : refusal(r), r.ok ? r : { ...r, error: r.because }))
+          .catch(() => sendJson(res, 500, { ok: false, error: 'Kosmos could not open the sign-in window' }));
+      }).catch(() => sendJson(res, 400, { ok: false, error: 'we could not read that request' }));
+      return;
+    }
+    // (every one of the four addresses was answered above; any other falls through to the board 404)
     return;
   }
   /**
@@ -7946,6 +8105,38 @@ const server = http.createServer((req, res) => {
       else sendJson(res, 200, { job });
       return;
     }
+  }
+  /* #3568 on Windows: the Gemini subscription sign-in with nothing but Google's page and a code box.
+     Kosmos runs agy's sign-in out of sight (engine/win32agysignin.js), opens Google's page itself, and
+     hands agy the code the person pastes. POST starts (replacing any other), GET reads the state,
+     /code and /stop name the sign-in they mean by the id the start answered. Windows only: anywhere
+     else these addresses do not exist. Starting needs the subscription to be offered (its switch on). */
+  if (pathname === '/api/antigravity/win32signin' || pathname === '/api/antigravity/win32signin/code' || pathname === '/api/antigravity/win32signin/stop') {
+    if (process.platform !== 'win32') { req.resume(); sendJson(res, 404, { error: 'there is nothing at that address' }); return; }
+    const signin = require('./engine/win32agysignin');
+    const sub = pathname.slice('/api/antigravity/win32signin'.length);
+    if (sub === '' && req.method === 'GET') {
+      try { sendJson(res, 200, signin.status()); } catch { sendJson(res, 500, { error: 'we could not read the sign-in just now' }); }
+      return;
+    }
+    if (req.method !== 'POST' || !['', '/code', '/stop'].includes(sub)) { req.resume(); sendJson(res, 404, { error: 'there is nothing at that address' }); return; }
+    readBody(req).then(async (raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      const id = body && typeof body.id === 'string' ? body.id : '';
+      const conflict = (r) => (r.because === signin.NOT_MINE ? 409 : 400);
+      try {
+        if (sub === '') {
+          const r = await require('./engine/agystatus').openForSignIn();
+          if (!r.ok) { sendJson(res, 400, { ok: false, error: r.because }); return; }
+          sendJson(res, 200, { ok: true, ...signin.status() });
+          return;
+        }
+        const r = sub === '/code' ? await signin.code(body && body.code, id) : signin.stop(id);
+        sendJson(res, r.ok ? 200 : conflict(r), r.ok ? { ok: true, ...signin.status() } : { ok: false, error: r.because, because: r.because });
+      } catch { sendJson(res, 500, { ok: false, error: 'Kosmos could not do that just now' }); }
+    }).catch(() => sendJson(res, 400, { ok: false, error: 'we could not read that request' }));
+    return;
   }
   /* Add an OpenAI account from a pasted key (#540). The key goes to codex's
      own login on stdin and is never echoed, logged, or answered back. */
@@ -8152,6 +8343,41 @@ const server = http.createServer((req, res) => {
      and leaves the prior badge — the #1315/#1916 fail-open that must never flip a
      live-but-capped account to "not connected". USER-INITIATED only; a real call
      spends the person's quota, so it is never fired on a tick (#1921). */
+  /* #3997: Check now for a ChatGPT sign-in (codex's own handshake, codexsigninlive) and for a Grok subscription (the
+     models listing grok reads, only with a key that has not expired: Kosmos never renews one). Both are FREE, unlike
+     Claude's below. `connected` and `none` are what the next /api/accounts read will show. Grok also answers `refused`
+     (which forgets an earlier Check now green) and `expired`; anything else confirms nothing and changes nothing. */
+  if ((pathname === '/api/accounts/openai/check' || pathname === '/api/accounts/grok/check') && req.method === 'POST') {
+    const grok = pathname === '/api/accounts/grok/check';
+    readBody(req)
+      .then(async (raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const dir = body && typeof body === 'object' ? String(body.dir || '') : '';
+        if (!dir) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const resolved = path.resolve(dir);
+        const rows = grok ? grokAccounts.list() : openaiAccounts.list();
+        const acct = rows.find((a) => a.dir === resolved && a.authMode === (grok ? 'subscription' : 'chatgpt'));
+        if (!acct) { sendJson(res, 404, { error: 'we could not find that sign-in on this computer' }); return; }
+        if (grok) {
+          const r = await grokAccounts.subscriptionLiveOnce(acct.dir, { fresh: true });   // its own request; what it learns is kept for the list
+          if (r.verdict === 'live') observed.sawDir(observed.PROVIDER.XAI, acct.dir, observed.OUTCOME.OK, r.at);
+          if (r.verdict === 'refused') observed.forgetDir(observed.PROVIDER.XAI, acct.dir);
+          /* `refused` and `expired` are their own answers: the page repaints on a refusal (an earlier green is gone)
+             and says what an expired key means rather than "try again" (review round 2). */
+          sendJson(res, 200, { state: r.verdict === 'live' ? 'connected' : (r.verdict === 'refused' || r.verdict === 'expired') ? r.verdict : 'unknown', because: r.because });
+          return;
+        }
+        /* "Right now": its own run, never a cached answer or one already running from before a new sign-in. */
+        const v = await codexsigninlive.livenessNow(acct.dir);
+        sendJson(res, 200, v === 'live' ? { state: 'connected' }
+          : v === 'dead' ? { state: 'none' }
+            : { state: 'unknown', because: 'we could not reach ChatGPT to check this sign-in' });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
   if (pathname === '/api/accounts/claude/check' && req.method === 'POST') {
     readBody(req)
       .then(async (raw) => {
@@ -10038,7 +10264,7 @@ const server = http.createServer((req, res) => {
     /* timezone is null until the operator sets one; the UI then defaults its
        dropdown to the browser's own machine timezone (detected client-side,
        the authoritative source for the operator's machine). */
-    sendJson(res, 200, { timezone: (s && s.timezone) || null, autohandoff: autohandoff.settingFrom(s), setupAssistant: setupAssistant.settingFrom(s) });
+    sendJson(res, 200, { timezone: (s && s.timezone) || null, autohandoff: autohandoff.settingFrom(s), setupAssistant: setupAssistant.settingFrom(s), waitingBadge: waitingBadgeOn(s) });
     return;
   }
   if (pathname === '/api/settings' && req.method === 'POST') {
@@ -10073,12 +10299,17 @@ const server = http.createServer((req, res) => {
           try { had = store.readSettings(); } catch { had = {}; }
           patch.setupAssistant = setupAssistant.mergeSetting(had, body.setupAssistant);
         }
+        /* #4025: the waiting count on the app icon, a plain on/off. */
+        if ('waitingBadge' in body) {
+          if (typeof body.waitingBadge !== 'boolean') { sendJson(res, 400, { ok: false, because: 'that is not a valid app icon setting' }); return; }
+          patch.waitingBadge = body.waitingBadge;
+        }
         if (Object.keys(patch).length === 0) {
           sendJson(res, 400, { ok: false, because: 'no known setting to save' });
           return;
         }
         const saved = store.writeSettings(patch);
-        sendJson(res, 200, { ok: true, timezone: saved.timezone || null, autohandoff: autohandoff.settingFrom(saved), setupAssistant: setupAssistant.settingFrom(saved) });
+        sendJson(res, 200, { ok: true, timezone: saved.timezone || null, autohandoff: autohandoff.settingFrom(saved), setupAssistant: setupAssistant.settingFrom(saved), waitingBadge: waitingBadgeOn(saved) });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
@@ -12504,7 +12735,7 @@ const server = http.createServer((req, res) => {
      * the thing rounds 19, 22 and 38 deleted three times.
      */
     const view = asking ? chat.viewport(name, roster) : null;
-    const paneQuestion = (asking && view && view.text) ? chat.questionIn(view.text) : null;
+    const paneQuestion = (asking && view && view.text) ? chat.questionIn(view.text, card.runner) : null;
     /**
      * #2456: a REPORTED needs_you handed us its question in the card's own
      * `because` - the SAME sentence the header quotes back to the person. When
@@ -12800,7 +13031,7 @@ const server = http.createServer((req, res) => {
           const card = askingCard;
           if (!card || card.state !== STATE.NEEDS_YOU) chose = null;
           const seen = chose ? seenNow : null;
-          const asked = (seen && seen.text) ? chat.questionIn(seen.text) : null;
+          const asked = (seen && seen.text) ? chat.questionIn(seen.text, card && card.runner) : null;
           const menu = asked ? chat.optionsIn(asked.text) : null;
           const row = menu ? menu.find((o) => String(o.n) === String(body.text).trim()) : null;
           /* ⚠️ COMPARED AS IT WILL BE STORED. `appendMessage` puts the bubble
@@ -13012,7 +13243,12 @@ const server = http.createServer((req, res) => {
     // sandboxed install gate sets -- and exactly why that gate caught this
     // file surviving an uninstall that swept the correct directory.
     try { seen = JSON.parse(fs.readFileSync(path.join(store.ROOT, 'seen-version.json'), 'utf8')).version || null; } catch { seen = null; }
-    sendJson(res, 200, { current: version, seen });
+    /* #3955: the release's highlights for the "Kosmos has been updated" window, from web/whats-new.json,
+       ONLY when that file is for the version running now (engine/whatsnew.read): last release's text
+       can never appear, and a file the window could not draw is served as none (then no window opens). */
+    let highlights = null;
+    try { highlights = require('./engine/whatsnew').read(version); } catch { highlights = null; }
+    sendJson(res, 200, { current: version, seen, highlights });
     return;
   }
   if (pathname === '/api/whats-new/seen' && req.method === 'POST') {
@@ -14059,7 +14295,7 @@ const server = http.createServer((req, res) => {
         // WELCOME_ROOM_NOTE, and a note we could not post is never a reason to fail the create.
         try {
           if (made.agents.length > 0 && projects.briefIsPending(made.folder)) {
-            messages.roomNote(made.id, projects.BRIEF_PENDING_NOTE);
+            messages.roomNote(made.id, projects.BRIEF_PENDING_NOTE, { audience: messages.NOTE_AUDIENCE_AGENTS });   // agents read it; the person's room does not
           }
         } catch { /* the note is furniture; the project exists regardless */ }
         // The owner's seat waits for a first edge (someone has joined); try now.
@@ -14381,6 +14617,12 @@ const server = http.createServer((req, res) => {
            who and why, once per sender-reason-window; the room just shows it. */
         .filter((m) => m && ((m.kind === 'post' || m.kind === 'valve' || m.kind === 'note' || m.kind === 'external') ? m.project === id
           : (m.kind === 'refused' && m.project === id)))
+        /* A note written for the agents (the "no brief yet" coordination note) is theirs to
+           read through `kosmos room` (the text arm below keeps it), not the first thing a
+           person sees in a new room: the JSON arm is the person's view, and leaving it out
+           lets the page say its own "Nothing here yet". Notes written before notes carried
+           an audience are matched by their frozen exact text. */
+        .filter((m) => asText || !(m.kind === 'note' && (m.audience === messages.NOTE_AUDIENCE_AGENTS || projects.BRIEF_PENDING_NOTES_BEFORE_AUDIENCE.includes(m.text))))
         .map((m) => (m.kind === 'refused'
           ? { kind: 'refused', from: m.from, because: m.because || null, at: m.at }
           /* #3311: from outside this Kosmos; `external: true` is what the page
@@ -15792,7 +16034,7 @@ const server = http.createServer((req, res) => {
     // measured its removal green). It stays for the day the upstream gating
     // changes; there is no route-level pin for it, on purpose recorded here.
     const asking = member.tied && member.state === STATE.NEEDS_YOU && member.restartFailed !== true;   // #4006: no question behind a failed restart
-    const paneQuestion = asking && view.text ? chat.questionIn(view.text) : null;
+    const paneQuestion = asking && view.text ? chat.questionIn(view.text, member.runner) : null;
     /* #2456: the same reported-question fallback the agent thread uses. A
        reported needs_you gave us its words in the card's `because` (the header
        quote); when the live pane no longer shows the question, those reported

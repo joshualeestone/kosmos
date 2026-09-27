@@ -30,9 +30,11 @@
  * pane sits ON TOP of Settings, which is how this check found itself
  * clicking a paragraph.
  *
- * The Gemini/Grok API-key section pins the /api/runners answer to "present" (see there),
- * so it runs the same on a Mac with or without those tools; KOSMOS_BC_RUNNERS_ABSENT=1 is its
- * control arm.
+ * The Gemini/Grok API-key section needs those tools present. tools/browser-checks.sh gives this
+ * check's board fake gemini and grok binaries (#3972), so the board's REAL runner detection finds
+ * them on any Mac, with or without the real tools; KOSMOS_BC_KEYED_STUBS_ABSENT=1 in that harness
+ * points them at a missing path, the control arm (this section fails). Run by hand against another
+ * board, the section needs that board to have both tools.
  */
 const pw = require('playwright');
 /* #1156: this check POSTs /api/first-run/complete to whatever BASE it is
@@ -627,52 +629,19 @@ let failed = 0;
      since.
      The key step shows only where the gemini (or grok) tool is present; without it the page
      correctly offers the download first (render-settings-agy-3874 covers that path from the
-     "Use an API key" press, render-keyed-install-3713 from a direct pick). So this section pins
-     the board's `/api/runners` answer to "present" for both, rather than depending on what this
-     machine has installed. Only a well-formed answer is pinned: a board error, a body that is not
-     JSON, a board that cannot be reached, or an answer with no gemini/grok entries is recorded as
-     a FAIL and passed through (or aborted), never dressed up as healthy.
-     KOSMOS_BC_RUNNERS_ABSENT=1 is the control arm (both tools missing: this section fails). */
-  const RUNNERS_PRESENT = process.env.KOSMOS_BC_RUNNERS_ABSENT !== '1';   // the control arm (1) reports gemini AND grok missing
-  if (!RUNNERS_PRESENT) console.log('NOTE  KOSMOS_BC_RUNNERS_ABSENT=1: the control arm is on, so the #3566 section is expected to fail');
-  // The second control arm: the runner read goes to an address the board does not serve, so the
-  // board-error branch below runs and must name its FAIL.
-  const RUNNERS_BOARD_ERROR = process.env.KOSMOS_BC_RUNNERS_BOARD_ERROR === '1';
-  if (RUNNERS_BOARD_ERROR) console.log('NOTE  KOSMOS_BC_RUNNERS_BOARD_ERROR=1: the board-error control arm is on, so the #3566 section is expected to fail');
-  const RUNNERS_ROUTE = /\/api\/runners(\?.*)?$/;
-  await p.route(RUNNERS_ROUTE, async (route) => {
-    let real;
-    try {
-      real = await route.fetch(RUNNERS_BOARD_ERROR ? { url: route.request().url().replace('/api/runners', '/api/runners-control-arm-not-served') } : undefined);
-    } catch (e) {
-      say('#3566 the board answers the runner read', false, String((e && e.message) || e));
-      await route.abort().catch(() => {});   // a page already closing: nothing left to abort
-      return;
-    }
-    // A board error is the board's answer: never dressed up as a healthy one.
-    if (!real.ok()) {
-      say('#3566 the board answers the runner read', false, 'status ' + real.status());
-      await route.fulfill({ response: real });
-      return;
-    }
-    let body;
-    try { body = await real.json(); } catch {
-      say('#3566 the board answers the runner read with JSON', false, 'status ' + real.status());
-      await route.fulfill({ response: real });
-      return;
-    }
-    // The shape the page reads (keyedRunnerInfo): a runners map with a gemini and a grok entry. A
-    // 200 without it is a changed answer the page would fail on, so it is not pinned either.
-    const map = body && typeof body === 'object' && body.runners;
-    if (!map || typeof map !== 'object' || !map.gemini || !map.grok) {
-      say('#3566 the board answers the runner read with gemini and grok entries', false, JSON.stringify(body).slice(0, 200));
-      await route.fulfill({ response: real });
-      return;
-    }
-    const runners = { ...map };
-    for (const r of ['gemini', 'grok']) runners[r] = { ...(runners[r] || {}), present: RUNNERS_PRESENT, job: null };
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...body, runners }) });
-  });
+     "Use an API key" press, render-keyed-install-3713 from a direct pick). #3972: the harness
+     gives this board fake gemini and grok binaries, so the board's own detection answers
+     "present" on any machine; the page reads that real answer (it used to be pinned here with a
+     page.route). The board is asked first, so a board that does not detect them fails by name,
+     not only as a missing key step. KOSMOS_BC_KEYED_STUBS_ABSENT=1 in the harness is the control
+     arm (both read as missing: this section fails). */
+  {
+    const rr = await fetch(BASE + '/api/runners').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const m = rr && rr.runners;
+    say('#3972 the board detects the gemini and grok tools (the harness stubs them)',
+      !!(m && m.gemini && m.gemini.present === true && m.grok && m.grok.present === true),
+      JSON.stringify(m ? { gemini: m.gemini && m.gemini.present, grok: m.grok && m.grok.present } : rr).slice(0, 200));
+  }
   await p.evaluate(() => { try { closeAcctAdd(); } catch (e) { /* not open */ } });
   await p.waitForTimeout(200);
   await p.click('#acct-add-open');
@@ -766,7 +735,6 @@ let failed = 0;
     /Gemini is connected/.test(gBox) && !/browsercheck/.test(gBox), gBox);
   say('#3566 the key field is emptied after the add', (await p.inputValue('#acct-apikey-key')) === '');
   await p.unroute('**/api/accounts/gemini/apikey');
-  await p.unroute(RUNNERS_ROUTE);
   await b.close();
   console.log(failed ? failed + ' check(s) failed' : 'all checks passed');
   process.exit(failed ? 1 : 0);

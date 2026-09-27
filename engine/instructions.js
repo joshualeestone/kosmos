@@ -907,13 +907,18 @@ function recordWrite(agent, by) {
    person editing by hand, or any writer that did not say who it was, leaves
    the file newer than the record, and then the honest answer is "we do not
    know who", which is what the marker's standing wording already says. Whole
-   seconds, for the same reason `compare` floors: one clock has no fraction. */
+   seconds, for the same reason `compare` floors: one clock has no fraction.
+   🔑 #4084: `editedAtMs` is ROUNDED to a whole millisecond first. The record's `at` is `stat.mtime`,
+   which Node builds by ROUNDING `mtimeMs` (measured, v26: 19.9995 s becomes 20.000). A caller passing
+   the raw `mtimeMs` float (19.9995) therefore floored to a different second than the record in the
+   last half millisecond of a second, about 1 write in 2000, and got null. staleness passes
+   `mtime.getTime()`, already rounded, so the board never hit it; the #323 test passed the float. */
 function wroteBy(agent, editedAtMs) {
   try {
     const rec = store.readProfile(registryKey(agent)).instructionsWrite;
     if (!rec || !rec.at) return null;
     const at = Date.parse(rec.at);
-    if (!Number.isFinite(at) || Math.floor(at / 1000) !== Math.floor(editedAtMs / 1000)) return null;
+    if (!Number.isFinite(at) || Math.floor(at / 1000) !== Math.floor(Math.round(editedAtMs) / 1000)) return null;
     return { who: rec.who, because: rec.because || null };
   } catch { return null; }
 }

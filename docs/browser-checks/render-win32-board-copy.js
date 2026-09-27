@@ -56,7 +56,9 @@ const MAC_ONLY = {
   'S3 Accessibility gate row': '.s3-gate-row[data-gate="tmux"]',
   'S7 Dock drawing': '#fr-success',
   'Settings Accessibility button': '#set-a11y-open',
-  'Settings tmux box': 'section.dbox[data-win-hide]',
+  'Settings tmux box': 'section.dbox[data-win-hide]:not(:has(#wb-row))',
+  // #4025: the App icon switch, until a Windows taskbar count exists to switch.
+  'Settings App icon box': 'section.dbox[data-win-hide]:has(#wb-row)',
   'Update Kosmos automatically': '#auto-row',
   'Open Terminal': '.field:has(> #d-open-terminal)',
 };

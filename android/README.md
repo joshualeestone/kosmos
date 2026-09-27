@@ -2,9 +2,12 @@
 
 This is the Android store shell for Kosmos. It is a **Trusted Web Activity
 (TWA)**: a thin, Google-blessed native app that opens Kosmos full-screen with no
-browser chrome, starting at the Kosmos+ sign-in page (`login.kosmosplus.com`). It
-carries no hand-written app code, only a launcher activity and a notification
-delegation service from `androidbrowserhelper`, plus a few configuration values.
+browser chrome, starting at the Kosmos+ sign-in page (`login.kosmosplus.com`). Almost all of it
+comes from `androidbrowserhelper` (a launcher activity and a notification
+delegation service) plus a few configuration values. The app code is
+`KosmosLauncherActivity`, `OpenAddressActivity`, the address rule (`AddressChoice`) and
+`HandoffNonce`, which open the person's own board full
+screen after sign-in (see "Opening your own Kosmos" below).
 
 The reasoning for *why a TWA* (rather than a from-scratch native client or a
 naive WebView wrapper) lives in the mobile plan on
@@ -50,6 +53,12 @@ mark is supplied as the Android 13 monochrome layer, so themed icons use the
 person's wallpaper palette instead of falling back to the legacy square PNG.
 The legacy density PNGs remain the fallback for Android 7.
 
+## Load failure recovery
+
+`KosmosLauncherActivity` keeps the Android Browser Helper TWA launch path, including its quality checks, and adds two native recovery doors. A launch with no active internet network opens `LoadErrorActivity` before Chrome can paint its own offline page. A top-level navigation that Chrome reports as failed opens the same activity from the Custom Tabs callback. Retry clears the failed task and starts a fresh TWA launch, so restoring connectivity is enough to continue.
+
+The recovery screen is an Android layout rather than a WebView. Its light and dark colours follow the shell theme and its Retry action is 48dp tall.
+
 The launch activity supplies the same gold and K as both its native window
 background and androidbrowserhelper's TWA splash metadata. This covers the
 native handoff and Chrome's TWA startup without a white frame between them.
@@ -91,8 +100,10 @@ compileSdk 35). No `JAVA_HOME` juggling is needed at the command line.
 Gradle cannot build on it: it starts, but its Groovy build-script compiler
 cannot read JDK-26 bytecode and dies with `Unsupported class file major version
 70` (70 == Java 26). Current Gradle/AGP top out around JDK 21-23. This module has
-**no** Java or Kotlin source (a TWA is zero app code), so the JDK that matters is
-the one **Gradle itself** runs on, not a compile toolchain.
+only a little Java (`KosmosLauncherActivity`, `OpenAddressActivity`, `AddressChoice`,
+`HandoffNonce`, compiled for Java 17
+by the same daemon JDK), so the JDK that matters is the one **Gradle itself** runs
+on.
 
 **How it is pinned.** `gradle/gradle-daemon-jvm.properties` declares
 `toolchainVersion=21`, so Gradle runs its daemon on JDK 21 even when launched
@@ -215,6 +226,61 @@ $ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner verify --print-certs <apk>
 `app/build.gradle` was chosen to mirror the old placeholder origin. It becomes the
 permanent Play identity at the first upload and cannot change afterwards.
 
+## Opening your own Kosmos (#2854)
+
+The app starts at the front door, `login.kosmosplus.com`, and nothing per-user is
+built into it. But each person's board lives on their own address,
+`<name>.kosmosplus.com`, and a TWA trusts only the origin it was launched with, so
+following a link there from the sign-in page would show Chrome's URL bar.
+
+So the sign-in page hands the address to the app instead. When it runs inside this
+app and the person taps "Open my Kosmos", it gets its usual short-lived handoff token
+and navigates to an `intent://` link for this package (scheme `kosmos-open`, extras
+`address`, `addresses`, `kst`, `nonce`). `OpenAddressActivity` receives it and launches a new
+TWA at `https://<name>.kosmosplus.com/#kst=<token>` with
+`setAdditionalTrustedOrigins` listing that address (and the account's other valid
+addresses). Chrome then verifies each one against its own
+`/.well-known/assetlinks.json`, which every Mac serves since kosmos-relay #161.
+
+Any web page or app can fire that intent, so the app binds it to its own launch:
+`KosmosLauncherActivity` puts a fresh per-launch nonce in the sign-in page's launch
+URL (`#kosmos-app=<hex>`), the page sends it back, and only a matching nonce opens the
+address as a TWA; any other choice opens in a plain Custom Tab. Adding the address as a
+trusted origin would not be enough: Chrome verifies a TWA's launch address against its
+own `assetlinks.json`, and every Mac's vouches for this app. The page hands off only
+when it holds a nonce, so an older app keeps the web behaviour.
+`AddressChoice` also checks every host with the same
+one-label rule as the iOS app and the board's `sw.js`: exactly one RFC 1123 label
+directly under the coordinator's domain, ASCII only, no punycode, never the
+coordinator itself. A chosen address that fails, or is not among the account's
+addresses, or comes with a malformed token, is ignored and the sign-in page stays as it was. The rule
+is plain Java with JVM tests: `./gradlew :app:testDebugUnitTest`.
+
+The nonce is replaced whenever the launcher starts the sign-in page again (a relaunch,
+or a link to the sign-in page opened while the app is running). A sign-in page that was
+already open then holds the old one, and its next open is a Custom Tab. That fails
+safe, but nothing says so on screen.
+
+If Chrome refuses to follow the `intent://` link, the page notices it is still on
+screen after a moment, says so, and the next tap opens the address in the browser view
+with the URL bar.
+
+**Not yet seen on a device.** Measured on a phone once a Mac runs a tunnel release
+carrying #161:
+- Chrome drops the URL bar for the runtime-added origin.
+- The tap still counts as a user gesture after the handoff fetch, so Chrome follows the
+  `intent://` link.
+- What Back does from the board, and whether repeated opens stack boards in the task.
+- Turning the phone while the board is opening opens it once, not twice.
+- An open without this app's nonce (for example `adb shell am start -a
+  android.intent.action.VIEW -d 'kosmos-open://open' --es address <name>.kosmosplus.com
+  --es addresses <name>.kosmosplus.com --es kst x`) shows a Custom Tab with the URL bar.
+- Launching the app at another host (`adb shell am start -n io.kosmos.app/.KosmosLauncherActivity
+  -a android.intent.action.VIEW -d https://<name>.kosmosplus.com/`) opens the sign-in page, not
+  that address; so does `-d http://login.kosmosplus.com/`.
+- A refused open (the `kosmos-open` command above with `--es address evil.example.com`) does
+  nothing, and the sign-in page's next "Open my Kosmos" still goes full screen.
+
 ## Push (notification delegation)
 
 Push itself is the coordinator's web push, not anything in this module: the
@@ -225,7 +291,7 @@ declares androidbrowserhelper's `DelegationService` and
 from the verified origin to this app, so they appear under **Kosmos's** name and
 status-bar icon (`res/drawable/ic_notification.xml`) and use the app's own
 notification permission on Android 13+. Without them they would show as Chrome
-notifications. Still zero hand-written Java or Kotlin.
+notifications. Delegation itself needs no app code.
 
 **Not yet seen on a device.** What is verified is the build: the release APK's
 manifest carries the service, the activity and the icon. No push has been shown on

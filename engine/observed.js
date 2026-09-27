@@ -196,4 +196,11 @@ function verdict({ checkLiveState, observedOutcome, observedAt, now, freshMs: fm
   return { badge: 'unchecked', observedAt: null, ageMs: null };
 }
 
-module.exports = { OUTCOME, PROVIDER, saw, read, all, sawDir, readDir, freshMs, isFresh, verdict, _clearForTest };
+/* #3997: forget a check's outcome on a dir, when a later check refused what it had confirmed (a refusal is not a
+   rejection to record: it may clear on the provider's next renewal, so it leaves no verdict of its own). */
+function forgetDir(provider, dir) {
+  if (typeof dir !== 'string' || dir === '') return;
+  dirStore.delete(keyOfDir(provider, dir));
+}
+
+module.exports = { OUTCOME, PROVIDER, saw, read, all, sawDir, readDir, forgetDir, freshMs, isFresh, verdict, _clearForTest };

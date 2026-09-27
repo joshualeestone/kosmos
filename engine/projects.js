@@ -914,6 +914,9 @@ function describe(project, roster, all) {
       state: (card && card.isNamedOurs) ? card.state : 'unknown',
       /* #4006: its needs_you is a restart that did not come back, not a question (the thread must not claim one). */
       restartFailed: Boolean(card && card.isNamedOurs && card.disruption && card.disruption.failed === true),
+      /* #4034: which program runs it, so the project thread can find a Gemini question box (chat.questionIn). Same
+         tied gate as `state`: a pane we cannot tie to this name is not known to be this agent's program. */
+      runner: (card && card.isNamedOurs && typeof card.runner === 'string' && card.runner) ? card.runner : null,
       /* #763/#2837: the project the member's state is about, when it said -- a
          needs_you question (#763) or a working state (#2837). */
       stateProject: (card && card.isNamedOurs && typeof card.stateProject === 'string' && card.stateProject && (knownIds === null || knownIds.has(card.stateProject))) ? card.stateProject : null,
@@ -2013,11 +2016,25 @@ function briefIsPending(folder) {
    the answer lands in the shared brief (#2706) rather than scrolling away in chat. Kosmos's
    own voice, posted via messages.roomNote, which the shape validator restricts to the
    product; agents cannot forge it. */
+/* Written with audience NOTE_AUDIENCE_AGENTS, so the room's JSON view (the person's) leaves it
+   out and `kosmos room` keeps it. Rewording it is safe: notes written before notes carried an
+   audience are matched by BRIEF_PENDING_NOTES_BEFORE_AUDIENCE below, which is frozen. */
 const BRIEF_PENDING_NOTE = 'This project has no brief yet, so its goal is not written down. '
   + 'So you do not all ask the same thing at once: read this room first. If nobody has asked yet, '
   + 'ONE of you ask here what the goal is; once you hear it, write it into BRIEF.md in the project '
   + 'folder so everyone shares it. Everyone else: hold, and start once the brief is set. One '
   + 'question to the operator, not seven.';
+/* The exact text of the note as it was written before notes carried an audience (#2707 until
+   brief-note-agents). Those rows are untagged, so the room route recognises them by this text.
+   FROZEN: never edit to follow BRIEF_PENDING_NOTE; add a new entry only if a new untagged
+   wording is ever found in the wild. */
+const BRIEF_PENDING_NOTES_BEFORE_AUDIENCE = Object.freeze([
+  'This project has no brief yet, so its goal is not written down. '
+  + 'So you do not all ask the same thing at once: read this room first. If nobody has asked yet, '
+  + 'ONE of you ask here what the goal is; once you hear it, write it into BRIEF.md in the project '
+  + 'folder so everyone shares it. Everyone else: hold, and start once the brief is set. One '
+  + 'question to the operator, not seven.',
+]);
 
 /* #2279: the "Getting started" welcome home, seeded once EVER per store.
  *
@@ -2967,7 +2984,7 @@ module.exports = {
   file, readAll, writeAll, idFor, folderState, describe, andList,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
-  BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE,
+  BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE, BRIEF_PENDING_NOTES_BEFORE_AUDIENCE,
   findBlock, spliceBlock, removeBlock, blockBody, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
   folderPathPreview, makeFolder, revealFolder, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile,

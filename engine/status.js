@@ -1625,6 +1625,40 @@ function geminiQuotaReading(paneText, afterStop) {
   return { dialog: false, daily: GEMINI_QUOTA_ERROR.test(raw[at]), evidence: rows[at].replace(/^✕\s*/, '') };
 }
 
+/* #4034: the same question box for other conditions (Gemini CLI 0.61.0). Captured: a model not found draws
+   'Model "<model>" was not found or is invalid.' over "1. Keep trying / 2. Stop". From Gemini's source, not captured:
+   "We are currently experiencing high demand ..." over the same options, as are a model not available in a region
+   and "It seems like you don't have access to ..." (Switch / Upgrade / Stop). So the box is read by its SHAPE (a message
+   inside a box top, numbered options one of which is a bare "Stop", nothing after but the box edge), whatever its
+   message says. Not read: the credits dialogs, whose option is "Stop - Abort request". Returns the message's first
+   sentence (its rows joined, so a narrow pane's wrapping does not cut it) and `from`, the line the box starts on,
+   or null. A usage limit is geminiQuotaReading's, which runs first. It reads the same
+   GEMINI_LIMIT_ROWS window, so a box whose top is further up than that is not read (as for a usage limit). */
+/* Gemini's remedy hints inside the box ("/model to switch models.", "/stats model for usage details"), left out of the
+   message so a box of hints alone is not read as a question. */
+const GEMINI_HINT = /^\/[a-z]+(?:\s+[a-z]+)?\s+(?:to|for)\s/;
+function geminiQuestionReading(paneText) {
+  /* Each row keeps its line number in the text, so the caller is told where the box starts (`from`) rather than
+     finding it a second way. */
+  const pairs = String(paneText || '').split('\n').map((line, i) => ({ row: geminiRow(line), i }))
+    .filter((p) => p.row).slice(-GEMINI_LIMIT_ROWS);
+  const rows = pairs.map((p) => p.row);
+  const lastOpt = rows.reduce((at, r, i) => (GEMINI_QUOTA_OPTION.test(r) ? i : at), -1);
+  if (lastOpt < 0 || !rows.slice(lastOpt + 1).every((r) => GEMINI_BOX_EDGE.test(r))) return null;
+  let top = -1;
+  for (let i = lastOpt; i >= 0; i -= 1) if (/^╭─+╮$/.test(rows[i])) { top = i; break; }
+  if (top < 0) return null;
+  const inside = rows.slice(top + 1, lastOpt + 1);
+  const firstOpt = inside.findIndex((r) => GEMINI_QUOTA_OPTION.test(r));
+  /* Stop among the options, wherever it sits: the one parser of that row, as geminiQuotaReading uses (review round 1). */
+  if (geminiStopKey(inside.slice(firstOpt).join('\n')) === null) return null;
+  const message = inside.slice(0, firstOpt).filter((r) => !GEMINI_HINT.test(r));
+  if (!message.length) return null;
+  const joined = message.join(' ').replace(/\s+/g, ' ').trim();
+  const first = joined.match(/^.*?[.!?](?=\s|$)/);
+  return { evidence: first ? first[0] : joined, from: pairs[top].i };
+}
+
 /**
  * #3723: Codex's own "you are out of usage or credits" messages. READ FROM CODEX'S PROGRAM TEXT
  * (the installed codex binary, 2026-09-25), not captured from a live pane: nobody here had an
@@ -3747,6 +3781,17 @@ function classify(pane, paneText) {
         quotaDaily: q.daily === true,
       };
     }
+    /* #4034: any other question in that box (a model not found, high demand) waits for a person. No key is
+       pressed: Keep trying cannot find a missing model, and Stop would hide the reason behind an error line. */
+    const other = geminiQuestionReading(paneText);
+    if (other) {
+      return {
+        state: STATE.NEEDS_YOU,
+        confidence: CONFIDENCE.SCRAPED,
+        because: 'Gemini is waiting on a question: ' + other.evidence,
+        evidence: other.evidence,
+      };
+    }
   }
 
   const tail = paneText.split('\n').slice(-25).join('\n');
@@ -5209,6 +5254,65 @@ function readGeminiSession(agentName) {
   catch { return { found: false }; }
 }
 
+/* #4039: the windows of Gemini models, for a transcript that does not state one (neither the Gemini
+   CLI nor agy records it). An ASSUMED ceiling, marked assumed (the detail page's Memory box says so,
+   assumedCeilingNote, exactly as for Claude's assumed ceiling; the card ring shows the percent).
+   Google publishes 1,048,576 for the 2.0 Flash, 2.5 and 3 text models. ⚠️ Any LATER 3.x text model
+   (3.8 on agy today) is ASSUMED to keep that window; that is a guess about Google, not a published
+   figure, which is why it is only ever an assumed ceiling. 2.0 Pro is left out (its preview had
+   2M), and so are the SPECIAL variants (image, tts, native-audio, live, thinking, exp,
+   computer-use), some far smaller, rather than drawn at a falsely low percentage. A model this
+   does not know keeps the honest no-ceiling reading. */
+/* The published window of Google's current Gemini text models, in tokens. */
+const GEMINI_TEXT_WINDOW = 1048576;
+const GEMINI_WINDOWS = [
+  { match: /^gemini-(2\.0-(flash|flash-lite)|2\.5-(pro|flash|flash-lite)|3(\.\d+)?-(pro|flash|flash-lite))(-(preview|latest|high|medium|low|\d{3}|\d{2}-\d{2}|\d{2}-\d{4}))*$/i, window: GEMINI_TEXT_WINDOW },
+  // Google's un-versioned aliases, which point at the current 2.5/3.x text models.
+  { match: /^gemini-(pro|flash|flash-lite)-latest$/i, window: GEMINI_TEXT_WINDOW },
+];
+function assumedGeminiWindow(model) {
+  if (typeof model !== 'string') return null;
+  const hit = GEMINI_WINDOWS.find((w) => w.match.test(model.trim()));
+  return hit ? hit.window : null;
+}
+
+/* #4039: resolve an Antigravity agent's launch folder to its agy conversation and read it, ONCE.
+   Mirrors readGeminiSession: workerDir + readJob, gated on runner 'antigravity'. agy keeps its data
+   under ~/.gemini/antigravity-cli (agysession.HOME); a per-account agy home is not a thing yet. */
+function readAgySession(agentName) {
+  const create = require('./create');
+  let dir;
+  try { dir = create.workerDir(agentName); } catch { dir = null; }
+  let job;
+  try { job = create.readJob(agentName); } catch { job = null; }
+  if (!dir || !job || job.runner !== 'antigravity') return { found: false };
+  try { return require('./agysession').read(dir); }
+  catch { return { found: false }; }
+}
+
+/* #4039: the ring for an Antigravity agent, the Gemini arm's shape. agy records no window, so the
+   percentage is against the model's window, ASSUMED and marked so (assumedGeminiWindow);
+   the stated-window branch is for a future agy that records one. */
+function readAgyContext(agentName, sess) {
+  if (sess === undefined) sess = readAgySession(agentName);
+  if (!sess.found && sess.because === NO_READING.UNREADABLE) {
+    return { ...NONE_BASE, notYet: false, because: NO_READING.UNREADABLE };
+  }
+  if (sess.found && sess.contextUsed == null) return notYetResult();
+  if (!sess.found) {
+    /* ⚠️ The Gemini and Codex arms' residual, the same here: notYetStarted/neverRecorded key off a
+       Claude-only `.jsonl` signal, so an agy agent that has run but whose folder is not in agy's
+       map can read "not yet" rather than a fault. It fails SOFT (never a wrong number). */
+    if (notYetStarted(agentName)) return notYetResult();
+    if (neverRecorded(agentName)) return neverRecordedResult();
+    return { ...NONE_BASE, notYet: false, because: NO_READING.NO_TRANSCRIPT };
+  }
+  if (sess.contextWindow) return measuredResult(sess.contextUsed, sess.contextWindow, false);
+  const assumed = assumedGeminiWindow(sess.model);
+  if (assumed) return measuredResult(sess.contextUsed, assumed, true);
+  return noCeilingResult(sess.contextUsed, sess.model || null);
+}
+
 function readGeminiContext(agentName, sess) {
   // Same pre-read-once contract as readCodexContext: `undefined` means "not
   // supplied" (read it here); a supplied {found:false} is honoured.
@@ -5240,12 +5344,17 @@ function readGeminiContext(agentName, sess) {
 
   const tokens = sess.contextUsed;
   // Gemini's transcript never states its window (contextWindow is structurally
-  // null -- the Claude "assumed ceiling" case), so this always renders measured
-  // usage with no percentage. Unlike Codex, Gemini names the model, so pass
-  // sess.model rather than null -- the ring can show the real model.
-  if (!sess.contextWindow) return noCeilingResult(tokens, sess.model || null);
-  // Defensive: a future Gemini that DID state a window would render measured,
-  // not-assumed, exactly like Codex. Not reachable today (read() returns null).
+  // null -- the Claude "assumed ceiling" case). Unlike Codex, Gemini names the
+  // model, so the window can be assumed from it (below) and the ring can show it.
+  // #4039: that left the ring with nothing to draw for every Gemini agent, so a known model's
+  // published window is used as an ASSUMED ceiling (the detail page's Memory box says so); an unknown model keeps
+  // the no-ceiling reading.
+  if (!sess.contextWindow) {
+    const assumed = assumedGeminiWindow(sess.model);
+    return assumed ? measuredResult(tokens, assumed, true) : noCeilingResult(tokens, sess.model || null);
+  }
+  // A Gemini that stated its window would render measured, not-assumed, like Codex. No Gemini
+  // CLI does today (geminisession.read returns contextWindow null), so this is the future case.
   return measuredResult(tokens, sess.contextWindow, false);
 }
 
@@ -7172,6 +7281,8 @@ function snapshot() {
     /* #3568: an Antigravity pane is not a Claude pane either; kept out of the ANTHROPIC
        observation arm below so it can never record a false Claude-account reading. */
     const isAgyPane = pane.runner === 'antigravity' || isAntigravityCommand(pane.command);
+    // #4039: the agy conversation, read once per tick (the ring and the model both use it).
+    const agySess = (isNamedOurs(pane) && isAgyPane) ? readAgySession(pane.name) : null;
     const grokSess = (isNamedOurs(pane) && isGrokPane) ? readGrokSession(pane.name) : null;
     try {
       /* #3296: EXCLUDE a gemini pane from the ANTHROPIC observation arm. Without
@@ -7280,7 +7391,9 @@ function snapshot() {
     // answer, because we do not know whose conversation it is.
     const tied = isNamedOurs(pane);
     // #3568: not for an agy pane: readModel is the Claude transcript lookup, same as the context ring.
-    const { model } = (tied && !isAgyPane) ? readModel(pane.name, pane.session) : { model: null };
+    // #4039: an agy pane's model comes from its own conversation (agysession, gen_metadata 1.19).
+    const { model } = (tied && !isAgyPane) ? readModel(pane.name, pane.session)
+      : { model: (tied && agySess && agySess.found && agySess.model) || null };
     /* #2257: a Codex (OpenAI) agent does not write a Claude `.jsonl`, so
        `readContext` returned NO_TRANSCRIPT for every OpenAI agent and the ring
        read "Not yet read" forever. Its context lives in the Codex rollout, which
@@ -7297,9 +7410,9 @@ function snapshot() {
         // #3391: a Grok pane's context lives in its Grok Build session, read by
         // readGrokContext (same pre-read-once contract as the codex/gemini arms).
         : isGrokPane ? readGrokContext(pane.name, grokSess)
-        // #3568: no Antigravity transcript reader yet, and the Claude one below must never read
-        // an agy agent's folder (it could pick up a Claude transcript left there).
-        : isAgyPane ? { ...NONE_BASE, notYet: false, because: 'Kosmos cannot read how much of its memory an Antigravity agent has used yet' }
+        // #4039: an agy pane's context lives in its agy conversation db (agysession). The Claude
+        // reader below must still never read an agy agent's folder (#3568).
+        : isAgyPane ? readAgyContext(pane.name, agySess)
         : readContext(pane.name, model, pane.session))
       // ⚠️ Unknown, and not because it is ambiguous: this one is a REFUSAL. We
       // can see there is something to read and are declining to read it, so
@@ -7650,6 +7763,14 @@ function waitingTotal(counts, agents) {
   return n(counts && counts.needsYou) + dms + n(counts && counts.projectsUnread);
 }
 
+/* #4025: the person's switch for that count on the app icon (Settings > Computer > App icon). On
+   unless the stored settings say exactly false: a missing or unreadable setting is the default, on.
+   Off, the board serves counts.waiting as null, which clears the Mac Dock badge (it reads null as
+   "no count"); a Windows taskbar count, when it ships, reads the same field. */
+function waitingBadgeOn(stored) {
+  return !(stored && typeof stored === 'object' && stored.waitingBadge === false);
+}
+
 // `transcriptFor` is exported for the instructions module, which needs a
 // session start time. It resolves by session id rather than by guessing a
 // directory from the agent's name, for the reason its own comment gives: a
@@ -7741,6 +7862,7 @@ function sessionStartedAtFromTmux(sessionName, now = Date.now()) {
 
 module.exports = {
   waitingTotal,   // #3996: the Dock badge's number
+  waitingBadgeOn, // #4025: the switch for it
   /* #1500: exported so discover.foundCodex can honour the same refusal.
      The Codex walk reaches ~/.codex without ever calling configRoots. */
   sandboxIsInconsistent,
@@ -7763,6 +7885,8 @@ module.exports = {
   grokLastCompletionAt,
   // #3391: the Grok context-ring reader (wired into snapshot's context ring).
   readGrokContext,
+  readAgyContext,
+  assumedGeminiWindow,
   /* ⚠️ Exported so the ROUTE can say what tmux said. The alternative is a
      second caller of `list-panes` asking the same question a second time,
      which would report a different moment from the one that failed. */
@@ -7788,6 +7912,7 @@ module.exports = {
   // thread that shows the question must never be able to disagree.
   NEEDS_YOU_MARKERS,
   CODEX_NEEDS_YOU_MARKERS, CODEX_LIMIT_MARKERS, geminiQuotaReading, geminiStopKey, capturePane,   // #4004: chat re-reads a pane before a key
+  geminiQuestionReading,   // #4034: chat finds Gemini's question box for the agent page
   ALL_NEEDS_YOU_MARKERS,
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the

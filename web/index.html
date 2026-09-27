@@ -673,6 +673,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    drop to its own line and wrap there rather than overrun the identity. */
 .acct-box-top > .acct-connected,
 .acct-box-top > .acct-none,
+.acct-box-top > .acct-unverified,
 .acct-box-top > .acct-unknown { margin-left: auto; max-width: 100%; white-space: normal; }
 .acct-who b { font-weight: 650; display: block; }
 .acct-org, .acct-keytail { display: block; color: var(--label-2); font-size: .8125rem; }
@@ -716,12 +717,19 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 /* #881: the two states a live check can also confirm, alongside .acct-connected.
    Neither dot pulses -- pulsing is reserved for "actively connected" (Josh's own
    framing for .acct-connected above); a static dot reads as a fact, not a
-   heartbeat. .acct-none is the genuine negative (warn tokens, same as this
-   file's other danger states); .acct-unknown is deliberately muted, not red --
+   heartbeat. .acct-none is the genuine negative (--danger since #3997, red); .acct-unknown is deliberately muted, not red --
    "we could not check" must never look as alarming as a confirmed problem. */
 .acct-none { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
+  font-weight: 600; color: var(--danger); white-space: nowrap; }
+.acct-none .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); flex: 0 0 8px; }
+/* #3997 (Josh, 2026-09-26: "only some of these that are signed in are actually green"): ONE vocabulary across every
+   provider. Green (.acct-connected) = confirmed working. AMBER (.acct-unverified) = signed in, not confirmed yet,
+   with Check now beside it. Red (.acct-none) = signed out, or a request was rejected. Muted grey (.acct-unknown) is
+   left only for "we could not check at all". The pill stays a short "Signed in" (Josh 6.68, #3136); the reason is
+   in its title. */
+.acct-unverified { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
   font-weight: 600; color: var(--warn-ink); white-space: nowrap; }
-.acct-none .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn-ink); flex: 0 0 8px; }
+.acct-unverified .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn-ink); flex: 0 0 8px; }
 .acct-unknown { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
   font-weight: 600; color: var(--label-2); white-space: nowrap; }
 .acct-unknown .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--label-2); flex: 0 0 8px; }
@@ -1176,9 +1184,6 @@ html { scroll-padding-top: 132px; }
 .utoast .udot { width: 8px; height: 8px; border-radius: 50%; background: var(--utone); flex: 0 0 8px; }
 .utoast .utxt b { display: block; font-size: .8125rem; line-height: 1.3; color: var(--utone); }
 .utoast .utxt small { font-size: .6875rem; color: var(--label-2); }
-.utoast .newsupd { color: inherit; text-decoration: none; }
-.utoast .newsupd:hover b { text-decoration: underline; text-underline-offset: 2px; }
-.utoast .uacts .newsx { font-size: 1.1rem; line-height: 1; }
 /* #655: the news line's link and dismiss, in the toast's own ink and on one line. */
 .utoast .utxt small a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .utoast .uacts button { white-space: nowrap; }
@@ -1209,6 +1214,49 @@ button.uprime, .btn.uprime, .utoast .uacts button.uprime,
 .dbox .btn.uprime { background: var(--gold-bright); border-color: var(--gold-bright); color: #14161a; }
 button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .dbox .btn.uprime:hover { background: var(--gold); border-color: var(--gold); color: #14161a; }
+/* #3955: the update chip (Mona Lisa's mock A and B): one line and one gold action, beside the Kosmos
+   switcher in the same slot the old boxes used. Small on purpose (Josh: "It looks terrible and it's
+   gigantic"). */
+.uchip { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 4px 0 12px; border-radius: 999px;
+  background: color-mix(in srgb, var(--gold-bright) 16%, var(--bg-elevated));
+  border: 1px solid color-mix(in srgb, var(--gold-bright) 55%, transparent);
+  font-size: .8125rem; font-weight: 600; white-space: nowrap; color: var(--label); }
+.uchip .udot { width: 7px; height: 7px; border-radius: 50%; background: var(--gold-bright); flex: 0 0 7px; }
+.uchip button { height: 24px; border: 0; border-radius: 999px; padding: 0 12px; background: var(--gold-bright); color: #14161a;
+  font: inherit; font-size: .78rem; font-weight: 700; cursor: pointer; }
+.uchip button:hover { background: var(--gold); }
+.uchip button:focus-visible { outline: 2px solid var(--label); outline-offset: 2px; }
+/* Narrow screens (review round 2): the chip may wrap to two lines rather than run off the right edge. */
+@media (max-width: 480px) {
+  .uchip { white-space: normal; height: auto; min-height: 30px; padding: 3px 4px 3px 10px; max-width: 100%; }
+  .uchip .uchip-t { flex: 1 1 auto; min-width: 0; }
+  .uchip button { flex: none; }
+}
+/* #3955: "Kosmos has been updated" (mock C): a centred card over the dimmed app, tiles two by two. */
+.wn-box { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; text-align: center;
+  background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: 22px;
+  box-shadow: 0 24px 60px rgba(20, 18, 14, .22); padding: 32px 32px 26px; position: relative; }
+/* Josh, 2026-09-26 review: an X top-right instead of Got it. The window opens with focus on itself (no
+   ring at all); a keyboard Tab still shows where it is, in gold, never the black ring. */
+.wn-box:focus { outline: none; }
+.wn-x { position: absolute; top: 14px; right: 14px; width: 32px; height: 32px; border: 0; border-radius: 8px;
+  background: none; color: var(--label-2); font-size: 1.5rem; line-height: 1; cursor: pointer; }
+.wn-x:hover { color: var(--label); background: var(--bg); }
+.wn-mark { display: block; width: 52px; height: 52px; border-radius: 14px; margin: 0 auto; }
+.wn-title { margin: 16px 0 22px; font-size: 1.5rem; letter-spacing: -.01em; color: var(--label); }
+.wn-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; text-align: left; list-style: none; margin: 0; padding: 0; }
+.wn-tiles.one { grid-template-columns: minmax(0, 320px); justify-content: center; }
+.wn-tile { display: flex; gap: 12px; align-items: flex-start; background: var(--bg); border: 1px solid var(--border-strong);
+  border-radius: 14px; padding: 14px; }
+.wn-ico { flex: none; width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--gold-bright) 20%, var(--bg-elevated)); color: var(--gold-edge); }
+.wn-words b { display: block; font-size: .9375rem; margin: 1px 0 2px; color: var(--label); }
+.wn-words span { display: block; font-size: .84rem; line-height: 1.4; color: var(--label-2); }
+.wn-acts { margin-top: 22px; text-align: left; }   /* Josh: the link bottom-left */
+/* --gold-edge, not --gold (round 11): --gold is 2.25:1 on the light theme's white, under 3:1. */
+.wn-x:focus-visible, .wn-more:focus-visible { outline: 2px solid var(--gold-edge); outline-offset: 2px; }
+.wn-more { color: var(--label-2); font-size: .84rem; text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 560px) { .wn-tiles { grid-template-columns: 1fr; } .wn-box { padding: 24px 18px 20px; } }
 /* ⚠️ THE `.dbox` HALVES ARE NOT DECORATION, and the button they save is the one
    Josh named. `#d-send` (Send, on an agent) is a `.btn.uprime` INSIDE a `.dbox`,
    and the dialog skin above sets both a transparent fill (`.dbox .btn`, 0-2-0)
@@ -1320,7 +1368,7 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
    - the tab view's header sat inside .apphead's 24px top padding, consolidated's is
      flush with 8px (Josh's #1303 "no band across the top");
    - both views CENTRED the controls in a row that also holds the update and login
-     notices (#unews-slot, #login-adv-slot), which wrap tall in the tab view because the
+     notices (the update notices, #login-adv-slot), which wrap tall in the tab view because the
      centred tabs squeeze them. So a notice appearing moved the controls in either view.
    The fix, only where the views can be switched (960px and up, layoutConsolidated's
    floor): the tab view adopts consolidated's flush 8px top, both views TOP-align the row
@@ -1703,7 +1751,7 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#utoast-slot:empty, #unote-slot:empty, #uabort-slot:empty, #unews-slot:empty, #uoffline-slot:empty { display: none; }
+#utoast-slot:empty, #uabort-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* #1704 slice-3: the multiple-Kosmos switcher beside the K mark. A disclosure
    button showing the active world's name, opening a menu of the person's worlds
@@ -3424,7 +3472,20 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   --tsk-closed: color-mix(in srgb, var(--k-ink-2) 55%, var(--k-rule));
   --tsk-wash: color-mix(in srgb, var(--gold) 14%, var(--k-surface)); color: var(--k-ink); }
 /* #3949: one column, the full width (the Projects rail is gone; its choice is the dropdown). */
-.tsk-view { min-height: 70vh; background: var(--k-bg); border: 1px solid var(--k-rule); border-radius: 14px; overflow: hidden; }
+/* #3949 (Josh, 09-26 16:18: "lose the outer thin rounded box stroke that's on this page for no reason"): no frame on
+   the tab view either (#3880 had dropped it only in the consolidated column). The tiles and rows keep their boxes. */
+.tsk-view { min-height: 70vh; background: var(--k-bg); }
+/* #3949 (Josh, 09-26 18:03: "keep the background color [at the top] and everything below it to be on a white
+   background, and then slightly shade the task cards"). The lower band is the surface (white; the dark surface in
+   dark mode), bled to the window's edges and down to the bottom with a spread shadow clipped to the sides and below,
+   so it never paints over the band above and never widens the page (a shadow is not scrollable overflow). The view
+   no longer clips: its overflow: hidden clipped the frame's rounded corners, and it also made the view the scroll box
+   of the sticky Close bar (.tsk-bulk), which therefore never stuck. Without it the bar sticks to the window's bottom
+   as #3559 wrote it to (asserted in the browser check). In the consolidated column the panel's own scroll box
+   (overflow-y: auto) is what bounds the bleed to the column; the browser check reads the rail beside it. The cards take the page's ground, the warm off-white. */
+.tsk-below { background: var(--k-surface); box-shadow: 0 0 0 100vmax var(--k-surface); clip-path: inset(0 -100vmax -100vmax);
+  margin-top: 30px; padding-top: 14px; }   /* #3949 (Josh, 19:30): taller ground under the tiles (was 16px) */
+#panel-tasks .tsk-below .tsk-list { background: var(--k-bg); }
 .tsk-main { padding: 25px 26px 110px; min-width: 0; position: relative; }
 .tsk-crumb { font-size: .8125rem; color: var(--k-ink-2); margin: 0 0 2px; min-height: 1.3em; }
 /* Mona's look review of #3701: halve the two big vertical gaps (measured 51px above the title,
@@ -3442,18 +3503,24 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 #panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
 /* #3703: the head carries "+ New task" beside the title, as Mona's mock draws it (.mh / .newbtn). */
 #panel-tasks .tsk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-/* #3949: the search takes about half the width, with the open-task count to its right. */
-.tsk-toprow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; margin: 16px 0 0; }
-.tsk-toprow .tsk-search { flex: 0 1 50%; min-width: 240px; margin: 0; max-width: none; }
-.tsk-sub { color: var(--k-ink-2); font-size: .9375rem; margin: 0; }
+/* #3949 (Josh, 09-26 19:30): the title carries the count ("30 Tasks on 2 Projects"); the separate count line is
+   gone, and the search sits compact to the right of Sort (below). */
 .tsk-ctrls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 14px 0 4px; }
 #tsk-under { margin: 12px 0 4px; }
 .tsk-ctl { display: flex; align-items: center; }
 .tsk-cl { font: 600 .875rem var(--font-ui); color: var(--k-ink-2); margin-right: 6px; white-space: nowrap; }
-.tsk-search { position: relative; margin: 16px 0 0; max-width: 520px; }
+.tsk-search { position: relative; margin: 0; max-width: 100%; }
 .tsk-search svg { position: absolute; left: 11px; top: 50%; width: 16px; height: 16px; margin-top: -8px; color: var(--k-ink-2); pointer-events: none; }
-.tsk-search input { width: 100%; box-sizing: border-box; font: .9375rem var(--font-ui); height: 38px; padding: 0 34px 0 36px; border-radius: 10px;
-  border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink); }
+.tsk-search input { width: 38px; max-width: 100%; box-sizing: border-box; font: .9375rem var(--font-ui); height: 38px; padding: 0 0 0 36px; border-radius: 10px;
+  border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink); cursor: pointer; transition: width .15s ease; }
+/* Closed, it is the magnifier alone (its placeholder hidden); open, it is a field wide enough to read what you type. */
+.tsk-search input::placeholder { color: transparent; }
+.tsk-search:focus-within input, .tsk-search.open input { width: 280px; padding-right: 34px; cursor: text; }
+.tsk-search:focus-within input::placeholder, .tsk-search.open input::placeholder { color: var(--k-ink-2); }
+/* Esc closes it while it keeps focus, until the person types again or leaves it. */
+.tsk-search.shut input { width: 38px; padding-right: 0; }
+.tsk-search.shut input::placeholder { color: transparent; }
+@media (prefers-reduced-motion: reduce) { .tsk-search input { transition: none; } }
 .tsk-search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
 .tsk-search button { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: 0; background: none; cursor: pointer;
   color: var(--k-ink-2); font: 600 1rem var(--font-ui); width: 26px; height: 26px; border-radius: 7px; }
@@ -3544,8 +3611,8 @@ details.tsk-fold summary { cursor: pointer; color: var(--k-ink-2); font-size: .8
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks { grid-column: 2; grid-row: 1; margin: 0; width: 100%;
   padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; }
 /* #3880 (Josh, 2026-09-25 22:01): in the column the view has no outer frame of its own; the title, New task, filters,
-   tiles and list sit on the column's ground unframed. The tiles and the list keep their own borders. The tab view keeps
-   its frame: Josh scoped this to the consolidated view. */
+   tiles and list sit on the column's ground unframed. The tiles and the list keep their own borders. (Since #3949,
+   09-26, the tab view has no frame either; this still drops the column's background.) */
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-view {
   border: 0; border-radius: 0; background: none; }
 /* Mona's look review of #3701: in the column the panel's own top inset already spaces the title,
@@ -3556,7 +3623,6 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-task
   padding: 2px 8px; border-radius: 999px; cursor: pointer; margin-left: 8px; }
 .rail-tasks:hover { color: var(--k-ink); border-color: var(--gold-edge); }
 @media (max-width: 760px) {
-  .tsk-toprow .tsk-search { flex-basis: 100%; }
   .tsk-ctl { flex-wrap: wrap; row-gap: 4px; }
   .tsk-main { padding: 22px 14px 120px; }
   .tsk-row { grid-template-columns: 22px minmax(0, 1fr); }
@@ -4157,7 +4223,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      scrollable -- the update notice was sliced through the middle with
      its status dot off-screen.
      ⚠️ AND IT CLIPPED EXACTLY WHAT THE COMMENT ABOVE PROMISES STAYS
-     VISIBLE: #utoast-slot, #unote-slot, #unews-slot, #uoffline-slot. A
+     VISIBLE: the update and offline slots (#3955 left #utoast-slot and #uoffline-slot). A
      sentence asserting a property is not a guard on it; `web.consolidated-980`
      now pins this so the promise can fail loudly instead of quietly. */
   /* Josh, 2026-08-27: "the design doesn't go all the way to the top. There's a gap
@@ -4172,9 +4238,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
          The four update slots live inside .apphead, and when one shows, that margin is
          what separates it from the board. So it moves ONTO the slots, where it applies
          only when a slot is actually on screen. `#*-slot:empty { display: none }` at the
-         top of this file makes that automatic for three of them. #unews-slot is never
-         :empty (it carries a hidden #newsbar child, as its own comment says), so it
-         needs the :has() test instead. */
+         top of this file makes that automatic for them (#3955 removed #unews-slot, the one
+         that was never :empty). */
       html[data-layout="consolidated"] body.consolidated > .apphead { position: static; margin: 0; padding: 0; border: 0; min-height: 0; }
       /* #2282: the consolidated-only notice-slot bottom-margins are GONE. They existed
          for the OLD collapsed-header design, where a shown update/offline notice was the
@@ -9355,6 +9420,9 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
    and the sign-in link on one line; they wrap on a narrow pane. Link colour is
    first-step.html's on-navy link blue (#7ea0f0), readable on the gradient. */
 .plus-topbar { color: var(--k-ink-2); font-size: .95rem; margin: 0 0 8px; }
+/* #4079: the result of Remove this computer, on the pane the person lands on. */
+.plus-forgot { font-size: .95rem; line-height: 1.5; margin: 0 0 14px; padding: 10px 14px; border: 1px solid var(--k-rule); border-radius: 10px; background: var(--k-surface); color: var(--k-ink); }
+.plus-forgot:focus { outline: none; }
 .plus-cta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 20px; }
 .plus-signin-link { color: #7ea0f0; text-decoration: none; font-weight: 600; font-size: .92rem; }
 .plus-signin-link:hover { text-decoration: underline; }
@@ -9481,8 +9549,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 #plus-signin-msg:empty { display: none; }
 #plus-state2 .plus-si-lead + .frow { margin-top: 1rem; }   /* a button under a one-line lead gets room (the #3796 landing) */
 @media (max-width: 640px) { .plus-val { grid-template-columns: 1fr; } }
-/* #718 CHAT FIRST ON A PHONE (the 40rem here is repeated in trackVisibleViewportHeight's
-   matchMedia; change both together) (Josh 2026-09-24: "make sure the designs fit well on mobile"; Liu Kang
+/* #718 CHAT FIRST ON A PHONE (the query here is repeated in trackVisibleViewportHeight's
+   matchMedia; change both together; #3969 added a phone held sideways: a touchscreen in landscape
+   no taller than 30rem and narrower than 56rem, which is past 40rem wide and used to get the tall wide
+   layout; from 56rem the side-by-side layout already fits) (Josh 2026-09-24: "make sure the designs fit well on mobile"; Liu Kang
    decided the build 2026-09-24 22:30 CDT). Below 40rem, with Direct Message the shown section, the
    agent page used to stack the whole identity column (88px avatar, name, state, five big nav tiles,
    Files) above the conversation, so a phone opened a chat and saw the conversation two screens down
@@ -9500,7 +9570,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    Other sections, tablets (40rem to 56rem) and desktop keep their layout.
    Stated weakest part: verified in Playwright Chromium and WebKit with a simulated smaller visual
    viewport, not on a device; WebKit is an engine approximation, not Safari or WKWebView. */
-@media (max-width: 40rem) {
+@media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) {
     display: flex; flex-direction: column; padding-bottom: 0;
     height: var(--kosmos-visible-height, 100dvh); }
@@ -9670,7 +9740,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-talk-box .composerbox .attachbtn,
   #d-talk-box .composerbox #d-emoji-btn { width: 44px; height: 44px; }
   #d-talk-box .composerbox .cpost { min-height: 44px; min-width: 64px; }
-  #d-talk-box .composerbox .cinput { font-size: 16px; }
+  #d-talk-box .composerbox .cinput { font-size: 16px; min-height: 44px; }   /* a 44px target (Raiden's #718 re-sweep) */
   /* The compact header above already names the agent, so the "Direct Message to <name>"
      caption would say it twice; the search takes the row. Hidden visually only, so the
      conversation keeps its heading for screen-reader heading navigation. */
@@ -9678,7 +9748,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-talk-box #d-talk-label { position: absolute; width: 1px; height: 1px; overflow: hidden;
     clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
   #d-talk-box .d-talk-caprow #d-talk-search-wrap { flex: 1 1 auto; min-height: 44px; }
-  #d-talk-box #d-talk-search { min-height: 42px; }
+  #d-talk-box #d-talk-search { min-height: 44px; }
   /* 16px or iOS zooms the page when the search box takes focus (as for the composer above). */
   #d-talk-box #d-talk-search { font-size: 16px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back { margin: 4px 0 0; min-height: 44px; }
@@ -9688,6 +9758,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   :is(#d-files, #d-sec-files) .pj-doc { min-height: 44px; }
   #d-files-all { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
   #d-files-back { display: inline-flex; align-items: center; min-height: 44px; }
+  /* #4088: Finder/File Explorer is on the computer running Kosmos, not the phone showing
+     this page. Hide an action the phone cannot fulfil; the file rows remain available. */
+  #d-files-finder { display: none; }
   /* #718 rows 2 and 3: keep the agent's Profile and Instructions forms readable without
      iOS focus zoom, and give their actions a phone-sized target. The desktop percentage
      widths stay above; only the phone lets the long Name help use the form's width. */
@@ -9699,6 +9772,28 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-sec-skills :is(input, textarea, select, button) { min-height: 44px; }
   #d-rename-hint { max-width: none; }
 }
+/* #3969: a phone held sideways is short (the rule matches up to 30rem, 480px, tall), and the chat-first
+   layout above still left the conversation 0px at 640x360 with the composer below the screen. On a short
+   sideways touchscreen, in the chat, the "All agents" link and an idle search box step aside.
+   - ⚠️ Searching the chat is therefore NOT available on a phone held sideways: an empty search box is not
+     shown, so there is nothing to tap; turning the phone upright brings it back. Accepted for this card
+     (its finish line is the conversation and the message box); a search button that opens the box is a
+     possible follow-up. The box stays only while it is NOT empty or has focus: a search already filtering
+     the conversation (typed upright, then turned) stays on screen with its clear button, so no filter is
+     ever hidden, and a box being typed in never vanishes under the typist (a keyboard can make a portrait
+     layout read as a short landscape one on some Android browsers). The "Direct Message to" heading stays
+     for screen readers, visually hidden as in the block above.
+   - ⚠️ The back link goes too, and with it the one-tap way back to a project the chat was opened from
+     (DETAIL_FROM_PROJECT): the Projects tab in the app bar is the way back there. Keeping the link costs
+     about 44px of a conversation that has only 57 to 90px at these sizes. */
+@media (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
+  #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box #d-talk-search-wrap:has(#d-talk-search:placeholder-shown):not(:focus-within) { display: none; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box .d-talk-caprow:has(#d-talk-search:placeholder-shown):not(:focus-within) { margin: 0; }
+  /* The agent's header is one slim line: name and state, no avatar (it is on Profile). */
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .dav-wrap { display: none; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead { padding: 2px 0 2px 6px; margin-bottom: 4px; }
+}
 /* #718 (Raiden's table, row 4): the same two fields on ANY touchscreen, not only a portrait phone. A
    phone turned sideways (667 to 932 wide) or a tablet is past the 40rem block above, where the search
    box was 13px and 22px tall and the text box 15px, and iOS zooms the page when a field under 16px
@@ -9706,7 +9801,13 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 @media (hover: none) {
   #d-talk-box .composerbox .cinput, #d-talk-box #d-talk-search { font-size: 16px; }
   #d-talk-box #d-talk-search-wrap { min-height: 44px; }
-  #d-talk-box #d-talk-search { min-height: 42px; }
+  #d-talk-box #d-talk-search { min-height: 44px; }
+  /* #3916: the Instructions pill also owns Skills. Keep both editors out of iOS focus zoom
+     and their actions thumb-sized when a phone is sideways or the screen is a touch tablet. */
+  #d-sec-instr textarea,
+  #d-sec-skills :is(input, textarea, select) { font-size: 16px; }
+  #d-sec-instr button,
+  #d-sec-skills :is(input, textarea, select, button) { min-height: 44px; }
 }
 /* The canvases honour prefers-reduced-motion in JS (a single static frame, no
    rAF loop); this makes that intent visible to a source reader too. */
@@ -9878,12 +9979,6 @@ window.kosmosMeasureScrollbarWidth();
          reasoning, drawn 2e4e100). Renders only when a newer version is
          published; role=status per the pack. -->
     <div id="utoast-slot"></div>
-    <!-- #541, moved here for #655 (Josh, 2026-08-24 15:50): the "updated itself
-         while you were away" line lives in the same container as the
-         update-available notice and wears its shape, so it sits with the
-         header instead of pushing the board down. The slot's :empty rule
-         does not apply while this child exists, so the line hides itself. -->
-    <div id="unote-slot"></div>
     <!-- #2055: the update-abort notice. Its own slot so it can co-occur with the
          post-update note and the offline note rather than overwriting either; a
          machine that cannot update is a state worth its own line. -->
@@ -9893,19 +9988,10 @@ window.kosmosMeasureScrollbarWidth();
          the update/offline notices rather than overwriting them; role=status per
          the pack; renders only when data.loginAdvisories is non-empty. -->
     <div id="login-adv-slot"></div>
-    <div id="unews-slot">
-      <div class="utoast stale" id="newsbar" role="status" hidden>
-        <span class="udot" aria-hidden="true"></span>
-        <div class="utxt"><a id="newsbar-link" class="newsupd" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener"><b id="newsbar-text"></b></a></div>
-        <div class="uacts"><button type="button" id="newsbar-ok" class="newsx" aria-label="Close this note">&times;</button></div>
-      </div>
-    </div>
-    <!-- ⚠️ ITS OWN SLOT RATHER THAN SHARING `#unote-slot`, and the reason is a
-         state that really happens: a person updates and then loses the server.
-         Both notes are true at once and they belong in that order, because the
-         first explains the second. Sharing would make this overwrite the
-         post-update note and hide the likeliest cause of the failure at exactly
-         the moment it mattered (Mona Lisa, #269). -->
+    <!-- ⚠️ ITS OWN SLOT, and the reason is a state that really happens: a person
+         updates and then loses the server. Both are true at once (Mona Lisa, #269);
+         since #3955 the post-update message is the "Kosmos has been updated" window,
+         and this line must not overwrite the update chip. -->
     <div id="uoffline-slot"></div>
   </div>
   <!-- The pack's centre column: the nav lives IN the header grid, centred,
@@ -10559,7 +10645,7 @@ window.kosmosMeasureScrollbarWidth();
         <select id="d-provider" aria-label="Provider">
           <option value="anthropic">Anthropic / Claude</option>
           <option value="openai">OpenAI / Codex</option>
-          <option value="google" disabled data-off="Checking your accounts">Google Gemini</option>
+          <option value="google" disabled data-off="Checking your accounts">Google Gemini (API key)</option>
           <option value="antigravity" disabled data-off="Checking Antigravity">Google Gemini (Google subscription)</option>
           <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
           <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
@@ -11595,6 +11681,17 @@ window.kosmosMeasureScrollbarWidth();
           <a class="btn" id="acct-gemini-sub-open" href="#" target="_blank" rel="noopener">About Antigravity</a>
         </div>
         <p class="dhint" id="acct-gemini-sub-code" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
+        <!-- #3998: the code Google's page shows is pasted HERE, not into a terminal; Kosmos passes it to
+             Antigravity, which it runs out of sight. -->
+        <div id="acct-gemini-sub-paste-row" hidden style="margin-top:8px;">
+          <label class="dhint" for="acct-gemini-sub-paste" style="display:block;margin:0 0 6px;">Paste the code from Google's page here.</label>
+          <div class="frow">
+            <input type="text" id="acct-gemini-sub-paste" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="4/0A…">
+            <button class="btn uprime" id="acct-gemini-sub-paste-go" type="button">Continue</button>
+          </div>
+          <p class="acct-help" style="margin:6px 0 0;"><a class="btn-quiet" id="acct-gemini-sub-page" href="#" target="_blank" rel="noreferrer noopener">Open Google's sign-in page again<span class="vh"> (opens in your browser)</span></a></p>
+        </div>
+        <div class="frow" id="acct-gemini-sub-show-row" hidden style="margin-top:8px;"><button class="btn" id="acct-gemini-sub-show" type="button">Show the sign-in window</button></div>
         <div class="frow" id="acct-gemini-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="acct-gemini-sub-cancel" type="button">Stop this sign-in</button></div>
       </div>
     </div>
@@ -12685,6 +12782,17 @@ window.kosmosMeasureScrollbarWidth();
                     <a class="btn" id="fr-gemini-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a>
                   </div>
                   <p class="dhint" id="fr-gemini-sub-code" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
+                  <!-- #3998: the code Google's page shows is pasted HERE, not into a terminal; Kosmos passes it to
+                       Antigravity, which it runs out of sight. -->
+                  <div id="fr-gemini-sub-paste-row" hidden style="margin-top:8px;">
+                    <label class="dhint" for="fr-gemini-sub-paste" style="display:block;margin:0 0 6px;">Paste the code from Google's page here.</label>
+                    <div class="frow">
+                      <input type="text" id="fr-gemini-sub-paste" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="4/0A…">
+                      <button class="btn uprime" id="fr-gemini-sub-paste-go" type="button">Continue</button>
+                    </div>
+                    <p class="acct-help" style="margin:6px 0 0;"><a class="btn-quiet" id="fr-gemini-sub-page" href="#" target="_blank" rel="noreferrer noopener">Open Google's sign-in page again<span class="vh"> (opens in your browser)</span></a></p>
+                  </div>
+                  <div class="frow" id="fr-gemini-sub-show-row" hidden style="margin-top:8px;"><button class="btn" id="fr-gemini-sub-show" type="button">Show the sign-in window</button></div>
                   <div class="frow" id="fr-gemini-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="fr-gemini-sub-cancel" type="button">Stop this sign-in</button></div>
                 </div>
                 <div id="fr-gemini-flow" hidden class="fr-confirm">
@@ -13378,7 +13486,7 @@ window.kosmosMeasureScrollbarWidth();
             <!-- Enabled with #245, per this menu's own instruction above:
                  the create path can wire a codex agent end to end now. -->
             <option value="openai">OpenAI / Codex</option>
-            <option value="google" disabled data-off="Checking your accounts">Google Gemini</option>
+            <option value="google" disabled data-off="Checking your accounts">Google Gemini (API key)</option>
             <option value="antigravity" disabled data-off="Checking Antigravity">Google Gemini (Google subscription)</option>
             <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
             <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
@@ -14798,34 +14906,36 @@ window.kosmosMeasureScrollbarWidth();
      are not drawn at all rather than guessed. No
      coloured left bars anywhere (Josh, 12:52): the status mark is a round dot beside the label. -->
 <!-- #3949 (Josh, 2026-09-26): no left Projects column; the body takes the full width. Projects is a
-     dropdown on one line with Created:, the search is about half as wide with the open-task count to its
-     right, five single-label tiles (Needs Your Decision red), and Group by and Sort under the tiles. -->
+     dropdown on one line with Created:, the title is the count ("30 Tasks on 2 Projects"), the single-label tiles
+     (Needs Your Decision red), and Group by, Sort and a compact search under the tiles. -->
 <section class="panel panel-wide" id="panel-tasks" hidden>
   <div class="tsk-view">
     <div class="tsk-main">
+      <!-- #3949 (Josh, 09-26 18:03): two bands. The top one (title, filters, tiles) keeps the page's ground;
+           everything from Group by / Sort down sits on white, full width, and the task cards are shaded. -->
+      <div class="tsk-band">
       <p class="tsk-crumb" id="tsk-crumb"></p>
-      <div class="tsk-head"><h2 id="tsk-title">All tasks</h2><button class="btn uprime" id="tsk-new" type="button"><span aria-hidden="true">+</span> New task</button></div>
-      <!-- #3559 (Josh, 14:39): search, with its own clear button; the browser's native one is hidden.
-           #3949: about half as wide, with the open-task count to its right. -->
-      <div class="tsk-toprow">
-      <div class="tsk-search" role="search">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5" stroke-linecap="round"/></svg>
-        <input id="tsk-search" type="search" autocomplete="off" spellcheck="false"
-               placeholder="Search tasks" aria-label="Search tasks by what they say, number, project or agent">
-        <button type="button" id="tsk-qclear" aria-label="Clear search" hidden>&times;</button>
-      </div>
-      <p class="tsk-sub" id="tsk-sub"></p>
-      </div>
+      <div class="tsk-head"><h2 id="tsk-title">Tasks</h2><button class="btn uprime" id="tsk-new" type="button"><span aria-hidden="true">+</span> New task</button></div>
       <div class="tsk-ctrls" id="tsk-filters">
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-projsel">Project:</label><select class="tsk-sel" id="tsk-projsel"></select></div>
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-win">Created:</label><select class="tsk-sel" id="tsk-win"></select></div>
       </div>
       <div class="tsk-tiles" id="tsk-tiles"></div>
+      </div>
+      <div class="tsk-below">
       <div class="tsk-ctrls" id="tsk-under">
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-by">Group by:</label><select class="tsk-sel" id="tsk-by"></select></div>
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-sort">Sort:</label><select class="tsk-sel" id="tsk-sort">
           <option value="new">Newest first</option><option value="stale">Quietest first</option><option value="old">Oldest first</option>
         </select></div>
+        <!-- #3949 (Josh, 09-26 19:30): the search is a compact control to the right of Sort. It opens when focused or
+             while it holds a search, and closes when empty and left. "/" focuses it; Esc clears and closes it. -->
+        <div class="tsk-search" id="tsk-searchbox" role="search">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5" stroke-linecap="round"/></svg>
+          <input id="tsk-search" type="search" autocomplete="off" spellcheck="false"
+                 placeholder="Search tasks" aria-keyshortcuts="/" aria-label="Search tasks by what they say, number, project or agent">
+          <button type="button" id="tsk-qclear" aria-label="Clear search" hidden>&times;</button>
+        </div>
       </div>
       <p class="fmsg" id="tsk-msg" role="status" aria-live="polite"></p>
       <!-- What a search found, said to a screen reader while focus stays in the search box (the
@@ -14837,6 +14947,7 @@ window.kosmosMeasureScrollbarWidth();
         <input id="tsk-bnote" type="text" maxlength="2000" placeholder="Why these are closing (optional)" aria-label="Closing note">
         <button type="button" class="tsk-pri" id="tsk-bclose">Close them</button>
         <button type="button" id="tsk-bclear">Clear</button>
+      </div>
       </div>
     </div>
   </div>
@@ -15427,6 +15538,19 @@ window.kosmosMeasureScrollbarWidth();
          ON, the per-project toggles govern each project as they do today. On by default
          (Josh chose the sound); the static markup starts ON and paintSettings confirms it
          from storage, so there is no flash. Copy is Mona Lisa's (the card). -->
+    <!-- #4025: the waiting count on the app icon (#3996), switchable. Kept on the board, not in this
+         browser, because the app reads the count from the board even with no page open. Ships hidden
+         and unclickable until the setting has loaded (paintSwitch), the auto-handoff pattern. Above
+         Sounds (#3138 keeps Sounds last). Hidden on Windows until its taskbar count ships (Homer). -->
+    <section class="dbox" data-win-hide>
+      <h3 class="dlab">App icon</h3>
+      <div class="setrow" id="wb-row" style="margin-top:14px;">
+        <div><b>Show the waiting count on the Kosmos icon</b>
+          <p class="dhint" style="margin:2px 0 0;">In the Kosmos app, the icon in the Dock shows how many things are waiting on you: agents that need you and unread messages. On by default.</p></div>
+        <button class="toggle" id="wb-toggle" role="switch" aria-label="Show the waiting count on the Kosmos icon" hidden><i></i></button>
+      </div>
+      <p class="dhint" id="wb-note" role="status" tabindex="-1"></p>
+    </section>
     <section class="dbox">
       <h3 class="dlab">Sounds</h3>
       <div class="setrow" id="snd-row" style="margin-top:14px;">
@@ -15841,6 +15965,9 @@ window.kosmosMeasureScrollbarWidth();
            WIZARD (state 2) rather than the web -- its handler (plusSiEnter) is
            attached once at load and calls preventDefault, so no address is ever set
            here or in JS and the no-hostname guard still needs no pin. -->
+      <!-- #4079: after Remove this computer, what happened, said here because this is the pane the
+           person lands on. Set by the Remove this computer handler, cleared when a sign-in starts. -->
+      <p class="plus-forgot" id="plus-forgot-msg" role="status" aria-live="polite" hidden></p>
       <p class="plus-topbar">Already have Kosmos+? <a id="plus-signin-top" class="plus-signin-pill" href="#">Sign in</a></p>
       <!-- #1615 blue reskin: the wordmark, drawn as ~300 circles that animate in
            over 1.5s (or a single static frame under prefers-reduced-motion), by
@@ -16085,7 +16212,7 @@ window.kosmosMeasureScrollbarWidth();
     <div id="plus-flow" hidden>
       <!-- #3829 (Josh, 16:54: "terribly worded and designed"; Mona Lisa's sketch on the card): status first,
            View my account top right, the address in ONE chip with Copy and Open and one plain line under it,
-           and Turn off a quiet control rather than the headline. Off, Turn on is the one primary action. -->
+           and Pause (Turn off until #4079) a quiet control rather than the headline. Off, Turn on is the one primary action. -->
       <div class="plus-headrow">
         <p class="setname">Use Kosmos from anywhere</p>
         <span class="plus-pill" id="plus-pill" data-state="off">Off</span>
@@ -16196,6 +16323,26 @@ window.kosmosMeasureScrollbarWidth();
           <button class="btn" type="button" id="plus-second-reset">Reset the second step</button>
         </div>
         <p class="dhint" id="plus-second-msg" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
+      </div>
+      <!-- #4079, named "Remove this computer" by Josh's design (#4080, 22:22). (Josh, 22:03: "Is there a way to disconnect my computer running Kosmos from this Kosmos Plus
+           account somehow?"): the engine's Forget (#793, /api/remote/forget) finally has a button. Pause (above,
+           was "Turn off") only stops remote access for now; this removes the computer from the account. Two
+           steps, confirmed in place (the page has no confirm dialog), and the confirm stays until Remove or
+           Cancel: the 5-second repaint does not take it away while it is being read. -->
+      <div id="plus-forget" hidden style="margin-top:16px;">
+        <p class="setname">Remove this computer</p>
+        <p class="fhint">Removes this computer from your Kosmos Plus account. Pause only stops access for now.</p>
+        <div class="frow" id="plus-forget-row">
+          <button class="btn" type="button" id="plus-forget-go">Remove this computer</button>
+        </div>
+        <div id="plus-forget-ask" hidden>
+          <p class="fhint" id="plus-forget-sure">This computer leaves your Kosmos Plus account and its address is freed. Your devices will no longer reach it. You can connect it again later by signing in.</p>
+          <div class="frow">
+            <button class="btn danger-btn" type="button" id="plus-forget-yes">Remove</button>
+            <button class="btn" type="button" id="plus-forget-no">Cancel</button>
+          </div>
+        </div>
+        <p class="dhint" id="plus-forget-msg" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
       </div>
       <p class="fmsg" id="plus-msg" role="alert" aria-live="assertive"></p>
     </div>
@@ -18647,34 +18794,14 @@ let SERVED_VERSION = null;
 let ENGINE_STALE = null;
 
 /**
- * The top-left toast, in two states that share a slot and share nothing else.
- *
- *   Update available   red     a version you do NOT have        Later · Install
- *   Kosmos updated     grey    a version you HAVE, that this
- *                              page does not                    Reload
- *
- * 🔑 THE TONE IS THE ONLY VISUAL DIFFERENCE AND IT CARRIES THE ARGUMENT (Mona
- * Lisa, #270). The red earns its alarm on the first: a version you have not got
- * is a thing to decide about. A stale page is not a problem, it is a fact with
- * a one-click fix, and rendering it in the same red spends the alarm on the
- * less alarming of the two.
- *
- * ⚠️ ONE ACTION, NO LATER AND NO CLOSE. `Later` on the shipped toast defers an
- * install, which is a real change to the machine and worth deferring. Here
- * there is nothing to defer: dismissing would not make the page current, so the
- * button would lie about what it did and the sentence would still be true the
- * moment it vanished. It clears itself on reload, which makes it a state rather
- * than a notice, and states are not dismissible.
- *
- * 🛑 WHEN BOTH ARE TRUE, THE RELOAD STATE WINS, and this is the case that only
- * appeared when it was drawn: page 0.2.75, server 0.2.76, 0.2.77 published.
- * Installing 0.2.77 from a 0.2.75 page compounds the staleness rather than
- * resolving it, and the person would be acting on a screen already wrong about
- * what it is.
- *
- * 📌 NO VERSION NUMBER IN THE SENTENCE. "You are looking at the previous
- * version" is true and actionable without one, and both numbers are on the
- * Settings line for anybody who wants them.
+ * The update notices in the header's #utoast-slot (#3955, Mona Lisa's mock A and B). One small chip,
+ * one line and one gold action, in two states:
+ *   - "An update is available" + Update, when a newer Kosmos is published (the confirm names it);
+ *   - "Reload to finish updating" + Reload, when Kosmos updated under this open page. It never says
+ *     "Kosmos updated" while the old page is on screen, and the page reloads itself when that cannot
+ *     lose anything (updateSafeReload).
+ * The engine-changed-on-disk state keeps its own .utoast shape and outranks both (#338). After an update,
+ * "Kosmos has been updated" is the window whatsNewCheck opens, not a line here.
  */
 /**
  * #2055: the board notice for a silently-aborting update. Angel's engine half
@@ -18767,6 +18894,65 @@ function paintLoginAdvisories(advs) {
   }).join('');
 }
 
+/* #3955: reload an old page by itself, but only when that cannot lose anything: the window is in the
+   background, nothing is on its way, no composer holds a word, no file waits to be sent, nothing the
+   person TYPED is still in a field, and no window is open over the page. Otherwise the chip waits for
+   the person's Reload. Once per board version per tab, so a board that keeps serving an old page can
+   never make a reload loop.
+   Typed, not filled (review round 1): the page fills many boxes itself (an agent's instructions, a
+   project's description), and those are not the person's unsaved words; every field the person has
+   typed into is remembered here (UPDATE_TYPED), and one still holding words blocks the reload. */
+const UPDATE_TYPED = new Set();
+/* Only boxes that hold WORDS (review round 3): a dropdown, checkbox or slider always has a value, and
+   one change to it must not stop the reload for the rest of the tab's life. */
+function updateTypedBox(t) {
+  if (!t || !t.tagName) return false;
+  if (t.tagName === 'TEXTAREA') return true;
+  if (t.isContentEditable) return true;   // a rich-text composer holds words too (round 6), read by textContent below
+  // Every input but the kinds that hold no words (round 5: a phone number or a password is words too).
+  return t.tagName === 'INPUT' && !/^(checkbox|radio|range|color|file|hidden|button|submit|reset|image)$/.test(String(t.type || '').toLowerCase());
+}
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('input', (e) => {
+    if (!updateTypedBox(e.target)) return;
+    /* Let go of boxes no longer on the page as new ones come in (round 10), so a board open for days
+       does not keep every closed dialog's fields alive until an update happens to land. */
+    for (const t of UPDATE_TYPED) if (t.isConnected === false) UPDATE_TYPED.delete(t);
+    UPDATE_TYPED.add(e.target);
+  }, true);   // (contenteditable fires input too)
+}
+function updateSafeReload(servedVersion) {
+  try {
+    if (!document.hidden || !servedVersion) return false;
+    /* The key is written here, not as a page const: tests lift this function alone (round 12). */
+    if (sessionStorage.getItem('kosmos-auto-reloaded') === servedVersion) return false;
+    const busy = [typeof TALK_SENDING !== 'undefined' && TALK_SENDING, typeof PJ_SENDING !== 'undefined' && PJ_SENDING,
+      typeof PJ_REPLY_SENDING !== 'undefined' && PJ_REPLY_SENDING, typeof TERM_SENDING !== 'undefined' && TERM_SENDING,
+      typeof PJ_POSTING !== 'undefined' && PJ_POSTING,   // round 9: a room post in flight
+      /* Round 12: an agent being created or started, or a restore running: a reload would drop the
+         answer the person is waiting for. (A Settings switch's save is a moment and repaints from the
+         board on load, so those are not held for.) */
+      typeof CREATING !== 'undefined' && CREATING, typeof START_FLIGHT !== 'undefined' && !!START_FLIGHT,
+      typeof RST_BUSY !== 'undefined' && RST_BUSY,
+      // Round 13: a new agent still being watched for (its photo and project tell come after), or a photo waiting.
+      typeof WATCHING_AGENTS !== 'undefined' && WATCHING_AGENTS > 0, typeof PENDING_AVATAR !== 'undefined' && !!PENDING_AVATAR,
+      typeof ATTACH_UPLOADING !== 'undefined' && ATTACH_UPLOADING > 0];   // round 9: a file still going up
+    if (busy.some(Boolean)) return false;
+    const drafted = (m) => !!m && Object.values(m).some((v) => (typeof v === 'string' ? v : (v && v.text) || '').trim());
+    if ([typeof TALK_DRAFTS !== 'undefined' && TALK_DRAFTS, typeof TERM_DRAFTS !== 'undefined' && TERM_DRAFTS,
+      typeof PJ_DRAFTS !== 'undefined' && PJ_DRAFTS, typeof PJ_ROOM_DRAFTS !== 'undefined' && PJ_ROOM_DRAFTS].some(drafted)) return false;
+    for (const t of [...UPDATE_TYPED]) if (t.isConnected === false) UPDATE_TYPED.delete(t);   // a removed field holds nothing (and is let go)
+    /* Still holding words, shown or not (round 5): a hidden box is not a saved one (New task keeps its
+       words when closed, #766), so any typed box with words waits for the person's Reload. */
+    if ([...UPDATE_TYPED].some((t) => String(t.isContentEditable ? t.textContent : t.value || '').trim())) return false;
+    const attached = typeof ATTACH_PENDING !== 'undefined' && ATTACH_PENDING;
+    if (attached && Object.values(attached).some((m) => m && Object.values(m).some((v) => Array.isArray(v) ? v.length : !!v))) return false;
+    if (typeof tipModalOpen === 'function' && tipModalOpen()) return false;
+    sessionStorage.setItem('kosmos-auto-reloaded', servedVersion);
+    window.location.reload();
+    return true;
+  } catch { return false; }
+}
 function renderUpdateToast(u) {
   const slot = document.getElementById('utoast-slot');
   /* 🛑 THE ENGINE STATE OUTRANKS BOTH OTHERS (#338). A server behind the code
@@ -18796,15 +18982,18 @@ function renderUpdateToast(u) {
       + '</div>';
     return;
   }
+  /* #3955 (Josh: "You're looking at the previous version. That doesn't make sense"; Mona Lisa's
+     mock B): the page is older than Kosmos. One small chip, never "Kosmos updated" while the old
+     page is showing, and the page reloads itself when that cannot lose anything (updateSafeReload). */
   if (!UPDATING_NOW && pageIsStale(SERVED_VERSION)) {
+    updateSafeReload(SERVED_VERSION);
     if (slot.dataset.v === 'stale') return;
     slot.dataset.v = 'stale';
-    slot.innerHTML = '<div class="utoast stale" role="status">'
+    slot.innerHTML = '<div class="uchip" role="status">'
       + '<span class="udot" aria-hidden="true"></span>'
-      + '<div class="utxt"><b>Kosmos updated</b><small>You are looking at the previous version</small></div>'
-      + '<div class="uacts">'
-      + '<button type="button" class="uprime" id="ut-reload">Reload</button>'
-      + '</div></div>';
+      + '<span class="uchip-t">Reload to finish updating</span>'
+      + '<button type="button" id="ut-reload">Reload</button>'
+      + '</div>';
     document.getElementById('ut-reload').addEventListener('click', () => {
       /* The whole remedy. `reload()` and not a re-render: the stale thing is
          the document, not any state inside it. */
@@ -18817,17 +19006,14 @@ function renderUpdateToast(u) {
   }
   if (slot.dataset.v === u.version) return;      // already showing this one
   slot.dataset.v = u.version;
-  slot.innerHTML = '<div class="utoast" role="status">'
+  /* #3955 (Josh: "we should say 'An update is available,' and that should be it"; Mona Lisa's mock A):
+     one small chip, one action, no version number. The confirm names the version. Later is gone from
+     here; a Later pressed on an older page still quiets its version (updateLaterSuppresses). */
+  slot.innerHTML = '<div class="uchip" role="status">'
     + '<span class="udot" aria-hidden="true"></span>'
-    + '<div class="utxt"><b>Update available</b><small>Kosmos ' + esc(u.version) + '</small></div>'
-    + '<div class="uacts">'
-    + '<button type="button" id="ut-later">Later</button>'
-    + '<button type="button" class="uprime" id="ut-install">Install</button>'
-    + '</div></div>';
-  document.getElementById('ut-later').addEventListener('click', () => {
-    try { localStorage.setItem('kosmos-update-later', JSON.stringify({ v: u.version, at: Date.now() })); } catch { /* shown again next release either way */ }
-    slot.innerHTML = ''; delete slot.dataset.v;
-  });
+    + '<span class="uchip-t">An update is available</span>'
+    + '<button type="button" id="ut-install">Update</button>'
+    + '</div>';
   document.getElementById('ut-install').addEventListener('click', () => {
     // Focus lands on the SAFE answer, same rule as every dialog here: the
     // confirm exists as a deliberate-click gate, and opening it with the
@@ -19255,10 +19441,8 @@ document.getElementById('uc-go').addEventListener('click', async () => {
     return;
   }
   UPDATING_NOW = true;
-  /* The toast says what the poll saw; the FINISH LINE says what actually
-     landed (her rule). The fresh page reads this note and names the
-     version it is really serving. */
-  try { sessionStorage.setItem('kosmos-updated-from', LAST_VERSION || ''); } catch { /* the update still runs */ }
+  /* #3955: what landed is said by the "Kosmos has been updated" window on the fresh page
+     (whatsNewCheck), for a manual update and an automatic one alike. */
   document.getElementById('updconfirm').hidden = true;
   renderUpdateToast(null);
   const back = document.createElement('div');
@@ -19406,32 +19590,6 @@ function updateOverlayLead(reached, version, platform, rollback) {
   return reached ? ('Downloading ' + version + '.') : 'Updating.';
 }
 
-/* "Updated. You are on Kosmos X." -- once, from the first status after a
-   reload that followed an install. Shown ONLY when the served version
-   actually CHANGED: an installer that found nothing to do did not update
-   anything, and saying so would be the stale-label defect at the finish
-   line instead of the start. */
-/* Known hole, erring honest: on the deadline-elapsed reload (installer
-   still running after three minutes), the first status serves the OLD
-   version, the note is consumed, and no "Updated." ever shows for that
-   install. Silence beats a claim we cannot time correctly. */
-let UPDATED_NOTE_DONE = false;
-function updatedNoteOnce(nowVersion) {
-  if (UPDATED_NOTE_DONE) return;
-  UPDATED_NOTE_DONE = true;
-  let from = null;
-  try {
-    from = sessionStorage.getItem('kosmos-updated-from');
-    sessionStorage.removeItem('kosmos-updated-from');
-  } catch { return; }
-  if (!from || !nowVersion || nowVersion === from) return;
-  const slot = document.getElementById('unote-slot');
-  slot.innerHTML = '<div class="utoast" role="status">'
-    + '<span class="udot" aria-hidden="true"></span>'
-    + '<div class="utxt"><b>Updated.</b><small>You are on Kosmos ' + esc(nowVersion) + '.</small></div>'
-    + '<div class="uacts"><button type="button" id="un-ok">OK</button></div></div>';
-  document.getElementById('un-ok').addEventListener('click', () => { slot.innerHTML = ''; });
-}
 
 /**
  * How long ago the board was read, in words a person can take in at a glance.
@@ -19851,7 +20009,6 @@ async function tick() {
     paintLoginAdvisories(data.loginAdvisories); // #3532: warn before a login expires
     paintUpdateAbort(data.updateAbort); // #2055: null-when-healthy; renders only on this successful read
     paintUpdateCard(data.version, data.update, data.updateLook, data.updateManual, data.updateChannel, data.updateRollback);
-    updatedNoteOnce(data.version);
     LAST_VERSION = data.version || LAST_VERSION;
     LAST_BOOTED_AT = data.bootedAt || LAST_BOOTED_AT;
     LAST_UPDATE_LOG = data.updateLog || LAST_UPDATE_LOG;
@@ -20199,9 +20356,15 @@ async function tick() {
        app need not ask the board itself while this page is polling. Nothing outside the Mac app. */
     try {
       const h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosBadge;
-      // null when this board has no count (older than #3996): the app clears the badge, and does not poll.
+      // null when this board has no count (older than #3996, or the person switched it off in Settings, #4025): the app clears the badge.
       if (h) h.postMessage(typeof c.waiting === 'number' ? c.waiting : null);
     } catch { /* not in the Mac app, or no window (a test): nothing to tell */ }
+    /* #3996, the Windows half: the same count to Kosmos's own window (WebView2) for its taskbar badge,
+       as { kosmosBadge: n } (KosmosLauncher.cs OnWebMessage). Nothing outside that window. */
+    try {
+      const wv = window.chrome && window.chrome.webview;
+      if (wv) wv.postMessage({ kosmosBadge: typeof c.waiting === 'number' ? c.waiting : null });
+    } catch { /* not in the Windows app, or no window (a test): nothing to tell */ }
     /* #3423: if the Issue filter is on and there is nothing left to filter, exit it
        (same auto-exit the Messages filter does at dmTotal <= 0). */
     if (!c.needsYou && document.body && boardFilterActive() === 'attn') setBoardFilter(null);
@@ -21095,6 +21258,64 @@ async function paintYouTz() {
    newer paint or save cannot repaint over the fresher state -- which is the exact
    "a moved setting keeps its stored value" acceptance under tab churn. */
 let AH_EPOCH = 0;
+/* #4025: the App icon switch. Painted only from what the board holds (a read that fails leaves it
+   hidden, never a guessed Off), and a click saves and repaints from the board's answer. */
+let WB_EPOCH = 0;
+let WB_SAVING = false;
+async function paintWaitingBadge() {
+  if (WB_SAVING) return;   // a save in flight paints the board's answer itself; a repaint now could read the old value
+  await readWaitingBadge();
+}
+/* The read itself, for paintWaitingBadge and for a save whose answer was lost (round 5: that re-read
+   runs with WB_SAVING still set, so a second click or a Settings repaint waits for it). */
+async function readWaitingBadge() {
+  const mine = ++WB_EPOCH;
+  const wbMsg = document.getElementById('wb-note');
+  try {
+    const res = await fetch('/api/settings', { cache: 'no-store' });
+    if (mine !== WB_EPOCH) return;
+    if (!res.ok) throw new Error('not ok');
+    const r = await res.json();
+    if (mine !== WB_EPOCH) return;
+    if (!r || typeof r.waitingBadge !== 'boolean') throw new Error('no setting');   // an older board
+    paintSwitch('wb-toggle', r.waitingBadge);
+    if (wbMsg) wbMsg.textContent = '';
+  } catch {
+    if (mine !== WB_EPOCH) return;
+    /* The switch hides; if the keyboard was on it, the sentence under it takes focus (round 5), so
+       focus never falls to the page behind. */
+    const tog = document.getElementById('wb-toggle');
+    const hadFocus = !!tog && typeof document !== 'undefined' && document.activeElement === tog;
+    paintSwitch('wb-toggle', null);
+    if (wbMsg) wbMsg.textContent = 'We could not read this setting just now. Open Settings again to retry.';
+    if (hadFocus && wbMsg && typeof wbMsg.focus === 'function') wbMsg.focus();
+  }
+}
+async function saveWaitingBadge() {
+  const tog = document.getElementById('wb-toggle');
+  if (!tog || WB_SAVING || !tog.hasAttribute('aria-checked')) return;   // not loaded: never write over a stored value
+  WB_SAVING = true;
+  const mine = ++WB_EPOCH;
+  const wbMsg = document.getElementById('wb-note');
+  try {
+    const res = await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ waitingBadge: tog.getAttribute('aria-checked') !== 'true' }) });
+    const out = await res.json().catch(() => null);
+    if (mine !== WB_EPOCH) return;
+    if (!res.ok || !out || typeof out.waitingBadge !== 'boolean') throw new Error('not saved');
+    paintSwitch('wb-toggle', out.waitingBadge);   // what the board stored, not the click
+    if (wbMsg) wbMsg.textContent = '';
+  } catch {
+    if (mine === WB_EPOCH) {
+      /* Re-read (round 3): the board may have stored it and only the answer was lost, so the switch
+         draws what the board holds, then says the save did not come back. WB_SAVING stays set. */
+      await readWaitingBadge();
+      if (wbMsg && document.getElementById('wb-toggle') && !document.getElementById('wb-toggle').hidden) wbMsg.textContent = 'We could not save that just now. Try again in a moment.';
+    }
+  } finally { WB_SAVING = false; }
+}
+document.getElementById('wb-toggle') && document.getElementById('wb-toggle').addEventListener('click', saveWaitingBadge);
+
 async function paintAutomation() {
   const mine = ++AH_EPOCH;
   const th = document.getElementById('ah-threshold');
@@ -21506,6 +21727,7 @@ async function paintSettings() {
   /* #2436: a per-viewer localStorage preference, so there is nothing to fetch -- confirm
      the master sound toggle from storage on open (always a real boolean, never null). */
   paintSwitch('snd-toggle', soundMasterOn());
+  paintWaitingBadge();   // #4025
   const loc = document.getElementById('set-applocation');
   const mach = document.getElementById('set-machine');
   try {
@@ -21695,9 +21917,12 @@ function orderProviderOptions(selectId) {
   sorted.forEach((o) => sel.appendChild(o));
   sel.value = chosen;
 }
-/* The menu's provider id for an account row: 'openai' | 'google' | 'xai' | 'anthropic'. */
+/* The menu's provider id for an account row: 'openai' | 'google' | 'xai' | 'anthropic', or
+   'antigravity' for the Gemini subscription row (#3998). That row has no key: naming it here keeps it
+   out of every key path ('google' is a Gemini API key) and out of the Claude fallback below. */
 function acctProvider(a) {
   const p = a && typeof a.provider === 'string' ? a.provider.toLowerCase() : '';
+  if (p === 'antigravity' || (a && a.authMode === 'antigravity')) return 'antigravity';
   return Object.prototype.hasOwnProperty.call(ACCT_KEYED_ROUTE, p) ? p : 'anthropic';
 }
 /* #3566: the screen's word for a keyed provider id ('openai' -> 'OpenAI'). */
@@ -22061,12 +22286,39 @@ function accountGroupsHtml(list, rowHtml) {
 let acctSayTimer = null;
 function acctCancelSay() { if (acctSayTimer) { clearTimeout(acctSayTimer); acctSayTimer = null; } }
 
-async function paintAccounts() {
+/* #3997: how often, and how many times, the list is read again while a sign-in's free check (ChatGPT or Grok) is still under way.
+   A healthy check answers within a second or two; a dead or slow one takes up to about 20 seconds (codex's own
+   handshake timeout), so the reads continue until nothing is pending or the count runs out. */
+const ACCT_FOLLOWUP = { ms: 3500, max: 6, busyMax: 60 };
+/* Never rebuild the list under the person's hands (review round 2): a Check now in flight (its button disabled) or a
+   half-pressed Disconnect or Delete. Focus alone is not busy (round 4: a button keeps focus after its answer, and the
+   row then kept saying "checking" long after its check had ended). */
+function acctListBusy(box) { return !!(box && box.querySelector('.acct-check:disabled, .armed')); }
+/* The next follow-up read, `n` of at most ACCT_FOLLOWUP.max. One that finds the list busy waits a turn, still counted,
+   and none reads if the list has been painted again meanwhile. */
+function acctFollowUp(n, busy) {
+  if (n > ACCT_FOLLOWUP.max) return;
+  /* A turn skipped because the list is busy (a Check now in flight, a half-armed Disconnect) waits without spending a
+     read, under its own cap (about 3.5 minutes), so a long press does not use up the reads and leave a row saying
+     "checking" after the check has finished (review round 15). */
+  const waited = Number.isInteger(busy) ? busy : 0;
+  if (waited > ACCT_FOLLOWUP.busyMax) return;
+  const mine = ACCT_EPOCH;
+  setTimeout(() => {
+    if (mine !== ACCT_EPOCH) return;
+    if (acctListBusy(document.getElementById('set-accounts'))) { acctFollowUp(n, waited + 1); return; }
+    paintAccounts({ followUp: n });
+  }, ACCT_FOLLOWUP.ms);
+}
+async function paintAccounts(opts) {
+  const followUp = (opts && Number.isInteger(opts.followUp)) ? opts.followUp : 0;
   const box = document.getElementById('set-accounts');
   const msg = document.getElementById('set-accounts-msg');
   /* A repaint is itself a writer to that line ("Checking your accounts..."), so
      it cancels too: otherwise a refusal scheduled 60ms ago lands over it. */
-  acctCancelSay();
+  /* A follow-up read (#3997) is not the person's repaint: it leaves the message line and its timer alone, so a
+     "Removed ..." sentence written just before it survives (review round 6). */
+  if (!followUp) acctCancelSay();
   if (!box) return;
   /* #881: GET /api/accounts now confirms each account live with Anthropic
      (a real check per account, not an instant directory stat), so this
@@ -22081,7 +22333,8 @@ async function paintAccounts() {
      able to paint stale data over fresh -- unlikely when this was an
      instant stat, a real risk now. */
   const mine = ++ACCT_EPOCH;
-  box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">Checking…</p>';
+  /* #3997: the follow-up read (below) repaints in place, without the placeholder flash. */
+  if (!followUp) box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">Checking…</p>';
   // ⚠️ THE ANNOUNCEMENT GOES THROUGH #set-accounts-msg (already
   // role="status"), NOT the list box itself. Making the whole account
   // list a live region would read out every account row on every
@@ -22089,7 +22342,7 @@ async function paintAccounts() {
   // announcing state changes politely. Caught in challenge-loop
   // iteration 6: this box went from an effectively-instant paint to a
   // real, multi-second one and had no announcement for that span at all.
-  if (msg) msg.textContent = 'Checking your accounts…';
+  if (msg && !followUp) msg.textContent = 'Checking your accounts…';
   let list = [];
   try {
     const res = await fetch('/api/accounts', { cache: 'no-store' });
@@ -22099,6 +22352,7 @@ async function paintAccounts() {
     if (mine !== ACCT_EPOCH) return;
   } catch {
     if (mine !== ACCT_EPOCH) return;
+    if (followUp) return;   // #3997: a failed background re-read keeps the list the person is looking at
     /* 🛑 CANCEL HERE TOO. The cancel at the top of this function runs BEFORE the
        await, so these two writes were the third and fourth exceptions to the
        "every writer cancels" claim above, and this diff has already corrected
@@ -22114,9 +22368,17 @@ async function paintAccounts() {
     accountsUnreadable();
     return;
   }
+  /* #3997 round 10: the person may have started something WHILE this follow-up was reading (a Check now, a
+     half-pressed Disconnect): look again before rebuilding, and if so wait a turn instead. */
+  if (followUp && acctListBusy(box)) { acctFollowUp(followUp, 1); return; }   // busy: wait, do not spend a read (round 15)
   accountsRead(list);
-  acctCancelSay();  /* post-await writer, same reason as the catch above */
-  if (msg) msg.textContent = '';
+  /* #3997: a sign-in (ChatGPT or Grok) whose free check is still under way is read again a few seconds on, so it turns green
+     (or says what is wrong) without the person doing anything; bounded by ACCT_FOLLOWUP.max, never a loop. */
+  if (followUp < ACCT_FOLLOWUP.max && list.some((a) => a && a.connection && a.connection.liveCheckPending)) acctFollowUp(followUp + 1);
+  if (!followUp) {
+    acctCancelSay();  /* post-await writer, same reason as the catch above */
+    if (msg) msg.textContent = '';
+  }
   /* 🔑 GROUPED BY PROVIDER (kosmos#1393). Josh, twice on 2026-08-28: the Claude
      Max 20x line "is still not in that bounding box that it's supposed to be in,
      that goes underneath Claude". The heading above already promised the shape,
@@ -22129,6 +22391,26 @@ async function paintAccounts() {
      is a property of the list, and a row cannot see it on its own. */
   const acctQual = accountQualifiers(list);
   const acctRowHtml = (a) => {
+    /* #3998 (Josh, 11:34): Gemini on the Google subscription is its own row. agy keeps its own
+       sign-in, so the row has no folder and none of a key row's actions: Sign in again (the hidden
+       sign-in) and Remove (Kosmos stops listing it; Antigravity stays signed in on this computer). */
+    if (a && a.authMode === 'antigravity') {
+      /* A remembered answer, not a live one (a live check costs a prompt on the subscription): the
+         muted "Signed in" of signed_in_unverified, as Grok's subscription row shows. */
+      const when = a.connection && a.connection.checkedAt ? ' Kosmos last confirmed it ' + new Date(a.connection.checkedAt).toLocaleString() + '.' : '';
+      // True of this row (round 10): nothing rechecks it by itself; Sign in again does.
+      const why = 'Antigravity was signed in to Google the last time Kosmos checked.' + when + ' Kosmos does not recheck it by itself; Sign in again checks it.';
+      return '<div class="acct-box" data-agy-row="1"><div class="acct-box-top"><div class="acct-who"><b>' + esc(a.email || 'Google subscription') + '</b>'
+        + '<span class="acct-tag"> Google subscription, through Antigravity on this computer</span></div>'
+        // The why is also in the text a screen reader reads (round 14): a title alone is mouse-only.
+        + '<span class="acct-unknown" title="' + esc(why) + '"><span class="dot" aria-hidden="true"></span>Signed in<span class="vh"> (' + esc(why) + ')</span></span></div>'
+        + '<div class="acct-actions">'
+        + '<button class="acct-reauth" type="button" data-agy-reauth="1" aria-label="Sign in again to the Google subscription" '
+        + 'title="' + esc('Signs in to Google again through Antigravity, the same way as adding it.') + '">Sign in again</button>'
+        + '<button class="acct-reauth acct-remove" type="button" data-agy-forget="1" aria-label="Remove the Google subscription from Kosmos" '
+        + 'title="' + esc('Kosmos stops listing it here. Antigravity stays signed in on this computer and its agents keep working, so it comes back the next time Kosmos checks Antigravity.') + '">Remove</button>'
+        + '</div></div>';
+    }
     /* #540: an OpenAI account signed in with a key has no email; codex's
        own `login status` names it by the key's last characters, so the row
        does the same. Never the key. */
@@ -22140,6 +22422,11 @@ async function paintAccounts() {
        holds a sign-in, not a key, and its titles say so. */
     const keyRoute = ACCT_KEYED_ROUTE[acctProvider(a)] || '';
     const isKeyed = !!keyRoute;
+    /* #3997: a ChatGPT sign-in and a Grok subscription each have a FREE live check, so they get Check now too. */
+    /* A Grok sign-in that has lapsed, or that could not be read, has nothing a check could confirm: no button there. */
+    const signInCheck = isOpenai && a.authMode === 'chatgpt' ? 'openai'
+      : (acctProvider(a) === 'xai' && a.authMode === 'subscription' && a.connection && a.connection.state === 'connected') ? 'grok' : '';
+    const canCheckSignIn = !!signInCheck;
     /* #2095: the human-chosen name is the primary label (was key-last-4-only). */
     const who = esc(acctPrimaryName(a));
     const org = a.organization && a.organization !== a.email
@@ -22270,7 +22557,9 @@ async function paintAccounts() {
        the ONLY green and it means we SAW a request succeed -- so the pulsing dot's
        "actively connected" (Josh, #864) is finally true rather than merely "a
        credential exists". A credential that only EXISTS is `signed_in_unverified`:
-       muted, NOT green, which is the say-what-you-know half #874 could not reach. */
+       amber since #3997 (it was muted grey), NOT green, which is the say-what-you-know half #874 could not reach.
+       #3997: green also comes from a free live check that got an answer (the ChatGPT handshake, the Grok models
+       listing), recorded the same way; still never from a credential that merely exists. */
     const badge = a.connection && a.connection.badge;
     const ageStr = agoWords(a.connection && a.connection.observedAgeMs);
     const workingWhy = 'a real request on this account succeeded recently' + (ageStr ? ' (' + ageStr + ')' : '') + '. This is an observed outcome, not a probe.';
@@ -22278,17 +22567,22 @@ async function paintAccounts() {
     // #3136 (Josh, 6.68): the PILL now reads a neutral "Signed in" (Josh saw "not recently
     // checked" and read it as "not connected" though he was). The "not verified live" nuance
     // moves here, into the tooltip, and nudges toward the "Check now" button beside the badge
-    // (added with #3145's on-demand probe). Still #874-safe: the dot stays muted, not green --
+    // (added with #3145's on-demand probe). Still #874-safe: the dot stays amber (#3997), not green --
     // we are NOT claiming the sign-in works, only that it exists and can be verified on demand.
     const unverifiedWhy = 'This account is signed in. We have not seen a request on it succeed recently, so we are not confirming it live here. '
-      + (isKeyed ? 'It confirms itself the next time an agent on it runs.' : 'Use Check now to verify it, or it confirms itself the next time an agent on it runs.');
+      + ((isKeyed && !canCheckSignIn) ? 'It confirms itself the next time an agent on it runs.' : 'Use Check now to verify it, or it confirms itself the next time an agent on it runs.');
+    /* #3997: a Grok subscription's own reason (for example, its key expired and Grok renews it on its next run). */
+    const grokWhy = acctProvider(a) === 'xai' && a.authMode === 'subscription' && a.connection ? a.connection.because : '';
+    /* An expired key cannot be checked until Grok runs, so that title does not point at Check now (the server's
+       structured verdict, not a match on its sentence: review round 4). */
+    const unverifiedTitle = grokWhy ? ((a.connection.liveVerdict === 'expired' || a.connection.liveVerdict === 'pending') ? grokWhy + '.' : grokWhy + '. Use Check now to verify it.') : null;
     let connBadge;
     if (badge === 'working') {
       connBadge = '<span class="acct-connected" title="' + esc(workingWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in' + (ageStr ? ' · active ' + esc(ageStr) : '') + '</span>';
     } else if (badge === 'rejected') {
       connBadge = '<span class="acct-none" title="' + esc(rejectedWhy) + '"><span class="dot" aria-hidden="true"></span>Not connected' + (ageStr ? ' · rejected ' + esc(ageStr) : '') + '</span>';
     } else if (badge === 'signed_in_unverified') {
-      connBadge = '<span class="acct-unknown" title="' + esc(unverifiedWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in</span>';
+      connBadge = '<span class="acct-unverified" title="' + esc(unverifiedTitle || unverifiedWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in</span>';
     } else if (badge === 'signed_out') {
       connBadge = '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(noneWhy) + '</span>';
     } else if (badge === 'unchecked') {
@@ -22296,8 +22590,8 @@ async function paintAccounts() {
     } else if (isOpenai && a.authMode === 'chatgpt') {
       /* #2568: a ChatGPT SUBSCRIPTION row. Its checkLive() honestly returns state
          UNKNOWN with a real, LONG because sentence ("this sign-in method is not yet
-         checked live; it may or may not still work") -- there is no live probe for a
-         subscription sign-in yet (openaiaccounts.js checkLive). OpenAI rows carry no
+         checked live; it may or may not still work") -- at the time there was no live probe
+         for a subscription sign-in (there is since #2790, codex's handshake, and #3997 starts it on open). OpenAI rows carry no
          server `badge`, so before this it fell to the legacy fallback below and rendered
          that whole sentence in the pill span. The pill classes are `white-space: nowrap`,
          so a long sentence cannot wrap: it overflowed the pill and collided with the email
@@ -22309,7 +22603,17 @@ async function paintAccounts() {
          rule the #1921 badge vocabulary already uses, so the pill states what it knows without
          the whole reason living in the visible span. This is the "auth_mode-shape display"
          #2568 asks the OpenAI row to adopt. */
-      connBadge = '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · not checked live</span>';
+      /* #3997: amber "Signed in" like every other unconfirmed sign-in (was a grey "Signed in · not checked live").
+         Opening this screen starts the free check (server.js), and a row still waiting on it says so in its title;
+         the page reads the list again, a bounded number of times, until that check has finished. */
+      const checkingWhy = 'Checking this sign-in now.';
+      const cstate = a.connection && a.connection.state;
+      /* The check's own verdict: confirmed is green, a sign-in ChatGPT refused is red ("sign in again" is its title). */
+      connBadge = cstate === 'connected'
+        ? '<span class="acct-connected" title="' + esc((a.connection && a.connection.because) || 'this sign-in reached ChatGPT, so it is working') + '"><span class="dot" aria-hidden="true"></span>Signed in</span>'
+        : cstate === 'none'
+          ? '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>Not connected</span>'
+          : '<span class="acct-unverified" title="' + esc(a.connection && a.connection.liveCheckPending ? checkingWhy : unknownWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in</span>';
     } else {
       /* The legacy state ternary, kept as the fallback for any row without a `badge`.
          Two rows land here today: an OpenAI API-KEY row (the server overlays `badge` onto
@@ -22366,9 +22670,15 @@ async function paintAccounts() {
          honestly reddens) THIS account's badge on demand. The passive badge only
          greens from a witnessed streaming turn, so a signed-in-but-idle account
          reads as "not connected" though it is fine (Josh, 0.6.68); this lets the
-         person confirm it now. Claude rows only: the probe is a real `claude -p`
-         call, and "not recently checked" is the Claude-side report this answers. */
-      + (isKeyed ? ''
+         person confirm it now. This button is the Claude probe (a real `claude -p` call);
+         #3997 adds a FREE Check now for a ChatGPT sign-in or a Grok subscription (data-check-signin). */
+      + (isKeyed ? (canCheckSignIn
+          /* data-check-dir FIRST: focus restoration finds a control again by its first data-* attribute, and the
+             folder is unique where the provider kind is not (review round 7). */
+          ? '<button class="acct-check" type="button" data-check-dir="' + esc(a.dir) + '" data-check-signin="' + esc(signInCheck) + '" '
+            + 'aria-label="Check now whether ' + who + (qual ? ' (' + esc(qual) + ')' : '') + ' is connected" '
+            + 'title="' + esc('Asks the provider whether this sign-in works right now. It uses no quota.') + '">Check now</button>'
+          : '')
         : '<button class="acct-check" type="button" data-check-claude="' + esc(a.dir) + '" '
           + 'aria-label="Check now whether ' + who + (qual ? ' (' + esc(qual) + ')' : '') + ' is connected" '
           + 'title="' + esc('Makes one real request on this account to confirm it is connected right now, then updates the badge.') + '">Check now</button>')
@@ -22512,7 +22822,15 @@ async function paintAccounts() {
       + '</div>'
       + '</div>';
   };
+  /* #3997 round 6: a follow-up rebuild keeps keyboard focus where it was, found again by the control's own data-*
+     attribute and value, so a person tabbing through the rows does not lose their place. */
+  const fEl = followUp && box.contains(document.activeElement) ? document.activeElement : null;
+  const fAttr = fEl ? [...fEl.attributes].find((x) => x.name.startsWith('data-')) : null;
   box.innerHTML = accountGroupsHtml(list, acctRowHtml);
+  if (fAttr) {
+    const back = [...box.querySelectorAll('[' + fAttr.name + ']')].find((x) => x.getAttribute(fAttr.name) === fAttr.value);
+    if (back && typeof back.focus === 'function') back.focus();
+  }
   /* #1372: remove an OpenAI account. The engine FORGETS rather than
      deletes, so the sentence says the sign-in file is still on the
      computer: "removed" and "deleted" are different promises and the
@@ -22540,6 +22858,33 @@ async function paintAccounts() {
     });
   }
   /* #3391 part 2: the Grok subscription sign-in again, aimed at this account. */
+  /* #3998: the Gemini subscription row's two actions. */
+  for (const btn of box.querySelectorAll('[data-agy-reauth]')) {
+    /* Round 19: a throw is said in the step, not lost as an unhandled rejection. */
+    btn.addEventListener('click', () => { acctGeminiSignInAgain().catch(() => {
+      const m = document.getElementById('acct-gemini-sub-code');
+      const step = document.getElementById('acct-gemini-sub-step');
+      if (m && step) { step.hidden = false; m.hidden = false; m.textContent = 'Kosmos could not start the sign-in just now. Try again.'; }
+    }); });
+  }
+  for (const btn of box.querySelectorAll('[data-agy-forget]')) {
+    /* Two presses, like Disconnect: the first arms (danger style, and the name a screen reader
+       hears says the same as the button, WCAG 2.5.3), the second removes; leaving the button disarms. */
+    const REST_LABEL = 'Remove the Google subscription from Kosmos';
+    const arm = (on) => {
+      btn.dataset.armed = on ? '1' : '';
+      btn.textContent = on ? 'Remove?' : 'Remove';
+      btn.classList.toggle('armed', on);
+      btn.setAttribute('aria-label', on ? 'Remove? ' + REST_LABEL : REST_LABEL);
+    };
+    btn.addEventListener('blur', () => { if (!btn.disabled) arm(false); });
+    btn.addEventListener('click', async () => {
+      if (btn.dataset.armed !== '1') { arm(true); return; }
+      btn.disabled = true;
+      try { await fetch('/api/antigravity/forget', { method: 'POST' }); } catch { /* the repaint shows where it stands */ }
+      paintAccounts();
+    });
+  }
   for (const btn of box.querySelectorAll('[data-grok-reauth]')) {
     btn.addEventListener('click', () => {
       const row = list.find((x) => String(x.dir) === btn.dataset.grokReauth);
@@ -22553,6 +22898,28 @@ async function paintAccounts() {
      is NOT a dead account (#1916) — the badge is left untouched and the button
      says so briefly rather than asserting a result. On connected/none the outcome
      is recorded server-side, so a repaint renders the real badge. */
+  /* #3997: Check now on a ChatGPT sign-in or a Grok subscription. Free checks (no quota), otherwise the same shape as
+     the Claude one below: disabled while in flight, and an answer that confirms nothing leaves the badge as it is
+     and says so on the button, with the provider's reason in its title. */
+  for (const btn of box.querySelectorAll('[data-check-signin]')) {
+    btn.addEventListener('click', async () => {
+      const label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Checking…';
+      let j = {};
+      try {
+        const res = await fetch('/api/accounts/' + btn.dataset.checkSignin + '/check', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir: btn.dataset.checkDir }),
+        });
+        j = res.ok ? ((await res.json()) || {}) : {};
+      } catch { j = {}; }
+      if (j.state === 'connected' || j.state === 'none' || j.state === 'refused') { await paintAccounts(); return; }
+      btn.textContent = j.state === 'expired' ? 'Not until Grok runs again' : 'Could not confirm, try again';
+      if (j.because) btn.title = j.because;
+      btn.disabled = false;
+      setTimeout(() => { if (btn.isConnected) btn.textContent = label; }, 4000);
+    });
+  }
   for (const btn of box.querySelectorAll('[data-check-claude]')) {
     btn.addEventListener('click', async () => {
       const dir = btn.dataset.checkClaude;
@@ -24684,7 +25051,7 @@ function acctShowSuccess(accountLabel, goldBox) {
      stale "Success!" with no provider form on the next open. closeAcctAdd has already
      put the modal back to its form state by then, so a no-op here is the clean outcome. */
   if (document.getElementById('acct-add-modal').hidden) return;
-  ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-apikey-flow', 'acct-grok-flow', 'acct-add-acts']
+  ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-apikey-flow', 'acct-grok-flow', 'acct-gemini-flow', 'acct-add-acts']
     .forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = true; });
   /* Unhide the role="status" region BEFORE writing its text: a polite live region
      mutated while hidden is not reliably announced, so the order is what makes a
@@ -25286,6 +25653,35 @@ function acctGeminiShow(which) {
 /* The last press on the choice stands: a CLI read still out when Sign in with Google is pressed acts
    on nothing. */
 let ACCT_GEMINI_PRESS = 0;
+/* #3998: Sign in again on the Gemini subscription row: Add a provider on Google Gemini, straight to
+   the hidden sign-in (not the check, which would only say it is already signed in). The choice
+   appears once the availability read answers, so this waits for it (up to 3 s) rather than racing. */
+async function acctGeminiSignInAgain() {
+  openAcctAdd(); acctPick('google');
+  const pick = document.getElementById('acct-gemini-pick');
+  const visit = typeof ACCT_APIKEY_GEN !== 'undefined' ? ACCT_APIKEY_GEN : null;
+  /* Wait for the availability read itself (up to 3 s), not for a DOM attribute nothing sets on the
+     negative path (review round 11): only a subscription offered here is signed in again. */
+  await Promise.race([Promise.resolve(agyAsk()).catch(() => {}), new Promise((r) => setTimeout(r, 3000))]);
+  /* Closed, or switched to another provider, while it waited (round 12): start nothing out of sight. */
+  const modal = document.getElementById('acct-add-modal');
+  if ((visit !== null && visit !== ACCT_APIKEY_GEN) || (modal && modal.hidden)
+    || (typeof ACCT_APIKEY_WHICH !== 'undefined' && ACCT_APIKEY_WHICH !== 'google')) return;
+  if (AGY_OFFERED !== true) {
+    // Not offered here after all (or the availability read did not answer): say so rather than nothing.
+    const m = document.getElementById('acct-gemini-sub-code');
+    const step = document.getElementById('acct-gemini-sub-step');
+    if (m && step) { step.hidden = false; m.hidden = false; m.textContent = 'Gemini on a Google subscription is not available on this computer just now.'; }
+    return;
+  }
+  pick.hidden = true;
+  const step = document.getElementById('acct-gemini-sub-step');
+  step.hidden = false;
+  if (!step.hasAttribute('tabindex')) step.setAttribute('tabindex', '-1');
+  step.focus();
+  ACCT_AGY_SUB.next = 'open';
+  ACCT_AGY_SUB.start();
+}
 document.getElementById('acct-gemini-pick-sub').addEventListener('click', () => {
   ACCT_GEMINI_PRESS += 1;
   // Straight to the check, like Grok's pick: no second screen asking to sign in.
@@ -25310,6 +25706,7 @@ async function acctGeminiKeyPath() {
 document.getElementById('acct-gemini-pick-key').addEventListener('click', () => acctGeminiKeyPath());
 document.getElementById('acct-gemini-sub-go').addEventListener('click', () => ACCT_AGY_SUB.start());
 document.getElementById('acct-gemini-sub-cancel').addEventListener('click', () => {
+  ACCT_AGY_SUB.stop();   // round 28: Stop stops it, window open or not
   // Back to the choice, as Grok's does, so "Use an API key" is one press away.
   /* A check that found it not offered here (AGY_OFFERED false) leaves nothing to choose between:
      the key step, the way the step's own words ("Press Stop this sign-in to use an API key") say. */
@@ -25399,6 +25796,8 @@ const FR_KEYED = { google: { pre: 'gemini' }, xai: { pre: 'grok' } };
    step is: check agy (installed? signed in?), and either say it is ready, show Google's installer, or
    open agy once in Terminal for the sign-in and offer Check again. Nothing is typed into agy. */
 let FR_AGY_READY = false;   // Gemini on a Google subscription confirmed signed in on this computer
+/* #3568: Windows signs in without a Terminal (the driver's win* steps). */
+const agyOnWindows = () => typeof onWindows === 'function' && onWindows();
 const frCap = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
 /* #3874: one driver, two places. `pre` is the id prefix of the step it paints (first run's Gemini
    row, or Settings' Add a provider); `onReady` is what that place does once agy is signed in. Each
@@ -25407,10 +25806,228 @@ function agySubDriver(pre, onReady) { return {
   busy: false,
   gen: 0,          // bumped when the row closes: an answer for a closed row writes nothing (review round 1)
   next: 'check',   // what the step's button does next: 'install' Antigravity, 'open' its sign-in, or 'check'
-  leave() { this.gen += 1; this.busy = false; this.next = 'check'; },
+  signing: false,  // #3998: a hidden Antigravity sign-in this step started and has not finished
+  signinId: '',    // #3998: which sign-in that is, so this step never stops or types into another tab's
+  sendingCode: false,   // #3998: a code is on its way (a second press is ignored)
+  codeError: '',   // #3998: why the last pasted code was refused, until the person types again
+  windowOpen: false,   // #3998 round 26: the sign-in's window is open and the person is driving it
+  /* Round 28: the person pressed Stop this sign-in. That stops it even with its window open (only the
+     passive ways out, closing the dialog or switching provider, leave an open window running). */
+  stop() {
+    if (this.signing) { this.signing = false; this.windowOpen = false; this.post('/api/antigravity/signin/stop', { id: this.signinId }); }
+    this.leave();
+  },
+  leave() {
+    this.gen += 1; this.busy = false; this.next = 'check';
+    /* A sign-in nobody is watching any more ends, rather than waiting out its half hour. Not one whose
+       window the person has open (round 26): closing this dialog must not cut off the Terminal they are
+       finishing it in (the engine ends it after half an hour with no change there). */
+    if (this.signing) {
+      this.signing = false;
+      if (!this.windowOpen) this.post('/api/antigravity/signin/stop', { id: this.signinId });
+    }
+    this.windowOpen = false;
+    this.rows(false, false);
+    this.winLeave();   // #3568 (Windows): its own sign-in ends the same way
+  },
+  /* #3998: the paste box (with "Open Google's page again") and the last-resort window button. */
+  rows(paste, show, url) {
+    const pr = this.el('paste-row'); const sr = this.el('show-row');
+    /* A row hidden with focus inside it would drop focus to the page behind the dialog (round 8): move
+       it to Stop, or to the step itself. */
+    const active = typeof document !== 'undefined' ? document.activeElement : null;
+    const leaving = (row, keep) => row && !keep && active && typeof row.contains === 'function' && row.contains(active);
+    if (leaving(pr, paste) || leaving(sr, show)) {
+      const cancel = this.el('cancel'); const cr = this.el('cancel-row');
+      const to = cancel && cr && !cr.hidden ? cancel : this.el('step');
+      if (to) { if (to !== cancel && to.setAttribute && !to.hasAttribute('tabindex')) to.setAttribute('tabindex', '-1'); if (to.focus) to.focus(); }
+    }
+    if (pr) pr.hidden = !paste;
+    if (sr) sr.hidden = !show;
+    const pg = this.el('page'); if (pg) { pg.hidden = !url; pg.setAttribute('href', url || '#'); }
+    // Its paragraph too (round 18): an empty paragraph keeps its margin in the layout.
+    const pgp = pg && pg.closest ? pg.closest('p') : null; if (pgp) pgp.hidden = !url;
+  },
+  /* #3998: follow the hidden sign-in the board is running, once a second, until it ends or this step
+     is left. Each state is said in the step's own status line. */
+  async follow(mine) {
+    const live = () => mine === this.gen && this.signing;
+    let focusedFor = null;   // the reason the box was last focused for ('' for none); null before the first time
+    while (live()) {
+      let st = null;
+      try { st = await (await fetch('/api/antigravity/signin', { cache: 'no-store' })).json(); } catch { st = null; }
+      if (!live()) return;
+      if (st && st.id && st.id !== this.signinId) {
+        // Another tab started a sign-in since: that one is its to follow, not this step's.
+        this.signing = false; this.rows(false, false); this.next = 'open';
+        this.say('A sign-in started somewhere else, so this one stopped.', 'Sign in with Google', false);
+        return;
+      }
+      const state = st && st.state;
+      this.windowOpen = !!(st && st.shown && !st.showFailed);
+      if (state === 'code') {
+        // A code Antigravity did not take comes back here with the reason (#3998 review round 2).
+        /* The words: Antigravity's reason for refusing a code, else Kosmos's own refusal of what was
+           pasted (kept until the person types again, round 6), else the prompt. */
+        // Kosmos's own refusal of the latest paste first (the person's last act), then Antigravity's.
+        this.say(this.codeError || (st.because ? frCap(st.because) : "Google's sign-in is open in your browser. Sign in there, then copy the code Google shows and paste it below."), '', false);
+        this.rows(true, false, st.url || '');
+        /* Focus the box when it appears, and again only when a code comes back refused (the box was
+           emptied on the send): never on every poll, or Tab could never leave it (round 6). */
+        /* Keyed on how many codes Antigravity has refused, not on the words: a second refusal reads the
+           same as the first and must bring the cursor back too (round 7). */
+        const refusalMark = String(st.refusals || 0) + '|' + (st.because || '');
+        if (focusedFor === null || refusalMark !== focusedFor) { const i = this.el('paste'); if (i) i.focus(); focusedFor = refusalMark; }
+      } else if (state === 'checking' || state === 'setup') {
+        this.rows(false, false);
+        // "checking" is also Kosmos asking Antigravity whether it is signed in (round 9): the code only after one was sent.
+        this.say(state === 'checking' ? (st.step === 'code-sent' ? 'Checking the code with Google…' : 'Checking with Antigravity…')
+          : "Finishing Antigravity's setup. Kosmos leaves Google's optional data sharing off; you can change that later in Antigravity's settings.", '', false);
+      } else if (state === 'stuck' && st.shown && st.showFailed) {
+        // The window did not open: say so and offer it again (round 10).
+        this.rows(false, true);
+        this.say('Kosmos could not open the sign-in window. Try Show the sign-in window again, or Stop.', '', false);
+      } else if (state === 'stuck' && st.shown) {
+        // The window is open and the person drives it: no second Show (each would open another window).
+        this.rows(false, false);
+        this.say('The sign-in window is open. Finish it there; Kosmos notices when you are done.', '', false);
+      } else if (state === 'stuck') {
+        this.rows(false, true);
+        this.say(frCap((st && st.because) || 'Antigravity is showing a step Kosmos does not recognise') + '. Show the sign-in window to finish it yourself.', '', false);
+      } else if (state === 'done') {
+        this.signing = false; this.rows(false, false);
+        this.next = 'check';
+        AGY_INSTALLED = true;
+        this.say('Ready. Gemini runs on your Google subscription on this computer: pick Google Gemini (Google subscription) when you create an agent.', '', false, true);
+        try { Promise.resolve(onReady()).catch(() => {}); } catch { /* round 20: a repaint that fails is not an unhandled rejection */ }
+        return;
+      } else if (state === 'failed' || state === 'stopped' || state === 'idle') {
+        this.signing = false; this.rows(false, false);
+        this.next = 'open';
+        this.say(state === 'failed' ? frCap((st && st.because) || 'The sign-in did not finish') + '.' : 'The sign-in stopped.', 'Sign in with Google', false);
+        return;
+      } else if (!st || typeof state !== 'string') {
+        this.say('Waiting for Kosmos to answer…', '', false);   // no answer, or one that is not a state
+      } else {
+        this.say("Opening Google's sign-in in your browser…", '', false);
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  },
+  async sendCode() {
+    if (this.winId) return this.winCode();   // #3568 (Windows): its own sign-in takes the code
+    if (this.sendingCode) return;   // a second press while the first is out (round 10)
+    const i = this.el('paste'); const v = i ? i.value.trim() : '';
+    if (!v) { this.say("Paste the code from Google's page first.", '', false); return; }
+    this.sendingCode = true;
+    let r = null;
+    try {
+      r = await (await fetch('/api/antigravity/signin/code', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: v, id: this.signinId }) })).json();
+    } catch { r = null; }
+    this.sendingCode = false;
+    if (r && r.ok) { this.codeError = ''; if (i) i.value = ''; this.rows(false, false); this.say('Checking the code with Google…', '', false); return; }
+    this.codeError = frCap((r && r.error) || 'Kosmos could not pass the code on just now') + '.';
+    this.say(this.codeError, '', false);
+  },
+  async showWindow() {
+    const r = await this.post('/api/antigravity/signin/show', { id: this.signinId });
+    if (!(r && r.ok)) this.say(frCap((r && r.error) || 'Kosmos could not open the sign-in window') + '.', '', false);
+  },
+  wire() {
+    const go = this.el('paste-go'); if (go) go.addEventListener('click', () => this.sendCode());
+    const i = this.el('paste'); if (i) i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); this.sendCode(); } });
+    if (i) i.addEventListener('input', () => { this.codeError = ''; });   // typing again retires the refusal
+    const sh = this.el('show'); if (sh) sh.addEventListener('click', () => this.showWindow());
+    return this;
+  },
+  /* #3568 on Windows: no Terminal. Kosmos runs agy's sign-in out of sight (POST
+     /api/antigravity/win32signin), opens Google's page itself, and the person pastes the code Google's
+     page shows into this step's box. The state is read once a second until it is signed in or ended. */
+  winId: null,
+  winState: null,
+  winReady: onReady,
+  winShowPaste(on, link) {
+    const row = this.el('paste-row'); if (row) row.hidden = !on;
+    const a = this.el('page'); if (a && link) a.href = link;
+    const go = this.el('paste-go'); if (go) go.disabled = false;
+    if (on) { const inp = this.el('paste'); if (inp && document.activeElement !== inp) inp.focus(); }
+  },
+  winLeave() {
+    const id = this.winId; this.winId = null; this.winState = null;
+    this.winShowPaste(false);
+    if (id) fetch('/api/antigravity/win32signin/stop', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) }).catch(() => {});
+  },
+  async winStart(live) {
+    this.winShowPaste(false);
+    this.winState = null;
+    this.say("Opening Google's sign-in page…", '', false);
+    const r = await this.post('/api/antigravity/win32signin');
+    if (!live()) return;
+    if (!r || !r.ok || !r.id) {
+      this.next = 'open';
+      this.say(frCap((r && r.error) || "We could not start Google's sign-in just now") + '.', 'Sign in with Google', false);
+      return;
+    }
+    this.winId = r.id;
+    this.winPaint(r);
+    const id = r.id;
+    const tick = async () => {
+      if (!live() || this.winId !== id) return;
+      let st = null;
+      try { st = await (await fetch('/api/antigravity/win32signin', { cache: 'no-store' })).json(); } catch { st = null; }
+      if (!live() || this.winId !== id) return;
+      if (st && st.id && st.id !== id) { this.winId = null; return; }   // another screen started a newer one
+      if (st && st.id === id) this.winPaint(st);
+      if (this.winId === id) setTimeout(tick, 1000);
+    };
+    setTimeout(tick, 1000);
+  },
+  winPaint(st) {
+    const state = st && st.state;
+    if (state === this.winState && state !== 'waiting') return;
+    const first = state !== this.winState;
+    this.winState = state;
+    if (state === 'waiting') {
+      this.winShowPaste(true, st.link);
+      if (first) this.say("Google's sign-in page is open in your browser. Sign in there, then copy the code the page shows and paste it here. Google allows about a minute.", '', false);
+    } else if (state === 'checking') {
+      const go = this.el('paste-go'); if (go) go.disabled = true;
+      this.say('Checking with Google…', '', false);
+    } else if (state === 'signed-in') {
+      this.winId = null;
+      this.winShowPaste(false);
+      this.next = 'check';
+      AGY_INSTALLED = true;
+      this.say('Ready. Gemini runs on your Google subscription on this computer: pick Google Gemini (Google subscription) when you create an agent.', '', false, true);
+      // onReady is async since #4082: guarded like the Mac call sites, so a failure is never an unhandled rejection.
+      try { Promise.resolve(this.winReady()).catch(() => {}); } catch { /* same */ }
+    } else if (state === 'failed') {
+      this.winId = null;
+      this.winShowPaste(false);
+      this.next = 'open';
+      this.say(frCap(st.because || 'The sign-in did not finish') + '.', 'Sign in with Google', false);
+    } else {
+      this.say("Opening Google's sign-in page…", '', false);
+    }
+  },
+  async winCode() {
+    const inp = this.el('paste'); const go = this.el('paste-go');
+    const v = inp ? String(inp.value || '').trim() : '';
+    if (!v || !this.winId) return;
+    if (go) go.disabled = true;
+    let r = null;
+    try {
+      r = await (await fetch('/api/antigravity/win32signin/code', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: this.winId, code: v }) })).json();
+    } catch { r = null; }
+    if (go) go.disabled = false;
+    if (r && r.ok) { if (inp) inp.value = ''; this.winPaint(r); return; }
+    this.say(frCap((r && r.error) || 'We could not pass that code just now') + '.', '', false);
+  },
   el(part) { return document.getElementById(pre + part); },
   say(text, button, about, done) {
-    const code = this.el('code'); if (code) { code.textContent = text; code.hidden = !text; }
+    /* Only when the words change: this runs every second while a sign-in is followed, and the line is
+       a live region, so rewriting the same words made a screen reader read them again each second. */
+    const code = this.el('code'); if (code) { if (code.textContent !== text) code.textContent = text; code.hidden = !text; }
     // Stop is there for the whole step, like Grok's, except once it is ready (review round 2).
     const stop = this.el('cancel-row'); if (stop) stop.hidden = !!done;
     const go = this.el('go');
@@ -25429,8 +26046,9 @@ function agySubDriver(pre, onReady) { return {
       if (to) { if (to !== cancel && !to.hasAttribute('tabindex')) to.setAttribute('tabindex', '-1'); to.focus(); }
     }
   },
-  async post(path) {
-    try { return await (await fetch(path, { method: 'POST' })).json(); } catch { return null; }
+  async post(path, body) {
+    const init = body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : { method: 'POST' };
+    try { return await (await fetch(path, init)).json(); } catch { return null; }
   },
   async start() {
     if (this.busy) return;
@@ -25438,17 +26056,27 @@ function agySubDriver(pre, onReady) { return {
     const mine = this.gen;
     const live = () => mine === this.gen;
     try {
+      if (this.next === 'open' && agyOnWindows()) { await this.winStart(live); return; }   // #3568: no Terminal on Windows
       if (this.next === 'open') {
-        /* Opening Terminal is its own press, never a side effect of a check (review round 1): each
-           check costs a prompt and each open is another window. */
-        const opened = await this.post('/api/antigravity/open');
-        if (!live()) return;
-        this.next = 'check';
-        this.say(opened && opened.ok
-          ? "Antigravity opened, and it opens Google's sign-in in your browser. Sign in there with your Google account, then press Check again. You can close Antigravity's window afterwards."
-          : frCap((opened && opened.error) || "We could not open Antigravity's sign-in just now") + '.',
-          opened && opened.ok || /not installed|not available|switched off/.test((opened && opened.error) || '') ? 'Check again' : 'Open Antigravity to sign in', false);
-        if (!(opened && opened.ok)) this.next = /not installed|not available|switched off/.test((opened && opened.error) || '') ? 'check' : 'open';
+        /* #3998: no Terminal. The board runs Antigravity's sign-in out of sight; the person sees
+           Google's page in the browser and pastes its code here (follow() drives the rest). Its own
+           press, never a side effect of a check (review round 1 of #3568). */
+        const started = await this.post('/api/antigravity/signin');
+        if (!live()) {
+          // Left while it was starting: stop the sign-in this press began, or agy would carry on out of
+          // sight (and open Google's page after the person had closed the dialog).
+          if (started && started.ok && started.id) this.post('/api/antigravity/signin/stop', { id: String(started.id) });
+          return;
+        }
+        if (!(started && started.ok)) {
+          const refused = /not installed|not available|not offered|switched off/.test((started && started.error) || '');
+          this.next = refused ? 'check' : 'open';
+          this.say(frCap((started && started.error) || "We could not start Antigravity's sign-in just now") + '.', refused ? 'Check again' : 'Sign in with Google', false);
+          return;
+        }
+        this.signing = true; this.signinId = String(started.id || ''); this.codeError = '';
+        this.say("Opening Google's sign-in in your browser…", '', false);
+        this.follow(mine);
         return;
       }
       if (this.next === 'install') {
@@ -25473,7 +26101,8 @@ function agySubDriver(pre, onReady) { return {
         /* Freshly installed means not signed in yet, so go straight to the sign-in step rather than
            spending a check on it (review round 2: a signed-out check may itself open a browser). */
         this.next = 'open';
-        this.say('Antigravity is installed. Open it once to sign in with your Google account.', 'Open Antigravity to sign in', false);
+        if (agyOnWindows()) { await this.winStart(live); return; }   // #3568: straight to Google's page
+        this.say('Antigravity is installed. Now sign in with your Google account.', 'Sign in with Google', false);
         return;
       }
       this.say('Checking Antigravity on this computer…', '', false);
@@ -25501,33 +26130,73 @@ function agySubDriver(pre, onReady) { return {
       } else if (r.signedIn === true) {
         this.next = 'check';
         this.say('Ready. Gemini runs on your Google subscription on this computer: pick Google Gemini (Google subscription) when you create an agent.', '', false, true);
-        onReady();
+        try { Promise.resolve(onReady()).catch(() => {}); } catch { /* round 20: a repaint that fails is not an unhandled rejection */ }
+      } else if (agyOnWindows()) {
+        /* #3568: the Windows check costs no prompt and opens nothing, so a not-signed-in answer goes
+           straight to Google's page: no screen whose only job is a second press. */
+        this.next = 'open';
+        await this.winStart(live);
       } else {
         this.next = 'open';
-        this.say("Antigravity is on this computer but we could not confirm it is signed in. Open it once to sign in with your Google account.",
-          'Open Antigravity to sign in', false);
+        this.say("Antigravity is on this computer but we could not confirm it is signed in. Sign in with your Google account.",
+          'Sign in with Google', false);
       }
     } finally { if (live()) this.busy = false; }   // a superseded press must not free a newer one
   },
 }; }
-const FR_AGY_SUB = agySubDriver('fr-gemini-sub-', () => {
+const FR_AGY_SUB = agySubDriver('fr-gemini-sub-', async () => {
   FR_AGY_READY = true;
-  frPaintKeyed();   // the row reads Connected and the step offers Next (review round 3)
+  /* #4082: the step hides on Ready, and focus inside it (the paste box's Continue, or the step itself) fell to the
+     page: a keyboard or screen-reader user lost their place. Decided NOW, before the repaint's accounts read (which
+     can take seconds, and a person may Tab on meanwhile), and only when focus is lost: the page, or the step. Focus
+     goes to Gemini's own box BEFORE the repaint writes it, Grok's order, so its live region reads the box once. */
+  const box = document.getElementById('fr-gemini-msg');
+  const step = document.getElementById('fr-gemini-sub-step');
+  const was = document.activeElement;
+  /* Also lost: Skip (#fr-alt), which the Next that success offers replaces, and Gemini's own Connect, which success
+     disables (review round 7: both measured ending on the page). */
+  const lostOn = [document.getElementById('fr-alt'), document.getElementById('fr-gemini-connect')];
+  const lost = (typeof FR_STEP !== 'undefined' && FR_STEP === 5)
+    && (!was || was === document.body || lostOn.includes(was) || (!!step && typeof step.contains === 'function' && step.contains(was)));
+  /* Collapse the finished step now, as Grok's success does, rather than after the repaint's accounts read: its Stop
+     must not stay on screen and pressable after focus has left it (review round 2). keepSignIn: the box is kept. */
+  if (typeof frKeyedCollapse === 'function') frKeyedCollapse('google', true);
+  if (box && lost) {
+    if (box.setAttribute) box.setAttribute('tabindex', '-1');
+    if (box.focus) box.focus();
+  }
+  /* The result is said NOW, in the box, AFTER focus lands (Grok's order: its live region reads the new sentence
+     once). The step's own Ready line has just hidden with it, and the box would otherwise sit empty for the whole
+     accounts read (review round 3). The repaint replaces it. */
+  if (box) { box.className = 'dhint'; box.textContent = 'Google Gemini (Google subscription) is ready.'; }
+  const painting = frPaintKeyed();   // the row reads Connected and the step offers Next (review round 3)
   /* Not dependent on the accounts read (review round 9: frPaintKeyed returns early if it fails). */
   { const b = document.getElementById('fr-gemini-connect');
     if (b) { b.innerHTML = '<span aria-hidden="true">✓</span> Connected'; b.disabled = true; if (b.classList) b.classList.add('is-connected'); if (b.setAttribute) b.setAttribute('aria-label', 'Gemini is connected'); } }
   if (typeof FR_STEP !== 'undefined' && FR_STEP === 5 && !(typeof FR !== 'undefined' && FR && FR.subscription && FR.subscription.state === 'connected')) {
     frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) }, null);
   }
-});
+  try { await painting; } catch { /* the sentence written above stays: it already says what happened */ }
+}).wire();
 /* #3874: Settings, Add a provider. Ready records the signed-in fact every screen reads (the create
    hint, the guided setup's Gemini row on its next paint), but paints nothing of first run's. */
-const ACCT_AGY_SUB = agySubDriver('acct-gemini-sub-', () => { FR_AGY_READY = true; });
+const ACCT_AGY_SUB = agySubDriver('acct-gemini-sub-', async () => {
+  FR_AGY_READY = true;
+  // The new Gemini subscription row appears behind the dialog, as GPT's and Grok's successes do.
+  await paintAccounts();
+  /* #3998 (Josh, 11:34: "This success message is different than the way we're displaying all of our
+     other success messages"): the same gold connected box GPT and Grok end on. */
+  acctShowSuccess('your Google subscription', frCheckRow({ state: 'ok', title: 'Gemini is connected',
+    detail: 'Signed in with your Google subscription, through Antigravity on this computer.' }));
+}).wire();
 const KEYED_SUB_START = { google: () => FR_AGY_SUB.start(), xai: () => FR_GROK_SUB.start() };
+/* #3568 (Windows): the code box's Continue and Enter are wired once, in the driver's wire() (sendCode hands a
+   Windows sign-in to winCode), so one press is never sent twice by the Mac and Windows paths. */
 /* #3568: Gemini's subscription only where it can run (a Mac, runner on); AGY_OFFERED is read before
-   the choice is shown (frKeyedConnect). */
+   the choice is shown (frKeyedConnect). On Windows only once the board has said yes (its switch is on,
+   engine/win32agy.js): a board that has not answered, or an older one, offers the key only. */
 const keyedSubReady = (which) => typeof KEYED_SUB_START[which] === 'function'
-  && (which !== 'google' || (AGY_OFFERED !== false && !onWindows()));   // agy runs on a Mac only
+  && (which !== 'google' || (onWindows() ? AGY_OFFERED === true : AGY_OFFERED !== false));
 let FR_KEYED_GEN = 0;   // an answer, a finished download or an Add from an earlier opening changes nothing
 const frK = (which, part) => document.getElementById('fr-' + FR_KEYED[which].pre + '-' + part);
 const frKeyedPanels = (which) => ['confirm', 'pick', 'sub-step', 'flow'].map((part) => frK(which, part)).filter(Boolean);
@@ -25804,7 +26473,7 @@ const FR_GROK_SUB = grokSubDriver({
 });
 document.getElementById('fr-gemini-sub-cancel').addEventListener('click', () => {
   // #3568, as Grok's below: back to the choice, so the key is one press away.
-  FR_AGY_SUB.leave();
+  FR_AGY_SUB.stop();   // round 28: Stop stops it, window open or not
   frKeyedShowPick('google');
 });
 document.getElementById('fr-grok-sub-cancel').addEventListener('click', () => {
@@ -27183,8 +27852,9 @@ function paintOrg() {
     const parent = spot.node.parent ? placed.get(spot.node.parent) : null;
     const px = parent ? cx + Math.cos(parent.ang) * parent.r : cx;
     const py = parent ? cy + Math.sin(parent.ang) * parent.r : cy;
-    wires.push('<line data-for="' + esc(name) + '" x1="' + px.toFixed(1) + '" y1="' + py.toFixed(1) + '" x2="'
-      + x.toFixed(1) + '" y2="' + y.toFixed(1) + '" class="edge"/>');
+    const w = orgWireEnds(px, py, parent ? parent.node.agent : null, x, y, spot.node.agent);
+    wires.push('<line data-for="' + esc(name) + '" x1="' + w.x1.toFixed(1) + '" y1="' + w.y1.toFixed(1) + '" x2="'
+      + w.x2.toFixed(1) + '" y2="' + w.y2.toFixed(1) + '" class="edge"' + (w.shown ? '' : ' visibility="hidden"') + '/>');
     const a = spot.node.agent;
     /* #2576/#2577: the state vocabulary is still the CARD's, read through the
        same table the grid and the list read, so the three views cannot disagree
@@ -27225,7 +27895,7 @@ function paintOrg() {
       : '';
     /* #3946 item 15: a swarm's node is the same cluster as its grid card and list row (one component), filling
        the node's face; an ordinary agent keeps its single picture or initials. */
-    const isSwarm = typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm;
+    const isSwarm = orgDrawsCluster(a);
     const face = isSwarm ? swarmCluster(a, 0, { decorative: true }) : a.hasAvatar
       /* #2698: `?v=` the avatar version so a changed picture changes this markup.
          Without it the URL is byte-identical after an update, the repaint guard
@@ -27341,7 +28011,7 @@ function orgLiveStart(map, placed, cx, cy, size) {
   const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const hubEl = map.querySelector('.hub');
   const hubWas = ORG_POS.get('\u0000hub');
-  const hub = { key: '\u0000hub', el: hubEl, x: hubWas ? hubWas.x : cx, y: hubWas ? hubWas.y : cy, vx: 0, vy: 0, fixed: false, size: 52, home: { x: cx, y: cy } };
+  const hub = { key: '\u0000hub', el: hubEl, x: hubWas ? hubWas.x : cx, y: hubWas ? hubWas.y : cy, vx: 0, vy: 0, fixed: false, size: 52, home: { x: cx, y: cy }, agent: null };   // #4040: the hub, whose wires start at its centre
   const nodes = new Map();
   for (const [key, spot] of placed) {
     const el = map.querySelector('.onode[data-agent="' + CSS.escape(key) + '"]');
@@ -27353,6 +28023,7 @@ function orgLiveStart(map, placed, cx, cy, size) {
       y: was ? was.y : cy + Math.sin(spot.ang) * spot.r,
       vx: 0, vy: 0, ring: spot.r, parentKey: spot.node.parent || null, parent: null, fixed: false,
       wire: map.querySelector('line[data-for="' + CSS.escape(key) + '"]'),
+      agent: spot.node.agent,   // #4040: its picture, where its wires stop
     });
   }
   for (const n of nodes.values()) n.parent = n.parentKey ? (nodes.get(n.parentKey) || null) : null;
@@ -27368,6 +28039,51 @@ function orgLiveStart(map, placed, cx, cy, size) {
     orgLiveSync();
     orgLiveRun();
   }
+}
+/* #4040 (Josh, 2026-09-26: the connecting line "goes above agent clusters avatars"): a wire stops at each
+   node's edge instead of running to its centre. An agent's opaque disc hid the rest of a centre-to-centre
+   wire, but a swarm's cluster has no disc (gaps between its circles, and it rests at half strength), so the
+   wire showed through it. orgReach(a, ux, uy) is how far along the direction (ux, uy) from a node's centre
+   its picture ends: a disc ends at its edge whatever the direction; a cluster ends where that ray leaves
+   the last circle it crosses (swarmLayout, the one swarmCircles draws). A ray that only grazes a circle's
+   edge, or passes just beside it (through the narrow gap between two), stops level with that circle's
+   outer edge rather than running along it or on to the centre. The hub is an opaque disc drawn over the
+   wires: a wire from it starts at its centre. */
+/* Whether the org chart draws this node as a swarm cluster: paintOrg's face and orgReach's cut both ask
+   here, so a wire is never cut to a cluster around a disc or the other way round. */
+function orgDrawsCluster(a) {
+  return typeof SWARMS_ON !== 'undefined' && SWARMS_ON && !!a && Object.prototype.hasOwnProperty.call(a, 'swarm') && !!a.swarm;
+}
+/* A node's face is ORG_FACE_PX square (.onode's width and height); a disc's picture ends at half of it. */
+const ORG_FACE_PX = 44;
+/* orgReach runs for every wire end on every frame of a drag or settle: the layout for each helper count is
+   worked out once. */
+const ORG_LAYOUT_BY_MAX = new Map();
+function orgReach(a, ux, uy) {
+  if (!orgDrawsCluster(a)) return ORG_FACE_PX / 2;
+  const max = Math.max(2, Math.min(10, Math.round(Number(a.swarm.maxHelpers) || 3)));
+  if (!ORG_LAYOUT_BY_MAX.has(max)) ORG_LAYOUT_BY_MAX.set(max, swarmLayout(max));
+  const L = ORG_LAYOUT_BY_MAX.get(max);
+  const r = L.r * ORG_FACE_PX;
+  let cut = 0;
+  for (const q of L.p) {
+    const cx = (q[0] - 0.5) * ORG_FACE_PX, cy = (q[1] - 0.5) * ORG_FACE_PX;
+    const b = cx * ux + cy * uy, d = Math.sqrt(Math.max(0, cx * cx + cy * cy - b * b));
+    if (d <= r - 1.5) cut = Math.max(cut, b + Math.sqrt(r * r - d * d));
+    else if (d < 1.2 * r) cut = Math.max(cut, b + r);   // grazing its edge stroke, or passing just beside it
+  }
+  return cut;
+}
+/* A wire from (x0, y0) to (x1, y1), cut back by each end's picture along the wire (a0 and a1 are the ends'
+   agents; a0 is null for the hub). Two nodes whose pictures meet get no wire (shown false) rather than one
+   drawn backwards across both faces. */
+function orgWireEnds(x0, y0, a0, x1, y1, a1) {
+  const len = Math.hypot(x1 - x0, y1 - y0);
+  if (!(len > 0)) return { x1: x0, y1: y0, x2: x1, y2: y1, shown: false };
+  const ux = (x1 - x0) / len, uy = (y1 - y0) / len;
+  const cut0 = a0 ? orgReach(a0, ux, uy) : 0, cut1 = orgReach(a1, -ux, -uy);
+  if (!(len > cut0 + cut1)) return { x1: x0, y1: y0, x2: x1, y2: y1, shown: false };
+  return { x1: x0 + ux * cut0, y1: y0 + uy * cut0, x2: x1 - ux * cut1, y2: y1 - uy * cut1, shown: true };
 }
 /* #1738: run the same relaxation orgLiveRun animates, but synchronously and
    bounded, so a reduced-motion (static) render still separates overlapping
@@ -27398,8 +28114,10 @@ function orgLiveSync() {
     n.el.classList.toggle('co-r', n.x > 2 * third);
     const p = n.parent || hub;
     if (n.wire) {
-      n.wire.setAttribute('x1', p.x.toFixed(1)); n.wire.setAttribute('y1', p.y.toFixed(1));
-      n.wire.setAttribute('x2', n.x.toFixed(1)); n.wire.setAttribute('y2', n.y.toFixed(1));
+      const w = orgWireEnds(p.x, p.y, p.agent || null, n.x, n.y, n.agent);
+      n.wire.setAttribute('x1', w.x1.toFixed(1)); n.wire.setAttribute('y1', w.y1.toFixed(1));
+      n.wire.setAttribute('x2', w.x2.toFixed(1)); n.wire.setAttribute('y2', w.y2.toFixed(1));
+      if (w.shown) n.wire.removeAttribute('visibility'); else n.wire.setAttribute('visibility', 'hidden');
     }
     ORG_POS.set(n.key, { x: n.x, y: n.y });
   }
@@ -29063,6 +29781,18 @@ let TALK_FLIGHT = null;
  * words exist only in the DOM.
  */
 const TALK_DRAFTS = {};
+/**
+ * The person's own message, drawn the moment they press Send, per agent.
+ *
+ * 🛑 THE THREAD USED TO WAIT FOR THE BOARD. The bubble appeared only once the POST
+ * had answered AND the thread had been read again, so every second the board spent
+ * was a second the person looked at a thread without their message in it, and on a
+ * slow Windows laptop that was over a minute. Now the bubble is drawn from what was
+ * typed, marked "Sending…", and the kept row replaces it once the thread holds it.
+ * A send the board never kept is marked as not sent, with the reason, so it never
+ * quietly disappears. { text, startedAt, recorded, failed, because }.
+ */
+const TALK_PENDING = {};
 /* #967: the Terminal tab's respond-in-context box parks its draft per agent too,
    so switching agents never loses a half-typed reply and never carries it onto
    the next agent's window. Mirrors TALK_DRAFTS. */
@@ -29221,6 +29951,30 @@ function dmRow(m, name) {
 }
 
 
+/* The in-flight (or not-kept) message, in the person's own bubble. The pill is
+   the thread's delivery pill: dashed while it is on its way, red if it did not go. */
+function dmPendingRow(p) {
+  const youAv = YOU_PIC
+    ? '<div class="msg-av" aria-hidden="true"><img src="' + youPicUrl() + '" alt=""></div>'
+    : '<div class="msg-av mine" aria-hidden="true"></div>';
+  const pill = p.failed
+    ? '<span class="delivery failed">Not sent. ' + esc(pjSentence(p.because || 'we could not send that')) + '</span>'
+    : '<span class="delivery unsure">Sending…</span>';
+  return '<div class="msg you dm-pending" data-mid="pending:' + esc(String(p.startedAt)) + '">' + youAv
+    + '<div class="msg-b"><div class="msg-bd">'
+    + pjRich(pjWords({ text: p.text }))
+    + '<span class="msg-t">' + pill + '</span></div></div></div>';
+}
+/* Does the kept thread already hold this pending message? A row the person sent,
+   with the same words, kept no earlier than a minute before the press (the board
+   stamps its own clock, which is this computer's or near it). */
+function dmPendingKept(rows, p) {
+  const flat = (t) => String(t == null ? '' : t).replace(/\s+/g, ' ').trim();
+  const want = flat(p.text);
+  return rows.some((m) => m && !m.from && m.kind !== 'kosmos' && flat(m.text) === want
+    && !(Date.parse(m.at) < p.startedAt - 60000));
+}
+
 /* The thread rows, and only them, so the search box can repaint between
    polls without re-fetching (#403). The filter matches what a row SHOWS:
    who said it (as dmWho names them) and the text. */
@@ -29265,7 +30019,15 @@ function paintTalkThread(body, name) {
   const rows = talkFilterRows(allRows, name, TALK_QUERY);
   const filtering = TALK_QUERY.trim() !== '';
   const thread = document.getElementById('d-dmthread');
-  if (body.historyUnfilable && !allRows.length) {
+  /* The person's own message in flight, drawn after the kept rows until the thread
+     holds it (see TALK_PENDING). Not while a search is filtering the thread. */
+  let pending = (dmSession && TALK_PENDING[dmSession]) || null;
+  if (pending && pending.recorded && Array.isArray(body.messages) && dmPendingKept(allRows, pending)) {
+    delete TALK_PENDING[dmSession];
+    pending = null;
+  }
+  const pendingHtml = (pending && !filtering) ? dmPendingRow(pending) : '';
+  if (body.historyUnfilable && !allRows.length && !pendingHtml) {
     /**
      * ⚠️ A THIRD FACT, not a flavour of unreadable. This agent's name cannot be
      * filed under at all, so there is no file to read and there never will be
@@ -29278,7 +30040,7 @@ function paintTalkThread(body, name) {
     setThread(thread, '<p class="dmnone"><b>Nothing said here is kept for ' + esc(name) + '.</b> '
       + esc(pjSentence(body.historyBecause || 'we cannot keep a conversation under this agent’s name'))
       + ' You can still send, and it still arrives.</p>', null);
-  } else if (body.historyBecause && !allRows.length) {
+  } else if (body.historyBecause && !allRows.length && !pendingHtml) {
     // We could not read a store that does exist. ⚠️ The room's load-bearing
     // second sentence rides along: an unreadable file is not evidence that
     // nothing was said, and silence here would render "we could not look" as
@@ -29295,7 +30057,7 @@ function paintTalkThread(body, name) {
        read what you have sent this agent", and that pairing is correct. */
     setThread(thread, '<p class="dmnone">' + esc(pjSentence(body.historyBecause))
       + ' This is not saying you have sent nothing: it is saying we cannot see it.</p>', null);
-  } else if (!allRows.length) {
+  } else if (!allRows.length && !pendingHtml) {
     setThread(thread, '<p class="dmnone">Nothing here yet.</p>', null);
   } else if (filtering && !rows.length) {
     // null count: a no-match paint never scrolls, the room's rule.
@@ -29337,8 +30099,9 @@ function paintTalkThread(body, name) {
        screen and should behave like one. */
     const tailRow = rows.length ? rows[rows.length - 1] : null;
     const threadKey = (filtering ? TALK_QUERY : '') + '\u0000' + rows.length
-      + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '');
-    const dmHtml = rows.map((m) => dmRow(m, name)).join('') + (filtering ? '' : dmOwesLine(body.owes, rows));
+      + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '')
+      + (pendingHtml ? '\u0000' + (pending.failed ? 'failed:' : 'sending:') + pending.startedAt : '');
+    const dmHtml = rows.map((m) => dmRow(m, name)).join('') + pendingHtml + (filtering ? '' : dmOwesLine(body.owes, rows));
     setThread(thread, dmHtml, threadKey);
     if (!filtering && CURRENT && CURRENT.sessionName) unreadEdgeApply(thread, 'dm:' + CURRENT.sessionName);   // #3743
   }
@@ -29734,7 +30497,7 @@ async function paintTalk(sessionName, agentName) {
   /* --- the thread --- */
   const rows = Array.isArray(body.messages) ? body.messages : [];
   const thread = document.getElementById('d-dmthread');
-  thread.__lastBody = body; thread.__lastName = name;
+  thread.__lastBody = body; thread.__lastName = name; thread.__lastSession = sessionName;
   paintTalkThread(body, name);
 
   const older = document.getElementById('d-talk-older');
@@ -29884,6 +30647,18 @@ async function paintTalk(sessionName, agentName) {
   attachPaint(ATTACH_AGENT);   // this agent's pending files, not the last one's
 }
 
+/* Repaint the open thread from its last read, so a pending message shows without a
+   fetch. Only for the agent that is open: another agent's thread is not on screen. */
+function talkPaintPending(sessionName, name) {
+  if (!CURRENT || CURRENT.sessionName !== sessionName) return;
+  const th = document.getElementById('d-dmthread');
+  if (!th) return;
+  /* The last read must be THIS agent's: straight after opening another agent it is
+     still the previous one's, and its first read will draw the pending message. */
+  if (th.__lastSession !== sessionName || !th.__lastBody) return;
+  paintTalkThread(th.__lastBody, th.__lastName || name);
+}
+
 /**
  * Send one message to this agent, and say what became of it.
  *
@@ -29965,6 +30740,10 @@ async function sendTalk(text, attachment) {
     // want to type instead goes.
     if (sendHadFocus) say.focus();
     msg.textContent = 'Sending…';
+    /* The message goes into the thread NOW, before the board has answered (see
+       TALK_PENDING). Painted from the last thread read, so nothing waits on a fetch. */
+    TALK_PENDING[sentName] = { text, startedAt: Date.now(), recorded: false, failed: false, because: null };
+    talkPaintPending(sentName, name);
     const res = await fetch('/api/agent/' + encodeURIComponent(sentName) + '/thread', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -29973,6 +30752,15 @@ async function sendTalk(text, attachment) {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not send that');
     const d = body.delivery || {};
+    /* The kept row takes over from the drawn one once the thread holds it. One the
+       board did not keep stays drawn, as not sent, unless it reached the agent: then
+       the line below says it was not kept, and the bubble goes. */
+    const flying = TALK_PENDING[sentName];
+    if (flying) {
+      if (body.recorded === true) flying.recorded = true;
+      else if (d.state === 'placed') delete TALK_PENDING[sentName];
+      else { flying.failed = true; flying.because = d.because || body.recordedBecause || 'we could not send that'; }
+    }
     const note = d.paneNote ? ' (' + d.paneNote + ')' : '';
     /**
      * ⚠️ RECORDED IS A QUESTION, NOT AN ASSUMPTION, and this is the defect the
@@ -30035,6 +30823,13 @@ async function sendTalk(text, attachment) {
     if (!inThread && body.recordedBecause) line += ' ' + pjSentence(body.recordedBecause);
     if (!flightMoved()) msg.textContent = line;
   } catch (err) {
+    /* Nothing was kept, so the drawn bubble is the only record of the attempt: it
+       stays, marked not sent. The words are still in the box for a retry. */
+    const flying = TALK_PENDING[sentName];
+    if (flying && !flying.recorded) {
+      flying.failed = true;
+      flying.because = (err && err.message) || 'we could not send that';
+    }
     if (!flightMoved()) msg.textContent = pjSentence((err && err.message) || 'we could not send that');
   } finally {
     TALK_SENDING = false;
@@ -31091,8 +31886,8 @@ function detailGo(section, opts) {
      handled: unobserved (no iOS simulator on this Mac), on Johnny's simulator checklist. */
   // The controls that count as typing; the CSS block's :is(...) list is the same, pinned by render-dm-chatfirst-718.
   const KOSMOS_TYPING_SELECTOR = '#d-say, #d-send, #d-emoji-btn, #d-emoji button';
-  // Same breakpoint as the CSS block "#718 CHAT FIRST ON A PHONE"; change both together.
-  const PHONE_WIDTH = window.matchMedia('(max-width: 40rem)');
+  // Same query as the CSS block "#718 CHAT FIRST ON A PHONE" (a narrow screen, or a phone held sideways, #3969); change both together.
+  const PHONE_WIDTH = window.matchMedia('(max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem)');
   viewport.addEventListener('resize', () => {
     write();
     const talk = document.getElementById('d-sec-talk');
@@ -32185,40 +32980,160 @@ function conShelfDoor(api, st) {
 }
 
 /* The connect tab's one computed sentence (the taxonomy doc's defect half). */
-/* #541: the one line that makes ship-day visible. */
-async function newsbarCheck() {
+/* #3955 (Josh, 2026-09-26: "a full-screen modal with a dimmed background ... Kosmos has been updated
+   to version number ... some callouts of what the new features are"; Mona Lisa's mock C). Once per
+   version, after the new version is on screen, whether it was a manual Update or an automatic one.
+   The board records the version seen (seen-version.json, #541), so dismissed stays dismissed across
+   restarts and browsers; it replaces the "Kosmos updated to X [x]" line, which lingered.
+   Shown only when: the page on screen IS the board's version (never over an old page, where the
+   update chip says Reload), a version has been seen before (a fresh install records silently: it
+   was not updated, it was installed), and that version is not the one running now. The tiles are
+   web/whats-new.json's highlights, which the board serves only when the file is for this version;
+   without them no window opens and the version is recorded quietly (round 3). */
+const WN_ICONS = Object.freeze({
+  swarm: '<circle cx="12" cy="8" r="3.5"/><circle cx="5.5" cy="16" r="2.5"/><circle cx="18.5" cy="16" r="2.5"/>',
+  tasks: '<path d="M4 6l2 2 3-3"/><path d="M12 7h8"/><path d="M4 13l2 2 3-3"/><path d="M12 14h8"/><path d="M12 20h8"/>',
+  phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
+  list: '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M8 10h8M8 14h5"/>',
+  chat: '<path d="M4 5h16v11H9l-5 4z"/>',
+  shield: '<path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6z"/>',
+  spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M18 6l-2.5 2.5M8.5 15.5L6 18"/>',
+});
+function wnIcon(key) {
+  const inner = Object.prototype.hasOwnProperty.call(WN_ICONS, key) ? WN_ICONS[key] : WN_ICONS.spark;
+  return '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + inner + '</svg>';
+}
+let WN_OPENER = null;
+const WN_VERSIONS_PAGE = 'https://installkosmos.com/versions';
+const WN_MAX_TILES = 5;           // engine/whatsnew.js MAX_HIGHLIGHTS: the board never serves more
+
+/* Made when it is shown and removed when it closes, like the update overlay (.upd-back): the body's
+   direct children are the consolidated grid's rows (web.consolidated-980), and a window seen once per
+   version is not worth a permanent one. The mark is the app's own icon. */
+/* Josh, 2026-09-26 review: the version is in the title (no pill), an X top-right closes it (no Got it),
+   and "See everything that changed" sits bottom-left, linked to this version's entry. */
+/* The backdrop is in the markup too (round 11), so the modal sweep (web.modal-way-out-1316) names it. */
+const WN_HTML = '<div class="rm-back" id="whatsnew">'
+  + '<div class="wn-box" role="dialog" aria-modal="true" aria-labelledby="wn-title" aria-describedby="wn-tiles" tabindex="-1">'
+  + '<button type="button" class="wn-x" id="wn-x" aria-label="Close">&times;</button>'
+  + '<img class="wn-mark" src="/icons/kosmos-192.png" alt="" width="52" height="52">'
+  + '<h2 class="wn-title" id="wn-title">Kosmos has been updated</h2>'
+  + '<ul class="wn-tiles" id="wn-tiles" hidden></ul>'   // no aria-label (round 12): it would replace the tiles as the dialog's description
+  + '<div class="wn-acts">'
+  + '<a class="wn-more" id="wn-more" href="' + WN_VERSIONS_PAGE + '" target="_blank" rel="noreferrer noopener">See everything that changed<span class="vh"> (opens in your browser)</span></a></div>'
+  + '</div></div>';
+function wnOpen(version, highlights) {
+  let back = document.getElementById('whatsnew');
+  if (!back) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = WN_HTML;
+    back = tmp.firstElementChild;
+    document.body.appendChild(back);
+    wnWire(back);
+  }
+  document.getElementById('wn-title').textContent = 'Kosmos has been updated to ' + version;
+  const tiles = document.getElementById('wn-tiles');
+  const list = Array.isArray(highlights) ? highlights.filter((h) => h && typeof h === 'object').slice(0, WN_MAX_TILES) : [];
+  tiles.innerHTML = list.map((h) => '<li class="wn-tile"><span class="wn-ico">' + wnIcon(h.icon) + '</span>'
+    + '<span class="wn-words"><b>' + esc(h.title) + '</b><span>' + esc(h.line) + '</span></span></li>').join('');
+  tiles.hidden = list.length === 0;   // defensive: whatsNewCheck opens the window only with highlights
+  tiles.classList.toggle('one', list.length === 1);
+  document.getElementById('wn-more').href = WN_VERSIONS_PAGE + '#v' + version.replace(/\./g, '-');
+  WN_OPENER = document.activeElement;
+  // The window itself: no ring on open; Tab goes to the X. Never from under a screen drawn over it (round 15).
+  if (!wnCovered()) back.querySelector('.wn-box').focus();
+}
+function wnClose() {
+  const back = document.getElementById('whatsnew');
+  if (!back) return;
+  back.remove();
+  const to = WN_OPENER;
+  WN_OPENER = null;
+  if (to && typeof to.focus === 'function' && document.contains(to)) to.focus();
+}
+function wnWire(back) {
+  back.querySelector('#wn-x').addEventListener('click', wnClose);
+  back.addEventListener('click', (e) => { if (e.target === back) wnClose(); });
+}
+/* On the document, like the page's other dialogs (review round 1): Escape and Tab must work even
+   when focus has slipped to the body behind the window (a click on its text), and focus that lands
+   outside is brought back in. Each does nothing while the window is not up. */
+/* A window drawn over this one (first run, the update overlay) owns the keys and focus. */
+function wnCovered() {
+  // Only windows drawn OVER this one (round 3): the other .rm-back dialogs sit under it at the same layer.
+  return !!document.querySelector('.fr-back:not([hidden]), .upd-back');
+}
+/* In the capture phase, and stopped once handled (round 12): a dialog open UNDER the window keeps its own
+   document-level Escape and Tab handlers, and one Escape must not close both. */
+document.addEventListener('keydown', (e) => {
+  const back = document.getElementById('whatsnew');
+  if (!back || wnCovered()) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); wnClose(); return; }
+  if (e.key !== 'Tab') return;
+  e.stopPropagation();
+  // Two things to press (the X and the link); Tab stays between them while the window is up.
+  const f = [back.querySelector('#wn-x'), back.querySelector('#wn-more')];
+  const at = f.indexOf(document.activeElement);
+  if (at === -1) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); return; }   // round 11: Shift+Tab goes back
+  if (e.shiftKey && at === 0) { e.preventDefault(); f[f.length - 1].focus(); }
+  else if (!e.shiftKey && at === f.length - 1) { e.preventDefault(); f[0].focus(); }
+}, true);
+document.addEventListener('focusin', (e) => {
+  const back = document.getElementById('whatsnew');
+  if (back && !wnCovered() && !back.contains(e.target)) { const box = back.querySelector('.wn-box'); if (box) box.focus(); }
+});
+/* Is `a` a later version than `b` (x.y.z)? null when either is not one. */
+function wnNewer(a, b) {
+  const pa = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(a || ''));
+  const pb = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(b || ''));
+  if (!pa || !pb) return null;
+  for (let i = 1; i <= 3; i++) if (+pa[i] !== +pb[i]) return +pa[i] > +pb[i];
+  return false;
+}
+async function whatsNewCheck() {
   try {
     const res = await fetch('/api/whats-new', { cache: 'no-store' });
     if (!res.ok) return;
     const got = await res.json();
     if (!got || typeof got.current !== 'string') return;
-    /* ⚠️ THE RESPONSE IS READ, AND NOT AS TIDINESS (#39, measured): a fetch
-       whose body nobody consumes leaves the connection counted as in-flight
-       until the Response is garbage-collected, so every FIRST page load on a
-       fresh install carried one request that never finished -- invisible to a
-       person, and a hang to anything that waits for the network to settle
-       (the browser checks' networkidle timed out 9 runs out of 9 on exactly
-       this, and passed on retry because `seen` was recorded by then). */
+    /* ⚠️ THE RESPONSE IS READ, AND NOT AS TIDINESS (#39, measured): a fetch whose body nobody
+       consumes leaves the connection counted as in-flight, and the browser checks' networkidle
+       waited on it (the seen POST below reads its body for the same reason). */
     const record = () => fetch('/api/whats-new/seen', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ version: got.current }),
     }).then((r) => r.text()).catch(() => { /* tried again next load */ });
-    if (!got.seen) { record(); return; } // first sight: silent
+    if (!got.seen) { record(); return; }          // a fresh install: installed, not updated
     if (got.seen === got.current) return;
-    // Josh, 2026-08-24 16:50: short. The whole line is the link (click to
-    // see what changed); the X closes it. No "while you were away".
-    document.getElementById('newsbar-text').textContent = 'Kosmos updated to ' + got.current;
-    document.getElementById('newsbar-link').href =
-      'https://installkosmos.com/versions#v' + got.current.replace(/\./g, '-');
-    const bar = document.getElementById('newsbar');
-    bar.hidden = false;
-    document.getElementById('newsbar-ok').addEventListener('click', () => {
-      bar.hidden = true;
-      record();
-    }, { once: true });
+    /* Only a move UP is an update (review round 1): a rollback or a channel switch to an older
+       version is recorded quietly, never announced as new with the old version's highlights. */
+    if (wnNewer(got.current, got.seen) !== true) { record(); return; }
+    const baked = bakedVersion();
+    if (baked && baked !== got.current) return;   // an old page: the chip says Reload first
+    /* A release with no highlights (a hotfix cut with KOSMOS_CUT_NO_WHATS_NEW=1) shows no window
+       (round 3, as agreed with Baron on the card): it is recorded quietly rather than interrupting
+       people with a title and nothing new. */
+    if (!Array.isArray(got.highlights) || !got.highlights.length) { record(); return; }
+    /* Held while the first-run tour is on screen (Mona Lisa's design review): the tour is the
+       person's current task, and this can wait for it to close. */
+    // A real deadline (round 7): a background tab slows timers, so counting ticks is not an hour.
+    /* An hour, looked at each second. Written here, not as page consts: tests lift this function alone. */
+    /* Round 15: first run and the update overlay too (they draw over the window and keep focus). */
+    const held = () => (typeof TIP_OPEN !== 'undefined' && TIP_OPEN) || (typeof wnCovered === 'function' && wnCovered());
+    const until = Date.now() + 60 * 60 * 1000;
+    while (Date.now() < until && held()) await new Promise((r) => setTimeout(r, 1000));
+    // A tour still open after an hour: recorded quietly rather than opened over it (round 6).
+    if (held()) { record(); return; }
+    /* Recorded as seen when it OPENS (round 6): two tabs reloaded by the same update must not both show
+       it. The cost, accepted: a reload before it was read does not show it again. */
+    /* Round 12: a newer Kosmos landed while it waited: this page is old now (the chip says Reload), so
+       nothing opens and nothing is recorded; the new page announces the new version. */
+    if (typeof SERVED_VERSION !== 'undefined' && SERVED_VERSION && SERVED_VERSION !== got.current) return;
+    record();
+    wnOpen(got.current, got.highlights);
   } catch { /* news can wait */ }
 }
-newsbarCheck();
+whatsNewCheck();
 
 async function paintConnLive() {
   const el = document.getElementById('conn-live');
@@ -37582,8 +38497,10 @@ async function paintPlus() {
      sign-in wizard is over -- clear its flag (typeof-guarded for the test harness). */
   if (typeof PLUS_SIGNIN_ACTIVE !== 'undefined') PLUS_SIGNIN_ACTIVE = false;
   const sw = document.getElementById('plus-switch');
-  sw.textContent = r.on ? 'Turn off' : 'Turn on';
-  /* #3829: on, Turn off is a quiet link; off, Turn on is the one primary action. */
+  /* #4079: the on-state control is Pause (it was Turn off), so it cannot be mistaken for Remove this
+     computer below, which removes the computer from the account. Pause keeps it connected, for later. */
+  sw.textContent = r.on ? 'Pause' : 'Turn on';
+  /* #3829: on, the pause (Pause since #4079) is a quiet link; off, Turn on is the one primary action. */
   sw.className = r.on ? 'plus-quiet' : 'btn uprime';
   const st = document.getElementById('plus-status');
   const stat = r.status || {};
@@ -37629,6 +38546,10 @@ async function paintPlus() {
      shows with the devices, and a fresh paint disarms a half-taken click. */
   document.getElementById('plus-second').hidden = r.enrolled !== true;
   plusSecondDisarm();
+  /* #4079: Remove this computer shows for a connected computer. Its confirm is NOT disarmed here (this runs every 5s).
+     Connected again (any way), an earlier "disconnected" result is no longer true: it goes. */
+  { const f = document.getElementById('plus-forgot-msg'); if (f && !f.hidden) { f.hidden = true; f.textContent = ''; } }
+  { const fg = document.getElementById('plus-forget'); if (fg) fg.hidden = r.enrolled !== true; }
   paintDevices();
 }
 /* The engine's honest-but-technical sentence for a missing binary, said
@@ -37782,6 +38703,61 @@ document.getElementById('plus-second-reset').addEventListener('click', async () 
     }
   } catch { msg.textContent = PLUS_SECOND_WORDS.failed('this computer could not reach its own engine'); }
   plusSecondDisarm();
+});
+
+/* #4079: Remove this computer (it was drafted as Disconnect). The engine (remote.forget) retires the computer at the account while its
+   key exists, then destroys the key; it reports whether the account was told (`retired`) and, when not, a
+   sentence saying the address may still show there. That sentence is shown as it is: never "done" for a
+   disconnect the account did not hear about. */
+const PLUS_FORGET_WORDS = {
+  done: 'This computer is removed from Kosmos Plus. Its address is free, and your devices can no longer reach it. Sign in to connect it again.',
+  /* Not "still connected": a rare engine failure can come after the key is gone. Say only that it did not finish. */
+  failed: (why) => 'Removing it did not finish: ' + why + '. Try again in a moment.',
+};
+function plusForgetArm(on) {
+  const ask = document.getElementById('plus-forget-ask'); const row = document.getElementById('plus-forget-row');
+  if (ask) ask.hidden = !on;
+  if (row) row.hidden = on;
+  /* Focus on Cancel, not Remove: a held or repeated key must not carry straight through the confirm. */
+  if (on) { const n = document.getElementById('plus-forget-no'); if (n) n.focus(); }
+}
+document.getElementById('plus-forget-go').addEventListener('click', () => {
+  const msg = document.getElementById('plus-forget-msg'); msg.hidden = true; msg.textContent = '';
+  plusForgetArm(true);
+});
+document.getElementById('plus-forget-no').addEventListener('click', () => {
+  plusForgetArm(false);
+  document.getElementById('plus-forget-go').focus();
+});
+document.getElementById('plus-forget-yes').addEventListener('click', async () => {
+  const yes = document.getElementById('plus-forget-yes'); const no = document.getElementById('plus-forget-no');
+  const msg = document.getElementById('plus-forget-msg');
+  yes.disabled = true; no.disabled = true; yes.textContent = 'Removing...';
+  let said = null; let ok = false;
+  try {
+    const res = await fetch('/api/remote/forget', { method: 'POST' });
+    said = await res.json().catch(() => null);
+    ok = res.ok && !!(said && said.ok === true);
+  } catch { said = { error: 'this computer could not reach its own engine' }; }
+  yes.disabled = false; no.disabled = false; yes.textContent = 'Remove';
+  if (!ok) {
+    plusForgetArm(false);
+    const why = plusWords((said && said.error) || 'we could not disconnect it').replace(/^we could not forget this computer: /, '').replace(/[.!?]+$/, '');
+    msg.textContent = PLUS_FORGET_WORDS.failed(why);
+    msg.hidden = false;
+    document.getElementById('plus-forget-go').focus();   // the confirm has closed: focus goes back where it began
+    return;
+  }
+  /* Done here. The pane goes back to the not-connected state, and the result is said there. When the
+     account could not be told, the engine's own sentence says so and that the address may still show. */
+  const because = String((said && said.because) || '');
+  const line = said.retired === true || !because ? PLUS_FORGET_WORDS.done
+    : because.charAt(0).toUpperCase() + because.slice(1) + (/[.!?]$/.test(because) ? '' : '.');
+  const out = document.getElementById('plus-forgot-msg');
+  if (out) { out.textContent = line; out.hidden = false; out.dataset.retired = said.retired === true ? '1' : '0'; }
+  plusForgetArm(false);
+  await paintPlus();
+  if (out && !out.hidden && typeof out.focus === 'function') { out.setAttribute('tabindex', '-1'); out.focus(); }
 });
 
 /* #3478: the in-app sign-in wizard (state 2). It drives engine/remote.js's stage
@@ -37982,6 +38958,8 @@ function plusSiClear() {
 function plusSiEnter(e) {
   if (e) e.preventDefault();
   PLUS_SIGNIN_ACTIVE = true;
+  /* #4079: a new sign-in replaces the Remove this computer result. */
+  { const f = document.getElementById('plus-forgot-msg'); if (f) { f.hidden = true; f.textContent = ''; } }
   plusSiMsg('');
   plusSiClear();
   plusSiShow('plus-si-email');
@@ -38994,7 +39972,8 @@ function acctMoveWorld(a, accounts) {
     : ({ codex: 'openai', gemini: 'google', grok: 'xai' })[a && a.runner] || '';
   const isCodex = keyedProvider === 'openai';
   const isKeyed = !!keyedProvider;
-  const isOwnProviderRow = (x) => !!(x && keyedProvider && String(x.provider || '').toLowerCase() === keyedProvider);
+  /* #3998: the Gemini subscription row (authMode 'antigravity') has no account to move onto. */
+  const isOwnProviderRow = (x) => !!(x && keyedProvider && x.authMode !== 'antigravity' && String(x.provider || '').toLowerCase() === keyedProvider);
   const acct = a && a.account;
   /* An OpenAI row is only a valid MOVE destination when it is BOTH offerable and
      signed in -- the same two gates the sibling create/switch OpenAI picker applies
@@ -44108,7 +45087,14 @@ function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine, waiting
  * is correct — nothing on its screen says what it is doing yet. So `unknown` is
  * NOT treated as failure here; the structural facts are.
  */
+/* #3955 round 13: while a new agent is being watched for, its staged photo and its project tell have not
+   gone yet, so the automatic reload waits (WATCHING_AGENTS). */
+let WATCHING_AGENTS = 0;
 async function watchForAgent(name, result, attempt) {
+  WATCHING_AGENTS += 1;
+  try { return await watchForAgentNow(name, result, attempt); } finally { WATCHING_AGENTS = Math.max(0, WATCHING_AGENTS - 1); }
+}
+async function watchForAgentNow(name, result, attempt) {
   MADE_LAST = { name, result };
   // ⚠️ MATCH ON `name` (the board's key), SPEAK `shown`. They differ the moment
   // somebody types a capital, and using one for both would either look for a
@@ -46580,8 +47566,10 @@ function tskRow(t, at) {
 }
 function tskList(rows) {
   const parentKey = (t) => (t.parent == null ? null : String(t.projectId) + '#' + Number(t.parent));
-  return rows.length ? '<div class="tsk-list">' + taskNest(rows, tskKey, parentKey, TSK.fold).map((x) => tskRow(x.t, x)).join('') + '</div>'
-    : '<div class="tsk-list"><p class="tsk-empty">Nothing here.</p></div>';
+  /* #3949 (Josh, 09-26 18:16): no "Nothing here." box. Every caller skips an empty group (its tile shows the 0), so
+     an empty list draws nothing rather than bringing the duplicate back through a new caller. */
+  if (!rows.length) return '';
+  return '<div class="tsk-list">' + taskNest(rows, tskKey, parentKey, TSK.fold).map((x) => tskRow(x.t, x)).join('') + '</div>';
 }
 /* #3861 part 2: a list of task rows, nested. Pure (the tests lift it), shared by the Tasks view and
    the project column. A row goes under its parent only when the parent is IN THIS LIST; otherwise
@@ -46660,15 +47648,23 @@ function tskPaint() {
     tskOptions(sel, '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(p.name) + ' (' + p.open + ')</option>').join(''), TSK.proj || '');
   }
   const picked = TSK.proj ? projMap.get(TSK.proj) : null;
-  document.getElementById('tsk-title').textContent = picked ? picked.name : 'All tasks';
   document.getElementById('tsk-crumb').innerHTML = picked
     ? '<button type="button" data-proj="">All tasks</button> › ' + esc(picked.name) + ' · <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button>'
     : '';
   const scoped = tskScoped(all, TSK, now);
   const open = scoped.filter((t) => t.state !== 'closed');
-  document.getElementById('tsk-sub').textContent = TSK.error && !TSK.data ? ''
-    : open.length + (open.length === 1 ? ' open task' : ' open tasks')
-      + (picked ? '' : ' across ' + projectsList.length + (projectsList.length === 1 ? ' project' : ' projects'));
+  /* #3949 (Josh, 09-26 19:30): the title IS the count: "30 Tasks on 2 Projects" (open tasks in the current scope, the
+     number the separate "N open tasks across M projects" line used to give). Scoped to one project it names it
+     ("5 Tasks on Newsletter"), as the title did before. Until the tasks are read it just says Tasks. */
+  /* N is the projects those same open tasks are on, from the same filtered array, so the title can never say
+     "1 Task on 2 Projects" (review round 11). With nothing open and no project picked it is just "0 Tasks"; with a
+     project picked it names it ("0 Tasks on Newsletter"). It counts before the tile: the title is the total the
+     tiles break down, and a picked tile is a view within it (as the count line it replaced was). */
+  const onProjects = new Set(open.map((t) => t.projectId)).size;
+  document.getElementById('tsk-title').textContent = !TSK.data ? 'Tasks'
+    : open.length + (open.length === 1 ? ' Task' : ' Tasks')
+      + (picked ? ' on ' + picked.name : open.length ? ' on ' + onProjects + (onProjects === 1 ? ' Project' : ' Projects') : '');
+  tskSearchOpen();   // the compact search's open state follows TSK.q on every paint, whoever changed it
   /* #3949: Created: and Group by are dropdowns (they were button rows). */
   tskOptions(document.getElementById('tsk-win'), TSK_WINDOWS.map(([l, d]) => '<option value="' + d + '"' + (TSK.win === d ? ' selected' : '') + '>' + esc(l) + '</option>').join(''), String(TSK.win));
   tskOptions(document.getElementById('tsk-by'), TSK_BYS.map(([k, l]) => '<option value="' + k + '"' + (TSK.by === k ? ' selected' : '') + '>' + esc(l) + '</option>').join(''), TSK.by);
@@ -46720,13 +47716,17 @@ function tskPaint() {
       .map(([, ts]) => {
         const n = ts.filter((t) => t.state !== 'closed').length;
         return '<section class="tsk-grp"><h3>' + esc(ts[0].projectName) + '<span class="count">' + n + ' open</span></h3>' + tskList(ts) + '</section>';
-      }).join('') || '<p class="tsk-empty">No tasks match.</p>';
+      }).join('') || '<p class="tsk-empty">' + (TSK.tile || TSK.proj || TSK.win ? 'No tasks match.' : 'No tasks yet.') + '</p>';
   } else {
     groups.innerHTML = TSK_GROUPS.filter((g) => !TSK.tile || TSK.tile === g.k).map((g) => {
       const ts = sorted.filter((t) => t.state === g.k);
       /* Review round 10: the heading says what its tile says. A zero decision group takes the neutral dot, and
          with the agents unreadable it says it cannot tell, never "0" and never "Nothing here". */
       const unknown = g.k === 'decision' && TSK.rosterUnknown;
+      /* #3949 (Josh, 09-26 18:16: "We already show those in the tiles up top so we don't really need those in there"):
+         a status group with no tasks is the duplicate of its tile's 0, so it is not drawn. The one exception is the
+         decision group that cannot tell (the agents are unreadable): that is a warning, not a zero. */
+      if (!ts.length && !unknown) return '';
       const head = '<h3><span class="tsk-dot" style="--tsk-c:' + tskDot(g, ts.length) + '"></span>' + esc(g.l) + '<span class="count">' + (unknown ? '?' : ts.length) + '</span></h3><p class="why">' + esc(unknown ? TSK_DECISION_UNKNOWN : g.why) + '</p>';
       if (unknown && !ts.length) return '<section class="tsk-grp" data-unknown="1">' + head + '</section>';
       /* Completed is always the fold: finished work is reachable, not in the way. */
@@ -46735,7 +47735,9 @@ function tskPaint() {
         return '<section class="tsk-grp" style="--tsk-c:' + g.c + '"><details class="tsk-fold"' + (TSK.closedOpen || TSK.tile === 'closed' ? ' open' : '') + '><summary>' + esc(g.l) + ' (' + ts.length + ')</summary>' + tskList(ts) + '</details></section>';
       }
       return '<section class="tsk-grp">' + head + tskList(ts) + '</section>';
-    }).join('');
+    }).join('')
+      /* Every group empty: one line, not a column of empty sections. */
+      || '<p class="tsk-empty">' + (TSK.tile || TSK.proj || TSK.win || String(TSK.q).trim() ? 'No tasks match.' : 'No tasks yet.') + '</p>';
   }
   /* #3861 part 2: a folded parent hides its subtasks' rows, and a tick only ever covers a row on
      screen (the rule above), so a tick whose row the fold left out goes too. */
@@ -46796,6 +47798,9 @@ function openProjectTasks(id) {
   const q = document.getElementById('tsk-search');
   if (q) q.value = '';
   document.getElementById('tsk-qclear').hidden = true;
+  // #3949: close the compact search now, not at the next paint (in the column that paint waits for the read).
+  const box = document.getElementById('tsk-searchbox');
+  if (box) box.classList.remove('open', 'shut');
   if (document.body.classList.contains('consolidated')) openConsolidatedTasks();
   else showTab('tasks');
 }
@@ -46966,13 +47971,66 @@ document.getElementById('panel-tasks').addEventListener('toggle', (e) => {
 }, true);
 document.getElementById('tsk-search').addEventListener('input', (e) => {
   TSK.q = e.target.value;
-  document.getElementById('tsk-qclear').hidden = !TSK.q;
+  document.getElementById('tsk-searchbox').classList.remove('shut');
+  document.getElementById('tsk-qclear').hidden = !String(TSK.q).trim();
+  tskSearchOpen();
   tskPaint();
+});
+/* #3949: the compact search stays open while it holds a search (focus opens it through CSS). */
+function tskSearchOpen() {
+  const box = document.getElementById('tsk-searchbox');
+  if (box) box.classList.toggle('open', !!String(TSK.q).trim());
+}
+document.getElementById('tsk-searchbox').addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229) return;   // an IME's own Esc cancels its conversion
+  if (e.defaultPrevented) return;   // already taken (a tour tip closes on it first, in the capture phase)
+  // Esc (from the field or its clear button) clears and closes it, and nothing else on the page reacts to this Esc.
+  // Focus stays in the field (a keyboard user keeps their place); "shut" closes it until they type again.
+  e.preventDefault(); e.stopPropagation();
+  const q = document.getElementById('tsk-search');
+  q.value = ''; TSK.q = '';
+  document.getElementById('tsk-qclear').hidden = true;
+  const box = document.getElementById('tsk-searchbox');
+  box.classList.add('shut');
+  q.focus();
+  tskPaint();
+});
+document.getElementById('tsk-search').addEventListener('blur', () => document.getElementById('tsk-searchbox').classList.remove('shut'));
+// A click on the closed field opens it again, as focus would (it may still hold focus after Esc).
+document.getElementById('tsk-search').addEventListener('mousedown', () => document.getElementById('tsk-searchbox').classList.remove('shut'));
+/* "/" focuses the search while the Tasks view is on screen and the person is not typing somewhere else. Cmd-F is left
+   to the browser's own find. */
+document.addEventListener('keydown', (e) => {
+  if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
+  const pt = document.getElementById('panel-tasks');
+  if (!pt || pt.hidden || !pt.getClientRects().length) return;
+  const t = e.target;
+  // A text field or a select keeps its "/" (a row's checkbox, a radio or a button input does not: review round 18).
+  const textish = t && t.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|reset|image|range|color|file)$/i.test(t.type || '');
+  if (t && (t.isContentEditable || textish || /^(TEXTAREA|SELECT)$/.test(t.tagName))) return;
+  // From anywhere on the page (the Tasks tab just clicked keeps focus in Chrome) except a dialog: never from inside one,
+  // and never while a modal is showing (the app's modals are role="dialog"/"alertdialog" boxes with aria-modal, not
+  // <dialog>, and focus can sit on the page behind one when its button disables itself).
+  if (t && t.closest && t.closest('[role="dialog"], [role="alertdialog"], [aria-modal="true"]')) return;
+  if ([...document.querySelectorAll('[aria-modal="true"]')].some((m) => m.getClientRects().length > 0)) return;
+  // Nor while a header popover or menu is open, wherever focus sits (opening the burger moves focus onto its first
+  // tab, review round 17). The same test as tipMenuOpen(): a popup trigger that is expanded, the burger, or the world
+  // switcher. Not any aria-expanded="true": an open subtask fold chip or project row is a disclosure, not a popup,
+  // and "/" must still work from it (review round 16).
+  // Only a trigger that is on screen: a combobox left expanded inside a closed dialog, or a burger left open when the
+  // window widened past it, is not an open menu and must not switch "/" off for the session (review round 18).
+  if ([...document.querySelectorAll('[aria-haspopup][aria-expanded="true"], #burger[aria-expanded="true"], #worldsw-btn[aria-expanded="true"]')]
+    .some((b) => b.getClientRects().length > 0)) return;
+  if (t && t.closest && t.closest('#worldsw-menu, #userpop-menu')) return;
+  if ([...document.querySelectorAll('#worldsw-menu, #userpop-menu')].some((m) => !m.hidden && m.getClientRects().length > 0)) return;
+  e.preventDefault();
+  document.getElementById('tsk-search').focus();
 });
 document.getElementById('tsk-qclear').addEventListener('click', () => {
   const q = document.getElementById('tsk-search');
   q.value = ''; TSK.q = '';
   document.getElementById('tsk-qclear').hidden = true;
+  tskSearchOpen();
   q.focus();
   tskPaint();
 });
@@ -51781,6 +52839,7 @@ async function attachUpload(file, where) {
   const btn = document.getElementById(where.btnId);
   if (btn) btn.disabled = true;
   msg.textContent = 'Adding ' + file.name + '\u2026';
+  ATTACH_UPLOADING += 1;   // #3955 round 9: a file still going up holds the automatic reload
   try {
     const res = await fetch(where.url(), {
       method: 'PUT',
@@ -51804,6 +52863,7 @@ async function attachUpload(file, where) {
   } catch {
     msg.textContent = 'We could not reach Kosmos to add that file.';
   } finally {
+    ATTACH_UPLOADING = Math.max(0, ATTACH_UPLOADING - 1);
     if (btn) btn.disabled = false;
   }
 }
@@ -51830,6 +52890,8 @@ const ATTACH_AGENT = {
    switch repaints the right chips and a send clears only its own. At most
    ten per message (the route's cap), checked before the upload. */
 const ATTACH_PENDING = { room: {}, agent: {} };
+/* #3955 round 9: files still uploading (ATTACH_PENDING holds a file only once its upload answered). */
+let ATTACH_UPLOADING = 0;
 const ATTACH_MAX = 10;
 function attachTarget(where) {
   return where.key === 'room' ? (PJ_CURRENT || null) : (CURRENT ? CURRENT.sessionName : null);
@@ -57288,13 +58350,40 @@ async function frOpenaiSubConnected(_account) {
   // for signature-parity with the Settings mirror acctOpenaiSubConnected(account).
   ACCT_OPENAI_SUB_SESSION = null;
   // #2913: no name field -- the subscription account is identified by its email.
-  const sub = document.getElementById('fr-openai-sub-step'); if (sub) sub.hidden = true;
-  const pick = document.getElementById('fr-openai-pick'); if (pick) pick.hidden = true;
+  const sub = document.getElementById('fr-openai-sub-step');
+  /* #4082: read before the step hides: focus on its link or Stop falls to the page once it does. Decided now, not
+     after the accounts read below (seconds; a person may Tab on meanwhile), and focus goes to the box BEFORE the
+     repaint writes it (Grok's order), so its live region reads the connected box once. */
+  const was = document.activeElement;
+  /* The picker too (review round 6): Connect pressed again while this sign-in was still in flight re-shows the
+     picker with focus in it, the poll keeps running, and the picker hides here as well. */
+  const pick = document.getElementById('fr-openai-pick');
+  const within = (el) => !!el && typeof el.contains === 'function' && el.contains(was);
+  /* Also lost: Skip (#fr-alt), which the Next that success offers replaces, and GPT's own Connect, which the repaint
+     disables (review round 7: both measured ending on the page). */
+  const lostOn = [document.getElementById('fr-alt'), document.getElementById('fr-openai-connect')];
+  const lost = typeof FR_STEP !== 'undefined' && FR_STEP === 5
+    && (!was || was === document.body || lostOn.includes(was) || within(sub) || within(pick));
+  if (sub) sub.hidden = true;
+  if (pick) pick.hidden = true;
+  const box = document.getElementById('fr-openai-msg');
+  if (box && lost) {
+    if (box.setAttribute) box.setAttribute('tabindex', '-1');
+    if (box.focus) box.focus();
+  }
+  /* The result is said NOW, after focus lands (Grok's order): the poll left its in-progress line in the box ("Finish
+     signing in on the page that opened."), which is wrong once connected and would stay there for the whole accounts
+     read, or for good if the repaint failed (review round 3). The repaint below replaces it with the gold box. */
+  if (box) { box.className = 'dhint'; box.textContent = 'GPT is connected.'; }
   // paintAccounts refreshes the row list; frPaintOpenai paints the SAME gold
   // connected box the key path uses -- a subscription carries no keyTail, so it
   // reads "This computer is signed in." with no key suffix, which is exactly right.
-  await paintAccounts();
-  await frPaintOpenai({ connected: true, justAdded: true });
+  // If the repaint fails, the sentence above stays: it already says what happened (as Gemini's path does; this runs in
+  // the poll's interval callback, where a rejection would go unhandled).
+  try {
+    await paintAccounts();
+    await frPaintOpenai({ connected: true, justAdded: true });
+  } catch { /* the sentence stands */ }
 }
 document.getElementById('fr-openai-pick-sub').addEventListener('click', () => frOpenaiChoose('sub'));
 document.getElementById('fr-openai-pick-key').addEventListener('click', () => frOpenaiChoose('key'));

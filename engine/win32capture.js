@@ -63,8 +63,9 @@ const win32streamstate = require('./win32streamstate');
  *
  * @param {object} [opts]
  * @param {() => (Array|null)} [opts.run] the `claude agents --json` reader
- *   (default the SAME `win32roster.defaultRun` the source seam uses -- one
- *   definition of the read); returns the parsed array or null on failure.
+ *   (default the SAME shared `win32roster.cachedRun` the source seam uses -- one
+ *   definition of the read, and one read per moment for both); returns the
+ *   parsed array or null on failure.
  * @param {{ read: () => object }} [opts.record] the ownership record (default the
  *   real win32sessions), injectable for tests.
  * @param {() => number} [opts.now] clock (default Date.now), injectable so the
@@ -75,7 +76,7 @@ const win32streamstate = require('./win32streamstate');
  *   argument is accepted (the seam passes it) and ignored -- there is no scrollback.
  */
 function make(opts) {
-  const run = opts && typeof opts.run === 'function' ? opts.run : win32roster.defaultRun;
+  const run = opts && typeof opts.run === 'function' ? opts.run : win32roster.cachedRun;
   const record = opts && opts.record ? opts.record : win32sessions;
   const now = opts && typeof opts.now === 'function' ? opts.now : Date.now;
   const ttlMs = opts && Number.isFinite(opts.ttlMs) ? opts.ttlMs : 1500;

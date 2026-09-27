@@ -269,7 +269,7 @@ function main(argv, deps) {
      launch, so no suite that drives the loops directly grows a flag. A function,
      asked at every (re)launch, so an install that finishes while this agent runs
      reaches it on its next restart. Claude only for now; codex is a follow-up. */
-  const perTurn = spec.runner === 'codex' || spec.runner === 'gemini' || spec.runner === 'grok';
+  const perTurn = spec.runner === 'codex' || spec.runner === 'gemini' || spec.runner === 'grok' || spec.runner === 'antigravity';   // #3568: agy too (engine/win32agy.js)
   if (!perTurn) {
     const browser = d.agentBrowser || (() => require('./agentbrowser').launchConfig());
     spec.mcpConfig = () => browser();

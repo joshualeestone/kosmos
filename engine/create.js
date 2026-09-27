@@ -1620,7 +1620,7 @@ function setProvider(name, provider, opts) {
   }
   const platform = opts && opts.platform;
   // #3568: Windows has no Antigravity launch path, the same refusal create and installJob take.
-  if (provider === 'antigravity' && (platform || process.platform) === 'win32') {
+  if (provider === 'antigravity' && (platform || process.platform) === 'win32' && !win32AgyOn()) {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_ANTIGRAVITY_WIN32 };
   }
   const verdict = readJobVerdict(clean, undefined, platform);
@@ -1641,7 +1641,7 @@ function setProvider(name, provider, opts) {
   }
   const { claudeBin, codexBin, geminiBin, grokBin, antigravityBin } = binPaths(opts);
   const runnerBin = runner === 'codex' ? codexBin : runner === 'gemini' ? geminiBin : runner === 'grok' ? grokBin : runner === 'antigravity' ? antigravityBin : claudeBin;
-  if (!DRY_RUN && runner === 'antigravity' && !agyNameOk(runnerBin)) {
+  if (!DRY_RUN && runner === 'antigravity' && !agyNameOk(runnerBin, platform)) {
     return { outcome: OUTCOME.REFUSED, because: AGY_NAME_REFUSAL };
   }
   if (!DRY_RUN && !runnerRunnable(runnerBin)) {
@@ -2529,6 +2529,18 @@ function grokBridgePath() {
   return path.join(supportDir(), 'bin', 'grok-report-bridge.js');
 }
 
+/* #4043: the Antigravity report bridge, the sibling of the pairs above and for the same #731
+   reason (the `path.join(__dirname, '..', 'bin', ...)` form is what the bundle guard scans for).
+   installSupervisor copies it to supportDir()/bin, beside the supervisor, which points each agy
+   agent's hooks at that copy before every launch (engine/agyhooks.js). */
+function agyBridgeSource() {
+  return path.join(__dirname, '..', 'bin', 'agy-report-bridge.js');
+}
+
+function agyBridgePath() {
+  return path.join(supportDir(), 'bin', 'agy-report-bridge.js');
+}
+
 /**
  * Put the current supervisor where the jobs point, and answer whether it is
  * there.
@@ -2603,6 +2615,13 @@ function installSupervisor() {
     fs.copyFileSync(grokBridgeSource(), grokBridgeStaging);
     fs.chmodSync(grokBridgeStaging, 0o755);
     fs.renameSync(grokBridgeStaging, grokBridgeDest);
+    // #4043: the agy report bridge, same refresh and staging-rename discipline. The supervisor
+    // points each agy agent's .agents/hooks.json at this copy before every launch.
+    const agyBridgeDest = agyBridgePath();
+    const agyBridgeStaging = `${agyBridgeDest}.${process.pid}.new`;
+    fs.copyFileSync(agyBridgeSource(), agyBridgeStaging);
+    fs.chmodSync(agyBridgeStaging, 0o755);
+    fs.renameSync(agyBridgeStaging, agyBridgeDest);
     /* \u2b50 #1139: TELL THE SUPERVISOR WHERE THE ENGINE IS.
        It resolves `sendertoken.js` as `dirname($0)/../engine`, which is true in
        a checkout and in the bundle and FALSE for every real agent -- the two
@@ -2636,12 +2655,13 @@ function installSupervisor() {
     try { fs.rmSync(`${bridgePath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
     try { fs.rmSync(`${geminiBridgePath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
     try { fs.rmSync(`${grokBridgePath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
+    try { fs.rmSync(`${agyBridgePath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
     try { fs.rmSync(path.join(path.dirname(supervisorPath()), `engine-path.${process.pid}.new`), { force: true }); } catch { /* best effort */ }
-    // ⚠️ NAME THE FILE. Several files ride this step (the supervisor and the three
+    // ⚠️ NAME THE FILE. Several files ride this step (the supervisor and the four
     // report bridges); when one is absent the sentence must say WHICH, or a person
     // goes looking for a file that is present (#731: the bridge was missing from the
     // served bundle and the refusal blamed the supervisor, which had shipped).
-    const absent = [supervisorSource(), bridgeSource(), geminiBridgeSource(), grokBridgeSource()].filter((f) => !fs.existsSync(f)).map((f) => path.basename(f));
+    const absent = [supervisorSource(), bridgeSource(), geminiBridgeSource(), grokBridgeSource(), agyBridgeSource()].filter((f) => !fs.existsSync(f)).map((f) => path.basename(f));
     return {
       ok: false,
       missing: Boolean(err && err.code === 'ENOENT' && absent.length),
@@ -2928,7 +2948,10 @@ function runnerRunnable(p) { return runners.isRunnable(p); }
 /* #3568: the board and the supervisor recognise an Antigravity pane by the command name `agy`, so
    a binary under any other name would start an agent nobody can see. Refused with this sentence. */
 const AGY_NAME_REFUSAL = 'the Antigravity program must be named agy, or Kosmos cannot see the agent running';
-function agyNameOk(bin) { return runners.agyRealName(bin) === 'agy'; }
+function agyNameOk(bin, platform) { return runners.isAgyName(runners.agyRealName(bin), platform || process.platform); }
+/* #3568: Windows runs Antigravity behind its own switch (engine/win32agy.js switchOn: on by default, off with
+   AGENT_WORKFORCE_ANTIGRAVITY_WINDOWS=0 or an antigravity-windows.off file). */
+function win32AgyOn() { return require('./win32agy').switchOn(); }
 
 /**
  * Where the two things an agent needs actually live on this computer.
@@ -3272,7 +3295,7 @@ function installJob(name, opts) {
   if (wantRunner === 'antigravity' && !antigravityEnabled()) {
     return { ok: false, because: `${spokenName(clean)} runs on Antigravity, and setting up Antigravity agents is switched off on this computer, so it cannot be set up here while that is off` };
   }
-  if (wantRunner === 'antigravity' && jobPlatform === 'win32') {
+  if (wantRunner === 'antigravity' && jobPlatform === 'win32' && !win32AgyOn()) {
     return { ok: false, because: REFUSE_ANTIGRAVITY_WIN32 };
   }
   /* 📌 gemini/grok are no longer refused on win32: the Windows per-turn supervisor runs them
@@ -3298,7 +3321,7 @@ function installJob(name, opts) {
       : runner === 'grok' ? grokBin
         : runner === 'antigravity' ? antigravityBin
           : claudeBin;
-  if (!DRY_RUN && runner === 'antigravity' && !agyNameOk(runnerBin)) return { ok: false, because: AGY_NAME_REFUSAL };
+  if (!DRY_RUN && runner === 'antigravity' && !agyNameOk(runnerBin, jobPlatform)) return { ok: false, because: AGY_NAME_REFUSAL };
   if (unusablePath(runnerBin) || unusablePath(tmuxBin)) {
     return { ok: false, /* ⚠️ NEITHER BINARY IS NAMED, and `tmux` least of all (Mona Lisa). A person
        who installed Kosmos has no reason to have heard the word, and it cost a
@@ -3928,11 +3951,11 @@ function createAgentInner(opts) {
   }
   if (provider === 'antigravity') {
     // Windows first, as setProvider and installJob do: there the binary check would name the wrong cause.
-    if ((opts && opts.platform ? opts.platform : process.platform) === 'win32') {
+    if ((opts && opts.platform ? opts.platform : process.platform) === 'win32' && !win32AgyOn()) {
       return { outcome: OUTCOME.REFUSED, because: REFUSE_ANTIGRAVITY_WIN32, steps };
     }
     // #3568: the same "could this machine ever start it" preflight as the other runners.
-    if (!DRY_RUN && !agyNameOk(antigravityBin)) {
+    if (!DRY_RUN && !agyNameOk(antigravityBin, opts && opts.platform ? opts.platform : process.platform)) {
       return { outcome: OUTCOME.REFUSED, because: AGY_NAME_REFUSAL, steps };
     }
     if (!DRY_RUN && !runnerRunnable(antigravityBin)) {

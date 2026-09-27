@@ -27,11 +27,13 @@ const EXCUSED = {
   superviseStreaming: 'engine/win32supervisor.js (#570 7c-1): the supervisor that HOLDS a streaming agent\'s pipes -- the other half of launchStreaming, and the thing that will carry delivery. Unwired for the same reason and on the same card: the Scheduled Task still runs supervise(), and swapping the entry point is slice 7c-2. Landed with its own arms first because the properties that matter here (a death is one death; the throttle limps; every restart is a --resume, never a fresh id) are cheaper to pin now than to debug through a task later.',
   launchStreaming: 'engine/win32launch.js (#570 7c-1): the streaming launch -- `claude -p --input-format stream-json` with the pipes held -- which is the substrate for MESSAGING a Windows agent. Deliberately NOT wired yet: create.js and win32supervisor.js still use the detached launch(), and the wiring is slice 7c-2 (.claude/plans/WINDOWS-ROADMAP.md §3). Landed and tested on its own first because this lane has repeatedly shipped a green suite over a path production could not take. An excuse with a named next slice, not an orphan -- if 7c is abandoned, this export goes with it.',
   setAnchorer: 'test seam (#570): injects engine/win32job.js\'s anchor step, so a suite never copies the 92 MB interpreter and a Mac is never asked to write a Windows path -- both of which happen the moment installJob is driven with platform:"win32", which is exactly how this branch is asserted. Named here rather than passing by luck: "setAnchorer" is unique to that file, while its sibling setRunner escapes only by colliding with every other file\'s runner seam.',
+  setPresenceTtl: 'test seam (send-lag): turns the presence memo in engine/win32job.js on (or off) under an injected runner. Production never calls it: with no runner the memo is on by default, and under a runner it is off unless a test opts in, so no stubbed answer outlives the step that set it.',
   // readPointer's excuse was removed in win32-update-stage: engine/win32update.js's prepare()
   // now reads the pointer (B0: it must name the folder being updated), so it has a real caller
   // and the #265 orphan guard protects it again.
   setChecker: 'test seam (#1930): injects the live claude-auth checker so authprobe tests do not spawn a real subprocess',
   resetForTest: 'test seam (#1930): clears the authprobe per-account cache between tests',
+  resetSubscriptionLiveForTest: 'test seam (#3997): clears engine/grokaccounts.js\'s Grok subscription check cache and in-flight map between tests, and bumps its generation so a run started before the reset writes nothing after it.',
   setPauser: 'test seam: observes the codex Enter gap without sleeping (#571)',
   setDryRun: 'test seam: keeps suites off real panes',
   setClaudeProbe: 'test seam: injects the claude -p liveness probe so tests do not spawn a real claude (#1916)',
@@ -59,6 +61,12 @@ const EXCUSED = {
   setAbandonedSigninMs: 'test seam (connect pacing, #727 item 4 abandoned-signin bound)',
   setRefreshExpiryReader: 'test seam (#3326): injects engine/connect.js\'s refreshTokenExpiresAt reader so the forced-login proof (expiryMoved) is asserted without the real macOS keychain; under node --test the default reads nothing.',
   setFreshnessForTests: 'test seam',
+  setSwitchForTests: 'test seam (#3568): engine/win32agy.js answers its Windows switch (on by default, off by env or an .off file) without touching the env or the data folder. Production reads the env and the file.',
+  setRootForTests: 'test seam (#3568): engine/win32agy.js keeps its agy homes, stub and switch file under a sandbox instead of store.ROOT. Production uses store.ROOT.',
+  setTreeKill: 'test seam (#3568): engine/win32agy.js kills a turn\'s process tree with taskkill /T /F on Windows; a suite records the kill and ends the stand-in itself on any host.',
+  setExec: 'test seam (#3568): engine/win32agy.js runs `agy models` (the sign-in check) through execFile; a suite answers it signed in or out without a real agy.',
+  setOpener: 'test seam (#3568): engine/win32agysignin.js opens Google\'s page with win32signin.openInDefaultBrowser; a suite records the link instead of opening a browser.',
+  setTyper: 'test seam (#3568): engine/win32agysignin.js types the pasted code into agy\'s console through a PowerShell helper; a suite writes it to the stand-in\'s stdin instead (the real typer has its own win32-only test).',
   setProbeTtlForTests: 'test seam: ages the willInstall probe cache instead of sleeping 60s (#1556)',
   setUnansweredAfterForTests: 'test seam (#185 unanswered constant)',
   setGrokTimers: 'test seam (#3391): shrinks the Grok subscription sign-in watchdog, reap TTL and force-kill grace so the abandoned-child and cancel tests run in ms instead of minutes (never wired to a screen)',
