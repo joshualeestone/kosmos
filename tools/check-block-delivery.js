@@ -88,7 +88,7 @@ function hasContent(name) {
 }
 
 /* Who is entitled to each block. `projects` (members) and `swarm` (leads) are narrower than everyone. */
-function entitled(name, agents) {
+function entitled(name, agents, text) {
   /* ⚠️ ROLE, NOT UNIVERSAL: only an agent made as a swarm carries the swarm block. */
   if (name === 'swarm') {
     try {
@@ -191,7 +191,7 @@ for (const name of names) {
     continue;
   }
   const content = hasContent(name);
-  const ent = entitled(name, agents);
+  const ent = entitled(name, agents, text);
   let verdict;
   if (content === null || ent === null) { verdict = 'CANNOT TELL -- could not read its source'; cannotTell += 1; }
   else if (content === false) {
