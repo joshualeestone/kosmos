@@ -163,7 +163,9 @@ test('#3939 round 1: at the timeout, what the launcher started is stopped too (i
        process.kill reads as this whole process group. Stops early on a deadline so the "did not
        run" message beats the test's own 8 s timeout. */
     const TRIES = 5;
-    const deadline = Date.now() + 5000;
+    const DEADLINE_MS = 5000;
+    const deadline = Date.now() + DEADLINE_MS;
+    const isRealPid = (p) => Number.isInteger(p) && p > 1;   // 0 is our own group, 1 is launchd
     const readPid = () => {
       try { return Number(fs.readFileSync(pidFile, 'utf8').trim()); } catch { return NaN; }
     };
@@ -176,9 +178,9 @@ test('#3939 round 1: at the timeout, what the launcher started is stopped too (i
       r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
       waited = Date.now() - t0;
       pid = readPid();
-      if (Number.isInteger(pid) && pid > 1) break;
+      if (isRealPid(pid)) break;
     }
-    assert.ok(Number.isInteger(pid) && pid > 1, 'the launcher never started its child before the timeout (' + TRIES + ' turns or 5 s), so this case did not run (#4159)');
+    assert.ok(isRealPid(pid), 'the launcher never started its child before the timeout (' + TRIES + ' turns or ' + DEADLINE_MS / 1000 + ' s), so this case did not run (#4159)');
     // Without the group stop, the child holds the output open and the turn waits for it to end on its own.
     assert.ok(waited < 3000, 'the turn waited ' + waited + ' ms on a child the launcher started');
     assert.equal(r.because, run.TIMED_OUT);
