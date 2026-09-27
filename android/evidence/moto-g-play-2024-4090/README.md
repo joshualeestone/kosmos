@@ -6,6 +6,11 @@ The Android 14 environment failure is tracked in #4100. It is not evidence of a 
 
 ## Test environment
 
+Before every timing run, require a quiet machine with `bash tools/heavy-gate.sh
+--twice --quiet-box --except-cwd <measurement-worktree>`. The `--quiet-box` option also
+detects full validation suites, whose CPU load can otherwise distort plausible-looking
+emulator timings while the ordinary heavy gate reads clear.
+
 | Property | Verified value |
 | --- | --- |
 | AVD | `moto-g-play-2024` |
