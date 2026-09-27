@@ -8,9 +8,11 @@
  * An agent message the person has not read carries a thin gold edge, and it fades once the message has been on
  * screen a moment with the window in front.
  *
- * #3967 (Josh 2026-09-26): the gold edge is REMOVED FOR NOW (it did not wrap the bubble's tail). The unread MARK
- * (data-unread, set and cleared exactly as before) is what the arms below still pin, so the edge can come back
- * drawn around the tail; the arms that read the drawn edge now pin that nothing is drawn, on every surface.
+ * #3967 (Josh 2026-09-26) removed the first edge (an inset shadow on the bubble box) because it did not wrap the
+ * bubble's tail. It is back (2026-09-27) as a 1px outline of bubble AND tail: a drop-shadow filter on the bubble,
+ * with the wing carving itself by a mask so nothing else is painted for the filter to trace. The arms read the
+ * drawn outline, its fade, the tail inside it (U17, by pixels, with a read bubble as the control) and the newest
+ * bubble's bottom stroke when the thread is scrolled to its end (U18).
  *
  * Unread is the app's own count as the thread opens (a DM's dmUnread, a
  * project's unread) plus any agent message that lands while it is open. History never shows it.
@@ -66,7 +68,8 @@ function chk(ok, label, extra) {
     const dmState = () => page.evaluate(() => [...document.querySelectorAll('#d-dmthread .msg:not(.you)')].map((r) => ({
       text: (r.querySelector('.msg-bd p') || r.querySelector('.msg-bd')).textContent.replace(/\s+/g, ' ').trim().replace(/ \d.*$/, ''),
       unread: r.querySelector('.msg-bd').hasAttribute('data-unread'),
-      edge: getComputedStyle(r.querySelector('.msg-bd')).boxShadow })));
+      edge: getComputedStyle(r.querySelector('.msg-bd')).filter,
+      mask: getComputedStyle(r.querySelector('.msg-bd'), '::after').visibility })));
 
     // U1: opening a DM with two unread: the newest two agent messages carry the edge, the older ones do not.
     // Measured at once, before any of them could have been read.
@@ -74,12 +77,40 @@ function chk(ok, label, extra) {
     const u1 = await dmState();
     const flags = u1.map((r) => r.unread);
     chk(u1.length === 4 && JSON.stringify(flags) === JSON.stringify([false, false, true, true]), 'U1 the two unread agent messages have the edge; history does not', JSON.stringify(flags));
-    chk(u1[3] && u1[3].edge === 'none' && u1[0].edge === 'none', 'U1 #3967: no gold edge is drawn on an unread message (removed for now; the mark stays)', JSON.stringify([u1[0] && u1[0].edge, u1[3] && u1[3].edge]));
+    const GOLD = 'rgb(214, 166, 46)';
+    chk(u1[3] && (u1[3].edge.match(/drop-shadow\(rgb\(214, 166, 46\)/g) || []).length === 4 && u1[0].edge === 'none', 'U1 an unread message carries the gold outline (four 1px drop-shadows, one per side); a read one carries none', JSON.stringify([u1[0] && u1[0].edge, u1[3] && u1[3].edge]));
+    chk(u1[3] && u1[3].mask === 'hidden' && u1[0].mask === 'visible', 'U1 while unread the tail\'s ground mask is hidden (the wing carves itself), so the outline traces no block; a read bubble keeps it', JSON.stringify([u1[0] && u1[0].mask, u1[3] && u1[3].mask]));
+
+    // U17: the tail is INSIDE the outline (the #3967 defect). Gold pixels in the wing's strip just outside the bubble's
+    // tail-side edge: on the unread bubble there are some; on a read bubble (CONTROL, same strip, same shape) none.
+    const goldIn = async (clip) => {
+      const b64 = (await page.screenshot({ clip })).toString('base64');
+      return page.evaluate(async (src) => {
+        const img = new Image(); img.src = 'data:image/png;base64,' + src; await img.decode();
+        const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+        const x = c.getContext('2d'); x.drawImage(img, 0, 0);
+        const d = x.getImageData(0, 0, c.width, c.height).data; let n = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i] > 150 && d[i] - d[i + 2] > 60 && d[i + 1] < 200) n += 1;
+        return n;
+      }, b64);
+    };
+    const bds = await page.$$('#d-dmthread .msg:not(.you) .msg-bd');
+    const wing = async (h) => { const bb = await h.boundingBox(); return goldIn({ x: bb.x - 9, y: bb.y + bb.height - 18, width: 8, height: 18 }); };
+    const wingUnread = await wing(bds[3]), wingRead = await wing(bds[0]);
+    chk(wingUnread >= 6 && wingRead === 0, 'U17 the outline goes round the tail: gold on the unread bubble\'s wing, none on a read one', JSON.stringify({ wingUnread, wingRead }));
+
+    // U18: scrolled to the end, the newest bubble's bottom stroke shows (a filter is not scrollable content; the DM
+    // thread's 2px bottom padding keeps it inside). CONTROL: the same strip on a read bubble has no gold.
+    await page.evaluate(() => { const t = document.getElementById('d-dmthread'); t.scrollTop = t.scrollHeight; });
+    const under = async (h) => { const bb = await h.boundingBox(); return goldIn({ x: bb.x + 20, y: bb.y + bb.height, width: 40, height: 2 }); };
+    const underNewest = await under(bds[3]), underRead = await under(bds[0]);
+    chk(underNewest >= 20 && underRead === 0, 'U18 scrolled to the end, the newest unread bubble\'s bottom stroke is not cut off', JSON.stringify({ underNewest, underRead }));
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, 'unread-dm-before-read.png') }); }
 
     // U2: on screen with the window in front, the edge goes after a moment, and it fades rather than snapping.
-    const tr = await page.evaluate(() => getComputedStyle(document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')[0]).transitionDuration);
-    chk(tr === '0s', 'U2 #3967: with nothing drawn there is nothing to fade (no box-shadow transition)', tr);
+    const tr = await page.evaluate(() => { const b = document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')[0], cs = getComputedStyle(b), af = getComputedStyle(b, '::after');
+      return { prop: cs.transitionProperty, dur: cs.transitionDuration, maskDelay: af.transitionDelay, maskProp: af.transitionProperty }; });
+    chk(tr.prop === 'filter' && tr.dur === '1.2s' && tr.maskProp === 'visibility' && tr.maskDelay === '1.2s', 'U2 the outline fades over 1.2s, and the tail\'s ground mask comes back only once the fade has ended', JSON.stringify(tr));
     await page.waitForTimeout(2600);
     const u2 = await dmState();
     chk(u2.length === 4 && u2.every((r) => !r.unread), 'U2 once on screen a moment, the edge goes', JSON.stringify(u2.map((r) => r.unread)));
@@ -103,8 +134,7 @@ function chk(ok, label, extra) {
     const u4b = await dmState();
     chk(u4b.length === 6 && u4b.every((r) => !r.unread), 'U4 and coming back to the window starts the clock: it goes');
 
-    // U5: reduced motion drops the edge without the fade. While the edge is not drawn (#3967) there is no
-    // transition at all, so this arm cannot fail; U2 guards the fade's return, and this one matters again then.
+    // U5: reduced motion drops the edge without the fade (U2 is the CONTROL: the same read, 1.2s, without it).
     await page.emulateMedia({ reducedMotion: 'reduce' });
     const tr5 = await page.evaluate(() => getComputedStyle(document.querySelector('#d-dmthread .msg:not(.you) .msg-bd')).transitionDuration);
     chk(tr5 === '0s', 'U5 with reduced motion there is no fade', tr5);
@@ -169,17 +199,18 @@ function chk(ok, label, extra) {
     const u13 = await page.evaluate(() => [...document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')].pop().hasAttribute('data-unread'));
     chk(huge.scroller && huge.h > 20 * huge.box && huge.onScreen <= 20 && before13 && u13 === false, 'U13 a message over twenty thread-heights tall, read down a little at a time, loses its edge', JSON.stringify({ ...huge, before13, stillUnread: u13 }));
 
-    // U14: the edge in the dark looks: the gold at half strength, forced dark and Kosmos+ navy.
+    // U14: the edge in the dark looks: a darker, opaque gold, forced dark and Kosmos+ navy.
     const edgeIn = (setup) => page.evaluate((how) => {
       if (how === 'dark') document.documentElement.setAttribute('data-theme', 'dark'); else document.body.classList.add('plus-active');
       const b = document.createElement('div'); b.className = 'msg'; b.innerHTML = '<div class="msg-b"><div class="msg-bd" data-unread>x</div></div>';
       document.getElementById('d-dmthread').appendChild(b);
-      const v = getComputedStyle(b.querySelector('.msg-bd')).boxShadow; b.remove();
+      const v = getComputedStyle(b.querySelector('.msg-bd')).filter; b.remove();
       document.documentElement.removeAttribute('data-theme'); document.body.classList.remove('plus-active');
       return v;
     }, setup);
     const dark14 = await edgeIn('dark'), navy14 = await edgeIn('navy');
-    chk(dark14 === 'none' && navy14 === 'none', 'U14 #3967: no edge is drawn in dark or on Kosmos+ navy either', JSON.stringify({ dark14, navy14 }));
+    const DARKGOLD = /^(drop-shadow\(rgb\(168, 132, 47\) [^)]*\) ?){4}$/;
+    chk(DARKGOLD.test(dark14) && DARKGOLD.test(navy14), 'U14 in dark and on Kosmos+ navy the outline is the darker gold', JSON.stringify({ dark14, navy14 }));
 
     // U9: a room whose first read did not answer (ok false, no rows) does not make its history look new on the next.
     const u9 = await page.evaluate((body) => {
@@ -224,7 +255,7 @@ function chk(ok, label, extra) {
     // U15: the setup assistant's chat. Replies that came while it was folded arrive with the edge (by id: the poll's
     // asbNoteReplies records the replies at its first read, folded, and marks any other new when it is open), history does not, a reply landing while it is open gets it, each goes once read, and the
     // hosted assistant's words (typed back in this page) never do. Painted through the real asbPaintThread.
-    const asbState = () => page.evaluate(() => [...document.querySelectorAll('#asp-th .asp-m.him[data-mid]')].map((d) => ({ id: d.dataset.mid, unread: d.hasAttribute('data-unread'), edge: getComputedStyle(d).boxShadow })));
+    const asbState = () => page.evaluate(() => [...document.querySelectorAll('#asp-th .asp-m.him[data-mid]')].map((d) => ({ id: d.dataset.mid, unread: d.hasAttribute('data-unread'), edge: getComputedStyle(d).filter })));
     const gRows = [{ id: 'g1', from: 'guide', text: 'Hello, I can help.' }, { id: 'y1', from: 'you', text: 'Make me an agent' }, { id: 'g2', from: 'guide', text: 'Done, meet April.' }];
     await page.evaluate((rows) => {
       document.getElementById('panel-projects').hidden = true;
@@ -237,7 +268,7 @@ function chk(ok, label, extra) {
       asbPaintThread(rows, 'guide');
     }, gRows);
     const u15a = await asbState();
-    chk(u15a.length === 2 && !u15a[0].unread && u15a[1].unread && u15a[1].edge === 'none', 'U15 the assistant\'s reply that came while folded is marked unread, and (#3967) no edge is drawn on it', JSON.stringify(u15a));
+    chk(u15a.length === 2 && !u15a[0].unread && u15a[1].unread && u15a[1].edge.includes('drop-shadow(' + GOLD) && u15a[0].edge === 'none', 'U15 the assistant\'s reply that came while folded carries the gold outline; the one read before does not', JSON.stringify(u15a));
     await page.waitForTimeout(2600);
     const u15b = await asbState();
     chk(u15b.length === 2 && u15b.every((r) => !r.unread), 'U15 once on screen a moment, it goes', JSON.stringify(u15b));

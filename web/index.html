@@ -329,7 +329,7 @@
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
     --agent-msg: #252529;  /* #3340 (Josh 6.83): night-mode agent bubble, a cooler dark gray (was #221f1a warm cream). #2947 history: the dark-mode cream, a touch above the surface. */
-    --unread-edge: rgba(227,179,65,.5);   /* #3743: the unread edge on the dark bubble, the gold at half strength */
+    --unread-edge: #a8842f;   /* #3743: the unread outline in the dark, a darker gold. Opaque: it is four stacked 1px shadows, and a translucent colour would compound unevenly where they overlap */
     /* #2660: 15% in dark, up from 10% light, so the wash stays legible. */
     --usermsg-tint: #1b1f65; /* #3340 (Josh 6.83): night-mode user bubble, a deeper indigo (was #141c2f). #2660 history: 15% in dark, up from 10% light, so the wash stays legible. */
     /* #980: the consolidated side tones' dark twins, the mock's line 25. */
@@ -1657,8 +1657,8 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .asp-m { max-width: 88%; padding: 8px 11px; border-radius: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* #3738 (Josh 08:51): the same bubbles as a Direct Message, from the same tokens: the person's own blue, the agent's cream. */
 .asp-m.him { background: var(--agent-msg); border-top-left-radius: 4px; }
-/* #3743 gave the guide's unread replies the same fading gold edge as a DM's; #3967 (Josh 2026-09-26) removed it
-   everywhere for now, with the DM's (see .msg-bd below for why and how it comes back). */
+/* #3743: the guide's unread replies carry the same fading gold outline as a DM's (see "#3743 back" by the
+   .msg-bd tail rules; these bubbles have no tail). */
 .asp-m.you { align-self: flex-end; background: var(--usermsg-tint); border-top-right-radius: 4px; }
 .asp-note { padding: 0 12px 6px; font-size: .75rem; color: var(--k-ink-2); }
 .asp-msg { padding: 0 12px 6px; font-size: .75rem; color: var(--k-ink-2); }
@@ -5975,15 +5975,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .msg:not(.you) .msg-bd { background-color: var(--agent-msg); }
 /* #3743 (Josh 2026-09-25 09:15): "the stroke would be cool for an unread message and then as you read it it fades
    away". An agent message not yet read was given a thin gold edge that faded once it had been on screen a moment
-   (an inset shadow, so the bubble kept its size). Not drawn at present: see #3967 below. */
-/* #3967 (Josh 2026-09-26 09:01): the edge is REMOVED FOR NOW. It is an inset shadow on the bubble box, so
-   it does not follow the bubble's tail (the ::before wing below): "it looks broken this way". Josh liked
-   the fading gold, so it is meant to come back as an outline that wraps the tail too (the wing would need
-   its own matching stroke). Everything that decides what is unread stays: the data-unread attribute is
-   still set and cleared (UNREAD_EDGE in the script), and --unread-edge keeps its light, dark and navy
-   values, so bringing it back is a matter of drawing it. What it was: on an agent bubble marked data-unread,
-   an inset 1px box-shadow in the --unread-edge colour with no transition, and a 1.2s box-shadow transition
-   otherwise, so it faded when the mark was cleared (none under reduced motion). */
+   (an inset shadow, so the bubble kept its size). #3967 removed it; it is back, drawn around the tail, see
+   "#3743 back" beside the tail rules below. */
+/* #3967 (Josh 2026-09-26 09:01): the edge was removed because, as an inset shadow on the bubble box, it did
+   not follow the bubble's tail: "it looks broken this way". He liked the fading gold, so it came back as an
+   outline that wraps the tail ("#3743 back", beside the tail rules below). */
 /* #3134-followup (Josh 6.72) -> #3267: the bubble TAIL is a clean iMessage-style Option A
    WING at the bottom corner, pointing toward the avatar -- bottom-LEFT on an agent bubble,
    bottom-RIGHT on the person's.
@@ -6051,6 +6047,38 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    (#ffffff on light), and the dark override below sets the box and this mask to #000 together.
    This #d-dmthread rule's ID specificity beats the room mask above and its dark #000 override. */
 #d-dmthread .msg-bd::after { background: var(--k-surface); }
+/* #3743 back (2026-09-27, after #3967): the unread gold edge, now drawn around the tail too.
+   The #3967 edge was an inset shadow on the bubble box, and the box does not include the tail, so it
+   stopped at the corner. Now the outline is a filter on the whole bubble, which traces whatever the
+   bubble paints, wing included. That needs the bubble and wing to be ONE shape with nothing else
+   painted around it, and the ::after ground mask is exactly something else painted (a ground-coloured
+   block the filter would outline). So:
+     1. the wing carves ITSELF with a mask, the same curve the ::after mask carves (a crescent outside
+        the 12px by 16px ellipse whose centre is 12px out from the bubble edge and 16px up from its
+        bottom, seen from the wing's box as 4px left of it and 4px down). This is on every agent
+        bubble, read or not: it only removes wing that the ::after mask paints over anyway, so a read
+        bubble looks exactly as before;
+     2. while unread, the ::after mask is hidden (the wing no longer needs it) and the bubble carries
+        four 1px drop-shadows, one per side, which together are a 1px outline of the true shape;
+     3. once read, the outline fades over 1.2s and the ::after mask comes back only when the fade has
+        ended (a delayed visibility), so the fade never outlines the mask's block.
+   No layout changes (a filter and a mask take no room), so the scroll repin is untouched. The guide's
+   replies (.asp-m.him) have no tail and take the same outline. Reduced motion: no fade, no delay.
+   render-unread-edge-3743.js pins the drawn outline, its fade, and that the tail is inside it. */
+.msg:not(.you) .msg-bd::before {
+  -webkit-mask: linear-gradient(#000, #000) right top / 12px 100% no-repeat,
+    radial-gradient(12px 16px at -4px 0, transparent calc(100% - .5px), #000 calc(100% + .5px)) left bottom / 8px 16px no-repeat;
+  mask: linear-gradient(#000, #000) right top / 12px 100% no-repeat,
+    radial-gradient(12px 16px at -4px 0, transparent calc(100% - .5px), #000 calc(100% + .5px)) left bottom / 8px 16px no-repeat;
+}
+.msg:not(.you) .msg-bd, .asp-m.him { transition: filter 1.2s ease-out; }
+.msg:not(.you) .msg-bd::after { transition: visibility 0s linear 1.2s; }
+.msg:not(.you) .msg-bd[data-unread], .asp-m.him[data-unread] { transition: none;
+  filter: drop-shadow(1px 0 0 var(--unread-edge)) drop-shadow(-1px 0 0 var(--unread-edge)) drop-shadow(0 1px 0 var(--unread-edge)) drop-shadow(0 -1px 0 var(--unread-edge)); }
+.msg:not(.you) .msg-bd[data-unread]::after { visibility: hidden; transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .msg:not(.you) .msg-bd, .asp-m.him, .msg:not(.you) .msg-bd::after { transition: none; }
+}
 /* hover coherence (#2921): the wing darkens with the bubble on hover, so it does not stay
    unshaded while the body dims. Only the colored ::before takes the overlay; the ::after
    mask must stay the pure thread ground or it would stop carving. */
@@ -6371,7 +6399,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    only gilded commit in the product. Recorded as an alignment item rather than
    silently resolved either way. */
 .dmthread { display: flex; flex-direction: column; gap: 12px; min-height: 7rem;
-  max-height: 15rem; overflow-y: auto; padding-right: 4px; }
+  max-height: 15rem; overflow-y: auto; padding-right: 4px; padding-bottom: 2px; }
+/* padding-bottom 2px (#3743): an unread message's gold outline is drawn 1px OUTSIDE the bubble (a filter), and
+   a filter does not count as scrollable content, so scrolled to the bottom the newest bubble's bottom stroke was
+   cut off. It is there all the time, not only while something is unread, so reading a message moves nothing. */
 /* 🛑 #3414 ORPHANED, PENDING A FOCUSED CLEANUP: dmRow now emits the room's `.msg`
    markup, so the `.dm` / `.dm.mine` / `.dm.theirs` / `.dm-b` / `.dm-w` RULES below
    match nothing rendered any more. They are inert (dead selectors have no effect),
@@ -9267,7 +9298,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
     --agent-msg: #252529;  /* #3340 (Josh 6.83): night-mode agent bubble, a cooler dark gray (was #221f1a warm cream). #2947 history: the dark-mode cream, a touch above the surface. */
-    --unread-edge: rgba(227,179,65,.5);   /* #3743: the unread edge on the dark bubble, the gold at half strength */
+    --unread-edge: #a8842f;   /* #3743: the unread outline in the dark, a darker gold. Opaque: it is four stacked 1px shadows, and a translucent colour would compound unevenly where they overlap */
     /* #2660: 15% in dark, up from 10% light, so the wash stays legible. */
     --usermsg-tint: #1b1f65; /* #3340 (Josh 6.83): night-mode user bubble, a deeper indigo (was #141c2f). #2660 history: 15% in dark, up from 10% light, so the wash stays legible. */
     /* #980: the consolidated side tones' dark twins, the mock's line 25. */
@@ -9451,7 +9482,7 @@ body.plus-active {
   --k-rule: #22345a; --k-track: rgba(120,150,200,.24); --k-knob: #cdd8ef;
   --k-sunk: rgba(120,150,200,.08); --k-side: #0b1428; --k-side-2: #0a1120;
   --agent-msg: #1b2a4b;  /* #3267: was var(--k-sunk) = rgba(120,150,200,.08), TRANSLUCENT. The Option A wing (::before, background-color:inherit) OVERLAPS the bubble box, and a translucent fill double-composites in the overlap into the #3130 dark triangle -- the same defect this change fixed for --usermsg-tint. Made SOLID here too: .08 of rgb(120,150,200) pre-composited over navy --k-bg #132140 (mirrors --usermsg-tint navy). #2947 history: navy keeps its bluish inset, cream is out of scope for this world. */
-  --unread-edge: rgba(227,179,65,.5);   /* #3743: the unread edge on the navy bubble */
+  --unread-edge: #a8842f;   /* #3743: the unread outline in the dark, a darker gold. Opaque: it is four stacked 1px shadows, and a translucent colour would compound unevenly where they overlap */
   --usermsg-tint: #1a2d58; /* #3267: solid navy (pre-composited from rgba .15 over --k-bg #132140); was #2660 15% */
   --k-optline: #5f7099;
   /* --label/--bg system */
@@ -29905,7 +29936,7 @@ function restoreThreadAnchor(el, a) {
   return false;
 }
 /* #3743 (Josh 2026-09-25 09:15): an unread agent message carries a gold edge that fades once it has been read
-   (the edge is not drawn at present, #3967, see the .msg-bd CSS; this mark is still kept).
+   (drawn around the tail as an outline, see "#3743 back" in the .msg-bd CSS).
    "Unread" is the app's own count (a DM's dmUnread, a project's unread) read as the thread opens, plus any agent
    message that lands while it is open. "Read" is on screen, half of it at least, for a moment while this window is
    in front. Per thread: `known` is every agent message this page has shown there, `fresh` those still unread,
@@ -29973,7 +30004,7 @@ function unreadEdgeTry(bd) {
     bd.__unreadTimer = null;
     if (!bd.isConnected || !bd.__inView || document.visibilityState !== 'visible' || !document.hasFocus()) return;
     if (bd.__unread) { bd.__unread.st.fresh.delete(bd.__unread.id); bd.__unread.st.read.add(bd.__unread.id); }
-    bd.removeAttribute('data-unread');   // the transition faded the edge (not drawn at present, #3967)
+    bd.removeAttribute('data-unread');   // the transition fades the outline
     if (UNREAD_IO) UNREAD_IO.unobserve(bd);
     UNREAD_WATCHED.delete(bd);
   }, UNREAD_EDGE_DWELL);
