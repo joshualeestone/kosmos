@@ -126,6 +126,9 @@ const waitFor = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 9000
       const r = await read(page);
       chk(landed && r.online, 'CONTROL B: online, nothing answered, the note says the Mac is not answering', r.note.slice(0, 120));
       chk(!OFFLINE.test(r.note + r.grid + r.pj), 'CONTROL B: an online phone is not told it is offline', (r.note + ' | ' + r.grid).slice(0, 160));
+      // #718 state 2: through Kosmos+ it is the person's Mac, asleep or off, and a phone cannot open an Applications folder.
+      chk(/Your Mac is not answering/.test(r.note) && /asleep or turned off/.test(r.note), 'S2: the note names the Mac and why', r.note.slice(0, 160));
+      chk(!MAC_BLAMED.test(r.note + r.grid) && !/Applications folder/.test(r.note), 'S2: no "this computer" and no desktop-only remedy on a phone', (r.note + ' | ' + r.grid).slice(0, 200));
       await ctx.close();
     }
   } catch (e) {

@@ -47,7 +47,7 @@ function boardEmpty(state) {
     /* win32-board-copy: both painters now ask the platform copy layer, which answers
        "not Windows" here (no stamped meta), so this file keeps asserting the Mac board. */
     page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS) + '\n'
-    + lift('esc') + '\n' + lift('boardSigninHtml') + '\n' + page.liftConst(SCRIPT, 'ORG_SIGNED_OUT_SENTENCE') + '\n' + page.liftConst(SCRIPT, 'DEVICE_SIGNIN_BUTTON') + '\n' + lift('deviceSignedOutHtml') + '\n' + page.liftConst(SCRIPT, 'OFFLINE_SENTENCE') + '\n' + lift('deviceOfflineHtml') + '\n' + lift('boardEmpty')
+    + lift('esc') + '\n' + lift('boardSigninHtml') + '\n' + page.liftConst(SCRIPT, 'ORG_SIGNED_OUT_SENTENCE') + '\n' + page.liftConst(SCRIPT, 'DEVICE_SIGNIN_BUTTON') + '\n' + lift('deviceSignedOutHtml') + '\n' + page.liftConst(SCRIPT, 'OFFLINE_SENTENCE') + '\n' + lift('deviceOfflineHtml') + '\n' + lift('kplusRemote') + '\n' + lift('boardEmpty')
     + '\nreturn boardEmpty();')(state.seen, state.failed, state.signin || false, state.signedOut || false, state.offline || false);
 }
 
@@ -228,4 +228,23 @@ test('a phone or computer with no network renders YOU ARE OFFLINE, and outranks 
   assert.match(boardEmpty({ seen: true, failed: 'x', offline: true, signedOut: true, signin: true }), /You are offline\./);
   // CONTROL: the same failed read without the flag is the generic card.
   assert.match(boardEmpty({ seen: true, failed: 'Load failed' }), /We cannot read your agents/);
+});
+
+test('through Kosmos+, the cannot-read card names your Mac and offers no Terminal (#718 state 2)', () => {
+  const had = Object.prototype.hasOwnProperty.call(globalThis, 'location');
+  const prev = globalThis.location;
+  try {
+    globalThis.location = { hostname: 'leo.kosmosplus.com', host: 'leo.kosmosplus.com' };
+    const remote = boardEmpty(CANNOT);
+    assert.match(remote, /Something on your Mac did not answer/);
+    assert.ok(!/on this computer/.test(remote), 'a phone was told its own computer did not answer');
+    assert.ok(!/Already use Terminal/.test(remote), 'a Terminal hatch for a person who is not at the Mac');
+    // CONTROL: on the Mac itself, the card keeps "this computer" and the hatch.
+    globalThis.location = { hostname: '127.0.0.1', host: '127.0.0.1:16180' };
+    const local = boardEmpty(CANNOT);
+    assert.match(local, /Something on this computer did not answer/);
+    assert.match(local, /Already use Terminal/);
+  } finally {
+    if (had) globalThis.location = prev; else delete globalThis.location;
+  }
 });

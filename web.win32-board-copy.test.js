@@ -375,7 +375,7 @@ const MAC_SIGNIN_PANEL = '<div class="pj-empty boardfail">'
 const MAC_SIGNIN_SENTENCE = 'This board is not signed in, so it cannot read your agents or projects. It fixes itself the next time Kosmos updates.';
 
 function boardEmpty(platform, failed) {
-  return runPage(platform, ['esc', 'boardSigninHtml', 'boardEmpty'], 'boardEmpty()',
+  return runPage(platform, ['esc', 'boardSigninHtml', 'kplusRemote', 'boardEmpty'], 'boardEmpty()',
     { BOARD_SEEN: true, BOARD_LOOK_FAILED: failed || null, BOARD_NEEDS_SIGNIN: !failed, BOARD_SIGNED_OUT: false, BOARD_DEVICE_OFFLINE: false });
 }
 
