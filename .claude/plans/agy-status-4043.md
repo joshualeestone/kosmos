@@ -65,6 +65,12 @@ over the scraped UNKNOWN in reconcileReport (checked by calling it: working -> w
   #4039's old tip); the throttle's bare 'nopane' could merge agents without a pane -> the Claude hook's
   chain (pane, token hash, parent pid, then nopane). Otherwise clean, with the schema and the empty-
   decision premise re-verified against the agy 1.2.x binary.
+- Review iteration 5 (opus): (W1) an auto needs_you shows as the board's red "Issue", not the calm
+  "Question" -> DECIDED keep auto (the Gemini/Claude siblings do the same; the class-1 restart is kept off
+  by #4006's runner check, already pinned at engine/class1-autohandle.test.js:314; non-auto would leave
+  the card stuck after the answer). Reasoning on #4043. (W2) a fake-board test asserts the real POST
+  (route, states, auto, pane, throttle). (CONVENTION) spawned tests remove their throttle markers. NITs:
+  anchor check, plan wording, header's TMUX_PANE stated as expected, not measured.
 - Review iteration 6 (opus): (W1) no minimum agy version -> the supervisor passes `agy --version`
   (measured 0.06-0.4s) to agyhooks, and the ask_question tool groups are written only at agy 1.1.9 or
   later (1.0.16 fixed an empty pre-tool answer failing the tool; 1.1.9 fixed PostToolUse ignoring its
