@@ -1488,7 +1488,8 @@ test('#3995 gap 4 review round 3: a numbered guide is not withheld with many hel
   setKnownSecrets([j('Zq812vLm3pR', 't6wXy9kHb2nW')]);
   try {
     const t = mask('Zq8 is step 1, and 2 is next. The key: Zq8 12 vLm 3pR t6w Xy9 kHb 2nW').text;
-    assert.ok(t.startsWith('Zq8 is step 1, and 2 is next. The key: '), 'an earlier mention masked ordinary text: ' + t);
+    // The ordinary "1" and "2" stay; the earlier Zq8 is the key's own chunk, which review round 17 masks too.
+    assert.ok(t.includes(' is step 1, and 2 is next. The key: '), 'an earlier mention masked ordinary text: ' + t);
     for (const c of ['vLm', '3pR', 't6w', 'Xy9', 'kHb', '2nW']) assert.ok(!t.includes(c), `the key's chunk ${c} survived: ${t}`);
   } finally { setKnownSecrets([]); }
 });
@@ -1550,7 +1551,7 @@ test('#3995 gap 4 review round 8: a short chunk with a label glued on both sides
     for (const glue of [(c, i) => `x${i}-${c}-y${i}`, (c, i) => `var_${c}_tmp${i}`]) {
       const t = mask(chunks.map(glue).join(' then ') + '.').text;
       for (const c of chunks) assert.ok(!t.includes(c), `a chunk glued on both sides survived: ${c}: ${t}`);
-      assert.ok(/x0-|var_/.test(t), 'the labels were masked with the chunks: ' + t);
+      for (let i = 0; i < chunks.length; i += 1) assert.ok(t.includes(`x${i}-`) || t.includes(`_tmp${i}`), `the label for chunk ${i} was masked: ${t}`);
     }
   } finally { setKnownSecrets([]); }
 });
@@ -1652,6 +1653,23 @@ test('#3995 gap 4 review round 16: a chunk written twice inside one run is maske
     for (const sep of ['-', '_', '+', '/', '=']) {
       const t = mask(`Zq8 and vLm and 3pR${sep}3pR and t6w and Xy9 and kHb and 2nW and c4d`).text;
       assert.ok(!t.includes('3pR'), `joined by ${sep}: a copy of 3pR showed: ${t}`);
+    }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 17: a key repeated regrouped, or retried after an abandoned first try, is masked in full', () => {
+  const held = j('Zq8vLm3pRt6w', 'Xy9kHb2nWc4d');
+  const chunks = held.match(/.{3}/g);
+  setKnownSecrets([held]);
+  try {
+    for (const input of [
+      `Type ${chunks.join(' then ')} (the last part is 2nW/c4d).`,
+      `Type ${chunks.join(' then ')}. Grouped: Zq8vLm 3pRt6w Xy9kHb 2nWc4d.`,
+      `In pieces: ${chunks.join(' then ')}. In one line: Zq8-vLm-3pR-t6w-Xy9-kHb-2nW-c4d.`,
+      `The key is ${chunks.slice(0, 7).join(' then ')}; sorry, again: ${chunks.join(' then ')}.`,
+    ]) {
+      const t = mask(input).text;
+      for (const c of chunks) assert.ok(!new RegExp('(^|[^A-Za-z0-9])' + c + '([^A-Za-z0-9]|$)').test(t), `${c} showed: ${t}`);
     }
   } finally { setKnownSecrets([]); }
 });

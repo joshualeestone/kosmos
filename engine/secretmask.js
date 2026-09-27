@@ -426,8 +426,8 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  * Not covered:
  *  - pieces out of order or reversed;
  *  - by this walk, an opening piece shorter than OPENING_LEN (shortChunkSpans masks the whole key; fragmentsIn a
- *    rest of FRAGMENT_LEN or more); a PARTIAL try that starts that way is masked by neither, and an abandoned first
- *    try followed by a full retry shows (the short walk keeps only the latest start that completes);
+ *    rest of FRAGMENT_LEN or more); a PARTIAL try that starts that way and is never completed is masked by neither
+ *    (an abandoned first try IS masked when a full retry follows within reach: review round 17);
  *  - a held value madeOfWords takes for words and numbers;
  *  - a partial try (one that never completes) with under PARTIAL_MIN characters after its opening, counted in
  *    non-word pieces of OPENING_LEN or more; a try that reaches it is masked piece by piece;
@@ -762,7 +762,9 @@ function wordSkippingSpans(text) {
  *    of words, MyPassword123 or 2ndFloorLounge, is spelled by ordinary text: review rounds 1 and 2).
  * Returns [from, to) spans, or null when the walk ran past SHORT_WALK_BUDGET (withheld, as the word walk is).
  */
-/* Measured by review round 12 on a large crafted reply (2,000 held values, 6,000 runs, 135,000 characters): 2.4s here
+/* Review round 17: with 2,000 held values of 400 to 1,000 characters, a crafted text of 8,000 random one- to
+   three-character tokens is withheld here (about 1s) and not on main; realistic texts (code, grids, chess, JWTs) were
+   unchanged at 1 to 2.5 times main's time. Measured by review round 12 on a large crafted reply (2,000 held values, 6,000 runs, 135,000 characters): 2.4s here
    against 1.5s on main for the same input, not withheld; inside the word walk's documented range of up to twice its
    1 to 1.3s. The word walk's figure, and its unit: one per candidate form, per run visited, per state, and per 16 steps of the
    spellability check (chunksOf). Measured on this branch (review round 2's probes: 2,000 forms by 4,000 short runs, 2,000
@@ -928,14 +930,28 @@ function shortChunkSpans(text) {
     }
   }
   const spans = [];
+  const nearPieces = (k, f, head) => {
+    for (const [t, places] of runs[k][4]) {
+      if (t.length < 2 || plainWordRun(t) || f.indexOf(t, head) < 0) continue;
+      for (const [a, b] of places) spans.push([runs[k][0] + a, runs[k][0] + b]);
+    }
+  };
   const pieceSpan = (i, t) => {
     /* Only the piece, where it sits in its run (not a label glued to it: review rounds 2 and 15); every place it sits
        when it is not a plain word (review round 16), the first when it is. */
     const places = runs[i][4].get(t);
     for (const [a, b] of plainWordRun(t) ? places.slice(0, 1) : places) spans.push([runs[i][0] + a, runs[i][0] + b]);
   };
-  for (const { done, head } of completed.values()) {
+  for (const [key, { done, head }] of completed) {
+    const f = key.slice(0, key.lastIndexOf('|'));
     const first = done[0][0], last = done[done.length - 1][0];
+    /* Every run near the key holding a piece that is a non-plain slice of it (past its public head), from one reach
+       before the first chunk to the last: the search ends on the shortest path, so a regrouped repeat (2nW/c4d, Zq8vLm
+       3pRt6w) or an abandoned first try left chunks off the path showing (review round 17). Non-plain only, so an
+       ordinary "1" or "the" nearby stays (review rounds 3 and 11). */
+    const reachBack = ns[runs[first][0]] - SPLIT_REACH * f.length;
+    for (let k = first - 1; k >= 0 && ns[runs[k][1]] >= reachBack; k -= 1) nearPieces(k, f, head);
+    for (let k = first + 1; k < last; k += 1) nearPieces(k, f, head);
     for (const [i, t, pos] of done) {
       if (pos <= head) continue;   // wholly inside the public head: assembled from, not masked
       pieceSpan(i, t);

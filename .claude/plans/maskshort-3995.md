@@ -201,3 +201,16 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
   sat, and the copies rule skips the run the match came from. Every place is kept now, and a piece that is not a plain
   word is masked at every place in its run. Tested for all five separators; red on the previous commit.
 - The SHORT_PUBLIC_HEAD comment no longer claims the same set as shapeHint (it is the subset publicHeadCut can measure).
+
+## Review round 17 (Opus), what changed
+- BLOCKER fixed: the search ends on the shortest path, so a key repeated regrouped (2nW/c4d, Zq8vLm 3pRt6w, one
+  line with -) or retried after an abandoned first try left the chunks off the path showing (6 to 21 characters).
+  Once a form completes, every run from one reach before its first chunk to its last that holds a non-plain slice of
+  the form (past its public head) is masked. Tested with four shapes; red on the previous commit. Plain words nearby
+  stay (the round-3 test now checks the ordinary "1" and "2" and allows the earlier Zq8, the key's own chunk).
+- Not covered: an abandoned first try is masked when a retry follows within reach; a partial try never completed is not.
+- The budget comment records round 17's long-value measurement (2,000 held values of 400 to 1,000 characters on 8,000
+  random short tokens: withheld, crafted; realistic texts unchanged).
+- The round-8 test asserts every label survives, not one.
+- Deferred NITs: a public head measured by publicHeadCut can reach into secret characters (sk-proj- with _ early,
+  main's shared rule); version and architecture strings are the deferred round-13 trade-off.
