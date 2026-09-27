@@ -190,8 +190,10 @@ test('#3568: installJob refuses an Antigravity agent on win32 and refuses an acc
   const realPresence = win32job.presence;
   win32job.presence = () => ({ known: true, registered: false });
   let r;
+  // Refused on Windows only with its switch OFF (engine/win32agy.js; on by default since #3568's Windows half).
+  require('./win32agy').setSwitchForTests(() => false);
   try { r = create.installJob(name, { ...BINS, antigravityBin: AGY_BIN, platform: 'win32' }); }
-  finally { win32job.presence = realPresence; }
+  finally { win32job.presence = realPresence; require('./win32agy').setSwitchForTests(null); }
   assert.equal(r.ok, false);
   assert.match(String(r.because), /Windows/);
   assert.match(String(r.because), /Antigravity/);

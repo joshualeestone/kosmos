@@ -4336,7 +4336,9 @@ test('#3568: with the flag on, an Antigravity agent is created on the antigravit
 test('#3568: an Antigravity create is refused when agy is missing, when an account is given, and on Windows', () => {
   recorder();
   create.setDryRun(false);
-  withAgyFlag(true, () => {
+  // Windows refuses only with its switch OFF (engine/win32agy.js; on by default since #3568's Windows half).
+  require('./win32agy').setSwitchForTests(() => false);
+  try { withAgyFlag(true, () => {
     const missing = create.createAgent({ ...BINS, antigravityBin: '/nonexistent/agy', name: 'agy-none', role: 'pm', provider: 'antigravity' });
     assert.equal(missing.outcome, create.OUTCOME.REFUSED);
     assert.match(missing.because, /could not find Antigravity/);
@@ -4354,7 +4356,7 @@ test('#3568: an Antigravity create is refused when agy is missing, when an accou
     const winMissing = create.createAgent({ ...BINS, antigravityBin: '/nonexistent/agy', name: 'agy-win2', role: 'pm', provider: 'antigravity', platform: 'win32' });
     assert.equal(winMissing.outcome, create.OUTCOME.REFUSED);
     assert.match(winMissing.because, /Windows/);
-  });
+  }); } finally { require('./win32agy').setSwitchForTests(null); }
 });
 test('#3568: the provider and runner maps round-trip antigravity, and it is a non-Claude runner', () => {
   assert.equal(create.providerRunner('antigravity'), 'antigravity');

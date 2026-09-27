@@ -682,7 +682,11 @@ function installAntigravityWin32(opts) {
       try { fs.rmSync(agyWin32Marker(), { force: true }); } catch { /* none */ }
       const bin = agyWin32Bin();
       const old = bin + '.old-' + process.pid;
-      if (fs.existsSync(bin)) await renameRetrying(bin, old, 'win32');
+      /* An agy already there (a reinstall) is moved aside first; lstat, because presence here is "is
+         something at that name", not "can it run". */
+      let there = false;
+      try { fs.lstatSync(bin); there = true; } catch { there = false; }
+      if (there) await renameRetrying(bin, old, 'win32');
       await renameRetrying(staging, bin, 'win32');
       try { fs.rmSync(old, { force: true }); } catch { /* a running agy holds it; the next install sweeps */ }
       stage = 'prove';
