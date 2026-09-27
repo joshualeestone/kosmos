@@ -158,6 +158,12 @@ const STATES = {
           const dlg = await page.evaluate(() => ({ open: !document.getElementById('plus-lost-modal').hidden, focus: document.activeElement && document.activeElement.id,
             reset: !!document.querySelector('#plus-lost-modal #plus-second-reset'), always: /always asks for a second code/.test(document.getElementById('plus-lost-say').textContent) }));
           chk(dlg.open && dlg.focus === 'plus-lost-close' && dlg.reset && dlg.always, `${t} #4080: Lost your phone? opens a dialog with the reset, focus on Close`, JSON.stringify(dlg));
+          /* Review round 3: it must be an OVERLAY covering the window, not a block in the page (the section's child
+             rule once made it position:relative). */
+          const cover = await page.evaluate(() => { const b = document.getElementById('plus-lost-modal'); const r = b.getBoundingClientRect(); const cs = getComputedStyle(b);
+            return { pos: cs.position, x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), vw: innerWidth, vh: innerHeight }; });
+          chk(cover.pos === 'fixed' && cover.x === 0 && cover.y === 0 && Math.abs(cover.w - cover.vw) <= 20 && Math.abs(cover.h - cover.vh) <= 2,
+            `${t} #4080: the dialog is a fixed overlay covering the window`, JSON.stringify(cover));
           await page.keyboard.press('Escape');
           await page.waitForTimeout(150);
           const shut = await page.evaluate(() => ({ open: !document.getElementById('plus-lost-modal').hidden, focus: document.activeElement && document.activeElement.id }));

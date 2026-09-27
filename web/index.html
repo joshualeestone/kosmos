@@ -9388,6 +9388,9 @@ body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.att
 #plus-stars { position: absolute; inset: 0; width: 100%; height: 100%;
   display: block; z-index: 0; pointer-events: none; }
 #s-sec-plus > *:not(#plus-stars) { position: relative; z-index: 1; }
+/* #4080: the Lost your phone? dialog is a child of this section (the body's 38-row limit), and the rule above, at id
+   specificity, would make it position:relative, a block at the foot of the pane. Give it back the .rm-back overlay. */
+#s-sec-plus > #plus-lost-modal { position: fixed; inset: 0; z-index: 50; }
 /* state 1 (HOME) — the immersive marketing view, where most of the visual lands */
 #plus-mark { display: block; width: min(560px, 82%); height: auto; margin: 6px 0 4px; }
 .plus-hero-h { font-size: 26px; font-weight: 650; letter-spacing: -.01em;
@@ -16115,7 +16118,7 @@ window.kosmosMeasureScrollbarWidth();
              reset from a computer already connected to Kosmos+ (#733's "I lost my phone"); there is
              no support path or server unlock by design (docs/second-factor.md in kosmos-relay). -->
         <p class="plus-si-small"><a id="plus-si-second-help" class="plus-signin-link" href="#" role="button" aria-expanded="false" aria-controls="plus-si-second-recover">Can't get a code?</a></p>
-        <p class="plus-si-small" id="plus-si-second-recover" hidden>Open Kosmos on a computer that is already connected to Kosmos+, go to Settings, Kosmos Plus, and choose Lost your phone?. That resets this step, and nobody else can.</p>
+        <p class="plus-si-small" id="plus-si-second-recover" hidden>Open Kosmos on a computer that is already connected to Kosmos+, go to Settings, Kosmos Plus, and choose “Lost your phone?”. That resets this step, and nobody else can.</p>
       </div>
 
       <!-- Set up a second factor (signin-enrol): reached only when the account has
@@ -16333,8 +16336,8 @@ window.kosmosMeasureScrollbarWidth();
        "all of this probably doesnt belong on that page"). The reset keeps its ids and its two-step arm (#733).
        The words are shortened; "always" is kept, per Josh's 2026-08-29 ruling that the second step ALWAYS happens.
        It sits INSIDE the Kosmos Plus section, not as a direct child of <body>: the consolidated grid reserves 38 rows
-       for body's children (web.consolidated-980.test.js) and main already has 38. .rm-back is position:fixed, so it
-       still covers the window from here. -->
+       for body's children (web.consolidated-980.test.js) and main already has 38. The section's own child rule would
+       make it position:relative, so a rule restores the fixed overlay (#s-sec-plus > #plus-lost-modal; review round 3). -->
   <div class="rm-back" id="plus-lost-modal" hidden>
     <div class="rm-box" role="dialog" aria-modal="true" aria-labelledby="plus-lost-t" aria-describedby="plus-lost-say">
       <h2 class="rm-title" id="plus-lost-t">Lost your phone?</h2>
@@ -38513,8 +38516,9 @@ async function paintPlus() {
   document.getElementById('plus-devices').hidden = r.enrolled !== true;
   /* #733 recovery: only an enrolled Mac can sign the reset, so the control
      shows with the devices, and a fresh paint disarms a half-taken click. */
-  /* #4080: the second-step reset lives in the "Lost your phone?" dialog now, reached from the bottom row. */
-  plusSecondDisarm();
+  /* #4080: the second-step reset lives in the "Lost your phone?" dialog now, reached from the bottom row. The 5-second
+     repaint must not re-enable a reset that is still in flight (review round 3). */
+  if (typeof PLUS_SECOND_BUSY === 'undefined' || !PLUS_SECOND_BUSY) plusSecondDisarm();
   /* #4079: Remove this computer shows for a connected computer. Its confirm is NOT disarmed here (this runs every 5s).
      Connected again (any way), an earlier "disconnected" result is no longer true: it goes. */
   { const f = document.getElementById('plus-forgot-msg'); if (f && !f.hidden) { f.hidden = true; f.textContent = ''; } }
