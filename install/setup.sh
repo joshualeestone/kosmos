@@ -3011,6 +3011,9 @@ make_app() {
   # SYS_renameatx_np, -2 AT_FDCWD, 18 is RENAME_SWAP (2) | RENAME_NOFOLLOW_ANY (16),
   # so a symlink planted anywhere in either path makes the call fail rather than
   # swap someone else's Contents (measured: ELOOP, the other folder untouched).
+  # That flag refuses EVERY link in the path, including a system one such as /var
+  # -> /private/var, so the call is given the folder's physical path (pwd -P) and
+  # the app and stage names under it; $app itself was already checked not a link.
   # /usr/bin/stat by path, as elsewhere in this file: a GNU stat first on PATH
   # reads -f differently and would quietly skip the swap.
   # Test-only by contract, like KOSMOS_SYS_APP_DIR: KOSMOS_SWAP_PERL points the
@@ -3020,11 +3023,13 @@ make_app() {
   if [ "$(uname -s)" = Darwin ] && [ "${KOSMOS_CONTENTS_SWAP:-on}" != off ] \
      && [ -d "$app" ] && [ ! -L "$app" ] && [ -d "$app/Contents" ] && [ ! -L "$app/Contents" ] \
      && [ -f "$_perl" ] && [ -x "$_perl" ] && bundle_is_ours "$app"; then
-    local _staged_ino
+    local _staged_ino _phys
     _staged_ino="$(/usr/bin/stat -f %i "$stage/Contents" 2>/dev/null)" || _staged_ino=""
-    if [ -n "$_staged_ino" ]; then
+    _phys="$(cd "$appdir" 2>/dev/null && pwd -P)" || _phys=""
+    # Ownership proved again right before the destructive step, as the rename below does.
+    if [ -n "$_staged_ino" ] && [ -n "$_phys" ] && bundle_is_ours "$app"; then
       "$_perl" -e 'exit(syscall(488, -2, $ARGV[0], -2, $ARGV[1], 18) == 0 ? 0 : 1)' \
-        "$stage/Contents" "$app/Contents" 2>/dev/null || true
+        "$_phys/$(basename "$stage")/Contents" "$_phys/$(basename "$app")/Contents" 2>/dev/null || true
       # WHERE THE STAGED FOLDER IS decides, never the exit code alone: a swap that
       # happened but reported failure must not fall through to the rename below,
       # which would then install $stage, by now the OLD Contents.
@@ -3039,6 +3044,8 @@ make_app() {
       if [ "$(/usr/bin/stat -f %i "$stage/Contents" 2>/dev/null)" != "$_staged_ino" ]; then
         # The staged folder is in neither place: something else moved it. Do not
         # guess which Contents is where; leave the app as it is and fail the step.
+        # The stage is this run's own, so it is removed without the ownership proof.
+        rm -rf "$stage" 2>/dev/null || true
         return 1
       fi
       # The staged Contents is still in $stage: nothing moved, so the rename is safe.

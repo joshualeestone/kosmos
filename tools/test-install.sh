@@ -811,6 +811,9 @@ RC=0; cat "$SETUP" | KOSMOS_SWAP_PERL="$SB/perl-lies" sh > "$SB/update-swaplies.
 chk "a swap that did nothing is not believed: install still exits 0" "rc_ok $RC"
 chk "and the app is complete and runnable" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ] && [ -f \"$SB/apps/Kosmos.app/Contents/Info.plist\" ]"
 chk "and the fallback ran (a new folder): the zero exit was not taken as a swap" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" != \"$APP_INO4\" ]"
+# The stub below repeats the installer's syscall; pin the two to the same call, or a
+# change to the installer's flags would leave this case testing a stale shape.
+chk "the stub's swap call is the installer's own (488, AT_FDCWD, flags 18)" "grep -qF 'syscall(488, -2, \$ARGV[0], -2, \$ARGV[1], 18)' \"$SETUP\""
 # The dangerous case: the swap HAPPENED but reported failure. Falling through to the
 # whole-bundle rename here would install $stage, by then the OLD Contents. The stub
 # really swaps (flags 18, as the installer passes) and then exits 1.
@@ -826,9 +829,10 @@ chk "with the NEW Contents in it, not the old one put back by the rename" "[ \"\
 mkdir -p "$SB/residue-control/.Kosmos.app.stage.0"
 chk "CONTROL: the residue pipeline finds a planted .Kosmos.app.stage.0" "[ -n \"\$(ls -A \"$SB/residue-control\" | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ]"
 chk "no stage or aside folder left after the fallbacks" "[ -z \"\$(ls -A \"$SB/apps\" | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ]"
-# The idempotency check lives HERE, after a SECOND install against the
-# same profile: after one install a count of 1 is guaranteed even with
-# the marker guard deleted, so a first-pass count check cannot fail.
+# The idempotency check lives HERE, after several installs against the
+# same profile (the update plus the #2864 swap runs above): after one install a
+# count of 1 is guaranteed even with the marker guard deleted, so a first-pass
+# count check cannot fail.
 chk "PATH wiring still written exactly once after a rerun" "[ \"\$(grep -cxF '# kosmos: PATH for the kosmos command (removed by --uninstall)' \"$SB/zprofile\")\" = 1 ]"
 
 echo "== refusals speak sentences =="
