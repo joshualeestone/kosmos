@@ -209,6 +209,10 @@ function heightOf(page, sel) {
             }
             const opened = await page.evaluate(() => {
               if (typeof TIPS === 'undefined' || typeof tipShow !== 'function') return { error: 'TIPS/tipShow missing' };
+              /* Count the fix's own scrolls per step, so "a card that already points is never moved" is measured, not read. */
+              window.__tipScrolls = [];
+              const sb = window.scrollBy.bind(window);
+              window.scrollBy = function (...a) { const st = TIP_PLACES[TIP_STEP]; window.__tipScrolls.push(st ? st.title : '?'); return sb(...a); };
               const t = TIPS.find((x) => x.id === 'project'); if (!t || !t.steps) return { error: 'no stepped project tip' };
               window.scrollTo(0, 0); tipShow(t); return { n: TIP_PLACES.length };
             });
@@ -232,6 +236,9 @@ function heightOf(page, sel) {
               chk(!st.error && st.pointing && st.cardOnScreen && st.areaInView,
                 `${tag} the project tip's ${st.title || '?'} step points at its area, fully on screen`, JSON.stringify(st));
             }
+            /* Only a step whose card would otherwise go flat may scroll: here that is the Conversation step, or none. */
+            const scrolled = await page.evaluate(() => window.__tipScrolls || []);
+            chk(scrolled.every((t) => t === 'Conversation'), `${tag} the tip scrolls the page only for the Conversation step (a pointing card is never moved)`, JSON.stringify(scrolled));
             chk(steps.length === 4, `${tag} the project tip walked all four steps`, String(steps.length));
           } catch (e) {
             chk(false, `${tag} the project tip walk ran`, String(e.message || e).split('\n')[0]);

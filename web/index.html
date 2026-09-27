@@ -61058,16 +61058,23 @@ function tipTourRender(card, auto) {
   tipAnnounce(card);
   tipLayout(TIP_OPEN, card);
   /* #4108: a place that nearly fills the window (a project's Conversation on a phone) can leave the card no room above
-     or below it by a few pixels, and the card then goes flat, pointing at nothing. Scroll up just enough for the card
-     to sit above it, and place it again. Only then: a card that found a pointing place is never moved. */
+     or below it by a few pixels, and the card then goes flat, pointing at nothing. Scroll the window up just enough for
+     the card to sit above it, and place it again (tipPlace measures the place afresh). Only then: a card that found a
+     pointing place is never moved.
+     Its limits, on purpose: it scrolls the WINDOW, so a place inside an inner scroller, or a window already at the top,
+     gets no room and keeps the flat card it has today; and it acts once, as the step opens, never on a later relayout
+     (a scroll or a resize), because moving the page while the person scrolls it would fight their hand. */
   if (stepEl && card.classList.contains('flat')) {
     const r = stepEl.getBoundingClientRect();
-    const need = card.offsetHeight + 12 + 12 + 4;   // the card, its arrow gap, tipPlace's pad, and slack for fractional pixels
+    const need = card.offsetHeight + 12 + 12 + 4;   // the card, its arrow gap, tipPlace's pad, and 4px measured slack (fractional tops)
+    /* On screen, too close to the top for the card, and taller than the room the card needs: the tall-place case. A
+       shorter place has room below it or beside it, so a flat card there is some other case, left alone. */
     if (r.top > 0 && r.top < need && r.bottom > need) {
       window.scrollBy(0, r.top - need);
       tipLayout(TIP_OPEN, card);
     }
-  }  /* It takes focus, unless it opened by itself while the person is typing somewhere. */
+  }
+  /* It takes focus, unless it opened by itself while the person is typing somewhere. */
   const ae = document.activeElement;
   const busy = auto && !!ae && ae !== document.body && ae.matches('input, textarea, select, [contenteditable=""], [contenteditable="true"]');
   if (!busy) card.querySelector('.tip-go').focus();
