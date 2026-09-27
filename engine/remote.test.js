@@ -436,6 +436,37 @@ test('setup settles once when spawn error is followed by close', async () => {
   assert.equal(remote.read().email, '');
 });
 
+test('setup resolves after a short grace when exit is never followed by close', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.kill = () => {};
+  remote.setSetupSpawnForTests(() => child);
+
+  const logged = [];
+  const originalError = console.error;
+  try {
+    console.error = (line) => logged.push(String(line));
+    let settled = false;
+    const running = remote.setupStart('held-pipe@example.com').then((result) => {
+      settled = true;
+      return result;
+    });
+    child.stderr.emit('data', Buffer.from('the tunnel left a pipe open\n'));
+    child.emit('exit', 1);
+    t.mock.timers.tick(2000);
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+
+    assert.equal(settled, true, 'setup hung because close never arrived');
+    const result = await running;
+    assert.equal(result.because, 'the tunnel left a pipe open');
+    assert.match(logged.join('\n'), /stdio did not close within 2 seconds/);
+  } finally {
+    console.error = originalError;
+  }
+});
+
 test('the code step validates in words, enrolls through the binary, and brings the tunnel up', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   remote.setOn(true);

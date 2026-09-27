@@ -72,6 +72,7 @@ const { spawn, execFileSync } = require('node:child_process');
 // Narrow test seam for setupRun's child lifecycle. The supervised tunnel uses
 // spawn directly and cannot be replaced through this seam.
 let setupSpawn = spawn;
+const SETUP_CLOSE_GRACE_MS = 2000;
 const os = require('node:os');
 const store = require('./store');
 
@@ -616,11 +617,13 @@ function setupRun(args, stdin = null, timeoutMs = 0) {
   return new Promise((resolve) => {
     let spawned;
     let timer = null;
+    let closeTimer = null;
     let settled = false;
     const finish = (result) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      if (closeTimer) clearTimeout(closeTimer);
       resolve(result);
     };
     try {
@@ -649,12 +652,26 @@ function setupRun(args, stdin = null, timeoutMs = 0) {
       }, timeoutMs);
       if (typeof timer.unref === 'function') timer.unref();
     }
-    spawned.on('close', (code) => {
+    const resultFor = (code) => {
       if (code === 0) { finish({ ok: true, because: null, said: out.trim() }); return; }
       const lines = (errOut.trim() || out.trim()).split('\n').filter(Boolean);
       /* `stderr` is the WHOLE of it: a caller that must recognise a message clap prints
          across several lines (an unknown subcommand, #3660) cannot use the last line. */
       finish({ ok: false, because: lines[lines.length - 1] || ('setup failed (exit ' + code + ')'), stderr: errOut, code });
+    };
+    spawned.on('exit', (code) => {
+      if (settled) return;
+      // The process has ended, so its operation timeout no longer applies. Give
+      // inherited pipe holders a short drain window, then answer instead of
+      // hanging callers that deliberately have no operation timeout.
+      if (timer) { clearTimeout(timer); timer = null; }
+      closeTimer = setTimeout(() => {
+        console.error('remote: setup child stdio did not close within 2 seconds after exit; using collected output');
+        resultFor(code);
+      }, SETUP_CLOSE_GRACE_MS);
+    });
+    spawned.on('close', (code) => {
+      resultFor(code);
     });
   });
 }
