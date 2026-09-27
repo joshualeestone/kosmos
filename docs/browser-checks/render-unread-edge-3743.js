@@ -106,9 +106,11 @@ function chk(ok, label, extra) {
     chk(boxCorner === 0, 'U17b the outline follows the tail\'s curve, not the wing\'s box (no gold at the box\'s top-left corner)', 'gold=' + boxCorner);
     // U17c: the bottom stroke runs unbroken where the tail meets the bubble (a rounded inner wing corner left a notch
     // there, which the outline traced as a V-shaped kink).
-    const junction = async (h) => { const bb = await h.boundingBox(); return goldIn({ x: bb.x - 2, y: bb.y + bb.height, width: 10, height: 1 }); };
+    const junction = async (h) => { const bb = await h.boundingBox(); return goldIn({ x: bb.x - 2, y: bb.y + bb.height - 0.5, width: 10, height: 2 }); };
     const joinRow = await junction(bds[3]);
-    chk(joinRow >= 9, 'U17c the bottom stroke has no kink where the tail meets the bubble', 'gold columns=' + joinRow + ' of 10');
+    // A 2px band, as a stroke can land on either row by subpixel position (WebKit and Chromium differ). Measured on
+    // this branch: 10 with the square corner in both engines; 6 (Chromium) and 8 (WebKit) with it rounded (the kink).
+    chk(joinRow >= 9, 'U17c the bottom stroke has no kink where the tail meets the bubble', 'gold pixels=' + joinRow + ' (10 unbroken)');
 
     // U18: scrolled to the end, the newest bubble's bottom stroke shows (a filter is not scrollable content; the DM
     // thread's 2px bottom padding keeps it inside). CONTROL: the same strip on a read bubble has no gold.
