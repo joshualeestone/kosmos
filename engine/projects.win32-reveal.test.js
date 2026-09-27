@@ -118,10 +118,9 @@ test('openFile on Windows hands a document to File Explorer as one quoted path, 
   withRealDocs(['notes.docx'], (dir, calls) => {
     assert.deepEqual(projects.openFile(dir, 'notes.docx'), { ok: true });
     /* Explorer is handed the path the RECORD names (win32explorer.openFile's namedAs), not
-       its realpath: #4257 measured it on a Windows runner, where os.tmpdir() is the 8.3
-       short form (RUNNER~1) and the realpath is the long one, so a realpath expectation was
-       red there while the product did what it is designed to do. Same rule as the
-       mapped-drive test below, which already expects the named Z: form. */
+       its realpath. The realpath expectation came in with namedAs itself (#2984) and never
+       ran on Windows until #4257, where os.tmpdir() is the 8.3 short form (RUNNER~1) and the
+       realpath the long one. Same rule as the mapped-drive test below (the named Z: form). */
     assert.deepEqual(calls, [[q(path.join(dir, 'notes.docx'))]]);
     /* The name gates are platform-free and still run first. */
     assert.equal(projects.openFile(dir, '..\\secret.txt').ok, false);
