@@ -81,8 +81,21 @@ function heldDoor(name) {
 
 const TOKEN = 'hetzner-token-long-enough-to-be-real-0123456789';
 
+/* How long the verifier (or a forget()) is given before a wait fails: one budget, used by every wait below. */
+const VERIFY_WAIT_MS = 5000;
+/* #4073: wait until `ok()` holds, or `ms` passes, polling every 10ms. A fixed 150ms sleep here raced a loaded
+   machine: neither request had reached the verifier yet, and the count read 0 as "not shared". */
+async function until(ok, ms = VERIFY_WAIT_MS) {
+  const end = Date.now() + ms;
+  while (!ok() && Date.now() < end) await new Promise((r) => setTimeout(r, 10));
+  return ok();
+}
+/* After the first verify is seen, how long a second, unshared one gets to show before the count is read. */
+const SECOND_VERIFY_MARGIN_MS = 300;
+
 test('#1618: two callers asking for the shelf at once verify each door ONCE', async () => {
   const h = heldDoor('Hetzner');
+  let pending = [];
   try {
     /* A held token, so the door actually reaches its verifier rather than
        short-circuiting on "no token, not connected". Ungated, or this blocks. */
@@ -94,7 +107,10 @@ test('#1618: two callers asking for the shelf at once verify each door ONCE', as
     h.arm();
     const a = fetch(base + '/api/connections').then((r) => r.json());
     const b = fetch(base + '/api/connections').then((r) => r.json());
-    await new Promise((r) => setTimeout(r, 150));
+    pending = [a, b];
+    assert.ok(await until(() => h.entries() - afterConnect >= 1),
+      `neither caller reached the verifier within ${VERIFY_WAIT_MS / 1000}s, so sharing was not measured`);
+    await new Promise((r) => setTimeout(r, SECOND_VERIFY_MARGIN_MS));
     const during = h.entries() - afterConnect;
     assert.equal(during, 1,
       `the shelf verified this door ${during} times for two concurrent callers, so the reads were not shared`);
@@ -104,7 +120,10 @@ test('#1618: two callers asking for the shelf at once verify each door ONCE', as
     assert.equal(ra.doors['/api/svc/hetzner'].connected, true);
     assert.deepEqual(Object.keys(ra.doors).sort(), Object.keys(rb.doors).sort(),
       'the two callers were handed different shelves');
-  } finally { h.restore(); await h.door.forget().catch(() => {}); }
+  } finally {
+    /* #4073: a failed assert must not leave the held reads open (the file hung), nor let them settle after the test. */
+    h.release(); await Promise.allSettled(pending); h.restore(); await h.door.forget().catch(() => {});
+  }
 });
 
 /* 🛑 THE BOUNDARY, AND IT IS BUILT AROUND `forget()` SO THAT IT CAN ACTUALLY FAIL.
@@ -117,23 +136,35 @@ test('#1618: two callers asking for the shelf at once verify each door ONCE', as
    so a shared pre-write read says `true` where the truth is `false`. */
 test('#1618: forget() observes its OWN write while a shelf read is in flight', async () => {
   const h = heldDoor('Hetzner');
+  let pending = [];
+  let deadline = null;   // cleared in finally, so a passing run does not wait the budget out
   try {
     const c = await h.door.connect(TOKEN);
     assert.equal(c.connected, true, 'the fixture failed to connect the door');
+    /* #4073: measured from here. connect() itself reaches the verifier twice (verify, then its closing
+       state()), so an absolute count is already met before the shelf read is sent. */
+    const afterConnect = h.entries();
 
     h.arm();
     const inFlight = fetch(base + '/api/connections').then((r) => r.json());
-    await new Promise((r) => setTimeout(r, 150));
-    assert.ok(h.entries() >= 2, 'the shelf read never reached the verifier, so nothing is in flight and this test proves nothing');
+    pending = [inFlight];
+    assert.ok(await until(() => h.entries() - afterConnect >= 1),
+      `the shelf read never reached the verifier within ${VERIFY_WAIT_MS / 1000}s, so nothing is in flight and this test proves nothing`);
     h.unarm();
 
-    const gone = await h.door.forget();
+    /* A forget() that shares the held read waits on it for ever, so it is given the same deadline and fails as
+       that, rather than hanging the file. */
+    const gone = await Promise.race([h.door.forget(), new Promise((r) => { deadline = setTimeout(() => r('waited'), VERIFY_WAIT_MS); })]);
+    assert.notEqual(gone, 'waited', 'forget() waited on the shelf read already in flight, so it shares that read and answers from before its write');
     assert.equal(gone.connected, false,
       'forget() was answered from a read that began before its write, so the door reports connected after being forgotten');
 
     h.release();
     await inFlight;
-  } finally { h.restore(); await h.door.forget().catch(() => {}); }
+  } finally {
+    clearTimeout(deadline);
+    h.release(); await Promise.allSettled(pending); h.restore(); await h.door.forget().catch(() => {});
+  }
 });
 
 test('#1618: a shelf read after the previous one settles is fresh, not cached', async () => {
