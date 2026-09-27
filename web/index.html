@@ -28831,7 +28831,7 @@ let BOARD_DEVICE_OFFLINE = false;
 function deviceOffline() {
   return kplusRemote() && typeof navigator !== 'undefined' && navigator.onLine === false;
 }
-const OFFLINE_SENTENCE = 'This phone or computer is not connected to the internet, so it cannot reach your Mac. The board comes back by itself when you are online again.';
+const OFFLINE_SENTENCE = 'This phone or computer is not connected to the internet, so it cannot reach your Mac. The board tries again by itself when you are online again.';
 function deviceOfflineHtml() {
   return '<div class="pj-empty boardfail">'
     + '<p><b>You are offline.</b><br>' + OFFLINE_SENTENCE + '</p>'
@@ -49789,7 +49789,8 @@ function paintOneProject() {
 function paintFreeAgentPicker(p, sel, btn) {
   const on = new Set((p.agents || []).map((a) => a.sessionName));
   const free = (LAST || []).filter((a) => !(a && a.isGuide === true)).filter((a) => !on.has(a.sessionName));
-  const emptyBecause = BOARD_SIGNED_OUT ? 'this phone or computer needs to sign in again'
+  const emptyBecause = BOARD_DEVICE_OFFLINE ? 'this phone or computer is offline'
+    : BOARD_SIGNED_OUT ? 'this phone or computer needs to sign in again'
     : BOARD_NEEDS_SIGNIN // #2023: distinct from "cannot see them".
     ? 'this board is not signed in yet'
     : BOARD_LOOK_FAILED
@@ -54875,6 +54876,12 @@ function paintAddAgents() {
   // self-heal copy here too, not the generic could-not-see-them sentence.
   /* #718 state 3: no "you can still add the project" here: the relay refuses a signed-out
      device's POST too, so it cannot create one until it signs in. */
+  /* #718 state 1: an offline device cannot reach the Mac to add a project either, so no
+     "you can still add the project" here. */
+  if (BOARD_DEVICE_OFFLINE) {
+    setLive(box, '<p class="fhint">' + esc(OFFLINE_SENTENCE) + '</p>');
+    return;
+  }
   if (BOARD_SIGNED_OUT) {
     setLive(box, '<p class="fhint">' + SIGNED_OUT_SENTENCE + '</p>');
     return;
