@@ -47,15 +47,6 @@ function seed() {
 
 (async () => {
   if (process.argv.includes('--seed')) { seed(); return; }
-  /* 🛑 TEMPORARY QUARANTINE (this cut only; REVERT after). regress-a-night's check clicks the
-     Settings TAB (`.tab:has-text("Settings")`, below), but #3051 removed that tab (Settings moved
-     into the user menu) in 0.6.65, so the click has timed out deterministically (30s) since then,
-     blocking every cut at 3b. The --seed path above is untouched. The real fix (open #userpop-btn
-     -> click #userpop-settings, and re-validate the post-84 settings-panel steps in a browser) is
-     branch fix-regress-anight-settings-nav @ 79406b704, landing as the browser-verified follow-up
-     on the next cut. Skipping the check for THIS cut so 0.6.67 (content proven clean) can ship. */
-  console.log('PASS  regress-a-night QUARANTINED for this cut (stale #3051 Settings-tab click; fix in 79406b704, follow-up)');
-  process.exit(0);
   const b = await chromium.launch({ headless: process.env.HEADED === '0' });
   for (const theme of ['light', 'dark']) {
     const pg = await b.newPage({ viewport: { width: 1500, height: 1000 }, colorScheme: theme });
@@ -90,7 +81,15 @@ function seed() {
     chk((await pg.evaluate(() => document.querySelectorAll('.onode').length)) > 0,
       theme + ': the org chart draws');
 
-    await pg.click('.tab:has-text("Settings")');
+    /* #3051 moved Settings OUT of the top tab bar into the user-avatar menu (web/index.html
+       line ~17030: "'settings' has no tab button any more (it moved into the user menu)").
+       The old `.tab:has-text("Settings")` matched no element and waited the full 30s, timing
+       out deterministically since 0.6.65 (this is the org->Settings hang that failed every cut).
+       Settings is now reached by opening #userpop-btn (aria-controls #userpop-menu) and clicking
+       #userpop-settings. */
+    await pg.click('#userpop-btn');
+    await pg.waitForTimeout(300);
+    await pg.click('#userpop-settings');
     await pg.waitForTimeout(1800);
     /* #2623: tell-toggle and notify-toggle (the telemetry opt-outs) were DELETED
        (Josh, 2026-09-09, "invasion of privacy"), so they leave this list. */
@@ -116,9 +115,20 @@ function seed() {
        do not need a rect, but the section is opened anyway so a later rect
        assertion added here does not inherit a hidden element. */
     await pg.click('#s-nav button[data-go="accounts"]');
-    await pg.waitForTimeout(200);
-    chk((await pg.evaluate(() => document.querySelectorAll('#set-accounts .acct-box').length)) > 0,
-      theme + ': the accounts list is read, not asserted');
+    /* #1079: the list must show the account this board was seeded with (tools/browser-checks.sh gives sb1 its own
+       home holding night@example.com; since #3675 a fixture board never reads the host Mac's accounts, so before
+       the seed this list was empty and the assertion could only have passed on the operator's own accounts).
+       Asserting the seeded address, not "some row", so a stray or remembered row cannot pass for it. The wait is
+       a guard, not the measured cause: since #881 a real board confirms each account live and shows "Checking..."
+       for seconds, so a fixed 200ms would be too short there; it is bounded, and on failure the box's text is
+       printed. */
+    await pg.waitForSelector('#set-accounts .acct-box', { state: 'attached', timeout: 20000 }).catch(() => {});
+    const acct = await pg.evaluate(() => {
+      const box = document.getElementById('set-accounts');
+      return { rows: box ? box.querySelectorAll('.acct-box').length : 0, text: box ? box.textContent.replace(/\s+/g, ' ').trim() : '' };
+    });
+    chk(acct.rows > 0 && acct.text.includes('night@example.com'), theme + ': the accounts list is read, not asserted',
+      acct.rows ? acct.rows + ' rows: ' + acct.text.slice(0, 120) : 'the box said: ' + acct.text.slice(0, 120));
     await pg.click('#s-nav button[data-go="advanced"]');
     await pg.waitForTimeout(200);
     const hist = await pg.evaluate(() => { const el = document.getElementById('hist-count'); return el.getBoundingClientRect().height > 0 ? el.innerText : ''; });
