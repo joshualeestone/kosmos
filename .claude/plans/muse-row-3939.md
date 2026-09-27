@@ -142,3 +142,15 @@ checked against an oracle): no failures.
 - N6: leftover .tmp files older than a minute are pruned.
 - N7: noted (the garbled case's early return); the answer is still asserted there.
 - Two mutation survivors closed: the failed-save test now has Muse's file present during the save, and runTurn has an overlap test (a refusal finishing after another agent's success began).
+
+## Review round 8 (sonnet): 0 blockers, 1 warning, 1 nit -- CONVERGED
+Reviewer stress (real processes): 8-process turn race (6,400 writes), 12-process mixed
+workload with auth.json rewrites (~50k operations, 14 runs, oracle-checked), and an
+8-process same-millisecond note tie. No wrong answer.
+- W1 ACCEPTED: notes tied at the newest millisecond are all kept (they must be, to
+  combine failing closed), so a burst of simultaneous refusals leaves up to one file per
+  board until the next note at a different time prunes them all. Bounded by the boards
+  on one Mac, self-healing, and never a wrong answer. Deduping by digest would add code
+  to a path that is correct today.
+- N1 ACCEPTED: markSaveFailed has no early skip; its own prune removes a non-newest
+  note in the same call, so it is only an extra write on a rare path.
