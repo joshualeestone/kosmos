@@ -1714,3 +1714,14 @@ test('#3995 gap 4 review round 20: a large pasted log of slugs sharing nothing w
     assert.ok(ms < base * 1.5 + 100, `a slug log cost ${ms}ms against ${base}ms without the short walk's held values`);
   } finally { setKnownSecrets([]); }
 });
+
+test('#3995 gap 4 review round 21: a key whose second character is + / = or - is still walked in short chunks', () => {
+  for (const [held, first] of [['A+b9Zq8vLm3pRt6wXy9k', 'A+b'], ['Q/xZq8vLm3pRt6wXy9k2', 'Q/x'], ['Q=xZq8vLm3pRt6wXy9k2', 'Q=x']]) {
+    setKnownSecrets([held]);
+    try {
+      const rest = held.slice(3).match(/.{1,3}/g);
+      const t = mask([first, ...rest].join(' and ')).text;
+      for (const c of [first, ...rest]) assert.ok(!new RegExp('(^|[^A-Za-z0-9+/=-])' + c.replace(/[+/=]/g, '\\\\$&') + '([^A-Za-z0-9+/=-]|$)').test(t), `${held}: ${c} showed: ${t}`);
+    } finally { setKnownSecrets([]); }
+  }
+});

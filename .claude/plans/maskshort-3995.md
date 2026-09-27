@@ -243,3 +243,13 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
   leaves out), NOT a test that fails on the previous commit: on this loaded Mac the two differ by less than the noise
   at a size a unit test can afford. The fix rests on the measurement above and on round 20's 5.3MB figures.
 - NIT noted: nearPieces rescans the form per candidate (bounded by the form's length; now charged per run).
+
+## Review round 21 (Opus), what changed
+- BLOCKER fixed (introduced by my round-20 gate): the gate tested only alphanumeric 2-3 character tokens, but the walk
+  starts from shortPieces openings, which can hold + / = - _ (A+b, Q/x). A key whose second character is one of those
+  was never walked (about 3 to 5 percent of base64 keys). The gate now tests openings as shortPieces makes them: short
+  runs as written and trimmed, each part between separators, and joins of neighbouring parts of three characters or
+  fewer. Tested with A+b, Q/x and Q=x keys; red on the previous commit.
+- The gate's comment says a common word opens it ("AI" with a Google key held), so the build's cost still grows with a
+  long reply of short runs (charged; a 3.5MB reply of 1.4M runs is withheld where main shows it in 16s).
+- Noted NIT: the round-20 cost test exercises only the no-opener path.

@@ -832,13 +832,30 @@ function plainWordRun(t) {
 const SHORT_WALK_MIN_KEYLIKE = 2;
 function shortChunkSpans(text) {
   if (!knownByShort.size) return [];
-  /* Nothing is built unless some two- or three-character token in the text opens a short-indexed form (review round 20:
-     building every run's pieces first cost 16s on a 5MB log of slugs that shared nothing with any held value). A walk
-     only ever starts from such a token, so a text with none has nothing to find. */
+  /* Nothing is built unless some run offers a two- or three-character opening of a short-indexed form (review round 20:
+     building every run's pieces first cost 16s on a 5MB log of slugs that shared nothing with any held value). The
+     openings are tested as shortPieces makes them: the run and its trimmed form when short, each part between
+     = _ + / -, and joins of neighbouring parts of three characters or fewer (review round 21: A+b and Q/x opened the walk
+     but not the gate, so such keys leaked). Note a common word opens it too ("AI" when a Google key is held), so the
+     build's cost still grows with a long reply of short runs; it is charged, and withheld past the budget. */
+  const opensShort = (run) => {
+    if (run.length <= 3 && knownByShort.has(run)) return true;
+    const trimmed = run.replace(/^[-+_/]+/, '').replace(/[-+_/]+$/, '');
+    if (trimmed.length <= 3 && trimmed.length >= 2 && knownByShort.has(trimmed)) return true;
+    if (!/[=_+/-]/.test(trimmed)) return false;
+    const parts = trimmed.split(/[=_+/-]+/).filter(Boolean);
+    for (let i = 0; i < parts.length; i += 1) {
+      let t = '';
+      for (let k = i; k < parts.length && k < i + 4; k += 1) {
+        t += parts[k];
+        if (t.length > 3) break;
+        if (t.length >= 2 && knownByShort.has(t)) return true;
+      }
+    }
+    return false;
+  };
   let opens = false;
-  for (const m of text.matchAll(/[A-Za-z0-9]{2,3}(?![A-Za-z0-9])/g)) {
-    if ((m.index === 0 || !/[A-Za-z0-9]/.test(text[m.index - 1])) && knownByShort.has(m[0])) { opens = true; break; }
-  }
+  for (const m of text.matchAll(/[A-Za-z0-9_+/=-]+/g)) if (opensShort(m[0])) { opens = true; break; }
   if (!opens) return [];
   let budget = SHORT_WALK_BUDGET;   // declared first: building the pieces, canSpell and the search all charge it
   const runs = [];
