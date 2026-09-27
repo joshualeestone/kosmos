@@ -317,3 +317,14 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
 - No leak, false mask or slowdown found. The one WARNING: five gap-4 fixtures held vendor-prefixed fake keys as single
   literals (sk-ant-api03-..., sk-proj-...), which a secret scanner reads as real keys; they are built with j(...) now,
   as the rest of the file's fakes are. (One on main, outside this change, is left alone.)
+
+## Review round 29 (Opus), what changed
+- A held value that is itself hex (a 32-hex token) leaked every time in short chunks; the stated reason (the numbered-
+  guide case) was about hex ENCODINGS, and round 27's total-span cap is what makes walking hex safe. A value that is
+  hex exactly as held is now walked; encodings stay out, and so does a UUID's dash-stripped form (my first version let
+  it in and the round-6 test went red). Tested: 32-hex tokens in threes masked; a 300-line hexdump and a 500-line
+  numbered list of hex tokens with 50 held unchanged; red on the previous commit.
+- Not covered states the uppercase-and-digit rates by key length (round 29's measurement: in threes 5 percent at 16
+  characters, 3 at 20, 0 at 32), not one figure.
+- Noted NITs: a one-character first chunk (documented; cost reason stands); ordinary-text cost about 1.5x main over the
+  repo's own source (identical output).

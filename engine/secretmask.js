@@ -86,6 +86,7 @@ function setKnownSecrets(values) {
     heldValues.push(k);
   }
   const heldSet = new Set(heldValues);
+  heldAsGiven = new Set(heldValues.map((v) => v.replace(NOT_KEY_CHARS, '')));   // #3995: a held value itself, not an encoding
   notWalked = new Set(heldValues.filter((k) => envLike(k, heldSet)));
   for (const k of heldValues) {
     const buf = Buffer.from(k, 'utf8');
@@ -277,7 +278,13 @@ function addWalked(w, walked) {
       /* Each form is checked, not the value: a UUID-shaped secret is hex once its - are taken out (review round 6). A
          vendor key's body is walked even when it is hex (review round 24: sk-proj-3f9a... given without its prefix
          leaked): its prefix says it is a key, not stray hex, and it is one form per held value, not every encoding. */
-      if (form.length < MIN_VALUE_LEN || (!isBody && /^[0-9a-f]+$/i.test(form))) continue;
+      /* And a held value that is itself hex (review round 29): the numbered-guide case was its ENCODINGS, walked from
+         lone digits; a hex form now completes only within SPLIT_REACH x its length in all (round 27), which is what makes
+         walking a hex token safe. Encodings stay out. */
+      /* Only a value that is hex exactly as held: a UUID's dash-stripped form stays out (round 6: 2,000 held UUIDs made a
+         numbered list withheld). */
+      const heldHex = form === w && heldAsGiven.has(form);
+      if (form.length < MIN_VALUE_LEN || (!isBody && !heldHex && /^[0-9a-f]+$/i.test(form))) continue;
       /* How much of this form is the value's public head (sk-ant-api03-): used to assemble it, never masked where a
          guide names it (review round 15), as the word walk leaves a public prefix readable. */
       /* Only a KNOWN public prefix, and exactly it: any - or _ in the first 16 characters would make a licence-style
@@ -320,6 +327,9 @@ let knownByPrefix = new Map();
 let knownByOpening = new Map();
 /* #3995 gap 4: the walked forms by their first 2 and 3 characters (shortChunkSpans). */
 let knownByShort = new Map();
+/* #3995 gap 4: each held value as given (key characters only), so the short index can tell a value that IS hex (a hex
+   token, walked) from a hex ENCODING of one (kept out). */
+let heldAsGiven = new Set();
 /* #3995 gap 4: per short-index form, the length of its public head (0 when it has none). */
 let shortHead = new Map();
 /* Kept beside PATTERNS (the key shapes at the top of this file): a vendor added there with a public prefix belongs here
@@ -466,13 +476,13 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *  - (a false mask, the other side of SHORT_WALK_MIN_KEYLIKE) a held value shaped like configuration rather than a key,
  *    such as a model id held from a settings file (gpt-4o-mini-2024-07-18), is masked out of prose that names it;
  *  - an uppercase-and-digit key (A-Z 0-9) in chunks of two: its vowel pairs, labels and digit pairs all read as plain,
- *    so about one in ten shows in full, and in chunks of three about one in two hundred (measured in review rounds 13
- *    and 19);
+ *    so some show in full, more the shorter the key: measured in review round 29 on 400 keys per length, in twos
+ *    26 percent at 16 characters, 14 at 20, 1 at 32; in threes 5 percent at 16, 3 at 20 (an AWS key id), 0 at 32;
  *  - a key both spaced one character at a time AND cut into short chunks with words between (the short walk reads
  *    the text, not the single-spacing copy the word walk also reads);
- *  - anything that is hex (0-9 a-f only) cut into chunks under OPENING_LEN: the hex encodings of held values AND a
- *    held value that is itself hex (a raw hex token). Neither is walked short (see addWalked); a vendor key's hex body
- *    IS walked;
+ *  - the hex ENCODINGS of held values, and a UUID-shaped value (hex once its - are taken out), cut into chunks under
+ *    OPENING_LEN (not walked short, see addWalked); a held value that is itself hex as held, and a vendor key's hex body,
+ *    ARE walked, within SPLIT_REACH x their length in all;
  *  - a first chunk of OPENING_LEN or more followed by chunks under it, once the text from the first chunk runs past
  *    SPLIT_REACH times the key's length in all (the word walk extends its reach only on pieces of OPENING_LEN or
  *    more, and the short walk starts only from a chunk under OPENING_LEN);

@@ -1798,3 +1798,22 @@ test('#3995 gap 4 review round 27: hex-dense numbered lines do not assemble a he
     }
   } finally { setKnownSecrets([]); }
 });
+
+test('#3995 gap 4 review round 29: a held value that is itself hex is walked in short chunks; hex text around it is not masked', () => {
+  const crypto = require('node:crypto');
+  const tokens = Array.from({ length: 50 }, () => crypto.randomBytes(16).toString('hex'));
+  setKnownSecrets(tokens);
+  try {
+    for (const tok of tokens.slice(0, 5)) {
+      const chunks = tok.match(/.{1,3}/g);
+      const t = mask('Token: ' + chunks.join(' and ') + ' ok').text;
+      const shown = chunks.filter((c) => c.length === 3 && t.includes(' ' + c + ' '));
+      assert.equal(shown.length, 0, `a hex token's chunks showed: ${shown.join(',')}: ${t}`);
+    }
+    const dump = Array.from({ length: 300 }, (_, i) => `${String(i * 16).padStart(8, '0')}: ${crypto.randomBytes(16).toString('hex').match(/.{2}/g).join(' ')}`).join('\n');
+    const bare = dump.replace(/[^0-9a-f]/g, '');
+    if (!tokens.some((tk) => bare.includes(tk))) assert.equal(mask(dump).text, dump, 'a hexdump was masked');
+    const list = Array.from({ length: 500 }, (_, i) => `${i + 1}. ${crypto.randomBytes(2).toString('hex').slice(0, 3)} ${crypto.randomBytes(1).toString('hex')}`).join('\n');
+    assert.equal(mask(list).text, list, 'a numbered list of hex tokens was masked');
+  } finally { setKnownSecrets([]); }
+});
