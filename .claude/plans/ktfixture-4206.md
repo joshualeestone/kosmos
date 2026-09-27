@@ -146,6 +146,14 @@ such a context), so the measurement is the evidence.
   pgrep filters, and the fixture script-word extractor). They agree today and the extractor is pinned
   by the Review 9 and 10 arms; folding them into one is a refactor beyond this card.
 
+## Review 13
+
+- The #1796 marker arm's pid assertion was the last substring match (`has "$out" "pid $p1"`), contrary
+  to Review 9's line that the remaining pid assertions use has_pid; it uses has_pid now.
+- Not changed: without lsof the fixture check falls back to the script path alone, which fails toward
+  counting the run as real (the safe direction), as heavy-gate already does; the suites SKIP loudly
+  when lsof is missing.
+
 ## Weakest premise
 
 The negative control runs from `/` so it cannot sit in a kt folder. A machine whose $TMPDIR were `/`

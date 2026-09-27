@@ -327,7 +327,7 @@ M1="$T/m1"; mkdir -p "$M1"; ( sleep 30 ) & p1=$!; printf 'FOREIGN\n%s\n' "$(ps -
 out="$(KOSMOS_RUN_MARKER_DIR="$M1" KOSMOS_CUT_PROBE="$T/probe-quiet" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
 [ "$rc" -ne 0 ] && pass "#1796 a live marked cut (foreign cookie) refuses with the name arm clean" \
   || fail "#1796 marked cut did not refuse (rc=$rc, $out)"
-has "$out" "pid $p1" && pass "#1796 and it names the marked run's pid" || fail "#1796 did not name the marked pid: $out"
+has_pid "$out" "$p1" && pass "#1796 and it names the marked run's pid" || fail "#1796 did not name the marked pid: $out"
 kill "$p1" 2>/dev/null; wait "$p1" 2>/dev/null
 
 # The caller's OWN marker (matching cookie) is excluded -- the self-refuse outage.
