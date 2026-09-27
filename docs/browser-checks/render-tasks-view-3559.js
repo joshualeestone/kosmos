@@ -243,25 +243,6 @@ function chk(ok, label, extra) {
       await page.waitForTimeout(250);
       const shortEnd = await page.evaluate(() => Math.round(document.querySelector('#panel-tasks .tsk-below').getBoundingClientRect().bottom));
       const bottom = [await px(1, geo.h - 2), await px(geo.w - 2, geo.h - 2)];
-      /* #4216 (Josh's #3949 "both edges"): on a machine that draws classic scrollbars (Windows, a Mac set to show them,
-         the CI runner) the tab layout reserves a scrollbar gutter, painted the canvas's colour, so the white band used
-         to stop 15px short. The Tasks view reserves none now. Read at the WINDOW's edge (innerWidth), not the layout's:
-         the strip lives outside clientWidth. Run while the list is emptied (before the search is cleared), because a page that scrolls has a real
-         scrollbar in that place; and only at 896px and wider, where the rule applies (the header's padding compensation
-         lives in that media block; narrower, the gutter stays so the header does not jump). Where no classic scrollbar exists there is no gutter to test, and the arm
-         says so rather than passing silently. */
-      {
-        const g = await page.evaluate(() => ({ inner: innerWidth, client: document.documentElement.clientWidth,
-          sbw: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--scrollbar-width')) || 0,
-          measured: document.documentElement.hasAttribute('data-scrollbar-measured'),
-          scrolls: document.documentElement.scrollHeight > document.documentElement.clientHeight, over: document.documentElement.scrollHeight - document.documentElement.clientHeight, gutter: getComputedStyle(document.documentElement).scrollbarGutter }));
-        if (g.sbw > 0 && g.measured && !g.scrolls && g.inner >= 896) {
-          const edge = await px(g.inner - 2, geo.belowY);
-          chk(g.client === g.inner && g.gutter === 'auto' && same(edge, tok.surface),
-            `${tag} classic scrollbars (${g.sbw}px): no reserved gutter on Tasks, so the white band reaches the window's right edge (#4216)`, JSON.stringify({ g, edge }));
-        } else {
-          console.log(`INFO  ${tag} #4216 gutter arm not applicable here: ` + JSON.stringify(g));
-        }
       await page.fill('#tsk-search', '');
       await page.waitForTimeout(250);
       chk(shortEnd < geo.h - 10 && bottom.every((p) => same(p, tok.surface)), `${tag} with a short list the white still reaches the bottom of the window (the bleed, not the list)`, JSON.stringify({ shortEnd, h: geo.h, bottom }));
@@ -269,6 +250,16 @@ function chk(ok, label, extra) {
       chk(band.every((p) => same(p, tok.bg)), `${tag} the top band keeps the page's ground to both edges`, JSON.stringify({ band, bg: tok.bg }));
       chk(below.every((p) => same(p, tok.surface)), `${tag} from Group by down it is the surface (white) to both edges`, JSON.stringify({ below, surface: tok.surface }));
       chk(same(card, tok.bg) && same(tilePx, tok.surface), `${tag} the task cards are shaded with the ground; the tiles stay the surface`, JSON.stringify({ card, tile: tilePx }));
+      /* #4216 (Josh's #3949 "both edges"): a reserved scrollbar gutter (classic scrollbars, tab layout) paints the
+         canvas colour, and on Tasks the canvas is the surface, so the white band meets the window's edge there. Asserted
+         on the computed canvas colour, which holds on any machine; the gutter itself only exists where scrollbars take
+         width. The top band's own edge reads (above) prove the body still paints the ground over its box. */
+      {
+        const canvas = await page.evaluate(() => { const probe = (v) => { const e = document.createElement('i'); e.style.backgroundColor = v; document.body.appendChild(e);
+            const c = getComputedStyle(e).backgroundColor; e.remove(); return c; };
+          return { html: getComputedStyle(document.documentElement).backgroundColor, surface: probe('var(--k-surface)'),
+            layout: document.documentElement.getAttribute('data-layout') || 'tab' }; });
+        chk(canvas.layout === 'consolidated' || canvas.html === canvas.surface, `${tag} on Tasks the canvas (what a scrollbar gutter shows) is the surface (#4216)`, JSON.stringify(canvas));
       }
       chk(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), `${tag} the full-width band adds no sideways scroll`);
       /* #3949/#3951 (Josh): six single-label tiles in his order; Completed is a tile and still the fold below. */

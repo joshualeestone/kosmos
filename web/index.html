@@ -1596,6 +1596,14 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
    reads the root's ground, so a look that sets its ground on the body (Kosmos+ navy) would get light's there. */
 html.tip-dimming:not([data-layout="consolidated"]) { background: linear-gradient(var(--tip-dim), var(--tip-dim)), var(--k-bg); }
 html.tip-dimming[data-tip-ground]:not([data-layout="consolidated"]) { background: var(--tip-canvas, var(--k-bg)); }
+/* #4216 (Josh's #3949: the Tasks bands reach both edges). On a machine that draws classic scrollbars the tab layout
+   reserves a gutter (#1309), and a gutter paints the canvas COLOUR only (see tip-dimming above). The Tasks view has two
+   bands, the ground above and the surface below, so no one colour matches both. The canvas is the surface here, so the
+   white, which is most of the page, reaches the edge; the body still paints the ground over its own box, so nothing
+   else changes. What is left is a 15px strip beside the short top band, near white against near white. Rejected:
+   dropping the gutter on this view, which moves the fixed assistant bubble and chat 15px between tabs and shifts the
+   list while filtering, the jump #1309 exists to prevent. Not while the tour dims (its rules own the canvas then). */
+html:not([data-layout="consolidated"]):not(.tip-dimming):has(> body > #panel-tasks:not([hidden])) { background: var(--k-surface); }
 html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .tipcard .tip-dots { display: flex; gap: 5px; }
 .tipcard .tip-dots i { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--k-ink-2) 35%, transparent); }
@@ -2939,13 +2947,6 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
      nothing to drop or pad for. Both rules wait for data-scrollbar-measured, so if the width
      cannot be measured the gutter stays (A1q). */
   html[data-scrollbar-measured]:not([data-layout="consolidated"]):has(> body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { scrollbar-gutter: auto; }
-  /* #4216 (Josh's #3949 ruling: the Tasks bands reach both edges). A reserved gutter paints the canvas colour only,
-     and this view has two bands (ground above, surface below), so no canvas colour can match both. So the Tasks view
-     reserves no gutter, the same way the talk view does and with the same guard. A page that fits has no strip; a list
-     long enough to scroll gets a real scrollbar there. The header does not move either way: its padding (below)
-     counts whatever width the page gives up. The cost: on a classic-scrollbar machine the list shifts 15px the
-     moment it grows long enough to scroll. */
-  html[data-scrollbar-measured]:not([data-layout="consolidated"]):has(> body > #panel-tasks:not([hidden])) { scrollbar-gutter: auto; }
   /* On every wide view the header's right padding is --space-8 plus the scrollbar width less the width the page is
      actually giving up to a gutter or scrollbar there (100vw - 100% - the body's two --space-8
      sides, which .apphead's negative margins cancel). The controls then sit at one x whether or not
