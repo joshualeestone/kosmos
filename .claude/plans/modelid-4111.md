@@ -71,3 +71,6 @@ public NAME is still held (round 5 narrowed it from "every piece of the value" t
 - W: YAML with a trailing comment or as a list item did not parse, so the model id was held. Those shapes are read
   for the NAME only; non-public lines are held exactly as before. Perturbation (no YAML path): red.
 - N: header comment states the #4111 exception; assignedValue comment rewrapped; acronym-led camelCase documented.
+### Iteration 6 (sonnet): CONVERGED. Its WARNING is the weakest premise above, a stated trade-off (dedup: DEFERRED as
+decided); its CONVENTION is the round-4 plan-filename deferral. NIT (accepted, pre-existing): a multi-line file made
+only of public assignments is still held whole, which masks only a verbatim copy of the whole file, never walked.
