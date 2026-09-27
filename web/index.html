@@ -4347,6 +4347,11 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      reads as one line), the projects rail's rule is its own right edge. */
   html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated #pj-list-view { background: var(--k-bg, #faf9f7); /* #3308: top-header ground */ border-radius: 0; padding: 8px; }
   html[data-layout="consolidated"] body.consolidated > #rail-agents { background: var(--k-bg, #faf9f7); /* #3308: top-header ground */ border-radius: 0; padding: 8px 8px 0; margin: 0; }
+  /* #2850 item 12 (Josh, 0.6.57): the avatar and its ring sit flush left with the collapse button. Since #3187 each
+     row is a tinted card whose avatar sits 10px inside its edge, so the head moves in to the avatars rather than the
+     avatars out to the card edge (that would jam the face against the wash). Open rail only: the folded strip
+     stacks its head in a column. The + stays flush right, in line with the Other agents +. */
+  html[data-layout="consolidated"] body.consolidated:not(.fold-a) > #rail-agents { padding-left: 18px; }
   /* ⚠️ This was dead: `#alist`'s own rule later in source order sets
      `padding-top: 6px` at identical specificity and won, silently defeating
      the flush-under-the-head intent the comment above describes. Raised to
