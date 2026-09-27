@@ -27,7 +27,8 @@ function check(cond, msg) { if (!cond) problems.push(msg); }
 // occluded no matter what is painted beneath it.
 // kosmos#3973: the root may give up a gutter only as wide as a real scrollbar, measured on a
 // scratch scroller the page's CSS does not style, so a root that itself shrank or moved cannot become
-// the yardstick that passes a short bar or cover.
+// the yardstick that passes a short bar or cover. Compared within 1px (a fractional root rounds
+// either way); a CSS zoom on the root would scale the scratch scroller and is not supported here.
 async function coverIsOccluding(page) {
   return page.evaluate(() => {
     const c = document.getElementById('boot-cover');
@@ -40,7 +41,7 @@ async function coverIsOccluding(page) {
     document.documentElement.appendChild(probe);
     const sbw = probe.offsetWidth - probe.clientWidth;
     probe.remove();
-    const gutter = Math.round(innerWidth - root.right);
+    const gutter = innerWidth - root.right;
     return {
       up: true,
       opaque: s.background !== 'transparent' && s.opacity === '1' && s.display !== 'none',
@@ -54,7 +55,7 @@ async function coverIsOccluding(page) {
       covers: r.left <= 0 && r.top <= 0
         && r.right >= Math.floor(root.right)
         && r.bottom >= document.documentElement.clientHeight
-        && Math.round(root.left) === 0 && (gutter === 0 || gutter === sbw),
+        && Math.abs(root.left) <= 1 && (Math.abs(gutter) <= 1 || Math.abs(gutter - sbw) <= 1),
       z: Number(s.zIndex) || 0,
     };
   });

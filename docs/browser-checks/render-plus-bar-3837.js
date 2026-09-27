@@ -45,7 +45,8 @@ function chk(ok, label, extra) {
 // 15px short there and exact on overlay scrollbars).
 // kosmos#3973: the root may give up a gutter only as wide as a real scrollbar, measured on a
 // scratch scroller the page's CSS does not style, so a root that itself shrank or moved cannot become
-// the yardstick that passes a short bar or cover.
+// the yardstick that passes a short bar or cover. Compared within 1px (a fractional root rounds
+// either way); a CSS zoom on the root would scale the scratch scroller and is not supported here.
 const bar = (page) => page.evaluate(() => {
   const b = document.getElementById('kplus-bar');
   if (!b) return { present: false };
@@ -59,8 +60,8 @@ const bar = (page) => page.evaluate(() => {
   document.documentElement.appendChild(probe);
   const sbw = probe.offsetWidth - probe.clientWidth;
   probe.remove();
-  const gutter = Math.round(innerWidth - root.right);
-  return { rootOk: Math.round(root.left) === 0 && (gutter === 0 || gutter === sbw), gutter, sbw, present: true, first: head && head.firstElementChild === b, top: Math.round(r.top), left: Math.round(r.left), right: Math.round(root.right - r.right),
+  const gutter = innerWidth - root.right;
+  return { rootOk: Math.abs(root.left) <= 1 && (Math.abs(gutter) <= 1 || Math.abs(gutter - sbw) <= 1), gutter: Math.round(gutter), sbw, present: true, first: head && head.firstElementChild === b, top: Math.round(r.top), left: Math.round(r.left), right: Math.round(root.right - r.right),
     h: Math.round(r.height), inked, markLeft: Math.round(cb.left - r.left), markH: Math.round(cb.height), outRightGap: Math.round(r.right - ob.right), outText: out.textContent,
     outBg: getComputedStyle(out).backgroundImage, bg: getComputedStyle(b).backgroundColor, label: b.getAttribute('aria-label') };
 });

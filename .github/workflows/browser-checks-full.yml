@@ -101,6 +101,11 @@ jobs:
       - name: 'provision the pinned Playwright runtime (#1594)'
         timeout-minutes: 20
         run: bash tools/provision-pw.sh
+      # #3973: install tmux, as test.yml does (#1794). macos-latest ships none, so render-talk's real
+      # status.snapshot() threw "we could not see what is running on this computer" and live-connect
+      # found no runnable tmux. brew tmux with no server started is the hermetic no-server path.
+      - name: install tmux (#3973)
+        run: brew install tmux
       - name: 'the FULL page layer, headless, every check (tools/browser-checks.sh, #2518)'
         id: checks
         timeout-minutes: 120
