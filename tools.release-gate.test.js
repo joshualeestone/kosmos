@@ -314,6 +314,9 @@ for (const [from, to, re] of [
   ['0.6.50', '0.8.00', /skips a line[^\n]*next line is 0\.7, not 0\.8/],
   ['0.6.99', '0.8.00', /last of the 0\.6 line|skips a line/],
   ['0.6.50', '1.0.00', /changes the major version from 0\.6\.50/],
+  ['0.6.50', '0.07.00', /not three numbers in this repo's spelling/],
+  ['0.6.50', '0.06.51', /not three numbers in this repo's spelling/],
+  ['0.6.50', '00.6.51', /not three numbers in this repo's spelling/],
 ]) {
   test(`#4075: standing at ${from}, ${to} is refused`, () => {
     const dir = sandbox(from);
@@ -341,9 +344,11 @@ for (const [from, to, why] of [
     fs.rmSync(dir, { recursive: true, force: true });
   });
 }
-test('#4075: KOSMOS_ALLOW_VERSION_JUMP=1 lets a deliberate jump through, and only that variable does', () => {
+test('#4075: KOSMOS_ALLOW_VERSION_JUMP=1 lets a deliberate jump through, and only the value 1 does', () => {
   const dir = sandbox('0.6.50');
   const off = runEnv(dir, '1.0.00', { KOSMOS_ALLOW_VERSION_JUMP: '' });
+  const truthy = runEnv(dir, '1.0.00', { KOSMOS_ALLOW_VERSION_JUMP: 'true' });
+  assert.equal(truthy.status, 1, 'a value other than 1 let the jump through');
   const on = runEnv(dir, '1.0.00', { KOSMOS_ALLOW_VERSION_JUMP: '1' });
   assert.equal(off.status, 1, 'CONTROL: without the variable the jump is refused');
   assert.match(on.said, /no site checkout at/, on.said.slice(0, 300));
@@ -380,6 +385,11 @@ test('#4075: a checkout whose own version is not three numbers refuses (fails cl
   const o = runEnv(dir, '0.6.51', { KOSMOS_ALLOW_VERSION_JUMP: '1' });
   assert.equal(r.status, 1, r.said.slice(0, 300));
   assert.match(r.said, /this checkout is at "0\.6\.50-rc1", which is not three numbers/);
+  const z = sandbox('0.08.50');   // a leading-zero minor in package.json fails closed too (no octal arithmetic reached)
+  const rz = run(z, '0.10.00');
+  assert.equal(rz.status, 1, rz.said.slice(0, 300));
+  assert.doesNotMatch(rz.said, /value too great for base|no site checkout at/);
+  fs.rmSync(z, { recursive: true, force: true });
   assert.match(o.said, /no site checkout at/, 'CONTROL: the override lets it through: ' + o.said.slice(0, 200));
   fs.rmSync(dir, { recursive: true, force: true });
 });

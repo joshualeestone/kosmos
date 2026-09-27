@@ -271,18 +271,21 @@ esac
 # Compared as three NUMBERS, the way engine/update.js compares them for every install.
 # The override is read once and UNSET here, so nothing this cut runs inherits it: step 3 runs the test
 # suite, whose release-gate tests spawn copies of this script and must still see their refusals (review r1).
+# Defence in depth: the test sandbox also strips it, and that strip is what its tests exercise.
 _allow_jump="${KOSMOS_ALLOW_VERSION_JUMP:-}"
 unset KOSMOS_ALLOW_VERSION_JUMP
-# A version is three numbers, always (the override does not waive this). Checked in bash before node sees it,
-# so "--version" or "-p" can never be read as node's own option.
-if ! [[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "$V is not three numbers: a version here is 0.x.yy."
+# A version is three numbers, always (the override does not waive this), with no leading zero on the major or
+# the minor: 0.07.00 is 0.7.00 to every install, a second spelling (see the 0.6 guard above). The patch keeps its
+# padding. Checked in bash before node sees it, so "--version" or "-p" can never be read as node's own option.
+_VER_RE='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.[0-9]+$'
+if ! [[ "$V" =~ $_VER_RE ]]; then
+  echo "$V is not three numbers in this repo's spelling: a version here is 0.x.yy (no leading zero before x)."
   exit 1
 fi
-# _prev is this checkout's package.json. If the checkout is behind origin, it is LOWER than the real current
-# version, which only makes this check more lenient (it can never wrongly refuse); the divergence check below
-# is what catches a stale checkout.
-if [ "$_allow_jump" != "1" ] && ! [[ "$_prev" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+# _prev is this checkout's package.json, read before step 1 fetches. A checkout behind origin makes the backwards
+# arm more lenient, but can make the skip and major arms refuse a version that is right for origin; their
+# messages say to pull first.
+if [ "$_allow_jump" != "1" ] && ! [[ "$_prev" =~ $_VER_RE ]]; then
   # Fail closed: if this checkout's own version is not three numbers, nothing can say V moves forward.
   echo "this checkout is at \"$_prev\", which is not three numbers, so $V cannot be checked as moving forward."
   echo "(#4075. Fix package.json's version, or KOSMOS_ALLOW_VERSION_JUMP=1 if you mean to cut anyway.)"
@@ -301,12 +304,12 @@ if [ "$_allow_jump" != "1" ]; then
       exit 1 ;;
     skip)
       _c_rest="${_prev#*.}"; _c_minor="${_c_rest%%.*}"
-      echo "$V skips a line: this checkout is at $_prev, so the next line is ${_prev%%.*}.$((_c_minor + 1)), not $_v_major.$_v_minor."
-      echo "(#4075. If you really mean to skip it: KOSMOS_ALLOW_VERSION_JUMP=1.)"
+      echo "$V skips a line: this checkout is at $_prev, so the next line is ${_prev%%.*}.$((10#$_c_minor + 1)), not $_v_major.$_v_minor."
+      echo "(#4075. If this checkout is behind origin, pull first. If you really mean to skip it: KOSMOS_ALLOW_VERSION_JUMP=1.)"
       exit 1 ;;
     major)
       echo "$V changes the major version from $_prev. That is a deliberate step, not a typo to let through."
-      echo "(#4075. If you mean it: KOSMOS_ALLOW_VERSION_JUMP=1.)"
+      echo "(#4075. If this checkout is behind origin, pull first. If you mean it: KOSMOS_ALLOW_VERSION_JUMP=1.)"
       exit 1 ;;
     *)
       echo "the version check could not compare $V with $_prev ($_fwd): refusing rather than guessing."
