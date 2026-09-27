@@ -161,3 +161,18 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
 - The budget comment records round 12's large crafted input: 2.4s here against 1.5s on main, not withheld, inside the
   word walk's documented range.
 - Deferred NIT: the unit list is an enumeration.
+
+## Review round 13 (Opus): two WARNINGs deferred as the plan's stated trade-off, with measured rates
+- Deferred, false mask: a held passphrase built from vowel-less tech tokens (SSH, VPN, npm, src, cd, PDF, x86) has
+  two or more key-like pieces, so ordinary prose that spells it is masked (SSHkeyforVPNaccess out of "Add your SSH
+  public key, and for the VPN, request access"). main leaves it alone.
+- Deferred, leak: an uppercase-and-digit key in chunks of two shows in full about one time in ten (60 of 599), since
+  its vowel pairs, labels and digit pairs all read as plain; in threes, 0 of 600. Named in the file's Not covered.
+- Why deferred rather than fixed: both come from the one rule that separates a random key from a password made of
+  words, and every change measured so far trades one for the other (a share-of-pieces rule would leak about 13 percent
+  of mixed-case keys in twos). A better separator needs something this walk does not have (for example a judgement of
+  the held value itself at index time). What would change it: a real guide reply hitting either case.
+- Noted NITs: every copy of a vowel-less key chunk (npm) between the key's first and last chunk is masked, on the safe
+  side and only next to a real key; reach is per gap with no total cap (contrived dense single characters can assemble
+  a key over thousands of characters; real minified JS was unaffected); a one-character first chunk is the largest
+  remaining hole of the targeted shape (documented).

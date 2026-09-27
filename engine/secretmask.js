@@ -431,6 +431,8 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *    chunks read as words by wordLike's vowel test;
  *  - a short chunk with base64 padding on it (Zq8=);
  *  - a key whose FIRST chunk is one character (the short walk starts only from two or three);
+ *  - an uppercase-and-digit key (A-Z 0-9) in chunks of two: its vowel pairs, labels and digit pairs all read as plain,
+ *    so about one in ten shows in full (measured in review round 13; chunks of three, 0 of 600);
  *  - a key both spaced one character at a time AND cut into short chunks with words between (the short walk reads
  *    the text, not the single-spacing copy the word walk also reads);
  *  - a short chunk glued to a label by + or / with no other glue (Zq8+part2; = - _ labels on either side are taken off);
