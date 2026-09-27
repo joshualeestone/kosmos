@@ -3611,6 +3611,40 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-row:first-child { border-top: 0; }
 .tsk-row.sel { background: var(--tsk-wash); }
 .tsk-row input { margin: 3px 0 0; width: 16px; height: 16px; accent-color: var(--gold-deep); }
+.tsk-row .tsk-hit { display: block; line-height: 0; }
+/* #4226 (Raiden's #718 phone sweep): on a touchscreen, every field in the Tasks view is 16px, because iOS zooms into a
+   smaller one and does not zoom back, and every tap target is at least 44px. Font size and target size only: the
+   desktop is unchanged. Scoped to #panel-tasks, which the one-screen (iPad) layout moves inside #panel-projects, so it
+   follows the view there and never reaches Settings (Kano's trap on the project page). The checkbox's tap area is its
+   label's: padding widens it and an equal negative margin keeps the row where it was. */
+@media (hover: none) {
+  /* Spelled out, not :is(), so web.room-phone-718's reader of the project page's own 16px list does not count this
+     separate screen as one of its dialogs. The Tasks view has no textarea, so no line-height partner is needed. */
+  #panel-tasks input:not([type=checkbox]):not([type=radio]), #panel-tasks select, #panel-tasks textarea { font-size: 16px; }
+  #panel-tasks select.tsk-sel { height: auto; min-height: 44px; }
+  #panel-tasks :is(#tsk-new, #tsk-bclose, #tsk-bclear) { min-height: 44px; }
+  #panel-tasks .tsk-search input { min-height: 44px; min-width: 44px; }
+  #panel-tasks .tsk-search svg { left: 14px; }   /* centred in the 44px collapsed field */
+  #panel-tasks :is(.tsk-search:focus-within, .tsk-search.open) input { padding-right: 44px; }   /* typed text clears the 44px clear button */
+  #panel-tasks .tsk-search button { width: 44px; height: 44px; right: 0; }
+  #panel-tasks #tsk-bnote { min-height: 44px; }
+  #panel-tasks .tsk-row .tsk-hit { padding: 11px 14px 17px; margin: -11px -14px -17px; }   /* 11 above stays inside the row's padding; 44 tall and wide */
+  /* Short one-line buttons grow to 44px themselves. */
+  #panel-tasks :is(.tsk-row .meta button:not(.tsk-chip), .tsk-row .tsk-unbuild, .tsk-crumb button) { display: inline-flex; align-items: center; min-height: 44px; vertical-align: middle; }
+  /* The title stays an inline button, so a long one wraps like text on the line of its #12 (review: flex, and then
+     inline-flex, pushed it below). Its tap area grows with padding, and an equal negative margin keeps the lines. */
+  #panel-tasks .tsk-row .tl { padding-block: 11px 15px; margin-block: -11px -15px; }   /* 11 above stays inside the row's padding */
+  /* Real room for those areas, so no two overlap (review round 2: the title's area ran under the project link, and
+     stacked agent pills' overlays overlapped; the later one won the tap and opened the wrong thing). The meta line
+     starts below the title's area, and stacked pills sit 22px apart so their 44px areas meet without overlapping. */
+  #panel-tasks .tsk-row .meta { margin-top: 16px; }
+  #panel-tasks .tsk-side { row-gap: 22px; }
+  #panel-tasks .tsk-row { padding-bottom: 13px; }   /* the last pill's area ends before the next row's title and checkbox (review round 3) */
+  #panel-tasks details.tsk-fold summary { padding: 14px 0; }
+  /* Drawn pills keep their look; an invisible overlay makes the tap area 44px tall. */
+  #panel-tasks :is(.tsk-row .meta button.tsk-chip, .tsk-who) { position: relative; }
+  #panel-tasks :is(.tsk-row .meta button.tsk-chip, .tsk-who)::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 44px; margin-top: -22px; }
+}
 .tsk-row .t { min-width: 0; }
 .tsk-row .tl { border: 0; background: none; padding: 0; font: 600 .9375rem var(--font-ui); color: var(--k-ink); cursor: pointer; text-align: left; }
 .tsk-row .tl:hover { text-decoration: underline; text-decoration-color: var(--gold); }
@@ -48005,12 +48039,13 @@ function tskRow(t, at) {
       /* Review round 1: the person can take a mistaken mark off without closing the task. */
       + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(t.projectName) + ' not built yet">Not built yet</button></div>';
   return '<div class="tsk-row' + (on ? ' sel' : '') + (place.depth ? ' d' + place.depth : '') + '" data-key="' + esc(tskKey(t)) + '">'
-    + '<input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
+    /* #4226: the checkbox sits in a label, so on a touchscreen the label can widen the tap area to 44px (below). */
+    + '<label class="tsk-hit"><input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
     /* The row no longer repeats its state in a status group (the heading says it), so there the
        label carries it: a screen reader moving between checkboxes still hears where each task is.
        Grouped by project the row shows its state line, so the label does not say it again. */
     + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(t.projectName)
-    + (g && TSK.by !== 'project' ? ' (' + esc(g.l) + ')' : '') + '">'
+    + (g && TSK.by !== 'project' ? ' (' + esc(g.l) + ')' : '') + '"></label>'
     + '<div class="t">' + partOf + '<span class="n">#' + Number(t.number) + '</span>'
     + '<button type="button" class="tl" data-open-task="' + esc(tskKey(t)) + '">' + esc(t.sentence) + '</button>'
     + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(t.projectName) + '</button>'
