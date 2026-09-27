@@ -60,6 +60,8 @@ echo SELF-OK
 SH
 chmod +x "$T/tools/release.sh"
 live_other="$(pgrep -fl 'release\.sh' 2>/dev/null | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/release\.sh( |$)' || true)"
+# #4206: another agent's yarn test fixture is not a live cut, so it must not skip this arm either.
+if [ -n "$live_other" ]; then live_other="$(printf '%s\n' "$live_other" | kosmos_fx_drop_fixtures || true)"; fi
 if [ -n "$live_other" ]; then
   # Precomputed, not piped inside the echo: the repo's own hook rejects a pipe
   # here on sight, and it is right to -- this file exists to be trusted about
@@ -276,5 +278,59 @@ out="$(KOSMOS_RUN_MARKER_DIR="$M5" KOSMOS_HARNESS_PROBE="$T/probe-quiet" kosmos_
   || fail "#1796 a kosmos_mark_run harness was not detected (rc=$rc, $out)"
 # and that same run, checking for ITS OWN type, does not refuse itself (cookie set in-process).
 kill "$p5" 2>/dev/null; wait "$p5" 2>/dev/null
+
+# --- #4206: a unit test's release.sh FIXTURE is not a cut; a real one still is. -----------
+# yarn test starts release.sh stubs under a node --test runner. The guard counted them, so three
+# agents' validations refused the Mac 0.7.03 cut. End to end through the real pgrep, with stubs
+# genuinely named tools/release.sh. The directory is made under /tmp by name, never from TMPDIR,
+# so no arm here sits in a run-tests.sh kt sandbox by accident (Linux mktemp honours TMPDIR).
+F="$(mktemp -d /tmp/cutfx4206.XXXXXX)"
+mkdir -p "$F/tools" "$F/tmp/kt4206/tools"
+for d in "$F" "$F/tmp/kt4206"; do
+  printf '#!/bin/bash\nsleep "${2:-8}"\n' > "$d/tools/release.sh"; chmod +x "$d/tools/release.sh"
+done
+seen() { pgrep -fl 'release\.sh' 2>/dev/null | grep -E "^$1 +(/bin/)?(ba)?sh +([^ ]*/)?tools/release\.sh( |$)" >/dev/null; }
+wait_seen() { local i=0; while [ "$i" -lt 30 ]; do seen "$1" && return 0; sleep 0.2; i=$((i+1)); done; return 1; }
+first_pid() { pgrep -f "$1" 2>/dev/null | head -1; }
+real_live="$(pgrep -fl 'release\.sh' 2>/dev/null | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/release\.sh( |$)' | grep -v "$F" || true)"
+if [ -n "$real_live" ]; then
+  echo "SKIP  #4206 fixture arms: a real cut is live on this Mac, so they cannot answer (a skip, NOT a pass)"
+else
+  # 1. Under a real node --test runner.
+  cat > "$F/fx.test.js" <<JS
+require('node:test')('fx', () => { require('node:child_process').spawnSync('bash', ['tools/release.sh', '--sleep', '8'], { cwd: '$F' }); });
+JS
+  ( cd "$F" && node --test "$F/fx.test.js" >/dev/null 2>&1 ) & n1=$!
+  i=0; fx=""; while [ "$i" -lt 40 ] && [ -z "$fx" ]; do fx="$(pgrep -f "tools/release.sh --sleep 8" 2>/dev/null | head -1)"; [ -n "$fx" ] || sleep 0.2; i=$((i+1)); done
+  if [ -n "$fx" ] && seen "$fx"; then
+    out="$(kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+    [ "$rc" -eq 0 ] && pass "#4206 a release.sh started under node --test (pid $fx, seen by pgrep) is a fixture, not a cut" \
+      || fail "#4206 a node --test fixture release.sh refused the cut (rc=$rc, $out)"
+  else
+    fail "#4206 the node --test fixture never appeared to pgrep, so its arm could not answer"
+  fi
+  kill "$n1" 2>/dev/null; pkill -f "tools/release.sh --sleep 8" 2>/dev/null; wait "$n1" 2>/dev/null
+  # 2. In the run-tests.sh sandbox (a kt<digits> folder under tmp), no node ancestor.
+  ( cd "$F/tmp/kt4206" && exec bash tools/release.sh --sleep 7 ) & k1=$!
+  if wait_seen "$k1"; then
+    out="$(kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+    [ "$rc" -eq 0 ] && pass "#4206 a release.sh running in the run-tests.sh sandbox (pid $k1) is a fixture, not a cut" \
+      || fail "#4206 a kt-sandbox fixture release.sh refused the cut (rc=$rc, $out)"
+  else
+    fail "#4206 the kt-sandbox stub never appeared to pgrep, so its arm could not answer"
+  fi
+  kill "$k1" 2>/dev/null; wait "$k1" 2>/dev/null
+  # 3. The negative control: a REAL release.sh (no node ancestor, outside any sandbox) is still refused.
+  ( cd "$F" && exec bash tools/release.sh --sleep 7 ) & r1=$!
+  if wait_seen "$r1"; then
+    out="$(kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+    { [ "$rc" -ne 0 ] && has "$out" "$r1"; } && pass "#4206 but a real second release.sh (pid $r1) is still refused, and named" \
+      || fail "#4206 a REAL concurrent release.sh was not refused (rc=$rc, $out): the fixture rule swallowed a cut"
+  else
+    fail "#4206 the real stub never appeared to pgrep, so the negative control could not answer"
+  fi
+  kill "$r1" 2>/dev/null; wait "$r1" 2>/dev/null
+fi
+rm -rf "$F"
 
 echo "cut guard: $fails failures"; [ "$fails" -eq 0 ]

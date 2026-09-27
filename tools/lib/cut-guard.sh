@@ -1,3 +1,10 @@
+# #4206: a matched release.sh / browser-checks.sh that is a unit-test FIXTURE (a node --test
+# ancestor, or the run-tests.sh sandbox) is not a run. The rule is tools/lib/fixture-classify.sh,
+# shared with tools/heavy-gate.sh so the two cannot drift: the drift is what let three agents'
+# `yarn test` validations refuse the Mac 0.7.03 cut. Sourced relative to this file, unguarded: a
+# guard that cannot load its classifier should fail loudly, not quietly count every fixture.
+. "$(dirname "${BASH_SOURCE[0]}")/fixture-classify.sh"
+
 # --- Shared: is a matched process THIS run, or a separate one? (#1391) -------
 # Both guards below match a process by its command line and must then exclude
 # the caller's OWN run so it does not refuse itself. A single-pid exclusion is
@@ -237,6 +244,9 @@ kosmos_refuse_if_cut_live() {
   if [ -n "$out" ] && [ -n "$self" ]; then
     out="$(printf '%s\n' "$out" | grep -v -E "^${self} " || true)"
   fi
+  # #4206: a unit test's release.sh fixture (yarn test starts them under node --test) is not a
+  # cut. An unreadable pid (gone, or a probe's synthetic one) stays in: that errs toward refusing.
+  if [ -n "$out" ]; then out="$(printf '%s\n' "$out" | kosmos_fx_drop_fixtures || true)"; fi
   if [ "$rc" -ge 2 ]; then
     echo "could not tell whether a cut is running (the probe exited $rc); refusing to guess for $what. KOSMOS_HARNESS_IGNORE_CUT=1 runs anyway." >&2
     return 1
@@ -292,6 +302,8 @@ kosmos_refuse_if_browser_run_live() {
     # sibling path.
     out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self" || true)"
   fi
+  # #4206: a unit test's browser-checks.sh fixture is not a run. An unreadable pid stays in.
+  if [ -n "$out" ]; then out="$(printf '%s\n' "$out" | kosmos_fx_drop_fixtures || true)"; fi
   if [ "$rc" -ge 2 ]; then
     echo "could not tell whether another browser run is live (the probe exited $rc); refusing to guess for $what. KOSMOS_HARNESS_IGNORE_CUT=1 runs anyway." >&2
     return 1

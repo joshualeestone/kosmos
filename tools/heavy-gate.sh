@@ -57,6 +57,10 @@ elif [ -n "${BASH_VERSION:-}" ] && [ "${BASH_SOURCE[0]}" != "$0" ]; then
 fi
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
+# #4206: the fixture rules (a node --test ancestor, the run-tests.sh sandbox) live in one library
+# the cut guard shares, so the two cannot drift again. Sourced unguarded: without it this cannot
+# tell a fixture from a run, which is exit 2, do not start.
+. "$REPO/tools/lib/fixture-classify.sh" || { echo "heavy-gate: cannot load tools/lib/fixture-classify.sh; reading as do-not-start" >&2; exit 2; }
 
 EXCEPT="" ; TWICE=0 ; QUIET=0 ; QUIET_BOX=0 ; EXCEPT_SET=0
 while [ $# -gt 0 ]; do
@@ -104,8 +108,7 @@ claim_line() {
 # classify decides whether it is RUNNING the script.
 # How far up the parent chain to look for a node --test runner. A test fixture sits a few hops
 # below it (node, a wrapper shell, the script); a deeper chain stops early and fails toward busy.
-ANCESTOR_DEPTH=10
-ANC_SEP=$'\036'   # joins ancestor commands; see KOSMOS_HG_SNAPSHOT above
+ANC_SEP="$KOSMOS_FX_ANC_SEP"   # joins ancestor commands; see KOSMOS_HG_SNAPSHOT above
 # Exits 3 when the process table cannot be read: ps failing, or a listing without pid 1 (which
 # every Mac has), would otherwise look exactly like "nothing running" and read clear.
 live_snapshot() {
@@ -119,14 +122,8 @@ live_snapshot() {
     # EMPTY cwd and still counts (fail toward busy).
     if [ -z "$cmd" ] || ! ps -p "$p" >/dev/null 2>&1; then cwd="<exited>"
     else cwd="$(lsof -a -p "$p" -d cwd -Fn 2>/dev/null | sed -n '/^n/{s/^n//p;q;}')"; fi
-    anc="" ; q="$p"; depth=0
-    while [ "$depth" -lt "$ANCESTOR_DEPTH" ]; do
-      depth=$((depth + 1))
-      q="$(ps -o ppid= -p "$q" 2>/dev/null | tr -d ' ')"
-      { [ -z "$q" ] || [ "$q" -le 1 ]; } && break
-      anc="$anc$ANC_SEP$(ps -o command= -p "$q" 2>/dev/null)"
-    done
-    printf '%s\037%s\037%s\037%s\n' "$p" "$cwd" "$cmd" "${anc#"$ANC_SEP"}"
+    anc="$(kosmos_fx_pid_ancestry "$p")"
+    printf '%s\037%s\037%s\037%s\n' "$p" "$cwd" "$cmd" "$anc"
   done
 }
 
@@ -159,36 +156,9 @@ script_of() (
   printf '%s' "$lead"
 )
 
-# True if one ancestor IS a node test-runner process: node as the program, with a bare --test
-# among node's OWN options, the words before its script. Subshell with globbing off, as above.
-has_test_runner() (
-  set -f
-  IFS="$ANC_SEP"
-  for a in $1; do
-    prog="${a%% *}"; prog="${prog##*/}"
-    [ "$prog" = node ] || continue
-    IFS=' '
-    first=1
-    for w in $a; do
-      if [ "$first" = 1 ]; then first=0; continue; fi
-      case "$w" in --test) exit 0 ;; -*) ;; *) break ;; esac
-    done
-    IFS="$ANC_SEP"
-  done
-  exit 1
-)
-
-# True if the path is in tools/run-tests.sh's sandbox: a kt<digits> folder under a folder named
-# T (macOS TMPDIR) or tmp, or directly under this shell's own $TMPDIR.
-KT_RE='(^|/)(T|tmp)/kt[0-9]+(/|$)'
-in_kt_sandbox() {
-  [[ "$1" =~ $KT_RE ]] && return 0
-  local t="${TMPDIR:-}"; t="${t%/}"
-  [ -n "$t" ] || return 1
-  case "$1" in "$t"/kt*) ;; *) return 1 ;; esac
-  local rest="${1#"$t"/kt}"; rest="${rest%%/*}"
-  [ -n "$rest" ] && [ -z "${rest//[0-9]/}" ]
-}
+# The fixture rules are tools/lib/fixture-classify.sh's (#4206), shared with the cut guard.
+has_test_runner() { kosmos_fx_has_test_runner "$@"; }
+in_kt_sandbox() { kosmos_fx_in_kt_sandbox "$@"; }
 
 # A verdict line shows at most this many characters of the command, then "...": a shell running
 # a long -c string once printed several thousand. Only the printed copy is cut, never $cmd.
