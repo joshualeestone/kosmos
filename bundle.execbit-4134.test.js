@@ -16,9 +16,8 @@
  * shapes this parser does not read fail rather than pass: a chmod target no `cp` accounts for,
  * and any other line that runs `chmod` (another mode spelling, a variable path, a loop).
  *
- * It reads git's INDEX, where the cut reads the checked-out file's `-x` bit. They agree on a
- * checkout with core.fileMode on (the default on macOS and Linux); the index is what a merge
- * carries, so it is the thing to guard before one.
+ * It reads git's INDEX, which is what a merge carries. The cut reads the checked-out file's `-x`
+ * bit instead.
  *
  *   node --test bundle.execbit-4134.test.js
  */
@@ -31,6 +30,10 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
 const ROOT = __dirname;
+/* git with no GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE inherited: inside a git hook those are set,
+   and they would point every call here, the control's writes included, at the outer repo. */
+const GIT_ENV = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^GIT_(DIR|INDEX_FILE|WORK_TREE|COMMON_DIR|OBJECT_DIRECTORY|NAMESPACE|PREFIX)$/.test(k)));
+const git = (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8', env: GIT_ENV });
 const SCRIPT = path.join(ROOT, 'tools', 'build-kosmos-bundle.sh');
 
 /* The placements a script makes: [{ dst, src, fromRepo, at }], `dst` relative to $STAGE. */
@@ -89,7 +92,7 @@ function problems(text, modeOf) {
 /* The mode git records for a path, from the index. */
 function gitModeOf(cwd) {
   return (rel) => {
-    const line = execFileSync('git', ['ls-files', '-s', '--', rel], { cwd, encoding: 'utf8' }).trim();
+    const line = git(cwd, ['--literal-pathspecs', 'ls-files', '-s', '--', rel]).trim();
     return line ? line.split(/\s+/)[0] : null;
   };
 }
@@ -113,14 +116,14 @@ test('the script is actually read: the known executable bridges and the command 
 test('CONTROL: a file planted as 100644 in a real git index is caught, and its 100755 twin is not', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'execbit-4134-'));
   try {
-    const git = (...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' });
-    git('init', '-q');
+    const g = (...a) => git(dir, a);
+    g('init', '-q');
     fs.mkdirSync(path.join(dir, 'bin'));
     fs.writeFileSync(path.join(dir, 'bin', 'plain.js'), '#!/usr/bin/env node\n');
     fs.writeFileSync(path.join(dir, 'bin', 'exec.js'), '#!/usr/bin/env node\n');
-    git('add', 'bin/plain.js', 'bin/exec.js');
-    git('update-index', '--chmod=-x', 'bin/plain.js');
-    git('update-index', '--chmod=+x', 'bin/exec.js');
+    g('add', 'bin/plain.js', 'bin/exec.js');
+    g('update-index', '--chmod=-x', 'bin/plain.js');
+    g('update-index', '--chmod=+x', 'bin/exec.js');
     const script = [
       'cp "$REPO/bin/plain.js" "$STAGE/app/bin/"',
       'chmod +x "$STAGE/app/bin/plain.js"',
