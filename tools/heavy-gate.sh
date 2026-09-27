@@ -185,21 +185,27 @@ in_kt_sandbox() {
   [ -n "$rest" ] && [ -z "${rest//[0-9]/}" ]
 }
 
+# A verdict line shows at most this many characters of the command, then "...": a shell running
+# a long -c string once printed several thousand. Only the printed copy is cut, never $cmd.
+CMD_SHOW_MAX=160
+
 # Reads snapshot lines on stdin; prints one verdict line each; prints COUNTED=<n> last.
 classify() {
-  local pid cwd cmd anc w1 base script n=0 why
+  local pid cwd cmd anc w1 base script n=0 why show
   while IFS=$'\037' read -r pid cwd cmd anc; do
     [ -n "$pid" ] || continue
+    show="$cmd"
+    [ "${#show}" -gt "$CMD_SHOW_MAX" ] && show="${show:0:$CMD_SHOW_MAX}..."
     read -r w1 _ <<< "$cmd"
     base="${w1##*/}"
-    case "$base" in bash|sh|zsh) ;; *) say "  ignore $pid: not a shell running the script ($cmd)"; continue ;; esac
+    case "$base" in bash|sh|zsh) ;; *) say "  ignore $pid: not a shell running the script ($show)"; continue ;; esac
     script="$(script_of "$cmd")"
     case "$script" in
       */tools/release.sh|*/tools/browser-checks.sh|tools/release.sh|tools/browser-checks.sh) ;;
       release.sh|browser-checks.sh|./release.sh|./browser-checks.sh) case "$cwd" in */tools|"") ;; *) script="" ;; esac ;;
       *) script="" ;;
     esac
-    if [ -z "$script" ]; then say "  ignore $pid: mentions the name but does not run it ($cmd)"; continue; fi
+    if [ -z "$script" ]; then say "  ignore $pid: mentions the name but does not run it ($show)"; continue; fi
     why=""
     has_test_runner "$anc" && why="a unit-test fixture (node --test ancestor)"
     [ -z "$why" ] && [ "$cwd" = "<exited>" ] && why="already exited"
@@ -209,8 +215,8 @@ classify() {
     if [ -z "$why" ] && [ -n "$EXCEPT" ] && [ -n "$cwd" ]; then
       case "$cwd" in "$EXCEPT"|"$EXCEPT"/*) why="your own run (--except-cwd)" ;; esac
     fi
-    if [ -n "$why" ]; then say "  ignore $pid: $why ($cwd: $cmd)"; continue; fi
-    n=$((n + 1)); say "  COUNTS $pid: a real run (${cwd:-cwd unknown}: $cmd)"
+    if [ -n "$why" ]; then say "  ignore $pid: $why ($cwd: $show)"; continue; fi
+    n=$((n + 1)); say "  COUNTS $pid: a real run (${cwd:-cwd unknown}: $show)"
   done
   echo "COUNTED=$n"
 }

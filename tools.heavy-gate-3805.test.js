@@ -427,3 +427,27 @@ test('smoke: against the live Mac it gives an answer (0 or 1), never a usage err
   assert.ok(r.status === 0 || r.status === 1, 'exit ' + r.status + ': ' + r.stdout + r.stderr);
   assert.match(r.stdout, /^reservation:/m);
 });
+
+test('a verdict line prints at most 160 characters of the command (control: a short one prints whole)', () => {
+  // Liu Kang's review of #4099: one mention-only shell printed several thousand characters.
+  const long = 'sh -c "' + 'bash -n tools/x.sh && '.repeat(200) + 'bash -n tools/release.sh"';
+  const cut = run([['501', WORK, long, 'zsh']]);
+  assert.equal(cut.code, 0, cut.out);
+  const line = cut.stdout.split('\n').find((l) => l.includes('ignore 501: mentions the name'));
+  assert.ok(line, cut.out);
+  assert.ok(line.includes('(' + long.slice(0, 160) + '...)'), line);
+  assert.ok(line.length < 300, `line is ${line.length} characters`);
+  const short = run([['502', WORK, 'sh -c "grep release.sh"', 'zsh']]);
+  assert.match(short.stdout, /ignore 502: mentions the name but does not run it \(sh -c "grep release\.sh"\)\n/);
+});
+
+test('only the printed copy is cut: a real run whose script sits past character 160 still counts', () => {
+  const deep = WORK + '/' + 'd/'.repeat(100) + 'tools/release.sh';
+  const r = run([['503', WORK, 'bash ' + deep + ' 0.6.99', 'zsh']]);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /COUNTS 503: a real run \(/);
+  assert.match(r.out, /\.\.\.\)\n/);
+  // Control: the same command as a -c string only mentions it, however long.
+  const c = run([['503', WORK, 'bash -c ' + deep, 'zsh']]);
+  assert.equal(c.code, 0, c.out);
+});
