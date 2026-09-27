@@ -32,6 +32,7 @@ const EXCUSED = {
   // and the #265 orphan guard protects it again.
   setChecker: 'test seam (#1930): injects the live claude-auth checker so authprobe tests do not spawn a real subprocess',
   resetForTest: 'test seam (#1930): clears the authprobe per-account cache between tests',
+  resetSubscriptionLiveForTest: 'test seam (#3997): clears engine/grokaccounts.js\'s Grok subscription check cache and in-flight map between tests, and bumps its generation so a run started before the reset writes nothing after it.',
   setPauser: 'test seam: observes the codex Enter gap without sleeping (#571)',
   setDryRun: 'test seam: keeps suites off real panes',
   setClaudeProbe: 'test seam: injects the claude -p liveness probe so tests do not spawn a real claude (#1916)',

@@ -554,7 +554,7 @@ test('#1659: the repaint path CANCELS the pending announcement, all writers', ()
      three that matter left the count at seven and the guard green. That is the exact
      defect this test was written to catch, in the test written to catch it. A brace
      scan cannot drift. */
-  const start = CODE.indexOf('async function paintAccounts()');
+  const start = CODE.indexOf('async function paintAccounts(');   // #3997: it takes opts now; any parameter list
   assert.ok(start > -1, 'paintAccounts was not found, so this test asserts nothing');
   let i = CODE.indexOf('{', start), depth = 0, end = -1;
   for (let k = i; k < CODE.length; k++) {
