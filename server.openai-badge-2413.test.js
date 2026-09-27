@@ -194,10 +194,10 @@ test('#4139 an OpenAI green says whether an agent or a check made it (newest win
   let r = await rows();
   assert.equal(r.sub.connection.badge, 'working', 'setup: ' + JSON.stringify(r.sub.connection));
   assert.equal(r.sub.connection.observedFrom, 'agent');
-  observed.sawDir(observed.PROVIDER.OPENAI, dir, observed.OUTCOME.OK, Date.now());
+  observed.sawDir(observed.PROVIDER.OPENAI, dir, observed.OUTCOME.OK, Date.now() - 2000);
   r = await rows();
   assert.equal(r.sub.connection.observedFrom, 'check', 'a newer check did not name itself: ' + JSON.stringify(r.sub.connection));
-  observed.saw(observed.PROVIDER.OPENAI, 'codexsub', observed.OUTCOME.OK, Date.now() + 1);
+  observed.saw(observed.PROVIDER.OPENAI, 'codexsub', observed.OUTCOME.OK, Date.now());
   r = await rows();
   assert.equal(r.sub.connection.observedFrom, 'agent', 'a newer agent success was still labelled a check');
 });
@@ -220,4 +220,29 @@ test('#4139 a row with no observation carries no observedFrom', async () => {
   const r = await rows();
   assert.equal(r.claudeBoss.connection.observedFrom, undefined);
   assert.equal(r.sub.connection.observedFrom, undefined);
+});
+
+test('#4139 a Claude Check now that was refused reads rejected, from a check', async () => {
+  const dir = (await rows()).claudeBoss.dir;
+  observed.sawDir(observed.PROVIDER.ANTHROPIC, dir, observed.OUTCOME.REJECTED, Date.now());
+  const r = await rows();
+  assert.equal(r.claudeBoss.connection.badge, 'rejected', JSON.stringify(r.claudeBoss.connection));
+  assert.equal(r.claudeBoss.connection.observedFrom, 'check');
+});
+
+test('#4139 a STALE observation decides nothing, so it names no source', async () => {
+  const prev = process.env.AGENT_WORKFORCE_OBSERVED_FRESH_MS;
+  process.env.AGENT_WORKFORCE_OBSERVED_FRESH_MS = '1';   // any observation is instantly stale
+  try {
+    const dir = (await rows()).claudeBoss.dir;
+    observed.sawDir(observed.PROVIDER.ANTHROPIC, dir, observed.OUTCOME.OK, Date.now() - 1000);
+    observed.saw(observed.PROVIDER.OPENAI, 'codexsub', observed.OUTCOME.OK, Date.now() - 1000);
+    const r = await rows();
+    assert.equal(r.claudeBoss.connection.badge, 'signed_in_unverified', 'setup: ' + JSON.stringify(r.claudeBoss.connection));
+    assert.equal(r.claudeBoss.connection.observedFrom, undefined, 'a stale check still named itself on the Claude row');
+    assert.equal(r.sub.connection.observedFrom, undefined, 'a stale agent success still named itself on the OpenAI row');
+  } finally {
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_OBSERVED_FRESH_MS;
+    else process.env.AGENT_WORKFORCE_OBSERVED_FRESH_MS = prev;
+  }
 });

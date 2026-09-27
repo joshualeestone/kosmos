@@ -7758,9 +7758,10 @@ const server = http.createServer((req, res) => {
           try { cal = a.dir ? require('./engine/allowance').readCalibration(a.dir) : null; } catch { cal = null; }
           return {
             provider: 'anthropic', providerName: 'Anthropic / Claude', ...a,
-            /* #4139: which kind of observation decided it, so the page does not call a check "a real request". */
+            /* #4139: which kind of observation decided it (only when one did: a stale one leaves the badge to
+               checkLive, and says nothing), so the page does not call a check "a real request". */
             connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
-              ...(obs ? { observedFrom: obs === checkObs ? 'check' : 'agent' } : {}) },
+              ...(obs && v.observedAt != null ? { observedFrom: obs === checkObs ? 'check' : 'agent' } : {}) },
             weeklyTokensPerPoint: cal ? Math.round(cal.tokensPerPoint) : null,
           };
         });

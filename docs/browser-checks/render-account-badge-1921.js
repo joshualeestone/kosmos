@@ -128,13 +128,15 @@ const grokSubRow = (email, dir, state, because) => ({
 });
 const GROK_SUB_LAPSED = grokSubRow('grok-lapsed@example.com', '/home/.grok-gl', 'none', 'Grok sign-in expired');
 const GROK_SUB_UNKNOWN = grokSubRow('grok-unk@example.com', '/home/.grok-gu', 'unknown', 'Could not check the Grok sign-in');
+/* #4139: a row whose badge the server says came from a check, or from an agent's request. */
+const withFrom = (r, from) => ({ ...r, connection: { ...r.connection, observedFrom: from } });
 const ACCOUNTS = [
   row('work@example.com', 'working', 'wd'),
   row('rej@example.com', 'rejected', 'rd'),
   /* #4139: the same greens and refusal, told apart by what produced them (a check Kosmos ran, or an agent's request). */
-  { ...row('chk@example.com', 'working', 'cg'), connection: { ...row('chk@example.com', 'working', 'cg').connection, observedFrom: 'check' } },
-  { ...row('agt@example.com', 'working', 'ag'), connection: { ...row('agt@example.com', 'working', 'ag').connection, observedFrom: 'agent' } },
-  { ...row('rejchk@example.com', 'rejected', 'rc'), connection: { ...row('rejchk@example.com', 'rejected', 'rc').connection, observedFrom: 'check' } },
+  withFrom(row('chk@example.com', 'working', 'cg'), 'check'),
+  withFrom(row('agt@example.com', 'working', 'ag'), 'agent'),
+  withFrom(row('rejchk@example.com', 'rejected', 'rc'), 'check'),
   row('unver@example.com', 'signed_in_unverified', 'ud'),
   row('out@example.com', 'signed_out', 'od'),
   row('unk@example.com', 'unchecked', 'kd'),
