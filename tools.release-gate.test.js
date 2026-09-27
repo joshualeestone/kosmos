@@ -374,6 +374,22 @@ test('#4075: the override does not waive "three numbers", and an option-shaped v
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+test('#4075: a checkout whose own version is not three numbers refuses (fails closed), unless overridden', () => {
+  const dir = sandbox('0.6.50-rc1');
+  const r = run(dir, '0.6.51');
+  const o = runEnv(dir, '0.6.51', { KOSMOS_ALLOW_VERSION_JUMP: '1' });
+  assert.equal(r.status, 1, r.said.slice(0, 300));
+  assert.match(r.said, /this checkout is at "0\.6\.50-rc1", which is not three numbers/);
+  assert.match(o.said, /no site checkout at/, 'CONTROL: the override lets it through: ' + o.said.slice(0, 200));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+test('#4075: the skip message names the real major', () => {
+  const dir = sandbox('1.0.50');
+  const r = run(dir, '1.3.00');
+  assert.equal(r.status, 1);
+  assert.match(r.said, /next line is 1\.1, not 1\.3/, r.said.slice(0, 300));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
 test('#4075: a version that is not three numbers is refused, not compared', () => {
   // On the 0.5 line: from 0.6 on, the spelling guard above answers first ("past the end of the line").
   const dir = sandbox('0.5.101');

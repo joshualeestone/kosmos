@@ -282,7 +282,13 @@ fi
 # _prev is this checkout's package.json. If the checkout is behind origin, it is LOWER than the real current
 # version, which only makes this check more lenient (it can never wrongly refuse); the divergence check below
 # is what catches a stale checkout.
-if [ "$_allow_jump" != "1" ] && [[ "$_prev" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+if [ "$_allow_jump" != "1" ] && ! [[ "$_prev" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  # Fail closed: if this checkout's own version is not three numbers, nothing can say V moves forward.
+  echo "this checkout is at \"$_prev\", which is not three numbers, so $V cannot be checked as moving forward."
+  echo "(#4075. Fix package.json's version, or KOSMOS_ALLOW_VERSION_JUMP=1 if you mean to cut anyway.)"
+  exit 1
+fi
+if [ "$_allow_jump" != "1" ]; then
   _fwd="$(node -e '
     const [v, c] = [process.argv[1], process.argv[2]].map((s) => s.split(".").map(Number));
     const cmp = (v[0] - c[0]) || (v[1] - c[1]) || (v[2] - c[2]);
@@ -295,7 +301,7 @@ if [ "$_allow_jump" != "1" ] && [[ "$_prev" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
       exit 1 ;;
     skip)
       _c_rest="${_prev#*.}"; _c_minor="${_c_rest%%.*}"
-      echo "$V skips a line: this checkout is at $_prev, so the next line is 0.$((_c_minor + 1)), not 0.$_v_minor."
+      echo "$V skips a line: this checkout is at $_prev, so the next line is ${_prev%%.*}.$((_c_minor + 1)), not $_v_major.$_v_minor."
       echo "(#4075. If you really mean to skip it: KOSMOS_ALLOW_VERSION_JUMP=1.)"
       exit 1 ;;
     major)
