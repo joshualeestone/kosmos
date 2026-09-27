@@ -79,8 +79,11 @@ const waitFor = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 9000
       chk(!MAC_BLAMED.test(off.note), 'S1 offline: the top note does not blame the Mac', off.note.slice(0, 140));
       chk(!/Applications folder/.test(off.note), 'S1 offline: no desktop-only remedy on a phone', off.note.slice(0, 140));
       chk(OFFLINE.test(off.grid) && !MAC_BLAMED.test(off.grid), 'S1 offline: the agents card says You are offline, not that the Mac did not answer', off.grid.slice(0, 160));
+      // Projects are read on arrival at the tab (not polled from Agents), so go there, offline.
+      await page.evaluate(() => showTab('projects'));
       const pjOff = await waitFor(page, () => /You are offline/.test((document.getElementById('pj-list') || {}).textContent || ''));
       chk(pjOff, 'S1 offline: the projects list says You are offline', (await read(page)).pj.slice(0, 140));
+      await page.evaluate(() => showTab('agents'));
 
       // Back online: asked again at once (the online event), not at the next five-second poll.
       const asked = [];
