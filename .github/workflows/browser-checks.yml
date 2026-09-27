@@ -128,6 +128,11 @@ on:
       # is closed rather than documented.
       - 'test-support/**'
       - '.github/workflows/browser-checks.yml'
+      # #4119: the selection step decides what runs beyond the allowlist, so a change to it or to
+      # the surface map it reads must run this job end to end.
+      - 'tools/bc-pr-select.js'
+      - 'tools/bc-surface-map.sh'
+      - 'tools/lib/browser-check-surface-lib.sh'
 
 # Least privilege: reads the repo, runs the checks, needs no write scope. Uses
 # pull_request (not pull_request_target), so untrusted PR code never runs elevated.
@@ -200,12 +205,18 @@ jobs:
       - name: 'the checks this page diff touches (tools/bc-pr-select.js, #4119)'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        # A selector failure must not cost the allowlist its run: it is recorded here and turns the
+        # job red AFTER the checks step, so the DOM-state gate still reports for this PR.
         run: |
           set -o pipefail
-          node tools/bc-pr-select.js "$BASE_SHA" HEAD | tee "$RUNNER_TEMP/bc-selected.tsv"
-          names="$(cut -f1 "$RUNNER_TEMP/bc-selected.tsv" | tr '\n' ' ')"
-          echo "selected: $(wc -l < "$RUNNER_TEMP/bc-selected.tsv" | tr -d ' ') checks this diff touches"
-          echo "KOSMOS_BC_PR_SELECTED=$names" >> "$GITHUB_ENV"
+          if node tools/bc-pr-select.js "$BASE_SHA" HEAD | tee "$RUNNER_TEMP/bc-selected.tsv"; then
+            names="$(cut -f1 "$RUNNER_TEMP/bc-selected.tsv" | tr '\n' ' ')"
+            echo "selected: $(wc -l < "$RUNNER_TEMP/bc-selected.tsv" | tr -d ' ') checks this diff touches"
+            echo "KOSMOS_BC_PR_SELECTED=$names" >> "$GITHUB_ENV"
+          else
+            echo "::error::tools/bc-pr-select.js failed; running the allowlist only, and this job will fail after it"
+            echo "KOSMOS_BC_PR_SELECT_FAILED=1" >> "$GITHUB_ENV"
+          fi
       # The page gate itself, exactly as the cut runs it at 3b: strict version so a
       # drifted runtime is a hard stop, not a silent lie. Its exit code gates this
       # job -- non-zero fails the PR check, which is the whole point. 126/127 means
@@ -310,3 +321,7 @@ jobs:
           done
           echo "running the allowlist plus$( [ -n "$extra" ] && echo "$extra" || echo ' nothing else' )"
           KOSMOS_BC_CI_ALLOWLIST="$KOSMOS_BC_CI_ALLOWLIST$extra" KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
+          if [ "${KOSMOS_BC_PR_SELECT_FAILED:-0}" = 1 ]; then
+            echo "::error::the checks this diff touches were NOT selected (tools/bc-pr-select.js failed above); only the allowlist ran"
+            exit 1
+          fi
