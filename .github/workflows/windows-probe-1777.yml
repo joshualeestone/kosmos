@@ -1,0 +1,47 @@
+# PROBE ONLY (#1777): measure which platform-sensitive test files pass on a real
+# Windows runner today. Runs on pushes to this branch only; removed before the PR.
+name: windows-probe-1777
+
+on:
+  push:
+    branches: ["win-ci-1777"]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: which node is this
+        run: |
+          echo "node: $(node --version)"; echo "image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
+          node -e "console.log('O_NOFOLLOW', require('fs').constants.O_NOFOLLOW, 'delimiter', JSON.stringify(require('path').delimiter))"
+      - name: each platform-sensitive test file, one at a time
+        run: |
+          node -e '
+            const fs = require("fs");
+            const pick = fs.readdirSync("engine").filter(f => /^win32.*\.test\.js$/.test(f)
+              || ["securewrite.test.js","sendertoken.test.js","github.test.js","platform.test.js","store.test.js","windows-coupling-audit-1732.test.js"].includes(f));
+            fs.writeFileSync("probe-files.txt", pick.map(f => "engine/" + f).join("\n") + "\n");
+            console.log(pick.length + " files");
+          '
+          pass=0; fail=0; : > probe-result.txt
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            start=$(date +%s)
+            if timeout 300 node --test "$f" > out.txt 2>&1; then r=PASS; pass=$((pass+1)); else r="FAIL($?)"; fail=$((fail+1)); fi
+            echo "$r $(( $(date +%s) - start ))s $f" | tee -a probe-result.txt
+            case "$r" in FAIL*) grep -E "^not ok|# (tests|pass|fail)|Error|error" out.txt | head -12 | sed 's/^/    /' ;; esac
+          done < probe-files.txt
+          echo "TOTAL pass=$pass fail=$fail"
