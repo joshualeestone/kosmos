@@ -22,3 +22,8 @@ That no screen needs a Muse row after "done" to make sense. Today, "done" says s
 - A hidden Meta link keeps no address (the 0.6.96 rule). A refused start gives focus back to the button. A retry failure after Stop paints nothing.
 - The check now covers a late start after close, a poll after Stop, a retry after Stop, a mid sign-in switch, the key step, the ChatGPT sign-in, the focus paths and idle. The reviewer's surviving mutations are each red now.
 - Accepted, as the plan decides: the combobox row reads "Meta / Llama", and the button is back beside "Signed in to Meta Muse".
+
+## Review round 2 (decided)
+- Turned on but Muse Code not installed: the Meta option stays disabled, and its row pill says "Muse Code is not installed" (data-off), as Gemini's and Grok's rows wait until they are ready. Installed again clears the reason. Control red.
+- Tests for acctPick's own stop (the reauth doors reach it without the select's change) and for the double press of Get a new code (one retry). Controls red.
+- One museMetaOption() lookup.
