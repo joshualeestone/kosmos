@@ -1,0 +1,8 @@
+run	launch_state	total_ms	wait_ms	paint_ms	first_frame_distance	match_distance	capture_interval_ms
+1	COLD	121	122	1468	49.1	0.0	146
+2	COLD	236	237	1884	49.1	0.0	196
+3	COLD	203	210	2059	49.1	0.0	207
+4	COLD	150	156	1471	49.1	10.5	143
+5	COLD	236	239	1812	49.1	1.0	177
+6	COLD	292	296	2132	49.1	0.0	168
+7	COLD	274	275	2489	49.1	0.0	340
