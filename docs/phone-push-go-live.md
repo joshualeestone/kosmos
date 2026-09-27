@@ -573,10 +573,8 @@ notification behavior still arrives through Kosmos releases.
   `PHONE_APP_CAN_RECEIVE` remains `false` in `engine/phonenotify.js`. Whether
   to flip it is Josh's open decision #4194, not an existing change or a promised
   part of the next release. Step 7 describes the conditional implementation.
-- **Relay #175 is not on relay `main` as of this check.** Relay #173 validates
-  base64url and the P-256 point, but #175's exact 16-byte auth-secret rule does
-  not ride a coordinator deploy until that PR merges. Re-read relay `main`
-  before Step 3 rather than treating the card title as shipped code.
+- **Relay #175 is merged as `bc56ec8f`, but not live.** Its exact 16-byte
+  auth-secret rule rides the next coordinator deploy, as recorded on #3763.
 - **iOS shows no Approve or Deny buttons on a notification** (#3870). They were registered but
   nothing carried the choice to the Mac, so they are hidden for the first store submission.
   Building them for real needs an authenticated call from the phone to the Mac, a ruling on
