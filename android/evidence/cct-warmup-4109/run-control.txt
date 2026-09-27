@@ -1,0 +1,26 @@
+emulator gone at 2026-09-27T07:16:55Z
+reservation: none (no release holds the machine right now.)
+reservation: none (no release holds the machine right now.)
+heavy-gate: CLEAR
+booted after 4s
+apk4101	1	COLD	136	137	1345	49.1	0.0	132
+apk4101	2	COLD	132	134	1379	49.1	0.0	120
+apk4101	3	COLD	99	107	1347	49.1	0.0	121
+apk4101	4	COLD	1381	1412	3745	49.1	0.0	247
+apk4101	5	COLD	129	141	1448	49.1	0.0	126
+apk4101	6	COLD	232	235	1567	49.1	0.0	125
+apk4101	7	COLD	341	353	1996	49.1	0.0	154
+apk4101	median_paint_ms	1448
+before3	1	COLD	121	122	1468	49.1	0.0	146
+before3	2	COLD	236	237	1884	49.1	0.0	196
+before3	3	COLD	203	210	2059	49.1	0.0	207
+before3	4	COLD	150	156	1471	49.1	10.5	143
+before3	5	COLD	236	239	1812	49.1	1.0	177
+before3	6	COLD	292	296	2132	49.1	0.0	168
+before3	7	COLD	274	275	2489	49.1	0.0	340
+before3	median_paint_ms	1884
+OK: killing emulator, bye bye
+OK
+ALL_DONE rc=0
+
+[exited with code 0]

@@ -11,7 +11,9 @@ which each run records (capture_interval_ms), as the #4101 README warns.
 
 One unmeasured launch follows the install (first launch after an install compiles the app).
 Writes <label>.tsv and <label>-cold-<n>.png (the matching frame) next to this script, and prints
-each run and the median. A run that never matches within the timeout is reported as a miss and
+each run and the median. A run that never matches keeps its last frame as <label>-miss-<n>.png and
+the device log's last 400 lines as <label>-miss-<n>-logcat.txt, so the miss can be read afterwards.
+A run that never matches within the timeout is reported as a miss and
 the script exits non-zero: a median over missing runs would be precise and false.
 """
 import io
@@ -51,7 +53,16 @@ def distance(img, ref_crop):
     return sum(ImageStat.Stat(diff).mean) / 3
 
 
-def one_run(ref_crop, keep=None):
+def finish(start):
+    """The output of `am start -W`, or '' if it has not returned within 30 s."""
+    try:
+        return start.communicate(timeout=30)[0]
+    except subprocess.TimeoutExpired:
+        start.kill()
+        return start.communicate()[0] or ''
+
+
+def one_run(ref_crop, keep=None, miss=None):
     adb('shell', 'am', 'force-stop', 'io.kosmos.app')
     adb('shell', 'am', 'force-stop', 'com.android.chrome')
     time.sleep(2)
@@ -59,6 +70,7 @@ def one_run(ref_crop, keep=None):
     start = subprocess.Popen([ADB, 'shell', 'am', 'start', '-W', '-n', COMPONENT],
                              stdout=subprocess.PIPE, text=True)
     first_d = None
+    last = None
     starts = []
     while time.monotonic() - t0 < TIMEOUT_S:
         t = time.monotonic()
@@ -66,15 +78,22 @@ def one_run(ref_crop, keep=None):
         img = capture()
         if img is None:
             continue
+        last = img
         d = distance(img, ref_crop)
         if first_d is None:
             first_d = d
         if d < MATCH_BELOW:
-            out = start.communicate(timeout=30)[0]
+            out = finish(start)
             if keep:
                 img.save(keep)
             return round((t - t0) * 1000), first_d, d, parse_times(out), interval_ms(starts)
-    start.communicate(timeout=30)
+    finish(start)
+    if miss:
+        if last is not None:
+            last.save(miss + '.png')
+        log = adb('logcat', '-d', '-t', '400', text=True).stdout
+        with open(miss + '-logcat.txt', 'w') as f:
+            f.write(log)
     return None, first_d, None, {}, interval_ms(starts)
 
 
@@ -103,11 +122,13 @@ def main():
     one_run(ref_crop)   # unmeasured: first launch after install
     rows, missed = [], 0
     for n in range(1, runs + 1):
-        paint, first_d, d, times, step = one_run(ref_crop, os.path.join(HERE, f'{label}-cold-{n}.png'))
+        paint, first_d, d, times, step = one_run(ref_crop, os.path.join(HERE, f'{label}-cold-{n}.png'),
+                                                 os.path.join(HERE, f'{label}-miss-{n}'))
         if paint is None:
             missed += 1
         rows.append((n, times.get('LaunchState', ''), times.get('TotalTime', ''),
-                     times.get('WaitTime', ''), paint, round(first_d, 1), d if d is None else round(d, 1), step))
+                     times.get('WaitTime', ''), paint, None if first_d is None else round(first_d, 1),
+                     None if d is None else round(d, 1), step))
         print(label, *rows[-1], sep='\t', flush=True)
     with open(os.path.join(HERE, f'{label}.tsv'), 'w') as f:
         f.write('run\tlaunch_state\ttotal_ms\twait_ms\tpaint_ms\tfirst_frame_distance\tmatch_distance\tcapture_interval_ms\n')

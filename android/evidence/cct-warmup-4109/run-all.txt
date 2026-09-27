@@ -1,0 +1,46 @@
+gate CLEAR after 17 busy reads at 2026-09-27T06:56:38Z
+booted after 6s
+Physical size: 720x1600
+Physical density: 268
+    versionName=124.0.6367.219
+gate CLEAR after 0 busy reads at 2026-09-27T06:58:31Z
+before	1	COLD	116	120	1285	49.1	0.0
+before	2	COLD	176	176	1302	49.1	0.0
+before	3	COLD	171	175	1365	49.1	0.0
+before	4	COLD	106	114	1303	49.1	0.0
+before	5	COLD	148	152	1440	49.1	0.0
+before	6	COLD	137	143	1284	49.1	10.5
+before	7	COLD	132	140	1312	49.1	0.0
+before	median_paint_ms	1303
+gate CLEAR after 0 busy reads at 2026-09-27T07:00:01Z
+bindonly	1	COLD	102	104	1153	49.1	1.0
+bindonly	2	COLD	185	194	1195	49.1	0.0
+bindonly	3	COLD	135	138	1225	49.1	0.0
+bindonly	4	COLD	185	187	1212	49.1	10.5
+bindonly	5	COLD	170	171	1593	49.1	0.0
+bindonly	6	COLD	139	143	1239	49.1	0.0
+bindonly	7	COLD	177	180	1084	49.1	4.5
+bindonly	median_paint_ms	1212
+gate CLEAR after 1 busy reads at 2026-09-27T07:03:31Z
+bindpreload	1	COLD	120	122	1168	49.1	4.2
+bindpreload	2	COLD	164	165	1258	49.1	0.0
+bindpreload	3	COLD	170	171	1244	49.1	0.0
+bindpreload	4	COLD	191	193	1136	49.1	0.0
+bindpreload	5	COLD	164	174	1201	49.1	0.0
+bindpreload	6	COLD	135	137	1218	49.1	0.0
+bindpreload	7	COLD	133	137	1179	49.1	1.0
+bindpreload	median_paint_ms	1201
+gate CLEAR after 0 busy reads at 2026-09-27T07:05:00Z
+before2	1	COLD	132	132	1374	49.1	0.0
+before2	2	COLD	152	161	1308	49.1	4.2
+before2	3	COLD	120	122	1350	49.1	0.0
+before2	4	COLD	170	171	1461	49.1	0.0
+before2	5	COLD	131	132	1303	49.1	0.0
+before2	6	COLD	103	108	1290	49.1	0.0
+before2	7	COLD	157	161	1812	49.1	0.0
+before2	median_paint_ms	1350
+OK: killing emulator, bye bye
+OK
+ALL_DONE rc=0
+
+[exited with code 0]
