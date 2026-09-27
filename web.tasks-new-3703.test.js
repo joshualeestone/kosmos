@@ -199,6 +199,6 @@ test('the create path files to the dialog\'s project and, from Tasks, answers in
 });
 
 test('the Tasks head carries "+ New task" as its primary button', () => {
-  assert.match(PAGE, /<div class="tsk-head"><h2 id="tsk-title">All tasks<\/h2><button class="btn uprime" id="tsk-new" type="button">/);
+  assert.match(PAGE, /<div class="tsk-head"><h2 id="tsk-title">Tasks<\/h2><button class="btn uprime" id="tsk-new" type="button">/);
   assert.match(SCRIPT, /getElementById\('tsk-new'\)\.addEventListener\('click', openNewTaskFromTasks\)/);
 });

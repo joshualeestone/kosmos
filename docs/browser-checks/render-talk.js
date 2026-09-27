@@ -937,7 +937,7 @@ function unreachableStates() {
          of ours -- 17 carrying id/idInstall/instructionsWrite/updatedAt and ONE empty,
          because store.readProfile() returns {} for an agent with no profile file. So
          one card in eighteen made the guard fire. `profile` is a free-form operator
-         record and `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (SIXTEEN objects share that one key set, derived by the arm; earlier versions said six by counting only readContext and missing readCodexContext and the two inline card literals, then eleven before #3296's readGeminiContext added the codex-mirrored UNREADABLE and NO_TRANSCRIPT branches for the third provider, then thirteen before #3391's readGrokContext added the same two branches for the fourth provider, then fifteen before #3568's Antigravity context in snapshot()), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) depending on
+         record and `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (SEVENTEEN objects share that one key set, derived by the arm; earlier versions said six by counting only readContext and missing readCodexContext and the two inline card literals, then eleven before #3296's readGeminiContext added the codex-mirrored UNREADABLE and NO_TRANSCRIPT branches for the third provider, then thirteen before #3391's readGrokContext added the same two branches for the fourth provider, then fifteen before #3568's Antigravity context in snapshot(), then sixteen before #4039's readAgyContext replaced that one with its own UNREADABLE and NO_TRANSCRIPT branches), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) depending on
          whether that agent has a readable transcript and a known ceiling, so no two
          cards are guaranteed to share a nested shape at all.
          ⚠️ AND WHICH CARD IS COMPARED WAS ARBITRARY: liveCard() takes the first pane
@@ -1230,24 +1230,22 @@ function unreachableStates() {
          That makes the scroll block above an honest test of
          "an unchanged list does not move", and NO test at all of the case the
          product actually spends its first hour in: `pjWhen` returns a RELATIVE
-         phrase under an hour, so the markup changes once a minute on a thread
-         nobody touched, `setThread` rewrites `innerHTML`, and the count key is
-         unchanged so the jump-to-bottom arm does not fire. Whether that moves
-         a reader is a question about the browser, not about this code, and the
-         answer measured here (2026-08-20, Chromium, headed) is that it does
-         not: a same-height rewrite keeps `scrollTop`. This block exists so the
-         day that stops being true is a failure rather than a discovery. */
+         phrase under an hour, so the words change once a minute on a thread
+         nobody touched.
+         #3966 (5a2aae1e3) changed what happens then: `setThread` compares the
+         thread by SHAPE, so a change in the time words alone is NOT a rewrite;
+         `refreshWhens` updates those words in place. This block now checks that
+         contract (kosmos 0.7.01 cut, 2026-09-26): after a time-only repaint the
+         thread was not rewritten, the words DID move (so the repaint really saw a
+         later clock). The old contract this block measured (2026-08-20: a
+         same-height innerHTML rewrite keeps scrollTop) was retired by #3966, since
+         no rewrite happens. There is no scroll assertion here: on a repaint that does
+         not rewrite, setThread puts the reader back itself, so none could fail (see
+         the talkclock-0701 plan for the three red checks that did not fire). */
       const clockOnly = await page.evaluate(async () => {
         const at = new Date(Date.now() - 65 * 1000).toISOString();
-        /* ⚠️ COUNT RAISED 8 -> 30 (#3414). The agent-DM rebuild made
-           #d-talk-box (and its #d-dmthread) fill the panel edge-to-edge, so a
-           taller box no longer overflows on eight short lines and `scrolls`
-           went false, which fires the "did not overflow, so the scroll-hold is
-           UNCHECKED" control below. This is the same shape #413 hit with the
-           70-column question the day the page went full-width. The scroll-hold
-           behaviour is unchanged and still worth testing, so the fixture is
-           lengthened to overflow the taller box rather than the control
-           weakened. Thirty matches the sibling scroll block (2c). */
+        /* Thirty rows (#3414 raised it from eight so the thread overflowed, for the scroll-hold
+           assertion this block had until #3966 retired it); kept as a realistic thread. */
         window.__fx = {
           messages: Array.from({ length: 30 }, (_, i) => ({
             text: 'message number ' + (i + 1) + ' with enough words in it to take a line or two of the box',
@@ -1259,27 +1257,24 @@ function unreachableStates() {
         };
         await paintTalk('april', 'April');
         const t = document.getElementById('d-dmthread');
-        t.scrollTop = t.scrollHeight;
-        const before = { top: Math.round(t.scrollTop), key: t.__lastThread,
-          scrolls: t.scrollHeight > t.clientHeight };
+        t.scrollTop = t.scrollHeight; // at the floor, where a real session sits
+        // Every fixture row shares one `at`, so the first time span is a fixture row's.
+        const when = () => { const w = t.querySelector('.mwhen[data-at]'); return w ? w.textContent : null; };
+        const first = t.firstElementChild;
+        const before = { key: t.__lastThread, whenBefore: when() };
         const real = Date.now;
         Date.now = () => real() + 120000;
         try { await paintTalk('april', 'April'); } finally { Date.now = real; }
-        return { ...before, after: Math.round(t.scrollTop), rewrote: t.__lastThread !== before.key };
+        return { ...before, whenAfter: when(),
+          rewrote: t.__lastThread !== before.key || t.firstElementChild !== first };
       });
-      if (!clockOnly.scrolls) {
-        /* CONTROL: with nothing to scroll, `scrollTop` is 0 both times and the
-           check below passes on a box that cannot demonstrate anything. */
-        problems.push(`[${theme}] clock: the thread box did not overflow, so the scroll-hold is UNCHECKED`);
+      if (!clockOnly.whenBefore || clockOnly.whenBefore === clockOnly.whenAfter) {
+        /* CONTROL: if the time words did not move, the repaint never saw a later clock
+           and the check below is measuring nothing. */
+        problems.push(`[${theme}] clock: the time words did not move (${clockOnly.whenBefore} -> ${clockOnly.whenAfter}), so the in-place refresh is UNCHECKED`);
       }
-      if (!clockOnly.rewrote) {
-        /* CONTROL: and if the markup did NOT change, no rewrite happened and
-           the check below is measuring the wrong thing entirely. */
-        problems.push(`[${theme}] clock: a minute passing did not change the markup, so the rewrite is UNCHECKED`);
-      }
-      if (clockOnly.scrolls && clockOnly.rewrote && clockOnly.after !== clockOnly.top) {
-        problems.push(`[${theme}] clock: a repaint where only the time phrase moved took the reader `
-          + `from ${clockOnly.top} to ${clockOnly.after}`);
+      if (clockOnly.rewrote) {
+        problems.push(`[${theme}] clock: a repaint where only the time moved REWROTE the thread (#3966: that rewrite is the flash)`);
       }
 
       /* 7. THE TWO 404s, which are one status and two different facts.

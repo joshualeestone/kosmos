@@ -59,11 +59,12 @@ class KosmosLauncher
     // stamped here would be wrong from the next release on. It moves only when
     // this file does. 1 was the #2086 console launcher; 2 is the GUI one; 3 does
     // an installer's job (win32-installer-native); 4 opens the board in its own
-    // window (#1118); 5 installs itself without asking (#3286).
-    public const string LauncherVersion = "5.0.0.0";
+    // window (#1118); 5 installs itself without asking (#3286); 6 shows the waiting count on the
+    // window's taskbar button (#3996).
+    public const string LauncherVersion = "6.0.0.0";
     // Explorer's "Product version". Worded so nobody reads it as the Kosmos
     // version, which lives in manifest.json and on the board.
-    public const string LauncherProductVersion = "launcher 5.0";
+    public const string LauncherProductVersion = "launcher 6.0";
 
     // Kept in step with tools/build-kosmos-windows.sh, which reads the board's
     // default out of server.js and refuses the build if this disagrees. If it
@@ -842,7 +843,7 @@ class KosmosLauncher
 
     // One JSON string starting at the quote at `start`; `end` is its closing quote. Null when
     // it never closes.
-    static string ReadJsonString(string json, int start, out int end)
+    internal static string ReadJsonString(string json, int start, out int end)
     {
         StringBuilder value = new StringBuilder();
         for (int i = start + 1; i < json.Length; i++)
@@ -2066,6 +2067,23 @@ class BoardWindowForm : System.Windows.Forms.Form
     // Set when WebView2's browser process ended under an open window: RunBoardWindow says so.
     internal bool StoppedWorking;
 
+    // #3996: the waiting count on this window's taskbar button (TaskbarBadge, below).
+    readonly uint taskbarButtonCreatedMessage;
+    bool taskbarButtonReady;
+    TaskbarBadge.ITaskbarList3 taskbar;
+    System.Windows.Forms.Timer badgeTimer;
+    // When the page last handed over its count; not running until it first does.
+    readonly Stopwatch pageSaidWaiting = new Stopwatch();
+    bool badgeReadInFlight;
+    int badgeMisses;
+    // Every answer, from the page or the board, is numbered when it is ASKED, and one asked earlier
+    // never replaces one asked later (a slow board read that lands after a fresher page post).
+    int badgeAsked;
+    int badgeShownAsked;
+    int? badgeWanted;
+    int? badgeOnTaskbar;
+    bool badgeEverApplied;
+
     internal BoardWindowForm(int port, IntPtr loader, string userDataFolder, Func<string> resolveBoardAddress)
     {
         this.port = port;
@@ -2075,6 +2093,9 @@ class BoardWindowForm : System.Windows.Forms.Form
         string name = "Kosmos.BoardWindow." + port;
         showMessage = KosmosLauncher.RegisterWindowMessage(name + ".Show");
         closeMessage = KosmosLauncher.RegisterWindowMessage(name + ".Close");
+        // Explorer's word that this window's taskbar button exists (again, after Explorer restarts):
+        // an overlay set before it is lost, so the badge is (re)applied on it.
+        taskbarButtonCreatedMessage = KosmosLauncher.RegisterWindowMessage("TaskbarButtonCreated");
 
         Text = "Kosmos";
         try { Icon = System.Drawing.Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location); }
@@ -2092,6 +2113,7 @@ class BoardWindowForm : System.Windows.Forms.Form
     protected override void OnLoad(EventArgs e)
     {
         base.OnLoad(e);
+        StartBadge();
         try
         {
             IntPtr at = KosmosLauncher.GetProcAddress(loader, "CreateCoreWebView2EnvironmentWithOptions");
@@ -2124,6 +2146,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         webView.add_NavigationStarting(new NavigationStarting(this), out token);
         webView.add_NewWindowRequested(new NewWindowRequested(this), out token);
         webView.add_ProcessFailed(new ProcessFailed(this), out token);
+        webView.add_WebMessageReceived(new WebMessageReceived(this), out token);
         FitViewToWindow();
         controller.MoveFocus(0);
         if (boardAddress != null) NavigateToBoard();
@@ -2280,11 +2303,113 @@ class BoardWindowForm : System.Windows.Forms.Form
             return;
         }
         if (m.Msg != 0 && (uint)m.Msg == closeMessage) { Close(); return; }
+        if (m.Msg != 0 && (uint)m.Msg == taskbarButtonCreatedMessage)
+        {
+            taskbarButtonReady = true;
+            badgeEverApplied = false;   // a new button carries no overlay, whatever the last one had
+            ApplyBadge();
+        }
         base.WndProc(ref m);
+    }
+
+    // ---- #3996: the waiting count on the taskbar button ----------------------------------------
+    //
+    // TWO SOURCES, ONE NUMBER, as the Mac app's Dock badge (native-app/main.swift startDockBadge).
+    // The board works the number out (engine/status.js waitingTotal, served as counts.waiting on
+    // /api/status); this only shows it. While the page is polling the board (every 5 s) it hands
+    // this window its counts.waiting through chrome.webview.postMessage (OnWebMessage), so the
+    // window asks nothing extra of the board's heaviest route. When the page has said nothing for
+    // PageSilentMs (the window minimised, which hides the page and lets Chromium slow its timers,
+    // or the page reloading or not loaded yet), the window's own PollEveryMs timer reads
+    // /api/status itself, with the board token, so the badge keeps up while minimised.
+    void StartBadge()
+    {
+        badgeTimer = new System.Windows.Forms.Timer();
+        badgeTimer.Interval = TaskbarBadge.PollEveryMs;
+        badgeTimer.Tick += (sender, args) => RefreshBadge();
+        badgeTimer.Start();
+        RefreshBadge();
+    }
+
+    void RefreshBadge()
+    {
+        // The page is saying it: PageSilentMs sits above the page's 5 s poll and below this 10 s tick.
+        if (pageSaidWaiting.IsRunning && pageSaidWaiting.ElapsedMilliseconds < TaskbarBadge.PageSilentMs) return;
+        if (badgeReadInFlight) return;
+        badgeReadInFlight = true;
+        int asked = ++badgeAsked;
+        int boardPort = port;
+        ThreadPool.QueueUserWorkItem(unused =>
+        {
+            int? waiting;
+            bool answered = TaskbarBadge.ReadBoard(boardPort, out waiting);
+            try { BeginInvoke(new Action(() => BoardAnswered(answered, waiting, asked))); }
+            catch { /* the window closed meanwhile */ }
+        });
+    }
+
+    void BoardAnswered(bool answered, int? waiting, int asked)
+    {
+        badgeReadInFlight = false;
+        if (answered) badgeMisses = 0; else badgeMisses++;
+        // One slow answer on a busy board is not a board that is gone: the badge clears only after
+        // MissesBeforeClear misses in a row (about 30 s), and until then the number stands.
+        if (answered || badgeMisses >= TaskbarBadge.MissesBeforeClear) ShowBadge(answered ? waiting : null, asked);
+    }
+
+    // The page's own count, handed over after every board poll that worked. Only the board's own
+    // page (this port on loopback) is heard, and WebView2 raises this for the top-level document only.
+    internal void OnWebMessage(ICoreWebView2WebMessageReceivedEventArgs args)
+    {
+        string source;
+        args.get_Source(out source);
+        if (!KosmosLauncher.IsBoardAddress(source, port)) return;
+        string json;
+        args.get_WebMessageAsJson(out json);
+        int? waiting;
+        if (!TaskbarBadge.ReadsAsPageMessage(json, out waiting)) return;
+        pageSaidWaiting.Restart();
+        // A post is a board read that worked, so the window's miss count starts again.
+        badgeMisses = 0;
+        ShowBadge(waiting, ++badgeAsked);
+    }
+
+    void ShowBadge(int? waiting, int asked)
+    {
+        if (asked < badgeShownAsked) return;
+        badgeShownAsked = asked;
+        badgeWanted = waiting;
+        ApplyBadge();
+    }
+
+    // Sets the overlay once the taskbar button exists, and only when the count changed. The icon is
+    // drawn for this count and destroyed straight after: the taskbar keeps its own copy.
+    void ApplyBadge()
+    {
+        if (!taskbarButtonReady || IsDisposed) return;
+        int? count = TaskbarBadge.Shown(badgeWanted);
+        if (badgeEverApplied && count == badgeOnTaskbar) return;
+        IntPtr icon = IntPtr.Zero;
+        try
+        {
+            if (taskbar == null)
+            {
+                taskbar = (TaskbarBadge.ITaskbarList3)new TaskbarBadge.TaskbarListObject();
+                taskbar.HrInit();
+            }
+            string label = TaskbarBadge.Label(count);
+            if (label != null) icon = TaskbarBadge.DrawIcon(label, TaskbarBadge.IconSize());
+            taskbar.SetOverlayIcon(Handle, icon, TaskbarBadge.Description(count));
+            badgeOnTaskbar = count;
+            badgeEverApplied = true;
+        }
+        catch { /* no taskbar to badge (Explorer not running): its next TaskbarButtonCreated tries again */ }
+        finally { if (icon != IntPtr.Zero) TaskbarBadge.DestroyIcon(icon); }
     }
 
     protected override void OnFormClosed(System.Windows.Forms.FormClosedEventArgs e)
     {
+        if (badgeTimer != null) { badgeTimer.Stop(); badgeTimer.Dispose(); badgeTimer = null; }
         if (controller != null) { try { controller.Close(); } catch { /* already gone */ } controller = null; }
         base.OnFormClosed(e);
     }
@@ -2352,6 +2477,277 @@ public class ProcessFailed : ICoreWebView2ProcessFailedEventHandler
     }
 }
 
+[ComVisible(true), ClassInterface(ClassInterfaceType.None)]
+public class WebMessageReceived : ICoreWebView2WebMessageReceivedEventHandler
+{
+    readonly BoardWindowForm form;
+    internal WebMessageReceived(BoardWindowForm form) { this.form = form; }
+    public int Invoke(ICoreWebView2 sender, ICoreWebView2WebMessageReceivedEventArgs args)
+    {
+        try { form.OnWebMessage(args); } catch { /* see above */ }
+        return 0;
+    }
+}
+
+// ---- #3996: the waiting count on the taskbar button, the Windows twin of the Mac Dock badge ----
+//
+// The number is the board's, never worked out here: counts.waiting on /api/status (engine/status.js
+// waitingTotal: agents that need the person + unread direct messages + unread project messages).
+// Null (Settings > Computer > App icon switched off, #4025, or a board older than #3996), zero, or
+// anything that is not a whole number clears the badge. The badge itself is ITaskbarList3's overlay
+// icon on the window's taskbar button: a red circle with the count in white, 1 to 9, then "9+"
+// (the overlay is a small icon, so a longer number would not read). It exists only while the
+// window does, which is where the taskbar button is.
+//
+// Everything here but ReadBoard, DrawIcon and the COM is pure, so tools.win-taskbar-badge-3996.test.js
+// compiles a probe beside this file and drives it.
+static class TaskbarBadge
+{
+    // As the Mac app: the page polls every 5 s, the window's own read runs every 10 s but only after
+    // 8 s of page silence, and three misses in a row (about 30 s) clear a number that stood.
+    internal const int PollEveryMs = 10000;
+    internal const int PageSilentMs = 8000;
+    internal const int MissesBeforeClear = 3;
+    const int ReadTimeoutMs = 8000;
+
+    // engine/boardauth.js's TOKEN_FILE and HEADER_NAME, and store.js's APP (the data folder's leaf).
+    internal const string BoardTokenFileName = "board.token";
+    internal const string BoardTokenHeader = "x-kosmos-board-token";
+    internal const string StoreLeaf = "Kosmos";
+
+    // The page's message: { kosmosBadge: <counts.waiting> } (web/index.html tick()).
+    internal const string PageMessageKey = "kosmosBadge";
+
+    // The count to show: a whole number of at least 1, or null for no badge.
+    internal static int? Shown(int? count) { return count.HasValue && count.Value >= 1 ? count : null; }
+
+    internal static string Label(int? count)
+    {
+        int? shown = Shown(count);
+        if (shown == null) return null;
+        return shown.Value > 9 ? "9+" : shown.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    // What a screen reader says for the taskbar button's badge. An empty description with no icon
+    // clears it.
+    internal static string Description(int? count)
+    {
+        int? shown = Shown(count);
+        if (shown == null) return "";
+        return shown.Value == 1 ? "1 thing waiting for you" : shown.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) + " things waiting for you";
+    }
+
+    // A JSON value read as the count: a whole number of at least 1. null, 0, a fraction, a
+    // negative, true, a string: no badge, as the Mac app's badgeLabel(fromCount:).
+    internal static int? CountFromJsonValue(string raw)
+    {
+        if (raw == null) return null;
+        double d;
+        if (!double.TryParse(raw.Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out d)) return null;
+        if (double.IsNaN(d) || double.IsInfinity(d) || d < 1 || d != Math.Floor(d)) return null;
+        return d > int.MaxValue ? int.MaxValue : (int)d;
+    }
+
+    // Whether a body is the board's status at all (one whole JSON object carrying a `counts`
+    // object), and its count. A 200 cut off mid-body does not read, so it is a miss, not an answer;
+    // a status with no count (an older board, or the switch off) is an answer, and clears the badge.
+    internal static bool ReadsAsStatus(string body, out int? waiting)
+    {
+        waiting = null;
+        string counts = JsonMember(body, "counts");
+        if (counts == null || !counts.StartsWith("{", StringComparison.Ordinal)) return false;
+        waiting = CountFromJsonValue(JsonMember(counts, "waiting"));
+        return true;
+    }
+
+    // Whether a page message is the badge's, and its count.
+    internal static bool ReadsAsPageMessage(string json, out int? waiting)
+    {
+        waiting = null;
+        string raw = JsonMember(json, PageMessageKey);
+        if (raw == null) return false;
+        waiting = CountFromJsonValue(raw);
+        return true;
+    }
+
+    // The raw text of `key`'s value in ONE whole JSON object (nested values skipped), or null when
+    // the key is absent or the text is not a single object that closes where it ends. A small
+    // reader for the same reason as TopLevelJsonString: no JSON reader in .NET Framework without a
+    // reference the pinned build flags do not carry.
+    internal static string JsonMember(string json, string key)
+    {
+        if (json == null) return null;
+        string text = json.Trim();
+        if (text.Length < 2 || text[0] != '{' || text[text.Length - 1] != '}') return null;
+        int depth = 0;
+        int valueStart = -1;
+        string value = null;
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (c == '"')
+            {
+                int end;
+                string s = KosmosLauncher.ReadJsonString(text, i, out end);
+                if (s == null) return null;
+                if (depth == 1 && valueStart < 0 && s == key)
+                {
+                    int j = end + 1;
+                    while (j < text.Length && char.IsWhiteSpace(text[j])) j++;
+                    if (j < text.Length && text[j] == ':')
+                    {
+                        j++;
+                        while (j < text.Length && char.IsWhiteSpace(text[j])) j++;
+                        valueStart = j;
+                        i = j - 1;
+                        continue;
+                    }
+                }
+                i = end;
+                continue;
+            }
+            if (c == '{' || c == '[') { depth++; continue; }
+            if (c == '}' || c == ']')
+            {
+                depth--;
+                if (depth < 0) return null;
+                if (depth == 0)
+                {
+                    if (i != text.Length - 1) return null;
+                    if (valueStart >= 0 && value == null) value = text.Substring(valueStart, i - valueStart).Trim();
+                }
+                continue;
+            }
+            if (c == ',' && depth == 1 && valueStart >= 0 && value == null) value = text.Substring(valueStart, i - valueStart).Trim();
+        }
+        return depth == 0 && value != null && value.Length > 0 ? value : null;
+    }
+
+    // The board's data folder, where it keeps board.token: engine/store.js dataRootFor's win32 branch,
+    // re-derived because this process cannot require the node module (as the Mac app's
+    // boardTokenValue does). AGENT_WORKFORCE_DATA wins, then AGENT_WORKFORCE_HOME, then APPDATA.
+    // tools.win-taskbar-badge-3996.test.js compares it with dataRootFor itself.
+    internal static string BoardDataRoot(Func<string, string> environment, string profile)
+    {
+        string data = environment("AGENT_WORKFORCE_DATA");
+        if (!string.IsNullOrEmpty(data)) return Path.Combine(data, StoreLeaf);
+        string home = environment("AGENT_WORKFORCE_HOME");
+        if (!string.IsNullOrEmpty(home)) return Path.Combine(Path.Combine(Path.Combine(home, "AppData"), "Roaming"), StoreLeaf);
+        string appData = environment("APPDATA");
+        if (string.IsNullOrEmpty(appData)) appData = Path.Combine(Path.Combine(profile ?? "", "AppData"), "Roaming");
+        return Path.Combine(appData, StoreLeaf);
+    }
+
+    // The board token, or null when the board does not enforce one (it writes the file only then).
+    // Read on every poll, never kept: it never leaves this process except in the request header.
+    static string ReadBoardToken()
+    {
+        try
+        {
+            string root = BoardDataRoot(Environment.GetEnvironmentVariable, Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+            string token = File.ReadAllText(Path.Combine(root, BoardTokenFileName), Encoding.UTF8).Trim();
+            return token.Length > 0 ? token : null;
+        }
+        catch { return null; }
+    }
+
+    // One read of /api/status. True when the board answered with its status (then `waiting` is its
+    // count); false for no answer, a refusal, or a body that does not read as the status.
+    internal static bool ReadBoard(int port, out int? waiting)
+    {
+        waiting = null;
+        try
+        {
+            System.Net.HttpWebRequest request = (System.Net.HttpWebRequest)System.Net.WebRequest.Create("http://127.0.0.1:" + port + "/api/status");
+            request.Proxy = null;   // loopback: never the system proxy
+            request.Timeout = ReadTimeoutMs;
+            request.ReadWriteTimeout = ReadTimeoutMs;
+            request.CachePolicy = new System.Net.Cache.RequestCachePolicy(System.Net.Cache.RequestCacheLevel.NoCacheNoStore);
+            string token = ReadBoardToken();
+            if (token != null) request.Headers[BoardTokenHeader] = token;
+            string body;
+            using (System.Net.HttpWebResponse response = (System.Net.HttpWebResponse)request.GetResponse())
+            {
+                if ((int)response.StatusCode != 200) return false;
+                using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8)) body = reader.ReadToEnd();
+            }
+            return ReadsAsStatus(body, out waiting);
+        }
+        catch { return false; }
+    }
+
+    // The overlay's size: the system's small icon size (16 at 100%, 24 at 150%), which is what the
+    // taskbar draws an overlay at.
+    internal static int IconSize()
+    {
+        int size = GetSystemMetrics(SM_CXSMICON);
+        return size >= 16 ? size : 16;
+    }
+
+    // A red circle with the label in white, centred on its drawn shape (not the font's line box), as
+    // an HICON the caller destroys (DestroyIcon).
+    internal static IntPtr DrawIcon(string label, int size)
+    {
+        using (System.Drawing.Bitmap bitmap = new System.Drawing.Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+        {
+            using (System.Drawing.Graphics g = System.Drawing.Graphics.FromImage(bitmap))
+            using (System.Drawing.SolidBrush red = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(255, 214, 40, 40)))
+            using (System.Drawing.Drawing2D.GraphicsPath text = new System.Drawing.Drawing2D.GraphicsPath())
+            using (System.Drawing.FontFamily family = new System.Drawing.FontFamily("Segoe UI"))
+            {
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                g.Clear(System.Drawing.Color.Transparent);
+                g.FillEllipse(red, 0f, 0f, size - 0.5f, size - 0.5f);
+                float em = size * (label.Length > 1 ? 0.62f : 0.8f);
+                text.AddString(label, family, (int)System.Drawing.FontStyle.Bold, em, System.Drawing.PointF.Empty, System.Drawing.StringFormat.GenericTypographic);
+                System.Drawing.RectangleF drawn = text.GetBounds();
+                using (System.Drawing.Drawing2D.Matrix centre = new System.Drawing.Drawing2D.Matrix())
+                {
+                    centre.Translate(size / 2f - (drawn.Left + drawn.Width / 2f), size / 2f - (drawn.Top + drawn.Height / 2f));
+                    text.Transform(centre);
+                }
+                g.FillPath(System.Drawing.Brushes.White, text);
+            }
+            return bitmap.GetHicon();
+        }
+    }
+
+    const int SM_CXSMICON = 49;
+
+    [DllImport("user32.dll")]
+    static extern int GetSystemMetrics(int index);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern bool DestroyIcon(IntPtr icon);
+
+    // CLSID_TaskbarList and ITaskbarList3 (shobjidl_core.h), in the order the vtable declares them:
+    // ITaskbarList's five, ITaskbarList2's one, then ITaskbarList3's up to SetOverlayIcon. As with
+    // WebView2 below, a slot out of order calls the wrong method; the test pins this list.
+    [ComImport, Guid("56FDF344-FD6D-11d0-958A-006097C9A090")]
+    internal class TaskbarListObject { }
+
+    [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIUnknown), Guid("ea1afb91-9e28-4b86-90e9-9e9f8a5eefaf")]
+    internal interface ITaskbarList3
+    {
+        void HrInit();
+        void _unused_AddTab();
+        void _unused_DeleteTab();
+        void _unused_ActivateTab();
+        void _unused_SetActiveAlt();
+        void _unused_MarkFullscreenWindow();
+        void _unused_SetProgressValue();
+        void _unused_SetProgressState();
+        void _unused_RegisterTab();
+        void _unused_UnregisterTab();
+        void _unused_SetTabOrder();
+        void _unused_SetTabActive();
+        void _unused_ThumbBarAddButtons();
+        void _unused_ThumbBarUpdateButtons();
+        void _unused_ThumbBarSetImageList();
+        void SetOverlayIcon(IntPtr window, IntPtr icon, [MarshalAs(UnmanagedType.LPWStr)] string description);
+    }
+}
+
 // ---- WebView2's COM interfaces, as WebView2.h (SDK 1.0.4191.47) orders them -----
 //
 // 🛑 THE ORDER IS THE CONTRACT. COM calls a method by its slot in the interface's table, not by
@@ -2391,6 +2787,12 @@ public interface ICoreWebView2NewWindowRequestedEventHandler
 public interface ICoreWebView2ProcessFailedEventHandler
 {
     [PreserveSig] int Invoke(ICoreWebView2 sender, ICoreWebView2ProcessFailedEventArgs args);
+}
+
+[ComImport, Guid("57213f19-00e6-49fa-8e07-898ea01ecbd2"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2WebMessageReceivedEventHandler
+{
+    [PreserveSig] int Invoke(ICoreWebView2 sender, ICoreWebView2WebMessageReceivedEventArgs args);
 }
 
 [ComImport, Guid("b96d755e-0319-4e92-a296-23436f46a1fc"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -2461,7 +2863,7 @@ public interface ICoreWebView2
     void Reload();
     void _unused_PostWebMessageAsJson();
     void _unused_PostWebMessageAsString();
-    void _unused_add_WebMessageReceived();
+    void add_WebMessageReceived(ICoreWebView2WebMessageReceivedEventHandler eventHandler, out long token);
     void _unused_remove_WebMessageReceived();
     void _unused_CallDevToolsProtocolMethod();
     void _unused_get_BrowserProcessId();
@@ -2511,4 +2913,11 @@ public interface ICoreWebView2NewWindowRequestedEventArgs
 public interface ICoreWebView2ProcessFailedEventArgs
 {
     void get_ProcessFailedKind(out int processFailedKind);
+}
+
+[ComImport, Guid("0f99a40c-e962-4207-9e92-e3d542eff849"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2WebMessageReceivedEventArgs
+{
+    void get_Source([MarshalAs(UnmanagedType.LPWStr)] out string source);
+    void get_WebMessageAsJson([MarshalAs(UnmanagedType.LPWStr)] out string webMessageAsJson);
 }

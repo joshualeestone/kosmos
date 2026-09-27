@@ -188,3 +188,18 @@ test('as a script (how the supervisor calls it) it trusts the folder under HOME 
   assert.deepEqual(read(h).trustedWorkspaces, [dir]);
   execFileSync(process.execPath, [script], { env: { PATH: process.env.PATH, HOME: h } }); // throws if it exits non-zero
 });
+
+test('#4039: with no home given (the supervisor\'s only call) the settings live in agy\'s dir, which a sandbox moves', () => {
+  const saved = { a: process.env.AGENT_WORKFORCE_AGY_HOME, h: process.env.AGENT_WORKFORCE_HOME };
+  try {
+    delete process.env.AGENT_WORKFORCE_AGY_HOME;
+    process.env.AGENT_WORKFORCE_HOME = '/sandbox-4039';
+    assert.equal(settingsPath(), '/sandbox-4039/.gemini/antigravity-cli/settings.json');
+    process.env.AGENT_WORKFORCE_AGY_HOME = '/agy-4039';
+    assert.equal(settingsPath(), '/agy-4039/settings.json');
+    assert.equal(require('./agysession').HOME(), '/agy-4039', 'the reader and the trust write disagree about agy\'s dir');
+  } finally {
+    if (saved.a === undefined) delete process.env.AGENT_WORKFORCE_AGY_HOME; else process.env.AGENT_WORKFORCE_AGY_HOME = saved.a;
+    if (saved.h === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = saved.h;
+  }
+});

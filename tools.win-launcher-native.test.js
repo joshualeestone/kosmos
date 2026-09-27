@@ -446,6 +446,9 @@ const WEBVIEW2_SLOTS = {
     'get_IsRedirected', 'get_RequestHeaders', 'get_Cancel', 'put_Cancel']],
   ICoreWebView2NewWindowRequestedEventArgs: ['34acb11c-fc37-4418-9132-f9c21d1eafb9', ['get_Uri', 'put_NewWindow', 'get_NewWindow', 'put_Handled']],
   ICoreWebView2ProcessFailedEventArgs: ['8155a9a4-1474-4a86-8cae-151b0fa6b8ca', ['get_ProcessFailedKind']],
+  /* #3996: the page's count for the taskbar badge (chrome.webview.postMessage). */
+  ICoreWebView2WebMessageReceivedEventHandler: ['57213f19-00e6-49fa-8e07-898ea01ecbd2', ['Invoke']],
+  ICoreWebView2WebMessageReceivedEventArgs: ['0f99a40c-e962-4207-9e92-e3d542eff849', ['get_Source', 'get_WebMessageAsJson']],
 };
 
 test('#1118: every WebView2 interface the launcher declares has WebView2.h\'s id and slot order', () => {

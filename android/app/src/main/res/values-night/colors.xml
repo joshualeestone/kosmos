@@ -3,4 +3,9 @@
     <color name="colorPrimary">#0c0d0f</color>
     <color name="status_bar_color">#0c0d0f</color>
     <color name="navigation_bar_color">#0c0d0f</color>
+    <color name="load_error_background">#0c0d0f</color>
+    <color name="load_error_text">#f4f1e8</color>
+    <color name="load_error_muted">#aaa69c</color>
+    <color name="load_error_button">#d6a62e</color>
+    <color name="load_error_button_text">#171714</color>
 </resources>

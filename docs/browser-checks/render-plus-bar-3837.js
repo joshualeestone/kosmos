@@ -40,6 +40,11 @@ function chk(ok, label, extra) {
   if (ok) { pass++; console.log('PASS  ' + label + (extra ? '  ' + extra : '')); }
   else { fail.push(label); console.log('FAIL  ' + label + (extra ? '  --  ' + extra : '')); }
 }
+// kosmos#3973: "right" is measured to the ROOT's box, not documentElement.clientWidth, which includes
+// the #1309 stable gutter on a classic-scrollbar machine when the page does not scroll. rootOk keeps
+// that yardstick honest: the root may give up a gutter only as wide as a scratch scroller's scrollbar
+// (within 1px), so a root that shrank or moved cannot pass a short bar. A CSS zoom on the root would
+// scale the scratch scroller and is not supported here.
 const bar = (page) => page.evaluate(() => {
   const b = document.getElementById('kplus-bar');
   if (!b) return { present: false };
@@ -47,7 +52,14 @@ const bar = (page) => page.evaluate(() => {
   let inked = 0;
   try { const px = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data; for (let i = 3; i < px.length; i += 4) if (px[i] > 0) inked++; } catch { inked = -1; }
   const ob = out.getBoundingClientRect(), cb = cv.getBoundingClientRect();
-  return { present: true, first: head && head.firstElementChild === b, top: Math.round(r.top), left: Math.round(r.left), right: Math.round(document.documentElement.clientWidth - r.right),
+  const root = document.documentElement.getBoundingClientRect();
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:absolute;top:-999px;left:0;width:100px;height:100px;overflow:scroll';
+  document.documentElement.appendChild(probe);
+  const sbw = probe.offsetWidth - probe.clientWidth;
+  probe.remove();
+  const gutter = innerWidth - root.right;
+  return { rootOk: Math.abs(root.left) <= 1 && (Math.abs(gutter) <= 1 || Math.abs(gutter - sbw) <= 1), gutter: Math.round(gutter), sbw, present: true, first: head && head.firstElementChild === b, top: Math.round(r.top), left: Math.round(r.left), right: Math.round(root.right - r.right),
     h: Math.round(r.height), inked, markLeft: Math.round(cb.left - r.left), markH: Math.round(cb.height), outRightGap: Math.round(r.right - ob.right), outText: out.textContent,
     outBg: getComputedStyle(out).backgroundImage, bg: getComputedStyle(b).backgroundColor, label: b.getAttribute('aria-label') };
 });
@@ -74,7 +86,7 @@ const bar = (page) => page.evaluate(() => {
     await settle();
     chk(await page.evaluate(() => location.hostname === 'remote.test' && !!document.querySelector('#grid, .apphead')), 'P2 precondition: the real board answered through remote.test');
     const b2 = await bar(page);
-    chk(b2.present && b2.first && b2.top === 0 && b2.left === 0 && b2.right === 0, 'P2 through a Kosmos+ address the bar is the header\'s first row, edge to edge at the top', JSON.stringify(b2));
+    chk(b2.present && b2.rootOk && b2.first && b2.top === 0 && b2.left === 0 && b2.right === 0, 'P2 through a Kosmos+ address the bar is the header\'s first row, edge to edge of the page layout (a reserved scrollbar gutter excluded) at the top', JSON.stringify(b2));
     chk(b2.inked > 200 && b2.markLeft > 0 && b2.markLeft < 48 && b2.markH === 14, 'P2 the tiny KOSMOS+ mark is drawn on its left (the real dots)', JSON.stringify({ inked: b2.inked, markLeft: b2.markLeft, markH: b2.markH }));
     chk(b2.outText === 'Log out' && /gradient/.test(b2.outBg) && b2.outRightGap > 0 && b2.outRightGap < 48 && b2.h <= 44, 'P2 a blue Log out on the far right, and the bar is thin', JSON.stringify({ outText: b2.outText, outBg: b2.outBg.slice(0, 40), outRightGap: b2.outRightGap, h: b2.h }));
     chk(b2.bg === 'rgb(23, 35, 61)' && b2.label === 'Kosmos+ remote session', 'P2 on the Kosmos+ navy, named for a screen reader as the Kosmos+ remote session', JSON.stringify({ bg: b2.bg, label: b2.label }));
@@ -112,13 +124,13 @@ const bar = (page) => page.evaluate(() => {
     await page.evaluate(() => applyLayout('consolidated', true));
     await page.waitForTimeout(400);
     const b5 = await bar(page);
-    chk(b5.present && b5.first && b5.top === 0 && b5.left === 0 && b5.right === 0, 'P5 under the consolidated layout the bar is still the first row, edge to edge', JSON.stringify(b5));
+    chk(b5.present && b5.rootOk && b5.first && b5.top === 0 && b5.left === 0 && b5.right === 0, 'P5 under the consolidated layout the bar is still the first row, edge to edge of the page layout', JSON.stringify(b5));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'plus-bar-consolidated.png'), clip: { x: 0, y: 0, width: 1280, height: 200 } });
     await page.evaluate(() => applyLayout('tabs', true));
 
     // P7 (review): edge to edge of the header wherever the tab layout sets its right padding from the scrollbar gutter:
     // the board (it scrolls) and an agent's talk view (its own gutter rule). Read against the header's own box, not
-    // clientWidth, which hides a gutter.
+    // clientWidth, which on a classic-scrollbar machine can include an empty reserved gutter (#3973).
     const edges = () => page.evaluate(() => { const b = document.getElementById('kplus-bar').getBoundingClientRect(), h = document.querySelector('.apphead').getBoundingClientRect();
       return { dl: Math.round(b.left - h.left), dr: Math.round(h.right - b.right), vw: Math.round(innerWidth - b.right) }; });
     await page.evaluate(() => showTab('agents'));

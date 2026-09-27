@@ -974,6 +974,20 @@ cat > "$sb4/fake-claude" <<'FAKE'
 exit 0
 FAKE
 chmod +x "$sb4/fake-claude"
+# #3972: fake gemini and grok tools, so the board's REAL runner detection (engine/runners.js, the
+# AGENT_WORKFORCE_GEMINI_BIN / _GROK_BIN overrides) reports them present on any Mac, with or without
+# the real tools installed. render-accounts-openai's Gemini/Grok API-key step shows only where the tool
+# is present; this replaces the /api/runners answer it used to pin in the browser. Nothing runs them:
+# the check stubs the key-save route, so presence (an executable file) is all they need.
+# Control arm: KOSMOS_BC_KEYED_STUBS_ABSENT=1 points both at a path that does not exist, so the tools
+# read as missing on every machine and the key step must fail.
+for _t in gemini grok; do printf '#!/bin/sh\nexit 0\n' > "$sb4/fake-$_t"; chmod +x "$sb4/fake-$_t"; done
+if [ "${KOSMOS_BC_KEYED_STUBS_ABSENT:-}" = 1 ]; then
+  KEYED_GEMINI="$sb4/no-such-gemini"; KEYED_GROK="$sb4/no-such-grok"
+  log "NOTE  KOSMOS_BC_KEYED_STUBS_ABSENT=1: gemini and grok read as missing, so render-accounts-openai's key step is expected to fail"
+else
+  KEYED_GEMINI="$sb4/fake-gemini"; KEYED_GROK="$sb4/fake-grok"
+fi
 write_fleet "$sb4"
 # #1659: a NON-DEFAULT Claude account, so the Claude Disconnect arm in
 # render-accounts-openai is EXERCISED rather than skipped. Before this the
@@ -1017,6 +1031,7 @@ AGENT_WORKFORCE_OPENAI_WALK_KEY="sk-proj-walkwalkwalkwalkwalkWALK" PORT="$P_OAI"
 SERVER_PIDS+=("$!")
 AGENT_WORKFORCE_HOME="$sb4/home" AGENT_WORKFORCE_CODEX_BIN="$sb4/fake-codex" \
   AGENT_WORKFORCE_CLAUDE_BIN="$sb4/fake-claude" \
+  AGENT_WORKFORCE_GEMINI_BIN="$KEYED_GEMINI" AGENT_WORKFORCE_GROK_BIN="$KEYED_GROK" \
   AGENT_WORKFORCE_OPENAI_MODELS_URL="http://127.0.0.1:$P_OAI/v1/models" \
   AGENT_WORKFORCE_DATA="$sb4/data" AGENT_WORKFORCE_WORKERS="$sb4/workers" \
   AGENT_WORKFORCE_LAUNCH="$sb4/launch" AGENT_WORKFORCE_PROJECTS="$sb4/projects" \
@@ -1218,7 +1233,17 @@ if boot_board "$sb7" "$P8"; then
   run_one "render-full-width"   env KOSMOS_URL="$B8" node docs/browser-checks/render-full-width.js "$sb7/shots-fullwidth"
   run_one "render-offline-note"  env KOSMOS_URL="$B8" node docs/browser-checks/render-offline-note.js "$sb7/shots-offline" "$B8_PID"
 else
-  for n in contrast named-controls render-create-form render-found-undo render-orgchart-import-1280 render-adopt-1531 render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-updates-stale render-login-expiry-3532 render-switch-states render-optout-403-2020 render-settings-403-2047 render-first-run render-gated-next render-permission-slider-2620 render-token-usage-2617 render-boot-no-flash render-theme-toggle render-full-width render-offline-note; do FAILED+=("$n (server did not boot)"); done
+  # kosmos#3987: the names live in docs/browser-checks/b8-board.txt, one per line, sorted (they
+  # were one line here, which drifted from the run_one calls above and conflicted on every add).
+  B8_CHECKS=()
+  while IFS= read -r n || [ -n "$n" ]; do
+    case "$n" in ''|'#'*) continue ;; esac
+    B8_CHECKS+=("$n")
+  done < "$REPO/docs/browser-checks/b8-board.txt"
+  if [ "${#B8_CHECKS[@]}" -eq 0 ]; then
+    FAILED+=("docs/browser-checks/b8-board.txt missing or named no checks (server did not boot)")
+  fi
+  for n in ${B8_CHECKS[@]+"${B8_CHECKS[@]}"}; do FAILED+=("$n (server did not boot)"); done
 fi
 # #812 batch 2 (retried after the first attempt found four checks that
 # assumed compatibility with B8's fixture instead of verifying it -- those

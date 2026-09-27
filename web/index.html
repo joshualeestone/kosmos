@@ -3472,7 +3472,20 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   --tsk-closed: color-mix(in srgb, var(--k-ink-2) 55%, var(--k-rule));
   --tsk-wash: color-mix(in srgb, var(--gold) 14%, var(--k-surface)); color: var(--k-ink); }
 /* #3949: one column, the full width (the Projects rail is gone; its choice is the dropdown). */
-.tsk-view { min-height: 70vh; background: var(--k-bg); border: 1px solid var(--k-rule); border-radius: 14px; overflow: hidden; }
+/* #3949 (Josh, 09-26 16:18: "lose the outer thin rounded box stroke that's on this page for no reason"): no frame on
+   the tab view either (#3880 had dropped it only in the consolidated column). The tiles and rows keep their boxes. */
+.tsk-view { min-height: 70vh; background: var(--k-bg); }
+/* #3949 (Josh, 09-26 18:03: "keep the background color [at the top] and everything below it to be on a white
+   background, and then slightly shade the task cards"). The lower band is the surface (white; the dark surface in
+   dark mode), bled to the window's edges and down to the bottom with a spread shadow clipped to the sides and below,
+   so it never paints over the band above and never widens the page (a shadow is not scrollable overflow). The view
+   no longer clips: its overflow: hidden clipped the frame's rounded corners, and it also made the view the scroll box
+   of the sticky Close bar (.tsk-bulk), which therefore never stuck. Without it the bar sticks to the window's bottom
+   as #3559 wrote it to (asserted in the browser check). In the consolidated column the panel's own scroll box
+   (overflow-y: auto) is what bounds the bleed to the column; the browser check reads the rail beside it. The cards take the page's ground, the warm off-white. */
+.tsk-below { background: var(--k-surface); box-shadow: 0 0 0 100vmax var(--k-surface); clip-path: inset(0 -100vmax -100vmax);
+  margin-top: 30px; padding-top: 14px; }   /* #3949 (Josh, 19:30): taller ground under the tiles (was 16px) */
+#panel-tasks .tsk-below .tsk-list { background: var(--k-bg); }
 .tsk-main { padding: 25px 26px 110px; min-width: 0; position: relative; }
 .tsk-crumb { font-size: .8125rem; color: var(--k-ink-2); margin: 0 0 2px; min-height: 1.3em; }
 /* Mona's look review of #3701: halve the two big vertical gaps (measured 51px above the title,
@@ -3490,18 +3503,24 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 #panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
 /* #3703: the head carries "+ New task" beside the title, as Mona's mock draws it (.mh / .newbtn). */
 #panel-tasks .tsk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-/* #3949: the search takes about half the width, with the open-task count to its right. */
-.tsk-toprow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; margin: 16px 0 0; }
-.tsk-toprow .tsk-search { flex: 0 1 50%; min-width: 240px; margin: 0; max-width: none; }
-.tsk-sub { color: var(--k-ink-2); font-size: .9375rem; margin: 0; }
+/* #3949 (Josh, 09-26 19:30): the title carries the count ("30 Tasks on 2 Projects"); the separate count line is
+   gone, and the search sits compact to the right of Sort (below). */
 .tsk-ctrls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 14px 0 4px; }
 #tsk-under { margin: 12px 0 4px; }
 .tsk-ctl { display: flex; align-items: center; }
 .tsk-cl { font: 600 .875rem var(--font-ui); color: var(--k-ink-2); margin-right: 6px; white-space: nowrap; }
-.tsk-search { position: relative; margin: 16px 0 0; max-width: 520px; }
+.tsk-search { position: relative; margin: 0; max-width: 100%; }
 .tsk-search svg { position: absolute; left: 11px; top: 50%; width: 16px; height: 16px; margin-top: -8px; color: var(--k-ink-2); pointer-events: none; }
-.tsk-search input { width: 100%; box-sizing: border-box; font: .9375rem var(--font-ui); height: 38px; padding: 0 34px 0 36px; border-radius: 10px;
-  border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink); }
+.tsk-search input { width: 38px; max-width: 100%; box-sizing: border-box; font: .9375rem var(--font-ui); height: 38px; padding: 0 0 0 36px; border-radius: 10px;
+  border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink); cursor: pointer; transition: width .15s ease; }
+/* Closed, it is the magnifier alone (its placeholder hidden); open, it is a field wide enough to read what you type. */
+.tsk-search input::placeholder { color: transparent; }
+.tsk-search:focus-within input, .tsk-search.open input { width: 280px; padding-right: 34px; cursor: text; }
+.tsk-search:focus-within input::placeholder, .tsk-search.open input::placeholder { color: var(--k-ink-2); }
+/* Esc closes it while it keeps focus, until the person types again or leaves it. */
+.tsk-search.shut input { width: 38px; padding-right: 0; }
+.tsk-search.shut input::placeholder { color: transparent; }
+@media (prefers-reduced-motion: reduce) { .tsk-search input { transition: none; } }
 .tsk-search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
 .tsk-search button { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: 0; background: none; cursor: pointer;
   color: var(--k-ink-2); font: 600 1rem var(--font-ui); width: 26px; height: 26px; border-radius: 7px; }
@@ -3592,8 +3611,8 @@ details.tsk-fold summary { cursor: pointer; color: var(--k-ink-2); font-size: .8
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks { grid-column: 2; grid-row: 1; margin: 0; width: 100%;
   padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; }
 /* #3880 (Josh, 2026-09-25 22:01): in the column the view has no outer frame of its own; the title, New task, filters,
-   tiles and list sit on the column's ground unframed. The tiles and the list keep their own borders. The tab view keeps
-   its frame: Josh scoped this to the consolidated view. */
+   tiles and list sit on the column's ground unframed. The tiles and the list keep their own borders. (Since #3949,
+   09-26, the tab view has no frame either; this still drops the column's background.) */
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-view {
   border: 0; border-radius: 0; background: none; }
 /* Mona's look review of #3701: in the column the panel's own top inset already spaces the title,
@@ -3604,7 +3623,6 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-task
   padding: 2px 8px; border-radius: 999px; cursor: pointer; margin-left: 8px; }
 .rail-tasks:hover { color: var(--k-ink); border-color: var(--gold-edge); }
 @media (max-width: 760px) {
-  .tsk-toprow .tsk-search { flex-basis: 100%; }
   .tsk-ctl { flex-wrap: wrap; row-gap: 4px; }
   .tsk-main { padding: 22px 14px 120px; }
   .tsk-row { grid-template-columns: 22px minmax(0, 1fr); }
@@ -9402,6 +9420,9 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
    and the sign-in link on one line; they wrap on a narrow pane. Link colour is
    first-step.html's on-navy link blue (#7ea0f0), readable on the gradient. */
 .plus-topbar { color: var(--k-ink-2); font-size: .95rem; margin: 0 0 8px; }
+/* #4079: the result of Remove this computer, on the pane the person lands on. */
+.plus-forgot { font-size: .95rem; line-height: 1.5; margin: 0 0 14px; padding: 10px 14px; border: 1px solid var(--k-rule); border-radius: 10px; background: var(--k-surface); color: var(--k-ink); }
+.plus-forgot:focus { outline: none; }
 .plus-cta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 20px; }
 .plus-signin-link { color: #7ea0f0; text-decoration: none; font-weight: 600; font-size: .92rem; }
 .plus-signin-link:hover { text-decoration: underline; }
@@ -9737,6 +9758,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   :is(#d-files, #d-sec-files) .pj-doc { min-height: 44px; }
   #d-files-all { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
   #d-files-back { display: inline-flex; align-items: center; min-height: 44px; }
+  /* #4088: Finder/File Explorer is on the computer running Kosmos, not the phone showing
+     this page. Hide an action the phone cannot fulfil; the file rows remain available. */
+  #d-files-finder { display: none; }
   /* #718 rows 2 and 3: keep the agent's Profile and Instructions forms readable without
      iOS focus zoom, and give their actions a phone-sized target. The desktop percentage
      widths stay above; only the phone lets the long Name help use the form's width. */
@@ -9778,6 +9802,12 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-talk-box .composerbox .cinput, #d-talk-box #d-talk-search { font-size: 16px; }
   #d-talk-box #d-talk-search-wrap { min-height: 44px; }
   #d-talk-box #d-talk-search { min-height: 44px; }
+  /* #3916: the Instructions pill also owns Skills. Keep both editors out of iOS focus zoom
+     and their actions thumb-sized when a phone is sideways or the screen is a touch tablet. */
+  #d-sec-instr textarea,
+  #d-sec-skills :is(input, textarea, select) { font-size: 16px; }
+  #d-sec-instr button,
+  #d-sec-skills :is(input, textarea, select, button) { min-height: 44px; }
 }
 /* The canvases honour prefers-reduced-motion in JS (a single static frame, no
    rAF loop); this makes that intent visible to a source reader too. */
@@ -14876,34 +14906,36 @@ window.kosmosMeasureScrollbarWidth();
      are not drawn at all rather than guessed. No
      coloured left bars anywhere (Josh, 12:52): the status mark is a round dot beside the label. -->
 <!-- #3949 (Josh, 2026-09-26): no left Projects column; the body takes the full width. Projects is a
-     dropdown on one line with Created:, the search is about half as wide with the open-task count to its
-     right, five single-label tiles (Needs Your Decision red), and Group by and Sort under the tiles. -->
+     dropdown on one line with Created:, the title is the count ("30 Tasks on 2 Projects"), the single-label tiles
+     (Needs Your Decision red), and Group by, Sort and a compact search under the tiles. -->
 <section class="panel panel-wide" id="panel-tasks" hidden>
   <div class="tsk-view">
     <div class="tsk-main">
+      <!-- #3949 (Josh, 09-26 18:03): two bands. The top one (title, filters, tiles) keeps the page's ground;
+           everything from Group by / Sort down sits on white, full width, and the task cards are shaded. -->
+      <div class="tsk-band">
       <p class="tsk-crumb" id="tsk-crumb"></p>
-      <div class="tsk-head"><h2 id="tsk-title">All tasks</h2><button class="btn uprime" id="tsk-new" type="button"><span aria-hidden="true">+</span> New task</button></div>
-      <!-- #3559 (Josh, 14:39): search, with its own clear button; the browser's native one is hidden.
-           #3949: about half as wide, with the open-task count to its right. -->
-      <div class="tsk-toprow">
-      <div class="tsk-search" role="search">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5" stroke-linecap="round"/></svg>
-        <input id="tsk-search" type="search" autocomplete="off" spellcheck="false"
-               placeholder="Search tasks" aria-label="Search tasks by what they say, number, project or agent">
-        <button type="button" id="tsk-qclear" aria-label="Clear search" hidden>&times;</button>
-      </div>
-      <p class="tsk-sub" id="tsk-sub"></p>
-      </div>
+      <div class="tsk-head"><h2 id="tsk-title">Tasks</h2><button class="btn uprime" id="tsk-new" type="button"><span aria-hidden="true">+</span> New task</button></div>
       <div class="tsk-ctrls" id="tsk-filters">
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-projsel">Project:</label><select class="tsk-sel" id="tsk-projsel"></select></div>
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-win">Created:</label><select class="tsk-sel" id="tsk-win"></select></div>
       </div>
       <div class="tsk-tiles" id="tsk-tiles"></div>
+      </div>
+      <div class="tsk-below">
       <div class="tsk-ctrls" id="tsk-under">
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-by">Group by:</label><select class="tsk-sel" id="tsk-by"></select></div>
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-sort">Sort:</label><select class="tsk-sel" id="tsk-sort">
           <option value="new">Newest first</option><option value="stale">Quietest first</option><option value="old">Oldest first</option>
         </select></div>
+        <!-- #3949 (Josh, 09-26 19:30): the search is a compact control to the right of Sort. It opens when focused or
+             while it holds a search, and closes when empty and left. "/" focuses it; Esc clears and closes it. -->
+        <div class="tsk-search" id="tsk-searchbox" role="search">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5" stroke-linecap="round"/></svg>
+          <input id="tsk-search" type="search" autocomplete="off" spellcheck="false"
+                 placeholder="Search tasks" aria-keyshortcuts="/" aria-label="Search tasks by what they say, number, project or agent">
+          <button type="button" id="tsk-qclear" aria-label="Clear search" hidden>&times;</button>
+        </div>
       </div>
       <p class="fmsg" id="tsk-msg" role="status" aria-live="polite"></p>
       <!-- What a search found, said to a screen reader while focus stays in the search box (the
@@ -14915,6 +14947,7 @@ window.kosmosMeasureScrollbarWidth();
         <input id="tsk-bnote" type="text" maxlength="2000" placeholder="Why these are closing (optional)" aria-label="Closing note">
         <button type="button" class="tsk-pri" id="tsk-bclose">Close them</button>
         <button type="button" id="tsk-bclear">Clear</button>
+      </div>
       </div>
     </div>
   </div>
@@ -15932,6 +15965,9 @@ window.kosmosMeasureScrollbarWidth();
            WIZARD (state 2) rather than the web -- its handler (plusSiEnter) is
            attached once at load and calls preventDefault, so no address is ever set
            here or in JS and the no-hostname guard still needs no pin. -->
+      <!-- #4079: after Remove this computer, what happened, said here because this is the pane the
+           person lands on. Set by the Remove this computer handler, cleared when a sign-in starts. -->
+      <p class="plus-forgot" id="plus-forgot-msg" role="status" aria-live="polite" hidden></p>
       <p class="plus-topbar">Already have Kosmos+? <a id="plus-signin-top" class="plus-signin-pill" href="#">Sign in</a></p>
       <!-- #1615 blue reskin: the wordmark, drawn as ~300 circles that animate in
            over 1.5s (or a single static frame under prefers-reduced-motion), by
@@ -16176,7 +16212,7 @@ window.kosmosMeasureScrollbarWidth();
     <div id="plus-flow" hidden>
       <!-- #3829 (Josh, 16:54: "terribly worded and designed"; Mona Lisa's sketch on the card): status first,
            View my account top right, the address in ONE chip with Copy and Open and one plain line under it,
-           and Turn off a quiet control rather than the headline. Off, Turn on is the one primary action. -->
+           and Pause (Turn off until #4079) a quiet control rather than the headline. Off, Turn on is the one primary action. -->
       <div class="plus-headrow">
         <p class="setname">Use Kosmos from anywhere</p>
         <span class="plus-pill" id="plus-pill" data-state="off">Off</span>
@@ -16287,6 +16323,26 @@ window.kosmosMeasureScrollbarWidth();
           <button class="btn" type="button" id="plus-second-reset">Reset the second step</button>
         </div>
         <p class="dhint" id="plus-second-msg" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
+      </div>
+      <!-- #4079, named "Remove this computer" by Josh's design (#4080, 22:22). (Josh, 22:03: "Is there a way to disconnect my computer running Kosmos from this Kosmos Plus
+           account somehow?"): the engine's Forget (#793, /api/remote/forget) finally has a button. Pause (above,
+           was "Turn off") only stops remote access for now; this removes the computer from the account. Two
+           steps, confirmed in place (the page has no confirm dialog), and the confirm stays until Remove or
+           Cancel: the 5-second repaint does not take it away while it is being read. -->
+      <div id="plus-forget" hidden style="margin-top:16px;">
+        <p class="setname">Remove this computer</p>
+        <p class="fhint">Removes this computer from your Kosmos Plus account. Pause only stops access for now.</p>
+        <div class="frow" id="plus-forget-row">
+          <button class="btn" type="button" id="plus-forget-go">Remove this computer</button>
+        </div>
+        <div id="plus-forget-ask" hidden>
+          <p class="fhint" id="plus-forget-sure">This computer leaves your Kosmos Plus account and its address is freed. Your devices will no longer reach it. You can connect it again later by signing in.</p>
+          <div class="frow">
+            <button class="btn danger-btn" type="button" id="plus-forget-yes">Remove</button>
+            <button class="btn" type="button" id="plus-forget-no">Cancel</button>
+          </div>
+        </div>
+        <p class="dhint" id="plus-forget-msg" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
       </div>
       <p class="fmsg" id="plus-msg" role="alert" aria-live="assertive"></p>
     </div>
@@ -20303,6 +20359,12 @@ async function tick() {
       // null when this board has no count (older than #3996, or the person switched it off in Settings, #4025): the app clears the badge.
       if (h) h.postMessage(typeof c.waiting === 'number' ? c.waiting : null);
     } catch { /* not in the Mac app, or no window (a test): nothing to tell */ }
+    /* #3996, the Windows half: the same count to Kosmos's own window (WebView2) for its taskbar badge,
+       as { kosmosBadge: n } (KosmosLauncher.cs OnWebMessage). Nothing outside that window. */
+    try {
+      const wv = window.chrome && window.chrome.webview;
+      if (wv) wv.postMessage({ kosmosBadge: typeof c.waiting === 'number' ? c.waiting : null });
+    } catch { /* not in the Windows app, or no window (a test): nothing to tell */ }
     /* #3423: if the Issue filter is on and there is nothing left to filter, exit it
        (same auto-exit the Messages filter does at dmTotal <= 0). */
     if (!c.needsYou && document.body && boardFilterActive() === 'attn') setBoardFilter(null);
@@ -29694,6 +29756,18 @@ let TALK_FLIGHT = null;
  * words exist only in the DOM.
  */
 const TALK_DRAFTS = {};
+/**
+ * The person's own message, drawn the moment they press Send, per agent.
+ *
+ * 🛑 THE THREAD USED TO WAIT FOR THE BOARD. The bubble appeared only once the POST
+ * had answered AND the thread had been read again, so every second the board spent
+ * was a second the person looked at a thread without their message in it, and on a
+ * slow Windows laptop that was over a minute. Now the bubble is drawn from what was
+ * typed, marked "Sending…", and the kept row replaces it once the thread holds it.
+ * A send the board never kept is marked as not sent, with the reason, so it never
+ * quietly disappears. { text, startedAt, recorded, failed, because }.
+ */
+const TALK_PENDING = {};
 /* #967: the Terminal tab's respond-in-context box parks its draft per agent too,
    so switching agents never loses a half-typed reply and never carries it onto
    the next agent's window. Mirrors TALK_DRAFTS. */
@@ -29852,6 +29926,30 @@ function dmRow(m, name) {
 }
 
 
+/* The in-flight (or not-kept) message, in the person's own bubble. The pill is
+   the thread's delivery pill: dashed while it is on its way, red if it did not go. */
+function dmPendingRow(p) {
+  const youAv = YOU_PIC
+    ? '<div class="msg-av" aria-hidden="true"><img src="' + youPicUrl() + '" alt=""></div>'
+    : '<div class="msg-av mine" aria-hidden="true"></div>';
+  const pill = p.failed
+    ? '<span class="delivery failed">Not sent. ' + esc(pjSentence(p.because || 'we could not send that')) + '</span>'
+    : '<span class="delivery unsure">Sending…</span>';
+  return '<div class="msg you dm-pending" data-mid="pending:' + esc(String(p.startedAt)) + '">' + youAv
+    + '<div class="msg-b"><div class="msg-bd">'
+    + pjRich(pjWords({ text: p.text }))
+    + '<span class="msg-t">' + pill + '</span></div></div></div>';
+}
+/* Does the kept thread already hold this pending message? A row the person sent,
+   with the same words, kept no earlier than a minute before the press (the board
+   stamps its own clock, which is this computer's or near it). */
+function dmPendingKept(rows, p) {
+  const flat = (t) => String(t == null ? '' : t).replace(/\s+/g, ' ').trim();
+  const want = flat(p.text);
+  return rows.some((m) => m && !m.from && m.kind !== 'kosmos' && flat(m.text) === want
+    && !(Date.parse(m.at) < p.startedAt - 60000));
+}
+
 /* The thread rows, and only them, so the search box can repaint between
    polls without re-fetching (#403). The filter matches what a row SHOWS:
    who said it (as dmWho names them) and the text. */
@@ -29896,7 +29994,15 @@ function paintTalkThread(body, name) {
   const rows = talkFilterRows(allRows, name, TALK_QUERY);
   const filtering = TALK_QUERY.trim() !== '';
   const thread = document.getElementById('d-dmthread');
-  if (body.historyUnfilable && !allRows.length) {
+  /* The person's own message in flight, drawn after the kept rows until the thread
+     holds it (see TALK_PENDING). Not while a search is filtering the thread. */
+  let pending = (dmSession && TALK_PENDING[dmSession]) || null;
+  if (pending && pending.recorded && Array.isArray(body.messages) && dmPendingKept(allRows, pending)) {
+    delete TALK_PENDING[dmSession];
+    pending = null;
+  }
+  const pendingHtml = (pending && !filtering) ? dmPendingRow(pending) : '';
+  if (body.historyUnfilable && !allRows.length && !pendingHtml) {
     /**
      * ⚠️ A THIRD FACT, not a flavour of unreadable. This agent's name cannot be
      * filed under at all, so there is no file to read and there never will be
@@ -29909,7 +30015,7 @@ function paintTalkThread(body, name) {
     setThread(thread, '<p class="dmnone"><b>Nothing said here is kept for ' + esc(name) + '.</b> '
       + esc(pjSentence(body.historyBecause || 'we cannot keep a conversation under this agent’s name'))
       + ' You can still send, and it still arrives.</p>', null);
-  } else if (body.historyBecause && !allRows.length) {
+  } else if (body.historyBecause && !allRows.length && !pendingHtml) {
     // We could not read a store that does exist. ⚠️ The room's load-bearing
     // second sentence rides along: an unreadable file is not evidence that
     // nothing was said, and silence here would render "we could not look" as
@@ -29926,7 +30032,7 @@ function paintTalkThread(body, name) {
        read what you have sent this agent", and that pairing is correct. */
     setThread(thread, '<p class="dmnone">' + esc(pjSentence(body.historyBecause))
       + ' This is not saying you have sent nothing: it is saying we cannot see it.</p>', null);
-  } else if (!allRows.length) {
+  } else if (!allRows.length && !pendingHtml) {
     setThread(thread, '<p class="dmnone">Nothing here yet.</p>', null);
   } else if (filtering && !rows.length) {
     // null count: a no-match paint never scrolls, the room's rule.
@@ -29968,8 +30074,9 @@ function paintTalkThread(body, name) {
        screen and should behave like one. */
     const tailRow = rows.length ? rows[rows.length - 1] : null;
     const threadKey = (filtering ? TALK_QUERY : '') + '\u0000' + rows.length
-      + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '');
-    const dmHtml = rows.map((m) => dmRow(m, name)).join('') + (filtering ? '' : dmOwesLine(body.owes, rows));
+      + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '')
+      + (pendingHtml ? '\u0000' + (pending.failed ? 'failed:' : 'sending:') + pending.startedAt : '');
+    const dmHtml = rows.map((m) => dmRow(m, name)).join('') + pendingHtml + (filtering ? '' : dmOwesLine(body.owes, rows));
     setThread(thread, dmHtml, threadKey);
     if (!filtering && CURRENT && CURRENT.sessionName) unreadEdgeApply(thread, 'dm:' + CURRENT.sessionName);   // #3743
   }
@@ -30365,7 +30472,7 @@ async function paintTalk(sessionName, agentName) {
   /* --- the thread --- */
   const rows = Array.isArray(body.messages) ? body.messages : [];
   const thread = document.getElementById('d-dmthread');
-  thread.__lastBody = body; thread.__lastName = name;
+  thread.__lastBody = body; thread.__lastName = name; thread.__lastSession = sessionName;
   paintTalkThread(body, name);
 
   const older = document.getElementById('d-talk-older');
@@ -30515,6 +30622,18 @@ async function paintTalk(sessionName, agentName) {
   attachPaint(ATTACH_AGENT);   // this agent's pending files, not the last one's
 }
 
+/* Repaint the open thread from its last read, so a pending message shows without a
+   fetch. Only for the agent that is open: another agent's thread is not on screen. */
+function talkPaintPending(sessionName, name) {
+  if (!CURRENT || CURRENT.sessionName !== sessionName) return;
+  const th = document.getElementById('d-dmthread');
+  if (!th) return;
+  /* The last read must be THIS agent's: straight after opening another agent it is
+     still the previous one's, and its first read will draw the pending message. */
+  if (th.__lastSession !== sessionName || !th.__lastBody) return;
+  paintTalkThread(th.__lastBody, th.__lastName || name);
+}
+
 /**
  * Send one message to this agent, and say what became of it.
  *
@@ -30596,6 +30715,10 @@ async function sendTalk(text, attachment) {
     // want to type instead goes.
     if (sendHadFocus) say.focus();
     msg.textContent = 'Sending…';
+    /* The message goes into the thread NOW, before the board has answered (see
+       TALK_PENDING). Painted from the last thread read, so nothing waits on a fetch. */
+    TALK_PENDING[sentName] = { text, startedAt: Date.now(), recorded: false, failed: false, because: null };
+    talkPaintPending(sentName, name);
     const res = await fetch('/api/agent/' + encodeURIComponent(sentName) + '/thread', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -30604,6 +30727,15 @@ async function sendTalk(text, attachment) {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not send that');
     const d = body.delivery || {};
+    /* The kept row takes over from the drawn one once the thread holds it. One the
+       board did not keep stays drawn, as not sent, unless it reached the agent: then
+       the line below says it was not kept, and the bubble goes. */
+    const flying = TALK_PENDING[sentName];
+    if (flying) {
+      if (body.recorded === true) flying.recorded = true;
+      else if (d.state === 'placed') delete TALK_PENDING[sentName];
+      else { flying.failed = true; flying.because = d.because || body.recordedBecause || 'we could not send that'; }
+    }
     const note = d.paneNote ? ' (' + d.paneNote + ')' : '';
     /**
      * ⚠️ RECORDED IS A QUESTION, NOT AN ASSUMPTION, and this is the defect the
@@ -30666,6 +30798,13 @@ async function sendTalk(text, attachment) {
     if (!inThread && body.recordedBecause) line += ' ' + pjSentence(body.recordedBecause);
     if (!flightMoved()) msg.textContent = line;
   } catch (err) {
+    /* Nothing was kept, so the drawn bubble is the only record of the attempt: it
+       stays, marked not sent. The words are still in the box for a retry. */
+    const flying = TALK_PENDING[sentName];
+    if (flying && !flying.recorded) {
+      flying.failed = true;
+      flying.because = (err && err.message) || 'we could not send that';
+    }
     if (!flightMoved()) msg.textContent = pjSentence((err && err.message) || 'we could not send that');
   } finally {
     TALK_SENDING = false;
@@ -38333,8 +38472,10 @@ async function paintPlus() {
      sign-in wizard is over -- clear its flag (typeof-guarded for the test harness). */
   if (typeof PLUS_SIGNIN_ACTIVE !== 'undefined') PLUS_SIGNIN_ACTIVE = false;
   const sw = document.getElementById('plus-switch');
-  sw.textContent = r.on ? 'Turn off' : 'Turn on';
-  /* #3829: on, Turn off is a quiet link; off, Turn on is the one primary action. */
+  /* #4079: the on-state control is Pause (it was Turn off), so it cannot be mistaken for Remove this
+     computer below, which removes the computer from the account. Pause keeps it connected, for later. */
+  sw.textContent = r.on ? 'Pause' : 'Turn on';
+  /* #3829: on, the pause (Pause since #4079) is a quiet link; off, Turn on is the one primary action. */
   sw.className = r.on ? 'plus-quiet' : 'btn uprime';
   const st = document.getElementById('plus-status');
   const stat = r.status || {};
@@ -38380,6 +38521,10 @@ async function paintPlus() {
      shows with the devices, and a fresh paint disarms a half-taken click. */
   document.getElementById('plus-second').hidden = r.enrolled !== true;
   plusSecondDisarm();
+  /* #4079: Remove this computer shows for a connected computer. Its confirm is NOT disarmed here (this runs every 5s).
+     Connected again (any way), an earlier "disconnected" result is no longer true: it goes. */
+  { const f = document.getElementById('plus-forgot-msg'); if (f && !f.hidden) { f.hidden = true; f.textContent = ''; } }
+  { const fg = document.getElementById('plus-forget'); if (fg) fg.hidden = r.enrolled !== true; }
   paintDevices();
 }
 /* The engine's honest-but-technical sentence for a missing binary, said
@@ -38533,6 +38678,61 @@ document.getElementById('plus-second-reset').addEventListener('click', async () 
     }
   } catch { msg.textContent = PLUS_SECOND_WORDS.failed('this computer could not reach its own engine'); }
   plusSecondDisarm();
+});
+
+/* #4079: Remove this computer (it was drafted as Disconnect). The engine (remote.forget) retires the computer at the account while its
+   key exists, then destroys the key; it reports whether the account was told (`retired`) and, when not, a
+   sentence saying the address may still show there. That sentence is shown as it is: never "done" for a
+   disconnect the account did not hear about. */
+const PLUS_FORGET_WORDS = {
+  done: 'This computer is removed from Kosmos Plus. Its address is free, and your devices can no longer reach it. Sign in to connect it again.',
+  /* Not "still connected": a rare engine failure can come after the key is gone. Say only that it did not finish. */
+  failed: (why) => 'Removing it did not finish: ' + why + '. Try again in a moment.',
+};
+function plusForgetArm(on) {
+  const ask = document.getElementById('plus-forget-ask'); const row = document.getElementById('plus-forget-row');
+  if (ask) ask.hidden = !on;
+  if (row) row.hidden = on;
+  /* Focus on Cancel, not Remove: a held or repeated key must not carry straight through the confirm. */
+  if (on) { const n = document.getElementById('plus-forget-no'); if (n) n.focus(); }
+}
+document.getElementById('plus-forget-go').addEventListener('click', () => {
+  const msg = document.getElementById('plus-forget-msg'); msg.hidden = true; msg.textContent = '';
+  plusForgetArm(true);
+});
+document.getElementById('plus-forget-no').addEventListener('click', () => {
+  plusForgetArm(false);
+  document.getElementById('plus-forget-go').focus();
+});
+document.getElementById('plus-forget-yes').addEventListener('click', async () => {
+  const yes = document.getElementById('plus-forget-yes'); const no = document.getElementById('plus-forget-no');
+  const msg = document.getElementById('plus-forget-msg');
+  yes.disabled = true; no.disabled = true; yes.textContent = 'Removing...';
+  let said = null; let ok = false;
+  try {
+    const res = await fetch('/api/remote/forget', { method: 'POST' });
+    said = await res.json().catch(() => null);
+    ok = res.ok && !!(said && said.ok === true);
+  } catch { said = { error: 'this computer could not reach its own engine' }; }
+  yes.disabled = false; no.disabled = false; yes.textContent = 'Remove';
+  if (!ok) {
+    plusForgetArm(false);
+    const why = plusWords((said && said.error) || 'we could not disconnect it').replace(/^we could not forget this computer: /, '').replace(/[.!?]+$/, '');
+    msg.textContent = PLUS_FORGET_WORDS.failed(why);
+    msg.hidden = false;
+    document.getElementById('plus-forget-go').focus();   // the confirm has closed: focus goes back where it began
+    return;
+  }
+  /* Done here. The pane goes back to the not-connected state, and the result is said there. When the
+     account could not be told, the engine's own sentence says so and that the address may still show. */
+  const because = String((said && said.because) || '');
+  const line = said.retired === true || !because ? PLUS_FORGET_WORDS.done
+    : because.charAt(0).toUpperCase() + because.slice(1) + (/[.!?]$/.test(because) ? '' : '.');
+  const out = document.getElementById('plus-forgot-msg');
+  if (out) { out.textContent = line; out.hidden = false; out.dataset.retired = said.retired === true ? '1' : '0'; }
+  plusForgetArm(false);
+  await paintPlus();
+  if (out && !out.hidden && typeof out.focus === 'function') { out.setAttribute('tabindex', '-1'); out.focus(); }
 });
 
 /* #3478: the in-app sign-in wizard (state 2). It drives engine/remote.js's stage
@@ -38733,6 +38933,8 @@ function plusSiClear() {
 function plusSiEnter(e) {
   if (e) e.preventDefault();
   PLUS_SIGNIN_ACTIVE = true;
+  /* #4079: a new sign-in replaces the Remove this computer result. */
+  { const f = document.getElementById('plus-forgot-msg'); if (f) { f.hidden = true; f.textContent = ''; } }
   plusSiMsg('');
   plusSiClear();
   plusSiShow('plus-si-email');
@@ -47339,8 +47541,10 @@ function tskRow(t, at) {
 }
 function tskList(rows) {
   const parentKey = (t) => (t.parent == null ? null : String(t.projectId) + '#' + Number(t.parent));
-  return rows.length ? '<div class="tsk-list">' + taskNest(rows, tskKey, parentKey, TSK.fold).map((x) => tskRow(x.t, x)).join('') + '</div>'
-    : '<div class="tsk-list"><p class="tsk-empty">Nothing here.</p></div>';
+  /* #3949 (Josh, 09-26 18:16): no "Nothing here." box. Every caller skips an empty group (its tile shows the 0), so
+     an empty list draws nothing rather than bringing the duplicate back through a new caller. */
+  if (!rows.length) return '';
+  return '<div class="tsk-list">' + taskNest(rows, tskKey, parentKey, TSK.fold).map((x) => tskRow(x.t, x)).join('') + '</div>';
 }
 /* #3861 part 2: a list of task rows, nested. Pure (the tests lift it), shared by the Tasks view and
    the project column. A row goes under its parent only when the parent is IN THIS LIST; otherwise
@@ -47419,15 +47623,23 @@ function tskPaint() {
     tskOptions(sel, '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(p.name) + ' (' + p.open + ')</option>').join(''), TSK.proj || '');
   }
   const picked = TSK.proj ? projMap.get(TSK.proj) : null;
-  document.getElementById('tsk-title').textContent = picked ? picked.name : 'All tasks';
   document.getElementById('tsk-crumb').innerHTML = picked
     ? '<button type="button" data-proj="">All tasks</button> › ' + esc(picked.name) + ' · <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button>'
     : '';
   const scoped = tskScoped(all, TSK, now);
   const open = scoped.filter((t) => t.state !== 'closed');
-  document.getElementById('tsk-sub').textContent = TSK.error && !TSK.data ? ''
-    : open.length + (open.length === 1 ? ' open task' : ' open tasks')
-      + (picked ? '' : ' across ' + projectsList.length + (projectsList.length === 1 ? ' project' : ' projects'));
+  /* #3949 (Josh, 09-26 19:30): the title IS the count: "30 Tasks on 2 Projects" (open tasks in the current scope, the
+     number the separate "N open tasks across M projects" line used to give). Scoped to one project it names it
+     ("5 Tasks on Newsletter"), as the title did before. Until the tasks are read it just says Tasks. */
+  /* N is the projects those same open tasks are on, from the same filtered array, so the title can never say
+     "1 Task on 2 Projects" (review round 11). With nothing open and no project picked it is just "0 Tasks"; with a
+     project picked it names it ("0 Tasks on Newsletter"). It counts before the tile: the title is the total the
+     tiles break down, and a picked tile is a view within it (as the count line it replaced was). */
+  const onProjects = new Set(open.map((t) => t.projectId)).size;
+  document.getElementById('tsk-title').textContent = !TSK.data ? 'Tasks'
+    : open.length + (open.length === 1 ? ' Task' : ' Tasks')
+      + (picked ? ' on ' + picked.name : open.length ? ' on ' + onProjects + (onProjects === 1 ? ' Project' : ' Projects') : '');
+  tskSearchOpen();   // the compact search's open state follows TSK.q on every paint, whoever changed it
   /* #3949: Created: and Group by are dropdowns (they were button rows). */
   tskOptions(document.getElementById('tsk-win'), TSK_WINDOWS.map(([l, d]) => '<option value="' + d + '"' + (TSK.win === d ? ' selected' : '') + '>' + esc(l) + '</option>').join(''), String(TSK.win));
   tskOptions(document.getElementById('tsk-by'), TSK_BYS.map(([k, l]) => '<option value="' + k + '"' + (TSK.by === k ? ' selected' : '') + '>' + esc(l) + '</option>').join(''), TSK.by);
@@ -47479,13 +47691,17 @@ function tskPaint() {
       .map(([, ts]) => {
         const n = ts.filter((t) => t.state !== 'closed').length;
         return '<section class="tsk-grp"><h3>' + esc(ts[0].projectName) + '<span class="count">' + n + ' open</span></h3>' + tskList(ts) + '</section>';
-      }).join('') || '<p class="tsk-empty">No tasks match.</p>';
+      }).join('') || '<p class="tsk-empty">' + (TSK.tile || TSK.proj || TSK.win ? 'No tasks match.' : 'No tasks yet.') + '</p>';
   } else {
     groups.innerHTML = TSK_GROUPS.filter((g) => !TSK.tile || TSK.tile === g.k).map((g) => {
       const ts = sorted.filter((t) => t.state === g.k);
       /* Review round 10: the heading says what its tile says. A zero decision group takes the neutral dot, and
          with the agents unreadable it says it cannot tell, never "0" and never "Nothing here". */
       const unknown = g.k === 'decision' && TSK.rosterUnknown;
+      /* #3949 (Josh, 09-26 18:16: "We already show those in the tiles up top so we don't really need those in there"):
+         a status group with no tasks is the duplicate of its tile's 0, so it is not drawn. The one exception is the
+         decision group that cannot tell (the agents are unreadable): that is a warning, not a zero. */
+      if (!ts.length && !unknown) return '';
       const head = '<h3><span class="tsk-dot" style="--tsk-c:' + tskDot(g, ts.length) + '"></span>' + esc(g.l) + '<span class="count">' + (unknown ? '?' : ts.length) + '</span></h3><p class="why">' + esc(unknown ? TSK_DECISION_UNKNOWN : g.why) + '</p>';
       if (unknown && !ts.length) return '<section class="tsk-grp" data-unknown="1">' + head + '</section>';
       /* Completed is always the fold: finished work is reachable, not in the way. */
@@ -47494,7 +47710,9 @@ function tskPaint() {
         return '<section class="tsk-grp" style="--tsk-c:' + g.c + '"><details class="tsk-fold"' + (TSK.closedOpen || TSK.tile === 'closed' ? ' open' : '') + '><summary>' + esc(g.l) + ' (' + ts.length + ')</summary>' + tskList(ts) + '</details></section>';
       }
       return '<section class="tsk-grp">' + head + tskList(ts) + '</section>';
-    }).join('');
+    }).join('')
+      /* Every group empty: one line, not a column of empty sections. */
+      || '<p class="tsk-empty">' + (TSK.tile || TSK.proj || TSK.win || String(TSK.q).trim() ? 'No tasks match.' : 'No tasks yet.') + '</p>';
   }
   /* #3861 part 2: a folded parent hides its subtasks' rows, and a tick only ever covers a row on
      screen (the rule above), so a tick whose row the fold left out goes too. */
@@ -47555,6 +47773,9 @@ function openProjectTasks(id) {
   const q = document.getElementById('tsk-search');
   if (q) q.value = '';
   document.getElementById('tsk-qclear').hidden = true;
+  // #3949: close the compact search now, not at the next paint (in the column that paint waits for the read).
+  const box = document.getElementById('tsk-searchbox');
+  if (box) box.classList.remove('open', 'shut');
   if (document.body.classList.contains('consolidated')) openConsolidatedTasks();
   else showTab('tasks');
 }
@@ -47725,13 +47946,66 @@ document.getElementById('panel-tasks').addEventListener('toggle', (e) => {
 }, true);
 document.getElementById('tsk-search').addEventListener('input', (e) => {
   TSK.q = e.target.value;
-  document.getElementById('tsk-qclear').hidden = !TSK.q;
+  document.getElementById('tsk-searchbox').classList.remove('shut');
+  document.getElementById('tsk-qclear').hidden = !String(TSK.q).trim();
+  tskSearchOpen();
   tskPaint();
+});
+/* #3949: the compact search stays open while it holds a search (focus opens it through CSS). */
+function tskSearchOpen() {
+  const box = document.getElementById('tsk-searchbox');
+  if (box) box.classList.toggle('open', !!String(TSK.q).trim());
+}
+document.getElementById('tsk-searchbox').addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229) return;   // an IME's own Esc cancels its conversion
+  if (e.defaultPrevented) return;   // already taken (a tour tip closes on it first, in the capture phase)
+  // Esc (from the field or its clear button) clears and closes it, and nothing else on the page reacts to this Esc.
+  // Focus stays in the field (a keyboard user keeps their place); "shut" closes it until they type again.
+  e.preventDefault(); e.stopPropagation();
+  const q = document.getElementById('tsk-search');
+  q.value = ''; TSK.q = '';
+  document.getElementById('tsk-qclear').hidden = true;
+  const box = document.getElementById('tsk-searchbox');
+  box.classList.add('shut');
+  q.focus();
+  tskPaint();
+});
+document.getElementById('tsk-search').addEventListener('blur', () => document.getElementById('tsk-searchbox').classList.remove('shut'));
+// A click on the closed field opens it again, as focus would (it may still hold focus after Esc).
+document.getElementById('tsk-search').addEventListener('mousedown', () => document.getElementById('tsk-searchbox').classList.remove('shut'));
+/* "/" focuses the search while the Tasks view is on screen and the person is not typing somewhere else. Cmd-F is left
+   to the browser's own find. */
+document.addEventListener('keydown', (e) => {
+  if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
+  const pt = document.getElementById('panel-tasks');
+  if (!pt || pt.hidden || !pt.getClientRects().length) return;
+  const t = e.target;
+  // A text field or a select keeps its "/" (a row's checkbox, a radio or a button input does not: review round 18).
+  const textish = t && t.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|reset|image|range|color|file)$/i.test(t.type || '');
+  if (t && (t.isContentEditable || textish || /^(TEXTAREA|SELECT)$/.test(t.tagName))) return;
+  // From anywhere on the page (the Tasks tab just clicked keeps focus in Chrome) except a dialog: never from inside one,
+  // and never while a modal is showing (the app's modals are role="dialog"/"alertdialog" boxes with aria-modal, not
+  // <dialog>, and focus can sit on the page behind one when its button disables itself).
+  if (t && t.closest && t.closest('[role="dialog"], [role="alertdialog"], [aria-modal="true"]')) return;
+  if ([...document.querySelectorAll('[aria-modal="true"]')].some((m) => m.getClientRects().length > 0)) return;
+  // Nor while a header popover or menu is open, wherever focus sits (opening the burger moves focus onto its first
+  // tab, review round 17). The same test as tipMenuOpen(): a popup trigger that is expanded, the burger, or the world
+  // switcher. Not any aria-expanded="true": an open subtask fold chip or project row is a disclosure, not a popup,
+  // and "/" must still work from it (review round 16).
+  // Only a trigger that is on screen: a combobox left expanded inside a closed dialog, or a burger left open when the
+  // window widened past it, is not an open menu and must not switch "/" off for the session (review round 18).
+  if ([...document.querySelectorAll('[aria-haspopup][aria-expanded="true"], #burger[aria-expanded="true"], #worldsw-btn[aria-expanded="true"]')]
+    .some((b) => b.getClientRects().length > 0)) return;
+  if (t && t.closest && t.closest('#worldsw-menu, #userpop-menu')) return;
+  if ([...document.querySelectorAll('#worldsw-menu, #userpop-menu')].some((m) => !m.hidden && m.getClientRects().length > 0)) return;
+  e.preventDefault();
+  document.getElementById('tsk-search').focus();
 });
 document.getElementById('tsk-qclear').addEventListener('click', () => {
   const q = document.getElementById('tsk-search');
   q.value = ''; TSK.q = '';
   document.getElementById('tsk-qclear').hidden = true;
+  tskSearchOpen();
   q.focus();
   tskPaint();
 });
