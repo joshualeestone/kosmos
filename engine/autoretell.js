@@ -36,6 +36,8 @@
    settles before we write, short enough that the person sees the row clear while still looking at
    it. The sweep's own 30s timer means the real wait is 10 to 40 seconds. */
 const SETTLE_MS = 10 * 1000;
+/* projects.TOLD.COULD_NOT, spelled here so this module stays pure (projects.js loads the store and
+   the chat layer). engine/autoretell.test.js pins the two equal. */
 const COULD_NOT = 'could_not';
 
 /* The agents to re-tell now, as [{ name, id, mtime }], `id` being one project whose stored verdict
@@ -87,4 +89,4 @@ function sweepOnce({ projects, mtimeOf, now, acted, ready, retell, log }) {
   return done;
 }
 
-module.exports = { SETTLE_MS, due, sweepOnce };
+module.exports = { SETTLE_MS, COULD_NOT, due, sweepOnce };

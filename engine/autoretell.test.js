@@ -9,7 +9,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { due, sweepOnce, SETTLE_MS } = require('./autoretell');
+const { due, sweepOnce, SETTLE_MS, COULD_NOT } = require('./autoretell');
 
 const T0 = Date.parse('2026-09-27T08:00:00.000Z');
 const at = (ms) => new Date(ms).toISOString();
@@ -26,6 +26,10 @@ function world(over = {}) {
     ...over,
   };
 }
+
+test('the could_not this module matches is the one projects.js stores', () => {
+  assert.equal(COULD_NOT, require('./projects').TOLD.COULD_NOT);
+});
 
 test('a could_not member whose file changed after the verdict, and has been still since, is due', () => {
   assert.deepEqual(due(world()), [{ name: 'ada', id: 'p1', mtime: T0 + 1000 }]);
