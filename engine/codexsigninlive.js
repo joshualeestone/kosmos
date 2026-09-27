@@ -48,6 +48,7 @@
 
 const { execFile } = require('node:child_process');
 const runners = require('./runners');
+const observed = require('./observed');
 
 // Same TTL/reasoning as codexauthprobe.TTL_MS: short enough that a repair or a fresh death
 // shows within a poll or two, long enough that nothing storms subprocesses.
@@ -140,7 +141,22 @@ const inflight = new Map();
 /* #3997 round 4: a run started before a reset (a test's, or a board restart's) must not write into the cache after
    it, so every run carries the generation it started in. */
 let generation = 0;
+/* #4064: answers are also recorded on the observed per-dir store (record below), which this does NOT clear: a test that
+   resets here between cases clears that too (observed._clearForTest), or it inherits the previous case's green. */
 function resetForTest() { cache.clear(); inflight.clear(); runner = defaultRunner; generation += 1; }
+/* #4064: every answer this cache keeps is also recorded on the observed per-dir store, dated when it was learned, as
+   the Grok check's is: a live one keeps a working ChatGPT sign-in green for the observed freshness window rather than
+   only this cache's 30s (reopening AI Models no longer flashes amber), and a dead one forgets that green. Here, at the
+   cache write, so every caller counts (the list, Check now, codexauthprobe), not only a later read of the list.
+   An answer that says nothing (unknown: codex could not reach ChatGPT) changes nothing, as with the Grok check.
+   /api/accounts reads it for ChatGPT rows only. This does not itself look at how the folder signs in: its callers only
+   ever check a ChatGPT sign-in (openaiaccounts' ChatGPT branch, the ChatGPT-only Check now route), and the overlay's
+   read is gated on authMode, so an answer recorded on any other folder is never shown. */
+function record(dir, verdict, at) {
+  if (!dir) return;
+  if (verdict === 'live') observed.sawDir(observed.PROVIDER.OPENAI, String(dir), observed.OUTCOME.OK, at);
+  else if (verdict === 'dead') observed.forgetDir(observed.PROVIDER.OPENAI, String(dir));
+}
 
 /**
  * livenessDetailed(dir, nowMs?) -> Promise<{ verdict, cause }>. The full result: the verdict AND
@@ -167,7 +183,9 @@ async function livenessDetailed(dir, nowMs) {
       const had = cache.get(key);
       /* ...except a newer entry that says nothing (unknown) does not block an older run's real live or dead (round 6). */
       if (gen === generation && !(had && had.at > startedAt && !(had.verdict === 'unknown' && res.verdict !== 'unknown'))) {
-        cache.set(key, { verdict: res.verdict, cause: res.cause, at: (typeof nowMs === 'number' ? nowMs : Date.now()) });
+        const at = typeof nowMs === 'number' ? nowMs : Date.now();
+        cache.set(key, { verdict: res.verdict, cause: res.cause, at });
+        record(dir, res.verdict, at);
       }
       if (inflight.get(key) === p) inflight.delete(key);
       return res;
@@ -230,7 +248,9 @@ async function livenessNow(dir) {
   const had = cache.get(key);
   const hadFresh = had && (Date.now() - had.at) < TTL_MS && had.verdict !== 'unknown';
   if (gen === generation && !(res.verdict === 'unknown' && hadFresh)) {
-    cache.set(key, { verdict: res.verdict, cause: res.cause, at: Date.now() });
+    const at = Date.now();
+    cache.set(key, { verdict: res.verdict, cause: res.cause, at });
+    record(dir, res.verdict, at);
   }
   return res.verdict;
 }
