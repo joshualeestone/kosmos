@@ -423,8 +423,9 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *  - a value with symbols in it, given without its opening, with spaces around its symbols;
  *  - a key cut into chunks under OPENING_LEN with fewer than SHORT_WALK_MIN_KEYLIKE chunks that are not plain words or
  *    numbers (shortChunkSpans refuses those, since ordinary text spells a password made of words). That includes
- *    a key given ONE character at a time with words between (every single character is a plain word) and an
- *    all-lowercase or all-uppercase key at any short chunking;
+ *    a key given ONE character at a time with words between (every single character is a plain word), a key in
+ *    chunks of two, and a single-case key whose chunks read as words by wordLike's vowel test;
+ *  - a short chunk glued to a label by + or / with no other glue (Zq8+part2);
  *  - a hex form cut into chunks under OPENING_LEN (hex forms are not walked short; see addWalked);
  *  - a first chunk of OPENING_LEN or more followed by chunks under it with long text between (neither walk's reach
  *    carries it: the word walk extends only on pieces of OPENING_LEN or more);
@@ -756,9 +757,13 @@ function shortPieces(run) {
   }
   return [...out];
 }
-/* A plain word or number, as ordinary text writes one: all lower, all upper, Titlecase, digits, or an ordinal (2nd). */
+/* A plain word or number, as ordinary text writes one: digits or an ordinal (2nd), or letters in one case shape
+   (lower, upper, Titlecase) that are either under three characters or read as a word by wordLike's vowel test
+   (review round 4: case shape alone called "zqv" a word, so an all-lowercase key never counted as key-like). */
 function plainWordRun(t) {
-  return /^[0-9]+(?:st|nd|rd|th)?$/i.test(t) || /^(?:[a-z]+|[A-Z]+|[A-Z][a-z]+)$/.test(t);
+  if (/^[0-9]+(?:st|nd|rd|th)?$/i.test(t)) return true;
+  if (!/^(?:[a-z]+|[A-Z]+|[A-Z][a-z]+)$/.test(t)) return false;
+  return t.length < 3 || wordLike(t);
 }
 /* A completed short walk masks only when at least this many of its pieces are NOT plain words (review round 2: one
    was not enough; a held 2ndFloorLounge was masked out of "the 2nd ... Floor ... Lounge"). A random key cut into

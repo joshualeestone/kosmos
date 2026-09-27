@@ -1492,3 +1492,17 @@ test('#3995 gap 4 review round 3: a numbered guide is not withheld with many hel
     for (const c of ['vLm', '3pR', 't6w', 'Xy9', 'kHb', '2nW']) assert.ok(!t.includes(c), `the key's chunk ${c} survived: ${t}`);
   } finally { setKnownSecrets([]); }
 });
+
+test('#3995 gap 4 review round 4: an all-lowercase key in chunks of three is masked; word passwords still are not', () => {
+  const held = 'zqvlmprtwxykhbnwcdfgjksx';
+  setKnownSecrets([held]);
+  try {
+    const t = mask(held.match(/.{3}/g).join(' and ')).text;
+    const left = held.match(/.{3}/g).filter((c) => t.includes(c));
+    assert.ok(left.length <= 2, `an all-lowercase key leaked ${left.length} chunks: ${t}`);
+  } finally { setKnownSecrets([]); }
+  for (const [pw, text] of [['MyPassword123', 'My Password must be at least 123 characters.'], ['2ndFloorLounge', 'Reserve the 2nd conference space on Floor near the executive Lounge.']]) {
+    setKnownSecrets([pw]);
+    try { assert.equal(mask(text).text, text, `${pw} masked from ordinary text`); } finally { setKnownSecrets([]); }
+  }
+});

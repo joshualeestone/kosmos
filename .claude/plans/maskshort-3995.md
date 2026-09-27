@@ -70,3 +70,13 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
 - The spellability check tries only the lengths some run has and is charged by the characters it slices.
 - Not covered now names one character per chunk and all-lowercase keys; this plan's stale sections rewritten.
 - Deferred NIT: a chunk ending in base64 padding (Zq8=) is tried only as written.
+
+## Review round 4 (Sonnet), what changed
+- plainWordRun judged a word by case shape alone, so "zqv" was a plain word and an all-lowercase random key had no
+  key-like pieces and leaked in full. It now uses wordLike's calibrated vowel test for single-case letters (under three
+  characters still counts as plain). Tested: an all-lowercase key in chunks of three is masked; MyPassword123 and
+  2ndFloorLounge are still left in their sentences. Red on the previous commit.
+- Not covered restated: one character per chunk, chunks of two, a single-case key whose chunks read as words, and a
+  chunk glued to a label by + or / alone.
+- Noted (inherited from pieceSpan, no exploit found): the piece's position in its run is found by endsWith/indexOf, so
+  a run holding the same piece twice could mask the wrong one.
