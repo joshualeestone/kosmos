@@ -15,15 +15,21 @@ the verifier by then, so it read 0 and reported "not shared". The clock, not the
   second, unshared verify has time to show, then asserts exactly 1. A 0 at the deadline fails with a
   message that says it is a slow machine, not a sharing defect.
 - Test 2 ("forget() observes its OWN write") had the same fixed 150ms wait for its read to be in
-  flight; it now waits with `until` too.
-- Both gated tests release the held reads in `finally`. Before, a failed assert left the two held
-  requests open and the file hung (measured: over 3 minutes until killed).
+  flight. It now waits with `until`, measured from a baseline taken after `connect()`: connect() reaches
+  the verifier twice itself (verify, then its closing state()), so an absolute `>= 2` was already met
+  before the shelf read was sent (a first version of this change made that mistake; review caught it).
+  Its `forget()` gets the same 5s deadline, so a forget() that shares the held read fails as that
+  instead of hanging the file.
+- Both gated tests release the held reads in `finally` and wait for them to settle there. Before, a
+  failed assert left the held requests open and the file hung (measured: over 3 minutes until killed).
 
 ## Proofs (each restored after)
 
 - Sharing broken (`readConnectionsShelf` without `inflight.collapse`): test 1 red, `during = 2`.
 - A slow machine (the verifier's count lands 400ms after entry): the new wait passes 4/4; the exact old
   shape (a 150ms sleep, no margin) fails test 1, as the flake did, and now in 2s rather than hanging.
+- The door's `state()` collapsed behind `inflight.collapse` (the defect test 2 guards): test 2 red in
+  7s, "forget() waited on the shelf read already in flight"; before the deadline it hung until killed.
 - Unmodified: 4/4, three times.
 
 ## Weakest premise
