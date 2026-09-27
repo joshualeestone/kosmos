@@ -130,6 +130,20 @@ function hits(token, text) {
   return new RegExp(`(^|[^A-Za-z0-9_-])${esc}([^A-Za-z0-9_-]|$)`, 'm').test(text);
 }
 
+/* A selector token counts only where the changed lines use it as a selector (#4119 follow-up,
+   Johnny Cage on #4190): in a class/id/for/aria attribute value, after . or #, or as a whole
+   quoted string (classList.toggle('on')). Matched anywhere, a class named like a word (.you,
+   .note) was selected by every copy change that used the word. */
+function usedAsSelector(token, text) {
+  const e = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const W = '(?<![A-Za-z0-9_-])' + e + '(?![A-Za-z0-9_-])';
+  return [
+    new RegExp(`(?:class|id|for|aria-controls|aria-labelledby|aria-describedby)\\s*=\\s*(["'])(?:(?!\\1).)*${W}`, 'm'),
+    new RegExp(`[.#]${W}`, 'm'),
+    new RegExp(`["'\`]${e}["'\`]`, 'm'),
+  ].some((re) => re.test(text));
+}
+
 function git(args) {
   return execFileSync('git', args, { cwd: REPO, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 }
@@ -219,7 +233,7 @@ function selectByPage(diff, text, add) {
     const name = f.slice(0, -3);
     const src = fs.readFileSync(path.join(CHECKS, f), 'utf8');
     if (isPageScoped(src)) add(name, 'page');
-    const sel = [...selectorsOf(src, index)].filter((t) => hits(t, text)).sort();
+    const sel = [...selectorsOf(src, index)].filter((t) => hits(t, text) && usedAsSelector(t, text)).sort();
     if (sel.length) add(name, `selector ${sel.join(' ')}`);
     const nm = [...namesOf(src, index)].filter((t) => hits(t, text)).sort();
     if (nm.length) add(name, `name ${nm.join(' ')}`);
@@ -254,5 +268,5 @@ function main(argv) {
   return 0;
 }
 
-module.exports = { KNOWN_RED, isPageScoped, requirersOf, referrersOf, namersOf, selectorsOf, namesOf, pageIndex, stripComments, hits, changedLines, runnable, select, PAGE_SCOPE };
+module.exports = { KNOWN_RED, isPageScoped, requirersOf, referrersOf, namersOf, usedAsSelector, selectorsOf, namesOf, pageIndex, stripComments, hits, changedLines, runnable, select, PAGE_SCOPE };
 if (require.main === module) process.exitCode = main(process.argv.slice(2));

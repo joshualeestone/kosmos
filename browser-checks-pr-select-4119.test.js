@@ -191,6 +191,24 @@ test('an id the PR removes still counts, so a check asking for it is selected', 
   assert.ok(index.ids.has('gone-now'));
 });
 
+test('a selector token counts only where the diff uses it as a selector, not in prose (Johnny Cage, #4190)', () => {
+  assert.equal(sel.usedAsSelector('you', '+  <p>Thank you, you are in.</p>'), false, 'a class named like a word is not hit by the word');
+  assert.equal(sel.usedAsSelector('on', '+  <p>Turn it on now</p>'), false);
+  assert.equal(sel.usedAsSelector('pj-empty', '+  return \'<div class="pj-empty boardfail">\''), true, 'the first class in an attribute');
+  assert.equal(sel.usedAsSelector('boardfail', '+  <div class="pj-empty boardfail">'), true);
+  assert.equal(sel.usedAsSelector('pj-list', '+  <ul id="pj-list">'), true);
+  assert.equal(sel.usedAsSelector('msg', "+  el.querySelector('.msg')"), true);
+  assert.equal(sel.usedAsSelector('on', "+  el.classList.toggle('on')"), true);
+  assert.equal(sel.usedAsSelector('pj-empty', '+  <div class="pj-emptyish">'), false, 'whole token only');
+});
+
+test('through select(): the word "you" in copy no longer picks the check that queries .you, the class still does', () => {
+  const diff = (line) => `diff --git a/web/index.html b/web/index.html\n@@ -1 +1 @@\n${line}\n`;
+  assert.ok(!sel.select(diff('+<p>Thank you, you are all set.</p>'), []).has('render-assistant-hosted-3660'), 'selected by prose');
+  const why = sel.select(diff('+<div class="you">'), []).get('render-assistant-hosted-3660') || [];
+  assert.match(why.join(' '), /selector .*\byou\b/, 'the control: a real .you change must still select it');
+});
+
 test('hits is whole-token, the #2518 boundary', () => {
   assert.equal(sel.hits('tsk', '+<input id="tsk-by">'), false);
   assert.equal(sel.hits('tsk-by', '+<input id="tsk-by">'), true);
