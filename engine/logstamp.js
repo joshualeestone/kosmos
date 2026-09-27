@@ -18,12 +18,12 @@
  * render-thread reads thread-server.js's log, which loads server.js as a module and so is never stamped. A pipe (the
  * node tests that spawn a board and read its output) or a terminal (a person running it by hand) is left as it was.
  *
- * NOT STAMPED: output that does not go through process.stdout/stderr.write, namely Node's own fatal crash trace, and
- * child processes that inherit the board's stderr (engine/remote.js spawns with stdio 'inherit'); such a line in
- * board.log carries no time, and can split a stamped line.
+ * NOT STAMPED: output that does not go through this process's stdout/stderr.write, namely Node's own fatal crash trace,
+ * child processes that inherit the board's stderr (engine/remote.js spawns with stdio 'inherit'), and install/kosmos's
+ * own board-run narration written before it execs node (for example "Kosmos was deliberately stopped; not starting");
+ * such a line in board.log carries no time, and a child's can split a stamped line.
  */
 const fs = require('node:fs');
-const { StringDecoder } = require('node:string_decoder');
 
 /* The pure part: `text` stamped at every line start. `atLineStart` says whether the previous write ended a line (true
    for the first write). Returns the stamped text and whether this one ended a line. */
@@ -37,6 +37,21 @@ function stampText(text, atLineStart, stamp) {
     if (ch === '\n') start = true;
   }
   return { text: out, atLineStart: start };
+}
+
+/* The same for bytes, so a Buffer write goes out exactly as written: a newline byte (0x0a) never occurs inside a
+   multi-byte UTF-8 character, so stamping after each one needs no decoding, holds nothing back and changes no byte. */
+function stampBytes(buf, atLineStart, stamp) {
+  const parts = [];
+  const st = Buffer.from(stamp + ' ', 'utf8');
+  let start = atLineStart;
+  let from = 0;
+  for (let i = 0; i < buf.length; i += 1) {
+    if (start) { parts.push(st); start = false; }
+    if (buf[i] === 0x0a) { parts.push(buf.subarray(from, i + 1)); from = i + 1; start = true; }
+  }
+  if (from < buf.length) parts.push(buf.subarray(from));
+  return { buf: Buffer.concat(parts), atLineStart: start };
 }
 
 /* Whether this descriptor is a regular file (board.log), never a pipe, socket or terminal. */
@@ -87,22 +102,23 @@ function install(stream, fd, opts) {
     state.checkedTail = true;
     if (endsMidLine(fd, o.logPaths)) write('\n');
   }
-  const decoder = new StringDecoder('utf8');   // a character split across two Buffer writes stays whole
   stream.write = function (chunk, encoding, cb) {
     if (typeof encoding === 'function') { cb = encoding; encoding = undefined; }
-    let text;
     if (typeof chunk === 'string') {
-      /* A string in another encoding (hex, base64) is not text to stamp: it goes through as written. */
+      /* A string in another encoding (hex, base64) is not text to stamp: it goes through as written, and does not move
+         the line state (nothing in the board writes one to stdout or stderr). */
       if (encoding && !/^utf-?8$/i.test(String(encoding))) return write(chunk, encoding, cb);
-      text = chunk;
-    } else if (Buffer.isBuffer(chunk) || chunk instanceof Uint8Array) text = decoder.write(Buffer.from(chunk));
-    else return write(chunk, encoding, cb);   // anything else goes through untouched
-    const r = stampText(text, state.atLineStart, clock().toISOString());
-    state.atLineStart = r.atLineStart;
-    return write(r.text, 'utf8', cb);
+      const r = stampText(chunk, state.atLineStart, clock().toISOString());
+      state.atLineStart = r.atLineStart;
+      return write(r.text, 'utf8', cb);
+    }
+    if (Buffer.isBuffer(chunk) || chunk instanceof Uint8Array) {
+      const r = stampBytes(Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength), state.atLineStart, clock().toISOString());
+      state.atLineStart = r.atLineStart;
+      return write(r.buf, cb);
+    }
+    return write(chunk, encoding, cb);   // anything else goes through untouched
   };
-  /* Bytes of a character still waiting for the rest of it when the board exits are written as they are, not dropped. */
-  process.once('exit', () => { const rest = decoder.end(); if (rest) { try { write(rest); } catch { /* exiting */ } } });
   stream.__logstamp = true;
   return true;
 }
@@ -112,4 +128,4 @@ function sameFile(fdA, fdB) {
   try { const a = fs.fstatSync(fdA), b = fs.fstatSync(fdB); return a.dev === b.dev && a.ino === b.ino; } catch { return false; }
 }
 
-module.exports = { stampText, isRegularFile, endsMidLine, install, sameFile };
+module.exports = { stampText, stampBytes, isRegularFile, endsMidLine, install, sameFile };

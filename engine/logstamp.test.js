@@ -96,13 +96,17 @@ function fileStream() {
   return { fd, out, s: { write: (t, enc) => { out.push([t, enc]); return true; } }, done: () => { fs.closeSync(fd); fs.rmSync(dir, { recursive: true, force: true }); } };
 }
 
-test('#4199 install: a UTF-8 character split across two Buffer writes stays whole', () => {
+test('#4199 install: Buffer writes go out byte for byte, a split UTF-8 character and invalid bytes included', () => {
   const f = fileStream();
   try {
     logstamp.install(f.s, f.fd, { now: () => new Date(0) });
     const bytes = Buffer.from('é\n');   // c3 a9 0a
     f.s.write(bytes.subarray(0, 1)); f.s.write(bytes.subarray(1));
-    assert.equal(f.out.map((x) => x[0]).join(''), '1970-01-01T00:00:00.000Z é\n', 'the character came out broken');
+    f.s.write(Buffer.from([0xff, 0x41, 0x0a]));   // not UTF-8: must not be rewritten
+    const all = Buffer.concat(f.out.map((x) => (Buffer.isBuffer(x[0]) ? x[0] : Buffer.from(x[0]))));
+    const stamp = Buffer.from('1970-01-01T00:00:00.000Z ');
+    assert.deepEqual(all, Buffer.concat([stamp, Buffer.from([0xc3]), Buffer.from([0xa9, 0x0a]), stamp, Buffer.from([0xff, 0x41, 0x0a])]),
+      'a byte was changed, dropped, held back or reordered');
   } finally { f.done(); }
 });
 
@@ -161,18 +165,16 @@ test('#4199 a board.log that ends a line, or that is not the file on fd, gets no
   } finally { fs.closeSync(fd); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('#4199 bytes of a character still waiting when the board exits reach the file, not dropped', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'logstamp-4199-'));
-  const file = path.join(dir, 'board.log');
-  const fd = fs.openSync(file, 'a');
-  const script = "require(" + JSON.stringify(path.join(__dirname, 'logstamp.js')) + ").install(process.stdout, 1);"
-    + "process.stdout.write('line\\n'); process.stdout.write(Buffer.from([0xc3]));";
-  try {
-    const r = spawnSync(process.execPath, ['-e', script], { stdio: ['ignore', fd, 'inherit'] });
-    assert.equal(r.status, 0);
-  } finally { fs.closeSync(fd); }
-  const bytes = fs.readFileSync(file);
-  fs.rmSync(dir, { recursive: true, force: true });
-  assert.ok(bytes.length > 0 && bytes.toString('utf8').includes('line\n'), 'setup: the line was not written');
-  assert.notEqual(bytes.toString('utf8').replace(/^.* line\n/, ''), '', 'the waiting byte was dropped at exit');
+test('#4199 stampBytes: stamps after each newline byte and changes no byte of the text', () => {
+  const r = logstamp.stampBytes(Buffer.from('a\nb'), true, 'T');
+  assert.equal(r.buf.toString(), 'T a\nT b');
+  assert.equal(r.atLineStart, false);
+  const e = logstamp.stampBytes(Buffer.alloc(0), true, 'T');
+  assert.equal(e.buf.length, 0, 'an empty write stamped something');
+});
+
+test('#4199 server.js: the stamp is the FIRST statement after use strict, so nothing can write before it', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const code = src.replace(/^'use strict';\s*/, '').replace(/^\/\*[\s\S]*?\*\/\s*/, '');
+  assert.ok(code.startsWith('if (require.main === module) {\n  const logstamp = require(\'./engine/logstamp\');'), 'something comes before the stamp: ' + code.slice(0, 80));
 });
