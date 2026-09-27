@@ -192,3 +192,15 @@ test('a device signed out of the relay renders SIGN IN AGAIN with a Sign in butt
   // CONTROL: the same failed read without the flag is the generic card.
   assert.match(boardEmpty({ seen: true, failed: 'status 401' }), /We cannot read your agents/);
 });
+
+test('the two signed-out sentences say the same two things, so a wording change cannot reach only one (#718 state 3)', () => {
+  /* ORG_SIGNED_OUT_SENTENCE sits beside a Sign in button; SIGNED_OUT_SENTENCE is for surfaces with
+     none, so it adds where to sign in. They are two strings by design; this pins what they share. */
+  const value = (name) => new Function(page.liftConst(SCRIPT, name) + '\nreturn ' + name + ';')();
+  const short = value('ORG_SIGNED_OUT_SENTENCE');
+  const long = value('SIGNED_OUT_SENTENCE');
+  const [lead, fine] = short.split('. ');
+  assert.ok(lead && fine, 'ORG_SIGNED_OUT_SENTENCE is no longer two sentences: ' + short);
+  assert.ok(long.startsWith(lead), 'SIGNED_OUT_SENTENCE no longer opens with: ' + lead);
+  assert.ok(long.includes(fine), 'SIGNED_OUT_SENTENCE no longer says: ' + fine);
+});

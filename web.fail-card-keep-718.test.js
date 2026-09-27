@@ -32,6 +32,7 @@ function paint(boxes, boardErr) {
 
 test('#718 the failure-card loop is found in web/index.html', () => {
   assert.ok(LOOP.includes('box.__failNode'), 'the loop was not cut out of the page: ' + LOOP.slice(0, 80));
+  assert.ok(LOOP.endsWith('box.__failNode = box.firstElementChild;\n    }'), 'the cut ends early: ' + LOOP.slice(-80));
 });
 
 test('#718 the same card on the next poll is not rewritten, so its button keeps focus', () => {
