@@ -25814,22 +25814,30 @@ const MUSE_SAY = {
   code: 'Confirm the code on Meta\'s page. Kosmos carries on by itself once you have.',
   expired: 'That code expired before it was confirmed. Get a new code to try again.',
 };
+/* The Meta option in Add a provider: one lookup, for museAsk and museOffered. */
+function museMetaOption() { return document.querySelector('#acct-provider-pick option[value="meta"]'); }
 async function museAsk() {
-  let on = false;
+  let on = false; let missing = false;
   try {
     const r = await fetch('/api/muse', { cache: 'no-store' });
     const out = r.ok ? await r.json().catch(() => null) : null;
-    on = !!(out && out.enabled === true);
+    /* Offered only when Muse Code is on this computer too (round 2: as Gemini's and Grok's rows wait
+       until they are ready); turned on but not installed says so on the row instead of "Coming soon". */
+    on = !!(out && out.enabled === true && out.installed === true);
+    missing = !!(out && out.enabled === true && out.installed === false);
   } catch { on = false; }   // a failed read keeps it "coming soon": today's screen, never a guess
   /* Only disabled is toggled: the logo combobox re-reads it on open (syncOpts), and drops its "Coming
      soon" pill, but its row name is fixed at build, so the option text stays as it is. */
-  const opt = document.querySelector('#acct-provider-pick option[value="meta"]');
-  if (opt) opt.disabled = !on;
+  const opt = museMetaOption();
+  if (opt) {
+    opt.disabled = !on;
+    if (missing) opt.dataset.off = 'Muse Code is not installed'; else delete opt.dataset.off;
+  }
   return on;
 }
 /* Whether Meta Muse is offered right now: the option's own state, the one fact museAsk sets (round 1). */
 function museOffered() {
-  const opt = document.querySelector('#acct-provider-pick option[value="meta"]');
+  const opt = museMetaOption();
   return !!opt && !opt.disabled;
 }
 const ACCT_MUSE = (() => {

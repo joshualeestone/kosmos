@@ -61,7 +61,7 @@ const chk = (ok, label, extra) => {
     window.fetch = async (url, opts) => {
       const u = String(url);
       const method = (opts && opts.method) || 'GET';
-      if (/\/api\/muse$/.test(u)) return enc(window.__museOn ? { enabled: true, installed: true, because: null, signedIn: false } : { enabled: false });
+      if (/\/api\/muse$/.test(u)) return enc(window.__museOn ? { enabled: true, installed: window.__museInstalled !== false, because: null, signedIn: false } : { enabled: false });
       if (/\/api\/muse\/signin(\/retry|\/stop)?$/.test(u) && method === 'POST') {
         const body = JSON.parse((opts && opts.body) || '{}');
         window.__posts.push({ path: u.replace(/^.*\/api\/muse\/signin/, '') || '/', id: body.id || null });
@@ -243,6 +243,29 @@ const chk = (ok, label, extra) => {
   await choose('meta'); await settle();
   chk((await G('acct-apikey-flow')).hidden, 'picking Meta puts away another provider\'s key step');
   chk(await q(() => ACCT_OPENAI_SUB_SESSION === null), 'picking Meta ends a ChatGPT sign-in left running');
+
+  /* ---- round 2 of review ---- */
+  // A reauth door (acctPick, not the select's change) stops a running Muse sign-in.
+  await q(() => { closeAcctAdd(); openAcctAdd(); }); await settle();
+  await running();
+  await q(() => acctPick('claude', { focus: false })); await settle();
+  chk(await q(() => { const p = window.__posts[window.__posts.length - 1]; return p.path === '/stop' && p.id === 'mine000000000001' && window.__polls.size === 0; }), 'a door that picks another provider directly stops the Muse sign-in by id');
+  // A double press of Get a new code sends one retry.
+  await q(() => { closeAcctAdd(); openAcctAdd(); }); await settle();
+  await running();
+  await q(() => { window.__status = { id: 'mine000000000001', state: 'expired' }; }); await tick();
+  const retriesBefore = await q(() => window.__posts.filter((p) => p.path === '/retry').length);
+  await q(() => { window.__holdRetry = new Promise((r) => { window.__releaseRetry = r; }); const b = document.getElementById('acct-muse-retry'); b.click(); b.click(); });
+  await settle();
+  await q(() => { window.__releaseRetry(); window.__holdRetry = null; }); await settle();
+  chk(await q((n) => window.__posts.filter((p) => p.path === '/retry').length === n + 1, retriesBefore), 'a double press of Get a new code sends one retry');
+  await q(() => document.getElementById('acct-muse-cancel').click()); await settle();
+  // Turned on but Muse Code not installed: the option stays disabled and says why.
+  await q(() => { window.__museInstalled = false; closeAcctAdd(); openAcctAdd(); }); await settle();
+  const missing = await q(() => { const o = document.querySelector('#acct-provider-pick option[value="meta"]'); return { disabled: o.disabled, off: o.dataset.off || '' }; });
+  chk(missing.disabled && /not installed/.test(missing.off), 'turned on but not installed: the Meta option stays disabled and says why', JSON.stringify(missing));
+  await q(() => { window.__museInstalled = true; closeAcctAdd(); openAcctAdd(); }); await settle();
+  chk(await q(() => { const o = document.querySelector('#acct-provider-pick option[value="meta"]'); return !o.disabled && !o.dataset.off; }), 'installed again: live, with no leftover reason');
 
   chk(errs.length === 0, 'no page errors', errs.join(' | '));
   await browser.close();
