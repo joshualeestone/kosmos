@@ -16,7 +16,7 @@ after the name.
   arm green, including one that squeezed a card to about 170px). It stays as a guard against a future
   space between them; no arm claims to test it.
 - `.tv-mh` keeps `align-items: baseline`: a block tag leaves the name's first line as the item's baseline,
-  so the total still shares the name's baseline (the property #4083 pins for the tiles above).
+  so the total still shares the name's baseline (now measured, see the check).
 - The cards stack to one column once `#s-sec-usage` (already an inline-size container) is 540px or
   narrower, replacing the `@media (max-width: 560px)` viewport query.
 
@@ -24,20 +24,23 @@ Every card's header is now the same two lines: the name, then the tag.
 
 ## Browser check (docs/browser-checks/render-token-usage-2617.js)
 
-At 1280 (desktop, the capped 544px column), 589 (a 541px section, the tightest two-up width), 561
-(stacked) and 390 (phone), for all four cards:
+At 1280 (desktop, the capped 544px column), a 541px usage section (the narrowest two-up), a 540px
+section (the widest stacked) and 390 (phone), for all four cards:
+- two-up or stacked as expected, with the window sized to give the section, so a scrollbar cannot
+  move a fixed window width across the 540px line;
 - the name's own text is on one line (a Range over the name's text node, since the name span also
   holds the tag);
 - the tag starts below the name;
-- the total is on one line;
-- the four header heights match within 1px;
-- the name's text ends before the total starts.
+- the total is on one line, clear of the name and inside the card;
+- the total sits on the name's baseline (a zero-size inline-block marks each line's baseline);
+- the four header heights match within 1px.
 
-The cards are two-up at 1280 and 589 and stacked at 561 and 390.
+At a 1280 window, a 500px section stacks the cards and a full one does not, so the stacking follows the
+section, not the window.
 
-Then at 589 and 1280 with the widest total forced into every card (`999.9M` and `99.9%`): the total
-is on one line and each name still fits on one line, clear of it. The fixture's own totals fit even
-without `nowrap` (see above), so these arms pin the fit, not the nowrap.
+Then at 1280 and a 541px section with the widest total usageAbbr can emit forced into every card
+(`1000.0M`, a #4244 rounding edge, and `100.0%`), the same header arms hold. The fixture's own totals
+fit even without `nowrap` (see above), so these arms pin the fit, not the nowrap.
 
 ## Review 1
 
@@ -57,7 +60,18 @@ width, at 540px or narrower.
 
 - `1000.0M` was the wrong widest total: usageAbbr goes to B at 1e9, so `999.9M` is the widest normal
   M total. The exception is a rounding edge (999.95M up to 1e9 renders `1000.0M`, where it should read
-  `1.0B`); that is a usageAbbr defect, filed separately rather than fixed here.
+  `1.0B`); that is a usageAbbr defect, filed as #4244 rather than fixed here.
+
+## Review 2
+
+- The two-up and stacked arms size the window for a 541px and a 540px section instead of fixed 589 and
+  561 windows, which a visible scrollbar moved across the line (the reviewer measured it with 15px).
+  That also pins the threshold to 540 exactly, where the old arms allowed 514 to 540.
+- A 500px section at a 1280 window must stack: a viewport query of any width passed the old arms.
+- The name/total baseline is measured, since flex-start and flex-end both passed before.
+- The clear arm also requires the total inside the card, and the widest total is now `1000.0M` beside
+  `100.0%`, the true widest usageAbbr string (#4244 files its rounding edge).
+- The CSS comment's card width is 238px, as measured; the README row says only what the arms pin.
 
 ## Weakest premise
 

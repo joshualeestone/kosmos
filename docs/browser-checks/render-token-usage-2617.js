@@ -377,50 +377,81 @@ function readUsage(page) {
     await p.setViewportSize({ width: 1280, height: 1100 });
     await p.waitForTimeout(300);
     // #4242: the four class cards' headers. The name's own text is on ONE line, the tag starts below
-    // it, the total never wraps, and the four headers are the same height. Measured on the name's
-    // text node with a Range, since the name span also holds the tag and its box alone cannot say
-    // how many lines the name took. The cards stack once the usage section is 540px or narrower (a
-    // container query), so 589 (a 541px section) is the tightest two-up width, 561 is stacked, and
-    // 1280 (the capped 544px column) is the tightest desktop width.
+    // it, the total is on one line, inside the card and clear of the name, on the name's baseline, and
+    // the four headers are the same height. Measured on the name's text node with a Range, since the
+    // name span also holds the tag and its box alone cannot say how many lines the name took. A baseline
+    // is where a zero-size inline-block sits on its line, placed for the reading and removed at once.
     const measureCards = () => p.evaluate(() => [...document.querySelectorAll('#usage-charts4 .tv-mini')].map((c) => {
       const nm = c.querySelector('.tv-nm'), tg = c.querySelector('.tv-tg'), tot = c.querySelector('.tv-tot'), mh = c.querySelector('.tv-mh');
       const node = nm && [...nm.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
-      const r = document.createRange();
-      let nameLines = 0, nameBottom = 0;
-      if (node) { r.selectNodeContents(node); const rects = [...r.getClientRects()].filter((x) => x.width > 0); nameLines = new Set(rects.map((x) => Math.round(x.top))).size; nameBottom = Math.max(...rects.map((x) => x.bottom)); }
+      let nameLines = 0, nameBottom = 0, nameRight = 0;
+      if (node) {
+        const r = document.createRange(); r.selectNodeContents(node);
+        const rects = [...r.getClientRects()].filter((x) => x.width > 0);
+        nameLines = new Set(rects.map((x) => Math.round(x.top))).size; nameBottom = Math.max(...rects.map((x) => x.bottom)); nameRight = Math.max(...rects.map((x) => x.right));
+        r.detach();
+      }
+      const baseline = (parent, before) => {
+        const m = document.createElement('span'); m.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
+        parent.insertBefore(m, before); const y = m.getBoundingClientRect().top; m.remove(); return y;
+      };
+      const base = node && tot && tot.firstChild ? Math.abs(baseline(nm, node.nextSibling) - baseline(tot, tot.firstChild.nextSibling)) : Infinity;
       const lh = tot ? parseFloat(getComputedStyle(tot).lineHeight) || parseFloat(getComputedStyle(tot).fontSize) * 1.3 : 0;
+      const cs = getComputedStyle(c), innerRight = c.getBoundingClientRect().right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth);
+      const tr = tot ? tot.getBoundingClientRect() : null;
       return { name: node ? node.textContent.trim() : null, nameLines, tagBelow: tg ? tg.getBoundingClientRect().top >= nameBottom - 1 : false,
-        totOneLine: tot ? tot.getBoundingClientRect().height <= lh * 1.5 : false, head: mh ? Math.round(mh.getBoundingClientRect().height) : 0,
-        clear: node && tot ? tot.getBoundingClientRect().left >= Math.max(...[...r.getClientRects()].map((x) => x.right)) - 0.5 : false };
+        totOneLine: tr ? tr.height <= lh * 1.5 : false, head: mh ? Math.round(mh.getBoundingClientRect().height) : 0,
+        clear: node && tr ? tr.left >= nameRight - 0.5 && tr.right <= innerRight + 0.5 : false, base: Math.round(base * 10) / 10 };
     }));
-    for (const [w, at] of [[1280, 'desktop'], [589, 'two-up at 589px'], [561, 'stacked at 561px'], [390, 'phone']]) {
-      await p.setViewportSize({ width: w, height: 1100 });
-      await p.waitForTimeout(300);
-      const cards = await measureCards();
+    const sectionWidth = () => p.evaluate(() => document.getElementById('s-sec-usage').clientWidth);
+    const cols = () => p.evaluate(() => new Set([...document.querySelectorAll('#usage-charts4 .tv-mini')].map((c) => Math.round(c.getBoundingClientRect().left))).size);
+    // Sizes the window so the usage section is WANT px wide, whatever a scrollbar takes (a fixed window
+    // width gives a different section on a machine with visible scrollbars).
+    const atSection = async (want) => {
+      await p.setViewportSize({ width: want + 48, height: 1100 }); await p.waitForTimeout(250);
+      const got = await sectionWidth();
+      await p.setViewportSize({ width: want + 48 + (want - got), height: 1100 }); await p.waitForTimeout(300);
+      return sectionWidth();
+    };
+    const atWindow = async (w) => { await p.setViewportSize({ width: w, height: 1100 }); await p.waitForTimeout(300); return sectionWidth(); };
+    // The cards stack once the usage section is 540px or narrower (a container query on #s-sec-usage), so
+    // a 541px section is the narrowest two-up section and 540 the widest stacked one. 1280 is the capped
+    // 544px column, where the card is narrowest (the gap grows with the window).
+    const views = [['desktop', 2, () => atWindow(1280)], ['a 541px section', 2, () => atSection(541)], ['a 540px section', 1, () => atSection(540)], ['phone', 1, () => atWindow(390)]];
+    const armsAt = (at, cards) => {
       ok(cards.length === 4 && cards.every((c) => c.name && c.nameLines === 1), `${at}: each class card's name is on one line (#4242) -- ${JSON.stringify(cards.map((c) => c.name + ':' + c.nameLines))}`);
       ok(cards.length === 4 && cards.every((c) => c.tagBelow), `${at}: each class card's tag sits below its name, not beside it (#4242) -- ${JSON.stringify(cards.map((c) => c.tagBelow))}`);
-      ok(cards.length === 4 && cards.every((c) => c.totOneLine), `${at}: each class card's total stays on one line (#4242) -- ${JSON.stringify(cards.map((c) => c.totOneLine))}`);
+      ok(cards.length === 4 && cards.every((c) => c.totOneLine), `${at}: each class card's total is on one line (#4242) -- ${JSON.stringify(cards.map((c) => c.totOneLine))}`);
+      ok(cards.length === 4 && cards.every((c) => c.clear), `${at}: each class card's total is clear of its name and inside the card (#4242) -- ${JSON.stringify(cards.map((c) => c.clear))}`);
+      ok(cards.length === 4 && cards.every((c) => c.base <= 1), `${at}: each class card's total sits on its name's baseline (#4242) -- ${JSON.stringify(cards.map((c) => c.base))}`);
+    };
+    for (const [at, want, go] of views) {
+      const sec = await go();
+      const cards = await measureCards(), n = await cols();
+      if (at.endsWith('section')) ok(sec === parseInt(at.slice(2), 10), `${at}: the window was sized to give that section (#4242) -- got ${sec}px`);
+      ok(n === want, `${at}: the class cards are ${want === 2 ? 'two-up' : 'stacked'} (#4242) -- ${n} column(s) in a ${sec}px section`);
+      armsAt(at, cards);
       ok(cards.length === 4 && Math.max(...cards.map((c) => c.head)) - Math.min(...cards.map((c) => c.head)) <= 1, `${at}: the four class card headers are the same height (#4242) -- ${JSON.stringify(cards.map((c) => c.head))}`);
-      ok(cards.length === 4 && cards.every((c) => c.clear), `${at}: no class card's name runs under its total (#4242) -- ${JSON.stringify(cards.map((c) => c.clear))}`);
     }
-    // Two-up at 589 and 1280, one column at 561 and 390: the stacking follows the section's width.
-    const cols = async (w) => { await p.setViewportSize({ width: w, height: 1100 }); await p.waitForTimeout(300);
-      return p.evaluate(() => new Set([...document.querySelectorAll('#usage-charts4 .tv-mini')].map((c) => Math.round(c.getBoundingClientRect().left))).size); };
-    const colsAt = {}; for (const w of [1280, 589, 561, 390]) colsAt[w] = await cols(w);
-    ok(colsAt[1280] === 2 && colsAt[589] === 2 && colsAt[561] === 1 && colsAt[390] === 1, `the class cards are two-up at 1280 and 589 and stacked at 561 and 390 (#4242) -- ${JSON.stringify(colsAt)}`);
-    // The widest total a card shows (usageAbbr stays under 1000.0M, and a four-digit total's share is at
-    // most 99.9%) at both tightest two-up widths: the arms that go red when a card too narrow for it is
-    // left two-up. They do not test the total's nowrap, which is inert on today's markup (see the CSS).
+    // The stacking follows the SECTION, not the window: at a 1280 window, a section narrowed to 500px
+    // stacks. A viewport query at any width below 1280 would leave it two-up.
+    await atWindow(1280);
+    await p.evaluate(() => { document.getElementById('s-sec-usage').style.maxWidth = '500px'; });
+    await p.waitForTimeout(300);
+    const narrowCols = await cols(), narrowSec = await sectionWidth();
+    await p.evaluate(() => { document.getElementById('s-sec-usage').style.maxWidth = ''; });
+    await p.waitForTimeout(300);
+    ok(narrowCols === 1 && narrowSec === 500 && (await cols()) === 2, `at a 1280 window, a 500px usage section stacks the class cards and a full one does not (#4242) -- ${narrowCols} column(s) at ${narrowSec}px`);
+    // The widest total usageAbbr can emit (1000.0M, one of the #4244 rounding edges) beside the widest
+    // share (100.0%), at the two narrowest two-up cards: the arms that go red when a card too narrow
+    // for it is left two-up. They do not test the total's nowrap, which is inert on today's markup.
     const saved = await p.evaluate(() => [...document.querySelectorAll('#usage-charts4 .tv-mini .tv-tot')].map((t) => {
       const pc = t.querySelector('.tv-pc'), was = [t.firstChild.textContent, pc ? pc.textContent : null];
-      t.firstChild.textContent = '999.9M'; if (pc) pc.textContent = '99.9%'; return was;
+      t.firstChild.textContent = '1000.0M'; if (pc) pc.textContent = '100.0%'; return was;
     }));
-    for (const w of [589, 1280]) {
-      await p.setViewportSize({ width: w, height: 1100 });
-      await p.waitForTimeout(300);
-      const wide = await measureCards();
-      ok(wide.length === 4 && wide.every((c) => c.totOneLine), `${w}px, widest total: each class card's total stays on one line (#4242) -- ${JSON.stringify(wide.map((c) => c.totOneLine))}`);
-      ok(wide.length === 4 && wide.every((c) => c.name && c.nameLines === 1 && c.clear), `${w}px, widest total: each name still fits on one line, clear of the total (#4242) -- ${JSON.stringify(wide.map((c) => c.name + ':' + c.nameLines + ':' + c.clear))}`);
+    for (const [at, go] of [['desktop, widest total', () => atWindow(1280)], ['a 541px section, widest total', () => atSection(541)]]) {
+      await go();
+      armsAt(at, await measureCards());
     }
     await p.evaluate((was) => document.querySelectorAll('#usage-charts4 .tv-mini .tv-tot').forEach((t, i) => {
       t.firstChild.textContent = was[i][0]; const pc = t.querySelector('.tv-pc'); if (pc && was[i][1] !== null) pc.textContent = was[i][1];
