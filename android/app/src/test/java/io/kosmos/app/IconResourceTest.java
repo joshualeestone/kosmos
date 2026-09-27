@@ -130,7 +130,11 @@ public class IconResourceTest {
             byte[] out = new byte[size];
             try {
                 int n = 0;
-                while (n < size && !inflater.finished()) n += inflater.inflate(out, n, size - n);
+                while (n < size && !inflater.finished()) {
+                    int got = inflater.inflate(out, n, size - n);
+                    if (got == 0 && (inflater.needsInput() || inflater.needsDictionary())) break;
+                    n += got;
+                }
                 assertEquals("decompressed size", size, n);
             } catch (DataFormatException e) {
                 throw new IOException(e);

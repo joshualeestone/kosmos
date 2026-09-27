@@ -130,7 +130,8 @@
                  not the full-colour launcher icon. It must be a bitmap (PNG per density),
                  never a vector: androidx.browser hands it to the browser through
                  BitmapFactory.decodeResource, which returns null for a vector (#4151).
-                 Pinned by IconResourceTest. -->
+                 Pinned by IconResourceTest; regenerate the PNGs with
+                 android/evidence/notif-icon-4151/make-icons.py. -->
             <meta-data
                 android:name="android.support.customtabs.trusted.SMALL_ICON"
                 android:resource="@drawable/ic_notification" />
