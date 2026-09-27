@@ -133,6 +133,9 @@ const BOARD_NOT_SIGNED_IN = /This board is not signed in/i;
     const pj = await page.evaluate(() => (document.getElementById('pj-list') || {}).textContent || '');
     check('projects 401 signed_out: #pj-list says sign in again', SIGN_IN_AGAIN.test(pj), pj.slice(0, 140));
     check('projects 401 signed_out: #pj-list is not the generic cannot-read', !CANNOT_READ.test(pj), pj.slice(0, 140));
+    const pjBtn = await page.$('#pj-list [data-device-signin]');
+    const pjBtnShown = pjBtn ? await pjBtn.isVisible().catch(() => false) : false;
+    check('projects 401 signed_out: #pj-list shows its own Sign in button', pjBtnShown);
     await ctx.close();
   }
 
