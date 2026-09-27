@@ -29,6 +29,7 @@ render-bubblepop-2407
 render-build-marker-2066
 render-busy-anim-3421
 render-busy-line
+render-chatbox-phone-4108
 render-chatgpt-green-4064
 render-chatgpt-signin-no-name-2913
 render-chip-filters-3423
