@@ -72,3 +72,8 @@ With the flag on, on a Mac with Muse Code installed, a person can pick Meta in A
 
 ## 3a review round 10 (decided)
 - The gate-throw rethrow shared by the agy and muse start routes is one helper, isGateThrowInTest, next to signinRefusalStatus (convention 5). This is a pure refactor; the route tests pass unchanged.
+
+## 3a review round 11 (decided)
+- Tests now pin the current-try cut (after a retry the expired code is never shown, and a new code carried only in the address is paired with its own address) and both halves of round 9's waiting path: a retry that reaches waiting with no code ends, and a retry's code drawn straight to waiting can itself expire and be retried. Three controls red.
+- Comments fixed: the round 3 wording that round 5 reversed, and the test wrapper's stated reason. The not-installed fallback is musestatus's own sentence.
+- DEFERRED to a follow-up card (https://github.com/joshualeestone/kosmos/issues/4195): share the tmux plumbing (wrapper, live, shq, tmuxBin, socket, deliveryUnknown) with agysignin.js. Extracting it changes the shipped Gemini sign-in, which is outside this flag-gated slice.
