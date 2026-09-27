@@ -45,7 +45,8 @@ const LAUNCH = /\.launch(?:PersistentContext)?\s*\(/;
 const EXIT0 = /process\.exit\(\s*0?\s*\)/;
 /* PASS anywhere inside a one-line string ('✓ PASS', `[${n}] PASS`), not only at its start. */
 const PASS_STRING = /['"`][^'"`\n]*\bPASS\b/;
-const SAYS_QUARANTINED = /['"`][^'"`\n]*QUARANTINED/;
+/* Case-insensitive whole word, the same test tools/lib/bc-quarantine.sh applies (grep -iw). */
+const SAYS_QUARANTINED = /['"`][^'"`\n]*\bquarantined\b/i;
 const COMMENT_LINE = /^\s*(\/\/|\/\*|\*)/;
 
 function parseVersion(v) {
@@ -68,7 +69,7 @@ function scan(name, src, version) {
   lines.forEach((l, i) => { if (!COMMENT_LINE.test(l) && LAUNCH.test(l)) launchAt = i; });
   const problems = [];
   lines.forEach((l, i) => {
-    if (!EXIT0.test(l)) return;
+    if (!EXIT0.test(l) || COMMENT_LINE.test(l)) return;
     if (launchAt >= 0 && i > launchAt) return;
     const near = lines.slice(Math.max(0, i - 6), i + 1).join('\n');
     if (!PASS_STRING.test(near)) return;
@@ -180,4 +181,16 @@ test('control (review WARNING 3): a marked quarantine must print QUARANTINED', (
   const p = scan('q.js', quiet, [0, 7, 1]);
   assert.equal(p.length, 1);
   assert.match(p[0], /does not say QUARANTINED/);
+});
+
+test('control (review round 2): lower-case quarantined counts, as in the harness; a commented exit is not an exit', () => {
+  const lower = [
+    '  // QUARANTINE until=0.9.00 card=#1079: stale click',
+    "  console.log('PASS  x quarantined for this cut');",
+    '  process.exit(0);',
+    '  await chromium.launch();',
+  ].join('\n');
+  assert.deepEqual(scan('l.js', lower, [0, 7, 1]), []);
+  const doc = ["// never do: console.log('PASS x'); process.exit(0);", 'await chromium.launch();'].join('\n');
+  assert.deepEqual(scan('d.js', doc, [0, 7, 1]), []);
 });
