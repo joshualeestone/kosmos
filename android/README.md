@@ -330,8 +330,10 @@ and delegation needs the coordinator to serve `assetlinks.json` (above).
 
 **Where a tap goes.** Today the coordinator's `sw.js` opens the person's own Mac,
 `https://<mac-name>.kosmosplus.com/?tab=detail&agent=<session>`, in a browser window with a URL
-bar: per-Mac origins cannot be in this app's verified set (one subdomain per user, and Digital Asset
-Links has no wildcards). Measured on the API 35 Moto emulator on 2026-09-27 (#4140). kosmos-relay
-#174 (merged, live with the next coordinator deploy and, for its Mac half, the next Mac release)
-sends the tap through this app instead: the sign-in page opens in the app, and "Open my Kosmos"
-opens that agent full screen through `OpenAddressActivity` (#4171; `evidence/tap-agent-4171/`).
+bar, because Chrome owns the tap: `notificationclick` runs in Chrome and calls
+`clients.openWindow`, which carries none of this app's nonce, so the address opens in plain Chrome
+(#4140). Measured on the API 35 Moto emulator on 2026-09-27. kosmos-relay #174 (merged, live with
+the next coordinator deploy and, for its Mac half, the next Mac release) sends the tap through this
+app instead: the sign-in page opens in the app, and "Open my Kosmos" hands the address and agent to
+`OpenAddressActivity`, which should open it full screen. The URL it opens is measured (#4171;
+`evidence/tap-agent-4171/`); the full-screen board is not yet seen on a device.
