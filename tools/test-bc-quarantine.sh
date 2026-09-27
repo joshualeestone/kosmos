@@ -119,6 +119,10 @@ out="$(run1e 0.7.03)"; rc=$?
 case "$out" in *"planted.js:4 is quarantined until 0.7.3"*"fix the check"*) ok "and names the check and says what to do (set -e does not cut it short)" ;; *) bad "step 1e output: $out" ;; esac
 out="$(run1e 0.7.02)"; rc=$?
 [ "$rc" -eq 0 ] && ok "step 1e lets a version below until through (the control)" || bad "step 1e exited $rc at 0.7.02: $out"
+# A failure for another reason (here a broken control) is named, not shown as a pass line (round 10).
+printf "\ntest('planted control', () => { throw new Error('planted boom'); });\n" >> "$fx/browser-checks-quarantine-guard.test.js"
+out="$(run1e 0.7.02)"; rc=$?
+case "$rc:$out" in 1:*"✖ planted control"*) ok "step 1e names a failing test that is not a quarantine finding" ;; *) bad "step 1e on a broken control (rc=$rc): $out" ;; esac
 
 echo "bc-quarantine: $passes passed, $fails failed"
-[ "$fails" -eq 0 ] && [ "$passes" -eq 34 ] || { echo "expected 34 passes and 0 failures"; exit 1; }
+[ "$fails" -eq 0 ] && [ "$passes" -eq 35 ] || { echo "expected 35 passes and 0 failures"; exit 1; }

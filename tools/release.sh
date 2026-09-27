@@ -645,7 +645,9 @@ step "== 1e. no browser-check quarantine expires at $V (#4160) =="
 _q_out="$( cd "$REPO" && KOSMOS_QUARANTINE_AT_VERSION="$V" node --test "$REPO/browser-checks-quarantine-guard.test.js" 2>&1 )" && _q_rc=0 || _q_rc=$?
 if [ "$_q_rc" -ne 0 ]; then
   echo "a browser-check quarantine expires at $V, or a check says PASS and exits before its browser starts:"
-  printf '%s\n' "$_q_out" | grep -E "says PASS|expired|QUARANTINED together|wrong place" | head -5 || true
+  # The failing tests by name (a node --test ✖ line) and the problems they report, so a failure
+  # for any other reason (a control, a syntax error) names itself rather than printing a pass line.
+  printf '%s\n' "$_q_out" | grep -E "^✖ |says PASS|expired|QUARANTINED together|wrong place|Error" | grep -v "^✖ failing tests" | head -12 || true
   echo "fix the check (see browser-checks-quarantine-guard.test.js) before cutting $V."
   exit 1
 fi
