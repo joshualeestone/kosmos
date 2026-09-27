@@ -22,8 +22,12 @@
  *   `selector` an id or class the check's own source asks the page for appears whole-token in a
  *              changed line: a `#id` / `.class` in a query call or in any selector-shaped string
  *              (so a selector held in a constant counts), or a bare string that is an id the page
- *              has. This reaches the 138 checks with no annotation. It selected render-talk for
- *              #3985 through `.msg`, `.msg-t` and `.mwhen`; the surface map selected nothing there.
+ *              has. The changed lines must also USE it as a selector, not just as a word: in a
+ *              class/id/for/aria attribute value, after `.` or `#`, or inside a quoted string shaped
+ *              like a class list ('stale', 'checked stamp stale'). A class named like a word (.you)
+ *              was otherwise selected by every copy change using the word (#4190). This reaches the
+ *              checks with no annotation. It selected render-talk for #3985 through `.msg-t` and
+ *              `.mwhen`; the surface map selected nothing there.
  *   `name`     a page function or constant the check calls or reads (camelCase or UPPER_SNAKE,
  *              defined in the page) appears in a changed line. Some checks drive the page's own
  *              functions and touch no element (render-connect-skip reads frClaudeInstallNeeded).
@@ -39,7 +43,8 @@
  *
  * ⚠️ `selector` and `name` ARE HEURISTICS, and they err in both directions. A selector assembled
  * at run time from fragments that are not themselves selector-shaped is invisible, so a check can
- * still be missed. A common class (`.msg`) selects checks the change cannot really affect, which
+ * still be missed; so is a class added in a quoted string that also carries punctuation, since a
+ * string like that reads as copy. A common class (`.msg`) selects checks the change cannot really affect, which
  * costs PR time but never gives a wrong verdict. The fixed allowlist and the cut's full 3b are
  * unchanged. browser-checks-pr-select-4119.test.js fails if a runnable check is reachable by none
  * of these routes, so a new check cannot silently fall outside them.
@@ -134,14 +139,27 @@ function hits(token, text) {
    Johnny Cage on #4190): in a class/id/for/aria attribute value, after . or #, or as a whole
    quoted string (classList.toggle('on')). Matched anywhere, a class named like a word (.you,
    .note) was selected by every copy change that used the word. */
+/* The most classes one class-list string may hold and still count (the page's longest is 4,
+   class="acard attn notrunning needstrust"). A longer quoted run of words is a phrase of copy. */
+const CLASS_LIST_MAX_WORDS = 5;
+
 function usedAsSelector(token, text) {
   const e = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const W = '(?<![A-Za-z0-9_-])' + e + '(?![A-Za-z0-9_-])';
-  return [
-    new RegExp(`(?:class|id|for|aria-controls|aria-labelledby|aria-describedby)\\s*=\\s*(["'])(?:(?!\\1).)*${W}`, 'm'),
-    new RegExp(`[.#]${W}`, 'm'),
-    new RegExp(`["'\`]${e}["'\`]`, 'm'),
-  ].some((re) => re.test(text));
+  // An HTML attribute that names elements: class="a you b", id="you", for=, aria-*=.
+  if (new RegExp(`(?<![\\w-])(?:class|id|for|aria-controls|aria-labelledby|aria-describedby)\\s*=\\s*(["'])(?:(?!\\1).)*${W}`, 'm').test(text)) return true;
+  // A CSS or query selector: .you, #you. (Also fires on obj.you and "...you": over-selection, the safe side.)
+  if (new RegExp(`[.#]${W}`, 'm').test(text)) return true;
+  // A quoted string shaped like a class list, the token whole inside it: 'you', ' stale', 'checked stamp
+  // stale', "conn " + ..., setAttribute("class", "a you"). Only letters, digits, _, - and spaces or tabs
+  // (never a newline, so a quote cannot pair with one lines later), and at most CLASS_LIST_MAX_WORDS
+  // words: "Thank you, you are in." and "you can still add the project" are copy, not class lists.
+  const whole = new RegExp(W);
+  for (const m of text.matchAll(/(["'`])([A-Za-z0-9_ \t-]*)\1/g)) {
+    const words = m[2].trim().split(/[ \t]+/).filter(Boolean);
+    if (words.length && words.length <= CLASS_LIST_MAX_WORDS && whole.test(m[2])) return true;
+  }
+  return false;
 }
 
 function git(args) {

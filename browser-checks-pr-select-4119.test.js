@@ -200,6 +200,13 @@ test('a selector token counts only where the diff uses it as a selector, not in 
   assert.equal(sel.usedAsSelector('msg', "+  el.querySelector('.msg')"), true);
   assert.equal(sel.usedAsSelector('on', "+  el.classList.toggle('on')"), true);
   assert.equal(sel.usedAsSelector('pj-empty', '+  <div class="pj-emptyish">'), false, 'whole token only');
+  // The page's own ways of setting classes in script (review of this change: all four were missed).
+  assert.equal(sel.usedAsSelector('stale', "+  checked.className = 'checked stamp stale';"), true, 'a class list string');
+  assert.equal(sel.usedAsSelector('stale', "+  (age > 30 ? ' stale' : '')"), true, 'a class glued on with a space');
+  assert.equal(sel.usedAsSelector('conn', "+  el.className = 'conn ' + state;"), true, 'a class prefix');
+  assert.equal(sel.usedAsSelector('you', '+  el.setAttribute("class", "a you");'), true, 'setAttribute class');
+  assert.equal(sel.usedAsSelector('you', "+  msg = 'Thank you, you are in.';"), false, 'quoted copy with punctuation');
+  assert.equal(sel.usedAsSelector('you', '+  <div data-id="x">thank you</div>'), false, 'id inside data-id is not an id attribute');
 });
 
 test('through select(): the word "you" in copy no longer picks the check that queries .you, the class still does', () => {
