@@ -23,6 +23,10 @@
  *      would pin a line nobody needs.
  *   2. each harness sets the variable as a top-level export (or on the smoke
  *      boot's own environment) BEFORE its first board boot.
+ *
+ * ⚠️ The daily report's URL is pinned by the second half only. Its send runs on
+ * an hourly sweep, so a short harness boot does not reach it and there is no
+ * cheap behavioural control; a renamed variable would slip past this file.
  */
 
 const test = require('node:test');
@@ -90,13 +94,41 @@ test('#4253 CONTROL: a board booted outside node --test sends the install ping t
   }
 });
 
+/* Whether line i is at the script's top level: not inside a function body or an
+   if/for/while/case block. Counted from column-0 openers and closers, which is how
+   these scripts are written; a line-based count, not a shell parser, so a block
+   opened and closed on one line is ignored. An export inside a function that is
+   never called, or under `if false`, would otherwise pass a column-0 check. */
+function topLevel(lines, i) {
+  let depth = 0;
+  for (let k = 0; k < i; k += 1) {
+    const l = lines[k];
+    if (/^\s*#/.test(l)) continue;
+    if (/^[A-Za-z_][A-Za-z0-9_]*\s*\(\)\s*\{?\s*$/.test(l) || /^(if|for|while|until|case)\b/.test(l)) {
+      if (!/\b(fi|done|esac)\s*;?\s*$/.test(l) && !/\}\s*;?\s*$/.test(l.replace(/\(\)\s*\{\s*$/, ''))) depth += 1;
+    } else if (/^(\}|fi|done|esac)\b/.test(l)) {
+      depth = Math.max(0, depth - 1);
+    }
+  }
+  return depth === 0;
+}
+
 /* The first line of a script that starts a board. Comments are skipped, so a
    comment naming server.js cannot stand in for a boot. */
 function firstBootLine(lines) {
   return lines.findIndex((l) => !/^\s*#/.test(l) && /server\.js/.test(l) && /\bnode\b|runtime\/bin\/node/.test(l));
 }
 
-for (const [file, name] of [['tools/browser-checks.sh', 'browser-checks.sh'], ['tools/run-tests.sh', 'run-tests.sh']]) {
+/* test-install.sh boots boards through install/setup.sh (never `node server.js`
+   in its own text), and a release cut runs it as the install gate, so its first
+   boot is the first run of the installer. */
+const HARNESSES = [
+  ['tools/browser-checks.sh', 'browser-checks.sh', null],
+  ['tools/run-tests.sh', 'run-tests.sh', null],
+  ['tools/test-install.sh', 'test-install.sh', /\$SETUP"? *\| *(env .*)?sh\b/],
+];
+
+for (const [file, name, bootRe] of HARNESSES) {
   test(`#4253: ${name} exports both phone-home URLs to a loopback address at top level`, () => {
     const lines = fs.readFileSync(path.join(REPO, file), 'utf8').split('\n');
     for (const v of ['AGENT_WORKFORCE_CREATED_URL', 'AGENT_WORKFORCE_FEEDBACK_URL']) {
@@ -104,9 +136,11 @@ for (const [file, name] of [['tools/browser-checks.sh', 'browser-checks.sh'], ['
          that may never run. */
       const i = lines.findIndex((l) => l.startsWith(`export ${v}=`));
       assert.ok(i >= 0, `${name} has no top-level \`export ${v}=\``);
+      assert.ok(topLevel(lines, i), `${name}'s \`export ${v}=\` on line ${i + 1} is inside a function or block that may never run`);
       const value = lines[i].slice(`export ${v}=`.length).replace(/^["']|["']$/g, '');
       assert.match(value, LOOPBACK, `${name} points ${v} somewhere other than this machine: ${value}`);
-      const boot = firstBootLine(lines);
+      const boot = bootRe ? lines.findIndex((l) => !/^\s*#/.test(l) && bootRe.test(l)) : firstBootLine(lines);
+      if (bootRe) assert.ok(boot >= 0, `could not find ${name}'s first installer run`);
       if (boot >= 0) assert.ok(i < boot, `${name} sets ${v} on line ${i + 1}, after its first board boot on line ${boot + 1}`);
     }
   });
@@ -124,5 +158,20 @@ test('#4253: the release bundle smoke boot carries both phone-home URLs on its o
     const m = block.match(new RegExp(`\\b${v}=("?)([^\\s"\\\\]+)\\1`));
     assert.ok(m, `the smoke boot does not set ${v}`);
     assert.match(m[2], LOOPBACK, `the smoke boot points ${v} off this machine: ${m[2]}`);
+  }
+});
+
+test('#4253: test-install.sh\'s env -i reboot simulation carries both phone-home URLs', () => {
+  const lines = fs.readFileSync(path.join(REPO, 'tools/test-install.sh'), 'utf8').split('\n');
+  /* env -i starts from an EMPTY environment, so the top-level export does not
+     reach this board; the block has to name the two variables itself. */
+  const start = lines.findIndex((l) => !/^\s*#/.test(l) && /\benv -i\b/.test(l));
+  assert.ok(start >= 0, 'could not find the env -i reboot simulation');
+  let end = start;
+  while (end < lines.length - 1 && /\\\s*$/.test(lines[end])) end += 1;
+  const block = lines.slice(start, end + 1).join('\n');
+  assert.match(block, /bin\/kosmos"? start/, 'the env -i block found is not the board start');
+  for (const v of ['AGENT_WORKFORCE_CREATED_URL', 'AGENT_WORKFORCE_FEEDBACK_URL']) {
+    assert.ok(new RegExp(`\\b${v}=`).test(block), `the env -i reboot simulation does not set ${v}, so that board phones home`);
   }
 });

@@ -252,6 +252,13 @@ export KOSMOS_TMUX_SRC="$TMUX_SRC" KOSMOS_SRC="$KOS_SRC" KOSMOS_PORT="$PORT"
 export KOSMOS_INSTALL_GATE_LOG="${KOSMOS_INSTALL_GATE_LOG:-$HOME/.claude/logs/install-gate-requests.log}"
 echo "request log for every sandboxed board: $KOSMOS_INSTALL_GATE_LOG (#908)"
 export AGENT_WORKFORCE_DATA="$SB/data" AGENT_WORKFORCE_LAUNCH="$SB/launch"
+# #4253: no board this harness installs may phone home. Each sandboxed board mints a
+# fresh install id, and a cut runs this file as its install gate, so every run told
+# installkosmos.com about dozens of Mac installs that do not exist. The beacon is
+# untouched (Josh's 09-14 ruling); only this harness points it at a dead local port.
+# The env -i reboot simulation below starts from nothing, so it names both again.
+export AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created
+export AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback
 # 🛑 EVERY ROOT THE GATE NAMES, AND AN INERT TMUX, or the board this harness
 # installs refuses to start (#634): a sandbox with some roots live is the
 # exact thing the app now refuses, and it refused this harness at its first
@@ -1809,6 +1816,8 @@ RC=0; env -i \
   AGENT_WORKFORCE_PROJECTS="$(_plist_env_line AGENT_WORKFORCE_PROJECTS)" \
   AGENT_WORKFORCE_WORKERS="$(_plist_env_line AGENT_WORKFORCE_WORKERS)" \
   AGENT_WORKFORCE_HALF_SANDBOX_OK="$(_plist_env_line AGENT_WORKFORCE_HALF_SANDBOX_OK)" \
+  AGENT_WORKFORCE_CREATED_URL="$AGENT_WORKFORCE_CREATED_URL" \
+  AGENT_WORKFORCE_FEEDBACK_URL="$AGENT_WORKFORCE_FEEDBACK_URL" \
   "$PETE_HOME/bin/kosmos" start > "$SB/reboot-sim.log" 2>&1 || RC=$?
 chk "a simulated reboot (plist env only) starts the board, not #634's refusal" "rc_ok $RC"
 # ⚠️ board.log, NOT reboot-sim.log: the shell wrapper's own stdout only ever
