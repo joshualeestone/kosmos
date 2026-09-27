@@ -98,20 +98,20 @@ function readUsage(page) {
       // is silently cut, so measure the real horizontal fit of every .tv-fig in the hero.
       heroFigsFit: [...document.querySelectorAll('#usage-hero .tv-fig')]
         .every((f) => f.scrollWidth <= f.clientWidth + 1),
-      // #3137 NON-VACUOUS fit control: on the real Approximate Human Cost tile, the FULL
-      // reported figure "$176,332" overflows the box while the abbreviated "$176.3K" fits.
-      // Proves the abbreviation is both necessary (full clips) and sufficient (abbr fits) at
-      // the tile's real rendered width, not just that a short fixture value happens to fit.
+      // #3137 NON-VACUOUS fit control: on the real Approximate Human Cost tile, a figure too
+      // wide for it overflows the box while the abbreviated "$176.3K" fits. Proves the fit
+      // check can see a clip and that the abbreviation fits at the tile's real rendered width;
+      // since #4083's smaller headline it no longer proves the full $176,332 would clip here.
       tileFitControl: (() => {
         const box = [...document.querySelectorAll('#usage-hero .tv-fbox')]
           .find((b) => /Approximate Human Cost/.test(b.textContent || ''));
         const fig = box && box.querySelector('.tv-fig');
         if (!fig) return null;
         const orig = fig.textContent;
-        fig.textContent = '$176,332'; const fullOverflows = fig.scrollWidth > fig.clientWidth + 1;
+        fig.textContent = '$176,332,000,000'; const wideOverflows = fig.scrollWidth > fig.clientWidth + 1;
         fig.textContent = '$176.3K'; const abbrFits = fig.scrollWidth <= fig.clientWidth + 1;
         fig.textContent = orig;
-        return { fullOverflows, abbrFits };
+        return { wideOverflows, abbrFits };
       })(),
       heroDays: heroText.includes('Active Days on Kosmos'),
       // #2840 charts4: four per-class daily mini-charts, each with an svg.
@@ -207,8 +207,8 @@ function readUsage(page) {
     ok(v.heroYears, 'the Years of Human Work stat (10) is shown');
     ok(v.heroApi, 'the Equivalent Token API Cost stat abbreviates its thousands figure to $1.2K (#3137, was the clipping $1,152)');
     ok(v.heroFigsFit, 'no hero stat tile clips its figure -- every .tv-fig fits its box after the #3137 abbreviation');
-    ok(v.tileFitControl && v.tileFitControl.fullOverflows && v.tileFitControl.abbrFits,
-      'CONTROL: the full $176,332 overflows the cost tile but the abbreviated $176.3K fits (#3137, non-vacuous fit proof) -- '
+    ok(v.tileFitControl && v.tileFitControl.wideOverflows && v.tileFitControl.abbrFits,
+      'CONTROL: the fit check can see a clip (a figure too wide for the cost tile overflows it) and the abbreviated $176.3K fits (#3137) -- '
       + JSON.stringify(v.tileFitControl));
     ok(v.heroDays, 'the Active Days on Kosmos eyebrow is shown');
     // charts4
@@ -323,6 +323,59 @@ function readUsage(page) {
     });
     ok(scale.big.includes('B'), `hero shows the production-scale total in the B band (got ${scale.big})`);
     ok(scale.clipped.length === 0, `hero figures fit their boxes at production scale, none clipped (clipped: ${JSON.stringify(scale.clipped)})`);
+    // #4083 (Josh, 2026-09-26): the two big numbers on one baseline, the lines above the labels at the same height in
+    // each row of tiles, the labels centred in the band under that line, and the big numbers kept off the tile edges.
+    // Measured at the widest headline above ($135.0M, as wide as the $999.9K the card names), at desktop and phone
+    // widths. Whether a real label wraps depends on the machine's monospace font, so the measure sets one short and
+    // one long label in each row itself (the uneven wrap that used to lift a tile), then puts the real text back.
+    const measureAlign = () => p.evaluate(() => {
+      /* Long enough to wrap in a full-width stacked phone tile at any monospace the machine has, not just ours. */
+      const LONG = 'A LABEL LONG ENOUGH TO WRAP ONTO TWO LINES IN THE WIDEST TILE ON THE PAGE, WHATEVER FONT THE MACHINE USES';
+      const textBox = (el) => { const r = document.createRange(); r.selectNodeContents(el); return { rect: r.getBoundingClientRect(), lines: r.getClientRects().length }; };
+      const row = (sel) => {
+        const boxes = [...document.querySelectorAll(sel)];
+        const labs = boxes.map((b) => b.querySelector('.tv-flabel'));
+        const real = labs.map((l) => l.textContent);
+        labs.forEach((l, i) => { l.textContent = i === labs.length - 1 ? LONG : 'SHORT'; });
+        const out = boxes.map((box) => {
+          const fig = box.querySelector('.tv-fig'), lab = box.querySelector('.tv-flabel');
+          const ft = textBox(fig), lt = textBox(lab), lb = lab.getBoundingClientRect(), bb = box.getBoundingClientRect();
+          const band = { top: lb.top + parseFloat(getComputedStyle(lab).borderTopWidth), bottom: lb.bottom };
+          /* The text's bottom edge: the same as its baseline only while the compared figures share font, size and line-height. */
+          return { textBottom: +ft.rect.bottom.toFixed(2), fontPx: parseFloat(getComputedStyle(fig).fontSize), divider: +lb.top.toFixed(2), lines: lt.lines,
+            centreOff: +(((lt.rect.top + lt.rect.bottom) / 2) - ((band.top + band.bottom) / 2)).toFixed(2),
+            margin: +Math.min(ft.rect.left - bb.left, bb.right - ft.rect.right).toFixed(2), text: (fig.textContent || '').trim(),
+            boxW: +bb.width.toFixed(1), textW: +ft.rect.width.toFixed(1), font: getComputedStyle(fig).fontSize };
+        });
+        labs.forEach((l, i) => { l.textContent = real[i]; });
+        return out;
+      };
+      return { hero: row('#usage-hero .tv-heq > .tv-fbox'), stats: row('#usage-hero .tv-stats3 > .tv-sbox') };
+    });
+    const alignArms = (align, at) => {
+      const lines = (r) => r.map((t) => t.lines);
+      ok(new Set(lines(align.hero)).size > 1 && new Set(lines(align.stats)).size > 1,
+        `${at} precondition: in each row one label is on one line and one wraps, so the uneven case is measured (${JSON.stringify({ hero: lines(align.hero), stats: lines(align.stats) })})`);
+      const spread = (r, k) => Math.max(...r.map((t) => t[k])) - Math.min(...r.map((t) => t[k]));
+      ok(align.hero.length === 2 && spread(align.hero, 'textBottom') <= 0.5, `${at}: the two big hero numbers sit on one baseline (#4083) -- ${JSON.stringify(align.hero.map((t) => t.textBottom))}`);
+      ok(align.hero.length === 2 && spread(align.hero, 'divider') <= 0.5, `${at}: the lines above the two hero labels are at the same height (#4083) -- ${JSON.stringify(align.hero.map((t) => t.divider))}`);
+      if (at === 'desktop') {
+        ok(align.stats.length === 3 && spread(align.stats, 'divider') <= 0.5, `${at}: the lines above the three stat labels are at the same height (#4083) -- ${JSON.stringify(align.stats.map((t) => t.divider))}`);
+        ok(align.stats.length === 3 && spread(align.stats, 'textBottom') <= 0.5, `${at}: the three stat numbers sit on one baseline (#4083) -- ${JSON.stringify(align.stats.map((t) => t.textBottom))}`);
+      }
+      ok(Math.min(...align.hero.map((t) => t.fontPx)) >= 1.2 * Math.max(...align.stats.map((t) => t.fontPx)),
+        `${at}: the headline numbers stay clearly bigger than the stat numbers (at least 1.2x) (#4083) -- hero ${JSON.stringify(align.hero.map((t) => t.fontPx))}, stats ${JSON.stringify(align.stats.map((t) => t.fontPx))}`);
+      ok([...align.hero, ...align.stats].every((t) => Math.abs(t.centreOff) <= 1), `${at}: every label is centred in the band under its line (#4083) -- ${JSON.stringify([...align.hero, ...align.stats].map((t) => t.centreOff))}`);
+      ok(align.hero.every((t) => t.margin >= 12), `${at}: the big hero numbers keep at least 12px off the tile edges at production scale (#4083) -- ${JSON.stringify(align.hero.map((t) => t.text + ': margin ' + t.margin + ', text ' + t.textW + ' in ' + t.boxW + ' at ' + t.font))}`);
+    };
+    alignArms(await measureAlign(), 'desktop');
+    // The phone width: the hero keeps its two tiles side by side; the stat tiles stack, one per row, so they have
+    // nothing to be level with (the divider arm is desktop-only).
+    await p.setViewportSize({ width: 390, height: 1100 });
+    await p.waitForTimeout(300);
+    alignArms(await measureAlign(), 'phone');
+    await p.setViewportSize({ width: 1280, height: 1100 });
+    await p.waitForTimeout(300);
     // #2617 CONTROL: repaint in the SAME page life, from a painted block to a
     // response with no byAgent (an older board, a failed split). After a reload
     // the block is hidden by its markup whatever the code does, so the hide path
