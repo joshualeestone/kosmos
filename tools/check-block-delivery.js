@@ -97,15 +97,17 @@ function entitled(name, agents, text) {
       /* ⚠️ readProfile answers {} for a missing OR unreadable profile, so "not a
          swarm" and "could not look" arrive looking the same. A profile FILE that
          exists but reads empty is CANNOT TELL, whatever the agent carries. With no
-         file, an agent carrying the block is CANNOT TELL too, never STALE. */
-      const leads = [];
+         file, an agent carrying the block is CANNOT TELL too, never STALE. Those
+         agents ride on the list as `unsure`, so the rest of the row still reads. */
+      const leads = []; const unsure = [];
       for (const a of agents) {
         const prof = store.readProfile(a);
         const empty = !prof || Object.keys(prof).length === 0;
         const exists = fs.existsSync(path.join(store.PROFILES, store.profileFileName(a)));
-        if (empty && (exists || text[a].includes(projects.SWARM_START))) return null;
+        if (empty && (exists || text[a].includes(projects.SWARM_START))) { unsure.push(a); continue; }
         if (swarm.settingsOf(prof) !== null) leads.push(a);
       }
+      leads.unsure = unsure;
       return leads;
     } catch { return null; }
   }
@@ -200,11 +202,13 @@ for (const name of names) {
     verdict = have.length ? 'STALE on ' + have.join(', ') + ' (nothing to deliver)' : 'correctly absent (nothing to deliver)';
     if (have.length) stale += 1;
   } else {
+    const unsure = ent.unsure || [];
     const missing = ent.filter((a) => !have.includes(a));
-    const extra = have.filter((a) => !ent.includes(a));
-    if (!missing.length && !extra.length) verdict = 'delivered to all entitled';
+    const extra = have.filter((a) => !ent.includes(a) && !unsure.includes(a));
+    if (!missing.length && !extra.length && !unsure.length) verdict = 'delivered to all entitled';
     else {
       const bits = [];
+      if (unsure.length) { bits.push('CANNOT TELL on ' + unsure.join(', ')); cannotTell += 1; }
       if (missing.length) {
         bits.push('UNDELIVERED to ' + missing.length); undelivered += 1;
         if (name === 'colleagues') colleaguesShort = true;
