@@ -169,7 +169,9 @@ async function seenIsCurrent() {
           ring: getComputedStyle(document.activeElement).outlineStyle,
           link: (() => { const a = box.querySelector('#wn-more').getBoundingClientRect(); return { left: a.left - r.left < 48, bottom: r.bottom - a.bottom < 48 }; })(),
           icons: box.querySelectorAll('.wn-tile svg').length, focus: document.activeElement && document.activeElement.id,
-          centred: r && Math.abs((r.left + r.width / 2) - innerWidth / 2) < 4, more: box.querySelector('#wn-more').getAttribute('href'),
+          /* Centred over the dimmed layer it sits in, measured on that layer's own box: where scrollbars take width (the CI
+             runner) neither innerWidth nor clientWidth says where the gutter is (CI reads 1400 for both, the page ends at 1385). */
+          centred: r && (() => { const d = back.getBoundingClientRect(); return Math.abs((r.left + r.width / 2) - (d.left + d.width / 2)) < 4; })(), more: box.querySelector('#wn-more').getAttribute('href'),
           rel: box.querySelector('#wn-more').getAttribute('rel'),
         } : null;
       });
