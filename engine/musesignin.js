@@ -246,7 +246,7 @@ function start() {
     /* Not exec (round 1): when muse exits, the shell prints the exit line and waits, so its last screen
        ("Logged in." or not) is still there to read. Ending the sign-in kills the session. */
     /* Through /bin/sh (round 3): tmux runs a command with the person's own shell, and fish refuses $?. */
-    const inner = 'env ' + LOGIN_ENV.join(' ') + ' ' + shq(inst.bin) + ' login; printf "\\n%s %s\\n" ' + EXITED + ' "$?"; exec sleep 3600';
+    const inner = 'env ' + LOGIN_ENV.join(' ') + ' ' + shq(inst.bin) + ' login; printf "\\n%s %s\\n" ' + shq(EXITED) + ' "$?"; exec sleep 3600';
     tmux(['-f', '/dev/null', 'new-session', '-d', '-s', SESSION, '-x', String(PANE_COLS), '-y', String(PANE_ROWS), '-c', folder,
       'exec /bin/sh -c ' + shq(inner)]);
   } catch (e) {

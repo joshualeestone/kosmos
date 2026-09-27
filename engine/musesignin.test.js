@@ -325,3 +325,14 @@ test('#3939 round 5: the 20-minute limit is final, not an expiry a retry can ans
     assert.equal(signin.retry(signin.status().id).ok, false);
   } finally { done(); }
 });
+
+test('#3939 round 6 (convention 3): with the live-execution gate closed, a start that would run tmux for real throws in a test', { skip: !onMac && 'the flag is Mac only' }, () => {
+  signin.resetForTests();
+  require('./live-execution').resetForTests();
+  process.env.AGENT_WORKFORCE_MUSE = '1';
+  signin.setForTests({ museBin: () => ({ installed: true, bin: '/usr/bin/true' }) });
+  try {
+    assert.throws(() => signin.start(), /for real inside a test/);
+    assert.equal(signin.status().state, 'idle', 'a sign-in was recorded although nothing may run');
+  } finally { signin.resetForTests(); delete process.env.AGENT_WORKFORCE_MUSE; }
+});
