@@ -62,8 +62,9 @@ test('#4082: the box says the result the moment focus lands, not the poll\'s sta
 
 test('#4082: from the page itself too (focus already dropped), and even when the repaint fails', async () => {
   const r = run('body', { paintFails: true });
-  await r.fn({}).catch(() => {});
+  await r.fn({});   // must not reject: it runs in the poll's interval callback, where a rejection goes unhandled
   assert.equal(r.doc.activeElement, r.el('fr-openai-msg'));
+  assert.equal(r.el('fr-openai-msg').textContent, 'GPT is connected.', 'the sentence did not survive the failed repaint');
 });
 
 test('#4082: focus in the re-shown picker (Connect pressed again mid sign-in) also lands on the box when it connects', async () => {

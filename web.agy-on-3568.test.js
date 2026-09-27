@@ -134,7 +134,7 @@ test('#3568: Gemini by subscription sorts beside Gemini (review round 1: it sank
 
 /* Review round 3: the headline flow itself, "Sign in with Subscription" on the Gemini row. The page's
    FR_AGY_SUB runs as written, against a stand-in page and scripted route answers. */
-function agyFlow(answers, { frStep = 5 } = {}) {
+function agyFlow(answers, { frStep = 5, paintFails = false } = {}) {
   const at = PAGE.indexOf('let FR_AGY_READY = false;');
   const end = PAGE.indexOf('const KEYED_SUB_START', at);
   assert.ok(at > 0 && end > at, 'FR_AGY_SUB moved; re-anchor');
@@ -164,7 +164,7 @@ function agyFlow(answers, { frStep = 5 } = {}) {
     let AGY_INSTALLED = null; let AGY_OFFERED = null;
     ${PAGE.slice(at, end)}
     return { FR_AGY_SUB, ACCT_AGY_SUB, ready: () => FR_AGY_READY, offered: () => AGY_OFFERED };
-  `)(doc, fetchStub, () => {}, () => { painted += 1; }, (fn) => setImmediate(fn),
+  `)(doc, fetchStub, () => {}, () => { painted += 1; return paintFails ? Promise.reject(new Error('accounts read failed')) : undefined; }, (fn) => setImmediate(fn),
     (label, box) => successes.push([label, box]), (o) => 'BOX:' + o.title + '|' + o.detail, async () => {},
     frStep, (primary) => nexts.push(primary && primary.label), () => {}, (n) => n + 1,
     (which, keep) => { collapses.push([which, keep, doc.activeElement && doc.activeElement.id]); el('fr-gemini-sub-step').hidden = true; });
@@ -255,6 +255,12 @@ test('#4082: Gemini focuses the box first, then writes the sentence (Grok\'s ord
   const f = agyToReady();
   await agyWalk(f, 'fr-gemini-sub-paste-go');
   assert.notEqual(f.el('fr-gemini-msg').textAtFocus, 'Google Gemini (Google subscription) is ready.', 'the sentence was written before focus moved');
+  assert.equal(f.el('fr-gemini-msg').textContent, 'Google Gemini (Google subscription) is ready.');
+});
+test('#4082: a failed repaint leaves Gemini\'s box saying the result, with focus on it', async () => {
+  const f = agyToReady({ paintFails: true });
+  await agyWalk(f, 'fr-gemini-sub-paste-go');
+  assert.equal(f.active(), f.el('fr-gemini-msg'));
   assert.equal(f.el('fr-gemini-msg').textContent, 'Google Gemini (Google subscription) is ready.');
 });
 test('#4082: off the model step (first run moved on), focus is not moved, and Next is not offered', async () => {
