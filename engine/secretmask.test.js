@@ -1864,4 +1864,28 @@ test('#4111 a model id from a secrets file is not masked out of the guide prose 
     const out = mask(`your key is ${key} ok`).text;
     assert.equal(out, `your key is ${MASK} ok`, `CONTROL: the key held beside it was shown: ${out}`);
   } finally { setKnownSecrets([]); fs.rmSync(root, { recursive: true, force: true }); }
+test('#4112: many held Anthropic keys and a guide reply naming sk-ant-api03- again and again is checked, not withheld; a key split after it is still caught', () => {
+  /* 200 held keys, deterministic (a seeded generator, not Math.random), so which next characters they have is fixed. */
+  let seed = 4112;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed; };
+  const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const key = () => j('sk-ant-', 'api03-', Array.from({ length: 95 }, () => B64[rnd() % 64]).join(''), '-', Array.from({ length: 6 }, () => B64[rnd() % 64]).join(''), 'AA');
+  const keys = Array.from({ length: 200 }, key);
+  setKnownSecrets(keys);
+  try {
+    const line = 'Every Anthropic key begins with sk-ant-api03- and the rest is a long random part that you should never paste into a chat.';
+    const guide = Array.from({ length: 20 }, (_, i) => `${i + 1}. ${line}`).join('\n');
+    /* On main this was withheld whole (split_search_limit): every mention walked every key through every word in reach. */
+    const out = mask(guide);
+    assert.notEqual(out.text, UNCHECKED, 'the guide reply was withheld: ' + describeFired(out.fired));
+    assert.equal(out.text, guide, 'ordinary guide prose was changed');
+    /* And the walk's reason to exist still works in the same reply: a key split after its public head with a
+       three-character first chunk, which only the walk from sk-ant-api03- can catch. */
+    const k = keys[7];
+    const body = k.slice('sk-ant-api03-'.length);
+    const split = `${guide}\nMine is sk-ant-api03- then ${body.slice(0, 3)} and ${body.slice(3, 50)} and last ${body.slice(50)} ok`;
+    const masked = mask(split).text;
+    assert.notEqual(masked, UNCHECKED, 'the reply with the split key was withheld instead of masked');
+    for (const piece of [body.slice(3, 50), body.slice(50)]) assert.ok(!masked.includes(piece), 'a piece of the split key was left readable');
+  } finally { setKnownSecrets([]); }
 });

@@ -510,7 +510,12 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
    served on every poll pays that once per held set, not per read. Earlier measurements (review round 13): well
    inside it, a 50,000-character reply with five held Anthropic keys and 400 sk-ant-api03- mentions. Measured
    reaching it (review round 13): ten held Anthropic keys and a 36,000-character reply repeating a paragraph that
-   names sk-ant-api03- 200 times, withheld; whether it trips depends on the keys' random next characters. */
+   names sk-ant-api03- 200 times, withheld; whether it trips depends on the keys' random next characters.
+   #4112 (2026-09-27, this Mac, Node 26): the walk now jumps between runs that could match and compares only the
+   variants that could, which is exact (identical output on 1,200 randomized split-key replies). With the budget
+   lifted, 200 held keys and a guide reply naming sk-ant-api03- 200 times cost 8.1M units and 2.0s (26.9M and 3.6s
+   before); 20 mentions cost 0.78M and 0.26s (2.5M and 0.54s before, over the budget: withheld). Exhausting the
+   budget now takes about 0.4 to 0.7s. The budget is unchanged: 200 mentions against 200 keys is still withheld. */
 const WORD_WALK_BUDGET = 1250000;
 /* How many tails after, and heads before, a - or _ one run offers as pieces (review rounds 15 to 19). */
 const PIECE_VARIANTS_MAX = 4;
@@ -580,7 +585,19 @@ function wordSkippingSpans(text) {
   const built = new Map();
   const varsOf = (i) => {
     let v = built.get(i);
-    if (!v) { const vs = pieceVariants(runs[i][2]); v = [vs, vs.reduce((n, x) => n + chunksOf(x.length), 0)]; built.set(i, v); }
+    if (!v) {
+      const vs = pieceVariants(runs[i][2]);
+      /* #4112: the variants grouped by first character, with what comparing each group costs. */
+      const byFirst = new Map();
+      for (const x of vs) {
+        let g = byFirst.get(x[0]);
+        if (!g) { g = { pieces: [], cost: 0 }; byFirst.set(x[0], g); }
+        g.pieces.push(x);
+        g.cost += chunksOf(x.length);
+      }
+      v = [vs, vs.reduce((n, x) => n + chunksOf(x.length), 0), byFirst];
+      built.set(i, v);
+    }
     return v;
   };
   const hasOpening = (raw) => {
@@ -635,6 +652,42 @@ function wordSkippingSpans(text) {
     const at = t.indexOf(piece);
     return at >= 0 ? [a + at, a + at + piece.length] : [a, b];
   };
+  /* #4112: which runs have a variant beginning with each character, in run order, built only as far forward as a
+     walk has needed (from the first run a walk looks at: a reply with no opening builds none of it). A walk jumps
+     from one run that could match to the next, instead of stepping through every run in reach. */
+  const firstIdx = new Map();
+  let idxFrom = -1;
+  let idxTo = -1;   // runs [idxFrom, idxTo] are indexed
+  const ensureIdx = (upTo) => {
+    for (let i = Math.max(idxTo + 1, idxFrom); i <= upTo; i += 1) {
+      if ((budget -= 1) < 0) return false;
+      for (const c of varsOf(i)[2].keys()) {
+        if (!firstIdx.has(c)) firstIdx.set(c, []);
+        firstIdx.get(c).push(i);
+      }
+      idxTo = i;
+    }
+    return true;
+  };
+  /* The first index in the ascending list `arr` greater than `after`, or Infinity. */
+  const firstAbove = (arr, after) => {
+    if (!arr) return Infinity;
+    let lo = 0;
+    let hi = arr.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (arr[mid] > after) hi = mid; else lo = mid + 1; }
+    return lo < arr.length ? arr[lo] : Infinity;
+  };
+  /* The last run after `after` still within `bound` non-space characters of `lastAt` (the original loop's break). */
+  const lastInReach = (after, lastAt, bound) => {
+    let lo = after + 1;
+    let hi = runs.length - 1;
+    let ok = after;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (nonSpaceBefore[runs[mid][1]] - nonSpaceBefore[lastAt] <= bound) { ok = mid; lo = mid + 1; } else hi = mid - 1;
+    }
+    return ok;
+  };
   for (let r = 0; r < runs.length; r += 1) {
     const [runFrom] = runs[r];
     /* The opening is looked for in the run as written and in each variant a piece is tried as (glue taken off),
@@ -683,20 +736,41 @@ function wordSkippingSpans(text) {
            (below), not from the opening alone: pieces spread past four times the key's length in all (each with a
            sentence after it) left the later ones unread. */
         let lastAt = from;
-        for (let s = r + 1; s < runs.length; s += 1) {
-          const [, sTo] = runs[s];
-          const [pieces, piecesCost] = varsOf(s);
-          if (nonSpaceBefore[sTo] - nonSpaceBefore[lastAt] > bound) break;
-          let done = false;
-          const next = new Set(reached);
+        if (idxFrom < 0) idxFrom = r + 1;
+        for (let s = r; ;) {
           /* Each start position, with the reached position it came from: a piece matched past a skipped
              separator links back to where the walk had got to, not to the skip (review round 17: linking to the
              skip broke the trace back, and every piece before it was left readable). */
           const at = [];
           for (const p of reached) for (const q of skipsFrom(f, p)) at.push([q, p]);
-          if ((budget -= at.length * piecesCost) < 0) return null;
+          /* #4112: a piece matches at q only if it begins with f[q]. So the next run that can change anything is the
+             first after s with a variant beginning with one of those characters; every run before it is a no-op
+             (reached, best and lastAt stay as they are), and the walk jumps to it through the index, the reach
+             bound unchanged. Exact, not a heuristic: what it passes over could never have matched. 200 mentions of
+             sk-ant-api03- in a reply against 200 held keys otherwise compared every key with every run in reach
+             from every mention (ordinary words like "a" and "and" advance a walk by a character or two, and keep
+             it comparing), and the reply was withheld whole at 20 mentions. */
+          const chars = new Set();
+          for (const [q] of at) if (q < f.length) chars.add(f[q]);
+          const limit = lastInReach(s, lastAt, bound);
+          if (!ensureIdx(limit)) return null;
+          if ((budget -= chars.size + 1) < 0) return null;
+          let t = Infinity;
+          for (const c of chars) { const i = firstAbove(firstIdx.get(c), s); if (i < t) t = i; }
+          if (t > limit) break;
+          s = t;
+          const [, sTo] = runs[s];
+          const [, , byFirst] = varsOf(s);
+          let done = false;
+          const next = new Set(reached);
+          /* Only the variants that begin with f[q] are compared at q, and only they are charged. */
+          let cost = 0;
+          for (const [q] of at) { const g = q < f.length && byFirst.get(f[q]); if (g) cost += g.cost; }
+          if ((budget -= cost) < 0) return null;
           for (const [q, p] of at) {
-            for (const piece of pieces) {
+            const g = q < f.length && byFirst.get(f[q]);
+            if (!g) continue;
+            for (const piece of g.pieces) {
               if (!f.startsWith(piece, q)) continue;
               const end = q + piece.length;
               if (end === f.length) { done = true; doneFrom = { s, prev: p, start: q }; break; }
