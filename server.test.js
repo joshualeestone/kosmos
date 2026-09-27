@@ -3338,12 +3338,12 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     else if (script[k] === '}') { d -= 1; if (d === 0) { beEnd = k + 1; break; } }
   }
   // eslint-disable-next-line no-new-func
-  new Function('document', 'checked', 'esc', 'err', 'BOARD_SEEN', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN', 'setAgentsGrouped', 'orgBoxPlain',
+  new Function('document', 'checked', 'esc', 'err', 'BOARD_SEEN', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN', 'BOARD_SIGNED_OUT', 'setAgentsGrouped', 'orgBoxPlain',
     /* win32-board-copy: boardEmpty asks the platform copy layer ("not Windows" here). */
     require('./test-support/page').PLATFORM_COPY_FNS.map(pageFnSource).join('\n') + '\n'
     + script.slice(beAt, beEnd) + '\n' + script.slice(from, end))(
     { getElementById: (id) => els[id] }, checked, (s) => String(s), { message: 'boom' },
-    true, 'boom', false, () => {}, (cleared) => { orgBoxResets.push(cleared); }); // #3387: setAgentsGrouped no-op (the catch resets the grouped head; not under test here)
+    true, 'boom', false, false, () => {}, (cleared) => { orgBoxResets.push(cleared); }); // #3387: setAgentsGrouped no-op (the catch resets the grouped head; not under test here)
   // #718: clearing the chart also resets its box (no scroll padding over the note, not a scrolling region,
   // and `true`: the emptied map drops its size rather than staying a blank square).
   assert.deepEqual(orgBoxResets, [true], 'the failure path cleared the chart but left its box (or its size) behind');
@@ -7263,7 +7263,7 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
     + pageFnSource('pjMember') + '\n'
     + pageFnSource('paintFreeAgentPicker') + '\n'
     + 'const setIfChanged = (el, html) => { el.innerHTML = html; };\n'
-    + 'let LAST = []; let BOARD_LOOKED = true; let BOARD_LOOK_FAILED = null; let BOARD_NEEDS_SIGNIN = false;\n');
+    + 'let LAST = []; let BOARD_LOOKED = true; let BOARD_LOOK_FAILED = null; let BOARD_NEEDS_SIGNIN = false; let BOARD_SIGNED_OUT = false;\n');
   const box = { innerHTML: '' };
   const addPick = { innerHTML: '', value: '' };
   global.document = { getElementById: (id) => (id === 'pjs-members' ? box : id === 'pjs-add-pick' ? addPick : null) };
@@ -7509,7 +7509,7 @@ test('the free-agent picker names the not-signed-in state distinctly on a 403 (#
      reads the option text. Driven directly here, with a control. */
   const prelude = 'const esc = (s) => String(s == null ? "" : s);\n'
     + 'let LAST = []; let BOARD_LOOKED = true; let BOARD_LOOK_FAILED = null;\n';
-  const paintOn = pageFunction('paintFreeAgentPicker', prelude + 'let BOARD_NEEDS_SIGNIN = true;\n');
+  const paintOn = pageFunction('paintFreeAgentPicker', prelude + 'let BOARD_NEEDS_SIGNIN = true; let BOARD_SIGNED_OUT = false;\n');
   const selOn = { __lastPicker: null, value: '', innerHTML: '' };
   paintOn({ agents: [] }, selOn, null);
   assert.match(selOn.innerHTML, /not signed in/i,
@@ -7517,11 +7517,23 @@ test('the free-agent picker names the not-signed-in state distinctly on a 403 (#
   /* 🔑 THE CONTROL. Flag OFF with the same empty board must say the ORDINARY
      empty reason, NOT signin -- so the assertion above discriminates rather than
      matching whatever the empty picker happens to render. */
-  const paintOff = pageFunction('paintFreeAgentPicker', prelude + 'let BOARD_NEEDS_SIGNIN = false;\n');
+  const paintOff = pageFunction('paintFreeAgentPicker', prelude + 'let BOARD_NEEDS_SIGNIN = false; let BOARD_SIGNED_OUT = false;\n');
   const selOff = { __lastPicker: null, value: '', innerHTML: '' };
   paintOff({ agents: [] }, selOff, null);
   assert.ok(!/not signed in/i.test(selOff.innerHTML) && /cannot see any agents/i.test(selOff.innerHTML),
     'the control: flag off shows the ordinary empty reason: ' + selOff.innerHTML);
+});
+
+test('the free-agent picker names a relay-signed-out device distinctly (#718 state 3)', () => {
+  const prelude = 'const esc = (s) => String(s == null ? "" : s);\n'
+    + 'let LAST = []; let BOARD_LOOKED = true; let BOARD_LOOK_FAILED = "status 401";\n';
+  const sel = { __lastPicker: null, value: '', innerHTML: '' };
+  pageFunction('paintFreeAgentPicker', prelude + 'let BOARD_NEEDS_SIGNIN = false; let BOARD_SIGNED_OUT = true;\n')({ agents: [] }, sel, null);
+  assert.match(sel.innerHTML, /needs to sign in again/i, 'a signed-out device got the generic reason: ' + sel.innerHTML);
+  // CONTROL: the same failed read without the flag is the ordinary cannot-see reason.
+  const off = { __lastPicker: null, value: '', innerHTML: '' };
+  pageFunction('paintFreeAgentPicker', prelude + 'let BOARD_NEEDS_SIGNIN = false; let BOARD_SIGNED_OUT = false;\n')({ agents: [] }, off, null);
+  assert.ok(!/sign in again/i.test(off.innerHTML) && /cannot see the agents/i.test(off.innerHTML), 'the control: ' + off.innerHTML);
 });
 
 test('paintAddAgents shows the not-signed-in copy on a 403, and cannot-read otherwise (#2023)', () => {
@@ -7537,14 +7549,38 @@ test('paintAddAgents shows the not-signed-in copy on a 403, and cannot-read othe
       + 'const SIGNIN_SENTENCE = ' + JSON.stringify(pageConst('SIGNIN_SENTENCE')) + ';\n'
       + 'let LAST = []; let BOARD_LOOKED = true; let BOARD_LOOK_FAILED = "boom";\n';
     // flag ON: a 403 also set BOARD_LOOK_FAILED; the signin branch must win.
-    pageFunction('paintAddAgents', base + 'let BOARD_NEEDS_SIGNIN = true;\n')();
+    pageFunction('paintAddAgents', base + 'let BOARD_NEEDS_SIGNIN = true; let BOARD_SIGNED_OUT = false;\n')();
     assert.match(box.innerHTML, /not signed in/i, 'a 403 add-project view showed cannot-read, not the signin copy');
     assert.ok(!/cannot read the agents/i.test(box.innerHTML), 'the signin branch leaked the generic cannot-read copy');
     // CONTROL: flag OFF with the same failed read must show cannot-read.
     box.innerHTML = '';
-    pageFunction('paintAddAgents', base + 'let BOARD_NEEDS_SIGNIN = false;\n')();
+    pageFunction('paintAddAgents', base + 'let BOARD_NEEDS_SIGNIN = false; let BOARD_SIGNED_OUT = false;\n')();
     assert.match(box.innerHTML, /cannot read the agents/i, 'the control: a non-403 failure must still show cannot-read');
     assert.ok(!/not signed in/i.test(box.innerHTML), 'the control: cannot-read must not say signin');
+  } finally {
+    delete global.document;
+  }
+});
+
+test('paintAddAgents tells a relay-signed-out device to sign in, and does not say the project can still be added (#718 state 3)', () => {
+  /* The relay refuses a signed-out device's POST too, so "You can still add the project"
+     would be false here. */
+  const box = { innerHTML: '' };
+  global.document = { getElementById: (id) => (id === 'pj-add-agents' ? box : null) };
+  try {
+    const base = 'const esc = (s) => String(s == null ? "" : s);\n'
+      + 'const setLive = (el, html) => { el.innerHTML = html; };\n'
+      + 'const SIGNIN_SENTENCE = ' + JSON.stringify(pageConst('SIGNIN_SENTENCE')) + ';\n'
+      + 'const SIGNED_OUT_SENTENCE = ' + JSON.stringify(pageConst('SIGNED_OUT_SENTENCE')) + ';\n'
+      + 'let LAST = []; let BOARD_LOOKED = true; let BOARD_LOOK_FAILED = "status 401"; let BOARD_NEEDS_SIGNIN = false;\n';
+    pageFunction('paintAddAgents', base + 'let BOARD_SIGNED_OUT = true;\n')();
+    assert.match(box.innerHTML, /signed out of your Kosmos/i, 'a signed-out device got another copy: ' + box.innerHTML);
+    assert.ok(!/You can still add the project/i.test(box.innerHTML), 'it promised a project the relay will refuse to create');
+    assert.ok(!/cannot read the agents/i.test(box.innerHTML), 'the signed-out branch leaked cannot-read');
+    // CONTROL: the flag off with the same failed read is cannot-read.
+    box.innerHTML = '';
+    pageFunction('paintAddAgents', base + 'let BOARD_SIGNED_OUT = false;\n')();
+    assert.match(box.innerHTML, /cannot read the agents/i, 'the control: ' + box.innerHTML);
   } finally {
     delete global.document;
   }

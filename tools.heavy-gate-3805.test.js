@@ -285,6 +285,27 @@ test('--quiet prints nothing and answers by exit code alone (control: without it
   assert.match(busy.stderr, /test seam active/);
 });
 
+test('--quiet-box counts a validation suite while the default remains clear', () => {
+  const validation = ['860', WORK, 'bash tools/run-tests.sh', 'zsh'];
+  const timed = run([validation], { args: ['--quiet-box'] });
+  assert.equal(timed.code, 1, timed.out);
+  assert.match(timed.out, /COUNTS 860: a real run/);
+  const ordinary = run([validation]);
+  assert.equal(ordinary.code, 0, ordinary.out);
+  assert.match(ordinary.out, /ignore 860: mentions the name but does not run it/);
+});
+
+test('--quiet-box applies --except-cwd to a validation suite, but not to a sibling', (t) => {
+  const base = fs.realpathSync(fs.mkdtempSync('/tmp/hg-quiet-box-'));
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const mine = path.join(base, 'kosmos');
+  fs.mkdirSync(mine);
+  fs.writeFileSync(path.join(mine, '.git'), 'gitdir: /nowhere\n');
+  const args = ['--quiet-box', '--except-cwd', mine];
+  assert.equal(run([['861', mine, 'bash tools/run-tests.sh', 'zsh']], { args }).code, 0);
+  assert.equal(run([['862', mine + '-other', 'bash tools/run-tests.sh', 'zsh']], { args }).code, 1);
+});
+
 test('combined flags with c (-lc, -ec) are a command string, a mention (control: -l alone runs the script)', () => {
   const r = run([
     ['501', WORK, 'bash -lc pgrep -f tools/release.sh', 'zsh'],
@@ -392,6 +413,7 @@ printf 'p%s\nfcwd\nn%s\n' "$pid" "$cwd"
     ['910', '1', WORK, 'node --test x.test.js'],
     ['911', '910', WORK, 'bash tools/browser-checks.sh'],
     ['920', '900', WORK, 'zsh -c echo tools/release.sh'],
+    ['940', '900', WORK, 'bash tools/run-tests.sh'],
     /* three hops below the runner: node, run-tests.sh, a wrapper shell, the script */
     ['930', '1', WORK, 'node --test y.test.js'],
     ['931', '930', WORK, 'bash tools/run-tests.sh'],
@@ -399,12 +421,12 @@ printf 'p%s\nfcwd\nn%s\n' "$pid" "$cwd"
     ['933', '932', WORK, 'bash tools/release.sh 0.6.9'],
   ];
   assert.ok(rows.every((row) => row.every((v) => !v.includes('|'))), 'a value contains the table separator');
-  const live = (table, extra = {}) => {
+  const live = (table, extra = {}, args = []) => {
     const f = path.join(dir, 'table.txt');
     fs.writeFileSync(f, table.map((r) => r.join('|')).join('\n') + '\n');
     const env = { ...process.env, PATH: bin + ':' + process.env.PATH, FAKE_PS_TABLE: f, KOSMOS_HG_CLAIM: FREE, ...extra };
     delete env.KOSMOS_HG_SNAPSHOT;
-    const r = spawnSync('bash', [TOOL], { encoding: 'utf8', env });
+    const r = spawnSync('bash', [TOOL, ...args], { encoding: 'utf8', env });
     return { code: r.status, out: r.stdout + r.stderr };
   };
   const r = live(rows);
@@ -415,6 +437,9 @@ printf 'p%s\nfcwd\nn%s\n' "$pid" "$cwd"
   assert.match(r.out, /ignore 933: a unit-test fixture \(node --test ancestor\)/);
   const without = live(rows.filter((row) => row[0] !== '901'));
   assert.equal(without.code, 0, without.out);
+  const quietBox = live(rows.filter((row) => row[0] !== '901'), {}, ['--quiet-box']);
+  assert.equal(quietBox.code, 1, quietBox.out);
+  assert.match(quietBox.out, /COUNTS 940: a real run/);
   /* A table that cannot be read must never read as "nothing running". */
   const failed = live(rows, { FAKE_PS_FAIL: '1' });
   assert.equal(failed.code, 2, failed.out);
