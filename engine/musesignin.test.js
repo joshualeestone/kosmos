@@ -336,3 +336,78 @@ test('#3939 round 6 (convention 3): with the live-execution gate closed, a start
     assert.equal(signin.status().state, 'idle', 'a sign-in was recorded although nothing may run');
   } finally { signin.resetForTests(); delete process.env.AGENT_WORKFORCE_MUSE; }
 });
+
+/* Round 7: the delivery-unknown and reset branches, each with a stubbed tmux. */
+const timeoutErr = () => Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' });
+
+test('#3939 round 7: a retry send that timed out counts as sent, so no second r follows', { skip: !onMac && 'the flag is Mac only' }, () => {
+  const { st, done } = scripted(EXPIRED_TEXT);
+  let first = true;
+  signin.setForTests({ tmux: (args) => {
+    if (args[0] === 'send-keys') { st.sent.push(args.slice(3).join(' ')); if (first) { first = false; throw timeoutErr(); } return ''; }
+    return args[0] === 'capture-pane' ? st.text : '';
+  } });
+  try {
+    signin.tickForTests();
+    const id = signin.status().id;
+    assert.equal(signin.retry(id).ok, true, 'a timed-out retry send was treated as not sent');
+    assert.equal(signin.retry(id).ok, false, 'a second retry was taken while the first may be arriving');
+    assert.deepEqual(st.sent, ['r Enter']);
+  } finally { done(); }
+});
+
+test('#3939 round 7: an Enter that timed out is not re-armed (it may have arrived)', { skip: !onMac && 'the flag is Mac only' }, () => {
+  const { st, done } = scripted(PROMPT);
+  signin.setForTests({ tmux: (args) => {
+    if (args[0] === 'send-keys') { st.sent.push(args.slice(3).join(' ')); throw timeoutErr(); }
+    return args[0] === 'capture-pane' ? st.text : '';
+  } });
+  try {
+    signin.tickForTests(); signin.tickForTests(); signin.tickForTests();
+    assert.deepEqual(st.sent, ['Enter'], 'a timed-out Enter was sent again before the resend wait');
+  } finally { done(); }
+});
+
+test('#3939 round 7: a slow tmux is not a gone session', { skip: !onMac && 'the flag is Mac only' }, () => {
+  let slow = false;
+  const done = stubbed((args) => {
+    if (slow && (args[0] === 'capture-pane' || args[0] === 'has-session')) throw timeoutErr();
+    return args[0] === 'capture-pane' ? 'Starting...\n' : '';
+  });
+  try {
+    signin.tickForTests();
+    slow = true;
+    for (let i = 0; i < 4; i += 1) signin.tickForTests();
+    assert.equal(signin.status().state, 'starting', 'timeouts from tmux ended the sign-in as gone');
+  } finally { done(); }
+});
+
+test('#3939 round 7: a send that goes out clears the failure count', { skip: !onMac && 'the flag is Mac only' }, () => {
+  let n = 0; let failing = true;
+  const done = stubbed((args) => {
+    if (args[0] === 'send-keys' && failing) throw Object.assign(new Error('send failed'), { status: 1 });
+    if (args[0] === 'capture-pane') { n += 1; return 'open https://auth.meta.com/device?user_code=AAAA-' + (1000 + n) + '\nand enter the code: AAAA-' + (1000 + n) + '\nPress Enter to open it in your browser: '; }
+    return '';
+  });
+  try {
+    signin.tickForTests();                 // one failure
+    failing = false; signin.tickForTests(); // a send goes out
+    failing = true;
+    for (let i = 0; i < signin.MAX_KEY_FAILURES - 1; i += 1) signin.tickForTests();
+    assert.notEqual(signin.status().state, 'stuck', 'failures before a good send still counted');
+  } finally { done(); }
+});
+
+test('#3939 round 7: a retry restarts the give-up clock', { skip: !onMac && 'the flag is Mac only' }, () => {
+  const { st, done } = scripted(EXPIRED_TEXT);
+  try {
+    signin.tickForTests();
+    st.skew = signin.GIVE_UP_MS - 1000;
+    signin.tickForTests();
+    assert.deepEqual(signin.retry(signin.status().id), { ok: true });
+    st.skew = signin.GIVE_UP_MS + 5000;   // past the first code's limit, well inside the new one's
+    st.text = PROMPT.replace(/WXYZ-1234/g, 'QRST-5678');
+    signin.tickForTests();
+    assert.notEqual(signin.status().state, 'failed', 'the new code was ended on the old code\'s clock');
+  } finally { done(); }
+});

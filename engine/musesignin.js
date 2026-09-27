@@ -40,6 +40,7 @@ const CLOSED = 'Muse Code\'s sign-in closed before it finished';
 /* Final, not retryable (round 5): start again. A retry typed after one was given up can land on the late code. */
 const NO_NEW_CODE = 'Muse Code did not send a new code, so start the sign-in again';
 const GAVE_UP = 'The sign-in waited too long, so start it again';
+const NO_EXPIRED = 'There is no expired code to replace';
 /* An Enter that did not move Muse off the code screen this long is sent once more, then named (round 1). */
 const RESEND_MS = 5000;
 /* The line the session prints when muse has exited, so its last screen can still be read (round 1:
@@ -264,12 +265,16 @@ function isMine(id) { return !!S && typeof id === 'string' && id === S.id; }
 /** After "expired": Muse asks for r then Enter to print a new code. */
 function retry(id) {
   if (!isMine(id)) return { ok: false, because: NOT_MINE };
-  if (!S.timer || S.state !== 'expired' || S.retrying) return { ok: false, because: 'There is no expired code to replace' };
+  if (!S.timer || S.state !== 'expired' || S.retrying) return { ok: false, because: NO_EXPIRED };
   // The screen, not the state, right before typing: an r on any other screen is keystrokes there.
   const text = screen();
-  if (typeof text !== 'string' || screenOf(text) !== 'expired') return { ok: false, because: 'There is no expired code to replace' };
+  if (typeof text !== 'string' || screenOf(text) !== 'expired') return { ok: false, because: NO_EXPIRED };
   // One call (round 5): an r typed without its Enter would be doubled by the next retry.
-  try { keys('r', 'Enter'); } catch { return { ok: false, because: 'Kosmos could not ask Muse Code for a new code' }; }
+  try { keys('r', 'Enter'); } catch (e) {
+    /* A timeout says nothing about delivery (round 7, the enterOnce rule): taken as sent, so no second r
+       can follow onto the new code; NO_NEW_CODE ends it if the keys never arrived. */
+    if (!(e && (e.code === 'ETIMEDOUT' || e.signal))) return { ok: false, because: 'Kosmos could not ask Muse Code for a new code' };
+  }
   // The give-up clock is the new code's (round 1), and the old expiry is ignored until it is drawn.
   S.state = 'starting'; S.because = null; S.seenAt = now(); S.screen = null; S.startedAt = now(); S.retrying = true;
   return { ok: true };
