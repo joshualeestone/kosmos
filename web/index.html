@@ -9406,6 +9406,9 @@ body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.att
 #plus-stars { position: absolute; inset: 0; width: 100%; height: 100%;
   display: block; z-index: 0; pointer-events: none; }
 #s-sec-plus > *:not(#plus-stars) { position: relative; z-index: 1; }
+/* #4080: the Lost your phone? dialog is a child of this section (the body's 38-row limit), and the rule above, at id
+   specificity, would make it position:relative, a block at the foot of the pane. Give it back the .rm-back overlay. */
+#s-sec-plus > #plus-lost-modal { position: fixed; inset: 0; z-index: 50; }
 /* state 1 (HOME) — the immersive marketing view, where most of the visual lands */
 #plus-mark { display: block; width: min(560px, 82%); height: auto; margin: 6px 0 4px; }
 .plus-hero-h { font-size: 26px; font-weight: 650; letter-spacing: -.01em;
@@ -9468,8 +9471,8 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .tk-inp:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px #ffffff inset; }
 #s-sec-plus .field + .frow { margin-top: var(--space-5); }
 #s-sec-plus .tk-inp.bad, #s-sec-plus .tk-inp.bad:focus { border-color: var(--danger); } /* the shared error border still wins */
-/* #3829: the connected panel's head (Mona Lisa's sketch): a status pill, View my account at the right,
-   the address in one chip with Copy and Open inside it. No solid left bar anywhere (#3692). */
+/* #3829, restyled by #4080 (Josh's design): the head is the logo, the switch and the status pill; the chip now holds
+   "Sign in at login.kosmosplus.com." with Open; View account is in the bottom row. No solid left bar anywhere (#3692). */
 #s-sec-plus .plus-headrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 #s-sec-plus .plus-headrow .setname { margin: 0; }
 #s-sec-plus .plus-sp { flex: 1 1 auto; }
@@ -9482,8 +9485,17 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-chip code { flex: 1 1 auto; min-width: 0; font: 600 .95rem ui-monospace, Menlo, monospace; color: #E6EBF7; overflow-wrap: anywhere; }
 #s-sec-plus .plus-chip .btn { flex: 0 0 auto; background: transparent; color: #E6EBF7; border: 1px solid rgba(255,255,255,.25); border-radius: 8px; text-decoration: none; padding: 6px 12px; font-size: .9rem; }
 #s-sec-plus .devrow .btn { border: 1px solid rgba(255,255,255,.25); }   /* #3829: Remove visible on navy */
-#s-sec-plus #plus-switch.plus-quiet { white-space: nowrap; background: none; border: 0; color: var(--k-ink-2); text-decoration: underline; text-underline-offset: 3px; padding: 4px 0; }
-#s-sec-plus #plus-switch.uprime { background: linear-gradient(150deg,#3a68d8,#2f57c4); border: 1px solid #2f57c4; color: #fff; border-radius: 10px; font-weight: 650; }
+/* #4080 (Josh's design): logo, switch, badge on top; the sign-in box; the bottom row. */
+#s-sec-plus .plus-logo { display: block; height: 22px; width: auto; }
+#s-sec-plus .plus-headrow .toggle { flex: 0 0 42px; }
+#s-sec-plus .plus-chip-say { flex: 1 1 auto; min-width: 0; font: 500 .95rem var(--font-ui); color: #E6EBF7; }
+#s-sec-plus .plus-foot { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.1); }
+#s-sec-plus .plus-remove-link, #s-sec-plus .plus-lost-link { background: none; border: 0; padding: 4px 0; font: 600 .95rem var(--font-ui); cursor: pointer; }
+#s-sec-plus .plus-remove-link { color: #f0877a; }
+#s-sec-plus .plus-remove-link:hover { color: #ff9f93; text-decoration: underline; text-underline-offset: 3px; }
+#s-sec-plus .plus-lost-link { color: var(--k-ink-2); font-weight: 500; }
+#s-sec-plus .plus-lost-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+#s-sec-plus .plus-foot .plus-signin-link { font-weight: 600; }
 /* states 2 (paid sign-in gate) & 3 (connected) — the blue premium card. The
    whole app is already blue via the token override above; this frames the two
    working states as the mock's card. Their wired ids are untouched. */
@@ -16124,7 +16136,7 @@ window.kosmosMeasureScrollbarWidth();
              reset from a computer already connected to Kosmos+ (#733's "I lost my phone"); there is
              no support path or server unlock by design (docs/second-factor.md in kosmos-relay). -->
         <p class="plus-si-small"><a id="plus-si-second-help" class="plus-signin-link" href="#" role="button" aria-expanded="false" aria-controls="plus-si-second-recover">Can't get a code?</a></p>
-        <p class="plus-si-small" id="plus-si-second-recover" hidden>Open Kosmos on a computer that is already connected to Kosmos+, go to Settings, Kosmos Plus, and choose I lost my phone. That resets this step, and nobody else can.</p>
+        <p class="plus-si-small" id="plus-si-second-recover" hidden>Open Kosmos on a computer that is already connected to Kosmos+, go to Settings, Kosmos Plus, and choose “Lost your phone?”. That resets this step, and nobody else can.</p>
       </div>
 
       <!-- Set up a second factor (signin-enrol): reached only when the account has
@@ -16231,14 +16243,22 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #3829 (Josh, 16:54: "terribly worded and designed"; Mona Lisa's sketch on the card): status first,
            View my account top right, the address in ONE chip with Copy and Open and one plain line under it,
            and Pause (Turn off until #4079) a quiet control rather than the headline. Off, Turn on is the one primary action. -->
+      <!-- #4080 (Josh's design, 22:22): the Kosmos+ logo at left, then the switch (the Settings/Automation
+           toggle: on when this computer is reachable, off pauses it, PUT /api/remote on:false), then the
+           Connected badge. "Use Kosmos from anywhere", the address and the Turn off/Pause link are gone. The switch
+           shows the setting (on = remote access wanted); the badge says whether it is connected. The logo is drawn
+           from the Kosmos+ dot data the app already ships (kplusBarDrawMark, also the remote-access bar's mark). -->
       <div class="plus-headrow">
-        <p class="setname">Use Kosmos from anywhere</p>
-        <span class="plus-pill" id="plus-pill" data-state="off">Off</span>
+        <canvas class="plus-logo" id="plus-logo" role="img" aria-label="Kosmos Plus"></canvas>
         <span class="plus-sp"></span>
-        <a class="plus-signin-link" id="plus-account" href="#" target="_blank" rel="noreferrer noopener">View my account</a>
+        <button class="toggle" type="button" id="plus-switch" role="switch" aria-label="Let your devices reach this computer through Kosmos Plus" hidden><i></i></button>
+        <span class="plus-pill" id="plus-pill" data-state="off">Off</span>
       </div>
+      <!-- #4080 (Josh, 22:09: "lets put this ... in that box that the current URL is in"): the box holds the way
+           in from another device, with Open to it, in the words of his 22:22 mock ("sign in at login.kosmosplus.com.",
+           capital S, one line; the mock is newer than the 22:09 sentence). The machine's own address is not on the pane. -->
       <div class="plus-chip" id="plus-chip" hidden>
-        <code id="plus-chip-addr"></code>
+        <span class="plus-chip-say" id="plus-chip-say">Sign in at login.kosmosplus.com.</span>
         <a class="btn" id="plus-open" href="#" target="_blank" rel="noreferrer noopener">Open</a>
       </div>
       <div class="setrow">
@@ -16263,7 +16283,6 @@ window.kosmosMeasureScrollbarWidth();
                and left as-is; the recovery block below was reviewed too. -->
           <p class="fhint" id="plus-next" hidden></p>
         </div>
-        <button class="btn" type="button" id="plus-switch"></button>
       </div>
       <div id="plus-enrol" hidden style="margin-top:12px;">
         <div class="field">
@@ -16297,7 +16316,6 @@ window.kosmosMeasureScrollbarWidth();
            session on the spot. -->
       <div id="plus-devices" hidden style="margin-top:16px;">
         <p class="setname">Devices that can reach this computer</p>
-        <p class="fhint">Each one asked here first. Remove one and it stops right away; it can ask again by signing in.</p>
         <p class="fhint" id="plus-devices-off" hidden>Plus is off, so no device can reach Kosmos on this computer right now. Your devices are kept for when you turn it back on.</p>
         <div id="plus-devlist"></div>
         <!-- 🛑 NOT "from a phone" (Josh, 2026-08-29 14:04). Every device that reaches
@@ -16307,63 +16325,48 @@ window.kosmosMeasureScrollbarWidth();
         <p class="fhint" id="plus-devempty" hidden>None yet. The first time you sign in from another device, it asks here.</p>
         <p class="fmsg" id="plus-devmsg" role="alert" aria-live="assertive"></p>
       </div>
-      <!-- #733 recovery: the second step at sign-in can be reset only from
-           a Mac connected to the account (this one or any other live one,
-           kosmos#3860), with its own signed request; a person at this keyboard
-           already holds what the step protects, and no support path or
-           server-side unlock exists on purpose (docs/second-factor.md in
-           kosmos-relay). Two clicks, so a stray one switches nothing off.
-           These words were reviewed by the design lane (Mona Lisa, #2499) and
-           left as-is then; kosmos#3860 later added "or any other computer
-           connected to this account" to the hint (a fact, not a re-voicing).
-           The verbatim Josh ruling below is unchanged. -->
-      <div id="plus-second" hidden style="margin-top:16px;">
-        <p class="setname">I lost my phone</p>
-        <!-- 🛑 "ALWAYS", NOT "from a phone" (Josh, 2026-08-29 14:04, verbatim):
-             "The phone verification will ALWAYS happen. It is NOT if you are
-             coming from a phone... It is true two-factor."
-             ⚠️ THIS IS THE ONE KIND OF COPY WHERE BEING WRONG IS ITS OWN HARM.
-             The sentence taught a person that a second step protects them only
-             in one situation. Somebody who believed it would reason about their
-             own account security from a false model, and would not think the
-             second step was theirs to lose.
-             📌 HIS RULING ALSO NAMES AN AUTHENTICATOR APP AND THIS COPY DOES
-             NOT MENTION ONE. An earlier version of this comment said that was
-             because there ISN'T one, on the strength of zero hits in this repo.
-             THAT WAS WRONG: the feature lives in the RELAY repo
-             (kosmos-relay/coordinator/src/second.rs, totp 20, authenticator 11,
-             otpauth 3). I searched one repo and concluded about the product.
-             ⇒ So whether to NAME it here is a wording decision for whoever owns
-             this voice, not a gap. The sentence as written is true either way:
-             the second step always happens, whichever thing supplies the code. -->
-        <p class="fhint">Signing in always asks for a second code after the email code, on every device. If the phone that gives that code is gone, this computer, or any other computer connected to this account, can switch the second step off. Nobody else can, not even us. Sign in from your new phone afterwards and set it up again there.</p>
-        <div class="frow">
-          <button class="btn" type="button" id="plus-second-reset">Reset the second step</button>
-        </div>
-        <p class="dhint" id="plus-second-msg" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
-      </div>
       <!-- #4079, named "Remove this computer" by Josh's design (#4080, 22:22). (Josh, 22:03: "Is there a way to disconnect my computer running Kosmos from this Kosmos Plus
-           account somehow?"): the engine's Forget (#793, /api/remote/forget) finally has a button. Pause (above,
-           was "Turn off") only stops remote access for now; this removes the computer from the account. Two
+           account somehow?"): the engine's Forget (#793, /api/remote/forget) finally has a button. The switch
+           (#4080; it was Pause, before that Turn off) only pauses remote access; this removes the computer from the account. Two
            steps, confirmed in place (the page has no confirm dialog), and the confirm stays until Remove or
            Cancel: the 5-second repaint does not take it away while it is being read. -->
-      <div id="plus-forget" hidden style="margin-top:16px;">
-        <p class="setname">Remove this computer</p>
-        <p class="fhint">Removes this computer from your Kosmos Plus account. Pause only stops access for now.</p>
-        <div class="frow" id="plus-forget-row">
-          <button class="btn" type="button" id="plus-forget-go">Remove this computer</button>
-        </div>
-        <div id="plus-forget-ask" hidden>
-          <p class="fhint" id="plus-forget-sure">This computer leaves your Kosmos Plus account and its address is freed. Your devices will no longer reach it. You can connect it again later by signing in.</p>
-          <div class="frow">
-            <button class="btn danger-btn" type="button" id="plus-forget-yes">Remove</button>
-            <button class="btn" type="button" id="plus-forget-no">Cancel</button>
-          </div>
-        </div>
-        <p class="dhint" id="plus-forget-msg" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
+      <!-- #4080 (Josh's design): the bottom row. Remove this computer (#4079, the full unlink) in red at left,
+           View account at right, and, beside it, a quiet "Lost your phone?" (Splinter's call: Josh's mock has no
+           second-step reset, but it can only be done from a connected computer, "nobody else can, not even us", so
+           it stays reachable, as a dialog rather than the essay). The Remove confirm opens in place below the row. -->
+      <div class="plus-foot" id="plus-forget" hidden>
+        <button type="button" class="plus-remove-link" id="plus-forget-go">Remove this computer</button>
+        <span class="plus-sp"></span>
+        <button type="button" class="plus-lost-link" id="plus-lost-open">Lost your phone?</button>
+        <a class="plus-signin-link" id="plus-account" href="#" target="_blank" rel="noreferrer noopener">View account</a>
       </div>
+      <div id="plus-forget-ask" hidden>
+        <p class="fhint" id="plus-forget-sure">This computer leaves your Kosmos Plus account and its address is freed. Your devices will no longer reach it. You can connect it again later by signing in.</p>
+        <div class="frow">
+          <button class="btn danger-btn" type="button" id="plus-forget-yes">Remove</button>
+          <button class="btn" type="button" id="plus-forget-no">Cancel</button>
+        </div>
+      </div>
+      <p class="dhint" id="plus-forget-msg" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
       <p class="fmsg" id="plus-msg" role="alert" aria-live="assertive"></p>
     </div>
+<!-- #4080: "Lost your phone?" opens this, in place of the essay that sat on the Kosmos Plus pane (Josh, 22:06:
+       "all of this probably doesnt belong on that page"). The reset keeps its ids and its two-step arm (#733).
+       The words are shortened; "always" is kept, per Josh's 2026-08-29 ruling that the second step ALWAYS happens.
+       It sits INSIDE the Kosmos Plus section, not as a direct child of <body>: the consolidated grid reserves 38 rows
+       for body's children (web.consolidated-980.test.js) and main already has 38. The section's own child rule would
+       make it position:relative, so a rule restores the fixed overlay (#s-sec-plus > #plus-lost-modal; review round 3). -->
+  <div class="rm-back" id="plus-lost-modal" hidden>
+    <div class="rm-box" role="dialog" aria-modal="true" aria-labelledby="plus-lost-t" aria-describedby="plus-lost-say">
+      <h2 class="rm-title" id="plus-lost-t">Lost your phone?</h2>
+      <p class="rm-small" id="plus-lost-say">Signing in always asks for a second code after the email code. If the phone that gives it is gone, this computer, or any other computer connected to this account, can switch the second step off. Nobody else can, not even us. Then sign in from your new phone and set it up again there.</p>
+      <p class="dhint" id="plus-second-msg" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
+      <div class="rm-acts">
+        <button class="btn" type="button" id="plus-lost-close">Close</button>
+        <button class="btn" type="button" id="plus-second-reset">Reset the second step</button>
+      </div>
+    </div>
+  </div>
   </section>
 
   <section class="dsec" id="s-sec-advanced" data-sec="advanced" tabindex="-1" aria-label="Advanced" hidden>
@@ -16887,8 +16890,8 @@ function kplusRemote() {
   const h = String((typeof location !== 'undefined' && location.hostname) || '').replace(/^\[|\]$/g, '').toLowerCase();
   return !!h && !['127.0.0.1', 'localhost', '::1'].includes(h);
 }
-function kplusBarDrawMark(cv) {
-  const md = plusMd(), h = 14, w = Math.round(h * md.VBW / md.VBH), s = h / md.VBH;
+function kplusBarDrawMark(cv, hh) {
+  const md = plusMd(), h = hh || 14, w = Math.round(h * md.VBW / md.VBH), s = h / md.VBH;
   cv.style.width = w + 'px'; cv.style.height = h + 'px';
   cv.width = Math.round(w * PLUS_DPR); cv.height = Math.round(h * PLUS_DPR);
   const ctx = cv.getContext('2d');
@@ -38293,17 +38296,9 @@ async function paintDevices() {
      has been allowed the person has plainly worked it out, and a standing
      instruction to do a thing you have already done is just clutter. */
   const next = document.getElementById('plus-next');
-  if (next) {
-    const addr = PLUS_ADDRESS;
-    if (addr && !hasDevices) {
-      next.textContent = 'Open ' + addr + ' on your phone. It will ask you to sign in with '
-        + 'this email first, and then this computer will ask you to allow that phone. '
-        + 'You only do this once per phone.';
-      next.hidden = false;
-    } else {
-      next.hidden = true;
-    }
-  }
+  /* #4080: the machine's address is no longer on the pane (Josh, 22:07), and the box at the top says where to go,
+     so #1014's "Open <address> on your phone" instruction is never shown; the element stays for the layout. */
+  if (next) { next.hidden = true; next.textContent = ''; }
 }
 document.getElementById('plus-devlist').addEventListener('click', async (e) => {
   const a = e.target.closest('[data-ask]');
@@ -38515,11 +38510,13 @@ async function paintPlus() {
      sign-in wizard is over -- clear its flag (typeof-guarded for the test harness). */
   if (typeof PLUS_SIGNIN_ACTIVE !== 'undefined') PLUS_SIGNIN_ACTIVE = false;
   const sw = document.getElementById('plus-switch');
-  /* #4079: the on-state control is Pause (it was Turn off), so it cannot be mistaken for Remove this
-     computer below, which removes the computer from the account. Pause keeps it connected, for later. */
-  sw.textContent = r.on ? 'Pause' : 'Turn on';
-  /* #3829: on, the pause (Pause since #4079) is a quiet link; off, Turn on is the one primary action. */
-  sw.className = r.on ? 'plus-quiet' : 'btn uprime';
+  /* #4080: the switch (Josh's design) replaces the Pause / Turn on control. It shows the SETTING (r.on: remote access
+     wanted), not reachability: on with the tunnel down reads On beside a "Not connected" pill, which says why. Off
+     pauses. paintSwitch shows it only once the engine has answered (never a guessed off). */
+  if (typeof paintSwitch === 'function') paintSwitch('plus-switch', r.on === true);
+  else if (sw) { sw.hidden = false; if (sw.setAttribute) sw.setAttribute('aria-checked', r.on === true ? 'true' : 'false'); }   // the page tests lift paintPlus alone
+  { const lg = document.getElementById('plus-logo');
+    if (lg && lg.dataset && !lg.dataset.drawn && typeof kplusBarDrawMark === 'function') { try { kplusBarDrawMark(lg, 22); lg.dataset.drawn = '1'; } catch { /* the label still says Kosmos Plus */ } } }
   const st = document.getElementById('plus-status');
   const stat = r.status || {};
   const because = plusWords(stat.because || '');
@@ -38534,17 +38531,17 @@ async function paintPlus() {
   }
   const acct = document.getElementById('plus-account'); if (acct && typeof PLUS_ACCOUNT_URL !== 'undefined') acct.href = PLUS_ACCOUNT_URL;
   const chip = document.getElementById('plus-chip');
+  /* #4080: the box holds the way in from another device (login.kosmosplus.com) with Open to it; the machine's
+     own address is no longer shown on the pane. */
   if (chip) {
     chip.hidden = !up;
-    if (up) {
-      document.getElementById('plus-chip-addr').textContent = stat.address;
-      document.getElementById('plus-open').href = 'https://' + stat.address + '/';
-    }
+    if (up && typeof PLUS_ACCOUNT_URL !== 'undefined') document.getElementById('plus-open').href = PLUS_ACCOUNT_URL;
   }
   /* Connected: one plain line under the chip. Otherwise the engine's own sentence says why not. */
   /* Josh's 17:30 ruling (the #3796 landing's line): one way in on another device, the website. */
+  /* #4080: connected, the sentence lives in the box above, so the line under it is empty. */
   st.textContent = up
-    ? 'To use Kosmos on another device, sign in at login.kosmosplus.com.'
+    ? ''
     : (stat.state === 'up' ? 'Connected. Your address is on its way.'
       : (because ? because.charAt(0).toUpperCase() + because.slice(1) + (/[.!?]$/.test(because) ? '' : '.') : ''));
   /* #1014: only a real address earns an instruction. While the tunnel is
@@ -38562,8 +38559,9 @@ async function paintPlus() {
   document.getElementById('plus-devices').hidden = r.enrolled !== true;
   /* #733 recovery: only an enrolled Mac can sign the reset, so the control
      shows with the devices, and a fresh paint disarms a half-taken click. */
-  document.getElementById('plus-second').hidden = r.enrolled !== true;
-  plusSecondDisarm();
+  /* #4080: the second-step reset lives in the "Lost your phone?" dialog now, reached from the bottom row. The 5-second
+     repaint must not re-enable a reset that is still in flight (review round 3). */
+  if (typeof PLUS_SECOND_BUSY === 'undefined' || !PLUS_SECOND_BUSY) plusSecondDisarm();
   /* #4079: Remove this computer shows for a connected computer. Its confirm is NOT disarmed here (this runs every 5s).
      Connected again (any way), an earlier "disconnected" result is no longer true: it goes. */
   { const f = document.getElementById('plus-forgot-msg'); if (f && !f.hidden) { f.hidden = true; f.textContent = ''; } }
@@ -38593,7 +38591,10 @@ document.getElementById('plus-switch').addEventListener('click', async () => {
   /* The click means what the BUTTON said, not what a re-fetch says now:
      acting on re-read state lets a stale label do the opposite of its own
      words, and a double click land twice at one value. */
-  const wantOn = document.getElementById('plus-switch').textContent === 'Turn on';
+  /* #4080: a switch now. Unread (no aria-checked) does nothing: never write a guessed value. */
+  const swEl = document.getElementById('plus-switch');
+  if (!swEl.hasAttribute('aria-checked')) { paintPlus(); return; }
+  const wantOn = swEl.getAttribute('aria-checked') !== 'true';
   try {
     const res = await fetch('/api/remote', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: wantOn }) });
     if (!res.ok) plusSay(plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not change that'), 'switch');
@@ -38696,6 +38697,8 @@ const PLUS_SECOND_WORDS = {
   failed: (why) => 'The second step was not reset: ' + why + '.',
 };
 let PLUS_SECOND_ARMED = false;
+var PLUS_SECOND_BUSY = false;   // #4080: a second-step reset is in flight
+var PLUS_SECOND_UNSEEN = false; // #4080: its answer arrived while the dialog was closed, and nobody has read it yet
 function plusSecondDisarm() {
   PLUS_SECOND_ARMED = false;
   const btn = document.getElementById('plus-second-reset');
@@ -38712,6 +38715,7 @@ document.getElementById('plus-second-reset').addEventListener('click', async () 
     return;
   }
   btn.disabled = true;
+  PLUS_SECOND_BUSY = true;
   try {
     const res = await fetch('/api/remote/second-reset', { method: 'POST' });
     if (!res.ok) {
@@ -38720,7 +38724,47 @@ document.getElementById('plus-second-reset').addEventListener('click', async () 
       msg.textContent = PLUS_SECOND_WORDS.done;
     }
   } catch { msg.textContent = PLUS_SECOND_WORDS.failed('this computer could not reach its own engine'); }
+  PLUS_SECOND_BUSY = false;
+  msg.hidden = false;   // #4080: shown even if the dialog was closed and reopened while it ran
+  { const lm = document.getElementById('plus-lost-modal'); PLUS_SECOND_UNSEEN = !!(lm && lm.hidden); }   // closed: keep it for the next open
   plusSecondDisarm();
+});
+/* #4080: "Lost your phone?" opens the reset in a dialog. Focus goes to Close (not the reset), and back to the link. */
+function plusLostOpen() {
+  const back = document.getElementById('plus-lost-modal'); if (!back) return;
+  /* A reset still in flight keeps its button and its line: its answer must be seen (an account-wide change). */
+  /* ...and an answer that arrived while the dialog was closed is kept for this open (review round 2). */
+  if (!PLUS_SECOND_BUSY && !PLUS_SECOND_UNSEEN) { const msg = document.getElementById('plus-second-msg'); if (msg) { msg.hidden = true; msg.textContent = ''; } plusSecondDisarm(); }
+  PLUS_SECOND_UNSEEN = false;
+  back.hidden = false;
+  const c = document.getElementById('plus-lost-close'); if (c) c.focus();
+}
+function plusLostClose() {
+  const back = document.getElementById('plus-lost-modal'); if (!back || back.hidden) return;
+  back.hidden = true;
+  if (!PLUS_SECOND_BUSY) plusSecondDisarm();
+  const o = document.getElementById('plus-lost-open'); if (o) o.focus();
+}
+document.getElementById('plus-lost-open').addEventListener('click', plusLostOpen);
+document.getElementById('plus-lost-close').addEventListener('click', plusLostClose);
+{ const b = document.getElementById('plus-lost-modal'); if (b) b.addEventListener('click', (e) => { if (e.target === b) plusLostClose(); }); }
+/* The same .rm-back machinery as plus-gate-modal (#3495): Escape on the DOCUMENT (focus can fall to <body> when the
+   reset button disables itself), and Tab trapped among the dialog's buttons, so aria-modal is kept. */
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (!document.getElementById('plus-lost-modal').hidden) plusLostClose();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Tab') return;
+  const back = document.getElementById('plus-lost-modal');
+  if (back.hidden) return;
+  const close = document.getElementById('plus-lost-close');
+  const reset = document.getElementById('plus-second-reset');
+  const reachable = [close, reset].filter((el) => el && !el.disabled && !el.hidden);
+  const order = e.shiftKey ? reachable.slice().reverse() : reachable;
+  if (!order.length) { e.preventDefault(); return; }
+  if (!back.contains(document.activeElement)) { e.preventDefault(); close.focus(); return; }
+  if (document.activeElement === order[order.length - 1]) { e.preventDefault(); order[0].focus(); }
 });
 
 /* #4079: Remove this computer (it was drafted as Disconnect). The engine (remote.forget) retires the computer at the account while its
@@ -38733,7 +38777,7 @@ const PLUS_FORGET_WORDS = {
   failed: (why) => 'Removing it did not finish: ' + why + '. Try again in a moment.',
 };
 function plusForgetArm(on) {
-  const ask = document.getElementById('plus-forget-ask'); const row = document.getElementById('plus-forget-row');
+  const ask = document.getElementById('plus-forget-ask'); const row = document.getElementById('plus-forget-go');
   if (ask) ask.hidden = !on;
   if (row) row.hidden = on;
   /* Focus on Cancel, not Remove: a held or repeated key must not carry straight through the confirm. */

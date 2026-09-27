@@ -19,7 +19,8 @@ const SCRIPT = page.scriptOf(PAGE);
 function world(fetchImpl) {
   const els = {};
   const el = (id) => (els[id] ||= { id, textContent: '', hidden: id === 'plus-second-msg', disabled: false, listeners: {}, addEventListener(t, fn) { this.listeners[t] = fn; } });
-  const ctx = { document: { getElementById: el }, fetch: fetchImpl, plusWords: (s) => s, console };
+  // #4080: the dialog's Escape and Tab listeners sit on the document; the stub takes them and ignores them.
+  const ctx = { document: { getElementById: el, addEventListener() {}, activeElement: null }, fetch: fetchImpl, plusWords: (s) => s, console };
   const start = SCRIPT.indexOf('const PLUS_SECOND_WORDS');
   const end = SCRIPT.indexOf('function paintModelWhy(');
   assert.ok(start > 0 && end > start, 'the lost-phone script moved; re-anchor');
@@ -27,16 +28,23 @@ function world(fetchImpl) {
   return { ctx, el, click: () => el('plus-second-reset').listeners.click() };
 }
 
-test('the control lives under Plus, hidden until enrolled, and paints with the devices', () => {
+test('the control lives behind "Lost your phone?" under Plus, hidden until enrolled (#4080: a dialog, not the essay)', () => {
   const sec = PAGE.slice(PAGE.indexOf('id="s-sec-plus"'), PAGE.indexOf('</section>', PAGE.indexOf('id="plus-flow"')));
-  assert.match(sec, /id="plus-second" hidden/, 'the control does not start hidden');
-  assert.match(sec, /I lost my phone/);
-  assert.match(sec, /Nobody else can/, 'the sentence that says there is no support path is gone');
+  // #4080 (Josh, 22:06: the essay "probably doesnt belong on that page"): the pane carries one link, in the row that shows only when enrolled.
+  assert.match(sec, /<div class="plus-foot" id="plus-forget" hidden>[\s\S]*?id="plus-lost-open">Lost your phone\?<\/button>/, 'the Lost your phone? link is not in the enrolled-only bottom row');
+  assert.doesNotMatch(sec, /<p class="setname">I lost my phone<\/p>/, 'the essay is back on the pane');
+  const dAt = PAGE.indexOf('<div class="rm-back" id="plus-lost-modal" hidden>');
+  const dlg = dAt > 0 ? PAGE.slice(dAt, PAGE.indexOf('</section>', dAt)) : '';
+  assert.ok(dlg.length > 100, 'the lost-phone dialog is gone');
+  assert.match(dlg, /id="plus-second-reset"/, 'the reset is not in the dialog');
+  assert.match(dlg, /always asks for a second code/, 'the ALWAYS ruling (Josh, 2026-08-29) is gone from the words');
+  assert.match(dlg, /Nobody else can/, 'the sentence that says there is no support path is gone');
+  const sec2 = dlg;
   // kosmos#3860: every live Mac on the account can reset the step, not only this one. The
   // sentence used to say "this computer can ... Nobody else can", which read as this Mac alone.
-  assert.match(sec, /this computer, or any other computer connected to this account, can switch the second step off/, 'kosmos#3860: the sentence says only this computer can reset the step');
+  assert.match(sec2, /this computer, or any other computer connected to this account, can switch the second step off/, 'kosmos#3860: the sentence says only this computer can reset the step');
   const paint = SCRIPT.slice(SCRIPT.indexOf('async function paintPlus('), SCRIPT.indexOf("document.getElementById('plus-switch').addEventListener"));
-  assert.match(paint, /plus-second'\)\.hidden = r\.enrolled !== true/, 'the control is not gated on enrolled; an unenrolled Mac cannot sign the request');
+  assert.match(paint, /getElementById\('plus-forget'\); if \(fg\) fg\.hidden = r\.enrolled !== true/, 'the row with the link is not gated on enrolled; an unenrolled Mac cannot sign the request');
   assert.match(paint, /plusSecondDisarm\(\)/, 'a repaint leaves a half-taken click armed');
 });
 

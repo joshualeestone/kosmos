@@ -6,7 +6,7 @@
  * list row named just "device"; Mona Lisa's sketch on the card). Four states, each asserted and shot:
  *   off         -> the pill says Off, Turn on is the one primary action, no address chip;
  *   connected   -> a green Connected pill, the address in ONE chip with Copy and Open, one plain line,
- *                  Pause quiet (it was Turn off; #4079), and View my account pointing at the web account;
+ *                  the #4080 switch (it was Pause, before that Turn off), and View account pointing at the web account;
  *   one request -> a compact card: the device, when, one device-neutral sentence, then the code LARGE in
  *                  boxes directly above Allow / Deny (#3952); no Not now, no Not me; the request is NOT repeated in the devices list;
  *   two requests-> one stale (older than an hour, faded) and one unnamed ("Unknown device").
@@ -80,9 +80,14 @@ const STATES = {
         const card = document.getElementById('askcard');
         return {
           pill: document.getElementById('plus-pill').textContent.trim(), pillState: document.getElementById('plus-pill').getAttribute('data-state'),
-          chip: vis('plus-chip'), copy: !!document.getElementById('plus-copy'), chipAddr: document.getElementById('plus-chip-addr').textContent.trim(),
+          chip: vis('plus-chip'), copy: !!document.getElementById('plus-copy'), chipSay: (document.getElementById('plus-chip-say') || {}).textContent || '',
+          sectionText: (document.getElementById('plus-flow').innerText || '').replace(/\s+/g, ' '),
+          swOn: sw.getAttribute('aria-checked'), swShown: !sw.hidden, swIsToggle: sw.classList.contains('toggle') && sw.getAttribute('role') === 'switch',
+          logo: (() => { const c = document.getElementById('plus-logo'); if (!c || !c.width) return { drawn: false };
+            const px = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < px.length; i += 4) if (px[i] > 0) n += 1;
+            return { drawn: n > 200, label: c.getAttribute('aria-label'), h: Math.round(c.getBoundingClientRect().height) }; })(),
           open: document.getElementById('plus-open').getAttribute('href'), account: document.getElementById('plus-account').getAttribute('href'),
-          status: document.getElementById('plus-status').textContent.trim(), sw: sw.textContent.trim(), swClass: sw.className,
+          status: document.getElementById('plus-status').textContent.trim(),
           cardShown: vis('plus-asks'), cardText: (document.getElementById('plus-asks').innerText || '').replace(/\s+/g, ' '),
           reqs: document.querySelectorAll('#plus-ask-rows .askreq').length, stale: document.querySelectorAll('#plus-ask-rows .askreq.stale').length, topCardShown: vis('askcard'), inPanel: vis('plus-asks'), panelW: document.getElementById('plus-asks').getBoundingClientRect().width, flowW: document.getElementById('plus-flow').getBoundingClientRect().width, asksAbove: document.getElementById('plus-asks').getBoundingClientRect().bottom <= document.getElementById('plus-flow').getBoundingClientRect().top + 1,
           codes: [...document.querySelectorAll('#plus-ask-rows .askcode')].map((e) => ({ t: e.textContent, label: (e.querySelector('.devcode') || { getAttribute: () => '' }).getAttribute('aria-label'), cells: e.querySelectorAll('.devcode-cell').length, nextIsActs: !!(e.nextElementSibling && e.nextElementSibling.classList.contains('acts')),   /* Mona 09-26: nothing between the code and Allow */ h: Math.min(...[...e.querySelectorAll('.devcode-cell')].map((c) => c.getBoundingClientRect().height)), inside: [...e.querySelectorAll('.devcode-cell')].every((c) => c.getBoundingClientRect().right <= e.closest('.askreq').getBoundingClientRect().right),
@@ -124,14 +129,76 @@ const STATES = {
         chk(/No relay address is set yet/i.test(v.status) && !v.chip, `${t} the engine's reason is the line, and no address chip`, v.status);
       } else if (key === 'off') {
         chk(v.pill === 'Off' && v.pillState === 'off', `${t} the pill says Off`, JSON.stringify(v));
-        chk(v.sw === 'Turn on' && /uprime/.test(v.swClass), `${t} Turn on is the one primary action`, v.sw + ' ' + v.swClass);
+        chk(v.swIsToggle && v.swShown && v.swOn === 'false', `${t} #4080: the switch shows, off`, JSON.stringify({ on: v.swOn, shown: v.swShown, toggle: v.swIsToggle }));
         chk(!v.chip, `${t} no address chip while off`);
       } else {
         chk(v.pill === 'Connected' && v.pillState === 'up', `${t} a green Connected pill`, v.pill);
-        chk(v.chip && v.chipAddr === ADDR && v.open === 'https://' + ADDR + '/', `${t} the address in one chip with Open to it`, JSON.stringify({ chip: v.chip, a: v.chipAddr, open: v.open }));
-        chk(v.status === 'To use Kosmos on another device, sign in at login.kosmosplus.com.' && !v.copy, `${t} one plain line under the chip (Josh's 17:30 wording), and no Copy`, v.status);
-        chk(v.sw === 'Pause' && v.swClass === 'plus-quiet', `${t} Pause (was Turn off, #4079) is quiet, not a headline button`, v.sw + ' ' + v.swClass);
-        chk(v.account === 'https://login.kosmosplus.com/', `${t} View my account opens the web account`, v.account);
+        /* #4080 (Josh's design, 22:22): the box holds the way in from another device with Open to login.kosmosplus.com;
+           the machine's address is not on the pane; the switch is on; the Kosmos+ logo replaces the old label. */
+        chk(v.chip && v.chipSay.trim() === 'Sign in at login.kosmosplus.com.' && v.open === 'https://login.kosmosplus.com/', `${t} #4080: the box says where to sign in, with Open to login.kosmosplus.com`, JSON.stringify({ chip: v.chip, say: v.chipSay, open: v.open }));
+        chk(!v.sectionText.includes(ADDR) && v.status === '' && !v.copy, `${t} #4080: the machine's address is not on the pane, and no line repeats the box`, JSON.stringify({ status: v.status }));
+        chk(v.swIsToggle && v.swShown && v.swOn === 'true', `${t} #4080: the switch shows, on`, JSON.stringify({ on: v.swOn, shown: v.swShown, toggle: v.swIsToggle }));
+        chk(v.logo.drawn && v.logo.label === 'Kosmos Plus' && v.logo.h >= 18 && v.logo.h <= 26, `${t} #4080: the Kosmos+ logo is drawn, labelled, about 22px tall`, JSON.stringify(v.logo));
+        chk(!/Use Kosmos from anywhere/.test(v.sectionText) && !/Each one asked here first/.test(v.sectionText) && !/I lost my phone/.test(v.sectionText) && !/\bPause\b|Turn off/.test(v.sectionText),
+          `${t} #4080: gone from the pane: Use Kosmos from anywhere, the devices line, the lost-phone essay, Pause/Turn off`, v.sectionText.slice(0, 300));
+        chk(v.account === 'https://login.kosmosplus.com/', `${t} View account opens the web account`, v.account);
+        if (key === 'connected') {
+          /* #4080: the bottom row, left to right: Remove this computer (red), Lost your phone?, View account. */
+          const foot = await page.evaluate(() => {
+            const r = (id) => { const e = document.getElementById(id); if (!e || e.closest('[hidden]')) return null; const b = e.getBoundingClientRect(); return { x: Math.round(b.left), y: Math.round(b.top), text: e.textContent.trim(), color: getComputedStyle(e).color }; };
+            return { remove: r('plus-forget-go'), lost: r('plus-lost-open'), account: r('plus-account') };
+          });
+          const red = (c) => { const m = (c || '').match(/\d+/g) || []; return m.length >= 3 && Number(m[0]) > Number(m[1]) + 60 && Number(m[0]) > Number(m[2]) + 60; };
+          chk(foot.remove && foot.lost && foot.account && foot.remove.text === 'Remove this computer' && foot.account.text === 'View account'
+            && Math.abs(foot.remove.y - foot.account.y) <= 6 && foot.remove.x < foot.lost.x && foot.lost.x < foot.account.x && red(foot.remove.color),
+            `${t} #4080: the bottom row reads Remove this computer (red) at left, Lost your phone?, then View account at right`, JSON.stringify(foot));
+          /* "Lost your phone?" opens the reset in a dialog, focus on Close; Escape closes it and focus comes back. */
+          await page.click('#plus-lost-open');
+          await page.waitForTimeout(150);
+          const dlg = await page.evaluate(() => ({ open: !document.getElementById('plus-lost-modal').hidden, focus: document.activeElement && document.activeElement.id,
+            reset: !!document.querySelector('#plus-lost-modal #plus-second-reset'), always: /always asks for a second code/.test(document.getElementById('plus-lost-say').textContent) }));
+          chk(dlg.open && dlg.focus === 'plus-lost-close' && dlg.reset && dlg.always, `${t} #4080: Lost your phone? opens a dialog with the reset, focus on Close`, JSON.stringify(dlg));
+          /* Review round 3: it must be an OVERLAY covering the window, not a block in the page (the section's child
+             rule once made it position:relative). */
+          const cover = await page.evaluate(() => { const b = document.getElementById('plus-lost-modal'); const r = b.getBoundingClientRect(); const cs = getComputedStyle(b);
+            return { pos: cs.position, x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), vw: innerWidth, vh: innerHeight }; });
+          chk(cover.pos === 'fixed' && cover.x === 0 && cover.y === 0 && Math.abs(cover.w - cover.vw) <= 20 && Math.abs(cover.h - cover.vh) <= 2,
+            `${t} #4080: the dialog is a fixed overlay covering the window`, JSON.stringify(cover));
+          await page.keyboard.press('Escape');
+          await page.waitForTimeout(150);
+          const shut = await page.evaluate(() => ({ open: !document.getElementById('plus-lost-modal').hidden, focus: document.activeElement && document.activeElement.id }));
+          chk(!shut.open && shut.focus === 'plus-lost-open', `${t} #4080: Escape closes it and focus returns to the link`, JSON.stringify(shut));
+          /* Review round 1: Escape must work with focus fallen to <body> (the reset disables itself mid-request), and
+             Tab must stay inside the dialog (aria-modal). */
+          await page.click('#plus-lost-open');
+          await page.waitForTimeout(100);
+          await page.keyboard.press('Tab');   // Close -> Reset
+          await page.keyboard.press('Tab');   // Reset -> wraps to Close
+          const wrapped = await page.evaluate(() => document.activeElement && document.activeElement.id);
+          await page.evaluate(() => { if (document.activeElement) document.activeElement.blur(); });
+          await page.keyboard.press('Escape');
+          await page.waitForTimeout(100);
+          const bodyEsc = await page.evaluate(() => document.getElementById('plus-lost-modal').hidden);
+          chk(wrapped === 'plus-lost-close' && bodyEsc, `${t} #4080: Tab stays inside the dialog, and Escape closes it even with focus on the page`, JSON.stringify({ wrapped, closed: bodyEsc }));
+          /* Review round 2: a reset that finishes while the dialog is closed keeps its answer for the next open. */
+          await page.route('**/api/remote/second-reset', async (route) => { await new Promise((r) => setTimeout(r, 700)); await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
+          await page.click('#plus-lost-open');
+          await page.click('#plus-second-reset');   // arms
+          await page.click('#plus-second-reset');   // confirms: the request is out
+          await page.keyboard.press('Escape');      // closed while it runs
+          await page.waitForTimeout(1200);          // it answers while closed
+          await page.click('#plus-lost-open');
+          await page.waitForTimeout(150);
+          const seen = await page.evaluate(() => { const m = document.getElementById('plus-second-msg'); return { shown: !m.hidden, text: m.textContent }; });
+          chk(seen.shown && /second step is off/i.test(seen.text), `${t} #4080: a reset that answered while the dialog was closed is shown on the next open`, JSON.stringify(seen));
+          await page.keyboard.press('Escape');
+          if (SHOTS) { await page.setViewportSize({ width: 1400, height: 1000 }); await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(200); await page.screenshot({ path: path.join(SHOTS, '4080-connected.png') }); await page.setViewportSize({ width: 1400, height: 950 }); }
+          /* The switch pauses: pressing it sends on:false (the route stub answers ok and the next paint re-reads). */
+          const put = new Promise((res) => page.on('request', (rq) => { if (/\/api\/remote$/.test(rq.url()) && rq.method() === 'PUT') res(rq.postData()); }));
+          await page.click('#plus-switch');
+          const body = await Promise.race([put, new Promise((r) => setTimeout(() => r(null), 3000))]);
+          chk(body && JSON.parse(body).on === false, `${t} #4080: pressing the switch pauses (PUT on:false)`, String(body));
+        }
       }
       if (key === 'off' || key === 'connected' || key === 'down') chk(!v.cardShown, `${t} CONTROL: no request, no card`);
       if (key === 'one') {

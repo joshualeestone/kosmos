@@ -386,7 +386,7 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(!(await visible(page, '#plus-si-second-recover')), `[${key}] #3796 CONTROL: the recovery line starts hidden`);
         await page.click('#plus-si-second-help');
         const rec = (await page.textContent('#plus-si-second-recover')).trim();
-        chk((await visible(page, '#plus-si-second-recover')) && /I lost my phone/.test(rec), `[${key}] #3796 "Can't get a code?" opens the recovery path`, JSON.stringify(rec));
+        chk((await visible(page, '#plus-si-second-recover')) && /Lost your phone\?/.test(rec), `[${key}] #3796 "Can't get a code?" opens the recovery path`, JSON.stringify(rec));
         await page.fill('#plus-si-second-in', '654321');   // #3942: auto-submits
       } else if (verifyStage === 'enrol_second_factor') {
         await page.waitForSelector('#plus-si-enrol', { state: 'visible', timeout: 5000 });
@@ -487,9 +487,11 @@ const visible = (page, sel) => page.evaluate((s) => {
       // The wizard hands off to the connected flow: state 2 gone, flow shown, address in
       // its status line -- the same success screen the enrol flow ends on.
       await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
-      // #3829: the connected panel shows the address in its chip (the status line is now the one plain sentence).
-      const flowStatus = await page.textContent('#plus-chip-addr');
-      chk(!!(flowStatus && flowStatus.includes(wantAddr)), `[${key}] done: the connected flow shows the new address`, JSON.stringify(flowStatus));
+      // #4080 (Josh's design): the connected panel's box says where to sign in from another device; the machine's
+      // address is no longer shown on the pane (it was in this chip under #3829).
+      const flowStatus = await page.textContent('#plus-chip-say');
+      chk(flowStatus === 'Sign in at login.kosmosplus.com.', `[${key}] done: the connected flow shows where to sign in`, JSON.stringify(flowStatus));
+      void wantAddr;
       chk(!(await visible(page, '#plus-state2')), `[${key}] the wizard hands off to the connected flow after register`);
       await page.screenshot({ path: path.join(OUT, `plus-signin-${key}.png`), fullPage: false });
 

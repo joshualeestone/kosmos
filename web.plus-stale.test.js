@@ -74,15 +74,20 @@ test('#3796 (reverses #1012): with no devices, the recovery block IS still offer
   const w = world(connected([]));
   await paint(w);
   assert.equal(w.el('plus-devempty').hidden, false, 'the "None yet" line should be showing');
-  assert.equal(w.el('plus-second').hidden, false,
-    '"I lost my phone" is hidden with no devices, so an authenticator-only account has no recovery');
+  // #4080: the reset is behind "Lost your phone?" in the enrolled-only bottom row (#plus-forget); that row is the gate.
+  w.el('plus-forget').hidden = true;   // a stub starts visible; only paintPlus may show it
+  await paint(w);
+  assert.equal(w.el('plus-forget').hidden, false,
+    '"Lost your phone?" is hidden with no devices, so an authenticator-only account has no recovery');
 });
 
 test('#1012: once a device exists, the recovery block IS offered', async () => {
   const w = world(connected([{ device_id: 'd1', allowed_at: 1, last_seen: 2 }]));
   await paint(w);
   assert.equal(w.el('plus-devempty').hidden, true);
-  assert.equal(w.el('plus-second').hidden, false,
+  w.el('plus-forget').hidden = true;   // #4080: only paintPlus may show the row with "Lost your phone?"
+  await paint(w);
+  assert.equal(w.el('plus-forget').hidden, false,
     'a person with a phone can no longer reach the reset');
 });
 
@@ -147,14 +152,14 @@ test('#1011: clearing the message clears its kind, so a later switch error is no
 // and go to josh.plus.installkosmos.com?"
 // ---------------------------------------------------------------------------
 
-test('#1014: a connected Mac with no phone yet is told what to DO, not just what is true', async () => {
+test('#1014, superseded by #4080: with no phone yet, the address instruction is not shown (the address is off the pane)', async () => {
+  /* #4080 (Josh, 22:07: hide the address; 22:22 design): the pane no longer shows the machine's address, and the
+     box at the top already says where to go ("Sign in at login.kosmosplus.com." with Open). An instruction naming
+     the address would put it back. #1014's point, say what to DO, is now carried by that box. */
   const w = world(connected([]));
   await paint(w);
-  const t = w.el('plus-next').textContent;
-  assert.equal(w.el('plus-next').hidden, false, 'setup finished and said nothing about what to do next');
-  assert.match(t, /josh\.plus\.installkosmos\.com/, 'the instruction does not name the address');
-  assert.match(t, /sign in/i, 'it does not warn that a sign-in is coming, which reads as a rebuff when it arrives');
-  assert.match(t, /allow/i, 'it does not say this Mac will ask them something next');
+  assert.equal(w.el('plus-next').hidden, true, 'the address instruction is back on a pane that no longer shows the address');
+  assert.doesNotMatch(w.el('plus-next').textContent || '', /installkosmos\.com|kosmosplus\.com/, 'the machine address is named on the pane');
 });
 
 test('#1014: once a phone is allowed the instruction goes away', async () => {

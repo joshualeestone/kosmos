@@ -60,7 +60,7 @@ function copyOf(id, which) {
 }
 
 test('the second step is not described as something a phone triggers', () => {
-  const copy = copyOf('plus-second', 1);   // [0] is the heading
+  const copy = copyOf('plus-lost-say');   // #4080: the dialog's sentence is itself the <p>
   assert.doesNotMatch(copy, /from a phone asks/i,
     'the copy makes the second step conditional on the device, which is false and is the '
     + 'kind of false that changes how somebody protects their account');
@@ -107,7 +107,7 @@ test('the device list is not described as being for phones', () => {
 test('CONTROL: this file reads the copy it thinks it reads', () => {
   /* Without this, every assertion above passes on an element that has quietly
      become empty, or on a phrase that has moved out of the element. */
-  assert.match(copyOf('plus-second', 1), /second code after the email code/,
+  assert.match(copyOf('plus-lost-say'), /second code after the email code/,
     'the second-step paragraph no longer describes the second step at all');
   assert.match(copyOf('plus-devempty'), /None yet/,
     'the empty device list no longer says the list is empty');
