@@ -99,6 +99,10 @@ test('#4111 a value assigned to a public NAME (MODEL, REGION, VERSION) is not he
       'MODEL_PASSPHRASE=Pw7vLm3pRt6wXy9kHb2nWc4d',
       'CF_ZONE_ID=0123456789abcdef0123456789abcdef',
       'CHAT_MODEL=gpt-4o-2024-11-20 # was gpt-4o-2024-11-20 before the switch',
+      'API_VERSION=2 # old key Vr2vLm3pRt6wXy9kHb2nWc4d',
+      'TZ=UTC # key UTCq8vLm3pRt6wXy9kHbUTC2n',
+      'REGION=us-east-1;TOKEN=Rg1vLm3pRt6wXy9kHb2nWc4d',
+      'PRIVKEY_VERSION=Pk9vLm3pRt6wXy9kHb2nWc4d',
     ].join('\n') + '\n');
     put(path.join(data, 'secrets', 'model.txt'), 'DEFAULT_MODEL=gpt-4o-2024-08-06\n');
     put(path.join(data, 'secrets', 'settings.json'), '{\n  "defaultModel": "gpt-4.1-2025-04-14",\n  "modelId": "o3-mini-2025-01-31"\n}\n');
@@ -114,6 +118,9 @@ test('#4111 a value assigned to a public NAME (MODEL, REGION, VERSION) is not he
     assert.ok(got.has('Zq8vLm3pRt6wXy9kHb2nWc4d'), 'a key in a comment on a public line was dropped with the line');
     assert.ok(got.has('Pw7vLm3pRt6wXy9kHb2nWc4d'), 'CONTROL: a secret named after a model (MODEL_PASSPHRASE) was not held');
     assert.ok(got.has('0123456789abcdef0123456789abcdef'), 'CONTROL: a Cloudflare zone id (CF_ZONE_ID) is still held');
+    for (const k of ['Vr2vLm3pRt6wXy9kHb2nWc4d', 'UTCq8vLm3pRt6wXy9kHbUTC2n', 'Rg1vLm3pRt6wXy9kHb2nWc4d', 'Pk9vLm3pRt6wXy9kHb2nWc4d']) {
+      assert.ok(got.has(k), `a key on a public line (short value, glued assignment, glued secret word) was not held whole: ${k}`);
+    }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -121,5 +128,6 @@ test('#4111 isPublicName: a public part and no secret part', () => {
   const { isPublicName } = require('./knownsecrets');
   for (const n of ['OPENAI_MODEL', 'model', 'AWS_REGION', 'api.version', 'TZ', 'default-model', 'defaultModel', 'modelId', 'OPENAI_MODEL_ID', 'model.name']) assert.equal(isPublicName(n), true, n);
   for (const n of ['MODEL_API_KEY', 'OPENAI_API_KEY', 'REGION_TOKEN', 'DATABASE_URL', 'API_HOST', 'VERSION_SECRET', 'MODELX',
-    'MODEL_PASSPHRASE', 'REGION_BEARER', 'model.api-key', 'model-secret', 'modelToken', 'REGION_TOKEN_VERSION', 'CF_ZONE_ID', 'SESSION_ID', 'ID']) assert.equal(isPublicName(n), false, n);
+    'MODEL_PASSPHRASE', 'REGION_BEARER', 'model.api-key', 'model-secret', 'modelToken', 'REGION_TOKEN_VERSION', 'CF_ZONE_ID', 'SESSION_ID', 'ID',
+    'PRIVKEY_VERSION', 'APITOKEN_MODEL', 'SECRETKEY_REGION', 'ACCESSKEY_VERSION', 'apiKeyModel']) assert.equal(isPublicName(n), false, n);
 });

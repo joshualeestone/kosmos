@@ -36,7 +36,7 @@ function valuesIn(text, out) {
   if (typeof text !== 'string') return;
   const whole = text.trim();
   /* #4111: a one-line file that is a public assignment (OPENAI_MODEL=gpt-4o-mini) holds nothing, like the line. */
-  const wholeAssignment = /\n/.test(whole) ? null : parseAssignment(whole);
+  const wholeAssignment = /[\r\n]/.test(whole) ? null : parseAssignment(whole);
   if (whole && !(wholeAssignment && isPublicName(wholeAssignment.name))) out.add(whole);
   for (const line of text.split(/\r?\n/)) {
     const t = line.trim();
@@ -46,11 +46,15 @@ function valuesIn(text, out) {
        walks a NAME=value line whose value is NOT held (engine/secretmask.js isEnvLine), which would mask pieces of
        it in prose. Every OTHER key-shaped token on the line is still held (a key in a trailing comment). */
     if (a && isPublicName(a.name)) {
-      /* The value is blanked before the line is cut into tokens: keyTokens cuts at : , ; so a value such as
-         anthropic.claude-3-5-sonnet-20240620-v1:0 or ft:gpt-4o-mini-2024-07-18:acme would otherwise be held
-         piece by piece (review round 1). Every occurrence, not the first: a comment restating the value would
-         otherwise hold it again (review round 2). */
-      for (const tok of keyTokens(t.split(a.value).join(' '))) out.add(tok);
+      /* The line is cut into tokens as always, and only the public value's OWN pieces are dropped: keyTokens cuts at
+         : , ; so anthropic.claude-3-5-sonnet-20240620-v1:0 or ft:gpt-4o-mini-2024-07-18:acme would otherwise be held
+         piece by piece (review round 1), and a comment restating the value would hold it again (round 2). Nothing
+         is blanked out of the line: blanking a short value (API_VERSION=2, TZ=UTC) cut a real key in the comment
+         into pieces (round 3). The env parser takes the value up to a space, so it stops at the first ; or , here:
+         REGION=us-east-1;TOKEN=<key> keeps the key (round 3). */
+      const publicValue = a.value.split(/[;,]/)[0];
+      const own = new Set([publicValue, ...keyTokens(publicValue)]);
+      for (const tok of keyTokens(t)) if (!own.has(tok)) out.add(tok);
       continue;
     }
     out.add(t);
@@ -59,8 +63,9 @@ function valuesIn(text, out) {
   }
 }
 
-/* The value a secrets-file line assigns to a NAME (names are public, the value is not), or null (#3935 review round 27): NAME=value, export
-   NAME=value, YAML "name: value" (a space after the colon, so a URL's scheme is not a name) and JSON
+/* The value a secrets-file line assigns to a NAME (names are public, the value is not), or null (#3935 review
+   round 27): NAME=value, export NAME=value, YAML "name: value" (a space after the colon, so a URL's scheme is not a
+   name) and JSON
    "name": "value". Trimmed and unquoted. engine/secretmask.js reads the same function: a line whose value is held
    on its own here is masked whole there but not walked, so its NAME stays readable. One parser, two uses. */
 function assignedValue(line) {
@@ -93,7 +98,9 @@ function parseAssignment(line) {
    are deliberately NOT public: a URL can carry a token or a password, and holding one costs only a masked address.
    ZONE is not public either: Cloudflare's CF_ZONE_ID is read from the secrets folder, and TZ/TIMEZONE cover time. */
 const PUBLIC_NAME_PARTS = new Set(['MODEL', 'MODELS', 'REGION', 'VERSION', 'LOCALE', 'LANG', 'LANGUAGE', 'TZ', 'TIMEZONE']);
-const SECRET_NAME_PARTS = /^(KEY|KEYS|APIKEY|TOKEN|TOKENS|SECRET|SECRETS|PASSWORD|PASSWD|PASSPHRASE|PASS|PWD|PIN|AUTH|OAUTH|BEARER|JWT|HMAC|OTP|TOTP|CREDENTIAL|CREDENTIALS|CREDS|PRIVATE|SIG|SIGNATURE|SALT|NONCE|COOKIE|SESSION|DSN|CERT|PEM|SEED|MNEMONIC)$/;
+/* Matched INSIDE each part, not as a whole part (review round 3: PRIVKEY_VERSION, APITOKEN_MODEL). Over-matching only
+   keeps a value held (DESIGN_MODEL holds its value, as before #4111); no public part contains one of these. */
+const SECRET_NAME_PARTS = /KEY|TOKEN|SECRET|PASS|PWD|AUTH|BEARER|JWT|HMAC|CRED|PRIV|SIG|SALT|NONCE|COOKIE|SESSION|DSN|CERT|PEM|SEED|MNEMONIC|^PIN$|^OTP$|^TOTP$/;
 function isPublicName(name) {
   const parts = String(name).replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase().split(/[_.-]+/).filter(Boolean);
   if (!parts.length || parts.some((p) => SECRET_NAME_PARTS.test(p))) return false;

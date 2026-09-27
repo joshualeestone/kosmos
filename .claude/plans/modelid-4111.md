@@ -49,3 +49,12 @@ is narrowed to the last part so a misnamed secret needs a NAME that says, in its
   Now every occurrence is blanked (split/join); a CHAT_MODEL line with the value restated in its comment is in the
   collector test and goes red under the single replace.
 - The second background validation (val4111b) was also stopped for this edit; validation runs once, at 6j.
+### Iteration 3 (opus): 3 WARNINGs (one caused by my round-2 fix), 3 NITs, all fixed.
+- W (from round 2): blanking every occurrence of a SHORT value (API_VERSION=2, TZ=UTC) cut a real key in the
+  comment into pieces. Nothing is blanked now: the line is cut as always and only the public value's own pieces
+  (the value and keyTokens of it) are dropped. Perturbation back to blanking: the API_VERSION key goes red.
+- W: the env parser takes the value up to a space, so REGION=us-east-1;TOKEN=<key> hid the key inside the "value".
+  The public value now stops at the first ; or ,. Perturbation without the cut: that key goes red.
+- W: secret words glued into a part (PRIVKEY_VERSION, APITOKEN_MODEL) passed as public. Secret words now match
+  inside each part (over-matching only keeps a value held). Anchored perturbation: two tests red.
+- N: comment reflowed; one-line check uses [\r\n]; isPublicName table pins the glued cases.
