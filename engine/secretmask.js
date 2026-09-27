@@ -106,6 +106,7 @@ function setKnownSecrets(values) {
      is 12 characters or more). */
   knownByPrefix = new Map();
   knownByOpening = new Map();
+  knownByShort = new Map();
   knownGrams = new Set();
   const walked = new Set();
   for (const f of knownForms) {
@@ -258,6 +259,12 @@ function addWalked(w, walked) {
      (review round 5). Such a value is still masked whole, and across lines by the separator copies. */
   if (!/[A-Za-z0-9]/.test(w.slice(0, OPENING_LEN))) return;
   walked.add(w);
+  /* #3995 gap 4: and by its first one, two and three characters, for the short-chunk walk. */
+  for (let l = 1; l < OPENING_LEN; l += 1) {
+    const h = w.slice(0, l);
+    if (!knownByShort.has(h)) knownByShort.set(h, []);
+    knownByShort.get(h).push(w);
+  }
   const o = w.slice(0, OPENING_LEN);
   if (!knownByOpening.has(o)) knownByOpening.set(o, []);
   knownByOpening.get(o).push(w);
@@ -286,6 +293,8 @@ function madeOfWords(v) {
 let knownByPrefix = new Map();
 /* The held forms the word walk assembles (key characters only), by their first OPENING_LEN characters (#3935). */
 let knownByOpening = new Map();
+/* #3995 gap 4: the walked forms by their first 1 to 3 characters (shortChunkSpans). */
+let knownByShort = new Map();
 const NOT_KEY_CHARS = /[^A-Za-z0-9_+/=-]+/g;
 /* The board also holds whole files (engine/knownsecrets.js, up to 64KB) and their encodings. A form that
    long is not a key someone spells out in pieces, and the walk's reach grows with the form's length, so
@@ -404,6 +413,8 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *  - a held form with its own - or _ regrouped with + or / (its grams and walked form keep its own separators);
  *  - a group joined by + / = that is all lowercase letters with no digit, when it is under FRAGMENT_LEN;
  *  - a value with symbols in it, given without its opening, with spaces around its symbols;
+ *  - a key cut into chunks under OPENING_LEN whose FIRST chunk is all lowercase, all uppercase or all digits
+ *    (the short-chunk walk starts only from a chunk that looks like key text);
  *  - a held form over WORD_WALK_MAX_FORM characters;
  *  - pieces that overlap (a character given twice, at the end of one piece and the start of the next);
  *  - a key split across two replies (the mask is per message).
@@ -701,6 +712,58 @@ function wordSkippingSpans(text) {
   return spans;
 }
 /* How many characters of text[from, to) are not whitespace, counting no further than `cap + 1`. */
+/*
+ * #3995 gap 4: a held value cut into chunks SHORTER than OPENING_LEN with words between them ("Zq8 and vLm and 3pR").
+ * No word walk starts there (OPENING_LEN keeps ordinary short words from starting walks), no run reaches
+ * FRAGMENT_LEN, and no run is long enough for the catch-all. So a second, stricter walk: it starts only at a run of
+ * one to three characters that begins a walked form, advances only on runs that are EXACTLY the form's next
+ * characters (anything else is skipped), each within SPLIT_REACH times the form's length of non-space characters of
+ * the last run that advanced it, and masks nothing unless the WHOLE form is assembled, piece by piece. Completion is
+ * the whole defence against ordinary text: a random key's every character, in order, out of prose, does not happen.
+ * Returns [from, to) spans, or null when the walk ran past SHORT_WALK_BUDGET (withheld, as the word walk is).
+ */
+const SHORT_WALK_BUDGET = 400000;
+function shortChunkSpans(text) {
+  if (!knownByShort.size) return [];
+  const runs = [];
+  for (const m of text.matchAll(/[A-Za-z0-9_+/=-]+/g)) runs.push([m.index, m.index + m[0].length, m[0]]);
+  if (runs.length < 2) return [];
+  const ns = new Int32Array(text.length + 1);
+  for (let i = 0; i < text.length; i += 1) ns[i + 1] = ns[i] + (/\s/.test(text[i]) ? 0 : 1);
+  let budget = SHORT_WALK_BUDGET;
+  const spans = [];
+  for (let r = 0; r < runs.length; r += 1) {
+    const open = runs[r][2];
+    if (open.length >= OPENING_LEN) continue;   // the word walk starts these
+    /* Only a run that looks like key text starts one: letters with a digit, or both cases (Zq8, vLm). The short
+       words ordinary text is made of (a, to, the, 1) never do, so 2,000 held values cost nothing on a long reply
+       (the #3769 cost tests). The cost: a key whose first chunk is all lowercase with no digit is not caught. */
+    if (!((/[0-9]/.test(open) && /[A-Za-z]/.test(open)) || (/[a-z]/.test(open) && /[A-Z]/.test(open)))) continue;
+    const cands = knownByShort.get(open);
+    if (!cands) continue;
+    for (const f of cands) {
+      const bound = SPLIT_REACH * f.length;
+      const states = new Map([[open.length, [r]]]);   // position in f -> the runs that reached it
+      let lastAt = runs[r][1];
+      let done = null;
+      for (let s = r + 1; s < runs.length && !done; s += 1) {
+        if ((budget -= 1 + states.size) < 0) return null;
+        if (ns[runs[s][0]] - ns[lastAt] > bound) break;
+        const t = runs[s][2];
+        let moved = false;
+        for (const [pos, path] of [...states]) {
+          if (!f.startsWith(t, pos)) continue;
+          const end = pos + t.length;
+          if (end === f.length) { done = [...path, s]; break; }
+          if (!states.has(end)) { states.set(end, [...path, s]); moved = true; }
+        }
+        if (moved) lastAt = runs[s][1];
+      }
+      if (done) for (const i of done) spans.push([runs[i][0], runs[i][1]]);
+    }
+  }
+  return spans;
+}
 function nonSpaceIn(text, from, to, cap = Infinity) {
   let n = 0;
   for (let i = from; i < to && n <= cap; i += 1) if (!/\s/.test(text[i])) n += 1;
@@ -847,6 +910,10 @@ function maskFresh(text) {
     const words = wordSkippingSpans(original);
     if (!words) { hit('split_search_limit'); return { text: UNCHECKED, fired: report() }; }
     for (const s of words) spans.push(s);
+    /* #3995 gap 4: and chunks shorter than OPENING_LEN, assembled whole or not at all. */
+    const shorts = shortChunkSpans(original);
+    if (!shorts) { hit('split_search_limit'); return { text: UNCHECKED, fired: report() }; }
+    for (const s of shorts) spans.push(s);
     for (const s of fragmentsIn(original)) spans.push(s);
     /* #3995: and with the characters no key uses deleted, except whitespace: a held password with symbols in it,
        given without its opening (Lm3p#Rt6w$Xy9k), is cut by them into runs under FRAGMENT_LEN. Whitespace stays,

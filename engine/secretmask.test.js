@@ -1387,3 +1387,42 @@ test('#3995 review round 3: a / + or = inside the opening, labels glued to a gro
     assert.equal(mask(para).text, para, 'text dense with paths and sums was changed or withheld');
   } finally { setKnownSecrets([]); }
 });
+
+test('#3995 gap 4: a held key cut into chunks of three or fewer with words between is masked, whole or not at all', () => {
+  const held = j('Zq8vLm3pRt6w', 'Xy9kHb2nWc4d');
+  setKnownSecrets([held]);
+  try {
+    const threes = held.match(/.{3}/g);
+    const a = mask(threes.join(' and '));
+    for (const c of threes) assert.ok(!a.text.includes(c), `the chunk ${c} survived: ${a.text}`);
+    assert.ok(a.fired.some((f) => f.kind === 'split_secret'), JSON.stringify(a.fired));
+    assert.ok(a.text.includes(' and '), 'the words between the chunks were masked too: ' + a.text);
+    const mixed = ['Zq', '8vL', 'm3', 'pRt', '6w', 'Xy9', 'kH', 'b2n', 'Wc', '4d'];
+    assert.equal(mixed.join(''), held, 'the mixed split does not spell the key');
+    const b = mask('Your key, piece by piece: ' + mixed.join(', then ') + '. Keep it safe.');
+    for (const c of mixed) assert.ok(!b.text.includes(c + ','), `the chunk ${c} survived: ${b.text}`);
+    assert.ok(b.text.startsWith('Your key, piece by piece: ') && b.text.endsWith('. Keep it safe.'), b.text);
+    // A partial try (the first half only) is not assembled, so nothing is masked by this walk.
+    const half = threes.slice(0, 4).join(' and ');
+    assert.equal(mask(half).text, half);
+  } finally { setKnownSecrets([]); }
+  // Not covered, and said so in the file: a first chunk that is all lowercase starts no short walk.
+  const lower = j('zqvLm3pRt6w', 'Xy9kHb2nWc4d');
+  setKnownSecrets([lower]);
+  try {
+    const t = lower.match(/.{3}/g).join(' and ');
+    assert.equal(mask(t).text, t, 'the stated limit changed; update the "Not covered" list');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4: the short-chunk walk stays cheap with 2,000 held values on text full of key-like short runs', () => {
+  const rnd = (n, seed) => { let x = seed; let out = ''; const A = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'; for (let i = 0; i < n; i += 1) { x = (x * 1103515245 + 12345) % 2147483648; out += A[x % A.length]; } return out; };
+  setKnownSecrets(Array.from({ length: 2000 }, (_, i) => rnd(24, i + 1)));
+  try {
+    const text = Array.from({ length: 4000 }, (_, i) => rnd(3, 90000 + i)).join(' and ');
+    let r;
+    const ms = cpuMillisecondsOf(() => { r = mask(text); });
+    assert.notEqual(r.text, UNCHECKED, 'withheld at the short walk budget');
+    assert.ok(ms < 1500, `the short walk cost ${ms}ms`);
+  } finally { setKnownSecrets([]); }
+});
