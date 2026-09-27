@@ -229,7 +229,7 @@ if (unparsed) {
   cannotTell += 1;
 }
 console.log('');
-console.log(undelivered + ' block(s) undelivered, ' + stale + ' stale, ' + cannotTell + ' unreadable, '
+console.log(undelivered + ' block(s) undelivered, ' + stale + ' stale, ' + cannotTell + ' cannot tell, '
   + awaiting + ' awaiting consent.');
 /* ⚠️ colleagues IS BIRTH-ONLY, AND ONLY FOR ROLE-TEMPLATE AGENTS (engine/create.js:
    custom instructions get nothing appended uninvited; projects.healColleagues only
