@@ -81,8 +81,10 @@ function sweepOnce({ projects, mtimeOf, now, acted, ready, retell, log }) {
   for (const d of due({ projects, mtimeOf, now, acted, ready })) {
     if (acted) acted.set(d.name, d.mtime);
     let told = null;
-    try { told = (retell(d.name, d.id) || {}).told || null; } catch { told = null; }
+    let because = null;
+    try { told = (retell(d.name, d.id) || {}).told || null; } catch (err) { because = String((err && err.message) || err); }
     const row = { name: d.name, id: d.id, state: told && told.state ? told.state : 'error' };
+    if (because) row.because = because;
     done.push(row);
     if (typeof log === 'function') { try { log(row); } catch { /* the log is not the work */ } }
   }

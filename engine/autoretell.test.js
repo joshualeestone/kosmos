@@ -131,7 +131,7 @@ test('a retell that throws is recorded as an error and does not stop the next ag
   const calls = [];
   const retell = (name) => { calls.push(name); if (name === 'ada') throw new Error('boom'); return { told: { state: 'told' } }; };
   const rows = sweepOnce({ ...w, retell });
-  assert.deepEqual(rows, [{ name: 'ada', id: 'p1', state: 'error' }, { name: 'bo', id: 'p1', state: 'told' }]);
+  assert.deepEqual(rows, [{ name: 'ada', id: 'p1', state: 'error', because: 'boom' }, { name: 'bo', id: 'p1', state: 'told' }]);
   assert.deepEqual(calls, ['ada', 'bo']);
   // The failed change is remembered too: it is not hammered every sweep.
   assert.deepEqual(sweepOnce({ ...w, retell }), []);

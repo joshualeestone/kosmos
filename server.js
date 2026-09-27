@@ -976,7 +976,7 @@ function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
         return !!(st && st.state === instructions.STALENESS.CURRENT);
       },
       retell: (name, id) => retellMember(name, id, board()),
-      log: (r) => process.stdout.write(`autoretell: ${r.name} on ${r.id} -> ${r.state}\n`),
+      log: (r) => process.stdout.write(`autoretell: ${r.name} on ${r.id} -> ${r.state}${r.because ? ' (' + r.because + ')' : ''}\n`),
     });
   } catch { return []; /* best-effort; the notice's Try again still works */ }
 }
