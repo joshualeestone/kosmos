@@ -1850,9 +1850,9 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    (Josh, 2026-08-23 14:21, screenshot). Above the hub, below a drag. */
 .orgmap .onode:hover, .orgmap .onode:focus-within, .orgmap .onode:focus-visible { z-index: 2; }
 /* #4052: every node is a layer of its own too, so the raised z-index above only reorders layers and never
-   repaints the nodes around the one hovered. With only the faces layered (below), a neighbouring cluster was
-   still redrawn in about 1 hover run in 3; with the nodes layered as well, 12 of 12 runs held still
-   (Chromium, render-swarm-ui-3564.js S41). */
+   repaints the nodes around the one hovered. With only the faces layered (below), S41 still went red in 2 of
+   its 6 attempts; with the nodes layered as well, it passed all 12 attempts over 11 runs (Chromium,
+   render-swarm-ui-3564.js S41; the figures are in .claude/plans/orghover-4052.md). */
 .orgmap .onode { will-change: transform; }
 .wires { position: absolute; inset: 0; width: 100%; height: 100%; }
 .hub {

@@ -22,9 +22,11 @@ the cluster icons jiggle and shift about maybe 1 or 2 pixels".
   start, so a hover's opacity transition no longer re-rasterizes the faces around it. The hover callout
   gets the same (a precaution; not measured to matter in Chromium).
 - `.orgmap .onode { will-change: transform }`: every node is a layer of its own, so the hover's
-  `z-index: 2` only reorders layers and never repaints a neighbour. With only the faces layered, S41
-  still went red in 2 of 6 attempts (a neighbour's pixels moved by 10/255); with the nodes layered as
-  well it held in 12 of 12 attempts over 11 runs. Without either, S41 is red on every attempt.
+  `z-index: 2` only reorders layers and never repaints a neighbour. Counted in S41 attempts (one
+  attempt hovers rex, crew and crew2 and compares 4 pairs; the runner retries a whole check once when
+  any arm fails, so one run can hold two attempts): with only the faces layered, 2 of 6 attempts were
+  red (a neighbour's pixels moved by 10/255); with the nodes layered as well, 12 of 12 attempts over
+  11 runs passed (one run was retried for an unrelated arm, S4). Without either, every attempt is red.
 - The cost is a few small layers per agent while the chart is shown; the selectors stay on the org
   chart's 44px nodes.
 
@@ -46,6 +48,10 @@ noise, which made the check red with and without the fix. The shift it guards me
 - Removing the hover opacity: Josh's ruling keeps portraits quieter than the ring (#284).
 
 ## Weakest premise
+
+The fix is measured, not proven: the jiggle was intermittent, and 0 red in 12 attempts shows it is far
+rarer, not that it is impossible. If S41 goes red now and then in CI, read it as this race first, not
+as a new regression, and look at the pixel figure it prints (a real shift measured 10/255).
 
 Josh sees it in the Mac app, a WKWebView. It is reproduced and fixed here in Chromium only. Playwright's
 WebKit drew no cluster in the fixture (so its run compared nothing and proves nothing), and it is not the
