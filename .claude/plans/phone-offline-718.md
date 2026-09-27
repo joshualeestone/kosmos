@@ -1,8 +1,8 @@
 # phone-offline-718: a phone with no network is told it is offline, not that the Mac is down
 
 Card: kosmos #4086 (Liu Kang m1107), #718 state 1 from Kano's measured list
-(issuecomment-5844683600). One state per PR. Stacked on signin-401-718 (state 3), which rewrites
-the same failure paths; rebased onto main once that merges.
+(issuecomment-5844683600). One state per PR. Built on state 3 (#4145, merged 2026-09-27), which
+rewrote the same failure paths; rebased onto main after it merged.
 
 ## What happens today (measured by Kano)
 Shots: ~/work/workers/kano/evidence/phone-states-718/st-offline-open--se--light--webkit.png and
