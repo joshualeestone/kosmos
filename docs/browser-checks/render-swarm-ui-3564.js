@@ -441,55 +441,58 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     const drawnAsClusters = await page.evaluate((cs) => cs.every((c) => document.querySelectorAll('.onode[data-agent="' + c + '"] .face > .swc .swd').length >= 2), clusters);
     chk(drawnAsClusters, 'S41 precondition: crew and crew2 are drawn as clusters, so the comparison below is of clusters');
     if (settled && drawnAsClusters) {
-    /* No status poll lands while comparing: a poll can repaint the chart (new pictures), which would read as a shift
-       that no hover caused. Held here, released below. */
-    holdStatus = true;
-    await page.waitForTimeout(600);
-    const MARGIN = 0;
-    const shot = (c) => page.locator('.onode[data-agent="' + c + '"] .face').screenshot();
-    /* The largest per-channel difference between two captures, decoded in the page (a size change counts as 255). */
-    const NOISE = 2;
-    const worst = (a, b) => page.evaluate(async ([x, y]) => {
-      const load = (s) => new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = 'data:image/png;base64,' + s; });
-      const A = await load(x), B = await load(y);
-      if (A.width !== B.width || A.height !== B.height) return 255;
-      const cv = document.createElement('canvas'); cv.width = A.width; cv.height = A.height; const g = cv.getContext('2d');
-      g.drawImage(A, 0, 0); const da = g.getImageData(0, 0, A.width, A.height).data;
-      g.clearRect(0, 0, A.width, A.height); g.drawImage(B, 0, 0); const db = g.getImageData(0, 0, A.width, A.height).data;
-      let m = 0;
-      for (let i = 0; i < da.length; i += 1) if (i % 4 !== 3) m = Math.max(m, Math.abs(da[i] - db[i]));
-      return m;
-    }, [a.toString('base64'), b.toString('base64')]);
-    const base = {};
-    for (const c of clusters) base[c] = await shot(c);
-    const baseBoxes = await boxes();
-    await page.waitForTimeout(400);
-    const again = [];
-    for (const c of clusters) again.push(await worst(base[c], await shot(c)));
-    chk(again.every((d) => d <= NOISE), 'S41 CONTROL: two captures of each untouched cluster match, so a difference below means something moved', JSON.stringify(again));
-    const moved = [];
-    for (const who of ['rex', 'crew', 'crew2']) {
-      await page.hover('.onode[data-agent="' + who + '"]');
-      await page.waitForTimeout(400);   // the hover's .12s transitions have finished
-      if (await boxes() !== baseBoxes) moved.push('hovering ' + who + ': a cluster\'s box moved ' + await boxes());
-      for (const c of clusters) {
-        if (c === who) continue;
-        /* The hovered node is raised (z-index 2): anything it paints (callout, ring, badges) lying over the compared
-           area is not a shift. Its painted extent is the union of it and every element inside it. */
-        const covered = await page.evaluate(([w, c2, m]) => {
-          const n = document.querySelector('.onode[data-agent="' + w + '"]'), f = document.querySelector('.onode[data-agent="' + c2 + '"] .face');
-          if (!n || !f) return false;
-          const b = f.getBoundingClientRect();
-          return [n, ...n.querySelectorAll('*')].some((e) => { const a = e.getBoundingClientRect();
-            return a.width > 0 && a.height > 0 && a.left < b.right + m && b.left - m < a.right && a.top < b.bottom + m && b.top - m < a.bottom; });
-        }, [who, c, MARGIN]);
-        if (!covered) { const d = await worst(base[c], await shot(c)); if (d > NOISE) moved.push('hovering ' + who + ': ' + c + '\'s pixels moved by up to ' + d + '/255'); }
-      }
-      await page.mouse.move(2, 2);
+      /* No status poll lands while comparing: a poll can repaint the chart (new pictures), which would read as a shift
+         that no hover caused. Held here, released below. */
+      holdStatus = true;
+      await page.waitForTimeout(600);
+      /* Anything the hovered node paints within 1px of the compared face counts as lying over it: at exactly
+         touching, a sub-pixel difference would otherwise decide the gate from run to run. */
+      const COVER_SLACK = 1;
+      const shot = (c) => page.locator('.onode[data-agent="' + c + '"] .face').screenshot();
+      /* The largest per-channel difference between two captures, decoded in the page (a size change counts as 255). */
+      const NOISE = 2;
+      const worst = (a, b) => page.evaluate(async ([x, y]) => {
+        const load = (s) => new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = 'data:image/png;base64,' + s; });
+        const A = await load(x), B = await load(y);
+        if (A.width !== B.width || A.height !== B.height) return 255;
+        const cv = document.createElement('canvas'); cv.width = A.width; cv.height = A.height; const g = cv.getContext('2d');
+        g.drawImage(A, 0, 0); const da = g.getImageData(0, 0, A.width, A.height).data;
+        g.clearRect(0, 0, A.width, A.height); g.drawImage(B, 0, 0); const db = g.getImageData(0, 0, A.width, A.height).data;
+        let m = 0;
+        for (let i = 0; i < da.length; i += 1) if (i % 4 !== 3) m = Math.max(m, Math.abs(da[i] - db[i]));
+        return m;
+      }, [a.toString('base64'), b.toString('base64')]);
+      const base = {};
+      for (const c of clusters) base[c] = await shot(c);
+      const baseBoxes = await boxes();
       await page.waitForTimeout(400);
-    }
-    holdStatus = false;
-    chk(moved.length === 0, 'S41 hovering an agent moves no cluster\'s box, nor a pixel of a cluster it is not on (#4052)', JSON.stringify(moved));
+      const again = [];
+      for (const c of clusters) again.push(await worst(base[c], await shot(c)));
+      chk(again.every((d) => d <= NOISE), 'S41 CONTROL: two captures of each untouched cluster match, so a difference below means something moved', JSON.stringify(again));
+      const moved = [];
+      for (const who of ['rex', 'crew', 'crew2']) {
+        await page.hover('.onode[data-agent="' + who + '"]');
+        await page.waitForTimeout(400);   // the hover's .12s transitions have finished
+        const nowBoxes = await boxes();
+        if (nowBoxes !== baseBoxes) moved.push('hovering ' + who + ': a cluster\'s box moved ' + nowBoxes);
+        for (const c of clusters) {
+          if (c === who) continue;
+          /* The hovered node is raised (z-index 2): anything it paints (callout, ring, badges) lying over the compared
+             area is not a shift. Its painted extent is the union of it and every element inside it. */
+          const covered = await page.evaluate(([w, c2, m]) => {
+            const n = document.querySelector('.onode[data-agent="' + w + '"]'), f = document.querySelector('.onode[data-agent="' + c2 + '"] .face');
+            if (!n || !f) return false;
+            const b = f.getBoundingClientRect();
+            return [n, ...n.querySelectorAll('*')].some((e) => { const a = e.getBoundingClientRect();
+              return a.width > 0 && a.height > 0 && a.left < b.right + m && b.left - m < a.right && a.top < b.bottom + m && b.top - m < a.bottom; });
+          }, [who, c, COVER_SLACK]);
+          if (!covered) { const d = await worst(base[c], await shot(c)); if (d > NOISE) moved.push('hovering ' + who + ': ' + c + '\'s pixels moved by up to ' + d + '/255'); }
+        }
+        await page.mouse.move(2, 2);
+        await page.waitForTimeout(400);
+      }
+      holdStatus = false;
+      chk(moved.length === 0, 'S41 hovering an agent moves no cluster\'s box, nor a pixel of a cluster it is not on (#4052)', JSON.stringify(moved));
     }
     await page.click('[data-scope="agents"] .vt[data-layout="grid"]');
     await page.waitForTimeout(400);
