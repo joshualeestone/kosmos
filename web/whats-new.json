@@ -1,6 +1,6 @@
-{"version":"0.7.03","highlights":[
+{"version":"0.7.01","highlights":[
   {"icon":"shield","title":"Gemini on your Google subscription","line":"Sign in on Google's own page, and Gemini gets its own row in AI Models."},
   {"icon":"chat","title":"See what your Gemini agents are doing","line":"Gemini agents now show Working, Idle or Needs you, like every other agent."},
-  {"icon":"phone","title":"A simpler Kosmos Plus page","line":"One switch to pause it, and Remove this computer when you want it off your account."},
+  {"icon":"phone","title":"Remove this computer from Kosmos Plus","line":"Kosmos Plus has a way to take this computer off your account, with a confirm first."},
   {"icon":"tasks","title":"A clearer Tasks page","line":"Every task grouped by where the work is, with the count right in the title."}
 ]}
