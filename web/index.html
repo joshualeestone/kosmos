@@ -27301,8 +27301,9 @@ function paintOrg() {
     const parent = spot.node.parent ? placed.get(spot.node.parent) : null;
     const px = parent ? cx + Math.cos(parent.ang) * parent.r : cx;
     const py = parent ? cy + Math.sin(parent.ang) * parent.r : cy;
-    wires.push('<line data-for="' + esc(name) + '" x1="' + px.toFixed(1) + '" y1="' + py.toFixed(1) + '" x2="'
-      + x.toFixed(1) + '" y2="' + y.toFixed(1) + '" class="edge"/>');
+    const w = orgWireEnds(px, py, parent ? parent.node.agent : null, x, y, spot.node.agent);
+    wires.push('<line data-for="' + esc(name) + '" x1="' + w.x1.toFixed(1) + '" y1="' + w.y1.toFixed(1) + '" x2="'
+      + w.x2.toFixed(1) + '" y2="' + w.y2.toFixed(1) + '" class="edge"' + (w.shown ? '' : ' visibility="hidden"') + '/>');
     const a = spot.node.agent;
     /* #2576/#2577: the state vocabulary is still the CARD's, read through the
        same table the grid and the list read, so the three views cannot disagree
@@ -27343,7 +27344,7 @@ function paintOrg() {
       : '';
     /* #3946 item 15: a swarm's node is the same cluster as its grid card and list row (one component), filling
        the node's face; an ordinary agent keeps its single picture or initials. */
-    const isSwarm = typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm;
+    const isSwarm = orgDrawsCluster(a);
     const face = isSwarm ? swarmCluster(a, 0, { decorative: true }) : a.hasAvatar
       /* #2698: `?v=` the avatar version so a changed picture changes this markup.
          Without it the URL is byte-identical after an update, the repaint guard
@@ -27459,7 +27460,7 @@ function orgLiveStart(map, placed, cx, cy, size) {
   const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const hubEl = map.querySelector('.hub');
   const hubWas = ORG_POS.get('\u0000hub');
-  const hub = { key: '\u0000hub', el: hubEl, x: hubWas ? hubWas.x : cx, y: hubWas ? hubWas.y : cy, vx: 0, vy: 0, fixed: false, size: 52, home: { x: cx, y: cy } };
+  const hub = { key: '\u0000hub', el: hubEl, x: hubWas ? hubWas.x : cx, y: hubWas ? hubWas.y : cy, vx: 0, vy: 0, fixed: false, size: 52, home: { x: cx, y: cy }, agent: null };   // #4040: the hub, whose wires start at its centre
   const nodes = new Map();
   for (const [key, spot] of placed) {
     const el = map.querySelector('.onode[data-agent="' + CSS.escape(key) + '"]');
@@ -27471,6 +27472,7 @@ function orgLiveStart(map, placed, cx, cy, size) {
       y: was ? was.y : cy + Math.sin(spot.ang) * spot.r,
       vx: 0, vy: 0, ring: spot.r, parentKey: spot.node.parent || null, parent: null, fixed: false,
       wire: map.querySelector('line[data-for="' + CSS.escape(key) + '"]'),
+      agent: spot.node.agent,   // #4040: its picture, where its wires stop
     });
   }
   for (const n of nodes.values()) n.parent = n.parentKey ? (nodes.get(n.parentKey) || null) : null;
@@ -27486,6 +27488,51 @@ function orgLiveStart(map, placed, cx, cy, size) {
     orgLiveSync();
     orgLiveRun();
   }
+}
+/* #4040 (Josh, 2026-09-26: the connecting line "goes above agent clusters avatars"): a wire stops at each
+   node's edge instead of running to its centre. An agent's opaque disc hid the rest of a centre-to-centre
+   wire, but a swarm's cluster has no disc (gaps between its circles, and it rests at half strength), so the
+   wire showed through it. orgReach(a, ux, uy) is how far along the direction (ux, uy) from a node's centre
+   its picture ends: a disc ends at its edge whatever the direction; a cluster ends where that ray leaves
+   the last circle it crosses (swarmLayout, the one swarmCircles draws). A ray that only grazes a circle's
+   edge, or passes just beside it (through the narrow gap between two), stops level with that circle's
+   outer edge rather than running along it or on to the centre. The hub is an opaque disc drawn over the
+   wires: a wire from it starts at its centre. */
+/* Whether the org chart draws this node as a swarm cluster: paintOrg's face and orgReach's cut both ask
+   here, so a wire is never cut to a cluster around a disc or the other way round. */
+function orgDrawsCluster(a) {
+  return typeof SWARMS_ON !== 'undefined' && SWARMS_ON && !!a && Object.prototype.hasOwnProperty.call(a, 'swarm') && !!a.swarm;
+}
+/* A node's face is ORG_FACE_PX square (.onode's width and height); a disc's picture ends at half of it. */
+const ORG_FACE_PX = 44;
+/* orgReach runs for every wire end on every frame of a drag or settle: the layout for each helper count is
+   worked out once. */
+const ORG_LAYOUT_BY_MAX = new Map();
+function orgReach(a, ux, uy) {
+  if (!orgDrawsCluster(a)) return ORG_FACE_PX / 2;
+  const max = Math.max(2, Math.min(10, Math.round(Number(a.swarm.maxHelpers) || 3)));
+  if (!ORG_LAYOUT_BY_MAX.has(max)) ORG_LAYOUT_BY_MAX.set(max, swarmLayout(max));
+  const L = ORG_LAYOUT_BY_MAX.get(max);
+  const r = L.r * ORG_FACE_PX;
+  let cut = 0;
+  for (const q of L.p) {
+    const cx = (q[0] - 0.5) * ORG_FACE_PX, cy = (q[1] - 0.5) * ORG_FACE_PX;
+    const b = cx * ux + cy * uy, d = Math.sqrt(Math.max(0, cx * cx + cy * cy - b * b));
+    if (d <= r - 1.5) cut = Math.max(cut, b + Math.sqrt(r * r - d * d));
+    else if (d < 1.2 * r) cut = Math.max(cut, b + r);   // grazing its edge stroke, or passing just beside it
+  }
+  return cut;
+}
+/* A wire from (x0, y0) to (x1, y1), cut back by each end's picture along the wire (a0 and a1 are the ends'
+   agents; a0 is null for the hub). Two nodes whose pictures meet get no wire (shown false) rather than one
+   drawn backwards across both faces. */
+function orgWireEnds(x0, y0, a0, x1, y1, a1) {
+  const len = Math.hypot(x1 - x0, y1 - y0);
+  if (!(len > 0)) return { x1: x0, y1: y0, x2: x1, y2: y1, shown: false };
+  const ux = (x1 - x0) / len, uy = (y1 - y0) / len;
+  const cut0 = a0 ? orgReach(a0, ux, uy) : 0, cut1 = orgReach(a1, -ux, -uy);
+  if (!(len > cut0 + cut1)) return { x1: x0, y1: y0, x2: x1, y2: y1, shown: false };
+  return { x1: x0 + ux * cut0, y1: y0 + uy * cut0, x2: x1 - ux * cut1, y2: y1 - uy * cut1, shown: true };
 }
 /* #1738: run the same relaxation orgLiveRun animates, but synchronously and
    bounded, so a reduced-motion (static) render still separates overlapping
@@ -27516,8 +27563,10 @@ function orgLiveSync() {
     n.el.classList.toggle('co-r', n.x > 2 * third);
     const p = n.parent || hub;
     if (n.wire) {
-      n.wire.setAttribute('x1', p.x.toFixed(1)); n.wire.setAttribute('y1', p.y.toFixed(1));
-      n.wire.setAttribute('x2', n.x.toFixed(1)); n.wire.setAttribute('y2', n.y.toFixed(1));
+      const w = orgWireEnds(p.x, p.y, p.agent || null, n.x, n.y, n.agent);
+      n.wire.setAttribute('x1', w.x1.toFixed(1)); n.wire.setAttribute('y1', w.y1.toFixed(1));
+      n.wire.setAttribute('x2', w.x2.toFixed(1)); n.wire.setAttribute('y2', w.y2.toFixed(1));
+      if (w.shown) n.wire.removeAttribute('visibility'); else n.wire.setAttribute('visibility', 'hidden');
     }
     ORG_POS.set(n.key, { x: n.x, y: n.y });
   }
