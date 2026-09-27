@@ -81,7 +81,7 @@ test('#4039: end to end, an antigravity agent reads its conversation through the
     generation({ prompt: 13896, reply: 175, thoughts: 93 }),
   ], { wal: true });
   const ctx = status.readAgyContext(NAME);
-  assert.equal(ctx.tokens, 13896 + 175, 'workerDir -> last_conversations.json -> the db -> the newest generation');
+  assert.equal(ctx.tokens, 13896, 'workerDir -> last_conversations.json -> the db -> the newest prompt');
   assert.equal(ctx.ceiling, 1048576, 'gemini-3.8-flash\'s published window');
   assert.equal(ctx.ceilingAssumed, true, 'agy records no window, so it is assumed, and the ring says so');
   assert.equal(ctx.percent, 1);
@@ -90,7 +90,7 @@ test('#4039: end to end, an antigravity agent reads its conversation through the
 test('#4039 control: a non-antigravity agent is not read through the agy arm', () => {
   writePlist('gemini');
   const ctx = status.readAgyContext(NAME);
-  assert.notEqual(ctx.tokens, 13896 + 175, 'the runner gate let a gemini agent read an agy conversation');
+  assert.notEqual(ctx.tokens, 13896, 'the runner gate let a gemini agent read an agy conversation');
 });
 
 test('#4039: the pane sweep routes an agy pane to readAgyContext and its model to the conversation (SOURCE pin)', () => {

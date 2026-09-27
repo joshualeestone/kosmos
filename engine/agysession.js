@@ -157,6 +157,7 @@ function read(dir, home = HOME()) {
     const { DatabaseSync } = require('node:sqlite');
     db = new DatabaseSync(file, { readOnly: true });
     rows = db.prepare('SELECT idx, data FROM gen_metadata ORDER BY idx DESC LIMIT ?').all(NEWEST_GENS);
+    // The generation count for `messages`: a COUNT is cheap next to decoding, and not LIMIT-bounded.
     total = db.prepare('SELECT count(*) AS n FROM gen_metadata').get().n;
   } catch {
     return { found: false, because: NO_READING.UNREADABLE };
@@ -165,14 +166,15 @@ function read(dir, home = HOME()) {
   }
 
   /* Newest first: the model is the newest generation's that names one, and the occupancy is the
-     newest generation that reported usage: what it was sent plus what it wrote (its thoughts do not
-     join the next prompt). Reasoned from Gemini's usage shape, not measured against agy's own count. */
+     newest generation's PROMPT tokens: the whole conversation as last sent. That is the same fact
+     the Codex reader (last_token_usage.input_tokens) and the Gemini CLI reader (tokens.input) use,
+     so the three rings mean the same thing (review, #4039 iteration 2). */
   let model = null;
   let contextUsed = null;
   for (const row of rows) {
     const g = decodeGeneration(row.data);
     if (model === null && g.model) model = g.model;
-    if (contextUsed === null && g.prompt !== null) contextUsed = g.prompt + (g.reply || 0);
+    if (contextUsed === null && g.prompt !== null) contextUsed = g.prompt;
     if (model !== null && contextUsed !== null) break;
   }
   let lastAt = null;

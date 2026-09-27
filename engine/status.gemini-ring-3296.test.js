@@ -154,3 +154,15 @@ test('#3296: the runner gate -- readGeminiContext gives no readout for a NON-gem
   // tokens: 6937.)
   assert.equal(ctx.tokens, null, 'a non-gemini agent must not read a gemini session');
 });
+
+test('#4039: the assumed window covers Google\'s text-model ids and leaves the special variants out', () => {
+  for (const m of ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite', 'gemini-3-pro-preview', 'gemini-3.8-flash-high',
+    'gemini-2.5-flash-preview-09-2025', 'gemini-2.5-pro-001', 'gemini-flash-latest', 'gemini-pro-latest']) {
+    assert.equal(status.assumedGeminiWindow(m), 1048576, m + ' should have the 1M window');
+  }
+  for (const m of ['gemini-2.5-flash-image-preview', 'gemini-2.5-flash-preview-tts', 'gemini-2.5-flash-native-audio-dialog',
+    'gemini-2.0-flash-thinking-exp-1219', 'gemini-2.0-pro-exp-02-05', 'gemini-live-2.5-flash', 'gemini-live-latest',
+    'gemini-1.5-pro', 'grok-4.6', '', null]) {
+    assert.equal(status.assumedGeminiWindow(m), null, String(m) + ' must not be given a window');
+  }
+});

@@ -5262,7 +5262,9 @@ function readGeminiSession(agentName) {
    some are far smaller, so they are left out rather than drawn at a falsely low percentage. A model
    this does not know keeps the honest no-ceiling reading. */
 const GEMINI_WINDOWS = [
-  { match: /^gemini-(2\.0|2\.5|3(\.\d+)?)-(pro|flash|flash-lite)(-(preview|latest|high|medium|low|\d{2}-\d{2}|\d{2}-\d{4}))*$/i, window: 1048576 },
+  { match: /^gemini-(2\.0|2\.5|3(\.\d+)?)-(pro|flash|flash-lite)(-(preview|latest|high|medium|low|\d{3}|\d{2}-\d{2}|\d{2}-\d{4}))*$/i, window: 1048576 },
+  // Google's un-versioned aliases, which point at the current 2.5/3.x text models.
+  { match: /^gemini-(pro|flash|flash-lite)-latest$/i, window: 1048576 },
 ];
 function assumedGeminiWindow(model) {
   if (typeof model !== 'string') return null;

@@ -46,7 +46,7 @@ test('#4039: an int64 -1 (a 10-byte varint) beside the fields does not blank the
   assert.deepEqual(g, { model: 'gemini-3.8-flash', prompt: 5000, reply: 50 }, 'one negative field hid the whole usage');
 });
 
-test('#4039: context used is the LATEST reporting generation (prompt + reply); agy records no window', () => {
+test('#4039: context used is the LATEST reporting generation\'s PROMPT (as Codex and Gemini CLI read it); agy records no window', () => {
   const { dir } = conversation([
     generation({ prompt: 12561, reply: 149, thoughts: 3 }),
     generation({ prompt: 12657, reply: 783, thoughts: 132 }),
@@ -55,7 +55,7 @@ test('#4039: context used is the LATEST reporting generation (prompt + reply); a
   const r = agy.read(dir);
   assert.equal(r.found, true);
   assert.equal(r.provider, 'antigravity');
-  assert.equal(r.contextUsed, 13896 + 175, 'the newest generation, prompt plus its reply (thoughts do not join the next prompt)');
+  assert.equal(r.contextUsed, 13896, 'the newest generation\'s prompt: the whole conversation as last sent');
   assert.equal(r.contextWindow, null, 'the window is status.js\'s assumption, never read from the blob');
   assert.equal(r.model, 'gemini-3.8-flash');
   assert.equal(r.messages, 3);
@@ -69,7 +69,7 @@ test('#4039: the newest generation that names a model wins, and a newer one with
   ]);
   const r = agy.read(dir);
   assert.equal(r.model, 'gemini-3.9-flash', 'an older model overwrote the newest');
-  assert.equal(r.contextUsed, 12120, 'the newest REPORTING generation, not the newest row');
+  assert.equal(r.contextUsed, 12100, 'the newest REPORTING generation, not the newest row');
 });
 
 test('#4039: only the newest generations are decoded, so a long conversation costs the same per poll', () => {
@@ -80,7 +80,7 @@ test('#4039: only the newest generations are decoded, so a long conversation cos
   gens[0] = generation({ model: 'only-in-the-oldest', prompt: 1, reply: 1 });
   const { dir } = conversation(gens);
   const r = agy.read(dir);
-  assert.equal(r.contextUsed, 1000 + gens.length - 1 + 1, 'the newest');
+  assert.equal(r.contextUsed, 1000 + gens.length - 1, 'the newest');
   assert.equal(r.messages, gens.length, 'messages counts every generation');
   assert.equal(r.model, null, 'a generation older than the newest NEWEST_GENS was decoded');
 });
@@ -114,7 +114,7 @@ test('#4039: reading never changes agy\'s db, in WAL mode as the real ones are',
   agy.read(dir);
   assert.ok(before.equals(fs.readFileSync(file)), 'the db bytes changed');
   assert.equal(fs.statSync(file).mtimeMs, beforeMtime, 'the db was touched');
-  assert.equal(agy.read(dir).contextUsed, 5050, 'control: the WAL db reads');
+  assert.equal(agy.read(dir).contextUsed, 5000, 'control: the WAL db reads');
 });
 
 test('#4039 control: a blob that is not protobuf decodes to nothing rather than to garbage numbers', () => {
