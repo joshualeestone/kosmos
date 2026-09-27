@@ -8,8 +8,10 @@
  * is CAMELCASE (#[serde(rename_all="camelCase")]), timestamps are RFC3339. That casing
  * split is the whole point of these fixtures -- a reader that read signals in snake_case
  * would return null on every real file while a snake_case fixture passed, so the fixture
- * MUST match the real wire names. Not yet cross-checked against a live captured session
- * (gated on an xAI key); these tests pin the reader against the authoritative struct shape.
+ * MUST match the real wire names. Cross-checked 2026-09-26 against real Grok Build 1.0.41
+ * sessions on Agent1s (#4039): the signals.json keys are these, and on a copy of an answered
+ * one-call session the reader returned contextWindow 500000, model grok-4.6, and contextUsed 2716
+ * before the single-call floor (40111 with it; see singleCallFloor).
  *
  * ⚠️ A SANDBOXED GROK HOME, set before the module loads, exactly as the codex/gemini
  * reader tests do -- the real ~/.grok holds the operator's own sessions.
@@ -66,6 +68,7 @@ function writeSession({ encDir, sessionId, cwd, model, numMessages, lastActive, 
 
 function reset() {
   fs.rmSync(nodePath.join(SANDBOX, 'sessions'), { recursive: true, force: true });
+  grok.clearFirstTurnCache(); // a reused session id must not inherit an earlier test's past-turn-1 mark
 }
 
 test('read() returns the codex-shaped contract, with BOTH context halves measured', () => {
@@ -224,4 +227,66 @@ test('HOME() resolves each override; GROK_HOME is the storage root, NOT parent-a
     if (saved.g === undefined) delete process.env.GROK_HOME; else process.env.GROK_HOME = saved.g;
     if (saved.h === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = saved.h;
   }
+});
+
+/* #4039 follow-up: the real figures from three measured Grok 1.0.41 turns (see singleCallFloor). */
+function writeUsage(sessionId, turns) {
+  fs.writeFileSync(nodePath.join(SANDBOX, 'sessions', 'enc-usage', sessionId, 'usage.json'), JSON.stringify({ sessionId, turns }));
+}
+
+test('a single-call turn\'s pre-call estimate is floored by that call\'s real prompt; a multi-call SUM is never used', () => {
+  reset();
+  writeSession({ encDir: 'enc-usage', sessionId: 'hi', cwd: WORKDIR, model: 'grok-4.6', numMessages: 9, lastActive: '2026-09-27T02:54:41Z', lastTurn: 'x', tokensUsed: 2716, windowTokens: 500000 });
+  writeUsage('hi', [{ turnNumber: 1, inputTokens: 40111, modelCalls: 1 }]);
+  assert.equal(grok.read(WORKDIR).contextUsed, 40111, 'the measured "say hi" session: 2716 is an estimate, the one call sent 40111');
+
+  reset();
+  writeSession({ encDir: 'enc-usage', sessionId: 'multi', cwd: WORKDIR, model: 'grok-4.6', numMessages: 20, lastActive: '2026-09-27T03:00:00Z', lastTurn: 'x', tokensUsed: 40783, windowTokens: 500000 });
+  writeUsage('multi', [{ turnNumber: 1, inputTokens: 80292, modelCalls: 2 }, { turnNumber: 2, inputTokens: 81382, modelCalls: 2 }]);
+  assert.equal(grok.read(WORKDIR).contextUsed, 40783, 'a two-call turn\'s 81382 is a sum, never occupancy: Grok\'s own gauge stands');
+
+  /* ONE turn that made TWO calls: only the modelCalls check keeps its SUM out (the turn-count check passes). */
+  reset();
+  writeSession({ encDir: 'enc-usage', sessionId: 'one-multi', cwd: WORKDIR, model: 'grok-4.6', numMessages: 12, lastActive: '2026-09-27T02:57:00Z', lastTurn: 'x', tokensUsed: 40291, windowTokens: 500000 });
+  writeUsage('one-multi', [{ turnNumber: 1, inputTokens: 80292, modelCalls: 2 }]);
+  assert.equal(grok.read(WORKDIR).contextUsed, 40291, 'the measured turn A: its 80292 is two prompts summed, never occupancy');
+});
+
+test('usage.json absent, malformed, or smaller: Grok\'s own contextTokensUsed stands', () => {
+  for (const [label, body] of [['absent', null], ['malformed', '{ nope'], ['smaller', JSON.stringify({ turns: [{ inputTokens: 100, modelCalls: 1 }] })]]) {
+    reset();
+    writeSession({ encDir: 'enc-usage', sessionId: 's', cwd: WORKDIR, model: 'grok-4.6', numMessages: 3, lastActive: '2026-09-27T03:00:00Z', lastTurn: 'x', tokensUsed: 40291, windowTokens: 500000 });
+    if (body != null) fs.writeFileSync(nodePath.join(SANDBOX, 'sessions', 'enc-usage', 's', 'usage.json'), body);
+    assert.equal(grok.read(WORKDIR).contextUsed, 40291, label);
+  }
+});
+
+test('the floor is the FIRST turn only: a later single-call turn after a compaction never pins the ring high', () => {
+  reset();
+  writeSession({ encDir: 'enc-usage', sessionId: 'compacted', cwd: WORKDIR, model: 'grok-4.6', numMessages: 40, lastActive: '2026-09-27T04:00:00Z', lastTurn: 'x', tokensUsed: 30000, windowTokens: 500000 });
+  writeUsage('compacted', [{ turnNumber: 1, inputTokens: 900000, modelCalls: 3 }, { turnNumber: 2, inputTokens: 380000, modelCalls: 1 }]);
+  assert.equal(grok.read(WORKDIR).contextUsed, 30000, 'an old single-call turn\'s 380000 overrode the gauge after it dropped');
+
+  /* The first turn WAS single-call (the measured 40111); later turns and a compaction follow. Only the
+     turn-count check keeps the first turn's prompt from pinning the ring (modelCalls alone would pass). */
+  reset();
+  writeSession({ encDir: 'enc-usage', sessionId: 'later', cwd: WORKDIR, model: 'grok-4.6', numMessages: 30, lastActive: '2026-09-27T04:10:00Z', lastTurn: 'x', tokensUsed: 30000, windowTokens: 500000 });
+  writeUsage('later', [{ turnNumber: 1, inputTokens: 40111, modelCalls: 1 }, { turnNumber: 2, inputTokens: 80000, modelCalls: 2 }]);
+  assert.equal(grok.read(WORKDIR).contextUsed, 30000, 'the first turn\'s 40111 pinned the ring after later turns');
+});
+
+test('a session seen past its first turn never has usage.json read again; a first-turn session still is', () => {
+  reset();
+  writeSession({ encDir: 'enc-usage', sessionId: 'grown', cwd: WORKDIR, model: 'grok-4.6', numMessages: 20, lastActive: '2026-09-27T05:00:00Z', lastTurn: 'x', tokensUsed: 40783, windowTokens: 500000 });
+  writeUsage('grown', [{ turnNumber: 1, inputTokens: 40111, modelCalls: 1 }, { turnNumber: 2, inputTokens: 81382, modelCalls: 2 }]);
+  assert.equal(grok.read(WORKDIR).contextUsed, 40783);
+  /* Not a real Grok state (turns only grow): it proves the second read never happened. */
+  writeUsage('grown', [{ turnNumber: 1, inputTokens: 99999, modelCalls: 1 }]);
+  assert.equal(grok.read(WORKDIR).contextUsed, 40783, 'usage.json was read again after the session passed its first turn');
+  /* CONTROL: a session still on its first turn is read on every poll, so a usage.json that lands later is seen. */
+  reset();
+  writeSession({ encDir: 'enc-usage', sessionId: 'fresh', cwd: WORKDIR, model: 'grok-4.6', numMessages: 9, lastActive: '2026-09-27T05:01:00Z', lastTurn: 'x', tokensUsed: 2716, windowTokens: 500000 });
+  assert.equal(grok.read(WORKDIR).contextUsed, 2716, 'no usage.json yet: Grok\'s own figure');
+  writeUsage('fresh', [{ turnNumber: 1, inputTokens: 40111, modelCalls: 1 }]);
+  assert.equal(grok.read(WORKDIR).contextUsed, 40111, 'a first-turn session stopped being read');
 });
