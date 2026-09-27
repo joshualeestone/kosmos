@@ -45,6 +45,10 @@ test('the code step is conditional, because the code does not always come', () =
     'the code step is phrased as a requirement again, so a sign-in with no email reads as broken');
   assert.ok(!/Enter the code from your email to try again/.test(live),
     'a retry sentence still demands an email code');
+  /* #4177 (the #727 walk): the field itself said "The code from your email" after the line above it was softened;
+     it now says "Sign-in code", as the first-run field does. */
+  assert.ok(!/code from your email/i.test(live), 'the code field still says the code comes by email');
+  assert.match(PAGE, /id="acct-code"[^>]*aria-label="Sign-in code" placeholder="Sign-in code"/, 'the Settings code field is not named as first run names it');
   assert.match(PAGE, /If Claude gives you a code, paste it here\. If it does not, the sign-in finishes on its own\./,
     'the Settings flow lost the conditional wording');
 });
