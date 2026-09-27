@@ -1,7 +1,6 @@
-{"version":"0.7.03","highlights":[
-  {"icon":"shield","title":"Gemini on your Google subscription","line":"Sign in on Google's own page, and Gemini gets its own row in AI Models."},
-  {"icon":"chat","title":"See what your Gemini agents are doing","line":"Gemini agents on a Google subscription can now show Working, Idle or Needs you on their card."},
-  {"icon":"phone","title":"A simpler Kosmos Plus page","line":"One switch to pause Kosmos Plus, one box that says where to sign in, and a way to remove this computer."},
-  {"icon":"tasks","title":"A clearer Tasks page","line":"Every task grouped by where the work is, each status with its own icon, and Needs Your Decision in red."},
-  {"icon":"spark","title":"Clearer sign-in status in AI Models","line":"When Kosmos has only checked a sign-in, it says checked, not that an agent used it."}
+{"version":"0.7.05","highlights":[
+  {"icon":"phone","title":"Chat boxes a little taller on a phone","line":"The message and search boxes in an agent's chat and a project room are a little taller on a phone, so they are easier to tap."},
+  {"icon":"phone","title":"When your Mac is not answering","line":"Through Kosmos Plus, an open board says your Mac is not answering, that it may be asleep or turned off, and what to do."},
+  {"icon":"spark","title":"Your phone says when it is offline","line":"Through Kosmos Plus, a phone or computer with no internet is told it is offline, not that Kosmos is not answering."},
+  {"icon":"swarm","title":"Undo an org chart upload","line":"After Create the team makes agents, Undo lists what it will remove, then removes only the agents it made."}
 ]}
