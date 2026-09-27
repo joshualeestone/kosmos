@@ -1,0 +1,4 @@
+    NotificationRecord(0x028834b7: pkg=io.kosmos.app user=UserHandle{0} id=-1 tag=p#https://login.kosmosplus.com/#010009 importance=3 key=0|io.kosmos.app|-1|p#https://login.kosmosplus.com/#010009|10207: Notification(channel=general_channel_id shortcut=null contentView=null vibrate=null sound=null tick defaults=0 flags=ONLY_ALERT_ONCE color=0x00000000 groupKey=Web:login.kosmosplus.com vis=PRIVATE publicVersion=Notification(channel=sites shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=0 color=0x00000000 vis=PRIVATE)))
+      opPkg=io.kosmos.app
+      icon=Icon(typ=BITMAP size=40x40)
+    time="2026-09-27 07:42:07" type=NOTIFICATION_INTERRUPTION package=io.kosmos.app channelId=general_channel_
