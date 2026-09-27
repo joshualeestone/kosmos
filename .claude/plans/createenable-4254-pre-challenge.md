@@ -14,8 +14,8 @@ converged: true
 
 **Iterations:** 4 (opus, sonnet, opus, sonnet)
 **Converged:** Yes, iteration 4 raised no findings.
-**Total findings:** 3 WARNINGs, 0 BLOCKERs, 3 NITs
-**Fixed:** 6 | **Deferred:** 0 | **Asked (awaiting user):** 0
+**Total findings:** 2 WARNINGs, 0 BLOCKERs, 3 NITs
+**Fixed:** 5 | **Deferred:** 0 | **Asked (awaiting user):** 0
 
 Final validation (6j): `validation_log_run_or_skip` exited 0 on c55be002 (the diff this proof hashes), and
 `audit_subdir_claudemd_changed_paths` exited 0.
@@ -29,12 +29,33 @@ label) goes red with the enable call removed, with the wrong label enabled, and 
 
 ### Per-Iteration Breakdown
 
-| Iter | Model | Findings | Resolution |
-|---|---|---|---|
-| 1 | opus | NIT: half-written test's control loosened to count only `bootstrap`. NIT: my comment (refused) and the repair path's (succeeds, starts nothing) disagreed | Control excludes `print` and `enable` by name; red with create's bootstrap removed. Measured the disagreement: refused. Repair-path comment corrected |
-| 2 | sonnet | WARNING: register.test.js kept the disproven claim | Swept by meaning: four more copies (setup.sh x2, two assertion messages). All corrected |
-| 3 | opus | WARNING: README said a re-created name is refused (false since this fix; not a copy of the phrase, so the phrase sweep missed it). NIT: plan described round 1's control | README and plan corrected |
-| 4 | sonnet | none | CONVERGED |
+#### Iteration 1 (opus)
+- [NIT] engine/create.test.js: the half-written-agent test's control was loosened to count only `bootstrap`.
+  FIXED: excludes `print` and `enable` by name, counts everything else; red with create's bootstrap removed.
+- [NIT] engine/create.js: my comment (refused) and the repair path's (succeeds and starts nothing) disagreed.
+  FIXED: measured on macOS 26.7 (refused, rc 5); the repair-path comment corrected to the measurement.
+
+#### Iteration 2 (sonnet)
+- [WARNING] engine/register.test.js:166-169: the disproven claim survived beside the corrected one.
+  FIXED: swept the tree by meaning; four more copies (install/setup.sh x2, two assertion messages) corrected.
+
+#### Iteration 3 (opus)
+- [WARNING] README.md:229-231: said a later create of the name is refused by launchd; false since this fix, and
+  not a copy of the phrase, so the phrase sweep missed it. FIXED.
+- [NIT] .claude/plans/createenable-4254.md: described round 1's loosened control. FIXED.
+
+#### Iteration 4 (sonnet)
+No issues found. CONVERGED.
+
+### Final Ledger
+
+| # | Iter | Category | File:Line | Origin | Status |
+|---|---|---|---|---|---|
+| 1 | 1 | NIT | engine/create.test.js:921 | SELF | FIXED c11d6c26 |
+| 2 | 1 | NIT | engine/create.js:3459 | BRANCH | FIXED c11d6c26 |
+| 3 | 2 | WARNING | engine/register.test.js:166 | BRANCH | FIXED d288c559 |
+| 4 | 3 | WARNING | README.md:229 | BRANCH | FIXED c55be002 |
+| 5 | 3 | NIT | .claude/plans/createenable-4254.md:14 | SELF | FIXED c55be002 |
 
 ### Not done (decided)
 - A remove-then-create test through a fake launchd: it would test the fake's model of the override.
