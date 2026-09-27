@@ -10,10 +10,9 @@ from the tree's. Nothing before the cut looked at a file's git mode, so the 0.7.
 
 1. `bundle.execbit-4134.test.js` (root, so run-tests.sh's `*.test.js` glob and CI run it): reads the
    build script, pairs every `chmod +x "$STAGE/..."` with the `cp` that placed it, and asserts every
-   `$REPO/...` source is 100755 in `git ls-files -s`. A `cp` from outside the tree is skipped; a chmod
-   target no `cp` accounts for FAILS (a new shape must be taught, not skipped). The one exception is
-   `runtime/bin/node` (extracted from the Node download), named with its reason, and the test fails
-   if that name stops appearing.
+   `$REPO/...` source is 100755 in `git ls-files -s`. A `cp` from outside the tree (the connector, the
+   Node runtime) is skipped; a chmod target no earlier `cp` accounts for FAILS, and so does any other
+   line running `chmod` in a shape the parser does not read (a new shape must be taught, not skipped).
 2. `bin/agy-report-bridge.js` to 100755, the same blob as Baron's agybit-0701 (so the two merge clean).
 
 ## Arms
@@ -30,7 +29,9 @@ has nothing to guard. The card said "bundle and install scripts"; this is why on
 
 ## Weakest premise
 
-The parser reads single-line `cp "<src>" "$STAGE/<dst>"` shapes. A cp written another way (a loop, a
-variable destination) is not paired, and its chmod target then fails as untraced, which is loud, not
-silent. A cp that is NOT followed by chmod but copies a 100755 file is out of scope: cp keeps the
+The parser reads single-line `cp "<src>" "$STAGE/<dst>"` and `chmod +x "$STAGE/<dst>"` shapes. A cp
+written another way is not paired, so its chmod target fails as untraced; a chmod written another way
+(`chmod 755`, a variable path, a loop) fails as unread. A mode set by something that is not `chmod`
+(`install -m 755`, a tar extract into $STAGE) is not seen at all: none exists in the script today.
+The test reads git's index; the cut reads the checked-out file, which agrees with core.fileMode on. A cp that is NOT followed by chmod but copies a 100755 file is out of scope: cp keeps the
 mode, so bundle and tree agree.
