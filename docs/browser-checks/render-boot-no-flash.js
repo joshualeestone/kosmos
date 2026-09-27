@@ -40,14 +40,14 @@ async function coverIsOccluding(page) {
     const s = getComputedStyle(c);
     const r = c.getBoundingClientRect();
     const root = document.documentElement.getBoundingClientRect();
-    const rs = document.documentElement.style, was = [rs.scrollbarGutter, rs.overflow], sx = scrollX, sy = scrollY;
+    const de = document.documentElement, rs = de.style, was = de.getAttribute('style'), sx = scrollX, sy = scrollY;
     let sbw = NaN;
     try {
       rs.overflow = 'hidden'; rs.scrollbarGutter = 'auto';
       const bare = document.documentElement.getBoundingClientRect().width;
       rs.scrollbarGutter = 'stable';
       sbw = Math.round(bare - document.documentElement.getBoundingClientRect().width);
-    } finally { [rs.scrollbarGutter, rs.overflow] = was; scrollTo(sx, sy); }
+    } finally { if (was === null) de.removeAttribute('style'); else de.setAttribute('style', was); scrollTo(sx, sy); }
     const gutter = innerWidth - root.right;
     return {
       up: true,

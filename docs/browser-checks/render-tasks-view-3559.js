@@ -233,19 +233,19 @@ function chk(ok, label, extra) {
            clientWidth either (#4213, the #3973 class): with classic scrollbars and a page that does not scroll, the
            #1309 stable gutter is reserved and left empty, clientWidth still counts it, and a read 2px from that
            edge lands in the gutter. rootOk keeps this yardstick honest: the root may give up a gutter only as wide
-           as its own stable scrollbar gutter (within 1px), read off the root after the other reads and restored in a
-           finally, as render-plus-bar-3837 does. Not a scratch scroller: the runner hides element scrollbars, and
+           as its own stable scrollbar gutter (within 1px), read off the root after its box is read, with the root's
+           style attribute restored in a finally, as render-plus-bar-3837 does. Not a scratch scroller: the runner hides element scrollbars, and
            one read 0 against the root's 15px (the first run of #4222). An engine without scrollbar-gutter reads 0
            and fails loudly, never falsely passes. */
         const root = document.documentElement.getBoundingClientRect();
-        const rs = document.documentElement.style, was = [rs.scrollbarGutter, rs.overflow], sx = scrollX, sy = scrollY;
+        const de = document.documentElement, rs = de.style, was = de.getAttribute('style'), sx = scrollX, sy = scrollY;
         let sbw = NaN;
         try {
           rs.overflow = 'hidden'; rs.scrollbarGutter = 'auto';
           const bare = document.documentElement.getBoundingClientRect().width;
           rs.scrollbarGutter = 'stable';
           sbw = Math.round(bare - document.documentElement.getBoundingClientRect().width);
-        } finally { [rs.scrollbarGutter, rs.overflow] = was; scrollTo(sx, sy); }
+        } finally { if (was === null) de.removeAttribute('style'); else de.setAttribute('style', was); scrollTo(sx, sy); }
         const gutter = innerWidth - root.right;
         return { w: Math.floor(root.right), rootOk: Math.abs(root.left) <= 1 && (Math.abs(gutter) <= 1 || Math.abs(gutter - sbw) <= 1),
           gutter: Math.round(gutter), sbw, h: document.documentElement.clientHeight, bandY: Math.round((tiles.top + tiles.bottom) / 2), belowY: Math.round(under.top + under.height / 2),

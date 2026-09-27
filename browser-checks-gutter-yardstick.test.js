@@ -16,12 +16,13 @@ const path = require('node:path');
 const FILES = ['render-boot-no-flash.js', 'render-plus-bar-3837.js', 'render-tasks-view-3559.js']
   .map((f) => path.join(__dirname, 'docs', 'browser-checks', f));
 
+const MARK_TEXT = 'const de = document.documentElement, rs = de.style,';
+
 // The root's gutter measurement, from saving the root's style to the finally that restores it,
 // whitespace-normalised.
 function probe(src) {
-  const MARK = 'const rs = document.documentElement.style,';
-  assert.equal(src.split(MARK).length - 1, 1, 'the root gutter measurement should appear exactly once');
-  const start = src.indexOf(MARK);
+  assert.equal(src.split(MARK_TEXT).length - 1, 1, 'the root gutter measurement should appear exactly once');
+  const start = src.indexOf(MARK_TEXT);
   const end = src.indexOf('scrollTo(sx, sy); }', start);
   assert.ok(start >= 0 && end > start, 'no root gutter measurement found');
   return src.slice(start, end).replace(/\s+/g, ' ').trim();
@@ -42,10 +43,10 @@ test('#3973: every check that measures the root yardstick uses the same probe an
     assert.equal(src.split(GUTTER).length - 1, 1, `${path.basename(name)} should compute the gutter exactly once`);
     assert.equal(src.split(TOLERANCE).length - 1, 1, `${path.basename(name)} should apply the root tolerance exactly once`);
     // #4213: a scratch scroller reads 0 on the runner, which hides element scrollbars.
-    assert.doesNotMatch(src, /overflow\w*\s*[:=]\s*['"]?scroll/i, `${path.basename(name)} measures a scratch scroller again`);
+    assert.doesNotMatch(src, /overflow[-\w]*['"]?\s*[:=,]\s*['"]?scroll/i, `${path.basename(name)} measures a scratch scroller again`);
     // The root box is read before its style is changed, and restored in a finally.
-    assert.ok(src.indexOf(ROOT) < src.indexOf('const rs = document.documentElement.style,'), `${path.basename(name)} reads the root after changing it`);
-    assert.match(src, /\} finally \{ \[rs\.scrollbarGutter, rs\.overflow\] = was; scrollTo\(sx, sy\); \}/, `${path.basename(name)} does not restore the root in a finally`);
+    assert.ok(src.indexOf(ROOT) < src.indexOf(MARK_TEXT), `${path.basename(name)} reads the root after changing it`);
+    assert.match(src, /\} finally \{ if \(was === null\) de\.removeAttribute\('style'\); else de\.setAttribute\('style', was\); scrollTo\(sx, sy\); \}/, `${path.basename(name)} does not restore the root in a finally`);
   }
 });
 

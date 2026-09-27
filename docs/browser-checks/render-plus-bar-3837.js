@@ -55,14 +55,14 @@ const bar = (page) => page.evaluate(() => {
   try { const px = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data; for (let i = 3; i < px.length; i += 4) if (px[i] > 0) inked++; } catch { inked = -1; }
   const ob = out.getBoundingClientRect(), cb = cv.getBoundingClientRect();
   const root = document.documentElement.getBoundingClientRect();
-  const rs = document.documentElement.style, was = [rs.scrollbarGutter, rs.overflow], sx = scrollX, sy = scrollY;
+  const de = document.documentElement, rs = de.style, was = de.getAttribute('style'), sx = scrollX, sy = scrollY;
   let sbw = NaN;
   try {
     rs.overflow = 'hidden'; rs.scrollbarGutter = 'auto';
     const bare = document.documentElement.getBoundingClientRect().width;
     rs.scrollbarGutter = 'stable';
     sbw = Math.round(bare - document.documentElement.getBoundingClientRect().width);
-  } finally { [rs.scrollbarGutter, rs.overflow] = was; scrollTo(sx, sy); }
+  } finally { if (was === null) de.removeAttribute('style'); else de.setAttribute('style', was); scrollTo(sx, sy); }
   const gutter = innerWidth - root.right;
   return { rootOk: Math.abs(root.left) <= 1 && (Math.abs(gutter) <= 1 || Math.abs(gutter - sbw) <= 1), gutter: Math.round(gutter), sbw, present: true, first: head && head.firstElementChild === b, top: Math.round(r.top), left: Math.round(r.left), right: Math.round(root.right - r.right),
     h: Math.round(r.height), inked, markLeft: Math.round(cb.left - r.left), markH: Math.round(cb.height), outRightGap: Math.round(r.right - ob.right), outText: out.textContent,
