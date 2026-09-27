@@ -42770,6 +42770,7 @@ const ORGCHART_NAME_MAX = 32;
 
 function resetOrgchartPreview() {
   ORGCHART_PARSED = null;
+  ORGCHART_GEN += 1;   // an Undo still asking or removing must not paint over what comes next
   const box = document.getElementById('orgchart-preview-box');
   if (box) box.hidden = true;
   const list = document.getElementById('orgchart-list');
@@ -42886,6 +42887,7 @@ document.getElementById('orgchart-preview').addEventListener('click', () => {
       + ' <span class="dhint">&rarr; ' + esc(r.name) + '</span></li>').join('');
   document.getElementById('orgchart-create').disabled = false;
   // A new preview is a new batch: the last run's Undo no longer applies to this screen.
+  ORGCHART_GEN += 1;
   ORGCHART_CREATED = [];
   document.getElementById('orgchart-undo').hidden = true;
   orgchartUndoAsking(false);
@@ -42996,9 +42998,11 @@ function orgchartUndoAsking(on) {
   const go = document.getElementById('orgchart-undo-go');
   const keep = document.getElementById('orgchart-undo-keep');
   const back = document.getElementById('orgchart-edit');
+  const preview = document.getElementById('orgchart-preview');
   if (go) { go.hidden = !on; go.disabled = false; }
   if (keep) keep.hidden = !on;
   if (back) back.hidden = on;
+  if (preview) preview.disabled = on;
 }
 
 // Each agent's removal plan from the engine (GET /api/agent/:name/removal), keyed by name.
@@ -43018,24 +43022,23 @@ async function orgchartUndoAsk() {
   const listEl = document.getElementById('orgchart-list');
   const msg = document.getElementById('orgchart-msg');
   undo.disabled = true;
+  document.getElementById('orgchart-preview').disabled = true;
   const plans = {};
-  for (const c of ORGCHART_CREATED) {
-    let plan = null;
-    try {
-      const res = await fetch('/api/agent/' + encodeURIComponent(c.name) + '/removal', { cache: 'no-store' });
-      plan = await res.json().catch(() => null);
-    } catch (err) { plan = null; }
-    if (gen !== ORGCHART_GEN) return;
-    plans[c.name] = plan;
-  }
+  // Read-only, so asked together (the removals themselves go one at a time).
+  const answers = await Promise.all(ORGCHART_CREATED.map((c) =>
+    fetch('/api/agent/' + encodeURIComponent(c.name) + '/removal', { cache: 'no-store' })
+      .then((res) => res.json().catch(() => null), () => null)));
+  if (gen !== ORGCHART_GEN) return;
+  ORGCHART_CREATED.forEach((c, i) => { plans[c.name] = answers[i]; });
   ORGCHART_UNDO_PLANS = plans;
   countEl.textContent = 'Undo will remove '
     + (n === 1 ? 'this agent, the one this import made:' : 'these ' + n + ' agents, the ones this import made:');
   listEl.innerHTML = ORGCHART_CREATED.map((c) => {
     const plan = plans[c.name];
-    const note = !plan ? ' <span class="dhint">we could not check this one first</span>'
-      : plan.ok === false ? ' <span class="dhint">cannot be removed: ' + esc(plan.because || plan.error || 'no reason given') + '</span>'
-      : '';
+    const note = plan && plan.ok === false
+      ? ' <span class="dhint">cannot be removed: ' + esc(plan.because || plan.error || 'no reason given') + '</span>'
+      : plan && plan.ok === true ? ''
+      : ' <span class="dhint">we could not check this one first' + (plan && plan.error ? ': ' + esc(plan.error) : '') + '</span>';
     return '<li>' + esc(c.shownAs) + ' <span class="dhint">&rarr; ' + esc(c.name) + '</span>' + note + '</li>';
   }).join('');
   const first = ORGCHART_CREATED.map((c) => plans[c.name]).find((p) => p && p.ok);

@@ -64,11 +64,17 @@ function check(name, pass, detail) {
   const PLAN = { ok: true, reassurance: 'Removing is not deleting. Its files will not be deleted.',
     loses: ['Its place on the board', 'Starting again on its own, until you put it back'],
     keeps: ['Its folder, on this computer', 'Its instructions', 'Everything it has written'] };
-  await page.route('**/api/agent/*/removal', (r) => {
+  let removalDelayMs = 0;
+  await page.route('**/api/agent/*/removal', async (r) => {
     const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
-    if (r.request().method() === 'GET') return r.fulfill({ status: 200, json: plans[name] || { ...PLAN, name, label: name } });
+    if (r.request().method() === 'GET') {
+      const p = plans[name];
+      if (p && p.status) return r.fulfill({ status: p.status, json: p.json });
+      return r.fulfill({ status: 200, json: p || { ...PLAN, name, label: name } });
+    }
     if (r.request().method() !== 'DELETE') return r.continue();
     removeCalls.push(name);
+    if (removalDelayMs) await new Promise((ok) => setTimeout(ok, removalDelayMs));
     const ans = removal[name] || { outcome: 'removed' };
     if (ans.outcome === 'removed' || ans.recorded) removedNow.add(name);
     r.fulfill({ status: ans.outcome === 'refused' ? 400 : 200, json: ans });
@@ -193,9 +199,10 @@ function check(name, pass, detail) {
       && /keeps: .*everything it has written/i.test(asked.msg) && /loses: its place on the board/i.test(asked.msg),
     JSON.stringify(asked.msg));
   const askFocus = await page.evaluate(() => ({ focus: document.activeElement && document.activeElement.id,
-    backHidden: document.getElementById('orgchart-edit').hidden }));
-  check('asking puts the keyboard on Keep them and moves Back to the list aside',
-    askFocus.focus === 'orgchart-undo-keep' && askFocus.backHidden, JSON.stringify(askFocus));
+    backHidden: document.getElementById('orgchart-edit').hidden,
+    previewDisabled: document.getElementById('orgchart-preview').disabled }));
+  check('asking puts the keyboard on Keep them and moves Back to the list and Preview aside',
+    askFocus.focus === 'orgchart-undo-keep' && askFocus.backHidden && askFocus.previewDisabled, JSON.stringify(askFocus));
   await page.click('#orgchart-undo-keep');
   await page.waitForFunction(() => /Created 3 agents/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 5000 });
   const kept = await page.evaluate(() => ({
@@ -299,6 +306,13 @@ function check(name, pass, detail) {
     /remove this agent/.test(partialUndo), JSON.stringify(partialUndo));
   // The refused row here is the shape an agent that ALREADY EXISTED takes: createAgent refuses a
   // taken name, so it lands in refused[]. Undo must never name it, even though the name matches.
+  plans = { 'marketing-lead': { status: 500, json: { error: 'we could not work out whether this agent can be removed' } } };
+  await page.click('#orgchart-undo');
+  await page.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
+  const unreadable = await page.evaluate(() => [...document.getElementById('orgchart-list').querySelectorAll('li')].map((li) => li.textContent));
+  check('a plan the engine could not work out is said as "could not check", never shown as fine',
+    unreadable.some((t) => /Marketing Lead/.test(t) && /could not check this one first: we could not work out/.test(t)), JSON.stringify(unreadable));
+  await page.click('#orgchart-undo-keep');
   plans = { 'marketing-lead': { ok: false, because: 'Marketing Lead has already been removed from Kosmos.' } };
   await page.click('#orgchart-undo');
   await page.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
@@ -354,6 +368,30 @@ function check(name, pass, detail) {
   });
   check('duplicate titles de-duplicate to distinct names within the length cap (no hang)',
     dedup.count === 4 && dedup.distinct === 4 && dedup.maxLen <= 32, JSON.stringify(dedup));
+
+  // ---- Leaving the panel while Undo is removing: the old run paints nothing on return ----
+  await page.fill('#orgchart-text', 'Marketing Lead');
+  await page.click('#orgchart-preview');
+  await page.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 5000 });
+  teamStatus = 200;
+  teamResponse = { outcome: 'created', created: [{ name: 'marketing-lead', shownAs: 'Marketing Lead', id: 'a1' }], refused: [], because: null };
+  await page.click('#orgchart-create');
+  await page.waitForSelector('#orgchart-undo:not([hidden])', { timeout: 5000 });
+  await page.click('#orgchart-undo');
+  await page.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
+  removalDelayMs = 800;
+  await page.click('#orgchart-undo-go');
+  await page.click('#pick-own');
+  await page.click('#pick-orgchart');
+  await page.waitForTimeout(1500);
+  removalDelayMs = 0;
+  const superseded = await page.evaluate(() => ({
+    count: document.getElementById('orgchart-count').textContent,
+    boxHidden: document.getElementById('orgchart-preview-box').hidden,
+    previewDisabled: document.getElementById('orgchart-preview').disabled,
+  }));
+  check('an Undo left mid-run does not paint over the panel it left, and Preview works again',
+    !/Removed|Removing/.test(superseded.count) && superseded.boxHidden && !superseded.previewDisabled, JSON.stringify(superseded));
 
   check('no page errors', errors.length === 0, errors.join(' | '));
 
