@@ -43,3 +43,17 @@ There is no server-side record of a file being open in the Kosmos editor (search
 is the settle window: act only when the file has not changed for SETTLE_MS. A person who pauses longer
 than that mid-edit and then keeps typing could have the managed block rewritten under their open
 editor. The alternative, the page telling the board which file it has open, is a larger change.
+
+## As built (2026-09-27 03:40 CDT)
+
+- `engine/autoretell.js`: `due()` decides, `sweepOnce()` remembers and retells. Pure, injected deps.
+- `server.js`: `retellMember(name, id, roster)` is the Try again route's core, lifted unchanged; it calls
+  `projects.syncAgent` / `projects.speakOfMembership` through the module so the #3923 stubs still reach
+  it. `autoretellTick(now, acted)` is one pass (exported for tests); a 30s timer calls it, gated on
+  live execution, brake `AGENT_WORKFORCE_AUTORETELL_OFF=1`.
+- The file compared is `instructions.fileFor(name)`, the one tellAgent reads, not `create.instructionFile`.
+- Candidates: the NEWEST could_not verdict across the agent's projects; the file must be newer than it.
+- No valve: one retell per settled change, bounded by the person's own edits.
+- Tests: engine/autoretell.test.js (9), server.test.js "#3932" (end-to-end: no file, settle window,
+  retell writes the block and keeps the person's words, the listed line typed once, second tick no-op).
+- Mutations: dropping the settle, newer-than-verdict or acted checks each reds the unit tests.
