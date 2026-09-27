@@ -5,8 +5,9 @@
  * prompt (Josh's LOCKED ruling 2026-09-14 16:49: "auto-handler #1 invisibly. i
  * want all auto-clear stuff cleared.").
  *
- * WHAT IT AUTOMATES. When an agent is parked on Claude Code's own folder-trust /
- * bypass prompt, the board's screen scrape reads it as needs_you with the trust
+ * WHAT IT AUTOMATES. When an agent is parked on Claude Code's own folder-trust prompt
+ * (the "Quick safety check:" dialog; the Bypass Permissions dialog is not scraped as
+ * trust evidence, so it is not covered), the board's screen scrape reads it as needs_you with the trust
  * dialog as its evidence (#4169: the hook's by:'auto' PermissionRequest report is a
  * TOOL prompt and is no longer treated as this case). Today a person resolves it by clicking the /trust-and-restart
  * button (server.js:5147), which does NOT keystroke the live dialog - it writes the
@@ -132,7 +133,7 @@ function planClass1Handle(standing, attempts, now, opts) {
     // Fail closed: anything we are not certain is class-1 technical junk is left
     // exactly as it is. A class-2 real question reaching here and being handled
     // would silently drop a blocking request and stall the fleet.
-    return { act: 'none', because: 'not a class-1 (folder-trust dialog) wait' };
+    return { act: 'none', because: 'not a class-1 wait (on the board, only Claude Code\'s folder-trust dialog on screen is one)' };
   }
   /* #4006: the handle clears CLAUDE CODE's folder-trust / bypass prompt. Another runner has no
      such prompt (create.trustAgentFolder is already a no-op for grok), so its by:auto needs_you is
@@ -183,7 +184,7 @@ function planClass1Handle(standing, attempts, now, opts) {
   return {
     act: 'trust-and-restart',
     recentAttempts,
-    because: 'a standing class-1 wait (Claude Code\'s folder-trust prompt); write the folder-trust key and restart so the relaunch clears it, invisibly',
+    because: 'a standing class-1 wait (on the board: Claude Code\'s folder-trust dialog on screen); write the folder-trust key and restart so the relaunch clears it, invisibly',
   };
 }
 
@@ -332,8 +333,10 @@ function standingFromAgent(agent, isTrustDialogEvidence) {
   // 2026-09-27: 18 of the 19 restarts matched in the agents' self-report logs followed an "asking permission to use
   // Bash: ..." report. The folder-trust dialog never raises a PermissionRequest (see above), so the scrape alone still
   // catches every case this handle exists for. A tool-permission prompt keeps its needs_you card for a person.
-  const arm = trustDialogScrape ? 'trust-dialog' : (rawBy === 'auto' ? 'tool-permission' : null);
-  const by = (arm === 'trust-dialog' && (!rawBy || rawBy === 'auto')) ? 'auto'
+  const promoted = trustDialogScrape && (!rawBy || rawBy === 'auto');
+  /* `arm` names the trigger that DECIDED (null when neither did: a by:'agent' card showing trust evidence stays its own). */
+  const arm = promoted ? 'trust-dialog' : (rawBy === 'auto' ? 'tool-permission' : null);
+  const by = promoted ? 'auto'
     : (arm === 'tool-permission' ? 'auto-tool-permission' : rawBy);   // internal adapter value: not class-1
   /* The card's runner as the card says it: a string, or null for a row that could not say (see planClass1Handle). */
   const runner = agent && typeof agent.runner === 'string' ? agent.runner : (agent && agent.runner === null ? null : '');

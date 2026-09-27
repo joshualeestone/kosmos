@@ -394,3 +394,9 @@ test('pruneAttempts: drops entries whose window has fully expired (bounds the Ma
   assert.equal(book.has('gone'), false);
   assert.deepEqual(book.get('here'), [now - 1000]);
 });
+
+test('#4169: arm names the trigger that DECIDED; a by:agent card showing trust evidence has none', () => {
+  assert.equal(standingFromAgent({ state: 'needs_you', stateReportedBy: 'agent', stateEvidence: TRUST_ROW }, isTrustDialogEvidence).arm, null);
+  assert.equal(standingFromAgent({ state: 'needs_you', stateReportedBy: null, stateEvidence: TRUST_ROW }, isTrustDialogEvidence).arm, 'trust-dialog');
+  assert.equal(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', stateEvidence: TRUST_ROW }, isTrustDialogEvidence).arm, 'trust-dialog');
+});

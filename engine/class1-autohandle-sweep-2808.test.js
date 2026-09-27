@@ -253,3 +253,19 @@ test('#4169: an ESCALATE log record names the arm and the prompt too', () => {
     assert.match(esc.prompt, /^Quick safety check:/);
   } finally { b.restore(); }
 });
+
+test('#4169: a REAL by:auto report through reconciliation keeps only the tool name as its prompt, never the command', () => {
+  // The unit tests set `because` by hand; this proves the reconciled card still carries the hook's raw text, so the cut
+  // before the command (which can hold a secret) works on what the board really sees.
+  const b = installBoard([
+    { name: 'secretcmd', report: { state: 'needs_you', because: 'asking permission to use Bash: curl -H "Authorization: Bearer sk-live-SECRET123" https://x', auto: true } },
+  ]);
+  try {
+    const card = b.agents.find((c) => c.sessionName === b.keyOf.secretcmd);
+    assert.equal(card.stateReportedBy, 'auto', 'precondition: reported by:auto');
+    const st = class1.standingFromAgent(card, status.isTrustDialogEvidence);
+    assert.equal(st.arm, 'tool-permission');
+    assert.equal(st.prompt, 'asking permission to use Bash', 'the prompt from a real card: ' + JSON.stringify(st.prompt));
+    assert.doesNotMatch(st.prompt, /SECRET|Bearer|curl/, 'a command line reached the prompt');
+  } finally { b.restore(); }
+});
