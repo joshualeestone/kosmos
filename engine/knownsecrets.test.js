@@ -98,12 +98,13 @@ test('#4111 a value assigned to a public NAME (MODEL, REGION, VERSION) is not he
       'FT_MODEL=ft:gpt-4o-mini-2024-07-18:acme:custom:9xYz12',
       'MODEL_PASSPHRASE=Pw7vLm3pRt6wXy9kHb2nWc4d',
       'CF_ZONE_ID=0123456789abcdef0123456789abcdef',
+      'CHAT_MODEL=gpt-4o-2024-11-20 # was gpt-4o-2024-11-20 before the switch',
     ].join('\n') + '\n');
     put(path.join(data, 'secrets', 'model.txt'), 'DEFAULT_MODEL=gpt-4o-2024-08-06\n');
     put(path.join(data, 'secrets', 'settings.json'), '{\n  "defaultModel": "gpt-4.1-2025-04-14",\n  "modelId": "o3-mini-2025-01-31"\n}\n');
     const got = new Set(collect({ dataRoot: data, home: path.join(root, 'nohome') }));
     for (const pub of ['gpt-4o-mini-2024-07-18', 'eu-central-1-zone9x', '2024-10-21-preview', 'claude-sonnet-4-20250514', 'gpt-4o-2024-08-06',
-      'claude-3-5-sonnet-20240620', 'gpt-4.1-2025-04-14', 'o3-mini-2025-01-31']) {
+      'claude-3-5-sonnet-20240620', 'gpt-4.1-2025-04-14', 'o3-mini-2025-01-31', 'gpt-4o-2024-11-20']) {
       assert.ok(![...got].some((v) => v.includes(pub) && !/\n/.test(v)), `a public ${pub} was held: ${[...got].filter((v) => v.includes(pub))}`);
     }
     assert.ok(!got.has('OPENAI_MODEL=gpt-4o-mini-2024-07-18'), 'the public NAME=value line was held (the mask would walk it)');

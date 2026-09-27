@@ -44,3 +44,8 @@ is narrowed to the last part so a misnamed secret needs a NAME that says, in its
 - N: ZONE dropped (CF_ZONE_ID stays held, with a control); assignedValue comment reworded; isPublicName table widened
   (model.api-key, model-secret, modelToken, SESSION_ID, ID).
 - Note: the background validation run overlapped these edits; it is discarded and rerun.
+### Iteration 2 (sonnet): 1 WARNING, fixed.
+- W: the value was blanked with a non-global replace, so a comment restating it on the same line held it again.
+  Now every occurrence is blanked (split/join); a CHAT_MODEL line with the value restated in its comment is in the
+  collector test and goes red under the single replace.
+- The second background validation (val4111b) was also stopped for this edit; validation runs once, at 6j.

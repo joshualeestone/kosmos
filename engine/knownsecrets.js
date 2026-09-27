@@ -48,8 +48,9 @@ function valuesIn(text, out) {
     if (a && isPublicName(a.name)) {
       /* The value is blanked before the line is cut into tokens: keyTokens cuts at : , ; so a value such as
          anthropic.claude-3-5-sonnet-20240620-v1:0 or ft:gpt-4o-mini-2024-07-18:acme would otherwise be held
-         piece by piece (review round 1). */
-      for (const tok of keyTokens(t.replace(a.value, ' '))) out.add(tok);
+         piece by piece (review round 1). Every occurrence, not the first: a comment restating the value would
+         otherwise hold it again (review round 2). */
+      for (const tok of keyTokens(t.split(a.value).join(' '))) out.add(tok);
       continue;
     }
     out.add(t);
