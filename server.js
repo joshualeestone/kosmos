@@ -2619,6 +2619,9 @@ function handoffFileSnap(session) {
   }
 }
 
+/* A sign-in route's refusal: 409 when it named a sign-in that has ended or been replaced (its module's
+   NOT_MINE), else 400. One derivation for the agy, win32 agy and muse sign-ins (#3939 review round 8). */
+function signinRefusalStatus(r, notMine) { return r && r.because === notMine ? 409 : 400; }
 function sendJson(res, code, obj) {
   res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' });
   res.end(JSON.stringify(obj));
@@ -8141,7 +8144,7 @@ const server = http.createServer((req, res) => {
     if (req.method !== 'POST') { req.resume(); sendJson(res, 405, { error: 'that is not something this address does' }); return; }
     /* A request naming a sign-in that has ended or been replaced is a conflict (409) on every
        route, so a screen can tell it apart from a refused code. */
-    const refusal = (r) => (r.because === signin.NOT_MINE ? 409 : 400);
+    const refusal = (r) => signinRefusalStatus(r, signin.NOT_MINE);
     // Only STARTING needs the subscription to be offered: Stop and Show must work on a sign-in already
     // running, whatever changed since.
     if (sub === '' && !agy.offered()) { req.resume(); sendJson(res, 400, { ok: false, error: 'Gemini on a Google subscription is not offered on this computer' }); return; }
@@ -8208,7 +8211,7 @@ const server = http.createServer((req, res) => {
       return;
     }
     if (req.method !== 'POST') { req.resume(); sendJson(res, 405, { error: 'that is not something this address does' }); return; }
-    const refusal = (r) => (r.because === signin.NOT_MINE ? 409 : 400);
+    const refusal = (r) => signinRefusalStatus(r, signin.NOT_MINE);
     if (sub === '') {
       req.resume();
       let r;
@@ -8270,7 +8273,7 @@ const server = http.createServer((req, res) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       const id = body && typeof body.id === 'string' ? body.id : '';
-      const conflict = (r) => (r.because === signin.NOT_MINE ? 409 : 400);
+      const conflict = (r) => signinRefusalStatus(r, signin.NOT_MINE);
       try {
         if (sub === '') {
           const r = await require('./engine/agystatus').openForSignIn();

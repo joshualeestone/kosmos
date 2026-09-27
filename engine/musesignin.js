@@ -45,7 +45,7 @@ const NO_EXPIRED = 'There is no expired code to replace';
 const RESEND_MS = 5000;
 /* The line the session prints when muse has exited, so its last screen can still be read (round 1:
    `muse login` exits after "Logged in.", and the session going with it read as a failure). */
-const EXITED = 'KOSMOS-MUSE-EXITED';
+const EXITED = 'KOSMOS_MUSE_EXITED';   // underscores: a dashed caps word would look like a device code (round 8)
 const NOT_MINE = 'That sign-in has ended or another one has started';
 const COULD_NOT_START = 'Kosmos could not start Muse Code\'s sign-in just now';
 
@@ -145,12 +145,15 @@ function end(state, because) {
   logLine('ended ' + state + (because ? ' (' + because + ')' : ''));
   try { tmux(['kill-session', '-t', SESSION]); } catch { /* already gone */ }
 }
+/* True when the mark is written. On a Mac it is the ONLY record Kosmos reads (the sign-in is in the
+   Keychain), so a sign-in it could not record is not reported done (round 8). */
 function markSignedIn() {
   const file = musestatus.signedInMarker();
   try {
     fs.mkdirSync(musestatus.signinFolder(), { recursive: true, mode: 0o700 });
     fs.writeFileSync(file, JSON.stringify({ at: new Date(now()).toISOString() }) + '\n', { mode: 0o600 });
-  } catch (e) { logLine('could not record the sign-in (' + ((e && e.code) || 'unknown') + ')'); }
+    return true;
+  } catch (e) { logLine('could not record the sign-in (' + ((e && e.code) || 'unknown') + ')'); return false; }
 }
 
 function step() {
@@ -171,7 +174,10 @@ function step() {
   const t = now();
   const drawn = screenOf(text);
   if (drawn !== mine.screen) { mine.screen = drawn; mine.seenAt = t; }
-  if (drawn === 'done') { markSignedIn(); end('done'); return; }
+  if (drawn === 'done') {
+    if (markSignedIn()) end('done'); else end('failed', 'Muse Code signed in, but Kosmos could not record it on this computer');
+    return;
+  }
   if (drawn === 'unsaved') { end('failed', 'Muse Code signed in but could not save the sign-in on this computer'); return; }
   if (exited) { end('failed', CLOSED); return; }
   if (drawn === 'expired') {

@@ -411,3 +411,16 @@ test('#3939 round 7: a retry restarts the give-up clock', { skip: !onMac && 'the
     assert.notEqual(signin.status().state, 'failed', 'the new code was ended on the old code\'s clock');
   } finally { done(); }
 });
+
+test('#3939 round 8: a sign-in Kosmos could not record is not reported done', { skip: !onMac && 'the flag is Mac only' }, () => {
+  const marker = musestatus.signedInMarker();
+  const { done } = scripted(PROMPT + '\nWaiting for approval... Esc cancel\nLogged in. Credential saved.\n');
+  fs.rmSync(marker, { recursive: true, force: true });
+  fs.mkdirSync(marker, { recursive: true });   // a folder where the mark goes: the write cannot succeed
+  try {
+    signin.tickForTests();
+    assert.equal(signin.status().state, 'failed', 'a sign-in with no record was reported done');
+    assert.match(signin.status().because, /could not record it/);
+    assert.equal(fs.statSync(marker).isDirectory(), true, 'CONTROL: the obstacle was still in place');
+  } finally { done(); fs.rmSync(marker, { recursive: true, force: true }); }
+});
