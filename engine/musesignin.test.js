@@ -195,6 +195,8 @@ test('#3939: signed in from Muse\'s own file: a providers.meta entry counts, an 
   try {
     fs.writeFileSync(file, JSON.stringify({ schema_version: 1, providers: {} }));
     assert.equal(musestatus.signedIn().signedIn, false, 'an empty providers (after muse logout) read as signed in');
+    fs.writeFileSync(file, JSON.stringify({ schema_version: 1, providers: { meta: {} } }));
+    assert.equal(musestatus.signedIn().signedIn, false, 'an empty meta entry read as signed in (round 4)');
     fs.writeFileSync(file, JSON.stringify({ schema_version: 1, providers: { meta: { mechanism: 'oauth' } } }));
     assert.deepEqual(musestatus.signedIn(), { signedIn: true, how: 'file' });
     assert.ok(file.startsWith(process.env.AGENT_WORKFORCE_HOME), 'CONTROL: the file read is inside the sandbox home');
