@@ -81,6 +81,16 @@ function heldDoor(name) {
 
 const TOKEN = 'hetzner-token-long-enough-to-be-real-0123456789';
 
+/* #4073: wait until `ok()` holds, or `ms` passes, polling every 10ms. A fixed sleep here raced a loaded machine:
+   at load 35 to 85 neither request had reached the verifier within 150ms, and the count read 0 as "not shared". */
+async function until(ok, ms = 5000) {
+  const end = Date.now() + ms;
+  while (!ok() && Date.now() < end) await new Promise((r) => setTimeout(r, 10));
+  return ok();
+}
+/* After the first verify is seen, how long a second, unshared one gets to show before the count is read. */
+const SECOND_VERIFY_MARGIN_MS = 300;
+
 test('#1618: two callers asking for the shelf at once verify each door ONCE', async () => {
   const h = heldDoor('Hetzner');
   try {
@@ -94,7 +104,9 @@ test('#1618: two callers asking for the shelf at once verify each door ONCE', as
     h.arm();
     const a = fetch(base + '/api/connections').then((r) => r.json());
     const b = fetch(base + '/api/connections').then((r) => r.json());
-    await new Promise((r) => setTimeout(r, 150));
+    assert.ok(await until(() => h.entries() - afterConnect >= 1),
+      'neither caller reached the verifier within 5s, so sharing could not be measured (a slow machine, not a sharing defect)');
+    await new Promise((r) => setTimeout(r, SECOND_VERIFY_MARGIN_MS));
     const during = h.entries() - afterConnect;
     assert.equal(during, 1,
       `the shelf verified this door ${during} times for two concurrent callers, so the reads were not shared`);
@@ -104,7 +116,7 @@ test('#1618: two callers asking for the shelf at once verify each door ONCE', as
     assert.equal(ra.doors['/api/svc/hetzner'].connected, true);
     assert.deepEqual(Object.keys(ra.doors).sort(), Object.keys(rb.doors).sort(),
       'the two callers were handed different shelves');
-  } finally { h.restore(); await h.door.forget().catch(() => {}); }
+  } finally { h.release(); h.restore(); await h.door.forget().catch(() => {}); }   // #4073: a failed assert must not leave the held reads open, or the file hangs
 });
 
 /* 🛑 THE BOUNDARY, AND IT IS BUILT AROUND `forget()` SO THAT IT CAN ACTUALLY FAIL.
@@ -123,8 +135,7 @@ test('#1618: forget() observes its OWN write while a shelf read is in flight', a
 
     h.arm();
     const inFlight = fetch(base + '/api/connections').then((r) => r.json());
-    await new Promise((r) => setTimeout(r, 150));
-    assert.ok(h.entries() >= 2, 'the shelf read never reached the verifier, so nothing is in flight and this test proves nothing');
+    assert.ok(await until(() => h.entries() >= 2), 'the shelf read never reached the verifier within 5s, so nothing is in flight and this test proves nothing');
     h.unarm();
 
     const gone = await h.door.forget();
@@ -133,7 +144,7 @@ test('#1618: forget() observes its OWN write while a shelf read is in flight', a
 
     h.release();
     await inFlight;
-  } finally { h.restore(); await h.door.forget().catch(() => {}); }
+  } finally { h.release(); h.restore(); await h.door.forget().catch(() => {}); }   // #4073: a failed assert must not leave the held reads open, or the file hangs
 });
 
 test('#1618: a shelf read after the previous one settles is fresh, not cached', async () => {
