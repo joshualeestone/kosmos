@@ -47,7 +47,7 @@ const WIDE_SIDEWAYS = [[932, 430]];
 const at = (i) => new Date(Date.now() - (60 - i) * 60e3).toISOString();
 const FX = { messages: Array.from({ length: 12 }, (_, i) => (i % 2 ? { at: at(i), text: 'message ' + i + ' from the person', delivery: { state: 'placed' } } : { from: 'april', at: at(i), text: 'reply ' + i + ' from the agent' })), olderCount: 0, presence: 'on', asking: false };
 
-async function open(browser, eng, w, h, theme, touch) {
+async function open(browser, eng, w, h, theme, touch, extra) {
   const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: theme, hasTouch: touch, isMobile: touch && eng === 'chromium' });
   const page = await ctx.newPage();
   const errs = []; page.on('pageerror', (e) => errs.push(e.message));
@@ -57,13 +57,14 @@ async function open(browser, eng, w, h, theme, touch) {
     window.fetch = async (url) => { const u = String(url); if (u.includes('/thread')) return enc(window.__fx); if (u.includes('avatar')) return new Response('', { status: 404 }); return enc({}); };
   });
   await page.goto(PAGE);
-  await page.evaluate((f) => {
+  await page.evaluate(([f, extra]) => {
     window.__fx = f;
+    if (extra && extra.swarm) SWARMS_ON = true;
     const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
     document.querySelectorAll('body > *').forEach((el) => { el.inert = false; });
-    LAST = [{ sessionName: 'april', name: 'April', role: 'Researcher', status: 'working', isNamedOurs: true, nameDerived: true }];
+    LAST = [Object.assign({ sessionName: 'april', name: 'April', role: 'Researcher', status: 'working', isNamedOurs: true, nameDerived: true }, extra || {})];
     openDetail('april', 'talk');
-  }, FX);
+  }, [FX, extra || null]);
   await page.evaluate(() => paintTalk('april', 'April'));
   await page.waitForTimeout(300);
   return { ctx, page, errs };
@@ -102,6 +103,15 @@ function measure() {
         chk(!m.search && m.heading, `${t} an empty search box steps aside, and the conversation keeps its heading for screen readers`, JSON.stringify({ search: m.search, heading: m.heading }));
         // The two other rules this block exists for, asserted directly (review round 2): the room is not left to the thread count alone.
         chk(!m.back && !m.avatar, `${t} the All agents link and the header avatar step aside`, JSON.stringify({ back: m.back, avatar: m.avatar }));
+        if (w === 640 && theme === 'light') {
+          /* The most crowded header (review round 1): a swarm agent whose sign-in stopped, with Sign in again pinned
+             and Stop now under #3892's raised header floor. The message box must still be on screen. */
+          const s2 = await open(browser, eng, w, h, theme, true, { state: 'auth_failed', swarm: { active: true } });
+          const m2 = await s2.page.evaluate(measure);
+          const re = await s2.page.evaluate(() => { const e = document.getElementById('d-reauth'); return !!e && !e.hidden && e.getBoundingClientRect().height > 0; });
+          chk(re && m2.composer && m2.docH <= m2.vis + 1, `${t} a swarm agent whose sign-in stopped: Sign in again shows and the message box stays on screen`, JSON.stringify({ reauth: re, composer: m2.composer, docH: m2.docH, vis: m2.vis }));
+          await s2.ctx.close();
+        }
         if (w === 640) {
           /* A search that is filtering the conversation must stay on screen with its clear button: turning the
              phone must not leave a hidden filter (review round 1). */
@@ -143,7 +153,7 @@ function measure() {
       await browser.close();
     }
   }
-  const EXPECTED_PER_ENGINE = 72;   // 8 sideways runs x 7, 2 of them (640x360) +1 active search, 2 wide-sideways runs x 4, 2 portrait x 2, 2 mouse
+  const EXPECTED_PER_ENGINE = 73;   // 8 sideways runs x 7, 2 of them (640x360) +1 active search, 1 (640x360 light) +1 signed-out swarm, 2 wide-sideways runs x 4, 2 portrait x 2, 2 mouse
   const want = EXPECTED_PER_ENGINE * (process.env.ENGINES || 'chromium').split(',').length;
   if (RAN !== want) { console.log(`FAIL  ran ${RAN} checks, expected ${want}`); fail.push('check count'); }
   console.log(fail.length ? `\n${fail.length} FAILED` : `\nALL PASS (${RAN} checks)`);

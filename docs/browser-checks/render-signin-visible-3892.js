@@ -264,7 +264,10 @@ function notesAndMeasure(opts) {
       // the height (a fixed 190px would take over half of it).
       {
         const t = `[${eng} 640x360 sideways]`;
-        const { ctx, page, errs } = await open(browser, eng, 640, 360, 'light', { state: 'auth_failed', swarm: { active: true } }, true);
+        /* #3969: a TIED agent here (isNamedOurs, nameDerived), as a swarm agent always is. The untied card the other
+           arms use also shows the 55px "this session is not that agent" note, a state a swarm agent never has; with
+           #3969 giving the sideways chat its message box back, that note alone decided this arm. */
+        const { ctx, page, errs } = await open(browser, eng, 640, 360, 'light', { state: 'auth_failed', swarm: { active: true }, isNamedOurs: true, nameDerived: true }, true);
         const side = await page.evaluate(() => {
           const head = document.querySelector('.dhead'); const re0 = document.getElementById('d-reauth');
           const shown = !re0.hidden && !document.getElementById('d-swarm-panel').hidden;
@@ -278,8 +281,8 @@ function notesAndMeasure(opts) {
             composerBefore, composerOnScreen: say.height > 0 && say.bottom <= vis + 0.5 && send.bottom <= vis + 0.5 };
         });
         // This PR's part only: the floor is held to 30% of the height and costs the conversation no more than
-        // that, and the composer is no worse off than without Sign in again. (Sideways, the chat-first layout
-        // leaves no conversation even without it, on main too: outside #718's sizes, a follow-up.)
+        // that, and the composer is no worse off than without Sign in again. (#3969 gave the sideways chat its
+        // message box; with a tied agent the 30% floor still leaves it on screen, measured at 640x360.)
         chk(side.shown && side.capPx <= Math.round(0.3 * side.vis) + 1 && side.threadH >= side.base - Math.round(0.12 * side.vis) - 1 && side.composerOnScreen === side.composerBefore,
           `${t} a swarm agent whose sign-in stopped: the header floor is held to 30% of the height and costs the conversation and composer nothing beyond that`, JSON.stringify(side));
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
