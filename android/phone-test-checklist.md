@@ -7,7 +7,7 @@ screenshot is always enough: press the power and volume-down buttons together.
 Some steps depend on updates that are not switched on yet, so they are marked:
 
 - **Wait for the server update**: a Kosmos+ server update. Part of it is ready and you switch it on
-  when you choose; the notification part (Kano's) is still in review.
+  when you choose; the notification part (Kano's) is finished but not switched on yet either.
 - **Wait for the Mac update**: a Kosmos release for your Mac. Three separate Mac-side pieces are
   involved, listed in the table at the end; one of them may already be on your Mac.
 
@@ -80,8 +80,8 @@ no message; or the "did not open in the app" sentence.
 Put your Mac to sleep (or close its lid), then on the phone reopen Kosmos from its icon and tap
 **Open my Kosmos**. Screenshot what the phone shows, then wake the Mac. (#4086, #4093)
 
-We are still settling what the phone should say when your Mac is not answering, so there is no
-wrong answer here. We just want to see it on a real phone.
+Better wording for when your Mac is not answering is written but not switched on yet, so there is
+no wrong answer here. We just want to see it on a real phone.
 
 ## 6. Turn on notifications on the phone
 
@@ -167,7 +167,7 @@ android README):
 |---|---|---|
 | Your board opens full screen, not with an address bar | 4 | the server update (relay #171, ready) and the Mac piece from relay #161 (probably already in Kosmos 0.6.97 or later) |
 | Notifications reach the phone at all | 7 | the Mac release that turns phone notifications on (not made yet), then switching them on in the Mac's Settings |
-| A notification tap opens the agent inside the app | 8 | the server update including Kano's notification change, and a Mac release carrying its Mac half (both in relay #174, in review; #4140) |
+| A notification tap opens the agent inside the app | 8 | the server update including Kano's notification change, and a Mac release carrying its Mac half (both in relay #174, finished, not switched on yet; #4140) |
 | The sign-in page loads a little faster than it already does | 9 | the server update (relay #169, ready) |
 
 Everything else works now: installing, signing in, allowing the phone on your Mac, turning on
