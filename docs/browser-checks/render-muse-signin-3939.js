@@ -61,6 +61,7 @@ const chk = (ok, label, extra) => {
     window.fetch = async (url, opts) => {
       const u = String(url);
       const method = (opts && opts.method) || 'GET';
+      if (/\/api\/muse$/.test(u)) { const hold = window.__holdMuse; if (hold) { window.__holdMuse = null; const ans = window.__museOn; await hold; return enc(ans ? { enabled: true, installed: true, because: null, signedIn: false } : { enabled: false }); } }
       if (/\/api\/muse$/.test(u)) { if (window.__museRead === 'throw') throw new Error('offline'); if (window.__museRead === 500) return enc({ error: 'x' }, 500); }
       if (/\/api\/muse$/.test(u)) return enc(window.__museOn ? { enabled: true, installed: window.__museInstalled !== false, because: window.__museInstalled === false ? 'Muse Code is not on this computer' : null, signedIn: false } : { enabled: false });
       if (/\/api\/muse\/signin(\/retry|\/stop)?$/.test(u) && method === 'POST') {
@@ -298,6 +299,41 @@ const chk = (ok, label, extra) => {
   const stuckBare = await q(() => ({ msg: document.getElementById('acct-muse-msg').textContent, code: !document.getElementById('acct-muse-code').hidden, stop: !document.getElementById('acct-muse-cancel-row').hidden }));
   chk(/does not recognise/.test(stuckBare.msg) && !stuckBare.code && stuckBare.stop, 'stuck with no code: says why, no code, Stop offered', JSON.stringify(stuckBare));
   await q(() => document.getElementById('acct-muse-cancel').click()); await settle();
+
+  /* ---- round 5 of review ---- */
+  chk(await q(() => ACCT_ADD_INTRO_MUSE !== ACCT_ADD_INTRO && /Meta Muse/.test(ACCT_ADD_INTRO_MUSE)), 'the Muse intro is derived from the stock one and really differs');
+  // The latest read wins: an older answer (off) landing after a newer one (on) changes nothing.
+  await q(() => { closeAcctAdd(); window.__museOn = false; window.__holdMuse = new Promise((r) => { window.__releaseMuse = r; }); openAcctAdd(); });
+  await settle();
+  await q(() => { window.__museOn = true; closeAcctAdd(); openAcctAdd(); });
+  await settle();
+  await q(() => { window.__releaseMuse(); }); await settle();
+  chk(await q(() => !document.querySelector('#acct-provider-pick option[value="meta"]').disabled), 'an older /api/muse answer landing last does not undo the newer one');
+  // An open logo list refreshes when the answer lands.
+  await q(() => { closeAcctAdd(); window.__museOn = false; openAcctAdd(); }); await settle();
+  await q(() => { window.__museOn = true; window.__holdMuse = new Promise((r) => { window.__releaseMuse = r; }); closeAcctAdd(); openAcctAdd(); });
+  await settle();
+  await q(() => { const t = document.querySelector('#acct-provider-pick').parentElement.querySelector('.pcombo-trigger'); if (t && t.getAttribute('aria-expanded') !== 'true') t.click(); });
+  await q(() => { const o = document.querySelector('#acct-provider-pick option[value="meta"]'); o.disabled = true; });   // as the list was when it opened
+  await q(() => { window.__releaseMuse(); }); await settle();
+  const openRow = await q(() => { const li = [...document.querySelectorAll('.pcombo li')].find((l) => l.dataset.value === 'meta' && l.offsetParent !== null); return li ? { dis: li.getAttribute('aria-disabled'), pill: !!li.querySelector('.pcombo-soon') } : null; });
+  chk(openRow && openRow.dis === null && !openRow.pill, 'a list already open drops Meta\'s disabled state and pill when the answer lands', JSON.stringify(openRow));
+  await q(() => { const t = document.querySelector('#acct-provider-pick').parentElement.querySelector('.pcombo-trigger'); if (t && t.getAttribute('aria-expanded') === 'true') t.click(); });
+  // The intro swap never touches a sign-in again's sentence.
+  await q(() => { closeAcctAdd(); window.__museOn = true; window.__holdMuse = new Promise((r) => { window.__releaseMuse = r; }); openAcctAdd(); document.getElementById('acct-add-in').textContent = 'Sign in again as her@example.com.'; });
+  await q(() => { window.__releaseMuse(); }); await settle();
+  chk((await G('acct-add-in')).text === 'Sign in again as her@example.com.', 'the intro swap leaves a sign-in again\'s sentence alone', (await G('acct-add-in')).text);
+  // A reason that already says to start again is not told twice.
+  await q(() => { closeAcctAdd(); openAcctAdd(); }); await settle();
+  await running();
+  await q(() => { window.__status = { id: 'mine000000000001', state: 'failed', because: 'Muse Code did not send a new code, so start the sign-in again' }; }); await tick();
+  const twice = (await G('acct-muse-msg')).text;
+  chk(!/You can try again/.test(twice) && /start the sign-in again/.test(twice), 'a reason that says to start again is not told twice', twice);
+  // Put away with focus inside: focus goes to the provider picker.
+  await running();
+  await q(() => document.getElementById('acct-muse-cancel').focus());
+  await q(() => acctPick('claude', { focus: false })); await settle();
+  chk(await q(() => !!document.activeElement && document.activeElement.classList.contains('pcombo-trigger')), 'Muse\'s step put away with focus inside leaves focus on the provider picker', await act());
 
   chk(errs.length === 0, 'no page errors', errs.join(' | '));
   await browser.close();

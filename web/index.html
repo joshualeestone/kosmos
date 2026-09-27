@@ -23994,7 +23994,6 @@ document.getElementById('acct-openai-install-go').addEventListener('click', asyn
 });
 document.getElementById('acct-provider-pick').addEventListener('change', (e) => {
   const which = e.target.value;
-  /* #3939: Meta Muse is its own step; any other choice puts it away. */
   /* #3939: Meta Muse goes through acctPick like every live provider (round 3: one rule for putting the
      others away, not a second copy of it here). */
   if (which === 'meta' && museOffered()) { acctPick('meta'); return; }
@@ -24028,7 +24027,8 @@ let ACCT_REAUTH_DIR = null;
 let ACCT_OPENAI_REAUTH_DIR = null;
 const ACCT_ADD_TITLE = 'Add a provider';
 const ACCT_ADD_INTRO = 'Pick which AI provider you want to connect. Anthropic Claude, OpenAI, Google Gemini and xAI Grok work today; the rest are listed so you can see what is coming.';
-const ACCT_ADD_INTRO_MUSE = 'Pick which AI provider you want to connect. Anthropic Claude, OpenAI, Google Gemini, xAI Grok and Meta Muse work today; the rest are listed so you can see what is coming.';   // #3939
+// #3939: derived from the stock sentence, so the two cannot drift (round 5).
+const ACCT_ADD_INTRO_MUSE = ACCT_ADD_INTRO.replace('Google Gemini and xAI Grok', 'Google Gemini, xAI Grok and Meta Muse');
 /* The stock warning says to sign in to the OTHER Claude account first, which is
    the correct instruction for a second account and the wrong one here: the
    account you want IS this one. */
@@ -25821,8 +25821,7 @@ async function museAsk() {
     /* Offered only when Muse Code is on this computer too (round 2: as Gemini's and Grok's rows wait
        until they are ready); turned on but not installed says so on the row instead of "Coming soon". */
     on = !!(out && out.enabled === true && out.installed === true);
-    // The engine's own reason (round 3: one spelling), with a page fallback only when it has none.
-    // The engine's own reason; the fallback is deliberately not a copy of it (round 4).
+    // The engine's own reason (round 3); the fallback is deliberately not a copy of it (round 4).
     missing = !!(out && out.enabled === true && out.installed === false) && (pjSentence(out.because) || 'Not ready on this computer');
   } catch { on = false; }   // a failed read keeps it "coming soon": today's screen, never a guess
   if (mine !== MUSE_ASK_GEN) return on;
@@ -25912,7 +25911,12 @@ const ACCT_MUSE = (() => {
         try { await paintAccounts(); } catch { /* the row repaints on the next visit */ }
         return;
       }
-      if (st.state === 'failed' || st.state === 'stopped') { finish((pjSentence(st.because) || 'That sign-in did not finish.') + ' You can try again.'); return; }
+      if (st.state === 'failed' || st.state === 'stopped') {
+        const why = pjSentence(st.because) || 'That sign-in did not finish.';
+        // Reasons that already say to start again are not told twice (round 5).
+        finish(/again\.?$/.test(why) ? why : why + ' You can try again.');
+        return;
+      }
       say(st.state === 'stuck' ? (pjSentence(st.because) || MUSE_SAY.starting) : (MUSE_SAY[st.state] || MUSE_SAY.starting));
     }, 1200);
   }
@@ -25964,6 +25968,12 @@ function acctMuseShow(on) {
   const flow = document.getElementById('acct-muse-flow');
   if (!flow) return;
   ACCT_MUSE.leave();
+  /* Put away with focus inside: focus goes to the provider picker, not the page body (round 5). */
+  if (!on && !flow.hidden && flow.contains(document.activeElement)) {
+    const sel = document.getElementById('acct-provider-pick');
+    const trig = sel && sel.parentElement && sel.parentElement.querySelector('.pcombo-trigger');
+    if (trig) trig.focus();
+  }
   flow.hidden = !on;
 }
 document.getElementById('acct-muse-go').addEventListener('click', () => ACCT_MUSE.start());
