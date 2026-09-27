@@ -69,3 +69,6 @@ With the flag on, on a Mac with Muse Code installed, a person can pick Meta in A
 - One deliveryUnknown rule serves screen(), enterOnce and retry. The sign-in reasons are named constants.
 - A failed save clears an older mark, so it cannot answer yes beside the failure. Control red.
 - Added weakest premise 4 for the Mortals run: what Muse draws after r then Enter (a redrawn Press line, or straight to waiting). Both are handled now.
+
+## 3a review round 10 (decided)
+- The gate-throw rethrow shared by the agy and muse start routes is one helper, isGateThrowInTest, next to signinRefusalStatus (convention 5). This is a pure refactor; the route tests pass unchanged.
