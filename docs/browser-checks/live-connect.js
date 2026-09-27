@@ -11,6 +11,26 @@ const { execFile, execFileSync } = require('node:child_process');
 const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'connect-live-'));
 console.log('SANDBOX', SB);
 
+/* kosmos#3973: a PRIVATE tmux server. This check starts a real session (connect.start runs
+   `tmux new-session`), and a red run exits through fail() without cancelling it. On the shared
+   default socket that left a live server with a claude pane for every later check that reads tmux
+   (render-talk's status.snapshot() among them). Its own socket directory, short because a Unix
+   socket path is capped near 104 bytes, and its server is killed on the way out on every path,
+   BEFORE the sandbox below is removed (exit handlers run in the order they are registered): the
+   pane runs a claude from the sandbox. */
+const TMUX_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'lc-'));
+process.env.TMUX_TMPDIR = TMUX_DIR;
+delete process.env.TMUX;
+process.on('exit', () => {
+  try {
+    execFileSync(process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux', ['kill-server'], { stdio: ['ignore', 'ignore', 'pipe'], timeout: 5000 });
+  } catch (e) {
+    const why = String((e && e.stderr) || '').trim() || String((e && e.message) || '');
+    if (e && e.code !== 'ENOENT' && !/no server running|error connecting to .*\(no such file or directory\)/i.test(why)) console.error('WARN could not stop the private tmux server in', TMUX_DIR, '-', why.trim().slice(0, 200));
+  }
+  try { fs.rmSync(TMUX_DIR, { recursive: true, force: true }); } catch { /* nothing to do about it at exit */ }
+});
+
 /* The sandbox is REMOVED when this process ends, on every path: pass, fail,
    and a signal. It holds a whole Claude install (359M measured), and
    browser-checks.sh runs this once per cut and once per full suite run, so
@@ -23,24 +43,6 @@ process.on('exit', () => {
   try { fs.rmSync(SB, { recursive: true, force: true }); } catch { /* nothing to do about it at exit */ }
 });
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => process.exit(1));
-
-/* kosmos#3973: a PRIVATE tmux server. This check starts a real session (connect.start runs
-   `tmux new-session`), and a red run exits through fail() without cancelling it. On the shared
-   default socket that left a live server with a claude pane for every later check that reads tmux
-   (render-talk's status.snapshot() among them). Its own socket directory, short because a Unix
-   socket path is capped near 104 bytes, and its server is killed on the way out on every path. */
-const TMUX_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'lc-'));
-process.env.TMUX_TMPDIR = TMUX_DIR;
-delete process.env.TMUX;
-process.on('exit', () => {
-  try {
-    execFileSync(process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux', ['kill-server'], { stdio: ['ignore', 'ignore', 'pipe'], timeout: 5000 });
-  } catch (e) {
-    const why = String((e && e.stderr) || (e && e.message) || '');
-    if (!/no server running|error connecting to .*\(No such file or directory\)/.test(why)) console.error('WARN could not stop the private tmux server in', TMUX_DIR, '-', why.trim().slice(0, 200));
-  }
-  try { fs.rmSync(TMUX_DIR, { recursive: true, force: true }); } catch { /* nothing to do about it at exit */ }
-});
 
 process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SB, 'config', '.claude.json');

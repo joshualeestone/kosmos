@@ -130,7 +130,7 @@ const bar = (page) => page.evaluate(() => {
 
     // P7 (review): edge to edge of the header wherever the tab layout sets its right padding from the scrollbar gutter:
     // the board (it scrolls) and an agent's talk view (its own gutter rule). Read against the header's own box, not
-    // clientWidth, which hides a gutter.
+    // clientWidth, which on a classic-scrollbar machine can include an empty reserved gutter (#3973).
     const edges = () => page.evaluate(() => { const b = document.getElementById('kplus-bar').getBoundingClientRect(), h = document.querySelector('.apphead').getBoundingClientRect();
       return { dl: Math.round(b.left - h.left), dr: Math.round(h.right - b.right), vw: Math.round(innerWidth - b.right) }; });
     await page.evaluate(() => showTab('agents'));

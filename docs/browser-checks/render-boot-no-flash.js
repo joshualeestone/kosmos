@@ -26,9 +26,10 @@ function check(cond, msg) { if (!cond) problems.push(msg); }
 // covering the viewport, and stacked above the board. If all hold, the board is
 // occluded no matter what is painted beneath it.
 // kosmos#3973: the root may give up a gutter only as wide as a real scrollbar, measured on a
-// scratch scroller (the page styles it only as it styles the root's own scrollbar), so a root that itself shrank or moved cannot become
-// the yardstick that passes a short bar or cover. Compared within 1px (a fractional root rounds
-// either way); a CSS zoom on the root would scale the scratch scroller and is not supported here.
+// scratch scroller (the page styles it only as it styles the root's own scrollbar), so a root
+// that itself shrank or moved cannot become the yardstick that passes a short cover. Compared
+// within 1px (a fractional root rounds either way); a CSS zoom on the root would scale the
+// scratch scroller and is not supported here.
 async function coverIsOccluding(page) {
   return page.evaluate(() => {
     const c = document.getElementById('boot-cover');
