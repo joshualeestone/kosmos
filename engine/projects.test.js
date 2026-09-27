@@ -1910,9 +1910,26 @@ test('the map is checked in BOTH directions: a new engine sentence cannot skip i
      sentence gains a row, this fails and the exception must be re-decided. */
   const ADD_ONLY = 'nothing is saved about the person, so the block was left as it is';
   assert.ok(youSrc.includes(ADD_ONLY), 'the addOnly refusal moved out of you.js; re-point this exception');
-  const serverSrc = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  /* Every non-test .js file in the repo, not only server.js: a caller in an engine
+     module or a route helper would slip past a one-file count. */
+  const REPO = path.join(__dirname, '..');
+  const SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.claude']);
+  const jsFiles = [];
+  (function walk(dir) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (SKIP.has(e.name)) continue;
+      const full = path.join(dir, e.name);
+      if (e.isDirectory() && !e.isSymbolicLink()) walk(full);
+      else if (e.isFile() && e.name.endsWith('.js') && !e.name.endsWith('.test.js')) jsFiles.push(full);
+    }
+  }(REPO));
+  assert.ok(jsFiles.some((f) => f.endsWith(path.join('engine', 'you.js'))), 'CONTROL: the walk did not reach engine/you.js');
+  const callers = jsFiles.filter((f) => /addOnly:\s*true/.test(fs.readFileSync(f, 'utf8')));
+  assert.deepEqual(callers.map((f) => path.relative(REPO, f)), ['server.js'],
+    'addOnly has a caller outside the board-start pass; its refusal may now reach a group line and needs a plural row');
+  const serverSrc = fs.readFileSync(path.join(REPO, 'server.js'), 'utf8');
   assert.equal((serverSrc.match(/addOnly:\s*true/g) || []).length, 1,
-    'addOnly has a second caller; its refusal may now reach a group line and needs a plural row');
+    'addOnly has a second caller in server.js; its refusal may now reach a group line and needs a plural row');
   assert.ok(/you\.syncEveryone\(safeRoster\(\), \{ addOnly: true \}\)/.test(serverSrc),
     'the one addOnly caller is no longer the board-start pass');
   assert.equal(projects.groupBecause(ADD_ONLY), null, 'the addOnly refusal gained a row; drop this exception');

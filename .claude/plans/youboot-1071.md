@@ -29,7 +29,9 @@ bug); really behind v15 on all 8, awaiting the consented refresh (#539).
   (consent-gated, #539); adding colleagues to custom-instruction agents (reverses a create.js rule);
   content-hash staleness in the checker (boot refresh bounds drift to "since last start").
 - Weakest point: `you` carries the person's own words, more personal than the siblings. Read as
-  consent because the form exists to send them to agents.
+  consent because the form exists to send them to agents. The visible consequence: a person who
+  deletes the block from an agent's file by hand gets it back at the next board start, as with the
+  three sibling blocks.
 
 ## Tests
 - server.you-refresh-1071.test.js: add to an existing agent; bytes above and below an old block

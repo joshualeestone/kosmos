@@ -17629,7 +17629,7 @@ if (require.main === module) {
   /* #1071: the About-you block ("Who you work for"), refreshed at boot for the
      reason the three above give. `you.syncEveryone` had one caller, `PUT /api/you`,
      so an agent made after the person last saved that form never got the block,
-     and neither did any later wording (#3444's "use their name"). Measured on
+     and neither did any later edit to its wording. Measured on
      Mortals before wiring this: reports, connections and dmfiles on 8 of 8
      agents, this block on 1 of 8.
 
@@ -17643,8 +17643,9 @@ if (require.main === module) {
      ⚠️ tellAgent also heals an EXISTING colleagues block (projects.healColleagues),
      so this pass rewrites that block too when its text has drifted; it never adds
      one. That heal therefore rides only on a saved record (an unknown one skips
-     it too); a boot refresh of the colleagues block in its own right would be a
-     sibling of this one. */
+     it too), so with no record a drifted colleagues block is not healed at boot;
+     a boot refresh of the colleagues block in its own right would be a sibling
+     of this one. */
   try {
     const record = you.read();
     if (record.state === 'unknown') {
