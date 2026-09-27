@@ -333,3 +333,13 @@ test('#3997 Check now routes: connected, none and unknown, and a wrong kind of a
   assert.equal((await post('/api/accounts/openai/check', { dir: nodePath.join(SANDBOX, 'nope') })).status, 404);
   assert.equal((await post('/api/accounts/openai/check', {})).status, 400);
 });
+
+/* #4139: a Grok subscription green from the free check says it came from the check, not an agent. */
+test('#4139 Grok subscription: a green from the free check says check', async () => {
+  grokAccounts.setFetcher(async () => ({ status: 200 }));
+  codexsigninlive.setRunner(async () => ({ ok: false }));
+  grokSignIn(3 * 3600 * 1000);
+  const row = (await accounts()).find((a) => a.provider === 'xai');
+  assert.equal(row.connection.badge, 'working', 'CONTROL: ' + JSON.stringify(row.connection));
+  assert.equal(row.connection.observedFrom, 'check', JSON.stringify(row.connection));
+});

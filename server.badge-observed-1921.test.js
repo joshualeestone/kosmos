@@ -295,3 +295,24 @@ test('#3136 MERGE: a NEWER check-now ok wins over an OLDER agent 401 (badge work
   assert.equal(m.get('aria@example.com').badge, 'working',
     'the newer check-now ok did not win the merge over the older agent 401: ' + JSON.stringify(m.get('aria@example.com')));
 });
+
+/* #4139: the row says which outcome its green came from, so the page does not tell a person that an agent's request
+   succeeded when only Check now did. */
+test('#4139 SOURCE: a green from Check now says check; a green from an agent says agent; the newer one names it', async () => {
+  const now = Date.now();
+  observed.sawDir(observed.PROVIDER.ANTHROPIC, CLEO_DIR, observed.OUTCOME.OK, now);          // check only
+  observed.saw(observed.PROVIDER.ANTHROPIC, 'bossagent', observed.OUTCOME.OK, now);           // agent only
+  observed.sawDir(observed.PROVIDER.ANTHROPIC, ARIA_DIR, observed.OUTCOME.OK, now - 2000);   // older check
+  observed.saw(observed.PROVIDER.ANTHROPIC, 'ariaagent', observed.OUTCOME.OK, now);           // newer agent
+  const m = await badges();
+  assert.equal(m.get('cleo@example.com').badge, 'working', 'CONTROL: the check green shows');
+  assert.equal(m.get('cleo@example.com').observedFrom, 'check', JSON.stringify(m.get('cleo@example.com')));
+  assert.equal(m.get('boss@example.com').observedFrom, 'agent', JSON.stringify(m.get('boss@example.com')));
+  assert.equal(m.get('aria@example.com').observedFrom, 'agent', 'the newer agent success did not name the source: ' + JSON.stringify(m.get('aria@example.com')));
+});
+
+test('#4139 SOURCE: nothing observed names no source', async () => {
+  const m = await badges();
+  assert.equal(m.get('cleo@example.com').badge, 'signed_in_unverified', 'CONTROL');
+  assert.equal(m.get('cleo@example.com').observedFrom, undefined);
+});
