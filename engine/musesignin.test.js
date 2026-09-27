@@ -38,7 +38,7 @@ function setup(flow) {
   signin.resetForTests();
   fs.rmSync(musestatus.signedInMarker(), { force: true });
   require('./live-execution').allowLiveExecution();   // a real tmux on a private socket, on purpose
-  // tmux does not hand a new session the test's environment: a wrapper carries the fake's settings.
+  // A wrapper keeps the fake's settings explicit, whatever environment a tmux server was started with.
   const wrapper = path.join(dir, 'muse');
   fs.writeFileSync(wrapper, '#!/bin/bash\nexport FAKE_MUSE_LOG=' + JSON.stringify(log) + '\nexport FAKE_MUSE_FLOW=' + flow
     + '\nexec /bin/bash ' + JSON.stringify(FAKE) + ' "$@"\n', { mode: 0o755 });
@@ -468,4 +468,50 @@ test('#3939 round 9: a failed save clears an older mark, so it cannot answer yes
     assert.equal(signin.status().state, 'failed');
     assert.equal(musestatus.signedIn().signedIn, false, 'an older mark still answered yes beside a failed save');
   } finally { done(); fs.rmSync(marker, { force: true }); }
+});
+
+/* Round 11: the current-try cut, and both halves of round 9's waiting path after a retry. */
+test('#3939 round 11: after a retry, the expired code is never shown as the current one', { skip: !onMac && 'the flag is Mac only' }, () => {
+  const { st, done } = scripted(EXPIRED_TEXT);
+  try {
+    signin.tickForTests();
+    assert.deepEqual(signin.retry(signin.status().id), { ok: true });
+    st.text = EXPIRED_TEXT + 'Waiting for approval... Esc cancel\n';   // waiting, no new code yet
+    signin.tickForTests();
+    assert.equal(signin.status().code, undefined, 'the expired code was shown as the current one');
+    // A new code carried only in the address: the new one is shown, not the old dashed one.
+    st.text = EXPIRED_TEXT + 'To sign in, open https://auth.meta.com/device?user_code=newcode77\nPress Enter to open it in your browser: ';
+    signin.tickForTests();
+    assert.equal(signin.status().code, 'newcode77', 'the old code was paired with the new address');
+  } finally { done(); }
+});
+
+test('#3939 round 11: a retry that reaches waiting with no code ends (start again)', { skip: !onMac && 'the flag is Mac only' }, () => {
+  const { st, done } = scripted(EXPIRED_TEXT);
+  try {
+    signin.tickForTests();
+    assert.deepEqual(signin.retry(signin.status().id), { ok: true });
+    st.text = EXPIRED_TEXT + 'Waiting for approval... Esc cancel\n';
+    signin.tickForTests();
+    st.skew = signin.STUCK_MS + 1000;
+    signin.tickForTests();
+    assert.equal(signin.status().state, 'failed', 'a retry stuck on waiting was left to the 20-minute limit');
+    assert.match(signin.status().because, /start the sign-in again/);
+  } finally { done(); }
+});
+
+test('#3939 round 11: a retry\'s code drawn straight to waiting can itself expire and be retried', { skip: !onMac && 'the flag is Mac only' }, () => {
+  const { st, done } = scripted(EXPIRED_TEXT);
+  try {
+    signin.tickForTests();
+    const id = signin.status().id;
+    assert.deepEqual(signin.retry(id), { ok: true });
+    st.text = EXPIRED_TEXT + CODE_ONLY('QRST-5678') + 'Waiting for approval... Esc cancel\n';
+    signin.tickForTests();
+    assert.equal(signin.status().code, 'QRST-5678');
+    st.text += 'The login request expired before it was approved. Press r then Enter to try again\n';
+    signin.tickForTests();
+    assert.equal(signin.status().state, 'expired', 'the second expiry was not read as one');
+    assert.equal(signin.retry(id).ok, true, 'a second retry was refused after a code drawn straight to waiting');
+  } finally { done(); }
 });

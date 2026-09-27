@@ -196,7 +196,7 @@ function step() {
   if (exited) { end('failed', CLOSED); return; }
   if (drawn === 'expired') {
     /* After a retry, the old expiry line is the last one until Muse draws the new code (round 1). If no
-       new code comes, the retry is given up and another can be asked for (round 3: it waited 20 minutes). */
+       new code comes, the sign-in ends and the person starts again (round 5, reversing round 3). */
     if (mine.retrying) {
       if (t - mine.seenAt > STUCK_MS) end('failed', NO_NEW_CODE);
       return;
@@ -268,7 +268,7 @@ function start() {
   if (S && S.timer) end('stopped');
   tmuxBinCached = null;
   const inst = museBin();
-  if (!inst || !inst.installed) return { ok: false, because: (inst && inst.because) || 'Muse Code is not on this computer' };
+  if (!inst || !inst.installed) return { ok: false, because: (inst && inst.because) || musestatus.NOT_INSTALLED_BECAUSE };
   if (tmux === REAL.tmux && !live(tmuxBin(), ['-L', socket(), 'new-session', '-s', SESSION])) return { ok: false, because: COULD_NOT_START };
   const folder = musestatus.signinFolder();
   try { fs.mkdirSync(folder, { recursive: true, mode: 0o700 }); } catch { return { ok: false, because: 'Kosmos could not make a folder for the sign-in' }; }
