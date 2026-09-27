@@ -492,8 +492,15 @@ test('the agent is started the same way it will be started every time after', ()
   // loaded, so it is excluded by name rather than by count -- counting alone
   // would have to be edited every time a read is added, which is how a count
   // assertion stops meaning what it says.
-  const starting = calls.filter(([, a]) => a && a[0] !== 'print');
+  // `enable` starts nothing either: it lifts a per-user disable a removal of the
+  // same name left behind (#4254), so it is excluded by name too, and must come first.
+  const starting = calls.filter(([, a]) => a && a[0] !== 'print' && a[0] !== 'enable');
   assert.equal(starting.length, 1, 'creation ran more than the one command that starts the agent');
+  const enableAt = calls.findIndex(([, a]) => a && a[0] === 'enable');
+  const bootAt = calls.findIndex(([, a]) => a && a[0] === 'bootstrap');
+  assert.ok(enableAt !== -1, 'the label was never enabled, so a name removed before could not start');
+  assert.ok(enableAt < bootAt, 'bootstrap ran before enable, so a disabled label starts nothing');
+  assert.match(calls[enableAt][1][1], /\/com\.kosmos\.agent\.one-path$/, 'a different label was enabled');
   const [file, args] = starting[0];
   assert.match(file, /launchctl$/, 'the agent was started by something other than its own job');
   assert.equal(args[0], 'bootstrap', 'the job was not loaded, so the agent will not survive a reboot');
@@ -910,7 +917,8 @@ test('a write that fails stops the creation instead of loading a job that cannot
   const calls2 = recorder();
   const ok = create.createAgent({ ...BINS, name: 'half-made-2', role: 'pm' });
   assert.equal(ok.outcome, create.OUTCOME.CREATED, ok.because);
-  assert.equal(calls2.filter(([, a]) => a && a[0] !== 'print').length, 1,
+  // Counts `bootstrap` itself: a successful create also runs `enable` first (#4254).
+  assert.equal(calls2.filter(([, a]) => a && a[0] === 'bootstrap').length, 1,
     'the control did not actually load a job');
 });
 
