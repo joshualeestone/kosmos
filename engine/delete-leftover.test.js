@@ -204,3 +204,15 @@ test('#1131: a token that cannot be removed makes the delete PARTIAL, never a DE
   assert.match(done.because, /sender tokens/, 'the refusal does not say which part failed');
   assert.ok(!/name is free/.test(done.said || ''), 'it promised the name was free while a credential for it survived');
 });
+
+test('#4006: deleting a leftover clears its failed-restart record', () => {
+  const disruption = require('./disruption');
+  leftoverAgent('failgone');
+  disruption.begin('failgone', 'restart');
+  disruption.fail('failgone', null);
+  assert.equal(disruption.read('failgone').failed, true, 'precondition: a failed record is on file');
+  quiet();
+  const done = mac.del('failgone');
+  assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
+  assert.equal(disruption.read('failgone').found, false, 'the failed record outlived the delete');
+});

@@ -1,4 +1,4 @@
-// Browser-check-surface: asblayer asb asb-nudge asb-dot asp asp-ask asp-in asp-say asp-x asp-fold asb-row asb-toggle setup-guide asp-busy asb-act asp-open
+// Browser-check-surface: asblayer asb asb-nudge asb-dot asp asp-ask asp-in asp-say asp-x asp-fold asb-row asb-toggle setup-guide asp-busy asb-act asp-open asp-hide asp-hide-yes asp-hide-no
 'use strict';
 
 /**
@@ -54,7 +54,7 @@ const unseed = () => fs.rmSync(setupAssistant.flagPath(), { force: true });
 const bubble = (page) => page.evaluate(() => {
   const vis = (id) => { const el = document.getElementById(id); return !!el && !el.hidden && el.getClientRects().length > 0; };
   const b = document.getElementById('asb');
-  return { layer: !!document.getElementById('asblayer'), bubble: vis('asb'), nudge: vis('asb-nudge'), panel: vis('asp'), ask: vis('asp-ask'),
+  return { layer: !!document.getElementById('asblayer'), bubble: vis('asb'), nudge: vis('asb-nudge'), panel: vis('asp'), ask: vis('asp-ask'), hide: vis('asp-hide'),
     dot: !!b && !b.querySelector('.asb-dot').hidden && vis('asb'), src: b ? (b.querySelector('img').getAttribute('src') || '') : '' };
 });
 const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeout: ms }).then(() => true, () => false);
@@ -259,13 +259,13 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     });
     /* #3738 (Josh 08:51): "Josh, Kosmos Guide", no pill, no footer, one opening message, the new placeholder. */
     chk(head.who === 'Josh, Kosmos Guide' && !head.tag && !head.noteShown, 'B3 headed "Josh, Kosmos Guide", with no pill and no footer line (#3738)', JSON.stringify(head));
-    chk(head.him[0] === 'Hi, I\'m Josh\'s AI guide. Ask me anything about setting up Kosmos.' && head.him.length === 2 && head.place === 'Ask about Kosmos\u2026',
-      'B3 the opening message is the first guide bubble, then the thread; the box says "Ask about Kosmos..."', JSON.stringify(head));
+    chk(head.him[0] === 'Hi I\'m Josh, an AI Assistant to help you get your Kosmos setup. What can I help you with?' && head.him.length === 2 && head.place === 'Ask about Kosmos\u2026',
+      'B3 the opening message (Josh\'s words, #3947) is the first guide bubble, then the thread; the box says "Ask about Kosmos..."', JSON.stringify(head));
     chk(head.focus === 'asp-say', 'B3 and puts the cursor in the box', JSON.stringify(head));
     /* The two lines Josh cut are gone from the page, its scripts included, so no template or fallback can bring
        one back (a starting note in the panel's markup carried one after the paint had dropped it). */
-    const cut = await page.evaluate(() => { const h = document.documentElement.innerHTML; return ['Hi, I built Kosmos', 'An AI that knows Kosmos'].filter((w) => h.includes(w)); });
-    chk(cut.length === 0, 'B3 neither cut line is anywhere in the page (#3738)', JSON.stringify(cut));
+    const cut = await page.evaluate(() => { const h = document.documentElement.innerHTML; return ['Hi, I built Kosmos', 'An AI that knows Kosmos', 'AI guide. Ask me anything'].filter((w) => h.includes(w)); });
+    chk(cut.length === 0, 'B3 none of the cut lines is anywhere in the page (#3738, #3947)', JSON.stringify(cut));
     /* The guide's bubble is the DM's agent cream (the same token, read, not a copy of its value). */
     chk(await page.evaluate(() => { const t = document.createElement('div'); t.style.background = 'var(--agent-msg)'; document.body.appendChild(t); const v = getComputedStyle(t).backgroundColor; t.remove();
       return v === getComputedStyle(document.querySelector('#asp-th .asp-m.him')).backgroundColor; }), 'B3 the guide\'s bubbles are the DM agent cream (--agent-msg)', JSON.stringify(head));
@@ -409,6 +409,8 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const kept = await bubble(page);
     const s7 = (await (await fetch(URL + '/api/settings')).json()).setupAssistant;
     chk(!kept.panel && kept.bubble && s7.asked === true && s7.on === true, 'B7 Close for now closes it, keeps the bubble, and remembers it asked', JSON.stringify({ kept, s7 }));
+    // #3947: that first x came on an opening with nothing typed, so it is the first of the two before the hide offer.
+    chk(await page.evaluate(() => asbIdleGet()) === 1, 'B7 and, nothing typed in that opening, it counts as the first idle close (#3947)');
     // A later x, after the person used the chat (here: wrote a question), just closes, without asking again.
     await page.click('#asb');
     await page.fill('#asp-say', 'how do I add an agent?');
@@ -416,23 +418,148 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.waitForTimeout(200);
     const again = await bubble(page);
     chk(!again.panel && !again.ask && again.bubble, 'B7 a later x after writing in the chat just closes, without asking again', JSON.stringify(again));
-    // B7c (#3034, Josh 2026-09-25 07:38): opened, NOTHING typed, then x: the choice again, even though it was answered,
-    // because that is someone looking for how to get rid of it. CONTROL for B7's arm above: the same x, same setting.
-    // The question written above is still in the box, unsent: a draft from an earlier visit is not typing in this one
-    // (review round 1: reading "the box is empty" let a stale draft suppress the ask).
+    chk(await page.evaluate(() => asbIdleGet()) === 1, 'B7 CONTROL: a close after writing is not counted (#3947)');
+    // B7c (#3947, Josh 2026-09-26 08:13, verbatim: "If I click on the assistant and hit the X on him and haven't typed
+    // a message, and I do that twice, then it should prompt me to close the agent forever"). This replaces the 09-25
+    // rule that asked on EVERY such close. The count and the Keep it answer live in the page's storage; start known.
+    const fresh = (idle, kept) => page.evaluate(([i, k]) => { localStorage.setItem(ASB_IDLE_KEY, String(i)); if (k) localStorage.setItem(ASB_KEPT_KEY, '1'); else localStorage.removeItem(ASB_KEPT_KEY); }, [idle, kept]);
+    const idleNow = () => page.evaluate(() => asbIdleGet());
+    await fresh(0, false);
+    // The first open-and-close with nothing typed just closes, and is counted. The question written above is still in
+    // the box, unsent: a draft from an earlier visit is not typing in this one, and a stray space is not typing either.
     await page.click('#asb');
     chk(await page.evaluate(() => document.getElementById('asp-say').value === 'how do I add an agent?'), 'B7c precondition: the earlier unsent draft is still in the box');
     await page.press('#asp-say', 'End');
-    await page.keyboard.type(' ');   // a stray space is not typing (review round 2)
+    await page.keyboard.type(' ');
+    await page.click('#asp-x');
+    await page.waitForTimeout(250);
+    const first = await bubble(page);
+    chk(!first.panel && !first.ask && !first.hide && first.bubble && await idleNow() === 1, 'B7c the first open-and-close with nothing typed just closes, and is counted (#3947)', JSON.stringify(first));
+    // The second one offers to hide the guide for good.
+    await page.click('#asb');
     await page.click('#asp-x');
     await page.waitForTimeout(200);
-    const idle = await bubble(page);
-    const s7c = (await (await fetch(URL + '/api/settings')).json()).setupAssistant;
-    chk(idle.panel && idle.ask && s7c.asked === true, 'B7c opened and closed with nothing typed: the choice shows again, although it was answered (#3034)', JSON.stringify({ idle, s7c }));
+    const second = await bubble(page);
+    const hideWords = await page.evaluate(() => { const g = document.getElementById('asp-hide'); return { head: g.querySelector('b').textContent, yes: document.getElementById('asp-hide-yes').textContent,
+      no: document.getElementById('asp-hide-no').textContent, line: g.querySelector('small').textContent.replace(/ /g, ' '), focus: document.activeElement && document.activeElement.id,
+      group: g.getAttribute('role'), named: (document.getElementById(g.getAttribute('aria-labelledby')) || {}).textContent }; });
+    chk(second.panel && second.hide && !second.ask, 'B7c the second open-and-close with nothing typed offers to hide the guide (#3947)', JSON.stringify(second));
+    chk(hideWords.head === 'Hide the guide for good?' && hideWords.yes === 'Hide it' && hideWords.no === 'Keep it' && hideWords.line === 'You can turn it back on under Settings > Computer'
+      && hideWords.focus === 'asp-hide-yes' && hideWords.group === 'group' && hideWords.named === 'Hide the guide for good?',
+      'B7c it asks "Hide the guide for good?" (a named group) with Hide it (focused) / Keep it, and says where to turn it back on', JSON.stringify(hideWords));
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'hide-offer-light.png') });
+    // X on the offer is "not now": it closes, and is not another close to count.
+    await page.click('#asp-x');
+    await page.waitForTimeout(250);
+    const notNow = await bubble(page);
+    chk(!notNow.panel && !notNow.hide && notNow.bubble && await idleNow() === 1, 'B7c X on the hide offer just closes it and counts nothing more', JSON.stringify(notNow));
+    // Keep it: closes, keeps the bubble, and is not offered again (nor counted).
+    await page.click('#asb');
+    await page.click('#asp-x');
+    await page.waitForTimeout(200);
+    chk((await bubble(page)).hide, 'B7c precondition: the next idle close offers again');
+    await page.click('#asp-hide-no');
+    await page.waitForTimeout(250);
+    const keptIt = await bubble(page);
+    const s7ck = (await (await fetch(URL + '/api/settings')).json()).setupAssistant;
+    chk(!keptIt.panel && keptIt.bubble && s7ck.on === true && await page.evaluate(() => asbKept()) && await idleNow() === 0, 'B7c Keep it closes it, keeps the bubble, and remembers the answer', JSON.stringify({ keptIt, s7ck }));
+    for (let i = 0; i < 2; i++) { await page.click('#asb'); await page.click('#asp-x'); await page.waitForTimeout(250); }
+    const after = await bubble(page);
+    chk(!after.panel && !after.hide && after.bubble && await idleNow() === 0, 'B7c after Keep it, two more idle closes just close, and are not counted', JSON.stringify(after));
+    // A message sent (an attempt to send) restarts the count: counted once, then a send, then an idle close counts 1 again.
+    await fresh(1, false);
+    verdict = { delivery: { state: 'placed' }, recorded: true };
+    await page.click('#asb');
+    await page.fill('#asp-say', 'Thanks, that helps');
+    await page.keyboard.press('Enter');
+    await waitFor(page, () => ASB.sending === false && document.getElementById('asp-say').value === '');
+    chk(await idleNow() === 0, 'B7c a sent message sets the count back to 0 (#3947)');
+    await page.click('#asp-x');
+    await page.waitForTimeout(250);
+    await page.click('#asb');
+    await page.click('#asp-x');
+    await page.waitForTimeout(250);
+    const afterSend = await bubble(page);
+    chk(!afterSend.hide && !afterSend.panel && await idleNow() === 1, 'B7c CONTROL: after the send, the next idle close counts 1 and does not offer', JSON.stringify(afterSend));
+    // Storage that refuses: nothing is counted, and x simply closes (never an error, never the offer).
+    await fresh(0, false);
+    // Reads refuse as well as writes: in a window with storage blocked, merely reading it throws.
+    await page.evaluate(() => { window.__lsSet = Storage.prototype.setItem; window.__lsGet = Storage.prototype.getItem; Storage.prototype.setItem = () => { throw new Error('refused'); }; Storage.prototype.getItem = () => { throw new Error('refused'); }; });
+    // Stop at the first close that did not close: a throw inside x leaves the chat open and hides the bubble, so the
+    // next click would only time out; this way that defect fails under this check's own name.
+    let refused = null;
+    for (let i = 0; i < 2; i++) {
+      await page.click('#asb'); await page.click('#asp-x'); await page.waitForTimeout(250);
+      refused = await bubble(page);
+      if (refused.panel || !refused.bubble) break;
+    }
+    await page.evaluate(() => { Storage.prototype.setItem = window.__lsSet; Storage.prototype.getItem = window.__lsGet; });
+    chk(!refused.panel && !refused.hide && refused.bubble, 'B7c with storage refusing, idle closes just close', JSON.stringify(refused));
+    // Keep it while storage refuses to save: the answer is not remembered, but the chat still closes.
+    await fresh(1, false);
+    await page.click('#asb');
+    await page.click('#asp-x');
+    await page.waitForTimeout(200);
+    chk((await bubble(page)).hide, 'B7c precondition: the offer is up before storage starts refusing');
+    await page.evaluate(() => { window.__lsSet = Storage.prototype.setItem; Storage.prototype.setItem = () => { throw new Error('refused'); }; });
+    await page.click('#asp-hide-no');
+    await page.waitForTimeout(250);
+    const keptRefused = await bubble(page);
+    await page.evaluate(() => { Storage.prototype.setItem = window.__lsSet; });
+    chk(!keptRefused.panel && !keptRefused.hide && keptRefused.bubble, 'B7c Keep it with storage refusing still closes the chat', JSON.stringify(keptRefused));
+    // Hide it: the same board switch as Close forever.
+    await fresh(1, false);
+    await page.click('#asb');
+    await page.click('#asp-x');
+    await page.waitForTimeout(200);
+    chk((await bubble(page)).hide, 'B7c precondition: counted once already, the next idle close offers to hide');
+    await page.click('#asp-hide-yes');
+    await page.waitForTimeout(300);
+    const hid = await bubble(page);
+    const s7ch = (await (await fetch(URL + '/api/settings')).json()).setupAssistant;
+    chk(!hid.bubble && !hid.panel && s7ch.on === false && await idleNow() === 0, 'B7c Hide it turns the guide off, bubble and all (#3947)', JSON.stringify({ hid, s7ch }));
+    await setting({ on: true });
+    await boot();   // the page reads the switch at load: Hide it turned it off here
+    await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 8000);
+    // A Hide it whose save fails keeps the offer up, says so, and counts nothing; the next try works and clears it.
+    await fresh(1, false);
+    await page.click('#asb');
+    await page.click('#asp-x');
+    await page.waitForTimeout(200);
+    chk((await bubble(page)).hide, 'B7c precondition: the offer is up for the failing Hide it');
+    let hideFailed = 0;
+    await page.route('**/api/settings', (route) => {
+      if (route.request().method() === 'POST' && hideFailed === 0) { hideFailed++; return route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"no"}' }); }
+      return route.continue();
+    });
+    await page.click('#asp-hide-yes');
+    await page.waitForTimeout(300);
+    const hideFail = await bubble(page);
+    const failMsg = await page.evaluate(() => document.getElementById('asp-msg').textContent);
+    const s7cf = (await (await fetch(URL + '/api/settings')).json()).setupAssistant;
+    chk(hideFailed === 1 && hideFail.panel && hideFail.hide && failMsg === 'We could not save that just now. Try again in a moment.' && s7cf.on === true && await idleNow() === 1,
+      'B7c a Hide it that could not be saved keeps the offer, says so, and leaves the guide on', JSON.stringify({ hideFail, failMsg, s7cf }));
+    await page.click('#asp-hide-yes');
+    await page.waitForTimeout(300);
+    await page.unroute('**/api/settings');
+    const hideRetry = await bubble(page);
+    const retryMsg = await page.evaluate(() => document.getElementById('asp-msg').textContent);
+    chk(!hideRetry.bubble && !hideRetry.panel && retryMsg === '' && (await (await fetch(URL + '/api/settings')).json()).setupAssistant.on === false,
+      'B7c the next Hide it works and the failure line is gone', JSON.stringify({ hideRetry, retryMsg }));
+    await setting({ on: true });
+    // The FIRST x on an opening where something was typed: Close for now is not counted as an idle close.
+    await setting({ asked: false });
+    await boot();
+    await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 8000);
+    await fresh(0, false);
+    await page.click('#asb');
+    await page.fill('#asp-say', 'where do my agents live?');
+    await page.click('#asp-x');
+    chk((await bubble(page)).ask, 'B7 precondition: the first x asks again once the ask is reset');
     await page.click('#asp-close-now');
     await page.waitForTimeout(300);
-    const kept7c = await bubble(page);
-    chk(!kept7c.panel && kept7c.bubble, 'B7c Close for now then closes it and keeps the bubble', JSON.stringify(kept7c));
+    chk(await idleNow() === 0, 'B7 CONTROL: a first Close for now after typing is not counted as an idle close (#3947)');
+    await fresh(0, false);
 
     // B8: Close forever turns it off; the Settings switch reads that and brings it back.
     await setting({ asked: false });

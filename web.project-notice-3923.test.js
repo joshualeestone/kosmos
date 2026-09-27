@@ -256,17 +256,21 @@ test('#3923: names are escaped', () => {
   assert.match(html, /&lt;img src=x&gt;/);
 });
 
-/* The Try again listener, run as the page has it, against a stand-in page. */
+/* The Try again listener, run as the page has it, against a stand-in page. #3948 made it one named
+   handler shared by both notices; `currentTarget` is the notice that was clicked. */
 function retryHandler(state) {
-  const sig = "document.getElementById('pj-one-notice').addEventListener('click', ";
+  const sig = 'async function pjNoticeRetryClick(e) {';
   const at = PAGE.indexOf(sig);
   assert.ok(at > 0, 'the Try again listener moved; re-anchor');
-  const body = PAGE.slice(at + sig.length, PAGE.indexOf('\n});', at) + 2).replace(/PJ_CURRENT/g, 'state.PJ_CURRENT').replace(/PJ_READ_FAILED/g, 'state.PJ_READ_FAILED');
+  assert.ok(PAGE.includes("document.getElementById('pj-one-notice').addEventListener('click', pjNoticeRetryClick);"), 'the Members notice lost its Try again listener');
+  assert.ok(/getElementById\('alist-pj-notice'\);\s*if \(rn\) rn\.addEventListener\('click', pjNoticeRetryClick\)/.test(PAGE), 'the rail notice lost its Try again listener');
+  const body = PAGE.slice(at, PAGE.indexOf('\n}\n', at) + 2).replace(/PJ_CURRENT/g, 'state.PJ_CURRENT').replace(/PJ_READ_FAILED/g, 'state.PJ_READ_FAILED');
   // eslint-disable-next-line no-new-func
-  return new Function('state', 'document', 'fetch', 'loadProjects', 'paintOneProject', 'PROJECTS', 'PJ_NOTICE_TRIED', 'PJ_NOTICE_MISSED', 'window', 'CSS', 'requestAnimationFrame',
-    pageFn('const pjNoticeKey').split('\n')[0] + '\nreturn ' + body + ';')(state, state.document, state.fetch, state.loadProjects, state.paintOneProject, state.PROJECTS, state.tried, state.missed, {}, undefined, (fn) => { state.frames.push(fn); });
+  const fn = new Function('state', 'document', 'fetch', 'loadProjects', 'paintOneProject', 'paintRailPjNotice', 'PROJECTS', 'PJ_NOTICE_TRIED', 'PJ_NOTICE_MISSED', 'window', 'CSS', 'requestAnimationFrame',
+    pageFn('const pjNoticeKey').split('\n')[0] + '\n' + body + '\nreturn pjNoticeRetryClick;')(state, state.document, state.fetch, state.loadProjects, state.paintOneProject, state.paintRailPjNotice, state.PROJECTS, state.tried, state.missed, {}, undefined, (f) => { state.frames.push(f); });
+  return (e) => fn({ currentTarget: state.box, ...e });
 }
-function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false, refused = false, status = null, overtaken = false, focusedElsewhere = false, focusedInside = false, readFails = false, toldState = null, otherRow = false } = {}) {
+function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false, refused = false, status = null, overtaken = false, focusedElsewhere = false, focusedInside = false, readFails = false, toldState = null, otherRow = false, rail = false } = {}) {
   // The board's verdict on the retry: told when the row went, could_not when it stayed (unless a test says otherwise).
   const verdict = toldState || (rowAfter ? 'could_not' : 'told');
   const log = [];
@@ -280,17 +284,19 @@ function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false
   const inside = { id: 'a-button-in-the-notice' };
   const other = { focus() { log.push('focus:other'); }, dataset: { pnRetry: 'somebody-else' } };
   const buttons = () => [...(rowAfter ? [again] : []), ...(otherRow ? [other] : [])];
-  const box = { __lastLive: 'x', querySelectorAll: () => buttons(), querySelector: () => buttons()[0] || null, contains: (el) => el === inside };
+  const box = { id: rail ? 'alist-pj-notice' : 'pj-one-notice', __lastLive: 'x', querySelectorAll: () => buttons(), querySelector: () => buttons()[0] || null, contains: (el) => el === inside };
   const said = { textContent: 'stale', dataset: {} };
   const body = { id: 'body' };
   const elsewhere = { id: 'composer' };
   const state = {
-    PJ_CURRENT: project.id, PROJECTS: [project], tried: new Map(), missed: new Map(), log, btn, attrs, onBlur, said, frames: [],
-    document: { getElementById: (id) => (id === 'pj-one-notice-said' ? said : box), querySelector: () => heading, body,
+    PJ_CURRENT: project.id, PROJECTS: [project], tried: new Map(), missed: new Map(), log, btn, attrs, onBlur, said, frames: [], box,
+    document: { getElementById: (id) => (id === (rail ? 'alist-pj-notice-said' : 'pj-one-notice-said') ? said : (/-said$/.test(id) || id === 'alist' ? null : box)),
+      querySelector: (sel) => (rail ? (sel === '#rail-agents .railname' ? heading : null) : heading), body,
       get activeElement() { return focusedElsewhere ? elsewhere : (focusedInside ? inside : body); } },
     fetch: async (url, opts) => { log.push('fetch:' + opts.method + ' ' + url + ' disabled=' + btn.disabled); if (switchTo) state.PJ_CURRENT = switchTo; if (fetchFails) throw new Error('offline'); const ok = !refused && !status; return { ok, status: status || (refused ? 500 : 200), json: async () => ({ told: { state: verdict } }) }; },
     loadProjects: async () => { log.push('load live=' + box.__lastLive); state.PJ_READ_FAILED = readFails; return !overtaken; },
     paintOneProject: () => { log.push('paint live=' + box.__lastLive); },
+    paintRailPjNotice: () => { log.push('rail paint'); },
   };
   return state;
 }
@@ -397,4 +403,45 @@ test('#3923: switching project clears a success line that belongs to another pro
   const body = PAGE.slice(at, PAGE.indexOf('\n}\n', at));
   assert.match(body, /said\.dataset\.pj && said\.dataset\.pj !== String\(p\.id\)\) \{ said\.textContent = ''; said\.dataset\.pj = ''; \}/,
     'paintOneProject does not clear another project\'s success line');
+});
+
+test('#3948: Try again in the rail notice repaints the rail, says it in the rail’s own line, and falls back to the rail\u2019s name', async () => {
+  const project = projectWith({ leo: 'we could not write to its instructions' });
+  const gone = standIn(project, { rowAfter: false, rail: true });
+  await retryHandler(gone)({ target: gone.btn });
+  assert.ok(gone.log.includes('rail paint'), 'the rail notice waits for the next poll to show the answer');
+  assert.equal(gone.log[gone.log.length - 1], 'focus:heading', 'focus did not go to the rail\u2019s name ("Project Members") once the row went');
+  gone.frames.forEach((fn) => fn());
+  assert.equal(gone.said.textContent, 'Kosmos updated leo’s instructions.', 'the rail’s success line was not written');
+  // CONTROL: the Members notice does not repaint the rail (the tab layout has none).
+  const tab = standIn(project, { rowAfter: false });
+  await retryHandler(tab)({ target: tab.btn });
+  assert.equal(tab.log.includes('rail paint'), false);
+});
+
+test('#3948: the rail notice paints only in the consolidated layout with a project open, and its success line clears on a switch', () => {
+  const run = ({ consolidated, current, said }) => {
+    const rn = { html: null };
+    const rs = { textContent: said ? 'Kosmos updated leo’s instructions.' : '', dataset: { pj: said || '' } };
+    // pjNotice is a stand-in here, so the roster is only counted: one placeholder member, not a card.
+    const projects = { p1: { id: 'p1', agents: ['one member'] }, p2: { id: 'p2', agents: [] } };
+    const doc = { body: { classList: { contains: (c) => c === 'consolidated' && consolidated } },
+      getElementById: (id) => (id === 'alist-pj-notice' ? rn : id === 'alist-pj-notice-said' ? rs : null) };
+    // eslint-disable-next-line no-new-func
+    new Function('document', 'PJ_CURRENT', 'pjById', 'pjNotice', 'setIfChanged', pageFn('function paintRailPjNotice(') + '\npaintRailPjNotice();')(
+      doc, current, (id) => projects[id] || null, (roster, id) => 'NOTICE:' + id + ':' + roster.length, (el, html) => { el.html = html; });
+    return { rn, rs };
+  };
+  const on = run({ consolidated: true, current: 'p1', said: 'p1' });
+  assert.equal(on.rn.html, 'NOTICE:p1:1', 'the open project’s notice, from its own roster');
+  assert.equal(on.rs.textContent, 'Kosmos updated leo’s instructions.', 'CONTROL: the same project keeps its success line');
+  const tab = run({ consolidated: false, current: 'p1', said: 'p1' });
+  assert.equal(tab.rn.html, '', 'the tab layout says it in the Members card; the rail must be empty');
+  assert.equal(tab.rs.textContent, '', 'leaving the layout leaves the success line behind');
+  const other = run({ consolidated: true, current: 'p2', said: 'p1' });
+  assert.equal(other.rs.textContent, '', 'another project’s success line stays in the rail');
+  assert.equal(other.rs.dataset.pj, '');
+  const none = run({ consolidated: true, current: null, said: 'p1' });
+  assert.equal(none.rn.html, '');
+  assert.equal(none.rs.textContent, '');
 });

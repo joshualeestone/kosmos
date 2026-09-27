@@ -87,16 +87,23 @@ function write(rec, env = process.env) {
 module.exports = { STEPS, PLACEMENTS, boardVersion, recordDir, recordPath, validate, write };
 
 /* CLI for the gate: `node plus-signin-record.js check <version> <sha256>` prints one line and
-   exits 0 (pass) / 1 (fail or ambiguous) / 2 (no record). */
+   exits 0 (pass) / 1 (fail, ambiguous, or a record that exists but cannot be read) / 2 (cannot
+   tell: no record, an attempt in flight, or bad arguments). promote-channel.sh proceeds past 2
+   with a warning (#3940). */
 if (require.main === module) {
   const [cmd, version, sha256] = process.argv.slice(2);
   if (cmd !== 'check' || !version || !SHA.test(String(sha256))) { console.log('plus-signin-verified: bad arguments - cannot tell'); process.exit(2); }
   const f = recordPath(sha256);
   // An attempt in flight (start ran, finish has not): its result is not known yet. A standing FAIL
-  // still refuses (a new attempt must not turn a refusal into a HOLD), anything else HOLDs.
+  // still refuses (a new attempt must not turn a refusal into a "cannot tell"); anything else exits 2,
+  // which the promote now warns about and proceeds past (#3940).
   const inFlight = fs.existsSync(f.replace(/\.json$/, '.progress.json'));
   let raw;
-  try { raw = fs.readFileSync(f, 'utf8'); } catch { console.log('plus-signin-verified: no record for ' + sha256 + ' at ' + f + (inFlight ? ' (an attempt is in flight)' : '') + ' - HOLD (run tools/plus-signin-fresh.js against the fresh staging board)'); process.exit(2); }
+  // Only a MISSING record is "cannot tell" (exit 2, which the promote proceeds past). A record that
+  // exists but cannot be read (permissions, a directory in its place) may be a FAIL: refuse. That
+  // includes a transient read error (EIO, EMFILE): deliberately, since a rerun clears it, while
+  // reading it as "no record" could put a build with a FAIL record on prod.
+  try { raw = fs.readFileSync(f, 'utf8'); } catch (e) { if (!e || e.code !== 'ENOENT') { console.log('plus-signin-verified: the record at ' + f + ' exists but cannot be read (' + ((e && e.code) || 'unknown error') + ') - refusing'); process.exit(1); } console.log('plus-signin-verified: no record for ' + sha256 + ' at ' + f + (inFlight ? ' (an attempt is in flight)' : '') + ' - not verified (to verify, run tools/plus-signin-fresh.js against the fresh staging board)'); process.exit(2); }
   let rec;
   try { rec = JSON.parse(raw); } catch { console.log('plus-signin-verified: the record at ' + f + ' is not JSON - refusing'); process.exit(1); }
   const v = validate(rec, { version, sha256 });
@@ -106,7 +113,7 @@ if (require.main === module) {
     console.log('plus-signin-verified: the first Kosmos+ sign-in FAILED on ' + version + ': ' + failed.join('; ') + ' - refusing');
     process.exit(1);
   }
-  if (inFlight) { console.log('plus-signin-verified: a new attempt for ' + version + ' is in flight (start ran, finish has not) - HOLD until it finishes'); process.exit(2); }
+  if (inFlight) { console.log('plus-signin-verified: a new attempt for ' + version + ' is in flight (start ran, finish has not) - not verified yet'); process.exit(2); }
   console.log('plus-signin-verified: the first Kosmos+ sign-in PASSED on ' + version + ' (code email in ' + rec.placement + ', ' + rec.at + ')');
   process.exit(0);
 }

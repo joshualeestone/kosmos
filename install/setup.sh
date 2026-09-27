@@ -2160,6 +2160,27 @@ KOSMOS_SWEEP_LIST
     printf '  ~/.claude/settings.json (agents skip per-action permission prompts).\n'
     printf '  Delete that line there if you want the question back.\n\n'
   fi
+  # #3946: the status line Kosmos adds to record weekly usage is ours by its marker,
+  # but the bundled Node that could edit the JSON is gone by now, so it is NAMED, as
+  # the header's rule asks. Left in place it points at files this uninstall removed,
+  # so it records nothing any more, and it keeps the one status-line slot.
+  # Every account Kosmos wires, not only the default: account folders are kept by this
+  # uninstall, so their entries would otherwise be left unnamed.
+  # Two passes over the same glob rather than one space-joined list, so a path with a
+  # space in it is printed whole.
+  _sl_left=""
+  for _sl in "$HOME/.claude/settings.json" "$HOME"/.claude-*/settings.json; do
+    [ -f "$_sl" ] && grep -q 'kosmos-statusline\.js' "$_sl" 2>/dev/null && _sl_left=yes
+  done
+  if [ -n "$_sl_left" ]; then
+    printf '  Kosmos\047s status line was left in these settings files (the "statusLine"\n'
+    printf '  entry naming kosmos-statusline.js). It records nothing now; delete that entry\n'
+    printf '  if you want to use a status line of your own:\n'
+    for _sl in "$HOME/.claude/settings.json" "$HOME"/.claude-*/settings.json; do
+      [ -f "$_sl" ] && grep -q 'kosmos-statusline\.js' "$_sl" 2>/dev/null && printf '    %s\n' "$_sl"
+    done
+    printf '\n'
+  fi
   # ⚠️ AND THE SECOND THING WE LEFT IN THAT TOOL'S CONFIG, named for exactly the
   # same reason. Creating an agent records that Claude Code trusts the folder
   # Kosmos made for it, and an uninstaller cannot tell those lines from ones the
@@ -3546,6 +3567,15 @@ for (const t of targets) {
   const got = reporthook.ensureWired(t, script);
   if (got.wired !== true) refused += 1;
 }
+/* #3946: the same targets get the statusline that records the account's weekly
+   usage (engine/allowance.js). It is NOT counted in `refused`: an account that
+   already has its own statusline is left alone on purpose, which is expected,
+   not a failure of the hooks this block reports on. Guarded so a problem here
+   can never change the hooks' answer. */
+try {
+  const allowance = require(path.join(kosmosHome, 'app', 'engine', 'allowance.js'));
+  for (const t of targets) { try { allowance.ensureStatusLine(t); } catch { /* fail soft */ } }
+} catch { /* missing from this bundle, or it failed to load: the hooks' answer stands */ }
 process.exit(refused === 0 ? 0 : 1);
 HOOKSEOF
 then
@@ -3554,6 +3584,19 @@ then
 else
   info "some agent settings could not carry the reporting hook (an unreadable settings"
   info "file is left alone on purpose); those agents stay readable the older way"
+fi
+# #3946: said only when a settings file this block targets now carries our status
+# line (checked by its marker, the same way uninstall names it), so a machine where
+# it could not be wired is not told that it was.
+_sl_home="${AGENT_WORKFORCE_HOME:-$HOME}"
+_sl_added=""
+for _sl in "$_sl_home/.claude/settings.json" "$_sl_home"/.claude-*/settings.json; do
+  [ -f "$_sl" ] && grep -q 'kosmos-statusline\.js' "$_sl" 2>/dev/null && _sl_added=yes
+done
+if [ -n "$_sl_added" ]; then
+  info "Claude accounts that had no status line of their own carry Kosmos's, in every"
+  info "Claude session on them: it notes how much of the weekly allowance is used and"
+  info "prints nothing, which leaves an empty row under the prompt"
 fi
 
 # ---- start ------------------------------------------------------------------

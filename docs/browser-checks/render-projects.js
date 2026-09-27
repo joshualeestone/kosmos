@@ -1165,6 +1165,50 @@ async function main() {
       contrastFails += 1;
       console.log(`  FAIL  #3923 Try again on a stopped agent: expected "It still did not work.", focus on its Try again and no success line (${scheme}), got ${JSON.stringify(retry)}`);
     }
+    /* #3948: the consolidated layout hides the Members card, so the same notice (same rows, same
+       Try again) is painted in the Agents rail head, straight above the list, in its own live region.
+       Entered the page's own way (applyLayout, which runs showTab), with NO direct call to the painter:
+       a layout switch has to paint it by itself. Measured on screen, not only found: the first version
+       of this sat as a full-width strip at the top of the page (a body child with no grid row) and every
+       found/role/count assertion passed. Then the layout is put back and the rail read again: the
+       copy must be empty outside the consolidated layout, at once, or the tab layout says it twice. */
+    const railRead = () => page.evaluate(() => {
+      const box = document.getElementById('alist-pj-notice');
+      const list = document.getElementById('alist');
+      const head = document.getElementById('rail-agents');
+      if (!box || !list || !head) return { missing: true };
+      const b = box.getBoundingClientRect(), l = list.getBoundingClientRect(), h = head.getBoundingClientRect();
+      // The head with the notice taken out of layout altogether, for the comparison below (restored at once).
+      const prior = box.style.display;
+      box.style.display = 'none';
+      const bare = Math.round(head.getBoundingClientRect().height);
+      box.style.display = prior;
+      return { text: (box.textContent || '').trim(), role: box.getAttribute('role'), live: box.getAttribute('aria-live'),
+        inHead: head.contains(box), headShown: !!head.offsetParent && h.height > 0,
+        retry: box.querySelectorAll('[data-pn-retry]').length,
+        rows: box.querySelectorAll('[data-pn-retry]').length === document.querySelectorAll('#pj-one-notice [data-pn-retry]').length,
+        // Above the list and in its column: the notice ends where the list begins (within the head's
+        // 4px bottom margin and a pixel of rounding), and spans no further right than the rail.
+        gap: Math.round(l.top - b.bottom), leftIn: b.left >= l.left - 1, rightIn: b.right <= l.right + 1, height: Math.round(b.height),
+        // The notice adds only itself to the head, never a phantom line gap (the head's 6px gap between
+        // flex lines): the head minus the notice is the head without it.
+        headLessNotice: Math.round(h.height - b.height), bare };
+    });
+    const layoutBefore = await page.evaluate(() => document.documentElement.getAttribute('data-layout') || 'tabs');
+    await page.evaluate(() => applyLayout('consolidated', true));
+    await page.waitForFunction(() => /instructions for this project/.test((document.getElementById('alist-pj-notice') || {}).textContent || ''), null, { timeout: 5000 }).catch(() => {});
+    const railOn = await railRead();
+    await page.evaluate((want) => applyLayout(want, true), layoutBefore);
+    const railOff = await railRead();
+    const rail = { on: railOn, off: railOff };
+    if (railOn.missing || !/instructions for this project/.test(railOn.text) || railOn.role !== 'status' || railOn.live !== 'polite'
+        || !railOn.inHead || !railOn.headShown || !railOn.retry || !railOn.rows
+        || !(railOn.gap >= 0 && railOn.gap <= 12) || !railOn.leftIn || !railOn.rightIn || railOn.height < 20
+        || Math.abs(railOn.headLessNotice - railOn.bare) > 1
+        || railOff.text) {
+      contrastFails += 1;
+      console.log(`  FAIL  #3948 consolidated layout: expected the project notice, with its Try again, in a polite status region in the Agents rail head straight above the list, and nothing there once the layout is put back (${scheme}), got ${JSON.stringify(rail)}`);
+    }
     for (const e of [...listEls, ...badFolderEls, ...els, ...settingsEls, ...toldEls]) {
       if (e.missing) {
         contrastFails += 1;

@@ -1620,7 +1620,7 @@ function setProvider(name, provider, opts) {
   }
   const platform = opts && opts.platform;
   // #3568: Windows has no Antigravity launch path, the same refusal create and installJob take.
-  if (provider === 'antigravity' && (platform || process.platform) === 'win32') {
+  if (provider === 'antigravity' && (platform || process.platform) === 'win32' && !win32AgyOn()) {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_ANTIGRAVITY_WIN32 };
   }
   const verdict = readJobVerdict(clean, undefined, platform);
@@ -1641,7 +1641,7 @@ function setProvider(name, provider, opts) {
   }
   const { claudeBin, codexBin, geminiBin, grokBin, antigravityBin } = binPaths(opts);
   const runnerBin = runner === 'codex' ? codexBin : runner === 'gemini' ? geminiBin : runner === 'grok' ? grokBin : runner === 'antigravity' ? antigravityBin : claudeBin;
-  if (!DRY_RUN && runner === 'antigravity' && !agyNameOk(runnerBin)) {
+  if (!DRY_RUN && runner === 'antigravity' && !agyNameOk(runnerBin, platform)) {
     return { outcome: OUTCOME.REFUSED, because: AGY_NAME_REFUSAL };
   }
   if (!DRY_RUN && !runnerRunnable(runnerBin)) {
@@ -2928,7 +2928,10 @@ function runnerRunnable(p) { return runners.isRunnable(p); }
 /* #3568: the board and the supervisor recognise an Antigravity pane by the command name `agy`, so
    a binary under any other name would start an agent nobody can see. Refused with this sentence. */
 const AGY_NAME_REFUSAL = 'the Antigravity program must be named agy, or Kosmos cannot see the agent running';
-function agyNameOk(bin) { return runners.agyRealName(bin) === 'agy'; }
+function agyNameOk(bin, platform) { return runners.isAgyName(runners.agyRealName(bin), platform || process.platform); }
+/* #3568: Windows runs Antigravity behind its own switch (engine/win32agy.js switchOn: on by default, off with
+   AGENT_WORKFORCE_ANTIGRAVITY_WINDOWS=0 or an antigravity-windows.off file). */
+function win32AgyOn() { return require('./win32agy').switchOn(); }
 
 /**
  * Where the two things an agent needs actually live on this computer.
@@ -3272,7 +3275,7 @@ function installJob(name, opts) {
   if (wantRunner === 'antigravity' && !antigravityEnabled()) {
     return { ok: false, because: `${spokenName(clean)} runs on Antigravity, and setting up Antigravity agents is switched off on this computer, so it cannot be set up here while that is off` };
   }
-  if (wantRunner === 'antigravity' && jobPlatform === 'win32') {
+  if (wantRunner === 'antigravity' && jobPlatform === 'win32' && !win32AgyOn()) {
     return { ok: false, because: REFUSE_ANTIGRAVITY_WIN32 };
   }
   /* 📌 gemini/grok are no longer refused on win32: the Windows per-turn supervisor runs them
@@ -3298,7 +3301,7 @@ function installJob(name, opts) {
       : runner === 'grok' ? grokBin
         : runner === 'antigravity' ? antigravityBin
           : claudeBin;
-  if (!DRY_RUN && runner === 'antigravity' && !agyNameOk(runnerBin)) return { ok: false, because: AGY_NAME_REFUSAL };
+  if (!DRY_RUN && runner === 'antigravity' && !agyNameOk(runnerBin, jobPlatform)) return { ok: false, because: AGY_NAME_REFUSAL };
   if (unusablePath(runnerBin) || unusablePath(tmuxBin)) {
     return { ok: false, /* ⚠️ NEITHER BINARY IS NAMED, and `tmux` least of all (Mona Lisa). A person
        who installed Kosmos has no reason to have heard the word, and it cost a
@@ -3923,16 +3926,16 @@ function createAgentInner(opts) {
   const kind = opts && opts.kind !== undefined && opts.kind !== null && opts.kind !== '' ? String(opts.kind) : 'agent';
   if (kind !== 'agent' && kind !== 'swarm') return { outcome: OUTCOME.REFUSED, because: 'pick Agent or Swarm', steps };
   if (kind === 'swarm') {
-    const swarmProblem = require('./swarm').createProblem({ provider, maxHelpers: opts.maxHelpers, dailyTokenLimit: opts.dailyTokenLimit });
+    const swarmProblem = require('./swarm').createProblem({ provider, maxHelpers: opts.maxHelpers, dailyTokenLimit: opts.dailyTokenLimit, dailyAllowancePct: opts.dailyAllowancePct });
     if (swarmProblem) return { outcome: OUTCOME.REFUSED, because: swarmProblem, field: 'swarm', steps };
   }
   if (provider === 'antigravity') {
     // Windows first, as setProvider and installJob do: there the binary check would name the wrong cause.
-    if ((opts && opts.platform ? opts.platform : process.platform) === 'win32') {
+    if ((opts && opts.platform ? opts.platform : process.platform) === 'win32' && !win32AgyOn()) {
       return { outcome: OUTCOME.REFUSED, because: REFUSE_ANTIGRAVITY_WIN32, steps };
     }
     // #3568: the same "could this machine ever start it" preflight as the other runners.
-    if (!DRY_RUN && !agyNameOk(antigravityBin)) {
+    if (!DRY_RUN && !agyNameOk(antigravityBin, opts && opts.platform ? opts.platform : process.platform)) {
       return { outcome: OUTCOME.REFUSED, because: AGY_NAME_REFUSAL, steps };
     }
     if (!DRY_RUN && !runnerRunnable(antigravityBin)) {
@@ -4374,6 +4377,11 @@ function createAgentInner(opts) {
      credential for its name survives is the exact state this exists to
      prevent, and a half-made one is worse than none. A name that never had a
      token is the common case and is silent: `revoke` answers ENOENT ok:true. */
+  /* #4006: a NEW agent starts with no disruption record, so an old failed restart under this name never shows on it.
+     Cleared HERE, before the gates below that can still refuse, on purpose: every check above has already refused a
+     name with a launch file, folder, loaded job or running session, so the record belongs to no card and clearing it
+     hides nothing; while a create that ends PARTIAL leaves a launch file (so a card), which must not inherit it. */
+  try { require('./disruption').clear(name); } catch { /* best-effort */ }
   const priorTokens = sendertoken.revoke(name);
   if (priorTokens.ok !== true) {
     return {
@@ -4722,9 +4730,9 @@ function createAgentInner(opts) {
     //
     // ⚠️ THE FITS-CHECK IS DEFENCE AGAINST GROWTH AND CANNOT CURRENTLY FIRE,
     // which is stated here because an unlabelled guard reads as a tested one.
-    // On this path the text is a role template under a kilobyte plus two
-    // bounded blocks, against a 256KB cap: the margin is four orders of
-    // magnitude. The near-cap case exists only for CUSTOM instructions, and
+    // On this path the text is a role template plus bounded blocks against a
+    // 256KB cap: measured at 32,935 bytes on 2026-09-26, a margin of about 8x
+    // (kosmos#4021; the size canary in create.test.js watches it). The near-cap case exists only for CUSTOM instructions, and
     // those never enter this branch. A test asserting the drop passed with
     // this line deleted for exactly that reason, and was replaced by one that
     // measures the margin instead.
@@ -5311,7 +5319,7 @@ function createAgentInner(opts) {
        outline): never inferred from what happens to be running in a pane. */
     profile.provider = provider;
     /* #3564: a swarm's kind and settings, from birth (engine/swarm.js). */
-    if (kind === 'swarm') Object.assign(profile, require('./swarm').birthProfile({ maxHelpers: opts.maxHelpers, dailyTokenLimit: opts.dailyTokenLimit }));
+    if (kind === 'swarm') Object.assign(profile, require('./swarm').birthProfile({ maxHelpers: opts.maxHelpers, dailyTokenLimit: opts.dailyTokenLimit, dailyAllowancePct: opts.dailyAllowancePct }));
     /* Which revision of the working rules this agent was born with (#539),
        beside the id for the same reason the provider is: recorded at the
        moment it is true, never inferred later from file contents a person

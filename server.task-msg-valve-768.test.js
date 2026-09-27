@@ -68,7 +68,16 @@ test('a process is valved after the cap; the operator (screen) never is', async 
   // Cap is 2. Two process posts pass, the third is refused 429.
   assert.equal((await post()).status, 200, 'first process message should pass');
   assert.equal((await post()).status, 200, 'second process message should pass');
-  assert.equal((await post()).status, 429, 'the third process message should be valved');
+  const third = await post();
+  assert.equal(third.status, 429, 'the third process message should be valved');
+  // #3959: both CLIs print only the error text, so it must carry the limit, that it is shared,
+  // and when it lifts; the header and field carry the same wait.
+  const body3 = await third.json();
+  assert.match(body3.error, /agents have sent 2 task messages in the last hour, which is at or over the limit of 2 an hour shared by all agents together/);
+  assert.match(body3.error, /pausing agent task messages\. Agents can send task messages again in about \d+ minutes?;/);
+  assert.match(body3.error, /from the screen/);
+  assert.equal(typeof body3.retry_after_secs, 'number');
+  assert.equal(third.headers.get('retry-after'), String(body3.retry_after_secs), 'the header and the field disagree');
   // The operator (a screen post) is exempt even though the process cap is spent.
   assert.equal((await post({ 'sec-fetch-site': 'same-origin' })).status, 200,
     'the operator must never be valved, even after the process cap is spent');
@@ -83,6 +92,21 @@ test('win32-cli-verbs: a request presenting a VALID agent token is valved even w
   const r = await post({ 'x-kosmos-agent-token': minted.token, 'sec-fetch-site': 'same-origin', origin: base });
   assert.equal(r.status, 429, 'an agent token with a browser header skipped the task-message valve');
   assert.match((await r.json()).error, /pausing agent task messages/);
+});
+
+test('#3959: with the cap set to 0, agent task messages are refused as switched off, with no retry time', async () => {
+  const { setTaskMsgCapForTests } = require('./server');
+  setTaskMsgCapForTests(0);
+  try {
+    const r = await post();
+    assert.equal(r.status, 429);
+    const b = await r.json();
+    assert.match(b.error, /agent task messages are switched off on this computer \(AGENT_WORKFORCE_TASK_MSG_CAP is 0\)/);
+    assert.match(b.error, /from the screen/);
+    assert.equal(r.headers.get('retry-after'), null, 'a switched-off cap offered a retry time');
+    assert.equal(b.retry_after_secs, undefined, 'a switched-off cap offered retry_after_secs');
+    assert.equal((await post({ 'sec-fetch-site': 'same-origin' })).status, 200, 'the operator was valved by a 0 cap');
+  } finally { setTaskMsgCapForTests(); }
 });
 
 test.after(() => { win32job.setRunner(null); try { server.close(); } catch { /* already down */ } });

@@ -1,0 +1,73 @@
+# devcode-3952: device sign-in codes big, in boxes, on their own row (kosmos#3952)
+
+Josh, 2026-09-26 08:06: "it would be great on this screen if we showed the code on a separate row and displayed it in a
+similar graphical fashion so that it visually matches ... Oh crap, I have to enter this in terminal".
+
+## What changes (web/index.html)
+- `devCodeHtml(lead, code, note)`: one box per character, grouped at the provider's dashes (xAI 4-4), on its own row
+  under the lead line. Display only. The characters are real text (Copy and hand-selection get exactly the code); a
+  screen reader gets the code once, in groups, from the row's label.
+- Grok (Settings and first run, one shared driver): the boxes plus "xAI's page says "terminal": it means this code
+  here in Kosmos."
+- OpenAI device code: Settings and first run painters, and the Windows device markup (boxes on their own row above
+  the Copy row, whose .fr-cmd keeps the code as hidden text, so Copy is unchanged).
+- Connections (GitHub, Vercel and the other device doors): the same boxes instead of large plain text.
+- The "Open the sign-in page" button and "Stop this sign-in" are untouched.
+
+## Decided
+- INLINE-BLOCK cells, not flex: measured, flex items made the row's own text one character per line, so a person
+  copying the code by hand got newlines, and the GitHub door check (innerText) would have gone red.
+- Page colours, not the Kosmos+ page's dark palette: #3942's boxes are scoped to that page; these match its shape.
+- The "terminal" line only on xAI's flow (only xAI's page says it).
+
+## Review round 1 (Opus), what changed
+- BLOCKER, my own false claim: "measured at 360px" measured a full-width test paragraph, not the real boxes (first
+  run's Grok box is 222px). The boxes now size to their own container (cqw, the #3942 approach, vw fallback), each
+  group is one piece, and the row breaks after the dash: 4 over 4 on a phone. 360px arms added to both checks; they
+  go RED on the previous commit's page (the defect the reviewer measured) and green now.
+- BLOCKER: on Windows the boxes sat in the Copy row's scrolling cell (3 of 9 showed). They now sit on their own row
+  above it; the cell keeps the code as text, hidden to the eye, so Copy is unchanged.
+- WARNING: the Kosmos+ device approval card (#3829) was missed, my search was wrong. Its code is now in the same boxes,
+  on its own row under the device and time (it was large at the right; Mona's #3829 layout, told).
+- WARNING: the GitHub door check asserts the boxes, not only the text.
+- NITs: letter-spacing reset on .devcode itself; the tinted strip is gone with the host class.
+- Deferred NIT: role="img" makes VoiceOver add "image" after the code. A hidden-text alternative would be copied
+  along with the code by a hand selection, so the label stays.
+
+## Review round 2 (Sonnet), what changed
+- BLOCKER (mine): the unit test still named the round-1 class (devcode-host), never re-run after the rename. Fixed; it
+  now also requires the boxes above the Copy row and the Copy cell to hold exactly the code.
+- BLOCKER: the Kosmos+ approval card is drawn in the navy Kosmos+ skin, and its boxes had a 60% white fill: light ink
+  on light, about 2:1. The boxes now have no fill (card ground, card ink: 11.6:1). The plus-panel check measures it,
+  compositing translucent fills over the skin's gradient; on the old fill it reads 1.9 and fails.
+- WARNING: the hidden Copy text is aria-hidden, so a screen reader gets the code once (from the boxes' label).
+- NIT: the #3829 card comment no longer says the code is at the right.
+
+## Review round 3 (Opus): no BLOCKER/WARNING/CONVENTION. Then Mona Lisa (09-26, owner of the #3829 card) agreed with
+the code on its own row and asked that it sit directly above Allow, nothing between: the sentence moved above the
+code, and the plus-panel check asserts the code's next neighbour is the buttons (red on the previous order).
+Two stale comments fixed. Deferred NITs: a drag past the last box picks up the hidden Copy text too (the code twice);
+the manual-copy fallback selects an invisible element; the contrast walk ignores ink alpha and ancestor opacity (none
+applies today); the non-Windows OpenAI device branches have no arm; faint box borders on navy (characters 11.6:1);
+the font stack is written out; the 360px arms do not collect page errors.
+
+## Review round 4 (Sonnet), what changed
+- Three comments still gave the card's old order (code before the sentence); corrected.
+- The plus-panel check asserts the approval code's spoken label ("V R, D 6"; red without it); the "above the Copy
+  row" unit assertion can no longer pass with the boxes missing.
+
+## Review round 5 (Opus), what changed
+- The Windows arms assert the Copy cell is hidden to the eye (the code otherwise shows twice; red without the rule).
+- Grok's code line is drawn only when the code changes: the 1.2s poll redrew it and dropped any selection, and
+  selecting is how a person copies Grok's code (no Copy button). Pre-existing, fixed here because this card is about
+  that line. The Grok check asserts the boxes' role="img".
+
+## Weakest premise
+- A provider whose code has no dash is one group, which cannot break: 10cqw fits five characters in its box, so a
+  longer undashed code shrinks rather than wraps. Every code seen so far has a dash (xAI 4-4, OpenAI 4-5, GitHub 4-4).
+
+## Tests
+- render-grok-subscription-3391.js: Settings and first run show 8 boxes, one dash, the right text, one row, readable
+  size, the note, the spoken label, and hand-copy text "QWER-TYUI" (perturbed red: old sentence, no note, small boxes).
+- render-openai-devicecode-3436.js: boxes spell the code with OpenAI's grouping, no xAI note (perturbed red: old markup).
+- web.openai-devicecode-3436.test.js: the Copy cell's text is exactly the code, one box per character.

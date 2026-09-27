@@ -2065,7 +2065,8 @@ test('a role-made boot file is nowhere near the size its reader refuses', () => 
   create.setDryRun(false);
   const r = create.createAgent({ ...BINS, name: 'sized-def', role: 'pm' });
   assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
-  const bytes = Buffer.byteLength(fs.readFileSync(create.instructionFile('sized-def'), 'utf8'), 'utf8');
+  const raw = fs.readFileSync(create.instructionFile('sized-def'), 'utf8');
+  const bytes = Buffer.byteLength(raw, 'utf8');
   assert.ok(bytes <= instructions.MAX_BYTES, 'the boot file outgrew its own reader');
   /* 🛑 THIS TEST REPLACED ONE THAT PROVED NOTHING, and the replacement is
      narrower on purpose. The original built instructions ten bytes under
@@ -2075,15 +2076,46 @@ test('a role-made boot file is nowhere near the size its reader refuses', () => 
      those at all: it was measuring the standing ruling and reporting it as the
      size guard.
 
-     There is no reachable near-cap case on the role path. Role text is under a
-     kilobyte, the two blocks are bounded, and the cap is 256KB, so the margin
-     is four orders of magnitude wide. That is the honest claim and it is what
-     this asserts. The fits-check in create.js stays as defence against future
+     There is no reachable near-cap case on the role path. The boot file is a
+     role template plus bounded blocks against a 256KB cap; measured on
+     2026-09-26 it is 32,935 bytes, so the margin is about 8x (it was once
+     described as four orders of magnitude; the blocks have grown since). That
+     is the honest claim and it is what this asserts. The fits-check in create.js stays as defence against future
      growth and is labelled there as currently unfireable, so that nobody
      writes this test again believing it proves something. */
-  assert.ok(bytes < instructions.MAX_BYTES / 8,
+  /* Raised from MAX_BYTES / 8 to / 6 on 2026-09-26: a pm boot file measured 32,935 bytes, just past
+     the old line (32,768), and failed the 0.6.99 cut. That is still about 8x under the real cap
+     (262,144 / 32,935), so the fits-check stays unreachable; the canary's job is to flag growth
+     before it matters, and it did. Which change grew the file, and whether it is only intended new
+     text, is kosmos#4021. */
+  /* #4041: THE CANARY MEASURES THE TEXT, NOT THE CHECKOUT. The boot file embeds two absolute
+     paths that belong to the machine running this test: the kosmos CLI (four times, in the
+     msg/post/reply lines; on a source checkout it is <repo>/install/kosmos) and the agent's Files
+     folder (under the sandboxed workers root). Measured raw, the same commit read a few hundred
+     bytes higher in a long scratch checkout than at the cut, so a pass or fail could be about the
+     path and not about growth. Here each is swapped for what a real install on a fixed home
+     writes, so the number is the same on every machine. The raw-bytes assertion above stays on
+     the unaltered file, because the reader refuses raw bytes. */
+  const home = '/Users/person';
+  // The SHOWN form, as messages.js writes it: quoted when the path needs quoting, or the bare
+  // word 'kosmos' when a path cannot be taught safely. Splitting on the bare word would rewrite
+  // every mention of the product, so that case carries no path to swap.
+  const cli = require('./clipath').kosmosCliShown();
+  const cliIsPath = cli !== 'kosmos';
+  const workers = process.env.AGENT_WORKFORCE_WORKERS;
+  // A swap that matched nothing would leave the measurement path-dependent while reading as fixed.
+  assert.ok(!cliIsPath || raw.includes(cli), 'the boot file no longer carries the kosmos CLI path; revisit this swap');
+  assert.ok(raw.includes(workers), 'the boot file no longer carries the Files path; revisit this swap');
+  const text = (cliIsPath ? raw.split(cli).join(home + '/.local/share/kosmos/bin/kosmos') : raw)
+    .split(workers).join(store.workersRootFor({}, home, 'darwin'));
+  // A NEW machine path would make the number path-dependent again, silently. Refuse it here.
+  const repo = nodePath.resolve(__dirname, '..');
+  assert.ok(!text.includes(SANDBOX) && !text.includes(repo) && !text.includes(os.homedir()),
+    'the boot file embeds another machine-specific path; add it to the swap above so the canary stays path-independent');
+  const measured = Buffer.byteLength(text, 'utf8');
+  assert.ok(measured < instructions.MAX_BYTES / 6,
     'a role-made boot file has grown toward the cap; the fits-check may now be reachable and testable ('
-    + bytes + ' bytes)');
+    + measured + ' bytes of text, ' + bytes + ' as written on this machine)');
 });
 
 test('appending the defaults twice does not double every rule', () => {
@@ -2462,7 +2494,7 @@ test('#3564: a swarm is born with its settings and its block; an ordinary agent 
   const made = create.createAgent({ ...BINS, name: 'hive', role: 'pm', kind: 'swarm', maxHelpers: 5, dailyTokenLimit: 250000 });
   assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
   const settings = swarmMod.settingsOf(store.readProfile('hive'));
-  assert.deepEqual(settings, { maxHelpers: 5, dailyTokenLimit: 250000, active: true, pausedBecause: null, pausedAt: null, pausedAtLimit: null, limitOverrideDay: null });
+  assert.deepEqual(settings, { maxHelpers: 5, dailyTokenLimit: 250000, dailyAllowancePct: null, active: true, pausedBecause: null, pausedAt: null, pausedAtLimit: null, limitOverrideDay: null });
   const text = fs.readFileSync(create.instructionFile('hive'), 'utf8');
   const block = projects.findBlock(text, swarmMod.START, swarmMod.END);
   assert.ok(block, 'the swarm block is not in its instructions at birth');
@@ -4304,7 +4336,9 @@ test('#3568: with the flag on, an Antigravity agent is created on the antigravit
 test('#3568: an Antigravity create is refused when agy is missing, when an account is given, and on Windows', () => {
   recorder();
   create.setDryRun(false);
-  withAgyFlag(true, () => {
+  // Windows refuses only with its switch OFF (engine/win32agy.js; on by default since #3568's Windows half).
+  require('./win32agy').setSwitchForTests(() => false);
+  try { withAgyFlag(true, () => {
     const missing = create.createAgent({ ...BINS, antigravityBin: '/nonexistent/agy', name: 'agy-none', role: 'pm', provider: 'antigravity' });
     assert.equal(missing.outcome, create.OUTCOME.REFUSED);
     assert.match(missing.because, /could not find Antigravity/);
@@ -4322,7 +4356,7 @@ test('#3568: an Antigravity create is refused when agy is missing, when an accou
     const winMissing = create.createAgent({ ...BINS, antigravityBin: '/nonexistent/agy', name: 'agy-win2', role: 'pm', provider: 'antigravity', platform: 'win32' });
     assert.equal(winMissing.outcome, create.OUTCOME.REFUSED);
     assert.match(winMissing.because, /Windows/);
-  });
+  }); } finally { require('./win32agy').setSwitchForTests(null); }
 });
 test('#3568: the provider and runner maps round-trip antigravity, and it is a non-Claude runner', () => {
   assert.equal(create.providerRunner('antigravity'), 'antigravity');
@@ -5737,4 +5771,16 @@ test('#3038: createdCount() counts creations (created + partial), never refusals
   const expected = create.createdLog()
     .filter((e) => e.outcome === create.OUTCOME.CREATED || e.outcome === create.OUTCOME.PARTIAL).length;
   assert.equal(create.createdCount(), expected, 'createdCount matches the created+partial birth-log entries');
+});
+
+test('#4006: a new agent never inherits a failed-restart record left under its name', () => {
+  const disruption = require('./disruption');
+  create.setRunner(() => ({ ok: true }));
+  create.setDryRun(false);
+  disruption.begin('failheir', 'restart');
+  disruption.fail('failheir', null);
+  assert.equal(disruption.read('failheir').failed, true, 'precondition: a failed record is on file under the name');
+  const made = create.createAgent({ ...BINS, name: 'failheir', role: 'pm' });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because || '');
+  assert.equal(disruption.read('failheir').found, false, 'the new agent was born under an old failed-restart record');
 });

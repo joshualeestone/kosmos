@@ -477,6 +477,7 @@ function runDm({ fresh, lastAt, spoke }) {
     /* busyRow is the SHARED markup helper and has its own coverage; stubbed to a
        recognisable string so these arms test the SHOW DECISION and nothing else. */
     + 'const busyRow = (f, n) => "ROW:" + String(n);\n'
+    + page.lift(SCRIPT, 'workingSampleIsStale')
     + page.lift(SCRIPT, 'paintBusy')
     + '; return paintBusy;',
   )(fresh, fresh && fresh.name, lastAt, spoke, el);

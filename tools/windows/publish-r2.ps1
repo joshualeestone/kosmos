@@ -100,6 +100,14 @@ $Arch = 'x64'
 $Alias = "kosmos-win-$Arch.zip"
 function Assert-Version([string] $what, [string] $v) {
   if ($v -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+\z') { Refuse "an implausible $what '$v' (x.y.z, what the updater accepts)" }
+  # From the 0.6 line on the patch is exactly two digits (Josh, 2026-08-28), the same guard as
+  # tools/release.sh. engine/update.js reads a version as three NUMBERS, so 0.7.0 and 0.7.00 are one
+  # version to every install: publishing the other spelling is an update no machine ever sees.
+  $p = $v.Split('.')
+  if ($p[0] -ceq '0' -and [int]$p[1] -ge 6) {
+    if ($p[2].Length -eq 1) { Refuse "$what '$v': from the 0.$($p[1]) line on the patch is two digits, so this is spelled 0.$($p[1]).0$($p[2]) (the same version to every install; only one spelling may be published)" }
+    if ($p[2].Length -gt 2) { Refuse "$what '$v' is past the end of the 0.$($p[1]) line: 0.$($p[1]).99 is the last one, then 0.$([int]$p[1] + 1).00" }
+  }
 }
 function Assert-Sha([string] $what, [string] $v) {
   if ($v -cnotmatch '^[0-9a-f]{64}\z') { Refuse "$what '$v' must be a lowercase 64-hex sha256" }

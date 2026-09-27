@@ -11,8 +11,9 @@
  * who took it out. This records that fact so the board can show a RESTARTING
  * state instead of an absence, for the short window a restart takes.
  *
- * 🛑 NO STATE HERE, EXACTLY LIKE liveness.js. This module records only that a
- * deliberate disruption BEGAN, with its CAUSE and WHEN. It never says what the
+ * 🛑 NO STATE HERE, EXACTLY LIKE liveness.js. This module records that a
+ * deliberate disruption BEGAN, with its CAUSE and WHEN, and (#4006, `fail`) that
+ * a restart did not come back, with what launchd said. It never says what the
  * agent is doing; the state layer (status.reconcileReport) decides how to read
  * a dead pane while a fresh disruption is on file. Keeping the two apart is
  * what lets reconcileReport stay a pure function of its inputs.
@@ -113,7 +114,13 @@ function read(sessionName) {
   const ms = Date.parse(startedAt || '');
   if (!Number.isFinite(ms)) return { found: false, because: 'the disruption record carries no readable time' };
   const cause = CAUSES.includes(rec && rec.cause) ? rec.cause : 'restart';
-  return { found: true, cause, startedAt, ageMs: Date.now() - ms };
+  const out = { found: true, cause, startedAt, ageMs: Date.now() - ms };
+  /* #4006: a restart that did not come back (see fail). */
+  if (rec && typeof rec.failedAt === 'string' && Number.isFinite(Date.parse(rec.failedAt))) {
+    out.failed = true;
+    out.failedAt = rec.failedAt;
+  }
+  return out;
 }
 
 /**
@@ -128,20 +135,25 @@ function read(sessionName) {
  * `active()` returning null hands off to the timeout path, it does not end the
  * state. `active` still self-heals the IN-PROGRESS animation; the timeout path
  * self-heals when the pane returns live (the caller clears the record then).
+ * #4006: a FAILED record carries `failed` through both (active() still returns null
+ * past the window; the RECORD persists, and the snapshot's read() fallback picks it
+ * up): it lasts until status clears it (the agent is running again), a new `begin`
+ * replaces it, or the agent is removed, deleted or created again.
  */
 function active(sessionName, windowMs) {
   const r = read(sessionName);
   if (!r.found) return null;
   const w = Number.isFinite(windowMs) ? windowMs : WINDOW_MS;
   if (r.ageMs > w) return null;
-  return { cause: r.cause, startedAt: r.startedAt, ageMs: r.ageMs };
+  return r.failed ? { cause: r.cause, startedAt: r.startedAt, ageMs: r.ageMs, failed: true }
+    : { cause: r.cause, startedAt: r.startedAt, ageMs: r.ageMs };
 }
 
 /**
- * Drop an agent's disruption record. Optional -- `active` self-heals by the
- * window, so nothing is required to call this -- but a confirmed-alive caller
- * can use it to end the state the instant it has proof, and tests use it to
- * reset. Never throws.
+ * Drop an agent's disruption record. A confirmed-alive caller uses it to end the
+ * state the instant it has proof, removal/creation use it so a record never
+ * outlives its agent (#4006), and tests use it to reset. An in-flight record also
+ * ages out by the window; a failed one does not. Never throws.
  */
 function clear(sessionName) {
   let file;
@@ -152,4 +164,35 @@ function clear(sessionName) {
   return { ok: true };
 }
 
-module.exports = { DIR, WINDOW_MS, CAUSES, fileFor, begin, read, active, clear };
+/**
+ * #4006: the restart this record was written for did not come back. The record is kept, marked
+ * failed, instead of being cleared, so the agent's card can say so until the agent is running
+ * again (status.js clears it then, as it clears any record) or a new restart begins. Before this,
+ * a failed restart cleared the record, the card fell to a plain "not running", and a Grok agent
+ * sat dead for 23 minutes with the only trace in board.log. `diagnostics` is what launchd said,
+ * kept on disk for whoever looks next (#3418-class failures). Never throws.
+ */
+function fail(sessionName, diagnostics, atISO) {
+  let file;
+  try { file = fileFor(sessionName); } catch {
+    return { ok: false, because: 'that agent name is not one we can keep a record under' };
+  }
+  const had = read(sessionName);
+  const failedAt = typeof atISO === 'string' && atISO ? atISO : new Date().toISOString();
+  if (!Number.isFinite(Date.parse(failedAt))) return { ok: false, because: 'that is not a time we can read' };
+  const rec = {
+    cause: had.found ? had.cause : 'restart',
+    startedAt: had.found ? had.startedAt : failedAt,
+    failedAt,
+  };
+  if (diagnostics && typeof diagnostics === 'object') rec.diagnostics = diagnostics;
+  try {
+    fs.mkdirSync(DIR, { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(rec) + '\n', { mode: FILE_MODE });
+  } catch (e) {
+    return { ok: false, because: 'we could not write that down (' + (e && e.code || 'unknown') + ')' };
+  }
+  return { ok: true, failedAt };
+}
+
+module.exports = { DIR, WINDOW_MS, CAUSES, fileFor, begin, read, active, clear, fail };

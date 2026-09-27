@@ -2182,10 +2182,14 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   const script = raw.match(/<script>([\s\S]*?)<\/script>/)[1];
 
-  const ids = ['d-file', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save',
+  const ids = ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save',
     'd-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-msg', 'd-untied'];
   const els = {};
-  for (const id of ids) els[id] = { id, disabled: false, hidden: false, value: '', textContent: '' };
+  // setAttribute/removeAttribute: #4038 names the button's reason (aria-describedby) only while it is disabled.
+  for (const id of ids) {
+    els[id] = { id, disabled: false, hidden: false, value: '', textContent: '', attrs: {},
+      setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; } };
+  }
   const document = { getElementById: (id) => els[id] || null };
 
   // ⚠️ Brace-matched, not "up to the next function". The first version sliced
@@ -2245,10 +2249,13 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
 
   // `d-name` joined this list WITH the control, not after it: a new sibling
   // does not inherit its neighbours' guard just by sitting beside them.
-  for (const id of ['d-file', 'd-remove', 'd-save', 'd-role', 'd-rename']) {
+  /* #4038: 'd-file-btn', the VISIBLE Change picture button, with its hidden input: left live, its click did nothing. */
+  for (const id of ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename']) {
     assert.equal(els[id].disabled, true, `${id} was still offered`);
   }
   assert.equal(els['d-untied'].hidden, false, 'nothing explained why the writes are gone');
+  // #4038: the disabled button names that sentence for assistive tech, and only while disabled (below).
+  assert.equal(els['d-file-btn'].attrs['aria-describedby'], 'd-untied', 'the disabled Change picture button names no reason');
   // ⚠️ And the sentence must not be a tautology. For an untied card the display
   // name is FORCED to the raw session name, so a message built from both read
   // "we found a session called research, but not the one research's own session
@@ -2297,9 +2304,11 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
 
   // And a tied card gets everything back.
   run(tiedCard, tiedCard.isNamedOurs);
-  for (const id of ['d-file', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save']) {
+  for (const id of ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save']) {
     assert.equal(els[id].disabled, false, `${id} stayed withdrawn for a tied agent`);
   }
+  // #4038: a hidden element still describes whatever points at it, so a live button must point at no reason.
+  assert.equal(els['d-file-btn'].attrs['aria-describedby'], undefined, 'a live Change picture button still names a reason');
   assert.equal(els['d-untied'].hidden, true, 'the explanation stayed up for a tied agent');
 });
 
@@ -7182,7 +7191,14 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
        (the red triangle + red status), so the real cardStOf and its CARD_ST table join the
        prelude. A stub would let this pass while the shipped needs-you condition differed. */
     + pageConstSource('CARD_ST') + '\n'
-    + pageFnSource('cardStOf') + '\n';
+    + pageFnSource('cardStOf') + '\n'
+    /* #3991: pjMember draws the memory ring (lrowRing) and the presence dot (memberDotClass,
+       which reads boardMods), so the real ones join the prelude. */
+    + pageFnSource('pctOf') + '\n'
+    + pageFnSource('memBand') + '\n'
+    + pageFnSource('lrowRing') + '\n'
+    + pageFnSource('boardMods') + '\n'
+    + pageFnSource('memberDotClass') + '\n';
   const member = pageFunction('pjMember', prelude);
   const toldLine = pageFunction('pjToldLine', TOLD_PRELUDE);
 
@@ -7313,7 +7329,14 @@ test('#2711 item 16: pjMember takes a state wash class, for working/needs-you/id
     + pageFnSource('restartingLabel') + '\n'
     + pageFnSource('stateCopyOf') + '\n'
     + pageConstSource('CARD_ST') + '\n'
-    + pageFnSource('cardStOf') + '\n';
+    + pageFnSource('cardStOf') + '\n'
+    /* #3991: pjMember draws the memory ring (lrowRing) and the presence dot (memberDotClass,
+       which reads boardMods), so the real ones join the prelude. */
+    + pageFnSource('pctOf') + '\n'
+    + pageFnSource('memBand') + '\n'
+    + pageFnSource('lrowRing') + '\n'
+    + pageFnSource('boardMods') + '\n'
+    + pageFnSource('memberDotClass') + '\n';
   const member = pageFunction('pjMember', prelude);
 
   // Real produced roster rows, not hand-built stand-ins (fixture-discipline):
@@ -8723,7 +8746,7 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
   // own earlier in the file, and a forward search finds that one.
   const from = script.lastIndexOf('  const copy = stateCopyOf(a)', dmAt);
   assert.ok(from > -1 && from < dmAt, 'the state copy lookup moved away from the badge');
-  const TAIL = "dtask.hidden = !dtask.textContent || (a.state === 'needs_you');";
+  const TAIL = "dtask.hidden = !taskText || (a.state === 'needs_you');";
   const end = script.indexOf(TAIL, from);
   assert.ok(end > from, 'the detail task line vanished');
   const body = script.slice(from, end + TAIL.length);
@@ -8731,7 +8754,7 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
   const els = {};
   const doc = {
     getElementById: (id) => {
-      if (!els[id]) els[id] = { className: '', innerHTML: '', textContent: '', hidden: false };
+      if (!els[id]) els[id] = { className: '', innerHTML: '', textContent: '', hidden: false, dataset: {} };
       return els[id];
     },
   };
@@ -11721,6 +11744,50 @@ test('a task records who added it and how; 30 agent-made tasks in an hour all la
   assert.equal(r.status, 200, 'the valve caught the person, which is the one participant it must never touch');
 });
 
+test('#3959: agent task messages default to the same 500-an-hour breaker (the operator override still wins)', () => {
+  assert.equal(process.env.AGENT_WORKFORCE_TASK_MSG_CAP, undefined, 'PRECONDITION: this file sets no override');
+  const { TASK_MSG_CAP_PER_HOUR, taskMsgCapFrom } = require('./server');
+  assert.equal(TASK_MSG_CAP_PER_HOUR, 500);
+  // How an operator's value is read: unset, empty and blank mean "not set" (the default);
+  // 0 is a deliberate off; a fraction rounds down; nonsense falls back to the default.
+  const cases = [[undefined, 500], ['', 500], ['  ', 500], ['0', 0], ['2', 2], ['2.5', 2], ['0.5', 0], ['750', 750],
+    ['-1', 500], ['abc', 500], [' 7 ', 7], ['0x10', 500], ['1e3', 500]];
+  for (const [raw, want] of cases) assert.equal(taskMsgCapFrom(raw), want, 'AGENT_WORKFORCE_TASK_MSG_CAP=' + JSON.stringify(raw));
+});
+
+test('#3959: the shared breaker, directly: the window, a limit of 0, and a limit that is not a number', () => {
+  const { runawayRefusal, AGENT_RUNAWAY_PER_HOUR, AGENT_RUNAWAY_WINDOW_MS } = require('./engine/runaway');
+  assert.equal(AGENT_RUNAWAY_WINDOW_MS, 3600000);
+  const what = { noun: 'part changes', did: 'made', pausing: 'agent-made parts', again: 'make part changes', screen: 'make them' };
+  const now = Date.parse('2026-09-26T13:00:00Z');
+  // A limit of 0 refuses even with nothing on the books, and never quotes more than the hour.
+  const zero = runawayRefusal([], what, { now, limit: 0 });
+  assert.ok(zero, 'a limit of 0 allowed a write');
+  assert.equal(zero.retryAfterSecs, 3600);
+  assert.match(zero.because, /agents have made 0 part changes in the last hour, which is at or over the limit of 0 an hour/);
+  // A limit that is not a number, or is negative, falls back to the production breaker.
+  const times = Array.from({ length: 3 }, (_, i) => now - i);
+  for (const bad of [NaN, -1, Infinity]) {
+    assert.equal(runawayRefusal(times, what, { now, limit: bad }), null, 'limit ' + bad + ' was not read as ' + AGENT_RUNAWAY_PER_HOUR);
+  }
+  // A write exactly an hour old is still counted; one a millisecond older is not.
+  assert.ok(runawayRefusal([now - AGENT_RUNAWAY_WINDOW_MS], what, { now, limit: 1 }), 'a write exactly an hour old was dropped');
+  assert.equal(runawayRefusal([now - AGENT_RUNAWAY_WINDOW_MS - 1], what, { now, limit: 1 }), null, 'a write older than the hour was counted');
+});
+
+test('#3959: the shared breaker rounds a fractional limit down instead of quoting NaN minutes', () => {
+  const { runawayRefusal } = require('./engine/runaway');
+  const now = Date.parse('2026-09-26T13:00:00Z');
+  const times = [now - 50 * 60000, now - 40 * 60000, now - 30 * 60000];
+  const r = runawayRefusal(times, { noun: 'task messages', did: 'sent', pausing: 'agent task messages', again: 'send task messages', screen: 'send them' }, { now, limit: 2.5 });
+  assert.ok(r, 'three in the hour at a limit of 2.5 (read as 2) did not refuse');
+  assert.equal(Number.isFinite(r.retryAfterSecs), true, 'retryAfterSecs is ' + r.retryAfterSecs);
+  assert.doesNotMatch(r.because, /NaN/);
+  assert.match(r.because, /limit of 2 an hour/);
+  // With 3 on the books and a limit of 2, the SECOND oldest (40 min ago) is the one whose leaving opens it.
+  assert.match(r.because, /again in about 20 minutes;/, r.because);
+});
+
 test('the agent runaway breaker: 500 an hour, shared, and it says when it lifts (#3959)', () => {
   assert.equal(AGENT_RUNAWAY_PER_HOUR, 500, 'the production breaker moved; Josh ruled the limit is a runaway stop only');
   const now = Date.parse('2026-09-26T13:00:00Z');
@@ -13949,7 +14016,7 @@ test('#761 round 1: a part is heard with its own sentence, a no-op reassignment 
    taskMake's persisted process-task counter, but addPart/assignPart never
    set `addedVia` on anything -- so the counter never moved and the "cap"
    let a process page a live agent without limit. Fixed with a real,
-   dedicated in-memory counter (server.js heardBudgetLog). */
+   dedicated in-memory counter (server.js heardBudgetLog), per assignee since #3961. */
 test('#761 round 2: a process cannot unboundedly page a live agent through the part routes', async () => {
   const chatEngine = require('./engine/chat');
   const projectsEngine761c = require('./engine/projects');
@@ -13971,8 +14038,12 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
     });
     assert.equal(r0.status, 200, r0.body);
 
+    // The parts valve is the 500-an-hour breaker in production (#4019); this test runs it at
+    // twelve so the write valve trips cheaply. The paging allowance is not the limit here.
+    require('./engine/tasks').setPartsLimitForTests(12);
     // Twelve process-originated (no sec-fetch-site: a curl, not a browser)
-    // part assignments should each page the pane -- the cap is 12/hour.
+    // part assignments each page the pane: the parts WRITE valve is 12 an hour,
+    // and mara's paging allowance (30, #3961) is not the limit here.
     let placed = 0;
     for (let i = 0; i < 12; i++) {
       const rp = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
@@ -14000,20 +14071,16 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
     const stored = require('./engine/projects').readAll().find((x) => x.id === p.id);
     assert.equal((stored.tasks[0].parts || []).some((x) => x.sentence === 'Course 13'), false, 'the write landed over the cap');
     assert.equal(sends.length, before, 'CONTROL: nothing new was typed once the valve tripped');
-    // #3959: the paging allowance is spent, but agent-made TASKS are no longer capped at
-    // twelve, so one lands. Its assignee is NOT typed to, and the answer says so rather
-    // than leaving `heard` out (which reads as "no assignee").
+    // #3961: the parts WRITE valve is shut, but the paging allowance is per assignee
+    // (30 an hour) and mara has used twelve, so an agent-made TASK for her still lands
+    // AND is typed to her. Under the old shared count of twelve this was could_not.
     const rTask = await req('/api/project/' + encodeURIComponent(p.id) + '/tasks', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ sentence: 'Book the caterer', who: 'mara' }),
     });
     assert.equal(rTask.status, 200, rTask.body);
-    const heardTask = JSON.parse(rTask.body).heard;
-    assert.ok(heardTask, 'a skipped nudge left heard undefined, which reads as no assignee');
-    assert.equal(heardTask.state, 'could_not');
-    assert.equal(heardTask.who, 'mara');
-    assert.match(heardTask.because, /hourly allowance .*12 an hour, shared by all agents.*the work is on their list/);
-    assert.equal(sends.length, before, 'CONTROL: nothing was typed for the task once the allowance was spent');
+    assert.equal((JSON.parse(rTask.body).heard || {}).state, 'placed', rTask.body);
+    assert.ok(sends.length > before, 'the task was not typed to mara');
     // The screen is never valved: the person adds one right now, and it is heard.
     const r14 = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
       method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
@@ -14021,18 +14088,23 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
     });
     assert.equal(r14.status, 200, r14.body);
   } finally {
+    resetHeardBudgetForTests(); // this test spent mara's allowance; later tests must not inherit it
+    require('./engine/tasks').setPartsLimitForTests();
     chatEngine.setRunner(null);
     board.restore();
   }
 });
 
-/* #3959 review round 4: once the shared paging allowance is spent, EVERY agent-made
-   assignment route says the assignee was not told, not only task create. Twelve task
-   assignments spend it (tasks are no longer capped at twelve), so the part routes are
-   still open (their own valve counts parts, not tasks) and must answer could_not. */
-test('#3959: with the paging allowance spent by tasks, part add and part reassign say the assignee was not told', async () => {
+/* #3961: the paging allowance is PER ASSIGNEE. One agent's allowance running out does
+   not silence anybody else; every agent-made assignment route says so when it skips; and
+   a fleet-wide ceiling still stops a runaway, with its own sentence. Also measured here:
+   agent-made TASKS do not spend the parts write valve (#803), which a comment in the
+   #3959 version of this test said they did. */
+test('#3961: the paging allowance is per assignee, every route says when it skipped, and the fleet ceiling still holds', async () => {
   const chatEngine = require('./engine/chat');
-  const projectsEngine3959 = require('./engine/projects');
+  const projectsEngine3961 = require('./engine/projects');
+  const tasksEngine3961 = require('./engine/tasks');
+  const { HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests } = require('./server');
   const board = fleet.install([fleet.agent('mara', { state: 'idle' }), fleet.agent('theo', { state: 'idle' })]);
   const sends = [];
   try {
@@ -14043,46 +14115,88 @@ test('#3959: with the paging allowance spent by tasks, part add and part reassig
       return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
     });
     chatEngine.setDryRun(false);
-    const pdir = nodePath.join(SANDBOX, 'p3959-heard'); fs.mkdirSync(pdir, { recursive: true });
-    const p = projectsEngine3959.create({ name: 'Heard check 3959', folder: pdir, agents: ['mara', 'theo'], roster: board.agents });
+    const pdir = nodePath.join(SANDBOX, 'p3961-heard'); fs.mkdirSync(pdir, { recursive: true });
+    const p = projectsEngine3961.create({ name: 'Heard check 3961', folder: pdir, agents: ['mara', 'theo'], roster: board.agents });
     const api = (path, body) => req('/api/project/' + encodeURIComponent(p.id) + path, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    // The parts valve counts across ALL projects and earlier tests in this file made parts.
+    for (const q of projectsEngine3961.readAll()) tasksEngine3961.agePartWritesForTests(q.id, 3700);
+    const valveBefore = tasksEngine3961.partValve().count;
+    // The ceiling must stay far above one agent's allowance, or the two collapse back
+    // into one shared count, which is the defect this card fixed.
+    assert.ok(HEARD_RUNAWAY_MAX >= 10 * HEARD_PER_AGENT_MAX, 'the fleet ceiling is too close to one agent\'s allowance');
     let placed = 0;
-    for (let i = 0; i < 12; i += 1) {
+    for (let i = 0; i < HEARD_PER_AGENT_MAX; i += 1) {
       const r = await api('/tasks', { sentence: 'Errand ' + i, who: 'mara' });
       assert.equal(r.status, 200, r.body);
       if ((JSON.parse(r.body).heard || {}).state === 'placed') placed += 1;
     }
-    assert.equal(placed, 12, 'PRECONDITION: twelve task assignments were typed, spending the allowance');
-    /* An assigned agent task also counts as a part write, so the parts valve (#803, also 12)
-       is spent too. Age those writes past the hour to reopen it; the paging allowance is
-       in memory and does not age with them, so it stays spent. */
-    // The valve counts across ALL projects, and earlier tests in this file made parts too.
-    for (const q of projectsEngine3959.readAll()) require('./engine/tasks').agePartWritesForTests(q.id, 3700);
-    assert.equal(require('./engine/tasks').partValve().refused, false, 'PRECONDITION: the parts valve is open again');
-    const before = sends.length;
-    // Add a part with an assignee: it lands, nobody is typed to, and the answer says so.
+    assert.equal(placed, HEARD_PER_AGENT_MAX, 'every assignment up to the allowance was typed');
+    assert.equal(tasksEngine3961.partValve().count, valveBefore, 'agent-made tasks spent the parts write valve');
+    // Mara's allowance is spent: the next task lands, is not typed, and says so.
+    let before = sends.length;
+    const rOver = await api('/tasks', { sentence: 'One more errand', who: 'mara' });
+    assert.equal(rOver.status, 200, rOver.body);
+    const hOver = JSON.parse(rOver.body).heard;
+    assert.ok(hOver, 'a skipped nudge left heard undefined, which reads as no assignee');
+    assert.equal(hOver.state, 'could_not');
+    assert.equal(hOver.who, 'mara');
+    assert.match(hOver.because, new RegExp('already told mara about new work on screen ' + HEARD_PER_AGENT_MAX + ' times this hour.*the work is on their list'));
+    assert.equal(sends.length, before, 'CONTROL: nothing was typed to mara past her allowance');
+    // Theo is not affected by mara's: a task and a part for him are both typed.
+    const rTheo = await api('/tasks', { sentence: 'Theo errand', who: 'theo' });
+    assert.equal((JSON.parse(rTheo.body).heard || {}).state, 'placed', rTheo.body);
     const rAdd = await api('/task/1/parts', { sentence: 'Buy bread', who: 'theo' });
     assert.equal(rAdd.status, 200, rAdd.body);
-    const hAdd = JSON.parse(rAdd.body).heard;
-    assert.ok(hAdd, 'part add left heard undefined with an assignee named');
-    assert.equal(hAdd.state, 'could_not');
-    assert.equal(hAdd.who, 'theo');
-    assert.match(hAdd.because, /hourly allowance/);
-    // Reassign that part: same answer.
-    const parts = (projectsEngine3959.readAll().find((x) => x.id === p.id).tasks[0].parts || []);
+    assert.equal((JSON.parse(rAdd.body).heard || {}).state, 'placed', rAdd.body);
+    // Reassigning that part to mara: lands, not typed, says so.
+    const parts = (projectsEngine3961.readAll().find((x) => x.id === p.id).tasks[0].parts || []);
     const partId = parts[parts.length - 1].id;
+    before = sends.length;
     const rWho = await api('/task/1/part/' + partId + '/who', { who: 'mara' });
     assert.equal(rWho.status, 200, rWho.body);
     const hWho = JSON.parse(rWho.body).heard;
     assert.ok(hWho, 'part reassign left heard undefined with an assignee named');
     assert.equal(hWho.state, 'could_not');
     assert.equal(hWho.who, 'mara');
+    assert.equal(sends.length, before, 'CONTROL: nothing was typed for the reassign');
+    // Part add spends and respects the same allowance: to mara (spent) it is not typed...
+    const rAddMara = await api('/task/1/parts', { sentence: 'Slice bread', who: 'mara' });
+    assert.equal(rAddMara.status, 200, rAddMara.body);
+    assert.equal((JSON.parse(rAddMara.body).heard || {}).state, 'could_not', rAddMara.body);
+    assert.equal(sends.length, before, 'CONTROL: nothing was typed for the part add past the allowance');
+    // ...and theo's placed task and part add each counted: two spent, so spending the
+    // other twenty-eight leaves his next assignment untyped.
+    spendHeardBudgetForTests('theo', HEARD_PER_AGENT_MAX - 2);
+    const rTheoFull = await api('/tasks', { sentence: 'Theo is full', who: 'theo' });
+    assert.equal((JSON.parse(rTheoFull.body).heard || {}).state, 'could_not',
+      'a placed part add or task did not spend the assignee\'s allowance: ' + rTheoFull.body);
     // A part with NOBODY named still answers no heard at all.
     const rNone = await api('/task/1/parts', { sentence: 'Unassigned' });
     assert.equal(rNone.status, 200, rNone.body);
     assert.equal(JSON.parse(rNone.body).heard, undefined, 'a part with no assignee claimed someone was not told');
-    assert.equal(sends.length, before, 'CONTROL: nothing was typed once the allowance was spent');
+    // One allowance per pane, whatever the spelling: "THEO" resolves through the roster
+    // to theo's pane (delivery tolerates case, #989), so spending it spends theo's.
+    resetHeardBudgetForTests();
+    spendHeardBudgetForTests('THEO', HEARD_PER_AGENT_MAX, board.agents);
+    const rCase = await api('/tasks', { sentence: 'Spelled differently', who: 'theo' });
+    assert.equal((JSON.parse(rCase.body).heard || {}).state, 'could_not', 'a differently-cased spelling got its own allowance: ' + rCase.body);
+    assert.match(JSON.parse(rCase.body).heard.because, /already told theo/);
+    resetHeardBudgetForTests();
+    // The fleet-wide ceiling: once agents have typed HEARD_RUNAWAY_MAX times this hour,
+    // even theo (well under his own allowance) is not typed to, and the sentence says why.
+    spendHeardBudgetForTests('somebody-else', HEARD_RUNAWAY_MAX);
+    before = sends.length;
+    const rRun = await api('/tasks', { sentence: 'Past the ceiling', who: 'theo' });
+    assert.equal(rRun.status, 200, rRun.body);
+    const hRun = JSON.parse(rRun.body).heard;
+    assert.equal(hRun.state, 'could_not');
+    assert.match(hRun.because, new RegExp('typed into agent screens ' + HEARD_RUNAWAY_MAX + ' times this hour'));
+    assert.equal(sends.length, before, 'CONTROL: nothing was typed past the fleet ceiling');
+    // Both limits spent at once: the ceiling is the one named.
+    spendHeardBudgetForTests('theo', HEARD_PER_AGENT_MAX);
+    const rBoth = await api('/tasks', { sentence: 'Both spent', who: 'theo' });
+    assert.match(JSON.parse(rBoth.body).heard.because, /typed into agent screens/, 'with both limits spent, the ceiling was not the one named');
   } finally {
     resetHeardBudgetForTests(); // this test spent it; later tests must not inherit that
     chatEngine.setRunner(null);
@@ -14090,64 +14204,77 @@ test('#3959: with the paging allowance spent by tasks, part add and part reassig
   }
 });
 
-/* #761 challenge-loop round 6: heardBudgetRecord() fired whenever heardBy
-   returned an object at all, including a FAILED delivery (could_not /
-   unconfirmed) to an unreachable agent -- so a run of failed attempts spent
-   the same shared budget a real placement does, and could exhaust it for
-   every other project's legitimate ones. Now only a real 'placed' spends it. */
-test('#761 round 6: failed deliveries do not spend the shared pane-notify budget', async () => {
+/* #3961: the allowance belongs to the PANE a name reaches, found the way delivery
+   finds it (exact name first, then case-insensitive). Two live panes whose names differ
+   only in case are two screens, so spending one leaves the other alone. */
+test('#3961: two panes whose names differ only in case keep separate allowances', async () => {
   const chatEngine = require('./engine/chat');
-  const projectsEngine761e = require('./engine/projects');
-  // Only 'mara' is a live pane; 'ghost' is a project member with nowhere real to type.
-  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
-  const sends = [];
+  const projectsEngineCase = require('./engine/projects');
+  const { HEARD_PER_AGENT_MAX, spendHeardBudgetForTests } = require('./server');
+  const board = fleet.install([fleet.agent('casey', { state: 'idle' }), fleet.agent('Casey', { state: 'idle' })]);
   try {
     resetHeardBudgetForTests();
     chatEngine.setRunner((args) => {
-      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chatEngine.setDryRun(false);
+    const pdir = nodePath.join(SANDBOX, 'p3961-case'); fs.mkdirSync(pdir, { recursive: true });
+    const p = projectsEngineCase.create({ name: 'Case check 3961', folder: pdir, agents: ['casey', 'Casey'], roster: board.agents });
+    const api = (body) => req('/api/project/' + encodeURIComponent(p.id) + '/tasks', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    spendHeardBudgetForTests('casey', HEARD_PER_AGENT_MAX);
+    const rLower = await api({ sentence: 'For casey', who: 'casey' });
+    assert.equal((JSON.parse(rLower.body).heard || {}).state, 'could_not', rLower.body);
+    const rUpper = await api({ sentence: 'For Casey', who: 'Casey' });
+    assert.equal((JSON.parse(rUpper.body).heard || {}).state, 'placed', 'a different pane was silenced by casey\'s allowance: ' + rUpper.body);
+  } finally {
+    resetHeardBudgetForTests();
+    chatEngine.setRunner(null);
+    board.restore();
+  }
+});
+
+/* #761 challenge-loop round 6, rebuilt for #3961: only a real PLACED delivery spends the
+   paging allowance. More failed attempts than the whole allowance, all at the SAME agent,
+   then that agent comes back and must still be told. (The earlier version aimed its
+   failures at a different agent, which a per-assignee allowance can never charge, so it
+   could no longer fail.) Tasks, not parts, carry the attempts: the parts write valve
+   would stop a process at twelve. */
+test('#761 round 6: failed deliveries do not spend the paging allowance', async () => {
+  const chatEngine = require('./engine/chat');
+  const projectsEngine761e = require('./engine/projects');
+  const { HEARD_PER_AGENT_MAX } = require('./server');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  let reachable = false;
+  try {
+    resetHeardBudgetForTests();
+    chatEngine.setRunner((args) => {
+      if (!reachable) return { ran: true, spawnFailed: false, status: 1, out: '', err: "can't find pane" };
       if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
       return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
     });
     chatEngine.setDryRun(false);
     const pdir = nodePath.join(SANDBOX, 'p761-failed-not-spent'); fs.mkdirSync(pdir, { recursive: true });
-    const p = projectsEngine761e.create({ name: 'Failed delivery', folder: pdir, agents: ['ghost', 'mara'], roster: board.agents });
-    const r0 = await req('/api/project/' + encodeURIComponent(p.id) + '/tasks', {
-      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
-      body: JSON.stringify({ sentence: 'Host it' }),
-    });
-    assert.equal(r0.status, 200, r0.body);
-    // The parts WRITE valve (#803) is persisted across every project on this
-    // Mac, and round 2 above just spent all twelve; age the books through the
-    // seam so this test measures the pane-notify budget, not the write valve.
-    const tasksEngine761e = require('./engine/tasks');
-    for (const pj of projectsEngine761e.readAll()) tasksEngine761e.agePartWritesForTests(pj.id, 3601);
-
-    // Eleven process-originated attempts at the unreachable 'ghost' -- past
-    // what would trip the pane-notify cap if these counted, and one under
-    // the write valve so the real delivery after them is still a write.
-    let notPlaced = 0;
-    for (let i = 0; i < 11; i++) {
-      const rp = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ sentence: 'Ghost part ' + i, who: 'ghost' }),
-      });
-      assert.equal(rp.status, 200, rp.body);
-      const h = JSON.parse(rp.body).heard;
-      assert.ok(h && h.state && h.state !== 'placed', 'an unreachable agent should not read as placed: ' + JSON.stringify(h));
-      notPlaced++;
+    const p = projectsEngine761e.create({ name: 'Failed delivery', folder: pdir, agents: ['mara'], roster: board.agents });
+    const api = (body) => req('/api/project/' + encodeURIComponent(p.id) + '/tasks', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    for (let i = 0; i <= HEARD_PER_AGENT_MAX; i += 1) {
+      const r = await api({ sentence: 'While away ' + i, who: 'mara' });
+      assert.equal(r.status, 200, r.body);
+      const h = JSON.parse(r.body).heard;
+      assert.equal(h && h.state, 'could_not', 'an unreachable agent read as told: ' + JSON.stringify(h));
+      assert.doesNotMatch(h.because, /times this hour/, 'a failed attempt was answered as an allowance skip');
     }
-    assert.equal(notPlaced, 11, 'all eleven failed attempts got a heard verdict (just not placed)');
-    assert.equal(sends.length, 0, 'nothing was ever really typed for an agent with no live pane');
-
-    // A REAL delivery, right after, still succeeds -- the budget was never spent.
-    const rReal = await req('/api/project/' + encodeURIComponent(p.id) + '/task/1/parts', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sentence: 'Real part', who: 'mara' }),
-    });
+    // Mara is reachable again: the next assignment is typed, because none of the
+    // failed attempts spent her allowance.
+    reachable = true;
+    const rReal = await api({ sentence: 'Back now', who: 'mara' });
     assert.equal(rReal.status, 200, rReal.body);
-    assert.equal(JSON.parse(rReal.body).heard && JSON.parse(rReal.body).heard.state, 'placed',
-      'eleven failed deliveries to a different agent must not exhaust the budget for a real one');
+    assert.equal((JSON.parse(rReal.body).heard || {}).state, 'placed',
+      'failed deliveries used up the allowance, so the agent was not told once reachable: ' + rReal.body);
   } finally {
+    resetHeardBudgetForTests();
     chatEngine.setRunner(null);
     board.restore();
   }
@@ -14279,6 +14406,29 @@ test('#2863: an agent\'s DM replies surface as a.dmUnread, cleared by POST /api/
   const after = await req('/api/status');
   const april2 = (JSON.parse(after.body).agents || []).find((a) => a.sessionName === 'april');
   assert.equal(april2.dmUnread, 0, 'the payload now carries the cleared count');
+});
+
+// #3996: counts.waiting, the Dock badge's number, on the real /api/status payload: the three
+// counters the page shows (needs-you, DMs, projects) added, and it falls when a thread is read.
+test('#3996: /api/status carries counts.waiting = needsYou + every DM unread + projects unread', async (t) => {
+  const chat = require('./engine/chat');
+  const made = fleet.install([
+    fleet.agent('zora', { state: 'idle', displayName: 'Zora', role: 'a tester' }),
+    fleet.agent('quill', { state: 'needs_you', displayName: 'Quill', role: 'a tester' }),
+  ]);
+  t.after(() => made.restore());
+  assert.equal(chat.appendMessage(chat.DIRECT, 'zora', { text: 'one', at: '2026-09-26T00:00:00.000Z', from: 'zora' }).recorded, true);
+  assert.equal(chat.appendMessage(chat.DIRECT, 'zora', { text: 'two', at: '2026-09-26T00:01:00.000Z', from: 'zora' }).recorded, true);
+  const read = async () => JSON.parse((await req('/api/status')).body);
+  const b1 = await read();
+  const dms = (b1.agents || []).filter((a) => a.isGuide !== true).reduce((n, a) => n + (Number(a.dmUnread) > 0 ? Number(a.dmUnread) : 0), 0);
+  assert.ok(b1.counts.needsYou >= 1, 'CONTROL: the needs-you fixture reached the count: ' + JSON.stringify(b1.counts));
+  assert.ok(dms >= 2, 'CONTROL: the two DM replies reached the board');
+  assert.equal(typeof b1.counts.waiting, 'number', 'no counts.waiting on the payload');
+  assert.equal(b1.counts.waiting, b1.counts.needsYou + dms + (b1.counts.projectsUnread || 0), JSON.stringify(b1.counts));
+  assert.equal((await postJson('/api/agent/zora/seen', {})).status, 200);
+  const b2 = await read();
+  assert.equal(b2.counts.waiting, b1.counts.waiting - 2, 'reading the thread did not take its two messages off the count');
 });
 
 // #2863: the /seen route's error mapping, exercised through HTTP (the engine-layer
@@ -15095,5 +15245,22 @@ test('#3923: Try again (?retell=1) re-tells a current member and never re-adds o
     eng.syncAgent = realSync;
     eng.speakOfMembership = realSpeak;
     require('./server').resetRetellForTests();
+  }
+});
+
+test('#4006: an agent whose restart did not come back reads needs_you, and its thread does not claim a question', async () => {
+  const disruption = require('./engine/disruption');
+  const board = fleet.install([fleet.agent('zeta', { state: 'stopped' })]);
+  disruption.begin('zeta', 'restart');
+  disruption.fail('zeta', null);
+  try {
+    const card = JSON.parse((await req('/api/status')).body).agents.find((a) => a.sessionName === 'zeta');
+    assert.equal(card && card.state, 'needs_you', 'precondition: the failed restart reads needs_you');
+    const body = JSON.parse((await req('/api/agent/zeta/thread')).body);
+    assert.equal(body.asking, false, 'the thread claims a question behind a failed restart');
+    assert.equal(body.questionBecause || null, null, 'the thread says it is waiting on an answer');
+  } finally {
+    disruption.clear('zeta');
+    board.restore();
   }
 });

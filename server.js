@@ -41,7 +41,7 @@ const worldRegistryBase = require('./engine/worldenv').bootstrapWorldEnv(process
 // literal there is a comparison that silently stops matching the day the engine
 // renames one.
 const {
-  snapshot, paneRoster, countAgents, needsPerson, projectsUnreadTotal, STATE, modelDisplayName,
+  snapshot, paneRoster, countAgents, needsPerson, projectsUnreadTotal, waitingTotal, STATE, modelDisplayName,
   /* #1304: the tier vocabulary, imported rather than hand-written. A literal
      'structured' beside a value read off a process command line is exactly the
      two-copies-of-one-fact habit this file criticises elsewhere. */
@@ -240,33 +240,83 @@ let engineLook = { at: 0, staleSince: null };
    thing actually being limited -- process-triggered pane notifications --
    directly, in memory. ⚠️ Resets on restart, unlike taskMake's persisted
    count: an acceptable line for a notification valve (the write it guards
-   still lands either way) but NOT one to reuse for anything that gates data. */
-const heardBudgetLog = [];
+   still lands either way) but NOT one to reuse for anything that gates data.
+   #3961: the allowance is PER ASSIGNEE, not one count shared by the whole fleet. It
+   was twelve an hour across every agent, so after one agent handed out twelve tasks
+   nobody else's assignment reached anybody's screen for the rest of the hour, while
+   the tasks themselves (#3959) now land up to a 500-an-hour breaker. What the valve
+   protects is one pane from being flooded, so that is what it counts: how many times
+   agents typed into THIS assignee's screen this hour. A fleet-wide ceiling of
+   HEARD_RUNAWAY_MAX stays behind it: #3959's runaway number, read from engine/runaway.
+   One looping agent is stopped by its assignee's 30 long before this; the ceiling binds
+   only when about seventeen or more screens are each paged thirty times in one hour, and
+   then it holds the pages typed across the fleet to that number. The card's option 1
+   spoke of removing the shared ceiling; this keeps one far above it, for that case. */
+const heardBudgetLog = new Map(); // heardKey(assignee, roster): the pane's session name -> times typed to, oldest first
 const HEARD_BUDGET_WINDOW_MS = 3600000;
-const HEARD_BUDGET_MAX = 12;
-function heardBudgetAllows() {
-  const cutoff = Date.now() - HEARD_BUDGET_WINDOW_MS;
-  while (heardBudgetLog.length && heardBudgetLog[0] < cutoff) heardBudgetLog.shift();
-  return heardBudgetLog.length < HEARD_BUDGET_MAX;
+const HEARD_PER_AGENT_MAX = 30;
+const HEARD_RUNAWAY_MAX = require('./engine/runaway').AGENT_RUNAWAY_PER_HOUR;
+/* The key is the PANE the name reaches, found the way delivery finds it
+   (chat.resolveCard): an exact name first, else a case-insensitive one (#989). So
+   "MARA" spends mara's allowance, while an external "Casey" pane beside our "casey"
+   keeps its own. With no roster, or no pane for the name, the lowercased name
+   stands in: nothing is typed then, so it only has to be consistent. */
+function heardKey(who, roster) {
+  if (typeof who !== 'string' || !who.trim()) return null;
+  const card = Array.isArray(roster) ? chat.resolveCard(roster, who.trim()) : null;
+  return card && typeof card.sessionName === 'string' ? card.sessionName : who.trim().toLowerCase();
 }
-function heardBudgetRecord() {
-  heardBudgetLog.push(Date.now());
+function heardBudgetPrune() {
+  const cutoff = Date.now() - HEARD_BUDGET_WINDOW_MS;
+  let total = 0;
+  for (const [k, times] of heardBudgetLog) {
+    while (times.length && times[0] < cutoff) times.shift();
+    if (times.length) total += times.length; else heardBudgetLog.delete(k);
+  }
+  return total;
+}
+/* Nobody named means nobody is typed to (heardBy answers undefined), so there is
+   nothing to allow or refuse; only a named assignee is counted. */
+function heardBudgetAllows(who, roster) {
+  const total = heardBudgetPrune();
+  const k = heardKey(who, roster);
+  if (!k) return true;
+  return total < HEARD_RUNAWAY_MAX && (heardBudgetLog.get(k) || []).length < HEARD_PER_AGENT_MAX;
+}
+function heardBudgetRecord(who, roster) {
+  const k = heardKey(who, roster);
+  if (!k) return;
+  if (!heardBudgetLog.has(k)) heardBudgetLog.set(k, []);
+  heardBudgetLog.get(k).push(Date.now());
 }
 /* #3959: what an agent-made assignment answers when the allowance above is spent: the
    work landed but its assignee was NOT typed to. Left undefined, `heard` reads as "no
-   assignee". Undefined only when there is genuinely nobody named. */
+   assignee". Undefined only when there is genuinely nobody named. The sentence names
+   which limit it was, since the two call for different readings. */
 function heardBudgetSkipped(who) {
-  const name = typeof who === 'string' && who.trim() ? who.trim() : null;
-  if (!name) return undefined;
+  if (!heardKey(who)) return undefined;
+  const name = who.trim(); // as the caller spelled it, for the sentence
+  // When both limits are spent, the fleet ceiling is named: it is the graver fact.
+  const runaway = heardBudgetPrune() >= HEARD_RUNAWAY_MAX;
   return { who: name, state: chat.DELIVERY.COULD_NOT,
-    because: 'agents have used the hourly allowance for typing into agent screens (' + HEARD_BUDGET_MAX
-      + ' an hour, shared by all agents), so ' + name + ' was not told on screen; the work is on their list' };
+    because: runaway
+      ? 'agents have typed into agent screens ' + HEARD_RUNAWAY_MAX + ' times this hour, so Kosmos has stopped them for now and '
+        + name + ' was not told on screen; the work is on their list'
+      : 'agents have already told ' + name + ' about new work on screen ' + HEARD_PER_AGENT_MAX
+        + ' times this hour, so ' + name + ' was not told again on screen; the work is on their list' };
 }
 // Test-only, same shape as chatEngine.resetForTests()/messagesEngine.resetForTests():
 // heardBudgetLog is in-memory and module-scoped, so without this, one test's
 // spent budget silently carries into the next test in the same file.
 function resetHeardBudgetForTests() {
-  heardBudgetLog.length = 0;
+  heardBudgetLog.clear();
+}
+// Test-only: spend `n` of one assignee's allowance without typing anything, so a test
+// can reach the fleet-wide ceiling without five hundred real deliveries.
+/* Pass the roster for any pane whose name has capitals: without one the key falls back to
+   the lowercased name, which is not that pane's key. */
+function spendHeardBudgetForTests(who, n, roster) {
+  for (let i = 0; i < n; i += 1) heardBudgetRecord(who, roster);
 }
 /* #3959: agent-made TASKS and PROJECTS have no working limit, only a runaway breaker.
    It was twelve an hour (#327, #485), which stopped real work: Josh had agents add a
@@ -275,32 +325,19 @@ function resetHeardBudgetForTests() {
    batch. It counts every agent together (one shared count per kind, across all
    projects), from the records themselves, so it survives a restart. The screen is
    never counted or refused. */
-const AGENT_RUNAWAY_PER_HOUR = 500;
-const AGENT_RUNAWAY_WINDOW_MS = 3600000;
+const { AGENT_RUNAWAY_PER_HOUR, AGENT_RUNAWAY_WINDOW_MS, runawayRefusal } = require('./engine/runaway');
 let agentRunawayLimit = AGENT_RUNAWAY_PER_HOUR;
 // Test-only: lets a route test trip the breaker without making 500 records.
 // Called with no argument it restores the real limit.
 function setAgentRunawayLimitForTests(n) {
   agentRunawayLimit = Number.isInteger(n) && n > 0 ? n : AGENT_RUNAWAY_PER_HOUR;
 }
-/* `times` are the creation times (ms) of the agent-made records of one kind. Returns
-   null to allow, or { because, retryAfterSecs }: the sentence (the limit, that it is shared
-   by every agent, and when the next one is allowed) and the same wait in seconds, which the
-   routes send as retry-after the way the part routes do. */
+/* `times` are the creation times (ms) of the agent-made records of one kind (`noun`: 'tasks' or
+   'projects'). Returns null to allow, or { because, retryAfterSecs } from the shared breaker
+   (engine/runaway.js); the routes send the seconds as retry-after. */
 function agentRunawayRefusal(times, noun, now = Date.now(), limit = agentRunawayLimit) {
-  const hourAgo = now - AGENT_RUNAWAY_WINDOW_MS;
-  const recent = times.filter((t) => Number.isFinite(t) && t >= hourAgo).sort((a, b) => a - b);
-  if (recent.length < limit) return null;
-  // Below the limit again once enough of the oldest have aged out of the hour.
-  const freesAt = recent[recent.length - limit] + AGENT_RUNAWAY_WINDOW_MS;
-  // Capped at the window: a record dated in the future (clock skew) must not quote a longer wait.
-  const retryAfterSecs = Math.min(AGENT_RUNAWAY_WINDOW_MS / 1000, Math.max(1, Math.ceil((freesAt - now) / 1000)));
-  const mins = Math.max(1, Math.ceil(retryAfterSecs / 60));
-  const because = 'agents have made ' + recent.length + ' ' + noun + ' in the last hour, which is at or over the limit of '
-    + limit + ' an hour shared by all agents together (a safety stop for an agent stuck in a loop), so Kosmos is pausing agent-made '
-    + noun + '. Agents can make ' + noun + ' again in about ' + mins + ' minute' + (mins === 1 ? '' : 's')
-    + '; the person can still make them from the screen';
-  return { because, retryAfterSecs };
+  const r = runawayRefusal(times, { noun, did: 'made', pausing: 'agent-made ' + noun, again: 'make ' + noun, screen: 'make them' }, { now, limit });
+  return r && { because: r.because, retryAfterSecs: r.retryAfterSecs };
 }
 // `sentence` is explicit, never read off `t`: a part's own sentence is
 // never the task's top-level one (a task with parts drops `who`/keeps one
@@ -354,13 +391,13 @@ function tellEveryoneOn(t, roster) {
    Assigner runner both call this, so the sequence (valve, assignPart, heardBy, tellEveryoneOn)
    exists once. Three callers:
    - screen: no valve, the pane line always.
-   - process (screen false): the parts valve applies and the pane line is spent from the heard
-     budget, both shared by agents.
-   - assigner: the Kosmos Assigner. Its own provenance ('assigner'), so neither shared agent
-     budget is charged (the Assigner has its own hourly caps); the part must still be free at
-     the moment of the write (onlyIfFree); the pane line is always sent, and if it could not
-     reach the agent at all (COULD_NOT) the assignment is taken back, so nobody is left on a task
-     they were never told about.
+   - process (screen false): the parts valve applies (one count shared by agents), and the
+     pane line spends the assignee's paging allowance (heardBudgetAllows, per assignee).
+   - assigner: the Kosmos Assigner. Its own provenance ('assigner'), so neither the parts
+     valve nor the paging allowance is charged (the Assigner has its own hourly caps);
+     the part must still be free at the moment of the write (onlyIfFree); the pane line is
+     always sent, and if it could not reach the agent at all (COULD_NOT) the assignment is
+     taken back, so nobody is left on a task they were never told about.
    Returns the route's body fields plus `ok`/`status`/`because`; never throws for a refusal. */
 function givePart(projectId, n, partId, who, { screen, roster, assigner } = {}) {
   if (!screen && !assigner) {
@@ -372,10 +409,10 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner } = {}) 
   if (!out.ok) return { ok: false, status: 400, because: out.because };
   const r = roster || safeRoster();
   let heard;
-  if (out.changed && (screen || assigner || heardBudgetAllows())) {
+  if (out.changed && (screen || assigner || heardBudgetAllows(who, r))) {
     const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partId)) || {}).sentence;
     heard = heardBy(projectId, out.task, who, sentence, r);
-    if (heard && heard.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord();
+    if (heard && heard.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord(who, r);
   } else if (out.changed) {
     heard = heardBudgetSkipped(who); // only a process reaches here: screen and assigner always pass
   }
@@ -1704,22 +1741,61 @@ function policySummaries(r) {
    never wrongly blocks one) -- unlike the task-CREATION valve, which counts persisted
    tasks because those must survive a restart. CAP process task-messages per hour,
    fleet-wide, matching the task-creation valve's spirit. */
-/* `>= 0`, not `|| 30`: an operator who sets the cap to 0 to silence agent
-   task-messages entirely means 0, and `Number("0") || 30` would give 30 -- the
-   same env-0 footgun this file already guards against elsewhere with a range check. */
-const TASK_MSG_CAP_PER_HOUR = (() => {
-  const n = Number(process.env.AGENT_WORKFORCE_TASK_MSG_CAP);
-  return Number.isFinite(n) && n >= 0 ? n : 30;
-})();
-const TASK_MSG_WINDOW_MS = 3600000;
+/* #3959: the default was 30 an hour; it is now the shared runaway breaker (engine/runaway.js).
+   An operator's AGENT_WORKFORCE_TASK_MSG_CAP still wins. Read by taskMsgCapFrom:
+     - a whole number of 0 or more is the cap, and 0 means agent task messages are switched off
+       (so `>= 0`, never `|| default`, which would turn a deliberate 0 into the default);
+     - a fraction is rounded down (2.5 is 2), since the cap counts whole messages;
+     - unset, empty or blank means NOT SET and gives the default. Before #3959 an empty value read
+       as 0 (Number('') is 0) and switched messages off; blank is now treated like unset, on
+       purpose, so clearing the variable restores the default rather than silencing agents;
+     - anything else (negative, not a number) gives the default. */
+function taskMsgCapFrom(raw) {
+  const s = raw === undefined || raw === null ? '' : String(raw).trim();
+  // Plain decimal only: '0x10' or '1e3' are not a cap an operator means, so they give the default.
+  if (!/^\d+(\.\d+)?$/.test(s)) return AGENT_RUNAWAY_PER_HOUR;
+  return Math.floor(Number(s));
+}
+let TASK_MSG_CAP_PER_HOUR = taskMsgCapFrom(process.env.AGENT_WORKFORCE_TASK_MSG_CAP);
+// Test-only: set the cap for a test and restore it (no argument restores the environment's value).
+function setTaskMsgCapForTests(n) {
+  // Read like an operator's value, so a test cannot reach a cap production could never hold.
+  TASK_MSG_CAP_PER_HOUR = taskMsgCapFrom(n === undefined ? process.env.AGENT_WORKFORCE_TASK_MSG_CAP : n);
+}
+const TASK_MSG_WINDOW_MS = AGENT_RUNAWAY_WINDOW_MS; // the breaker's own window
 let taskMessageSends = [];
-function taskMessageValveTripped() {
-  const cutoff = Date.now() - TASK_MSG_WINDOW_MS;
-  taskMessageSends = taskMessageSends.filter((t) => t >= cutoff);
-  return taskMessageSends.length >= TASK_MSG_CAP_PER_HOUR;
+/* null to allow, or { because, retryAfterSecs }. The sentence names the limit, that it is shared
+   by all agents, and when it lifts; a cap of 0 says the messages are switched off instead. */
+function taskMessageRefusal(now = Date.now()) {
+  taskMessageSends = taskMessageSends.filter((t) => t >= now - TASK_MSG_WINDOW_MS);
+  if (TASK_MSG_CAP_PER_HOUR === 0) {
+    // No retry time: waiting does not help while the cap is 0, so none is offered. It stays a 429,
+    // not a 403, on purpose: both kosmos CLIs print the error text either way, and a 403 reads as
+    // "your token was refused", which would send the agent to fix its sign-in instead.
+    return { because: 'agent task messages are switched off on this computer (AGENT_WORKFORCE_TASK_MSG_CAP is 0); the person can still send from the screen', retryAfterSecs: null };
+  }
+  const r = runawayRefusal(taskMessageSends, { noun: 'task messages', did: 'sent',
+    pausing: 'agent task messages', again: 'send task messages', screen: 'send them' }, { now, limit: TASK_MSG_CAP_PER_HOUR });
+  return r && { because: r.because, retryAfterSecs: r.retryAfterSecs };
 }
 function taskMessageValveRecord() {
   taskMessageSends.push(Date.now());
+}
+
+/* #3951 (review round 5): the built route's own breaker, the same runaway breaker as task messages and parts (#4019,
+   500 an hour shared by all agents unless AGENT_WORKFORCE_BUILT_MARK_CAP says otherwise; 0 switches agent marks off),
+   counted only for a PROCESS mark that changed something. A repeat of the same mark records nothing and is not
+   counted; the person is never valved. Its own counter, so marks and messages do not starve each other. */
+const BUILT_MARK_CAP_PER_HOUR = taskMsgCapFrom(process.env.AGENT_WORKFORCE_BUILT_MARK_CAP);
+let builtMarks = [];
+function builtMarkRefusal(now = Date.now()) {
+  builtMarks = builtMarks.filter((t) => t >= now - AGENT_RUNAWAY_WINDOW_MS);
+  if (BUILT_MARK_CAP_PER_HOUR === 0) {
+    return { because: 'agent built marks are switched off on this computer (AGENT_WORKFORCE_BUILT_MARK_CAP is 0); the person can still take a mark off from the screen', retryAfterSecs: null };
+  }
+  const r = runawayRefusal(builtMarks, { noun: 'built marks', did: 'made', pausing: 'agent built marks', again: 'mark tasks built',
+    screen: 'take a mark off' }, { now, limit: BUILT_MARK_CAP_PER_HOUR });
+  return r && { because: r.because, retryAfterSecs: r.retryAfterSecs };
 }
 
 // #3485: the community feed's flood valve, a sliding window like the task valve
@@ -2519,6 +2595,51 @@ function wrongWorldRefusal(req, pathname) {
    the outbox drain refuse exactly the same replies. */
 function agentReplyProblem(text) {
   return chat.messageProblem(text) || chat.storedProblem(text) || messages.markerProblem(text) || null;
+}
+
+/* #3946 item 10: before the daily-limit sweep, measure each Claude account's calibration
+   and re-derive each % swarm's token limit from it. Every account is measured, swarm or
+   not, so the create screen can offer the % for an account's first swarm. The calibration
+   needs every Kosmos agent's tokens today on the account: a swarm's share of the week is
+   measured against all of them. Counted with swarm.meter, the same count the limit enforces.
+   Accounts are keyed on the folder's real path, so two spellings of one folder are one account. */
+function calibrateSwarmAllowances(roster, now = Date.now(), tokensFor = null) {
+  const swarmMod = require('./engine/swarm');
+  const allowance = require('./engine/allowance');
+  const status = require('./engine/status');
+  const rows = swarmMod.sweepRows(roster);
+  const dirOf = new Map();
+  const tokens = new Map();
+  for (const c of Array.isArray(roster) ? roster : []) {
+    if (!c || c.isNamedOurs !== true || !c.sessionName) continue;
+    let dir = status.claudeAccountDirOf(c.sessionName);
+    if (!dir) continue;
+    try { dir = fs.realpathSync(dir); } catch { /* not there yet: its own spelling */ }
+    dirOf.set(c.sessionName, dir);
+    /* A count not read to its end this time (metered false with tokens behind it, or a meter call that ran
+       out of its read budget) leaves the account's number unknown for this tick: NaN, so calibrate keeps
+       what it has. An agent with no transcript today counts zero. */
+    let n = 0;
+    if (c.swarm && Number.isFinite(c.swarm.tokensToday)) n = c.swarm.metered === false && c.swarm.tokensToday > 0 ? NaN : c.swarm.tokensToday;
+    else if (tokensFor) { try { n = tokensFor(c.sessionName); } catch { n = NaN; } }
+    else {
+      try {
+        const file = status.transcriptFor(c.sessionName);
+        if (file) { const m = swarmMod.meter(file, now, status.ownsFor(c.sessionName)); n = m.complete ? m.tokensToday : NaN; }
+      } catch { n = NaN; }
+    }
+    tokens.set(dir, (tokens.has(dir) ? tokens.get(dir) : 0) + n);
+  }
+  const cal = new Map();
+  for (const [dir, n] of tokens) {
+    cal.set(dir, allowance.calibrate(dir, n, { now, dayStart: swarmMod.startOfDay(now) }));
+  }
+  if (!rows.length) return [];
+  return swarmMod.rederiveLimits(rows, {
+    readProfile: (n) => store.readProfile(n),
+    writeProfile: (n, patch) => store.writeProfile(n, patch),
+    calibrationFor: (n) => cal.get(dirOf.get(n)) || null,
+  });
 }
 
 /* #3564: what the daily-limit sweep acts through, for one roster. Named so its wiring is
@@ -4195,7 +4316,16 @@ const server = http.createServer((req, res) => {
                 profile,
                 /* #3564: a swarm that is not running is still a swarm (its settings, unmeasured), so the
                    screen offers its On/Off and not the provider switch create refuses for a swarm. */
-                swarm: (() => { try { return require('./engine/swarm').offlineCardField(profile); } catch { return null; } })(),
+                swarm: (() => {
+                  try {
+                    const sw = require('./engine/swarm');
+                    if (!sw.settingsOf(profile)) return null;
+                    /* #3946: its account's calibration too, so a stopped % swarm keeps its % on screen. */
+                    let cal = null;
+                    try { cal = require('./engine/allowance').readCalibration(require('./engine/status').claudeAccountDirOf(k.name)); } catch { cal = null; }
+                    return sw.offlineCardField(profile, cal);
+                  } catch { return null; }
+                })(),
                 plannedModelName: plannedFor({ sessionName: k.name, isNamedOurs: true }),
                 /* #149/#150: same field the roster rows carry, same meaning.
                    A stopped agent with no launch file is exactly the state
@@ -4348,8 +4478,12 @@ const server = http.createServer((req, res) => {
          false and the banner stays down. */
       // #3739: the guide is included on purpose: the bubble depends on Claude even though its row is hidden.
       const dependsOnClaude = someAgentNeedsClaude(agents.concat(offline));
+      const rows = withDmUnread(agents.concat(offline));
+      /* #3996: what is waiting on the person, in one number (the Dock badge reads it). The same
+         rows the Messages tile sums, after the needs-you and projects counts above are final. */
+      counts.waiting = waitingTotal(counts, rows);
       body = JSON.stringify({
-        ...snap, agents: withDmUnread(agents.concat(offline)), counts, connection, version, dependsOnClaude,
+        ...snap, agents: rows, counts, connection, version, dependsOnClaude,
         /* #2066: the board reads (version, sourceChannel); the version line and the
            federation gate use them (the corner marker went in #3641). Channel rides
            the 5s status tick the board already polls. #2934: no longer just a file
@@ -5315,6 +5449,15 @@ const server = http.createServer((req, res) => {
         if (!swarm.settingsOf(profile)) { sendJson(res, 404, { ok: false, because: 'that agent is not a swarm' }); return; }
         const problem = swarm.patchProblem(body);
         if (problem) { sendJson(res, 400, { ok: false, because: problem }); return; }
+        /* #3946: a new share of the weekly allowance takes effect now on a calibrated account,
+           not a minute later at the next sweep, and its tokens are the account's, whatever
+           token number came with it; uncalibrated, the token limit stands. */
+        if (Number.isInteger(body.dailyAllowancePct)) {
+          let cal = null;
+          try { cal = require('./engine/allowance').readCalibration(require('./engine/status').claudeAccountDirOf(name)); } catch { cal = null; }
+          const t = swarm.limitFromAllowance(body.dailyAllowancePct, cal);
+          if (t) body.dailyTokenLimit = t;
+        }
         const next = swarm.applyPatch(profile, body);
         store.writeProfile(name, { swarm: next });
         const told = 'maxHelpers' in body ? swarm.tellLead(name, next.maxHelpers) : null;
@@ -5631,6 +5774,7 @@ const server = http.createServer((req, res) => {
           kind: body.kind,
           maxHelpers: body.maxHelpers,
           dailyTokenLimit: body.dailyTokenLimit,
+          dailyAllowancePct: body.dailyAllowancePct, // #3946: the share of the weekly allowance, when chosen
           // Validated above; composed into the file BEFORE the session starts
           // (#323), so the addAgent below finds the block already there.
           projects: projectsToJoin,
@@ -7584,9 +7728,14 @@ const server = http.createServer((req, res) => {
             now: nowMs,
             freshMs: freshWindow,
           });
+          /* #3946: whether this account's weekly allowance can be read as tokens, so the
+             create screen offers the % limit only where it means something. */
+          let cal = null;
+          try { cal = a.dir ? require('./engine/allowance').readCalibration(a.dir) : null; } catch { cal = null; }
           return {
             provider: 'anthropic', providerName: 'Anthropic / Claude', ...a,
             connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs },
+            weeklyTokensPerPoint: cal ? Math.round(cal.tokensPerPoint) : null,
           };
         });
         /* 🛑 `offerable` TRAVELS WITH THE ROW, for the same reason `memoryShared` does
@@ -7797,6 +7946,38 @@ const server = http.createServer((req, res) => {
       else sendJson(res, 200, { job });
       return;
     }
+  }
+  /* #3568 on Windows: the Gemini subscription sign-in with nothing but Google's page and a code box.
+     Kosmos runs agy's sign-in out of sight (engine/win32agysignin.js), opens Google's page itself, and
+     hands agy the code the person pastes. POST starts (replacing any other), GET reads the state,
+     /code and /stop name the sign-in they mean by the id the start answered. Windows only: anywhere
+     else these addresses do not exist. Starting needs the subscription to be offered (its switch on). */
+  if (pathname === '/api/antigravity/win32signin' || pathname === '/api/antigravity/win32signin/code' || pathname === '/api/antigravity/win32signin/stop') {
+    if (process.platform !== 'win32') { req.resume(); sendJson(res, 404, { error: 'there is nothing at that address' }); return; }
+    const signin = require('./engine/win32agysignin');
+    const sub = pathname.slice('/api/antigravity/win32signin'.length);
+    if (sub === '' && req.method === 'GET') {
+      try { sendJson(res, 200, signin.status()); } catch { sendJson(res, 500, { error: 'we could not read the sign-in just now' }); }
+      return;
+    }
+    if (req.method !== 'POST' || !['', '/code', '/stop'].includes(sub)) { req.resume(); sendJson(res, 404, { error: 'there is nothing at that address' }); return; }
+    readBody(req).then(async (raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      const id = body && typeof body.id === 'string' ? body.id : '';
+      const conflict = (r) => (r.because === signin.NOT_MINE ? 409 : 400);
+      try {
+        if (sub === '') {
+          const r = await require('./engine/agystatus').openForSignIn();
+          if (!r.ok) { sendJson(res, 400, { ok: false, error: r.because }); return; }
+          sendJson(res, 200, { ok: true, ...signin.status() });
+          return;
+        }
+        const r = sub === '/code' ? await signin.code(body && body.code, id) : signin.stop(id);
+        sendJson(res, r.ok ? 200 : conflict(r), r.ok ? { ok: true, ...signin.status() } : { ok: false, error: r.because, because: r.because });
+      } catch { sendJson(res, 500, { ok: false, error: 'Kosmos could not do that just now' }); }
+    }).catch(() => sendJson(res, 400, { ok: false, error: 'we could not read that request' }));
+    return;
   }
   /* Add an OpenAI account from a pasted key (#540). The key goes to codex's
      own login on stdin and is never echoed, logged, or answered back. */
@@ -12330,7 +12511,8 @@ const server = http.createServer((req, res) => {
     // The board's word, through the engine's own constant. `tied` is implied
     // by the card lookup above (isNamedOurs), which is the same conjunct the
     // project route spells out.
-    const asking = Boolean(card) && card.state === STATE.NEEDS_YOU;
+    // #4006: a restart that did not come back reads needs_you with no question behind it.
+    const asking = Boolean(card) && card.state === STATE.NEEDS_YOU && !(card.disruption && card.disruption.failed === true);
     /**
      * ⚠️ THE CAPTURE RUNS ONLY WHEN THE QUESTION NEEDS IT, and that is a
      * DIFFERENT gate from the one the project thread refused.
@@ -13645,8 +13827,9 @@ const server = http.createServer((req, res) => {
                         roster read and one commitments reading per agent for
                         the whole request
          waitingOnPerson tasks.waitingOnPerson: its agent needs the person about it (#3949)
-         state          tasks.taskState: closed / nobody / decision / working / assigned
+         state          tasks.taskState: closed / decision / built / nobody / working / assigned
          lastActivityAt the newest transcript event, else created/closed
+       A task's own builtAt / builtBy / builtNote (#3951, set by POST .../built) ride every row as stored.
        Added fields only, and only on ?view=tasks, which also leaves out archived
        projects' tasks (the view does not list them) except the one `withArchived` names. */
     const roster = safeRoster();
@@ -14921,20 +15104,18 @@ const server = http.createServer((req, res) => {
             try { told = projects.syncAgent(made.who, roster); }
             catch (err2) { told = { state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
           }
-          // heardBy shares its budget with the part routes' valve (below):
-          // a process at the part routes' 12/hour cap must not ALSO get a
-          // separate 12/hour allowance here -- one shared count of "how many
-          // times a process paged a live pane this hour", not two 12/hour
-          // caps that combine to 24. Task CREATION has its own persisted
-          // refusal above (the runaway breaker, which 429s the whole request); this only
-          // gates whether the creation also gets to page a pane.
+          // The pane line spends the assignee's paging allowance (heardBudgetAllows,
+          // #3961), the same one the part routes spend: one count per assignee of how
+          // often agents typed into their screen this hour, whichever route did it.
+          // Task CREATION has its own persisted refusal above (the runaway breaker,
+          // which 429s the whole request); this only gates whether it also pages a pane.
           let heard;
-          if (viaScreen || heardBudgetAllows()) {
+          if (viaScreen || heardBudgetAllows(made.who, roster)) {
             heard = heardBy(id, made, made.who, made.sentence, roster);
-            // Only a REAL delivery spends the budget -- a run of failed
-            // attempts at an unreachable agent must not exhaust the shared
-            // hour for every other project's legitimate placements.
-            if (heard && heard.state === chat.DELIVERY.PLACED && !viaScreen) heardBudgetRecord();
+            // Only a REAL delivery spends the allowance: a run of failed attempts
+            // while an agent is unreachable must not use up its hour, or it would
+            // not be told once it is back.
+            if (heard && heard.state === chat.DELIVERY.PLACED && !viaScreen) heardBudgetRecord(made.who, roster);
           } else {
             heard = heardBudgetSkipped(made.who);
           }
@@ -15079,6 +15260,84 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #3951: mark a task built, waiting to ship (Josh's "Built but waiting" tile), or take the mark off. Body
+     { note?, clear?, from_pane? }. Who marked it: the screen is the person (builtByPerson); a process is named by its agent token
+     (a token that does not resolve is refused, as the message route does) or else its pane. The pane name is
+     advisory, as on the message route: a local process can claim any pane, so the builder it names is a label, not
+     a proof (an enforcing board still needs the board token to reach this at all). An identified agent may mark or
+     clear only tasks in projects it is on (any task there: membership is per project, as for task messages), and
+     only the screen changes the person's own mark, clearing or re-marking (review rounds 5 and 7). A
+     process the board cannot name (no token, no known pane) is not held to membership: it is refused nothing the
+     message route would refuse it, it is valved, and it is recorded as builtBy null (review round 6); its mark frees
+     no agent (review round 11). The real
+     boundary is the board token, and the person's own mark rests on the screen posture (isViaScreen), advisory
+     as on the bulk-close route: a local process that claims to be the screen is taken at its word (review round 13). A
+     process is valved (builtMarkRefusal, the runaway breaker); the same mark again records nothing and is not counted. Marking a closed
+     task is refused (409); clearing one is a no-op answered `changed: false` (review round 10), since closing
+     already cleared the mark. The block is not re-synced: the mark changes nothing on an agent's instructions list. */
+  const taskBuilt = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/built$/);
+  if (taskBuilt && req.method === 'POST') {
+    const id = decodeSegment(taskBuilt[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || '{}'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      const viaScreen = isViaScreen(req, body);
+      const roster = safeRoster();
+      if (roster === null && presentedAgentToken(req, body)) {
+        sendJson(res, 503, { error: 'we could not check which agents are running, so the task was not marked' });
+        return;
+      }
+      const tokenSender = senderFromAgentToken(req, body, roster);
+      if (tokenSender && !tokenSender.ok) { sendJson(res, 403, { error: tokenSender.because }); return; }
+      const fromPane = typeof body.from_pane === 'string' ? body.from_pane : '';
+      /* A pane nobody could look up is not an unnamed caller (review round 11): say so, as for a token. */
+      if (roster === null && fromPane && !viaScreen) {
+        sendJson(res, 503, { error: 'we could not check which agents are running, so the task was not marked' });
+        return;
+      }
+      /* The pane as /api/post resolves it (review round 13): the CLI sends tmux's %N, which no roster target equals;
+         messages.resolveSender asks tmux for its session and ties it to a card. A pane that does not resolve leaves
+         the caller unnamed. */
+      const byPane = !tokenSender && fromPane ? messages.resolveSender(fromPane, roster) : null;
+      const card = tokenSender ? tokenSender.card : (byPane && byPane.ok ? byPane.card : null);
+      const by = viaScreen ? null : ((card && card.sessionName) || null);
+      if (!viaScreen) {
+        /* Membership first, so a non-member hears why, not the breaker (review round 15). */
+        const proj = projects.readAll().find((x) => x.id === id) || null;   // the stored record: agents are names
+        if (card && proj && !(proj.agents || []).includes(card.sessionName)) {
+          sendJson(res, 403, { error: 'that agent is not on this project, so it cannot mark its tasks' });
+          return;
+        }
+        const refused = builtMarkRefusal();
+        if (refused) {
+          if (refused.retryAfterSecs !== null) res.setHeader('retry-after', String(refused.retryAfterSecs));
+          sendJson(res, 429, { error: refused.because, ...(refused.retryAfterSecs !== null ? { retry_after_secs: refused.retryAfterSecs } : {}) });
+          return;
+        }
+      }
+      /* The person's own mark is changed only from the screen, in either direction (review round 7: a process could
+         re-mark it as its own and then clear that), checked inside the write (review round 9). The person is a flag,
+         not a name, so an agent named "operator" is not the person. */
+      const as = { by, person: viaScreen, refusePersonMark: !viaScreen };
+      const out = body.clear === true
+        ? tasks.clearBuilt(id, taskBuilt[2], as)
+        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? body.note : '' });
+      if (!out.ok) {
+        const code = out.person ? 403 : out.closed ? 409 : out.code === 'UNREADABLE' ? 500
+          : (/no project by that name|no task by that number/.test(out.because) ? 404 : 400);
+        sendJson(res, code, { error: out.because });
+        return;
+      }
+      if (!viaScreen && out.changed) builtMarks.push(Date.now());
+      sendJson(res, 200, { task: out.task, changed: out.changed === true });
+    }).catch((err) => {
+      sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
+    });
+    return;
+  }
+
   /* #768: record a free-text message on a task's conversation, then DELIVER it to the
      agents assigned to the task. Body { text, from_pane? }. tasks.say validates
      (empty -> 400, missing project/task -> 404) and records it via engine/taskchat.js
@@ -15105,8 +15364,14 @@ const server = http.createServer((req, res) => {
          spam a task's people. Counted for PROCESS senders only; the operator is
          never valved (the person driving is the remedy, not the hazard -- the same
          posture as the task-creation and room valves). */
-      if (!viaScreen && taskMessageValveTripped()) {
-        sendJson(res, 429, { error: 'agents have sent many task messages in the last hour, so Kosmos is pausing agent task messages; the person can still send from the screen' });
+      const msgRefusal = viaScreen ? null : taskMessageRefusal();
+      if (msgRefusal) {
+        if (msgRefusal.retryAfterSecs !== null) {
+          res.setHeader('retry-after', String(msgRefusal.retryAfterSecs));
+          sendJson(res, 429, { error: msgRefusal.because, retry_after_secs: msgRefusal.retryAfterSecs });
+        } else {
+          sendJson(res, 429, { error: msgRefusal.because });
+        }
         return;
       }
       try {
@@ -15206,9 +15471,9 @@ const server = http.createServer((req, res) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       const screen = isViaScreen(req, body);
-      /* The parts valve (#803): the WRITE is refused for a process past
-         twelve part changes an hour, counted across projects from the
-         records themselves; the screen is never valved. The sentence says
+      /* The parts valve (#803): the WRITE is refused for a process past the
+         shared runaway limit (engine/runaway.js, #3959), counted across projects
+         from the records themselves; the screen is never valved. The sentence says
          the number and when it lifts, and the header says it too. */
       if (!screen) {
         const v = tasks.partValve();
@@ -15223,9 +15488,9 @@ const server = http.createServer((req, res) => {
         const newPart = (out.task.parts || [])[(out.task.parts || []).length - 1];
         const roster = safeRoster();
         let heard;
-        if (screen || heardBudgetAllows()) {
+        if (screen || heardBudgetAllows(body && body.who, roster)) {
           heard = heardBy(id, out.task, body && body.who, newPart && newPart.sentence, roster);
-          if (heard && heard.state === chat.DELIVERY.PLACED && !screen) heardBudgetRecord();
+          if (heard && heard.state === chat.DELIVERY.PLACED && !screen) heardBudgetRecord(body && body.who, roster);
         } else {
           heard = heardBudgetSkipped(body && body.who);
         }
@@ -15563,7 +15828,7 @@ const server = http.createServer((req, res) => {
     // together with NEEDS_YOU and no test can hold this conjunct (round 14
     // measured its removal green). It stays for the day the upstream gating
     // changes; there is no route-level pin for it, on purpose recorded here.
-    const asking = member.tied && member.state === STATE.NEEDS_YOU;
+    const asking = member.tied && member.state === STATE.NEEDS_YOU && member.restartFailed !== true;   // #4006: no question behind a failed restart
     const paneQuestion = asking && view.text ? chat.questionIn(view.text) : null;
     /* #2456: the same reported-question fallback the agent thread uses. A
        reported needs_you gave us its words in the card's `because` (the header
@@ -16399,6 +16664,23 @@ function start(port = PORT) {
       });
       const connlostSweep = setInterval(connlostTick, Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) : 60 * 1000); // the env is the test seam only
       if (connlostSweep && typeof connlostSweep.unref === 'function') connlostSweep.unref();
+      /* #4004: a Gemini agent frozen on its usage-limit question (Keep trying / Stop) is answered Stop
+         (engine/geminiquota.js -> chat.answerGeminiQuotaStop, which re-reads the pane first). Same gating as
+         the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
+         AGENT_WORKFORCE_GEMINI_QUOTA_OFF=1, own ~1-min timer, unref'd, best-effort. */
+      const geminiQuota = require('./engine/geminiquota');
+      const GEMINI_QUOTA_BOOK = new Map();
+      const geminiQuotaSweep = setInterval(() => {
+        if (!liveExecution.liveExecutionAllowed() || process.env.AGENT_WORKFORCE_GEMINI_QUOTA_OFF === '1') return;
+        try {
+          geminiQuota.sweepOnce({
+            roster: safeRoster(), book: GEMINI_QUOTA_BOOK, now: Date.now(),
+            answer: (session, roster) => chat.answerGeminiQuotaStop(session, roster),
+            log: (r) => process.stdout.write(`gemini-quota: ${r.name} (${r.session}) ${r.answered ? 'answered Stop' : 'not answered'} - ${r.because}\n`),
+          });
+        } catch { /* best-effort, like the sweeps above */ }
+      }, Number(process.env.AGENT_WORKFORCE_GEMINI_QUOTA_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_GEMINI_QUOTA_MS) : 60 * 1000); // the env is the test seam only
+      if (geminiQuotaSweep && typeof geminiQuotaSweep.unref === 'function') geminiQuotaSweep.unref();
       /* #3723: tell the person's project manager, once per incident, that an agent is stopped by its
          account (engine/accountnotify.js). Same gating as the sweeps above: inert under `node --test`
          and before the live-execution opt-in, operator brake AGENT_WORKFORCE_ACCOUNT_NOTIFY_OFF=1,
@@ -16501,6 +16783,7 @@ function start(port = PORT) {
         try {
           const roster = safeRoster();
           const swarmMod = require('./engine/swarm');
+          try { calibrateSwarmAllowances(roster); } catch { /* the limit in tokens still holds */ }
           swarmMod.sweepOnce(swarmMod.sweepRows(roster), swarmSweepDeps(roster));
         } catch { /* best-effort; the card still shows today's tokens against the limit */ }
       }, 60 * 1000);
@@ -16510,7 +16793,8 @@ function start(port = PORT) {
       }, Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) : 60 * 60 * 1000); // the env is the test seam only
       if (feedbackSweep && typeof feedbackSweep.unref === 'function') feedbackSweep.unref();
       /* #3734: an existing guide's instructions still say it never creates agents; say what it may do now.
-         Once, at start; a no-op when the paragraph is not there. */
+         #3947: and still tell it to open its first answer with an AI note the greeting now covers.
+         Once, at start; a no-op when neither paragraph is there. */
       try { setupAssistant.refreshGuideRole(); } catch { /* best-effort */ }
       /* #3769: an existing guide gets the secrets section and its folder's deny rules, once, at start. */
       try { setupAssistant.refreshGuideGuards(); } catch { /* best-effort */ }
@@ -17045,7 +17329,11 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  calibrateSwarmAllowances, // #3946: the sweep's calibration step, for its test
+  HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
+  get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker); read it when needed, a destructured copy goes stale after setTaskMsgCapForTests
+  taskMsgCapFrom, setTaskMsgCapForTests, // #3959: how the operator's value is read, and the test seam
   resetRetellForTests: () => { RETELL_RECENT.length = 0; }, // #3923: the agent-made retry bound, emptied between tests
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested

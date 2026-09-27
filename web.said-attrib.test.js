@@ -29,7 +29,9 @@ const PAGE = fs.readFileSync('web/index.html', 'utf8');
 test('the quote carries a visible attribution', () => {
   assert.match(PAGE, /<p class="detail-saidlab" id="d-said-lab" hidden><\/p>/,
     'the attribution line is gone, so scraped pane text renders bare and a slash command in it reads as an instruction');
-  assert.match(PAGE, /saidLab\.textContent = line \? a\.name \+ '\\u2019s screen said:' : '';/,
+  /* #3958: the label is computed into `lab` and written only when it changes (the painter runs
+     every poll, and an identical rewrite drops a selection). */
+  assert.match(PAGE, /const lab = line \? a\.name \+ '\\u2019s screen said:' : '';\n\s*(?:\/\*[\s\S]*?\*\/\n\s*)?if \(saidLab\.textContent !== lab\) saidLab\.textContent = lab;/,
     'the attribution no longer names the agent, or no longer uses a.name');
 });
 
@@ -38,7 +40,7 @@ test('the quote carries a visible attribution', () => {
 test('the label follows the quote exactly', () => {
   const i = PAGE.indexOf("const said = document.getElementById('d-said');");
   assert.ok(i > -1, 'the evidence painter moved; re-anchor');
-  const block = PAGE.slice(i, i + 900);
+  const block = PAGE.slice(i, i + 1400); // #3958 added a guard and its comment inside
   assert.match(block, /said\.hidden = !line;/, 'the quote no longer hides when empty');
   assert.match(block, /saidLab\.hidden = !line;/,
     'the label does not hide with the quote, so an agent with no evidence keeps a stranded heading');
@@ -50,8 +52,10 @@ test('the label follows the quote exactly', () => {
    because a regex cannot call a function. This asserts the helper it uses is
    real, and fails if someone swaps in another invented one. */
 test('the painter calls nothing that does not exist', () => {
-  const i = PAGE.indexOf('saidLab.textContent = line ?');
+  const i = PAGE.indexOf('const lab = line ?');
+  assert.ok(i > -1, 'the attribution line moved; re-anchor (else this test checks nothing)');
   const line = PAGE.slice(i, PAGE.indexOf('\n', i));
+  assert.match(line, /a\.name/, 'anchored on the wrong line');
   const calls = [...line.matchAll(/\b([a-zA-Z_$][\w$]*)\s*\(/g)].map((m) => m[1]);
   for (const fn of calls) {
     const declared = new RegExp('function\\s+' + fn + '\\b|const\\s+' + fn + '\\s*=').test(PAGE);
