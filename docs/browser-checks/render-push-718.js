@@ -118,6 +118,37 @@ function check(name, pass, detail) {
   const controlled = await page.evaluate(() => !!navigator.serviceWorker.controller);
   check('the worker controls the page after reload', controlled);
 
+  /* --- 3b. #4103: the offline copy of '/' is only ever the board ------------- */
+  /* The reload above went through the worker's navigation handler, so '/' is cached: it must be the board. Then a
+     signed-out navigation (the relay's Kosmos+ sign-in page, a same-origin 200) is served for the next reload; it
+     must reach the page but must NOT replace the offline copy. ctx.route intercepts the worker's own fetch. */
+  const offlineCopy = () => page.evaluate(async () => {
+    const names = await caches.keys();
+    const name = names.find((n) => n.startsWith('kosmos-shell-'));
+    if (!name) return { name: null, board: false, text: '' };
+    const hit = await (await caches.open(name)).match('/');
+    const text = hit ? await hit.text() : '';
+    return { name, board: text.includes('<meta name="kosmos-version"'), signin: text.includes('KOSMOS-PLUS-SIGNIN-STANDIN') };
+  });
+  /* No fixed waits (review round 1): the write runs under waitUntil after the worker reads the board's head, so
+     poll with a deadline. The first arm deletes the cached '/' and reloads, so it proves the NAVIGATION path cached
+     the board (not the install pre-cache). The second arm watches the whole window: an old worker's poisoning write
+     can land late, so "still the board" is only true if no poisoned copy appears before the deadline. */
+  const until = async (pred, ms) => { const end = Date.now() + ms; let v; do { v = await offlineCopy(); if (pred(v)) return v; await page.waitForTimeout(150); } while (Date.now() < end); return v; };
+  await page.evaluate(async () => { for (const n of await caches.keys()) if (n.startsWith('kosmos-shell-')) await (await caches.open(n)).delete('/'); });
+  await page.reload({ waitUntil: 'load' });
+  const first = await until((v) => v.board, 8000);
+  check('#4103: a navigation caches the board as the offline copy of / (deleted first, so this is the navigation path)', first.board, JSON.stringify(first));
+  const SIGNIN = '<!doctype html><html><head><title>Kosmos+ sign in</title></head><body>KOSMOS-PLUS-SIGNIN-STANDIN</body></html>';
+  await ctx.route(origin + '/', (route) => route.fulfill({ status: 200, contentType: 'text/html', body: SIGNIN }));
+  await page.reload({ waitUntil: 'load' });
+  const servedSignin = await page.evaluate(() => document.body && document.body.textContent.includes('KOSMOS-PLUS-SIGNIN-STANDIN'));
+  const after = await until((v) => v.signin || !v.board, 4000);
+  await ctx.unroute(origin + '/');
+  check('#4103: CONTROL the signed-out reload really served the sign-in page', servedSignin);
+  check('#4103: a signed-out navigation does not replace the offline copy (it is still the board)', after.board && !after.signin, JSON.stringify(after));
+  await page.goto(BASE, { waitUntil: 'load' });
+
   /* --- 4. a REAL delivered push shows a notification ------------------------ */
   /* Deliver a push to the worker's own `push` handler via CDP and then read the
      notifications the registration is showing. This runs the handler in sw.js,
