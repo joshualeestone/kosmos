@@ -15,8 +15,9 @@ and its number.
   all tiles in that row, so the dividers are level and the number areas are equal; same-size numbers in
   equal areas share a baseline. The `=` spans both rows.
 - `.tv-flabel` centres its text vertically (flex).
-- The hero number is `clamp(24px,6.5cqi,64px)` (was `26px,8cqi,80px`): a little smaller, sized so a
-  7-character headline ($135.0M, $999.9K, 150.0B) keeps a margin in the narrowest tile.
+- The hero number is `clamp(20px,6.5cqi,64px)` (was `26px,8cqi,80px`): a little smaller, sized so a
+  7-character headline ($135.0M, $999.9K, 150.0B) keeps a margin in the narrowest tile. The floor is 20px
+  because at 390 wide a 24px floor left $135.0M under 8px from the edges (measured).
 - On a phone (one column) the stat tiles stand alone, so they go back to a plain column with their gap.
 
 ## The check

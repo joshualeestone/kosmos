@@ -2674,8 +2674,8 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    and a production-scale headline ($135.0M / 150.0B) would overflow its box and be clipped
    by the overflow:hidden above. cqi tracks the column that actually bounds the text. */
 /* #4083: a little smaller than 8cqi (Josh: "too close to the edges"), sized so the widest likely value, $999.9K
-   or 999.9M, keeps a margin in the narrowest tile. */
-.tv-fbox .tv-fig { font-size: clamp(24px,6.5cqi,64px); padding: clamp(18px,4.5vw,34px) 10px; }
+   or 999.9M, keeps a margin in the narrowest tile; the 20px floor is what a 390px-wide phone needs for that. */
+.tv-fbox .tv-fig { font-size: clamp(20px,6.5cqi,64px); padding: clamp(18px,4.5vw,34px) 10px; }
 .tv-fbox.gold .tv-fig { color: var(--gold); }
 .tv-fbox.green .tv-fig { color: var(--ok, #1f7a4d); }
 .tv-flabel { color: var(--k-ink-2); font: 600 clamp(10px,1.35vw,12px) var(--font-mono); text-transform: uppercase; letter-spacing: .07em; text-align: center; padding: 12px 10px; border-top: 1px solid var(--k-rule); display: flex; align-items: center; justify-content: center; }   /* #4083: even padding, so centred is centred in the band under the line */
