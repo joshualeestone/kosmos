@@ -148,6 +148,20 @@ printf '#!/bin/sh\nprintf "%s bash /opt/kosmos/tools/release.sh 0.5.99 --notes %
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-kt-arg" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
 { [ "$rc" -ne 0 ] && has_pid "$out" "$kt_script"; } && pass "a cut whose argument, not its script, is in the sandbox still refuses, and is named" \
   || fail "a sandbox path in a real cut's ARGUMENTS dropped it as a fixture (rc=$rc, out=$out)"
+# The browser guard reads the same script word (#4206 review 10): the three script arms again, for
+# browser-checks.sh.
+printf '#!/bin/sh\nprintf "%s bash %s/tools/browser-checks.sh\\n"\n' "$kt_script" "$T/tmp/kt4206" > "$T/bprobe-kt-script"; chmod +x "$T/bprobe-kt-script"
+out="$(KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_BC_PROBE="$T/bprobe-kt-script" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "a browser-checks.sh fixture whose script is in the sandbox is not a browser run, whatever its cwd" \
+  || fail "a kt-sandbox browser-checks script was not recognised (rc=$rc, out=$out)"
+printf '#!/bin/sh\nprintf "%s bash /opt/kosmos/tools/browser-checks.sh\\n"\n' "$kt_script" > "$T/bprobe-plain-script"; chmod +x "$T/bprobe-plain-script"
+out="$(KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_BC_PROBE="$T/bprobe-plain-script" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && has_pid "$out" "$kt_script"; } && pass "but the same pid running browser-checks.sh outside any sandbox still refuses, and is named" \
+  || fail "the browser guard's script rule hid a real run (rc=$rc, out=$out)"
+printf '#!/bin/sh\nprintf "%s bash /opt/kosmos/tools/browser-checks.sh --out %s/report\\n"\n' "$kt_script" "$T/tmp/kt4206" > "$T/bprobe-kt-arg"; chmod +x "$T/bprobe-kt-arg"
+out="$(KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_BC_PROBE="$T/bprobe-kt-arg" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && has_pid "$out" "$kt_script"; } && pass "a browser run whose argument, not its script, is in the sandbox still refuses, and is named" \
+  || fail "a sandbox path in a real browser run's ARGUMENTS dropped it as a fixture (rc=$rc, out=$out)"
 kill "$kt_script" 2>/dev/null; wait "$kt_script" 2>/dev/null
 
 # #4206 follow-up (Baron): a REAL cut runs from its frozen build tree under TMPDIR,

@@ -115,6 +115,15 @@ such a context), so the measurement is the evidence.
   freeze inside that kt folder and be ignored by both guards. No production path does that today, and it
   is the rule heavy-gate already uses.
 
+## Review 10
+
+- The browser guard gets the three script arms the cut guard has (a sandboxed script with cwd /, the
+  same pid with a plain script, a sandbox path only in an argument): breaking browser-checks.sh script
+  extraction passed both suites before.
+- Not changed: the kt<digits> boundary cases are tested once, in tools.heavy-gate-3805.test.js, which
+  runs in the same suite. The rule has one home, so a second copy of its boundary tests here would be
+  two copies of one fact.
+
 ## Weakest premise
 
 The negative control runs from `/` so it cannot sit in a kt folder. A machine whose $TMPDIR were `/`
