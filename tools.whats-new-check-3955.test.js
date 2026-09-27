@@ -64,7 +64,9 @@ test('#3955: release.sh runs the check at 1b-ii, after the versions entry and be
      adds one call that only informs (the opt-out's message says whether the window will show). */
   assert.equal((sh.match(/whats-new-check\.js[^\n]*\|\| exit 1/g) || []).length, 2, 'the cut checks the highlights some other number of times than twice');
   assert.equal((sh.match(/whats-new-check\.js/g) || []).length, 3, 'a call to the check appeared or went that is neither the two refusals nor the opt-out message');
-  assert.match(sh, /whats-new-check\.js" "\$V" "\$REPO\/web\/whats-new\.json" >\/dev\/null 2>&1; then   # informs, never refuses/, 'the opt-out message call can refuse');
+  // The opt-out's one call informs and never refuses, and is said at both steps (round 12).
+  assert.match(sh, /node "\$1\/tools\/whats-new-check\.js" "\$V" "\$1\/web\/whats-new\.json" >\/dev\/null 2>&1 \|\| rc=\$\?/, 'the opt-out message call can refuse');
+  assert.equal((sh.match(/whats_new_optout_note "\$(REPO|BUILD)"/g) || []).length, 2, 'the opt-out is not said at both 1b-ii and 2b-ii');
   const frozen = at('node "$BUILD/tools/whats-new-check.js" "$V" "$BUILD/web/whats-new.json" || exit 1');
   const freeze = at('REPO="$BUILD"');
   const suite = at('step "== 3.');

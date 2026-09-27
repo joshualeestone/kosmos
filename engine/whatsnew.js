@@ -25,12 +25,14 @@ const MAX_LINE = 140;    // one sentence of about 90 to 120
 /* An em dash in any of its spellings (the house rule): the character, and the escapes a hand
    edit could leave in JSON. */
 const EM_DASH = /\u2014|&mdash;|&#8212;|&#x2014;/i;
+/* A version like 0.6.98: the one pattern for this module and tools/whats-new-check.js (round 12). */
+const VERSION_RE = /^\d+\.\d+\.\d+$/;
 
 /** Every problem with a parsed file, as sentences; an empty list means it is good for `version`. */
 function problems(obj, version) {
   const out = [];
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return ['it is not a JSON object'];
-  if (typeof obj.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(obj.version)) out.push('its "version" is not a version like 0.6.98');
+  if (typeof obj.version !== 'string' || !VERSION_RE.test(obj.version)) out.push('its "version" is not a version like 0.6.98');
   else if (version && obj.version !== version) out.push('it is for ' + obj.version + ', not ' + version);
   const h = obj.highlights;
   if (!Array.isArray(h) || h.length < 1) { out.push('it has no highlights (1 to ' + MAX_HIGHLIGHTS + ')'); return out; }
@@ -54,12 +56,32 @@ function problems(obj, version) {
  * it is for another version (last release's text can never appear), or it has any problem.
  */
 function read(version, file) {
+  const at = file || fileForTests || FILE;
+  let raw;
+  try { raw = fs.readFileSync(at, 'utf8'); } catch (e) {
+    if (!e || e.code !== 'ENOENT') logOnce(at + ' could not be read (' + ((e && e.code) || 'unknown') + ')');
+    return null;
+  }
   let obj;
-  try { obj = JSON.parse(fs.readFileSync(file || fileForTests || FILE, 'utf8')); } catch { return null; }
-  if (!version || problems(obj, version).length) return null;
+  try { obj = JSON.parse(raw); } catch { logOnce(at + ' is not valid JSON'); return null; }
+  if (!version) return null;
+  const bad = problems(obj, version);
+  if (bad.length) {
+    // Another version's file is the ordinary state between cuts, so it is not logged; a broken one is.
+    if (!(bad.length === 1 && /^it is for /.test(bad[0]))) logOnce(at + ': ' + bad[0]);
+    return null;
+  }
   return obj.highlights.map((x) => ({ icon: x.icon, title: x.title.trim(), line: x.line.trim() }));
 }
 
-function setFileForTests(f) { fileForTests = f || null; }
+/* Round 12: a highlights file that exists but cannot be shown leaves one line in the board's log (once
+   per problem, not per page load), so a window that did not appear can be traced. */
+let lastLogged = null;
+function logOnce(line) {
+  if (line === lastLogged) return;
+  lastLogged = line;
+  try { console.warn('whats-new: ' + line); } catch { /* no console */ }
+}
+function setFileForTests(f) { fileForTests = f || null; lastLogged = null; }
 
-module.exports = { FILE, ICONS, MAX_HIGHLIGHTS, MAX_TITLE, MAX_LINE, problems, read, setFileForTests };
+module.exports = { FILE, ICONS, MAX_HIGHLIGHTS, MAX_TITLE, MAX_LINE, VERSION_RE, problems, read, setFileForTests };

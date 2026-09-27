@@ -226,7 +226,7 @@ test('#3955 round 3: the old-page chip runs the safe reload, and every value the
   /* The reload guards each value with typeof (a missing one is skipped silently), so a rename would
      turn a check off with the tests still green: pin that each is declared under this name. */
   for (const name of ['TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING', 'TALK_DRAFTS', 'TERM_DRAFTS',
-    'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'ATTACH_PENDING', 'UPDATE_TYPED', 'PJ_POSTING', 'ATTACH_UPLOADING']) {
+    'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'ATTACH_PENDING', 'UPDATE_TYPED', 'PJ_POSTING', 'ATTACH_UPLOADING', 'CREATING', 'START_FLIGHT', 'RST_BUSY']) {
     assert.match(PAGE, new RegExp('^(let|const) ' + name + '\\b', 'm'), name + ' is not declared on the page: the reload\'s check on it is off');
   }
   assert.match(PAGE, /^function tipModalOpen\(/m, 'tipModalOpen is gone: the reload would ignore open windows');
@@ -289,4 +289,21 @@ test('#3955 round 10: typing lets go of boxes that have left the page, so the se
   handler({ target: live });
   assert.equal(typed.has(gone), false, 'a box that left the page was kept');
   assert.equal(typed.has(live), true, 'CONTROL: the box typed into now is remembered');
+});
+
+test('#3955 round 12: an agent being created, one starting, or a restore running holds the automatic reload', () => {
+  const src = page.liftAll(SCRIPT, ['updateSafeReload']);
+  const run = (creating, start, rst) => {
+    let reloaded = 0;
+    new Function('document', 'sessionStorage', 'window', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
+      'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen', 'UPDATE_TYPED', 'ATTACH_PENDING', 'CREATING', 'START_FLIGHT', 'RST_BUSY',
+      src + '\nreturn updateSafeReload("0.2.76");')(
+      { hidden: true }, { getItem: () => null, setItem() {} }, { location: { reload: () => { reloaded += 1; } } },
+      false, false, null, false, {}, {}, {}, {}, () => false, new Set(), { room: {}, agent: {} }, creating, start, rst);
+    return reloaded;
+  };
+  assert.equal(run(false, null, false), 1, 'CONTROL: an idle hidden page reloads');
+  assert.equal(run(true, null, false), 0, 'a reload dropped an agent being created');
+  assert.equal(run(false, { name: 'a' }, false), 0, 'a reload dropped an agent starting');
+  assert.equal(run(false, null, true), 0, 'a reload dropped a restore');
 });

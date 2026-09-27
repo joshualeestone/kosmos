@@ -69,3 +69,26 @@ test('#3955: every icon the file may name is one the page draws', () => {
   const block = page.slice(at, page.indexOf('});', at));
   for (const k of whatsnew.ICONS) assert.match(block, new RegExp('\\n  ' + k + ': \''), 'the page cannot draw ' + k);
 });
+
+test('#3955 round 12: a highlights file that cannot be shown leaves one log line; another version\'s file (the usual state) leaves none', () => {
+  const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
+  const whatsnew = require('./whatsnew');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wn-log-'));
+  const f = path.join(dir, 'whats-new.json');
+  const said = [];
+  const warn = console.warn;
+  console.warn = (m) => said.push(String(m));
+  try {
+    whatsnew.setFileForTests(f);
+    fs.writeFileSync(f, JSON.stringify({ version: '0.6.97', highlights: [{ icon: 'spark', title: 'T', line: 'L.' }] }));
+    assert.equal(whatsnew.read('0.6.98'), null);
+    assert.deepEqual(said, [], 'last release\'s file (the ordinary state) was logged');
+    fs.writeFileSync(f, '{ not json');
+    whatsnew.read('0.6.98'); whatsnew.read('0.6.98');
+    assert.equal(said.length, 1, 'a broken file was not logged once: ' + JSON.stringify(said));
+    assert.match(said[0], /not valid JSON/);
+    fs.rmSync(f);
+    assert.equal(whatsnew.read('0.6.98'), null);
+    assert.equal(said.length, 1, 'a missing file (no highlights this release) was logged');
+  } finally { console.warn = warn; whatsnew.setFileForTests(null); fs.rmSync(dir, { recursive: true, force: true }); }
+});

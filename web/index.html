@@ -18690,10 +18690,16 @@ if (typeof document !== 'undefined' && document.addEventListener) {
 function updateSafeReload(servedVersion) {
   try {
     if (!document.hidden || !servedVersion) return false;
+    /* The key is written here, not as a page const: tests lift this function alone (round 12). */
     if (sessionStorage.getItem('kosmos-auto-reloaded') === servedVersion) return false;
     const busy = [typeof TALK_SENDING !== 'undefined' && TALK_SENDING, typeof PJ_SENDING !== 'undefined' && PJ_SENDING,
       typeof PJ_REPLY_SENDING !== 'undefined' && PJ_REPLY_SENDING, typeof TERM_SENDING !== 'undefined' && TERM_SENDING,
       typeof PJ_POSTING !== 'undefined' && PJ_POSTING,   // round 9: a room post in flight
+      /* Round 12: an agent being created or started, or a restore running: a reload would drop the
+         answer the person is waiting for. (A Settings switch's save is a moment and repaints from the
+         board on load, so those are not held for.) */
+      typeof CREATING !== 'undefined' && CREATING, typeof START_FLIGHT !== 'undefined' && !!START_FLIGHT,
+      typeof RST_BUSY !== 'undefined' && RST_BUSY,
       typeof ATTACH_UPLOADING !== 'undefined' && ATTACH_UPLOADING > 0];   // round 9: a file still going up
     if (busy.some(Boolean)) return false;
     const drafted = (m) => !!m && Object.values(m).some((v) => (typeof v === 'string' ? v : (v && v.text) || '').trim());
@@ -31953,7 +31959,9 @@ function wnIcon(key) {
   return '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + inner + '</svg>';
 }
 let WN_OPENER = null;
-let WN_VERSION = null;
+const WN_VERSIONS_PAGE = 'https://installkosmos.com/versions';
+const WN_MAX_TILES = 5;           // engine/whatsnew.js MAX_HIGHLIGHTS: the board never serves more
+
 /* Made when it is shown and removed when it closes, like the update overlay (.upd-back): the body's
    direct children are the consolidated grid's rows (web.consolidated-980), and a window seen once per
    version is not worth a permanent one. The mark is the app's own icon. */
@@ -31965,9 +31973,9 @@ const WN_HTML = '<div class="rm-back" id="whatsnew">'
   + '<button type="button" class="wn-x" id="wn-x" aria-label="Close">&times;</button>'
   + '<img class="wn-mark" src="/icons/kosmos-192.png" alt="" width="52" height="52">'
   + '<h2 class="wn-title" id="wn-title">Kosmos has been updated</h2>'
-  + '<ul class="wn-tiles" id="wn-tiles" aria-label="What is new" hidden></ul>'
+  + '<ul class="wn-tiles" id="wn-tiles" hidden></ul>'   // no aria-label (round 12): it would replace the tiles as the dialog's description
   + '<div class="wn-acts">'
-  + '<a class="wn-more" id="wn-more" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener">See everything that changed<span class="vh"> (opens in your browser)</span></a></div>'
+  + '<a class="wn-more" id="wn-more" href="' + WN_VERSIONS_PAGE + '" target="_blank" rel="noreferrer noopener">See everything that changed<span class="vh"> (opens in your browser)</span></a></div>'
   + '</div></div>';
 function wnOpen(version, highlights) {
   let back = document.getElementById('whatsnew');
@@ -31978,15 +31986,14 @@ function wnOpen(version, highlights) {
     document.body.appendChild(back);
     wnWire(back);
   }
-  WN_VERSION = version;
   document.getElementById('wn-title').textContent = 'Kosmos has been updated to ' + version;
   const tiles = document.getElementById('wn-tiles');
-  const list = Array.isArray(highlights) ? highlights.slice(0, 5) : [];
+  const list = Array.isArray(highlights) ? highlights.filter((h) => h && typeof h === 'object').slice(0, WN_MAX_TILES) : [];
   tiles.innerHTML = list.map((h) => '<li class="wn-tile"><span class="wn-ico">' + wnIcon(h.icon) + '</span>'
     + '<span class="wn-words"><b>' + esc(h.title) + '</b><span>' + esc(h.line) + '</span></span></li>').join('');
   tiles.hidden = list.length === 0;   // defensive: whatsNewCheck opens the window only with highlights
   tiles.classList.toggle('one', list.length === 1);
-  document.getElementById('wn-more').href = 'https://installkosmos.com/versions#v' + version.replace(/\./g, '-');
+  document.getElementById('wn-more').href = WN_VERSIONS_PAGE + '#v' + version.replace(/\./g, '-');
   WN_OPENER = document.activeElement;
   back.querySelector('.wn-box').focus();   // the window itself: no ring on open; Tab goes to the X
 }
@@ -31994,7 +32001,6 @@ function wnClose() {
   const back = document.getElementById('whatsnew');
   if (!back) return;
   back.remove();
-  WN_VERSION = null;   // seen was recorded when it opened (whatsNewCheck)
   const to = WN_OPENER;
   WN_OPENER = null;
   if (to && typeof to.focus === 'function' && document.contains(to)) to.focus();
@@ -32011,18 +32017,21 @@ function wnCovered() {
   // Only windows drawn OVER this one (round 3): the other .rm-back dialogs sit under it at the same layer.
   return !!document.querySelector('.fr-back:not([hidden]), .upd-back');
 }
+/* In the capture phase, and stopped once handled (round 12): a dialog open UNDER the window keeps its own
+   document-level Escape and Tab handlers, and one Escape must not close both. */
 document.addEventListener('keydown', (e) => {
   const back = document.getElementById('whatsnew');
   if (!back || wnCovered()) return;
-  if (e.key === 'Escape') { e.preventDefault(); wnClose(); return; }
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); wnClose(); return; }
   if (e.key !== 'Tab') return;
+  e.stopPropagation();
   // Two things to press (the X and the link); Tab stays between them while the window is up.
   const f = [back.querySelector('#wn-x'), back.querySelector('#wn-more')];
   const at = f.indexOf(document.activeElement);
   if (at === -1) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); return; }   // round 11: Shift+Tab goes back
   if (e.shiftKey && at === 0) { e.preventDefault(); f[f.length - 1].focus(); }
   else if (!e.shiftKey && at === f.length - 1) { e.preventDefault(); f[0].focus(); }
-});
+}, true);
 document.addEventListener('focusin', (e) => {
   const back = document.getElementById('whatsnew');
   if (back && !wnCovered() && !back.contains(e.target)) { const box = back.querySelector('.wn-box'); if (box) box.focus(); }
@@ -32062,12 +32071,16 @@ async function whatsNewCheck() {
     /* Held while the first-run tour is on screen (Mona Lisa's design review): the tour is the
        person's current task, and this can wait for it to close. */
     // A real deadline (round 7): a background tab slows timers, so counting ticks is not an hour.
-    const until = Date.now() + 3600000;
+    /* An hour, looked at each second. Written here, not as page consts: tests lift this function alone. */
+    const until = Date.now() + 60 * 60 * 1000;
     while (Date.now() < until && typeof TIP_OPEN !== 'undefined' && TIP_OPEN) await new Promise((r) => setTimeout(r, 1000));
     // A tour still open after an hour: recorded quietly rather than opened over it (round 6).
     if (typeof TIP_OPEN !== 'undefined' && TIP_OPEN) { record(); return; }
     /* Recorded as seen when it OPENS (round 6): two tabs reloaded by the same update must not both show
        it. The cost, accepted: a reload before it was read does not show it again. */
+    /* Round 12: a newer Kosmos landed while it waited: this page is old now (the chip says Reload), so
+       nothing opens and nothing is recorded; the new page announces the new version. */
+    if (typeof SERVED_VERSION !== 'undefined' && SERVED_VERSION && SERVED_VERSION !== got.current) return;
     record();
     wnOpen(got.current, got.highlights);
   } catch { /* news can wait */ }

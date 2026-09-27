@@ -15,7 +15,7 @@ Card #3955 (Josh, #admin, 2026-09-26 08:11). Design: Mona Lisa's mock on card-sh
 - **Automatic reload, only when it cannot lose anything:** the page is in the background (document.hidden), no message is being sent and no composer holds a draft, and no dialog is open. Otherwise the chip waits for the person. Rejected: reloading a visible page mid-glance.
 - **The window's source of truth.** /api/whats-new already records "seen" per version on the board (seen-version.json, survives restarts and browsers); it now also carries the highlights from web/whats-new.json when that file's version equals the running version, else none. The page shows the window only when its own baked version equals the board's (never over an old page), the board's version is not the one recorded as seen, and a version has been seen before (a fresh install records silently, as the news line did).
 - **Highlights file:** `web/whats-new.json` `{"version":"X.Y.Z","highlights":[{"icon","title","line"}]}`; 1 to 5; icon one of swarm, tasks, phone, list, chat, shield, spark (drawn by the app); title up to about 40 characters, line one sentence up to about 120; no em dashes. A suite test enforces the shape of the committed file. The server validates again at read time and serves nothing it cannot draw.
-- **Cut guard:** tools/whats-new-check.js (node, pure) checks the file against the version; release.sh runs it as step 1b-ii, right after the versions entry (1b) and before anything is built or bumped. KOSMOS_CUT_NO_WHATS_NEW=1 skips it and prints that the release will show only the title. docs/releasing.md gets the line. The guard lands only while no cut is running.
+- **Cut guard:** tools/whats-new-check.js (node, pure) checks the file against the version; release.sh runs it as step 1b-ii, right after the versions entry (1b) and before anything is built or bumped. KOSMOS_CUT_NO_WHATS_NEW=1 skips it and prints whether the release will show the window (rounds 3, 11, 12: no highlights means no window). docs/releasing.md gets the line. The guard lands only while no cut is running.
 - **This change ships no highlights file** for a past version: the operator writes it for the cut it ships in (Baron's 0.6.98 at the earliest).
 
 ## Review round 1 (decided)
@@ -88,6 +88,16 @@ Card #3955 (Josh, #admin, 2026-09-26 08:11). Design: Mona Lisa's mock on card-sh
 - The opt-out message runs the check anyway and says which is true: the check skipped with a file for the version (the window shows), or no highlights (no window).
 - Shift+Tab from the window itself goes to the link; the dialog is described by its tiles for screen readers.
 - Kept: the .utoast .utxt small a rule (the sign-in and not-answering chips' small text can carry links).
+
+## Review round 12 (decided)
+- The tiles list carries no aria-label, so the dialog's description is the tiles themselves (a label would have replaced them).
+- After the tour wait, a newer Kosmos that landed meanwhile means this page is old: nothing opens and nothing is recorded.
+- The window takes Escape and Tab in the capture phase and stops them, so a dialog open UNDER it keeps its own handlers and one Escape closes one thing. (Kept round 3: it does not stand aside for dialogs under it.)
+- The automatic reload also holds for an agent being created or started and a restore running; a Settings switch's save is not held for (a moment, and it repaints from the board on load).
+- The opt-out note is one function used at 1b-ii and again on the frozen tree at 2b-ii; it reads the check's exit code, so a check that could not run is said as such, not as "no highlights".
+- A highlights file that exists but cannot be shown leaves one log line (another version's file, the usual state between cuts, and a missing file do not); the cut check says "could not be read" for a permissions or folder problem.
+- One version pattern (whatsnew.VERSION_RE) for the engine and the check; the window's page link and tile cap are named; WN_VERSION (never read) is gone; a malformed highlight is filtered rather than thrown on.
+- Kept inline: the reload's sessionStorage key and the tour wait's hour and second, because tests lift those functions alone and a page const would be a ReferenceError there (the page's stated rule for lifted functions).
 
 ## Tests
 - The chip's two states and its one button; the stale chip never says "Kosmos updated"; engine-stale still first.

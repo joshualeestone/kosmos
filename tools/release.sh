@@ -535,15 +535,21 @@ step "== 1b-ii. the What's new highlights are for this version (#3955) =="
 # and committed to main before the cut, beside the versions entry (agreed with Baron, #3955). A file
 # left from the last release would show nothing (the board serves it only for its own version), so a
 # cut whose file is not for $V stops HERE, before anything is built or bumped.
-# KOSMOS_CUT_NO_WHATS_NEW=1 is the hotfix opt-out: the check is skipped. With no highlights file for $V
-# the release shows no window (the version is recorded quietly); the message says which (round 11: an
-# opt-out left exported from a last hotfix must not claim "no window" over a real file for $V).
+# KOSMOS_CUT_NO_WHATS_NEW=1 is the hotfix opt-out: the check is not enforced. With no highlights file for
+# $V the release shows no window (the version is recorded quietly); the message says which is true
+# (round 11: an opt-out left exported from a last hotfix must not claim "no window" over a real file for
+# $V; round 12: a check that could not run is said as such, not as "no highlights").
+whats_new_optout_note() {   # $1: the tree to read. Informs, never refuses.
+  local rc=0
+  node "$1/tools/whats-new-check.js" "$V" "$1/web/whats-new.json" >/dev/null 2>&1 || rc=$?
+  case "$rc" in
+    0) echo "KOSMOS_CUT_NO_WHATS_NEW=1: the highlights check is not enforced; web/whats-new.json is for $V, so the \"Kosmos has been updated\" window will show." ;;
+    1) echo "KOSMOS_CUT_NO_WHATS_NEW=1: $V ships with no highlights, so there will be no \"Kosmos has been updated\" window for it." ;;
+    *) echo "KOSMOS_CUT_NO_WHATS_NEW=1: the highlights check could not run (exit $rc), so whether $V shows a \"Kosmos has been updated\" window is not known." ;;
+  esac
+}
 if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" = "1" ]; then
-  if node "$REPO/tools/whats-new-check.js" "$V" "$REPO/web/whats-new.json" >/dev/null 2>&1; then   # informs, never refuses
-    echo "KOSMOS_CUT_NO_WHATS_NEW=1: the highlights check is skipped; web/whats-new.json is for $V, so the \"Kosmos has been updated\" window will show."
-  else
-    echo "KOSMOS_CUT_NO_WHATS_NEW=1: $V ships with no highlights, so there will be no \"Kosmos has been updated\" window for it."
-  fi
+  whats_new_optout_note "$REPO"
 else
   node "$REPO/tools/whats-new-check.js" "$V" "$REPO/web/whats-new.json" || exit 1
 fi
@@ -694,6 +700,8 @@ step "== 2b-ii. the What's new highlights, again, in the tree that ships (#3955)
 # under the cut, which is worth stopping for.
 if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" != "1" ]; then
   node "$BUILD/tools/whats-new-check.js" "$V" "$BUILD/web/whats-new.json" || exit 1
+else
+  whats_new_optout_note "$BUILD"   # round 12: what actually ships is said again, from the frozen tree
 fi
 
 # #2017: do not run the gated steps (the suite here AND the browser layer at 3b)

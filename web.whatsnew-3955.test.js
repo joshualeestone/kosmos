@@ -112,3 +112,30 @@ test('#3955 round 6: a tour still open after the wait records the version quietl
   assert.deepEqual(opened, [], 'the window opened over a tour that never closed');
   assert.deepEqual(posts, ['/api/whats-new/seen'], 'the version was not recorded, so it would try again every load');
 });
+
+test('#3955 round 12: a newer Kosmos landing during the tour wait opens nothing and records nothing', { timeout: 5000 }, async () => {
+  const opened = []; const posts = [];
+  const fetchStub = async (url, opts) => {
+    if (opts && opts.method === 'POST') { posts.push(url); return { ok: true, text: async () => '' }; }
+    return { ok: true, json: async () => ({ current: '0.6.98', seen: '0.6.97', highlights: H1 }) };
+  };
+  const api = new Function('fetch', 'bakedVersion', 'wnOpen', 'setTimeout',
+    'let TIP_OPEN = { step: 1 }; let SERVED_VERSION = "0.6.98";\n'
+    + page.liftAll(SCRIPT, ['wnNewer', 'whatsNewCheck'])
+    + '\nreturn { run: whatsNewCheck, close: () => { TIP_OPEN = null; }, newer: () => { SERVED_VERSION = "0.6.99"; } };')(
+    fetchStub, () => '0.6.98', (v) => opened.push(v), (f) => setImmediate(f));
+  const done = api.run();
+  for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+  api.newer(); api.close();
+  await done;
+  assert.deepEqual(opened, [], 'the window opened on a page a newer Kosmos has made old');
+  assert.deepEqual(posts, [], 'the superseded version was recorded as seen');
+});
+
+test('#3955 round 12: the window takes Escape and Tab first (capture) and stops them, so a dialog under it keeps its own', () => {
+  const at = SCRIPT.indexOf('function wnCovered()');
+  const block = SCRIPT.slice(at, SCRIPT.indexOf("document.addEventListener('focusin'", at));
+  assert.match(block, /e\.key === 'Escape'\) \{ e\.preventDefault\(\); e\.stopPropagation\(\); wnClose\(\);/, 'Escape is not stopped, so it also closes the dialog under the window');
+  assert.match(block, /if \(e\.key !== 'Tab'\) return;\n\s*e\.stopPropagation\(\);/, 'Tab is not stopped, so two traps fight over it');
+  assert.match(block, /\n\}, true\);\s*$/, 'the key listener is not in the capture phase, so the dialog under it hears the key first');
+});

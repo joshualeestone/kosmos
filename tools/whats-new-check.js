@@ -18,12 +18,16 @@ function main(argv) {
   const version = argv[0];
   const file = argv[1] || whatsnew.FILE;
   const name = path.relative(process.cwd(), file) || file;   // the file actually read, in the messages
-  if (!version || !/^\d+\.\d+\.\d+$/.test(version)) {
+  if (!version || !whatsnew.VERSION_RE.test(version)) {
     process.stderr.write('usage: node tools/whats-new-check.js <version like 0.6.98> [file]\n');
     return 2;
   }
   let raw;
-  try { raw = fs.readFileSync(file, 'utf8'); } catch {
+  try { raw = fs.readFileSync(file, 'utf8'); } catch (e) {
+    if (e && e.code !== 'ENOENT') {   // round 12: a permissions or folder problem is not "missing"
+      process.stderr.write(name + ' could not be read (' + e.code + ').\n');
+      return 1;
+    }
     process.stderr.write(name + ' is missing. Write the highlights for ' + version
       + ' (1 to 5: an icon, a short title and one line each) and commit it before cutting, or set'
       + ' KOSMOS_CUT_NO_WHATS_NEW=1 to cut with no "Kosmos has been updated" window.\n');
