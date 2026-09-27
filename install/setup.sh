@@ -3956,7 +3956,7 @@ if [ "$_board_ok" = yes ]; then
       # enable BEFORE bootstrap, the order the uninstall path above documents: a
       # `launchctl disable` from any earlier life writes a per-user override
       # keyed on the label that outlives the plist, and bootstrapping into a
-      # standing disable succeeds and starts nothing.
+      # standing disable is refused (measured on macOS 26.7, #4254).
       /bin/launchctl enable "gui/$_uid/$_board_label" 2>/dev/null || true
       # Outcome CHECKED (a refused bootstrap printed success on Josh's
       # machine, 2026-08-24): not fatal, but a different true sentence.
@@ -4082,7 +4082,7 @@ if [ "$_wd_ok" = yes ]; then
     else
       # enable BEFORE bootstrap, the same order the board job uses: a stale
       # `launchctl disable` override outlives the plist and a bootstrap into a
-      # standing disable succeeds and starts nothing.
+      # standing disable is refused (measured on macOS 26.7, #4254).
       /bin/launchctl enable "gui/$_wd_uid/$_wd_label" 2>/dev/null || true
       if ! /bin/launchctl bootstrap "gui/$_wd_uid" "$_wd_plist" 2>/dev/null; then
         _wd_ok=later

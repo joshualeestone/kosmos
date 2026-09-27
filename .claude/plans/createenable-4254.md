@@ -33,3 +33,10 @@ same either way. The probe leaves an `enabled` override entry for its own label 
   -> restored to the exclude-by-name form (`print` and `enable` excluded, everything else counts); perturbed: with
   create's bootstrap removed that test goes red. NIT my comment (refused) and the repair path's (succeeds, starts
   nothing) disagreed -> measured (above): refused. The repair-path comment is corrected to the measurement.
+- Round 2 (sonnet): W register.test.js still carried the disproven "succeeds and starts nothing" claim for the same
+  repair path -> fixed. My own sweep (any wording, whole tree, not just the phrase the reviewer searched) found four
+  more copies: install/setup.sh x2 (board and watchdog jobs) and the enable-before-bootstrap assertion messages in
+  create.test.js and register.test.js -> all now say refused, with the measurement. Comment and message lines only;
+  292/292; setup.sh parses. Noted, NOT changed: installJob and create's start step each carry the enable-before-
+  bootstrap order with no shared helper (pre-existing split; both are now asserted by their own tests).
+

@@ -165,13 +165,13 @@ test('the repair writes the job, enables the label, and bootstraps it', () => {
   assert.equal(out.installed, 1);
   assert.equal(fs.existsSync(create.plistPath('brigitte')), true, 'no job was written');
   /* ⚠️ enable BEFORE bootstrap. `remove` sticks by writing a per-user disable
-     override keyed on the LABEL, and it outlives the plist — so bootstrapping
-     into a standing disable succeeds and starts nothing, which would report a
-     repaired agent that never comes up. */
+     override keyed on the LABEL, and it outlives the plist, so bootstrapping
+     into a standing disable is refused (measured on macOS 26.7, #4254) and the
+     repaired agent never comes up. */
   const enable = CALLS.findIndex((c) => c.includes('enable'));
   const boot = CALLS.findIndex((c) => c.includes('bootstrap'));
   assert.ok(enable !== -1 && boot !== -1, 'launchctl was not asked at all');
-  assert.ok(enable < boot, 'bootstrap ran before enable, so a disabled label starts nothing');
+  assert.ok(enable < boot, 'bootstrap ran before enable, so a disabled label is refused');
 });
 
 test('the model it last ran as goes into the job, and an unknown one is left out', () => {

@@ -499,7 +499,7 @@ test('the agent is started the same way it will be started every time after', ()
   const enableAt = calls.findIndex(([, a]) => a && a[0] === 'enable');
   const bootAt = calls.findIndex(([, a]) => a && a[0] === 'bootstrap');
   assert.ok(enableAt !== -1, 'the label was never enabled, so a name removed before could not start');
-  assert.ok(enableAt < bootAt, 'bootstrap ran before enable, so a disabled label starts nothing');
+  assert.ok(enableAt < bootAt, 'bootstrap ran before enable, so a disabled label is refused');
   assert.match(calls[enableAt][1][1], /\/com\.kosmos\.agent\.one-path$/, 'a different label was enabled');
   const [file, args] = starting[0];
   assert.match(file, /launchctl$/, 'the agent was started by something other than its own job');
