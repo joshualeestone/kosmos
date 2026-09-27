@@ -306,14 +306,19 @@ What this module adds is **notification delegation**: `AndroidManifest.xml`
 declares androidbrowserhelper's `DelegationService` and
 `NotificationPermissionRequestActivity`. With them, Chrome hands web notifications
 from the verified origin to this app, so they appear under **Kosmos's** name and
-status-bar icon (`res/drawable/ic_notification.xml`) and use the app's own
+status-bar icon (`res/drawable-<density>/ic_notification.png`) and use the app's own
 notification permission on Android 13+. Without them they would show as Chrome
 notifications. Delegation itself needs no app code.
 
-**Not yet seen on a device.** What is verified is the build: the release APK's
-manifest carries the service, the activity and the icon. No push has been shown on
-a phone or emulator yet, and delegation cannot work at all until the coordinator
-serves `assetlinks.json` (above).
+The icon must stay a bitmap, one PNG per density: androidx.browser hands it to the
+browser through `BitmapFactory.decodeResource`, which returns null for a vector, and
+Chrome then shows its own icon (#4151). `IconResourceTest` fails on a vector, and
+`evidence/notif-icon-4151/make-icons.py` regenerates the PNGs.
+
+**Seen on the emulator, not yet on a phone.** On the API 35 Moto AVD a real web
+push through a local coordinator was posted by `io.kosmos.app` with the Kosmos icon
+(#4151; `evidence/notif-icon-4151/`). No push has been shown on a physical phone yet,
+and delegation needs the coordinator to serve `assetlinks.json` (above).
 
 **Where a tap goes (open, not decided here).** The coordinator's `sw.js` opens
 `https://<mac-name>.kosmosplus.com/` on a tap, the person's own Mac, which is a
