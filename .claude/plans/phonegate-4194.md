@@ -1,0 +1,39 @@
+# phonegate-4194: open the phone-notification ship gate (DRAFT, waits for Josh on #4194)
+
+kosmos#4194 asks Josh whether the next Mac release opens `PHONE_APP_CAN_RECEIVE` (engine/phonenotify.js). Liu Kang's
+pick is yes; this is the prepared change, opened as a GitHub DRAFT and not to merge until Josh answers (Liu Kang m1725).
+If Josh says no, the draft is closed.
+
+## Done looks like
+With the gate open the Phone notifications section shows in Settings, can be turned on, and sends; it says plainly that
+the Kosmos phone app is in testing (an Android test build, not in the App Store or Google Play yet), so a Mac user
+without the app is not misled; the lock still works when closed (the tests close it explicitly); setAvailableForTests
+stays.
+
+## Change
+- engine/phonenotify.js: `const PHONE_APP_CAN_RECEIVE = true;` (the exact line form tools/lib/connector-verbs.sh reads).
+  The comment says why (a receiving Android test app exists: vc3 #4165, push under the Kosmos icon #4172, tap routes
+  #4178), that it stays off by default, and that the bundle refuses to ship it open with a connector lacking
+  `mac-request`.
+- web/index.html, the Phone notifications section: one line before the switch, "The Kosmos phone app is still in
+  testing. For now it is an Android test build, and it is not in the App Store or Google Play yet. Without it on your
+  phone, turning this on sends nothing you can see."
+- Tests, each saying what it now guards:
+  - server.phonenotify-gate-718.test.js: the gate ships OPEN (was "ships closed"); with it open the setting reads
+    available; the three closed-gate tests stay and close it explicitly (the lock must still hold if a release closes
+    it again); the control restores the shipped value.
+  - web.phone-notify-718.test.js: the section carries the testing line, before the switch.
+  - docs/browser-checks/render-push-718.js: on a real board the section shows with the gate open and says the app is
+    in testing.
+
+## Release-time guard (already there, now live)
+tools/lib/connector-verbs.sh refuses to build a bundle with the gate open if the Plus connector lacks `mac-request`
+(turning on needs it). So the release that carries this must ship a connector that has it.
+
+## Rejected
+- An env var or setting instead of the constant: the gate was deliberately a constant so only a release opens it.
+- Hiding the testing line once the app is in the stores: that is a later copy change, when it is true.
+
+## Weakest part
+Every Mac user now sees a setting for an app they cannot get yet. It is off by default and sends nothing until turned on
+with an enrolled phone, and the line says so; the trade is Josh's to accept (that is the #4194 question).
