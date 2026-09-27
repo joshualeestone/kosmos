@@ -331,3 +331,12 @@ test('#718 state 1: coming back online asks again at once, for the agents and th
   assert.match(m[1], /\btick\(\)/, 'the online listener no longer re-reads the agents');
   assert.match(m[1], /\bloadProjects\(\)/, 'the online listener no longer re-reads the projects');
 });
+
+test('#718 state 1: a good status read clears the offline flag with the sign-in flags', () => {
+  /* tick's success path runs a dozen painters before this reset, more than the stubbed harness
+     above can drive, so the reset is pinned in tick's own source; the browser check covers the
+     behaviour (back online, "You are offline" is gone). */
+  const src = page.lift(SCRIPT, 'tick');
+  assert.match(src, /BOARD_NEEDS_SIGNIN = false;[^\n]*\n\s*BOARD_SIGNED_OUT = false;\n\s*BOARD_DEVICE_OFFLINE = false;/,
+    'the successful read no longer clears BOARD_DEVICE_OFFLINE beside the sign-in flags');
+});

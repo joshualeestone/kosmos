@@ -80,6 +80,24 @@ test('#718 loadProjects: the signed-out flag follows each read and never latches
     offline = false;
     await step(answer(200, { projects: [] }));
     assert.strictEqual(G.BOARD_DEVICE_OFFLINE, false, 'a good read left the offline flag standing');
+    // An open project (and its settings) told "offline" loses the line on the next good read,
+    // and so does the signed-out line (#718 states 1 and 3).
+    els['pj-one-view'] = { hidden: false, textContent: '' };
+    els['pj-settings-view'] = { hidden: false, textContent: '' };
+    offline = true;
+    await step(() => Promise.reject(new TypeError('Load failed')));
+    assert.strictEqual(els['pj-one-msg'].textContent, 'offline sentence', 'the open project was not told it is offline');
+    assert.strictEqual(els['pjs-read-msg'].textContent, 'offline sentence');
+    offline = false;
+    await step(answer(200, { projects: [] }));
+    assert.strictEqual(els['pj-one-msg'].textContent, '', 'back online, the open project still says offline');
+    assert.strictEqual(els['pjs-read-msg'].textContent, '', 'back online, settings still says offline');
+    await step(answer(401, RELAY_401));
+    assert.strictEqual(els['pj-one-msg'].textContent, 'signed out sentence');
+    await step(answer(200, { projects: [] }));
+    assert.strictEqual(els['pj-one-msg'].textContent, '', 'signed back in, the open project still says signed out');
+    els['pj-one-view'].hidden = true; els['pj-settings-view'].hidden = true;
+
     // CONTROL: an answered failure is not offline, even if the browser says so.
     offline = true;
     await step(answer(500, { error: 'boom' }));

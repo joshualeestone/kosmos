@@ -47251,10 +47251,11 @@ async function loadProjects() {
   // wrote (and only that sentence, matched exactly): the failed-restore
   // flow left "We cannot read your projects right now..." in #pj-one-msg
   // beside a page the next poll had already repainted healthy.
-  // #2023: retire EITHER the cannot-read sentence OR the not-signed-in one this
-  // path may have written, so a re-authed board does not keep a stale remedy.
+  // #2023: retire whichever failure sentence this path may have written (cannot-read,
+  // not-signed-in, signed-out, offline), so a recovered board does not keep a stale one.
   const staleReadMsg = (t) => t.startsWith('We cannot read your projects right now')
-    || t.startsWith('This board is not signed in');
+    || t.startsWith('This board is not signed in')
+    || t === SIGNED_OUT_SENTENCE || t === OFFLINE_SENTENCE; // #718 states 3 and 1
   const oneMsg = document.getElementById('pj-one-msg');
   if (oneMsg && staleReadMsg(oneMsg.textContent)) {
     oneMsg.textContent = '';
