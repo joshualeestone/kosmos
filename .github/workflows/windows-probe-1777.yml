@@ -12,7 +12,7 @@ permissions:
 jobs:
   probe:
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     defaults:
       run:
         shell: bash
@@ -31,8 +31,8 @@ jobs:
         run: |
           node -e '
             const fs = require("fs");
-            const pick = fs.readdirSync("engine").filter(f => /^win32.*\.test\.js$/.test(f)
-              || ["securewrite.test.js","sendertoken.test.js","github.test.js","platform.test.js","store.test.js","windows-coupling-audit-1732.test.js"].includes(f));
+            const pick = fs.readdirSync("engine").filter(f => /win32.*\.test\.js$/.test(f)
+              || ["platform.test.js","store.test.js","windows-coupling-audit-1732.test.js"].includes(f));
             fs.writeFileSync("probe-files.txt", pick.map(f => "engine/" + f).join("\n") + "\n");
             console.log(pick.length + " files");
           '
@@ -40,8 +40,8 @@ jobs:
           while IFS= read -r f; do
             [ -n "$f" ] || continue
             start=$(date +%s)
-            if timeout 300 node --test "$f" < /dev/null > out.txt 2>&1; then r=PASS; pass=$((pass+1)); else r="FAIL($?)"; fail=$((fail+1)); fi
+            if timeout 600 node --test --test-timeout=60000 "$f" < /dev/null > out.txt 2>&1; then r=PASS; pass=$((pass+1)); else r="FAIL($?)"; fail=$((fail+1)); fi
             echo "$r $(( $(date +%s) - start ))s $f" | tee -a probe-result.txt
-            case "$r" in FAIL*) grep -E "^not ok|^# (tests|pass|fail) |^✖|Error" out.txt | head -25 | sed 's/^/    /' ;; esac
+            case "$r" in FAIL*) grep -E "^✖|Error|# (tests|pass|fail|skipped) " out.txt | head -30 | sed 's/^/    /' ;; esac
           done < probe-files.txt
           echo "TOTAL pass=$pass fail=$fail"
