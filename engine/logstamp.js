@@ -20,7 +20,8 @@
  *
  * NOT STAMPED: output that does not go through this process's stdout/stderr.write, namely Node's own fatal crash trace,
  * child processes that inherit the board's stderr (engine/remote.js spawns with stdio 'inherit'), and install/kosmos's
- * own board-run narration written before it execs node (for example "Kosmos was deliberately stopped; not starting");
+ * own board-run narration written before it execs node (for example "Kosmos was deliberately stopped; not starting"),
+ * and the world bootstrap's named-world lines, which server.js prints before it can install this;
  * such a line in board.log carries no time, and a child's can split a stamped line.
  */
 const fs = require('node:fs');

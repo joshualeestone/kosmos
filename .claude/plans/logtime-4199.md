@@ -16,8 +16,11 @@ inside the board process.
 ## Change
 - engine/logstamp.js: `stampText` (pure: stamps each line start, carrying whether the last write ended a line, so a line
   written in pieces is stamped once) and `install(stream, fd)`, which wraps stream.write ONLY when fd is a regular file.
-- server.js, first thing, only when it runs as the board (`require.main === module`): install on stdout (1) and stderr
-  (2). At the very top, so even the load-time half-sandbox refusal is stamped.
+- server.js, only when it runs as the board (`require.main === module`): install on stdout (1) and stderr (2), right
+  after the world bootstrap, which must stay the FIRST engine require (server.worldenv-order.test.js: ~27 engine modules
+  freeze store.ROOT at require time). The final validation caught my first version installing it above that line. Still
+  early enough that the load-time half-sandbox refusal is stamped; only the bootstrap's own named-world lines (none on
+  the default world) come before it.
 
 ## Why "only a regular file", and what else that stamps
 board.log under launchd and nohup is a regular file; a person running the board by hand sees a terminal, and the node
@@ -46,7 +49,8 @@ server.js as a module, so it is never stamped.
 ## Weakest part
 Output that does not go through process.stdout/stderr.write carries no time: Node's own fatal crash trace, and child
 processes that inherit the board's stderr (engine/remote.js spawns with stdio 'inherit'), and install/kosmos's own
-board-run narration before it execs node. A child's line can also split a stamped line. A person reading board.log should expect the odd unstamped line.
+board-run narration before it execs node, and the world bootstrap's named-world lines (#1704/#2528). A child's line can
+also split a stamped line. A person reading board.log should expect the odd unstamped line.
 
 ## What would change my mind
 A reader of board.log that matches a line from its start (`^...`). None was found (grep for board.log readers: tests read

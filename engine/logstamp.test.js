@@ -77,13 +77,14 @@ test('#4199 install: once per stream, and never on a stream that is not a regula
   } finally { fs.closeSync(fd); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('#4199 server.js installs the stamp first, for stdout and stderr, only when it runs as the board', () => {
+test('#4199 server.js installs the stamp right after the world bootstrap, for stdout and stderr, only when it runs as the board', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const boot = src.indexOf("require('./engine/worldenv').bootstrapWorldEnv(");
   const at = src.indexOf("require('./engine/logstamp')");
-  assert.ok(at > 0, 'server.js does not install logstamp');
-  assert.ok(src.indexOf('require(', 0) >= at || src.slice(0, at).indexOf("require('") === -1, 'something is required (and could write) before the stamp is installed');
-  const block = src.slice(src.lastIndexOf('if (require.main === module)', at), at + 600);
-  assert.ok(block.startsWith('if (require.main === module)'), 'the stamp is not inside the board-only guard');
+  assert.ok(boot > 0 && at > boot, 'the stamp is not after the world bootstrap (which must stay the first engine require)');
+  const between = src.slice(src.indexOf('\n', boot) + 1, at).replace(/\/\*[\s\S]*?\*\//g, '').trim();
+  assert.ok(between.startsWith('if (require.main === module) {'), 'something runs between the bootstrap and the stamp: ' + between.slice(0, 80));
+  const block = src.slice(src.lastIndexOf('if (require.main === module)', at), at + 900);
   assert.match(block, /logstamp\.install\(process\.stdout, 1\b/, 'stdout is not stamped');
   assert.match(block, /logstamp\.install\(process\.stderr, 2\b/, 'stderr is not stamped');
   assert.match(block, /logstamp\.sameFile\(1, 2\)/, 'stdout and stderr do not share a line state when they are the same file');
@@ -171,10 +172,4 @@ test('#4199 stampBytes: stamps after each newline byte and changes no byte of th
   assert.equal(r.atLineStart, false);
   const e = logstamp.stampBytes(Buffer.alloc(0), true, 'T');
   assert.equal(e.buf.length, 0, 'an empty write stamped something');
-});
-
-test('#4199 server.js: the stamp is the FIRST statement after use strict, so nothing can write before it', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const code = src.replace(/^'use strict';\s*/, '').replace(/^\/\*[\s\S]*?\*\/\s*/, '');
-  assert.ok(code.startsWith('if (require.main === module) {\n  const logstamp = require(\'./engine/logstamp\');'), 'something comes before the stamp: ' + code.slice(0, 80));
 });
