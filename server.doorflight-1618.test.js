@@ -81,6 +81,18 @@ function heldDoor(name) {
 
 const TOKEN = 'hetzner-token-long-enough-to-be-real-0123456789';
 
+/* Wait until `ready()` is true, polling, up to `ms`. These waits were a fixed
+   150 ms (#4066): under a load average of 60 to 75 a request can take longer
+   than that to reach the verifier, and the count then reads 0. */
+const ARRIVAL_MS = 10_000;
+async function until(ready, what, ms = ARRIVAL_MS) {
+  const deadline = Date.now() + ms;
+  while (!ready()) {
+    if (Date.now() > deadline) assert.fail(`${what} (waited ${ms} ms)`);
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
 test('#1618: two callers asking for the shelf at once verify each door ONCE', async () => {
   const h = heldDoor('Hetzner');
   try {
@@ -94,6 +106,8 @@ test('#1618: two callers asking for the shelf at once verify each door ONCE', as
     h.arm();
     const a = fetch(base + '/api/connections').then((r) => r.json());
     const b = fetch(base + '/api/connections').then((r) => r.json());
+    await until(() => h.entries() > afterConnect, 'no shelf read reached the verifier');
+    // A second, unshared read would arrive as a second entry; give it room.
     await new Promise((r) => setTimeout(r, 150));
     const during = h.entries() - afterConnect;
     assert.equal(during, 1,
@@ -123,8 +137,8 @@ test('#1618: forget() observes its OWN write while a shelf read is in flight', a
 
     h.arm();
     const inFlight = fetch(base + '/api/connections').then((r) => r.json());
-    await new Promise((r) => setTimeout(r, 150));
-    assert.ok(h.entries() >= 2, 'the shelf read never reached the verifier, so nothing is in flight and this test proves nothing');
+    await until(() => h.entries() >= 2,
+      'the shelf read never reached the verifier, so nothing is in flight and this test proves nothing');
     h.unarm();
 
     const gone = await h.door.forget();
