@@ -8093,7 +8093,23 @@ const server = http.createServer((req, res) => {
             }];
           }
         } catch { agySub = []; }
-        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok] });
+        /* #3939 slice 3c-2: Meta Muse gets its own row once Muse Code is on, installed and signed in
+           (musestatus.signedIn, which a refused turn now ends, slice 3c-1). provider 'meta' is the id
+           every Meta menu option already uses; authMode 'muse' keeps it apart from any future Meta key.
+           No folder: Muse keeps its own sign-in. signed_in_unverified: Kosmos's record, not a live
+           check. Its own try, like the row above. */
+        let museSub = [];
+        try {
+          const muse = require('./engine/musestatus');
+          if (muse.enabled() && muse.installed().installed && muse.signedIn().signedIn) {
+            museSub = [{
+              provider: 'meta', providerName: 'Meta', dir: null, label: null, name: null, isDefault: false,
+              email: null, authMode: 'muse', keyTail: null,
+              connection: { state: 'connected', checkedLive: false, badge: 'signed_in_unverified' },
+            }];
+          }
+        } catch { museSub = []; }
+        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...museSub] });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;

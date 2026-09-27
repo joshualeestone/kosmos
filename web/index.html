@@ -22179,11 +22179,15 @@ function orderProviderOptions(selectId) {
 function acctProvider(a) {
   const p = a && typeof a.provider === 'string' ? a.provider.toLowerCase() : '';
   if (p === 'antigravity' || (a && a.authMode === 'antigravity')) return 'antigravity';
+  /* #3939 slice 3c-2: Meta Muse's row ('meta', authMode 'muse') has no key and no folder either. Without
+     this it fell to 'anthropic' below and was offered as a Claude account in the create form. */
+  if (p === 'meta' || (a && a.authMode === 'muse')) return 'meta';   // the row, and the menu's own 'meta' value
   return Object.prototype.hasOwnProperty.call(ACCT_KEYED_ROUTE, p) ? p : 'anthropic';
 }
 /* #3566: the screen's word for a keyed provider id ('openai' -> 'OpenAI'). */
 function switchKeyedWord(p) {
   if (p === 'antigravity') return 'Gemini (Google subscription)';   // #3568
+  if (p === 'meta') return 'Meta Muse';   // #3939 slice 3c-2: never the OpenAI fallback below
   return p === 'google' ? 'Gemini' : p === 'xai' ? 'Grok' : 'OpenAI';
 }
 /* #3566: an OpenAI sentence re-said for the picker's provider, so "OpenAI sign-in" becomes
@@ -22668,6 +22672,20 @@ async function paintAccounts(opts) {
         + 'title="' + esc('Kosmos stops listing it here. Antigravity stays signed in on this computer and its agents keep working, so it comes back the next time Kosmos checks Antigravity.') + '">Remove</button>'
         + '</div></div>';
     }
+    /* #3939 slice 3c-2: Meta Muse, signed in through Muse Code's own sign-in (on a Mac, the Keychain).
+       Like the Gemini subscription row above: no folder, no key, none of a Claude row's actions. Only
+       Sign in again, which opens Add a provider on Meta's step. No Remove: Kosmos has nothing of its own
+       to forget, and signing Muse out would touch a credential every Muse run on this Mac shares. */
+    if (a && a.authMode === 'muse') {
+      const why = 'Muse Code was signed in to Meta the last time Kosmos saw it work. Kosmos does not check it by itself; a turn Meta refuses, or Sign in again, updates it.';
+      return '<div class="acct-box" data-muse-row="1"><div class="acct-box-top"><div class="acct-who"><b>Meta account</b>'
+        + '<span class="acct-tag"> through Muse Code on this computer</span></div>'
+        + '<span class="acct-unknown" title="' + esc(why) + '"><span class="dot" aria-hidden="true"></span>Signed in<span class="vh"> (' + esc(why) + ')</span></span></div>'
+        + '<div class="acct-actions">'
+        + '<button class="acct-reauth" type="button" data-muse-reauth="1" aria-label="Sign in again to Meta through Muse Code" '
+        + 'title="' + esc('Opens Meta\'s sign-in again, the same way as adding it.') + '">Sign in again</button>'
+        + '</div></div>';
+    }
     /* #540: an OpenAI account signed in with a key has no email; codex's
        own `login status` names it by the key's last characters, so the row
        does the same. Never the key. */
@@ -23131,6 +23149,10 @@ async function paintAccounts(opts) {
       const step = document.getElementById('acct-gemini-sub-step');
       if (m && step) { step.hidden = false; m.hidden = false; m.textContent = 'Kosmos could not start the sign-in just now. Try again.'; }
     }); });
+  }
+  /* #3939 slice 3c-2: the Meta Muse row's Sign in again. */
+  for (const btn of box.querySelectorAll('[data-muse-reauth]')) {
+    btn.addEventListener('click', (ev) => { acctMuseSignInAgain(ev).catch(() => {}); });
   }
   for (const btn of box.querySelectorAll('[data-agy-forget]')) {
     /* Two presses, like Disconnect: the first arms (danger style, and the name a screen reader
@@ -26141,6 +26163,18 @@ let ACCT_GEMINI_PRESS = 0;
 /* #3998: Sign in again on the Gemini subscription row: Add a provider on Google Gemini, straight to
    the hidden sign-in (not the check, which would only say it is already signed in). The choice
    appears once the availability read answers, so this waits for it (up to 3 s) rather than racing. */
+/* #3939 slice 3c-2: the Meta Muse row's Sign in again. Opens Add a provider and, once this Kosmos says
+   Muse is offered (waiting up to 3 s for that read, as Gemini's does), lands on Meta's step with focus on
+   its Start. Not offered after all: the dialog says so, rather than opening on nothing. */
+async function acctMuseSignInAgain(ev) {
+  openAcctAdd(ev);
+  const on = await Promise.race([Promise.resolve(museAsk()).catch(() => false), new Promise((r) => setTimeout(() => r(null), 3000))]);
+  const modal = document.getElementById('acct-add-modal');
+  if (!modal || modal.hidden) return;   // closed while it waited: start nothing out of sight
+  if (on === true || museOffered()) { acctPick('meta'); return; }
+  const note = document.getElementById('acct-add-note');
+  if (note) note.textContent = 'Meta Muse is not available on this computer just now.';
+}
 async function acctGeminiSignInAgain() {
   openAcctAdd(); acctPick('google');
   const pick = document.getElementById('acct-gemini-pick');
