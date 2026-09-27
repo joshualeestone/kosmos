@@ -13,7 +13,7 @@ the verifier by then, so it read 0 and reported "not shared". The clock, not the
 - `until(ok, ms = 5000)`: poll every 10ms until a condition holds or the deadline passes.
 - Test 1 waits until the verify count reaches 1, then holds `SECOND_VERIFY_MARGIN_MS` (300ms) so a
   second, unshared verify has time to show, then asserts exactly 1. A 0 at the deadline fails with a
-  message that says it is a slow machine, not a sharing defect.
+  message that says what was seen (neither caller reached the verifier within 5s), not a guessed cause.
 - Test 2 ("forget() observes its OWN write") had the same fixed 150ms wait for its read to be in
   flight. It now waits with `until`, measured from a baseline taken after `connect()`: connect() reaches
   the verifier twice itself (verify, then its closing state()), so an absolute `>= 2` was already met
