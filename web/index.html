@@ -1602,8 +1602,10 @@ html.tip-dimming[data-tip-ground]:not([data-layout="consolidated"]) { background
    white, which is most of the page, reaches the edge; the body still paints the ground over its own box, so nothing
    else changes. What is left is a 15px strip beside the short top band, near white against near white. Rejected:
    dropping the gutter on this view, which moves the fixed assistant bubble and chat 15px between tabs and shifts the
-   list while filtering, the jump #1309 exists to prevent. Not while the tour dims (its rules own the canvas then). */
-html:not([data-layout="consolidated"]):not(.tip-dimming):has(> body > #panel-tasks:not([hidden])) { background: var(--k-surface); }
+   list while filtering, the jump #1309 exists to prevent. Not while the tour dims (its rules own the canvas then).
+   Only where scrollbars take width (data-scrollbar-classic, set by kosmosMeasureScrollbarWidth): an overlay-scrollbar
+   Mac has no gutter to fix, and there a white canvas would only flash above the header on a rubber-band bounce. */
+html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming):has(> body > #panel-tasks:not([hidden])) { background: var(--k-surface); }
 html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .tipcard .tip-dots { display: flex; gap: 5px; }
 .tipcard .tip-dots i { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--k-ink-2) 35%, transparent); }
@@ -9946,6 +9948,8 @@ window.kosmosMeasureScrollbarWidth = function () {
     root.style.scrollbarGutter = 'stable';
     root.style.overflow = 'hidden';
     var gutter = Math.max(0, Math.round(window.innerWidth - root.getBoundingClientRect().width));
+    /* #4216: marks a machine whose scrollbars take width, so rules for the reserved gutter apply only there. */
+    root.toggleAttribute('data-scrollbar-classic', gutter > 0);
     /* The header padding assumes 100vw includes a reserved gutter. An engine where it does not
        is never marked measured, so the page keeps the #1309 behaviour (A1t). */
     vw = document.createElement('div');
