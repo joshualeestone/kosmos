@@ -82,3 +82,8 @@ With the flag on, on a Mac with Muse Code installed, a person can pick Meta in A
 - The screen is read with the pane's whole history (capture-pane -S -), not only the 40 visible rows. A chatty Muse can scroll its code off screen before the Press line. Proved with a real tmux "chatty" fake flow (50 lines between the code and the prompt); control red.
 - The 20-minute limit is checked after the screen is read, so an approval drawn in the last tick is taken.
 - Noted for #4195: agysignin reads visible rows only too.
+
+## 3a review round 13 (decided)
+- No resend once Muse has drawn anything after the Press prompt: new text proves the Enter was taken, even in words Kosmos does not know. The code stays shown and no stuck is named, since Muse may be polling in unknown words; "Logged in." still ends it, and the 20-minute limit backstops. Control red.
+- The code in the boxes is the address's user_code when it has one, and a printed dashed code otherwise. A later dashed token (a request id, a UTC offset) can no longer disagree with the page Meta opens. Control red.
+- The two remaining inline reasons are constants; NOT_ON is exported and the tests read it.
