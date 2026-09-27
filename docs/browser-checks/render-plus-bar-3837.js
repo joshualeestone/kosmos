@@ -46,6 +46,7 @@ function chk(ok, label, extra) {
 // (within 1px), so a root that shrank or moved cannot pass a short bar. #4213: that width is read off
 // the root (overflow hidden, without then with a stable gutter, restored in a finally, after the other
 // reads), since the PR runner hides element scrollbars and a scratch scroller read 0 against 15px.
+// An engine without scrollbar-gutter reads 0 and fails loudly; both Playwright engines support it.
 const bar = (page) => page.evaluate(() => {
   const b = document.getElementById('kplus-bar');
   if (!b) return { present: false };

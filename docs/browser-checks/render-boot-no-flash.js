@@ -31,7 +31,8 @@ function check(cond, msg) { if (!cond) problems.push(msg); }
 // restored in a finally, after every other read), not off a scratch scroller: the PR runner hides
 // element scrollbars and still reserves the root's 15px, so a scroller read 0 (as the page's #3497
 // measurement says). A margin that shrank the root cancels in the difference. Compared within 1px
-// (a fractional root rounds either way).
+// (a fractional root rounds either way). An engine without scrollbar-gutter reads 0 and fails loudly,
+// never falsely passes; both Playwright engines support it.
 async function coverIsOccluding(page) {
   return page.evaluate(() => {
     const c = document.getElementById('boot-cover');
