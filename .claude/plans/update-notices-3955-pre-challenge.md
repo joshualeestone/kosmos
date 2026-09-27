@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: update-notices-3955
-diff_hash: 87b073b8e6653871348168e4cc87922376b048fc79a85da6524a071c6cd5ed43
+diff_hash: cb7805db5570032a154573ac48024cc530ece7c1def69b856f7ba02e81e550fd
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-27T02:58:00Z
+timestamp: 2026-09-27T05:33:00Z
 iterations: 16
 converged: true
 ---
@@ -16,7 +16,7 @@ converged: true
 **Converged:** Yes. Iteration 16 found no BLOCKER, WARNING or CONVENTION (two NITs, left: a forensic comment naming the old #newsbar, and a debug-only value in a browser check).
 **Fixed:** every BLOCKER and WARNING raised. **Deferred:** as recorded in the plan (drag-to-close, shared with every .rm-back dialog; other document shortcuts under the open window; the two round-16 NITs). **Asked (awaiting user):** 0.
 
-Full validation passed at 3422ae8b9, after merging current main (validation-log hash 87b073b8e665, the diff_hash above): 10550 tests, 10395 pass, 0 fail; subdir audit passed. Both browser-check gates pass. render-reload-toast (64 PASS, light and dark, including the 3:1 keyboard ring) and render-update-toast run green against a sandbox board.
+Full validation passed at c7784bedc, after merging main once more past Baron's 0.7.01 re-cut freeze (validation-log hash cb7805db5570, the diff_hash above): 10642 tests, 10478 pass, 0 fail; subdir audit passed. (An earlier pass at 3422ae8b9 was green too; main moved during the hold, and the only conflict each time was the browser-check reason-grep count.) Both browser-check gates pass. render-reload-toast (64 PASS, light and dark, including the 3:1 keyboard ring) and render-update-toast run green against a sandbox board.
 
 Rounds 1 to 16 are recorded decision by decision in .claude/plans/update-notices-3955.md ("Review round N (decided)" and "Josh's review of the build"). Several early rounds were deliberately reversed later (the frozen-tree check, the visibility rule for typed boxes, record-on-open); the latest section wins.
 
