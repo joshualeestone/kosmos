@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: gutter-4216
-diff_hash: 25ed874e68a94aca397e43528fca475cc3f757e921195dd38c9064542633e5e4
+diff_hash: 4420fd8a7346de0314f72e7f76565a9c30f02f11b0c5715ce74545154a48128c
 subdir_audit: passed
 timestamp: 2026-09-27T16:58:24Z
 converged: true
@@ -37,3 +37,7 @@ converged: true
   arm FAILS (the canvas is transparent).
 - render-subtasks-3861 and render-help-tips-3574 (flagged by #2518) run on the branch: pass; trailers added.
 - web.*.test.js 1994/1994; full suite 10781 pass, 0 fail, exit 0. #1720 and #2518 gates pass.
+- CI (classic scrollbars, 15px): the three #4216 arms pass with had:true, sbw:15. One earlier run failed the top-band
+  edge read; the INFO line added to the arm showed why: in CI clientWidth reports 1400 while the body ends at 1385, so
+  a read at clientWidth-2 lands in the gutter (the documented strip beside the top band). Main's check now reads at
+  the page layout's edge, and the rerun is green (browser-checks run 36336521264 at 81cc7c5ea).
