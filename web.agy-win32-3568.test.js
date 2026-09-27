@@ -20,7 +20,8 @@ function agyFlow(answers, windows) {
   const end = PAGE.indexOf('const KEYED_SUB_START', at);
   assert.ok(at > 0 && end > at, 'FR_AGY_SUB moved; re-anchor');
   const els = {};
-  const el = (id) => (els[id] || (els[id] = { id, textContent: '', hidden: true, href: '', value: '', disabled: false, focus() {}, hasAttribute: () => true, setAttribute() {} }));
+  // addEventListener: the merged driver (with #3998) wires its own Continue and Enter in wire().
+  const el = (id) => (els[id] || (els[id] = { id, textContent: '', hidden: true, href: '', value: '', disabled: false, focus() {}, hasAttribute: () => true, setAttribute() {}, addEventListener() {} }));
   const calls = [];
   const doc = { getElementById: (id) => el(id), activeElement: null };
   const fetchStub = async (path, opts) => {
@@ -70,9 +71,11 @@ test('Windows: Sign in with Google goes straight from the check to Google\'s pag
   assert.match(f.view().text, /Google's sign-in page is open in your browser.*paste it here.*about a minute/);
   assert.equal(f.view().button, '', 'nothing else to press but the box');
   f.el('fr-gemini-sub-paste').value = '  4/0AXl-code  ';
-  await f.FR_AGY_SUB.winCode();
+  // Through the Continue button's one handler (sendCode, wired once with #3998), which hands a Windows sign-in to winCode.
+  await f.FR_AGY_SUB.sendCode();
   const sent = f.calls.find((c) => c.path === '/api/antigravity/win32signin/code');
   assert.deepEqual(sent.body, { id: 's1', code: '4/0AXl-code' });
+  assert.ok(!f.calls.some((c) => c.path === '/api/antigravity/signin/code'), 'a Windows code also went to the Mac sign-in');
   assert.ok(await until(() => f.ready()), 'ready');
   assert.match(f.view().text, /^Ready\./);
   assert.equal(f.view().paste, false);
@@ -102,10 +105,11 @@ test('Windows: a sign-in that ends says why and offers Sign in with Google again
   assert.equal(g.view().paste, false);
 });
 
-test('CONTROL, the Mac: the same press still checks, then offers Open as its own press (no code box, no Windows route)', async () => {
+test('CONTROL, the Mac: the same press still checks, then offers Sign in as its own press (no code box yet, no Windows route)', async () => {
+  // #3998 replaced the Mac's "Open Antigravity to sign in" (a Terminal) with its own hidden sign-in, started by this press.
   const f = agyFlow({ 'POST /api/antigravity/check': [{ installed: true, signedIn: null }] }, false);
   await f.FR_AGY_SUB.start();
-  assert.equal(f.view().button, 'Open Antigravity to sign in');
+  assert.equal(f.view().button, 'Sign in with Google');
   assert.equal(f.view().paste, false);
   assert.ok(!f.calls.some((c) => /win32signin/.test(c.path)));
 });

@@ -110,8 +110,25 @@ const shared = inflight.collapse(checkOnce);
 
 /** { installed, signedIn, because? }: signedIn is true; false only when agy is not installed; null when
     it could not be confirmed, never a guessed "signed out". */
-function check() { return shared(); }
+function check() { return shared().then((r) => { remember(r); return r; }); }
 
+/* #3998: the LAST answer, so Settings can show the subscription as an account row without spending
+   a prompt on every repaint. Saved beside the sign-in folder, so a board restart keeps it. Only a
+   confident answer is kept: signedIn true, or false because agy is not installed; "could not
+   confirm" (null) leaves the last one standing. */
+/* 🛑 A TEST PROCESS NEVER READS OR WRITES THE REAL RECORD (review round 4): store.ROOT is the
+   person's own Kosmos folder unless a sandbox is set, and every check() remembers its answer, so a
+   test run flipped the real Settings row. In a test the record exists only where the test put it
+   (setLastFileForTests); otherwise nothing is remembered and nothing is known. */
+let lastFileForTests = null;
+function lastFile() {
+  if (lastFileForTests) return lastFileForTests();
+  /* Two independent signs of a test (round 13; bulletin runtime-self-detection-is-version-dependent):
+     execArgv's --test, which a runtime can stop reporting, and the test runner's own environment. */
+  if (require('./live-execution').inTestProcess() || process.env.NODE_TEST_CONTEXT) return null;
+  // Its own folder (round 17), apart from the sign-in's throwaway workspace (<ROOT>/agy-signin).
+  return path.join(require('./store').ROOT, 'agy-account', 'last.json');
+}
 /* Open agy once, in Terminal, so it can sign in. Google's docs (antigravity.google/docs/cli/install):
    started locally without a saved session, "The CLI automatically launches your local default web
    browser. Sign in using your approved account credentials." So Kosmos types nothing into it; the
@@ -136,6 +153,29 @@ function openForSignIn() {
       : { ok: true }));
   });
 }
+function remember(r) {
+  if (!r || r.offered === false) return;   // "not offered here" says nothing about a sign-in
+  if (r.signedIn !== true && !(r.signedIn === false && r.installed === false)) return;
+  const file = lastFile();
+  if (!file) return;
+  const rec = { signedIn: r.signedIn === true, at: new Date().toISOString() };
+  try { fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 }); fs.writeFileSync(file, JSON.stringify(rec), { mode: 0o600 }); } catch { /* best effort */ }
+}
+/** { signedIn, at } from the last confident answer, or null if there has been none. */
+function lastKnown() {
+  const file = lastFile();
+  if (!file) return null;
+  try { const r = JSON.parse(fs.readFileSync(file, 'utf8')); return r && typeof r.signedIn === 'boolean' ? r : null; } catch { return null; }
+}
+/** Forget it (Remove on the account row): Kosmos stops listing it; agy's own sign-in is untouched. */
+function forget() { const file = lastFile(); if (!file) return; try { fs.rmSync(file, { force: true }); } catch { /* none */ } }
+/* No email on the row (review round 4): ~/.gemini/google_accounts.json is the Gemini CLI's own
+   sign-in, not Antigravity's, and Antigravity keeps no account file Kosmos can read. A person
+   signed in to the two as different Google accounts would have seen the wrong one. */
+function setLastFileForTests(fn) { lastFileForTests = fn || null; }
+
+/* #3998: signing in is engine/agysignin.js (agy's interactive sign-in run out of sight); the old
+   open-it-in-Terminal path is gone. */
 /* Install agy the way Google documents it (antigravity.google/docs/cli/install): its installer
    script, fetched over https from antigravity.google, puts agy in ~/.local/bin/agy. Kosmos installs
    every provider's terminal agent itself behind a Confirm press, and a person is never told to open
@@ -208,4 +248,5 @@ function setOpenerForTests(fn) { openTerminal = fn; }
 function setRunnerForTests(fn) { runAgy = fn; }
 
 REAL.runAgy = runAgy; REAL.openTerminal = openTerminal; REAL.runInstall = runInstall;
-module.exports = { resetForTests, allowSandboxInstallForTests, installed, installedForScreen, offered, supported, check, openForSignIn, install, setRunnerForTests, setOpenerForTests, setInstallerForTests, setPlatformForTests, setWin32InstallerForTests, PROMPT, INSTALL_URL };
+module.exports = { resetForTests, allowSandboxInstallForTests, installed, installedForScreen, offered, supported, check, openForSignIn, install, setRunnerForTests, setOpenerForTests, setInstallerForTests, setPlatformForTests, setWin32InstallerForTests, PROMPT, INSTALL_URL,
+  remember, lastKnown, forget, setLastFileForTests };

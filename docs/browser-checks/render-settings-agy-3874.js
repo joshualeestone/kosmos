@@ -1,4 +1,4 @@
-// Browser-check-surface: acct-gemini-flow acct-gemini-pick acct-gemini-sub-step acct-keyed-install
+// Browser-check-surface: acct-gemini-flow acct-gemini-pick acct-gemini-sub-step acct-keyed-install acct-gemini-sub-paste-row acct-gemini-sub-paste acct-gemini-sub-paste-go acct-gemini-sub-page
 'use strict';
 /**
  * kosmos#3874: Settings, AI Models, Add a provider offers Gemini on a Google subscription, as the
@@ -8,8 +8,9 @@
  *     API key) first, with no key box and no download showing, and focus on the first choice;
  *   - "Use an API key" with the Gemini CLI missing goes to its download step;
  *   - switching provider and back returns to the choice (nothing left over);
- *   - "Sign in with Google" walks not installed -> Install Antigravity -> Open -> Check again
- *     -> Ready, in the dialog, each press posting only its own route;
+ *   - "Sign in with Google" walks not installed -> Install Antigravity -> Sign in with Google (the
+ *     hidden sign-in, #3998) -> the code pasted in the dialog -> the gold connected box, in the
+ *     dialog, each press posting only its own route, with focus kept inside the dialog;
  *   - Stop partway returns to the choice;
  *   - a slow availability read answering after the dialog closed, or after a switch to Grok, paints
  *     no Gemini choice (the visit re-check after agyAsk), and the same read on an open dialog does;
@@ -39,12 +40,22 @@ async function openPage(browser, offered) {
   await page.addInitScript((isOffered) => {
     window.__posts = [];
     window.__check = [{ installed: false, signedIn: false }];
+    window.__signin = [{ state: 'starting' }];   // #3998: what GET /api/antigravity/signin answers, in turn
     const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
     window.setInterval = () => 0;
     window.fetch = async (url, opts) => {
       const u = String(url);
       const post = opts && opts.method === 'POST';
-      if (/\/api\/antigravity\/(check|install|open)$/.test(u) && post) {
+      // #3998: the hidden sign-in's addresses (engine/agysignin.js stood in for).
+      if (/\/api\/antigravity\/signin(\/(code|show|stop))?$/.test(u)) {
+        const which = u.endsWith('/signin') ? 'signin' : u.split('/').pop();
+        const ID = 'a1b2c3d4e5f60718';   // the sign-in start() names; every state read carries it
+        if (!post) return enc({ id: ID, ...(window.__signin.length > 1 ? window.__signin.shift() : window.__signin[0]) });
+        window.__posts.push(which);
+        if (which === 'code') { const b = JSON.parse(opts.body || '{}'); window.__codeSent = b.code; window.__codeId = b.id; }
+        return enc({ ok: true, id: ID, state: which === 'signin' ? 'starting' : 'checking' });
+      }
+      if (/\/api\/antigravity\/(check|install)$/.test(u) && post) {
         const which = u.split('/').pop();
         window.__posts.push(which);
         if (which === 'check') return enc(window.__check.length > 1 ? window.__check.shift() : window.__check[0]);
@@ -118,16 +129,35 @@ const view = () => ({
   await q(settle);
   const d2 = await look();
   chk(d2.focus === 'acct-gemini-sub-cancel' || d2.focus === 'acct-gemini-sub-go', 'a keyboard press keeps focus inside the dialog while the button it pressed hides', JSON.stringify({ focus: d2.focus }));
-  chk(d2.button === 'Open Antigravity to sign in' && d2.posts.join() === 'check,install', 'Install runs, then offers Open (no check spent)', JSON.stringify(d2));
-  await q(() => document.getElementById('acct-gemini-sub-go').click());
-  await q(settle);
-  const d3 = await look();
-  chk(d3.button === 'Check again' && /opens Google's sign-in in your browser/.test(d3.text) && d3.posts.join() === 'check,install,open', 'Open runs on its own press, then offers Check again', JSON.stringify(d3));
-  await q(() => document.getElementById('acct-gemini-sub-go').click());
-  await q(settle);
-  const d4 = await look();
-  chk(/^Ready\. Gemini runs on your Google subscription/.test(d4.text) && d4.button === '' && !d4.stop, 'Check again reaches Ready in the dialog, with no Stop', JSON.stringify(d4));
-  if (shots) await page.locator('#acct-add-dialog').screenshot({ path: path.join(shots, 'settings-gemini-ready-3874.png') });
+  chk(d2.button === 'Sign in with Google' && d2.posts.join() === 'check,install', 'Install runs, then offers Sign in with Google (no check spent)', JSON.stringify(d2));
+  /* #3998: no Terminal. The press starts the hidden sign-in; the step shows a paste box for the code
+     Google's page shows, with a way back to Google's page. */
+  await q(() => { window.__signin = [{ state: 'code', url: 'https://accounts.google.com/o/oauth2/auth?x=1' }]; document.getElementById('acct-gemini-sub-go').click(); });
+  await q(() => new Promise((r) => setTimeout(r, 1500)));
+  const d3 = await q(() => ({
+    posts: window.__posts.slice(), text: document.getElementById('acct-gemini-sub-code').textContent,
+    paste: !document.getElementById('acct-gemini-sub-paste-row').hidden,
+    page: document.getElementById('acct-gemini-sub-page').getAttribute('href'),
+    focus: document.activeElement && document.activeElement.id,
+  }));
+  chk(d3.posts.join() === 'check,install,signin' && d3.paste && /copy the code Google shows and paste it below/.test(d3.text)
+      && d3.page === 'https://accounts.google.com/o/oauth2/auth?x=1' && d3.focus === 'acct-gemini-sub-paste',
+    '#3998 Sign in with Google starts the hidden sign-in and asks for Google\'s code in the dialog, focus in the box', JSON.stringify(d3));
+  if (shots) await page.locator('#acct-add-dialog').screenshot({ path: path.join(shots, 'settings-gemini-paste-3998.png') });
+  await q(() => { document.getElementById('acct-gemini-sub-paste').value = '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v'; window.__signin = [{ state: 'setup', step: 'terms' }, { state: 'done' }]; document.getElementById('acct-gemini-sub-paste-go').click(); });
+  await q(() => new Promise((r) => setTimeout(r, 2800)));
+  const d4 = await q(() => ({
+    code: window.__codeSent, codeId: window.__codeId, box: !document.getElementById('acct-success-box').hidden,
+    focusIn: !!(document.activeElement && document.activeElement !== document.body && document.activeElement.closest('#acct-add-dialog')),
+    boxText: document.getElementById('acct-success-box').textContent.replace(/\s+/g, ' ').trim(),
+    flow: !document.getElementById('acct-gemini-flow').hidden,
+  }));
+  chk(d4.focusIn, '#3998 focus stays inside the dialog after the paste box hides (not dropped behind it)', JSON.stringify({ focusIn: d4.focusIn }));
+  chk(d4.code === '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v' && d4.codeId === 'a1b2c3d4e5f60718' && d4.box && /Gemini is connected/.test(d4.boxText) && !d4.flow,
+    '#3998 the pasted code goes to the board, and the dialog ends on the gold connected box, like GPT and Grok', JSON.stringify(d4));
+  if (shots) await page.locator('#acct-add-dialog').screenshot({ path: path.join(shots, 'settings-gemini-connected-3998.png') });
+  await q(() => { closeAcctAdd(); });
+  await open('open');
 
   await open('xai');
   await open('google');
