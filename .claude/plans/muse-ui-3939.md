@@ -41,3 +41,6 @@ With the flag on, on a Mac with Muse Code installed, a person can pick Meta in A
 - The session line runs through /bin/sh: tmux uses the person's own shell, and fish refuses $?. This could not be run here (no fish); the real-tmux tests all pass through /bin/sh now.
 - The screen phrases and the code finder read one spelling (PRESS_WORDS, EXPIRED_WORDS). Retry's screen re-check is tested (control red). MAX_KEY_FAILURES is exported and the test reads it.
 - With the flag off, the three sign-in routes still answer (idle or a refusal). Nothing can start, and the route comment says so.
+
+## 3a review round 4 (decided)
+- A present-but-empty `providers.meta` entry reads as not signed in, now tested (control red). Nit left: the test's socket cleanup assumes /private/tmp when TMUX_TMPDIR is unset. That is correct on a Mac, and these tests are Mac only.
