@@ -78,6 +78,7 @@ struct LoadFailureView: View {
         switch failure {
         case .offline: return "You're offline"
         case .unreachable: return "Kosmos+ isn't answering"
+        case .macUnreachable: return "Your Mac isn't answering"
         case .other: return "This page didn't load"
         }
     }
@@ -86,6 +87,7 @@ struct LoadFailureView: View {
         switch failure {
         case .offline: return "Kosmos opens again as soon as your phone is back online."
         case .unreachable: return "Your phone is online, but Kosmos+ didn't reply. Try again in a moment."
+        case .macUnreachable: return "Your phone is online, but your Mac didn't reply. It may be asleep or turned off. Wake it, then try again."
         case .other: return detail.isEmpty ? "Something stopped the page from loading." : detail
         }
     }
@@ -94,7 +96,7 @@ struct LoadFailureView: View {
         ZStack {
             Color(uiColor: .kosmosNavy).ignoresSafeArea()
             VStack(spacing: 16) {
-                Image(systemName: failure == .offline ? "wifi.slash" : "exclamationmark.icloud")
+                Image(systemName: failure == .offline ? "wifi.slash" : failure == .macUnreachable ? "desktopcomputer" : "exclamationmark.icloud")
                     .font(.system(size: 44, weight: .regular))
                     .foregroundColor(KosmosColor.gold)
                     .accessibilityHidden(true)

@@ -331,8 +331,11 @@ struct WebView: UIViewRepresentable {
             endRefreshing()
             shell?.retrying = false
             let e = error as NSError
-            guard let failure = Shell.loadFailure(domain: e.domain, code: e.code) else { return }
-            failedURL = e.userInfo[NSURLErrorFailingURLErrorKey] as? URL
+            let failingURL = e.userInfo[NSURLErrorFailingURLErrorKey] as? URL
+            guard let failure = Shell.loadFailure(domain: e.domain, code: e.code,
+                                                  failingHost: failingURL?.host,
+                                                  coordinator: KosmosConfig.coordinatorOrigin) else { return }
+            failedURL = failingURL
             failedProvisionally = provisional
             // The host only: a Mac link carries the person's sign-in token in its
             // fragment (#kst=), which must never reach a log.

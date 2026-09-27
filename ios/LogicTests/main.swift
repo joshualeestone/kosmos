@@ -177,6 +177,21 @@ check(Shell.loadFailure(domain: "WebKitErrorDomain", code: 204) == nil, "media h
 check(Shell.loadFailure(domain: NSURLErrorDomain, code: NSURLErrorFileDoesNotExist) == .other, "anything else: other")
 check(Shell.loadFailure(domain: "SomeDomain", code: 1) == .other, "another domain: other")
 
+section("shell: which end did not answer (#718 state 2)")
+func failed(_ code: Int, _ host: String?) -> Shell.LoadFailure? {
+    Shell.loadFailure(domain: NSURLErrorDomain, code: code, failingHost: host, coordinator: coordinator)
+}
+check(failed(NSURLErrorTimedOut, "leo.kosmosplus.com") == .macUnreachable, "a Mac's own address timing out: the Mac is not answering")
+check(failed(NSURLErrorCannotConnectToHost, "Leo.KosmosPlus.com") == .macUnreachable, "a Mac's address in any case: the Mac")
+check(failed(NSURLErrorSecureConnectionFailed, "leo.kosmosplus.com") == .macUnreachable, "a failed secure connection to a Mac: the Mac")
+check(failed(NSURLErrorTimedOut, "login.kosmosplus.com") == .unreachable, "the coordinator timing out: Kosmos+, not a Mac")
+check(failed(NSURLErrorTimedOut, "example.com") == .unreachable, "another host: Kosmos+ wording, never a Mac")
+check(failed(NSURLErrorTimedOut, "a.b.kosmosplus.com") == .unreachable, "two labels deep is not a Mac's address")
+check(failed(NSURLErrorTimedOut, nil) == .unreachable, "no failing address: Kosmos+ wording")
+check(failed(NSURLErrorNotConnectedToInternet, "leo.kosmosplus.com") == .offline, "the phone offline stays offline, whichever address")
+check(failed(NSURLErrorCancelled, "leo.kosmosplus.com") == nil, "a cancelled load on a Mac is still not a failure page")
+check(!Shell.retriesOnShow(failure: .macUnreachable, online: true, alreadyRetried: false), "a Mac not answering is not auto-retried as if the phone came back online")
+
 section("shell: where a link goes")
 func link(_ s: String, _ o: Shell.Origin = .tapped) -> Shell.LinkDecision { Shell.linkDecision(for: URL(string: s)!, coordinator: coordinator, origin: o) }
 check(link("https://login.kosmosplus.com/signin") == .inApp, "the coordinator: in the app")
