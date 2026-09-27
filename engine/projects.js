@@ -2708,6 +2708,12 @@ function blockBody(projects, sessionName) {
  * rather than fatal. Recording membership and telling the agent are two
  * different acts, and the second one failing must not undo the first.
  */
+/* Exact to permit (#3932 shares it with tellAgent): the roster holds this exact name as one of ours.
+   A roster that is not a list is "could not look", which is not permission. */
+function heldExactly(sessionName, roster) {
+  return Array.isArray(roster) && roster.some((a) => a && a.sessionName === sessionName && a.isNamedOurs === true);
+}
+
 function tellAgent(sessionName, projects, roster) {
   try {
     // ⚠️ EXACT MATCH TO PERMIT, and this gate was MISSING while every sibling
@@ -2728,7 +2734,7 @@ function tellAgent(sessionName, projects, roster) {
     // enough permission to rewrite that agent's boot file. Remove gates the
     // equivalent destructive action on exactly this flag, and the status engine
     // states the rule outright: every read keyed on a pane name needs it.
-    if (!Array.isArray(roster) || !roster.some((a) => a && a.sessionName === sessionName && a.isNamedOurs === true)) {
+    if (!module.exports.heldExactly(sessionName, roster)) {
       return {
         state: TOLD.COULD_NOT,
         /**
@@ -2985,7 +2991,7 @@ module.exports = {
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE, BRIEF_PENDING_NOTES_BEFORE_AUDIENCE,
-  findBlock, spliceBlock, removeBlock, blockBody, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership,
+  findBlock, spliceBlock, removeBlock, blockBody, heldExactly, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
   folderPathPreview, makeFolder, revealFolder, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile,
   isUnderTmpDir, tmpFolderRefused,

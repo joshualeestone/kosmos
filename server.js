@@ -948,14 +948,14 @@ function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
   try {
     let roster;   // read only when some member's newest verdict is could_not
     const board = () => (roster === undefined ? (roster = safeRoster()) : roster);
+    const all = projects.readAll();
     return autoretell.sweepOnce({
-      projects: projects.readAll(),
+      projects: all,
       /* Loose to notice, exact to permit, by tellAgent's own rule: `fileFor` folds names through
          `store.safeKey`, so a member spelled `An.gel` would read `angel`'s file. Only a name the
          board holds exactly, as one of ours, is looked at. */
       mtimeOf: (name) => {
-        const r = board();
-        if (!Array.isArray(r) || !r.some((a) => a && a.sessionName === name && a.isNamedOurs === true)) return null;
+        if (!projects.heldExactly(name, board())) return null;
         const f = instructions.fileFor(name);
         return f ? fs.statSync(f).mtimeMs : null;
       },
@@ -968,8 +968,8 @@ function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
       ready: (name) => {
         const r = board();
         const card = Array.isArray(r) ? r.find((a) => a && a.sessionName === name) : null;
-        if (card && card.state === 'stopped') return true;
-        const st = projects.toldOverride(instructions.staleness(name), name);
+        if (card && card.state === STATE.STOPPED) return true;
+        const st = projects.toldOverride(instructions.staleness(name), name, all);
         return !!(st && st.state === instructions.STALENESS.CURRENT);
       },
       retell: (name, id) => retellMember(name, id, board()),

@@ -64,8 +64,10 @@ cost is a reload before their save, not an overwrite.
   read the person's change. Review 2 found the problem; review 4 found the writer-based version beaten
   by a person's edit followed by any Kosmos write (the record keeps only the last writer); review 6
   found a stopped agent with a surviving transcript held back and an unknown start let through.
-- The exact-name gate is tellAgent's own: the board holds the exact name as one of ours (review 5
-  found `name === safeKey(name)` shut out real agents like `Or.Two`).
+- The exact-name gate is tellAgent's own, one function both call: `projects.heldExactly(name, roster)`
+  (review 5 found `name === safeKey(name)` shut out real agents like `Or.Two`; review 7 found the
+  gate hand-copied). Out of scope: the same expression still appears at projects.js ~857 and
+  server.js ~5249 / ~5363, which predate this branch.
 - COST: for a running agent the Act row clears only after its restart, not seconds after the fix.
   The commonest row ("no instructions file yet", fixed under a running agent) always takes this path.
   The follow-up page copy must not promise that it clears by itself while the agent runs. Written on

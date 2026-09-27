@@ -15314,9 +15314,9 @@ test('#3932: once the person fixes the file an Act row asked about, the board re
   const storeBefore = eng.readAll();
   const spoke = [];
   const acted = new Map();
+  const file = instr.fileFor('rhea');
   try {
     eng.speakOfMembership = (who, proj, kind) => { spoke.push([who, proj && proj.id, kind]); return { state: 'told' }; };
-    const file = require('./engine/instructions').fileFor('rhea');
     fs.rmSync(file, { force: true });
     const made = await req('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'Autoretell Fixture', folder: mkTemp('aw-autoretell-'), agents: ['rhea'] }) });
@@ -15384,6 +15384,7 @@ test('#3932: once the person fixes the file an Act row asked about, the board re
     eng.speakOfMembership = realSpeak;
     instr.staleness = realStaleness;
     eng.writeAll(storeBefore);
+    fs.rmSync(file, { force: true });
     board.restore();
   }
 });
@@ -15397,6 +15398,7 @@ test('#3932: a STOPPED agent whose name is not in canonical form (Or.Two) is re-
   const instr = require('./engine/instructions');
   const realStaleness = instr.staleness;
   const storeBefore = eng.readAll();
+  const file = instr.fileFor('Or.Two');
   try {
     /* Stopped reads its file when it next starts, so a stale reading (a surviving transcript's
        birth time) does not hold it back. */
@@ -15414,7 +15416,6 @@ test('#3932: a STOPPED agent whose name is not in canonical form (Or.Two) is re-
       p.agents = ['Or.Two'];
       p.told = { 'Or.Two': { state: eng.TOLD.COULD_NOT, because: 'it has no instructions file yet, and we will not create one', at: new Date(at).toISOString() } };
     } eng.writeAll(all); }
-    const file = require('./engine/instructions').fileFor('Or.Two');
     fs.mkdirSync(nodePath.dirname(file), { recursive: true });
     fs.writeFileSync(file, '# Or.Two\n\nMy own notes.\n');
     const mtime = at + 1000;
@@ -15425,6 +15426,7 @@ test('#3932: a STOPPED agent whose name is not in canonical form (Or.Two) is re-
     eng.speakOfMembership = realSpeak;
     instr.staleness = realStaleness;
     eng.writeAll(storeBefore);
+    fs.rmSync(file, { force: true });
     board.restore();
   }
 });
