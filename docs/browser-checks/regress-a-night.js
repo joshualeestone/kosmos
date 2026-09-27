@@ -115,14 +115,20 @@ function seed() {
        do not need a rect, but the section is opened anyway so a later rect
        assertion added here does not inherit a hidden element. */
     await pg.click('#s-nav button[data-go="accounts"]');
-    /* #1079: since #881 the list confirms each account live before it draws, and shows "Checking..."
-       for a real, multi-second span. A fixed 200ms read that placeholder and failed on every run once
-       the check was un-quarantined. Wait for a row to exist (bounded), then assert as before: a list
-       that never draws still fails, at the bound, with what the box said. */
-    await pg.waitForSelector('#set-accounts .acct-box', { timeout: 20000 }).catch(() => {});
-    const acctRows = await pg.evaluate(() => document.querySelectorAll('#set-accounts .acct-box').length);
-    chk(acctRows > 0, theme + ': the accounts list is read, not asserted',
-      acctRows ? acctRows + ' rows' : 'the box said: ' + (await pg.evaluate(() => (document.getElementById('set-accounts') || {}).textContent || '')).trim().slice(0, 120));
+    /* #1079: the list must show the account this board was seeded with (tools/browser-checks.sh gives sb1 its own
+       home holding night@example.com; since #3675 a fixture board never reads the host Mac's accounts, so before
+       the seed this list was empty and the assertion could only have passed on the operator's own accounts).
+       Asserting the seeded address, not "some row", so a stray or remembered row cannot pass for it. The wait is
+       a guard, not the measured cause: since #881 a real board confirms each account live and shows "Checking..."
+       for seconds, so a fixed 200ms would be too short there; it is bounded, and on failure the box's text is
+       printed. */
+    await pg.waitForSelector('#set-accounts .acct-box', { state: 'attached', timeout: 20000 }).catch(() => {});
+    const acct = await pg.evaluate(() => {
+      const box = document.getElementById('set-accounts');
+      return { rows: box ? box.querySelectorAll('.acct-box').length : 0, text: box ? box.textContent.replace(/\s+/g, ' ').trim() : '' };
+    });
+    chk(acct.rows > 0 && acct.text.includes('night@example.com'), theme + ': the accounts list is read, not asserted',
+      acct.rows ? acct.rows + ' rows: ' + acct.text.slice(0, 120) : 'the box said: ' + acct.text.slice(0, 120));
     await pg.click('#s-nav button[data-go="advanced"]');
     await pg.waitForTimeout(200);
     const hist = await pg.evaluate(() => { const el = document.getElementById('hist-count'); return el.getBoundingClientRect().height > 0 ? el.innerText : ''; });
