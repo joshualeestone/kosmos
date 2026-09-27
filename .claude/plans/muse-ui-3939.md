@@ -87,3 +87,7 @@ With the flag on, on a Mac with Muse Code installed, a person can pick Meta in A
 - No resend once Muse has drawn anything after the Press prompt: new text proves the Enter was taken, even in words Kosmos does not know. The code stays shown and no stuck is named, since Muse may be polling in unknown words; "Logged in." still ends it, and the 20-minute limit backstops. Control red.
 - The code in the boxes is the address's user_code when it has one, and a printed dashed code otherwise. A later dashed token (a request id, a UTC offset) can no longer disagree with the page Meta opens. Control red.
 - The two remaining inline reasons are constants; NOT_ON is exported and the tests read it.
+
+## 3a review round 14 (decided, converged)
+- 0 BLOCKER, 0 WARNING, 0 CONVENTION (sonnet, after opus round 13), with three mutation controls red.
+- Deferred nit: two lines in start() lack the explanatory comments agysignin carries (tmuxBinCached reset, the gate pre-check). This is documentation parity, taken up with #4195's shared module.
