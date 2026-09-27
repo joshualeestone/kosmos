@@ -97,7 +97,10 @@ function parseAssignment(line) {
    (REGION_TOKEN_VERSION) also keeps it held. camelCase names are split like snake_case ones. URL, HOST and ENDPOINT
    are deliberately NOT public: a URL can carry a token or a password, and holding one costs only a masked address.
    ZONE is not public either: Cloudflare's CF_ZONE_ID is read from the secrets folder, and TZ/TIMEZONE cover time. */
-const PUBLIC_NAME_PARTS = new Set(['MODEL', 'MODELS', 'REGION', 'VERSION', 'LOCALE', 'LANG', 'LANGUAGE', 'TZ', 'TIMEZONE']);
+/* Singular and plural alike (review round 4: AWS_REGIONS, SUPPORTED_LOCALES). A name glued into one word with no
+   separator or case change (APIVERSION, MODELNAME) is not split, so its value stays held: the safe direction. */
+const PUBLIC_NAME_PARTS = new Set(['MODEL', 'MODELS', 'REGION', 'REGIONS', 'VERSION', 'VERSIONS', 'LOCALE', 'LOCALES',
+  'LANG', 'LANGS', 'LANGUAGE', 'LANGUAGES', 'TZ', 'TIMEZONE', 'TIMEZONES']);
 /* Matched INSIDE each part, not as a whole part (review round 3: PRIVKEY_VERSION, APITOKEN_MODEL). Over-matching only
    keeps a value held (DESIGN_MODEL holds its value, as before #4111); no public part contains one of these. */
 const SECRET_NAME_PARTS = /KEY|TOKEN|SECRET|PASS|PWD|AUTH|BEARER|JWT|HMAC|CRED|PRIV|SIG|SALT|NONCE|COOKIE|SESSION|DSN|CERT|PEM|SEED|MNEMONIC|^PIN$|^OTP$|^TOTP$/;

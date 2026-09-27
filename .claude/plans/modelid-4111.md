@@ -58,3 +58,8 @@ is narrowed to the last part so a misnamed secret needs a NAME that says, in its
 - W: secret words glued into a part (PRIVKEY_VERSION, APITOKEN_MODEL) passed as public. Secret words now match
   inside each part (over-matching only keeps a value held). Anchored perturbation: two tests red.
 - N: comment reflowed; one-line check uses [\r\n]; isPublicName table pins the glued cases.
+### Iteration 4 (sonnet): 1 WARNING fixed, 1 NIT documented, 1 CONVENTION deferred.
+- W: plurals were public only for MODELS; REGIONS, VERSIONS, LOCALES, LANGS, LANGUAGES, TIMEZONES added and tested.
+- N: a glued one-word name (APIVERSION, MODELNAME) is not split and stays held; stated in the comment, pinned in the
+  table as not public (the safe direction).
+- C (deferred, repo practice): plan filename without a timestamp; this directory holds both forms.

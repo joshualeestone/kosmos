@@ -126,8 +126,8 @@ test('#4111 a value assigned to a public NAME (MODEL, REGION, VERSION) is not he
 
 test('#4111 isPublicName: a public part and no secret part', () => {
   const { isPublicName } = require('./knownsecrets');
-  for (const n of ['OPENAI_MODEL', 'model', 'AWS_REGION', 'api.version', 'TZ', 'default-model', 'defaultModel', 'modelId', 'OPENAI_MODEL_ID', 'model.name']) assert.equal(isPublicName(n), true, n);
+  for (const n of ['OPENAI_MODEL', 'model', 'AWS_REGION', 'api.version', 'TZ', 'default-model', 'defaultModel', 'modelId', 'OPENAI_MODEL_ID', 'model.name', 'AWS_REGIONS', 'SUPPORTED_LOCALES', 'API_VERSIONS']) assert.equal(isPublicName(n), true, n);
   for (const n of ['MODEL_API_KEY', 'OPENAI_API_KEY', 'REGION_TOKEN', 'DATABASE_URL', 'API_HOST', 'VERSION_SECRET', 'MODELX',
     'MODEL_PASSPHRASE', 'REGION_BEARER', 'model.api-key', 'model-secret', 'modelToken', 'REGION_TOKEN_VERSION', 'CF_ZONE_ID', 'SESSION_ID', 'ID',
-    'PRIVKEY_VERSION', 'APITOKEN_MODEL', 'SECRETKEY_REGION', 'ACCESSKEY_VERSION', 'apiKeyModel']) assert.equal(isPublicName(n), false, n);
+    'PRIVKEY_VERSION', 'APITOKEN_MODEL', 'SECRETKEY_REGION', 'ACCESSKEY_VERSION', 'apiKeyModel', 'APIVERSION', 'MODELNAME']) assert.equal(isPublicName(n), false, n);
 });
