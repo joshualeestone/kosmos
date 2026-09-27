@@ -48,12 +48,13 @@ const EXIT0 = /process\.exit\(\s*0?\s*\)/;
 /* PASS as a word anywhere on a code line, not only inside a quote on that line: a multi-line
    template literal prints PASS from a line with no opening quote (review round 5). */
 const PASS_WORD = /\bPASS\b/;
-/* A marked quarantine must print PASS and quarantined in ONE string literal, so they reach the
-   output on one line, where the harness looks (tools/lib/bc-quarantine.sh). Either order;
-   quarantined in any case, PASS as written, the same rule the harness applies. */
+/* A marked quarantine must print PASS and QUARANTINED in ONE string literal, so they reach the
+   output on one line, where the harness looks (tools/lib/bc-quarantine.sh). Either order, both
+   upper case as written: the same rule the harness applies. Lower-case "quarantined" is a real
+   moderation status that a fully-run check can report on, so it is not the token (round 6). */
 const LITERAL = /(['"`])((?:(?!\1)[^\\\n]|\\.)*)\1/g;
 function literalSaysQuarantinedPass(line) {
-  for (const m of line.matchAll(LITERAL)) if (PASS_WORD.test(m[2]) && /\bquarantined\b/i.test(m[2])) return true;
+  for (const m of line.matchAll(LITERAL)) if (PASS_WORD.test(m[2]) && /\bQUARANTINED\b/.test(m[2])) return true;
   return false;
 }
 /* A whole-line comment only. `/* temp *\/ console.log('PASS')` is code after its comment. */
@@ -75,7 +76,7 @@ function atOrPast(cur, until) {
 function scan(name, src, version) {
   const lines = src.split('\n');
   /* The LAST launch, ignoring comment lines: a helper defined above the main flow can hold
-     the first `.launch(` (render-fields.js does), and measuring from it would read an early
+     the first `.launch(` (eight checks launch more than once), and measuring from it would read an early
      PASS-exit in the main flow as "after the launch" and pass it (review WARNING 2). */
   let launchAt = -1;
   lines.forEach((l, i) => { if (!isCommentLine(l) && LAUNCH.test(l)) launchAt = i; });
@@ -94,7 +95,7 @@ function scan(name, src, version) {
       return;
     }
     /* The harness can only see a quarantine by the word it prints, so a marked one must print it
-       where the harness reads it: PASS and quarantined in one string literal (rounds 1, 4, 5). */
+       where the harness reads it: PASS and QUARANTINED in one string literal (rounds 1, 4, 5, 6). */
     if (!nearLines.some(literalSaysQuarantinedPass)) {
       problems.push(name + ':' + (i + 1) + ' is marked as a quarantine but no string near its exit says PASS and QUARANTINED together, '
         + 'so tools/browser-checks.sh would log it as a pass. Print both in one line, for example "PASS  <name> QUARANTINED".');
@@ -197,14 +198,14 @@ test('control (review WARNING 3): a marked quarantine must print QUARANTINED', (
   assert.match(p[0], /says PASS and QUARANTINED together/);
 });
 
-test('control (review round 2): lower-case quarantined counts, as in the harness; a commented exit is not an exit', () => {
+test('control (review rounds 2 and 6): QUARANTINED is matched as the harness matches it, upper case; a commented exit is not an exit', () => {
   const lower = [
     '  // QUARANTINE until=0.9.00 card=#1079: stale click',
     "  console.log('PASS  x quarantined for this cut');",
     '  process.exit(0);',
     '  await chromium.launch();',
   ].join('\n');
-  assert.deepEqual(scan('l.js', lower, [0, 7, 1]), []);
+  assert.match(scan('l.js', lower, [0, 7, 1])[0], /says PASS and QUARANTINED together/);
   const doc = ["// never do: console.log('PASS x'); process.exit(0);", 'await chromium.launch();'].join('\n');
   assert.deepEqual(scan('d.js', doc, [0, 7, 1]), []);
 });

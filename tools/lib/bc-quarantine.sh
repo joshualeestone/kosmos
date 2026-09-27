@@ -17,18 +17,18 @@
 
 ## bc_quarantine_note <label> <captured-output-file>
 ## After a check exited 0: returns 0 and records it when a PASS line in its output
-## says QUARANTINED (any case; PASS as written; whole words, either order), so the caller prints nothing more; returns
-## 1 when none does, so the caller logs its PASS. Only a PASS line counts: the product
-## has a "quarantined" moderation status, and a check asserting on it must not read as
-## skipped. The same rule as browser-checks-quarantine-guard.test.js (PASS string that
-## says quarantined).
+## says QUARANTINED (both upper case as written, whole words, either order), so the caller prints nothing more; returns
+## 1 when none does, so the caller logs its PASS. Only a PASS line with the capitalised
+## token counts: the product has a "quarantined" moderation status, and a check asserting on
+## it must not read as skipped. The same rule as browser-checks-quarantine-guard.test.js.
 bc_quarantine_note() {
   local label="$1" cap="$2"
-  # One output line with PASS (as written) and quarantined (any case) as whole words, in either
-  # order: the rule browser-checks-quarantine-guard.test.js holds a marked quarantine to. awk,
-  # not a grep pipe: under pipefail an early-exiting `grep -q` reads as a failure (SIGPIPE).
-  awk '{ l = tolower($0) }
-       $0 ~ /(^|[^A-Za-z0-9_])PASS([^A-Za-z0-9_]|$)/ && l ~ /(^|[^a-z0-9_])quarantined([^a-z0-9_]|$)/ { f = 1 }
+  # One output line with PASS and QUARANTINED, upper case as written, whole words, either order:
+  # the rule browser-checks-quarantine-guard.test.js holds a marked quarantine to. Case-sensitive
+  # on purpose: QUARANTINED in capitals is the token, and "quarantined" in lower case is a real
+  # moderation status a fully-run check can report on (review round 6). awk, not a grep pipe:
+  # under pipefail an early-exiting `grep -q` reads as a failure (SIGPIPE).
+  awk '$0 ~ /(^|[^A-Za-z0-9_])PASS([^A-Za-z0-9_]|$)/ && $0 ~ /(^|[^A-Za-z0-9_])QUARANTINED([^A-Za-z0-9_]|$)/ { f = 1 }
        END { exit !f }' "$cap" 2>/dev/null || return 1
   QUARANTINED+=("$label")
   log "QUARANTINED  $label (exited 0 but says it did not run its assertions; this is not a pass)"

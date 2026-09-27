@@ -17,11 +17,11 @@ trap 'rm -rf "$TMP"' EXIT
 printf 'PASS  regress-a-night QUARANTINED for this cut (stale click)\n' > "$TMP/q.out"
 printf 'PASS  all 55 assertions\n' > "$TMP/pass.out"
 printf 'playwright is not on NODE_PATH - SKIPPED, not passed\n' > "$TMP/skip.out"
-printf 'PASS  quarantined in lower case still counts\n' > "$TMP/lower.out"
+printf 'PASS  quarantined in lower case is not the token\n' > "$TMP/lower.out"
 printf 'PASS  the quarantinedness of nothing\n' > "$TMP/partial.out"
 printf 'PASS  a quarantined post is hidden from the feed\n' > "$TMP/modpass.out"
 printf 'QUARANTINED: PASS regress-a-night\n' > "$TMP/order.out"
-printf 'Passed a quarantined post\n' > "$TMP/mixed.out"
+printf 'Passed QUARANTINED\n' > "$TMP/mixed.out"
 printf 'hid 1 quarantined post\nPASS  moderation\n' > "$TMP/modsplit.out"
 
 # --- the #1079 output is QUARANTINED, not PASS ------------------------------------
@@ -41,7 +41,8 @@ bc_quarantine_note mixed "$TMP/mixed.out" && bad "a lower-case Passed was taken 
 QUARANTINED=()
 bc_quarantine_note gone "$TMP/missing.out" && bad "a missing capture was taken as quarantined" || ok "a missing capture is not a quarantine"
 [ "${#QUARANTINED[@]}" -eq 0 ] && ok "none of those were recorded" || bad "QUARANTINED=${QUARANTINED[*]:-}"
-bc_quarantine_note lower "$TMP/lower.out" && ok "any case counts" || bad "lower case missed"
+bc_quarantine_note lower "$TMP/lower.out" && bad "lower-case quarantined was taken as the token" || ok "lower-case quarantined is not the token (a real moderation status)"
+bc_quarantine_note modpass "$TMP/modpass.out" && bad "a full pass reporting on quarantined posts was refused" || ok "a full pass that reports on quarantined posts stays a pass (review round 6)"
 
 # --- the verdict: refused without the override ------------------------------------
 reset
@@ -113,4 +114,4 @@ out="$(run1e 0.7.02)"; rc=$?
 [ "$rc" -eq 0 ] && ok "step 1e lets a version below until through (the control)" || bad "step 1e exited $rc at 0.7.02: $out"
 
 echo "bc-quarantine: $passes passed, $fails failed"
-[ "$fails" -eq 0 ] && [ "$passes" -eq 30 ] || { echo "expected 30 passes and 0 failures"; exit 1; }
+[ "$fails" -eq 0 ] && [ "$passes" -eq 31 ] || { echo "expected 31 passes and 0 failures"; exit 1; }
