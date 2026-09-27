@@ -7812,7 +7812,17 @@ const server = http.createServer((req, res) => {
             || (now === 'fresh' && codexsigninlive.livenessCached(a.dir).verdict !== 'unknown'));
           const base = { ...a, offerable: !named || path.resolve(String(a.dir || '')) === onlyDir,
             ...(pending ? { connection: { ...a.connection, liveCheckPending: true } } : {}) };
-          const obs = a.dir ? obsByOpenaiDir.get(a.dir) : null;
+          /* #4064: a ChatGPT sign-in's live answer is recorded on its dir, dated when it was learned, as the Grok
+             check's is, so it stays green for the observed freshness window rather than only the check's 30s cache
+             (reopening AI Models no longer flashes amber). A dead answer forgets that green. API-key rows are left
+             alone: their `connected` is already a real /v1/models proof. */
+          const isChatgpt = a.authMode === 'chatgpt' && !!a.dir;
+          const answer = isChatgpt ? codexsigninlive.cachedAnswer(a.dir) : null;
+          if (answer && answer.verdict === 'live') observed.sawDir(observed.PROVIDER.OPENAI, a.dir, observed.OUTCOME.OK, answer.at);
+          if (answer && answer.verdict === 'dead') observed.forgetDir(observed.PROVIDER.OPENAI, a.dir);
+          const checkObs = isChatgpt && !(answer && answer.verdict === 'dead') ? observed.readDir(observed.PROVIDER.OPENAI, a.dir) : null;
+          const agentObs = a.dir ? obsByOpenaiDir.get(a.dir) : null;
+          const obs = (agentObs && checkObs) ? (checkObs.at >= agentObs.at ? checkObs : agentObs) : (agentObs || checkObs);
           if (!obs) return base;
           /* A dead verdict from the ChatGPT check that is NEWER than the agent's success wins: the person pressed Check
              now and was told it is not connected, and an older success must not paint over that (review round 6). */

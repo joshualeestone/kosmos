@@ -200,6 +200,15 @@ function deadIsNewer(dir, observedAt, nowMs) {
   const cur = cache.get(homeKey(dir));
   return !!cur && (now - cur.at) < TTL_MS && cur.verdict === 'dead' && Number.isFinite(observedAt) && cur.at > observedAt;
 }
+/* #4064: this home's fresh cached answer WITH when it was learned, or null. /api/accounts records a live one on the
+   observed per-dir store (as the Grok check does), so a working ChatGPT sign-in stays green for the observed
+   freshness window instead of only this cache's 30s. No side effect, like livenessCached. */
+function cachedAnswer(dir, nowMs) {
+  const now = typeof nowMs === 'number' ? nowMs : Date.now();
+  const cur = cache.get(homeKey(dir));
+  if (cur && (now - cur.at) < TTL_MS) return { verdict: cur.verdict, at: cur.at };
+  return null;
+}
 function livenessCached(dir, nowMs) {
   const now = typeof nowMs === 'number' ? nowMs : Date.now();
   const cur = cache.get(homeKey(dir));
@@ -235,4 +244,4 @@ async function livenessNow(dir) {
   return res.verdict;
 }
 
-module.exports = { liveness, livenessDetailed, livenessCached, deadIsNewer, checkState, livenessNow, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };
+module.exports = { liveness, livenessDetailed, livenessCached, cachedAnswer, deadIsNewer, checkState, livenessNow, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };
