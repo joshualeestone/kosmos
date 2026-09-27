@@ -28,7 +28,8 @@ tools/test-install.sh proves all of it, with a control showing today's path give
 - perl, not a compiled helper: /usr/bin/perl ships with macOS (5.34 here on 26.6.2) and needs
   nothing downloaded; its absence falls back safely.
 - Stops NEW duplicates only. A Dock that already has two kept Kosmos icons keeps them until the
-  person removes the stale one once (release note). No code edits anyone's Dock.
+  person removes the stale one once. No code edits anyone's Dock. The release-note line is in
+  the PR body for the cut owner (the notes file is release-lane), not in this diff.
 
 ## What review changed (rounds 1 to 7)
 - /usr/bin/stat by path (a GNU stat on PATH would skip the swap silently).
@@ -39,8 +40,12 @@ tools/test-install.sh proves all of it, with a control showing today's path give
   anywhere makes the call fail (ELOOP, the other folder untouched) and the rename runs; the
   physical path is needed because the flag also refuses system links such as /var.
 - Ownership is proved again, on that physical path, right before the swap.
-- The install log's app-bundle line records app_path=swap|rename|rename-swap-refused, so a report
-  of duplicate icons can say whether the swap ran on that machine.
+- The install log's app-bundle line records app_path=swap|rename|rename-swap-skipped|
+  rename-swap-refused and swap_errno (0, or why the kernel refused: 1 EPERM such as App
+  Management, 45 ENOTSUP, 22 EINVAL, 62 ELOOP), so a report of duplicate icons can say whether
+  the swap ran on that machine and, if not, why.
+- A staged folder found in neither place is looked for once more, then rebuilt in a fresh
+  folder, so a stage that cannot be removed cannot send the step on to ~/Applications.
 - A running Kosmos keeps its bundle path while Contents changes under it (its executable runs on
   from the old, unlinked file; kosmos-install.json is read at launch). New state, not expected to
   matter.

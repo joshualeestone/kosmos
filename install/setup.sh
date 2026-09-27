@@ -3023,7 +3023,8 @@ make_app() {
   # stays out of the real LaunchServices database. The other sandbox gates do not
   # know it: the harness always sets KOSMOS_APP_DIR as well. KOSMOS_CONTENTS_SWAP=off is also the switch that restores
   # the old whole-bundle rename on a machine where the swap misbehaves.
-  local _perl="${KOSMOS_SWAP_PERL:-/usr/bin/perl}" _swap_tried=no
+  local _perl="${KOSMOS_SWAP_PERL:-/usr/bin/perl}" _swap_tried=no _had_app=no _swap_errno=""
+  { [ -e "$app" ] || [ -L "$app" ]; } && _had_app=yes
   if [ "$(uname -s)" = Darwin ] && [ "${KOSMOS_CONTENTS_SWAP:-on}" != off ] \
      && [ -d "$app" ] && [ ! -L "$app" ] && [ -d "$app/Contents" ] && [ ! -L "$app/Contents" ] \
      && [ -f "$_perl" ] && [ -x "$_perl" ] && bundle_is_ours "$app"; then
@@ -3035,8 +3036,12 @@ make_app() {
     # proved on the physical path the swap is given, so the two name the same folder.
     if [ -n "$_staged_ino" ] && [ -n "$_phys" ] && bundle_is_ours "$_phys/$(basename "$app")"; then
       _swap_tried=yes
-      "$_perl" -e 'exit(syscall(488, -2, $ARGV[0], -2, $ARGV[1], 18) == 0 ? 0 : 1)' \
-        "$_phys/$(basename "$stage")/Contents" "$_phys/$(basename "$app")/Contents" 2>/dev/null || true
+      # Prints 0, or the errno of a refusal (1 EPERM, e.g. App Management; 45 ENOTSUP,
+      # a volume without swap; 22 EINVAL, a kernel without the flag; 62 ELOOP, a link),
+      # which the app-bundle log line carries as swap_errno.
+      _swap_errno="$("$_perl" -e 'my $r = syscall(488, -2, $ARGV[0], -2, $ARGV[1], 18); print(($r == 0) ? 0 : ($! + 0)); exit($r == 0 ? 0 : 1)' \
+        "$_phys/$(basename "$stage")/Contents" "$_phys/$(basename "$app")/Contents" 2>/dev/null)" || true
+      APP_SWAP_ERRNO="${_swap_errno:-none}"
       # WHERE THE STAGED FOLDER IS decides, never the exit code alone: a swap that
       # happened but reported failure must not fall through to the rename below,
       # which would then install $stage, by now the OLD Contents.
@@ -3052,11 +3057,23 @@ make_app() {
       fi
       if [ "$(/usr/bin/stat -f %i "$stage/Contents" 2>/dev/null)" != "$_staged_ino" ]; then
         # The staged folder is in neither place: something else moved it, or a stat
-        # after the swap failed. The stage is this run's own, so it is removed without
-        # the ownership proof and built again, and the whole-bundle rename below
-        # installs it: the app is refreshed (not left stale and reported as made), and
-        # in the same folder rather than failing on to ~/Applications. (Only if this
-        # rebuild itself fails does the step fail as any other make_app failure does.)
+        # after the swap failed. Look once more: if the app now holds the staged
+        # Contents after all, the swap was taken.
+        if [ "$(/usr/bin/stat -f %i "$app/Contents" 2>/dev/null)" = "$_staged_ino" ]; then
+          rm -rf "$stage" 2>/dev/null \
+            || info "note: could not remove the leftover hidden folder $stage; drag it to the Trash to finish."
+          APP_PATH=swap
+          make_app_register "$app"
+          return 0
+        fi
+        # Otherwise build again, in a FRESH folder (a stage that cannot be fully
+        # removed must not block it), and let the whole-bundle rename below install
+        # that: the app is refreshed, not left stale and reported as made, and in the
+        # same folder rather than failing on to ~/Applications. The old stage is this
+        # run's own, so it is removed without the ownership proof, best-effort; its
+        # name is swept like any stage. Only if this rebuild fails does the step fail.
+        rm -rf "$stage" 2>/dev/null || true
+        stage="$stage.r"
         rm -rf "$stage" 2>/dev/null || true
         /bin/mkdir "$stage" 2>/dev/null || return 1
         if ! build_app_bundle "$stage"; then
@@ -3100,7 +3117,12 @@ make_app() {
   fi
   rm -rf "$aside" 2>/dev/null \
     || info "note: could not remove the leftover hidden folder $aside; drag it to the Trash to finish."
-  if [ "$_swap_tried" = yes ]; then APP_PATH=rename-swap-refused; else APP_PATH=rename; fi
+  # rename: nothing was there to update; rename-swap-skipped: an update the swap was
+  # not attempted on (switched off, not provably ours, no perl); rename-swap-refused:
+  # the swap was attempted and did not take (swap_errno says why).
+  if [ "$_swap_tried" = yes ]; then APP_PATH=rename-swap-refused
+  elif [ "$_had_app" = yes ]; then APP_PATH=rename-swap-skipped
+  else APP_PATH=rename; fi
   make_app_register "$app"
   return 0
 }
@@ -3277,6 +3299,7 @@ APP_MADE=no
 # #2864: which way make_app put the icon in place (swap | rename | rename-swap-refused),
 # recorded in the app-bundle log line so a report of duplicate Dock icons can be read.
 APP_PATH=none
+APP_SWAP_ERRNO=none
 if [ "$APP_SKIP_ICON" = "yes" ]; then
   : # said below, where the not-made sentences live
 elif ! mkdir -p "$APP_DIR" 2>/dev/null; then
@@ -3515,9 +3538,9 @@ fi
 # (e.g. the logs dir gone) is itself suppressed -- a bare `printf >> "$LOG"
 # 2>/dev/null` does NOT catch the shell's own redirect-open error. `|| true`
 # keeps errexit from aborting the install over a diagnostic line.
-{ printf '[%s] app-bundle: made=%s skip_icon=%s skip_reason=%s fresh_install=%s sys_stale=%s sys_failed=%s home_foreign=%s app_path=%s\n' \
+{ printf '[%s] app-bundle: made=%s skip_icon=%s skip_reason=%s fresh_install=%s sys_stale=%s sys_failed=%s home_foreign=%s app_path=%s swap_errno=%s\n' \
   "$$" "$APP_MADE" "$APP_SKIP_ICON" "${APP_SKIP_REASON:-none}" "$FRESH_INSTALL" \
-  "${APP_SYS_STALE:-no}" "${APP_SYS_FAILED:-no}" "${APP_HOME_FOREIGN:-no}" "${APP_PATH:-none}" \
+  "${APP_SYS_STALE:-no}" "${APP_SYS_FAILED:-no}" "${APP_HOME_FOREIGN:-no}" "${APP_PATH:-none}" "${APP_SWAP_ERRNO:-none}" \
   >> "$LOG"; } 2>/dev/null || true
 # (2) On an UPDATE that did not rewrite the bundle, route the operator to the
 # reliable open path rather than a relaunch. This never ASSERTS the app is stale
