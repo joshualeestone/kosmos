@@ -93,7 +93,18 @@ function entitled(name, agents) {
     try {
       const store = require(path.join(REPO, 'engine', 'store.js'));
       const swarm = require(path.join(REPO, 'engine', 'swarm.js'));
-      return agents.filter((a) => { try { return swarm.settingsOf(store.readProfile(a)) !== null; } catch { return false; } });
+      /* ⚠️ readProfile answers {} for a missing OR unreadable profile, so "not a
+         swarm" and "could not look" arrive looking the same. An agent carrying the
+         swarm block with an empty profile is the one case that matters, and it is
+         CANNOT TELL, never a STALE verdict built on a read that did not happen. */
+      const leads = [];
+      for (const a of agents) {
+        const prof = store.readProfile(a);
+        const carries = text[a].includes(projects.SWARM_START);
+        if (carries && (!prof || Object.keys(prof).length === 0)) return null;
+        if (swarm.settingsOf(prof) !== null) leads.push(a);
+      }
+      return leads;
     } catch { return null; }
   }
   if (name !== 'projects') return agents;
@@ -110,10 +121,14 @@ function entitled(name, agents) {
    the quietest possible way to be wrong. A block added later with no case in
    hasContent reads CANNOT TELL, which is loud on purpose. */
 const names = [];
-for (const m of projects.ALL_MARKERS()) {
+const registry = projects.ALL_MARKERS();
+for (const m of registry) {
   const hit = /^<!-- kosmos:([a-z0-9-]+):start -->$/.exec(m);
   if (hit && !names.includes(hit[1])) names.push(hit[1]);
 }
+/* A marker this pattern cannot parse would drop out of the table in silence, the
+   defect the registry read exists to end. Every block is one start and one end. */
+const unparsed = registry.length !== names.length * 2;
 
 let agents;
 try {
@@ -145,6 +160,7 @@ console.log('');
 console.log('block'.padEnd(14) + 'has it'.padEnd(9) + 'entitled'.padEnd(10) + 'verdict');
 
 let undelivered = 0; let stale = 0; let cannotTell = 0; let awaiting = 0;
+let currentDoctrine = null; let colleaguesShort = false;
 for (const name of names) {
   const marker = '<!-- kosmos:' + name + ':start -->';
   const have = agents.filter((a) => text[a].includes(marker));
@@ -158,13 +174,18 @@ for (const name of names) {
     let verdict;
     try {
       const doctrine = require(path.join(REPO, 'engine', 'doctrine.js'));
-      const behind = agents.filter((a) => doctrine.planFor(text[a]).state === 'refresh');
-      const unsure = agents.filter((a) => doctrine.planFor(text[a]).state === 'could_not');
+      const now = Date.now();
+      const plan = Object.fromEntries(agents.map((a) => [a, doctrine.planFor(text[a], now).state]));
+      const behind = agents.filter((a) => plan[a] === 'refresh');
+      const unsure = agents.filter((a) => plan[a] === 'could_not');
+      currentDoctrine = agents.filter((a) => plan[a] === 'current').length;
       if (unsure.length) { verdict = 'CANNOT TELL on ' + unsure.join(', '); cannotTell += 1; }
       else if (!behind.length) verdict = 'current on all';
       else { verdict = 'behind on ' + behind.length + ', awaiting the person\'s consented refresh (#539)'; awaiting += 1; }
     } catch { verdict = 'CANNOT TELL -- could not read its source'; cannotTell += 1; }
-    console.log('  ' + name.padEnd(12) + String(have.length + '/' + agents.length).padEnd(9)
+    /* "has it" is agents CURRENT here, not agents carrying the marker: a file can
+       hold the rules as its own text with no marker, or a marked but outdated span. */
+    console.log('  ' + name.padEnd(12) + String((currentDoctrine === null ? '?' : currentDoctrine) + '/' + agents.length).padEnd(9)
       + String(agents.length).padEnd(10) + verdict);
     continue;
   }
@@ -181,7 +202,10 @@ for (const name of names) {
     if (!missing.length && !extra.length) verdict = 'delivered to all entitled';
     else {
       const bits = [];
-      if (missing.length) { bits.push('UNDELIVERED to ' + missing.length); undelivered += 1; }
+      if (missing.length) {
+        bits.push('UNDELIVERED to ' + missing.length); undelivered += 1;
+        if (name === 'colleagues') colleaguesShort = true;
+      }
       if (extra.length) { bits.push('STALE on ' + extra.join(', ')); stale += 1; }
       verdict = bits.join('; ');
     }
@@ -190,6 +214,11 @@ for (const name of names) {
     + String(ent === null ? '?' : ent.length).padEnd(10) + verdict);
 }
 
+if (unparsed) {
+  console.log('  CANNOT TELL: the registry holds ' + registry.length + ' markers but only '
+    + names.length + ' blocks parsed, so some block has no row above');
+  cannotTell += 1;
+}
 console.log('');
 console.log(undelivered + ' block(s) undelivered, ' + stale + ' stale, ' + cannotTell + ' unreadable, '
   + awaiting + ' awaiting consent.');
@@ -198,8 +227,10 @@ console.log(undelivered + ' block(s) undelivered, ' + stale + ' stale, ' + canno
    refreshes a block already there). Its UNDELIVERED count therefore includes agents
    made from the person's own words, which lack it by design. Said here rather than
    guessed per agent, because nothing on disk records which way an agent was made. */
-console.log('Note: colleagues is added at birth to role-template agents only; an agent made');
-console.log('from custom instructions lacks it by design, so its count is an upper bound.');
+if (colleaguesShort) {
+  console.log('Note: colleagues is added at birth to role-template agents only; an agent made');
+  console.log('from custom instructions lacks it by design, so its count is an upper bound.');
+}
 console.log('This tool CHANGES NOTHING. Syncing rewrites the files agents boot from (#1071).');
 /* Exit 0 always: this is a REPORT, and a non-zero here would wire a standing
    fleet condition into every caller's failure path. A number is the output. */

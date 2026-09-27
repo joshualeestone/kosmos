@@ -160,12 +160,43 @@ fi
 # was blind to dmfiles and swarm, which projects.ALL_MARKERS() already carried. Every
 # registry block must have a row, so a block added later can never be invisible here.
 out="$(run "$T/none")"
-missing_rows=""
-for b in $(node -e "for (const m of require('./engine/projects').ALL_MARKERS()) { const h=/^<!-- kosmos:([a-z0-9-]+):start -->$/.exec(m); if (h) console.log(h[1]); }"); do
-  printf '%s\n' "$out" | grep -qE "^  $b " || missing_rows="$missing_rows $b"
-done
-[ -z "$missing_rows" ] && ok "every block in projects.ALL_MARKERS() has a row (dmfiles and swarm included)" \
-                       || bad "blocks in the registry with no row in the table:$missing_rows"
+# ⚠️ COUNT, NOT A NAME LOOP. A loop over names parsed with the tool's own pattern
+# inherits its blind spot (a marker the pattern cannot parse drops from both), and
+# an enumeration that printed nothing would leave nothing missing and pass.
+want="$(node -e "process.stdout.write(String(require('./engine/projects').ALL_MARKERS().length / 2))")"
+rows="$(printf '%s\n' "$out" | grep -cE '^  [a-z0-9-]+ +[0-9?]+/[0-9]+ ')"
+if [ -z "$want" ] || [ "$want" = "0" ]; then
+  bad "could not count the registry (ALL_MARKERS gave nothing), so this arm proves nothing"
+elif [ "$rows" = "$want" ]; then
+  ok "one row per registry block ($rows of $want, dmfiles and swarm included)"
+else
+  bad "the table has $rows block rows but projects.ALL_MARKERS() holds $want blocks"
+fi
+
+# 🔑 SWARM IS A ROLE, NOT UNIVERSAL: only an agent made as a swarm is entitled. Three
+# agents: a lead without the block (UNDELIVERED), a non-swarm agent with a saved
+# profile that carries it (STALE), and the same block on an agent whose profile could
+# not be read (CANNOT TELL, never a STALE built on a read that did not happen).
+SW_HOME="$T/swarm-home"; mkdir -p "$SW_HOME"
+if ! AGENT_WORKFORCE_HOME="$SW_HOME" node -e "const s=require('./engine/store'); s.writeProfile('lead',{kind:'swarm',swarm:{maxHelpers:2}}); s.writeProfile('plain',{role:'x'})"; then
+  bad "SWARM SETUP: could not write fixture profiles (arm unusable)"
+else
+  mkdir -p "$T/swarm/lead" "$T/swarm/plain"
+  printf '# agent\n' > "$T/swarm/lead/CLAUDE.md"
+  printf '# agent\n<!-- kosmos:swarm:start -->\nx\n<!-- kosmos:swarm:end -->\n' > "$T/swarm/plain/CLAUDE.md"
+  row="$(AGENT_WORKFORCE_HOME="$SW_HOME" KOSMOS_WORKERS_DIR="$T/swarm" node tools/check-block-delivery.js 2>&1 | grep -E '^  swarm ')"
+  case "$row" in
+    *"UNDELIVERED to 1"*"STALE on plain"*) ok "a swarm lead without the block is UNDELIVERED; a non-swarm agent carrying it is STALE" ;;
+    *) bad "swarm entitlement misread: $row" ;;
+  esac
+  mkdir -p "$T/swarm2/ghost"
+  printf '# agent\n<!-- kosmos:swarm:start -->\nx\n<!-- kosmos:swarm:end -->\n' > "$T/swarm2/ghost/CLAUDE.md"
+  row="$(AGENT_WORKFORCE_HOME="$SW_HOME" KOSMOS_WORKERS_DIR="$T/swarm2" node tools/check-block-delivery.js 2>&1 | grep -E '^  swarm ')"
+  case "$row" in
+    *"CANNOT TELL"*) ok "a swarm block on an agent with no readable profile is CANNOT TELL, not STALE" ;;
+    *) bad "unreadable-profile swarm case misread: $row" ;;
+  esac
+fi
 
 # 🔑 DOCTRINE IS MEASURED, NOT ASSUMED EMPTY (#1071). The tool called doctrine.read(),
 # which does not exist, so every agent's working rules read "nothing to deliver" and

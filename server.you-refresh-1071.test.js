@@ -10,10 +10,12 @@
  * Mortals (2026-09-27, tools/check-block-delivery.js on origin/main) the three
  * boot-refreshed blocks were on 8 of 8 agents and this one on 1 of 8.
  *
- * 🔑 THIS WRITES EVERY AGENT'S BOOT FILE ON EVERY BOARD START, so the arms that
- * matter are the ones about what it must NOT touch (Liu Kang, m1859): text
- * outside the markers survives byte for byte, a file with two blocks is left
- * alone, and a missing file is never created.
+ * 🔑 THIS WRITES EVERY AGENT'S BOOT FILE ON EVERY BOARD START, so most arms are
+ * about what it must NOT touch (Liu Kang, m1859): text outside the markers
+ * survives byte for byte, a file with two blocks is left alone, a missing file
+ * is never created, and with nothing saved an existing block is not removed.
+ * The first two arms are red without the fix; the controls pass either way and
+ * guard against a fix that writes too much.
  *
  * ⚠️ THE SIBLING BOOT REFRESHES RUN IN THE SAME BOOT and append their own blocks
  * (reports, connections, dmfiles) at the END of a file that lacks them. So "byte
@@ -88,6 +90,8 @@ function boot(sb) {
   });
 }
 
+const messages = require('./engine/messages');
+
 const fileOf = (sb, bare) => path.join(sb, 'workers', bare, 'CLAUDE.md');
 
 /* What may follow the person's own text after a boot: nothing but whole managed
@@ -148,7 +152,10 @@ test('#1071 CONTROL: a file with TWO About-you blocks is left exactly as it was'
   const text = `# Two blocks\n\n${block}\n\nmiddle words\n\n${block}\n`;
   const sb = sandbox([{ name: 'pp-youtwo-discord', file: text }], YOU);
   try {
-    await boot(sb);
+    const r = await boot(sb);
+    /* The refusal is SAID, not only honoured: the boot line names the agent. */
+    assert.match(r.err, /could not refresh what 1 of 1 agent\(s\) know about who they work for[^\n]*First: pp-youtwo - its instructions contain 2 Kosmos about-you blocks/,
+      'a refused agent must be named on stderr, not skipped in silence');
     const got = fs.readFileSync(fileOf(sb, 'pp-youtwo'), 'utf8');
     assert.equal(got.slice(0, text.length), text,
       'an ambiguous file must keep both blocks and every byte around them exactly');
@@ -163,5 +170,39 @@ test('#1071 CONTROL: an agent whose file we never created is not invented', asyn
     await boot(sb);
     assert.equal(fs.existsSync(fileOf(sb, 'pp-younofile')), false,
       'the board must not create an instructions file for an agent that has none');
+  } finally { fs.rmSync(sb, { recursive: true, force: true }); }
+});
+
+test('#1071 CONTROL: with NOTHING saved, an existing block is kept, not stripped at boot', async () => {
+  /* you.tellAgent removes the block when there is no record. The form can never
+     produce that state; a boot pass could (a new world, a misrooted data dir), so
+     the boot pass must not run the removal at all. */
+  const text = `# Mine\n\n${projects.YOU_START}\n## Who you work for\n\nPat Doe. Runs the bakery\n${projects.YOU_END}\n`;
+  const sb = sandbox([{ name: 'pp-younone-discord', file: text }], null);
+  try {
+    await boot(sb);
+    const got = fs.readFileSync(fileOf(sb, 'pp-younone'), 'utf8');
+    assert.equal(got.slice(0, text.length), text, 'the existing block and everything before it must survive a boot with no record');
+    assert.equal(onlyOtherBlocks(got.slice(text.length)), true, 'nothing else may change');
+  } finally { fs.rmSync(sb, { recursive: true, force: true }); }
+});
+
+test('#1071: a drifted colleagues block is healed on the same pass, the person\'s text around it kept', async () => {
+  /* tellAgent runs projects.healColleagues, so this boot pass also refreshes an
+     EXISTING colleagues block. Pinned so that side effect is a decision on record
+     rather than a surprise. It never adds one. */
+  const before = '# Mine\n\nabove\n\n';
+  const after_ = '\n\nbelow, by hand\n';
+  const old = `${messages.START}\n## Talking to your colleagues\n\nOLD TEXT\n${messages.END}`;
+  const sb = sandbox([{ name: 'pp-youcol-discord', file: before + old + after_ }], YOU);
+  try {
+    await boot(sb);
+    const got = fs.readFileSync(fileOf(sb, 'pp-youcol'), 'utf8');
+    const s = got.indexOf(messages.START);
+    const e = got.indexOf(messages.END) + messages.END.length;
+    assert.equal(got.slice(0, s), before, 'bytes above the colleagues block kept');
+    assert.equal(got.slice(e, e + after_.length), after_, 'bytes below the colleagues block kept');
+    assert.equal(got.slice(s, e).includes('OLD TEXT'), false, 'the drifted text is replaced');
+    assert.equal(got.slice(s, e).includes(messages.blockBody()), true, 'with the current block body');
   } finally { fs.rmSync(sb, { recursive: true, force: true }); }
 });

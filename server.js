@@ -17631,15 +17631,25 @@ if (require.main === module) {
      so an agent made after the person last saved that form never got the block,
      and neither did any later wording (#3444's "use their name"). Measured on
      Mortals before wiring this: reports, connections and dmfiles on 8 of 8
-     agents, this block on 1 of 8. It writes only inside its own markers, never
-     creates a file, removes the block when nothing is saved (what a save of an
-     empty form does), and is never fatal. */
+     agents, this block on 1 of 8.
+
+     ⚠️ ONLY WHEN SOMETHING IS SAVED. With no record, `you.tellAgent` REMOVES the
+     block, an arm the form never reaches (a save cannot produce an empty record).
+     At boot it would: a new world or a data root resolving somewhere unexpected
+     would strip the person's name from every agent on the next start. So the
+     boot pass adds and refreshes, and never removes.
+
+     ⚠️ tellAgent also heals an EXISTING colleagues block (projects.healColleagues),
+     so this pass rewrites that block too when its text has drifted; it never adds
+     one. */
   try {
-    const told = you.syncEveryone(safeRoster());
-    const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
-    if (stuck.length) {
-      const why = (stuck[0] && stuck[0].because) || 'no reason given';
-      process.stderr.write(`Kosmos could not refresh what ${stuck.length} of ${told.length} agent(s) know about who they work for; they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${why}\n`);
+    if (you.read().state === 'saved') {
+      const told = you.syncEveryone(safeRoster());
+      const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
+      if (stuck.length) {
+        const why = (stuck[0] && stuck[0].because) || 'no reason given';
+        process.stderr.write(`Kosmos could not refresh what ${stuck.length} of ${told.length} agent(s) know about who they work for; they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${why}\n`);
+      }
     }
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh what agents know about who they work for: ${String(err && err.message)}\n`);
