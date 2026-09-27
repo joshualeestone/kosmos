@@ -503,11 +503,11 @@ function chk(ok, label, extra) {
           return { n: Number(t.querySelector('.num').textContent), red: getComputedStyle(t.querySelector('.num')).color === danger,
             redDot: getComputedStyle(t.querySelector('.tsk-dot')).backgroundColor === danger,
             /* #4053: the badge and the tile's fill are neutral at zero too. */
-            redBadge: getComputedStyle(t.querySelector('.tsk-badge')).color === danger,
+            redBadge: t.querySelector('.tsk-badge') ? getComputedStyle(t.querySelector('.tsk-badge')).color === danger : null,
             bg: getComputedStyle(t).backgroundColor, other: getComputedStyle(document.querySelector('#tsk-tiles [data-tile="working"]')).backgroundColor,
             head: h ? h.textContent : null, headRedDot: h ? getComputedStyle(h.querySelector('.tsk-dot')).backgroundColor === danger : null };
         });
-        chk(zero.n === 0 && !zero.red && !zero.redDot && !zero.redBadge && zero.bg === zero.other, `${tag} a zero Needs Your Decision tile is not red, its dot, badge and fill included`, JSON.stringify(zero));
+        chk(zero.n === 0 && !zero.red && !zero.redDot && zero.redBadge === false && zero.bg === zero.other, `${tag} a zero Needs Your Decision tile is not red, its dot, badge and fill included`, JSON.stringify(zero));
         /* #3949 (Josh, 09-26 18:16): a status group with no tasks is not drawn (its tile already says 0): the search
            leaves only Unassigned, so only Unassigned is listed, and nothing anywhere says "Nothing here". */
         const drawn = await page.evaluate(() => ({ heads: [...document.querySelectorAll('#tsk-groups .tsk-grp h3, #tsk-groups .tsk-grp summary')].map((h) => h.textContent.replace(/[\d()?]+/g, '').trim()),
@@ -568,7 +568,7 @@ function chk(ok, label, extra) {
           const danger = getComputedStyle(probe).color; probe.remove();
           const h = [...document.querySelectorAll('#tsk-groups .tsk-grp h3')].find((x) => /Needs Your Decision/.test(x.textContent));
           const out = { num: t.querySelector('.num').textContent, n: t.dataset.n, red: getComputedStyle(t.querySelector('.num')).color === danger,
-            label: t.getAttribute('aria-label') || '', redBadge: getComputedStyle(t.querySelector('.tsk-badge')).color === danger,
+            label: t.getAttribute('aria-label') || '', redBadge: t.querySelector('.tsk-badge') ? getComputedStyle(t.querySelector('.tsk-badge')).color === danger : null,
             bgSame: getComputedStyle(t).backgroundColor === getComputedStyle(document.querySelector('#tsk-tiles [data-tile="working"]')).backgroundColor,
             headCount: h ? h.querySelector('.count').textContent : null, headRedDot: h ? getComputedStyle(h.querySelector('.tsk-dot')).backgroundColor === danger : null,
             why: h ? h.parentNode.querySelector('.why').textContent : '' };
@@ -576,7 +576,7 @@ function chk(ok, label, extra) {
           out.after = document.querySelector('#tsk-tiles [data-tile="decision"] .num').textContent;
           return out;
         });
-        chk(unknown.num === '?' && unknown.n === 'unknown' && !unknown.red && !unknown.redBadge && unknown.bgSame && /cannot tell/.test(unknown.label) && unknown.after === '1'
+        chk(unknown.num === '?' && unknown.n === 'unknown' && !unknown.red && unknown.redBadge === false && unknown.bgSame && /cannot tell/.test(unknown.label) && unknown.after === '1'
           && unknown.headCount === '?' && unknown.headRedDot === false && /cannot tell/.test(unknown.why),
           `${tag} with the agents unreadable, Needs Your Decision says it cannot tell (not 0, not red)`, JSON.stringify(unknown));
         /* #4053 (Josh picked option C, then taller; approved v2 mock): every tile has a 36px round tinted badge with a
