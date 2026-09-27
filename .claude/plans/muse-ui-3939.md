@@ -63,3 +63,9 @@ With the flag on, on a Mac with Muse Code installed, a person can pick Meta in A
 - One signinRefusalStatus helper serves the agy, win32 agy and muse sign-in routes (convention 5; it was a third copy).
 - The exit marker uses underscores, so it can never match the device-code shape.
 - Watch item for the Mortals run, deliberately not changed: screen matching is by substring, inherited from agysignin. A Mac help line that merely mentions "Opening your browser" would read as that screen.
+
+## 3a review round 9 (decided)
+- The code is read on the waiting and opening screens too, from the current try, with no Enter sent: Muse may go straight to waiting, for example after a retry's r Enter, with no Press line. A waiting screen with no code is named after STUCK_MS, or ends NO_NEW_CODE during a retry, instead of waiting 20 minutes. Controls red.
+- One deliveryUnknown rule serves screen(), enterOnce and retry. The sign-in reasons are named constants.
+- A failed save clears an older mark, so it cannot answer yes beside the failure. Control red.
+- Added weakest premise 4 for the Mortals run: what Muse draws after r then Enter (a redrawn Press line, or straight to waiting). Both are handled now.
