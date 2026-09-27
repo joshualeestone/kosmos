@@ -14,13 +14,15 @@ after the name.
 - `.tv-tot` is `white-space: nowrap`, so the total never wraps.
 - `.tv-mh` keeps `align-items: baseline`: a block tag leaves the name's first line as the item's baseline,
   so the total still shares the name's baseline (the property #4083 pins for the tiles above).
+- The cards stack to one column once `#s-sec-usage` (already an inline-size container) is 540px or
+  narrower, replacing the `@media (max-width: 560px)` viewport query.
 
 Every card's header is now the same two lines: the name, then the tag.
 
 ## Browser check (docs/browser-checks/render-token-usage-2617.js)
 
-At 1280 (desktop), 561 (the tightest two-column width: the grid stacks at a 560px viewport query, and
-1280 is tighter than 600 because the settings column is capped) and 390 (phone), for all four cards:
+At 1280 (desktop, the capped 544px column), 589 (a 541px section, the tightest two-up width), 561
+(stacked) and 390 (phone), for all four cards:
 - the name's own text is on one line (a Range over the name's text node, since the name span also
   holds the tag);
 - the tag starts below the name;
@@ -28,9 +30,11 @@ At 1280 (desktop), 561 (the tightest two-column width: the grid stacks at a 560p
 - the four header heights match within 1px;
 - the name's text ends before the total starts.
 
-Then at 561 with the widest total forced into every card (`1000.0M` and `0.91%`): the total is on one
-line and each name still fits on one line, clear of it. The fixture's own totals fit even without
-`nowrap`, so this is the arm that goes red if the total is allowed to wrap.
+The cards are two-up at 1280 and 589 and stacked at 561 and 390.
+
+Then at 589 and 1280 with the widest total forced into every card (`999.9M` and `99.9%`): the total
+is on one line and each name still fits on one line, clear of it. The fixture's own totals fit even
+without `nowrap`, so these are the arms that go red if the total may wrap.
 
 ## Review 1
 
@@ -39,10 +43,20 @@ line and each name still fits on one line, clear of it. The fixture's own totals
   long word cannot paint under the total.
 - The one-line-total arm can now fail: a wide-total injection at 561.
 - README row names #4242.
-- Not changed: the grid's switch is a viewport query where a container query would fit better. That
-  predates this branch.
+
+## Review 1 follow-through: the wide total wrapped a name at 561
+
+With the widest total forced in at 561, a name wrapped (`Cache reads` with `1000.0M`, `Cache writes`
+with `999.9M 99.9%`). A width probe across 561 to 1280 put the line between a 226px card (a 513px
+section, wraps) and a 236px card (the capped 544px section, fits), and 561 was the only two-up width
+below it. So the reviewer's container-query nit was the fix: the cards now stack on the section's
+width, at 540px or narrower.
+
+- `1000.0M` was the wrong widest total: usageAbbr goes to B at 1e9, so `999.9M` is the widest normal
+  M total. The exception is a rounding edge (999.95M up to 1e9 renders `1000.0M`, where it should read
+  `1.0B`); that is a usageAbbr defect, filed separately rather than fixed here.
 
 ## Weakest premise
 
-The names are short enough to fit on one line beside the total at 561px. A longer class name, or a
+The names are short enough to fit on one line beside the total in a 236px card (the capped desktop column), with about 10px to spare at the widest total. A longer class name, or a
 translated one, could wrap again. The check would then go red rather than pass silently.
