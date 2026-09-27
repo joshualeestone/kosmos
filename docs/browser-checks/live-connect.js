@@ -22,6 +22,8 @@ const TMUX_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'lc-'));
 process.env.TMUX_TMPDIR = TMUX_DIR;
 delete process.env.TMUX;
 process.on('exit', () => {
+  // KOSMOS_KEEP_SANDBOX=1 keeps the session too, so a red run can still be looked at.
+  if (process.env.KOSMOS_KEEP_SANDBOX === '1') { console.log('tmux kept: attach with TMUX_TMPDIR=' + TMUX_DIR + ' tmux attach'); return; }
   try {
     execFileSync(process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux', ['kill-server'], { stdio: ['ignore', 'ignore', 'pipe'], timeout: 5000 });
   } catch (e) {
