@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: chatbox-4108
-diff_hash: ab5fad590a380221e4923e04461ec178b70c3fafc609b603ad5ec9ee27e06b9e
+diff_hash: af433b41f7b5ba6d4f3a8f9d2f0290bdf622aef8a0a4ef5e81befc4a16c4b793
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-27T07:25:44Z
+timestamp: 2026-09-27T07:28:04Z
 iterations: 2
 converged: true
 ---
@@ -17,6 +17,8 @@ The check was measured before review: 4 boxes at 360x800 are 48px on the branch 
 before review 2 (pills 50px; red at 58 without the rule). After a rebase onto main, the seven older checks the surface
 gate maps to the touched tokens were each run on the branch and pass (trailers). Full validation on the final diff:
 10762 tests, 0 failed.
+
+**Rebase after approval (2026-09-27T07:28:04Z):** onto main; the only change is the reason-grep count (re-measured 187 on main's 186), verified by range-diff. Liu Kang's approval carries (m1288).
 
 **Iterations:** 2 (blind reviews: Opus, then Sonnet)
 **Converged:** Yes
