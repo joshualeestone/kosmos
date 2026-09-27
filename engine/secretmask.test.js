@@ -1818,32 +1818,52 @@ test('#3995 gap 4 review round 29: a held value that is itself hex is walked in 
   } finally { setKnownSecrets([]); }
 });
 
+/* #4144: these two drew RANDOM keys, and a random key can fall in a class secretmask.js documents as not covered or
+   allowed (the "Not covered" list above #3935's walk, and review round 11): a key in chunks of two with fewer than
+   SHORT_WALK_MIN_KEYLIKE key-like pairs (29eb92218c1414479869312490429276 is fourteen digit pairs, eb and 8c, and
+   showed whole), a key repeating a plain-word chunk such as "be", whose repeat may show as that word, or a key whose
+   two-character chunks also appear in the filler (411648aca761dc522d8f939f1da52025 ends 20 25, the filler says
+   "Dec 2025", and the walk runs through the filler's copy: a regrouped copy's two-character chunks, also listed). So they failed
+   about one run in a few hundred, on whatever PR was running. The keys are pinned now: seven with three or more
+   key-like pairs, one at the boundary (exactly two), and the repeated-word case asserted on purpose. */
+const ROUND_30_31_KEYS = [
+  '5c22620a37133ca77f785e56b340d69f', '340980536f846732dd1e1120dd7fb56c', '5f94991d65be11298a393200e79ef59a',
+  '9de8e71bfc20f9a9abc7fe573aae1e44', '28460fea40742e38549f190a97d96a7e', '14a7d1f89f2bef4e64169c316d1ba63e',
+  'd8d8ec2ae5d4d4cc8b6ae91181628b47',   // repeated key-like pairs (d8, d4 and 8b each twice)
+  '3c16ef22adeace1d1370590365be9433',   // the boundary: exactly two key-like pairs (3c, 1d)
+];
+/* Which chunks still show, by POSITION: counting by value counts one shown line once per equal chunk. `held` is the
+   key the mask knows (the key itself, unless a control holds another). A `preamble` line goes first and is not counted. */
+function shownChunks(key, line, { held = key, preamble = '' } = {}) {
+  setKnownSecrets([held]);
+  try {
+    const chunks = key.match(/.{2}/g);
+    const lines = mask((preamble ? preamble + '\n' : '') + chunks.map(line).join('\n')).text.split('\n').slice(preamble ? 1 : 0);
+    return chunks.filter((c, i) => lines[i].endsWith(': ' + c));
+  } finally { setKnownSecrets([]); }
+}
+
 test('#3995 gap 4 review round 30: a hex key with ordinary prose between its short chunks is masked', () => {
-  const crypto = require('node:crypto');
-  for (let k = 0; k < 10; k += 1) {
-    const key = crypto.randomBytes(16).toString('hex');
-    setKnownSecrets([key]);
-    try {
-      const chunks = key.match(/.{2}/g);
-      const t = mask('Sure, here is your recovery code, one chunk per step so it is easy to copy:\n' + chunks.map((c, i) => `Step ${i + 1}, please type this carefully: ${c}`).join('\n')).text;
-      const shown = chunks.filter((c) => new RegExp(': ' + c + '$', 'm').test(t));
-      assert.ok(shown.length <= 1, `a hex key's chunks showed: ${shown.join(',')}`);
-    } finally { setKnownSecrets([]); }
+  const step = (c, i) => `Step ${i + 1}, please type this carefully: ${c}`;
+  const preamble = 'Sure, here is your recovery code, one chunk per step so it is easy to copy:';
+  const unheld = shownChunks(ROUND_30_31_KEYS[0], step, { held: ROUND_30_31_KEYS[1], preamble });
+  assert.equal(unheld.length, 16, 'CONTROL: with another key held, every chunk shows (shownChunks can see a chunk)');
+  for (const key of ROUND_30_31_KEYS) {
+    const shown = shownChunks(key, step, { preamble });
+    assert.ok(shown.length <= 1, `${key}: a hex key's chunks showed: ${shown.join(',')}`);
   }
 });
 
 test('#3995 gap 4 review round 31: a hex key given with ordinary words made of hex letters between its chunks is masked', () => {
-  const crypto = require('node:crypto');
-  for (let k = 0; k < 8; k += 1) {
-    const key = crypto.randomBytes(16).toString('hex');
-    setKnownSecrets([key]);
-    try {
-      const chunks = key.match(/.{2}/g);
-      const t = mask(chunks.map((c) => `Be sure you add the next one (as of Dec 2025) and it should be: ${c}`).join('\n')).text;
-      const shown = chunks.filter((c) => new RegExp(': ' + c + '$', 'm').test(t));
-      assert.ok(shown.length <= 1, `chunks showed: ${shown.join(',')}`);
-    } finally { setKnownSecrets([]); }
+  const line = (c) => `Be sure you add the next one (as of Dec 2025) and it should be: ${c}`;
+  for (const key of ROUND_30_31_KEYS) {
+    const shown = shownChunks(key, line);
+    assert.ok(shown.length <= 1, `${key}: chunks showed: ${shown.join(',')}`);
   }
+  /* #4144: a key repeating the plain-word chunk "be" (review round 11: a repeated plain-word chunk can leave that word
+     showing). Only the word may show; every key-like chunk is still masked. */
+  const shown = shownChunks('be3f9a1c77d20e41be58c6a0f2d9e7b3', line);
+  assert.deepEqual(shown.filter((c) => c !== 'be'), [], 'a key-like chunk showed beside the repeated word: ' + shown.join(','));
 });
 
 test('#4111 a model id from a secrets file is not masked out of the guide prose that names it; a key beside it still is', () => {
