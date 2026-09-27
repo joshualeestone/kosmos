@@ -1230,13 +1230,14 @@ function unreachableStates() {
          That makes the scroll block above an honest test of
          "an unchanged list does not move", and NO test at all of the case the
          product actually spends its first hour in: `pjWhen` returns a RELATIVE
-         phrase under an hour, so the markup changes once a minute on a thread
-         nobody touched, `setThread` rewrites `innerHTML`, and the count key is
-         unchanged so the jump-to-bottom arm does not fire. Whether that moves
-         a reader is a question about the browser, not about this code, and the
-         answer measured here (2026-08-20, Chromium, headed) is that it does
-         not: a same-height rewrite keeps `scrollTop`. This block exists so the
-         day that stops being true is a failure rather than a discovery. */
+         phrase under an hour, so the words change once a minute on a thread
+         nobody touched.
+         #3966 (5a2aae1e3) changed what happens then: `setThread` compares the
+         thread by SHAPE, so a change in the time words alone is NOT a rewrite;
+         `refreshWhens` updates those words in place. This block now checks that
+         contract (kosmos 0.7.01 cut, 2026-09-26): after a time-only repaint the
+         thread was not rewritten, the words DID move (so the repaint really saw a
+         later clock), and the reader's `scrollTop` held. */
       const clockOnly = await page.evaluate(async () => {
         const at = new Date(Date.now() - 65 * 1000).toISOString();
         /* ⚠️ COUNT RAISED 8 -> 30 (#3414). The agent-DM rebuild made
@@ -1260,24 +1261,30 @@ function unreachableStates() {
         await paintTalk('april', 'April');
         const t = document.getElementById('d-dmthread');
         t.scrollTop = t.scrollHeight;
-        const before = { top: Math.round(t.scrollTop), key: t.__lastThread,
+        const when = () => { const w = t.querySelector('.mwhen[data-at]'); return w ? w.textContent : null; };
+        const first = t.firstElementChild;
+        const before = { top: Math.round(t.scrollTop), key: t.__lastThread, whenBefore: when(),
           scrolls: t.scrollHeight > t.clientHeight };
         const real = Date.now;
         Date.now = () => real() + 120000;
         try { await paintTalk('april', 'April'); } finally { Date.now = real; }
-        return { ...before, after: Math.round(t.scrollTop), rewrote: t.__lastThread !== before.key };
+        return { ...before, after: Math.round(t.scrollTop), whenAfter: when(),
+          rewrote: t.__lastThread !== before.key || t.firstElementChild !== first };
       });
       if (!clockOnly.scrolls) {
         /* CONTROL: with nothing to scroll, `scrollTop` is 0 both times and the
            check below passes on a box that cannot demonstrate anything. */
         problems.push(`[${theme}] clock: the thread box did not overflow, so the scroll-hold is UNCHECKED`);
       }
-      if (!clockOnly.rewrote) {
-        /* CONTROL: and if the markup did NOT change, no rewrite happened and
-           the check below is measuring the wrong thing entirely. */
-        problems.push(`[${theme}] clock: a minute passing did not change the markup, so the rewrite is UNCHECKED`);
+      if (!clockOnly.whenBefore || clockOnly.whenBefore === clockOnly.whenAfter) {
+        /* CONTROL: if the time words did not move, the repaint never saw a later clock
+           and the two checks below are measuring nothing. */
+        problems.push(`[${theme}] clock: the time words did not move (${clockOnly.whenBefore} -> ${clockOnly.whenAfter}), so the in-place refresh is UNCHECKED`);
       }
-      if (clockOnly.scrolls && clockOnly.rewrote && clockOnly.after !== clockOnly.top) {
+      if (clockOnly.rewrote) {
+        problems.push(`[${theme}] clock: a repaint where only the time moved REWROTE the thread (#3966: that rewrite is the flash)`);
+      }
+      if (clockOnly.scrolls && clockOnly.after !== clockOnly.top) {
         problems.push(`[${theme}] clock: a repaint where only the time phrase moved took the reader `
           + `from ${clockOnly.top} to ${clockOnly.after}`);
       }
