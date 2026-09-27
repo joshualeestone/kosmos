@@ -429,13 +429,11 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *    key in chunks of two where fewer than SHORT_WALK_MIN_KEYLIKE of the pairs are key-like (a pair is plain when it
  *    is two letters with a vowel, a digit pair, or an uppercase letter with a digit), and a single-case key whose
  *    chunks read as words by wordLike's vowel test;
- *  - a short chunk with base64 padding on it (Zq8=);
  *  - a key whose FIRST chunk is one character (the short walk starts only from two or three);
  *  - an uppercase-and-digit key (A-Z 0-9) in chunks of two: its vowel pairs, labels and digit pairs all read as plain,
  *    so about one in ten shows in full (measured in review round 13; chunks of three, 0 of 600);
  *  - a key both spaced one character at a time AND cut into short chunks with words between (the short walk reads
  *    the text, not the single-spacing copy the word walk also reads);
- *  - a short chunk glued to a label by + or / with no other glue (Zq8+part2; = - _ labels on either side are taken off);
  *  - anything that is hex (0-9 a-f only) cut into chunks under OPENING_LEN: the hex encodings of held values AND a
  *    held value that is itself hex (a raw hex token). Neither is walked short (see addWalked);
  *  - a first chunk of OPENING_LEN or more followed by chunks under it, once the text from the first chunk runs past
@@ -765,7 +763,8 @@ function shortPieces(run) {
   if (trimmed) out.add(trimmed);
   /* Every part between = - _ (review round 8: a label on BOTH sides, x0-Zq8-y0 or var_Zq8_tmp0, left only the labels
      to try): a label before (part-Zq8), after (Zq8-part0, review round 2), or around it. */
-  if (/[=_-]/.test(trimmed)) for (const part of trimmed.split(/[=_-]+/)) if (part) out.add(part);
+  /* And + and / (review round 14: Zq8+part0 and Zq8/part0 were never tried; the word walk's pieceVariants takes them). */
+  if (/[=_+/-]/.test(trimmed)) for (const part of trimmed.split(/[=_+/-]+/)) if (part) out.add(part);
   return [...out];
 }
 /* A plain word or number, as ordinary text writes one: digits or an ordinal (2nd), or letters in one case shape

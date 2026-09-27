@@ -176,3 +176,9 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
   side and only next to a real key; reach is per gap with no total cap (contrived dense single characters can assemble
   a key over thousands of characters; real minified JS was unaffected); a one-character first chunk is the largest
   remaining hole of the targeted shape (documented).
+
+## Review round 14 (Sonnet), what changed
+- A short chunk glued to a label by + or / alone (Zq8+part0, Zq8/part0) was never tried: shortPieces now splits on
+  = _ - + and /, as the word walk's pieceVariants does. Tested; red on the previous commit. Twos and threes still 0 of
+  300 shown; the cost tests pass.
+- Not covered no longer lists base64 padding (Zq8=; round 8's split already takes it off) or + / glue; a test pins both.

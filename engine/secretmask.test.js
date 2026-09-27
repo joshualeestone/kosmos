@@ -1618,3 +1618,15 @@ test('#3995 gap 4 review round 12: a mixed key cut into chunks of TWO with words
   }
   assert.ok(leaked <= 3, `${leaked} of 50 random keys cut in twos showed in full`);
 });
+
+test('#3995 gap 4 review round 14: short chunks glued to a label by + or /, or carrying base64 padding, are masked', () => {
+  const held = j('Zq8vLm3pRt6w', 'Xy9kHb2nWc4d');
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{3}/g);
+    for (const glue of [(c, i) => `${c}+part${i}`, (c, i) => `${c}/part${i}`, (c) => `${c}=`]) {
+      const t = mask(chunks.map(glue).join(' then ') + ' done.').text;
+      for (const c of chunks) assert.ok(!t.includes(c), `a glued chunk survived: ${c}: ${t}`);
+    }
+  } finally { setKnownSecrets([]); }
+});
