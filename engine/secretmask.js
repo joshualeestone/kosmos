@@ -516,7 +516,11 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
    1), and each step's CHARGE is at most main's for the runs it covers and at least the work it does (see the walk;
    900 adversarial inputs: 0 charged above main, about 3.6x lower in total). Units, which do not depend on load: 200
    held keys and a guide reply naming sk-ant-api03- 20 times cost 0.60M (2.46M before, over the budget: withheld);
-   200 times cost 6.5M (26.7M before). The budget is unchanged, so the 200-mention reply is still withheld. */
+   200 times cost 6.5M (26.7M before). The budget is unchanged, so the 200-mention reply is still withheld.
+   ⚠️ A unit can now cost more time than before (review 3): where nearly every run in reach could continue a key
+   (40 keys sharing sk-ant-api03-X, lines of X0 ... X9), each step's lookups cost about 2x main's time per unit, so
+   an exhausted search there takes up to about twice the figures above. Charging that overhead too would put some
+   replies above main's charge, and a reply main checks would be withheld (review 1); failing closed is unchanged. */
 const WORD_WALK_BUDGET = 1250000;
 /* How many tails after, and heads before, a - or _ one run offers as pieces (review rounds 15 to 19). */
 const PIECE_VARIANTS_MAX = 4;
@@ -653,16 +657,17 @@ function wordSkippingSpans(text) {
     const at = t.indexOf(piece);
     return at >= 0 ? [a + at, a + at + piece.length] : [a, b];
   };
-  /* #4112: which runs have a variant beginning with each character, in run order, built only as far forward as a
-     walk has needed (from the first run a walk looks at: a reply with no opening builds none of it). A walk jumps
-     from one run that could match to the next, instead of stepping through every run in reach. */
+  /* #4112: which runs have a variant beginning with each character, in run order. A walk jumps from one run that
+     could match to the next, instead of stepping through every run in reach. Built only over the runs a walk has
+     in reach, from that walk's own start (review 3: built from the FIRST walk's start, a later walk far down the
+     reply indexed every run between, which no walk reaches). Walks start at a non-decreasing r, so a run skipped
+     here is below every later walk's start and is never needed. */
   const firstIdx = new Map();
-  let idxFrom = -1;
-  let idxTo = -1;   // runs [idxFrom, idxTo] are indexed
+  let idxTo = -1;   // the last run indexed
   /* Not charged: it builds each run's variants once, which main's walk also did uncharged (it charged per run
-     visited, and still does in the live scan above), and every run it reaches is one a walk would have charged. */
-  const ensureIdx = (upTo) => {
-    for (let i = Math.max(idxTo + 1, idxFrom); i <= upTo; i += 1) {
+     visited, and still does in the live scan above), and only runs in some walk's reach are indexed. */
+  const ensureIdx = (after, upTo) => {
+    for (let i = Math.max(idxTo + 1, after + 1); i <= upTo; i += 1) {
       for (const c of varsOf(i)[2].keys()) {
         if (!firstIdx.has(c)) firstIdx.set(c, []);
         firstIdx.get(c).push(i);
@@ -737,10 +742,13 @@ function wordSkippingSpans(text) {
            (below), not from the opening alone: pieces spread past four times the key's length in all (each with a
            sentence after it) left the later ones unread. */
         let lastAt = from;
-        if (idxFrom < 0) idxFrom = r + 1;
+        /* The last run still in reach, found again only when lastAt moves (reach grows only then). */
+        let limitAt = -1;
+        let limitFor = -1;
         for (let s = r; ;) {
-          /* The last run still in reach. None past s: main broke here without charging, and so does this. */
-          const limit = lastInReach(s, lastAt, bound);
+          /* None in reach past s: main broke here without charging, and so does this. */
+          if (limitFor !== lastAt) { limitAt = lastInReach(r, lastAt, bound); limitFor = lastAt; }
+          const limit = limitAt;
           if (limit <= s) break;
           /* Each start position, with the reached position it came from: a piece matched past a skipped
              separator links back to where the walk had got to, not to the skip (review round 17: linking to the
@@ -763,7 +771,7 @@ function wordSkippingSpans(text) {
              large run for seconds under a tiny charge and come back unmasked where main withheld it (review 2). */
           const chars = new Set();
           for (const [q] of at) if (q < f.length) chars.add(f[q]);
-          ensureIdx(limit);
+          ensureIdx(s, limit);
           let t = Infinity;
           for (const c of chars) { const i = firstAbove(firstIdx.get(c), s); if (i < t) t = i; }
           if (t > limit) { if ((budget -= at.length) < 0) return null; break; }

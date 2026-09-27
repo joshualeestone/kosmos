@@ -50,3 +50,14 @@ all variants), and at least the step's work (positions built; index lookups are 
 with no run in reach is not entered at all, as main's loop broke there without charging. Re-measured: 900 inputs,
 0 above main (about 3.6x lower), identical output on 1,200 replies; the attack is a test (fails on 86c0620a5, passes
 on main and here). Units now: 200 keys, 20 mentions 0.60M (main 2.46M, withheld); 200 mentions 6.5M (main 26.7M).
+
+## Review 3 (opus): WARN fixed, WARN accepted and stated
+- FIXED: the index was built from the FIRST walk's start, so a later walk far down a long reply indexed every run
+  between (uncharged; 200 KB reply 7.6x main's time). It now indexes from each walk's own start (walks start at a
+  non-decreasing r, so skipped runs are never needed). The reach limit is found again only when lastAt moves.
+  Measured, same process: 60 KB gap case main 128 ms, previous 174, now 108; 240 KB 389 / 580 / 439.
+- ACCEPTED, stated in the budget comment: in text where nearly every run could continue a key, each step costs
+  about 2x main's time per unit, so an exhausted search there takes up to about twice the documented bound. Charging
+  it would break "never above main's charge" (review 1's regression). Still fails closed.
+- Re-verified: identical output 1,600 replies; 900 inputs 0 charged above main; suites 92/92, 18/18.
+- No test pins the index start (a timing property); the gap measurement above is the evidence.
