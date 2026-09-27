@@ -37,6 +37,10 @@ tap with and without the in-app marker).
 ## Weakest part
 The first draft said notifications and the certificate warning worked as seen on the emulator; both
 came from the local test server, not the live one (challenge-loop iteration 1). The current steps
-were checked against main and the live service, but no step has been run on the real phone. The Mac
+were checked against main and the live service, but no step has been run on the real phone. Two
+claims are reasoned, not measured, and the script words them as "probably" and "can take up to a
+day": that Kosmos 0.6.97 and later already carries relay #161 (a reviewer traced it through this
+box's installed tunnel; which version Josh's Mac runs is unknown), and that a phone may keep the old
+tap behaviour until it picks up the new service worker (the worker has no skipWaiting). The Mac
 asleep step (5) has no settled expected result on purpose. What would change my mind: anything Josh
 sees that this script calls expected and that the cards do not.

@@ -8,7 +8,8 @@ Some steps depend on updates that are not switched on yet, so they are marked:
 
 - **Wait for the server update**: a Kosmos+ server update. Part of it is ready and you switch it on
   when you choose; the notification part (Kano's) is still in review.
-- **Wait for the Mac update**: the next Kosmos release for your Mac.
+- **Wait for the Mac update**: a Kosmos release for your Mac. Three separate Mac-side pieces are
+  involved, listed in the table at the end; one of them may already be on your Mac.
 
 Until then those steps behave the old way on purpose, as each step says. That is not the app being
 broken. The table at the end lists them in one place.
@@ -25,8 +26,8 @@ own install note. (#4165, #4090)
 1. Get the file onto the phone (email, Google Drive, or a message to yourself) and tap it.
 2. Android will say your phone is not allowed to install unknown apps from this source. Tap
    **Settings**, turn on **Allow from this source**, then go back.
-3. Tap **Install**. If Google Play Protect warns that the app is unknown, choose to install anyway.
-   It warns because the app is not in the store yet.
+3. Tap **Install**. If Google Play Protect warns that the app is unknown, choose to install anyway,
+   for this file from Liu Kang only. It warns because the app is not in the store yet.
 4. Tap **Open**.
 
 **If it looks different:** a screenshot of any message that stops the install.
@@ -39,8 +40,8 @@ across the top. (#4113, #4090)
 Enter your Kosmos+ email, tap **Send the code**, type the six-digit code from the email, then your
 second sign-in step, the same one you use on the web.
 
-- There is no way to buy or subscribe inside the app. It only signs you in, and says Kosmos+ is set
-  up at kosmosplus.com. That is deliberate. (#718)
+- There is no way to buy or subscribe inside the app. It only signs you in. That is deliberate.
+  (#718)
 - A small "Running in Chrome" note may show at the bottom the first time. Tap **Got it**.
 
 **If it looks different:** a screenshot of the first screen, especially if you see an address bar.
@@ -49,7 +50,7 @@ second sign-in step, the same one you use on the web.
 
 The first time, Kosmos on your Mac shows a card asking whether to allow this phone, with a short
 code. **Allow it only if the code matches the one on the phone** (it looks like FK-4H). The phone
-then says the device is allowed. (#2854, #718)
+then says the device is allowed. (#718)
 
 **If it looks different:** a screenshot of the phone's page, and whether the Mac showed the card.
 
@@ -61,7 +62,9 @@ Tap **Open my Kosmos**.
   (#4090, #2854)
 - **Wait for the server update and the Mac update:** your board opens full screen, with no address
   bar. Both are needed: the server hands your address to the app, and your Mac proves to the phone
-  that the app may show it. (#2854; relay #171 and relay #161)
+  that the app may show it. Your Mac may already have its part (Kosmos 0.6.97 or later probably
+  does); if the board still shows an address bar after the server update, tell us which Kosmos
+  version your Mac runs. (#2854; relay #171 and relay #161)
   - If instead nothing happens for a couple of seconds and then the page says **"Your Kosmos did not
     open in the app. Tap Open my Kosmos again to open it here."**, tap it again: your board opens
     with an address bar, and nothing is stuck. Please screenshot that sentence for us. (#4090)
@@ -92,7 +95,7 @@ phone will be notified when an agent posts or needs you. (#4140, #718)
 
 **Wait for the Mac update.** Your Mac cannot send notifications to a phone yet: phone notifications
 are switched off in Kosmos on the Mac until the release that turns them on, and after it you switch
-them on in Kosmos's Settings on the Mac. Before that, asking an agent to need you sends nothing to
+them on in Kosmos on the Mac: **Settings, This computer, Phone notifications, Turn on**. Before that, asking an agent to need you sends nothing to
 the phone, and that is expected. (#718)
 
 Once they are on, ask an agent to need you (or wait for one to), with the phone locked or on its
@@ -110,11 +113,14 @@ This needs step 7 working first.
 
 - **Before the server update:** tapping it opens the agent that needs you in a browser window with an
   address bar. That is expected for now. (#4140)
-- **Wait for the server update:** tapping it opens the Kosmos app on the sign-in page, which says
+- **Wait for the server update and the Mac update:** tapping it opens the Kosmos app on the sign-in
+  page, which says
   **"Tap Open my Kosmos to see what you were notified about."** Tap **Open my Kosmos**, and the
   conversation with the agent who needed you opens inside the app. (#4171, #4140)
-  - After the update, **open Kosmos once from its icon before testing this**. A notification that
-    arrived before you did that still opens the old way, in a browser window.
+  - After the updates, **open Kosmos once from its icon, then close it fully** (swipe it away from
+    the recent apps) before testing this. A notification that arrived before that still opens the
+    old way, in a browser window. The phone can also take up to a day to pick up the new
+    behaviour, so if the first tap still opens a browser window, try again later that day.
   - The extra tap on **Open my Kosmos** is deliberate for now. If it annoys you, tell us.
 
 **If it looks different:** a screenshot of what the tap opened.
@@ -142,15 +148,26 @@ own "no internet" page. Turn Airplane mode off and tap **Retry**: the sign-in pa
 
 **If it looks different:** a screenshot.
 
+## 11. After both updates, three quick extras
+
+Once your board opens full screen (step 4), try these and tell us if any surprises you (#2854,
+android README):
+
+- From your board, press **Back**. Tell us where it goes.
+- Open Kosmos from its icon, tap **Open my Kosmos**, go home, and do it again twice. Then look at
+  your recent apps: tell us if you see one Kosmos or a stack of them.
+- Turn the phone sideways just as you tap **Open my Kosmos**. Your board should open once, not
+  twice.
+
 ---
 
 ## What waits for an update
 
 | What you will notice | Step | Needs |
 |---|---|---|
-| Your board opens full screen, not with an address bar | 4 | the server update (relay #171, ready) and the Mac update (relay #161) |
-| Notifications reach the phone at all | 7 | the Mac update that turns phone notifications on, then switching them on in the Mac's Settings |
-| A notification tap opens the agent inside the app | 8 | the server update including Kano's notification change and a Mac update carrying its Mac half (both in relay #174, in review; #4140) |
+| Your board opens full screen, not with an address bar | 4 | the server update (relay #171, ready) and the Mac piece from relay #161 (probably already in Kosmos 0.6.97 or later) |
+| Notifications reach the phone at all | 7 | the Mac release that turns phone notifications on (not made yet), then switching them on in the Mac's Settings |
+| A notification tap opens the agent inside the app | 8 | the server update including Kano's notification change, and a Mac release carrying its Mac half (both in relay #174, in review; #4140) |
 | The sign-in page loads a little faster than it already does | 9 | the server update (relay #169, ready) |
 
 Everything else works now: installing, signing in, allowing the phone on your Mac, turning on
@@ -172,8 +189,12 @@ options and USB debugging, and connect it with a cable.
   from the Kosmos repository on the Mac (it needs Python with Pillow). It reinstalls the app from the
   file you give it. It looks for a crop of the emulator's sign-in frame; on the real phone the fonts
   may differ enough that it never matches, and then it needs a reference frame taken on the phone.
-  (#4109)
+  It also needs the phone signed out, since it looks for the "Sign in to Kosmos+" heading. (#4109)
 - **If step 4 shows an address bar with no message after both updates:** first check that the Mac
   runs the update carrying relay #161. Then, with the phone connected, open `chrome://inspect` in
   Chrome on the Mac and look at the sign-in page's console for the line "an app launch nonce arrived
   without the app's referrer". (#4090, #2854)
+- **Three checks that need the cable, after both updates** (android README, #4113): an open without
+  the app's own code shows a URL bar; the app started at another address opens the sign-in page
+  instead; a refused open does nothing and the next "Open my Kosmos" still goes full screen. The
+  exact commands are in `android/README.md`, "Not yet seen on a device".
