@@ -17641,9 +17641,16 @@ if (require.main === module) {
 
      ⚠️ tellAgent also heals an EXISTING colleagues block (projects.healColleagues),
      so this pass rewrites that block too when its text has drifted; it never adds
-     one. */
+     one. That heal therefore rides only on a saved record; a boot refresh of the
+     colleagues block in its own right would be a sibling of this one. */
   try {
-    if (you.read().state === 'saved') {
+    const record = you.read();
+    if (record.state === 'unknown') {
+      /* A record we could not read or trust: tellAgent would refuse every agent,
+         so say it once, as the siblings name their failures. */
+      process.stderr.write(`Kosmos could not refresh what agents know about who they work for; they keep the text they have. The About-you record: ${record.because || 'no reason given'}\n`);
+    }
+    if (record.state === 'saved') {
       const told = you.syncEveryone(safeRoster());
       const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
       if (stuck.length) {

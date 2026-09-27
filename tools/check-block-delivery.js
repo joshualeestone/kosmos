@@ -22,7 +22,7 @@
  *
  * 🔑 A ZERO HAS TWO CAUSES AND THIS TOOL REFUSES TO MERGE THEM. A block can be
  * absent because it was never delivered, or because THERE IS NOTHING TO
- * DELIVER -- no `you` record saved, no policies, no doctrine. Counting
+ * DELIVER -- no `you` record saved, no policies. Counting
  * absences alone reported FIVE undelivered blocks on this machine when the
  * true number was two; two of the other three were correctly empty and one was
  * a membership block that fifteen agents are right not to have.
@@ -65,7 +65,8 @@ function briefPath(dir) {
 function hasContent(name) {
   const safe = (fn) => { try { return fn(); } catch { return null; } };
   switch (name) {
-    case 'you':      return safe(() => require(path.join(REPO, 'engine', 'you.js')).read().state !== 'absent');
+    /* An unreadable record is CANNOT TELL (null), not "there is something to deliver". */
+    case 'you':      return safe(() => { const st = require(path.join(REPO, 'engine', 'you.js')).read().state; return st === 'saved' ? true : (st === 'absent' ? false : null); });
     case 'policy':   return safe(() => (require(path.join(REPO, 'engine', 'policy.js')).read().policies || []).length > 0);
     /* doctrine is never asked here: it has no read(), and asking one made every
        agent's working-rules block read "nothing to deliver" (#1071). It is
