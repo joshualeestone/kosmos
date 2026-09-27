@@ -144,3 +144,18 @@ test('a closed task has no claim agent, whatever its parts say (closing leaves p
   assert.equal(tasks.claimWho({ number: 6, closedAt: '2026-09-25T00:00:00Z', parts: [{ id: 1, who: 'rex', closedAt: null }] }), null);
   assert.equal(tasks.claimWho({ number: 7, closedAt: null, parts: [{ id: 1, who: 'rex', closedAt: null }] }), 'rex', 'an open task lost its agent (control)');
 });
+
+test('#4053 (option C v2): every tile, the "cannot tell" one included, draws its badge before the number', () => {
+  const m = SCRIPT.match(/getElementById\('tsk-tiles'\)\.innerHTML = [\s\S]*?\}\)\.join\(''\);/);
+  assert.ok(m, 'the tile painter moved');
+  const rows = m[0].match(/'<span class="tsk-mkrow">' \+ tskBadge\(g\.k\) \+ '<span class="num">/g) || [];
+  assert.equal(rows.length, 2, 'a tile branch lost its badge row');
+  const icons = SCRIPT.match(/const TSK_ICON = \{([\s\S]*?)\n\};/);
+  assert.ok(icons, 'TSK_ICON moved');
+  for (const k of ['decision', 'working', 'assigned', 'nobody', 'built', 'closed']) {
+    assert.match(icons[1], new RegExp('\\n  ' + k + ": '<(path|circle) "), 'no icon for the ' + k + ' tile');
+  }
+  const badge = SCRIPT.match(/function tskBadge\(k\) \{[\s\S]*?\n\}/);
+  assert.ok(badge, 'tskBadge moved');
+  assert.match(badge[0], /aria-hidden="true" focusable="false"/, 'the badge icon is read aloud');
+});
