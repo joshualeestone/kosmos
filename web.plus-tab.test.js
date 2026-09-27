@@ -140,7 +140,7 @@ test('#743: a slower poll cannot revert a faster user click (or vice versa)', ()
     'plus-state1': { hidden: false },
     'plus-state2': { hidden: true },
     'plus-flow': { hidden: true },
-    'plus-switch': { textContent: '' },
+    'plus-switch': { attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, hidden: true },   // #4080: a switch now
     'plus-status': { textContent: '' },
     'plus-enrol': { hidden: false },
     'plus-devices': { hidden: false },
@@ -160,7 +160,7 @@ test('#743: a slower poll cannot revert a faster user click (or vice versa)', ()
   // A (dispatched first, slower) resolves SECOND, after B already painted.
   pending[0]({ json: async () => ({ configured: true, on: true, status: {}, enrolled: true }) });
   return Promise.all([callA, callB]).then(() => {
-    assert.equal(els['plus-switch'].textContent, 'Turn on',
+    assert.equal(els['plus-switch'].attrs['aria-checked'], 'false',
       'the slower, earlier-dispatched call overwrote the later click -- the exact revert Pete would see');
   });
 });
