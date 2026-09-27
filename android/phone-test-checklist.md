@@ -43,6 +43,7 @@ second sign-in step, the same one you use on the web.
 - There is no way to buy or subscribe inside the app. It only signs you in. That is deliberate.
   (#718)
 - A small "Running in Chrome" note may show at the bottom the first time. Tap **Got it**.
+  (android/evidence/cct-warmup-4109)
 - If it asks whether Kosmos may send you notifications, tap **Allow**.
 
 **If it looks different:** a screenshot of the first screen, especially if you see an address bar.
@@ -82,9 +83,10 @@ Put your Mac to sleep (or close its lid). On the phone, close Kosmos completely 
 the recent apps), open it from its icon, and tap **Open my Kosmos**. Screenshot what the phone
 shows, then wake the Mac. (#4086, #4093)
 
-You will probably see the Kosmos page saying Kosmos couldn't open and to check your connection,
-even though your phone is online. Better wording for when your Mac is not answering is written but
-not switched on yet, so there is no wrong answer here. We just want to see it on a real phone.
+Whatever it shows is useful to us, and it does not mean your phone is offline. Today the message
+may be a plain browser error, or one written for the Mac. Better wording for when your Mac is not
+answering is written but not switched on yet, so there is no wrong answer here. We just want to see
+it on a real phone.
 
 ## 6. Turn on notifications on the phone
 
