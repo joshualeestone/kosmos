@@ -11,7 +11,8 @@
  *   2. the question-width pass (Mona Lisa's ruling, 2026-08-20): DONE, #113 closed 2026-08-23.
  *
  * The gate lived in a branch plan, then on an open card. A card only guards while someone reads it, and the
- * three tests that touch this box today (web.fold-boxes, web.pj-clear-state-2575, render-thread) would fail
+ * two unit tests and one browser check that touch this box today (web.fold-boxes, web.pj-clear-state-2575, and the
+ * browser check render-thread) would fail
  * for their OWN reasons, so whoever deleted the box would fix them and never meet the rule. This test is the
  * rule. If it fails because you removed the box on purpose: that is PR two, and it needs Gate 1's evidence
  * (the browser walk) and Splinter's OK. Record both in the PR, then change this test. Do not just delete it.
@@ -31,8 +32,10 @@ test('#111: the room keeps its question box until the agent page carries blockin
     + 'carries a blocking question a person can see and answer, shown by a browser walk) and Splinter\'s OK first';
   /* Anchored on the ELEMENTS (an opening tag carrying the id), not on the bare text: the page mentions ids in
      comments, and a comment naming one ahead of the markup would otherwise decide the order check (review 1). */
-  const threadTag = /<div\b[^>]*\bid="pj-thread"/.exec(PAGE);
-  const questionTag = /<div\b[^>]*\bid="pj-question"/.exec(PAGE);
+  /* `\sid=`, not `\bid=`: a `-` is a word boundary, so `\bid=` would also match a later `data-id="pj-question"` and
+     let this pass after the real box was deleted (review 2). */
+  const threadTag = /<div\b[^>]*\sid="pj-thread"/.exec(PAGE);
+  const questionTag = /<div\b[^>]*\sid="pj-question"/.exec(PAGE);
   assert.ok(threadTag, GATE + ' (the #pj-thread element, the box\'s container, is missing)');
   assert.ok(questionTag, GATE + ' (the #pj-question element is missing)');
   /* The box sits INSIDE the thread, which is why deleting the thread takes it too (#111's first paragraph). This
