@@ -423,12 +423,15 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *  - a value with symbols in it, given without its opening, with spaces around its symbols;
  *  - a key cut into chunks under OPENING_LEN with fewer than SHORT_WALK_MIN_KEYLIKE chunks that are not plain words or
  *    numbers (shortChunkSpans refuses those, since ordinary text spells a password made of words). That includes
- *    a key given ONE character at a time with words between (every single character is a plain word), a key in
- *    chunks of two, and a single-case key whose chunks read as words by wordLike's vowel test;
+ *    a key given ONE character at a time with words between (every single character is a plain word), a
+ *    single-case key in chunks of two, and a single-case key whose chunks read as words by wordLike's vowel test;
+ *  - a key whose FIRST chunk is one character (the short walk starts only from two or three);
  *  - a short chunk glued to a label by + or / with no other glue (Zq8+part2);
- *  - a hex form cut into chunks under OPENING_LEN (hex forms are not walked short; see addWalked);
- *  - a first chunk of OPENING_LEN or more followed by chunks under it with long text between (neither walk's reach
- *    carries it: the word walk extends only on pieces of OPENING_LEN or more);
+ *  - anything that is hex (0-9 a-f only) cut into chunks under OPENING_LEN: the hex encodings of held values AND a
+ *    held value that is itself hex (a raw hex token). Neither is walked short (see addWalked);
+ *  - a first chunk of OPENING_LEN or more followed by chunks under it, once the text from the first chunk runs past
+ *    SPLIT_REACH times the key's length in all (the word walk extends its reach only on pieces of OPENING_LEN or
+ *    more, and the short walk starts only from a chunk under OPENING_LEN);
  *  - a held form over WORD_WALK_MAX_FORM characters;
  *  - pieces that overlap (a character given twice, at the end of one piece and the start of the next);
  *  - a key split across two replies (the mask is per message).
@@ -809,6 +812,10 @@ function shortChunkSpans(text) {
   for (let r = 0; r < runs.length; r += 1) {
     for (const open of runs[r][2]) {
       if (open.length >= OPENING_LEN) continue;   // the word walk starts these
+      /* Not from a single character (review round 5): text listing single characters ("A B C ... 0 1 2") makes
+         every form spellable, and each lone character then walked against every held value and the reply was
+         withheld. A single character still continues a walk. */
+      if (open.length < 2) continue;
       /* The forms this opening could complete, worked out once per opening (a long table repeats "0" hundreds of
          times against the same 2,000 forms). */
       let cands = viable.get(open);

@@ -1506,3 +1506,13 @@ test('#3995 gap 4 review round 4: an all-lowercase key in chunks of three is mas
     try { assert.equal(mask(text).text, text, `${pw} masked from ordinary text`); } finally { setKnownSecrets([]); }
   }
 });
+
+test('#3995 gap 4 review round 5: text full of single characters is not withheld with held values', () => {
+  const rnd = (n, seed) => { let x = seed; let out = ''; const A = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'; for (let i = 0; i < n; i += 1) { x = (x * 1103515245 + 12345) % 2147483648; out += A[x % A.length]; } return out; };
+  setKnownSecrets(Array.from({ length: 200 }, (_, i) => rnd(32, 700 + i)));
+  try {
+    const abc = 'Allowed: ' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'.split('').join(' ') + '. ';
+    const text = abc.repeat(10);
+    assert.equal(mask(text).text, text, 'a list of single characters was changed or withheld');
+  } finally { setKnownSecrets([]); }
+});

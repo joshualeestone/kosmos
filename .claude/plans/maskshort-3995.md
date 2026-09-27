@@ -80,3 +80,14 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
   chunk glued to a label by + or / alone.
 - Noted (inherited from pieceSpan, no exploit found): the piece's position in its run is found by endsWith/indexOf, so
   a run holding the same piece twice could mask the wrong one.
+
+## Review round 5 (Opus), what changed
+- A reply listing single characters ("A B C ... 0 1 2") made every form spellable and each lone character walked,
+  so it was withheld with about 50 held values. A short walk now starts only from two or three characters (one still
+  continues a walk). Tested with 200 held values; red without the rule. The cost: a key whose first chunk is one
+  character is not caught (Not covered).
+- Not covered stated precisely: a raw hex token (not only hex encodings), a long first chunk followed by short ones
+  once the text runs past SPLIT_REACH times the key's length, and chunks of two only for a single-case key.
+- Noted: iOS17iPadOS17 is masked out of "Update to iOS 17 or iPadOS 17" (two mixed pieces), matching what main already
+  does for such values with a longer opening; the weakest premise's shape, recorded.
+- Deferred NIT: the first path to reach a position wins, which can leave a real chunk visible (3 characters, adversarial).
