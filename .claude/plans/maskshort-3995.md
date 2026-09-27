@@ -300,3 +300,15 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
   sentence about quarters. The two are structurally identical, so no piece rule separates them. Kept the round-10 rule
   (ordinary text is protected); Not covered now names this as EVERY time for that shape, not a sampled rate, and a
   test pins it. What would change it: evidence that such keys are held and written in their groups in guide replies.
+
+## Review round 27 (Opus), what changed
+- A held hex vendor body (OpenRouter's sk-or-v1-<hex>) was assembled out of hex-dense numbered text, hopping gap by gap
+  across about a hundred lines, masking tokens and line numbers (round 24 let vendor hex bodies in; round 3's reason for
+  keeping hex out applies to them too). A hex form now completes only within SPLIT_REACH x its length in all, not per
+  gap; a real chunked key fits easily. Tested with five held keys and five fresh random texts: red 3 of 3 runs on the
+  previous commit, green 3 of 3 now.
+- My round-21 test's escape was wrong ('\\\\$&' built A\\+b, which never matches A+b), so its first-chunk assertion
+  could not fail; corrected and checked against unmasked text.
+- Not covered names chunks and words joined into one run by - _ or / (main leaks it too).
+- NITs noted: shortHead keyed by form string (two values with the same form would share a head; not reachable
+  realistically); the round-26 test asserts a known limit on purpose, as its message says.

@@ -457,6 +457,8 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *    chunks read as words by wordLike's vowel test;
  *  - a key whose FIRST chunk is one character (the short walk starts only from two or three);
  *  - a chunk with a number glued straight onto it, no separator (0Zq8 1vLm ..., or Zq80 vLm1 ...);
+ *  - short chunks and words joined into ONE run by - _ or / (Zq8-and-vLm-and-..., Zq8_then_vLm_...): the short walk
+ *    advances only to later runs, and joins cover at most four neighbouring parts (main leaks it too);
  *  - EVERY time, not at a rate: a value made wholly of label-shaped groups (one letter and one or two digits, or the
  *    reverse: A12B34C56..., A1B2C3...), a serial or licence-key shape, cut into those groups. Each group reads as a
  *    plain label (Q1, V2), so no piece is key-like; the same rule is what keeps a held Q1Q2Q3Q4Q5Q6 out of a sentence
@@ -982,6 +984,10 @@ function shortChunkSpans(text) {
         let done = null;
         if (end) { done = []; for (let n = end; n; n = n.prev) done.unshift([n.run, n.piece, n.pos]); }
         if (!done || done.filter(([, t]) => !plainWordRun(t)).length < SHORT_WALK_MIN_KEYLIKE) continue;
+        /* A hex form (a vendor key's hex body) completes only within SPLIT_REACH x its length IN ALL, not per gap: lone
+           a to f letters and digits spell any hex form, and a path hopping gap by gap across a hundred lines of hex-dense
+           text masked its tokens and line numbers (review round 27). A real chunked key fits easily. */
+        if (/^[0-9a-f]+$/i.test(f) && ns[runs[done[done.length - 1][0]][1]] - ns[runs[done[0][0]][0]] > SPLIT_REACH * f.length) continue;
         const key = f + '|' + done[done.length - 1][0];
         const had = completed.get(key);
         if (!had) completed.set(key, { done, head: shortHead.get(f) || 0 });   // starts run latest first: the first completion here is the latest

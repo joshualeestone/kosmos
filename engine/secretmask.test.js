@@ -1721,7 +1721,7 @@ test('#3995 gap 4 review round 21: a key whose second character is + / = or - is
     try {
       const rest = held.slice(3).match(/.{1,3}/g);
       const t = mask([first, ...rest].join(' and ')).text;
-      for (const c of [first, ...rest]) assert.ok(!new RegExp('(^|[^A-Za-z0-9+/=-])' + c.replace(/[+/=]/g, '\\\\$&') + '([^A-Za-z0-9+/=-]|$)').test(t), `${held}: ${c} showed: ${t}`);
+      for (const c of [first, ...rest]) assert.ok(!new RegExp('(^|[^A-Za-z0-9+/=-])' + c.replace(/[+/=]/g, '\\$&') + '([^A-Za-z0-9+/=-]|$)').test(t), `${held}: ${c} showed: ${t}`);
     } finally { setKnownSecrets([]); }
   }
 });
@@ -1776,5 +1776,25 @@ test('#3995 gap 4 review round 26 (pinned limit): a value made wholly of label-s
   try {
     const t = 'A12 and B34 and C56 and D78 and E90 and F12 and 3';
     assert.equal(mask(t).text, t, 'the stated limit changed; update the Not covered list and this test');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 27: hex-dense numbered lines do not assemble a held hex vendor body across them', () => {
+  const crypto = require('node:crypto');
+  // Five held OpenRouter-shaped keys (hex bodies), five fresh texts: the previous commit masked some text most times.
+  const gen = (seed) => { let x = seed; let out = ''; for (let i = 0; i < 64; i += 1) { x = (x * 1103515245 + 12345) % 2147483648; out += '0123456789abcdef'[(x >>> 16) % 16]; } return out; };
+  // Built by joining, as this file's fakes are, so the file itself does not read as a leaked key.
+  const held = [j('sk-or-', 'v1-', gen(5100)), ...[1, 2, 3, 4].map((k) => j('sk-or-', 'v1-', gen(5100 + k)))];
+  setKnownSecrets(held);
+  try {
+    const hex = (n) => crypto.randomBytes(n).toString('hex').slice(0, n);
+    for (let round = 0; round < 5; round += 1) {
+      const lines = Array.from({ length: 300 }, (_, i) => `${i + 1}. Step ${'abcdef'[i % 6]} ${i % 10} ${hex(2)} ${hex(2)} ${hex(3)} then click ${hex(2)}`);
+      const text = lines.join('\n');
+      const bare = text.replace(/[^0-9a-f]/g, '');
+      if (held.some((h) => bare.includes(h.slice(9)))) continue;   // a draw that really contains a body proves nothing
+      const r = mask(text);
+      assert.equal(r.text, text, 'hex-dense lines were masked: ' + JSON.stringify(r.fired));
+    }
   } finally { setKnownSecrets([]); }
 });
