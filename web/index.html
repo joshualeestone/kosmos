@@ -3618,7 +3618,9 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
    follows the view there and never reaches Settings (Kano's trap on the project page). The checkbox's tap area is its
    label's: padding widens it and an equal negative margin keeps the row where it was. */
 @media (hover: none) {
-  #panel-tasks :is(input:not([type=checkbox]):not([type=radio]), select, textarea) { font-size: 16px; }
+  /* Spelled out, not :is(), so web.room-phone-718's reader of the project page's own 16px list does not count this
+     separate screen as one of its dialogs. The Tasks view has no textarea, so no line-height partner is needed. */
+  #panel-tasks input:not([type=checkbox]):not([type=radio]), #panel-tasks select, #panel-tasks textarea { font-size: 16px; }
   #panel-tasks select.tsk-sel { height: auto; min-height: 44px; }
   #panel-tasks :is(#tsk-new, #tsk-bclose, #tsk-bclear) { min-height: 44px; }
   #panel-tasks .tsk-search input { min-height: 44px; min-width: 44px; }
