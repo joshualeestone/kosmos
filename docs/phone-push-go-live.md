@@ -215,7 +215,8 @@ No deploy step copies a key file, and the template only holds its path.
   (`ios/tools/ExportOptions.plist`) and checks the exported `.ipa`. `--upload` then sends that same
   checked file. Details are in `ios/README.md`, "Signing, archive and upload".
 - **The push check on the exported app is automatic.** `ios/tools/check-ipa-entitlements.sh` runs
-  inside `archive.sh`, and nothing uploads unless `aps-environment` reads `production`.
+  inside `archive.sh`, and nothing uploads unless `aps-environment` reads `production` and the app
+  is signed by the team in `ios/Signing.xcconfig`.
 - **The app icon and the navy launch screen are in an asset catalog** (`ios/Kosmos/Assets.xcassets`,
   icon from `assets/Kosmos-1024.png`). It compiles on GitHub's macOS runner, and iOS CI checks the
   built app carries both. It does not compile on the Mac mini until an iOS runtime is installed

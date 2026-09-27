@@ -2,7 +2,7 @@
 build/
 DerivedData/
 
-# Xcode per-user state (schemes are auto-created; none are shared here)
+# Xcode per-user state (the one shared scheme, Kosmos, is committed under xcshareddata/)
 xcuserdata/
 *.xcuserstate
 
