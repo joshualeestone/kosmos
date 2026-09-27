@@ -636,6 +636,17 @@ step "== 1d. the Plus connector is current with kosmos-relay main (#3884) =="
 connector_currency_check "${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}" \
   "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" || exit 1
 
+step "== 1e. no browser-check quarantine expires at $V (#4160) =="
+# A quarantine marked `until=<version>` goes red once package.json reaches it, and main's
+# package.json only reaches $V at step 2's pushed bump. Checked here against $V instead, so an
+# expiring quarantine refuses before the bump rather than aborting the cut after it.
+if ! ( cd "$REPO" && KOSMOS_QUARANTINE_AT_VERSION="$V" node --test "$REPO/browser-checks-quarantine-guard.test.js" >/dev/null 2>&1 ); then
+  echo "a browser-check quarantine expires at $V, or a check says PASS and exits before its browser starts:"
+  ( cd "$REPO" && KOSMOS_QUARANTINE_AT_VERSION="$V" node --test "$REPO/browser-checks-quarantine-guard.test.js" 2>&1 ) | grep -E "says PASS|expired|does not say" | head -5
+  echo "fix the check (see browser-checks-quarantine-guard.test.js) before cutting $V."
+  exit 1
+fi
+
 step "== 2. the version, in one place =="
 node -e "
 const fs=require('fs'),p='$REPO/package.json';

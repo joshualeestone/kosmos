@@ -17,17 +17,19 @@
  *     // QUARANTINE until=<version> card=#<N>: <reason>
  *
  * It is allowed while package.json's version is BELOW `until`, and red from the
- * first build at or past it, naming the card. The harness (tools/browser-checks.sh)
+ * first build at or past it, naming the card. The cut runs this test at step 1e with
+ * KOSMOS_QUARANTINE_AT_VERSION set to the version it is cutting, so an expiring
+ * quarantine refuses BEFORE the version bump, not after it. The harness (tools/browser-checks.sh)
  * separately refuses a run in which a check printed QUARANTINED, unless the
  * operator overrides it, so a quarantine is never reported as a pass either.
  *
  * ⚠️ WHAT IS NOT FLAGGED, so this does not over-reach. The honest skip prints
  * SKIPPED, not PASS ("playwright is not on NODE_PATH - SKIPPED, not passed"), and
  * a PASS followed by exit(0) AFTER the browser launched is a check's normal end.
- * The shape is narrow: a PASS string, then exit(0), before the first launch.
+ * The shape is narrow: a PASS string, then exit(0), before the last launch.
  *
- * ⚠️ WEAKEST PART. "Before the first launch" is read from the source text: the
- * first line calling `.launch(` or `.launchPersistentContext(`. A check that
+ * ⚠️ WEAKEST PART. "Before the launch" is read from the source text: the LAST
+ * non-comment line calling `.launch(` or `.launchPersistentContext(`. A check that
  * starts its browser through a helper with another name would read as having no
  * launch at all, so any early PASS-exit in it is flagged. That fails red, the safe
  * direction, and the message says how to proceed.
@@ -98,7 +100,9 @@ function scan(name, src, version) {
   return problems;
 }
 
-const VERSION = parseVersion(JSON.parse(fs.readFileSync(nodePath.join(__dirname, 'package.json'), 'utf8')).version);
+/* The cut sets KOSMOS_QUARANTINE_AT_VERSION to the version it is about to cut (release.sh step 1e). */
+const VERSION = parseVersion(process.env.KOSMOS_QUARANTINE_AT_VERSION
+  || JSON.parse(fs.readFileSync(nodePath.join(__dirname, 'package.json'), 'utf8')).version);
 
 test('no browser check says PASS and exits before its browser starts, unless quarantined with an unexpired marker', () => {
   const scripts = fs.readdirSync(DIR).filter((f) => f.endsWith('.js'));
@@ -193,4 +197,13 @@ test('control (review round 2): lower-case quarantined counts, as in the harness
   assert.deepEqual(scan('l.js', lower, [0, 7, 1]), []);
   const doc = ["// never do: console.log('PASS x'); process.exit(0);", 'await chromium.launch();'].join('\n');
   assert.deepEqual(scan('d.js', doc, [0, 7, 1]), []);
+});
+
+test('control (review round 3): the marker must sit within 12 lines of the exit', () => {
+  const far = ['// QUARANTINE until=0.9.00 card=#1079: stale click']
+    .concat(Array(11).fill('// filler')) /* marker 13 lines above the exit: outside */
+    .concat(["console.log('PASS  x QUARANTINED');", 'process.exit(0);', 'await chromium.launch();']).join('\n');
+  assert.match(scan('f.js', far, [0, 7, 1])[0], /no "QUARANTINE until=/);
+  const near = far.replace('// filler\n', ''); /* 12 lines above: inside */
+  assert.deepEqual(scan('n.js', near, [0, 7, 1]), []);
 });

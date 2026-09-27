@@ -19,11 +19,13 @@ printf 'PASS  all 55 assertions\n' > "$TMP/pass.out"
 printf 'playwright is not on NODE_PATH - SKIPPED, not passed\n' > "$TMP/skip.out"
 printf 'PASS  quarantined in lower case still counts\n' > "$TMP/lower.out"
 printf 'PASS  the quarantinedness of nothing\n' > "$TMP/partial.out"
+printf 'PASS  a quarantined post is hidden from the feed\n' > "$TMP/modpass.out"
+printf 'hid 1 quarantined post\nPASS  moderation\n' > "$TMP/modsplit.out"
 
 # --- the #1079 output is QUARANTINED, not PASS ------------------------------------
 reset
 if bc_quarantine_note regress-a-night "$TMP/q.out"; then ok "the #1079 output is recognised"; else bad "the #1079 output read as a pass"; fi
-[ "${QUARANTINED[*]}" = regress-a-night ] && ok "it is recorded by label" || bad "QUARANTINED=${QUARANTINED[*]}"
+[ "${QUARANTINED[*]:-}" = regress-a-night ] && ok "it is recorded by label" || bad "QUARANTINED=${QUARANTINED[*]:-}"
 case "$LOGGED" in *"QUARANTINED  regress-a-night"*) ok "it is logged as QUARANTINED" ;; *) bad "log: $LOGGED" ;; esac
 
 # --- an ordinary pass and the honest skip are untouched --------------------------
@@ -31,8 +33,9 @@ reset
 bc_quarantine_note ok-check "$TMP/pass.out" && bad "a real pass was taken as quarantined" || ok "a real pass stays a pass"
 bc_quarantine_note skip-check "$TMP/skip.out" && bad "the honest SKIPPED was taken as quarantined" || ok "the honest SKIPPED is not a quarantine"
 bc_quarantine_note partial "$TMP/partial.out" && bad "a longer word containing it matched" || ok "whole word only"
+bc_quarantine_note modsplit "$TMP/modsplit.out" && bad "quarantined on a non-PASS line was taken as a quarantine" || ok "quarantined outside a PASS line is not a quarantine"
 bc_quarantine_note gone "$TMP/missing.out" && bad "a missing capture was taken as quarantined" || ok "a missing capture is not a quarantine"
-[ "${#QUARANTINED[@]}" -eq 0 ] && ok "none of those were recorded" || bad "QUARANTINED=${QUARANTINED[*]}"
+[ "${#QUARANTINED[@]}" -eq 0 ] && ok "none of those were recorded" || bad "QUARANTINED=${QUARANTINED[*]:-}"
 bc_quarantine_note lower "$TMP/lower.out" && ok "any case counts" || bad "lower case missed"
 
 # --- the verdict: refused without the override ------------------------------------
@@ -88,4 +91,4 @@ pat="$(grep -oE "grep -E '[^']*QUARANTINED[^']*' \"\\\$_page_log\"" "$REPO/tools
 if [ -n "$pat" ] && printf 'QUARANTINED  regress-a-night (exited 0 ...)\n' | grep -qE "$pat"; then ok "release 3b's summary grep shows the QUARANTINED line"; else bad "release 3b's summary grep (${pat:-not found}) misses QUARANTINED"; fi
 
 echo "bc-quarantine: $passes passed, $fails failed"
-[ "$fails" -eq 0 ] && [ "$passes" -eq 23 ] || { echo "expected 23 passes and 0 failures"; exit 1; }
+[ "$fails" -eq 0 ] && [ "$passes" -eq 24 ] || { echo "expected 24 passes and 0 failures"; exit 1; }
