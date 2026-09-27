@@ -27090,7 +27090,7 @@ function paintOrg() {
       : '';
     /* #3946 item 15: a swarm's node is the same cluster as its grid card and list row (one component), filling
        the node's face; an ordinary agent keeps its single picture or initials. */
-    const isSwarm = typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm;
+    const isSwarm = orgDrawsCluster(a);
     const face = isSwarm ? swarmCluster(a, 0, { decorative: true }) : a.hasAvatar
       /* #2698: `?v=` the avatar version so a changed picture changes this markup.
          Without it the URL is byte-identical after an update, the repaint guard
@@ -27239,19 +27239,24 @@ function orgLiveStart(map, placed, cx, cy, size) {
    node's edge instead of running to its centre. An agent's opaque disc hid the rest of a centre-to-centre
    wire, but a swarm's cluster has no disc (gaps between its circles, and it rests at half strength), so the
    wire showed through it. orgReach(a, ux, uy) is how far along the direction (ux, uy) from a node's centre
-   its picture ends, on its 44px node: a disc ends at 22px whatever the direction; a cluster ends where that
-   ray leaves the last circle it crosses (swarmLayout, the one swarmCircles draws). A ray that only grazes a
-   circle's edge, or passes just beside it (through the narrow gap between two), stops level with that
-   circle's outer edge rather than running along it or on to the centre. The hub is an opaque disc drawn over the wires: a wire from it starts at
-   its centre. */
+   its picture ends: a disc ends at its edge whatever the direction; a cluster ends where that ray leaves
+   the last circle it crosses (swarmLayout, the one swarmCircles draws). A ray that only grazes a circle's
+   edge, or passes just beside it (through the narrow gap between two), stops level with that circle's
+   outer edge rather than running along it or on to the centre. The hub is an opaque disc drawn over the
+   wires: a wire from it starts at its centre. */
+/* Whether the org chart draws this node as a swarm cluster: paintOrg's face and orgReach's cut both ask
+   here, so a wire is never cut to a cluster around a disc or the other way round. */
+function orgDrawsCluster(a) {
+  return typeof SWARMS_ON !== 'undefined' && SWARMS_ON && !!a && Object.prototype.hasOwnProperty.call(a, 'swarm') && !!a.swarm;
+}
 /* A node's face is ORG_FACE_PX square (.onode's width and height); a disc's picture ends at half of it. */
 const ORG_FACE_PX = 44;
 /* orgReach runs for every wire end on every frame of a drag or settle: the layout for each helper count is
    worked out once. */
 const ORG_LAYOUT_BY_MAX = new Map();
 function orgReach(a, ux, uy) {
-  if (!(typeof SWARMS_ON !== 'undefined' && SWARMS_ON && !!a && Object.prototype.hasOwnProperty.call(a, 'swarm') && !!a.swarm)) return ORG_FACE_PX / 2;
-  const max = Math.max(2, Math.min(10, Number(a.swarm.maxHelpers) || 3));
+  if (!orgDrawsCluster(a)) return ORG_FACE_PX / 2;
+  const max = Math.max(2, Math.min(10, Math.round(Number(a.swarm.maxHelpers) || 3)));
   if (!ORG_LAYOUT_BY_MAX.has(max)) ORG_LAYOUT_BY_MAX.set(max, swarmLayout(max));
   const L = ORG_LAYOUT_BY_MAX.get(max);
   const r = L.r * ORG_FACE_PX;

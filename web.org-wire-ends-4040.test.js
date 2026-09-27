@@ -36,7 +36,7 @@ function lift() {
   assert.notEqual(from, -1, 'ORG_FACE_PX not found');
   const to = PAGE.indexOf('const ORG_LAYOUT_BY_MAX = ');
   const consts = PAGE.slice(from, PAGE.indexOf('\n', to));
-  const src = [extractFn(PAGE, 'function swarmLayout('), consts, extractFn(PAGE, 'function orgReach('), extractFn(PAGE, 'function orgWireEnds(')].join('\n');
+  const src = [extractFn(PAGE, 'function swarmLayout('), consts, extractFn(PAGE, 'function orgDrawsCluster('), extractFn(PAGE, 'function orgReach('), extractFn(PAGE, 'function orgWireEnds(')].join('\n');
   // eslint-disable-next-line no-new-func
   return new Function('SWARMS_ON', src + '\nreturn { swarmLayout, orgReach, orgWireEnds, ORG_FACE_PX };')(true);
 }
@@ -84,6 +84,12 @@ test('#4040: a wire is never cut past the cluster\'s outline, and a disc is cut 
   }
   assert.equal(G.orgReach({ name: 'plain' }, 1, 0), G.ORG_FACE_PX / 2);
   assert.equal(G.orgReach({ swarm: null }, 0, 1), G.ORG_FACE_PX / 2, 'a row whose swarm is null is an agent');
+});
+
+test('#4040: paintOrg draws the face and orgReach cuts the wire from ONE swarm test', () => {
+  const paint = extractFn(PAGE, 'function paintOrg(');
+  assert.match(paint, /const isSwarm = orgDrawsCluster\(a\);/, 'paintOrg decides the face without orgDrawsCluster');
+  assert.match(extractFn(PAGE, 'function orgReach('), /orgDrawsCluster\(a\)/, 'orgReach decides the cut without orgDrawsCluster');
 });
 
 test('#4040: orgWireEnds cuts each end along the wire, starts a hub wire at its centre, and hides a wire between touching pictures', () => {

@@ -336,8 +336,14 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       const dist = (p, a, b) => { const dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy;
         const t = L2 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / L2)) : 0;
         return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy)); };
+      /* Every cluster circle, and the discs at the wire's own two ends: an unrelated agent's opaque disc hides a
+         wire passing under it, which is not what #4040 is about. */
+      const ends = (w) => [w.who, ({ rex: 'crew', crew2: 'rex' })[w.who]];
       const into = [];
-      for (const w of wires) for (const c of drawn) { const d = dist(c, w.a, w.b); if (d < c.r - 1) into.push(w.who + ' into ' + c.who + ' ' + d.toFixed(1) + '<' + c.r.toFixed(1)); }
+      for (const w of wires) for (const c of drawn) {
+        if (c.who.endsWith(' disc') && !ends(w).includes(c.who.split(' ')[0])) continue;
+        const d = dist(c, w.a, w.b); if (d < c.r - 1) into.push(w.who + ' into ' + c.who + ' ' + d.toFixed(1) + '<' + c.r.toFixed(1));
+      }
       /* And both ends reach their pictures: a wire ending well short of its node reads as detached. The child
          end is the wire's own node; the parent end is the branch's (rex under crew, crew2 under rex). */
       const parentOf = { rex: 'crew', crew2: 'rex' };
