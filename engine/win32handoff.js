@@ -385,7 +385,8 @@ function canonicalAddress(bare) {
  * Round 5, findings 1 and 3: is this address one of this machine's own, so a board of this user could be
  * listening on it? Returns the spelling to probe it by, or null when it is not this machine's. Loopback
  * (127/8, ::1) always is. Anything else must be an address one of this machine's interfaces has, compared
- * without its zone, and a zone (`%14`, `%Ethernet 2`) must name that interface, by scope id or by name: the
+ * without its zone, and a zone (`%14`, or `%en0` where the platform takes interface names as zones; Windows does
+ * not, #4258) must name that interface, by scope id or by name: the
  * same link-local address on another adapter is another address.
  *
  * Round 6, finding 1: a link-local address WITHOUT a zone (as a host name's lookup gives this PC's own) is

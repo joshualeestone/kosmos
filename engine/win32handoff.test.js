@@ -582,7 +582,15 @@ test('🛑 win32-installer-native round 5 findings 1 and 3: the bind host is res
     const byName = linkLocal.address + '%' + linkLocal.name;
     const otherZone = linkLocal.address + '%' + (Number(linkLocal.scopeid) + 100000);
     assert.ok((await addressesFor({ KOSMOS_BIND_HOST: byScope })).includes(byScope), 'case E: a zoned link-local bind host of this machine was not looked on');
-    assert.ok((await addressesFor({ KOSMOS_BIND_HOST: byName })).includes(byName), 'a link-local bind host zoned by interface name was not looked on');
+    /* #4258: an interface NAME is a zone only where the platform takes names as zones (a Mac's `en0`). Windows
+       zones are the numeric scope id (case E above), and its interface names (`Ethernet 2`) are not zones at
+       all: a space is not even an IPv6 address to net.isIP, so such a bind host is a host name that does not
+       resolve, and adds nothing. So this arm runs where names are zones, and says so where it does not. */
+    if (process.platform === 'win32') {
+      t.diagnostic('ARM NOT RUN: a bind host zoned by interface name, because Windows zones are numeric (#4258)');
+    } else {
+      assert.ok((await addressesFor({ KOSMOS_BIND_HOST: byName })).includes(byName), 'a link-local bind host zoned by interface name was not looked on');
+    }
     /* Round 6, finding 1: unzoned, it is looked on through its own interface. */
     assert.ok((await addressesFor({ KOSMOS_BIND_HOST: linkLocal.address })).includes(byScope), 'E2: the same address unzoned was not looked on through its interface');
     assert.deepEqual(await addressesFor({ KOSMOS_BIND_HOST: 'board.example' }, resolvesTo(linkLocal.address)), ['127.0.0.1', '::1', byScope].sort(),
