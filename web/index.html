@@ -29660,6 +29660,18 @@ let TALK_FLIGHT = null;
  * words exist only in the DOM.
  */
 const TALK_DRAFTS = {};
+/**
+ * The person's own message, drawn the moment they press Send, per agent.
+ *
+ * 🛑 THE THREAD USED TO WAIT FOR THE BOARD. The bubble appeared only once the POST
+ * had answered AND the thread had been read again, so every second the board spent
+ * was a second the person looked at a thread without their message in it, and on a
+ * slow Windows laptop that was over a minute. Now the bubble is drawn from what was
+ * typed, marked "Sending…", and the kept row replaces it once the thread holds it.
+ * A send the board never kept is marked as not sent, with the reason, so it never
+ * quietly disappears. { text, startedAt, recorded, failed, because }.
+ */
+const TALK_PENDING = {};
 /* #967: the Terminal tab's respond-in-context box parks its draft per agent too,
    so switching agents never loses a half-typed reply and never carries it onto
    the next agent's window. Mirrors TALK_DRAFTS. */
@@ -29818,6 +29830,30 @@ function dmRow(m, name) {
 }
 
 
+/* The in-flight (or not-kept) message, in the person's own bubble. The pill is
+   the thread's delivery pill: dashed while it is on its way, red if it did not go. */
+function dmPendingRow(p) {
+  const youAv = YOU_PIC
+    ? '<div class="msg-av" aria-hidden="true"><img src="' + youPicUrl() + '" alt=""></div>'
+    : '<div class="msg-av mine" aria-hidden="true"></div>';
+  const pill = p.failed
+    ? '<span class="delivery failed">Not sent. ' + esc(pjSentence(p.because || 'we could not send that')) + '</span>'
+    : '<span class="delivery unsure">Sending…</span>';
+  return '<div class="msg you dm-pending" data-mid="pending:' + esc(String(p.startedAt)) + '">' + youAv
+    + '<div class="msg-b"><div class="msg-bd">'
+    + pjRich(pjWords({ text: p.text }))
+    + '<span class="msg-t">' + pill + '</span></div></div></div>';
+}
+/* Does the kept thread already hold this pending message? A row the person sent,
+   with the same words, kept no earlier than a minute before the press (the board
+   stamps its own clock, which is this computer's or near it). */
+function dmPendingKept(rows, p) {
+  const flat = (t) => String(t == null ? '' : t).replace(/\s+/g, ' ').trim();
+  const want = flat(p.text);
+  return rows.some((m) => m && !m.from && m.kind !== 'kosmos' && flat(m.text) === want
+    && !(Date.parse(m.at) < p.startedAt - 60000));
+}
+
 /* The thread rows, and only them, so the search box can repaint between
    polls without re-fetching (#403). The filter matches what a row SHOWS:
    who said it (as dmWho names them) and the text. */
@@ -29862,7 +29898,15 @@ function paintTalkThread(body, name) {
   const rows = talkFilterRows(allRows, name, TALK_QUERY);
   const filtering = TALK_QUERY.trim() !== '';
   const thread = document.getElementById('d-dmthread');
-  if (body.historyUnfilable && !allRows.length) {
+  /* The person's own message in flight, drawn after the kept rows until the thread
+     holds it (see TALK_PENDING). Not while a search is filtering the thread. */
+  let pending = (dmSession && TALK_PENDING[dmSession]) || null;
+  if (pending && pending.recorded && Array.isArray(body.messages) && dmPendingKept(allRows, pending)) {
+    delete TALK_PENDING[dmSession];
+    pending = null;
+  }
+  const pendingHtml = (pending && !filtering) ? dmPendingRow(pending) : '';
+  if (body.historyUnfilable && !allRows.length && !pendingHtml) {
     /**
      * ⚠️ A THIRD FACT, not a flavour of unreadable. This agent's name cannot be
      * filed under at all, so there is no file to read and there never will be
@@ -29875,7 +29919,7 @@ function paintTalkThread(body, name) {
     setThread(thread, '<p class="dmnone"><b>Nothing said here is kept for ' + esc(name) + '.</b> '
       + esc(pjSentence(body.historyBecause || 'we cannot keep a conversation under this agent’s name'))
       + ' You can still send, and it still arrives.</p>', null);
-  } else if (body.historyBecause && !allRows.length) {
+  } else if (body.historyBecause && !allRows.length && !pendingHtml) {
     // We could not read a store that does exist. ⚠️ The room's load-bearing
     // second sentence rides along: an unreadable file is not evidence that
     // nothing was said, and silence here would render "we could not look" as
@@ -29892,7 +29936,7 @@ function paintTalkThread(body, name) {
        read what you have sent this agent", and that pairing is correct. */
     setThread(thread, '<p class="dmnone">' + esc(pjSentence(body.historyBecause))
       + ' This is not saying you have sent nothing: it is saying we cannot see it.</p>', null);
-  } else if (!allRows.length) {
+  } else if (!allRows.length && !pendingHtml) {
     setThread(thread, '<p class="dmnone">Nothing here yet.</p>', null);
   } else if (filtering && !rows.length) {
     // null count: a no-match paint never scrolls, the room's rule.
@@ -29934,8 +29978,9 @@ function paintTalkThread(body, name) {
        screen and should behave like one. */
     const tailRow = rows.length ? rows[rows.length - 1] : null;
     const threadKey = (filtering ? TALK_QUERY : '') + '\u0000' + rows.length
-      + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '');
-    const dmHtml = rows.map((m) => dmRow(m, name)).join('') + (filtering ? '' : dmOwesLine(body.owes, rows));
+      + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '')
+      + (pendingHtml ? '\u0000' + (pending.failed ? 'failed:' : 'sending:') + pending.startedAt : '');
+    const dmHtml = rows.map((m) => dmRow(m, name)).join('') + pendingHtml + (filtering ? '' : dmOwesLine(body.owes, rows));
     setThread(thread, dmHtml, threadKey);
     if (!filtering && CURRENT && CURRENT.sessionName) unreadEdgeApply(thread, 'dm:' + CURRENT.sessionName);   // #3743
   }
@@ -30331,7 +30376,7 @@ async function paintTalk(sessionName, agentName) {
   /* --- the thread --- */
   const rows = Array.isArray(body.messages) ? body.messages : [];
   const thread = document.getElementById('d-dmthread');
-  thread.__lastBody = body; thread.__lastName = name;
+  thread.__lastBody = body; thread.__lastName = name; thread.__lastSession = sessionName;
   paintTalkThread(body, name);
 
   const older = document.getElementById('d-talk-older');
@@ -30481,6 +30526,18 @@ async function paintTalk(sessionName, agentName) {
   attachPaint(ATTACH_AGENT);   // this agent's pending files, not the last one's
 }
 
+/* Repaint the open thread from its last read, so a pending message shows without a
+   fetch. Only for the agent that is open: another agent's thread is not on screen. */
+function talkPaintPending(sessionName, name) {
+  if (!CURRENT || CURRENT.sessionName !== sessionName) return;
+  const th = document.getElementById('d-dmthread');
+  if (!th) return;
+  /* The last read must be THIS agent's: straight after opening another agent it is
+     still the previous one's, and its first read will draw the pending message. */
+  if (th.__lastSession !== sessionName || !th.__lastBody) return;
+  paintTalkThread(th.__lastBody, th.__lastName || name);
+}
+
 /**
  * Send one message to this agent, and say what became of it.
  *
@@ -30562,6 +30619,10 @@ async function sendTalk(text, attachment) {
     // want to type instead goes.
     if (sendHadFocus) say.focus();
     msg.textContent = 'Sending…';
+    /* The message goes into the thread NOW, before the board has answered (see
+       TALK_PENDING). Painted from the last thread read, so nothing waits on a fetch. */
+    TALK_PENDING[sentName] = { text, startedAt: Date.now(), recorded: false, failed: false, because: null };
+    talkPaintPending(sentName, name);
     const res = await fetch('/api/agent/' + encodeURIComponent(sentName) + '/thread', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -30570,6 +30631,15 @@ async function sendTalk(text, attachment) {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not send that');
     const d = body.delivery || {};
+    /* The kept row takes over from the drawn one once the thread holds it. One the
+       board did not keep stays drawn, as not sent, unless it reached the agent: then
+       the line below says it was not kept, and the bubble goes. */
+    const flying = TALK_PENDING[sentName];
+    if (flying) {
+      if (body.recorded === true) flying.recorded = true;
+      else if (d.state === 'placed') delete TALK_PENDING[sentName];
+      else { flying.failed = true; flying.because = d.because || body.recordedBecause || 'we could not send that'; }
+    }
     const note = d.paneNote ? ' (' + d.paneNote + ')' : '';
     /**
      * ⚠️ RECORDED IS A QUESTION, NOT AN ASSUMPTION, and this is the defect the
@@ -30632,6 +30702,13 @@ async function sendTalk(text, attachment) {
     if (!inThread && body.recordedBecause) line += ' ' + pjSentence(body.recordedBecause);
     if (!flightMoved()) msg.textContent = line;
   } catch (err) {
+    /* Nothing was kept, so the drawn bubble is the only record of the attempt: it
+       stays, marked not sent. The words are still in the box for a retry. */
+    const flying = TALK_PENDING[sentName];
+    if (flying && !flying.recorded) {
+      flying.failed = true;
+      flying.because = (err && err.message) || 'we could not send that';
+    }
     if (!flightMoved()) msg.textContent = pjSentence((err && err.message) || 'we could not send that');
   } finally {
     TALK_SENDING = false;
