@@ -32,8 +32,11 @@ const os = require('node:os');
 const path = require('node:path');
 const { NO_READING } = require('./status');
 
-/** agy's storage dir. Overridable so tests never read the operator's real agy home. */
-const HOME = () => process.env.AGENT_WORKFORCE_AGY_HOME || path.join(os.homedir(), '.gemini', 'antigravity-cli');
+/** agy's storage dir. AGENT_WORKFORCE_AGY_HOME verbatim, else under AGENT_WORKFORCE_HOME (the
+    sandbox every sibling reader honours: geminisession, groksession), else the real home. A test or
+    a release build that sandboxes AGENT_WORKFORCE_HOME therefore never opens the real agy dbs. */
+const HOME = () => process.env.AGENT_WORKFORCE_AGY_HOME
+  || path.join(process.env.AGENT_WORKFORCE_HOME || os.homedir(), '.gemini', 'antigravity-cli');
 
 /* The field paths above, as data, so a later agy that moves one changes one line. */
 const FIELD = {
@@ -50,7 +53,8 @@ const NEWEST_GENS = 20;
 /* ---- protobuf, raw: enough to walk length-delimited messages and read varints ---- */
 /* A varint of up to 10 bytes (protobuf's longest: a negative int64 is 10). `value` is null when it
    is too large to hold exactly (past 2^53), so a caller treats that one field as absent while the
-   rest of the message still reads; null for the whole read only when the bytes end mid-varint.
+   rest of the message still reads; null for the whole read when the bytes end mid-varint or run
+   past 10 bytes (not a varint).
    agy does write int64 -1 (as 10 bytes) in fields beside the ones read here. */
 function readVarint(buf, at) {
   let value = 0;
@@ -177,8 +181,12 @@ function read(dir, home = HOME()) {
     if (contextUsed === null && g.prompt !== null) contextUsed = g.prompt;
     if (model !== null && contextUsed !== null) break;
   }
+  /* In WAL mode a commit lands in <db>-wal and leaves the db's own mtime alone, so the newer of the
+     two is the last write. */
   let lastAt = null;
-  try { lastAt = new Date(fs.statSync(file).mtimeMs).toISOString(); } catch { /* keep null */ }
+  const mtimeOf = (f) => { try { return fs.statSync(f).mtimeMs; } catch { return 0; } };
+  const newest = Math.max(mtimeOf(file), mtimeOf(file + '-wal'));
+  if (newest > 0) lastAt = new Date(newest).toISOString();
   return {
     found: true,
     file,

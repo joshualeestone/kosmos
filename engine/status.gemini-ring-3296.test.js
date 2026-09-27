@@ -89,11 +89,11 @@ test('#3296 #4039: a known Gemini model gets its published window as an ASSUMED 
   });
   assert.equal(ctx.tokens, 6937, 'tokens is the measured occupancy (gemini tokens.input)');
   assert.equal(ctx.ceiling, 1048576, 'gemini-2.5-flash holds 1,048,576 tokens');
-  assert.equal(ctx.ceilingAssumed, true, 'the transcript never states it, so it is assumed, and said so');
+  assert.equal(ctx.ceilingAssumed, true, 'the transcript never states it, so it is assumed, and marked assumed');
   assert.equal(ctx.percent, 1, '6937 / 1048576 rounds to 1');
   assert.equal(ctx.notYet, false, 'a turn with usage is not "not yet"');
   assert.equal(ctx.confidence, 'structured', 'a read from the transcript is STRUCTURED confidence');
-  assert.match(ctx.because, /assumed/, 'the ring says the limit was assumed');
+  assert.match(ctx.because, /assumed/, 'the reading says the limit was assumed');
 });
 
 test('#3296: a model whose window Kosmos does not know stays MEASURED-usage, no-ceiling (never a guessed percent)', () => {
@@ -160,7 +160,7 @@ test('#4039: the assumed window covers Google\'s text-model ids and leaves the s
     'gemini-2.5-flash-preview-09-2025', 'gemini-2.5-pro-001', 'gemini-flash-latest', 'gemini-pro-latest']) {
     assert.equal(status.assumedGeminiWindow(m), 1048576, m + ' should have the 1M window');
   }
-  for (const m of ['gemini-2.5-flash-image-preview', 'gemini-2.5-flash-preview-tts', 'gemini-2.5-flash-native-audio-dialog',
+  for (const m of ['gemini-2.0-pro', 'gemini-2.5-computer-use-preview-10-2025', 'gemini-2.5-flash-image-preview', 'gemini-2.5-flash-preview-tts', 'gemini-2.5-flash-native-audio-dialog',
     'gemini-2.0-flash-thinking-exp-1219', 'gemini-2.0-pro-exp-02-05', 'gemini-live-2.5-flash', 'gemini-live-latest',
     'gemini-1.5-pro', 'grok-4.6', '', null]) {
     assert.equal(status.assumedGeminiWindow(m), null, String(m) + ' must not be given a window');

@@ -5255,16 +5255,20 @@ function readGeminiSession(agentName) {
 }
 
 /* #4039: the windows of Gemini models, for a transcript that does not state one (neither the Gemini
-   CLI nor agy records it). An ASSUMED ceiling, said as such on the ring, exactly like the Claude
-   assumed ceiling. Google publishes these per model: the text models Kosmos runs (2.0/2.5/3.x pro,
-   flash and flash-lite, including preview and dated builds and agy's effort suffixes) hold
-   1,048,576 tokens. The SPECIAL variants (image, tts, native-audio, live, thinking, exp) do not, and
-   some are far smaller, so they are left out rather than drawn at a falsely low percentage. A model
-   this does not know keeps the honest no-ceiling reading. */
+   CLI nor agy records it). An ASSUMED ceiling, marked assumed (the detail page's Memory box says so,
+   assumedCeilingNote, exactly as for Claude's assumed ceiling; the card ring shows the percent).
+   Google publishes 1,048,576 for the 2.0 Flash, 2.5 and 3 text models. ⚠️ Any LATER 3.x text model
+   (3.8 on agy today) is ASSUMED to keep that window; that is a guess about Google, not a published
+   figure, which is why it is only ever an assumed ceiling. 2.0 Pro is left out (its preview had
+   2M), and so are the SPECIAL variants (image, tts, native-audio, live, thinking, exp,
+   computer-use), some far smaller, rather than drawn at a falsely low percentage. A model this
+   does not know keeps the honest no-ceiling reading. */
+/* The published window of Google's current Gemini text models, in tokens. */
+const GEMINI_TEXT_WINDOW = 1048576;
 const GEMINI_WINDOWS = [
-  { match: /^gemini-(2\.0|2\.5|3(\.\d+)?)-(pro|flash|flash-lite)(-(preview|latest|high|medium|low|\d{3}|\d{2}-\d{2}|\d{2}-\d{4}))*$/i, window: 1048576 },
+  { match: /^gemini-(2\.0-(flash|flash-lite)|2\.5-(pro|flash|flash-lite)|3(\.\d+)?-(pro|flash|flash-lite))(-(preview|latest|high|medium|low|\d{3}|\d{2}-\d{2}|\d{2}-\d{4}))*$/i, window: GEMINI_TEXT_WINDOW },
   // Google's un-versioned aliases, which point at the current 2.5/3.x text models.
-  { match: /^gemini-(pro|flash|flash-lite)-latest$/i, window: 1048576 },
+  { match: /^gemini-(pro|flash|flash-lite)-latest$/i, window: GEMINI_TEXT_WINDOW },
 ];
 function assumedGeminiWindow(model) {
   if (typeof model !== 'string') return null;
@@ -5287,7 +5291,7 @@ function readAgySession(agentName) {
 }
 
 /* #4039: the ring for an Antigravity agent, the Gemini arm's shape. agy records no window, so the
-   percentage is against the model's published window, ASSUMED and said so (assumedGeminiWindow);
+   percentage is against the model's window, ASSUMED and marked so (assumedGeminiWindow);
    the stated-window branch is for a future agy that records one. */
 function readAgyContext(agentName, sess) {
   if (sess === undefined) sess = readAgySession(agentName);

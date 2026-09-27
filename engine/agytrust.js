@@ -29,7 +29,10 @@ const LOCK_STALE_MS = 30000;
 const WRITE_TRIES = 3;
 
 function settingsPath(home) {
-  return path.join(home || os.homedir(), '.gemini', 'antigravity-cli', 'settings.json');
+  /* The same agy dir agysession reads (one derivation: agysession.HOME); an explicit `home` is the
+     account root, as before. */
+  return home ? path.join(home, '.gemini', 'antigravity-cli', 'settings.json')
+    : path.join(require('./agysession').HOME(), 'settings.json');
 }
 
 function sleepMs(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
