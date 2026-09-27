@@ -951,11 +951,10 @@ function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
     const all = projects.readAll();
     return autoretell.sweepOnce({
       projects: all,
-      /* Loose to notice, exact to permit, by tellAgent's own rule: `fileFor` folds names through
-         `store.safeKey`, so a member spelled `An.gel` would read `angel`'s file. Only a name the
-         board holds exactly, as one of ours, is looked at. */
+      /* Loose to notice: a stat, no roster, so a member that never gets fixed costs no snapshot.
+         `fileFor` folds names through `store.safeKey` (`An.gel` reads `angel`'s file); the exact-name
+         permit is in `ready`. */
       mtimeOf: (name) => {
-        if (!projects.heldExactly(name, board())) return null;
         const f = instructions.fileFor(name);
         return f ? fs.statSync(f).mtimeMs : null;
       },
@@ -966,10 +965,10 @@ function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
          (current): stale or unknown waits for its restart, whoever wrote the file, since the write
          record keeps only the last writer. Read through toldOverride (#1228). */
       ready: (name) => {
-        const r = board();
-        // Our card for this name (mtimeOf has already required one), and its own session, as the
-        // status route reads staleness: the name alone can date it from another conversation.
-        const card = Array.isArray(r) ? r.find((a) => a && a.sessionName === name && a.isNamedOurs === true) : null;
+        // Exact to permit, tellAgent's own rule: our card for this exact name. Staleness is read with
+        // the card's own session, as the status route does: the name alone can date it from
+        // another conversation.
+        const card = projects.ourCard(name, board());
         if (!card) return false;
         if (card.state === STATE.STOPPED) return true;
         const st = projects.toldOverride(instructions.staleness(name, undefined, card.session), name, all);

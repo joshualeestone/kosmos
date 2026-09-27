@@ -15382,7 +15382,9 @@ test('#3932: once the person fixes the file an Act row asked about, the board re
     } eng.writeAll(all); }
     const later = mtime + 120000;
     fs.utimesSync(file, new Date(later), new Date(later));
-    // Belt and braces: tellAgent's own gate refuses Rh.ea too, so this fails only if both are gone.
+    /* The rows assertion is held by the exact-name permit in the sweep's `ready`: without it Rh.ea
+       is retold and comes back as a could_not row. The file assertion is belt and braces, since
+       tellAgent's own gate refuses Rh.ea as well: it fails only if both gates are gone. */
     const beforeLookalike = fs.readFileSync(file, 'utf8');
     assert.deepEqual(autoretellTick(later + SETTLE_MS, acted), [], 'a lookalike name was re-told off the real agent\'s file');
     assert.equal(fs.readFileSync(file, 'utf8'), beforeLookalike, 'a lookalike name\'s retell wrote the real agent\'s file');
@@ -15427,12 +15429,12 @@ test('#3932: a STOPPED agent whose name is not in canonical form (Or.Two) is re-
     const mtime = at + 1000;
     fs.utimesSync(file, new Date(mtime), new Date(mtime));
     const rows = autoretellTick(mtime + SETTLE_MS, new Map());
-    assert.deepEqual(rows.map((r) => r.name), ['Or.Two'], 'a stopped real agent was not re-told (its name is not its own safeKey, or stale held it back)');
+    assert.deepEqual(rows.map((r) => [r.name, r.state]), [['Or.Two', eng.TOLD.TOLD]], 'a stopped real agent was not re-told (its name is not its own safeKey, or stale held it back)');
   } finally {
     eng.speakOfMembership = realSpeak;
     instr.staleness = realStaleness;
     eng.writeAll(storeBefore);
-    fs.rmSync(file, { force: true });
+    fs.rmSync(nodePath.dirname(file), { recursive: true, force: true });
     board.restore();
   }
 });

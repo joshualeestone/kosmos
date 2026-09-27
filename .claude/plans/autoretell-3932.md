@@ -64,6 +64,10 @@ cost is a reload before their save, not an overwrite.
   read the person's change. Review 2 found the problem; review 4 found the writer-based version beaten
   by a person's edit followed by any Kosmos write (the record keeps only the last writer); review 6
   found a stopped agent with a surviving transcript held back and an unknown start let through.
+- An agent with no session is not in the roster, so it is never re-told (tellAgent refuses it too).
+- The exact-name permit sits in `ready` (review 10: in `mtimeOf` it forced a tmux snapshot every tick
+  for any never-fixed could_not member); `mtimeOf` only stats. One helper, `projects.ourCard`, backs
+  both `ready` and tellAgent's `heldExactly`.
 - The exact-name gate is tellAgent's own, one function both call: `projects.heldExactly(name, roster)`
   (review 5 found `name === safeKey(name)` shut out real agents like `Or.Two`; review 7 found the
   gate hand-copied). Out of scope: the same expression still appears at projects.js ~857 and
