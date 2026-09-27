@@ -6,30 +6,28 @@ Card: #3995 (gap 4, from #3935's review round 34). Gaps 1 to 3 merged in #4061.
 Held Zq8vLm3pRt6wXy9kHb2nWc4d written "Zq8 and vLm and 3pR and ..." showed in full: no word walk starts under
 OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catch-all.
 
-## Change (engine/secretmask.js)
-- shortChunkSpans: a second, stricter walk. It starts only at a run of one to three characters that begins a
-  walked form the text can spell (see round 1; the key-like start rule was removed there); advances only on runs that are exactly
-  the form's next characters, each within SPLIT_REACH x the form's length (non-space) of the last run that advanced
-  it; and masks nothing unless the WHOLE form is assembled, then piece by piece. Its own budget; over it, the reply is
-  withheld, as for the word walk.
-- knownByShort: the walked forms by their first 1 to 3 characters, built beside knownByOpening.
+## Change (engine/secretmask.js), as it stands after review round 3
+- shortChunkSpans: a second, stricter walk. It starts at a run of one to three characters (glue taken off) that
+  begins a walked form the text can spell at all (a word break over the text's runs, memoised); advances only on runs
+  that are exactly the form's next characters, each within SPLIT_REACH x the form's length (non-space) of the last
+  run that advanced it; and masks only a WHOLE form with at least SHORT_WALK_MIN_KEYLIKE pieces that are not plain
+  words or numbers, piece by piece (the piece, not a label glued to it), and only from the latest start. Its own
+  budget; over it, the reply is withheld, as for the word walk.
+- knownByShort: walked forms by their first 1 to 3 characters, not hex forms, and a form with its own - or _ also
+  without them.
 
 ## Decided
-- Completion only, no partial masking: completion is the whole defence against ordinary text (a random key's every
-  character, in order, out of prose, does not happen), and a partial rule would need the thresholds #3935 already
-  tuned for four-character pieces.
-- The key-like start: without it, 2,000 held values made the #3769 cost tests fail (every "a" in a 40KB table
-  started walks). Cost: a key whose first chunk is all lowercase, all uppercase or all digits is not caught; named in
-  "Not covered" and pinned by a test.
+- Completion only, no partial masking: completion is the defence against ordinary text.
+- No key-like start rule (removed in round 1): it masked word passwords and missed many keys. Cost is controlled by
+  spellability, false masks by the key-like-piece count, hex by leaving hex forms out of the short index.
 
 ## Weakest premise
-- Short chunks after the first may be words (e.g. "and" inside a key): they still advance the walk, because the
-  walk tries every run; only the START must look like key text.
+- SHORT_WALK_MIN_KEYLIKE = 2 separates a random key from a password made of words by counting pieces that are not
+  plain words. A password made of words with two mixed pieces (for example two ordinals written oddly) spelled by
+  ordinary text would still be masked there. What would change it: a real guide reply that trips it.
 
-## Tests (engine/secretmask.test.js)
-- Chunks of three with words between: masked, words kept, reported split_secret. Mixed two/three chunks with commas.
-  A partial try (first half) is not masked. The lowercase-first limit, pinned. Red with the walk disabled.
-- 2,000 held values on 4,000 key-like three-character runs: not withheld, under 1.5s CPU.
+## Not covered (also in the file)
+- One character per chunk; an all-lowercase or all-uppercase key at any short chunking; a hex form in short chunks.
 
 ## Review round 1 (Opus), what changed
 - BLOCKER fixed: the key-like start let a Titlecase two-letter word ("My", "Up", "Go") start a walk, so a held
@@ -61,3 +59,14 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
   it was measured against. The #3769 cost tests pass (charging every step withheld them).
 - Deferred NIT: shortPieces offers one head and one tail per separator, not PIECE_VARIANTS_MAX of each; a chunk under
   OPENING_LEN with several labels glued on both sides is not tried every way.
+
+## Review round 3 (Opus), what changed
+- BLOCKER fixed: hex forms (0-9 a-f only) were in the short index, and a numbered guide's lone letters and digits
+  spell them all, so every lone digit walked against every held value's hex and the reply was withheld. Hex forms are
+  left out (named in Not covered). Tested with 100 held values and a 200-line numbered guide.
+- A form with its own - or _ is also indexed without them (the word walk skips them; this walk does not). Tested.
+- Only the latest start that completes a form at a given run is masked, so an earlier mention of its first
+  characters no longer masks a "1" and a "2" on the way. Tested.
+- The spellability check tries only the lengths some run has and is charged by the characters it slices.
+- Not covered now names one character per chunk and all-lowercase keys; this plan's stale sections rewritten.
+- Deferred NIT: a chunk ending in base64 padding (Zq8=) is tried only as written.

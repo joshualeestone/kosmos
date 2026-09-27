@@ -1471,3 +1471,24 @@ test('#3995 gap 4 review round 2: a label glued AFTER a short chunk, the label k
     assert.equal(mask(text).text, text, 'an ordinary sentence spelling a password made of words was masked');
   } finally { setKnownSecrets([]); }
 });
+
+test('#3995 gap 4 review round 3: a numbered guide is not withheld with many held values, a key with its own - is assembled, and only the latest start is masked', () => {
+  const rnd = (n, seed) => { let x = seed; let out = ''; const A = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'; for (let i = 0; i < n; i += 1) { x = (x * 1103515245 + 12345) % 2147483648; out += A[x % A.length]; } return out; };
+  setKnownSecrets(Array.from({ length: 100 }, (_, i) => rnd(40, 500 + i)));
+  try {
+    const guide = Array.from({ length: 200 }, (_, i) => `${i + 1}. Step ${i + 1}: choose option a, b, c or d (e.g. c), i.e. the ${i % 3 + 1}st one; see section ${i % 9} f and x ${i % 7}.`).join('\n');
+    const r = mask(guide);
+    assert.equal(r.text, guide, 'a numbered guide was changed or withheld: ' + JSON.stringify(r.fired));
+  } finally { setKnownSecrets([]); }
+  setKnownSecrets([j('Ab3-Zq8-vLm', '-3pR-t6w')]);
+  try {
+    const t = mask('Ab3 then Zq8 then vLm then 3pR then t6w').text;
+    for (const c of ['Ab3', 'Zq8', 'vLm', '3pR', 't6w']) assert.ok(!t.includes(c), `a key with its own - leaked ${c}: ${t}`);
+  } finally { setKnownSecrets([]); }
+  setKnownSecrets([j('Zq812vLm3pR', 't6wXy9kHb2nW')]);
+  try {
+    const t = mask('Zq8 is step 1, and 2 is next. The key: Zq8 12 vLm 3pR t6w Xy9 kHb 2nW').text;
+    assert.ok(t.startsWith('Zq8 is step 1, and 2 is next. The key: '), 'an earlier mention masked ordinary text: ' + t);
+    for (const c of ['vLm', '3pR', 't6w', 'Xy9', 'kHb', '2nW']) assert.ok(!t.includes(c), `the key's chunk ${c} survived: ${t}`);
+  } finally { setKnownSecrets([]); }
+});

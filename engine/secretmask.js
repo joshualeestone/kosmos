@@ -259,11 +259,19 @@ function addWalked(w, walked) {
      (review round 5). Such a value is still masked whole, and across lines by the separator copies. */
   if (!/[A-Za-z0-9]/.test(w.slice(0, OPENING_LEN))) return;
   walked.add(w);
-  /* #3995 gap 4: and by its first one, two and three characters, for the short-chunk walk. */
-  for (let l = 1; l < OPENING_LEN; l += 1) {
-    const h = w.slice(0, l);
-    if (!knownByShort.has(h)) knownByShort.set(h, []);
-    knownByShort.get(h).push(w);
+  /* #3995 gap 4: and by its first one, two and three characters, for the short-chunk walk. Not a hex form (0-9 a-f
+     only): a numbered guide's lone letters and digits spell every one, and each lone digit then walked against every
+     held value's hex (review round 3: a reply withheld with 50 values held). A form with its own - or _ is indexed
+     without them too, since a reply cutting it into short chunks drops them (the word walk skips them instead). */
+  if (!/^[0-9a-f]+$/i.test(w)) {
+    for (const form of /[-_]/.test(w) ? [w, w.replace(/[-_]+/g, '')] : [w]) {
+      if (form.length < MIN_VALUE_LEN) continue;
+      for (let l = 1; l < OPENING_LEN; l += 1) {
+        const h = form.slice(0, l);
+        if (!knownByShort.has(h)) knownByShort.set(h, []);
+        if (!knownByShort.get(h).includes(form)) knownByShort.get(h).push(form);
+      }
+    }
   }
   const o = w.slice(0, OPENING_LEN);
   if (!knownByOpening.has(o)) knownByOpening.set(o, []);
@@ -414,7 +422,10 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *  - a group joined by + / = that is all lowercase letters with no digit, when it is under FRAGMENT_LEN;
  *  - a value with symbols in it, given without its opening, with spaces around its symbols;
  *  - a key cut into chunks under OPENING_LEN with fewer than SHORT_WALK_MIN_KEYLIKE chunks that are not plain words or
- *    numbers (shortChunkSpans refuses those, since ordinary text spells a password made of words);
+ *    numbers (shortChunkSpans refuses those, since ordinary text spells a password made of words). That includes
+ *    a key given ONE character at a time with words between (every single character is a plain word) and an
+ *    all-lowercase or all-uppercase key at any short chunking;
+ *  - a hex form cut into chunks under OPENING_LEN (hex forms are not walked short; see addWalked);
  *  - a first chunk of OPENING_LEN or more followed by chunks under it with long text between (neither walk's reach
  *    carries it: the word walk extends only on pieces of OPENING_LEN or more);
  *  - a held form over WORD_WALK_MAX_FORM characters;
@@ -759,8 +770,9 @@ function shortChunkSpans(text) {
   for (const m of text.matchAll(/[A-Za-z0-9_+/=-]+/g)) runs.push([m.index, m.index + m[0].length, shortPieces(m[0]), m[0]]);
   if (runs.length < 2) return [];
   const present = new Set();
-  let longest = 0;
-  for (const r of runs) for (const t of r[2]) { present.add(t); if (t.length > longest) longest = t.length; }
+  for (const r of runs) for (const t of r[2]) present.add(t);
+  /* Only the lengths some run has are tried, and each slice is charged by its length (review round 3). */
+  const lengths = [...new Set([...present].map((t) => t.length))].sort((a, b) => a - b);
   /* Whether f from `at` to its end can be spelled from runs present in the text at all (a word break over `present`),
      once per form and start: a form the text cannot spell is never walked (review round 1: 2,000 held values each
      walked from every "0" in a long table withheld it). */
@@ -772,20 +784,23 @@ function shortChunkSpans(text) {
     const ok = new Uint8Array(f.length + 1);
     ok[f.length] = 1;
     for (let i = f.length - 1; i >= at; i -= 1) {
-      let steps = 0;
-      for (let l = 1; l <= longest && i + l <= f.length && !ok[i]; l += 1) {
-        if (ok[i + l] && present.has(f.slice(i, i + l))) ok[i] = 1;
-        steps += 1;
+      for (const l of lengths) {
+        if (i + l > f.length || ok[i]) break;
+        if (!ok[i + l]) continue;
+        budget -= chunksOf(l);   // a slice of l characters, hashed: charged as the word walk charges a comparison
+        if (present.has(f.slice(i, i + l))) ok[i] = 1;
       }
-      /* Charged as the word walk charges a comparison: one unit per 16 characters' worth (chunksOf). */
-      if ((budget -= chunksOf(steps)) < 0) break;
+      if (budget < 0) break;
     }
     spellable.set(key, ok[at] === 1);
     return ok[at] === 1;
   };
   let ns = null;
   let budget = SHORT_WALK_BUDGET;
-  const spans = [];
+  /* Completed walks by form and the run they finished on: only the LATEST start is masked (review round 3: an earlier
+     mention of the key's first characters walked through the prose between and masked a "1" and a "2" on the way;
+     the word walk keeps the latest start for the same reason). */
+  const completed = new Map();
   for (let r = 0; r < runs.length; r += 1) {
     for (const open of runs[r][2]) {
       if (open.length >= OPENING_LEN) continue;   // the word walk starts these
@@ -823,13 +838,19 @@ function shortChunkSpans(text) {
           if (moved) lastAt = runs[s][1];
         }
         if (!done || done.filter(([, t]) => !plainWordRun(t)).length < SHORT_WALK_MIN_KEYLIKE) continue;
-        /* Only the piece, not a label glued to it (review round 2; the word walk's pieceSpan does the same). */
-        for (const [i, t] of done) {
-          const run = runs[i][3];
-          const at = run.endsWith(t) ? run.length - t.length : Math.max(0, run.indexOf(t));
-          spans.push([runs[i][0] + at, runs[i][0] + at + t.length]);
-        }
+        const key = f + '|' + done[done.length - 1][0];
+        const had = completed.get(key);
+        if (!had || had[0][0] < done[0][0]) completed.set(key, done);
       }
+    }
+  }
+  const spans = [];
+  for (const done of completed.values()) {
+    /* Only the piece, not a label glued to it (review round 2; the word walk's pieceSpan does the same). */
+    for (const [i, t] of done) {
+      const run = runs[i][3];
+      const at = run.endsWith(t) ? run.length - t.length : Math.max(0, run.indexOf(t));
+      spans.push([runs[i][0] + at, runs[i][0] + at + t.length]);
     }
   }
   return spans;
