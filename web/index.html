@@ -16158,7 +16158,7 @@ window.kosmosMeasureScrollbarWidth();
     <div id="plus-flow" hidden>
       <!-- #3829 (Josh, 16:54: "terribly worded and designed"; Mona Lisa's sketch on the card): status first,
            View my account top right, the address in ONE chip with Copy and Open and one plain line under it,
-           and Turn off a quiet control rather than the headline. Off, Turn on is the one primary action. -->
+           and Pause (Turn off until #4079) a quiet control rather than the headline. Off, Turn on is the one primary action. -->
       <div class="plus-headrow">
         <p class="setname">Use Kosmos from anywhere</p>
         <span class="plus-pill" id="plus-pill" data-state="off">Off</span>
@@ -38208,7 +38208,7 @@ async function paintPlus() {
   /* #4079: the on-state control is Pause (it was Turn off), so it cannot be mistaken for Disconnect this
      computer below, which removes the computer from the account. Pause keeps it connected, for later. */
   sw.textContent = r.on ? 'Pause' : 'Turn on';
-  /* #3829: on, Turn off is a quiet link; off, Turn on is the one primary action. */
+  /* #3829: on, the pause (Pause since #4079) is a quiet link; off, Turn on is the one primary action. */
   sw.className = r.on ? 'plus-quiet' : 'btn uprime';
   const st = document.getElementById('plus-status');
   const stat = r.status || {};
@@ -38254,7 +38254,9 @@ async function paintPlus() {
      shows with the devices, and a fresh paint disarms a half-taken click. */
   document.getElementById('plus-second').hidden = r.enrolled !== true;
   plusSecondDisarm();
-  /* #4079: Disconnect shows for a connected computer. Its confirm is NOT disarmed here (this runs every 5s). */
+  /* #4079: Disconnect shows for a connected computer. Its confirm is NOT disarmed here (this runs every 5s).
+     Connected again (any way), an earlier "disconnected" result is no longer true: it goes. */
+  { const f = document.getElementById('plus-forgot-msg'); if (f && !f.hidden) { f.hidden = true; f.textContent = ''; } }
   { const fg = document.getElementById('plus-forget'); if (fg) fg.hidden = r.enrolled !== true; }
   paintDevices();
 }
@@ -38417,13 +38419,15 @@ document.getElementById('plus-second-reset').addEventListener('click', async () 
    disconnect the account did not hear about. */
 const PLUS_FORGET_WORDS = {
   done: 'This computer is disconnected from Kosmos Plus. Its address is free, and your devices can no longer reach it. Sign in to connect it again.',
-  failed: (why) => 'This computer is still connected: ' + why + '. Try again in a moment.',
+  /* Not "still connected": a rare engine failure can come after the key is gone. Say only that it did not finish. */
+  failed: (why) => 'Disconnecting did not finish: ' + why + '. Try again in a moment.',
 };
 function plusForgetArm(on) {
   const ask = document.getElementById('plus-forget-ask'); const row = document.getElementById('plus-forget-row');
   if (ask) ask.hidden = !on;
   if (row) row.hidden = on;
-  if (on) { const y = document.getElementById('plus-forget-yes'); if (y) y.focus(); }
+  /* Focus on Cancel, not Disconnect: a held or repeated key must not carry straight through the confirm. */
+  if (on) { const n = document.getElementById('plus-forget-no'); if (n) n.focus(); }
 }
 document.getElementById('plus-forget-go').addEventListener('click', () => {
   const msg = document.getElementById('plus-forget-msg'); msg.hidden = true; msg.textContent = '';
@@ -38446,8 +38450,10 @@ document.getElementById('plus-forget-yes').addEventListener('click', async () =>
   yes.disabled = false; no.disabled = false; yes.textContent = 'Disconnect';
   if (!ok) {
     plusForgetArm(false);
-    msg.textContent = PLUS_FORGET_WORDS.failed(plusWords((said && said.error) || 'we could not disconnect it'));
+    const why = plusWords((said && said.error) || 'we could not disconnect it').replace(/^we could not forget this computer: /, '').replace(/[.!?]+$/, '');
+    msg.textContent = PLUS_FORGET_WORDS.failed(why);
     msg.hidden = false;
+    document.getElementById('plus-forget-go').focus();   // the confirm has closed: focus goes back where it began
     return;
   }
   /* Done here. The pane goes back to the not-connected state, and the result is said there. When the

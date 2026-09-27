@@ -235,6 +235,8 @@ const STATES = {
       chk(await vis('#plus-forget-ask') && await vis('#plus-forget-yes') && !(await vis('#plus-forget-go')), `${t} the confirm opens and is still open after the 5-second repaint`);
       const sure = await page.textContent('#plus-forget-sure');
       chk(/leaves your Kosmos Plus account/.test(sure) && /address is freed/.test(sure) && /connect it again later by signing in/.test(sure), `${t} the confirm says what happens and how to come back`, sure);
+      const focusOn = await page.evaluate(() => document.activeElement && document.activeElement.id);
+      chk(focusOn === 'plus-forget-no', `${t} opening the confirm puts focus on Cancel, not on Disconnect`, String(focusOn));
       await page.click('#plus-forget-no');
       chk(!(await vis('#plus-forget-ask')) && await vis('#plus-forget-go') && forgets === 0, `${t} Cancel closes it and nothing was sent`, 'forgets=' + forgets);
       await page.click('#plus-forget-go');
@@ -246,7 +248,8 @@ const STATES = {
       chk(forgets === 1, `${t} Disconnect sends one request`, 'forgets=' + forgets);
       if (mode === 'told') chk(after.state1 && !after.flow && after.forgotShown && /^This computer is disconnected from Kosmos Plus\./.test(after.forgot), `${t} the pane goes back to not connected and says it is done`, JSON.stringify(after));
       if (mode === 'untold') chk(after.state1 && !after.flow && after.forgotShown && /could not be updated/.test(after.forgot) && /may still show on your account page/.test(after.forgot) && !/is disconnected from Kosmos Plus\./.test(after.forgot), `${t} it says the account could not be told and the address may still show, never "done"`, JSON.stringify(after));
-      if (mode === 'fails') chk(!after.state1 && after.flow && /^This computer is still connected: /.test(after.inPane), `${t} a failed disconnect keeps the connected pane and says it is still connected`, JSON.stringify(after));
+      if (mode === 'fails') chk(!after.state1 && after.flow && /^Disconnecting did not finish: the tunnel program did not start\. Try again in a moment\.$/.test(after.inPane), `${t} a failed disconnect keeps the connected pane and says it did not finish, in one clean sentence`, JSON.stringify(after));
+
       if (SHOTS && mode !== 'fails') { await page.screenshot({ path: path.join(SHOTS, `4079-after-${mode}.png`) }); }
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await page.close();
