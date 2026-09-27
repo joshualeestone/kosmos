@@ -65,17 +65,25 @@ All paths are relative to this repository.
 | --- | --- | ---: | --- |
 | App icon | `docs/play-listing/app-icon-512.png` | 512 by 512 | `ebdb8a279528f4ca496ce8e36ec194a904cb026c5f32104909b00a55f2bde124` |
 | Feature graphic | `docs/play-listing/feature-graphic-1024x500.png` | 1024 by 500 | `8241672b646400f0468c7b48595e8ffdad56dcac17a66ea98cb39b667d50648c` |
-| Phone screenshot 1 | `docs/play-listing/phone/01-sign-in.png` | 800 by 1600 | `1d4d0f72def45dc259bf9dd015de802301898f0ca930b950f4be1f1baea1db63` |
-| Phone screenshot 2 | `docs/play-listing/phone/02-offline-retry.png` | 800 by 1600 | `b0298a786479d2da600ee7a94e116d23a169d576a366fd7744c1c1da5f517ad0` |
+| Phone screenshot 1 | `docs/play-listing/phone/01-team-overview.png` | 1080 by 2160 | `9d31fbe6edb1a5f966189c3531e9372337e3d3eb8194d0db133caa93a843c838` |
+| Phone screenshot 2 | `docs/play-listing/phone/02-agent-needs-you.png` | 1080 by 2160 | `6f53014442ebb1cd8957733252025a0786b441eefc284cfcf27676e975bc82e7` |
+| Phone screenshot 3 | `docs/play-listing/phone/03-agent-workspace.png` | 1080 by 2160 | `bf28ba22244897f71bc21ed7e96723247a3bf5e682f25cfd87e12b23d0739240` |
+| Phone screenshot 4 | `docs/play-listing/phone/04-project-room.png` | 1080 by 2160 | `ba223812c53fd26974acdc56baad705838a787e207a20d25e9ef65704ea923ad` |
+| Phone screenshot 5 | `docs/play-listing/phone/05-sign-in.png` | 800 by 1600 | `1d4d0f72def45dc259bf9dd015de802301898f0ca930b950f4be1f1baea1db63` |
+| Phone screenshot 6 | `docs/play-listing/phone/06-offline-retry.png` | 800 by 1600 | `b0298a786479d2da600ee7a94e116d23a169d576a366fd7744c1c1da5f517ad0` |
 
-The phone screenshots are real API 35 Moto-profile AVD captures from version 0.1.1, versionCode 2. Their original 720 by 1600 pixels are unchanged. Forty pixels of neutral background were added to each side to meet the 2:1 Play aspect-ratio limit without cropping or stretching the interface. No account data appears.
+Screenshots 1 through 4 are current board renders from the sanctioned isolated screenshot harness at a 412 by 915 CSS-pixel Android viewport. They were regenerated from this branch after the mobile control-height changes in #4108. They contain an invented demo fleet, projects, and conversations, not a real account or real work. Each full render is scaled and padded to 1080 by 2160 without cropping the interface. Screenshots 5 and 6 are real API 35 Moto-profile AVD captures from version 0.1.1, versionCode 2. Their original 720 by 1600 pixels are unchanged. Forty pixels of neutral background were added to each side to meet the 2:1 Play aspect-ratio limit without cropping or stretching the interface. No account data appears in any screenshot.
 
 Paste the alt text that matches each image:
 
-1. `Kosmos+ sign-in on Android, asking for an email address to send a six-digit code.`
-2. `Kosmos Android offline page with a connection message and a large Retry button.`
+1. `Kosmos team overview with four demo agents, including two working and Cleo waiting for an answer.`
+2. `Cleo's demo conversation asking which of two printer quotes to accept for the catalogue.`
+3. `Dana's demo conversation reporting progress on the spring catalogue copy and photography.`
+4. `Spring catalogue project room with demo updates from Cleo, Eli, and Dana.`
+5. `Kosmos+ sign-in on Android, asking for an email address to send a six-digit code.`
+6. `Kosmos Android offline page with a connection message and a large Retry button.`
 
-A board image was deliberately omitted. The handed-over AVD retained an isolated test sign-in, but its local coordinator was unavailable. The two required Play-compatible screenshots are complete without inventing a successful board state.
+The handed-over AVD retained an isolated test sign-in, but its local coordinator was unavailable. The board screenshots therefore use the repository's leak-guarded demo-data harness rather than inventing a successful live coordinator state.
 
 ## Data safety
 
@@ -185,7 +193,7 @@ Before submission, test those exact instructions on a clean Android device that 
 ## Sources checked
 
 - Android shell and TWA: `android/app/src/main/AndroidManifest.xml`, `android/app/build.gradle`, and `android/app/src/main/java/io/kosmos/app/`.
-- Existing approved listing work: `android/store/STORE_LISTING.md` and `android/store/`.
+- Canonical approved listing work and upload assets: `docs/play-listing.md` and `docs/play-listing/`.
 - Real AVD evidence: `android/evidence/vc2-4132/`.
 - Coordinator storage and deletion: `coordinator/src/db.rs`, `coordinator/src/account_delete.rs`, `coordinator/src/config.rs`, and `coordinator/src/lib.rs` in kosmos-relay.
 - Authentication, billing, push, and logging: `coordinator/src/signin.rs`, `coordinator/src/second.rs`, `coordinator/src/stripe.rs`, `coordinator/src/push.rs`, `coordinator/src/access_log.rs`, and `deploy/caddy/Caddyfile` in kosmos-relay.
