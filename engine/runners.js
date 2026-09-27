@@ -812,6 +812,20 @@ function resolveBin(provider, opts) {
     // The same name rule as the override: a canonical path that resolves to another name is not agy.
     return { bin: canonical, present: isRunnable(canonical) && agyRealName(canonical) === 'agy', managed: false, overridden: false };
   }
+  /* #3939: Meta's Muse Code (`muse`), first slice: found, not yet run. Its own installer (install.sh
+     from Meta, measured on the Mortals Mac 2026-09-26) puts a launcher script at ~/.local/bin/muse,
+     the same place as Claude Code's and agy's, so it resolves under homeDir() (the
+     AGENT_WORKFORCE_HOME sandbox seam). Env override first, like every runner. A Mac only for now:
+     the Windows install (Homer's captures) lands elsewhere and is its own slice. Not in MANIFEST, so
+     runners.status() and every screen that reads it do not list it yet. */
+  if (provider === 'muse') {
+    const envMuse = process.env.AGENT_WORKFORCE_MUSE_BIN;
+    if (envMuse) return { bin: envMuse, present: isRunnable(envMuse), managed: false, overridden: true, envName: 'AGENT_WORKFORCE_MUSE_BIN' };
+    const plat = (opts && opts.platform) || process.platform;
+    if (plat !== 'darwin') return { bin: null, present: false, managed: false, overridden: false, because: 'Muse Code is not wired up on this computer yet' };
+    const canonical = (opts && opts.legacyBin) || path.join(homeDir(), '.local', 'bin', 'muse');
+    return { bin: canonical, present: isRunnable(canonical), managed: false, overridden: false };
+  }
   if (provider !== 'openai') return { bin: null, present: false, managed: false, overridden: false };
   // An operator-set override is AUTHORITATIVE, not a candidate: when the
   // env names a path, that path is the answer, present or not -- so every
