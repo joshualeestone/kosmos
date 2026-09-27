@@ -15382,6 +15382,38 @@ test('#3932: once the person fixes the file an Act row asked about, the board re
   }
 });
 
+test('#3932: a real agent whose name is not in canonical form (Or.Two) is still re-told after its fix', async () => {
+  const { autoretellTick } = require('./server');
+  const eng = require('./engine/projects');
+  const { SETTLE_MS } = require('./engine/autoretell');
+  const board = fleet.install([fleet.agent('Or.Two', { state: 'idle' })]);
+  const realSpeak = eng.speakOfMembership;
+  try {
+    eng.speakOfMembership = () => ({ state: 'told' });
+    const card = (JSON.parse((await req('/api/status')).body).agents || []).find((a) => a.sessionName === 'Or.Two');
+    assert.ok(card, 'precondition: the board holds Or.Two under exactly that name');
+    const made = await req('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Autoretell Canon', folder: mkTemp('aw-autoretell-canon-'), agents: [] }) });
+    assert.equal(made.status, 200, made.body);
+    const id = JSON.parse(made.body).project.id;
+    const at = Date.now() - 120000;
+    { const all = eng.readAll(); for (const p of all) if (p.id === id) {
+      p.agents = ['Or.Two'];
+      p.told = { 'Or.Two': { state: eng.TOLD.COULD_NOT, because: 'it has no instructions file yet, and we will not create one', at: new Date(at).toISOString() } };
+    } eng.writeAll(all); }
+    const file = require('./engine/instructions').fileFor('Or.Two');
+    fs.mkdirSync(nodePath.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '# Or.Two\n\nMy own notes.\n');
+    const mtime = at + 1000;
+    fs.utimesSync(file, new Date(mtime), new Date(mtime));
+    const rows = autoretellTick(mtime + SETTLE_MS, new Map());
+    assert.deepEqual(rows.map((r) => r.name), ['Or.Two'], 'a real agent was never re-told because its name is not its own safeKey');
+  } finally {
+    eng.speakOfMembership = realSpeak;
+    board.restore();
+  }
+});
+
 test('#4006: an agent whose restart did not come back reads needs_you, and its thread does not claim a question', async () => {
   const disruption = require('./engine/disruption');
   const board = fleet.install([fleet.agent('zeta', { state: 'stopped' })]);

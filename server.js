@@ -894,6 +894,7 @@ const readConnectionsShelf = inflight.collapse(() => {
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
 const projects = require('./engine/projects');
+const autoretell = require('./engine/autoretell');
 /* #3923: when each agent-made Try again (`?retell=1`) happened, for its own hourly bound. */
 const RETELL_RECENT = [];
 /* #3923 / #3932: re-tell one CURRENT member, the core of the project notice's Try again
@@ -946,14 +947,15 @@ const AUTORETELL_ACTED = new Map();
 function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
   try {
     let roster;   // read only when somebody is due: a board with no could_not member costs one store read
-    return require('./engine/autoretell').sweepOnce({
+    const board = () => (roster === undefined ? (roster = safeRoster()) : roster);
+    return autoretell.sweepOnce({
       projects: projects.readAll(),
-      /* Loose to notice, exact to permit: `fileFor` resolves through `store.safeKey`, so a member
-         spelled `An.gel` would read `angel`'s file. Only a name that IS its own key is looked at. */
+      /* Loose to notice, exact to permit, by tellAgent's own rule: `fileFor` folds names through
+         `store.safeKey`, so a member spelled `An.gel` would read `angel`'s file. Only a name the
+         board holds exactly, as one of ours, is looked at. */
       mtimeOf: (name) => {
-        let key = null;
-        try { key = store.safeKey(name); } catch { key = null; }
-        if (key !== name) return null;
+        const r = board();
+        if (!Array.isArray(r) || !r.some((a) => a && a.sessionName === name && a.isNamedOurs === true)) return null;
         const f = instructions.fileFor(name);
         return f ? fs.statSync(f).mtimeMs : null;
       },
@@ -965,7 +967,7 @@ function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
         const st = projects.toldOverride(instructions.staleness(name), name);
         return !(st && st.state === instructions.STALENESS.STALE);
       },
-      retell: (name, id) => retellMember(name, id, roster === undefined ? (roster = safeRoster()) : roster),
+      retell: (name, id) => retellMember(name, id, board()),
       log: (r) => process.stdout.write(`autoretell: ${r.name} on ${r.id} -> ${r.state}\n`),
     });
   } catch { return []; /* best-effort; the notice's Try again still works */ }
