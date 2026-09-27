@@ -47,8 +47,10 @@ trap 'rm -rf "$TMP"' EXIT
 # inside the block is exercised honestly.
 run_block() {
   # args: made skip_icon skip_reason fresh sys_stale sys_failed home_foreign logpath
+  #       app_path swap_errno swap_dir (#2864)
   APP_MADE="$1"; APP_SKIP_ICON="$2"; APP_SKIP_REASON="$3"; FRESH_INSTALL="$4"
   APP_SYS_STALE="$5"; APP_SYS_FAILED="$6"; APP_HOME_FOREIGN="$7"; LOG="$8"
+  APP_PATH="$9"; APP_SWAP_ERRNO="${10}"; APP_SWAP_DIR="${11}"
   # info() stubbed to stdout, matching setup.sh's contract (prints, returns 0).
   info() { printf '%s\n' "$*"; }
   # The block runs under setup.sh's `set -euo pipefail`; assert it here so an
@@ -65,7 +67,7 @@ chk() { # desc  condition-cmd...
 # ---- marker is written on EVERY run, with the actual state -------------------
 
 L="$TMP/log1"; : > "$L"
-NOTE="$(run_block yes no none yes no no no "$L")"
+NOTE="$(run_block yes no none yes no no no "$L" none none none)"
 MARK="$(cat "$L")"
 chk "fresh made=yes: marker records made=yes fresh_install=yes" \
   sh -c 'case "$1" in *"made=yes"*"fresh_install=yes"*) exit 0;; esac; exit 1' _ "$MARK"
@@ -73,7 +75,7 @@ chk "fresh made=yes: NO operator note" \
   sh -c '[ -z "$1" ]' _ "$NOTE"
 
 L="$TMP/log2"; : > "$L"
-NOTE="$(run_block yes no none no no no no "$L")"
+NOTE="$(run_block yes no none no no no no "$L" none none none)"
 MARK="$(cat "$L")"
 chk "update made=yes: marker records made=yes fresh_install=no" \
   sh -c 'case "$1" in *"made=yes"*"fresh_install=no"*) exit 0;; esac; exit 1' _ "$MARK"
@@ -83,7 +85,7 @@ chk "update made=yes: NO operator note (bundle was rewritten)" \
 # ---- both APP_SKIP_ICON arms on an UPDATE -> marker + note ------------------
 
 L="$TMP/log3"; : > "$L"
-NOTE="$(run_block no yes same no no no no "$L")"
+NOTE="$(run_block no yes same no no no no "$L" none none none)"
 MARK="$(cat "$L")"
 chk "update skip_icon=same: marker records skip_icon=yes skip_reason=same" \
   sh -c 'case "$1" in *"skip_icon=yes"*"skip_reason=same"*"fresh_install=no"*) exit 0;; esac; exit 1' _ "$MARK"
@@ -93,7 +95,7 @@ chk "update skip_icon=same: note routes to browser / kosmos open, NOT relaunch" 
   sh -c 'case "$1" in *"kosmos open"*) case "$1" in *relaunch*) exit 1;; *) exit 0;; esac;; esac; exit 1' _ "$NOTE"
 
 L="$TMP/log4"; : > "$L"
-NOTE="$(run_block no yes unknown no no no no "$L")"
+NOTE="$(run_block no yes unknown no no no no "$L" none none none)"
 MARK="$(cat "$L")"
 chk "update skip_icon=unknown: marker records skip_reason=unknown" \
   sh -c 'case "$1" in *"skip_icon=yes"*"skip_reason=unknown"*) exit 0;; esac; exit 1' _ "$MARK"
@@ -103,7 +105,7 @@ chk "update skip_icon=unknown: operator note fires" \
 # ---- the other not-made arms on an UPDATE also fire the note ----------------
 
 L="$TMP/log5"; : > "$L"
-NOTE="$(run_block no no none no no no yes "$L")"
+NOTE="$(run_block no no none no no no yes "$L" none none none)"
 MARK="$(cat "$L")"
 chk "update home_foreign: marker records home_foreign=yes made=no" \
   sh -c 'case "$1" in *"made=no"*"home_foreign=yes"*) exit 0;; esac; exit 1' _ "$MARK"
@@ -111,7 +113,7 @@ chk "update home_foreign: operator note fires" \
   sh -c 'case "$1" in *"did not refresh the Kosmos app itself"*) exit 0;; esac; exit 1' _ "$NOTE"
 
 L="$TMP/log6"; : > "$L"
-NOTE="$(run_block no no none no swap yes no "$L")"
+NOTE="$(run_block no no none no swap yes no "$L" none none none)"
 MARK="$(cat "$L")"
 chk "update make_app-failed: marker records made=no sys_stale=swap sys_failed=yes" \
   sh -c 'case "$1" in *"made=no"*"sys_stale=swap"*"sys_failed=yes"*) exit 0;; esac; exit 1' _ "$MARK"
@@ -122,19 +124,41 @@ chk "update make_app-failed: operator note fires" \
 # (a fresh install has no previous bundle to be stale; the note is update-only)
 
 L="$TMP/log7"; : > "$L"
-NOTE="$(run_block no no none yes no yes no "$L")"
+NOTE="$(run_block no no none yes no yes no "$L" none none none)"
 MARK="$(cat "$L")"
 chk "fresh made=no: marker still records made=no fresh_install=yes" \
   sh -c 'case "$1" in *"made=no"*"fresh_install=yes"*) exit 0;; esac; exit 1' _ "$MARK"
 chk "fresh made=no: NO operator note (control -- gate is fresh_install=no)" \
   sh -c '[ -z "$1" ]' _ "$NOTE"
 
+# ---- #2864: the three swap fields carry the real values, in order, last ------
+# swap_dir is the LAST field (a path can hold a space), so it is read as
+# everything after " swap_dir=" and compared whole, not as a substring.
+
+L="$TMP/log8"; : > "$L"
+NOTE="$(run_block yes no none no no no no "$L" swap 0 "/x/Applications")"
+MARK="$(cat "$L")"
+chk "update swap taken: marker records app_path=swap swap_errno=0 in that order" \
+  sh -c 'case "$1" in *" home_foreign=no app_path=swap swap_errno=0 swap_dir="*) exit 0;; esac; exit 1' _ "$MARK"
+chk "update swap taken: swap_dir is the last field and names the folder exactly" \
+  sh -c '[ "$(printf "%s" "$1" | sed "s/.* swap_dir=//")" = "/x/Applications" ]' _ "$MARK"
+chk "update swap taken: NO operator note (the app was refreshed)" \
+  sh -c '[ -z "$1" ]' _ "$NOTE"
+
+L="$TMP/log9"; : > "$L"
+NOTE="$(run_block yes no none no no no no "$L" rename-swap-refused 62 "/x/Apps With Space")"
+MARK="$(cat "$L")"
+chk "update swap refused: marker records app_path=rename-swap-refused swap_errno=62" \
+  sh -c 'case "$1" in *" app_path=rename-swap-refused swap_errno=62 swap_dir="*) exit 0;; esac; exit 1' _ "$MARK"
+chk "update swap refused: a swap_dir with a space survives whole" \
+  sh -c '[ "$(printf "%s" "$1" | sed "s/.* swap_dir=//")" = "/x/Apps With Space" ]' _ "$MARK"
+
 # ---- errexit safety: an unwritable LOG must not abort the block ------------
 # The marker redirect is `>> "$LOG" 2>/dev/null || true`; point LOG at a path
 # under a non-existent dir so the redirect fails, and confirm the block still
 # completes (exit 0) AND still emits the operator note.
 BADLOG="$TMP/nonexistent-dir/log"
-NOTE="$(run_block no yes same no no no no "$BADLOG")"; RC=$?
+NOTE="$(run_block no yes same no no no no "$BADLOG" none none none)"; RC=$?
 chk "unwritable LOG: block does not abort under set -e (redirect guarded)" \
   sh -c '[ "$1" = 0 ]' _ "$RC"
 chk "unwritable LOG: operator note still fires" \

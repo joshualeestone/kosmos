@@ -31,7 +31,7 @@ tools/test-install.sh proves all of it, with a control showing today's path give
   person removes the stale one once. No code edits anyone's Dock. The release-note line is in
   the PR body for the cut owner (the notes file is release-lane), not in this diff.
 
-## What review changed (rounds 1 to 12)
+## What review changed (rounds 1 to 15)
 - /usr/bin/stat by path (a GNU stat on PATH would skip the swap silently).
 - The staged folder's location decides, never the exit code: a swap that happened but reported
   failure is kept; a staged folder found in neither place is built again and installed by the
@@ -54,6 +54,10 @@ tools/test-install.sh proves all of it, with a control showing today's path give
   matter.
 
 ## Tests (tools/test-install.sh)
+tools/test-app-bundle-status.sh (runs in CI, yarn test:shell) drives the shipped log line with the
+three new fields set: their order after home_foreign, swap_dir as the whole last field (a path with
+a space survives), and both a taken swap and a refused one (errno 62). Both checks were seen to
+fail on a setup.sh with the fields reordered and with a suffix after swap_dir.
 A first install logs app_path=rename; the update keeps the folder inode and replaces Contents
 (app_path=swap, swap_errno=0); CONTROL swap-off gives a new folder (app_path=rename-swap-skipped); a failing stub, a no-op stub, a swap-then-fail stub and a
 moves-it-away stub each end complete, with where it came from asserted; the installer's syscall

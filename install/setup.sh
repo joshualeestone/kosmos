@@ -3127,7 +3127,8 @@ make_app() {
     || info "note: could not remove the leftover hidden folder $aside; drag it to the Trash to finish."
   # rename: nothing was there to update; rename-swap-skipped: an update the swap was
   # not attempted on (switched off, not provably ours, no perl); rename-swap-refused:
-  # the swap was attempted and did not take (swap_errno says why).
+  # the swap was attempted and did not take (swap_errno is what the call reported; a 0
+  # there means the call claimed success but the inode proof found nothing moved).
   if [ "$_swap_tried" = yes ]; then APP_PATH=rename-swap-refused
   elif [ "$_had_app" = yes ]; then APP_PATH=rename-swap-skipped
   else APP_PATH=rename; fi
@@ -3567,6 +3568,9 @@ fi
 # (e.g. the logs dir gone) is itself suppressed -- a bare `printf >> "$LOG"
 # 2>/dev/null` does NOT catch the shell's own redirect-open error. `|| true`
 # keeps errexit from aborting the install over a diagnostic line.
+# Two different uses of the word "swap" share this line: sys_stale=swap (older) means
+# the system folder's whole-bundle rename failed; app_path=swap (#2864) means the
+# Contents exchange was taken. Renaming the older value would break log history.
 { printf '[%s] app-bundle: made=%s skip_icon=%s skip_reason=%s fresh_install=%s sys_stale=%s sys_failed=%s home_foreign=%s app_path=%s swap_errno=%s swap_dir=%s\n' \
   "$$" "$APP_MADE" "$APP_SKIP_ICON" "${APP_SKIP_REASON:-none}" "$FRESH_INSTALL" \
   "${APP_SYS_STALE:-no}" "${APP_SYS_FAILED:-no}" "${APP_HOME_FOREIGN:-no}" "${APP_PATH:-none}" "${APP_SWAP_ERRNO:-none}" "${APP_SWAP_DIR:-none}" \

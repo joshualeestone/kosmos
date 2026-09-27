@@ -788,7 +788,7 @@ chk "the premise: there was an app folder before the update" "[ \"$APP_INO1\" !=
 chk "an update keeps the SAME Kosmos.app folder (inode $APP_INO1)" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" = \"$APP_INO1\" ]"
 chk "an update does replace Contents (the swap happened, not a no-op)" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app/Contents\")\" != \"$CONTENTS_INO1\" ]"
 chk "the install log records swap_errno=0 for that run" "grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | grep -q ' swap_errno=0 '"
-chk "and swap_dir names the folder the swap acted on (physical path)" "grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | grep -qF \" swap_dir=\$(cd \"$SB/apps\" && pwd -P)\""
+chk "and swap_dir names the folder the swap acted on (physical path)" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* swap_dir=//')\" = \"\$(cd \"$SB/apps\" && pwd -P)\" ]"
 chk "the install log records app_path=swap for that run" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* app_path=\\([^ ]*\\).*/\\1/')\" = swap ]"
 chk "the swapped app is complete and runnable" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ] && [ -f \"$SB/apps/Kosmos.app/Contents/Info.plist\" ]"
 chk "no stage or aside folder is left behind by the swap" "[ -z \"\$(ls -A \"$SB/apps\" | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ]"
