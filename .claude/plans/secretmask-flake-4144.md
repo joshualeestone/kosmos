@@ -18,3 +18,7 @@ That the documented not-covered class is the intended behaviour and not a gap wo
 - the known full-leak key added to the list: both tests fail;
 - the repeated-word assertion given that key: round 31 fails;
 - shownChunks made blind: the positive control fails.
+
+## Review round 1 (decided)
+- A third documented cause (the reviewer, 1,500 keys): a key whose two-character chunks also appear in the filler (411648aca761dc522d8f939f1da52025 ends 20 25; the filler says "Dec 2025") shows those chunks, because the walk runs through the filler's copy (the listed "regrouped copy's TWO-character chunks"). Named in the test comment and on the card.
+- Round 30's preamble line is restored (it exercises a different path: one pinned key shows chunk 11 with it); shownChunks skips it when indexing. The positive control uses round 30's own layout.
