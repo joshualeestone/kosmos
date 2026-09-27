@@ -18,11 +18,15 @@ the cluster icons jiggle and shift about maybe 1 or 2 pixels".
 
 ## The change
 
-`.onode .face > * { will-change: opacity }`: every face's contents sit on a layer of their own from the
-start, so hovering one node no longer changes how its neighbours are layered and rasterized. The hover
-callout animates its opacity the same way and gets the same property (not measured to matter in
-Chromium; it is the likeliest leftover in WebKit, so it is not left out). The cost is one small layer
-per face and per callout while the chart is shown.
+- `.onode .face > * { will-change: opacity }`: every face's contents sit on a layer of their own from the
+  start, so a hover's opacity transition no longer re-rasterizes the faces around it. The hover callout
+  gets the same (a precaution; not measured to matter in Chromium).
+- `.orgmap .onode { will-change: transform }`: every node is a layer of its own, so the hover's
+  `z-index: 2` only reorders layers and never repaints a neighbour. With only the faces layered, S41
+  still went red in 2 of 6 attempts (a neighbour's pixels moved by 10/255); with the nodes layered as
+  well it held in 12 of 12 attempts over 11 runs. Without either, S41 is red on every attempt.
+- The cost is a few small layers per agent while the chart is shown; the selectors stay on the org
+  chart's 44px nodes.
 
 ## The check
 

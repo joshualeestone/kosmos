@@ -1849,6 +1849,11 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    z-index 1 and was covering the name and title of any agent drawn near it
    (Josh, 2026-08-23 14:21, screenshot). Above the hub, below a drag. */
 .orgmap .onode:hover, .orgmap .onode:focus-within, .orgmap .onode:focus-visible { z-index: 2; }
+/* #4052: every node is a layer of its own too, so the raised z-index above only reorders layers and never
+   repaints the nodes around the one hovered. With only the faces layered (below), a neighbouring cluster was
+   still redrawn in about 1 hover run in 3; with the nodes layered as well, 12 of 12 runs held still
+   (Chromium, render-swarm-ui-3564.js S41). */
+.orgmap .onode { will-change: transform; }
 .wires { position: absolute; inset: 0; width: 100%; height: 100%; }
 .hub {
   position: absolute; transform: translate(-50%, -50%);
