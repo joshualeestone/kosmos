@@ -1,14 +1,15 @@
-# What's New for 0.7.03 (Baron's freeze of 0.7.01 at 32fc398a, 2026-09-27 06:37 CDT)
+# What's New for Mac 0.7.03 (Baron, 2026-09-27 07:36: 0.7.01 held at staging, never promoted)
 
 ## Finished looks like
-web/whats-new.json is version 0.7.03, one to five highlights, each true of a change merged after 32fc398a2 (checked by
-ancestry against that freeze), passing tools/whats-new-check.js 0.7.03, on main before Baron cuts 0.7.03.
-
-## State
-- Started 06:45 with the only change on main after the freeze: #4139 (a check green says checked).
-- Expected to join: #4108 re-land (taller phone chat boxes, Liu Kang). Lines are added only once a change is on main.
+web/whats-new.json is version 0.7.03 and passes tools/whats-new-check.js 0.7.03. Prod goes 0.6.99 -> 0.7.03 and
+nobody on prod sees 0.7.01's window, so it carries 0.7.01's four lines (as frozen at 32fc398a) plus #4139, five in
+all (the window's maximum). It gates the 0.7.03 cut (release.sh step 1b-ii), so it merges before Baron cuts.
 
 ## Decided
-- Kept as a pushed branch, not a PR yet: it would be re-reviewed with every line added. The PR opens when Baron is
-  ready to cut 0.7.03, or when it holds three or more changes, whichever is first.
-- Weakest premise: that #4139 is worth a highlight to a non-technical person. If 0.7.03 fills up, it is the first to drop.
+- 0.7.01's four lines verbatim: each is still true in 0.7.03. Gemini status works on agy 1.2.11; only ask_question
+  broke, and Kitty's fix restores it in this cut (Baron's ruling).
+- #4139 is fifth, with the "spark" icon (shield is Gemini's); the least important change goes last.
+- Left out, not user-facing: #1079 regress-a-night, the #4182 quarantine guard, Android/iOS work (not in the Mac
+  bundle). #4177 is a page change held by the freeze, so it is not in 0.7.03.
+- Weakest premise: the Gemini status line ("Working, Idle or Needs you") reading as true if Kitty's ask_question fix
+  missed the cut. Baron cuts only after it merges, so it holds.
