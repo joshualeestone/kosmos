@@ -1725,3 +1725,17 @@ test('#3995 gap 4 review round 21: a key whose second character is + / = or - is
     } finally { setKnownSecrets([]); }
   }
 });
+
+test('#3995 gap 4 review round 22: a held value that only starts with sk- is not given a public head; a real vendor key in chunks is masked', () => {
+  setKnownSecrets(['sk-Ab3-vLm3pRt6wXy9kHb2nW']);
+  try {
+    const t = mask('sk and Ab3 and vLm and 3pR and t6w and Xy9 and kHb and 2nW').text;
+    assert.ok(!t.includes('Ab3'), 'a secret chunk after a bare sk- showed: ' + t);
+  } finally { setKnownSecrets([]); }
+  setKnownSecrets(['sk-ant-api03-Zq8vLm3pRt6wXy9kHb2nWc4dQ7eF']);
+  try {
+    const t = mask('Every key starts with sk-ant-api03-. Yours: Zq8 then vLm then 3pR then t6w then Xy9 then kHb then 2nW then c4d then Q7e then F done').text;
+    // (Whether the named prefix itself stays readable here is the word walk's call, the same as on main.)
+    for (const c of ['Zq8', 'vLm', '3pR', 't6w', 'Xy9', 'kHb', '2nW', 'c4d', 'Q7e']) assert.ok(!t.includes(c), `${c} showed: ${t}`);
+  } finally { setKnownSecrets([]); }
+});

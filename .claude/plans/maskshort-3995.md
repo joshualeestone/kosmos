@@ -253,3 +253,14 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
 - The gate's comment says a common word opens it ("AI" with a Google key held), so the build's cost still grows with a
   long reply of short runs (charged; a 3.5MB reply of 1.4M runs is withheld where main shows it in 16s).
 - Noted NIT: the round-20 cost test exercises only the no-opener path.
+
+## Review round 22 (Sonnet), what changed
+- BLOCKER fixed (from my round-15 head rule): SHORT_PUBLIC_HEAD matched a bare sk- / sk_ / rk_ and then trusted
+  publicHeadCut ("wherever the next - falls"), so a held sk-Ab3-... showed its own Ab3. The head is now an exact,
+  known vendor prefix (sk-ant-api03-, sk-proj-, sk-or-v1-, sk_live_, ghp_, xai-, github_pat_ ...) and exactly its length.
+  Tested; red on the previous commit.
+- The masking loops after a completion stop as soon as the budget is spent (withheld), not only at the end.
+- My own test mistake, caught: I asserted a named sk-ant-api03- prefix stays readable next to a chunked key; main masks
+  it the same way (the word walk), so the assertion was removed and the test keeps what this change is about.
+- Deferred NITs: canSpell recomputes for from = 2 and 3 separately (at most twice the work); nearPieces' alignment
+  accepts any aligned occurrence of the slice in the form (errs toward masking).

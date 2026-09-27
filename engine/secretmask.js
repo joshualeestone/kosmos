@@ -270,10 +270,10 @@ function addWalked(w, walked) {
       if (form.length < MIN_VALUE_LEN || /^[0-9a-f]+$/i.test(form)) continue;
       /* How much of this form is the value's public head (sk-ant-api03-): used to assemble it, never masked where a
          guide names it (review round 15), as the word walk leaves a public prefix readable. */
-      /* Only a KNOWN public prefix counts: any - or _ in the first 16 characters would make a licence-style key's own
-         chunks (Ab3-Zq8-vLm-...) a "head" and leave them showing. */
-      const cut = SHORT_PUBLIC_HEAD.test(w) ? publicHeadCut(w) : -1;
-      shortHead.set(form, cut > 0 ? (form === w ? cut + 1 : w.slice(0, cut + 1).replace(/[-_]+/g, '').length) : 0);
+      /* Only a KNOWN public prefix, and exactly it: any - or _ in the first 16 characters would make a licence-style
+         key's own chunks (Ab3-Zq8-vLm-...) a "head" and leave them showing. */
+      const known = w.match(SHORT_PUBLIC_HEAD);
+      shortHead.set(form, known ? (form === w ? known[0].length : known[0].replace(/[-_]+/g, '').length) : 0);
       for (let l = 2; l < OPENING_LEN; l += 1) {   // the short walk starts from two or three characters
         const h = form.slice(0, l);
         if (!knownByShort.has(h)) knownByShort.set(h, []);
@@ -313,9 +313,9 @@ let knownByOpening = new Map();
 let knownByShort = new Map();
 /* #3995 gap 4: per short-index form, the length of its public head (0 when it has none). */
 let shortHead = new Map();
-/* The public key prefixes, ending in - or _, that a guide names in pieces (a subset of what shapeHint in mask() looks
-   for: the ones publicHeadCut can measure). */
-const SHORT_PUBLIC_HEAD = /^(?:sk-|sk_|rk_|xai-|gh[pousr]_|github_pat_|glpat-|xox[abprs]-)/;
+/* The public key prefixes a guide names in pieces, EXACTLY (review round 22: a bare sk- let "wherever the next - falls"
+   become the head, so a held sk-Ab3-... showed its own Ab3). The head is the matched prefix and nothing more. */
+const SHORT_PUBLIC_HEAD = /^(?:sk-ant-(?:api|admin|oat|sid)\d\d-|sk-(?:proj|svcacct|admin)-|sk-or-v\d-|(?:sk|rk)_(?:live|test)_|xai-|gh[pousr]_|github_pat_|glpat-|xox[abprs]-)/;
 const NOT_KEY_CHARS = /[^A-Za-z0-9_+/=-]+/g;
 /* The board also holds whole files (engine/knownsecrets.js, up to 64KB) and their encodings. A form that
    long is not a key someone spells out in pieces, and the walk's reach grows with the form's length, so
@@ -1008,8 +1008,9 @@ function shortChunkSpans(text) {
       for (const ch of runs[i][3].slice(a, b)) { if (/[=_+/-]/.test(ch)) cuts.add(from + n); else n += 1; }
     }
     const reachBack = ns[runs[first][0]] - SPLIT_REACH * f.length;
-    for (let k = first - 1; k >= 0 && ns[runs[k][1]] >= reachBack; k -= 1) nearPieces(k, f, head, cuts);
-    for (let k = first + 1; k < last; k += 1) nearPieces(k, f, head, cuts);
+    for (let k = first - 1; k >= 0 && ns[runs[k][1]] >= reachBack && budget >= 0; k -= 1) nearPieces(k, f, head, cuts);
+    for (let k = first + 1; k < last && budget >= 0; k += 1) nearPieces(k, f, head, cuts);
+    if (budget < 0) return null;
     for (const [i, t, pos] of done) {
       if (pos <= head) continue;   // wholly inside the public head: assembled from, not masked
       pieceSpan(i, t);
