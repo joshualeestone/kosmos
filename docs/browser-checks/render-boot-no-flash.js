@@ -25,11 +25,13 @@ function check(cond, msg) { if (!cond) problems.push(msg); }
 // What the viewer can actually see: the cover is up (not hidden), opaque, fixed,
 // covering the viewport, and stacked above the board. If all hold, the board is
 // occluded no matter what is painted beneath it.
-// kosmos#3973: the root may give up a gutter only as wide as a real scrollbar, measured on a
-// scratch scroller (the page styles it only as it styles the root's own scrollbar), so a root
-// that itself shrank or moved cannot become the yardstick that passes a short cover. Compared
-// within 1px (a fractional root rounds either way); a CSS zoom on the root would scale the
-// scratch scroller and is not supported here.
+// kosmos#3973: the root may give up a gutter only as wide as its own stable scrollbar gutter, so a
+// root that itself shrank or moved cannot become the yardstick that passes a short cover. #4213: that
+// width is read off the ROOT (its width with overflow hidden, without and then with a stable gutter,
+// restored in a finally, after every other read), not off a scratch scroller: the PR runner hides
+// element scrollbars and still reserves the root's 15px, so a scroller read 0 (as the page's #3497
+// measurement says). A margin that shrank the root cancels in the difference. Compared within 1px
+// (a fractional root rounds either way).
 async function coverIsOccluding(page) {
   return page.evaluate(() => {
     const c = document.getElementById('boot-cover');
@@ -37,11 +39,14 @@ async function coverIsOccluding(page) {
     const s = getComputedStyle(c);
     const r = c.getBoundingClientRect();
     const root = document.documentElement.getBoundingClientRect();
-    const probe = document.createElement('div');
-    probe.style.cssText = 'position:absolute;top:-999px;left:0;width:100px;height:100px;overflow:scroll';
-    document.documentElement.appendChild(probe);
-    const sbw = probe.offsetWidth - probe.clientWidth;
-    probe.remove();
+    const rs = document.documentElement.style, was = [rs.scrollbarGutter, rs.overflow], sx = scrollX, sy = scrollY;
+    let sbw = NaN;
+    try {
+      rs.overflow = 'hidden'; rs.scrollbarGutter = 'auto';
+      const bare = document.documentElement.getBoundingClientRect().width;
+      rs.scrollbarGutter = 'stable';
+      sbw = Math.round(bare - document.documentElement.getBoundingClientRect().width);
+    } finally { [rs.scrollbarGutter, rs.overflow] = was; scrollTo(sx, sy); }
     const gutter = innerWidth - root.right;
     return {
       up: true,

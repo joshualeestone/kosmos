@@ -42,9 +42,10 @@ function chk(ok, label, extra) {
 }
 // kosmos#3973: "right" is measured to the ROOT's box, not documentElement.clientWidth, which includes
 // the #1309 stable gutter on a classic-scrollbar machine when the page does not scroll. rootOk keeps
-// that yardstick honest: the root may give up a gutter only as wide as a scratch scroller's scrollbar
-// (within 1px), so a root that shrank or moved cannot pass a short bar. A CSS zoom on the root would
-// scale the scratch scroller and is not supported here.
+// that yardstick honest: the root may give up a gutter only as wide as its own stable scrollbar gutter
+// (within 1px), so a root that shrank or moved cannot pass a short bar. #4213: that width is read off
+// the root (overflow hidden, without then with a stable gutter, restored in a finally, after the other
+// reads), since the PR runner hides element scrollbars and a scratch scroller read 0 against 15px.
 const bar = (page) => page.evaluate(() => {
   const b = document.getElementById('kplus-bar');
   if (!b) return { present: false };
@@ -53,11 +54,14 @@ const bar = (page) => page.evaluate(() => {
   try { const px = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data; for (let i = 3; i < px.length; i += 4) if (px[i] > 0) inked++; } catch { inked = -1; }
   const ob = out.getBoundingClientRect(), cb = cv.getBoundingClientRect();
   const root = document.documentElement.getBoundingClientRect();
-  const probe = document.createElement('div');
-  probe.style.cssText = 'position:absolute;top:-999px;left:0;width:100px;height:100px;overflow:scroll';
-  document.documentElement.appendChild(probe);
-  const sbw = probe.offsetWidth - probe.clientWidth;
-  probe.remove();
+  const rs = document.documentElement.style, was = [rs.scrollbarGutter, rs.overflow], sx = scrollX, sy = scrollY;
+  let sbw = NaN;
+  try {
+    rs.overflow = 'hidden'; rs.scrollbarGutter = 'auto';
+    const bare = document.documentElement.getBoundingClientRect().width;
+    rs.scrollbarGutter = 'stable';
+    sbw = Math.round(bare - document.documentElement.getBoundingClientRect().width);
+  } finally { [rs.scrollbarGutter, rs.overflow] = was; scrollTo(sx, sy); }
   const gutter = innerWidth - root.right;
   return { rootOk: Math.abs(root.left) <= 1 && (Math.abs(gutter) <= 1 || Math.abs(gutter - sbw) <= 1), gutter: Math.round(gutter), sbw, present: true, first: head && head.firstElementChild === b, top: Math.round(r.top), left: Math.round(r.left), right: Math.round(root.right - r.right),
     h: Math.round(r.height), inked, markLeft: Math.round(cb.left - r.left), markH: Math.round(cb.height), outRightGap: Math.round(r.right - ob.right), outText: out.textContent,
