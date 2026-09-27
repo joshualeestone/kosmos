@@ -107,7 +107,9 @@ async function openPlus(page, remote) {
       const titles = await page.evaluate(() => {
         const sec = document.querySelector('#s-sec-plus');
         return {
-          h2: sec.querySelector('h2') ? sec.querySelector('h2').textContent : null,
+          // #4080: the Lost your phone? dialog (an .rm-back inside this section) has its own title; #3151 is about the
+          // section's top heading, so a heading inside a dialog does not count.
+          h2: (() => { const h = [...sec.querySelectorAll('h2')].find((e) => !e.closest('.rm-back')); return h ? h.textContent : null; })(),
           subcopy: /Use your Kosmos from anywhere/.test(sec.innerText || ''),
           ariaLabel: sec.getAttribute('aria-label'),
           nav: (document.querySelector('#s-nav button[data-go="plus"] span') || {}).textContent,
