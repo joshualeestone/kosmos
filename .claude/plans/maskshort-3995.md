@@ -328,3 +328,11 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
   characters, 3 at 20, 0 at 32), not one figure.
 - Noted NITs: a one-character first chunk (documented; cost reason stands); ordinary-text cost about 1.5x main over the
   repo's own source (identical output).
+
+## Review round 30 (Sonnet), what changed
+- BLOCKER fixed (from my round-27 fix): the total-span cap on hex forms made a hex key with ordinary prose between its
+  chunks leak in full (49 of 50 random 32-hex keys given as "Step N: xx"); "a real chunked key fits easily" had only
+  been checked with a one-word filler. Replaced by the real distinction: a hex form's walk may skip at most
+  SHORT_HEX_SKIP_MAX (3) hex-looking runs between two pieces (a dump or numbered hex list skips many; prose skips words).
+  Measured after: 0 of 50. The round-27 hex-dense test passes three runs of three; the new test is red on the previous
+  commit. Not covered names the residual (several multi-digit numbers between hex chunks).

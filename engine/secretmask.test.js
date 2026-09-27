@@ -1817,3 +1817,17 @@ test('#3995 gap 4 review round 29: a held value that is itself hex is walked in 
     assert.equal(mask(list).text, list, 'a numbered list of hex tokens was masked');
   } finally { setKnownSecrets([]); }
 });
+
+test('#3995 gap 4 review round 30: a hex key with ordinary prose between its short chunks is masked', () => {
+  const crypto = require('node:crypto');
+  for (let k = 0; k < 10; k += 1) {
+    const key = crypto.randomBytes(16).toString('hex');
+    setKnownSecrets([key]);
+    try {
+      const chunks = key.match(/.{2}/g);
+      const t = mask('Sure, here is your recovery code, one chunk per step so it is easy to copy:\n' + chunks.map((c, i) => `Step ${i + 1}, please type this carefully: ${c}`).join('\n')).text;
+      const shown = chunks.filter((c) => new RegExp(': ' + c + '$', 'm').test(t));
+      assert.ok(shown.length <= 1, `a hex key's chunks showed: ${shown.join(',')}`);
+    } finally { setKnownSecrets([]); }
+  }
+});

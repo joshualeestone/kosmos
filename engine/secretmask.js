@@ -482,7 +482,8 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *    the text, not the single-spacing copy the word walk also reads);
  *  - the hex ENCODINGS of held values, and a UUID-shaped value (hex once its - are taken out), cut into chunks under
  *    OPENING_LEN (not walked short, see addWalked); a held value that is itself hex as held, and a vendor key's hex body,
- *    ARE walked, within SPLIT_REACH x their length in all;
+ *    ARE walked, skipping at most SHORT_HEX_SKIP_MAX hex-looking runs between two pieces (so a hex key with MORE hex-
+ *    looking tokens between its chunks, such as several numbers of two or more digits, shows);
  *  - a first chunk of OPENING_LEN or more followed by chunks under it, once the text from the first chunk runs past
  *    SPLIT_REACH times the key's length in all (the word walk extends its reach only on pieces of OPENING_LEN or
  *    more, and the short walk starts only from a chunk under OPENING_LEN);
@@ -862,6 +863,8 @@ function plainWordRun(t) {
    was not enough; a held 2ndFloorLounge was masked out of "the 2nd ... Floor ... Lounge"). A random key cut into
    chunks of three or fewer has many; a sentence spelling a password made of words has few. */
 const SHORT_WALK_MIN_KEYLIKE = 2;
+/* How many hex-looking runs a hex form's walk may skip between two of its pieces (see shortChunkSpans). */
+const SHORT_HEX_SKIP_MAX = 3;
 function shortChunkSpans(text) {
   if (!knownByShort.size) return [];
   /* Nothing is built unless some run offers a two- or three-character opening of a short-indexed form (review round 20:
@@ -897,6 +900,9 @@ function shortChunkSpans(text) {
     runs.push([m.index, m.index + m[0].length, [...where.keys()], m[0], where]);
   }
   if (runs.length < 2) return [];
+  /* hexBefore[i]: how many runs before run i look like hex (two or more characters, 0-9 a-f only). */
+  const hexBefore = new Int32Array(runs.length + 1);
+  for (let i = 0; i < runs.length; i += 1) hexBefore[i + 1] = hexBefore[i] + (runs[i][3].length >= 2 && /^[0-9a-f]+$/i.test(runs[i][3]) ? 1 : 0);
   const present = new Set();
   const at = new Map();   // piece -> the runs offering it, in order
   runs.forEach((r, i) => { for (const t of r[2]) { present.add(t); if (!at.has(t)) at.set(t, []); at.get(t).push(i); } });
@@ -959,6 +965,11 @@ function shortChunkSpans(text) {
           for (let i = 0; i < text.length; i += 1) ns[i + 1] = ns[i] + (/\s/.test(text[i]) ? 0 : 1);
         }
         const bound = SPLIT_REACH * f.length;
+        /* A hex form (a held hex token, a vendor key's hex body) may skip at most SHORT_HEX_SKIP_MAX hex-looking runs
+           between two of its pieces: lone a to f letters and digits spell any hex form, so a path hopping over hex-dense
+           text (a dump, a numbered hex list) masked its tokens and line numbers (review round 27), while ordinary prose
+           between a real key's chunks skips words (review round 30: a total-span cap, the first fix, broke that). */
+        const hexForm = /^[0-9a-f]+$/i.test(f);
         /* Only the runs that ARE the form's next piece are visited (review round 7: scanning every run in reach, and
            charging each, withheld a reply that listed its characters and named a shared opening like eyJ): from each
            reached point, the few piece lengths the text has, looked up in `at`, and the next such runs within reach
@@ -980,6 +991,7 @@ function shortChunkSpans(text) {
             for (let k = lo; k < list.length; k += 1) {
               const s = list[k];
               if (ns[runs[s][0]] - ns[runs[node.run][1]] > bound) break;
+              if (hexForm && hexBefore[s] - hexBefore[node.run + 1] > SHORT_HEX_SKIP_MAX) break;
               if ((budget -= 1) < 0) return null;
               const key = (node.pos + l) + ':' + s;
               if (seen.has(key)) continue;
@@ -994,10 +1006,6 @@ function shortChunkSpans(text) {
         let done = null;
         if (end) { done = []; for (let n = end; n; n = n.prev) done.unshift([n.run, n.piece, n.pos]); }
         if (!done || done.filter(([, t]) => !plainWordRun(t)).length < SHORT_WALK_MIN_KEYLIKE) continue;
-        /* A hex form (a vendor key's hex body) completes only within SPLIT_REACH x its length IN ALL, not per gap: lone
-           a to f letters and digits spell any hex form, and a path hopping gap by gap across a hundred lines of hex-dense
-           text masked its tokens and line numbers (review round 27). A real chunked key fits easily. */
-        if (/^[0-9a-f]+$/i.test(f) && ns[runs[done[done.length - 1][0]][1]] - ns[runs[done[0][0]][0]] > SPLIT_REACH * f.length) continue;
         const key = f + '|' + done[done.length - 1][0];
         const had = completed.get(key);
         if (!had) completed.set(key, { done, head: shortHead.get(f) || 0 });   // starts run latest first: the first completion here is the latest
