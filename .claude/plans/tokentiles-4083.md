@@ -43,8 +43,10 @@ Safari 16.x release (subgrid arrived in 16.0); Windows' WebView2 is an evergreen
 supported install lacks it. Without it the `subgrid` value would be dropped and a wrapping label would
 lift its tile again, as before.
 
-Coverage given up: at desktop width the full $176,332 now fits the cost tile, so the #3137 abbreviation
-is shown needed only at 390 wide (the phone arm), not at desktop. And the 12px margin is measured for a
+Coverage given up: with the smaller headline the full $176,332 now fits the cost tile at both 1280 and
+390 wide (measured; a phone arm asserting it clips there was added and went red, so it was removed). So
+no check shows the #3137 abbreviation is still needed at any width measured here; it stays in the code,
+and the desktop control still proves the fit check can see a clip. And the 12px margin is measured for a
 7-character headline: the human-cost formatter reads $1B or more as $1000.0M (8 characters, there is no B
 band), which would sit tighter on a phone. That formatter is not changed here.
 

@@ -371,19 +371,6 @@ function readUsage(page) {
     await p.setViewportSize({ width: 390, height: 1100 });
     await p.waitForTimeout(300);
     alignArms(await measureAlign(), 'phone');
-    // #3137 at the phone width: the full $176,332 clips the Approximate Human Cost tile here and $176.3K fits, so the
-    // abbreviation is still needed somewhere (at desktop width the smaller #4083 headline fits the full figure).
-    const phoneFit = await p.evaluate(() => {
-      const box = [...document.querySelectorAll('#usage-hero .tv-fbox')].find((b) => /Approximate Human Cost/.test(b.textContent || ''));
-      const fig = box && box.querySelector('.tv-fig');
-      if (!fig) return null;
-      const orig = fig.textContent;
-      fig.textContent = '$176,332'; const fullOverflows = fig.scrollWidth > fig.clientWidth + 1;
-      fig.textContent = '$176.3K'; const abbrFits = fig.scrollWidth <= fig.clientWidth + 1;
-      fig.textContent = orig;
-      return { fullOverflows, abbrFits };
-    });
-    ok(!!phoneFit && phoneFit.fullOverflows && phoneFit.abbrFits, `phone: the full $176,332 clips the cost tile and $176.3K fits, so the abbreviation is still needed (#3137) -- ${JSON.stringify(phoneFit)}`);
     await p.setViewportSize({ width: 1280, height: 1100 });
     await p.waitForTimeout(300);
     // #2617 CONTROL: repaint in the SAME page life, from a painted block to a
