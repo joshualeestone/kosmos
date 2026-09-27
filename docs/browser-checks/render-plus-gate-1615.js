@@ -139,11 +139,12 @@ async function openPlus(page, remote) {
         const sw = document.getElementById('plus-switch');
         return { state1: h('plus-state1'), flow: h('plus-flow'),
           switchVisible: !!(sw && sw.getBoundingClientRect().height > 0),
-          switchText: sw ? sw.textContent : null };
+          switchRole: sw ? sw.getAttribute('role') : null, switchOn: sw ? sw.getAttribute('aria-checked') : null };
       });
       chk(en.flow > 0, `[${theme}] enrolled: the connected flow is on screen`, JSON.stringify(en));
       chk(en.state1 === 0 || en.state1 === -1, `[${theme}] enrolled: the state 1 holding place is not shown`, JSON.stringify(en));
-      chk(en.switchVisible === true && en.switchText === 'Turn on',
+      // #4080: the switch is a toggle now (Josh's design), off for this enrolled-but-off fixture.
+      chk(en.switchVisible === true && en.switchRole === 'switch' && en.switchOn === 'false',
         `[${theme}] enrolled: the switch is present so a connected person can still turn Plus off`, JSON.stringify(en));
       await page.screenshot({ path: path.join(OUT, `plus-enrolled-${theme}.png`), fullPage: false });
 
