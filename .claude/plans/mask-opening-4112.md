@@ -9,7 +9,7 @@ Card: #4112.
   whose next character begins some run in reach, and one- or two-letter words ("a", "and") advance a walk, after
   which it compares every variant of every run in reach.
 
-## Change (engine/secretmask.js wordSkippingSpans): output exact, charge never above main's
+## Change (engine/secretmask.js wordSkippingSpans): output exact; each step charged at most main's, at least its work
 1. A run's variants are grouped by first character; at position q only the group beginning with f[q] is compared
    and charged (a piece matches at q only if it begins with f[q]).
 2. A walk jumps to the next run with a variant beginning with any f[q] for its current positions, through a
@@ -39,3 +39,14 @@ main, total about 7x lower, identical output. The reviewer's reply is a test tha
 
 ## Weakest premise
 Timings are from a loaded Mac; the unit counts are machine-independent and are what the budget reads.
+
+## Review 2 (sonnet): BLOCKER fixed
+Charging only the compared variants left each step's positions (`at`, which grows with `reached`) free. A key full
+of - and _, its head whole and the rest spelled two characters at a time, three times over, ran 2.5 s under a tiny
+charge where main exhausted the budget in about 0.3 s (fail-closed became slow, and the reviewer saw it come back
+unmasked). Now each step covering runs (s, t], or (s, limit] when nothing in reach can match, is charged
+max(at.length, compared variants): at most main's charge for that range (main charged every run in it at.length x
+all variants), and at least the step's work (positions built; index lookups are bounded by the alphabet). A range
+with no run in reach is not entered at all, as main's loop broke there without charging. Re-measured: 900 inputs,
+0 above main (about 3.6x lower), identical output on 1,200 replies; the attack is a test (fails on 86c0620a5, passes
+on main and here). Units now: 200 keys, 20 mentions 0.60M (main 2.46M, withheld); 200 mentions 6.5M (main 26.7M).

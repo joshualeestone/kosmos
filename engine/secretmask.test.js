@@ -1904,3 +1904,27 @@ test('#4112 review 1: runs that all begin with a held key\'s next character cost
     assert.equal(out.text, reply);
   } finally { setKnownSecrets([]); }
 });
+
+test('#4112 review 2: a walk whose positions grow large is charged for them, so it ends at the budget as main does instead of running for seconds', () => {
+  /* One held key full of - and _ (so each position fans out past skipped separators), its public head whole, and
+     the rest spelled two characters at a time with a word between, three times over. Charging only the compared
+     variants left the positions free: this ran 2.5s under a tiny charge. Every step is now charged for its
+     positions too, and the search ends at the budget, as main's does. */
+  let seed = 42;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  const A62 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const seps = ['--', '__', '-_', '---'];
+  let tail = '';
+  while (tail.length < 1000) tail += Array.from({ length: 3 }, () => A62[Math.floor(rnd() * 62)]).join('') + seps[Math.floor(rnd() * 4)];
+  const key = j('sk-ant-', 'api03-', tail.slice(0, 1000));
+  setKnownSecrets([key]);
+  try {
+    const body = key.slice('sk-ant-api03-'.length);
+    const noise = ['the', 'and', 'so', 'ok', 'a'];
+    const parts = ['sk-ant-api03-'];
+    for (let i = 0; i < body.length; i += 2) parts.push(`${body.slice(i, i + 2)} ${noise[i % 5]}`);
+    const block = parts.join(' ');
+    const out = mask(Array.from({ length: 3 }, () => block).join(' . '));
+    assert.equal(out.text, UNCHECKED, 'the search did not end at the budget: its positions went uncharged (' + describeFired(out.fired) + ')');
+  } finally { setKnownSecrets([]); }
+});

@@ -513,11 +513,10 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
    names sk-ant-api03- 200 times, withheld; whether it trips depends on the keys' random next characters.
    #4112 (2026-09-27, this Mac, Node 26): the walk now jumps between runs that could match and compares only the
    variants that could. The OUTPUT is exact (identical on 1,200 randomized split-key replies, and on 1,900 in review
-   1), and the CHARGE is never more than it was for any input (see the walk; measured on 900 adversarial inputs:
-   0 higher, about 7x lower in total). With the budget lifted, 200 held keys and a guide reply naming sk-ant-api03-
-   20 times cost 0.23M units and 0.24s (2.4M and 0.52s before, over the budget: withheld); 200 times cost 2.6M units
-   and 2.0s (27.7M and 3.6s before). The budget is unchanged, so the 200-mention reply is still withheld, and an
-   exhausted search still costs about 1s. */
+   1), and each step's CHARGE is at most main's for the runs it covers and at least the work it does (see the walk;
+   900 adversarial inputs: 0 charged above main, about 3.6x lower in total). Units, which do not depend on load: 200
+   held keys and a guide reply naming sk-ant-api03- 20 times cost 0.60M (2.46M before, over the budget: withheld);
+   200 times cost 6.5M (26.7M before). The budget is unchanged, so the 200-mention reply is still withheld. */
 const WORD_WALK_BUDGET = 1250000;
 /* How many tails after, and heads before, a - or _ one run offers as pieces (review rounds 15 to 19). */
 const PIECE_VARIANTS_MAX = 4;
@@ -740,6 +739,9 @@ function wordSkippingSpans(text) {
         let lastAt = from;
         if (idxFrom < 0) idxFrom = r + 1;
         for (let s = r; ;) {
+          /* The last run still in reach. None past s: main broke here without charging, and so does this. */
+          const limit = lastInReach(s, lastAt, bound);
+          if (limit <= s) break;
           /* Each start position, with the reached position it came from: a piece matched past a skipped
              separator links back to where the walk had got to, not to the skip (review round 17: linking to the
              skip broke the trace back, and every piece before it was left readable). */
@@ -752,27 +754,28 @@ function wordSkippingSpans(text) {
              sk-ant-api03- in a reply against 200 held keys otherwise compared every key with every run in reach
              from every mention (ordinary words like "a" and "and" advance a walk by a character or two, and keep
              it comparing), and the reply was withheld whole at 20 mentions. */
-          /* 🔑 THE CHARGE NEVER EXCEEDS MAIN'S (#4112 review 1: charging each jump and each indexed run withheld a
-             reply main checked). Main charged every run in reach at.length x all its variants' cost, and nothing
-             at the bound. Here a jump and the bound are free, and a run landed on is charged only for the variants
-             compared, a subset of main's charge for that same run with the same `at`. So for every walk the charge
-             is at most main's, and a reply main checks within the budget is never withheld here. */
+          /* 🔑 THE CHARGE IS AT MOST MAIN'S AND AT LEAST THE WORK DONE (#4112 reviews 1 and 2). Each step covers the
+             runs (s, t], or (s, limit] when nothing in reach can match, and is charged the larger of at.length (the
+             positions built, and at most the alphabet's worth of index lookups) and the variants it compares. Main
+             charged every run in that range at.length x all its variants' cost, so each step is at most main's
+             charge for its range: a reply main checks within the budget is never withheld here (review 1 found one
+             that was). And no step is free: charging only the compared variants let a reply whose `reached` grew
+             large run for seconds under a tiny charge and come back unmasked where main withheld it (review 2). */
           const chars = new Set();
           for (const [q] of at) if (q < f.length) chars.add(f[q]);
-          const limit = lastInReach(s, lastAt, bound);
           ensureIdx(limit);
           let t = Infinity;
           for (const c of chars) { const i = firstAbove(firstIdx.get(c), s); if (i < t) t = i; }
-          if (t > limit) break;
+          if (t > limit) { if ((budget -= at.length) < 0) return null; break; }
           s = t;
           const [, sTo] = runs[s];
           const [, , byFirst] = varsOf(s);
           let done = false;
           const next = new Set(reached);
-          /* Only the variants that begin with f[q] are compared at q, and only they are charged. */
+          /* Only the variants that begin with f[q] are compared at q. */
           let cost = 0;
           for (const [q] of at) { const g = q < f.length && byFirst.get(f[q]); if (g) cost += g.cost; }
-          if ((budget -= cost) < 0) return null;
+          if ((budget -= Math.max(at.length, cost)) < 0) return null;
           for (const [q, p] of at) {
             const g = q < f.length && byFirst.get(f[q]);
             if (!g) continue;
