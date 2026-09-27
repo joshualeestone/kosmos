@@ -21,7 +21,7 @@ mask), both outside the box, so no box property can reach them.
 1. Outline = four 1px `drop-shadow`s on `.msg-bd` (a filter traces everything the element paints,
    pseudo-elements included).
 2. The filter would also trace the `::after` ground mask's block, so the wing carves itself with a
-   CSS mask (same ellipse the `::after` carves: 12px x 16px, centred 12px outside the bubble edge
+   CSS mask (same ellipse the `::after` carves: radii 12px and 16px, centred 12px outside the bubble edge
    and 16px above its bottom). Applied always, on agent bubbles only; it removes only wing pixels
    `::after` already paints over, so a read bubble is unchanged (measured: 0 differing pixels vs
    main, light and dark).
@@ -30,9 +30,16 @@ mask), both outside the box, so no box property can reach them.
    outlines the mask block.
 4. Dark / navy `--unread-edge` becomes opaque `#a8842f`: four stacked translucent shadows compound
    unevenly where they overlap.
-5. `.dmthread` gets `padding-bottom: 2px`: a filter is not scrollable overflow, so scrolled to the
-   end the newest bubble's bottom stroke was clipped. Static padding, so reading moves nothing and
-   the scroll repin (render-room-scroll.js) is untouched. The room thread already has 12-14px.
+5. `.dmthread` gets `padding-block: 2px`: a filter is not scrollable overflow, so the stroke of a
+   bubble at either end of the thread was clipped (the newest scrolled to the bottom; the first in a
+   thread that does not scroll). Static padding, so reading moves nothing and the scroll repin
+   (render-room-scroll.js) is untouched. The room thread already has 12-14px.
+6. While unread the wing's inner bottom corner is square (`border-bottom-right-radius: 0`), rounding
+   again after the fade. Rounded, it left a notch where it met the bubble's 6px corner, which the
+   outline traced as a V-shaped kink (review iteration 2). The corner sits under the bubble.
+7. The outline's transition list keeps `outline-color .3s`, the jump flash's own fade, which the
+   higher-specificity outline rule would otherwise cancel; a flashing unread bubble drops the
+   outline so it does not trace the flash ring.
 
 ## Rejected
 
