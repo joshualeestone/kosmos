@@ -233,13 +233,18 @@ function chk(ok, label, extra) {
            clientWidth either (#4213, the #3973 class): with classic scrollbars and a page that does not scroll, the
            #1309 stable gutter is reserved and left empty, clientWidth still counts it, and a read 2px from that
            edge lands in the gutter. rootOk keeps this yardstick honest: the root may give up a gutter only as wide
-           as a scratch scroller's scrollbar (within 1px), as render-plus-bar-3837 does (#4076). */
+           as its own stable scrollbar gutter (within 1px), read off the root after the other reads and restored in a
+           finally, as render-plus-bar-3837 does. Not a scratch scroller: the runner hides element scrollbars, and
+           one read 0 against the root's 15px (the first run of #4222). */
         const root = document.documentElement.getBoundingClientRect();
-        const probe = document.createElement('div');
-        probe.style.cssText = 'position:absolute;top:-999px;left:0;width:100px;height:100px;overflow:scroll';
-        document.documentElement.appendChild(probe);
-        const sbw = probe.offsetWidth - probe.clientWidth;
-        probe.remove();
+        const rs = document.documentElement.style, was = [rs.scrollbarGutter, rs.overflow], sx = scrollX, sy = scrollY;
+        let sbw = NaN;
+        try {
+          rs.overflow = 'hidden'; rs.scrollbarGutter = 'auto';
+          const bare = document.documentElement.getBoundingClientRect().width;
+          rs.scrollbarGutter = 'stable';
+          sbw = Math.round(bare - document.documentElement.getBoundingClientRect().width);
+        } finally { [rs.scrollbarGutter, rs.overflow] = was; scrollTo(sx, sy); }
         const gutter = innerWidth - root.right;
         return { w: Math.floor(root.right), rootOk: Math.abs(root.left) <= 1 && (Math.abs(gutter) <= 1 || Math.abs(gutter - sbw) <= 1),
           gutter: Math.round(gutter), sbw, h: document.documentElement.clientHeight, bandY: Math.round((tiles.top + tiles.bottom) / 2), belowY: Math.round(under.top + under.height / 2),
