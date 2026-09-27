@@ -66,14 +66,15 @@ test('#4257 a folder handed over in its 8.3 SHORT spelling is keyed on the long 
 }, (t) => {
   /* The JS realpath keeps a short name, so it gives the spelling a caller could hand over. */
   const shortRoot = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'trust-short-4257-')));
+  t.after(() => { try { fs.rmSync(shortRoot, { recursive: true, force: true }); } catch { /* best effort */ } });
   const longRoot = fs.realpathSync.native(shortRoot);
   if (shortRoot === longRoot) { t.skip('this host has no short spelling for its temp folder'); return; }
   const cfgDir = fs.mkdtempSync(nodePath.join(SANDBOX, 'cfg-'));
   const r = trust.trustFolder(shortRoot, { configDir: cfgDir, createIfAbsent: true });
   assert.equal(r.ok, true, r.because || '');
   const keys = Object.keys(readCfg(nodePath.join(cfgDir, '.claude.json')).projects || {});
-  assert.deepEqual(keys, [longRoot.split(nodePath.sep).join('/')]);
-  fs.rmSync(shortRoot, { recursive: true, force: true });
+  assert.deepEqual(keys, [longRoot.split(nodePath.sep).join('/')],
+    'handed ' + JSON.stringify(shortRoot) + ', the key must be the long native spelling with forward slashes');
 });
 
 test('#2281 the key it RETURNS is the key it WROTE, so a rollback removes the right entry', () => {
