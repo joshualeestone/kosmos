@@ -75,6 +75,14 @@ test('#4103: install pre-caches the board, never the sign-in page, and still cac
   }
 });
 
+test('#4103: an install with no network still installs (waitUntil resolves, nothing cached as /)', async () => {
+  const w = worker(async () => { throw new TypeError('Failed to fetch'); });
+  w.added.length = 0;
+  let done; w.handlers.install({ waitUntil(p) { done = p; } });
+  await assert.doesNotReject(done, 'a cold offline install rejected its waitUntil (the worker would not install)');
+  assert.equal(w.puts.some(([k]) => k === '/'), false);
+});
+
 test('#4103: a non-navigation GET of / goes to the network untouched (never cached, never served from the cache)', async () => {
   const w = worker(async () => page('<html>SIGN-IN</html>'));
   let responded = false; const waits = [];

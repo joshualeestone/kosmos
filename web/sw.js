@@ -57,8 +57,9 @@ async function isBoardShell(res) {
    taken before the response is handed to the page. */
 async function cacheShellIfBoard(probe, copy) {
   if (!(await isBoardShell(probe))) {
-    // NOT awaited: a tee'd branch's cancel() resolves only once every branch is cancelled, so awaiting it here would
-    // hold the worker's waitUntil open indefinitely (it did, in the tests). Fire it and let the branch go.
+    // NOT awaited: in the Streams spec's tee (ReadableStreamDefaultTee), cancelling one branch returns a promise that
+    // resolves only when its sibling branch is cancelled too; the sibling here is never cancelled, so awaiting would
+    // hold the worker's waitUntil open indefinitely (it hung the unit tests under Node's streams). Fire and let go.
     try { if (copy && copy.body) copy.body.cancel().catch(() => {}); } catch (_e) { /* nothing held */ }
     return false;
   }
