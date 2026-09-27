@@ -25849,7 +25849,7 @@ function museOffered() {
 const ACCT_MUSE = (() => {
   let id = null; let poll = null; let gen = 0; let retrying = false;
   const el = (x) => document.getElementById('acct-muse-' + x);
-  const say = (t) => { const m = el('say'); if (m) m.textContent = t; };   // 'say', not 'msg' (the surface gate maps that token)
+  const say = (t) => { const m = el('say'); if (m) m.textContent = t; };   // named 'say': the surface gate maps the usual name to other checks
   const stopPoll = () => { if (poll) { clearInterval(poll); poll = null; } };
   // Each address written out whole (#3957 reads every page fetch's URL as a literal).
   const post = (which, body) => {
