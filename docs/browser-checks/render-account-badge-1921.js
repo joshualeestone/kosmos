@@ -130,6 +130,8 @@ const GROK_SUB_LAPSED = grokSubRow('grok-lapsed@example.com', '/home/.grok-gl', 
 const GROK_SUB_UNKNOWN = grokSubRow('grok-unk@example.com', '/home/.grok-gu', 'unknown', 'Could not check the Grok sign-in');
 const ACCOUNTS = [
   row('work@example.com', 'working', 'wd'),
+  /* #4139: a green that came from Check now, not from an agent's request. */
+  { ...row('chk@example.com', 'working', 'cd'), connection: { ...row('chk@example.com', 'working', 'cd').connection, observedFrom: 'check' } },
   row('rej@example.com', 'rejected', 'rd'),
   row('unver@example.com', 'signed_in_unverified', 'ud'),
   row('out@example.com', 'signed_out', 'od'),
@@ -338,7 +340,11 @@ const ACCOUNTS = [
   const want = [
     // A Claude subscription row carries the browser-OAuth reauth (data-reauth), never the
     // OpenAI subscription reauth. #2568/#2584: the two reauth affordances never cross.
-    { email: 'work@example.com', cls: 'acct-connected', text: /Signed in.*active/, claudeReauth: true, openaiReauth: false, checkNow: true, checkSignin: '' },
+    { email: 'work@example.com', cls: 'acct-connected', text: /Signed in.*active/, claudeReauth: true, openaiReauth: false, checkNow: true, checkSignin: '',
+      titleText: /a real request on this account succeeded/ },
+    // #4139: a green from a check says a check answered it (title) and "checked", never "active" or an agent's request.
+    { email: 'chk@example.com', cls: 'acct-connected', text: /^Signed in · checked /, titleText: /^This sign-in answered a check by Kosmos recently/,
+      notTitle: /real request|not a probe/, checkNow: true },
     { email: 'rej@example.com', cls: 'acct-none', text: /Not connected/, checkNow: true },
     // #3136: unver@ is EXACTLY Josh's state (a signed-in but not-recently-observed account).
     // The VISIBLE pill now reads a NEUTRAL "Signed in" (Josh read the old "not recently checked"

@@ -183,3 +183,11 @@ test('#4064 control: an API-key account is not painted by a recorded check answe
   assert.ok(keyRow, 'setup: no API-key row listed');
   assert.notEqual(keyRow.connection.badge, 'working', 'an API-key row was painted from a check answer: ' + JSON.stringify(keyRow.connection));
 });
+
+/* #4139: a ChatGPT green that came from the free check says so, so the page does not claim an agent's request. */
+test('#4139 a ChatGPT green from the free check names the check as its source', async () => {
+  await recordGreen();
+  const row = await openaiRow();
+  assert.equal(row.connection.badge, 'working', 'CONTROL: ' + JSON.stringify(row.connection));
+  assert.equal(row.connection.observedFrom, 'check', JSON.stringify(row.connection));
+});

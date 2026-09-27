@@ -7758,7 +7758,9 @@ const server = http.createServer((req, res) => {
           try { cal = a.dir ? require('./engine/allowance').readCalibration(a.dir) : null; } catch { cal = null; }
           return {
             provider: 'anthropic', providerName: 'Anthropic / Claude', ...a,
-            connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs },
+            /* #4139: which outcome the badge came from, so a green from Check now does not claim an agent's request. */
+            connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
+              ...(obs ? { observedFrom: obs === checkObs ? 'check' : 'agent' } : {}) },
             weeklyTokensPerPoint: cal ? Math.round(cal.tokensPerPoint) : null,
           };
         });
@@ -7842,7 +7844,9 @@ const server = http.createServer((req, res) => {
           if (v.badge !== 'working') return base;
           /* From base.connection, which carries liveCheckPending: a green row whose own check is still running must
              still be read again, so a newer dead answer can reach it (review round 9). */
-          return { ...base, connection: { ...(base.connection || a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs } };
+          /* #4139: which outcome made it green, so a check green does not claim an agent's request. */
+          return { ...base, connection: { ...(base.connection || a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
+            observedFrom: obs === checkObs ? 'check' : 'agent' } };
         });
         /* #3296 observability follow-on: the GOOGLE/Gemini observed-overlay badge, the
            exact sibling of the OpenAI overlay above and positive-only for the same reason
@@ -7956,8 +7960,9 @@ const server = http.createServer((req, res) => {
           if (v.badge !== 'working') return unverifiedSub(a);
           /* Still being checked in this read: keep saying so, so the page reads again (review round 9). */
           const stillChecking = thisCheck && thisCheck.verdict === 'pending';
+          /* #4139: a green from the free check says so, not that an agent's request succeeded. */
           return { ...a, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
-            ...(stillChecking ? { liveCheckPending: true } : {}) } };
+            observedFrom: obs === checkObs ? 'check' : 'agent', ...(stillChecking ? { liveCheckPending: true } : {}) } };
         });
         /* #3998 (Josh, 11:34: "it doesn't show up here as a connected subscription"): Gemini on the
            Google subscription gets its own row, from agystatus's LAST confident answer (a live check

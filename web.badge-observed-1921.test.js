@@ -109,3 +109,22 @@ test('#3997 round 7: the free Check now button carries its unique folder as its 
   assert.ok(at > -1, 'the free Check now button does not lead with data-check-dir');
   assert.ok(PAGE.indexOf('data-check-signin="', at) > at, 'the kind attribute should follow the folder');
 });
+
+/* #4139: the green's tooltip follows where the green came from. The REAL expression from paintAccounts, evaluated. */
+test('#4139: a green from a check says a check answered; a green from an agent keeps the observed-request sentence', () => {
+  const f = PAGE.match(/const fromCheck = ([^;]*);/);
+  const m = PAGE.match(/const workingWhy = ([\s\S]*?);\n/);
+  assert.ok(f && m, 'workingWhy moved');
+  const why = new Function('a', 'ageStr', 'const fromCheck = ' + f[1] + '; return ' + m[1] + ';');
+  const check = why({ connection: { observedFrom: 'check' } }, '5 minutes ago');
+  const agent = why({ connection: { observedFrom: 'agent' } }, '5 minutes ago');
+  const old = why({ connection: {} }, '');
+  assert.equal(check, 'This sign-in answered a check by Kosmos recently (5 minutes ago), so it is working.');
+  assert.doesNotMatch(check, /real request|not a probe/, 'a check green claims an agent request');
+  assert.match(agent, /^a real request on this account succeeded recently \(5 minutes ago\)\./);
+  assert.match(old, /^a real request on this account succeeded recently\./, 'a row with no source changed its sentence');
+});
+
+test('#4139 review: the green pill says "checked" for a check and "active" for an agent', () => {
+  assert.match(PAGE, /Signed in' \+ \(ageStr \? \(fromCheck \? ' · checked ' : ' · active '\) \+ esc\(ageStr\)/, 'the pill still says active for a check');
+});

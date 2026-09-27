@@ -22631,7 +22631,12 @@ async function paintAccounts(opts) {
        listing), recorded the same way; still never from a credential that merely exists. */
     const badge = a.connection && a.connection.badge;
     const ageStr = agoWords(a.connection && a.connection.observedAgeMs);
-    const workingWhy = 'a real request on this account succeeded recently' + (ageStr ? ' (' + ageStr + ')' : '') + '. This is an observed outcome, not a probe.';
+    /* #4139: a green from a check (Check now, or the free sign-in check) is not an agent's request, and it IS a
+       check, so it says that instead; the server says which one the badge came from. */
+    const fromCheck = !!(a.connection && a.connection.observedFrom === 'check');   // the pill too: a check is not activity (review)
+    const workingWhy = fromCheck
+      ? 'This sign-in answered a check by Kosmos recently' + (ageStr ? ' (' + ageStr + ')' : '') + ', so it is working.'
+      : 'a real request on this account succeeded recently' + (ageStr ? ' (' + ageStr + ')' : '') + '. This is an observed outcome, not a probe.';
     const rejectedWhy = 'a real request on this account was rejected' + (ageStr ? ' (' + ageStr + ')' : '') + '. The sign-in needs renewing.';
     // #3136 (Josh, 6.68): the PILL now reads a neutral "Signed in" (Josh saw "not recently
     // checked" and read it as "not connected" though he was). The "not verified live" nuance
@@ -22647,7 +22652,7 @@ async function paintAccounts(opts) {
     const unverifiedTitle = grokWhy ? ((a.connection.liveVerdict === 'expired' || a.connection.liveVerdict === 'pending') ? grokWhy + '.' : grokWhy + '. Use Check now to verify it.') : null;
     let connBadge;
     if (badge === 'working') {
-      connBadge = '<span class="acct-connected" title="' + esc(workingWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in' + (ageStr ? ' · active ' + esc(ageStr) : '') + '</span>';
+      connBadge = '<span class="acct-connected" title="' + esc(workingWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in' + (ageStr ? (fromCheck ? ' · checked ' : ' · active ') + esc(ageStr) : '') + '</span>';
     } else if (badge === 'rejected') {
       connBadge = '<span class="acct-none" title="' + esc(rejectedWhy) + '"><span class="dot" aria-hidden="true"></span>Not connected' + (ageStr ? ' · rejected ' + esc(ageStr) : '') + '</span>';
     } else if (badge === 'signed_in_unverified') {
