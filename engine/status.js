@@ -5254,6 +5254,65 @@ function readGeminiSession(agentName) {
   catch { return { found: false }; }
 }
 
+/* #4039: the windows of Gemini models, for a transcript that does not state one (neither the Gemini
+   CLI nor agy records it). An ASSUMED ceiling, marked assumed (the detail page's Memory box says so,
+   assumedCeilingNote, exactly as for Claude's assumed ceiling; the card ring shows the percent).
+   Google publishes 1,048,576 for the 2.0 Flash, 2.5 and 3 text models. ⚠️ Any LATER 3.x text model
+   (3.8 on agy today) is ASSUMED to keep that window; that is a guess about Google, not a published
+   figure, which is why it is only ever an assumed ceiling. 2.0 Pro is left out (its preview had
+   2M), and so are the SPECIAL variants (image, tts, native-audio, live, thinking, exp,
+   computer-use), some far smaller, rather than drawn at a falsely low percentage. A model this
+   does not know keeps the honest no-ceiling reading. */
+/* The published window of Google's current Gemini text models, in tokens. */
+const GEMINI_TEXT_WINDOW = 1048576;
+const GEMINI_WINDOWS = [
+  { match: /^gemini-(2\.0-(flash|flash-lite)|2\.5-(pro|flash|flash-lite)|3(\.\d+)?-(pro|flash|flash-lite))(-(preview|latest|high|medium|low|\d{3}|\d{2}-\d{2}|\d{2}-\d{4}))*$/i, window: GEMINI_TEXT_WINDOW },
+  // Google's un-versioned aliases, which point at the current 2.5/3.x text models.
+  { match: /^gemini-(pro|flash|flash-lite)-latest$/i, window: GEMINI_TEXT_WINDOW },
+];
+function assumedGeminiWindow(model) {
+  if (typeof model !== 'string') return null;
+  const hit = GEMINI_WINDOWS.find((w) => w.match.test(model.trim()));
+  return hit ? hit.window : null;
+}
+
+/* #4039: resolve an Antigravity agent's launch folder to its agy conversation and read it, ONCE.
+   Mirrors readGeminiSession: workerDir + readJob, gated on runner 'antigravity'. agy keeps its data
+   under ~/.gemini/antigravity-cli (agysession.HOME); a per-account agy home is not a thing yet. */
+function readAgySession(agentName) {
+  const create = require('./create');
+  let dir;
+  try { dir = create.workerDir(agentName); } catch { dir = null; }
+  let job;
+  try { job = create.readJob(agentName); } catch { job = null; }
+  if (!dir || !job || job.runner !== 'antigravity') return { found: false };
+  try { return require('./agysession').read(dir); }
+  catch { return { found: false }; }
+}
+
+/* #4039: the ring for an Antigravity agent, the Gemini arm's shape. agy records no window, so the
+   percentage is against the model's window, ASSUMED and marked so (assumedGeminiWindow);
+   the stated-window branch is for a future agy that records one. */
+function readAgyContext(agentName, sess) {
+  if (sess === undefined) sess = readAgySession(agentName);
+  if (!sess.found && sess.because === NO_READING.UNREADABLE) {
+    return { ...NONE_BASE, notYet: false, because: NO_READING.UNREADABLE };
+  }
+  if (sess.found && sess.contextUsed == null) return notYetResult();
+  if (!sess.found) {
+    /* ⚠️ The Gemini and Codex arms' residual, the same here: notYetStarted/neverRecorded key off a
+       Claude-only `.jsonl` signal, so an agy agent that has run but whose folder is not in agy's
+       map can read "not yet" rather than a fault. It fails SOFT (never a wrong number). */
+    if (notYetStarted(agentName)) return notYetResult();
+    if (neverRecorded(agentName)) return neverRecordedResult();
+    return { ...NONE_BASE, notYet: false, because: NO_READING.NO_TRANSCRIPT };
+  }
+  if (sess.contextWindow) return measuredResult(sess.contextUsed, sess.contextWindow, false);
+  const assumed = assumedGeminiWindow(sess.model);
+  if (assumed) return measuredResult(sess.contextUsed, assumed, true);
+  return noCeilingResult(sess.contextUsed, sess.model || null);
+}
+
 function readGeminiContext(agentName, sess) {
   // Same pre-read-once contract as readCodexContext: `undefined` means "not
   // supplied" (read it here); a supplied {found:false} is honoured.
@@ -5285,12 +5344,17 @@ function readGeminiContext(agentName, sess) {
 
   const tokens = sess.contextUsed;
   // Gemini's transcript never states its window (contextWindow is structurally
-  // null -- the Claude "assumed ceiling" case), so this always renders measured
-  // usage with no percentage. Unlike Codex, Gemini names the model, so pass
-  // sess.model rather than null -- the ring can show the real model.
-  if (!sess.contextWindow) return noCeilingResult(tokens, sess.model || null);
-  // Defensive: a future Gemini that DID state a window would render measured,
-  // not-assumed, exactly like Codex. Not reachable today (read() returns null).
+  // null -- the Claude "assumed ceiling" case). Unlike Codex, Gemini names the
+  // model, so the window can be assumed from it (below) and the ring can show it.
+  // #4039: that left the ring with nothing to draw for every Gemini agent, so a known model's
+  // published window is used as an ASSUMED ceiling (the detail page's Memory box says so); an unknown model keeps
+  // the no-ceiling reading.
+  if (!sess.contextWindow) {
+    const assumed = assumedGeminiWindow(sess.model);
+    return assumed ? measuredResult(tokens, assumed, true) : noCeilingResult(tokens, sess.model || null);
+  }
+  // A Gemini that stated its window would render measured, not-assumed, like Codex. No Gemini
+  // CLI does today (geminisession.read returns contextWindow null), so this is the future case.
   return measuredResult(tokens, sess.contextWindow, false);
 }
 
@@ -7217,6 +7281,8 @@ function snapshot() {
     /* #3568: an Antigravity pane is not a Claude pane either; kept out of the ANTHROPIC
        observation arm below so it can never record a false Claude-account reading. */
     const isAgyPane = pane.runner === 'antigravity' || isAntigravityCommand(pane.command);
+    // #4039: the agy conversation, read once per tick (the ring and the model both use it).
+    const agySess = (isNamedOurs(pane) && isAgyPane) ? readAgySession(pane.name) : null;
     const grokSess = (isNamedOurs(pane) && isGrokPane) ? readGrokSession(pane.name) : null;
     try {
       /* #3296: EXCLUDE a gemini pane from the ANTHROPIC observation arm. Without
@@ -7325,7 +7391,9 @@ function snapshot() {
     // answer, because we do not know whose conversation it is.
     const tied = isNamedOurs(pane);
     // #3568: not for an agy pane: readModel is the Claude transcript lookup, same as the context ring.
-    const { model } = (tied && !isAgyPane) ? readModel(pane.name, pane.session) : { model: null };
+    // #4039: an agy pane's model comes from its own conversation (agysession, gen_metadata 1.19).
+    const { model } = (tied && !isAgyPane) ? readModel(pane.name, pane.session)
+      : { model: (tied && agySess && agySess.found && agySess.model) || null };
     /* #2257: a Codex (OpenAI) agent does not write a Claude `.jsonl`, so
        `readContext` returned NO_TRANSCRIPT for every OpenAI agent and the ring
        read "Not yet read" forever. Its context lives in the Codex rollout, which
@@ -7342,9 +7410,9 @@ function snapshot() {
         // #3391: a Grok pane's context lives in its Grok Build session, read by
         // readGrokContext (same pre-read-once contract as the codex/gemini arms).
         : isGrokPane ? readGrokContext(pane.name, grokSess)
-        // #3568: no Antigravity transcript reader yet, and the Claude one below must never read
-        // an agy agent's folder (it could pick up a Claude transcript left there).
-        : isAgyPane ? { ...NONE_BASE, notYet: false, because: 'Kosmos cannot read how much of its memory an Antigravity agent has used yet' }
+        // #4039: an agy pane's context lives in its agy conversation db (agysession). The Claude
+        // reader below must still never read an agy agent's folder (#3568).
+        : isAgyPane ? readAgyContext(pane.name, agySess)
         : readContext(pane.name, model, pane.session))
       // ⚠️ Unknown, and not because it is ambiguous: this one is a REFUSAL. We
       // can see there is something to read and are declining to read it, so
@@ -7817,6 +7885,8 @@ module.exports = {
   grokLastCompletionAt,
   // #3391: the Grok context-ring reader (wired into snapshot's context ring).
   readGrokContext,
+  readAgyContext,
+  assumedGeminiWindow,
   /* ⚠️ Exported so the ROUTE can say what tmux said. The alternative is a
      second caller of `list-panes` asking the same question a second time,
      which would report a different moment from the one that failed. */
