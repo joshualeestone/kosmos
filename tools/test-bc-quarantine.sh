@@ -22,7 +22,7 @@ printf 'PASS  the quarantinedness of nothing\n' > "$TMP/partial.out"
 printf 'PASS  a quarantined post is hidden from the feed\n' > "$TMP/modpass.out"
 printf 'QUARANTINED: PASS regress-a-night\n' > "$TMP/order.out"
 printf 'Passed QUARANTINED\n' > "$TMP/mixed.out"
-printf 'hid 1 quarantined post\nPASS  moderation\n' > "$TMP/modsplit.out"
+printf 'hid 1 QUARANTINED post\nPASS  moderation\n' > "$TMP/modsplit.out"
 
 # --- the #1079 output is QUARANTINED, not PASS ------------------------------------
 reset

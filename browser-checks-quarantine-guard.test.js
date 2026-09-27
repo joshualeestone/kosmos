@@ -28,11 +28,15 @@
  * a PASS followed by exit(0) AFTER the browser launched is a check's normal end.
  * The shape is narrow: a PASS string, then exit(0), before the last launch.
  *
- * ⚠️ WEAKEST PART. "Before the launch" is read from the source text: the LAST
- * non-comment line calling `.launch(` or `.launchPersistentContext(`. A check that
- * starts its browser through a helper with another name would read as having no
- * launch at all, so any early PASS-exit in it is flagged. That fails red, the safe
- * direction, and the message says how to proceed.
+ * ⚠️ WEAKEST PART, AND IT IS A HEURISTIC. "Before the launch" is read from the source
+ * text: the LAST non-comment line calling `.launch(` or `.launchPersistentContext(`.
+ * Two consequences. A check that starts its browser through a helper with another
+ * name reads as having no launch, so an early PASS-exit in it is flagged (red, safe).
+ * But a check whose only launch sits inside a function defined ABOVE the line that
+ * calls it (import-agent-flow.js has that shape) does not flag a PASS-exit placed
+ * between the two: that fails GREEN. So does a PASS more than 6 lines above its exit.
+ * The harness half (tools/lib/bc-quarantine.sh) does not depend on any of this: it
+ * refuses anything that PRINTS the token, wherever it sits in the source.
  */
 
 const test = require('node:test');
@@ -54,12 +58,19 @@ const PASS_WORD = /\bPASS\b/;
    moderation status that a fully-run check can report on, so it is not the token (round 6). */
 const LITERAL = /(['"`])((?:(?!\1)[^\\\n]|\\.)*)\1/g;
 function literalSaysQuarantinedPass(line) {
-  for (const m of line.matchAll(LITERAL)) if (PASS_WORD.test(m[2]) && /\bQUARANTINED\b/.test(m[2])) return true;
+  for (const m of line.matchAll(LITERAL)) {
+    /* One printed line: a \n or \r escape (or its \u / \x spelling) splits the output, and the
+       harness reads output line by line (review round 7). */
+    for (const seg of m[2].split(/\\[nr]|\\u000[aAdD]|\\x0[aAdD]/)) {
+      if (PASS_WORD.test(seg) && /\bQUARANTINED\b/.test(seg)) return true;
+    }
+  }
   return false;
 }
-/* A whole-line comment only. `/* temp *\/ console.log('PASS')` is code after its comment. */
+/* A whole-line comment only. `/* temp *\/ console.log('PASS')` is code after its comment,
+   and a line starting `*` is a comment only in the JSDoc shape (`* text`, `*\/`, a bare `*`). */
 function isCommentLine(l) {
-  return /^\s*\/\//.test(l) || /^\s*\*/.test(l) || (/^\s*\/\*/.test(l) && !/\*\/\s*\S/.test(l));
+  return /^\s*\/\//.test(l) || /^\s*\*(\s|\/|$)/.test(l) || (/^\s*\/\*/.test(l) && !/\*\/\s*\S/.test(l));
 }
 
 function parseVersion(v) {
@@ -95,9 +106,12 @@ function scan(name, src, version) {
       return;
     }
     /* The harness can only see a quarantine by the word it prints, so a marked one must print it
-       where the harness reads it: PASS and QUARANTINED in one string literal (rounds 1, 4, 5, 6). */
-    if (!nearLines.some(literalSaysQuarantinedPass)) {
-      problems.push(name + ':' + (i + 1) + ' is marked as a quarantine but no string near its exit says PASS and QUARANTINED together, '
+       where the harness reads it: PASS and QUARANTINED in one string literal (rounds 1, 4, 5, 6),
+       on the PASS line NEAREST above this exit, so a neighbouring exit's line or a string that is
+       never printed beside the real one cannot stand in for it (round 7). */
+    const passLine = nearLines.filter((x) => PASS_WORD.test(x)).pop();
+    if (!literalSaysQuarantinedPass(passLine)) {
+      problems.push(name + ':' + (i + 1) + ' is marked as a quarantine but the PASS line nearest its exit does not say PASS and QUARANTINED together in one string, '
         + 'so tools/browser-checks.sh would log it as a pass. Print both in one line, for example "PASS  <name> QUARANTINED".');
       return;
     }
@@ -195,7 +209,7 @@ test('control (review WARNING 3): a marked quarantine must print QUARANTINED', (
   ].join('\n');
   const p = scan('q.js', quiet, [0, 7, 1]);
   assert.equal(p.length, 1);
-  assert.match(p[0], /says PASS and QUARANTINED together/);
+  assert.match(p[0], /say PASS and QUARANTINED together/);
 });
 
 test('control (review rounds 2 and 6): QUARANTINED is matched as the harness matches it, upper case; a commented exit is not an exit', () => {
@@ -205,7 +219,7 @@ test('control (review rounds 2 and 6): QUARANTINED is matched as the harness mat
     '  process.exit(0);',
     '  await chromium.launch();',
   ].join('\n');
-  assert.match(scan('l.js', lower, [0, 7, 1])[0], /says PASS and QUARANTINED together/);
+  assert.match(scan('l.js', lower, [0, 7, 1])[0], /say PASS and QUARANTINED together/);
   const doc = ["// never do: console.log('PASS x'); process.exit(0);", 'await chromium.launch();'].join('\n');
   assert.deepEqual(scan('d.js', doc, [0, 7, 1]), []);
 });
@@ -222,12 +236,12 @@ test('control (review round 3): the marker must sit within 12 lines of the exit'
 test('control (review round 4): quarantined on a neighbouring line does not count', () => {
   const split = [
     '  // QUARANTINE until=0.9.00 card=#1079: stale click',
-    "  console.log('hid 1 quarantined post from the feed');",
+    "  console.log('hid 1 QUARANTINED post from the feed');",
     "  console.log('PASS  x (skipped for this cut)');",
     '  process.exit(0);',
     '  await chromium.launch();',
   ].join('\n');
-  assert.match(scan('s.js', split, [0, 7, 1])[0], /says PASS and QUARANTINED together/);
+  assert.match(scan('s.js', split, [0, 7, 1])[0], /say PASS and QUARANTINED together/);
 });
 
 test('control (review round 5): the shapes the harness and this test disagreed on', () => {
@@ -235,11 +249,32 @@ test('control (review round 5): the shapes the harness and this test disagreed o
   /* Either order is a quarantine, here and in the harness. */
   assert.deepEqual(scan('o.js', marked(["  console.log('QUARANTINED: PASS x');"]), [0, 7, 1]), []);
   /* Two literals on one source line print two output lines: not a quarantine. */
-  assert.match(scan('t.js', marked(["  console.log('PASS x'); console.log('quarantined');"]), [0, 7, 1])[0], /says PASS and QUARANTINED together/);
+  assert.match(scan('t.js', marked(["  console.log('PASS x'); console.log('QUARANTINED');"]), [0, 7, 1])[0], /say PASS and QUARANTINED together/);
   /* Code after a leading block comment is code. */
   const unmarked = ["/* temp */ console.log('PASS x'); process.exit(0);", 'await chromium.launch();'].join('\n');
   assert.equal(scan('c.js', unmarked, [0, 7, 1]).length, 1);
   /* PASS on a later line of a multi-line template literal. */
   const tmpl = ['console.log(`', 'PASS x`);', 'process.exit(0);', 'await chromium.launch();'].join('\n');
   assert.equal(scan('m.js', tmpl, [0, 7, 1]).length, 1);
+});
+
+test('control (review round 7): only the PASS line nearest the exit, printed on one line, counts', () => {
+  /* A neighbouring exit's quarantined line cannot stand in for an unquarantined exit below it. */
+  const borrowed = [
+    '  // QUARANTINE until=0.9.00 card=#1079: stale click',
+    "  if (a) { console.log('PASS a QUARANTINED'); process.exit(0); }",
+    "  if (b) { console.log('PASS b'); process.exit(0); }",
+    '  await chromium.launch();',
+  ].join('\n');
+  const p = scan('b.js', borrowed, [0, 7, 1]);
+  assert.equal(p.length, 1);
+  assert.match(p[0], /^b\.js:3 /);
+  /* A newline escape between the words prints them on two lines. */
+  for (const esc of ['\\n', '\\u000A', '\\x0a']) {
+    const src = ['  // QUARANTINE until=0.9.00 card=#1079: x', "  console.log('PASS x " + esc + " QUARANTINED');", '  process.exit(0);', '  await chromium.launch();'].join('\n');
+    assert.equal(scan('e.js', src, [0, 7, 1]).length, 1, 'escape ' + esc);
+  }
+  /* A JSDoc-style comment line is a comment; `*3; ...` is code. */
+  const star = ["  *3; console.log('PASS x'); process.exit(0);", '  await chromium.launch();'].join('\n');
+  assert.equal(scan('s.js', star, [0, 7, 1]).length, 1);
 });

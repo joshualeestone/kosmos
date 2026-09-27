@@ -321,7 +321,8 @@ CI_MATCHED=()
 # #4160: checks that exited 0 but said they were QUARANTINED, i.e. did not run their
 # assertions. regress-a-night did exactly that for twelve days (#1079) and every run
 # counted it as a pass, because run_one only saw exit 0. A quarantined check is listed
-# here, never under PASS, and the summary refuses the run unless the operator sets
+# here, never under PASS (it still counts in `ran:`, which is what was attempted), and the
+# summary refuses the run unless the operator sets
 # KOSMOS_BC_ALLOW_QUARANTINE=1, which is printed. So a green run means every check ran.
 QUARANTINED=()
 # #1079: how many RICH boards booted this run. The card's hypothesis is that this
