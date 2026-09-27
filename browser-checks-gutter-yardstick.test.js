@@ -19,7 +19,9 @@ const FILES = ['render-boot-no-flash.js', 'render-plus-bar-3837.js', 'render-tas
 // The root's gutter measurement, from saving the root's style to the finally that restores it,
 // whitespace-normalised.
 function probe(src) {
-  const start = src.indexOf('const rs = document.documentElement.style,');
+  const MARK = 'const rs = document.documentElement.style,';
+  assert.equal(src.split(MARK).length - 1, 1, 'the root gutter measurement should appear exactly once');
+  const start = src.indexOf(MARK);
   const end = src.indexOf('scrollTo(sx, sy); }', start);
   assert.ok(start >= 0 && end > start, 'no root gutter measurement found');
   return src.slice(start, end).replace(/\s+/g, ' ').trim();
