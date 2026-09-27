@@ -259,7 +259,7 @@ function addWalked(w, walked) {
      (review round 5). Such a value is still masked whole, and across lines by the separator copies. */
   if (!/[A-Za-z0-9]/.test(w.slice(0, OPENING_LEN))) return;
   walked.add(w);
-  /* #3995 gap 4: and by its first one, two and three characters, for the short-chunk walk. Not a hex form (0-9 a-f
+  /* #3995 gap 4: and by its first two and three characters, for the short-chunk walk. Not a hex form (0-9 a-f
      only): a numbered guide's lone letters and digits spell every one, and each lone digit then walked against every
      held value's hex (review round 3: a reply withheld with 50 values held). A form with its own - or _ is indexed
      without them too, since a reply cutting it into short chunks drops them (the word walk skips them instead). */
@@ -425,7 +425,9 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *  - a key cut into chunks under OPENING_LEN with fewer than SHORT_WALK_MIN_KEYLIKE chunks that are not plain words or
  *    numbers (shortChunkSpans refuses those, since ordinary text spells a password made of words). That includes
  *    a key given ONE character at a time with words between (every single character is a plain word), a
- *    single-case key in chunks of two, and a single-case key whose chunks read as words by wordLike's vowel test;
+ *    letters-only single-case key in chunks of two, and a single-case key whose chunks read as words by wordLike's
+ *    vowel test;
+ *  - a short chunk with base64 padding on it (Zq8=);
  *  - a key whose FIRST chunk is one character (the short walk starts only from two or three);
  *  - a key both spaced one character at a time AND cut into short chunks with words between (the short walk reads
  *    the text, not the single-spacing copy the word walk also reads);
@@ -735,7 +737,7 @@ function wordSkippingSpans(text) {
  * #3995 gap 4: a held value cut into chunks SHORTER than OPENING_LEN with words between them ("Zq8 and vLm and 3pR").
  * No word walk starts there (OPENING_LEN keeps ordinary short words from starting walks), no run reaches
  * FRAGMENT_LEN, and no run is long enough for the catch-all. So a second, stricter walk:
- *  - it starts at a run of one to three characters that begins a walked form, and only when the rest of the form
+ *  - it starts at a run of two or three characters that begins a walked form, and only when the rest of the form
  *    can be spelled from runs present in the text at all (checked once per form; without it every "a", "0" or "eyJ"
  *    in a long reply scanned its whole reach and a reply was withheld at the budget, review round 1);
  *  - it advances only on runs that are EXACTLY the form's next characters (as written, or with glue taken off:
@@ -781,7 +783,8 @@ function shortChunkSpans(text) {
   for (const m of text.matchAll(/[A-Za-z0-9_+/=-]+/g)) runs.push([m.index, m.index + m[0].length, shortPieces(m[0]), m[0]]);
   if (runs.length < 2) return [];
   const present = new Set();
-  for (const r of runs) for (const t of r[2]) present.add(t);
+  const at = new Map();   // piece -> the runs offering it, in order
+  runs.forEach((r, i) => { for (const t of r[2]) { present.add(t); if (!at.has(t)) at.set(t, []); at.get(t).push(i); } });
   /* Only the lengths some run has are tried, and each slice is charged by its length (review round 3). */
   const lengths = [...new Set([...present].map((t) => t.length))].sort((a, b) => a - b);
   /* Whether f from `at` to its end can be spelled from runs present in the text at all (a word break over `present`),
@@ -834,24 +837,39 @@ function shortChunkSpans(text) {
           for (let i = 0; i < text.length; i += 1) ns[i + 1] = ns[i] + (/\s/.test(text[i]) ? 0 : 1);
         }
         const bound = SPLIT_REACH * f.length;
-        const states = new Map([[open.length, [[r, open]]]]);   // position in f -> the runs (and pieces) that reached it
-        let lastAt = runs[r][1];
-        let done = null;
-        for (let s = r + 1; s < runs.length && !done; s += 1) {
-          if ((budget -= 1 + states.size) < 0) return null;
-          if (ns[runs[s][0]] - ns[lastAt] > bound) break;
-          let moved = false;
-          for (const [pos, path] of [...states]) {
-            for (const t of runs[s][2]) {
-              if (!f.startsWith(t, pos)) continue;
-              const end = pos + t.length;
-              if (end === f.length) { done = [...path, [s, t]]; break; }
-              if (!states.has(end)) { states.set(end, [...path, [s, t]]); moved = true; }
+        /* Only the runs that ARE the form's next piece are visited (review round 7: scanning every run in reach, and
+           charging each, withheld a reply that listed its characters and named a shared opening like eyJ): from each
+           reached point, the few piece lengths the text has, looked up in `at`, and the next such runs within reach
+           of the run that got there. Every path is followed, not only the first to reach a point. */
+        const queue = [{ pos: open.length, run: r, prev: null, piece: open }];
+        const seen = new Set();
+        let end = null;
+        for (let qi = 0; qi < queue.length && !end; qi += 1) {
+          const node = queue[qi];
+          if ((budget -= 1) < 0) return null;
+          for (const l of lengths) {
+            if (node.pos + l > f.length) break;
+            budget -= chunksOf(l);
+            const list = at.get(f.slice(node.pos, node.pos + l));
+            if (!list) continue;
+            let lo = 0, hi = list.length;
+            while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid] <= node.run) lo = mid + 1; else hi = mid; }
+            for (let k = lo; k < list.length; k += 1) {
+              const s = list[k];
+              if (ns[runs[s][0]] - ns[runs[node.run][1]] > bound) break;
+              if ((budget -= 1) < 0) return null;
+              const key = (node.pos + l) + ':' + s;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              const next = { pos: node.pos + l, run: s, prev: node, piece: f.slice(node.pos, node.pos + l) };
+              if (next.pos === f.length) { end = next; break; }
+              queue.push(next);
             }
-            if (done) break;
+            if (end) break;
           }
-          if (moved) lastAt = runs[s][1];
         }
+        let done = null;
+        if (end) { done = []; for (let n = end; n; n = n.prev) done.unshift([n.run, n.piece]); }
         if (!done || done.filter(([, t]) => !plainWordRun(t)).length < SHORT_WALK_MIN_KEYLIKE) continue;
         const key = f + '|' + done[done.length - 1][0];
         const had = completed.get(key);

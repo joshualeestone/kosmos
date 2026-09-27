@@ -7,13 +7,13 @@ Held Zq8vLm3pRt6wXy9kHb2nWc4d written "Zq8 and vLm and 3pR and ..." showed in fu
 OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catch-all.
 
 ## Change (engine/secretmask.js), as it stands after review round 3
-- shortChunkSpans: a second, stricter walk. It starts at a run of one to three characters (glue taken off) that
+- shortChunkSpans: a second, stricter walk. It starts at a run of two or three characters (glue taken off) that
   begins a walked form the text can spell at all (a word break over the text's runs, memoised); advances only on runs
   that are exactly the form's next characters, each within SPLIT_REACH x the form's length (non-space) of the last
   run that advanced it; and masks only a WHOLE form with at least SHORT_WALK_MIN_KEYLIKE pieces that are not plain
   words or numbers, piece by piece (the piece, not a label glued to it), and only from the latest start. Its own
   budget; over it, the reply is withheld, as for the word walk.
-- knownByShort: walked forms by their first 1 to 3 characters, not hex forms, and a form with its own - or _ also
+- knownByShort: walked forms by their first 2 and 3 characters, not hex forms, and a form with its own - or _ also
   without them.
 
 ## Decided
@@ -102,3 +102,16 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
   longer scans each list for duplicates.
 - The all-lowercase test asserts every chunk is masked (completion is all or nothing).
 - Not covered: a key both single-spaced and cut into short chunks (the short walk does not read the spacing copy).
+
+## Review round 7 (Opus), what changed
+- A reply listing its characters (so every form is spellable) and naming a shared opening many times (eyJ, with JWTs
+  held) was withheld: each start scanned and charged every run in reach. The walk now visits only runs that ARE the
+  form's next piece: the text's pieces are indexed by string with their run positions, and from each reached point
+  the few lengths the text has are looked up and the next occurrences within reach are binary-searched. Cost follows
+  matches, not runs in reach. Tested with 20 held JWTs; red on the previous commit.
+- Every path is followed, so a coincidental run reaching a point first no longer leaves the real chunk visible
+  (the deferred first-path NIT; probed: the real vLm is masked, the noise v and Lm stay readable).
+- Stale comments and this plan's Change section say two or three characters; Not covered says letters-only for
+  chunks of two, and names base64 padding on a short chunk (Zq8=).
+- Noted, the weakest premise measured: S3EC2K8s2024 is masked out of "Deploy to S3, then EC2, then K8s in 2024"
+  (three mixed pieces). A password made of tech tokens with digits is indistinguishable from a key by this rule.
