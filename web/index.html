@@ -20269,6 +20269,12 @@ async function tick() {
       // null when this board has no count (older than #3996, or the person switched it off in Settings, #4025): the app clears the badge.
       if (h) h.postMessage(typeof c.waiting === 'number' ? c.waiting : null);
     } catch { /* not in the Mac app, or no window (a test): nothing to tell */ }
+    /* #3996, the Windows half: the same count to Kosmos's own window (WebView2) for its taskbar badge,
+       as { kosmosBadge: n } (KosmosLauncher.cs OnWebMessage). Nothing outside that window. */
+    try {
+      const wv = window.chrome && window.chrome.webview;
+      if (wv) wv.postMessage({ kosmosBadge: typeof c.waiting === 'number' ? c.waiting : null });
+    } catch { /* not in the Windows app, or no window (a test): nothing to tell */ }
     /* #3423: if the Issue filter is on and there is nothing left to filter, exit it
        (same auto-exit the Messages filter does at dmTotal <= 0). */
     if (!c.needsYou && document.body && boardFilterActive() === 'attn') setBoardFilter(null);

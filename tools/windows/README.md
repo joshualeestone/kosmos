@@ -57,7 +57,7 @@ What it adds is how a Windows program presents itself (win32-launcher-native):
   CompanyName is still left out. The certificate's subject is now known
   (Kosmos Agent Manager, Inc.), but setting `AssemblyCompany` is a source change,
   so it means a rebuild and a re-sign; it is a follow-up of its own. The version is the **launcher's** own (`LauncherVersion`, currently
-  5.0.0.0), not the app's. This binary is copied unchanged into every release, so
+  6.0.0.0), not the app's. This binary is copied unchanged into every release, so
   an app version stamped into it would be wrong from the next release on.
 
 ## Kosmos's own window (#1118)
@@ -88,6 +88,15 @@ WebView2 Runtime, pointed at the same local board.
   says so.
 - **A page that crashes is loaded again.** If WebView2 itself stops, the window closes and says
   your agents are still running.
+- **The number of things waiting for you is on the taskbar button** (#3996), like the Mac app's
+  red Dock badge: a small red circle with the count, 1 to 9 and then "9+", which a screen reader
+  reads as "3 things waiting for you". The number is the board's own (`counts.waiting` on
+  `/api/status`: agents that need you, unread direct messages and unread project messages); zero,
+  or Settings > Computer > App icon switched off (#4025), shows no badge. While the page is
+  polling the board it hands the window the count; when it goes quiet (the window minimised) the
+  window reads `/api/status` itself every 10 seconds with the board token. A board that stops
+  answering clears the badge after three misses. The badge is Windows' taskbar overlay icon, so it
+  is there while the window is open, and not with it closed.
 - **`--uninstall` closes the window first**, after the person said yes, because the removal
   deletes the web profile the window holds open.
 - **When this PC cannot host the window** (no WebView2 Runtime, which Windows 10 may lack; a
