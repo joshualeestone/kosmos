@@ -34,3 +34,10 @@ With the flag on, on a Mac with Muse Code installed, a person can pick Meta in A
 ## 3a review round 2 (decided)
 - Both round-1 margins now have tests with a stubbed tmux: one missed session check does not end a sign-in and two in a row do, and a send failure is named only after MAX_KEY_FAILURES. Each control (the margin lowered to 1) went red.
 - The fake's self-check reads only its drawn lines, not its comments.
+
+## 3a review round 3 (decided)
+- A retry that gets no new code is given up after STUCK_MS and another retry is allowed; before, it waited silently for 20 minutes. Control red.
+- "Opening your browser..." is a screen now, so a slow browser gets no second Enter. Control red. Muse moving on clears a reason left by an earlier stuck. Control red.
+- The session line runs through /bin/sh: tmux uses the person's own shell, and fish refuses $?. This could not be run here (no fish); the real-tmux tests all pass through /bin/sh now.
+- The screen phrases and the code finder read one spelling (PRESS_WORDS, EXPIRED_WORDS). Retry's screen re-check is tested (control red). MAX_KEY_FAILURES is exported and the test reads it.
+- With the flag off, the three sign-in routes still answer (idle or a refusal). Nothing can start, and the route comment says so.
