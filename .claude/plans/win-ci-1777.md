@@ -20,7 +20,7 @@ when a listed file passes again or is no longer run.
 - The #1777 decision comment counted the 50 `engine/win32*` files; the probes widened that to
   every `engine/*win32*` file (73), which catches win32-only tests such as runners.win32-codex.
   76 files (the 73, plus platform, store, windows-coupling-audit-1732): 73 pass, 3 fail, about
-  11 minutes. The slowest file is win32apply, at 431s and 481s on two runs; it hung under the
+  11 minutes. The slowest file is win32apply, at 413s to 481s over three runs; it hung under the
   first probe, which left stdin open.
 - The reds:
   - projects.win32-reveal and trust.win32-key-2281 compare a path with its 8.3 short name
@@ -47,6 +47,12 @@ when a listed file passes again or is no longer run.
 - Run 36356771856 at 4c12c93: success; 73 passed, 3 failed, all 3 known red; 0 new, 0 stale.
 - CONTROL, run 36357499968 at e773de8 (win32handoff taken off KNOWN_RED): failure, "NEW RED
   engine/win32handoff.test.js". So the job can go red on a new failure, not only report one.
+
+- After review round 1 widened the selection to 83 files, run 36358251486 found two more
+  harness reds: web.win32-board-copy (a CRLF checkout breaks its '\n}\n' source cut; the job
+  now checks out LF, as the shipped bundle is) and the #2270 POSIX controls (no exec bit on a
+  Windows host; now POSIX-host only). Run 36358953385 at 4171134: success, 80 passed, 3 known
+  red, 0 new, 0 stale. win32apply took 413s.
 
 ## Decided
 - CI on a GitHub Windows runner, free on this public repo, over the options below.

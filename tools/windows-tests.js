@@ -47,8 +47,8 @@ const KNOWN_RED = {
 };
 
 const PER_TEST_TIMEOUT_MS = 60000;
-// A file's whole run. The slowest file measured on the runner, win32apply, took 431s and 481s
-// on two runs; a file past half of this is named in the log, so drift shows before it is a red.
+// A file's whole run. The slowest file measured on the runner, win32apply, took 413s to 481s
+// over three runs; a file past half of this is named in the log, so drift shows before it is a red.
 const PER_FILE_TIMEOUT_MS = 900000;
 // No file STARTS after this much of the run has gone; the rest are reported as not run (a red).
 // The workflow's timeout-minutes is set above this plus one file's cap, so the job always
