@@ -1625,6 +1625,40 @@ function geminiQuotaReading(paneText, afterStop) {
   return { dialog: false, daily: GEMINI_QUOTA_ERROR.test(raw[at]), evidence: rows[at].replace(/^✕\s*/, '') };
 }
 
+/* #4034: the same question box for other conditions (Gemini CLI 0.61.0). Captured: a model not found draws
+   'Model "<model>" was not found or is invalid.' over "1. Keep trying / 2. Stop". From Gemini's source, not captured:
+   "We are currently experiencing high demand ..." over the same options, as are a model not available in a region
+   and "It seems like you don't have access to ..." (Switch / Upgrade / Stop). So the box is read by its SHAPE (a message
+   inside a box top, numbered options one of which is a bare "Stop", nothing after but the box edge), whatever its
+   message says. Not read: the credits dialogs, whose option is "Stop - Abort request". Returns the message's first
+   sentence (its rows joined, so a narrow pane's wrapping does not cut it) and `from`, the line the box starts on,
+   or null. A usage limit is geminiQuotaReading's, which runs first. It reads the same
+   GEMINI_LIMIT_ROWS window, so a box whose top is further up than that is not read (as for a usage limit). */
+/* Gemini's remedy hints inside the box ("/model to switch models.", "/stats model for usage details"), left out of the
+   message so a box of hints alone is not read as a question. */
+const GEMINI_HINT = /^\/[a-z]+(?:\s+[a-z]+)?\s+(?:to|for)\s/;
+function geminiQuestionReading(paneText) {
+  /* Each row keeps its line number in the text, so the caller is told where the box starts (`from`) rather than
+     finding it a second way. */
+  const pairs = String(paneText || '').split('\n').map((line, i) => ({ row: geminiRow(line), i }))
+    .filter((p) => p.row).slice(-GEMINI_LIMIT_ROWS);
+  const rows = pairs.map((p) => p.row);
+  const lastOpt = rows.reduce((at, r, i) => (GEMINI_QUOTA_OPTION.test(r) ? i : at), -1);
+  if (lastOpt < 0 || !rows.slice(lastOpt + 1).every((r) => GEMINI_BOX_EDGE.test(r))) return null;
+  let top = -1;
+  for (let i = lastOpt; i >= 0; i -= 1) if (/^╭─+╮$/.test(rows[i])) { top = i; break; }
+  if (top < 0) return null;
+  const inside = rows.slice(top + 1, lastOpt + 1);
+  const firstOpt = inside.findIndex((r) => GEMINI_QUOTA_OPTION.test(r));
+  /* Stop among the options, wherever it sits: the one parser of that row, as geminiQuotaReading uses (review round 1). */
+  if (geminiStopKey(inside.slice(firstOpt).join('\n')) === null) return null;
+  const message = inside.slice(0, firstOpt).filter((r) => !GEMINI_HINT.test(r));
+  if (!message.length) return null;
+  const joined = message.join(' ').replace(/\s+/g, ' ').trim();
+  const first = joined.match(/^.*?[.!?](?=\s|$)/);
+  return { evidence: first ? first[0] : joined, from: pairs[top].i };
+}
+
 /**
  * #3723: Codex's own "you are out of usage or credits" messages. READ FROM CODEX'S PROGRAM TEXT
  * (the installed codex binary, 2026-09-25), not captured from a live pane: nobody here had an
@@ -3745,6 +3779,17 @@ function classify(pane, paneText) {
         limitFrom: 'gemini',
         quotaDialog: q.dialog,
         quotaDaily: q.daily === true,
+      };
+    }
+    /* #4034: any other question in that box (a model not found, high demand) waits for a person. No key is
+       pressed: Keep trying cannot find a missing model, and Stop would hide the reason behind an error line. */
+    const other = geminiQuestionReading(paneText);
+    if (other) {
+      return {
+        state: STATE.NEEDS_YOU,
+        confidence: CONFIDENCE.SCRAPED,
+        because: 'Gemini is waiting on a question: ' + other.evidence,
+        evidence: other.evidence,
       };
     }
   }
@@ -7797,6 +7842,7 @@ module.exports = {
   // thread that shows the question must never be able to disagree.
   NEEDS_YOU_MARKERS,
   CODEX_NEEDS_YOU_MARKERS, CODEX_LIMIT_MARKERS, geminiQuotaReading, geminiStopKey, capturePane,   // #4004: chat re-reads a pane before a key
+  geminiQuestionReading,   // #4034: chat finds Gemini's question box for the agent page
   ALL_NEEDS_YOU_MARKERS,
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the

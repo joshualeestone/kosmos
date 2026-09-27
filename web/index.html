@@ -9481,8 +9481,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 #plus-signin-msg:empty { display: none; }
 #plus-state2 .plus-si-lead + .frow { margin-top: 1rem; }   /* a button under a one-line lead gets room (the #3796 landing) */
 @media (max-width: 640px) { .plus-val { grid-template-columns: 1fr; } }
-/* #718 CHAT FIRST ON A PHONE (the 40rem here is repeated in trackVisibleViewportHeight's
-   matchMedia; change both together) (Josh 2026-09-24: "make sure the designs fit well on mobile"; Liu Kang
+/* #718 CHAT FIRST ON A PHONE (the query here is repeated in trackVisibleViewportHeight's
+   matchMedia; change both together; #3969 added a phone held sideways: a touchscreen in landscape
+   no taller than 30rem and narrower than 56rem, which is past 40rem wide and used to get the tall wide
+   layout; from 56rem the side-by-side layout already fits) (Josh 2026-09-24: "make sure the designs fit well on mobile"; Liu Kang
    decided the build 2026-09-24 22:30 CDT). Below 40rem, with Direct Message the shown section, the
    agent page used to stack the whole identity column (88px avatar, name, state, five big nav tiles,
    Files) above the conversation, so a phone opened a chat and saw the conversation two screens down
@@ -9500,7 +9502,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    Other sections, tablets (40rem to 56rem) and desktop keep their layout.
    Stated weakest part: verified in Playwright Chromium and WebKit with a simulated smaller visual
    viewport, not on a device; WebKit is an engine approximation, not Safari or WKWebView. */
-@media (max-width: 40rem) {
+@media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) {
     display: flex; flex-direction: column; padding-bottom: 0;
     height: var(--kosmos-visible-height, 100dvh); }
@@ -9670,7 +9672,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-talk-box .composerbox .attachbtn,
   #d-talk-box .composerbox #d-emoji-btn { width: 44px; height: 44px; }
   #d-talk-box .composerbox .cpost { min-height: 44px; min-width: 64px; }
-  #d-talk-box .composerbox .cinput { font-size: 16px; }
+  #d-talk-box .composerbox .cinput { font-size: 16px; min-height: 44px; }   /* a 44px target (Raiden's #718 re-sweep) */
   /* The compact header above already names the agent, so the "Direct Message to <name>"
      caption would say it twice; the search takes the row. Hidden visually only, so the
      conversation keeps its heading for screen-reader heading navigation. */
@@ -9678,7 +9680,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-talk-box #d-talk-label { position: absolute; width: 1px; height: 1px; overflow: hidden;
     clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
   #d-talk-box .d-talk-caprow #d-talk-search-wrap { flex: 1 1 auto; min-height: 44px; }
-  #d-talk-box #d-talk-search { min-height: 42px; }
+  #d-talk-box #d-talk-search { min-height: 44px; }
   /* 16px or iOS zooms the page when the search box takes focus (as for the composer above). */
   #d-talk-box #d-talk-search { font-size: 16px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back { margin: 4px 0 0; min-height: 44px; }
@@ -9699,6 +9701,28 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-sec-skills :is(input, textarea, select, button) { min-height: 44px; }
   #d-rename-hint { max-width: none; }
 }
+/* #3969: a phone held sideways is short (the rule matches up to 30rem, 480px, tall), and the chat-first
+   layout above still left the conversation 0px at 640x360 with the composer below the screen. On a short
+   sideways touchscreen, in the chat, the "All agents" link and an idle search box step aside.
+   - ⚠️ Searching the chat is therefore NOT available on a phone held sideways: an empty search box is not
+     shown, so there is nothing to tap; turning the phone upright brings it back. Accepted for this card
+     (its finish line is the conversation and the message box); a search button that opens the box is a
+     possible follow-up. The box stays only while it is NOT empty or has focus: a search already filtering
+     the conversation (typed upright, then turned) stays on screen with its clear button, so no filter is
+     ever hidden, and a box being typed in never vanishes under the typist (a keyboard can make a portrait
+     layout read as a short landscape one on some Android browsers). The "Direct Message to" heading stays
+     for screen readers, visually hidden as in the block above.
+   - ⚠️ The back link goes too, and with it the one-tap way back to a project the chat was opened from
+     (DETAIL_FROM_PROJECT): the Projects tab in the app bar is the way back there. Keeping the link costs
+     about 44px of a conversation that has only 57 to 90px at these sizes. */
+@media (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
+  #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box #d-talk-search-wrap:has(#d-talk-search:placeholder-shown):not(:focus-within) { display: none; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box .d-talk-caprow:has(#d-talk-search:placeholder-shown):not(:focus-within) { margin: 0; }
+  /* The agent's header is one slim line: name and state, no avatar (it is on Profile). */
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .dav-wrap { display: none; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead { padding: 2px 0 2px 6px; margin-bottom: 4px; }
+}
 /* #718 (Raiden's table, row 4): the same two fields on ANY touchscreen, not only a portrait phone. A
    phone turned sideways (667 to 932 wide) or a tablet is past the 40rem block above, where the search
    box was 13px and 22px tall and the text box 15px, and iOS zooms the page when a field under 16px
@@ -9706,7 +9730,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 @media (hover: none) {
   #d-talk-box .composerbox .cinput, #d-talk-box #d-talk-search { font-size: 16px; }
   #d-talk-box #d-talk-search-wrap { min-height: 44px; }
-  #d-talk-box #d-talk-search { min-height: 42px; }
+  #d-talk-box #d-talk-search { min-height: 44px; }
 }
 /* The canvases honour prefers-reduced-motion in JS (a single static frame, no
    rAF loop); this makes that intent visible to a source reader too. */
@@ -27373,8 +27397,9 @@ function paintOrg() {
     const parent = spot.node.parent ? placed.get(spot.node.parent) : null;
     const px = parent ? cx + Math.cos(parent.ang) * parent.r : cx;
     const py = parent ? cy + Math.sin(parent.ang) * parent.r : cy;
-    wires.push('<line data-for="' + esc(name) + '" x1="' + px.toFixed(1) + '" y1="' + py.toFixed(1) + '" x2="'
-      + x.toFixed(1) + '" y2="' + y.toFixed(1) + '" class="edge"/>');
+    const w = orgWireEnds(px, py, parent ? parent.node.agent : null, x, y, spot.node.agent);
+    wires.push('<line data-for="' + esc(name) + '" x1="' + w.x1.toFixed(1) + '" y1="' + w.y1.toFixed(1) + '" x2="'
+      + w.x2.toFixed(1) + '" y2="' + w.y2.toFixed(1) + '" class="edge"' + (w.shown ? '' : ' visibility="hidden"') + '/>');
     const a = spot.node.agent;
     /* #2576/#2577: the state vocabulary is still the CARD's, read through the
        same table the grid and the list read, so the three views cannot disagree
@@ -27415,7 +27440,7 @@ function paintOrg() {
       : '';
     /* #3946 item 15: a swarm's node is the same cluster as its grid card and list row (one component), filling
        the node's face; an ordinary agent keeps its single picture or initials. */
-    const isSwarm = typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm;
+    const isSwarm = orgDrawsCluster(a);
     const face = isSwarm ? swarmCluster(a, 0, { decorative: true }) : a.hasAvatar
       /* #2698: `?v=` the avatar version so a changed picture changes this markup.
          Without it the URL is byte-identical after an update, the repaint guard
@@ -27531,7 +27556,7 @@ function orgLiveStart(map, placed, cx, cy, size) {
   const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const hubEl = map.querySelector('.hub');
   const hubWas = ORG_POS.get('\u0000hub');
-  const hub = { key: '\u0000hub', el: hubEl, x: hubWas ? hubWas.x : cx, y: hubWas ? hubWas.y : cy, vx: 0, vy: 0, fixed: false, size: 52, home: { x: cx, y: cy } };
+  const hub = { key: '\u0000hub', el: hubEl, x: hubWas ? hubWas.x : cx, y: hubWas ? hubWas.y : cy, vx: 0, vy: 0, fixed: false, size: 52, home: { x: cx, y: cy }, agent: null };   // #4040: the hub, whose wires start at its centre
   const nodes = new Map();
   for (const [key, spot] of placed) {
     const el = map.querySelector('.onode[data-agent="' + CSS.escape(key) + '"]');
@@ -27543,6 +27568,7 @@ function orgLiveStart(map, placed, cx, cy, size) {
       y: was ? was.y : cy + Math.sin(spot.ang) * spot.r,
       vx: 0, vy: 0, ring: spot.r, parentKey: spot.node.parent || null, parent: null, fixed: false,
       wire: map.querySelector('line[data-for="' + CSS.escape(key) + '"]'),
+      agent: spot.node.agent,   // #4040: its picture, where its wires stop
     });
   }
   for (const n of nodes.values()) n.parent = n.parentKey ? (nodes.get(n.parentKey) || null) : null;
@@ -27558,6 +27584,51 @@ function orgLiveStart(map, placed, cx, cy, size) {
     orgLiveSync();
     orgLiveRun();
   }
+}
+/* #4040 (Josh, 2026-09-26: the connecting line "goes above agent clusters avatars"): a wire stops at each
+   node's edge instead of running to its centre. An agent's opaque disc hid the rest of a centre-to-centre
+   wire, but a swarm's cluster has no disc (gaps between its circles, and it rests at half strength), so the
+   wire showed through it. orgReach(a, ux, uy) is how far along the direction (ux, uy) from a node's centre
+   its picture ends: a disc ends at its edge whatever the direction; a cluster ends where that ray leaves
+   the last circle it crosses (swarmLayout, the one swarmCircles draws). A ray that only grazes a circle's
+   edge, or passes just beside it (through the narrow gap between two), stops level with that circle's
+   outer edge rather than running along it or on to the centre. The hub is an opaque disc drawn over the
+   wires: a wire from it starts at its centre. */
+/* Whether the org chart draws this node as a swarm cluster: paintOrg's face and orgReach's cut both ask
+   here, so a wire is never cut to a cluster around a disc or the other way round. */
+function orgDrawsCluster(a) {
+  return typeof SWARMS_ON !== 'undefined' && SWARMS_ON && !!a && Object.prototype.hasOwnProperty.call(a, 'swarm') && !!a.swarm;
+}
+/* A node's face is ORG_FACE_PX square (.onode's width and height); a disc's picture ends at half of it. */
+const ORG_FACE_PX = 44;
+/* orgReach runs for every wire end on every frame of a drag or settle: the layout for each helper count is
+   worked out once. */
+const ORG_LAYOUT_BY_MAX = new Map();
+function orgReach(a, ux, uy) {
+  if (!orgDrawsCluster(a)) return ORG_FACE_PX / 2;
+  const max = Math.max(2, Math.min(10, Math.round(Number(a.swarm.maxHelpers) || 3)));
+  if (!ORG_LAYOUT_BY_MAX.has(max)) ORG_LAYOUT_BY_MAX.set(max, swarmLayout(max));
+  const L = ORG_LAYOUT_BY_MAX.get(max);
+  const r = L.r * ORG_FACE_PX;
+  let cut = 0;
+  for (const q of L.p) {
+    const cx = (q[0] - 0.5) * ORG_FACE_PX, cy = (q[1] - 0.5) * ORG_FACE_PX;
+    const b = cx * ux + cy * uy, d = Math.sqrt(Math.max(0, cx * cx + cy * cy - b * b));
+    if (d <= r - 1.5) cut = Math.max(cut, b + Math.sqrt(r * r - d * d));
+    else if (d < 1.2 * r) cut = Math.max(cut, b + r);   // grazing its edge stroke, or passing just beside it
+  }
+  return cut;
+}
+/* A wire from (x0, y0) to (x1, y1), cut back by each end's picture along the wire (a0 and a1 are the ends'
+   agents; a0 is null for the hub). Two nodes whose pictures meet get no wire (shown false) rather than one
+   drawn backwards across both faces. */
+function orgWireEnds(x0, y0, a0, x1, y1, a1) {
+  const len = Math.hypot(x1 - x0, y1 - y0);
+  if (!(len > 0)) return { x1: x0, y1: y0, x2: x1, y2: y1, shown: false };
+  const ux = (x1 - x0) / len, uy = (y1 - y0) / len;
+  const cut0 = a0 ? orgReach(a0, ux, uy) : 0, cut1 = orgReach(a1, -ux, -uy);
+  if (!(len > cut0 + cut1)) return { x1: x0, y1: y0, x2: x1, y2: y1, shown: false };
+  return { x1: x0 + ux * cut0, y1: y0 + uy * cut0, x2: x1 - ux * cut1, y2: y1 - uy * cut1, shown: true };
 }
 /* #1738: run the same relaxation orgLiveRun animates, but synchronously and
    bounded, so a reduced-motion (static) render still separates overlapping
@@ -27588,8 +27659,10 @@ function orgLiveSync() {
     n.el.classList.toggle('co-r', n.x > 2 * third);
     const p = n.parent || hub;
     if (n.wire) {
-      n.wire.setAttribute('x1', p.x.toFixed(1)); n.wire.setAttribute('y1', p.y.toFixed(1));
-      n.wire.setAttribute('x2', n.x.toFixed(1)); n.wire.setAttribute('y2', n.y.toFixed(1));
+      const w = orgWireEnds(p.x, p.y, p.agent || null, n.x, n.y, n.agent);
+      n.wire.setAttribute('x1', w.x1.toFixed(1)); n.wire.setAttribute('y1', w.y1.toFixed(1));
+      n.wire.setAttribute('x2', w.x2.toFixed(1)); n.wire.setAttribute('y2', w.y2.toFixed(1));
+      if (w.shown) n.wire.removeAttribute('visibility'); else n.wire.setAttribute('visibility', 'hidden');
     }
     ORG_POS.set(n.key, { x: n.x, y: n.y });
   }
@@ -31281,8 +31354,8 @@ function detailGo(section, opts) {
      handled: unobserved (no iOS simulator on this Mac), on Johnny's simulator checklist. */
   // The controls that count as typing; the CSS block's :is(...) list is the same, pinned by render-dm-chatfirst-718.
   const KOSMOS_TYPING_SELECTOR = '#d-say, #d-send, #d-emoji-btn, #d-emoji button';
-  // Same breakpoint as the CSS block "#718 CHAT FIRST ON A PHONE"; change both together.
-  const PHONE_WIDTH = window.matchMedia('(max-width: 40rem)');
+  // Same query as the CSS block "#718 CHAT FIRST ON A PHONE" (a narrow screen, or a phone held sideways, #3969); change both together.
+  const PHONE_WIDTH = window.matchMedia('(max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem)');
   viewport.addEventListener('resize', () => {
     write();
     const talk = document.getElementById('d-sec-talk');
