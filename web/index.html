@@ -9675,9 +9675,12 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 /* #3969: a phone held sideways is short (the rule matches up to 30rem, 480px, tall), and the chat-first
    layout above still left the conversation 0px at 640x360 with the composer below the screen. On a short
    sideways touchscreen, in the chat, the "All agents" link and an idle search box step aside.
-   - The search box steps aside only while it is EMPTY and does not have focus: a search that is filtering
-     the conversation stays on screen with its clear button (turning the phone must not leave a hidden
-     filter), and a box someone is typing in never vanishes under them (a keyboard can make a portrait
+   - ⚠️ Searching the chat is therefore NOT available on a phone held sideways: an empty search box is not
+     shown, so there is nothing to tap; turning the phone upright brings it back. Accepted for this card
+     (its finish line is the conversation and the message box); a search button that opens the box is a
+     possible follow-up. The box stays only while it is NOT empty or has focus: a search already filtering
+     the conversation (typed upright, then turned) stays on screen with its clear button, so no filter is
+     ever hidden, and a box being typed in never vanishes under the typist (a keyboard can make a portrait
      layout read as a short landscape one on some Android browsers). The "Direct Message to" heading stays
      for screen readers, visually hidden as in the block above.
    - ⚠️ The back link goes too, and with it the one-tap way back to a project the chat was opened from

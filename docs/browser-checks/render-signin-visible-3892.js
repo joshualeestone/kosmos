@@ -264,7 +264,8 @@ function notesAndMeasure(opts) {
       // the height (a fixed 190px would take over half of it).
       {
         const t = `[${eng} 640x360 sideways]`;
-        /* #3969: a TIED agent here (isNamedOurs, nameDerived), as a swarm agent always is. The untied card the other
+        /* #3969: a TIED agent here (isNamedOurs), as a swarm agent always is (engine/status.js builds `swarm` only for a
+           tied card); nameDerived is set only to match the other fixtures and changes nothing here. The untied card the other
            arms use also shows the 55px "this session is not that agent" note, a state a swarm agent never has; with
            #3969 giving the sideways chat its message box back, that note alone decided this arm. */
         const { ctx, page, errs } = await open(browser, eng, 640, 360, 'light', { state: 'auth_failed', swarm: { active: true }, isNamedOurs: true, nameDerived: true }, true);

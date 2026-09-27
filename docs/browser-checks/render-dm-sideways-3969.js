@@ -108,8 +108,9 @@ function measure() {
              and Stop now under #3892's raised header floor. The message box must still be on screen. */
           const s2 = await open(browser, eng, w, h, theme, true, { state: 'auth_failed', swarm: { active: true } });
           const m2 = await s2.page.evaluate(measure);
-          const re = await s2.page.evaluate(() => { const e = document.getElementById('d-reauth'); return !!e && !e.hidden && e.getBoundingClientRect().height > 0; });
-          chk(re && m2.composer && m2.docH <= m2.vis + 1, `${t} a swarm agent whose sign-in stopped: Sign in again shows and the message box stays on screen`, JSON.stringify({ reauth: re, composer: m2.composer, docH: m2.docH, vis: m2.vis }));
+          const re = await s2.page.evaluate(() => { const e = document.getElementById('d-reauth'); const sw = document.getElementById('d-swarm-panel');
+            return !!e && !e.hidden && e.getBoundingClientRect().height > 0 && !!sw && !sw.hidden; });
+          chk(re && m2.composer && m2.docH <= m2.vis + 1 && s2.errs.length === 0, `${t} a swarm agent whose sign-in stopped: Sign in again and the swarm panel show, and the message box stays on screen`, JSON.stringify({ reauthAndSwarm: re, composer: m2.composer, docH: m2.docH, vis: m2.vis, errs: s2.errs }));
           await s2.ctx.close();
         }
         if (w === 640) {
