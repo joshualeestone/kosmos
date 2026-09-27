@@ -252,6 +252,11 @@ const chk = (ok, label, extra) => {
          nor an overlap passes. */
       chk(nameTitle !== null && nameTitle <= 3.5, 'name to title leading is tight', nameTitle + 'px');
       chk(nameTitle !== null && nameTitle >= 0, 'name and title do not overlap', nameTitle + 'px');
+      /* #2850 item 12 (Josh): the avatar and its ring are flush left with the collapse button (open rail). */
+      const flush = await page.evaluate(() => { const f = document.getElementById('rail-agents-fold'); const av = document.querySelector('#alist .lrow .lav');
+        if (!f || !av || document.body.classList.contains('fold-a')) return null;
+        return { fold: Math.round(f.getBoundingClientRect().left * 10) / 10, ring: Math.round(av.getBoundingClientRect().left * 10) / 10 }; });
+      chk(flush !== null && Math.abs(flush.fold - flush.ring) <= 1, 'the collapse button is flush left with the avatar ring (#2850 item 12)', JSON.stringify(flush));
 
       /* #3187-followup (Josh 6.72): FOLD the rail to its 48px strip. The status colour goes
          EDGE-TO-EDGE behind working (green) and needs-you (red) only; idle and not-running
