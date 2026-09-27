@@ -34,3 +34,7 @@ Card #3939. Slice 1 (merged 03bf99deb) finds Muse and reads its version. Splinte
 - Off a Mac, runTurn refuses before running anything: the AGENT_WORKFORCE_MUSE_BIN override passes slice 1's platform check, and the stop is POSIX. Tested; control red.
 - The byte cap has a seam and a test (control red). Every runTurn test has a timeout, and the busy/sign-in test shortens the turn, so a regression fails in seconds instead of hanging ten minutes.
 - Kosmos's own stop (overflow, timeout) is named before stderr is read.
+
+## Review round 4 (decided, converged)
+- 0 BLOCKER, 0 WARNING, 0 CONVENTION (sonnet, after opus rounds 1 and 3), with four mutation controls all red.
+- Deferred nits: setForTests ignores a zero (no test needs zero); the per-turn timer is not unref'd, deliberately, since an outstanding turn should keep the process alive, and end() always clears it.
