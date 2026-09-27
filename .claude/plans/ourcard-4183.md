@@ -23,14 +23,18 @@ guard is part of the change, not a follow-up.
 
 ## Guard
 
-one-derivation.test.js "#4183": scans server.js and every non-test engine/*.js for a line comparing
-`.sessionName ===` alongside `.isNamedOurs === true`. Only ourCard's line may. A control asserts
-the scan finds that line and that it sits inside `function ourCard`, so a scan that finds nothing
-fails. Line-based: a copy split across lines is not seen.
+one-derivation.test.js "#4183" flags any line that compares `.sessionName` (`==` or `===`) and also
+uses `.isNamedOurs` positively (`=== true`, `== true`, or bare truthy). A negated `!a.isNamedOurs` or
+`!== true` is not flagged. It scans server.js and every non-test .js under engine/, recursively. The
+only line allowed is ourCard's own, and a control requires the scan to find it. A second test pins the
+spellings it claims to see and the ones it must not flag (projects.js's `borrowed` filter). Not seen:
+a copy split across lines, a destructured parameter, files outside those roots (tools/, bin/). Review 1
+widened it from the `=== true` spelling only, and added the recursion.
 
 ## Evidence
 
-- The guard was red on the first run, naming the six engine copies. It is green after.
+- The guard was red on the first run, naming the six engine copies. It is green after. A planted
+  truthy-form copy in engine/you.js is caught and named (engine/you.js:168).
 - All nine modules load. Suites for connections, dmfiles, doctrine, policy, reports, you and
   projects, plus server.projects and one-derivation: 431 passed, 0 failed. The server skills test
   (the exact-match permit on the agent write): 1/1.
