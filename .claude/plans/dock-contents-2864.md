@@ -31,7 +31,7 @@ tools/test-install.sh proves all of it, with a control showing today's path give
   person removes the stale one once. No code edits anyone's Dock. The release-note line is in
   the PR body for the cut owner (the notes file is release-lane), not in this diff.
 
-## What review changed (rounds 1 to 7)
+## What review changed (rounds 1 to 12)
 - /usr/bin/stat by path (a GNU stat on PATH would skip the swap silently).
 - The staged folder's location decides, never the exit code: a swap that happened but reported
   failure is kept; a staged folder found in neither place is built again and installed by the
@@ -41,9 +41,11 @@ tools/test-install.sh proves all of it, with a control showing today's path give
   physical path is needed because the flag also refuses system links such as /var.
 - Ownership is proved again, on that physical path, right before the swap.
 - The install log's app-bundle line records app_path=swap|rename|rename-swap-skipped|
-  rename-swap-refused and swap_errno (0, or why the kernel refused: 1 EPERM such as App
-  Management, 45 ENOTSUP, 22 EINVAL, 62 ELOOP), so a report of duplicate icons can say whether
-  the swap ran on that machine and, if not, why.
+  rename-swap-refused (per make_app call), and swap_errno plus swap_dir for the last swap
+  attempted (0, or why the kernel refused: 1 EPERM such as App Management, 45 ENOTSUP,
+  22 EINVAL, 62 ELOOP), kept across the home-folder retry, so a report of duplicate icons can
+  say whether the swap ran on that machine, where, and if not, why.
+- A swap hands back the old Contents; it is deleted only while it still proves ours.
 - A staged folder found in neither place is looked for once more, then rebuilt in a fresh
   folder, so a stage that cannot be removed cannot send the step on to ~/Applications.
 - A running Kosmos keeps its bundle path while Contents changes under it (its executable runs on
@@ -51,8 +53,8 @@ tools/test-install.sh proves all of it, with a control showing today's path give
   matter.
 
 ## Tests (tools/test-install.sh)
-The update keeps the folder inode and replaces Contents (app_path=swap); CONTROL swap-off gives a
-new folder (app_path=rename); a failing stub, a no-op stub, a swap-then-fail stub and a
+A first install logs app_path=rename; the update keeps the folder inode and replaces Contents
+(app_path=swap, swap_errno=0); CONTROL swap-off gives a new folder (app_path=rename-swap-skipped); a failing stub, a no-op stub, a swap-then-fail stub and a
 moves-it-away stub each end complete, with where it came from asserted; the installer's syscall
 through a planted link fails and leaves the target untouched (control: a link-free path swaps);
 the deep-locked bundle runs with the swap on and off; the residue check has a positive control.
@@ -60,7 +62,8 @@ the deep-locked bundle runs with the swap on and off; the residue check has a po
 ## Who runs the proof
 tools/test-install.sh is not in CI (GitHub), but every release cut runs it: tools/release.sh
 runs it with KOSMOS_INSTALL_GATE=1, which stops at "the release gate stops here (#624)". The
-#2864 update, control and stub checks sit before that stop, so every cut runs them; the
+#2864 update, control and stub checks sit before that stop, so every cut runs them (about
+seven extra installer runs added to the cut's gate); the
 deep-locked on/off pass sits after it, so only a full `yarn test:install` does. The PR carries
 this branch's full run.
 

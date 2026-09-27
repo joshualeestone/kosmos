@@ -3025,10 +3025,11 @@ make_app() {
   # is also the switch that restores the old whole-bundle rename on a machine where
   # the swap misbehaves.
   local _perl="${KOSMOS_SWAP_PERL:-/usr/bin/perl}" _swap_tried=no _had_app=no _swap_errno=""
-  # Per call: the home-folder retry runs make_app a second time, and its log fields
-  # must describe that folder, not carry the first folder's errno.
+  # APP_PATH is per call: it describes the folder this call acted on. The swap's errno
+  # is NOT reset here: it is set only when a swap is attempted, with APP_SWAP_DIR naming
+  # the folder, so the home-folder retry neither erases why the system folder's swap was
+  # refused nor pins that errno on the folder the retry used.
   APP_PATH=none
-  APP_SWAP_ERRNO=none
   { [ -e "$app" ] || [ -L "$app" ]; } && _had_app=yes
   if [ "$(uname -s)" = Darwin ] && [ "${KOSMOS_CONTENTS_SWAP:-on}" != off ] \
      && [ -d "$app" ] && [ ! -L "$app" ] && [ -d "$app/Contents" ] && [ ! -L "$app/Contents" ] \
@@ -3044,9 +3045,12 @@ make_app() {
       # Prints 0, or the errno of a refusal (1 EPERM, e.g. App Management; 45 ENOTSUP,
       # a volume without swap; 22 EINVAL, a kernel without the flag; 62 ELOOP, a link),
       # which the app-bundle log line carries as swap_errno.
-      _swap_errno="$(/usr/bin/env -u PERL5OPT -u PERL5LIB "$_perl" -e 'my $r = syscall(488, -2, $ARGV[0], -2, $ARGV[1], 18); print(($r == 0) ? 0 : ($! + 0)); exit($r == 0 ? 0 : 1)' \
+      _swap_errno="$(/usr/bin/env -u PERL5OPT -u PERL5LIB -u PERLLIB "$_perl" -e 'my $r = syscall(488, -2, $ARGV[0], -2, $ARGV[1], 18); print(($r == 0) ? 0 : ($! + 0)); exit($r == 0 ? 0 : 1)' \
         "$_phys/$(basename "$stage")/Contents" "$_phys/$(basename "$app")/Contents" 2>/dev/null)" || true
-      APP_SWAP_ERRNO="${_swap_errno:-none}"
+      # Digits only, since the value goes into a space-separated log line.
+      case "$_swap_errno" in ''|*[!0-9]*) _swap_errno=none ;; esac
+      APP_SWAP_ERRNO="$_swap_errno"
+      APP_SWAP_DIR="$_phys"
       # WHERE THE STAGED FOLDER IS decides, never the exit code alone: a swap that
       # happened but reported failure must not fall through to the rename below,
       # which would then install $stage, by now the OLD Contents.
@@ -3312,10 +3316,11 @@ if [ "$APP_SKIP_ICON" != "yes" ] && [ -z "${KOSMOS_APP_DIR:-}" ] && [ "$APP_DIR"
 fi
 APP_MADE=no
 # #2864: which way make_app put the icon in place (swap | rename | rename-swap-skipped |
-# rename-swap-refused) and the swap's errno,
+# rename-swap-refused), and the last attempted swap's errno and folder,
 # recorded in the app-bundle log line so a report of duplicate Dock icons can be read.
 APP_PATH=none
 APP_SWAP_ERRNO=none
+APP_SWAP_DIR=none
 if [ "$APP_SKIP_ICON" = "yes" ]; then
   : # said below, where the not-made sentences live
 elif ! mkdir -p "$APP_DIR" 2>/dev/null; then
@@ -3554,9 +3559,9 @@ fi
 # (e.g. the logs dir gone) is itself suppressed -- a bare `printf >> "$LOG"
 # 2>/dev/null` does NOT catch the shell's own redirect-open error. `|| true`
 # keeps errexit from aborting the install over a diagnostic line.
-{ printf '[%s] app-bundle: made=%s skip_icon=%s skip_reason=%s fresh_install=%s sys_stale=%s sys_failed=%s home_foreign=%s app_path=%s swap_errno=%s\n' \
+{ printf '[%s] app-bundle: made=%s skip_icon=%s skip_reason=%s fresh_install=%s sys_stale=%s sys_failed=%s home_foreign=%s app_path=%s swap_errno=%s swap_dir=%s\n' \
   "$$" "$APP_MADE" "$APP_SKIP_ICON" "${APP_SKIP_REASON:-none}" "$FRESH_INSTALL" \
-  "${APP_SYS_STALE:-no}" "${APP_SYS_FAILED:-no}" "${APP_HOME_FOREIGN:-no}" "${APP_PATH:-none}" "${APP_SWAP_ERRNO:-none}" \
+  "${APP_SYS_STALE:-no}" "${APP_SYS_FAILED:-no}" "${APP_HOME_FOREIGN:-no}" "${APP_PATH:-none}" "${APP_SWAP_ERRNO:-none}" "${APP_SWAP_DIR:-none}" \
   >> "$LOG"; } 2>/dev/null || true
 # (2) On an UPDATE that did not rewrite the bundle, route the operator to the
 # reliable open path rather than a relaunch. This never ASSERTS the app is stale
