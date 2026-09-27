@@ -852,8 +852,8 @@ echo victim > "$NF/victim.app/Contents/v"; echo staged > "$NF/stage/Contents/v";
 ln -s "$NF/victim.app" "$NF/link.app"
 SWAPCALL='syscall(488, -2, $ARGV[0], -2, $ARGV[1], 18)'
 chk "the planted-link test uses the installer's own call" "grep -qF \"\$SWAPCALL\" \"$SETUP\""
-RC=0; /usr/bin/perl -e "exit($SWAPCALL == 0 ? 0 : 1)" "$NF/stage/Contents" "$NF/link.app/Contents" 2>/dev/null || RC=$?
-chk "the swap refuses a path through a planted link (non-zero)" "[ \"$RC\" != 0 ]"
+NF_ERRNO="$(/usr/bin/perl -e "my \$r = $SWAPCALL; print((\$r == 0) ? 0 : (\$! + 0))" "$NF/stage/Contents" "$NF/link.app/Contents" 2>/dev/null)" || NF_ERRNO=none
+chk "the swap refuses a path through a planted link with ELOOP (62), not some other error" "[ \"$NF_ERRNO\" = 62 ]"
 chk "and the link's target keeps its own Contents" "[ \"\$(cat \"$NF/victim.app/Contents/v\")\" = victim ] && [ \"\$(cat \"$NF/stage/Contents/v\")\" = staged ]"
 RC=0; /usr/bin/perl -e "exit($SWAPCALL == 0 ? 0 : 1)" "$NF/stage/Contents" "$NF/ok.app/Contents" 2>/dev/null || RC=$?
 chk "CONTROL: the same call on a link-free path swaps" "[ \"$RC\" = 0 ] && [ \"\$(cat \"$NF/ok.app/Contents/v\")\" = staged ]"

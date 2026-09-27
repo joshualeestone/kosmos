@@ -41,7 +41,8 @@
 # .Kosmos.app.stage.<pid> folder beside its spot. On an update of an icon it
 # created, its Contents is exchanged with the existing one in a single step
 # (#2864), so the Kosmos.app folder a Dock icon points at stays the same, and
-# the stage folder, now holding the OLD Contents, is deleted; otherwise the new icon is
+# the stage folder, now holding the OLD Contents, is deleted while it still proves
+# this install's own; otherwise the new icon is
 # renamed into place, with the replaced icon renamed aside as
 # .Kosmos.app.old.<pid> until the swap completes (an interrupted run can leave
 # either hidden folder behind; --uninstall sweeps both when it can prove they
@@ -3047,7 +3048,8 @@ make_app() {
       # which the app-bundle log line carries as swap_errno.
       _swap_errno="$(/usr/bin/env -u PERL5OPT -u PERL5LIB -u PERLLIB "$_perl" -e 'my $r = syscall(488, -2, $ARGV[0], -2, $ARGV[1], 18); print(($r == 0) ? 0 : ($! + 0)); exit($r == 0 ? 0 : 1)' \
         "$_phys/$(basename "$stage")/Contents" "$_phys/$(basename "$app")/Contents" 2>/dev/null)" || true
-      # Digits only, since the value goes into a space-separated log line.
+      # Digits only, since the value goes into a space-separated log line (swap_dir, a
+      # path, is written last in that line for the same reason).
       case "$_swap_errno" in ''|*[!0-9]*) _swap_errno=none ;; esac
       APP_SWAP_ERRNO="$_swap_errno"
       APP_SWAP_DIR="$_phys"
@@ -3070,9 +3072,15 @@ make_app() {
         # removed must not block it), and let the whole-bundle rename below install
         # that: the app is refreshed, not left stale and reported as made, and in the
         # same folder rather than failing on to ~/Applications. The old stage is this
-        # run's own, so it is removed without the ownership proof, best-effort; its
-        # name is swept like any stage. Only if this rebuild fails does the step fail.
-        rm -rf "$stage" 2>/dev/null || true
+        # run's own and is removed, best-effort, when it holds no Contents or Contents
+        # that still prove ours; Contents that do not (a swap that did take, into a folder
+        # replaced before it) is left and named, as make_app_swap_taken does. Its name is
+        # swept like any stage. Only if this rebuild fails does the step fail.
+        if [ -e "$stage/Contents" ] && ! bundle_is_ours "$stage"; then
+          info "note: the folder that was in the Kosmos icon's place could not be proven to be this install's, so it was left as $stage"
+        else
+          rm -rf "$stage" 2>/dev/null || true
+        fi
         stage="$stage.r"
         rm -rf "$stage" 2>/dev/null || true
         /bin/mkdir "$stage" 2>/dev/null || return 1
