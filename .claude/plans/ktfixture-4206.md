@@ -89,6 +89,13 @@ such a context), so the measurement is the evidence.
   decoy, a genuine browser-checks.sh run from that dir, would otherwise sit in a kt folder on Linux under
   run-tests.sh and be dropped as a fixture by the new browser-guard filter, so it would stop testing.
 
+## Review 7
+
+- #1050's probe-two pid 9191 is now 99998, which cannot be live either: it too goes through a real
+  lsof and ancestry walk now.
+- The live-pid sandbox arms SKIP loudly where lsof is missing, rather than going red on the tool.
+- The frozen arm's comment no longer claims the double slash reaches the matcher.
+
 ## Weakest premise
 
 The negative control runs from `/` so it cannot sit in a kt folder. A machine whose $TMPDIR were `/`

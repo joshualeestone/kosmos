@@ -54,11 +54,11 @@ out="$(KOSMOS_CUT_SELF_PID=4242 KOSMOS_CUT_PROBE="$T/probe-self" kosmos_refuse_i
 [ "$rc" -eq 0 ] && pass "the caller's own release.sh is not a reason to refuse itself" \
   || fail "the caller's own release.sh is not a reason to refuse itself (rc=$rc, $out)"
 
-printf '#!/bin/sh\nprintf "4242 bash tools/release.sh 0.5.99\\n9191 bash tools/release.sh 0.5.98\\n"\n' > "$T/probe-two"; chmod +x "$T/probe-two"
+printf '#!/bin/sh\nprintf "4242 bash tools/release.sh 0.5.99\\n99998 bash tools/release.sh 0.5.98\\n"\n' > "$T/probe-two"; chmod +x "$T/probe-two"
 out="$(KOSMOS_CUT_SELF_PID=4242 KOSMOS_CUT_PROBE="$T/probe-two" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
 [ "$rc" -ne 0 ] && pass "ANOTHER cut still refuses once self is excluded" \
   || fail "excluding self also excluded a real second cut, so the guard cannot fire (rc=$rc)"
-has "$out" "9191" && pass "and it names the OTHER cut, not itself" || fail "it named the wrong process: $out"
+has "$out" "99998" && pass "and it names the OTHER cut, not itself" || fail "it named the wrong process: $out"
 
 # Use ordinary live pids through the probe seam. A test process genuinely named
 # tools/release.sh would be visible to every agent's pgrep and could block a real
@@ -88,6 +88,9 @@ out="$(KOSMOS_RUN_MARKER_DIR="$T/markers-empty" KOSMOS_CUT_PROBE="$T/probe-live"
 # fixture that detached from node --test is marked by its cwd in a kt<digits> folder. Live sleeps
 # through the probe seam, never a pgrep-visible release.sh. The negative control runs from / so it
 # cannot land in a kt folder even where TMPDIR itself is one (run-tests.sh on Linux).
+if ! command -v lsof >/dev/null 2>&1; then
+  echo "SKIP  #4206 follow-up sandbox arms: lsof is not on this machine, so no live cwd can be read (a skip, NOT a pass)"
+else
 mkdir -p "$T/tmp/kt4206"
 # Waits until PID's cwd is DIR (up to 3s), so an arm never reads a process that has not moved yet:
 # a late cd would leave the test's own cwd, and a control could then pass for the wrong reason.
@@ -139,9 +142,10 @@ out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/pro
 kill "$kt_script" 2>/dev/null; wait "$kt_script" 2>/dev/null
 
 # #4206 follow-up (Baron): a REAL cut runs from its frozen build tree under TMPDIR,
-# ${TMPDIR}/kosmos-release.<X>/kosmos-<sha> (measured on a 0.7.03 cut, with the double slash macOS
-# TMPDIR produces). That cwd and that script path must never read as a sandbox fixture, including
-# through the rule's "directly under this shell's TMPDIR" branch, so TMPDIR is set to its parent.
+# ${TMPDIR}/kosmos-release.<X>/kosmos-<sha> (measured on a 0.7.03 cut). That cwd and that script path
+# must never read as a sandbox fixture, including through the rule's "directly under this shell's
+# TMPDIR" branch, so TMPDIR is set to its parent. The double slash in the directory is only how it was
+# made: lsof and pwd -P both normalize it, so the matcher sees a single-slash path.
 # Rooted under /tmp BY NAME, not under $T: where mktemp honours TMPDIR (Linux, under run-tests.sh)
 # $T sits inside a kt<digits> folder, and a frozen tree built there would rightly read as a fixture.
 FR="$(mktemp -d /tmp/cutguard-frozen.XXXXXX)"; trap 'rm -rf "$T" "$FR"' EXIT
@@ -168,6 +172,7 @@ out="$(TMPDIR="$FRT" KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T
 { [ "$rc" -ne 0 ] && has "$out" "$bcfrozen"; } && pass "a real browser run from its frozen tree under TMPDIR still refuses, and is named" \
   || fail "a REAL browser run's frozen tree was dropped as a fixture (rc=$rc, out=$out)"
 kill "$bcfrozen" 2>/dev/null; wait "$bcfrozen" 2>/dev/null
+fi
 
 # --- #1713: the MIRROR guard, kosmos_refuse_if_harness_live, shown red, green,
 # --- and unable to answer via its own KOSMOS_HARNESS_PROBE seam. Reuses the
