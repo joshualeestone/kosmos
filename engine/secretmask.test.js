@@ -1400,18 +1400,45 @@ test('#3995 gap 4: a held key cut into chunks of three or fewer with words betwe
     const mixed = ['Zq', '8vL', 'm3', 'pRt', '6w', 'Xy9', 'kH', 'b2n', 'Wc', '4d'];
     assert.equal(mixed.join(''), held, 'the mixed split does not spell the key');
     const b = mask('Your key, piece by piece: ' + mixed.join(', then ') + '. Keep it safe.');
-    for (const c of mixed) assert.ok(!b.text.includes(c + ','), `the chunk ${c} survived: ${b.text}`);
+    for (const c of mixed) assert.ok(!new RegExp('(^|[^A-Za-z0-9])' + c + '([^A-Za-z0-9]|$)').test(b.text), `the chunk ${c} survived: ${b.text}`);
     assert.ok(b.text.startsWith('Your key, piece by piece: ') && b.text.endsWith('. Keep it safe.'), b.text);
     // A partial try (the first half only) is not assembled, so nothing is masked by this walk.
     const half = threes.slice(0, 4).join(' and ');
     assert.equal(mask(half).text, half);
   } finally { setKnownSecrets([]); }
-  // Not covered, and said so in the file: a first chunk that is all lowercase starts no short walk.
-  const lower = j('zqvLm3pRt6w', 'Xy9kHb2nWc4d');
-  setKnownSecrets([lower]);
+  // Review round 1: a first chunk that is all lowercase (or digits, as a hex form's often is) starts one too, and
+  // glue on the chunks (italics, a label with = or -) is taken off.
+  const lower = j('zqvLm3pRt6wX', 'y9kHb2nWc4dQ');
+  assert.equal(lower.length % 3, 0, 'the fixture must split into whole chunks of three');
+  setKnownSecrets([lower, held]);
   try {
-    const t = lower.match(/.{3}/g).join(' and ');
-    assert.equal(mask(t).text, t, 'the stated limit changed; update the "Not covered" list');
+    const t = mask(lower.match(/.{3}/g).join(' and ')).text;
+    for (const c of lower.match(/.{3}/g)) assert.ok(!t.includes(c), `lowercase first chunk: ${c} survived: ${t}`);
+    for (const glued of [(c) => `_${c}_`, (c, i) => `p${i}=${c}`, (c) => `part-${c}`]) {
+      const g = mask(held.match(/.{3}/g).map(glued).join(' then ')).text;
+      for (const c of held.match(/.{3}/g)) assert.ok(!g.includes(c), `glued chunk ${c} survived: ${g}`);
+    }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 gap 4 review round 1: a held password made of words is not masked out of the ordinary sentence that spells it', () => {
+  for (const [held, text] of [
+    ['MyPassword123', 'My Password must be at least 123 characters? No: My Password needs 12 characters.'],
+    ['MySecret2024', 'My Secret Santa list for 2024 is ready.'],
+    ['UpDown2024Go', 'Up and Down in 2024, then Go to Settings.'],
+    ['Go2Settings99', 'Go 2 Settings then pick option 99.'],
+  ]) {
+    setKnownSecrets([held]);
+    try { assert.equal(mask(text).text, text, `${held}: an ordinary sentence was masked`); } finally { setKnownSecrets([]); }
+  }
+});
+
+test('#3995 gap 4 review round 1: a reply naming a held value\'s opening many times is not withheld', () => {
+  const jwt = (i) => j('eyJhbGciOiJIUzI1NiJ9.', 'eyJzdWIiOiJ1c2VyJHtpfSJ9'.replace('JHtpfSJ9', String(i).padStart(8, '0')), '.', 'Qm4tZr8wLp2xNc6vHb9yKd3sFg7j'.repeat(20));
+  setKnownSecrets(Array.from({ length: 10 }, (_, i) => jwt(i)));
+  try {
+    const text = 'A token like this begins with eyJ and has three parts separated by dots, so it is easy to spot. '.repeat(100);
+    assert.equal(mask(text).text, text, 'a reply naming eyJ was changed or withheld');
   } finally { setKnownSecrets([]); }
 });
 

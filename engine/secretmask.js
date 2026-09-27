@@ -302,8 +302,8 @@ const NOT_KEY_CHARS = /[^A-Za-z0-9_+/=-]+/g;
    that repeated its opening cost over a second). Longer forms are still masked whole by known_secret. */
 const WORD_WALK_MAX_FORM = 1024;
 /* The shortest first piece that starts a walk, and the width of the held forms' opening index. Shorter and
-   ordinary words would start walks against every held value sharing their letters; the cost is that a key
-   cut into chunks of three or fewer, with words between them, is not caught (stated under wordSkippingSpans). */
+   ordinary words would start walks against every held value sharing their letters. A key cut into chunks of
+   three or fewer is left to shortChunkSpans (#3995 gap 4), which masks only a whole key. */
 const OPENING_LEN = 4;
 /* A key's own separators, which a reply may drop where it splits the key (sk-ant-api03 then the rest). */
 const SKIPPABLE = new Set(['-', '_']);
@@ -404,8 +404,8 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *
  * Not covered:
  *  - pieces out of order or reversed;
- *  - an opening piece shorter than OPENING_LEN characters, when the rest is split again into runs under
- *    FRAGMENT_LEN (a longer rest is masked by fragmentsIn);
+ *  - by this walk, an opening piece shorter than OPENING_LEN (shortChunkSpans masks the whole key; fragmentsIn a
+ *    rest of FRAGMENT_LEN or more); a PARTIAL try that starts that way is masked by neither;
  *  - a held value madeOfWords takes for words and numbers;
  *  - a partial try (one that never completes) with under PARTIAL_MIN characters after its opening, counted in
  *    non-word pieces of OPENING_LEN or more; a try that reaches it is masked piece by piece;
@@ -413,8 +413,10 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *  - a held form with its own - or _ regrouped with + or / (its grams and walked form keep its own separators);
  *  - a group joined by + / = that is all lowercase letters with no digit, when it is under FRAGMENT_LEN;
  *  - a value with symbols in it, given without its opening, with spaces around its symbols;
- *  - a key cut into chunks under OPENING_LEN whose FIRST chunk is all lowercase, all uppercase or all digits
- *    (the short-chunk walk starts only from a chunk that looks like key text);
+ *  - a key cut into chunks under OPENING_LEN every one of which is a plain word or number (shortChunkSpans refuses
+ *    those, since ordinary text spells a password made of words);
+ *  - a first chunk of OPENING_LEN or more followed by chunks under it with long text between (neither walk's reach
+ *    carries it: the word walk extends only on pieces of OPENING_LEN or more);
  *  - a held form over WORD_WALK_MAX_FORM characters;
  *  - pieces that overlap (a character given twice, at the end of one piece and the start of the next);
  *  - a key split across two replies (the mask is per message).
@@ -711,59 +713,107 @@ function wordSkippingSpans(text) {
   }
   return spans;
 }
-/* How many characters of text[from, to) are not whitespace, counting no further than `cap + 1`. */
 /*
  * #3995 gap 4: a held value cut into chunks SHORTER than OPENING_LEN with words between them ("Zq8 and vLm and 3pR").
  * No word walk starts there (OPENING_LEN keeps ordinary short words from starting walks), no run reaches
- * FRAGMENT_LEN, and no run is long enough for the catch-all. So a second, stricter walk: it starts only at a run of
- * one to three characters that begins a walked form, advances only on runs that are EXACTLY the form's next
- * characters (anything else is skipped), each within SPLIT_REACH times the form's length of non-space characters of
- * the last run that advanced it, and masks nothing unless the WHOLE form is assembled, piece by piece. Completion is
- * the whole defence against ordinary text: a random key's every character, in order, out of prose, does not happen.
+ * FRAGMENT_LEN, and no run is long enough for the catch-all. So a second, stricter walk:
+ *  - it starts at a run of one to three characters that begins a walked form, and only when the rest of the form
+ *    can be spelled from runs present in the text at all (checked once per form; without it every "a", "0" or "eyJ"
+ *    in a long reply scanned its whole reach and a reply was withheld at the budget, review round 1);
+ *  - it advances only on runs that are EXACTLY the form's next characters (as written, or with glue taken off:
+ *    _Zq8_, p0=Zq8, part-Zq8), each within SPLIT_REACH times the form's length of non-space characters of the last
+ *    run that advanced it;
+ *  - it masks nothing unless the WHOLE form is assembled, then piece by piece, and nothing when every piece is a plain
+ *    word or number (a password made of words, MyPassword123, is spelled by "My Password ... 123" in ordinary text:
+ *    review round 1, the Administrator1 case of review round 3 again).
  * Returns [from, to) spans, or null when the walk ran past SHORT_WALK_BUDGET (withheld, as the word walk is).
  */
-const SHORT_WALK_BUDGET = 400000;
+const SHORT_WALK_BUDGET = 1250000;
+function shortPieces(run) {
+  const out = new Set([run]);
+  const trimmed = run.replace(/^[-+_/]+/, '').replace(/[-+_/]+$/, '');
+  if (trimmed) out.add(trimmed);
+  for (const sep of ['=', '-', '_']) {
+    const k = trimmed.lastIndexOf(sep);
+    if (k > 0 && k < trimmed.length - 1) out.add(trimmed.slice(k + 1));
+  }
+  return [...out];
+}
+function plainWordRun(t) {
+  return /^[0-9]+$/.test(t) || /^(?:[a-z]+|[A-Z]+|[A-Z][a-z]+)$/.test(t);
+}
 function shortChunkSpans(text) {
   if (!knownByShort.size) return [];
   const runs = [];
-  for (const m of text.matchAll(/[A-Za-z0-9_+/=-]+/g)) runs.push([m.index, m.index + m[0].length, m[0]]);
+  for (const m of text.matchAll(/[A-Za-z0-9_+/=-]+/g)) runs.push([m.index, m.index + m[0].length, shortPieces(m[0])]);
   if (runs.length < 2) return [];
-  const ns = new Int32Array(text.length + 1);
-  for (let i = 0; i < text.length; i += 1) ns[i + 1] = ns[i] + (/\s/.test(text[i]) ? 0 : 1);
+  const present = new Set();
+  let longest = 0;
+  for (const r of runs) for (const t of r[2]) { present.add(t); if (t.length > longest) longest = t.length; }
+  /* Whether f from `at` to its end can be spelled from runs present in the text at all (a word break over `present`),
+     once per form and start: a form the text cannot spell is never walked (review round 1: 2,000 held values each
+     walked from every "0" in a long table withheld it). */
+  const spellable = new Map();
+  const viable = new Map();
+  const canSpell = (f, at) => {
+    const key = at + '|' + f;
+    if (spellable.has(key)) return spellable.get(key);
+    const ok = new Uint8Array(f.length + 1);
+    ok[f.length] = 1;
+    for (let i = f.length - 1; i >= at; i -= 1) {
+      for (let l = 1; l <= longest && i + l <= f.length && !ok[i]; l += 1) if (ok[i + l] && present.has(f.slice(i, i + l))) ok[i] = 1;
+      if ((budget -= 1) < 0) break;
+    }
+    spellable.set(key, ok[at] === 1);
+    return ok[at] === 1;
+  };
+  let ns = null;
   let budget = SHORT_WALK_BUDGET;
   const spans = [];
   for (let r = 0; r < runs.length; r += 1) {
-    const open = runs[r][2];
-    if (open.length >= OPENING_LEN) continue;   // the word walk starts these
-    /* Only a run that looks like key text starts one: letters with a digit, or both cases (Zq8, vLm). The short
-       words ordinary text is made of (a, to, the, 1) never do, so 2,000 held values cost nothing on a long reply
-       (the #3769 cost tests). The cost: a key whose first chunk is all lowercase with no digit is not caught. */
-    if (!((/[0-9]/.test(open) && /[A-Za-z]/.test(open)) || (/[a-z]/.test(open) && /[A-Z]/.test(open)))) continue;
-    const cands = knownByShort.get(open);
-    if (!cands) continue;
-    for (const f of cands) {
-      const bound = SPLIT_REACH * f.length;
-      const states = new Map([[open.length, [r]]]);   // position in f -> the runs that reached it
-      let lastAt = runs[r][1];
-      let done = null;
-      for (let s = r + 1; s < runs.length && !done; s += 1) {
-        if ((budget -= 1 + states.size) < 0) return null;
-        if (ns[runs[s][0]] - ns[lastAt] > bound) break;
-        const t = runs[s][2];
-        let moved = false;
-        for (const [pos, path] of [...states]) {
-          if (!f.startsWith(t, pos)) continue;
-          const end = pos + t.length;
-          if (end === f.length) { done = [...path, s]; break; }
-          if (!states.has(end)) { states.set(end, [...path, s]); moved = true; }
-        }
-        if (moved) lastAt = runs[s][1];
+    for (const open of runs[r][2]) {
+      if (open.length >= OPENING_LEN) continue;   // the word walk starts these
+      /* The forms this opening could complete, worked out once per opening (a long table repeats "0" hundreds of
+         times against the same 2,000 forms). */
+      let cands = viable.get(open);
+      if (!cands) {
+        cands = (knownByShort.get(open) || []).filter((f) => canSpell(f, open.length));
+        if (budget < 0) return null;
+        viable.set(open, cands);
       }
-      if (done) for (const i of done) spans.push([runs[i][0], runs[i][1]]);
+      for (const f of cands) {
+        if ((budget -= 1) < 0) return null;
+        if (!ns) {
+          ns = new Int32Array(text.length + 1);
+          for (let i = 0; i < text.length; i += 1) ns[i + 1] = ns[i] + (/\s/.test(text[i]) ? 0 : 1);
+        }
+        const bound = SPLIT_REACH * f.length;
+        const states = new Map([[open.length, [[r, open]]]]);   // position in f -> the runs (and pieces) that reached it
+        let lastAt = runs[r][1];
+        let done = null;
+        for (let s = r + 1; s < runs.length && !done; s += 1) {
+          if ((budget -= 1 + states.size) < 0) return null;
+          if (ns[runs[s][0]] - ns[lastAt] > bound) break;
+          let moved = false;
+          for (const [pos, path] of [...states]) {
+            for (const t of runs[s][2]) {
+              if (!f.startsWith(t, pos)) continue;
+              const end = pos + t.length;
+              if (end === f.length) { done = [...path, [s, t]]; break; }
+              if (!states.has(end)) { states.set(end, [...path, [s, t]]); moved = true; }
+            }
+            if (done) break;
+          }
+          if (moved) lastAt = runs[s][1];
+        }
+        if (!done || done.every(([, t]) => plainWordRun(t))) continue;
+        for (const [i] of done) spans.push([runs[i][0], runs[i][1]]);
+      }
     }
   }
   return spans;
 }
+/* How many characters of text[from, to) are not whitespace, counting no further than `cap + 1`. */
 function nonSpaceIn(text, from, to, cap = Infinity) {
   let n = 0;
   for (let i = from; i < to && n <= cap; i += 1) if (!/\s/.test(text[i])) n += 1;
