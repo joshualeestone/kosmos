@@ -37,6 +37,21 @@ const path = require('node:path');
 const LAUNCH_ENV_OVERRIDES = Object.fromEntries(Object.entries(process.env)
   .filter(([key]) => key === 'PORT' || key.startsWith('AGENT_WORKFORCE_')));
 const worldRegistryBase = require('./engine/worldenv').bootstrapWorldEnv(process.env);
+/* #4199: next, right after the world bootstrap above (which must stay the FIRST engine require: see
+   server.worldenv-order.test.js): when this file IS the board (not required by a test), every line it writes into
+   board.log starts with a UTC time, so a restart can be matched to what an agent was doing. Only when stdout/stderr is
+   a regular file (board.log under launchd or nohup); a pipe or a terminal is left alone. See engine/logstamp.js. The
+   bootstrap's own named-world lines (#1704/#2528, none on the default world) come before this and carry no time. */
+if (require.main === module) {
+  const logstamp = require('./engine/logstamp');
+  const shared = logstamp.sameFile(1, 2) ? { atLineStart: true } : undefined;   // both to board.log: one line state
+  /* Where board.log is: install/kosmos puts the app at $KOSMOS_HOME/app/server.js and the log at
+     $KOSMOS_HOME/logs/board.log, so it is ../logs/board.log from here (KOSMOS_HOME itself is not exported to the board,
+     so it is not read; engine/logstamp.test.js pins this layout against install/kosmos). */
+  const logPaths = [path.join(__dirname, '..', 'logs', 'board.log')];
+  logstamp.install(process.stdout, 1, { shared, logPaths });
+  logstamp.install(process.stderr, 2, { shared, logPaths });
+}
 // `STATE` travels with them: the thread route compares a member's state, and a
 // literal there is a comparison that silently stops matching the day the engine
 // renames one.
