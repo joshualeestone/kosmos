@@ -98,6 +98,14 @@ function sandbox(version) {
   return dir;
 }
 
+/* #4075: the sandbox never inherits KOSMOS_ALLOW_VERSION_JUMP. A cut that sets it runs this file at step 3, and
+   an inherited override would turn every refusal below into a pass and refuse the cut itself. */
+function sandboxEnv(dir, extra) {
+  const env = { ...process.env, HOME: dir, KOSMOS_SITE: path.join(dir, 'nowhere') };
+  delete env.KOSMOS_ALLOW_VERSION_JUMP;
+  return { ...env, ...(extra || {}) };
+}
+
 function run(dir, version) {
   const before = fs.readFileSync(path.join(dir, 'package.json'), 'utf8');
   /* ⚠️ HOME and the site path are pointed at the sandbox too. The script reads
@@ -107,7 +115,7 @@ function run(dir, version) {
   const r = spawnSync('bash', [path.join(dir, 'tools', 'release.sh'), version], {
     encoding: 'utf8',
     cwd: dir,
-    env: { ...process.env, HOME: dir, KOSMOS_SITE: path.join(dir, 'nowhere') },
+    env: sandboxEnv(dir),
   });
   const after = fs.readFileSync(path.join(dir, 'package.json'), 'utf8');
   return { said: (r.stdout || '') + (r.stderr || ''), status: r.status, touched: before !== after };
@@ -294,6 +302,121 @@ test('the 0.5 line keeps its own spelling and is not refused retroactively', () 
   const r = run(dir, '0.5.102');
   assert.ok(!/two digits|past the end|last of the/.test(r.said), r.said.slice(0, 300));
   assert.match(r.said, /no site checkout at/);
+  assert.equal(r.touched, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+/* #4075: a cut moves FORWARD, and by at most one line. Found by the #4046 review: standing at 0.6.99 the
+   script let 0.8.00 (a whole line skipped) and 0.5.50 (backwards) through to the site check. A typo such as
+   0.5.01 for 0.7.01 is exactly the slip a guard exists for. Each refusal is paired with a control that the
+   neighbouring version, the one a person meant, still gets through. */
+function runEnv(dir, version, extra) {
+  const before = fs.readFileSync(path.join(dir, 'package.json'), 'utf8');
+  const r = spawnSync('bash', [path.join(dir, 'tools', 'release.sh'), version], {
+    encoding: 'utf8', cwd: dir, env: sandboxEnv(dir, extra),
+  });
+  return { said: (r.stdout || '') + (r.stderr || ''), status: r.status, touched: before !== fs.readFileSync(path.join(dir, 'package.json'), 'utf8') };
+}
+for (const [from, to, re] of [
+  ['0.6.50', '0.5.50', /older than 0\.6\.50[^\n]*only moves forward/],
+  ['0.6.99', '0.5.50', /older than 0\.6\.99/],
+  ['0.7.01', '0.6.50', /older than 0\.7\.01/],
+  ['0.6.50', '0.6.49', /older than 0\.6\.50/],
+  ['0.6.50', '0.8.00', /skips a line[^\n]*next line is 0\.7, not 0\.8/],
+  ['0.6.99', '0.8.00', /last of the 0\.6 line|skips a line/],
+  ['0.6.50', '1.0.00', /changes the major version from 0\.6\.50/],
+  ['0.6.50', '0.07.00', /not three numbers in this repo's spelling/],
+  ['0.6.50', '0.06.51', /not three numbers in this repo's spelling/],
+  ['0.6.50', '00.6.51', /not three numbers in this repo's spelling/],
+]) {
+  test(`#4075: standing at ${from}, ${to} is refused`, () => {
+    const dir = sandbox(from);
+    const r = run(dir, to);
+    assert.equal(r.status, 1, r.said.slice(0, 300));
+    assert.match(r.said, re);
+    assert.equal(r.touched, false, 'it edited the version before refusing it');
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+}
+for (const [from, to, why] of [
+  ['0.6.50', '0.6.51', 'the next patch'],
+  ['0.6.50', '0.6.55', 'a skipped patch within the line (an aborted cut can burn one)'],
+  ['0.6.50', '0.6.50', 'a re-cut of the same version'],
+  ['0.6.50', '0.7.00', 'the next line'],
+  ['0.5.102', '0.6.00', 'the move from the 0.5 line to the padded 0.6 line'],
+  ['0.2.99', '0.3.0', 'the 0.2 line ending'],
+]) {
+  test(`#4075 CONTROL: standing at ${from}, ${to} gets through (${why})`, () => {
+    const dir = sandbox(from);
+    const r = run(dir, to);
+    assert.ok(!/older than|skips a line|major version|not three numbers/.test(r.said), r.said.slice(0, 300));
+    assert.match(r.said, /no site checkout at/);
+    assert.equal(r.touched, false);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+}
+test('#4075: KOSMOS_ALLOW_VERSION_JUMP=1 lets a deliberate jump through, and only the value 1 does', () => {
+  const dir = sandbox('0.6.50');
+  const off = runEnv(dir, '1.0.00', { KOSMOS_ALLOW_VERSION_JUMP: '' });
+  const truthy = runEnv(dir, '1.0.00', { KOSMOS_ALLOW_VERSION_JUMP: 'true' });
+  assert.equal(truthy.status, 1, 'a value other than 1 let the jump through');
+  const on = runEnv(dir, '1.0.00', { KOSMOS_ALLOW_VERSION_JUMP: '1' });
+  assert.equal(off.status, 1, 'CONTROL: without the variable the jump is refused');
+  assert.match(on.said, /no site checkout at/, on.said.slice(0, 300));
+  assert.ok(!/major version/.test(on.said));
+  assert.equal(on.touched, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+test('#4075: the refusals hold when the override is exported to this test run (a cut that set it runs this file)', () => {
+  const keep = process.env.KOSMOS_ALLOW_VERSION_JUMP;
+  process.env.KOSMOS_ALLOW_VERSION_JUMP = '1';
+  try {
+    const dir = sandbox('0.6.50');
+    const r = run(dir, '0.5.50');
+    assert.equal(r.status, 1, r.said.slice(0, 300));
+    assert.match(r.said, /older than 0\.6\.50/);
+    fs.rmSync(dir, { recursive: true, force: true });
+  } finally {
+    if (keep === undefined) delete process.env.KOSMOS_ALLOW_VERSION_JUMP; else process.env.KOSMOS_ALLOW_VERSION_JUMP = keep;
+  }
+});
+test('#4075: the override does not waive "three numbers", and an option-shaped version is refused', () => {
+  for (const [v, env] of [['0.5.1a', { KOSMOS_ALLOW_VERSION_JUMP: '1' }], ['--version', {}], ['-p', {}], ['--', {}]]) {
+    const dir = sandbox('0.5.101');
+    const r = runEnv(dir, v, env);
+    assert.equal(r.status, 1, v + ': ' + r.said.slice(0, 200));
+    assert.match(r.said, /not three numbers/, v + ': ' + r.said.slice(0, 200));
+    assert.equal(r.touched, false);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+test('#4075: a checkout whose own version is not three numbers refuses (fails closed), unless overridden', () => {
+  const dir = sandbox('0.6.50-rc1');
+  const r = run(dir, '0.6.51');
+  const o = runEnv(dir, '0.6.51', { KOSMOS_ALLOW_VERSION_JUMP: '1' });
+  assert.equal(r.status, 1, r.said.slice(0, 300));
+  assert.match(r.said, /this checkout is at "0\.6\.50-rc1", which is not three numbers/);
+  const z = sandbox('0.08.50');   // a leading-zero minor in package.json fails closed too (no octal arithmetic reached)
+  const rz = run(z, '0.10.00');
+  assert.equal(rz.status, 1, rz.said.slice(0, 300));
+  assert.doesNotMatch(rz.said, /value too great for base|no site checkout at/);
+  fs.rmSync(z, { recursive: true, force: true });
+  assert.match(o.said, /no site checkout at/, 'CONTROL: the override lets it through: ' + o.said.slice(0, 200));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+test('#4075: the skip message names the real major', () => {
+  const dir = sandbox('1.0.50');
+  const r = run(dir, '1.3.00');
+  assert.equal(r.status, 1);
+  assert.match(r.said, /next line is 1\.1, not 1\.3/, r.said.slice(0, 300));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+test('#4075: a version that is not three numbers is refused, not compared', () => {
+  // On the 0.5 line: from 0.6 on, the spelling guard above answers first ("past the end of the line").
+  const dir = sandbox('0.5.101');
+  const r = run(dir, '0.5.1a');
+  assert.equal(r.status, 1);
+  assert.match(r.said, /not three numbers/);
   assert.equal(r.touched, false);
   fs.rmSync(dir, { recursive: true, force: true });
 });
