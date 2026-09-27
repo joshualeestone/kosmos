@@ -169,7 +169,8 @@ async function seenIsCurrent() {
           ring: getComputedStyle(document.activeElement).outlineStyle,
           link: (() => { const a = box.querySelector('#wn-more').getBoundingClientRect(); return { left: a.left - r.left < 48, bottom: r.bottom - a.bottom < 48 }; })(),
           icons: box.querySelectorAll('.wn-tile svg').length, focus: document.activeElement && document.activeElement.id,
-          centred: r && Math.abs((r.left + r.width / 2) - innerWidth / 2) < 4, more: box.querySelector('#wn-more').getAttribute('href'),
+          /* The page's width, not the window's: where scrollbars take width (the CI runner) the gutter is not where a fixed dialog centres. */
+          centred: r && Math.abs((r.left + r.width / 2) - document.documentElement.clientWidth / 2) < 4, more: box.querySelector('#wn-more').getAttribute('href'),
           rel: box.querySelector('#wn-more').getAttribute('rel'),
         } : null;
       });
