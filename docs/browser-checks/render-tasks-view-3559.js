@@ -198,7 +198,7 @@ function chk(ok, label, extra) {
         const side = (k) => cs['border' + k + 'Style'] === 'none' || cs['border' + k + 'Width'] === '0px';
         return { sides: ['Top', 'Right', 'Bottom', 'Left'].every(side), r: cs.borderTopLeftRadius, outline: cs.outlineStyle,
           shadow: cs.boxShadow, tileBorder: tile.borderTopWidth }; });
-      chk(tabFrame.sides && tabFrame.r === '0px' && tabFrame.outline === 'none' && tabFrame.shadow === 'none' && tabFrame.tileBorder !== '0px',
+      chk(tabFrame.sides && tabFrame.r === '0px' && tabFrame.outline === 'none' && tabFrame.shadow === 'none' && tabFrame.tileBorder === '1px',
         `${tag} the tab view has no outer frame; the tiles keep their own border`, JSON.stringify(tabFrame));
       /* #3949 (Josh, 09-26 18:03): two bands, read as PIXELS (what he sees, not what the CSS says): the top band
          (title to tiles) on the page's ground to the window's left and right edges; from Group by down, the surface
@@ -392,6 +392,16 @@ function chk(ok, label, extra) {
           return out;
         });
         chk(emptiedNoSearch.grp === 0 && emptiedNoSearch.text === 'No tasks match.', `${tag} with no search, a project and a tile that empty the list show one "No tasks match." line`, JSON.stringify(emptiedNoSearch));
+        /* #3949: with no filter at all and no tasks, the one line says so plainly (not "match"). Driven through the
+           page's own data and painter, then put back. */
+        const noneYet = await page.evaluate(() => {
+          const keep = { data: TSK.data, tile: TSK.tile, proj: TSK.proj, win: TSK.win, q: TSK.q };
+          TSK.data = []; TSK.tile = null; TSK.proj = null; TSK.win = 0; TSK.q = ''; tskPaint();
+          const out = { grp: document.querySelectorAll('#tsk-groups .tsk-grp').length, text: document.getElementById('tsk-groups').textContent.trim() };
+          Object.assign(TSK, keep); tskPaint();
+          return out;
+        });
+        chk(noneYet.grp === 0 && noneYet.text === 'No tasks yet.', `${tag} with no filter and no tasks the one line says "No tasks yet."`, JSON.stringify(noneYet));
         /* And unreadable with nothing listed: the group says it cannot tell, never "Nothing here" (review round 10). */
         const unknownEmpty = await page.evaluate(() => {
           TSK.rosterUnknown = true; tskPaint();
@@ -580,6 +590,17 @@ function chk(ok, label, extra) {
           i.src = 'data:image/png;base64,' + src; }), b64);
         const near = (p, q) => p.every((v, k) => Math.abs(v - q[k]) <= 2);
         chk(cg.railRight <= cg.colLeft && !near(railPx, cg.surface), '[consolidated] the white band stays in the column: the rail beside it is not painted', JSON.stringify({ cg, railPx }));
+        /* And the bands themselves in the column: ground behind the tiles, surface at Group by, a shaded card. */
+        const readAt = async (x, y) => { const b = (await page.screenshot({ clip: { x, y, width: 1, height: 1 } })).toString('base64');
+          return page.evaluate((src) => new Promise((ok) => { const i = new Image(); i.onload = () => { const c = document.createElement('canvas');
+            c.width = 1; c.height = 1; const x2 = c.getContext('2d'); x2.drawImage(i, 0, 0); ok([...x2.getImageData(0, 0, 1, 1).data].slice(0, 3)); };
+            i.src = 'data:image/png;base64,' + src; }), b); };
+        const cp = await page.evaluate(() => { const r = (q) => document.querySelector(q).getBoundingClientRect(); const col = r('#panel-tasks');
+          const tiles = r('#tsk-tiles'); const under = r('#tsk-under'); const list = r('#tsk-groups .tsk-list');
+          return { x: Math.round(col.left + 4), bandY: Math.round(tiles.bottom + 6), belowY: Math.round(under.top + under.height / 2), lx: Math.round(list.left + 6), ly: Math.round(list.top + 6) }; });
+        const colPx = { band: await readAt(cp.x, cp.bandY), below: await readAt(cp.x, cp.belowY), card: await readAt(cp.lx, cp.ly) };
+        chk(near(colPx.band, cg.bg) && near(colPx.below, cg.surface) && near(colPx.card, cg.bg),
+          '[consolidated] in the column: the ground under the tiles, the surface from Group by, the cards shaded', JSON.stringify({ cp, colPx, bg: cg.bg, surface: cg.surface }));
       }
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'tasks-from-consolidated.png'), fullPage: false });
       /* From consolidated Kosmos+ settings, Tasks takes the Plus chrome down (#3599's rule). */
