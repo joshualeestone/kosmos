@@ -27,8 +27,9 @@ the cluster icons jiggle and shift about maybe 1 or 2 pixels".
   any arm fails, so one run can hold two attempts): with only the faces layered, 2 of 6 attempts were
   red (a neighbour's pixels moved by 10/255); with the nodes layered as well, 12 of 12 attempts over
   11 runs passed (one run was retried for an unrelated arm, S4). Without either, every attempt is red.
-- The cost is a few small layers per agent while the chart is shown; the selectors stay on the org
-  chart's 44px nodes.
+- The cost is three small layers per agent (node, face contents, callout), plus a clip mask for a face
+  with a picture, while the chart is shown; unmeasured on a large fleet. The selectors stay on the org
+  chart's 44px nodes. The callout's layer is kept because it was part of the configuration measured.
 
 ## The check
 
@@ -52,6 +53,10 @@ noise, which made the check red with and without the fix. The shift it guards me
 The fix is measured, not proven: the jiggle was intermittent, and 0 red in 12 attempts shows it is far
 rarer, not that it is impossible. If S41 goes red now and then in CI, read it as this race first, not
 as a new regression, and look at the pixel figure it prints (a real shift measured 10/255).
+
+Text on a layer of its own can lose subpixel antialiasing, which could soften it on a non-Retina display.
+On this chart no names show at rest (hover only), so the only text on these layers is the hover callout,
+which already sat on a layer during its transition. Unmeasured on a non-Retina display.
 
 Josh sees it in the Mac app, a WKWebView. It is reproduced and fixed here in Chromium only. Playwright's
 WebKit drew no cluster in the fixture (so its run compared nothing and proves nothing), and it is not the

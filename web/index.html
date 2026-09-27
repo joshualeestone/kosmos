@@ -1903,9 +1903,10 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    browser layers a face only while its opacity animates, re-rasterizing the faces around it, so a neighbouring
    cluster's circles (pictures at fractional positions) were redrawn a pixel over each time another agent was
    hovered (measured in Chromium). No box moved; render-swarm-ui-3564.js S41 compares the pixels. The hover
-   callout animates its opacity the same way and gets the same treatment, as a precaution. The cost is two small
-   layers per agent (face and callout) while the chart is shown, unmeasured on a large fleet; keep it to the org
-   chart's 44px nodes, and do not widen these selectors to the grid or list. */
+   callout animates its opacity the same way and gets the same treatment, as a precaution. With the node layer
+   above, the cost is three small layers per agent (node, face contents, callout), plus a clip mask for a face
+   with a picture, while the chart is shown; unmeasured on a large fleet. Keep it to the org chart's 44px
+   nodes, and do not widen these selectors to the grid or list. */
 .onode .face > * { opacity: .5; transition: opacity .12s ease; will-change: opacity; }
 .onode:hover .face > *, .onode:focus-visible .face > * { opacity: 1; }
 .onode:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 4px; border-radius: 50%; }
