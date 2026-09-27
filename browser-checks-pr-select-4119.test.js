@@ -10,6 +10,8 @@
  *   - #3985 (5a2aae1e3) broke render-talk. The #2518 surface map alone does not select it; the
  *     check's own selectors do.
  *   - #4095 (743711ea6) broke render-fields. No selector can select it; its page scope does.
+ *   - #4131 (a936fb83f..d586f361a, rebase-merged) broke render-room-msgbox-2806 on main after its
+ *     PR job passed. The surface map alone does not select it; its `pj-post` selector does.
  *
  *   node --test browser-checks-pr-select-4119.test.js
  */
@@ -34,6 +36,17 @@ function needCommit(c) {
   try { execFileSync('git', ['cat-file', '-e', `${c}^{commit}`], { cwd: __dirname, stdio: 'ignore' }); }
   catch { assert.fail(`${c} is not in this clone; the replay cannot run (needs full history: git fetch --unshallow)`); }
 }
+
+test('#4131 replay: render-room-msgbox-2806 is selected by its pj-post selector, which the surface map alone misses', () => {
+  const [base, head] = ['a936fb83f', 'd586f361a']; // the PR was rebase-merged: its commits sit on base
+  needCommit(base); needCommit(head);
+  const got = rows(run(base, head));
+  assert.match(got.get('render-room-msgbox-2806') || '', /selector .*\bpj-post\b/);
+  const diff = execFileSync('git', ['diff', `${base}...${head}`, '--', 'web/index.html'], { cwd: __dirname, encoding: 'utf8', maxBuffer: 64 << 20 });
+  const covering = execFileSync('bash', ['tools/bc-surface-map.sh', 'covering'], { cwd: __dirname, input: diff, encoding: 'utf8' });
+  assert.ok(covering.trim().length > 0, 'the surface map selected nothing at all, so this comparison is vacuous');
+  assert.ok(!/^render-room-msgbox-2806\.js$/m.test(covering), 'the surface map now selects it by itself; update this arm');
+});
 
 test('#3985 replay: render-talk is selected by its own selectors, which the surface map alone misses', () => {
   const c = '5a2aae1e3';
