@@ -312,3 +312,8 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
 - Not covered names chunks and words joined into one run by - _ or / (main leaks it too).
 - NITs noted: shortHead keyed by form string (two values with the same form would share a head; not reachable
   realistically); the round-26 test asserts a known limit on purpose, as its message says.
+
+## Review round 28 (Sonnet), what changed
+- No leak, false mask or slowdown found. The one WARNING: five gap-4 fixtures held vendor-prefixed fake keys as single
+  literals (sk-ant-api03-..., sk-proj-...), which a secret scanner reads as real keys; they are built with j(...) now,
+  as the rest of the file's fakes are. (One on main, outside this change, is left alone.)

@@ -1727,12 +1727,12 @@ test('#3995 gap 4 review round 21: a key whose second character is + / = or - is
 });
 
 test('#3995 gap 4 review round 22: a held value that only starts with sk- is not given a public head; a real vendor key in chunks is masked', () => {
-  setKnownSecrets(['sk-Ab3-vLm3pRt6wXy9kHb2nW']);
+  setKnownSecrets([j('sk-', 'Ab3-vLm3pRt6wXy9kHb2nW')]);
   try {
     const t = mask('sk and Ab3 and vLm and 3pR and t6w and Xy9 and kHb and 2nW').text;
     assert.ok(!t.includes('Ab3'), 'a secret chunk after a bare sk- showed: ' + t);
   } finally { setKnownSecrets([]); }
-  setKnownSecrets(['sk-ant-api03-Zq8vLm3pRt6wXy9kHb2nWc4dQ7eF']);
+  setKnownSecrets([j('sk-ant-', 'api03-', 'Zq8vLm3pRt6wXy9kHb2nWc4dQ7eF')]);
   try {
     const t = mask('Every key starts with sk-ant-api03-. Yours: Zq8 then vLm then 3pR then t6w then Xy9 then kHb then 2nW then c4d then Q7e then F done').text;
     // (Whether the named prefix itself stays readable here is the word walk's call, the same as on main.)
@@ -1741,7 +1741,7 @@ test('#3995 gap 4 review round 22: a held value that only starts with sk- is not
 });
 
 test('#3995 gap 4 review round 23: a vendor key given without its prefix, its body starting with - or _, is masked; a repeat after the key too', () => {
-  for (const held of ['sk-ant-api03-p-Yj08Pngzzcw9-49qzWLsGQpUqB9iRXkJxVC1gbAA', 'sk-proj-t_QCfZq8vLm3pRt6wXy9kHb2nWc4d']) {
+  for (const held of [j('sk-ant-', 'api03-', 'p-Yj08Pngzzcw9-49qzWLsGQpUqB9iRXkJxVC1gbAA'), j('sk-', 'proj-', 't_QCfZq8vLm3pRt6wXy9kHb2nWc4d')]) {
     setKnownSecrets([held]);
     try {
       const body = held.replace(/^(?:sk-ant-api03-|sk-proj-)/, '');
@@ -1761,7 +1761,7 @@ test('#3995 gap 4 review round 23: a vendor key given without its prefix, its bo
 });
 
 test('#3995 gap 4 review round 24: a vendor key whose body is hex, given without its prefix in short chunks, is masked', () => {
-  setKnownSecrets(['sk-proj-3f9a2c7e1b4d8f6a0c5e9b2d17aa22bb']);
+  setKnownSecrets([j('sk-', 'proj-', '3f9a2c7e1b4d8f6a0c5e9b2d17aa22bb')]);
   try {
     const chunks = '3f9a2c7e1b4d8f6a0c5e9b2d17aa22bb'.match(/.{1,3}/g);
     const t = mask('Here it is, without the prefix: ' + chunks.join(' then ') + ' done.').text;
