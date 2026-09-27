@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: avatar-4230
-diff_hash: 3b00d331283eeef006eacfbc6d032c03ffcd1e3ebe669c012afbae1f0ce10c73
+diff_hash: 89404222466aff707a56ba151f66c2d93f4e9bdf28188992f87e0b9355a999c5
 subdir_audit: passed
 timestamp: 2026-09-27T18:36:53Z
 converged: true
@@ -30,3 +30,9 @@ Not run: iteration 1 found nothing.
   at real size (about 34px): cap, glasses and face readable.
 - Crop chosen from three, previewed as circles at 46, 34 and 28px (Josh: "feel free to crop in tighter").
 - Full suite 10788 pass, 0 fail, exit 0. #1720 (trailer) and #2518 gates pass.
+- Added (Splinter, 13:52): Josh's new opening, verbatim from his #admin message: "Hi I'm Josh, an AI Assistant to help
+  you get your Kosmos setup. I am context aware, so I can help with whatever screen you are stuck on or even with
+  troubleshooting agents. What can I help you with?" It replaces the old sentence in all five places that held it:
+  the page (asbOpening), the engine (roles.GUIDE_GREETING), roles.test and the two browser checks, so the page and
+  the guide say the same words. roles.test 3/3; render-assistant-bubble-3034 and render-assistant-hosted-3660 pass on
+  the branch; web.*.test.js 1994/0.
