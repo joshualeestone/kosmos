@@ -51,3 +51,7 @@ That no screen needs a Muse row after "done" to make sense. Today, "done" says s
 - A reason that already says to start again is not followed by "You can try again". Control red.
 - Two stale comments removed.
 - Accepted: on reopen, the option can hold the last visit's answer until this visit's read lands (one local fetch; a start in that window refuses in words). An unreachable board is not named during polling, as with Grok's driver.
+
+## Review round 6 (decided, converged)
+- 0 BLOCKER, 0 WARNING (sonnet, after opus round 5); five mutations of decided behaviours are each caught by the check.
+- Its one CONVENTION finding is judged not an issue: the plan filename carries no timestamp. It is the <branch>.md form every plan in this repo uses, and the one the pre-PR plan gate accepts (muse-run-3939.md, muse-ui-3939.md passed it). Renaming this one alone would diverge from the gate and its siblings.
