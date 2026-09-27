@@ -12,7 +12,10 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib/cut-guard.sh"
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+# Under /tmp by name, not from TMPDIR: where mktemp honours TMPDIR (Linux, under run-tests.sh) $T
+# would sit in a kt<digits> folder, and the real-path decoy below, a genuine browser-checks.sh run
+# from $T, would then rightly read as a unit-test fixture and stop testing the guard (#4206).
+T="$(mktemp -d /tmp/bcguard.XXXXXX)"; trap 'rm -rf "$T"' EXIT
 # #2271: isolate every guard call below from the SHARED machine's real run-markers. The guard checks
 # the marker dir (via _kosmos_marker_dir) IN ADDITION to KOSMOS_BC_PROBE, so on a busy box a foreign
 # browser-checks run's marker leaked PAST the process probe and RED this test inside the cut's step-3

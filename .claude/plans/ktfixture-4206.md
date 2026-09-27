@@ -85,8 +85,9 @@ such a context), so the measurement is the evidence.
   in production on macOS (TMPDIR /var/..., lsof /private/var/...), where only the regex decides for an
   lsof cwd; that errs toward counting, predates this branch, and is now named in the function comment.
 - #4211's older live sleeps run from /, so their cwd can never be a kt folder.
-- Not changed: test-browser-run-guard.sh's opt-in real-path decoy runs from its mktemp dir, which on
-  Linux under run-tests.sh sits in a kt folder and would now be dropped. Opt-in and run by hand on macOS.
+- test-browser-run-guard.sh's temp dir is made under /tmp by name (review 6): its opt-in real-path
+  decoy, a genuine browser-checks.sh run from that dir, would otherwise sit in a kt folder on Linux under
+  run-tests.sh and be dropped as a fixture by the new browser-guard filter, so it would stop testing.
 
 ## Weakest premise
 
