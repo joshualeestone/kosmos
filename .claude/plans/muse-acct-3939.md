@@ -97,3 +97,13 @@ picker lists only the Claude row. Both arms go red when acctProvider forgets Met
 - N3: commented that the move picker's Claude arm excludes the row by memoryShared, not
   by provider. N4 ACCEPTED: the 3 s fallback reads the option's last answer, the same as
   the Gemini row's accepted #3998 behaviour.
+
+## Review round 5 (opus): 1 blocker, 0 warnings, 2 nits
+- BLOCKER FIXED: round 4 gave acctFlowPaint two new names (MUSE_BUSY, acctAddPickSay) and
+  web.connect-success-1656.test.js lifts acctFlowPaint with a stub page, so it went red.
+  Round 1's note that the sliced tests were updated had become false. Its stub now carries
+  the element and both names. Lesson taken: after ANY change to a lifted function, run
+  every web.*.test.js, not only the files touched (2018/2018 now).
+- N1 FIXED: with the picker moved off a running Claude sign-in (its step and Stop hidden),
+  Sign in again now puts Claude's step back on screen before the "under way" line speaks.
+- N2 FIXED: going back to "Choose a provider" clears the line too.

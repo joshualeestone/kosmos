@@ -24174,6 +24174,7 @@ document.getElementById('acct-provider-pick').addEventListener('change', (e) => 
   document.getElementById('acct-claude-flow').hidden = true;
   document.getElementById('acct-openai-flow').hidden = true;
   acctApikeyShow(null);
+  acctAddPickSay('');   // #3939 slice 3c-2 (round 5): going back to "Choose a provider" is a choice too
 });
 /* #770: the door opens the dialog; the dialog remembers nothing between
    visits on purpose (choosing a provider is the first thing a person
@@ -26229,7 +26230,14 @@ async function acctMuseSignInAgain(ev) {
   const pickAtOpen = (document.getElementById('acct-provider-pick') || {}).value || '';
   /* Round 3: openAcctAdd keeps a sign-in that is already under way on screen, with its provider picked.
      Meta's step is not laid over it; the line beside the picker says what to do instead. */
-  if (pickAtOpen !== '') { acctAddPickSay(MUSE_BUSY); return; }
+  if (pickAtOpen !== '') {
+    /* Round 5: the person may have moved the picker off Claude mid-sign-in, which hid its step and Stop.
+       Put it back on screen as acctFlowPaint does while a sign-in runs, then speak (acctPick clears the line). */
+    if (pickAtOpen !== 'claude') acctPick('claude', { focus: false });
+    acctClaudeShowSub();
+    acctAddPickSay(MUSE_BUSY);
+    return;
+  }
   const asking = ACCT_MUSE_ASKING || museAsk();
   const on = await Promise.race([Promise.resolve(asking).catch(() => false), new Promise((r) => setTimeout(() => r(null), 3000))]);
   const modal = document.getElementById('acct-add-modal');

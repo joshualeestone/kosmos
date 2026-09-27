@@ -414,6 +414,17 @@ const chk = (ok, label, extra) => {
   const gap = await q(() => { const p = document.getElementById('acct-add-pick-say'); const empty = getComputedStyle(p).marginTop; acctAddPickSay('x'); const full = getComputedStyle(p).marginTop; acctAddPickSay(''); return { empty, full }; });
   chk(gap.empty === '0px' && gap.full !== '0px', 'the line beside the picker takes room only while it has something to say', JSON.stringify(gap));
   await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); });
+  // Round 5, N1: the picker moved off Claude mid-sign-in (its step and Stop hidden): Sign in again puts Claude's
+  // step back on screen, so the line never points at a Stop that cannot be seen.
+  await q(() => { closeAcctAdd(); window.__museOn = true; ACCT_FLOW_LAST = 'downloading|probe'; document.getElementById('acct-provider-pick').value = 'openai'; document.querySelector('#set-accounts [data-muse-reauth]').click(); });
+  await page.waitForTimeout(300);
+  const moved = await q(() => ({ say: document.getElementById('acct-add-pick-say').textContent, pick: document.getElementById('acct-provider-pick').value, claudeShown: !document.getElementById('acct-claude-flow').hidden, openaiShown: !document.getElementById('acct-openai-flow').hidden }));
+  chk(/under way/.test(moved.say) && moved.pick === 'claude' && moved.claudeShown && !moved.openaiShown, 'with the picker moved off a running Claude sign-in, Sign in again puts that sign-in back on screen beside the line', JSON.stringify(moved));
+  await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); });
+  // Round 5, N2: going back to "Choose a provider" clears the line too.
+  await q(() => { openAcctAdd(); acctAddPickSay('stale words'); const sel = document.getElementById('acct-provider-pick'); sel.value = ''; sel.dispatchEvent(new Event('change')); });
+  chk(await q(() => document.getElementById('acct-add-pick-say').textContent === ''), 'going back to "Choose a provider" clears the line beside the picker');
+  await q(() => closeAcctAdd());
   // Round 1, W5: the Connections box never counts Meta Muse as thinking for agents (no agent runs on it yet).
   await q((row) => { window.__accounts = [row]; }, MUSE_ROW);
   await q(() => paintConnLive()); await settle();
