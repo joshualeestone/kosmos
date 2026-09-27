@@ -86,8 +86,7 @@ test('#4194: the gate ships OPEN in this commit (a receiving phone app exists)',
   assert.equal(phonenotify.PHONE_APP_CAN_RECEIVE, true, 'the ship gate is closed; #4194 opens it for the release after Josh says yes');
 });
 
-test('#4194: with the gate open as shipped, the setting reads available', async () => {
-  phonenotify.setAvailableForTests(true);   // what the shipped constant gives; set explicitly in case a test before closed it
+test('#4194: with the gate open as shipped, the setting reads available (the module default, nothing set by the test)', async () => {
   const st = await call('GET', '/api/phone-notify');
   assert.equal(st.json.available, true, JSON.stringify(st.json));
 });

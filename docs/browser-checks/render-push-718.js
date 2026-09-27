@@ -106,7 +106,7 @@ function check(name, pass, detail) {
      user without the phone app is told it is in testing (not in the stores yet), so the switch does not mislead. */
   const pnShown = await page.waitForFunction(() => { const sec = document.getElementById('phone-notify'); return !!sec && !sec.hidden; }, null, { timeout: 8000 })
     .then(() => true, () => false);
-  check('#4194: with the ship gate open, the Phone notifications section is shown', pnShown);
+  check('#4194: with the ship gate open, the Phone notifications section is not hidden', pnShown);
   const pnNote = await page.evaluate(() => { const n = document.getElementById('phone-notify-testing'); return n ? n.textContent : ''; });
   check('#4194: the section says the phone app is in testing and not in the stores yet',
     /still in testing/.test(pnNote) && /not in the App Store or Google Play/.test(pnNote), JSON.stringify(pnNote));

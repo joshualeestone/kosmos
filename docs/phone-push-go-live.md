@@ -36,10 +36,10 @@ the durable references. Commit ids say exactly what was checked this time.
   no iOS app registration. Steps 2, 3 and 8 describe the separate APNs rollout.
 - **The next Mac/tunnel release must contain two merged tunnel changes.** They
   are relay #161's per-Mac asset links and #174's sign-in gate that preserves
-  the waiting agent. Separately, `PHONE_APP_CAN_RECEIVE` is still `false` in
-  `engine/phonenotify.js`. Flipping it is neither written nor decided. Josh's
-  decision is #4194. Unless he approves and a later code PR lands, Settings
-  stays hidden and no released Mac can send phone events.
+  the waiting agent. `PHONE_APP_CAN_RECEIVE` is now `true` in
+  `engine/phonenotify.js` (Josh approved #4194; phonegate-4194). A Mac release
+  carrying it shows the Phone notifications setting (off by default), with a
+  line saying the phone app is in testing.
 - **Android vc3 is built and proven.** The signed `io.kosmos.app` versionCode 3,
   versionName 0.1.2 APK is in Liu Kang's Files. Evidence in
   `android/evidence/vc3-4165/` proves install over vc2, sign-in, offline Retry,
@@ -458,24 +458,17 @@ this computer needs an update before phone notifications can be turned on”
 
 ## Step 7. Decide whether to open the lock, then carry that decision in a board release [Josh decides; fleet implements and builds]
 
-**Not decided or implemented:** #4194 asks Josh whether this release should
-set `PHONE_APP_CAN_RECEIVE` to `true`. The coordinator deploy and APK cannot
-open this lock. Unless Josh says yes and the code change below merges, a Mac
-release must keep the lock closed and expose no phone notification switch.
+**Decided and implemented:** Josh approved #4194, and phonegate-4194 set
+`PHONE_APP_CAN_RECEIVE` to `true`. That PR also reworked
+`server.phonenotify-gate-718.test.js`, so the closed-gate tests close the gate
+explicitly and a test pins the open value. It added the Settings line saying
+the phone app is in testing.
 
-**If #4194 is approved, this release carries:** the rebuilt tunnel from Step 6
-and the later Kosmos board PR that sets the gate to `true`.
-
-**Code change, one later kosmos PR, only after Josh approves #4194:**
-- Flip `PHONE_APP_CAN_RECEIVE` to `true` in `engine/phonenotify.js`.
-- In the same PR, rework `server.phonenotify-gate-718.test.js`. It is not one test:
-  - "the gate ships closed in this commit" asserts the constant is `false`;
-  - the three "gate closed: ..." tests rely on the module's default being closed and never close
-    it themselves.
-  They all fail when the constant flips. Close the gate explicitly in those three
-  (`setAvailableForTests`), and change the first to assert the new shipped value.
-- Only do this once steps 4 and 5 have an app that receives. The lock exists so that no Mac
-  sends before a phone can hear it.
+**This release carries:** the rebuilt tunnel from Step 6 and the board with
+the gate open. The bundle build refuses a gate-open bundle whose Plus connector
+lacks `mac-request` (`tools/lib/connector-verbs.sh`), because turning phone
+notifications on needs it. So the tunnel from Step 6 must be the one inside
+this release.
 
 **Before the staging cut, Josh signs off the release notes and site copy** [Josh].
 - A staging cut is not private. `KOSMOS_CUT_CHANNEL=staging tools/release.sh` holds back only the
@@ -569,10 +562,6 @@ notification behavior still arrives through Kosmos releases.
 
 ## Known gaps (not decided here)
 
-- **Phone notification sending is still locked off on the Mac.**
-  `PHONE_APP_CAN_RECEIVE` remains `false` in `engine/phonenotify.js`. Whether
-  to flip it is Josh's open decision #4194, not an existing change or a promised
-  part of the next release. Step 7 describes the conditional implementation.
 - **Relay #175 is merged as `bc56ec8f`, but not live.** Its exact 16-byte
   auth-secret rule rides the next coordinator deploy, as recorded on #3763.
 - **iOS shows no Approve or Deny buttons on a notification** (#3870). They were registered but
