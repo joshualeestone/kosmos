@@ -171,14 +171,11 @@ test('every message row draws the attachment card, and the + and drop targets ar
      Assert the pendingIds body appears TWICE -- once per composer (the project room
      and the agent page) -- which verifies BOTH carry the pending ids without pinning
      the removed wrapper. */
-  /* #3745: the ROOM's body also carries `reply_to`, so it is built with Object.assign; it still
-     carries every pending id as `attachments`. One of each form, one per composer. */
-  assert.equal(
-    (SCRIPT.match(/body: JSON\.stringify\(pendingIds\.length \? \{ text, attachments: pendingIds \} : \{ text \}\)/g) || []).length,
-    1, 'the agent page composer must carry the pending ids in its send body');
+  /* #3745 / #4256: both bodies also carry `reply_to`, so both are built with Object.assign, and each
+     still carries every pending id as `attachments`: this form twice, once per composer. */
   assert.equal(
     (SCRIPT.match(/body: JSON\.stringify\(Object\.assign\(\{ text \},\s*pendingIds\.length \? \{ attachments: pendingIds \} : \{\},/g) || []).length,
-    1, 'the project room composer must carry the pending ids in its send body');
+    2, 'the project room and the agent page composers must both carry the pending ids in their send body');
   assert.equal((SCRIPT.match(/else if \(attachList\(ATTACH_AGENT\)\.length\) sendTalk\(/g) || []).length, 2, 'Send (click and Enter) with files and no words does nothing on one of the two paths');
   /* Keyed by agent and by project, like the drafts: a switch repaints the
      right chips, and a send clears only the target it went to. */

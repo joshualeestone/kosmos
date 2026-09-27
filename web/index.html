@@ -31280,7 +31280,9 @@ async function sendTalk(text, attachment) {
     const res = await fetch('/api/agent/' + encodeURIComponent(sentName) + '/thread', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text, ...(pendingIds.length ? { attachments: pendingIds } : {}), ...(replying ? { reply_to: replying.at } : {}) }),   // #4256
+      body: JSON.stringify(Object.assign({ text },
+        pendingIds.length ? { attachments: pendingIds } : {},
+        replying ? { reply_to: replying.at } : {})),   // #4256: the room's form (#3745), so both senders read alike
     });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not send that');
