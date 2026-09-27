@@ -2,8 +2,8 @@
 
 ## What finished looks like
 When a Muse Code turn ends with "missing meta credential", GET /api/muse answers
-signedIn: false from then on, until a new sign-in (through Kosmos, or Muse's own
-file store written after it). Engine only; no screen changes. This is the
+signedIn: false from then on, until a new sign-in (through Kosmos, a new credential
+in Muse's own file store) or a completed turn. Engine only; no screen changes. This is the
 precondition musestatus.js names before any screen may read signedIn (the AI
 Models account row is the next slice).
 
@@ -23,8 +23,8 @@ Models account row is the next slice).
 - runTurn clears on the exact stderr it already classifies ("missing meta
   credential", singular or plural), nothing broader: a crash or timeout says
   nothing about the sign-in.
-- Clearing never throws into the turn: a failed write is logged and the turn's
-  answer is unchanged.
+- Recording never throws into the turn: a failed write returns false and the
+  turn's answer is unchanged.
 
 ## Not in this slice
 The AI Models account row, the first-run row, the create-agent option, running an
