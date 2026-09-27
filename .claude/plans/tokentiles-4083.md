@@ -16,8 +16,10 @@ and its number.
   equal areas share a baseline. The `=` spans both rows.
 - `.tv-flabel` centres its text vertically (flex).
 - The hero number is `clamp(18px,6cqi,64px)` (was `26px,8cqi,80px`): a little smaller, sized so a
-  7-character headline ($135.0M, $999.9K, 150.0B) keeps 12px or more off the tile edges at 390 wide as
-  well as on a desktop (measured: 6.5cqi with a 24px floor left it under 8px on a phone).
+  7-character headline ($135.0M, $999.9K, 150.0B) keeps 12px or more off the tile edges on a desktop and
+  at 390 wide. Measured margins for $135.0M on a 390px phone, the tightest case, per setting tried:
+  `clamp(24px,6.5cqi,64px)` 7.86px (font at its 24px floor); `clamp(20px,6.5cqi,64px)` 11.39px (22.23px);
+  `clamp(18px,6cqi,64px)` 14.83px (20.52px), shipped. On a desktop it is 26.94px.
 - On a phone (one column) the stat tiles stand alone, so they go back to a plain column with their gap.
 
 ## The check
@@ -32,7 +34,10 @@ label centring removed (-7px).
 
 ## Weakest premise
 
-Subgrid needs Safari 16+ / Chrome 117+. Without it the `subgrid` value is dropped: each tile stays a grid
-whose own two implicit rows split the parent rows' height, so it does not break, but the rows are not
-shared and a wrapping label lifts its tile again, as before. Whether the Mac app's supported macOS
-versions all ship a WebKit with subgrid was not checked here.
+The 12px margin arm has 2.8px of headroom on a 390px phone (14.83px measured). A machine whose monospace
+font runs wider could red it; the arm prints every width and the font size, so such a red explains itself.
+
+Subgrid needs Safari 16+ / Chrome 117+. Checked: the Mac app's floor is macOS 13.5 (`install/setup.sh`
+MACOS_FLOOR_MAJOR/MINOR, held to `tools/macos-floor` by check-floor-consistency.sh), whose WebKit is
+Safari 16.5's; Windows' WebView2 is an evergreen Chromium. So no supported install lacks it. Without it
+the `subgrid` value would be dropped and a wrapping label would lift its tile again, as before.
