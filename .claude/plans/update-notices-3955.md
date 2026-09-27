@@ -107,6 +107,10 @@ Card #3955 (Josh, #admin, 2026-09-26 08:11). Design: Mona Lisa's mock on card-sh
 ## Review round 14 (decided)
 - server.test.js's "one definition of running" test reads watchForAgent and watchForAgentNow (round 13 moved the body under a counter), each brace-matched; the browser-check README row describes the window as Josh ruled it.
 
+## Review round 15 (decided)
+- The window also waits while first run or the update overlay is on screen (the same deadline as the tip wait), and never takes focus from under a screen drawn over it.
+- Left: a press inside the card released on the backdrop closes it, as every other .rm-back dialog in the app does.
+
 ## Tests
 - The chip's two states and its one button; the stale chip never says "Kosmos updated"; engine-stale still first.
 - Safe reload: reloads when hidden and idle; not when visible, sending, drafting, or a dialog is open.

@@ -139,3 +139,19 @@ test('#3955 round 12: the window takes Escape and Tab first (capture) and stops 
   assert.match(block, /if \(e\.key !== 'Tab'\) return;\n\s*e\.stopPropagation\(\);/, 'Tab is not stopped, so two traps fight over it');
   assert.match(block, /\n\}, true\);\s*$/, 'the key listener is not in the capture phase, so the dialog under it hears the key first');
 });
+
+test('#3955 round 15: the window also waits while first run is on screen, then opens', { timeout: 5000 }, async () => {
+  const opened = [];
+  const fetchStub = async (url, opts) => ((opts && opts.method === 'POST') ? { ok: true, text: async () => '' }
+    : { ok: true, json: async () => ({ current: '0.6.98', seen: '0.6.97', highlights: H1 }) });
+  const api = new Function('fetch', 'bakedVersion', 'wnOpen', 'setTimeout',
+    'let TIP_OPEN = null; let firstRun = true; const wnCovered = () => firstRun;\n' + page.liftAll(SCRIPT, ['wnNewer', 'whatsNewCheck'])
+    + '\nreturn { run: whatsNewCheck, close: () => { firstRun = false; } };')(
+    fetchStub, () => '0.6.98', (v) => opened.push(v), (f) => setImmediate(f));
+  const done = api.run();
+  for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+  assert.deepEqual(opened, [], 'the window opened under first run and took its focus');
+  api.close();
+  await done;
+  assert.deepEqual(opened, ['0.6.98'], 'CONTROL: it opens once first run closes');
+});

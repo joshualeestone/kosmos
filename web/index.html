@@ -32446,7 +32446,8 @@ function wnOpen(version, highlights) {
   tiles.classList.toggle('one', list.length === 1);
   document.getElementById('wn-more').href = WN_VERSIONS_PAGE + '#v' + version.replace(/\./g, '-');
   WN_OPENER = document.activeElement;
-  back.querySelector('.wn-box').focus();   // the window itself: no ring on open; Tab goes to the X
+  // The window itself: no ring on open; Tab goes to the X. Never from under a screen drawn over it (round 15).
+  if (!wnCovered()) back.querySelector('.wn-box').focus();
 }
 function wnClose() {
   const back = document.getElementById('whatsnew');
@@ -32523,10 +32524,12 @@ async function whatsNewCheck() {
        person's current task, and this can wait for it to close. */
     // A real deadline (round 7): a background tab slows timers, so counting ticks is not an hour.
     /* An hour, looked at each second. Written here, not as page consts: tests lift this function alone. */
+    /* Round 15: first run and the update overlay too (they draw over the window and keep focus). */
+    const held = () => (typeof TIP_OPEN !== 'undefined' && TIP_OPEN) || (typeof wnCovered === 'function' && wnCovered());
     const until = Date.now() + 60 * 60 * 1000;
-    while (Date.now() < until && typeof TIP_OPEN !== 'undefined' && TIP_OPEN) await new Promise((r) => setTimeout(r, 1000));
+    while (Date.now() < until && held()) await new Promise((r) => setTimeout(r, 1000));
     // A tour still open after an hour: recorded quietly rather than opened over it (round 6).
-    if (typeof TIP_OPEN !== 'undefined' && TIP_OPEN) { record(); return; }
+    if (held()) { record(); return; }
     /* Recorded as seen when it OPENS (round 6): two tabs reloaded by the same update must not both show
        it. The cost, accepted: a reload before it was read does not show it again. */
     /* Round 12: a newer Kosmos landed while it waited: this page is old now (the chip says Reload), so
