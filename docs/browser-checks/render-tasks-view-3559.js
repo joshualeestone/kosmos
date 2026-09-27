@@ -330,6 +330,15 @@ function chk(ok, label, extra) {
         await page.keyboard.press('Escape');
         await page.evaluate(() => document.getElementById('tsk-search').blur());
         chk(reopenW >= 200, `${tag} typing again after Esc opens it again`, String(reopenW));
+        /* The usual way in: click the Tasks tab (Chrome leaves focus on it), then "/". */
+        if (width >= 1000) {
+          await page.click('#tabs .tab[data-tab="tasks"]');
+          const onTab = await page.evaluate(() => document.activeElement && document.activeElement.dataset && document.activeElement.dataset.tab);
+          await page.keyboard.press('/');
+          const fromTab = await page.evaluate(() => document.activeElement && document.activeElement.id);
+          await page.evaluate(() => document.getElementById('tsk-search').blur());
+          chk(onTab === 'tasks' && fromTab === 'tsk-search', `${tag} "/" right after clicking the Tasks tab focuses the search`, JSON.stringify({ onTab, fromTab }));
+        }
         /* "/" from a control inside the Tasks view (a tile button) focuses the search too. */
         await page.focus('#tsk-tiles [data-tile="nobody"]');
         await page.keyboard.press('/');

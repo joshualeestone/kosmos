@@ -46924,9 +46924,10 @@ document.addEventListener('keydown', (e) => {
   if (!pt || pt.hidden || !pt.getClientRects().length) return;
   const t = e.target;
   if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-  // Only from the page itself (nothing focused) or from inside the Tasks view: never from an open modal (the app's
-  // modals are role="dialog"/"alertdialog" boxes with aria-modal, not <dialog>), whose own buttons may hold focus.
-  if (!(t === document.body || t === document.documentElement || pt.contains(t))) return;
+  // From anywhere on the page (the Tasks tab just clicked keeps focus in Chrome) except a dialog: never from inside one,
+  // and never while a modal is showing (the app's modals are role="dialog"/"alertdialog" boxes with aria-modal, not
+  // <dialog>, and focus can sit on the page behind one when its button disables itself).
+  if (t && t.closest && t.closest('[role="dialog"], [role="alertdialog"], [aria-modal="true"]')) return;
   if ([...document.querySelectorAll('[aria-modal="true"]')].some((m) => m.getClientRects().length > 0)) return;
   e.preventDefault();
   document.getElementById('tsk-search').focus();
