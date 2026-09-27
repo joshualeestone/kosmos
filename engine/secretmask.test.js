@@ -619,9 +619,12 @@ test('#3935 deciding which starts to keep is not quadratic: many repeated openin
   const reply = Array.from({ length: 20000 }, () => `a1b2 a1b2 c3d4e5f6${'@'.repeat(60)}`).join('');
   try {
     /* Measured against the same reply with an unrelated held value, since most of a 1.5MB reply's cost is the
-       mask's ordinary linear passes: 1.3x with the sweep, 4x when every completion was compared with every other. */
-    /* The median of three interleaved runs each (review round 27: one run each failed under a loaded full suite,
-       780ms against 376ms, and passed alone). Every run is fresh because each changes the held set, which clears the cache. */
+       mask's ordinary linear passes. #4189, measured 2026-09-27 on a Mac: healthy code runs 1.4x to 1.9x (the median
+       of three), and a runner at load 38 on 3 cores reached 2.01x, so a 2x line failed with no defect. Comparing every
+       completion with every other (review round 8's quadratic, rebuilt as a mutant) runs 5.3x to 15x per pair. So
+       the line is 3x, and each arm is its fastest of three interleaved runs: contention only ever adds CPU time, so
+       the minimum is the run nearest the true cost (review round 27 had moved from one run to the median of three).
+       Every run is fresh because each changes the held set, which clears the cache. */
     const base = []; const hit = [];
     let r;
     for (let i = 0; i < 3; i += 1) {
@@ -630,9 +633,8 @@ test('#3935 deciding which starts to keep is not quadratic: many repeated openin
       setKnownSecrets(['a1b2c3d4e5f6']);
       hit.push(cpuMillisecondsOf(() => { r = mask(reply); }));
     }
-    const median = (xs) => [...xs].sort((x, y) => x - y)[1];
-    const baseline = median(base); const ms = median(hit);
-    assert.ok(ms < 2 * baseline, `20,000 repeated openings cost ${Math.round(ms)}ms of CPU against ${Math.round(baseline)}ms for the same reply with no match`);
+    const baseline = Math.min(...base); const ms = Math.min(...hit);
+    assert.ok(ms < 3 * baseline, `20,000 repeated openings cost ${Math.round(ms)}ms of CPU against ${Math.round(baseline)}ms for the same reply with no match`);
     assert.ok(!r.text.includes('c3d4e5f6'), 'the held value was not masked');
   } finally { setKnownSecrets([]); }
 });
