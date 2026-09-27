@@ -103,12 +103,19 @@ test('#4111 a value assigned to a public NAME (MODEL, REGION, VERSION) is not he
       'TZ=UTC # key UTCq8vLm3pRt6wXy9kHbUTC2n',
       'REGION=us-east-1;TOKEN=Rg1vLm3pRt6wXy9kHb2nWc4d',
       'PRIVKEY_VERSION=Pk9vLm3pRt6wXy9kHb2nWc4d',
+      'MODEL=gpt-4o:Mc5vLm3pRt6wXy9kHb2nWc4dAA',
+      'REGION=us-east-1&token=Rt5vLm3pRt6wXy9kHb2nWc4d',
+      'LOCALE=Lc3vLm3pRt6wXy9kHb2nWc4d',
+      'model: gemini-1.5-pro-002  # default',
+      '- model: mistral-large-2407',
+      'VERSION=550e8400-e29b-41d4-a716-446655440000',
     ].join('\n') + '\n');
     put(path.join(data, 'secrets', 'model.txt'), 'DEFAULT_MODEL=gpt-4o-2024-08-06\n');
     put(path.join(data, 'secrets', 'settings.json'), '{\n  "defaultModel": "gpt-4.1-2025-04-14",\n  "modelId": "o3-mini-2025-01-31"\n}\n');
     const got = new Set(collect({ dataRoot: data, home: path.join(root, 'nohome') }));
     for (const pub of ['gpt-4o-mini-2024-07-18', 'eu-central-1-zone9x', '2024-10-21-preview', 'claude-sonnet-4-20250514', 'gpt-4o-2024-08-06',
-      'claude-3-5-sonnet-20240620', 'gpt-4.1-2025-04-14', 'o3-mini-2025-01-31', 'gpt-4o-2024-11-20']) {
+      'claude-3-5-sonnet-20240620', 'gpt-4.1-2025-04-14', 'o3-mini-2025-01-31', 'gpt-4o-2024-11-20', 'gemini-1.5-pro-002',
+      'mistral-large-2407']) {
       assert.ok(![...got].some((v) => v.includes(pub) && !/\n/.test(v)), `a public ${pub} was held: ${[...got].filter((v) => v.includes(pub))}`);
     }
     assert.ok(!got.has('OPENAI_MODEL=gpt-4o-mini-2024-07-18'), 'the public NAME=value line was held (the mask would walk it)');
@@ -118,7 +125,8 @@ test('#4111 a value assigned to a public NAME (MODEL, REGION, VERSION) is not he
     assert.ok(got.has('Zq8vLm3pRt6wXy9kHb2nWc4d'), 'a key in a comment on a public line was dropped with the line');
     assert.ok(got.has('Pw7vLm3pRt6wXy9kHb2nWc4d'), 'CONTROL: a secret named after a model (MODEL_PASSPHRASE) was not held');
     assert.ok(got.has('0123456789abcdef0123456789abcdef'), 'CONTROL: a Cloudflare zone id (CF_ZONE_ID) is still held');
-    for (const k of ['Vr2vLm3pRt6wXy9kHb2nWc4d', 'UTCq8vLm3pRt6wXy9kHbUTC2n', 'Rg1vLm3pRt6wXy9kHb2nWc4d', 'Pk9vLm3pRt6wXy9kHb2nWc4d']) {
+    for (const k of ['Vr2vLm3pRt6wXy9kHb2nWc4d', 'UTCq8vLm3pRt6wXy9kHbUTC2n', 'Rg1vLm3pRt6wXy9kHb2nWc4d', 'Pk9vLm3pRt6wXy9kHb2nWc4d',
+      'Mc5vLm3pRt6wXy9kHb2nWc4dAA', 'Rt5vLm3pRt6wXy9kHb2nWc4d', 'Lc3vLm3pRt6wXy9kHb2nWc4d', '550e8400-e29b-41d4-a716-446655440000']) {
       assert.ok(got.has(k), `a key on a public line (short value, glued assignment, glued secret word) was not held whole: ${k}`);
     }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }

@@ -20,10 +20,10 @@ masked the setup guide's own prose naming the model (found in #3995 gap-4 review
   that happens to start the same way. The NAME is what says the value is configuration.
 
 ## Weakest premise
-A secret stored under a NAME that ENDS in a public part with no secret-like part anywhere (a password in `REGION=...`)
-is no longer held by value, and the mask's shape rules do NOT reliably catch it in prose: review round 1 measured a
-24-character mixed-case key under MODEL_PASSPHRASE going unmasked (that NAME is now secret by its last word). The rule
-is narrowed to the last part so a misnamed secret needs a NAME that says, in its last word, that it is configuration.
+What is dropped is a piece of a value under a public NAME that is ALSO configuration-shaped (one case, cut by - or .,
+not only hex). So a secret that is lowercase-or-uppercase, dash-separated and non-hex (zq8v-lm3p-rt6w-xy9k), stored
+under a NAME ending in MODEL/REGION/VERSION/..., is no longer held by value. Any mixed-case or hex secret under a
+public NAME is still held (round 5 narrowed it from "every piece of the value" to this).
 
 ## Tests
 - knownsecrets.test.js: public values not held (env, export, YAML, JSON, one-line file); controls: OPENAI_API_KEY and
@@ -63,3 +63,11 @@ is narrowed to the last part so a misnamed secret needs a NAME that says, in its
 - N: a glued one-word name (APIVERSION, MODELNAME) is not split and stays held; stated in the comment, pinned in the
   table as not public (the safe direction).
 - C (deferred, repo practice): plan filename without a timestamp; this directory holds both forms.
+### Iteration 5 (opus): 2 WARNINGs, 3 NITs, all fixed.
+- W: a key glued into a public value with : or = (MODEL=gpt-4o:<key>, REGION=us-east-1&token=<key>) was dropped as
+  one of the value's own pieces, a regression against main. A piece is now dropped only when configShaped (one case,
+  cut by - or ., not only hex); a key assigned to a public NAME outright (LOCALE=<key>) and a UUID are also held.
+  Perturbation (drop every own piece): the glued key goes red.
+- W: YAML with a trailing comment or as a list item did not parse, so the model id was held. Those shapes are read
+  for the NAME only; non-public lines are held exactly as before. Perturbation (no YAML path): red.
+- N: header comment states the #4111 exception; assignedValue comment rewrapped; acronym-led camelCase documented.

@@ -31,7 +31,8 @@ function readSmall(file) {
   } catch { return null; }
 }
 
-/* Every non-empty line, and the whole file trimmed: a token file is one line, an env file is NAME=value. */
+/* Every non-empty line, and the whole file trimmed: a token file is one line, an env file is NAME=value. Except a
+   line (or a one-line file) that assigns to a public NAME (#4111, below): only its key-shaped pieces are held. */
 function valuesIn(text, out) {
   if (typeof text !== 'string') return;
   const whole = text.trim();
@@ -42,19 +43,26 @@ function valuesIn(text, out) {
     const t = line.trim();
     if (!t) continue;
     const a = parseAssignment(t);
+    /* YAML's trailing comment and list item (review round 5: "model: gpt-4o-mini  # default", "- model: ...") are
+       read for the NAME only; a line that is not public is held exactly as before. */
+    const yaml = a ? null : parseAssignment(t.replace(/^-\s+/, '').replace(/\s+#.*$/, ''));
+    const pub = a && isPublicName(a.name) ? a : yaml && isPublicName(yaml.name) ? yaml : null;
     /* #4111: neither the line nor its value is held when the NAME says the value is public. Both must go: the mask
        walks a NAME=value line whose value is NOT held (engine/secretmask.js isEnvLine), which would mask pieces of
        it in prose. Every OTHER key-shaped token on the line is still held (a key in a trailing comment). */
-    if (a && isPublicName(a.name)) {
+    if (pub) {
       /* The line is cut into tokens as always, and only the public value's OWN pieces are dropped: keyTokens cuts at
          : , ; so anthropic.claude-3-5-sonnet-20240620-v1:0 or ft:gpt-4o-mini-2024-07-18:acme would otherwise be held
          piece by piece (review round 1), and a comment restating the value would hold it again (round 2). Nothing
          is blanked out of the line: blanking a short value (API_VERSION=2, TZ=UTC) cut a real key in the comment
          into pieces (round 3). The env parser takes the value up to a space, so it stops at the first ; or , here:
          REGION=us-east-1;TOKEN=<key> keeps the key (round 3). */
-      const publicValue = a.value.split(/[;,]/)[0];
+      /* And a piece of the value is dropped only when it is shaped like configuration (configShaped): a key glued
+         into the value (MODEL=gpt-4o:<key>, REGION=us-east-1&token=<key>, or a key assigned to a public NAME
+         outright) is mixed-case or hex, and stays held (review round 5). */
+      const publicValue = pub.value.split(/[;,]/)[0];
       const own = new Set([publicValue, ...keyTokens(publicValue)]);
-      for (const tok of keyTokens(t)) if (!own.has(tok)) out.add(tok);
+      for (const tok of keyTokens(t)) if (!(own.has(tok) && configShaped(tok))) out.add(tok);
       continue;
     }
     out.add(t);
@@ -65,8 +73,7 @@ function valuesIn(text, out) {
 
 /* The value a secrets-file line assigns to a NAME (names are public, the value is not), or null (#3935 review
    round 27): NAME=value, export NAME=value, YAML "name: value" (a space after the colon, so a URL's scheme is not a
-   name) and JSON
-   "name": "value". Trimmed and unquoted. engine/secretmask.js reads the same function: a line whose value is held
+   name) and JSON "name": "value". Trimmed and unquoted. engine/secretmask.js reads the same function: a line whose value is held
    on its own here is masked whole there but not walked, so its NAME stays readable. One parser, two uses. */
 function assignedValue(line) {
   const a = parseAssignment(line);
@@ -98,12 +105,20 @@ function parseAssignment(line) {
    are deliberately NOT public: a URL can carry a token or a password, and holding one costs only a masked address.
    ZONE is not public either: Cloudflare's CF_ZONE_ID is read from the secrets folder, and TZ/TIMEZONE cover time. */
 /* Singular and plural alike (review round 4: AWS_REGIONS, SUPPORTED_LOCALES). A name glued into one word with no
-   separator or case change (APIVERSION, MODELNAME) is not split, so its value stays held: the safe direction. */
+   separator or case change (APIVERSION, MODELNAME), or led by an acronym (APIVersion, openAIModel), is not split
+   into its public part, so its value stays held: the safe direction. */
 const PUBLIC_NAME_PARTS = new Set(['MODEL', 'MODELS', 'REGION', 'REGIONS', 'VERSION', 'VERSIONS', 'LOCALE', 'LOCALES',
   'LANG', 'LANGS', 'LANGUAGE', 'LANGUAGES', 'TZ', 'TIMEZONE', 'TIMEZONES']);
 /* Matched INSIDE each part, not as a whole part (review round 3: PRIVKEY_VERSION, APITOKEN_MODEL). Over-matching only
    keeps a value held (DESIGN_MODEL holds its value, as before #4111); no public part contains one of these. */
 const SECRET_NAME_PARTS = /KEY|TOKEN|SECRET|PASS|PWD|AUTH|BEARER|JWT|HMAC|CRED|PRIV|SIG|SALT|NONCE|COOKIE|SESSION|DSN|CERT|PEM|SEED|MNEMONIC|^PIN$|^OTP$|^TOTP$/;
+/* A piece of a public value that reads as configuration, not a key: one case, cut by - or . (a model id, a region, a
+   dated version: gpt-4o-mini-2024-07-18, us-east-1, 2024-10-21-preview), and not made only of hex digits (a UUID or a
+   hex token is a key whatever its NAME says). A mixed-case piece is a key. */
+function configShaped(tok) {
+  return (tok === tok.toLowerCase() || tok === tok.toUpperCase()) && /[-.]/.test(tok) && !/^[0-9a-f.-]+$/i.test(tok);
+}
+
 function isPublicName(name) {
   const parts = String(name).replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase().split(/[_.-]+/).filter(Boolean);
   if (!parts.length || parts.some((p) => SECRET_NAME_PARTS.test(p))) return false;
