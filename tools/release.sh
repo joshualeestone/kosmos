@@ -262,6 +262,39 @@ case "$_v_major.$_v_minor" in
       exit 1
     fi ;;
 esac
+# #4075: a cut moves FORWARD, and by at most one line. The guards above refuse a wrong SPELLING
+# and staying on a finished line; nothing compared V with the version this checkout is at, so a
+# typo such as 0.5.01 for 0.7.01 (backwards) or 0.8.00 from 0.6.x (a whole line skipped) got past
+# them. Equal is allowed: a re-cut of a version whose cut aborted after its bump (see above).
+# Skipping patch numbers within a line is allowed (an aborted cut can burn one). A deliberate
+# jump (a new major, say) is KOSMOS_ALLOW_VERSION_JUMP=1, like KOSMOS_ALLOW_STALE_TUNNEL below.
+# Compared as three NUMBERS, the way engine/update.js compares them for every install.
+if [ "${KOSMOS_ALLOW_VERSION_JUMP:-}" != "1" ]; then
+  _fwd="$(node -e '
+    const p = (s) => String(s).split(".").map((x) => (/^[0-9]+$/.test(x) ? Number(x) : NaN));
+    const v = p(process.argv[1]); const c = p(process.argv[2]);
+    if (v.length !== 3 || c.length !== 3 || [...v, ...c].some(Number.isNaN)) { console.log("unparsed"); process.exit(0); }
+    const cmp = (v[0] - c[0]) || (v[1] - c[1]) || (v[2] - c[2]);
+    console.log(cmp < 0 ? "backwards" : v[0] !== c[0] ? "major" : v[1] > c[1] + 1 ? "skip" : "ok");' "$V" "$_prev")"
+  case "$_fwd" in
+    backwards)
+      echo "$V is older than $_prev, the version this checkout is at: a cut only moves forward."
+      echo "(#4075. If you really mean to publish an older number: KOSMOS_ALLOW_VERSION_JUMP=1.)"
+      exit 1 ;;
+    skip)
+      _c_rest="${_prev#*.}"; _c_minor="${_c_rest%%.*}"
+      echo "$V skips a line: this checkout is at $_prev, so the next line is 0.$((_c_minor + 1)), not 0.$_v_minor."
+      echo "(#4075. If you really mean to skip it: KOSMOS_ALLOW_VERSION_JUMP=1.)"
+      exit 1 ;;
+    major)
+      echo "$V changes the major version from $_prev. That is a deliberate step, not a typo to let through."
+      echo "(#4075. If you mean it: KOSMOS_ALLOW_VERSION_JUMP=1.)"
+      exit 1 ;;
+    unparsed)
+      echo "$V (or the current $_prev) is not three numbers: a version here is 0.x.yy."
+      exit 1 ;;
+  esac
+fi
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
