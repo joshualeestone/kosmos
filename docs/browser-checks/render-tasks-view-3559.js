@@ -225,7 +225,9 @@ function chk(ok, label, extra) {
         return { bg: probe('var(--k-bg)'), surface: probe('var(--k-surface)') }; });
       await page.evaluate(() => scrollTo(0, 0));
       const geo = await page.evaluate(() => { const r = (sel) => document.querySelector(sel).getBoundingClientRect();
-        const tiles = r('#tsk-tiles'); const under = r('#tsk-under'); const list = r('#tsk-groups .tsk-list'); const tile = r('#tsk-tiles .tsk-tile');
+        const tiles = r('#tsk-tiles'); const under = r('#tsk-under'); const list = r('#tsk-groups .tsk-list');
+        /* #4053: a counted Needs Your Decision is red-tinted by design (asserted below), so the surface is read on In progress. */
+        const tile = r('#tsk-tiles [data-tile="working"]');
         /* clientWidth/Height, not innerWidth/Height: a classic scrollbar (headed, "Always show scroll bars", Windows)
            sits inside the inner box, and a read there is the scrollbar, not the page. */
         return { w: document.documentElement.clientWidth, h: document.documentElement.clientHeight, bandY: Math.round((tiles.top + tiles.bottom) / 2), belowY: Math.round(under.top + under.height / 2),
