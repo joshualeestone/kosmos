@@ -216,7 +216,9 @@ function chk(ok, label, extra) {
       await page.evaluate(() => scrollTo(0, 0));
       const geo = await page.evaluate(() => { const r = (sel) => document.querySelector(sel).getBoundingClientRect();
         const tiles = r('#tsk-tiles'); const under = r('#tsk-under'); const list = r('#tsk-groups .tsk-list'); const tile = r('#tsk-tiles .tsk-tile');
-        return { w: innerWidth, h: innerHeight, bandY: Math.round((tiles.top + tiles.bottom) / 2), belowY: Math.round(under.top + under.height / 2),
+        /* clientWidth/Height, not innerWidth/Height: a classic scrollbar (headed, "Always show scroll bars", Windows)
+           sits inside the inner box, and a read there is the scrollbar, not the page. */
+        return { w: document.documentElement.clientWidth, h: document.documentElement.clientHeight, bandY: Math.round((tiles.top + tiles.bottom) / 2), belowY: Math.round(under.top + under.height / 2),
           listX: Math.round(list.left + 6), listY: Math.round(list.top + 6), tileX: Math.round(tile.left + 6), tileY: Math.round(tile.top + 6) }; });
       const same = (p, q) => p.every((v, i) => Math.abs(v - q[i]) <= 2);
       const band = [await px(1, geo.bandY), await px(geo.w - 2, geo.bandY)];
@@ -236,7 +238,7 @@ function chk(ok, label, extra) {
       chk(band.every((p) => same(p, tok.bg)), `${tag} the top band keeps the page's ground to both edges`, JSON.stringify({ band, bg: tok.bg }));
       chk(below.every((p) => same(p, tok.surface)), `${tag} from Group by down it is the surface (white) to both edges`, JSON.stringify({ below, surface: tok.surface }));
       chk(same(card, tok.bg) && same(tilePx, tok.surface), `${tag} the task cards are shaded with the ground; the tiles stay the surface`, JSON.stringify({ card, tile: tilePx }));
-      chk(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${tag} the full-width band adds no sideways scroll`);
+      chk(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), `${tag} the full-width band adds no sideways scroll`);
       /* #3949/#3951 (Josh): six single-label tiles in his order; Completed is a tile and still the fold below. */
       chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['decision', 'working', 'assigned', 'nobody', 'built', 'closed']), `${tag} the tiles are Josh's six groups in his order, each from a recorded state`, JSON.stringify(a.tiles.map((t) => t.k)));
       chk(JSON.stringify(a.tiles.map((t) => t.label)) === JSON.stringify(['Needs Your Decision', 'In progress', 'Assigned but not started', 'Unassigned', 'Built but waiting', 'Completed']), `${tag} each tile is one label`, JSON.stringify(a.tiles.map((t) => t.label)));
