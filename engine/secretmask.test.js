@@ -1554,3 +1554,16 @@ test('#3995 gap 4 review round 8: a short chunk with a label glued on both sides
     }
   } finally { setKnownSecrets([]); }
 });
+
+test('#3995 gap 4 review round 9: a reply naming a JWT header\'s own short chunks, with a character list, is not withheld', () => {
+  const b64 = (n, seed) => { let x = seed; let out = ''; const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'; for (let i = 0; i < n; i += 1) { x = (x * 1103515245 + 12345) % 2147483648; out += A[(x >>> 16) % 64]; } return out; };
+  const held = Array.from({ length: 20 }, (_, i) => j('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.', 'eyJ', b64(150, 3900 + i), '.', b64(43, 4900 + i)));
+  assert.equal(new Set(held).size, held.length, 'the fixture values are not distinct');
+  setKnownSecrets(held);
+  try {
+    const abc = 'Allowed: ' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'.split('').join(', ') + '.\n';
+    const text = abc + 'A token begins with eyJ, then hb, Gc, iO and so on.\n'.repeat(100);
+    const r = mask(text);
+    assert.equal(r.text, text, 'the reply was changed or withheld: ' + JSON.stringify(r.fired));
+  } finally { setKnownSecrets([]); }
+});

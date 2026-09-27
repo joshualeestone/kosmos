@@ -414,7 +414,8 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  * Not covered:
  *  - pieces out of order or reversed;
  *  - by this walk, an opening piece shorter than OPENING_LEN (shortChunkSpans masks the whole key; fragmentsIn a
- *    rest of FRAGMENT_LEN or more); a PARTIAL try that starts that way is masked by neither;
+ *    rest of FRAGMENT_LEN or more); a PARTIAL try that starts that way is masked by neither, and an abandoned first
+ *    try followed by a full retry shows (the short walk keeps only the latest start that completes);
  *  - a held value madeOfWords takes for words and numbers;
  *  - a partial try (one that never completes) with under PARTIAL_MIN characters after its opening, counted in
  *    non-word pieces of OPENING_LEN or more; a try that reaches it is masked piece by piece;
@@ -812,7 +813,12 @@ function shortChunkSpans(text) {
      mention of the key's first characters walked through the prose between and masked a "1" and a "2" on the way;
      the word walk keeps the latest start for the same reason). */
   const completed = new Map();
-  for (let r = 0; r < runs.length; r += 1) {
+  /* Latest start first, with one set of explored points per form shared by every start (review round 9: each mention
+     of a shared opening re-walked every form, so a reply naming a JWT header's chunks was withheld). A point a later
+     start already explored can only complete at runs that start already completed at, which the latest-start rule
+     keeps; so an earlier start skips it, and the work per form is bounded by its points, not by its mentions. */
+  const seenByForm = new Map();
+  for (let r = runs.length - 1; r >= 0; r -= 1) {
     for (const open of runs[r][2]) {
       if (open.length >= OPENING_LEN) continue;   // the word walk starts these
       /* Not from a single character (review round 5): text listing single characters ("A B C ... 0 1 2") makes
@@ -839,7 +845,8 @@ function shortChunkSpans(text) {
            reached point, the few piece lengths the text has, looked up in `at`, and the next such runs within reach
            of the run that got there. Every path is followed, not only the first to reach a point. */
         const queue = [{ pos: open.length, run: r, prev: null, piece: open }];
-        const seen = new Set();
+        if (!seenByForm.has(f)) seenByForm.set(f, new Set());
+        const seen = seenByForm.get(f);
         let end = null;
         for (let qi = 0; qi < queue.length && !end; qi += 1) {
           const node = queue[qi];
@@ -870,7 +877,7 @@ function shortChunkSpans(text) {
         if (!done || done.filter(([, t]) => !plainWordRun(t)).length < SHORT_WALK_MIN_KEYLIKE) continue;
         const key = f + '|' + done[done.length - 1][0];
         const had = completed.get(key);
-        if (!had || had[0][0] < done[0][0]) completed.set(key, done);
+        if (!had) completed.set(key, done);   // starts run latest first, so the first completion here is the latest
       }
     }
   }

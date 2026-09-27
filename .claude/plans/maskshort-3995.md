@@ -122,3 +122,12 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
   = - _. Tested for both shapes, labels kept readable; red on the previous commit.
 - The budget is declared before canSpell, which charges it (it worked only by call order). canSpell's position
   parameter no longer shadows the piece index.
+
+## Review round 9 (Opus), what changed
+- A reply naming a JWT header's own short chunks after a character list was withheld: each mention of the shared
+  opening re-walked every form. Starts now run latest first and share one set of explored points per form, so work
+  per form is bounded by its points, not its mentions (a point a later start explored can only complete where that
+  start already did, which the latest-start rule keeps). Tested with 20 held JWTs; red on the previous commit.
+- Not covered now says an abandoned first try followed by a full retry shows (only the latest start is kept).
+- Deferred NITs: when a chunk appears twice, once as noise, the noise copy can be the one masked (3 characters of a
+  retyped chunk); reach is measured run end to run start here and lastAt to run end in the word walk (both per gap).
