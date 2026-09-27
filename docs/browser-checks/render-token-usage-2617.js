@@ -99,9 +99,9 @@ function readUsage(page) {
       heroFigsFit: [...document.querySelectorAll('#usage-hero .tv-fig')]
         .every((f) => f.scrollWidth <= f.clientWidth + 1),
       // #3137 NON-VACUOUS fit control: on the real Approximate Human Cost tile, a figure too
-      // wide for it overflows the box while the abbreviated "$176.3K" fits.
-      // Proves the abbreviation is both necessary (full clips) and sufficient (abbr fits) at
-      // the tile's real rendered width, not just that a short fixture value happens to fit.
+      // wide for it overflows the box while the abbreviated "$176.3K" fits. Proves the fit
+      // check can see a clip and that the abbreviation fits at the tile's real rendered width;
+      // since #4083's smaller headline it no longer proves the full $176,332 would clip here.
       tileFitControl: (() => {
         const box = [...document.querySelectorAll('#usage-hero .tv-fbox')]
           .find((b) => /Approximate Human Cost/.test(b.textContent || ''));
@@ -327,31 +327,53 @@ function readUsage(page) {
     ok(scale.big.includes('B'), `hero shows the production-scale total in the B band (got ${scale.big})`);
     ok(scale.clipped.length === 0, `hero figures fit their boxes at production scale, none clipped (clipped: ${JSON.stringify(scale.clipped)})`);
     // #4083 (Josh, 2026-09-26): the two big numbers on one baseline, the lines above the labels at the same height in
-    // each row of tiles, the labels centred in that area, and the big numbers kept off the tile edges. Measured at
-    // the widest headline above ($135.0M, as wide as the $999.9K the card names), with one hero label wrapping to two
-    // lines and the other on one (the precondition), because that uneven wrap is what used to lift one tile.
-    const align = await p.evaluate(() => {
+    // each row of tiles, the labels centred in the band under that line, and the big numbers kept off the tile edges.
+    // Measured at the widest headline above ($135.0M, as wide as the $999.9K the card names), at desktop and phone
+    // widths. Whether a real label wraps depends on the machine's monospace font, so the measure sets one short and
+    // one long label in each row itself (the uneven wrap that used to lift a tile), then puts the real text back.
+    const measureAlign = () => p.evaluate(() => {
+      const LONG = 'A LABEL LONG ENOUGH TO WRAP ONTO TWO LINES';
       const textBox = (el) => { const r = document.createRange(); r.selectNodeContents(el); return { rect: r.getBoundingClientRect(), lines: r.getClientRects().length }; };
-      const row = (sel) => [...document.querySelectorAll(sel)].map((box) => {
-        const fig = box.querySelector('.tv-fig'), lab = box.querySelector('.tv-flabel');
-        const ft = textBox(fig), lt = textBox(lab), lb = lab.getBoundingClientRect(), bb = box.getBoundingClientRect();
-        const cs = getComputedStyle(lab);
-        const inner = { top: lb.top + parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop), bottom: lb.bottom - parseFloat(cs.paddingBottom) };
-        return { base: +ft.rect.bottom.toFixed(2), divider: +lb.top.toFixed(2), lines: lt.lines,
-          centreOff: +(((lt.rect.top + lt.rect.bottom) / 2) - ((inner.top + inner.bottom) / 2)).toFixed(2),
-          margin: +Math.min(ft.rect.left - bb.left, bb.right - ft.rect.right).toFixed(2), text: (fig.textContent || '').trim(),
-          boxW: +bb.width.toFixed(1), textW: +ft.rect.width.toFixed(1), font: getComputedStyle(fig).fontSize };
-      });
+      const row = (sel) => {
+        const boxes = [...document.querySelectorAll(sel)];
+        const labs = boxes.map((b) => b.querySelector('.tv-flabel'));
+        const real = labs.map((l) => l.textContent);
+        labs.forEach((l, i) => { l.textContent = i === labs.length - 1 ? LONG : 'SHORT'; });
+        const out = boxes.map((box) => {
+          const fig = box.querySelector('.tv-fig'), lab = box.querySelector('.tv-flabel');
+          const ft = textBox(fig), lt = textBox(lab), lb = lab.getBoundingClientRect(), bb = box.getBoundingClientRect();
+          const band = { top: lb.top + parseFloat(getComputedStyle(lab).borderTopWidth), bottom: lb.bottom };
+          return { base: +ft.rect.bottom.toFixed(2), divider: +lb.top.toFixed(2), lines: lt.lines,
+            centreOff: +(((lt.rect.top + lt.rect.bottom) / 2) - ((band.top + band.bottom) / 2)).toFixed(2),
+            margin: +Math.min(ft.rect.left - bb.left, bb.right - ft.rect.right).toFixed(2), text: (fig.textContent || '').trim(),
+            boxW: +bb.width.toFixed(1), textW: +ft.rect.width.toFixed(1), font: getComputedStyle(fig).fontSize };
+        });
+        labs.forEach((l, i) => { l.textContent = real[i]; });
+        return out;
+      };
       return { hero: row('#usage-hero .tv-heq > .tv-fbox'), stats: row('#usage-hero .tv-stats3 > .tv-sbox') };
     });
-    const [g, gr] = align.hero;
-    ok(!!g && !!gr && g.lines !== gr.lines, `precondition: one hero label wraps and the other does not, so the uneven case is measured (${JSON.stringify(align.hero)})`);
-    ok(!!g && !!gr && Math.abs(g.base - gr.base) <= 0.5, `the two big hero numbers sit on one baseline (#4083) -- ${JSON.stringify(align.hero.map((t) => t.base))}`);
-    ok(!!g && !!gr && Math.abs(g.divider - gr.divider) <= 0.5, `the lines above the two hero labels are at the same height (#4083) -- ${JSON.stringify(align.hero.map((t) => t.divider))}`);
-    ok(align.stats.length === 3 && Math.max(...align.stats.map((t) => t.divider)) - Math.min(...align.stats.map((t) => t.divider)) <= 0.5,
-      `the lines above the three stat labels are at the same height (#4083) -- ${JSON.stringify(align.stats.map((t) => t.divider))}`);
-    ok([...align.hero, ...align.stats].every((t) => Math.abs(t.centreOff) <= 1), `every label is centred in its label area (#4083) -- ${JSON.stringify([...align.hero, ...align.stats].map((t) => t.centreOff))}`);
-    ok(align.hero.every((t) => t.margin >= 12), `the big hero numbers keep at least 12px off the tile edges at production scale (#4083) -- ${JSON.stringify(align.hero.map((t) => t.text + ': margin ' + t.margin + ', text ' + t.textW + ' in ' + t.boxW + ' at ' + t.font))}`);
+    const alignArms = (align, at) => {
+      const lines = (r) => r.map((t) => t.lines);
+      ok(new Set(lines(align.hero)).size > 1 && new Set(lines(align.stats)).size > 1,
+        `${at} precondition: in each row one label is on one line and one wraps, so the uneven case is measured (${JSON.stringify({ hero: lines(align.hero), stats: lines(align.stats) })})`);
+      const spread = (r, k) => Math.max(...r.map((t) => t[k])) - Math.min(...r.map((t) => t[k]));
+      ok(align.hero.length === 2 && spread(align.hero, 'base') <= 0.5, `${at}: the two big hero numbers sit on one baseline (#4083) -- ${JSON.stringify(align.hero.map((t) => t.base))}`);
+      ok(align.hero.length === 2 && spread(align.hero, 'divider') <= 0.5, `${at}: the lines above the two hero labels are at the same height (#4083) -- ${JSON.stringify(align.hero.map((t) => t.divider))}`);
+      if (at === 'desktop') {
+        ok(align.stats.length === 3 && spread(align.stats, 'divider') <= 0.5, `${at}: the lines above the three stat labels are at the same height (#4083) -- ${JSON.stringify(align.stats.map((t) => t.divider))}`);
+      }
+      ok([...align.hero, ...align.stats].every((t) => Math.abs(t.centreOff) <= 1), `${at}: every label is centred in the band under its line (#4083) -- ${JSON.stringify([...align.hero, ...align.stats].map((t) => t.centreOff))}`);
+      ok(align.hero.every((t) => t.margin >= 12), `${at}: the big hero numbers keep at least 12px off the tile edges at production scale (#4083) -- ${JSON.stringify(align.hero.map((t) => t.text + ': margin ' + t.margin + ', text ' + t.textW + ' in ' + t.boxW + ' at ' + t.font))}`);
+    };
+    alignArms(await measureAlign(), 'desktop');
+    // The phone width: the hero keeps its two tiles side by side; the stat tiles stack, one per row, so they have
+    // nothing to be level with (the divider arm is desktop-only).
+    await p.setViewportSize({ width: 390, height: 1100 });
+    await p.waitForTimeout(300);
+    alignArms(await measureAlign(), 'phone');
+    await p.setViewportSize({ width: 1280, height: 1100 });
+    await p.waitForTimeout(300);
     // #2617 CONTROL: repaint in the SAME page life, from a painted block to a
     // response with no byAgent (an older board, a failed split). After a reload
     // the block is hidden by its markup whatever the code does, so the hide path

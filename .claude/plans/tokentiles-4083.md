@@ -21,13 +21,17 @@ and its number.
 
 ## The check
 
-`render-token-usage-2617.js`, at the production-scale headline, with one hero label wrapping and the
-other not (a precondition): the two hero numbers' text bottoms are equal, the hero dividers are level,
-the three stat dividers are level, every label is centred in its area within 1px, and the hero numbers
-keep 12px off the tile edges.
+`render-token-usage-2617.js`, at the production-scale headline, at 1280 and at 390 wide. Whether a real
+label wraps depends on the machine's monospace font, so the check sets one short and one long label in
+each row itself (restoring them after): the two hero numbers share a baseline, the hero dividers are
+level, the three stat dividers are level (desktop; on a phone they stack), every label's text is centred
+in the band between its line and the tile bottom within 1px, and the hero numbers keep 12px off the
+tile edges. Each arm was shown red: main's CSS (baselines 7px apart, dividers 14px, 5px margin) and the
+label centring removed (-7px).
 
 ## Weakest premise
 
-Subgrid needs Safari 16+ / Chrome 117+; the Mac app's WKWebView and Windows' WebView2 on supported OS
-versions have it, but an older macOS WebKit would fall back to each tile laying out alone (the old look),
-not break.
+Subgrid needs Safari 16+ / Chrome 117+. Without it the `subgrid` value is dropped: each tile stays a grid
+whose own two implicit rows split the parent rows' height, so it does not break, but the rows are not
+shared and a wrapping label lifts its tile again, as before. Whether the Mac app's supported macOS
+versions all ship a WebKit with subgrid was not checked here.
