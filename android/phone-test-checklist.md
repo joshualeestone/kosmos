@@ -26,7 +26,8 @@ own install note. (#4165, #4090)
 1. Get the file onto the phone (email, Google Drive, or a message to yourself) and tap it.
 2. Android will say your phone is not allowed to install unknown apps from this source. Tap
    **Settings**, turn on **Allow from this source**, then go back.
-3. Tap **Install**. If Google Play Protect warns that the app is unknown, choose to install anyway,
+3. Tap **Install** (or **Update**, if an earlier test build is already on the phone; nothing is
+   lost). If Google Play Protect warns that the app is unknown, choose to install anyway,
    for this file from Liu Kang only. It warns because the app is not in the store yet.
 4. Tap **Open**.
 
@@ -35,7 +36,7 @@ own install note. (#4165, #4090)
 ## 2. Open it and sign in
 
 **You should see:** the Kosmos+ sign-in page filling the whole screen, with no browser address bar
-across the top. (#4113, #4090)
+across the top. (#4113, #4090; android/evidence/vc3-4165)
 
 Enter your Kosmos+ email, tap **Send the code**, type the six-digit code from the email, then your
 second sign-in step, the same one you use on the web.
@@ -52,13 +53,15 @@ second sign-in step, the same one you use on the web.
 
 The first time, Kosmos on your Mac shows a card asking whether to allow this phone, with a short
 code. **Allow it only if the code matches the one on the phone** (it looks like FK-4H). The phone
-then says the device is allowed. (#718)
+then says "Your Mac allowed this device. Opening your Kosmos..." and, for now, opens your board by
+itself, with an address bar across the top. That is expected. (#718, #2854)
 
 **If it looks different:** a screenshot of the phone's page, and whether the Mac showed the card.
 
 ## 4. Open your board
 
-Tap **Open my Kosmos**.
+Close Kosmos completely (swipe it away from the recent apps), open it from its icon, and tap
+**Open my Kosmos**.
 
 - **For now:** your board opens with a browser address bar across the top. That is expected.
   (#4090, #2854)
@@ -79,7 +82,8 @@ no message; or the "did not open in the app" sentence.
 
 ## 5. Your Mac asleep
 
-Put your Mac to sleep (or close its lid). On the phone, close Kosmos completely (swipe it away from
+Put your Mac to sleep (Apple menu, **Sleep**). Your agents pause while it sleeps, so wake it again
+right after this step. On the phone, close Kosmos completely (swipe it away from
 the recent apps), open it from its icon, and tap **Open my Kosmos**. Screenshot what the phone
 shows, then wake the Mac. (#4086, #4093)
 
@@ -108,9 +112,10 @@ the phone, and that is expected. (#718)
 Once they are on, ask an agent to need you (or wait for one to), with the phone locked or on its
 home screen.
 
-**You should see:** a notification titled like "Scorpion needs you", with the **Kosmos planet icon**
-(a small circle with a ring around it), both at the top of the screen and when you pull the shade
-down. Not Chrome's round logo. (#4151)
+**You should see:** a small **Kosmos planet icon** (a circle with a ring around it) in the status
+bar at the top of the screen, and, when you pull the shade down, a notification titled like
+"Scorpion needs you" with the same icon. Not Chrome's round logo. (#4151;
+android/evidence/vc3-4165)
 
 The Mac sends at most one of these per agent every five minutes, so to try again, use a different
 agent or wait five minutes. (#718)
@@ -122,7 +127,8 @@ agent or wait five minutes. (#718)
 This needs step 7 working first.
 
 - **Before the server update:** tapping it opens the agent that needs you in a browser window with an
-  address bar. That is expected for now. (#4140)
+  address bar. That is expected for now. The first time, Chrome may show a one-time notice about ad
+  privacy first; that is Chrome, not Kosmos. (#4140)
 - **Wait for the server update and the Mac update:** tapping it opens the Kosmos app on the sign-in
   page, which says
   **"Tap Open my Kosmos to see what you were notified about."** Tap **Open my Kosmos**, and the
@@ -154,10 +160,12 @@ the server update:
 
 ## 10. With no connection
 
-Turn on **Airplane mode**, then open Kosmos.
+Close Kosmos completely (swipe it away from the recent apps), turn on **Airplane mode**, then open
+Kosmos from its icon.
 
 **You should see:** a Kosmos page saying Kosmos couldn't open, with a **Retry** button, not Chrome's
-own "no internet" page. Turn Airplane mode off and tap **Retry**: the sign-in page opens. (#4093)
+own "no internet" page. Turn Airplane mode off and tap **Retry**: the sign-in page opens. (#4093;
+android/evidence/vc3-4165)
 
 **If it looks different:** a screenshot.
 
@@ -169,7 +177,7 @@ android README):
 - From your board, press **Back**. Tell us where it goes.
 - Open Kosmos from its icon, tap **Open my Kosmos**, go home, and do it again twice. Then look at
   your recent apps: tell us if you see one Kosmos or a stack of them.
-- Turn the phone sideways just as you tap **Open my Kosmos**. Your board should open once, not
+- With auto-rotate on, turn the phone sideways just as you tap **Open my Kosmos**. Your board should open once, not
   twice.
 
 ---
@@ -183,8 +191,8 @@ android README):
 | A notification tap opens the agent inside the app | 8 | the server update, and the Mac release carrying the part that keeps the agent (relay #174, #4140) |
 | The sign-in page loads a little faster than it already does | 9 | the server update (relay #169) |
 
-One more change on the card's list, relay #170, only changes a plain web page this script does not
-reach, so no step tests it.
+The other server and relay changes waiting to go out (relay #170, #172, #173 and #175) change
+nothing you can see on the phone, so no step tests them.
 
 Everything else works now: installing, signing in, allowing the phone on your Mac, turning on
 notifications on the phone, the Mac-asleep check, and the no-connection page. How fast it opens
@@ -201,7 +209,7 @@ options and USB debugging, and connect it with a cable.
   `adb shell am force-stop io.kosmos.app; adb shell am force-stop com.android.chrome; sleep 2; adb shell am start -W -n io.kosmos.app/io.kosmos.app.KosmosLauncherActivity`
   (This measures when Android handed over to Chrome, not when the page appeared.)
 - **When the sign-in page actually appears, seven times, with the middle result:**
-  `ADB=<path to adb> python3 android/evidence/cct-warmup-4109/measure-cold-paint.py <the apk> phone 7`
+  `ADB=<path to adb> ANDROID_SERIAL=<the phone's serial> python3 android/evidence/cct-warmup-4109/measure-cold-paint.py <the apk> phone 7`
   from the Kosmos repository on the Mac (it needs Python with Pillow). It reinstalls the app from the
   file you give it. It looks for a crop of the emulator's sign-in frame; on the real phone the fonts
   may differ enough that it never matches, and then it needs a reference frame taken on the phone.
