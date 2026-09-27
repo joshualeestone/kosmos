@@ -9948,8 +9948,6 @@ window.kosmosMeasureScrollbarWidth = function () {
     root.style.scrollbarGutter = 'stable';
     root.style.overflow = 'hidden';
     var gutter = Math.max(0, Math.round(window.innerWidth - root.getBoundingClientRect().width));
-    /* #4216: marks a machine whose scrollbars take width, so rules for the reserved gutter apply only there. */
-    root.toggleAttribute('data-scrollbar-classic', gutter > 0);
     /* The header padding assumes 100vw includes a reserved gutter. An engine where it does not
        is never marked measured, so the page keeps the #1309 behaviour (A1t). */
     vw = document.createElement('div');
@@ -9958,8 +9956,11 @@ window.kosmosMeasureScrollbarWidth = function () {
     var vwMatches = Math.abs(vw.getBoundingClientRect().width - window.innerWidth) <= 1; /* 1px: zoom lays 100vw out fractionally */
     root.style.scrollbarGutter = prevGutter;
     root.style.overflow = prevOverflow;
-    if (!vwMatches) { root.removeAttribute('data-scrollbar-measured'); return; }
+    if (!vwMatches) { root.removeAttribute('data-scrollbar-measured'); root.removeAttribute('data-scrollbar-classic'); return; }
     root.style.setProperty('--scrollbar-width', gutter + 'px');
+    /* #4216: marks a machine whose scrollbars take width, so rules for the reserved gutter apply only there. Set with
+       --scrollbar-width, from the same measurement, so the two never disagree. */
+    root.toggleAttribute('data-scrollbar-classic', gutter > 0);
     root.setAttribute('data-scrollbar-measured', '');
   } catch (e) { /* no measurement: see data-scrollbar-measured in the #3497 CSS */ }
   finally {
