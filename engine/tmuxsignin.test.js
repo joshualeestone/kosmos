@@ -33,7 +33,8 @@ test('#4195 a tmux that cannot be found is marked as Kosmos\'s own failure (kosm
 });
 
 test('#4195 every tmux call goes to the sign-in\'s own socket', () => {
-  /* /bin/echo stands in for tmux, so the call's argv comes back as its output. */
+  /* /bin/echo stands in for tmux, so the call's argv comes back as its output (macOS or any Unix,
+     like the tmux these sign-ins run). */
   withBinPaths(() => ({ tmuxBin: '/bin/echo' }), () => {
     gate.allowLiveExecution();
     const out = sig.runTmux('tmuxsignin-test', 'kosmos-x-signin-abc', ['capture-pane', '-p']);
@@ -41,11 +42,19 @@ test('#4195 every tmux call goes to the sign-in\'s own socket', () => {
   });
 });
 
-test('#4195 with the live-execution gate closed, runTmux runs nothing', () => {
-  withBinPaths(() => ({ tmuxBin: '/bin/echo' }), () => {
-    gate.resetForTests();
-    assert.throws(() => sig.runTmux('tmuxsignin-test', 'sock', ['kill-server']));
-  });
+test('#4195 with the live-execution gate closed, runTmux runs nothing and fails closed', () => {
+  /* In a test process the gate's report throws; production's report only warns, so stand in for it
+     to reach production's own branch: live() false, then "live execution is off", nothing run. */
+  const realReport = gate.refuseOrWarn;
+  const reported = [];
+  gate.refuseOrWarn = (owner, file, args) => { reported.push([owner, file, args.join(' ')]); };
+  try {
+    withBinPaths(() => ({ tmuxBin: '/bin/echo' }), () => {
+      gate.resetForTests();
+      assert.throws(() => sig.runTmux('tmuxsignin-test', 'sock', ['kill-server']), /live execution is off/);
+      assert.deepEqual(reported, [['tmuxsignin-test', '/bin/echo', '-L sock kill-server']], 'the gate was not told which sign-in wanted what');
+    });
+  } finally { gate.refuseOrWarn = realReport; }
 });
 
 test('#4195 a timed-out or killed tmux call has unknown delivery; any other failure does not', () => {
@@ -91,10 +100,14 @@ test('#4195 homeSocket: a test\'s own socket wins, otherwise the prefix plus a h
   }
 });
 
-test('#4195 agysignin takes its plumbing from tmuxsignin, not from a copy of its own', () => {
-  const src = require('node:fs').readFileSync(path.join(__dirname, 'agysignin.js'), 'utf8');
-  assert.match(src, /require\('\.\/tmuxsignin'\)/);
-  for (const copy of [/function shq\(/, /let tmuxBinCached/, /execFileSync\(bin, full/, /e\.code === 'ETIMEDOUT'/]) {
-    assert.doesNotMatch(src, copy, 'agysignin has its own copy again: ' + copy);
+/* Every sign-in that runs in hidden tmux. Step 2 of #4195 adds 'musesignin.js' here. */
+const CONSUMERS = ['agysignin.js'];
+test('#4195 each sign-in takes its plumbing from tmuxsignin, not from a copy of its own', () => {
+  for (const file of CONSUMERS) {
+    const src = require('node:fs').readFileSync(path.join(__dirname, file), 'utf8');
+    assert.match(src, /require\('\.\/tmuxsignin'\)/, file + ' does not use tmuxsignin');
+    for (const copy of [/function shq\(/, /let tmuxBinCached/, /execFileSync\(bin, full/, /e\.code === 'ETIMEDOUT'/]) {
+      assert.doesNotMatch(src, copy, file + ' has its own copy again: ' + copy);
+    }
   }
 });

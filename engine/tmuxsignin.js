@@ -21,8 +21,10 @@ function homeSocket(prefix, envVar) {
   return prefix + crypto.createHash('sha256').update(String(require('node:os').homedir())).digest('hex').slice(0, 10);
 }
 
-/* Looked up once and kept: binPaths() resolves every runner, and a sign-in asks every tick.
-   forgetTmuxBin() makes the next call look again (a sign-in starting: tmux may have been installed since). */
+/* Looked up once and kept: binPaths() resolves every runner, and a sign-in asks every tick. ONE cache
+   for every sign-in that uses this module (they all ask binPaths() for the same tmux), so
+   forgetTmuxBin() in one sign-in's start makes the next call look again for all of them (tmux may
+   have been installed since). */
 let tmuxBinCached = null;
 function tmuxBin() { return tmuxBinCached || (tmuxBinCached = require('./create').binPaths().tmuxBin); }
 function forgetTmuxBin() { tmuxBinCached = null; }
@@ -56,4 +58,4 @@ function deliveryUnknown(e) { return !!(e && (e.code === 'ETIMEDOUT' || e.signal
 /* One argument quoted for /bin/sh. */
 function shq(v) { return "'" + String(v).replace(/'/g, "'\\''") + "'"; }
 
-module.exports = { TMUX_CALL_MS, homeSocket, tmuxBin, forgetTmuxBin, live, runTmux, deliveryUnknown, shq };
+module.exports = { homeSocket, tmuxBin, forgetTmuxBin, live, runTmux, deliveryUnknown, shq };

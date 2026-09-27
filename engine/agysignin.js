@@ -23,11 +23,9 @@ const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
 const tmuxsignin = require('./tmuxsignin');   // the hidden-tmux plumbing shared with musesignin (#4195)
 
-/* Its own tmux socket, so the session is invisible to every agent-listing tmux call. A test names
-   its own (AGENT_WORKFORCE_AGY_SIGNIN_SOCKET) so it can never meet a real sign-in. */
-/* Named after this macOS account's home (review round 8, replacing round 4's per-Kosmos name): agy's
-   sign-in is one per account, so a sign-in started in one Kosmos and left behind by a switch to
-   another is the one the next start ends, rather than an orphan on a socket nobody asks about. */
+/* Its own tmux socket, named after this account's home (the rule is tmuxsignin.homeSocket's; here
+   since review round 8, replacing round 4's per-Kosmos name). A test names its own with
+   AGENT_WORKFORCE_AGY_SIGNIN_SOCKET. */
 function socket() { return tmuxsignin.homeSocket('kosmos-agy-signin-', 'AGENT_WORKFORCE_AGY_SIGNIN_SOCKET'); }
 const SESSION = 'agy-signin';
 const TICK_MS = 1000;
@@ -110,7 +108,7 @@ function screenOf(text, skip) {
 /* ---- seams a test replaces -------------------------------------------------------------- */
 /* tmuxBin (looked up once, round 10), the live-execution gate (convention 3) and the tmux call with
    its kosmosInternal marking (round 15) and piped stderr (round 21) are shared: engine/tmuxsignin.js. */
-const { tmuxBin, shq } = tmuxsignin;
+const { tmuxBin, shq } = tmuxsignin;   // functions, so forgetTmuxBin still reaches the cache behind tmuxBin
 function live(file, args) { return tmuxsignin.live('agysignin', file, args); }
 let tmux = (args) => tmuxsignin.runTmux('agysignin', socket(), args);
 let openFile = (file, done) => {
