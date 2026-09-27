@@ -9698,6 +9698,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   :is(#d-files, #d-sec-files) .pj-doc { min-height: 44px; }
   #d-files-all { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
   #d-files-back { display: inline-flex; align-items: center; min-height: 44px; }
+  /* #4088: Finder/File Explorer is on the computer running Kosmos, not the phone showing
+     this page. Hide an action the phone cannot fulfil; the file rows remain available. */
+  #d-files-finder { display: none; }
   /* #718 rows 2 and 3: keep the agent's Profile and Instructions forms readable without
      iOS focus zoom, and give their actions a phone-sized target. The desktop percentage
      widths stay above; only the phone lets the long Name help use the form's width. */
