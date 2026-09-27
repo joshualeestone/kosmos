@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# #4109 measurement run: gate, boot, four arms of seven cold runs, shut down.
+# #4109 alternating run: main and the change, three rounds each, one session, gated per arm.
 set -uo pipefail
 W=/Users/mortalkombat/work/agent-workforce-cct-warmup-4109
 S=/opt/homebrew/share/android-commandlinetools
@@ -20,7 +20,7 @@ wait_gate() {
 }
 
 wait_gate || exit 1
-"$S/emulator/emulator" -avd moto-g-play-2024-api35 -gpu host -no-snapshot-save -no-boot-anim > "$D/emulator.log" 2>&1 &
+"$S/emulator/emulator" -avd moto-g-play-2024-api35 -gpu host -no-snapshot-save -no-boot-anim > "$D/emulator-abab.log" 2>&1 &
 "$ADB" wait-for-device
 booted=0
 for i in $(seq 1 120); do
@@ -33,11 +33,13 @@ done
 sleep 30   # let the post-boot work settle, the same for every arm
 
 rc=0
-for arm in before:before-ee8836281.apk bindonly:armA-bind-only.apk bindpreload:armB-bind-mayLaunch.apk before2:before-ee8836281.apk; do
+for arm in main-a:before-ee8836281.apk warm-a:warm-final.apk main-b:before-ee8836281.apk warm-b:warm-final.apk main-c:before-ee8836281.apk warm-c:warm-final.apk; do
   label=${arm%%:*}; apk=${arm#*:}
   wait_gate || { rc=1; break; }
   python3 "$H" "$D/$apk" "$label" 7 || rc=1
 done
+# A bind left unpaired would show as a leaked ServiceConnection.
+echo "leaked connections: $("$ADB" logcat -d | grep -ci "has leaked ServiceConnection")"
 "$ADB" emu kill
 echo "ALL_DONE rc=$rc"
 exit $rc

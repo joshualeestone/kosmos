@@ -13,10 +13,12 @@ OLD=/Users/mortalkombat/work/workers/liukang/Files/Kosmos-android-test.apk
 bash "$GATE" --twice --except-cwd "$W" || exit 1
 "$S/emulator/emulator" -avd moto-g-play-2024-api35 -gpu host -no-snapshot-save -no-boot-anim > "$D/emulator-control.log" 2>&1 &
 "$ADB" wait-for-device
+booted=0
 for i in $(seq 1 120); do
-  [ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ] && { echo "booted after $((i * 2))s"; break; }
+  [ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ] && { echo "booted after $((i * 2))s"; booted=1; break; }
   sleep 2
 done
+[ "$booted" = 1 ] || { echo "emulator did not finish booting in 240 s"; "$ADB" emu kill; exit 1; }
 sleep 30
 rc=0
 KOSMOS_LAUNCH_COMPONENT=io.kosmos.app/com.google.androidbrowserhelper.trusted.LauncherActivity \
