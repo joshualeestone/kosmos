@@ -1769,3 +1769,12 @@ test('#3995 gap 4 review round 24: a vendor key whose body is hex, given without
     assert.equal(shown.length, 0, 'chunks of a hex body showed: ' + shown.join(',') + ': ' + t);
   } finally { setKnownSecrets([]); }
 });
+
+test('#3995 gap 4 review round 26 (pinned limit): a value made wholly of label-shaped groups, cut into them, is not masked by the short walk', () => {
+  // Stated under Not covered: the rule that keeps Q1Q2Q3... out of prose about quarters cannot tell A12B34C56... apart.
+  setKnownSecrets(['A12B34C56D78E90F123']);
+  try {
+    const t = 'A12 and B34 and C56 and D78 and E90 and F12 and 3';
+    assert.equal(mask(t).text, t, 'the stated limit changed; update the Not covered list and this test');
+  } finally { setKnownSecrets([]); }
+});

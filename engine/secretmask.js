@@ -457,6 +457,10 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *    chunks read as words by wordLike's vowel test;
  *  - a key whose FIRST chunk is one character (the short walk starts only from two or three);
  *  - a chunk with a number glued straight onto it, no separator (0Zq8 1vLm ..., or Zq80 vLm1 ...);
+ *  - EVERY time, not at a rate: a value made wholly of label-shaped groups (one letter and one or two digits, or the
+ *    reverse: A12B34C56..., A1B2C3...), a serial or licence-key shape, cut into those groups. Each group reads as a
+ *    plain label (Q1, V2), so no piece is key-like; the same rule is what keeps a held Q1Q2Q3Q4Q5Q6 out of a sentence
+ *    about quarters, and the two cannot be told apart by their pieces (review rounds 10 and 26);
  *  - (a false mask, the other side of SHORT_WALK_MIN_KEYLIKE) a held value shaped like configuration rather than a key,
  *    such as a model id held from a settings file (gpt-4o-mini-2024-07-18), is masked out of prose that names it;
  *  - an uppercase-and-digit key (A-Z 0-9) in chunks of two: its vowel pairs, labels and digit pairs all read as plain,

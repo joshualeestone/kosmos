@@ -293,3 +293,10 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
 - Outside this branch, filed as #4112: a reply naming sk-ant-api03- many times is withheld with many Anthropic keys held
   (main too).
 - Noted: the cost tests are time-based, like the existing #3769 ones.
+
+## Review round 26 (Sonnet): one BLOCKER-rated finding deferred as the stated trade-off, now stated as a certainty
+- A value made wholly of label-shaped groups (A12B34C56..., A1B2C3...), cut into them, is never masked by the short
+  walk: every group is a plain label by the round-10 rule, which exists so a held Q1Q2Q3Q4Q5Q6 is not masked out of a
+  sentence about quarters. The two are structurally identical, so no piece rule separates them. Kept the round-10 rule
+  (ordinary text is protected); Not covered now names this as EVERY time for that shape, not a sampled rate, and a
+  test pins it. What would change it: evidence that such keys are held and written in their groups in guide replies.
