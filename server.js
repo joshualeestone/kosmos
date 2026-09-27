@@ -1,5 +1,15 @@
 'use strict';
 
+/* #4199: FIRST, before anything else loads or writes: when this file IS the board (not required by a test), every line
+   it writes into board.log starts with a UTC time, so a restart can be matched to what an agent was doing. Only when
+   stdout/stderr is a regular file (board.log under launchd or nohup); a pipe or a terminal is left alone. See
+   engine/logstamp.js. */
+if (require.main === module) {
+  const logstamp = require('./engine/logstamp');
+  logstamp.install(process.stdout, 1);
+  logstamp.install(process.stderr, 2);
+}
+
 /**
  * A local window onto the agents running on this machine.
  *
