@@ -60,7 +60,7 @@ function copyOf(id, which) {
 }
 
 test('the second step is not described as something a phone triggers', () => {
-  const copy = copyOf('plus-lost-say');   // [0] is the heading
+  const copy = copyOf('plus-lost-say');   // #4080: the dialog's sentence is itself the <p>
   assert.doesNotMatch(copy, /from a phone asks/i,
     'the copy makes the second step conditional on the device, which is false and is the '
     + 'kind of false that changes how somebody protects their account');

@@ -174,6 +174,18 @@ const STATES = {
           await page.waitForTimeout(100);
           const bodyEsc = await page.evaluate(() => document.getElementById('plus-lost-modal').hidden);
           chk(wrapped === 'plus-lost-close' && bodyEsc, `${t} #4080: Tab stays inside the dialog, and Escape closes it even with focus on the page`, JSON.stringify({ wrapped, closed: bodyEsc }));
+          /* Review round 2: a reset that finishes while the dialog is closed keeps its answer for the next open. */
+          await page.route('**/api/remote/second-reset', async (route) => { await new Promise((r) => setTimeout(r, 700)); await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
+          await page.click('#plus-lost-open');
+          await page.click('#plus-second-reset');   // arms
+          await page.click('#plus-second-reset');   // confirms: the request is out
+          await page.keyboard.press('Escape');      // closed while it runs
+          await page.waitForTimeout(1200);          // it answers while closed
+          await page.click('#plus-lost-open');
+          await page.waitForTimeout(150);
+          const seen = await page.evaluate(() => { const m = document.getElementById('plus-second-msg'); return { shown: !m.hidden, text: m.textContent }; });
+          chk(seen.shown && /second step is off/i.test(seen.text), `${t} #4080: a reset that answered while the dialog was closed is shown on the next open`, JSON.stringify(seen));
+          await page.keyboard.press('Escape');
           if (SHOTS) { await page.setViewportSize({ width: 1400, height: 1000 }); await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(200); await page.screenshot({ path: path.join(SHOTS, '4080-connected.png') }); await page.setViewportSize({ width: 1400, height: 950 }); }
           /* The switch pauses: pressing it sends on:false (the route stub answers ok and the next paint re-reads). */
           const put = new Promise((res) => page.on('request', (rq) => { if (/\/api\/remote$/.test(rq.url()) && rq.method() === 'PUT') res(rq.postData()); }));

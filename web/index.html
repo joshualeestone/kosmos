@@ -38651,6 +38651,7 @@ const PLUS_SECOND_WORDS = {
 };
 let PLUS_SECOND_ARMED = false;
 var PLUS_SECOND_BUSY = false;   // #4080: a second-step reset is in flight
+var PLUS_SECOND_UNSEEN = false; // #4080: its answer arrived while the dialog was closed, and nobody has read it yet
 function plusSecondDisarm() {
   PLUS_SECOND_ARMED = false;
   const btn = document.getElementById('plus-second-reset');
@@ -38678,13 +38679,16 @@ document.getElementById('plus-second-reset').addEventListener('click', async () 
   } catch { msg.textContent = PLUS_SECOND_WORDS.failed('this computer could not reach its own engine'); }
   PLUS_SECOND_BUSY = false;
   msg.hidden = false;   // #4080: shown even if the dialog was closed and reopened while it ran
+  { const lm = document.getElementById('plus-lost-modal'); PLUS_SECOND_UNSEEN = !!(lm && lm.hidden); }   // closed: keep it for the next open
   plusSecondDisarm();
 });
 /* #4080: "Lost your phone?" opens the reset in a dialog. Focus goes to Close (not the reset), and back to the link. */
 function plusLostOpen() {
   const back = document.getElementById('plus-lost-modal'); if (!back) return;
   /* A reset still in flight keeps its button and its line: its answer must be seen (an account-wide change). */
-  if (!PLUS_SECOND_BUSY) { const msg = document.getElementById('plus-second-msg'); if (msg) { msg.hidden = true; msg.textContent = ''; } plusSecondDisarm(); }
+  /* ...and an answer that arrived while the dialog was closed is kept for this open (review round 2). */
+  if (!PLUS_SECOND_BUSY && !PLUS_SECOND_UNSEEN) { const msg = document.getElementById('plus-second-msg'); if (msg) { msg.hidden = true; msg.textContent = ''; } plusSecondDisarm(); }
+  PLUS_SECOND_UNSEEN = false;
   back.hidden = false;
   const c = document.getElementById('plus-lost-close'); if (c) c.focus();
 }
