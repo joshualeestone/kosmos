@@ -9363,7 +9363,7 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
    and the sign-in link on one line; they wrap on a narrow pane. Link colour is
    first-step.html's on-navy link blue (#7ea0f0), readable on the gradient. */
 .plus-topbar { color: var(--k-ink-2); font-size: .95rem; margin: 0 0 8px; }
-/* #4079: the result of Disconnect this computer, on the pane the person lands on. */
+/* #4079: the result of Remove this computer, on the pane the person lands on. */
 .plus-forgot { font-size: .95rem; line-height: 1.5; margin: 0 0 14px; padding: 10px 14px; border: 1px solid var(--k-rule); border-radius: 10px; background: var(--k-surface); color: var(--k-ink); }
 .plus-forgot:focus { outline: none; }
 .plus-cta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 20px; }
@@ -15911,8 +15911,8 @@ window.kosmosMeasureScrollbarWidth();
            WIZARD (state 2) rather than the web -- its handler (plusSiEnter) is
            attached once at load and calls preventDefault, so no address is ever set
            here or in JS and the no-hostname guard still needs no pin. -->
-      <!-- #4079: after Disconnect this computer, what happened, said here because this is the pane the
-           person lands on. Set by the disconnect handler, cleared when a sign-in starts. -->
+      <!-- #4079: after Remove this computer, what happened, said here because this is the pane the
+           person lands on. Set by the Remove this computer handler, cleared when a sign-in starts. -->
       <p class="plus-forgot" id="plus-forgot-msg" role="status" aria-live="polite" hidden></p>
       <p class="plus-topbar">Already have Kosmos+? <a id="plus-signin-top" class="plus-signin-pill" href="#">Sign in</a></p>
       <!-- #1615 blue reskin: the wordmark, drawn as ~300 circles that animate in
@@ -16270,21 +16270,21 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <p class="dhint" id="plus-second-msg" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
       </div>
-      <!-- #4079 (Josh, 22:03: "Is there a way to disconnect my computer running Kosmos from this Kosmos Plus
+      <!-- #4079, named "Remove this computer" by Josh's design (#4080, 22:22). (Josh, 22:03: "Is there a way to disconnect my computer running Kosmos from this Kosmos Plus
            account somehow?"): the engine's Forget (#793, /api/remote/forget) finally has a button. Pause (above,
            was "Turn off") only stops remote access for now; this removes the computer from the account. Two
-           steps, confirmed in place (the page has no confirm dialog), and the confirm stays until Disconnect or
+           steps, confirmed in place (the page has no confirm dialog), and the confirm stays until Remove or
            Cancel: the 5-second repaint does not take it away while it is being read. -->
       <div id="plus-forget" hidden style="margin-top:16px;">
-        <p class="setname">Disconnect this computer</p>
+        <p class="setname">Remove this computer</p>
         <p class="fhint">Removes this computer from your Kosmos Plus account. Pause only stops access for now.</p>
         <div class="frow" id="plus-forget-row">
-          <button class="btn" type="button" id="plus-forget-go">Disconnect this computer</button>
+          <button class="btn" type="button" id="plus-forget-go">Remove this computer</button>
         </div>
         <div id="plus-forget-ask" hidden>
           <p class="fhint" id="plus-forget-sure">This computer leaves your Kosmos Plus account and its address is freed. Your devices will no longer reach it. You can connect it again later by signing in.</p>
           <div class="frow">
-            <button class="btn danger-btn" type="button" id="plus-forget-yes">Disconnect</button>
+            <button class="btn danger-btn" type="button" id="plus-forget-yes">Remove</button>
             <button class="btn" type="button" id="plus-forget-no">Cancel</button>
           </div>
         </div>
@@ -38205,7 +38205,7 @@ async function paintPlus() {
      sign-in wizard is over -- clear its flag (typeof-guarded for the test harness). */
   if (typeof PLUS_SIGNIN_ACTIVE !== 'undefined') PLUS_SIGNIN_ACTIVE = false;
   const sw = document.getElementById('plus-switch');
-  /* #4079: the on-state control is Pause (it was Turn off), so it cannot be mistaken for Disconnect this
+  /* #4079: the on-state control is Pause (it was Turn off), so it cannot be mistaken for Remove this
      computer below, which removes the computer from the account. Pause keeps it connected, for later. */
   sw.textContent = r.on ? 'Pause' : 'Turn on';
   /* #3829: on, the pause (Pause since #4079) is a quiet link; off, Turn on is the one primary action. */
@@ -38254,7 +38254,7 @@ async function paintPlus() {
      shows with the devices, and a fresh paint disarms a half-taken click. */
   document.getElementById('plus-second').hidden = r.enrolled !== true;
   plusSecondDisarm();
-  /* #4079: Disconnect shows for a connected computer. Its confirm is NOT disarmed here (this runs every 5s).
+  /* #4079: Remove this computer shows for a connected computer. Its confirm is NOT disarmed here (this runs every 5s).
      Connected again (any way), an earlier "disconnected" result is no longer true: it goes. */
   { const f = document.getElementById('plus-forgot-msg'); if (f && !f.hidden) { f.hidden = true; f.textContent = ''; } }
   { const fg = document.getElementById('plus-forget'); if (fg) fg.hidden = r.enrolled !== true; }
@@ -38413,20 +38413,20 @@ document.getElementById('plus-second-reset').addEventListener('click', async () 
   plusSecondDisarm();
 });
 
-/* #4079: Disconnect this computer. The engine (remote.forget) retires the computer at the account while its
+/* #4079: Remove this computer (it was drafted as Disconnect). The engine (remote.forget) retires the computer at the account while its
    key exists, then destroys the key; it reports whether the account was told (`retired`) and, when not, a
    sentence saying the address may still show there. That sentence is shown as it is: never "done" for a
    disconnect the account did not hear about. */
 const PLUS_FORGET_WORDS = {
-  done: 'This computer is disconnected from Kosmos Plus. Its address is free, and your devices can no longer reach it. Sign in to connect it again.',
+  done: 'This computer is removed from Kosmos Plus. Its address is free, and your devices can no longer reach it. Sign in to connect it again.',
   /* Not "still connected": a rare engine failure can come after the key is gone. Say only that it did not finish. */
-  failed: (why) => 'Disconnecting did not finish: ' + why + '. Try again in a moment.',
+  failed: (why) => 'Removing it did not finish: ' + why + '. Try again in a moment.',
 };
 function plusForgetArm(on) {
   const ask = document.getElementById('plus-forget-ask'); const row = document.getElementById('plus-forget-row');
   if (ask) ask.hidden = !on;
   if (row) row.hidden = on;
-  /* Focus on Cancel, not Disconnect: a held or repeated key must not carry straight through the confirm. */
+  /* Focus on Cancel, not Remove: a held or repeated key must not carry straight through the confirm. */
   if (on) { const n = document.getElementById('plus-forget-no'); if (n) n.focus(); }
 }
 document.getElementById('plus-forget-go').addEventListener('click', () => {
@@ -38440,14 +38440,14 @@ document.getElementById('plus-forget-no').addEventListener('click', () => {
 document.getElementById('plus-forget-yes').addEventListener('click', async () => {
   const yes = document.getElementById('plus-forget-yes'); const no = document.getElementById('plus-forget-no');
   const msg = document.getElementById('plus-forget-msg');
-  yes.disabled = true; no.disabled = true; yes.textContent = 'Disconnecting...';
+  yes.disabled = true; no.disabled = true; yes.textContent = 'Removing...';
   let said = null; let ok = false;
   try {
     const res = await fetch('/api/remote/forget', { method: 'POST' });
     said = await res.json().catch(() => null);
     ok = res.ok && !!(said && said.ok === true);
   } catch { said = { error: 'this computer could not reach its own engine' }; }
-  yes.disabled = false; no.disabled = false; yes.textContent = 'Disconnect';
+  yes.disabled = false; no.disabled = false; yes.textContent = 'Remove';
   if (!ok) {
     plusForgetArm(false);
     const why = plusWords((said && said.error) || 'we could not disconnect it').replace(/^we could not forget this computer: /, '').replace(/[.!?]+$/, '');
@@ -38666,7 +38666,7 @@ function plusSiClear() {
 function plusSiEnter(e) {
   if (e) e.preventDefault();
   PLUS_SIGNIN_ACTIVE = true;
-  /* #4079: a new sign-in replaces the Disconnect result. */
+  /* #4079: a new sign-in replaces the Remove this computer result. */
   { const f = document.getElementById('plus-forgot-msg'); if (f) { f.hidden = true; f.textContent = ''; } }
   plusSiMsg('');
   plusSiClear();
