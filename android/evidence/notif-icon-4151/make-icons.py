@@ -5,6 +5,8 @@ The shape is the old vector's (a planet of radius 4.5 and a 9.5 x 3.5 orbit ring
 24 x 24 viewport), drawn white on transparent at 24dp for each density, 16x supersampled.
 
   python3 android/evidence/notif-icon-4151/make-icons.py
+
+Needs Pillow (`python3 -m pip install Pillow`).
 """
 import os
 
