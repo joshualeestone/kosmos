@@ -221,3 +221,13 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
   copies) now need three characters or more: a two-character slice of a key is an ordinary token as often as not.
   Tested; red on the previous commit. The cost, named in Not covered: a repeated, regrouped or abandoned copy's
   TWO-character chunks can show (at most two characters each).
+
+## Review round 19 (Opus), what changed
+- BLOCKER fixed: shortPieces deduped each place with a scan of the list, so a run of one part repeated thousands of
+  times (a pasted solid-colour base64 image, 0-0-0-...) took quadratic time before any budget was charged (21s on
+  128KB). A Set of places now. Tested: 32,000 characters of /wAA under 1.5s CPU, unchanged; red on the previous commit.
+- The nearby-slice rule masked an ordinary acronym before the key that spanned two of its chunks ("TLS" across EFT and
+  LSU). A slice must now line up with the key's own cuts at one end at least; cuts include every separator inside a
+  joined piece on the path. Tested; the round-17 regrouped-repeat shapes still pass.
+- Not covered quotes the measured rate for uppercase-and-digit keys in threes (about one in two hundred), not "0 of 600".
+- The budget comment is rewritten as the unit plus a list of measurements.

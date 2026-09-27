@@ -445,7 +445,8 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *    chunks read as words by wordLike's vowel test;
  *  - a key whose FIRST chunk is one character (the short walk starts only from two or three);
  *  - an uppercase-and-digit key (A-Z 0-9) in chunks of two: its vowel pairs, labels and digit pairs all read as plain,
- *    so about one in ten shows in full (measured in review round 13; chunks of three, 0 of 600);
+ *    so about one in ten shows in full, and in chunks of three about one in two hundred (measured in review rounds 13
+ *    and 19);
  *  - a key both spaced one character at a time AND cut into short chunks with words between (the short walk reads
  *    the text, not the single-spacing copy the word walk also reads);
  *  - anything that is hex (0-9 a-f only) cut into chunks under OPENING_LEN: the hex encodings of held values AND a
@@ -764,21 +765,31 @@ function wordSkippingSpans(text) {
  *    of words, MyPassword123 or 2ndFloorLounge, is spelled by ordinary text: review rounds 1 and 2).
  * Returns [from, to) spans, or null when the walk ran past SHORT_WALK_BUDGET (withheld, as the word walk is).
  */
-/* Review round 17: with 2,000 held values of 400 to 1,000 characters, a crafted text of 8,000 random one- to
-   three-character tokens is withheld here (about 1s) and not on main; realistic texts (code, grids, chess, JWTs) were
-   unchanged at 1 to 2.5 times main's time. Measured by review round 12 on a large crafted reply (2,000 held values, 6,000 runs, 135,000 characters): 2.4s here
-   against 1.5s on main for the same input, not withheld; inside the word walk's documented range of up to twice its
-   1 to 1.3s. The word walk's figure, and its unit: one per candidate form, per run visited, per state, and per 16 steps of the
-   spellability check (chunksOf). Measured on this branch (review round 2's probes: 2,000 forms by 4,000 short runs, 2,000
-   near-cap forms sharing one opening, one 20,000-character run): 200 to 600ms, withheld at the budget rather
-   than hanging. */
+/* The word walk's figure. Unit: one per candidate form, per queued point, per run visited, and per 16 characters the
+   spellability check slices (chunksOf).
+   Measured (2,000 held values unless said):
+   - review round 2: 2,000 forms by 4,000 short runs, near-cap forms sharing one opening, one 20,000-character run:
+     200 to 600ms, withheld at the budget rather than hanging;
+   - review round 12: a crafted 135,000-character reply with 6,000 runs: 2.4s against main's 1.5s, not withheld;
+   - review round 17: held values of 400 to 1,000 characters on 8,000 random one- to three-character tokens: withheld
+     (about 1s; main is not), crafted; realistic texts (code, grids, chess, JWTs) unchanged at 1 to 2.5x main. */
 const SHORT_WALK_BUDGET = 1250000;
 /* The pieces a run offers, each with WHERE it sits in the run ([from, to)), so the mask covers that place and not the
    first place the same letters happen to appear (review round 15: in t6wx/t6w/q the chunk is the middle part). */
 function shortPieces(run) {
   const out = new Map();
   /* Every place a piece sits (review round 16: 3pR-3pR recorded only the first, so the second copy showed). */
-  const put = (t, a, b) => { if (!t) return; if (!out.has(t)) out.set(t, []); if (!out.get(t).some(([x, y]) => x === a && y === b)) out.get(t).push([a, b]); };
+  /* A Set of places already put, not a scan of the list (review round 19: a run of one part repeated thousands of times,
+     a pasted solid-colour base64 image, cost quadratic time before any budget was charged). */
+  const seen = new Set();
+  const put = (t, a, b) => {
+    if (!t) return;
+    const key = a + ':' + b + ':' + t;
+    if (seen.has(key)) return;
+    seen.add(key);
+    if (!out.has(t)) out.set(t, []);
+    out.get(t).push([a, b]);
+  };
   put(run, 0, run.length);
   const lead = run.length - run.replace(/^[-+_/]+/, '').length;
   const trimmed = run.slice(lead).replace(/[-+_/]+$/, '');
@@ -932,11 +943,17 @@ function shortChunkSpans(text) {
     }
   }
   const spans = [];
-  const nearPieces = (k, f, head) => {
+  const nearPieces = (k, f, head, cuts) => {
     for (const [t, places] of runs[k][4]) {
       /* Three characters or more (review round 18: "c4" in "White played c4" is a slice of many keys; a two-character
          coincidence is ordinary, a three-character non-plain one is not). */
-      if (t.length < 3 || plainWordRun(t) || f.indexOf(t, head) < 0) continue;
+      if (t.length < 3 || plainWordRun(t)) continue;
+      /* Only a slice that lines up with the key's own chunks at one end at least (starts or ends where the completed path
+         cut it): a slice across two chunks at neither end is an ordinary token as easily (review round 19: "TLS" spanned
+         EFT and LSU). One end, since a path that ends on a run written without separators (2nWc4d) leaves no cut inside. */
+      let aligned = false;
+      for (let q = f.indexOf(t, head); q >= 0 && !aligned; q = f.indexOf(t, q + 1)) aligned = cuts.has(q) || cuts.has(q + t.length);
+      if (!aligned) continue;
       for (const [a, b] of places) spans.push([runs[k][0] + a, runs[k][0] + b]);
     }
   };
@@ -953,9 +970,19 @@ function shortChunkSpans(text) {
        before the first chunk to the last: the search ends on the shortest path, so a regrouped repeat (2nW/c4d, Zq8vLm
        3pRt6w) or an abandoned first try left chunks off the path showing (review round 17). Non-plain only, so an
        ordinary "1" or "the" nearby stays (review rounds 3 and 11). */
+    /* Where the path cut the key: each piece's ends, and inside a joined piece (Xy9kHb2nWc4d written Xy9-kHb-2nW-c4d)
+       every separator it spanned in its run. */
+    const cuts = new Set([0]);
+    for (const [i, t, pos] of done) {
+      const from = pos - t.length;
+      cuts.add(from); cuts.add(pos);
+      const [a, b] = runs[i][4].get(t)[0];
+      let n = 0;
+      for (const ch of runs[i][3].slice(a, b)) { if (/[=_+/-]/.test(ch)) cuts.add(from + n); else n += 1; }
+    }
     const reachBack = ns[runs[first][0]] - SPLIT_REACH * f.length;
-    for (let k = first - 1; k >= 0 && ns[runs[k][1]] >= reachBack; k -= 1) nearPieces(k, f, head);
-    for (let k = first + 1; k < last; k += 1) nearPieces(k, f, head);
+    for (let k = first - 1; k >= 0 && ns[runs[k][1]] >= reachBack; k -= 1) nearPieces(k, f, head, cuts);
+    for (let k = first + 1; k < last; k += 1) nearPieces(k, f, head, cuts);
     for (const [i, t, pos] of done) {
       if (pos <= head) continue;   // wholly inside the public head: assembled from, not masked
       pieceSpan(i, t);

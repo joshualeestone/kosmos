@@ -1682,3 +1682,19 @@ test('#3995 gap 4 review round 18: an ordinary two-character token that is a sli
     for (const c of ['Zq8', 'vLm', '3pR', 't6w', 'Xy9', 'kHb', '2nW', 'c4d']) assert.ok(!new RegExp('(^|[^A-Za-z0-9])' + c + '([^A-Za-z0-9]|$)').test(t), `${c} showed: ${t}`);
   } finally { setKnownSecrets([]); }
 });
+
+test('#3995 gap 4 review round 19: a pasted run of one part repeated thousands of times stays cheap, and a slice across two chunks is not masked before the key', () => {
+  setKnownSecrets([j('Zq8vLm3pRt6w', 'Xy9kHb2nWc4d')]);
+  try {
+    const blob = 'Here is the image: data:image/raw;base64,' + '/wAA'.repeat(8000);
+    let r;
+    const ms = cpuMillisecondsOf(() => { r = mask(blob); });
+    assert.equal(r.text, blob);
+    assert.ok(ms < 1500, `a repeated-part run cost ${ms}ms`);
+  } finally { setKnownSecrets([]); }
+  setKnownSecrets(['DJOIITCPC87MQS447TEFTLSU']);
+  try {
+    const t = mask('The relay is automatic over TLS; it is a byte pipe. Paste: DJO then IIT then CPC then 87M then QS4 then 47T then EFT then LSU.').text;
+    assert.ok(t.startsWith('The relay is automatic over TLS;'), 'a slice across two chunks was masked: ' + t);
+  } finally { setKnownSecrets([]); }
+});
