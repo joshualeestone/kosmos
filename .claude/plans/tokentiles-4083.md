@@ -50,5 +50,7 @@ and the desktop control still proves the fit check can see a clip. And the 12px 
 7-character headline: the human-cost formatter reads $1B or more as $1000.0M (8 characters, there is no B
 band), which would sit tighter on a phone. That formatter is not changed here.
 
-The stat row's numbers keep their size (`clamp(20px,6cqi,36px)`): Josh's "a little smaller" was about the
-big pair crowding their edges; the baseline, divider and centring fixes cover both rows.
+The stat row's numbers step down with the headline, `clamp(15px,4.5cqi,27px)` (was `20px,6cqi,36px`),
+keeping the original 3:4 ratio to it. Keeping them at 6cqi made them the same size as the headline in the
+~544px settings column (both scale off it), which lost the card's hierarchy; the check now asserts the
+headline is at least 1.2x the stat numbers at both widths.

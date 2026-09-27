@@ -208,7 +208,7 @@ function readUsage(page) {
     ok(v.heroApi, 'the Equivalent Token API Cost stat abbreviates its thousands figure to $1.2K (#3137, was the clipping $1,152)');
     ok(v.heroFigsFit, 'no hero stat tile clips its figure -- every .tv-fig fits its box after the #3137 abbreviation');
     ok(v.tileFitControl && v.tileFitControl.wideOverflows && v.tileFitControl.abbrFits,
-      'CONTROL: a figure too wide for the cost tile overflows it and the abbreviated $176.3K fits (#3137, non-vacuous fit proof) -- '
+      'CONTROL: the fit check can see a clip (a figure too wide for the cost tile overflows it) and the abbreviated $176.3K fits (#3137) -- '
       + JSON.stringify(v.tileFitControl));
     ok(v.heroDays, 'the Active Days on Kosmos eyebrow is shown');
     // charts4
@@ -341,7 +341,8 @@ function readUsage(page) {
           const fig = box.querySelector('.tv-fig'), lab = box.querySelector('.tv-flabel');
           const ft = textBox(fig), lt = textBox(lab), lb = lab.getBoundingClientRect(), bb = box.getBoundingClientRect();
           const band = { top: lb.top + parseFloat(getComputedStyle(lab).borderTopWidth), bottom: lb.bottom };
-          return { base: +ft.rect.bottom.toFixed(2), divider: +lb.top.toFixed(2), lines: lt.lines,
+          /* The text's bottom edge: the same as its baseline only while the compared figures share font, size and line-height. */
+          return { textBottom: +ft.rect.bottom.toFixed(2), fontPx: parseFloat(getComputedStyle(fig).fontSize), divider: +lb.top.toFixed(2), lines: lt.lines,
             centreOff: +(((lt.rect.top + lt.rect.bottom) / 2) - ((band.top + band.bottom) / 2)).toFixed(2),
             margin: +Math.min(ft.rect.left - bb.left, bb.right - ft.rect.right).toFixed(2), text: (fig.textContent || '').trim(),
             boxW: +bb.width.toFixed(1), textW: +ft.rect.width.toFixed(1), font: getComputedStyle(fig).fontSize };
@@ -356,12 +357,14 @@ function readUsage(page) {
       ok(new Set(lines(align.hero)).size > 1 && new Set(lines(align.stats)).size > 1,
         `${at} precondition: in each row one label is on one line and one wraps, so the uneven case is measured (${JSON.stringify({ hero: lines(align.hero), stats: lines(align.stats) })})`);
       const spread = (r, k) => Math.max(...r.map((t) => t[k])) - Math.min(...r.map((t) => t[k]));
-      ok(align.hero.length === 2 && spread(align.hero, 'base') <= 0.5, `${at}: the two big hero numbers sit on one baseline (#4083) -- ${JSON.stringify(align.hero.map((t) => t.base))}`);
+      ok(align.hero.length === 2 && spread(align.hero, 'textBottom') <= 0.5, `${at}: the two big hero numbers sit on one baseline (#4083) -- ${JSON.stringify(align.hero.map((t) => t.textBottom))}`);
       ok(align.hero.length === 2 && spread(align.hero, 'divider') <= 0.5, `${at}: the lines above the two hero labels are at the same height (#4083) -- ${JSON.stringify(align.hero.map((t) => t.divider))}`);
       if (at === 'desktop') {
         ok(align.stats.length === 3 && spread(align.stats, 'divider') <= 0.5, `${at}: the lines above the three stat labels are at the same height (#4083) -- ${JSON.stringify(align.stats.map((t) => t.divider))}`);
-        ok(align.stats.length === 3 && spread(align.stats, 'base') <= 0.5, `${at}: the three stat numbers sit on one baseline (#4083) -- ${JSON.stringify(align.stats.map((t) => t.base))}`);
+        ok(align.stats.length === 3 && spread(align.stats, 'textBottom') <= 0.5, `${at}: the three stat numbers sit on one baseline (#4083) -- ${JSON.stringify(align.stats.map((t) => t.textBottom))}`);
       }
+      ok(Math.min(...align.hero.map((t) => t.fontPx)) >= 1.2 * Math.max(...align.stats.map((t) => t.fontPx)),
+        `${at}: the headline numbers stay clearly bigger than the stat numbers (at least 1.2x) (#4083) -- hero ${JSON.stringify(align.hero.map((t) => t.fontPx))}, stats ${JSON.stringify(align.stats.map((t) => t.fontPx))}`);
       ok([...align.hero, ...align.stats].every((t) => Math.abs(t.centreOff) <= 1), `${at}: every label is centred in the band under its line (#4083) -- ${JSON.stringify([...align.hero, ...align.stats].map((t) => t.centreOff))}`);
       ok(align.hero.every((t) => t.margin >= 12), `${at}: the big hero numbers keep at least 12px off the tile edges at production scale (#4083) -- ${JSON.stringify(align.hero.map((t) => t.text + ': margin ' + t.margin + ', text ' + t.textW + ' in ' + t.boxW + ' at ' + t.font))}`);
     };
