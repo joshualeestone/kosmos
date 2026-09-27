@@ -7214,6 +7214,9 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
    something to say; the region itself is never hidden (a live region must stay in the tree to be heard).
    Its place in the rail head is set with the consolidated rules (the head wraps, the notice takes a line). */
 .alist-pjn:not(:empty) { padding: 6px 0 2px; }
+/* #3939 slice 3c-2 (review round 3): the line beside the Add a provider picker is never hidden either, so it
+   is heard the first time it speaks; it takes room only while it has something to say. */
+.acct-add-pick-say:empty { margin: 0 !important; }
 .pnotice { display: flex; gap: 10px; align-items: flex-start; padding: 13px 15px; border-radius: 10px;
   background: var(--k-sunk, rgba(20,22,26,.05)); border: 1px solid var(--k-rule); margin: 0 0 12px; }
 .pn-b { flex: 1 1 auto; min-width: 0; }
@@ -11794,7 +11797,7 @@ window.kosmosMeasureScrollbarWidth();
       </select>
       <!-- #3939 slice 3c-2 (review round 1): what Sign in again on the Meta Muse row says when it cannot open
            Meta's step. Beside the picker, so it is on screen whichever step shows; announced (role=status). -->
-      <p class="acct-help" id="acct-add-pick-say" role="status" aria-live="polite" hidden></p>
+      <p class="acct-help acct-add-pick-say" id="acct-add-pick-say" role="status" aria-live="polite"></p>
       <!-- #2234 (Josh 2026-09-05, his words for the button): help for choosing a provider. It links to
            a STABLE help URL on installkosmos.com, never to the help itself: the site redirects it to the
            current help (a written page today, a video later), so the help can change with no release. -->
@@ -24091,6 +24094,7 @@ function acctClaudeChoose(which) {
 function acctPick(which, opts) {
   const sel = document.getElementById('acct-provider-pick');
   if (sel.value !== which) sel.value = which;
+  acctAddPickSay('');   // #3939 slice 3c-2: a choice ends what the line beside the picker said (round 3)
   acctMuseShow(which === 'meta');   // #3939: Meta Muse's step, or put away for any other choice
   document.getElementById('acct-claude-flow').hidden = which !== 'claude';
   document.getElementById('acct-openai-flow').hidden = which !== 'openai';
@@ -25416,8 +25420,7 @@ let ACCT_MUSE_ASKING = null;
 function acctAddPickSay(text) {
   const p = document.getElementById('acct-add-pick-say');
   if (!p) return;
-  p.textContent = text || '';
-  p.hidden = !text;
+  p.textContent = text || '';   // text only: the region stays in the tree to be heard (round 3)
 }
 function openAcctAdd(ev) {
   // #2802: remember the control that opened this modal so closeAcctAdd can send
@@ -25981,6 +25984,7 @@ document.getElementById('acct-grok-sub-cancel').addEventListener('click', () => 
    OWN start answered, never one read back from the poll (another tab's start replaces the sign-in, and
    this screen then says so rather than driving the other one). */
 const MUSE_NOT_HERE = 'Meta Muse is not available on this computer just now.';
+const MUSE_BUSY = 'Finish or stop the sign-in that is under way first, then sign in to Meta again.';
 const MUSE_SAY = {
   starting: 'Starting Muse Code\'s sign-in\u2026',
   code: 'Confirm the code on Meta\'s page. Kosmos carries on by itself once you have.',
@@ -26218,6 +26222,10 @@ async function acctGeminiSignInAgain() {
 async function acctMuseSignInAgain(ev) {
   openAcctAdd(ev);
   const visit = ACCT_ADD_VISIT;
+  const pickAtOpen = (document.getElementById('acct-provider-pick') || {}).value || '';
+  /* Round 3: openAcctAdd keeps a sign-in that is already under way on screen, with its provider picked.
+     Meta's step is not laid over it; the line beside the picker says what to do instead. */
+  if (pickAtOpen !== '') { acctAddPickSay(MUSE_BUSY); return; }
   const asking = ACCT_MUSE_ASKING || museAsk();
   const on = await Promise.race([Promise.resolve(asking).catch(() => false), new Promise((r) => setTimeout(() => r(null), 3000))]);
   const modal = document.getElementById('acct-add-modal');

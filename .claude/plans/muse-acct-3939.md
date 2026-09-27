@@ -71,3 +71,18 @@ picker lists only the Claude row. Both arms go red when acctProvider forgets Met
 - NITs ACCEPTED: the per-request require mirrors agySub's; the order of the 'meta' check
   in acctProvider is moot while ACCT_KEYED_ROUTE has no 'meta' (the authMode check stays
   first for a future Meta key).
+
+## Review round 3 (opus): 0 blockers, 3 warnings, 5 nits
+- W1 FIXED: with a sign-in already under way (openAcctAdd keeps its provider picked), the
+  "picker still empty" guard made Sign in again silent. It now compares against the picker
+  as it was right after opening, and when a sign-in is under way it says "Finish or stop the
+  sign-in that is under way first, then sign in to Meta again." Browser-check arm.
+- W2 FIXED: the status line was un-hidden and filled in one step, which a screen reader may
+  not announce. It now stays in the tree, empty (CSS :empty takes its margin), per #3948.
+- W3 FIXED: the server row is now tested through the real /api/accounts route
+  (server.runners.test.js, darwin): off, on, a refusal after the sign-in drops it, a later
+  sign-in lists it again, not installed drops it.
+- N1: any provider choice clears the line. N2: the check's Claude-actions selector uses
+  real attribute names. N3: the unit test asserts the move picker excludes the row. N4:
+  README row describes the 3c-2 arms. N5 (web tests reading a relative path): pre-existing,
+  noted; run them from the repo root.

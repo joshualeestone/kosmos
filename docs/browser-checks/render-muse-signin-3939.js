@@ -351,7 +351,7 @@ const chk = (ok, label, extra) => {
     return {
       text: r.textContent.replace(/\s+/g, ' ').trim(),
       buttons: [...r.querySelectorAll('button')].map((b) => b.textContent.trim()),
-      claudeBits: r.querySelectorAll('[data-check-claude], [data-reauth], [data-share], [data-forget-provider], [data-remove]').length,
+      claudeBits: r.querySelectorAll('[data-check-claude], [data-check-dir], [data-check-signin], [data-reauth], [data-share], [data-forget-provider], [data-forget]').length,
       group: head ? head.textContent.trim() : '',
       claudeGroup: /Claude/.test(head ? head.textContent : ''),
     };
@@ -381,7 +381,12 @@ const chk = (ok, label, extra) => {
   chk(/not available on this computer/.test(gone.say) && gone.seen && gone.role === 'status' && !gone.step, 'Sign in again with Muse no longer offered says so where it is seen and announced, and opens no step', JSON.stringify(gone));
   // A live answer afterwards ends that stale line (round 1, N3).
   await q(async () => { window.__museOn = true; await museAsk(); });
-  chk(await q(() => document.getElementById('acct-add-pick-say').hidden), 'a later live answer takes the stale "not available" line away');
+  chk(await q(() => document.getElementById('acct-add-pick-say').textContent === ''), 'a later live answer takes the stale "not available" line away');
+  // Round 3: the line is a live region that stays in the tree (it is heard the first time), empty when silent.
+  chk(await q(() => { const p = document.getElementById('acct-add-pick-say'); return !p.hidden && p.getAttribute('aria-live') === 'polite'; }), 'the line beside the picker is never hidden (a live region must stay in the tree to be heard)');
+  // Round 3: any provider choice ends what it said.
+  await q(() => { acctAddPickSay('stale words'); acctPick('openai', { focus: false }); });
+  chk(await q(() => document.getElementById('acct-add-pick-say').textContent === ''), 'choosing a provider ends what the line beside the picker said');
   // Round 1, W2: another provider picked while the answer is out is left alone.
   await q(() => { closeAcctAdd(); window.__museOn = true; window.__holdMuse = new Promise((r) => { window.__releaseMuse = r; }); document.querySelector('#set-accounts [data-muse-reauth]').click(); });
   await settle();
@@ -397,6 +402,12 @@ const chk = (ok, label, extra) => {
   const fresh = await q(() => ({ pick: document.getElementById('acct-provider-pick').value, muse: !document.getElementById('acct-muse-flow').hidden }));
   chk(fresh.pick === '' && !fresh.muse, 'an answer from an earlier visit does not drive a freshly opened dialog', JSON.stringify(fresh));
   await q(() => { closeAcctAdd(); });
+  // Round 3, W1: Sign in again while another sign-in is under way says so, and lays nothing over it.
+  await q(() => { closeAcctAdd(); window.__museOn = true; ACCT_FLOW_LAST = 'downloading|probe'; document.getElementById('acct-provider-pick').value = 'claude'; document.querySelector('#set-accounts [data-muse-reauth]').click(); });
+  await page.waitForTimeout(300);
+  const busy = await q(() => ({ say: document.getElementById('acct-add-pick-say').textContent, pick: document.getElementById('acct-provider-pick').value, muse: !document.getElementById('acct-muse-flow').hidden }));
+  chk(/Finish or stop the sign-in that is under way/.test(busy.say) && busy.pick === 'claude' && !busy.muse, 'Sign in again while another sign-in is under way says so, and does not lay Meta\'s step over it', JSON.stringify(busy));
+  await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); });
   // Round 1, W5: the Connections box never counts Meta Muse as thinking for agents (no agent runs on it yet).
   await q((row) => { window.__accounts = [row]; }, MUSE_ROW);
   await q(() => paintConnLive()); await settle();

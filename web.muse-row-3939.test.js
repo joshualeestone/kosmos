@@ -65,3 +65,13 @@ test('#3939 3c-2: the server builds the row only when Muse is on, installed and 
   const send = src.slice(src.indexOf('sendJson(res, 200, { accounts:', at), src.indexOf('\n', src.indexOf('sendJson(res, 200, { accounts:', at)));
   assert.match(send, /\.\.\.museSub\]/, 'the Meta Muse row is built but never sent');
 });
+
+test('#3939 3c-2 round 3: the move picker never offers the Meta Muse row, to a Claude agent or a keyed one', () => {
+  const CLAUDE_B = { ...CLAUDE, dir: '/h/.claude-b', email: 'b@example.com' };
+  const claudeWorld = api.acctMoveWorld({ runner: 'claude', account: CLAUDE.dir }, [MUSE, CLAUDE, CLAUDE_B]);
+  const dirs = (w) => (w.movable || []).map((x) => x.dir);
+  assert.equal(dirs(claudeWorld).includes(null), false, 'the Meta Muse row was a Claude move target');
+  assert.equal(dirs(claudeWorld).includes('/h/.claude-b'), true, 'CONTROL: a real Claude account is a move target');
+  const codexWorld = api.acctMoveWorld({ runner: 'codex', account: '/h/.codex' }, [MUSE, { provider: 'openai', dir: '/h/.codex', connection: { state: 'connected' } }]);
+  assert.equal(dirs(codexWorld).includes(null), false, 'the Meta Muse row was a keyed move target');
+});
