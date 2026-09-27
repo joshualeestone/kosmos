@@ -82,6 +82,24 @@
             android:exported="false"
             android:theme="@style/KosmosLoadErrorTheme" />
 
+        <!-- #2854: opens the person's own address full screen. The sign-in page, running in
+             the TWA above, hands the address here with an intent:// link to this package
+             (scheme kosmos-open, extras address / addresses / kst / nonce) when "Open my
+             Kosmos" is tapped. Exported because Chrome delivers it, so any page or app can
+             fire it: OpenAddressActivity checks every value with AddressChoice. -->
+        <activity
+            android:name="io.kosmos.app.OpenAddressActivity"
+            android:exported="true"
+            android:theme="@style/KosmosLauncherTheme">
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="kosmos-open" android:host="open" />
+            </intent-filter>
+        </activity>
+
         <!-- Chrome receives the prepared splash bitmap through this provider. -->
         <provider
             android:name="androidx.core.content.FileProvider"

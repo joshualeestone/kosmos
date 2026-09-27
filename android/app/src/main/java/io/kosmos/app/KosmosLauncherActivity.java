@@ -1,10 +1,13 @@
 package io.kosmos.app;
 
+import android.content.Context;
 import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.net.Uri;
 import android.os.Bundle;
+import android.util.Log;
 
 import androidx.browser.customtabs.CustomTabsCallback;
 
@@ -13,8 +16,22 @@ import com.google.androidbrowserhelper.trusted.QualityEnforcer;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Launches the TWA and replaces browser network errors with a Kosmos screen. */
+/**
+ * Launches the TWA and replaces browser network errors with a Kosmos screen.
+ *
+ * It also puts a fresh HandoffNonce in the fragment of the sign-in page's launch URL (#2854).
+ * The nonce is per launch, not per user, so nothing personal is built into the app.
+ *
+ * A launch URL that already has a fragment is left alone; the page then holds no nonce and opens
+ * addresses the ordinary way. A launch URL for any other host or scheme is replaced by the sign-in page,
+ * because this activity is exported and must not open another address without the nonce.
+ */
 public final class KosmosLauncherActivity extends LauncherActivity {
+
+    static final String PREFS = "kosmos";
+    static final String PREF_NONCE = "handoffNonce";
+    private static final String TAG = "KosmosLauncherActivity";
+
     private final AtomicBoolean errorShown = new AtomicBoolean(false);
 
     @Override
@@ -41,6 +58,27 @@ public final class KosmosLauncherActivity extends LauncherActivity {
                 }
             }
         };
+    }
+
+    @Override
+    protected Uri getLaunchingUrl() {
+        Uri given = super.getLaunchingUrl();
+        String hostName = getString(R.string.hostName);
+        Uri url;
+        if (given != null && AddressChoice.isSignInUrl(given.getScheme(), given.getHost(), hostName)) {
+            // Rebuilt from the configured host, not the caller's string, so Chrome's parser
+            // cannot read a different host out of it than android.net.Uri did.
+            url = new Uri.Builder().scheme("https").encodedAuthority(hostName)
+                    .encodedPath(given.getEncodedPath()).encodedQuery(given.getEncodedQuery())
+                    .encodedFragment(given.getEncodedFragment()).build();
+        } else {
+            if (given != null) Log.w(TAG, "launch URL for another host or scheme replaced by the sign-in page");
+            url = Uri.parse(getString(R.string.launchUrl));
+        }
+        if (url.getFragment() != null) return url;
+        String nonce = HandoffNonce.fresh();
+        getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(PREF_NONCE, nonce).commit();
+        return url.buildUpon().encodedFragment(HandoffNonce.FRAGMENT_KEY + "=" + nonce).build();
     }
 
     private boolean hasInternetNetwork() {
