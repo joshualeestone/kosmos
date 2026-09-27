@@ -35,8 +35,9 @@ server.js as a module, so it is never stamped.
   no decoding, nothing held back, no byte changed (review 3: a StringDecoder rewrote invalid or waiting bytes as U+FFFD).
 - A board that died mid-line leaves board.log ending mid-line (review 2). At start the board reads the file's last byte
   and, if it is not a newline, ends that line first, so its own first line is not glued to the old one. stdout is
-  write-only, so the byte is read through board.log's PATH ($KOSMOS_HOME/logs/board.log, and ../logs/board.log beside the
-  app), and only when that path is the same file (device and inode) as stdout; any other file is left as it is (for
+  write-only, so the byte is read through board.log's PATH (../logs/board.log from the app, which is where install/kosmos
+  puts both, pinned by a test against install/kosmos; KOSMOS_HOME is not exported to the board, so it is not read), and
+  only when that path is the same file (device and inode) as stdout; any other file is left as it is (for
   example a dev board's ~/Library/Logs/kosmos-board.log is stamped, but a line a dead board left there is not ended).
 
 ## Rejected

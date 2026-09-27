@@ -33,15 +33,18 @@ const LINE_TEXT_ENCODINGS = /^(utf-?8|latin1|binary|ascii)$/i;
 /* The pure part: `text` stamped at every line start. `atLineStart` says whether the previous write ended a line (true
    for the first write). Returns the stamped text and whether this one ended a line. */
 function stampText(text, atLineStart, stamp) {
-  let stamped = '';
+  const pieces = [];
   let atStart = atLineStart;
-  for (let index = 0; index < text.length; index += 1) {
-    if (atStart) { stamped += stamp + ' '; atStart = false; }
-    const character = text[index];
-    stamped += character;
-    if (character === '\n') atStart = true;
+  let pieceStart = 0;
+  while (pieceStart < text.length) {
+    if (atStart) { pieces.push(stamp + ' '); atStart = false; }
+    const newline = text.indexOf('\n', pieceStart);
+    if (newline === -1) { pieces.push(text.slice(pieceStart)); break; }
+    pieces.push(text.slice(pieceStart, newline + 1));
+    pieceStart = newline + 1;
+    atStart = true;
   }
-  return { text: stamped, atLineStart: atStart };
+  return { text: pieces.join(''), atLineStart: atStart };
 }
 
 /* The same for bytes, so a Buffer write goes out exactly as written: a newline byte (0x0a) never occurs inside a

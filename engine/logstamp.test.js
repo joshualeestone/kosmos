@@ -209,3 +209,12 @@ test('#4199 endsMidLine: a file truncated to empty after the board opened it is 
     assert.equal(logstamp.endsMidLine(fd, [file]), false, 'an empty file was read as mid-line (a spurious blank line)');
   } finally { fs.closeSync(fd); fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('#4199 server.js looks for board.log where install/kosmos puts it (../logs/board.log from the app)', () => {
+  const kosmos = fs.readFileSync(path.join(__dirname, '..', 'install', 'kosmos'), 'utf8');
+  assert.match(kosmos, /^APP="\$KOSMOS_HOME\/app\/server\.js"$/m, 'install/kosmos no longer puts server.js at $KOSMOS_HOME/app');
+  assert.match(kosmos, /^LOG_DIR="\$KOSMOS_HOME\/logs"$/m, 'install/kosmos no longer puts logs at $KOSMOS_HOME/logs');
+  assert.match(kosmos, /^BOARD_LOG="\$LOG_DIR\/board\.log"$/m, 'install/kosmos renamed board.log');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /const logPaths = \[path\.join\(__dirname, '\.\.', 'logs', 'board\.log'\)\];/, 'server.js does not look at ../logs/board.log');
+});

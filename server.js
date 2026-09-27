@@ -45,9 +45,10 @@ const worldRegistryBase = require('./engine/worldenv').bootstrapWorldEnv(process
 if (require.main === module) {
   const logstamp = require('./engine/logstamp');
   const shared = logstamp.sameFile(1, 2) ? { atLineStart: true } : undefined;   // both to board.log: one line state
-  /* Where board.log is (install/kosmos: $KOSMOS_HOME/logs/board.log, and the app sits in $KOSMOS_HOME/app). */
-  const logPaths = [process.env.KOSMOS_HOME && path.join(process.env.KOSMOS_HOME, 'logs', 'board.log'),
-    path.join(__dirname, '..', 'logs', 'board.log')];
+  /* Where board.log is: install/kosmos puts the app at $KOSMOS_HOME/app/server.js and the log at
+     $KOSMOS_HOME/logs/board.log, so it is ../logs/board.log from here (KOSMOS_HOME itself is not exported to the board,
+     so it is not read; engine/logstamp.test.js pins this layout against install/kosmos). */
+  const logPaths = [path.join(__dirname, '..', 'logs', 'board.log')];
   logstamp.install(process.stdout, 1, { shared, logPaths });
   logstamp.install(process.stderr, 2, { shared, logPaths });
 }
