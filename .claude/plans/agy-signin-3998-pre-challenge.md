@@ -2,21 +2,21 @@
 pre_challenge: true
 method: challenge-loop
 branch: agy-signin-3998
-diff_hash: 4b42e1f081ccf2a5a3a6643e25303cf40c10aa6e0d35aea43667b383b79dbbae
+diff_hash: cf2f86d7414e21007d45230234352ba08d6ab8793974ac0f57e347751581f90c
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-27T00:40:00Z
-iterations: 27
+timestamp: 2026-09-27T01:32:00Z
+iterations: 29
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 27, alternating opus and sonnet reviewers (round 27: sonnet).
-**Converged:** Yes. Iteration 27 found no BLOCKER, WARNING, CONVENTION or NIT.
-**Fixed:** every BLOCKER and WARNING raised. **Deferred:** a first-run browser check (round 25, recorded in the plan). **Asked (awaiting user):** 0.
+**Iterations:** 29, alternating opus and sonnet reviewers (round 29: sonnet).
+**Converged:** Yes. Iteration 27 found nothing; after CI, a rebase and main's #4063 merge, iteration 28 found one WARNING (fixed) and iteration 29 found no BLOCKER, WARNING or CONVENTION (one NIT, deferred).
+**Fixed:** every BLOCKER and WARNING raised. **Deferred:** a first-run browser check (round 25); main's now-unreachable Mac Terminal branch in agystatus.openForSignIn (round 29 NIT, main's code, a follow-up). Both recorded in the plan. **Asked (awaiting user):** 0.
 
-Full validation passed at 487464b10 (validation-log hash 4b42e1f081cc, the diff_hash above): 10114 tests, 9962 pass, 0 fail; subdir audit passed. Both browser-check gates (surface #2518, coarse #1720) pass. render-settings-agy-3874 runs green headless (21 PASS) with shots.
+Full validation passed at deb1bae0f (validation-log hash cf2f86d7414e, the diff_hash above), after the rebase and the merge with main's #4063: 10465 tests, 10310 pass, 0 fail; subdir audit passed. Both browser-check gates (surface #2518, coarse #1720) pass. render-settings-agy-3874 runs green headless (21 PASS) with shots.
 
 Rounds 1 to 18 are recorded, decision by decision, in .claude/plans/agy-signin-3998.md ("Review round N (decided)"). Round 24 was a deliberate rethink that reverses parts of rounds 22 and 23.
 
@@ -60,7 +60,21 @@ Rounds 1 to 18 are recorded, decision by decision, in .claude/plans/agy-signin-3
 - [NIT] the ask total exceeded the constant's comment --> FIXED (one budget; MAX_CHECKS + 2 stated)
 
 #### Iteration 27 (sonnet)
-- No new findings. Converged.
+- No new findings.
+
+#### After iteration 27: CI and main
+- [BLOCKER] CI: main's new #3957 route check (exact comparisons only) did not count the startsWith sign-in route --> FIXED (four exact addresses; rebased onto main)
+- main landed #4063 (the Windows sign-in, same driver and ids) --> MERGED: one driver, Continue wired once (sendCode hands a Windows sign-in to winCode), leave and Stop end both; main's Windows tests updated to the merged driver
+
+#### Iteration 28 (opus)
+- [WARNING] Stop this sign-in did not stop a sign-in whose window was open (SELF: round 26) --> FIXED (driver stop())
+- [CONVENTION] tmux and open timeouts were raw literals --> FIXED (TMUX_CALL_MS, OPEN_MS)
+- [NIT] the code prompt read everything below it --> FIXED (its own line and the next)
+- [NIT] temp folders leaked from the engine tests --> FIXED
+
+#### Iteration 29 (sonnet)
+- [NIT] main's openForSignIn keeps a Mac Terminal branch nothing can reach now --> DEFERRED (main's code; a follow-up)
+- No BLOCKER, WARNING or CONVENTION. Converged.
 
 ### Weakest premises (from the plan)
 - agy's real screens are matched on Josh's agy 1.2.11 screenshots and a fake; only a real sign-in on his Mac proves them.
