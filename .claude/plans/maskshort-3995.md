@@ -195,3 +195,9 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
   wholly inside it are used to assemble but not masked, as the word walk leaves a public prefix readable. My first try
   (keeping such forms out of the short index) broke keys with their own -; reverted.
 - Noted NIT: the round-14 padding arm guards regressions only (it passed before round 14 too).
+
+## Review round 16 (Sonnet), what changed
+- A chunk written twice inside one run (3pR-3pR) showed its second copy: shortPieces kept only the first place a piece
+  sat, and the copies rule skips the run the match came from. Every place is kept now, and a piece that is not a plain
+  word is masked at every place in its run. Tested for all five separators; red on the previous commit.
+- The SHORT_PUBLIC_HEAD comment no longer claims the same set as shapeHint (it is the subset publicHeadCut can measure).

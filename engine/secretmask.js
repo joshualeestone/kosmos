@@ -313,7 +313,8 @@ let knownByOpening = new Map();
 let knownByShort = new Map();
 /* #3995 gap 4: per short-index form, the length of its public head (0 when it has none). */
 let shortHead = new Map();
-/* The public key prefixes a guide names in pieces (the same set shapeHint in mask() looks for). */
+/* The public key prefixes, ending in - or _, that a guide names in pieces (a subset of what shapeHint in mask() looks
+   for: the ones publicHeadCut can measure). */
 const SHORT_PUBLIC_HEAD = /^(?:sk-|sk_|rk_|xai-|gh[pousr]_|github_pat_|glpat-|xox[abprs]-)/;
 const NOT_KEY_CHARS = /[^A-Za-z0-9_+/=-]+/g;
 /* The board also holds whole files (engine/knownsecrets.js, up to 64KB) and their encodings. A form that
@@ -772,7 +773,8 @@ const SHORT_WALK_BUDGET = 1250000;
    first place the same letters happen to appear (review round 15: in t6wx/t6w/q the chunk is the middle part). */
 function shortPieces(run) {
   const out = new Map();
-  const put = (t, a, b) => { if (t && !out.has(t)) out.set(t, [a, b]); };
+  /* Every place a piece sits (review round 16: 3pR-3pR recorded only the first, so the second copy showed). */
+  const put = (t, a, b) => { if (!t) return; if (!out.has(t)) out.set(t, []); if (!out.get(t).some(([x, y]) => x === a && y === b)) out.get(t).push([a, b]); };
   put(run, 0, run.length);
   const lead = run.length - run.replace(/^[-+_/]+/, '').length;
   const trimmed = run.slice(lead).replace(/[-+_/]+$/, '');
@@ -927,9 +929,10 @@ function shortChunkSpans(text) {
   }
   const spans = [];
   const pieceSpan = (i, t) => {
-    /* Only the piece, where it sits in its run (not a label glued to it: review rounds 2 and 15). */
-    const [a, b] = runs[i][4].get(t);
-    spans.push([runs[i][0] + a, runs[i][0] + b]);
+    /* Only the piece, where it sits in its run (not a label glued to it: review rounds 2 and 15); every place it sits
+       when it is not a plain word (review round 16), the first when it is. */
+    const places = runs[i][4].get(t);
+    for (const [a, b] of plainWordRun(t) ? places.slice(0, 1) : places) spans.push([runs[i][0] + a, runs[i][0] + b]);
   };
   for (const { done, head } of completed.values()) {
     const first = done[0][0], last = done[done.length - 1][0];

@@ -1644,3 +1644,14 @@ test('#3995 gap 4 review round 15: two chunks joined in one run are tried togeth
     assert.ok(!/\/t6w\//.test(t), 'the real chunk t6w between the separators stayed visible: ' + t);
   } finally { setKnownSecrets([]); }
 });
+
+test('#3995 gap 4 review round 16: a chunk written twice inside one run is masked in both places', () => {
+  const held = j('Zq8vLm3pRt6w', 'Xy9kHb2nWc4d');
+  setKnownSecrets([held]);
+  try {
+    for (const sep of ['-', '_', '+', '/', '=']) {
+      const t = mask(`Zq8 and vLm and 3pR${sep}3pR and t6w and Xy9 and kHb and 2nW and c4d`).text;
+      assert.ok(!t.includes('3pR'), `joined by ${sep}: a copy of 3pR showed: ${t}`);
+    }
+  } finally { setKnownSecrets([]); }
+});
