@@ -180,14 +180,13 @@ const say = (n, cond, note) => {
         win: win ? win.value : null,
         keys: rows.map((r) => r.dataset.key),
         openOnScreen: rows.filter((r) => seen(r) && !r.closest('.tsk-fold')).length,
-        sub: document.getElementById('tsk-sub').textContent.trim(),
         fold: fold ? fold.textContent.trim() : null,
         crumb: !!document.querySelector('#tsk-crumb [data-open-project]'),
         search: document.getElementById('tsk-search').value,
       };
     });
     say('the door opens the Tasks view (not a separate screen)', landed.shown && landed.projectPageHidden, JSON.stringify(landed));
-    say('it is scoped to the project the door was opened from: title and project dropdown', landed.title === 'Alpha Project' && landed.rail === made[0], JSON.stringify(landed));
+    say('it is scoped to the project the door was opened from: title and project dropdown', / on Alpha Project$/.test(landed.title) && landed.rail === made[0], JSON.stringify(landed));
     say('every row is this project\'s, all four of them (open and closed)',
       landed.keys.length === 4 && landed.keys.every((k) => k.startsWith(made[0] + '#')), JSON.stringify(landed.keys));
     say('the other project\'s tasks are not listed', !landed.keys.some((k) => k.startsWith(made[1] + '#')), JSON.stringify(landed.keys));
@@ -195,9 +194,10 @@ const say = (n, cond, note) => {
     say('finished work sits in the Completed fold, counted', landed.fold === 'Completed (2)', JSON.stringify(landed.fold));
     /* 🔑 THE #1346 ASSERTION on the new destination: the stated open count equals the open rows
        a person can SEE, counted inside the view (the project page behind renders task cards too). */
-    const statedOpen = Number((landed.sub.match(/^(\d+) open/) || [])[1]);
+    /* #3949 (Josh, 09-26 19:30): the count is the title now ("2 Tasks on Alpha Project"). */
+    const statedOpen = Number((landed.title.match(/^(\d+) Tasks? on /) || [])[1]);
     say('#1346: the stated open count matches the open rows on screen', statedOpen === 2 && landed.openOnScreen === 2,
-      'says ' + JSON.stringify(landed.sub) + ', open rows on screen ' + landed.openOnScreen);
+      'says ' + JSON.stringify(landed.title) + ', open rows on screen ' + landed.openOnScreen);
     say('the way back is the crumb\'s Open project', landed.crumb);
 
     /* ---- + New task with a project picked: it files to that project, and answers here ---- */
@@ -267,7 +267,7 @@ const say = (n, cond, note) => {
       title: document.getElementById('tsk-title').textContent.trim(),
       rows: [...document.querySelectorAll('#tsk-groups .tsk-row')].filter((r) => r.dataset.key.startsWith(id + '#')).length,
     }), made[1]);
-    say('an archived project\'s door still lists its tasks', arch.title === 'Beta Project' && arch.rows === 3, JSON.stringify(arch));
+    say('an archived project\'s door still lists its tasks', / on Beta Project$/.test(arch.title) && arch.rows === 3, JSON.stringify(arch));
     /* Read once the view's own read has come back (it knows Beta is archived); the arrival paint
        before it draws from the previous read, when Beta was not archived yet. */
     await p.waitForFunction(() => (TSK.data || []).some((t) => t.projectArchived), null, { timeout: 8000 }).catch(() => {});
@@ -278,7 +278,7 @@ const say = (n, cond, note) => {
     await p.waitForTimeout(200);
     const railAllAfter = await p.evaluate(() => ({
       label: document.querySelector('#tsk-projsel option[value=""]').textContent,
-      openRows: Number((document.getElementById('tsk-sub').textContent.match(/^(\d+) open/) || [])[1]),
+      openRows: Number((document.getElementById('tsk-title').textContent.match(/^(\d+) Tasks? on /) || [])[1]),
     }));
     say('the dropdown\'s All projects option carries no number, and picking it from an archived door shows the open tasks',
       railAllAfter.label === 'All projects' && railAllAfter.openRows > 0, JSON.stringify(railAllAfter));
@@ -290,7 +290,7 @@ const say = (n, cond, note) => {
     for (const o of optCounts) {
       await p.selectOption('#tsk-projsel', o.v);
       await p.waitForTimeout(150);
-      perProject.push({ option: o.n, shown: await p.evaluate(() => Number((document.getElementById('tsk-sub').textContent.match(/^(\d+) open/) || [0, 0])[1])) });
+      perProject.push({ option: o.n, shown: await p.evaluate(() => Number((document.getElementById('tsk-title').textContent.match(/^(\d+) Tasks? on /) || [0, 0])[1])) });
     }
     await p.selectOption('#tsk-projsel', '');
     say('each project option\'s count agrees with what picking it shows (#1346)',
@@ -326,7 +326,7 @@ const say = (n, cond, note) => {
         title: document.getElementById('tsk-title').textContent.trim(),
       };
     });
-    say('[consolidated] the door opens Tasks in the display column, scoped', cons.cons && cons.shown && cons.inColumn && cons.title === 'Alpha Project', JSON.stringify(cons));
+    say('[consolidated] the door opens Tasks in the display column, scoped', cons.cons && cons.shown && cons.inColumn && / on Alpha Project$/.test(cons.title), JSON.stringify(cons));
 
     /* ---- a phone: the head with its button scrolls nothing sideways ---- */
     const ph = await b.newPage({ viewport: { width: 390, height: 844 } });

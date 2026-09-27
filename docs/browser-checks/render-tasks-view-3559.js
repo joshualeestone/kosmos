@@ -134,7 +134,11 @@ function chk(ok, label, extra) {
       selShown: document.getElementById('tsk-projsel').getClientRects().length > 0,
       /* #3949 positions: the count beside the search; Project and Created: on one row above the tiles;
          Group by and Sort on one row under them. */
-      subRightOfSearch: rect('tsk-sub').left >= rect('tsk-search').right - 1 && Math.abs(rect('tsk-sub').top - rect('tsk-search').top) < 30,
+      /* #3949 (Josh, 19:30): the count is the title; the search is compact, to the right of Sort. */
+      title: document.getElementById('tsk-title').textContent.trim(),
+      countLine: !!document.getElementById('tsk-sub'),
+      searchRightOfSort: rect('tsk-searchbox').left >= rect('tsk-sort').right - 1 && Math.abs(rect('tsk-searchbox').top - rect('tsk-sort').top) < 30,
+      tilesGap: Math.round(document.querySelector('#panel-tasks .tsk-below').getBoundingClientRect().top - rect('tsk-tiles').bottom),
       filtersAbove: rect('tsk-win').bottom <= rect('tsk-tiles').top && rect('tsk-projsel').bottom <= rect('tsk-tiles').top,
       filtersRow: Math.abs(rect('tsk-projsel').top - rect('tsk-win').top) < 4,
       underBelow: rect('tsk-by').top >= rect('tsk-tiles').bottom && rect('tsk-sort').top >= rect('tsk-tiles').bottom,
@@ -289,12 +293,30 @@ function chk(ok, label, extra) {
       chk(a.bars.length === 0, `${tag} no element carries a coloured left border`, JSON.stringify(a.bars.slice(0, 5)));
       const sideways = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       chk(sideways <= 0, `${tag} no sideways scroll`, String(sideways));
-      if (width <= 760) {
-        chk(a.searchW >= a.mainW - 60, `${tag} a narrow window gives the search the full width`, JSON.stringify({ w: a.searchW, main: a.mainW }));
-      } else {
-        /* #3949 (Josh): about half as wide, with the count to its right. */
-        chk(a.searchW >= a.mainW * 0.4 && a.searchW <= a.mainW * 0.6, `${tag} the search is about half the width`, JSON.stringify({ w: a.searchW, main: a.mainW }));
-        chk(a.subRightOfSearch, `${tag} the open-task count sits to the right of the search`);
+      /* #3949 (Josh, 09-26 19:30): "X Tasks on N Projects" as the title (open tasks: this fixture has 7 on 2 live
+         projects), no separate count line, the search compact to the right of Sort, taller ground under the tiles. */
+      chk(a.title === '7 Tasks on 2 Projects' && !a.countLine, `${tag} the title is the count, "7 Tasks on 2 Projects", and there is no separate count line`, JSON.stringify({ title: a.title, countLine: a.countLine }));
+      chk(a.searchW <= 40, `${tag} at rest the search is compact (the magnifier)`, JSON.stringify({ w: a.searchW }));
+      if (width > 760) chk(a.searchRightOfSort, `${tag} the search sits to the right of Sort`);
+      chk(a.tilesGap >= 30, `${tag} the ground under the tiles is taller (at least 30px before the white)`, String(a.tilesGap));
+      {
+        /* The width animates (.15s): read it once it has settled. */
+        const sw = async () => { await page.waitForTimeout(300); return page.evaluate(() => Math.round(document.getElementById('tsk-search').getBoundingClientRect().width)); };
+        await page.evaluate(() => { document.activeElement && document.activeElement.blur && document.activeElement.blur(); });
+        await page.keyboard.press('/');
+        const slash = await page.evaluate(() => document.activeElement && document.activeElement.id);
+        const openW = await sw();
+        await page.keyboard.type('launch');
+        await page.evaluate(() => document.getElementById('tsk-search').blur());
+        const keptW = await sw();
+        await page.focus('#tsk-search');
+        await page.keyboard.press('Escape');
+        const after = await page.evaluate(() => ({ q: TSK.q, value: document.getElementById('tsk-search').value, focused: document.activeElement && document.activeElement.id,
+          rows: document.querySelectorAll('#tsk-groups .tsk-row').length }));
+        const closedW = await sw();
+        chk(slash === 'tsk-search' && openW >= 200, `${tag} "/" focuses the search and it opens`, JSON.stringify({ slash, openW }));
+        chk(keptW >= 200, `${tag} while it holds a search it stays open after you leave it`, String(keptW));
+        chk(after.q === '' && after.value === '' && after.focused !== 'tsk-search' && closedW <= 40 && after.rows >= 7, `${tag} Esc clears the search, closes it, and brings every row back`, JSON.stringify({ after, closedW }));
       }
       if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, `tasks-${theme}-${width}.png`), fullPage: true }); }
 

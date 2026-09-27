@@ -3431,7 +3431,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    as #3559 wrote it to (asserted in the browser check). In the consolidated column the panel's own scroll box
    (overflow-y: auto) is what bounds the bleed to the column; the browser check reads the rail beside it. The cards take the page's ground, the warm off-white. */
 .tsk-below { background: var(--k-surface); box-shadow: 0 0 0 100vmax var(--k-surface); clip-path: inset(0 -100vmax -100vmax);
-  margin-top: 16px; padding-top: 14px; }
+  margin-top: 30px; padding-top: 14px; }   /* #3949 (Josh, 19:30): taller ground under the tiles (was 16px) */
 #panel-tasks .tsk-below .tsk-list { background: var(--k-bg); }
 .tsk-main { padding: 25px 26px 110px; min-width: 0; position: relative; }
 .tsk-crumb { font-size: .8125rem; color: var(--k-ink-2); margin: 0 0 2px; min-height: 1.3em; }
@@ -3450,18 +3450,21 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 #panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
 /* #3703: the head carries "+ New task" beside the title, as Mona's mock draws it (.mh / .newbtn). */
 #panel-tasks .tsk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-/* #3949: the search takes about half the width, with the open-task count to its right. */
-.tsk-toprow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; margin: 16px 0 0; }
-.tsk-toprow .tsk-search { flex: 0 1 50%; min-width: 240px; margin: 0; max-width: none; }
-.tsk-sub { color: var(--k-ink-2); font-size: .9375rem; margin: 0; }
+/* #3949 (Josh, 09-26 19:30): the title carries the count ("30 Tasks on 2 Projects"); the separate count line is
+   gone, and the search sits compact to the right of Sort (below). */
 .tsk-ctrls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 14px 0 4px; }
 #tsk-under { margin: 12px 0 4px; }
 .tsk-ctl { display: flex; align-items: center; }
 .tsk-cl { font: 600 .875rem var(--font-ui); color: var(--k-ink-2); margin-right: 6px; white-space: nowrap; }
-.tsk-search { position: relative; margin: 16px 0 0; max-width: 520px; }
+.tsk-search { position: relative; margin: 0; max-width: 100%; }
 .tsk-search svg { position: absolute; left: 11px; top: 50%; width: 16px; height: 16px; margin-top: -8px; color: var(--k-ink-2); pointer-events: none; }
-.tsk-search input { width: 100%; box-sizing: border-box; font: .9375rem var(--font-ui); height: 38px; padding: 0 34px 0 36px; border-radius: 10px;
-  border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink); }
+.tsk-search input { width: 38px; max-width: 100%; box-sizing: border-box; font: .9375rem var(--font-ui); height: 38px; padding: 0 0 0 36px; border-radius: 10px;
+  border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink); cursor: pointer; transition: width .15s ease; }
+/* Closed, it is the magnifier alone (its placeholder hidden); open, it is a field wide enough to read what you type. */
+.tsk-search input::placeholder { color: transparent; }
+.tsk-search:focus-within input, .tsk-search.open input { width: 280px; padding-right: 34px; cursor: text; }
+.tsk-search:focus-within input::placeholder, .tsk-search.open input::placeholder { color: var(--k-ink-2); }
+@media (prefers-reduced-motion: reduce) { .tsk-search input { transition: none; } }
 .tsk-search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
 .tsk-search button { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: 0; background: none; cursor: pointer;
   color: var(--k-ink-2); font: 600 1rem var(--font-ui); width: 26px; height: 26px; border-radius: 7px; }
@@ -3564,7 +3567,6 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-task
   padding: 2px 8px; border-radius: 999px; cursor: pointer; margin-left: 8px; }
 .rail-tasks:hover { color: var(--k-ink); border-color: var(--gold-edge); }
 @media (max-width: 760px) {
-  .tsk-toprow .tsk-search { flex-basis: 100%; }
   .tsk-ctl { flex-wrap: wrap; row-gap: 4px; }
   .tsk-main { padding: 22px 14px 120px; }
   .tsk-row { grid-template-columns: 22px minmax(0, 1fr); }
@@ -14787,18 +14789,7 @@ window.kosmosMeasureScrollbarWidth();
            everything from Group by / Sort down sits on white, full width, and the task cards are shaded. -->
       <div class="tsk-band">
       <p class="tsk-crumb" id="tsk-crumb"></p>
-      <div class="tsk-head"><h2 id="tsk-title">All tasks</h2><button class="btn uprime" id="tsk-new" type="button"><span aria-hidden="true">+</span> New task</button></div>
-      <!-- #3559 (Josh, 14:39): search, with its own clear button; the browser's native one is hidden.
-           #3949: about half as wide, with the open-task count to its right. -->
-      <div class="tsk-toprow">
-      <div class="tsk-search" role="search">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5" stroke-linecap="round"/></svg>
-        <input id="tsk-search" type="search" autocomplete="off" spellcheck="false"
-               placeholder="Search tasks" aria-label="Search tasks by what they say, number, project or agent">
-        <button type="button" id="tsk-qclear" aria-label="Clear search" hidden>&times;</button>
-      </div>
-      <p class="tsk-sub" id="tsk-sub"></p>
-      </div>
+      <div class="tsk-head"><h2 id="tsk-title">Tasks</h2><button class="btn uprime" id="tsk-new" type="button"><span aria-hidden="true">+</span> New task</button></div>
       <div class="tsk-ctrls" id="tsk-filters">
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-projsel">Project:</label><select class="tsk-sel" id="tsk-projsel"></select></div>
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-win">Created:</label><select class="tsk-sel" id="tsk-win"></select></div>
@@ -14811,6 +14802,14 @@ window.kosmosMeasureScrollbarWidth();
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-sort">Sort:</label><select class="tsk-sel" id="tsk-sort">
           <option value="new">Newest first</option><option value="stale">Quietest first</option><option value="old">Oldest first</option>
         </select></div>
+        <!-- #3949 (Josh, 09-26 19:30): the search is a compact control to the right of Sort. It opens when focused or
+             while it holds a search, and closes when empty and left. "/" focuses it; Esc clears and closes it. -->
+        <div class="tsk-search" id="tsk-searchbox" role="search">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5" stroke-linecap="round"/></svg>
+          <input id="tsk-search" type="search" autocomplete="off" spellcheck="false"
+                 placeholder="Search tasks" aria-label="Search tasks by what they say, number, project or agent">
+          <button type="button" id="tsk-qclear" aria-label="Clear search" hidden>&times;</button>
+        </div>
       </div>
       <p class="fmsg" id="tsk-msg" role="status" aria-live="polite"></p>
       <!-- What a search found, said to a screen reader while focus stays in the search box (the
@@ -46567,15 +46566,18 @@ function tskPaint() {
     tskOptions(sel, '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(p.name) + ' (' + p.open + ')</option>').join(''), TSK.proj || '');
   }
   const picked = TSK.proj ? projMap.get(TSK.proj) : null;
-  document.getElementById('tsk-title').textContent = picked ? picked.name : 'All tasks';
   document.getElementById('tsk-crumb').innerHTML = picked
     ? '<button type="button" data-proj="">All tasks</button> › ' + esc(picked.name) + ' · <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button>'
     : '';
   const scoped = tskScoped(all, TSK, now);
   const open = scoped.filter((t) => t.state !== 'closed');
-  document.getElementById('tsk-sub').textContent = TSK.error && !TSK.data ? ''
-    : open.length + (open.length === 1 ? ' open task' : ' open tasks')
-      + (picked ? '' : ' across ' + projectsList.length + (projectsList.length === 1 ? ' project' : ' projects'));
+  /* #3949 (Josh, 09-26 19:30): the title IS the count: "30 Tasks on 2 Projects" (open tasks in the current scope, the
+     number the separate "N open tasks across M projects" line used to give). Scoped to one project it names it
+     ("5 Tasks on Newsletter"), as the title did before. Until the tasks are read it just says Tasks. */
+  document.getElementById('tsk-title').textContent = !TSK.data ? 'Tasks'
+    : open.length + (open.length === 1 ? ' Task' : ' Tasks') + ' on '
+      + (picked ? picked.name : projectsList.length + (projectsList.length === 1 ? ' Project' : ' Projects'));
+  tskSearchOpen();   // the compact search's open state follows TSK.q on every paint, whoever changed it
   /* #3949: Created: and Group by are dropdowns (they were button rows). */
   tskOptions(document.getElementById('tsk-win'), TSK_WINDOWS.map(([l, d]) => '<option value="' + d + '"' + (TSK.win === d ? ' selected' : '') + '>' + esc(l) + '</option>').join(''), String(TSK.win));
   tskOptions(document.getElementById('tsk-by'), TSK_BYS.map(([k, l]) => '<option value="' + k + '"' + (TSK.by === k ? ' selected' : '') + '>' + esc(l) + '</option>').join(''), TSK.by);
@@ -46880,12 +46882,41 @@ document.getElementById('panel-tasks').addEventListener('toggle', (e) => {
 document.getElementById('tsk-search').addEventListener('input', (e) => {
   TSK.q = e.target.value;
   document.getElementById('tsk-qclear').hidden = !TSK.q;
+  tskSearchOpen();
   tskPaint();
+});
+/* #3949: the compact search stays open while it holds a search (focus opens it through CSS). */
+function tskSearchOpen() {
+  const box = document.getElementById('tsk-searchbox');
+  if (box) box.classList.toggle('open', !!String(TSK.q).trim());
+}
+document.getElementById('tsk-search').addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  // Esc clears and closes it, and nothing else on the page reacts to this Esc.
+  e.preventDefault(); e.stopPropagation();
+  e.target.value = ''; TSK.q = '';
+  document.getElementById('tsk-qclear').hidden = true;
+  tskSearchOpen();
+  e.target.blur();
+  tskPaint();
+});
+/* "/" focuses the search while the Tasks view is on screen and the person is not typing somewhere else. Cmd-F is left
+   to the browser's own find. */
+document.addEventListener('keydown', (e) => {
+  if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
+  const pt = document.getElementById('panel-tasks');
+  if (!pt || pt.hidden || !pt.getClientRects().length) return;
+  const t = e.target;
+  if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+  if (document.querySelector('dialog[open]')) return;
+  e.preventDefault();
+  document.getElementById('tsk-search').focus();
 });
 document.getElementById('tsk-qclear').addEventListener('click', () => {
   const q = document.getElementById('tsk-search');
   q.value = ''; TSK.q = '';
   document.getElementById('tsk-qclear').hidden = true;
+  tskSearchOpen();
   q.focus();
   tskPaint();
 });

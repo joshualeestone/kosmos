@@ -96,7 +96,7 @@ test('#3949/#3951 Josh\'s six groups, in his order, one label each, every one fr
   assert.match(SCRIPT, /data-tile="' \+ g\.k \+ '" data-n="' \+ n \+ '"/, 'the tile does not carry its count for the style');
 });
 
-test('#3949 the layout: no Projects rail, search beside the count, Project and Created: dropdowns on one row, Group by and Sort under the tiles', () => {
+test('#3949 the layout: no Projects rail, the count in the title, Project and Created: dropdowns on one row, Group by, Sort and the search under the tiles', () => {
   const view = PAGE.slice(PAGE.indexOf('<section class="panel panel-wide" id="panel-tasks" hidden>'));
   const body = view.slice(0, view.indexOf('</section>'));
   assert.doesNotMatch(body, /tsk-rail|id="tsk-projects"|tsk-mobsel/, 'the left Projects column is back');
@@ -112,13 +112,15 @@ test('#3949 the layout: no Projects rail, search beside the count, Project and C
   // #3949 (Josh, 09-26 18:03): two bands. The top one holds the title, search, filters and tiles; the white one
   // starts at Group by / Sort and holds the groups and the bulk bar. (The colours are read as pixels in the browser check.)
   const bandAt = at(/<div class="tsk-band">/); const belowAt = at(/<div class="tsk-below">/);
-  for (const id of ['tsk-title', 'tsk-search', 'tsk-projsel', 'tsk-tiles']) {
+  for (const id of ['tsk-title', 'tsk-projsel', 'tsk-tiles']) {
     const i = at(new RegExp('id="' + id + '"')); assert.ok(i > bandAt && i < belowAt, id + ' is not in the top band');
   }
-  for (const id of ['tsk-by', 'tsk-sort', 'tsk-groups', 'tsk-bulk']) assert.ok(at(new RegExp('id="' + id + '"')) > belowAt, id + ' is not on the white band');
-  // Search and the count share the top row, the count to the right.
-  const top = body.slice(at(/<div class="tsk-toprow">/), at(/<div class="tsk-ctrls" id="tsk-filters">/));
-  assert.ok(top.indexOf('id="tsk-search"') >= 0 && top.indexOf('id="tsk-sub"') > top.indexOf('id="tsk-search"'), 'the count is not to the right of the search');
+  for (const id of ['tsk-by', 'tsk-sort', 'tsk-search', 'tsk-groups', 'tsk-bulk']) assert.ok(at(new RegExp('id="' + id + '"')) > belowAt, id + ' is not on the white band');
+  // #3949 (Josh, 09-26 19:30): no separate count line (the title carries it), and the search is in the Group by / Sort
+  // row, after Sort.
+  assert.doesNotMatch(body, /id="tsk-sub"|tsk-toprow/, 'the separate count line is back');
+  const sortRow = body.slice(at(/id="tsk-under"/), at(/id="tsk-groups"/));
+  assert.ok(sortRow.indexOf('id="tsk-search"') > sortRow.indexOf('id="tsk-sort"') && sortRow.indexOf('id="tsk-sort"') > 0, 'the search is not to the right of Sort');
   // Project and Created: are dropdowns on one row, above the tiles.
   const filters = body.slice(at(/id="tsk-filters"/), at(/id="tsk-tiles"/));
   assert.match(filters, /<select class="tsk-sel" id="tsk-projsel">/);
