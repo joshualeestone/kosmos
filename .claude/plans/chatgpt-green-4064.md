@@ -22,7 +22,7 @@ older green does not come back.
 - API-key rows are untouched: their `connected` is already a real /v1/models proof, and the read is gated on ChatGPT.
 
 ## Measured
-- server.chatgpt-green-4064.test.js, 5 tests, all pass on the branch. On main's server.js and codexsigninlive.js the
+- server.chatgpt-green-4064.test.js, 7 tests, all pass on the branch. On main's server.js and codexsigninlive.js the
   reopen test fails (`state: unknown, liveCheckPending: true`, no badge). Each control fails with its line removed:
   the forget on a dead answer (the green comes back once the dead answer leaves its own cache), the record in
   livenessNow (a dead Check now leaves the green), the Not-connected guard (a lapsed subscription paints green), and
@@ -38,7 +38,7 @@ older green does not come back.
 ## Weakest part
 The green's tooltip is the observed-outcome sentence ("a real request on this account succeeded recently ... not a
 probe"), which describes an agent's request, not the free check. Grok's check-derived green already says the same, so
-this is left alone here and flagged; a wording change would cover both providers.
+this is left alone here and flagged; a wording change would cover both providers (filed as #4139).
 Also: inside the observed window a DEAD sign-in shows green on reopen for one check's length (the recorded green, then
 red when the check answers). That is the same trade the Grok check makes and the reverse of the amber flash this fixes;
 the browser check's dead arm expects `green > red` and fails only on green after red.

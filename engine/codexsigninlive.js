@@ -149,7 +149,9 @@ function resetForTest() { cache.clear(); inflight.clear(); runner = defaultRunne
    only this cache's 30s (reopening AI Models no longer flashes amber), and a dead one forgets that green. Here, at the
    cache write, so every caller counts (the list, Check now, codexauthprobe), not only a later read of the list.
    An answer that says nothing (unknown: codex could not reach ChatGPT) changes nothing, as with the Grok check.
-   /api/accounts reads it for ChatGPT rows only. */
+   /api/accounts reads it for ChatGPT rows only. This does not itself look at how the folder signs in: its callers only
+   ever check a ChatGPT sign-in (openaiaccounts' ChatGPT branch, the ChatGPT-only Check now route), and the overlay's
+   read is gated on authMode, so an answer recorded on any other folder is never shown. */
 function record(dir, verdict, at) {
   if (!dir) return;
   if (verdict === 'live') observed.sawDir(observed.PROVIDER.OPENAI, String(dir), observed.OUTCOME.OK, at);

@@ -129,6 +129,20 @@ test('#4064 control: a dead answer after a recorded green shows the sign-in as n
   } finally { release(); await settle(); }
 });
 
+test('#4064 a Check now that answers live keeps the row green a minute later, with nobody reading the list in between', async () => {
+  codexsigninlive.setRunner(async () => ({ ok: true, stdout: DOC('ok') }));
+  const j = await (await post('/api/accounts/openai/check', { dir: CODEX })).json();
+  assert.equal(j.state, 'connected', 'setup: Check now did not answer live');
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  codexsigninlive.setRunner(async () => { await gate; return { ok: true, stdout: DOC('ok') }; });
+  advanceClock(61 * 1000);
+  try {
+    const row = await openaiRow();
+    assert.equal(row.connection.badge, 'working', 'the green Check now confirmed was not kept: ' + JSON.stringify(row.connection));
+  } finally { release(); await settle(); }
+});
+
 test('#4064 control: a Check now that answers dead forgets the green without anyone reading the list', async () => {
   await recordGreen();
   codexsigninlive.setRunner(async () => ({ ok: true, stdout: DOC('warning') }));

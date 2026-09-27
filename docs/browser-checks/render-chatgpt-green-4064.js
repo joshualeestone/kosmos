@@ -65,8 +65,7 @@ const DOC = (ws) => JSON.stringify({ checks: {
   'network.websocket_reachability': { status: ws },
   'network.provider_reachability': { status: 'ok', details: { 'reachability mode': 'ChatGPT auth' } },
 } });
-let answer = 'ok';
-codexsigninlive.setRunner(async () => { await new Promise((r) => setTimeout(r, 1500)); return { ok: true, stdout: DOC(answer) }; });
+let answer = 'ok';   // what the faked handshake answers; each engine sets its runner below
 const realNow = Date.now;
 let skew = 0;
 Date.now = () => realNow() + skew;
