@@ -47,3 +47,42 @@ _kosmos_pid_has_node_test_ancestor() {
   done <<< "$commands"
   return 1
 }
+
+# #4225: tools/run-tests.sh's sandbox. A path is in it when it sits in a kt<digits> folder under a folder named T (the
+# macOS TMPDIR) or tmp, or directly under this shell's own $TMPDIR. Some fixtures detach from node --test, so the path
+# marks them. heavy-gate's rule, moved here so heavy-gate and the concurrent-run guards share one copy. Bash only.
+_KOSMOS_KT_RE='(^|/)(T|tmp)/kt[0-9]+(/|$)'
+_kosmos_path_in_kt_sandbox() {
+  [ -n "$1" ] || return 1
+  [[ "$1" =~ $_KOSMOS_KT_RE ]] && return 0
+  local t="${TMPDIR:-}" rest
+  t="${t%/}"
+  [ -n "$t" ] || return 1
+  case "$1" in "$t"/kt*) ;; *) return 1 ;; esac
+  rest="${1#"$t"/kt}"; rest="${rest%%/*}"
+  [ -n "$rest" ] && [ -z "${rest//[0-9]/}" ]
+}
+
+# PID's current working directory, or nothing when it cannot be read (a gone pid, or one lsof cannot see).
+# KOSMOS_PROCESS_CWD_PROBE is a focused-test seam: its command receives the pid and prints the cwd.
+_kosmos_pid_cwd() {
+  if [ -n "${KOSMOS_PROCESS_CWD_PROBE:-}" ]; then
+    "$KOSMOS_PROCESS_CWD_PROBE" "$1" 2>/dev/null | head -1
+    return 0
+  fi
+  lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n '/^n/{s/^n//p;q;}'
+}
+
+# #4225: the ONE fixture rule the concurrent-run guards use. True, printing why, when PID is a unit-test fixture: one of
+# its ancestors is a Node test runner, or its cwd, or SCRIPT (the script path it runs, optional), is in the run-tests.sh
+# sandbox. Anything unreadable is NOT a fixture, so it counts as a real run, which a guard refuses.
+_kosmos_pid_is_fixture() {
+  local pid="$1" script="${2:-}" cwd
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  if _kosmos_pid_has_node_test_ancestor "$pid"; then echo "a unit-test fixture (node --test ancestor)"; return 0; fi
+  cwd="$(_kosmos_pid_cwd "$pid")"
+  if _kosmos_path_in_kt_sandbox "$cwd" || _kosmos_path_in_kt_sandbox "$script"; then
+    echo "a unit-test fixture (run-tests.sh sandbox)"; return 0
+  fi
+  return 1
+}

@@ -281,4 +281,58 @@ out="$(KOSMOS_RUN_MARKER_DIR="$M5" KOSMOS_HARNESS_PROBE="$T/probe-quiet" kosmos_
 # and that same run, checking for ITS OWN type, does not refuse itself (cookie set in-process).
 kill "$p5" 2>/dev/null; wait "$p5" 2>/dev/null
 
+# --- #4225: ONE fixture rule for the cut guard, the browser-run guard and heavy-gate ----------------------------------
+# PROBE-ONLY: every candidate below is a line a probe prints, with a made-up pid; ancestry and cwd come from the two
+# probe seams. No arm starts a pgrep-visible tools/release.sh or tools/browser-checks.sh, so none can block another
+# agent's real run. Each fixture form has an identical ordinary control that must still refuse.
+printf '#!/bin/sh\nprintf "/private/var/folders/xx/T/kt4225/work\\n"\n' > "$T/cwd-kt"; chmod +x "$T/cwd-kt"
+printf '#!/bin/sh\nprintf "/Users/someone/work/agent-workforce\\n"\n' > "$T/cwd-plain"; chmod +x "$T/cwd-plain"
+printf '#!/bin/sh\nexit 0\n' > "$T/cwd-unreadable"; chmod +x "$T/cwd-unreadable"
+printf '#!/bin/sh\nprintf "86264 bash /tmp/kt777/tools/release.sh 0.5.54\\n"\n' > "$T/probe-kt-script"; chmod +x "$T/probe-kt-script"
+printf '#!/bin/sh\nprintf "86263 bash tools/browser-checks.sh\\n"\n' > "$T/bc-live"; chmod +x "$T/bc-live"
+cutguard() { KOSMOS_CUT_SELF_PID=1 kosmos_refuse_if_cut_live "a full run" 2>&1; }
+bcguard() { KOSMOS_BC_SELF_PID=1 kosmos_refuse_if_browser_run_live "a page layer" 2>&1; }
+
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_PROCESS_CWD_PROBE="$T/cwd-kt" KOSMOS_CUT_PROBE="$T/probe-live" cutguard)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#4225 cut guard: a release.sh fixture whose cwd is in run-tests.sh's kt sandbox is ignored" \
+  || fail "#4225 cut guard: a kt-sandbox fixture (cwd) refused (rc=$rc, $out)"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_PROCESS_CWD_PROBE="$T/cwd-plain" KOSMOS_CUT_PROBE="$T/probe-kt-script" cutguard)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#4225 cut guard: a release.sh fixture whose SCRIPT is in the kt sandbox is ignored" \
+  || fail "#4225 cut guard: a kt-sandbox fixture (script path) refused (rc=$rc, $out)"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_PROCESS_CWD_PROBE="$T/cwd-plain" KOSMOS_CUT_PROBE="$T/probe-live" cutguard)"; rc=$?
+[ "$rc" -ne 0 ] && pass "#4225 cut guard CONTROL: the identical release.sh outside the sandbox, with no node --test ancestor, refuses" \
+  || fail "#4225 cut guard: an ordinary cut was hidden (rc=$rc)"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_PROCESS_CWD_PROBE="$T/cwd-unreadable" KOSMOS_CUT_PROBE="$T/probe-live" cutguard)"; rc=$?
+[ "$rc" -ne 0 ] && pass "#4225 cut guard: an unreadable cwd counts as a real run (refuses)" \
+  || fail "#4225 cut guard: an unreadable cwd was treated as a fixture (rc=$rc)"
+
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-fixture" KOSMOS_PROCESS_CWD_PROBE="$T/cwd-plain" KOSMOS_BC_PROBE="$T/bc-live" bcguard)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#4225 browser-run guard: a browser-checks.sh fixture beneath node --test is ignored" \
+  || fail "#4225 browser-run guard: a node --test fixture refused (rc=$rc, $out)"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_PROCESS_CWD_PROBE="$T/cwd-kt" KOSMOS_BC_PROBE="$T/bc-live" bcguard)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#4225 browser-run guard: a browser-checks.sh fixture in the kt sandbox is ignored" \
+  || fail "#4225 browser-run guard: a kt-sandbox fixture refused (rc=$rc, $out)"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_PROCESS_CWD_PROBE="$T/cwd-plain" KOSMOS_BC_PROBE="$T/bc-live" bcguard)"; rc=$?
+[ "$rc" -ne 0 ] && has "$out" "another browser-checks run" && pass "#4225 browser-run guard CONTROL: the identical ordinary browser-checks.sh refuses" \
+  || fail "#4225 browser-run guard: an ordinary browser run was hidden (rc=$rc, $out)"
+
+# The library missing: a copy of cut-guard.sh with NO process-fixture.sh beside it, sourced by a caller WITHOUT set -e.
+# Every fixture-shaped candidate must stay counted (over-refuse, never under-refuse).
+mkdir -p "$T/nolib"; cp "$HERE/lib/cut-guard.sh" "$T/nolib/cut-guard.sh"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-fixture" KOSMOS_PROCESS_CWD_PROBE="$T/cwd-kt" KOSMOS_CUT_PROBE="$T/probe-live" KOSMOS_BC_PROBE="$T/bc-live" \
+  bash -c 'set +e; . "'"$T"'/nolib/cut-guard.sh" 2>/dev/null; KOSMOS_CUT_SELF_PID=1 kosmos_refuse_if_cut_live x >/dev/null 2>&1; c=$?; KOSMOS_BC_SELF_PID=1 kosmos_refuse_if_browser_run_live x >/dev/null 2>&1; b=$?; echo "$c $b"')"
+[ "$out" = "1 1" ] && pass "#4225 without process-fixture.sh both guards still refuse a fixture-shaped candidate (fail closed, no set -e)" \
+  || fail "#4225 a missing classifier let a candidate through (cut/browser rc: $out)"
+
+# heavy-gate without the library says do-not-start (2), rather than guessing.
+mkdir -p "$T/hgrepo/tools/lib"; cp "$HERE/heavy-gate.sh" "$T/hgrepo/tools/heavy-gate.sh"
+bash "$T/hgrepo/tools/heavy-gate.sh" --quiet >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 2 ] && pass "#4225 heavy-gate without process-fixture.sh exits 2 (do not start)" \
+  || fail "#4225 heavy-gate without its fixture library exited $rc, not 2"
+
+# One copy of the sandbox rule: heavy-gate and the guards use _kosmos_path_in_kt_sandbox, and no private copy is left.
+if grep -q '_kosmos_path_in_kt_sandbox' "$HERE/heavy-gate.sh" && ! grep -qE '^(KT_RE=|in_kt_sandbox\(\))' "$HERE/heavy-gate.sh"; then
+  pass "#4225 heavy-gate uses the shared sandbox rule and keeps no copy of its own"
+else fail "#4225 heavy-gate still carries its own kt sandbox rule"; fi
+
 echo "cut guard: $fails failures"; [ "$fails" -eq 0 ]

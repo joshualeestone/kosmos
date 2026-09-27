@@ -7,6 +7,7 @@ if ! . "$_kosmos_cut_guard_lib_dir/process-fixture.sh"; then
   # is unavailable, so a missing library can only over-refuse, never turn a
   # live cut into an empty process list.
   _kosmos_pid_has_node_test_ancestor() { return 1; }
+  _kosmos_pid_is_fixture() { return 1; }   # #4225: the shared rule; missing means every candidate stays counted
 fi
 unset _kosmos_cut_guard_lib_dir
 
@@ -61,15 +62,19 @@ _kosmos_drop_self_subtree() {
   done
 }
 
-# Read `pid cmdline` lines and remove only fixtures whose live ancestry proves
-# they belong to Node's test runner. An unreadable ancestry stays in the list,
-# which preserves the guard's refuse-rather-than-guess posture.
-_kosmos_drop_node_test_fixtures() {
-  local line pid
+# Read `pid cmdline` lines and remove only unit-test fixtures, by the ONE rule the
+# guards and heavy-gate share (#4225, _kosmos_pid_is_fixture in process-fixture.sh):
+# a live node --test ancestor, or a cwd or script in run-tests.sh's kt<digits>
+# sandbox. The script is the command line's second word (`bash tools/release.sh
+# 0.5.54`). Anything unreadable stays in the list, which preserves the guard's
+# refuse-rather-than-guess posture.
+_kosmos_drop_fixtures() {
+  local line pid _shell script
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     pid="${line%% *}"
-    _kosmos_pid_has_node_test_ancestor "$pid" && continue
+    read -r _shell script _ <<< "${line#* }"
+    _kosmos_pid_is_fixture "$pid" "$script" >/dev/null && continue
     printf '%s\n' "$line"
   done
 }
@@ -264,10 +269,10 @@ kosmos_refuse_if_cut_live() {
   fi
   # #4206: release gate tests execute real tools/release.sh fixtures, so their
   # command is intentionally indistinguishable from a cut. Ignore only a
-  # candidate whose ancestor chain proves it belongs to `node --test`. This is
-  # the same classifier heavy-gate uses; unresolved ancestry remains counted.
+  # candidate the shared fixture rule proves is one (#4225: a node --test
+  # ancestor, or run-tests.sh's kt sandbox); unreadable state remains counted.
   if [ -n "$out" ]; then
-    out="$(printf '%s\n' "$out" | _kosmos_drop_node_test_fixtures || true)"
+    out="$(printf '%s\n' "$out" | _kosmos_drop_fixtures || true)"
   fi
   if [ "$rc" -ge 2 ]; then
     echo "could not tell whether a cut is running (the probe exited $rc); refusing to guess for $what. KOSMOS_HARNESS_IGNORE_CUT=1 runs anyway." >&2
@@ -323,6 +328,12 @@ kosmos_refuse_if_browser_run_live() {
     # should the function ever be changed to return non-zero, and it matches the
     # sibling path.
     out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self" || true)"
+  fi
+  # #4225: the same fixture rule as the cut guard and heavy-gate. A unit test that
+  # runs a real tools/browser-checks.sh fixture (a node --test ancestor, or inside
+  # run-tests.sh's kt sandbox) is not another browser run; unreadable state counts.
+  if [ -n "$out" ]; then
+    out="$(printf '%s\n' "$out" | _kosmos_drop_fixtures || true)"
   fi
   if [ "$rc" -ge 2 ]; then
     echo "could not tell whether another browser run is live (the probe exited $rc); refusing to guess for $what. KOSMOS_HARNESS_IGNORE_CUT=1 runs anyway." >&2

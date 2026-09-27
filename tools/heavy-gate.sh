@@ -57,7 +57,12 @@ elif [ -n "${BASH_VERSION:-}" ] && [ "${BASH_SOURCE[0]}" != "$0" ]; then
 fi
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-. "$REPO/tools/lib/process-fixture.sh"
+# #4225: the shared fixture rules (a node --test ancestor, and run-tests.sh's kt sandbox). Without them this gate could
+# not tell a fixture from a real run, so it says "do not start" (2) rather than guess.
+if ! . "$REPO/tools/lib/process-fixture.sh" 2>/dev/null; then
+  echo "heavy-gate: cannot read tools/lib/process-fixture.sh, so a unit-test fixture cannot be told from a real run; do not start" >&2
+  exit 2
+fi
 
 EXCEPT="" ; TWICE=0 ; QUIET=0 ; QUIET_BOX=0 ; EXCEPT_SET=0
 while [ $# -gt 0 ]; do
@@ -170,17 +175,8 @@ has_test_runner() (
   exit 1
 )
 
-# True if the path is in tools/run-tests.sh's sandbox: a kt<digits> folder under a folder named
-# T (macOS TMPDIR) or tmp, or directly under this shell's own $TMPDIR.
-KT_RE='(^|/)(T|tmp)/kt[0-9]+(/|$)'
-in_kt_sandbox() {
-  [[ "$1" =~ $KT_RE ]] && return 0
-  local t="${TMPDIR:-}"; t="${t%/}"
-  [ -n "$t" ] || return 1
-  case "$1" in "$t"/kt*) ;; *) return 1 ;; esac
-  local rest="${1#"$t"/kt}"; rest="${rest%%/*}"
-  [ -n "$rest" ] && [ -z "${rest//[0-9]/}" ]
-}
+# The run-tests.sh sandbox rule is _kosmos_path_in_kt_sandbox, in tools/lib/process-fixture.sh (#4225: one copy, shared
+# with the concurrent-run guards).
 
 # A verdict line shows at most this many characters of the command, then "...": a shell running
 # a long -c string once printed several thousand. Only the printed copy is cut, never $cmd.
@@ -209,7 +205,7 @@ classify() {
     has_test_runner "$anc" && why="a unit-test fixture (node --test ancestor)"
     [ -z "$why" ] && [ "$cwd" = "<exited>" ] && why="already exited"
     if [ -z "$why" ]; then
-      if in_kt_sandbox "$cwd" || in_kt_sandbox "$script"; then why="a unit-test fixture (run-tests.sh sandbox)"; fi
+      if _kosmos_path_in_kt_sandbox "$cwd" || _kosmos_path_in_kt_sandbox "$script"; then why="a unit-test fixture (run-tests.sh sandbox)"; fi
     fi
     if [ -z "$why" ] && [ -n "$EXCEPT" ] && [ -n "$cwd" ]; then
       case "$cwd" in "$EXCEPT"|"$EXCEPT"/*) why="your own run (--except-cwd)" ;; esac
