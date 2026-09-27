@@ -785,7 +785,10 @@ if [ -z "$adopt" ]; then
     # other hooks are kept; a file that is not JSON is left alone. Best-effort, never blocks launch.
     _AGY_BRIDGE="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)/agy-report-bridge.js"
     if [ -n "${_eng:-}" ] && [ -f "$_eng/agyhooks.js" ] && [ -n "${NODE_BIN:-}" ] && [ -f "$_AGY_BRIDGE" ]; then
-      "$NODE_BIN" "$_eng/agyhooks.js" "$WORKDIR" "$NODE_BIN" "$_AGY_BRIDGE" >/dev/null || true
+      # agy's version decides whether the ask_question hooks are safe to write (agyhooks MIN_TOOL_HOOKS).
+      _AGY_VERSION="$("$CLAUDE" --version 2>/dev/null | head -n 1 || true)"
+      "$NODE_BIN" "$_eng/agyhooks.js" "$WORKDIR" "$NODE_BIN" "$_AGY_BRIDGE" "$_AGY_VERSION" >/dev/null || true
+      unset _AGY_VERSION
     fi
     unset _AGY_BRIDGE
     _AGY_ARGS=(--dangerously-skip-permissions)

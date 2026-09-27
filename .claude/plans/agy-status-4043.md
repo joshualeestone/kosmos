@@ -65,3 +65,11 @@ over the scraped UNKNOWN in reconcileReport (checked by calling it: working -> w
   #4039's old tip); the throttle's bare 'nopane' could merge agents without a pane -> the Claude hook's
   chain (pane, token hash, parent pid, then nopane). Otherwise clean, with the schema and the empty-
   decision premise re-verified against the agy 1.2.x binary.
+- Review iteration 6 (opus): (W1) no minimum agy version -> the supervisor passes `agy --version`
+  (measured 0.06-0.4s) to agyhooks, and the ask_question tool groups are written only at agy 1.1.9 or
+  later (1.0.16 fixed an empty pre-tool answer failing the tool; 1.1.9 fixed PostToolUse ignoring its
+  matcher, per the changelog in the 1.2.11 binary). Older or unknown -> working/idle hooks only, reason
+  on stderr. (W2) the pane throttle key now carries KOSMOS_PORT, so two worlds' %3 never share a marker.
+  (NIT) marker-before-POST accepted and stated in the header. (NIT) Release check #5: does a subagent's
+  or background loop's Stop fire this hook while the parent waits on ask_question (it would clear
+  needs_you)?

@@ -106,7 +106,7 @@ test('#4043: run as agy runs it, the bridge answers {} first and exits 0 fast ev
     encoding: 'utf8',
     timeout: 15000,
   });
-  try { fs.rmSync(bridge.markerFile({ TMUX_PANE: '%stdout-' + process.pid }), { force: true }); } catch { /* none */ }
+  try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: '9', TMUX_PANE: '%stdout-' + process.pid }), { force: true }); } catch { /* none */ }
   assert.equal(r.status, 0);
   assert.equal(r.stdout.trim(), '{}', 'agy reads stdout as the hook\'s answer; it must be exactly {}');
   assert.ok(Date.now() - start < (bridge.STDIN_TIMEOUT_MS + bridge.TIMEOUT_MS + 3000), 'the bridge stalled the agent');
@@ -155,7 +155,7 @@ test('#4043: the supervisor writes the hook before every agy launch, and cannot 
   const at = sh.indexOf('elif [ "$RUNNER" = antigravity ]; then');
   assert.ok(at > -1, 'the antigravity branch moved: re-anchor this pin');
   const branch = sh.slice(at);
-  const call = branch.indexOf('"$NODE_BIN" "$_eng/agyhooks.js" "$WORKDIR" "$NODE_BIN" "$_AGY_BRIDGE" >/dev/null || true');
+  const call = branch.indexOf('"$NODE_BIN" "$_eng/agyhooks.js" "$WORKDIR" "$NODE_BIN" "$_AGY_BRIDGE" "$_AGY_VERSION" >/dev/null || true');
   const launch = branch.indexOf('new-session');
   assert.ok(call > -1, 'the supervisor no longer runs agyhooks for an agy agent');
   assert.ok(launch > -1 && call < launch, 'agyhooks must run BEFORE agy is launched, or the first turn reports nothing');
@@ -190,13 +190,16 @@ test('#4043: run for an ask_question, the bridge answers exactly {} (no permissi
     env: { ...process.env, KOSMOS_PORT: '9', TMUX_PANE: '%pretool-' + process.pid },
     encoding: 'utf8', timeout: 15000,
   });
-  try { fs.rmSync(bridge.markerFile({ TMUX_PANE: '%pretool-' + process.pid }), { force: true }); } catch { /* none */ }
+  try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: '9', TMUX_PANE: '%pretool-' + process.pid }), { force: true }); } catch { /* none */ }
   assert.equal(r.status, 0);
   assert.equal(r.stdout.trim(), '{}');
 });
 
 test('#4043: agents without a pane never share one throttle marker', () => {
-  assert.equal(bridge.throttleKey({ TMUX_PANE: '%3' }, 99), 'pane-%3');
+  assert.equal(bridge.throttleKey({ TMUX_PANE: '%3' }, 99), 'pane-16180-%3');
+  /* Two Kosmos worlds as one user: %3 is unique only inside one tmux server (review 6). */
+  assert.notEqual(bridge.throttleKey({ TMUX_PANE: '%3', KOSMOS_PORT: '16180' }, 99), bridge.throttleKey({ TMUX_PANE: '%3', KOSMOS_PORT: '16181' }, 99),
+    'two worlds\' %3 shared one throttle marker');
   const a = bridge.throttleKey({ KOSMOS_AGENT_TOKEN: 'aaaa' }, 99);
   const b = bridge.throttleKey({ KOSMOS_AGENT_TOKEN: 'bbbb' }, 99);
   assert.ok(a.startsWith('tok-') && b.startsWith('tok-') && a !== b, 'two agents\' tokens gave one key');
@@ -234,7 +237,7 @@ test('#4043: what the board actually receives: the route, state, text, auto and 
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
   const pane = '%post-' + process.pid;
-  try { fs.rmSync(bridge.markerFile({ TMUX_PANE: pane }), { force: true }); } catch { /* none */ }
+  try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: String(port), TMUX_PANE: pane }), { force: true }); } catch { /* none */ }
   try {
     await driveBridge(port, 'PreInvocation', { conversationId: 'c' }, pane);
     await driveBridge(port, 'PreInvocation', { conversationId: 'c' }, pane); // a repeat inside the window
@@ -244,7 +247,7 @@ test('#4043: what the board actually receives: the route, state, text, auto and 
     await driveBridge(port, 'Stop', { fullyIdle: true, error: 'quota exceeded' }, pane);
   } finally {
     server.closeAllConnections(); server.close();
-    try { fs.rmSync(bridge.markerFile({ TMUX_PANE: pane }), { force: true }); } catch { /* none */ }
+    try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: String(port), TMUX_PANE: pane }), { force: true }); } catch { /* none */ }
   }
   assert.deepEqual(seen.map((s) => s.body.state), ['working', 'needs_you', 'working', 'idle'],
     'the repeated working must be held by the throttle, and a non-ask_question PreToolUse must send nothing');
@@ -256,4 +259,38 @@ test('#4043: what the board actually receives: the route, state, text, auto and 
   }
   assert.equal(seen[1].body.text, 'Ship it? / Which env?', 'the question the person sees is agy\'s own');
   assert.equal(seen[3].body.text, 'The turn ended with an error: quota exceeded');
+});
+
+test('#4043: the ask_question hooks are written only for an agy that handles them (1.1.9+); older or unknown gets working/idle only', () => {
+  for (const [out, safe] of [['1.2.11', true], ['agy 1.1.9\n', true], ['1.1.10', true], ['2.0.0', true],
+    ['1.1.8', false], ['1.0.16', false], ['0.9.99', false], ['', false], [undefined, false], ['not a version', false]]) {
+    assert.equal(hooks.toolHooksSafe(out), safe, JSON.stringify(out));
+  }
+  const d = workdir();
+  hooks.ensureHooks(d, '/opt/node', '/b.js', false);
+  assert.deepEqual(Object.keys(readHooks(d)[hooks.HOOK_NAME]).sort(), ['PreInvocation', 'Stop'], 'an old agy still got the tool hooks');
+  /* An upgrade adds them on the next launch, and a downgrade takes them away again. */
+  assert.equal(hooks.ensureHooks(d, '/opt/node', '/b.js', true).changed, true);
+  assert.deepEqual(Object.keys(readHooks(d)[hooks.HOOK_NAME]).sort(), ['PostToolUse', 'PreInvocation', 'PreToolUse', 'Stop']);
+  assert.equal(hooks.ensureHooks(d, '/opt/node', '/b.js', false).changed, true);
+  assert.deepEqual(Object.keys(readHooks(d)[hooks.HOOK_NAME]).sort(), ['PreInvocation', 'Stop']);
+});
+
+test('#4043: the CLI takes agy\'s version as its 4th argument, and says on stderr when it leaves the tool hooks out', () => {
+  const run = (d, v) => spawnSync(process.execPath, [path.join(__dirname, 'agyhooks.js'), d, '/opt/node', '/b.js', ...(v === undefined ? [] : [v])], { encoding: 'utf8' });
+  const old = workdir();
+  const r = run(old, '1.0.3');
+  assert.equal(r.status, 0);
+  assert.match(r.stderr, /1\.0\.3 is older than 1\.1\.9/);
+  assert.deepEqual(Object.keys(readHooks(old)[hooks.HOOK_NAME]).sort(), ['PreInvocation', 'Stop']);
+  const cur = workdir();
+  const r2 = run(cur, '1.2.11');
+  assert.equal(r2.stderr, '', 'control: a current agy writes without complaint');
+  assert.deepEqual(Object.keys(readHooks(cur)[hooks.HOOK_NAME]).sort(), ['PostToolUse', 'PreInvocation', 'PreToolUse', 'Stop']);
+});
+
+test('#4043: the supervisor hands agy\'s own --version to agyhooks (SOURCE pin)', () => {
+  const sh = fs.readFileSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
+  assert.ok(sh.includes('_AGY_VERSION="$("$CLAUDE" --version 2>/dev/null | head -n 1 || true)"'), 'the supervisor no longer reads agy\'s version');
+  assert.ok(sh.includes('"$NODE_BIN" "$_eng/agyhooks.js" "$WORKDIR" "$NODE_BIN" "$_AGY_BRIDGE" "$_AGY_VERSION" >/dev/null || true'), 'agyhooks no longer gets the version');
 });

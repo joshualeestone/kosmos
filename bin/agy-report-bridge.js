@@ -34,7 +34,11 @@
  * is printed FIRST, before anything else can fail. Every failure is swallowed and the exit code is
  * 0, and the process exits explicitly (an open stdin must not keep it alive). A repeated `working`
  * within THROTTLE_MS on the same pane is not sent at all (no requires, no POST): the same per-pane
- * 60s heartbeat as install/kosmos-report-hook.sh; a change of state always sends. A board that is
+ * 60s heartbeat as install/kosmos-report-hook.sh; a change of state always sends. The marker is
+ * recorded BEFORE the POST: a working lost to a restarting board holds the next heartbeat back for
+ * up to 60s, inside the board's ~5 min decay, so it is accepted rather than waiting on the answer.
+ * ⚠️ UNMEASURED (release check #5): whether a subagent's or background loop's Stop fires this hook
+ * while the parent waits on ask_question. If it does, its auto idle clears the needs_you. A board that is
  * down costs at most STDIN_TIMEOUT_MS + TIMEOUT_MS on a call that does send.
  */
 
@@ -64,7 +68,9 @@ function answerFor() {
    the same chain). */
 function throttleKey(env, ppid) {
   const e = env || process.env;
-  if (e.TMUX_PANE) return 'pane-' + String(e.TMUX_PANE);
+  /* A pane id (%3) is unique only inside one tmux server, and two Kosmos worlds can run as one user,
+     so the pane key carries the world's board port too: world B's %3 never reads world A's marker. */
+  if (e.TMUX_PANE) return 'pane-' + String(Number(e.KOSMOS_PORT) || 16180) + '-' + String(e.TMUX_PANE);
   const token = String(e.KOSMOS_AGENT_TOKEN || '').trim();
   if (token) return 'tok-' + require('node:crypto').createHash('sha256').update(token).digest('hex').slice(0, 16);
   const parent = ppid === undefined ? process.ppid : ppid;
