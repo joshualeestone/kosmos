@@ -1,0 +1,6 @@
+# Chrome DevTools /json on the AVD after Open my Kosmos (token stripped), 2026-09-27
+## tap with agent=scorpion
+page https://kano4140.kosmosplus.com/?tab=detail&agent=scorpion#kst=<token stripped>
+service_worker https://login.kosmosplus.com/sw.js
+## control: tap with no agent
+https://kano4140.kosmosplus.com/#kst=<token stripped>
