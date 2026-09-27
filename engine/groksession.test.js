@@ -243,6 +243,12 @@ test('a single-call turn\'s pre-call estimate is floored by that call\'s real pr
   writeSession({ encDir: 'enc-usage', sessionId: 'multi', cwd: WORKDIR, model: 'grok-4.6', numMessages: 20, lastActive: '2026-09-27T03:00:00Z', lastTurn: 'x', tokensUsed: 40783, windowTokens: 500000 });
   writeUsage('multi', [{ turnNumber: 1, inputTokens: 80292, modelCalls: 2 }, { turnNumber: 2, inputTokens: 81382, modelCalls: 2 }]);
   assert.equal(grok.read(WORKDIR).contextUsed, 40783, 'a two-call turn\'s 81382 is a sum, never occupancy: Grok\'s own gauge stands');
+
+  /* ONE turn that made TWO calls: only the modelCalls check keeps its SUM out (the turn-count check passes). */
+  reset();
+  writeSession({ encDir: 'enc-usage', sessionId: 'one-multi', cwd: WORKDIR, model: 'grok-4.6', numMessages: 12, lastActive: '2026-09-27T02:57:00Z', lastTurn: 'x', tokensUsed: 40291, windowTokens: 500000 });
+  writeUsage('one-multi', [{ turnNumber: 1, inputTokens: 80292, modelCalls: 2 }]);
+  assert.equal(grok.read(WORKDIR).contextUsed, 40291, 'the measured turn A: its 80292 is two prompts summed, never occupancy');
 });
 
 test('usage.json absent, malformed, or smaller: Grok\'s own contextTokensUsed stands', () => {

@@ -135,8 +135,8 @@ function forWorkdir(dir, home) {
  * is that one call's whole prompt. So: take the larger of the two only when usage.json holds
  * exactly ONE turn and it made ONE call (the measured case). A later single-call turn is left
  * alone: after a compaction the gauge drops and an old turn's prompt would pin the ring high.
- * Both files are written at the end of that same turn, so contextUsedAt (signals.json's mtime)
- * still dates the figure. Never throws; any doubt keeps Grok's own figure.
+ * MEASURED: usage.json is written 27-63 ms BEFORE signals.json at the end of a turn (both real
+ * sessions), so contextUsedAt (signals.json's mtime) is never earlier than the floored figure. Never throws; any doubt keeps Grok's own figure.
  */
 function singleCallFloor(used, sessionDir) {
   if (used == null) return used;
