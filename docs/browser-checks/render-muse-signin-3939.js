@@ -61,7 +61,8 @@ const chk = (ok, label, extra) => {
     window.fetch = async (url, opts) => {
       const u = String(url);
       const method = (opts && opts.method) || 'GET';
-      if (/\/api\/muse$/.test(u)) return enc(window.__museOn ? { enabled: true, installed: window.__museInstalled !== false, because: null, signedIn: false } : { enabled: false });
+      if (/\/api\/muse$/.test(u)) { if (window.__museRead === 'throw') throw new Error('offline'); if (window.__museRead === 500) return enc({ error: 'x' }, 500); }
+      if (/\/api\/muse$/.test(u)) return enc(window.__museOn ? { enabled: true, installed: window.__museInstalled !== false, because: window.__museInstalled === false ? 'Muse Code is not on this computer' : null, signedIn: false } : { enabled: false });
       if (/\/api\/muse\/signin(\/retry|\/stop)?$/.test(u) && method === 'POST') {
         const body = JSON.parse((opts && opts.body) || '{}');
         window.__posts.push({ path: u.replace(/^.*\/api\/muse\/signin/, '') || '/', id: body.id || null });
@@ -94,11 +95,29 @@ const chk = (ok, label, extra) => {
   chk(off.disabled === true, 'flag off: the Meta option stays disabled (coming soon)', JSON.stringify(off));
   chk(/coming soon/.test(off.text || ''), 'flag off: its words are unchanged', JSON.stringify(off));
   chk((await G('acct-muse-flow')).hidden === true, 'flag off: no Muse step');
+  const offPill = await q(() => {
+    const o = document.querySelector('#acct-provider-pick option[value="meta"]');
+    const trig = document.querySelector('#acct-provider-pick').parentElement.querySelector('.pcombo-trigger');
+    if (trig) trig.click();
+    const li = [...document.querySelectorAll('.pcombo li')].find((l) => l.dataset.value === 'meta' && l.offsetParent !== null);
+    const pill = li && li.querySelector('.pcombo-soon');
+    if (trig) trig.click();
+    return { off: o.dataset.off || '', pill: pill ? pill.textContent : null };
+  });
+  chk(offPill.off === '' && offPill.pill === 'Coming soon', 'flag off: no reason on the option, and the row\'s pill reads Coming soon', JSON.stringify(offPill));
+  chk(/Google Gemini and xAI Grok work today/.test((await G('acct-add-in')).text), 'flag off: the intro names the four that work today');
+  for (const bad of [500, 'throw']) {
+    await q((b) => { window.__museOn = true; window.__museRead = b; closeAcctAdd(); openAcctAdd(); }, bad);
+    await settle();
+    chk(await q(() => { const o = document.querySelector('#acct-provider-pick option[value="meta"]'); return o.disabled && !o.dataset.off; }), 'a failed read (' + bad + ') keeps Meta coming soon, with no reason');
+  }
+  await q(() => { window.__museOn = false; window.__museRead = null; });
 
   /* ---- flag on ---- */
   await q(() => { window.__museOn = true; closeAcctAdd(); openAcctAdd(); });
   await settle();
   chk(await q(() => document.querySelector('#acct-provider-pick option[value="meta"]').disabled === false), 'flag on: the Meta option is live');
+  chk(/xAI Grok and Meta Muse work today/.test((await G('acct-add-in')).text), 'flag on: the intro names Meta Muse too', (await G('acct-add-in')).text);
   await choose('meta');
   await settle();
   const shown = await q(() => ({
@@ -263,7 +282,7 @@ const chk = (ok, label, extra) => {
   // Turned on but Muse Code not installed: the option stays disabled and says why.
   await q(() => { window.__museInstalled = false; closeAcctAdd(); openAcctAdd(); }); await settle();
   const missing = await q(() => { const o = document.querySelector('#acct-provider-pick option[value="meta"]'); return { disabled: o.disabled, off: o.dataset.off || '' }; });
-  chk(missing.disabled && /not installed/.test(missing.off), 'turned on but not installed: the Meta option stays disabled and says why', JSON.stringify(missing));
+  chk(missing.disabled && /not on this computer/.test(missing.off), 'turned on but not installed: the Meta option stays disabled and gives the engine\'s reason', JSON.stringify(missing));
   await q(() => { window.__museInstalled = true; closeAcctAdd(); openAcctAdd(); }); await settle();
   chk(await q(() => { const o = document.querySelector('#acct-provider-pick option[value="meta"]'); return !o.disabled && !o.dataset.off; }), 'installed again: live, with no leftover reason');
 

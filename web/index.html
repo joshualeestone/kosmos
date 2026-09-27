@@ -23929,7 +23929,7 @@ function acctClaudeChoose(which) {
 function acctPick(which, opts) {
   const sel = document.getElementById('acct-provider-pick');
   if (sel.value !== which) sel.value = which;
-  acctMuseShow(false);   // #3939
+  acctMuseShow(which === 'meta');   // #3939: Meta Muse's step, or put away for any other choice
   document.getElementById('acct-claude-flow').hidden = which !== 'claude';
   document.getElementById('acct-openai-flow').hidden = which !== 'openai';
   /* Same as the Claude and OpenAI picks: focus lands on the first thing to fill in. #3731: that
@@ -23938,6 +23938,7 @@ function acctPick(which, opts) {
   acctApikeyShow(ACCT_APIKEY_PROVIDERS[which] ? which : null);
   if (which !== 'openai') {
     acctOpenaiStop(); acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null;
+    if (which === 'meta') { if (!(opts && opts.focus === false)) document.getElementById('acct-muse-go').focus(); return; }
     if (which === 'claude') {
       /* #2433: a reauth goes straight to the subscription sign-in (it is re-authing
          an existing subscription account); a fresh add meets the picker first. */
@@ -23994,16 +23995,9 @@ document.getElementById('acct-openai-install-go').addEventListener('click', asyn
 document.getElementById('acct-provider-pick').addEventListener('change', (e) => {
   const which = e.target.value;
   /* #3939: Meta Muse is its own step; any other choice puts it away. */
-  if (which === 'meta' && museOffered()) {
-    document.getElementById('acct-claude-flow').hidden = true;
-    document.getElementById('acct-openai-flow').hidden = true;
-    // As acctPick does for every other non-OpenAI choice: a ChatGPT sign-in does not keep running behind this (round 1).
-    acctOpenaiStop(); acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null;
-    acctApikeyShow(null);
-    acctMuseShow(true);
-    document.getElementById('acct-muse-go').focus();
-    return;
-  }
+  /* #3939: Meta Muse goes through acctPick like every live provider (round 3: one rule for putting the
+     others away, not a second copy of it here). */
+  if (which === 'meta' && museOffered()) { acctPick('meta'); return; }
   acctMuseShow(false);
   if (which === 'claude' || which === 'openai' || ACCT_APIKEY_PROVIDERS[which]) { acctPick(which); return; }
   // Cleared, or (defensively) a disabled "coming" option somehow reached
@@ -24034,6 +24028,7 @@ let ACCT_REAUTH_DIR = null;
 let ACCT_OPENAI_REAUTH_DIR = null;
 const ACCT_ADD_TITLE = 'Add a provider';
 const ACCT_ADD_INTRO = 'Pick which AI provider you want to connect. Anthropic Claude, OpenAI, Google Gemini and xAI Grok work today; the rest are listed so you can see what is coming.';
+const ACCT_ADD_INTRO_MUSE = 'Pick which AI provider you want to connect. Anthropic Claude, OpenAI, Google Gemini, xAI Grok and Meta Muse work today; the rest are listed so you can see what is coming.';   // #3939
 /* The stock warning says to sign in to the OTHER Claude account first, which is
    the correct instruction for a second account and the wrong one here: the
    account you want IS this one. */
@@ -25824,15 +25819,23 @@ async function museAsk() {
     /* Offered only when Muse Code is on this computer too (round 2: as Gemini's and Grok's rows wait
        until they are ready); turned on but not installed says so on the row instead of "Coming soon". */
     on = !!(out && out.enabled === true && out.installed === true);
-    missing = !!(out && out.enabled === true && out.installed === false);
+    // The engine's own reason (round 3: one spelling), with a page fallback only when it has none.
+    missing = !!(out && out.enabled === true && out.installed === false) && (pjSentence(out.because) || 'Muse Code is not on this computer');
   } catch { on = false; }   // a failed read keeps it "coming soon": today's screen, never a guess
   /* Only disabled is toggled: the logo combobox re-reads it on open (syncOpts), and drops its "Coming
      soon" pill, but its row name is fixed at build, so the option text stays as it is. */
   const opt = museMetaOption();
   if (opt) {
     opt.disabled = !on;
-    if (missing) opt.dataset.off = 'Muse Code is not installed'; else delete opt.dataset.off;
+    if (missing) opt.dataset.off = missing; else delete opt.dataset.off;
+    // An open logo list re-reads its options (round 3), as paintAgyOption and paintKeyedProviderOptions do.
+    const sel = opt.parentElement;
+    if (sel && sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
   }
+  /* The dialog's intro names what works today (round 3): with Meta Muse live it says so. Only the plain
+     Add screen's sentence is swapped, never a sign-in again's. */
+  const intro = document.getElementById('acct-add-in');
+  if (intro && (intro.textContent === ACCT_ADD_INTRO || intro.textContent === ACCT_ADD_INTRO_MUSE)) intro.textContent = on ? ACCT_ADD_INTRO_MUSE : ACCT_ADD_INTRO;
   return on;
 }
 /* Whether Meta Muse is offered right now: the option's own state, the one fact museAsk sets (round 1). */
@@ -25865,10 +25868,10 @@ const ACCT_MUSE = (() => {
     row.hidden = true;
     if (x === 'open-row') { const a = el('open'); if (a) a.setAttribute('href', '#'); }
   }
+  function clearCode() { const c = el('code'); if (c) { c.hidden = true; c.textContent = ''; c.__devKey = ''; } }
   function reset() {
     for (const x of ['open-row', 'retry-row', 'cancel-row']) hideRow(x);
-    { const e = el('code'); if (e) e.hidden = true; }
-    const c = el('code'); if (c) { c.textContent = ''; c.__devKey = ''; }
+    clearCode();
     const g = el('go'); if (g) { g.hidden = false; g.disabled = false; }
   }
   function show(st) {
@@ -25879,7 +25882,7 @@ const ACCT_MUSE = (() => {
       c.hidden = false;
       // #3952: drawn only when the code changes, so a selection in it survives the poll.
       if (c.__devKey !== st.code) { c.innerHTML = devCodeHtml('On that page, confirm this code:', st.code); c.__devKey = st.code; }
-    } else if (c) { c.hidden = true; c.textContent = ''; c.__devKey = ''; }
+    } else clearCode();
     if (st.state === 'expired') el('retry-row').hidden = false; else hideRow('retry-row');
   }
   function finish(text) {
