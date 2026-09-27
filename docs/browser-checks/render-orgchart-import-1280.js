@@ -76,7 +76,9 @@ function check(name, pass, detail) {
     if (r.request().method() !== 'DELETE') return r.continue();
     removeCalls.push(name);
     if (removalDelayMs) await new Promise((ok) => setTimeout(ok, removalDelayMs));
-    const ans = removal[name] || { outcome: 'removed' };
+    // The engine's real clean answer carries a `because` (engine/remove.js), so the mock does too.
+    const ans = removal[name] || { outcome: 'removed',
+      because: name + ' has been removed from Kosmos. Its folder and everything in it is still on your computer.' };
     if (ans.outcome === 'removed' || ans.recorded) removedNow.add(name);
     r.fulfill({ status: ans.outcome === 'refused' ? 400 : 200, json: ans });
   });
@@ -182,8 +184,11 @@ function check(name, pass, detail) {
   });
   check('after a create, Undo is offered for exactly the agents it made',
     undoShown.visible && /remove these 3 agents/.test(undoShown.text), JSON.stringify(undoShown));
+  // Engineer is an agent Kosmos cannot start again, so its losses differ from the other two.
+  plans = { engineer: { ...PLAN, loses: ['Its place on the board', 'Running, and Kosmos cannot start it again for you'] } };
   await page.click('#orgchart-undo');
   await page.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
+  plans = {};
   const asked = await page.evaluate(() => ({
     count: document.getElementById('orgchart-count').textContent,
     items: [...document.getElementById('orgchart-list').querySelectorAll('li')].map((li) => li.textContent),
@@ -195,6 +200,10 @@ function check(name, pass, detail) {
       && /Marketing Lead/.test(asked.items[0]) && /Head of Sales/.test(asked.items[1]) && /Engineer/.test(asked.items[2])
       && asked.keep && removeCalls.length === 0,
     JSON.stringify({ asked, removeCalls }));
+  check('an agent whose losses differ from the rest says so on its own row, and only it',
+    /this one loses: .*cannot start it again/.test(asked.items[2])
+      && !/this one loses/.test(asked.items[0]) && !/this one loses/.test(asked.items[1]),
+    JSON.stringify(asked.items));
   check('it says what happens to one already working, in the engine\'s words: it stops, keeps its work, loses its place',
     /working now stops/.test(asked.msg) && /Removing is not deleting/.test(asked.msg)
       && /keeps: .*everything it has written/i.test(asked.msg) && /loses: its place on the board/i.test(asked.msg),
@@ -377,11 +386,13 @@ function check(name, pass, detail) {
     dedup.count === 4 && dedup.distinct === 4 && dedup.maxLen <= 32, JSON.stringify(dedup));
 
   // ---- Leaving the panel while Undo is removing: the old run paints nothing on return ----
-  await page.fill('#orgchart-text', 'Marketing Lead');
+  await page.fill('#orgchart-text', 'Marketing Lead\nEngineer');
   await page.click('#orgchart-preview');
   await page.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 5000 });
   teamStatus = 200;
-  teamResponse = { outcome: 'created', created: [{ name: 'marketing-lead', shownAs: 'Marketing Lead', id: 'a1' }], refused: [], because: null };
+  teamResponse = { outcome: 'created', created: [{ name: 'marketing-lead', shownAs: 'Marketing Lead', id: 'a1' },
+    { name: 'engineer', shownAs: 'Engineer', id: 'a3' }], refused: [], because: null };
+  removeCalls.length = 0;
   await page.click('#orgchart-create');
   await page.waitForSelector('#orgchart-undo:not([hidden])', { timeout: 5000 });
   await page.click('#orgchart-undo');
@@ -399,6 +410,8 @@ function check(name, pass, detail) {
   }));
   check('an Undo left mid-run does not paint over the panel it left, and Preview works again',
     !/Removed|Removing/.test(superseded.count) && superseded.boxHidden && !superseded.previewDisabled, JSON.stringify(superseded));
+  check('and it stops sending removals once left: one of two was asked, never the second',
+    removeCalls.length === 1, JSON.stringify(removeCalls));
 
   check('no page errors', errors.length === 0, errors.join(' | '));
 

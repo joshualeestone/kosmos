@@ -42762,6 +42762,8 @@ let ORGCHART_GEN = 0;
 let ORGCHART_CREATED = [];
 // The create's result as painted, so Keep them can put it back exactly (refused rows and all).
 let ORGCHART_RESULT = null;
+// True while /api/team is answering: Preview waits, so a late create result is never thrown away.
+let ORGCHART_CREATING = false;
 
 /* The derived-name length ceiling. It MIRRORS engine/create.nameProblem's 32-char
    cap (engine/create.js) so a client-derived candidate is not rejected for length
@@ -42866,6 +42868,7 @@ function parseOrgchart(text, useNames) {
 }
 
 document.getElementById('orgchart-preview').addEventListener('click', () => {
+  if (ORGCHART_CREATING) return;
   const rows = parseOrgchart(
     document.getElementById('orgchart-text').value,
     document.getElementById('orgchart-usenames').checked,
@@ -42919,6 +42922,9 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
     + (ORGCHART_PARSED.length === 1 ? ' agent…' : ' agents…');
   const members = ORGCHART_PARSED.map((r) => ({ name: r.name, role: 'own', label: r.label }));
   let result = null;
+  const previewBtn = document.getElementById('orgchart-preview');
+  ORGCHART_CREATING = true;
+  previewBtn.disabled = true;
   try {
     const res = await fetch('/api/team', {
       method: 'POST',
@@ -42926,7 +42932,9 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
       body: JSON.stringify({ creator: 'operator', purpose: 'Imported from an org chart', members }),
     });
     result = await res.json().catch(() => null);
+    ORGCHART_CREATING = false; previewBtn.disabled = false;
   } catch (err) {
+    ORGCHART_CREATING = false; previewBtn.disabled = false;
     if (gen !== ORGCHART_GEN) return;   // superseded during the fetch
     btn.disabled = false;
     msg.hidden = false;
@@ -43012,6 +43020,15 @@ let ORGCHART_UNDO_PLANS = {};
    that existed before the import (refused as taken by create.createAgent) is never on it.
    What removal keeps and loses is the engine's own words from its plan, as the Remove dialog
    shows them; a plan that refuses shows its reason here, before anything is pressed. */
+/* The ask states one agent's keeps and loses for all (the first plan the engine answered).
+   A plan whose loses differ (an agent Kosmos cannot start again) says so on its own row. */
+let ORGCHART_FIRST_PLAN = null;
+function orgchartLosesDiffer(plan) {
+  if (!ORGCHART_FIRST_PLAN || !Array.isArray(plan.loses)
+    || JSON.stringify(plan.loses) === JSON.stringify(ORGCHART_FIRST_PLAN.loses)) return '';
+  return ' <span class="dhint">this one loses: ' + esc(plan.loses.join('; ')) + '</span>';
+}
+
 async function orgchartUndoAsk() {
   const n = ORGCHART_CREATED.length;
   if (!n) return;
@@ -43022,6 +43039,7 @@ async function orgchartUndoAsk() {
   const msg = document.getElementById('orgchart-msg');
   undo.disabled = true;
   document.getElementById('orgchart-preview').disabled = true;
+  document.getElementById('orgchart-edit').hidden = true;
   countEl.textContent = 'Checking ' + (n === 1 ? 'the agent…' : 'the ' + n + ' agents…');
   const plans = {};
   // Read-only, so asked together (the removals themselves go one at a time).
@@ -43030,6 +43048,7 @@ async function orgchartUndoAsk() {
       .then((res) => res.json().catch(() => null), () => null)));
   if (gen !== ORGCHART_GEN) return;
   ORGCHART_CREATED.forEach((c, i) => { plans[c.name] = answers[i]; });
+  ORGCHART_FIRST_PLAN = ORGCHART_CREATED.map((c) => plans[c.name]).find((p) => p && p.ok === true) || null;
   ORGCHART_UNDO_PLANS = plans;
   countEl.textContent = 'Undo will remove '
     + (n === 1 ? 'this agent, the one this import made:' : 'these ' + n + ' agents, the ones this import made:');
@@ -43037,11 +43056,11 @@ async function orgchartUndoAsk() {
     const plan = plans[c.name];
     const note = plan && plan.ok === false
       ? ' <span class="dhint">cannot be removed: ' + esc(plan.because || plan.error || 'no reason given') + '</span>'
-      : plan && plan.ok === true ? ''
+      : plan && plan.ok === true ? orgchartLosesDiffer(plan)
       : ' <span class="dhint">we could not check this one first' + (plan && plan.error ? ': ' + esc(plan.error) : '') + '</span>';
     return '<li>' + esc(c.shownAs) + ' <span class="dhint">&rarr; ' + esc(c.name) + '</span>' + note + '</li>';
   }).join('');
-  const first = ORGCHART_CREATED.map((c) => plans[c.name]).find((p) => p && p.ok === true);
+  const first = ORGCHART_FIRST_PLAN;
   const canAny = ORGCHART_CREATED.some((c) => !(plans[c.name] && plans[c.name].ok === false));
   msg.hidden = false;
   msg.textContent = !canAny ? 'None of these can be removed right now.'
@@ -43053,7 +43072,8 @@ async function orgchartUndoAsk() {
   orgchartUndoAsking(true);
   const go = document.getElementById('orgchart-undo-go');
   const willRemove = ORGCHART_CREATED.filter((c) => !(plans[c.name] && plans[c.name].ok === false));
-  go.textContent = willRemove.length === 1 ? 'Remove ' + willRemove[0].shownAs : 'Remove these ' + willRemove.length + ' agents';
+  go.textContent = !willRemove.length ? 'Nothing to remove'
+    : willRemove.length === 1 ? 'Remove ' + willRemove[0].shownAs : 'Remove these ' + willRemove.length + ' agents';
   go.disabled = !canAny;
   document.getElementById('orgchart-undo-keep').textContent = n === 1 ? 'Keep ' + ORGCHART_CREATED[0].shownAs : 'Keep them';
   document.getElementById('orgchart-undo-keep').focus();
@@ -43102,7 +43122,7 @@ document.getElementById('orgchart-undo-go').addEventListener('click', async () =
       const res = await fetch('/api/agent/' + encodeURIComponent(c.name) + '/removal', { method: 'DELETE' });
       out = await res.json().catch(() => null);
     } catch (err) { reached = false; }
-    if (gen !== ORGCHART_GEN) return;
+    if (gen !== ORGCHART_GEN) { if (typeof paintRemoved === 'function') paintRemoved(); return; }
     answers.push({ c, out, reached });
   }
   let onList = null;   // null: the removed list could not be read, so only `removed` counts
@@ -43113,8 +43133,10 @@ document.getElementById('orgchart-undo-go').addEventListener('click', async () =
   } catch (err) { onList = null; }
   if (gen !== ORGCHART_GEN) return;
   const rows = answers.map(({ c, out, reached }) => {
-    const said = (out && (out.because || out.error)) || '';
-    const done = Boolean(out && out.outcome === 'removed') || Boolean(onList && onList.has(c.name));
+    const clean = Boolean(out && out.outcome === 'removed');
+    // A clean removal's `because` only repeats that it was removed; any other answer is worth reading.
+    const said = clean ? '' : ((out && (out.because || out.error)) || '');
+    const done = clean || Boolean(onList && onList.has(c.name));
     return { c, done, said: said || (done ? '' : (reached ? 'Kosmos did not answer in a way we could read' : 'we could not reach Kosmos')) };
   });
   const left = rows.filter((r) => !r.done).map((r) => r.c);
