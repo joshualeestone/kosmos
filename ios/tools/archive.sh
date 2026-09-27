@@ -55,13 +55,13 @@ if [ "$upload" -eq 1 ] && [ -z "${ASC_KEY_PATH:-}" ]; then
   exit 2
 fi
 if [ -n "${ASC_KEY_PATH:-}" ]; then
+  : "${ASC_KEY_ID:?ASC_KEY_PATH is set, so ASC_KEY_ID must be too}"
+  : "${ASC_ISSUER_ID:?ASC_KEY_PATH is set, so ASC_ISSUER_ID must be too}"
   [ -f "$ASC_KEY_PATH" ] || { echo "archive.sh: no key file at ASC_KEY_PATH=$ASC_KEY_PATH" >&2; exit 2; }
   # altool finds the key by name (AuthKey_<id>.p8) in API_PRIVATE_KEYS_DIR; checked now, before
   # the archive, so a misnamed key does not fail the upload at the very end.
   [ "$(basename "$ASC_KEY_PATH")" = "AuthKey_$ASC_KEY_ID.p8" ] || {
     echo "archive.sh: the key file must be named AuthKey_$ASC_KEY_ID.p8 for the upload tool to find it" >&2; exit 2; }
-  : "${ASC_KEY_ID:?ASC_KEY_PATH is set, so ASC_KEY_ID must be too}"
-  : "${ASC_ISSUER_ID:?ASC_KEY_PATH is set, so ASC_ISSUER_ID must be too}"
   auth+=(-authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
 fi
 
