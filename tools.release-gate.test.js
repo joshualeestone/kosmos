@@ -98,6 +98,14 @@ function sandbox(version) {
   return dir;
 }
 
+/* #4075: the sandbox never inherits KOSMOS_ALLOW_VERSION_JUMP. A cut that sets it runs this file at step 3, and
+   an inherited override would turn every refusal below into a pass and refuse the cut itself. */
+function sandboxEnv(dir, extra) {
+  const env = { ...process.env, HOME: dir, KOSMOS_SITE: path.join(dir, 'nowhere') };
+  delete env.KOSMOS_ALLOW_VERSION_JUMP;
+  return { ...env, ...(extra || {}) };
+}
+
 function run(dir, version) {
   const before = fs.readFileSync(path.join(dir, 'package.json'), 'utf8');
   /* ⚠️ HOME and the site path are pointed at the sandbox too. The script reads
@@ -107,7 +115,7 @@ function run(dir, version) {
   const r = spawnSync('bash', [path.join(dir, 'tools', 'release.sh'), version], {
     encoding: 'utf8',
     cwd: dir,
-    env: { ...process.env, HOME: dir, KOSMOS_SITE: path.join(dir, 'nowhere') },
+    env: sandboxEnv(dir),
   });
   const after = fs.readFileSync(path.join(dir, 'package.json'), 'utf8');
   return { said: (r.stdout || '') + (r.stderr || ''), status: r.status, touched: before !== after };
@@ -294,7 +302,7 @@ test('the 0.5 line keeps its own spelling and is not refused retroactively', () 
 function runEnv(dir, version, extra) {
   const before = fs.readFileSync(path.join(dir, 'package.json'), 'utf8');
   const r = spawnSync('bash', [path.join(dir, 'tools', 'release.sh'), version], {
-    encoding: 'utf8', cwd: dir, env: { ...process.env, HOME: dir, KOSMOS_SITE: path.join(dir, 'nowhere'), ...extra },
+    encoding: 'utf8', cwd: dir, env: sandboxEnv(dir, extra),
   });
   return { said: (r.stdout || '') + (r.stderr || ''), status: r.status, touched: before !== fs.readFileSync(path.join(dir, 'package.json'), 'utf8') };
 }
@@ -342,6 +350,29 @@ test('#4075: KOSMOS_ALLOW_VERSION_JUMP=1 lets a deliberate jump through, and onl
   assert.ok(!/major version/.test(on.said));
   assert.equal(on.touched, false);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+test('#4075: the refusals hold when the override is exported to this test run (a cut that set it runs this file)', () => {
+  const keep = process.env.KOSMOS_ALLOW_VERSION_JUMP;
+  process.env.KOSMOS_ALLOW_VERSION_JUMP = '1';
+  try {
+    const dir = sandbox('0.6.50');
+    const r = run(dir, '0.5.50');
+    assert.equal(r.status, 1, r.said.slice(0, 300));
+    assert.match(r.said, /older than 0\.6\.50/);
+    fs.rmSync(dir, { recursive: true, force: true });
+  } finally {
+    if (keep === undefined) delete process.env.KOSMOS_ALLOW_VERSION_JUMP; else process.env.KOSMOS_ALLOW_VERSION_JUMP = keep;
+  }
+});
+test('#4075: the override does not waive "three numbers", and an option-shaped version is refused', () => {
+  for (const [v, env] of [['0.5.1a', { KOSMOS_ALLOW_VERSION_JUMP: '1' }], ['--version', {}], ['-p', {}], ['--', {}]]) {
+    const dir = sandbox('0.5.101');
+    const r = runEnv(dir, v, env);
+    assert.equal(r.status, 1, v + ': ' + r.said.slice(0, 200));
+    assert.match(r.said, /not three numbers/, v + ': ' + r.said.slice(0, 200));
+    assert.equal(r.touched, false);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 test('#4075: a version that is not three numbers is refused, not compared', () => {
   // On the 0.5 line: from 0.6 on, the spelling guard above answers first ("past the end of the line").
