@@ -58,10 +58,15 @@ const PASS_WORD = /\bPASS\b/;
    moderation status that a fully-run check can report on, so it is not the token (round 6). */
 const LITERAL = /(['"`])((?:(?!\1)[^\\\n]|\\.)*)\1/g;
 function literalSaysQuarantinedPass(line) {
-  for (const m of line.matchAll(LITERAL)) {
+  const lits = [...line.matchAll(LITERAL)];
+  /* One console call prints its arguments on one line, so `console.log('PASS x', 'QUARANTINED')`
+     is one printed line: its literals are read together. Two calls print two lines (round 8). */
+  const calls = (line.match(/\bconsole\.(log|error|warn|info)\s*\(/g) || []).length;
+  const candidates = calls === 1 ? [lits.map((m) => m[2]).join(' ')] : lits.map((m) => m[2]);
+  for (const text of candidates) {
     /* One printed line: a \n or \r escape (or its \u / \x spelling) splits the output, and the
        harness reads output line by line (review round 7). */
-    for (const seg of m[2].split(/\\[nr]|\\u000[aAdD]|\\x0[aAdD]/)) {
+    for (const seg of text.split(/\\[nr]|\\u000[aAdD]|\\x0[aAdD]/)) {
       if (PASS_WORD.test(seg) && /\bQUARANTINED\b/.test(seg)) return true;
     }
   }
@@ -70,7 +75,9 @@ function literalSaysQuarantinedPass(line) {
 /* A whole-line comment only. `/* temp *\/ console.log('PASS')` is code after its comment,
    and a line starting `*` is a comment only in the JSDoc shape (`* text`, `*\/`, a bare `*`). */
 function isCommentLine(l) {
-  return /^\s*\/\//.test(l) || /^\s*\*(\s|\/|$)/.test(l) || (/^\s*\/\*/.test(l) && !/\*\/\s*\S/.test(l));
+  /* Either block-comment shape is code when something follows its `*\/` (rounds 5 and 8). */
+  const codeAfterClose = /\*\/\s*\S/.test(l);
+  return /^\s*\/\//.test(l) || (/^\s*\*(\s|\/|$)/.test(l) && !codeAfterClose) || (/^\s*\/\*/.test(l) && !codeAfterClose);
 }
 
 function parseVersion(v) {
@@ -277,4 +284,12 @@ test('control (review round 7): only the PASS line nearest the exit, printed on 
   /* A JSDoc-style comment line is a comment; `*3; ...` is code. */
   const star = ["  *3; console.log('PASS x'); process.exit(0);", '  await chromium.launch();'].join('\n');
   assert.equal(scan('s.js', star, [0, 7, 1]).length, 1);
+});
+
+test('control (review round 8): one console call with two arguments is one printed line; `*/ code` is code', () => {
+  const marked = (line) => ['  // QUARANTINE until=0.9.00 card=#1079: x', line, '  process.exit(0);', '  await chromium.launch();'].join('\n');
+  assert.deepEqual(scan('a.js', marked("  console.log('PASS x', 'QUARANTINED');"), [0, 7, 1]), []);
+  assert.equal(scan('b.js', marked("  console.log('PASS x'); console.error('QUARANTINED');"), [0, 7, 1]).length, 1);
+  const closed = ['/* opened', "*/ console.log('PASS  x'); process.exit(0);", 'const b = await chromium.launch();'].join('\n');
+  assert.equal(scan('c.js', closed, [0, 7, 1]).length, 1);
 });
