@@ -49,6 +49,14 @@ test('#4082: GPT\'s subscription success moves focus from the hidden step to the
   assert.match(r.el('fr-openai-msg').textContent, /connected/, 'focus landed on an empty box');
 });
 
+test('#4082: the box says the result the moment focus lands, not the poll\'s stale "finish signing in" line', async () => {
+  let atRead = null;
+  const r = run('fr-openai-sub-open', { during: (el) => { atRead = el('fr-openai-msg').textContent; } });
+  r.el('fr-openai-msg').textContent = 'Finish signing in on the page that opened.';
+  await r.fn({});
+  assert.equal(atRead, 'GPT is connected.', 'during the accounts read the focused box said: ' + JSON.stringify(atRead));
+});
+
 test('#4082: from the page itself too (focus already dropped), and even when the repaint fails', async () => {
   const r = run('body', { paintFails: true });
   await r.fn({}).catch(() => {});
