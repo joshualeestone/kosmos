@@ -768,6 +768,9 @@ function shortPieces(run) {
    (review round 4: case shape alone called "zqv" a word, so an all-lowercase key never counted as key-like). */
 function plainWordRun(t) {
   if (/^[0-9]+(?:st|nd|rd|th)?$/i.test(t)) return true;
+  /* A label: one letter and one or two digits, or the other way round (Q1, V2, A10, 4K, 3D; review round 10: a held
+     Q1Q2Q3Q4Q5Q6 was masked out of a sentence about quarters). */
+  if (/^(?:[A-Za-z][0-9]{1,2}|[0-9]{1,2}[A-Za-z])$/.test(t)) return true;
   if (!/^(?:[a-z]+|[A-Z]+|[A-Z][a-z]+)$/.test(t)) return false;
   return t.length < 3 || wordLike(t);
 }
@@ -882,12 +885,20 @@ function shortChunkSpans(text) {
     }
   }
   const spans = [];
-  for (const done of completed.values()) {
+  const pieceSpan = (i, t) => {
     /* Only the piece, not a label glued to it (review round 2; the word walk's pieceSpan does the same). */
+    const run = runs[i][3];
+    const off = run.endsWith(t) ? run.length - t.length : Math.max(0, run.indexOf(t));
+    spans.push([runs[i][0] + off, runs[i][0] + off + t.length]);
+  };
+  for (const done of completed.values()) {
+    const first = done[0][0], last = done[done.length - 1][0];
     for (const [i, t] of done) {
-      const run = runs[i][3];
-      const at = run.endsWith(t) ? run.length - t.length : Math.max(0, run.indexOf(t));
-      spans.push([runs[i][0] + at, runs[i][0] + at + t.length]);
+      pieceSpan(i, t);
+      /* And every other copy of the same piece between the key's first and last chunk: the search keeps one path,
+         which can run through a repeated copy and leave the one that was really the key's showing (review rounds 9
+         and 10). The copies are the key's own characters, so masking them hides nothing else. */
+      for (const k of at.get(t) || []) if (k !== i && k > first && k < last) pieceSpan(k, t);
     }
   }
   return spans;

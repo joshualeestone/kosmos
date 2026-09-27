@@ -131,3 +131,12 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
 - Not covered now says an abandoned first try followed by a full retry shows (only the latest start is kept).
 - Deferred NITs: when a chunk appears twice, once as noise, the noise copy can be the one masked (3 characters of a
   retyped chunk); reach is measured run end to run start here and lastAt to run end in the word walk (both per gap).
+
+## Review round 10 (Sonnet), what changed
+- BLOCKER fixed: a held value made of labels (Q1Q2Q3Q4Q5Q6, V1V2...) was masked out of ordinary prose about quarters or
+  versions: one letter with one or two digits (or the other way round: 4K, 3D) was not a plain word. It is now.
+  Tested with both; red on the previous commit. The cost: a random key's 2- or 3-character chunk of that shape
+  (about 2 percent of 3-character chunks) no longer counts toward the key-like pieces.
+- Every copy of a completed key's piece between its first and last chunk is masked, not only the copy on the path the
+  search kept (the deferred rounds 9 and 10 case: a repeated chunk left the real copy showing). The copies are the
+  key's own characters. Tested; red on the previous commit.

@@ -1567,3 +1567,19 @@ test('#3995 gap 4 review round 9: a reply naming a JWT header\'s own short chunk
     assert.equal(r.text, text, 'the reply was changed or withheld: ' + JSON.stringify(r.fired));
   } finally { setKnownSecrets([]); }
 });
+
+test('#3995 gap 4 review round 10: labels like Q1 are plain words, and a repeated chunk inside the key is masked in every copy', () => {
+  for (const [held, text] of [
+    ['Q1Q2Q3Q4Q5Q6', 'In Q1 we grew, in Q2 we grew more, in Q3 we plateaued, in Q4 we recovered, then Q5 was slow, and Q6 was strong.'],
+    ['V1V2V3V4V5V6', 'We shipped V1 first, then V2 with fixes, then V3 for stability, then V4 for perf, then V5 for polish, then V6 for launch.'],
+  ]) {
+    setKnownSecrets([held]);
+    try { assert.equal(mask(text).text, text, `${held}: labels in ordinary prose were masked`); } finally { setKnownSecrets([]); }
+  }
+  setKnownSecrets(['Zq8vLmPxKcR9']);
+  try {
+    const t = mask('Zq8 aaaa vLm bbbb vLm cccc PxK dddd cR9 end').text;
+    for (const c of ['Zq8', 'vLm', 'PxK', 'cR9']) assert.ok(!t.includes(c), `the chunk ${c} survived: ${t}`);
+    assert.ok(t.includes('aaaa') && t.includes('dddd'), 'the words between were masked: ' + t);
+  } finally { setKnownSecrets([]); }
+});
