@@ -11,7 +11,8 @@ adopt/repair path (engine/create.js, "enable BEFORE bootstrap") already does.
 - create.test.js "the agent is started the same way it will be started every time after": `enable` is excluded
   from the one-starting-command count by name (it starts nothing), and the test asserts `enable` runs, before
   `bootstrap`, on this agent's own label. Red with the enable call removed.
-- The half-written-agent test's CONTROL counts `bootstrap` itself (a good create now also runs `enable`). The
+- The half-written-agent test's CONTROL excludes `print` and `enable` by name and counts everything else (a good
+  create now also runs `enable`). The
   zero-mutation assertions elsewhere are unchanged and still correct: `enable` is a mutation, and those paths stop
   before the start step.
 
@@ -39,4 +40,8 @@ same either way. The probe leaves an `enabled` override entry for its own label 
   create.test.js and register.test.js -> all now say refused, with the measurement. Comment and message lines only;
   292/292; setup.sh parses. Noted, NOT changed: installJob and create's start step each carry the enable-before-
   bootstrap order with no shared helper (pre-existing split; both are now asserted by their own tests).
+- Round 3 (opus): W README's hand-removal note said a later create of the name is refused by launchd; false since
+  this fix (create enables first) -> it now says create enables, and only a bootstrap without enable is refused. It
+  was not a copy of the corrected phrase, so the round-2 sweep by phrase could not find it; found by meaning. N the
+  plan's Tests section still described round 1's loosened control -> fixed.
 

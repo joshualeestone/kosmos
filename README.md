@@ -227,8 +227,10 @@ not enough:
 removal that got as far as disabling the job and then could not finish leaves a
 **disabled override in launchd's per-user database, keyed on the label** — and
 nothing on disk records it, so deleting the plist and the folder does not clear
-it. Create an agent under that name later and launchd refuses to start it, with
-nothing in the product to explain why. `enable` is what removes the override;
+it. Kosmos's own create now enables the label before starting it (#4254), so
+re-creating the name works; anything else that bootstraps that label without
+enabling it first (a plist loaded by hand) is refused, with nothing to explain
+why. `enable` is what removes the override;
 it is harmless on a label that was never disabled, which is why it is listed
 unconditionally rather than as a special case.
 
