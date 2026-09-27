@@ -32,11 +32,10 @@ const os = require('node:os');
 const path = require('node:path');
 const { NO_READING } = require('./status');
 
-/** agy's storage dir. AGENT_WORKFORCE_AGY_HOME verbatim, else under AGENT_WORKFORCE_HOME (the
-    sandbox every sibling reader honours: geminisession, groksession), else the real home. A test or
-    a release build that sandboxes AGENT_WORKFORCE_HOME therefore never opens the real agy dbs. */
-const HOME = () => process.env.AGENT_WORKFORCE_AGY_HOME
-  || path.join(process.env.AGENT_WORKFORCE_HOME || os.homedir(), '.gemini', 'antigravity-cli');
+/** agy's storage dir: agytrust.agyHome, the ONE derivation (AGENT_WORKFORCE_AGY_HOME, then
+    AGENT_WORKFORCE_HOME, then the real home), so a sandboxed test or build never opens the real
+    agy dbs, and the trust write and this read can never disagree about where agy lives. */
+const HOME = () => require('./agytrust').agyHome();
 
 /* The field paths above, as data, so a later agy that moves one changes one line. */
 const FIELD = {
