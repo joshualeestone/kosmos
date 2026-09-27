@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: twa-address-2854
-diff_hash: 22da5f95532e5570f09c884d1f84edbf2750f100dbbaceba3bbad203dd5c3278
+diff_hash: 0231b8525fb4370f3960dba1c4115214fafecc7cc7ae6fc080b4537852cb402c
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-27T04:57:11Z
-iterations: 13
+timestamp: 2026-09-27T05:13:32Z
+iterations: 15
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 13 (1 to 4 in an earlier session, recorded in the plan file; 5 to 13 in this run)
-**Converged:** Yes, at iteration 13 (its only WARNING deduplicated to a DEFERRED entry)
-**Total findings this run (5 to 13):** 0 BLOCKERs, 14 WARNINGs, 3 CONVENTIONs, 25 NITs (as reported per iteration, repeats included)
-**Fixed:** 11 ledger entries (plus 1 NIT) | **Deferred:** 5 ledger entries (#16 covers the same gap raised in 3 iterations) | **Asked (awaiting user):** 0
+**Iterations:** 15 (1 to 4 in an earlier session, recorded in the plan file; 5 to 13 in this run; 14 and 15 after the rebase onto main)
+**Converged:** Yes, first at iteration 13, and again at iteration 15 after the rebase (its only WARNING deduplicated to a DEFERRED entry)
+**Total findings this run (5 to 15):** 0 BLOCKERs, 17 WARNINGs, 3 CONVENTIONs, 34 NITs (as reported per iteration, repeats included)
+**Fixed:** 11 ledger entries (plus 1 NIT) | **Deferred:** 6 ledger entries (#16 covers the same gap raised in 3 iterations) | **Asked (awaiting user):** 0
 
 Rounds 1 to 4 findings and fixes are in `.claude/plans/twa-address-2854-20260926T0855.md`
 ("Challenge-loop round 3 changes", "round 4 changes"); their reviewer models were not recorded.
@@ -25,11 +25,19 @@ per finding, so every Origin below is recorded BRANCH (the fail-safe value) rath
 filled in by judgement. Several round 8, 11 and 12 findings were plainly about code this loop
 wrote in rounds 5 and 6 (noted per iteration), and each was a CODE finding fixed normally.
 
+**Rebase after iteration 13:** main's #4093 (native load fallback) rewrote KosmosLauncherActivity
+and the manifest. The 13 branch commits were squashed into one (old history kept on local branch
+twa-address-2854-prerebase, tip c2724423a, 0-byte tree diff to the squash) and rebased once. The
+launcher keeps all of #4093's fallback code plus this branch's getLaunchingUrl override; the
+manifest keeps both sides. Every sha below before 9b723ed96 is pre-squash history. Iterations 14
+and 15 reviewed the rebased commit 9b723ed96.
+
 Validation: tools run on every fix commit. Android `:app:testDebugUnitTest :app:assembleDebug`
 (gated): 18/18 through round 9, 19/19 from round 10 (new `theLauncherTakesOnlyHttpsOnTheCoordinator`),
 last on the round 12 tree at 04:41Z. Full kosmos suite via validation-log (gated): clean for
-d48ba8777 (hash 2a312aab), c8c64e6f5 (c634e3a3), e284644ab (76fd9944), and final HEAD c2724423a
-(22da5f95, 04:56:57Z). Commit subjects were reworded after round 12 (tree unchanged, 0-byte diff),
+d48ba8777 (hash 2a312aab), c8c64e6f5 (c634e3a3), e284644ab (76fd9944), c2724423a
+(22da5f95, 04:56:57Z), and the rebased 9b723ed96 (0231b852, 05:13:27Z, via tools/heavy-gate.sh).
+Android build and 19/19 JVM tests on the rebased tree at 05:00:56Z. Commit subjects were reworded after round 12 (tree unchanged, 0-byte diff),
 so pre-reword shas above are the originals.
 
 ### Per-Iteration Breakdown
@@ -100,6 +108,20 @@ so pre-reword shas above are the originals.
 **Duplicates of prior findings:** 1 (untested activity code, DEFERRED)
 **Converged** — no new actionable findings.
 
+#### Iteration 14 (after the rebase)
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 6 NITs
+**Self-generated:** not measured
+**Duplicates of prior findings:** 1 (untested activity code, DEFERRED)
+- [WARNING] branch push rule (CLAUDE.md, never push onto a branch with an open or merged PR) --> DEFERRED: no PR exists for this branch (checked with a positive control); the remote holds only four earlier unreviewed commits, replaced with --force-with-lease --force-if-includes
+
+#### Iteration 15 (after the rebase)
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 3 NITs
+**Self-generated:** 0
+**Duplicates of prior findings:** 1 (untested activity code, DEFERRED)
+**Converged** — no new actionable findings.
+
 ### Final Ledger
 
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
@@ -119,7 +141,8 @@ so pre-reword shas above are the originals.
 | 13 | 12 | WARNING | OpenAddressActivity.java | BRANCH | refusal re-mints nonce, junk intent downgrades | FIXED | c2724423a |
 | 14 | 12 | CONVENTION | AddressChoice.java | BRANCH | raw literals | FIXED | c2724423a |
 | 15 | 12 | CONVENTION | commit history | BRANCH | commit subject format | FIXED | reworded, tree unchanged |
-| 16 | 9,12,13 | WARNING | KosmosLauncherActivity.java | BRANCH | Uri rebuild and activity branches untested | DEFERRED | needs Robolectric; follow-up |
+| 16 | 9,12,13,14,15 | WARNING | KosmosLauncherActivity.java | BRANCH | Uri rebuild and activity branches untested | DEFERRED | needs Robolectric; follow-up |
+| 17 | 14 | WARNING | branch state | BRANCH | push rule for branches with a PR | DEFERRED | no PR exists; force-with-lease |
 
 ### NITs (non-blocking, across iterations 5 to 13)
 - [NIT] KosmosLauncherActivity.java — commit() vs apply() for the nonce write (raised in 5, 6, 7, 8, 9, 10, 11, 12, 13)
@@ -131,6 +154,9 @@ so pre-reword shas above are the originals.
 - [NIT] android.yml — pin the expected AddressChoiceTest count, not just >= 1 (12)
 - [NIT] AddressChoiceTest.java — no {null, null} nonce row (12)
 - [NIT] OpenAddressActivity.java — variable name `in` (13)
+- [NIT] OpenAddressActivity.java — could be `final` like the other two activities (14, 15)
+- [NIT] AddressChoice.java — isSignInUrl sits in AddressChoice only because that class is JVM-tested (14)
+- [NIT] HandoffNonce.java — per-byte String.format for hex (14)
 
 ### Strengths (across iterations)
 - AddressChoice and HandoffNonce are pure Java with adversarial JVM tests that match the iOS table case for case (5 to 13)
