@@ -35,14 +35,12 @@ async function coverIsOccluding(page) {
       up: true,
       opaque: s.background !== 'transparent' && s.opacity === '1' && s.display !== 'none',
       fixed: s.position === 'fixed',
-      // getBoundingClientRect() reports layout-viewport coordinates (scrollbar
-      // gutter excluded), so the cover's right/bottom must be compared against
-      // document.documentElement.clientWidth/clientHeight -- the matching
-      // layout-viewport measure. window.innerWidth/innerHeight include the
-      // scrollbar gutter, so a correct full-viewport cover false-fails "covers"
-      // by exactly the scrollbar width whenever a scrollbar is present.
+      // kosmos#3973: the right edge is the ROOT's box, not documentElement.clientWidth. With the #1309
+      // stable gutter reserved and nothing to scroll, Chromium reports clientWidth WITH the empty gutter
+      // on a classic-scrollbar machine (1280 of 1280 while html is 1265 wide), and a fixed layer cannot
+      // paint that gutter, so a correct cover failed by 15px there and passed on overlay scrollbars.
       covers: r.left <= 0 && r.top <= 0
-        && r.right >= document.documentElement.clientWidth
+        && r.right >= Math.floor(document.documentElement.getBoundingClientRect().right)
         && r.bottom >= document.documentElement.clientHeight,
       z: Number(s.zIndex) || 0,
     };

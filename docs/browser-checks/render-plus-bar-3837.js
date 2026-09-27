@@ -40,6 +40,9 @@ function chk(ok, label, extra) {
   if (ok) { pass++; console.log('PASS  ' + label + (extra ? '  ' + extra : '')); }
   else { fail.push(label); console.log('FAIL  ' + label + (extra ? '  --  ' + extra : '')); }
 }
+// kosmos#3973: "right" is measured to the ROOT's box, not documentElement.clientWidth, which includes
+// the #1309 stable gutter on a classic-scrollbar machine when the page does not scroll (so the bar read
+// 15px short there and exact on overlay scrollbars).
 const bar = (page) => page.evaluate(() => {
   const b = document.getElementById('kplus-bar');
   if (!b) return { present: false };
@@ -47,7 +50,7 @@ const bar = (page) => page.evaluate(() => {
   let inked = 0;
   try { const px = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data; for (let i = 3; i < px.length; i += 4) if (px[i] > 0) inked++; } catch { inked = -1; }
   const ob = out.getBoundingClientRect(), cb = cv.getBoundingClientRect();
-  return { present: true, first: head && head.firstElementChild === b, top: Math.round(r.top), left: Math.round(r.left), right: Math.round(document.documentElement.clientWidth - r.right),
+  return { present: true, first: head && head.firstElementChild === b, top: Math.round(r.top), left: Math.round(r.left), right: Math.round(document.documentElement.getBoundingClientRect().right - r.right),
     h: Math.round(r.height), inked, markLeft: Math.round(cb.left - r.left), markH: Math.round(cb.height), outRightGap: Math.round(r.right - ob.right), outText: out.textContent,
     outBg: getComputedStyle(out).backgroundImage, bg: getComputedStyle(b).backgroundColor, label: b.getAttribute('aria-label') };
 });
