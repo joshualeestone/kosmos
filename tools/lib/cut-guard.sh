@@ -64,8 +64,9 @@ _kosmos_drop_self_subtree() {
 }
 
 # Read `pid cmdline` lines and remove only proven unit-test fixtures: a node --test ancestor, or
-# a cwd or script in the run-tests.sh sandbox (the same rule heavy-gate uses). An unreadable pid
-# stays in the list, which preserves the guard's refuse-rather-than-guess posture.
+# a cwd or script in the run-tests.sh sandbox (the same rule heavy-gate uses). A pid whose ancestry
+# and cwd cannot be read stays in the list unless its script path is in the sandbox, which preserves
+# the guard's refuse-rather-than-guess posture.
 _kosmos_drop_test_fixtures() {
   local line pid script re='^[0-9]+ +(/bin/)?(ba)?sh +(([^ ]*/)?tools/(release|browser-checks)\.sh)( |$)'
   while IFS= read -r line; do
@@ -330,7 +331,7 @@ kosmos_refuse_if_browser_run_live() {
     out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self" || true)"
   fi
   # #4206 follow-up: a unit test's browser-checks.sh fixture is not a run, by the same rule as
-  # the cut guard's. An unreadable pid stays in.
+  # the cut guard's. An unreadable pid stays in unless its script path is in the sandbox.
   if [ -n "$out" ]; then
     out="$(printf '%s\n' "$out" | _kosmos_drop_test_fixtures || true)"
   fi

@@ -101,6 +101,20 @@ such a context), so the measurement is the evidence.
 - The six assertions that a refusal names a live pid use has_pid, a whole-number match, instead of a
   substring match that a sibling pid containing the digits could satisfy.
 
+## Review 9
+
+- A real cut whose ARGUMENT names a sandbox path still refuses: nothing had pinned that only the script
+  word is read, and matching the whole line passed the suite.
+- probe-two's other cut is pid 99999 with ancestry stubbed, so a live stranger at 99998 (a pid macOS can
+  hand out) can never be dropped from under it; the pid assertions that remained substring matches use
+  has_pid.
+- Comments: an unreadable pid stays in unless its script path is in the sandbox; the `||` guards matter
+  under pipefail, which release.sh sets; the frozen arms catch a widened TMPDIR branch rather than
+  reaching it.
+- Not changed: a real release.sh started with TMPDIR already pointing into a run-tests.sh sandbox would
+  freeze inside that kt folder and be ignored by both guards. No production path does that today, and it
+  is the rule heavy-gate already uses.
+
 ## Weakest premise
 
 The negative control runs from `/` so it cannot sit in a kt folder. A machine whose $TMPDIR were `/`
