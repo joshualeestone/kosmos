@@ -7,7 +7,7 @@ screenshot is always enough: press the power and volume-down buttons together.
 Some steps depend on updates that are not switched on yet, so they are marked:
 
 - **Wait for the server update**: a Kosmos+ server update. Part of it is ready and you switch it on
-  when you choose; the notification part (Kano's) is still being built.
+  when you choose; the notification part (Kano's) is still in review.
 - **Wait for the Mac update**: the next Kosmos release for your Mac.
 
 Until then those steps behave the old way on purpose, as each step says. That is not the app being
@@ -130,8 +130,8 @@ the server update:
 - it takes a couple of seconds,
 - it feels slow (a gold screen with the K for a long time).
 
-(#4109, #4101) On the phone we imitate in the lab, the sign-in page appears in about 1.3 to 1.9
-seconds. Your phone is the real measure.
+(#4109) On the phone we imitate in the lab, the sign-in page appears in about 1.3 to 1.9 seconds
+(#4090). Your phone is the real measure.
 
 ## 10. With no connection
 
@@ -150,11 +150,12 @@ own "no internet" page. Turn Airplane mode off and tap **Retry**: the sign-in pa
 |---|---|---|
 | Your board opens full screen, not with an address bar | 4 | the server update (relay #171, ready) and the Mac update (relay #161) |
 | Notifications reach the phone at all | 7 | the Mac update that turns phone notifications on, then switching them on in the Mac's Settings |
-| A notification tap opens the agent inside the app | 8 | the server update including Kano's notification change (#4140, still being built) and a Mac update (the Mac page that keeps the agent, #4171) |
-| The sign-in page loads a little faster | 9 | the server update (relay #169, ready) |
+| A notification tap opens the agent inside the app | 8 | the server update including Kano's notification change and a Mac update carrying its Mac half (both in relay #174, in review; #4140) |
+| The sign-in page loads a little faster than it already does | 9 | the server update (relay #169, ready) |
 
 Everything else works now: installing, signing in, allowing the phone on your Mac, turning on
-notifications on the phone, how fast it opens, the Mac-asleep check, and the no-connection page.
+notifications on the phone, the Mac-asleep check, and the no-connection page. How fast it opens
+(step 9) can be tried now; the server update makes it a little faster again.
 
 ---
 

@@ -21,12 +21,14 @@ tap with and without the in-app marker).
   said plainly, plus one table at the end. As of #3763's last entry, relay #169, #171, #172 and
   #173 are merged and not live; Kano's push-tap-4140 has no PR yet.
 - vc3 is named as Liu Kang's install note names it: Kosmos-android-test.apk, 0.1.2, in his Files.
-- Three kinds of "wait": the server update (relay #169 and #171 ready; Kano's #4140 still being
-  built), the Mac update for the full-screen board (tunnel with relay #161), and the Mac release
+- Three kinds of "wait": the server update (relay #169 and #171 ready; Kano's #4140 in review as
+  relay #174, which also carries the Mac's gate.html half), the Mac update for the full-screen board (tunnel with relay #161), and the Mac release
   that turns phone notifications on (engine/phonenotify.js PHONE_APP_CAN_RECEIVE is false on main;
   docs/phone-push-go-live.md: "The board ships with notifications locked off").
 - No "expected certificate warning" line: that note is DEV_NOTICE, shown only in dev mode, and the
   live service is not in dev mode. A certificate warning on a real address means stop.
+- Not in this script: #4086's signed-out state (the 401 card). A first run will not meet an expired
+  session naturally; it can be a later check.
 - The pre-update notification tap matches the live service worker (read 2026-09-27): it opens
   https://<address>/?tab=detail&agent=<session> in a browser window. Liu Kang's install note says
   the same.
