@@ -40,9 +40,11 @@ surface as buildable stubs (#718) are both here now. Full context on the cards
 - iPhone only (`TARGETED_DEVICE_FAMILY = 1`): iPad layouts are not designed or tested. An iPad
   can still run it in a scaled iPhone window, so the board must stay usable there.
 
-## Build (the verifiable deliverable)
+## Build
 
-A green `xcodebuild` against `iphoneos26.5`, from a clean clone, run from `ios/`:
+iOS CI (`.github/workflows/ios.yml`) is where the app is proven to build, because it compiles the
+asset catalog, which needs an iOS runtime (see "App icon and launch screen" below). On a Mac with
+the iOS platform installed, the same build from a clean clone, run from `ios/`, is:
 
 ```
 xcodebuild -project Kosmos.xcodeproj -target Kosmos -sdk iphoneos26.5 \
@@ -85,11 +87,13 @@ runner, which has the runtime.
 - `tools/archive.sh --build <N>` archives the Release app, exports it for App Store Connect with
   `tools/ExportOptions.plist` (the Team ID is added from `Signing.xcconfig`), and runs
   `tools/check-ipa-entitlements.sh` on the exported `.ipa`: `aps-environment` must be
-  `production`, `get-task-allow` must not be `true`, and the app identifier must be
-  `<team>.io.kosmos.app`. `--upload` then sends that same checked `.ipa` to App Store Connect
+  `production`, `get-task-allow` must not be `true`, and the app must be signed by the team in
+  `Signing.xcconfig` (app identifier `<team>.io.kosmos.app`, team identifier `<team>`). `--upload` then sends that same checked `.ipa` to App Store Connect
   (it needs an App Store Connect API key: `ASC_KEY_PATH`, `ASC_KEY_ID`, `ASC_ISSUER_ID`).
 - `--build` is required: App Store Connect refuses a build number it has already seen.
 - Until the Team ID is set, `archive.sh` stops at that first check and says so.
+- `-scheme Kosmos` uses the shared scheme committed under `Kosmos.xcodeproj/xcshareddata/`, so
+  archiving does not depend on Xcode creating one.
 - iOS CI builds an unsigned archive with the same command, and runs
   `tools/test-check-ipa-entitlements.sh`, which signs fake apps with right and wrong entitlements
   and shows the check passes the first and refuses the rest.

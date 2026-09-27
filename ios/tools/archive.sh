@@ -27,9 +27,9 @@ build=""
 upload=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --build) build="${2:-}"; shift 2 ;;
+    --build) [ $# -ge 2 ] || { echo "archive.sh: --build needs a number" >&2; exit 2; }; build="$2"; shift 2 ;;
     --upload) upload=1; shift ;;
-    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "archive.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -37,12 +37,17 @@ case "$build" in
   ''|*[!0-9]*) echo "archive.sh: --build <N> is required, a whole number higher than any build already uploaded" >&2; exit 2 ;;
 esac
 
-team=$(sed -n 's/^DEVELOPMENT_TEAM *= *\([^ ]*\) *$/\1/p' "$ios/Signing.xcconfig")
-case "$team" in
-  [A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9]) ;;
-  '') echo "archive.sh: DEVELOPMENT_TEAM is empty in ios/Signing.xcconfig. Set it to the Kosmos Agent Manager, Inc. Team ID once Apple approves the org (#3643)." >&2; exit 1 ;;
-  *) echo "archive.sh: DEVELOPMENT_TEAM in ios/Signing.xcconfig is '$team', not a 10-character Team ID." >&2; exit 1 ;;
-esac
+# The value Xcode reads: the DEVELOPMENT_TEAM line, less any trailing // comment and spaces.
+team=$(sed -n 's|//.*||; s/^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=[[:space:]]*//p' "$ios/Signing.xcconfig" | tr -d '[:space:]')
+if [ -z "$team" ]; then
+  echo "archive.sh: DEVELOPMENT_TEAM is empty in ios/Signing.xcconfig. Set it to the Kosmos Agent Manager, Inc. Team ID once Apple approves the org (#3643)." >&2
+  exit 1
+fi
+if ! printf '%s' "$team" | LC_ALL=C grep -Eq '^[A-Z0-9]{10}$'; then
+  echo "archive.sh: DEVELOPMENT_TEAM in ios/Signing.xcconfig is '$team', not a 10-character Team ID." >&2
+  exit 1
+fi
+
 
 auth=(-allowProvisioningUpdates)
 if [ "$upload" -eq 1 ] && [ -z "${ASC_KEY_PATH:-}" ]; then
@@ -51,6 +56,10 @@ if [ "$upload" -eq 1 ] && [ -z "${ASC_KEY_PATH:-}" ]; then
 fi
 if [ -n "${ASC_KEY_PATH:-}" ]; then
   [ -f "$ASC_KEY_PATH" ] || { echo "archive.sh: no key file at ASC_KEY_PATH=$ASC_KEY_PATH" >&2; exit 2; }
+  # altool finds the key by name (AuthKey_<id>.p8) in API_PRIVATE_KEYS_DIR; checked now, before
+  # the archive, so a misnamed key does not fail the upload at the very end.
+  [ "$(basename "$ASC_KEY_PATH")" = "AuthKey_$ASC_KEY_ID.p8" ] || {
+    echo "archive.sh: the key file must be named AuthKey_$ASC_KEY_ID.p8 for the upload tool to find it" >&2; exit 2; }
   : "${ASC_KEY_ID:?ASC_KEY_PATH is set, so ASC_KEY_ID must be too}"
   : "${ASC_ISSUER_ID:?ASC_KEY_PATH is set, so ASC_ISSUER_ID must be too}"
   auth+=(-authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
@@ -79,7 +88,7 @@ ipa=$(find "$out/export" -maxdepth 1 -name '*.ipa' | head -1)
 [ -n "$ipa" ] || { echo "archive.sh: the export wrote no .ipa into $out/export" >&2; exit 1; }
 
 echo "== check $ipa"
-"$here/check-ipa-entitlements.sh" "$ipa"
+"$here/check-ipa-entitlements.sh" "$ipa" "$team"
 
 if [ "$upload" -eq 0 ]; then
   echo "Exported and checked: $ipa"
@@ -88,9 +97,6 @@ if [ "$upload" -eq 0 ]; then
 fi
 
 echo "== upload build $build"
-# altool finds the key by name (AuthKey_<id>.p8) in API_PRIVATE_KEYS_DIR.
-[ "$(basename "$ASC_KEY_PATH")" = "AuthKey_$ASC_KEY_ID.p8" ] || {
-  echo "archive.sh: the key file must be named AuthKey_$ASC_KEY_ID.p8 for the upload tool to find it" >&2; exit 2; }
 API_PRIVATE_KEYS_DIR=$(dirname "$ASC_KEY_PATH") xcrun altool --upload-app --type ios --file "$ipa" \
   --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
 echo "Uploaded build $build. It shows in App Store Connect, TestFlight, once Apple has processed it."
