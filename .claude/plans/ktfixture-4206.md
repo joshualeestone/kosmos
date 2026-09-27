@@ -154,6 +154,16 @@ such a context), so the measurement is the evidence.
   counting the run as real (the safe direction), as heavy-gate already does; the suites SKIP loudly
   when lsof is missing.
 
+## Review 14 (converged: every finding deduplicates)
+
+- The frozen-root mktemp failure exits the suite: that is Review 11's call (a failed mktemp fails the
+  run instead of rooting it at /). It fails loud, non-zero and without the "0 failures" tally, so it
+  cannot read as green. Not changed.
+- The kt<digits> matcher now gates release and browser runs, not only heavy-gate: the match on any
+  folder named T or tmp is Review 11's accepted residual, stated at process-fixture.sh, which both
+  guards call. The review's example (~/tmp/kt-2026-hotfix) does not match (measured); ~/tmp/kt42 does,
+  as documented. Not changed.
+
 ## Weakest premise
 
 The negative control runs from `/` so it cannot sit in a kt folder. A machine whose $TMPDIR were `/`
