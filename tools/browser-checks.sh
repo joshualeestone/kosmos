@@ -806,7 +806,14 @@ log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 $P13
 # layouts, the switches, accounts, delete history, a task page with parts).
 # Computed-state only, so headless is sound.
 sb1="$(new_sandbox)"
-if boot_board "$sb1" "$P1"; then
+# #1079: regress-a-night asserts the Settings accounts list draws a row. Since #3675 every fixture board
+# reads a sandboxed home, so this board used to pass only by listing the host Mac's own accounts, and
+# with the sandbox it had none. It gets its own home with one known example.com default account (the
+# shape sb4 seeds for render-accounts-openai, and a projects dir so it is a real install's state),
+# rather than seeding the run-wide home that other checks expect to hold no accounts.
+mkdir -p "$sb1/home/.claude/projects"
+printf '{"oauthAccount":{"emailAddress":"night@example.com"}}' > "$sb1/home/.claude.json"
+if AGENT_WORKFORCE_HOME="$sb1/home" boot_board "$sb1" "$P1"; then
   # ⚠️ NODE_PATH on the --seed extraction too: regress-a-night.js requires
   # playwright at module load, BEFORE it reaches the --seed branch, so pulling
   # the seed lines out needs the browser resolvable even though the seed itself

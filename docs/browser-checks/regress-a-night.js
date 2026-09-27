@@ -121,14 +121,6 @@ function seed() {
        that never draws still fails, at the bound, with what the box said. */
     await pg.waitForSelector('#set-accounts .acct-box', { timeout: 20000 }).catch(() => {});
     const acctRows = await pg.evaluate(() => document.querySelectorAll('#set-accounts .acct-box').length);
-    console.log('DIAG ' + theme + ' ' + JSON.stringify(await pg.evaluate(async () => {
-      const sec = document.getElementById('s-sec-accounts'); const box = document.getElementById('set-accounts');
-      const r = sec && sec.getBoundingClientRect();
-      let api = null; try { const res = await fetch('/api/accounts'); api = res.status + ' ' + (await res.text()).slice(0, 400); } catch (e) { api = 'ERR ' + e.message; }
-      return { secHidden: sec ? sec.hidden : 'missing', secH: r ? Math.round(r.height) : null, boxHTML: box ? box.outerHTML.slice(0, 300) : 'missing',
-        msg: (document.getElementById('set-accounts-msg') || {}).textContent || '', acctBoxesAnywhere: document.querySelectorAll('.acct-box').length,
-        nav: [...document.querySelectorAll('#s-nav button')].map((b) => b.dataset.go + ':' + (b.getAttribute('aria-current') || '') + (b.classList.contains('on') ? '*' : '')).join(','), api };
-    })));
     chk(acctRows > 0, theme + ': the accounts list is read, not asserted',
       acctRows ? acctRows + ' rows' : 'the box said: ' + (await pg.evaluate(() => (document.getElementById('set-accounts') || {}).textContent || '')).trim().slice(0, 120));
     await pg.click('#s-nav button[data-go="advanced"]');
