@@ -76,3 +76,17 @@ accepted" was the cause; accepting it was wrong once an existing guard reads CPU
   20 mentions 0.93M (main 3.17M, withheld) passes; 200 mentions 10.4M (main 34.9M) still withheld.
 - A next-run fast path was tried first and did not help (the cost was the charge, not the lookups); it stays because
   it is exact and cheap.
+
+## Review 6 (sonnet): BLOCKER, a real leak, fixed
+Review 3's fix indexed from the walk's CURRENT position (`ensureIdx(s, ...)`). Several held forms share one opening and
+all walk from the same r; the next-run fast path (added with the charge change) let one walk move far ahead without
+indexing, and its next index call then skipped the runs behind it while marking them done. The next form walking from
+the same r found nothing in reach: a decoy key made of C's plus a real key split into C-glued pieces came out with all
+5 pieces READABLE where main masks them. Review 4's proof covered walks across r, not several walks from one r.
+- Fix: index from the walk's OPENING run (`ensureIdx(r, ...)`): contiguous from r+1 for every walk from r; runs below
+  r are still never needed (r is non-decreasing), so review 3's gap fix stands.
+- Test (#4112 review 6): fails on 534efb054 (pieces readable), passes here and on main.
+- New fuzz (scratchpad leak4112/fuzz2.js): shared openings, decoys made of the reply's filler, real keys split into
+  filler-glued pieces. Fix: 900 identical to main. Control on 534efb054: 57-59 of 300 differ, 42-46 leak more.
+- Re-verified: original fuzz 1,200 identical; charges 0 above main (ratio 0.35); suites 124/124, 18/18; card 20
+  mentions checked. #3935 guard CPU now about 1.23x main (807-834 vs 657-678 ms), inside its 1,500 ms bound.

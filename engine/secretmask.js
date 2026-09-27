@@ -516,7 +516,7 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
    review). A run the walk lands on is charged exactly what main charged for it, runs it passes over are free, and a
    walk that ends at the bound pays for its positions, so the CHARGE is never more than main's for any input (900
    adversarial inputs: 0 above main, about 2.9x lower in total) and the time per unit stays near main's (#3935's bound
-   test: about 1.1x main's CPU; charging a landed run only for what it compared had made it about 2x, and that test
+   test: about 1.2x main's CPU; charging a landed run only for what it compared had made it about 2x, and that test
    crossed its 1,500ms guard). Units, with the #4112 test's 200 seeded keys and a guide reply naming sk-ant-api03-:
    20 times 0.93M (3.17M before, over the budget: withheld); 200 times 10.4M (34.9M before). The budget is unchanged,
    so the 200-mention reply is still withheld. */
@@ -658,15 +658,17 @@ function wordSkippingSpans(text) {
   };
   /* #4112: which runs have a variant beginning with each character, in run order. A walk jumps from one run that
      could match to the next, instead of stepping through every run in reach. Built only over the runs a walk has
-     in reach, from that walk's own start (review 3: built from the FIRST walk's start, a later walk far down the
-     reply indexed every run between, which no walk reaches). Walks start at a non-decreasing r, so a run skipped
-     here is below every later walk's start and is never needed. */
+     in reach, from the walk's OPENING run r (review 3: built from the FIRST walk's start, a later walk far down the
+     reply indexed every run between, which no walk reaches). Walks open at a non-decreasing r, so a run below r is
+     never needed again. 🛑 From r, NEVER from the walk's current position (review 6): several held forms share one
+     opening and all walk from the same r, and one that had moved ahead left the runs behind it unindexed while
+     marking them done, so the next form from that r could not see its own pieces and a split key came out whole. */
   const firstIdx = new Map();
   let idxTo = -1;   // the last run indexed
   /* Not charged: it builds each run's variants once, which main's walk also did uncharged (it charged per run
      visited, and still does in the live scan above), and only runs in some walk's reach are indexed. */
-  const ensureIdx = (after, upTo) => {
-    for (let i = Math.max(idxTo + 1, after + 1); i <= upTo; i += 1) {
+  const ensureIdx = (opening, upTo) => {
+    for (let i = Math.max(idxTo + 1, opening + 1); i <= upTo; i += 1) {
       for (const c of varsOf(i)[2].keys()) {
         if (!firstIdx.has(c)) firstIdx.set(c, []);
         firstIdx.get(c).push(i);
@@ -779,7 +781,7 @@ function wordSkippingSpans(text) {
           if (t === Infinity) {
             const chars = new Set();
             for (const [q] of at) if (q < f.length) chars.add(f[q]);
-            ensureIdx(s, limit);
+            ensureIdx(r, limit);
             for (const c of chars) { const i = firstAbove(firstIdx.get(c), s); if (i < t) t = i; }
           }
           if (t > limit) { if ((budget -= at.length) < 0) return null; break; }

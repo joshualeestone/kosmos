@@ -1928,3 +1928,18 @@ test('#4112 review 2: a walk whose positions grow large is charged for them, so 
     assert.equal(out.text, UNCHECKED, 'the search did not end at the budget: its positions went uncharged (' + describeFired(out.fired) + ')');
   } finally { setKnownSecrets([]); }
 });
+
+test('#4112 review 6: two held keys walking from one shared opening each see their own pieces (a split key is never left whole)', () => {
+  /* A decoy key made of C's walks from sk-ant-api03- through the filler, far ahead of the real key's pieces. Indexing
+     from where that walk had got to left the runs behind it unindexed, so the real key's walk from the same opening
+     found nothing in reach, and every piece of it came out readable. */
+  const body = 'D9Xk2p7Wq5Lm8Rt3Nc6Hf1Gb4Ya0Ue7Vd2Zs5At8Bw1CrXyZ12';
+  setKnownSecrets([j('sk-ant-', 'api03-', 'C'.repeat(300)), j('sk-ant-', 'api03-', body)]);
+  try {
+    const pieces = [0, 10, 20, 30, 40].map((i) => body.slice(i, i + 10));
+    const reply = 'Mine is sk-ant-api03- ' + 'CCCC '.repeat(20) + pieces.map((p) => `C-${p} CCCC CCCC`).join(' ') + ' ' + 'CCCC '.repeat(40) + 'done';
+    const out = mask(reply).text;
+    assert.notEqual(out, UNCHECKED);
+    for (const p of pieces) assert.ok(!out.includes(p), `the piece ${p} of the split key was left readable`);
+  } finally { setKnownSecrets([]); }
+});
