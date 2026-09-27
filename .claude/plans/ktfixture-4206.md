@@ -22,8 +22,9 @@ heavy-gate would already drop it. Two points follow up (1 and 4 of #4219, rebase
 - tools/lib/cut-guard.sh: `_kosmos_drop_node_test_fixtures` asks `_kosmos_pid_is_test_fixture`
   (the script word is read in the guard's own line shape); renamed `_kosmos_drop_test_fixtures`
   since it no longer drops only node fixtures. The load-failure stand-in covers the new predicate too
-  (without it a missing library still refuses, via command-not-found; the stand-in removes the noise). kosmos_refuse_if_browser_run_live applies the
-  same filter after its self-subtree exclusion.
+  (without it a missing library still refuses, via command-not-found; the stand-in removes the noise).
+- tools/lib/cut-guard.sh: kosmos_refuse_if_browser_run_live applies the same filter after its
+  self-subtree exclusion.
 - tools/test-cut-guard.sh, in #4211's style (live sleeps through the probe seams, nothing
   pgrep-visible named release.sh or browser-checks.sh):
   - a kt-sandbox fixture (no node ancestor) is not a cut, and the same candidate from / still refuses
@@ -73,6 +74,19 @@ such a context), so the measurement is the evidence.
 
 - A real browser-checks.sh from its own frozen tree (`${TMPDIR}/kosmos-bc-freeze.<X>/kosmos-<sha>`) still
   refuses: the browser guard's counterpart of the cut guard's frozen-tree control.
+
+## Review 5
+
+- The fixed probe pid 86263 is now 99999, which cannot be live on macOS (pids stop at 99998): the
+  filter runs a real lsof on each pid, and a live 86263 in someone's kt folder would flake the
+  controls red.
+- The frozen arms set TMPDIR in its resolved form, the form lsof reports a cwd in, so the cwd half
+  reaches the "directly under TMPDIR" branch, not only the script half. The same resolution gap exists
+  in production on macOS (TMPDIR /var/..., lsof /private/var/...), where only the regex decides for an
+  lsof cwd; that errs toward counting, predates this branch, and is now named in the function comment.
+- #4211's older live sleeps run from /, so their cwd can never be a kt folder.
+- Not changed: test-browser-run-guard.sh's opt-in real-path decoy runs from its mktemp dir, which on
+  Linux under run-tests.sh sits in a kt folder and would now be dropped. Opt-in and run by hand on macOS.
 
 ## Weakest premise
 

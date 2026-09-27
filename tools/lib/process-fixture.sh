@@ -51,7 +51,9 @@ _kosmos_pid_has_node_test_ancestor() {
 }
 
 # True if PATH is in tools/run-tests.sh's sandbox: a kt<digits> folder under a folder named T
-# (macOS TMPDIR) or tmp, or directly under this shell's own $TMPDIR. Some fixtures detach from
+# (macOS TMPDIR) or tmp, or directly under this shell's own $TMPDIR. The $TMPDIR branch compares
+# the path as given: lsof reports a cwd with symlinks resolved (/private/var/...), macOS's TMPDIR is
+# /var/..., so for an lsof cwd on macOS only the regex half decides. That errs toward counting. Some fixtures detach from
 # node --test, so the path marks them (#4206 follow-up: moved here from heavy-gate so the cut and
 # browser guards read the same rule).
 _KOSMOS_KT_RE='(^|/)(T|tmp)/kt[0-9]+(/|$)'
