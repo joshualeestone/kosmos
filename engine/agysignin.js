@@ -20,17 +20,15 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { execFileSync, execFile } = require('node:child_process');
+const { execFile } = require('node:child_process');
+const tmuxsignin = require('./tmuxsignin');   // the hidden-tmux plumbing shared with musesignin (#4195)
 
 /* Its own tmux socket, so the session is invisible to every agent-listing tmux call. A test names
    its own (AGENT_WORKFORCE_AGY_SIGNIN_SOCKET) so it can never meet a real sign-in. */
 /* Named after this macOS account's home (review round 8, replacing round 4's per-Kosmos name): agy's
    sign-in is one per account, so a sign-in started in one Kosmos and left behind by a switch to
    another is the one the next start ends, rather than an orphan on a socket nobody asks about. */
-function socket() {
-  if (process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET) return process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET;
-  return 'kosmos-agy-signin-' + crypto.createHash('sha256').update(String(require('node:os').homedir())).digest('hex').slice(0, 10);
-}
+function socket() { return tmuxsignin.homeSocket('kosmos-agy-signin-', 'AGENT_WORKFORCE_AGY_SIGNIN_SOCKET'); }
 const SESSION = 'agy-signin';
 const TICK_MS = 1000;
 const STUCK_MS = 8000;          // an unrecognised screen this long is shown, not guessed at
@@ -44,8 +42,6 @@ const CODE_RETRY_MS = 20000;    // the code screen still showing this long after
    it with Google), a refusal is read only after this much longer wait. */
 const CODE_STALE_MS = 90000;
 const CODE_PROMPT = 'Paste the authorization code:';
-/* One tmux call: capture, send-keys, has-session answer at once on a live server; this long means stuck. */
-const TMUX_CALL_MS = 5000;
 /* macOS `open` on the window script: Terminal can take a while to come up the first time. */
 const OPEN_MS = 15000;
 /* What sits on agy's code prompt now: '' when it is empty (waiting for a code). Round 28: the prompt's
@@ -112,27 +108,11 @@ function screenOf(text, skip) {
 }
 
 /* ---- seams a test replaces -------------------------------------------------------------- */
-/* Looked up once and kept (round 10): binPaths() resolves every runner, and this runs every tick. */
-let tmuxBinCached = null;
-function tmuxBin() { return tmuxBinCached || (tmuxBinCached = require('./create').binPaths().tmuxBin); }
-/* Both real side effects go through the live-execution gate (CLAUDE.md convention 3): a test that
-   forgot its seam throws instead of driving a real agy; production warns and fails closed. */
-function live(file, args) {
-  const gate = require('./live-execution');
-  if (gate.liveExecutionAllowed()) return true;
-  gate.refuseOrWarn('agysignin', file, args);
-  return false;
-}
-let tmux = (args) => {
-  const full = ['-L', socket()].concat(args);
-  /* Finding tmux is Kosmos's own work, not agy's (round 15): a failure there is marked, so the screen
-     reader takes it as "try again", never as agy exiting. */
-  let bin;
-  try { bin = tmuxBin(); } catch (e) { const x = new Error('Kosmos could not find tmux: ' + (e && e.message)); x.kosmosInternal = true; throw x; }
-  if (!live(bin, full)) throw new Error('live execution is off');
-  // stderr piped, not inherited (round 21): the speculative kill before a start is not an error line in the board's log.
-  return execFileSync(bin, full, { encoding: 'utf8', timeout: TMUX_CALL_MS, stdio: ['ignore', 'pipe', 'pipe'] });
-};
+/* tmuxBin (looked up once, round 10), the live-execution gate (convention 3) and the tmux call with
+   its kosmosInternal marking (round 15) and piped stderr (round 21) are shared: engine/tmuxsignin.js. */
+const { tmuxBin, shq } = tmuxsignin;
+function live(file, args) { return tmuxsignin.live('agysignin', file, args); }
+let tmux = (args) => tmuxsignin.runTmux('agysignin', socket(), args);
 let openFile = (file, done) => {
   if (!live('/usr/bin/open', [file])) { done(new Error('live execution is off')); return; }
   execFile('/usr/bin/open', [file], { timeout: OPEN_MS }, (err) => done(err));
@@ -165,7 +145,7 @@ function status() {
 function screen() {
   try { return tmux(['capture-pane', '-p', '-J', '-t', SESSION]); } catch { /* is it gone, or slow? */ }
   try { tmux(['has-session', '-t', SESSION]); return undefined; } catch (e) {
-    return e && (e.code === 'ETIMEDOUT' || e.signal || e.kosmosInternal) ? undefined : null;
+    return tmuxsignin.deliveryUnknown(e) || (e && e.kosmosInternal) ? undefined : null;
   }
 }
 function keys(...k) { tmux(['send-keys', '-t', SESSION].concat(k)); }
@@ -211,7 +191,6 @@ function trustFolder(text) {
   if (inline) return inline;
   return lines.slice(at + 1).map(clean).find((l) => l) || null;
 }
-function shq(v) { return "'" + String(v).replace(/'/g, "'\\''") + "'"; }
 function samePath(a, b) {
   try { return fs.realpathSync(a) === fs.realpathSync(b); } catch { return false; }
 }
@@ -231,7 +210,7 @@ function tick() {
     /* Only a failure that proves the key never went out re-arms it (round 14). A timeout says nothing
        about delivery (tmux may have sent it), and a second Enter could land on the next screen: the
        screen is then left to the same-screen rule, which shows it if nothing moved. */
-    const unknownDelivery = !!e && (e.code === 'ETIMEDOUT' || !!e.signal);
+    const unknownDelivery = tmuxsignin.deliveryUnknown(e);
     if (!unknownDelivery) { mine.pressed = false; mine.downFrom = null; }
     mine.keyFailures = (mine.keyFailures || 0) + 1;
     if (mine.keyFailures >= MAX_KEY_FAILURES) {
@@ -485,7 +464,7 @@ function readyCheck(text) {
 /** Start a sign-in (ending any earlier one). */
 function start() {
   if (S && S.timer) end('stopped');   // only a sign-in still running is stopped (round 18: no false log line)
-  tmuxBinCached = null;   // looked up again for each sign-in (the person may have installed tmux since)
+  tmuxsignin.forgetTmuxBin();   // looked up again for each sign-in (the person may have installed tmux since)
   const inst = agyBin();
   if (!inst || !inst.installed) return { ok: false, because: 'Antigravity is not installed on this computer' };
   /* The live-execution gate is checked here, OUTSIDE the try below, so a test that forgot its seam
