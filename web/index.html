@@ -61075,15 +61075,16 @@ function tipTourRender(card, auto) {
      the card to sit above it, and place it again (tipPlace measures the place afresh). Only then: a card that found a
      pointing place is never moved.
      Its limits, on purpose: it scrolls the WINDOW, so a place inside an inner scroller, or a window already at the top,
-     gets no room and keeps the flat card it has today; and it acts once, as the step opens, never on a later relayout
-     (a scroll or a resize), because moving the page while the person scrolls it would fight their hand. */
+     gets no room and keeps the flat card it has today; it acts once, as the step opens, never on a later relayout
+     (a scroll or a resize), because moving the page while the person scrolls it would fight their hand; and the few
+     pixels it scrolls are not undone when the step changes or the tour closes (like the scrollIntoView above). */
   if (stepEl && card.classList.contains('flat')) {
     const r = stepEl.getBoundingClientRect();
     const need = card.offsetHeight + TIP_GAP + TIP_PAD + TIP_ROOM_SLACK;   // the card, its arrow gap, tipPlace's pad, and the slack
-    /* On screen, too close to the top for the card, and taller than the room the card needs: the tall-place case. A
-       shorter place has room below it or beside it, so a flat card there is some other case, left alone. */
-    /* ...and only when the window can scroll up the whole shortfall: a part-way scroll would move the page and still
-       leave the card flat. */
+    /* The tall-place case only: on screen, its top too close to the window's top for the card, and its bottom past the
+       line the card needs (a place that ends above that line has room below it, so a flat card there is some other
+       case, left alone); and only when the window can scroll up the whole shortfall, since a part-way scroll would move
+       the page and still leave the card flat. */
     if (r.top > 0 && r.top < need && r.bottom > need && window.scrollY >= need - r.top) {
       window.scrollBy(0, r.top - need);
       tipLayout(TIP_OPEN, card);

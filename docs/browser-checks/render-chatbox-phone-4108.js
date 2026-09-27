@@ -258,7 +258,12 @@ function heightOf(page, sel) {
               } else await open(page, base, where, pid);
               if (scale !== 1 && !(await textScaled(page, tag, scale))) continue;
               const w = await walkTip(page, tipId);
-              if (w.error) { chk(tipId !== 'project', `${tag} the ${tipId} tip opens`, w.error); continue; }
+              if (w.error) {
+                if (tipId === 'project') chk(false, `${tag} the project tip opens`, w.error);
+                else chk(false, `${tag} the ${tipId} tip opens (the make-room check has nothing to walk)`, w.error);
+                continue;
+              }
+              chk(w.steps.length >= 1, `${tag} the ${tipId} tip walked at least one step`, String(w.steps.length));
               if (tipId === 'project') {
                 for (const st of w.steps) {
                   chk(!st.error && st.pointing && st.cardOnScreen && st.areaInView,
