@@ -60,13 +60,23 @@ const STATE_FOR_EVENT = Object.freeze({
 /* agy's tool that asks the person something and waits (Gemini-Sub's spec, #4043). */
 const ASK_TOOL = 'ask_question';
 
-/* What agy reads on stdout. PreToolUse (reached only by ask_question) answers `{"decision":"allow"}`:
-   agy's contract requires a decision, and on agy 1.2.11 `{}` and `{"decision":""}` were MEASURED to deny
-   the tool (#4043's 0.7.01 regression: an agy agent could not ask its person anything). Every other event
-   answers `{}`, which its contract expects. Pinned against agy's measured contract in agyhooks.test.js. */
+/* What agy reads on stdout. agy's PreToolUse contract REQUIRES a decision: on agy 1.2.11 `{}` and
+   `{"decision":""}` were MEASURED to deny the tool (#4043's 0.7.01 regression: an agy agent could not ask its
+   person anything). So PreToolUse answers from the payload, never from the event name alone:
+     - ask_question: `{"decision":"allow"}`, measured to show the question and wait for the person; the
+       supervisor launches agy with --dangerously-skip-permissions, so it is what agy does with no hook;
+     - anything else, or a payload that did not arrive or parse: `{"decision":"ask"}`, agy's own permission
+       prompt (review 1). The matcher should keep every other tool away, but that is measured for PostToolUse
+       only, and the hooks file is read by ANY agy started in that folder (a person's own, run by hand, without
+       the flag). An answer keyed on the event name alone would auto-allow every tool there: fail OPEN.
+   Every other event answers `{}`, which its contract expects. Pinned against agy's measured contract in
+   agyhooks.test.js. */
 const ALLOW = '{"decision":"allow"}';
-function answerFor(eventName) {
-  return eventName === 'PreToolUse' ? ALLOW : '{}';
+const ASK = '{"decision":"ask"}';
+function answerFor(eventName, payload) {
+  if (eventName !== 'PreToolUse') return '{}';
+  const name = payload && payload.toolCall && payload.toolCall.name;
+  return name === ASK_TOOL ? ALLOW : ASK;
 }
 
 /* Whose throttle this is: the pane, else the agent's launch token (hashed), else the process that
@@ -183,14 +193,24 @@ function engineDir(here) {
   return null;
 }
 
+let answered = false;
+function answer(text) {
+  if (answered) return;
+  answered = true;
+  try { process.stdout.write(text + '\n'); } catch { /* nothing to do */ }
+}
+
 async function main() {
-  /* agy reads our stdout as the hook's answer. First, always. */
+  /* agy reads our stdout as the hook's answer. Every event but PreToolUse: first, always. PreToolUse's answer
+     depends on the tool, so it waits for the payload (readStdin gives up after STDIN_TIMEOUT_MS, inside agy's
+     HANDLER_TIMEOUT_S), and if anything fails before it is written, the exit path answers ASK. */
   const eventName = process.argv[2] || '';
-  try { process.stdout.write(answerFor(eventName) + '\n'); } catch { /* nothing to do */ }
+  if (eventName !== 'PreToolUse') answer(answerFor(eventName));
   if (!STATE_FOR_EVENT[eventName]) return;
   const raw = await readStdin();
   let payload = null;
   try { payload = JSON.parse(raw || ''); } catch { /* the event name alone still reports */ }
+  if (eventName === 'PreToolUse') answer(answerFor(eventName, payload));
   const mapped = reportFor(eventName, payload);
   if (!mapped) return;
   if (!shouldSend(mapped.state, Date.now(), process.env)) return;
@@ -218,7 +238,8 @@ async function main() {
 }
 
 if (require.main === module) {
-  main().catch(() => { /* never break the agent */ }).finally(() => process.exit(0));
+  main().catch(() => { /* never break the agent */ })
+    .finally(() => { if ((process.argv[2] || '') === 'PreToolUse') answer(ASK); process.exit(0); });
 }
 
-module.exports = { STATE_FOR_EVENT, ASK_TOOL, answerFor, throttleKey, TIMEOUT_MS, STDIN_TIMEOUT_MS, THROTTLE_MS, markerFile, shouldSend, reportFor, buildBody, engineDir };
+module.exports = { STATE_FOR_EVENT, ASK_TOOL, ALLOW, ASK, answerFor, throttleKey, TIMEOUT_MS, STDIN_TIMEOUT_MS, THROTTLE_MS, markerFile, shouldSend, reportFor, buildBody, engineDir };

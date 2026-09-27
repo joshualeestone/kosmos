@@ -17,9 +17,13 @@ was wrong: agy's own hooks guide says `decision` is REQUIRED (allow / deny / ask
   then idle, so the card clears (release check 4).
 
 ## Change
-- `bin/agy-report-bridge.js`: PreToolUse answers `{"decision":"allow"}`; every other event still `{}`. Only ask_question
-  reaches PreToolUse (matcher `^ask_question$`, honoured by agy >= 1.1.9, which the version gate requires), and with
-  --dangerously-skip-permissions `allow` is exactly what agy does with no hook.
+- `bin/agy-report-bridge.js`: PreToolUse answers FROM THE PAYLOAD (review 1): `{"decision":"allow"}` when the tool is
+  ask_question, and `{"decision":"ask"}` (agy's own permission prompt) for any other tool, a missing or unparseable
+  payload, or a crash before an answer (an exit-path fallback). Every other event still answers `{}` first.
+  Why not the event name alone: the matcher `^ask_question$` should keep other tools away, but only PostToolUse's
+  matcher is documented as honoured (since 1.1.9); PreToolUse's is assumed. And the hooks file is read by ANY agy started
+  in that folder, including a person's own run by hand without --dangerously-skip-permissions: an event-keyed `allow`
+  would auto-allow every tool there (a new fail-OPEN; the old `{}` failed closed).
 - Comments in the bridge and engine/agyhooks.js that stated the wrong premise are corrected.
 - `engine/agyhooks.test.js`: `agyPreToolOutcome`, a model of agy 1.2.11's measured contract (missing/empty decision
   denies); the bridge's REAL stdout (spawned as agy runs it) must come out `run`. Controls: restoring `{}` or
@@ -29,11 +33,20 @@ was wrong: agy's own hooks guide says `decision` is REQUIRED (allow / deny / ask
 hello: working, idle. ask_question answered (Red): needs_you "Which colour do you prefer?", working, idle; the question
 screen waited. ask_question skipped (Escape): needs_you, working, idle. No denial.
 
+## Live check of the payload-keyed bridge (12:45-12:47)
+- A, the real hook, ask_question answered: the question showed and waited 19s; needs_you "Which colour do you prefer?",
+  working, idle. No denial.
+- B, the matcher deliberately widened to `.*`, agy with --dangerously-skip-permissions, `ls -la`: ran normally, so `ask`
+  is agy's normal permission flow, not a deny.
+- C, the same without the flag: agy showed its own "Run this command?" prompt. An unexpected tool is neither
+  auto-allowed nor denied: the fail-safe holds.
+
 ## Rejected
-- `ask`: prompts the person for permission before the question, a second prompt for no reason.
-- Deciding by tool name after reading stdin: the answer is printed first so a crash cannot leave agy without one, and
-  the matcher already limits PreToolUse to ask_question.
+- `ask` for ask_question too: prompts the person for permission before the question, a second prompt for no reason.
+- `allow` keyed on the event name alone (this branch's first commit): fails open if the matcher is not honoured (above).
+- `{}` for unexpected tools: a deny; `ask` keeps agy's own permission flow instead.
 
 ## Weakest premise
-Measured on agy 1.2.11 only. An agy that changed `allow`'s meaning would need the live check again; the contract test
-models 1.2.11, it does not run agy.
+Measured on agy 1.2.11 only. `ask`'s meaning comes from agy's guide and runs B/C, not from a contract test; an agy that
+changed `allow` or `ask` would need the live check again. The contract test models 1.2.11, it does not run agy. The
+PreToolUse matcher being honoured is still assumed, which is why the answer no longer depends on it.
