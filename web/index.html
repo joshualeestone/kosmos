@@ -9788,6 +9788,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      message box and search the same. The room box's @-mention mirror is sized to it at paint time. */
   #d-talk-box .composerbox .cinput { font-size: 16px; min-height: 48px; }
   #pj-post, #pj-room-search { min-height: 48px; }
+  /* The searches sit in a bordered .tsearch pill with 4px of padding above and below: at 48px the
+     input would make a 58px pill. The pill drops its vertical padding here, so it is the input's
+     48px plus its 1px border (50), and the conversation keeps its room. */
+  #d-talk-search-wrap.tsearch, .pjmidhead .tsearch:has(#pj-room-search) { padding-top: 0; padding-bottom: 0; }
   /* The compact header above already names the agent, so the "Direct Message to <name>"
      caption would say it twice; the search takes the row. Hidden visually only, so the
      conversation keeps its heading for screen-reader heading navigation. */
@@ -9847,7 +9851,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    takes focus. (hover: none) is the room's touch query (PJ_TOUCH_MQ); a mouse keeps the desktop sizes. */
 @media (hover: none) {
   #d-talk-box .composerbox .cinput, #d-talk-box #d-talk-search { font-size: 16px; }
-  /* #4108: 48 as in the phone block above; this block comes later, so it would otherwise win there. */
+  /* #4108: 48 as in the phone block above; this block comes later, so it would otherwise win there.
+     So a touch tablet gets the 48px agent search too; the message boxes and the room's pair stay 48
+     only at phone width, deliberately (the card is the phone). */
   #d-talk-box #d-talk-search-wrap { min-height: 48px; }
   #d-talk-box #d-talk-search { min-height: 48px; }
   /* #3916: the Instructions pill also owns Skills. Keep both editors out of iOS focus zoom

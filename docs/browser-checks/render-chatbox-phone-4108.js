@@ -2,13 +2,14 @@
 /**
  * kosmos#4108 (#718 re-sweep row 4): the chat boxes on a phone are a comfortable tap target.
  *
- * The re-sweep measured the agent page's message box at 40px and its conversation search at 42px
- * on a phone: under the 48dp Android asks for (and Josh's Moto G Play is 360 wide). This drives the
+ * On main at 360 wide the agent page's message box and search are 44px, and the project room's
+ * box and search 40px and 24px: under the 48dp Android asks for (Josh's Moto G Play is 360 wide). This drives the
  * REAL page from the REAL server and reads, at 360x800 (touch):
  *   - the agent Direct Message box (#d-say) and its conversation search (#d-talk-search), and the
  *     project room's message box (#pj-post) and search (#pj-room-search), are each at least 48px tall;
  *   - the page is no wider than the screen, and the room box's @-mention mirror still covers it;
  * and at 1280x800 (a mouse) each box keeps the height it had before (DESKTOP, measured on main).
+ * Without the pills' padding rule, both searches' pills are 58px and the pill arms red.
  *
  * Controls, measured: on main's page every phone arm reds in both engines (the Direct Message box
  * and its search 44px, the room box 40px, the room search 24px); desktop is 40px and 22px on both.
@@ -57,10 +58,12 @@ const NAMES = ['ada', 'bram'];
 // The boxes, and where each lives. DESKTOP is each one's height at 1280 on main (measured).
 const BOXES = [
   { sel: '#d-say', name: 'the Direct Message box', where: 'agent' },
-  { sel: '#d-talk-search', name: 'the conversation search', where: 'agent' },
+  { sel: '#d-talk-search', name: 'the conversation search', where: 'agent', pill: true },
   { sel: '#pj-post', name: 'the project room box', where: 'room' },
-  { sel: '#pj-room-search', name: 'the project room search', where: 'room' },
+  { sel: '#pj-room-search', name: 'the project room search', where: 'room', pill: true },
 ];
+// EXACT on purpose: the card pins desktop as unchanged. A red here after a font or line-height
+// change elsewhere means re-measure these, not that #4108 regressed.
 const DESKTOP = { '#d-say': 40, '#d-talk-search': 22, '#pj-post': 40, '#pj-room-search': 22 };
 
 const fail = [];
@@ -137,8 +140,16 @@ function heightOf(page, sel) {
             for (const b of BOXES.filter((x) => x.where === where)) {
               const m = await heightOf(page, b.sel);
               if (m.missing || !m.shown) { chk(false, `${tag} ${b.name} is showing`, b.sel); continue; }
-              if (phone) chk(m.h >= MIN, `${tag} ${b.name} is at least ${MIN}px tall`, `${m.h}px`);
-              else chk(m.h === DESKTOP[b.sel], `${tag} ${b.name} keeps its desktop height`, `${m.h}px (was ${DESKTOP[b.sel]})`);
+              if (phone) {
+                chk(m.h >= MIN, `${tag} ${b.name} is at least ${MIN}px tall`, `${m.h}px`);
+                // A search's bordered pill must not grow past the input by its padding (it was 58px).
+                if (b.pill) {
+                  const pill = await page.evaluate((sel) => { const e = document.querySelector(sel); return e ? Math.round(e.closest('.tsearch').getBoundingClientRect().height) : null; }, b.sel);
+                  chk(pill !== null && pill <= MIN + 2, `${tag} ${b.name}'s pill is no taller than the input and its border`, `${pill}px`);
+                }
+              } else {
+                chk(m.h === DESKTOP[b.sel], `${tag} ${b.name} keeps its desktop height`, `${m.h}px (was ${DESKTOP[b.sel]})`);
+              }
             }
             // The room box's @-mention mirror is drawn over it at paint time; on a taller box it must
             // still cover the box exactly, or the typed text and the caret come apart.
@@ -146,8 +157,11 @@ function heightOf(page, sel) {
               await page.fill('#pj-post', '@ada hello');
               await page.waitForTimeout(200);
               const al = await page.evaluate(() => {
-                const t = document.getElementById('pj-post').getBoundingClientRect();
-                const m = document.getElementById('pj-post-mirror').getBoundingClientRect();
+                const tEl = document.getElementById('pj-post');
+                const mEl = document.getElementById('pj-post-mirror');
+                if (!tEl || !mEl) return { missing: !tEl ? '#pj-post' : '#pj-post-mirror', dTop: 99, dH: 99 };
+                const t = tEl.getBoundingClientRect();
+                const m = mEl.getBoundingClientRect();
                 return { dTop: Math.round(Math.abs(t.top - m.top)), dH: Math.round(Math.abs(t.height - m.height)), t: Math.round(t.height), m: Math.round(m.height) };
               });
               chk(al.dTop <= 1 && al.dH <= 1, `${tag} the room box's @-mention mirror still covers the box`, JSON.stringify(al));
