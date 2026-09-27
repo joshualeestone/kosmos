@@ -15267,6 +15267,57 @@ test('#3923: Try again (?retell=1) re-tells a current member and never re-adds o
   }
 });
 
+test('#3932: once the person fixes the file an Act row asked about, the board re-tells the agent, once', async () => {
+  const { autoretellTick } = require('./server');
+  const eng = require('./engine/projects');
+  const { SETTLE_MS } = require('./engine/autoretell');
+  const board = fleet.install([fleet.agent('rhea', { state: 'idle' })]);
+  const realSpeak = eng.speakOfMembership;
+  const spoke = [];
+  const acted = new Map();
+  try {
+    eng.speakOfMembership = (who, proj, kind) => { spoke.push([who, proj && proj.id, kind]); return { state: 'told' }; };
+    const file = require('./engine/instructions').fileFor('rhea');
+    fs.rmSync(file, { force: true });
+    const made = await req('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Autoretell Fixture', folder: mkTemp('aw-autoretell-'), agents: ['rhea'] }) });
+    assert.equal(made.status, 200, made.body);
+    const id = JSON.parse(made.body).project.id;
+    const toldOf = () => ((eng.readAll().find((p) => p.id === id) || {}).told || {}).rhea || {};
+    const verdict = toldOf();
+    assert.equal(verdict.state, eng.TOLD.COULD_NOT, 'precondition: an agent with no instructions file could not be told: ' + JSON.stringify(verdict));
+    const verdictAt = Date.parse(verdict.at);
+    spoke.length = 0;
+
+    // Nothing fixed yet: no file, nothing to do.
+    assert.deepEqual(autoretellTick(verdictAt + 60000, acted), [], 'a retell with no file to write into');
+
+    // The person makes the file. Dated one second after the verdict so the clock is ours.
+    fs.mkdirSync(nodePath.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '# rhea\n\nMy own notes.\n');
+    const mtime = verdictAt + 1000;
+    fs.utimesSync(file, new Date(mtime), new Date(mtime));
+    const edited = fs.readFileSync(file, 'utf8');
+    assert.deepEqual(autoretellTick(mtime + SETTLE_MS - 1, acted), [], 'rewrote the file inside the settle window');
+    assert.equal(fs.readFileSync(file, 'utf8'), edited, 'the file changed inside the settle window');
+
+    const rows = autoretellTick(mtime + SETTLE_MS, acted);
+    assert.deepEqual(rows, [{ name: 'rhea', id, state: eng.TOLD.TOLD }], 'the fixed agent was not re-told');
+    assert.equal(toldOf().state, eng.TOLD.TOLD, 'the stored verdict still reads could_not after the retell');
+    const after = fs.readFileSync(file, 'utf8');
+    assert.match(after, /Autoretell Fixture/, 'the retell did not write the project into the file');
+    assert.match(after, /My own notes\./, 'the retell lost the person\'s own words');
+    assert.deepEqual(spoke, [['rhea', id, 'listed']], 'the running agent was not told its instructions now list the project');
+
+    // A later sweep with nothing new does nothing, and types nothing.
+    assert.deepEqual(autoretellTick(mtime + SETTLE_MS + 60000, acted), []);
+    assert.equal(spoke.length, 1, 'the line was typed twice for one fix');
+  } finally {
+    eng.speakOfMembership = realSpeak;
+    board.restore();
+  }
+});
+
 test('#4006: an agent whose restart did not come back reads needs_you, and its thread does not claim a question', async () => {
   const disruption = require('./engine/disruption');
   const board = fleet.install([fleet.agent('zeta', { state: 'stopped' })]);
