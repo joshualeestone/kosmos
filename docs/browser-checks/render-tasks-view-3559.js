@@ -215,11 +215,18 @@ function chk(ok, label, extra) {
         const hitMiss = [];
         for (const tl of [...document.querySelectorAll('#tsk-groups .tsk-row .tl')].filter(vis)) {
           tl.scrollIntoView({ block: 'center' }); const r = tl.getBoundingClientRect(); const x = r.left + Math.min(r.width / 2, 24);
-          for (const y of [r.top + 2, r.bottom - 2]) { const e = document.elementFromPoint(x, y); if (!e || e.closest('[data-open-task]') !== tl) hitMiss.push(['title', tl.textContent.slice(0, 20), Math.round(y - r.top), e && (e.className || e.tagName)]); }
+          for (const y of [r.top + 0.5, r.bottom - 0.5]) { const e = document.elementFromPoint(x, y); if (!e || e.closest('[data-open-task]') !== tl) hitMiss.push(['title', tl.textContent.slice(0, 20), Math.round(y - r.top), e && (e.className || e.tagName)]); }
+        }
+        /* The checkbox's label and the meta line's buttons too, at their own edges (review round 3). */
+        for (const [sel, own] of [['#tsk-groups .tsk-row .tsk-hit', (e, t) => e.closest('.tsk-hit') === t], ['#tsk-groups .tsk-row .meta button:not(.tsk-chip)', (e, t) => e.closest('button') === t]]) {
+          for (const t of [...document.querySelectorAll(sel)].filter(vis)) {
+            t.scrollIntoView({ block: 'center' }); const r = t.getBoundingClientRect(); const x = r.left + Math.min(r.width / 2, 20);
+            for (const y of [r.top + 0.5, r.bottom - 0.5]) { const e = document.elementFromPoint(x, y); if (!e || !own(e, t)) hitMiss.push([sel.split(' ').pop(), Math.round(y - r.top), e && (e.className || e.tagName)]); }
+          }
         }
         for (const w of [...document.querySelectorAll('#panel-tasks .tsk-who')].filter(vis)) {
           w.scrollIntoView({ block: 'center' }); const r = w.getBoundingClientRect(); const x = r.left + r.width / 2, cy = (r.top + r.bottom) / 2;
-          for (const y of [cy - 20, cy + 20]) { const e = document.elementFromPoint(x, y); if (!e || e.closest('.tsk-who') !== w) hitMiss.push(['who', w.textContent.trim().slice(0, 12), Math.round(y - cy), e && (e.className || e.tagName)]); }
+          for (const y of [cy - 21.5, cy + 21.5]) { const e = document.elementFromPoint(x, y); if (!e || e.closest('.tsk-who') !== w) hitMiss.push(['who', w.textContent.trim().slice(0, 12), Math.round(y - cy), e && (e.className || e.tagName)]); }
         }
         scrollTo(0, 0);
         const tlH = Math.max(0, ...[...document.querySelectorAll('#tsk-groups .tsk-row .tl')].filter(vis).map((e) => box(e)[1]));
