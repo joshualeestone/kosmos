@@ -46916,6 +46916,8 @@ document.getElementById('tsk-searchbox').addEventListener('keydown', (e) => {
   tskPaint();
 });
 document.getElementById('tsk-search').addEventListener('blur', () => document.getElementById('tsk-searchbox').classList.remove('shut'));
+// A click on the closed field opens it again, as focus would (it may still hold focus after Esc).
+document.getElementById('tsk-search').addEventListener('mousedown', () => document.getElementById('tsk-searchbox').classList.remove('shut'));
 /* "/" focuses the search while the Tasks view is on screen and the person is not typing somewhere else. Cmd-F is left
    to the browser's own find. */
 document.addEventListener('keydown', (e) => {
@@ -46930,8 +46932,9 @@ document.addEventListener('keydown', (e) => {
   if (t && t.closest && t.closest('[role="dialog"], [role="alertdialog"], [aria-modal="true"]')) return;
   if ([...document.querySelectorAll('[aria-modal="true"]')].some((m) => m.getClientRects().length > 0)) return;
   // Nor while a header popover or menu is open (the world switcher and account menu are plain groups, not dialogs,
-  // and keep focus on their trigger): their open trigger says aria-expanded="true".
-  if (t && t.closest && t.closest('[aria-expanded="true"], #worldsw-menu, #userpop-menu')) return;
+  // and keep focus on their trigger). Named, not any aria-expanded="true": an open subtask fold chip or project row
+  // is a disclosure, and "/" must still work from it (review round 16).
+  if (t && t.closest && t.closest('#burger[aria-expanded="true"], #worldsw-btn[aria-expanded="true"], #userpop-btn[aria-expanded="true"], #worldsw-menu, #userpop-menu')) return;
   if ([...document.querySelectorAll('#worldsw-menu, #userpop-menu')].some((m) => !m.hidden && m.getClientRects().length > 0)) return;
   e.preventDefault();
   document.getElementById('tsk-search').focus();

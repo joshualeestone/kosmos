@@ -350,6 +350,23 @@ function chk(ok, label, extra) {
           await page.evaluate(() => { const m = document.getElementById('userpop-menu'); if (m && !m.hidden) document.getElementById('userpop-btn').click(); document.activeElement && document.activeElement.blur && document.activeElement.blur(); });
           chk(pop.open && popAfter.open && popAfter.on !== 'tsk-search', `${tag} "/" with the account menu open does not move focus into the search`, JSON.stringify({ pop, popAfter }));
         }
+        /* But an ordinary disclosure that is open (a subtask fold chip, a project row: aria-expanded="true") is not a
+           popover: "/" from it still reaches the search (review round 16). A tile stands in for one here. */
+        {
+          const disc = await page.evaluate(() => { const b = document.querySelector('#tsk-tiles [data-tile="nobody"]'); b.setAttribute('aria-expanded', 'true'); b.focus(); return document.activeElement === b; });
+          await page.keyboard.press('/');
+          const fromDisc = await page.evaluate(() => { const id = document.activeElement && document.activeElement.id; document.querySelector('#tsk-tiles [data-tile="nobody"]').removeAttribute('aria-expanded'); document.getElementById('tsk-search').blur(); return id; });
+          chk(disc && fromDisc === 'tsk-search', `${tag} "/" from an open disclosure (aria-expanded) still focuses the search`, JSON.stringify({ disc, fromDisc }));
+        }
+        /* After Esc (closed, focus kept), a click on the field opens it again. */
+        {
+          await page.focus('#tsk-search'); await page.keyboard.type('x'); await page.keyboard.press('Escape');
+          const shutW = await sw();
+          await page.click('#tsk-search');
+          const clickW = await sw();
+          await page.evaluate(() => document.getElementById('tsk-search').blur());
+          chk(shutW <= 40 && clickW >= 200, `${tag} after Esc a click on the search opens it again`, JSON.stringify({ shutW, clickW }));
+        }
         /* "/" from a control inside the Tasks view (a tile button) focuses the search too. */
         await page.focus('#tsk-tiles [data-tile="nobody"]');
         await page.keyboard.press('/');
