@@ -11731,6 +11731,23 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <p class="dhint" id="acct-grok-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
     </div>
+    <!-- #3939 slice 3b: Meta Muse, behind AGENT_WORKFORCE_MUSE=1 on a Mac (GET /api/muse says enabled).
+         Muse Code's own sign-in is a device code, run out of sight (engine/musesignin.js): the page shows
+         Meta's page and the code in the #3952 boxes, offers a new code when one expires, and stops it.
+         Off, the Meta option stays "coming soon" exactly as before and this never shows. -->
+    <div id="acct-muse-flow" hidden style="margin-top: var(--space-5);">
+      <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in to Meta Muse.</b> Meta's own page asks you to confirm a code, and Kosmos never sees your password. Your agents then run on your own Meta account, on this computer.</p>
+      <div class="frow" style="margin-top:12px;">
+        <button class="btn uprime" id="acct-muse-go" type="button">Sign in with Meta</button>
+      </div>
+      <div class="frow" id="acct-muse-open-row" hidden style="margin-top:8px;">
+        <a class="btn" id="acct-muse-open" href="#" target="_blank" rel="noopener noreferrer">Open Meta's sign-in page<span class="vh"> (opens in your browser)</span></a>
+      </div>
+      <p class="dhint" id="acct-muse-code" hidden style="margin:8px 0 0;"></p>
+      <div class="frow" id="acct-muse-retry-row" hidden style="margin-top:8px;"><button class="btn uprime" id="acct-muse-retry" type="button">Get a new code</button></div>
+      <div class="frow" id="acct-muse-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="acct-muse-cancel" type="button">Stop this sign-in</button></div>
+      <p class="dhint" id="acct-muse-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+    </div>
     <!-- #3874: Gemini connects with a Google SUBSCRIPTION or a key, so where the subscription is
          offered (a Mac, runner on: keyedSubReady('google')) picking Gemini shows this choice first,
          as Grok's does. The subscription is Google's Antigravity, run by the same driver as the
@@ -23912,6 +23929,7 @@ function acctClaudeChoose(which) {
 function acctPick(which, opts) {
   const sel = document.getElementById('acct-provider-pick');
   if (sel.value !== which) sel.value = which;
+  acctMuseShow(false);   // #3939
   document.getElementById('acct-claude-flow').hidden = which !== 'claude';
   document.getElementById('acct-openai-flow').hidden = which !== 'openai';
   /* Same as the Claude and OpenAI picks: focus lands on the first thing to fill in. #3731: that
@@ -23975,6 +23993,16 @@ document.getElementById('acct-openai-install-go').addEventListener('click', asyn
 });
 document.getElementById('acct-provider-pick').addEventListener('change', (e) => {
   const which = e.target.value;
+  /* #3939: Meta Muse is its own step; any other choice puts it away. */
+  if (which === 'meta' && MUSE_ON) {
+    document.getElementById('acct-claude-flow').hidden = true;
+    document.getElementById('acct-openai-flow').hidden = true;
+    acctApikeyShow(null);
+    acctMuseShow(true);
+    document.getElementById('acct-muse-go').focus();
+    return;
+  }
+  acctMuseShow(false);
   if (which === 'claude' || which === 'openai' || ACCT_APIKEY_PROVIDERS[which]) { acctPick(which); return; }
   // Cleared, or (defensively) a disabled "coming" option somehow reached
   // change: no flow is a live provider, so none shows.
@@ -25238,6 +25266,7 @@ function openAcctAdd(ev) {
   }
   ACCT_GROK_REAUTH_DIR = null;   // #3391 part 2: a fresh add is never a sign-in again
   acctApikeyShow(null);  /* #3566: the key step never outlives a visit (it holds a pasted key) */
+  acctMuseShow(false); museAsk();   // #3939: Meta Muse is offered only when this Kosmos says so
   ACCT_REAUTH_DIR = null;
   ACCT_OPENAI_REAUTH_DIR = null;
   acctReauthChrome(false);
@@ -25271,6 +25300,7 @@ function closeAcctAdd() {
   ACCT_OPENAI_SUB_SESSION = null;
   acctOpenaiSubReset();   // hides the sub affordances and re-enables the Sign-in button
   acctApikeyShow(null);   // #3566: a pasted Gemini/Grok key does not stay in a hidden field after close
+  acctMuseShow(false);   // #3939: a Muse sign-in left running is stopped, not left polling a closed dialog
   /* kosmos#1656: return the modal to its form state on the way out, so the next
      open is clean: the success panel gone and the sign-in controls back. */
   const success = document.getElementById('acct-success');
@@ -25770,6 +25800,133 @@ document.getElementById('acct-grok-sub-cancel').addEventListener('click', () => 
   const go = document.getElementById('acct-grok-sub-go');
   go.hidden = false;   // #3731: hidden while a pick-started sign-in ran; stopping brings the retry back
   go.focus();
+});
+/* #3939 slice 3b: Meta Muse in Settings, AI Models, Add a provider. Only when GET /api/muse says enabled
+   (AGENT_WORKFORCE_MUSE=1 on a Mac); otherwise the Meta option stays "coming soon" as before. The sign-in
+   runs out of sight on the engine (engine/musesignin.js); this starts it, polls it, shows Meta's page and
+   the code (#3952 boxes), offers a new code when one expires, and stops it. The id it keeps is the one its
+   OWN start answered, never one read back from the poll (another tab's start replaces the sign-in, and
+   this screen then says so rather than driving the other one). */
+let MUSE_ON = false;
+const MUSE_SAY = {
+  starting: 'Starting Muse Code\'s sign-in\u2026',
+  code: 'Confirm the code on Meta\'s page. Kosmos carries on by itself once you have.',
+  expired: 'That code expired before it was confirmed. Get a new code to try again.',
+};
+async function museAsk() {
+  let on = false;
+  try {
+    const r = await fetch('/api/muse', { cache: 'no-store' });
+    const out = r.ok ? await r.json().catch(() => null) : null;
+    on = !!(out && out.enabled === true);
+  } catch { on = false; }   // a failed read keeps it "coming soon": today's screen, never a guess
+  MUSE_ON = on;
+  /* Only disabled is toggled: the logo combobox re-reads it on open (syncOpts), and drops its "Coming
+     soon" pill, but its row name is fixed at build, so the option text stays as it is. */
+  const opt = document.querySelector('#acct-provider-pick option[value="meta"]');
+  if (opt) opt.disabled = !on;
+  return on;
+}
+const ACCT_MUSE = (() => {
+  let id = null; let poll = null; let gen = 0;
+  const el = (x) => document.getElementById('acct-muse-' + x);
+  const say = (t) => { const m = el('msg'); if (m) m.textContent = t; };
+  const stopPoll = () => { if (poll) { clearInterval(poll); poll = null; } };
+  const post = (path, body) => fetch('/api/muse/signin' + path, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}),
+  });
+  function reset() {
+    for (const x of ['open-row', 'code', 'retry-row', 'cancel-row']) { const e = el(x); if (e) e.hidden = true; }
+    const c = el('code'); if (c) { c.textContent = ''; c.__devKey = ''; }
+    const g = el('go'); if (g) { g.hidden = false; g.disabled = false; }
+  }
+  function show(st) {
+    const a = el('open');
+    if (a && st.url) { a.href = st.url; el('open-row').hidden = false; } else if (a) el('open-row').hidden = true;
+    const c = el('code');
+    if (c && st.code) {
+      c.hidden = false;
+      // #3952: drawn only when the code changes, so a selection in it survives the poll.
+      if (c.__devKey !== st.code) { c.innerHTML = devCodeHtml('On that page, confirm this code:', st.code); c.__devKey = st.code; }
+    } else if (c) { c.hidden = true; c.textContent = ''; c.__devKey = ''; }
+    el('retry-row').hidden = st.state !== 'expired';
+  }
+  function finish(text) {
+    // Focus on a control that is about to go goes back to the button that starts a sign-in.
+    const a = document.activeElement;
+    const had = !!a && ['cancel', 'open', 'retry'].some((x) => a === el(x));
+    gen += 1; stopPoll(); id = null; reset();
+    if (text != null) say(text);
+    if (had) { const g = el('go'); if (g) g.focus(); }
+  }
+  function watch(mine) {
+    stopPoll();
+    poll = setInterval(async () => {
+      if (mine !== gen || !id) { stopPoll(); return; }
+      let st;
+      try { const r = await fetch('/api/muse/signin', { cache: 'no-store' }); st = r.ok ? await r.json().catch(() => null) : null; }
+      catch { return; }   // a network blip: keep polling
+      if (mine !== gen || !st) return;
+      if (st.id !== id) { finish('Another sign-in started, so this one ended.'); return; }
+      show(st);
+      if (st.state === 'done') {
+        finish('');
+        say('Signed in to Meta Muse.');
+        try { await paintAccounts(); } catch { /* the row repaints on the next visit */ }
+        return;
+      }
+      if (st.state === 'failed' || st.state === 'stopped') { finish((pjSentence(st.because) || 'That sign-in did not finish.') + ' You can try again.'); return; }
+      say(st.state === 'stuck' ? (pjSentence(st.because) || MUSE_SAY.starting) : (MUSE_SAY[st.state] || MUSE_SAY.starting));
+    }, 1200);
+  }
+  async function start() {
+    if (id) return;
+    gen += 1;
+    const mine = gen;
+    const go = el('go'); if (go) go.disabled = true;
+    say(MUSE_SAY.starting);
+    let res; let out = null;
+    try { res = await post('', {}); out = await res.json().catch(() => null); }
+    catch { if (mine === gen) { if (go) go.disabled = false; say('We could not reach Kosmos to start that sign-in. Try again.'); } return; }
+    if (mine !== gen) { if (res.ok && out && out.id) post('/stop', { id: out.id }).catch(() => {}); return; }
+    if (!res.ok || !out || !out.id) { if (go) go.disabled = false; say(pjSentence(out && (out.error || out.because)) || 'We could not start that sign-in.'); return; }
+    id = out.id;
+    if (go) go.hidden = true;
+    el('cancel-row').hidden = false;
+    show(out);
+    const stop = el('cancel'); if (stop) stop.focus();
+    watch(mine);
+  }
+  async function retry() {
+    if (!id) return;
+    const mine = gen; const was = id;
+    let res; let out = null;
+    try { res = await post('/retry', { id: was }); out = await res.json().catch(() => null); } catch { say('We could not reach Kosmos to ask for a new code. Try again.'); return; }
+    if (mine !== gen || id !== was) return;
+    if (!res.ok) { say(pjSentence(out && (out.error || out.because)) || 'We could not ask for a new code.'); return; }
+    el('retry-row').hidden = true;
+    say(MUSE_SAY.starting);
+  }
+  function leave() {
+    const was = id;
+    finish(null); say('');
+    if (was) post('/stop', { id: was }).catch(() => { /* the engine's own limit ends it regardless */ });
+  }
+  return { start, retry, leave, reset, get active() { return !!id; } };
+})();
+/* Show Muse's step, or put it away (on === false): every open, close and provider switch reaches it. */
+function acctMuseShow(on) {
+  const flow = document.getElementById('acct-muse-flow');
+  if (!flow) return;
+  ACCT_MUSE.leave();
+  flow.hidden = !on;
+}
+document.getElementById('acct-muse-go').addEventListener('click', () => ACCT_MUSE.start());
+document.getElementById('acct-muse-retry').addEventListener('click', () => ACCT_MUSE.retry());
+document.getElementById('acct-muse-cancel').addEventListener('click', () => {
+  ACCT_MUSE.leave();
+  const m = document.getElementById('acct-muse-msg'); if (m) m.textContent = 'Sign-in stopped.';
+  document.getElementById('acct-muse-go').focus();
 });
 /* #3874: Gemini's choice in Settings, or put it away (which !== 'google'). Called from acctApikeyShow
    and the install box, so every open, close and switch reaches it. */
