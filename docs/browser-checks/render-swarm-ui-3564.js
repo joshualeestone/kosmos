@@ -343,38 +343,47 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     chk(same(orgDraw), 'S31 the org chart node draws the swarm as the grid does: five circles, the same picture, no badge, not clipped (#3946)', JSON.stringify({ gridDraw, orgDraw }));
 
     // S41 (#4052, Josh: hovering other agents on the org chart makes the cluster icons "jiggle and shift about maybe 1
-    // or 2 pixels"): hovering any other agent moves neither the cluster's box nor a single pixel of it. The pixels
-    // are the point: a box that does not move can still be drawn 1px over (a re-rasterized layer), which a
-    // getBoundingClientRect guard alone cannot see.
+    // or 2 pixels"): hovering any agent moves no cluster's box (the hovered one included), and not a single pixel of
+    // a cluster it is not on. The pixels are the point: a box that does not move can still be drawn a pixel over (a
+    // re-rasterized layer), which a getBoundingClientRect guard alone cannot see. (A hovered cluster's own pixels
+    // change by design: it goes from half to full strength.)
     await page.click('[data-scope="agents"] .vt[data-layout="org"]');
     await page.mouse.move(2, 2);
-    const crewBox = () => page.evaluate(() => { const b = document.querySelector('.onode[data-agent="crew"] .face').getBoundingClientRect(); return [b.x, b.y, b.width, b.height].map((v) => +v.toFixed(3)).join(','); });
+    const clusters = ['crew', 'crew2'];
+    const boxes = () => page.evaluate((cs) => cs.map((c) => { const f = document.querySelector('.onode[data-agent="' + c + '"] .face');
+      if (!f) return c + ':none'; const b = f.getBoundingClientRect(); return c + ':' + [b.x, b.y, b.width, b.height].map((v) => +v.toFixed(3)).join(','); }).join(' '), clusters);
     let settled = false;
-    for (let i = 0; i < 40 && !settled; i += 1) { const a = await crewBox(); await page.waitForTimeout(500); settled = a === await crewBox(); }
-    chk(settled, 'S41 precondition: the org chart has settled (the cluster stopped moving on its own)');
+    for (let i = 0; i < 40 && !settled; i += 1) { const a = await boxes(); await page.waitForTimeout(500); settled = a === await boxes(); }
+    chk(settled, 'S41 precondition: the org chart has settled (the clusters stopped moving on their own)');
+    chk(await page.evaluate((cs) => cs.every((c) => document.querySelectorAll('.onode[data-agent="' + c + '"] .face > .swc .swd').length >= 2), clusters),
+      'S41 precondition: crew and crew2 are drawn as clusters, so the comparison below is of clusters');
     await page.waitForTimeout(600);
-    const crewShot = () => page.locator('.onode[data-agent="crew"] .face').screenshot();
-    const base = await crewShot(), baseBox = await crewBox();
+    const shot = (c) => page.locator('.onode[data-agent="' + c + '"] .face').screenshot();
+    const base = {};
+    for (const c of clusters) base[c] = await shot(c);
+    const baseBoxes = await boxes();
     await page.waitForTimeout(400);
-    chk(base.equals(await crewShot()), 'S41 CONTROL: two captures of the untouched cluster are identical, so a difference below means something moved');
+    chk((await Promise.all(clusters.map(async (c) => base[c].equals(await shot(c))))).every(Boolean),
+      'S41 CONTROL: two captures of each untouched cluster are identical, so a difference below means something moved');
     const moved = [];
-    for (const who of ['rex', 'crew2']) {
+    for (const who of ['rex', 'crew', 'crew2']) {
       await page.hover('.onode[data-agent="' + who + '"]');
       await page.waitForTimeout(400);   // the hover's .12s transitions have finished
-      const overlap = await page.evaluate((w) => {
-        const c = document.querySelector('.onode[data-agent="' + w + '"] .callout'), f = document.querySelector('.onode[data-agent="crew"] .face');
-        if (!c || !f) return false;
-        const a = c.getBoundingClientRect(), b = f.getBoundingClientRect();
-        return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-      }, who);
-      if (!overlap) {
-        if (await crewBox() !== baseBox) moved.push(who + ': the box moved');
-        if (!base.equals(await crewShot())) moved.push(who + ': the pixels moved');
+      if (await boxes() !== baseBoxes) moved.push('hovering ' + who + ': a cluster\'s box moved ' + await boxes());
+      for (const c of clusters) {
+        if (c === who) continue;
+        const covered = await page.evaluate(([w, c2]) => {   // the hovered agent's callout lying over it is not a shift
+          const k = document.querySelector('.onode[data-agent="' + w + '"] .callout'), f = document.querySelector('.onode[data-agent="' + c2 + '"] .face');
+          if (!k || !f) return false;
+          const a = k.getBoundingClientRect(), b = f.getBoundingClientRect();
+          return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+        }, [who, c]);
+        if (!covered && !base[c].equals(await shot(c))) moved.push('hovering ' + who + ': ' + c + '\'s pixels moved');
       }
       await page.mouse.move(2, 2);
       await page.waitForTimeout(400);
     }
-    chk(moved.length === 0, 'S41 hovering another agent moves neither the cluster\'s box nor its pixels (#4052)', JSON.stringify(moved));
+    chk(moved.length === 0, 'S41 hovering an agent moves no cluster\'s box, nor a pixel of a cluster it is not on (#4052)', JSON.stringify(moved));
     await page.click('[data-scope="agents"] .vt[data-layout="grid"]');
     await page.waitForTimeout(400);
 
