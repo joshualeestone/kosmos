@@ -2650,15 +2650,20 @@ test('the creation screen only calls an agent made when the board can see it run
   // Brace-matched, like `pageFunction` above: slicing to a comment further down
   // the file meant that inserting any function between the two silently widened
   // the slice and weakened both assertions without failing anything.
-  const watchStart = script.indexOf('async function watchForAgent');
-  assert.ok(watchStart > -1, 'watchForAgent vanished');
-  let d = 0; let watchEnd = -1;
-  for (let k = script.indexOf('{', watchStart); k < script.length; k += 1) {
-    if (script[k] === '{') d += 1;
-    else if (script[k] === '}') { d -= 1; if (d === 0) { watchEnd = k + 1; break; } }
-  }
-  assert.ok(watchEnd > -1, 'could not find the end of watchForAgent');
-  const body = script.slice(watchStart, watchEnd);
+  /* #3955 wraps watchForAgent in a counter and moves its body to watchForAgentNow, so both are read
+     (each brace-matched): the definition must still be asked, wherever the body lives. */
+  const fnBody = (name) => {
+    const start = script.indexOf('async function ' + name + '(');
+    assert.ok(start > -1, name + ' vanished');
+    let d = 0; let end = -1;
+    for (let k = script.indexOf('{', start); k < script.length; k += 1) {
+      if (script[k] === '{') d += 1;
+      else if (script[k] === '}') { d -= 1; if (d === 0) { end = k + 1; break; } }
+    }
+    assert.ok(end > -1, 'could not find the end of ' + name);
+    return script.slice(start, end);
+  };
+  const body = fnBody('watchForAgent') + (script.indexOf('async function watchForAgentNow(') > -1 ? fnBody('watchForAgentNow') : '');
   assert.match(body, /boardCanSeeIt\s*\(/,
     'watchForAgent no longer asks boardCanSeeIt, so the definition of "it is '
     + 'running" has been forked');

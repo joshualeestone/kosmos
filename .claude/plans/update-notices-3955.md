@@ -104,6 +104,9 @@ Card #3955 (Josh, #admin, 2026-09-26 08:11). Design: Mona Lisa's mock on card-sh
 - The automatic reload also waits while a new agent is being watched for (its staged photo and project tell go after it appears; WATCHING_AGENTS around watchForAgent) and while a photo is staged (PENDING_AVATAR).
 - Left: other document-level shortcuts are not stopped under the open window (none found that does harm); the committed-file shape test asserts nothing while no highlights file is committed, as designed.
 
+## Review round 14 (decided)
+- server.test.js's "one definition of running" test reads watchForAgent and watchForAgentNow (round 13 moved the body under a counter), each brace-matched; the browser-check README row describes the window as Josh ruled it.
+
 ## Tests
 - The chip's two states and its one button; the stale chip never says "Kosmos updated"; engine-stale still first.
 - Safe reload: reloads when hidden and idle; not when visible, sending, drafting, or a dialog is open.
