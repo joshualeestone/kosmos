@@ -105,6 +105,11 @@ test('editing a shared lib-*.js helper selects every check that requires it', ()
   assert.ok(!why.has('lib-sandbox-guard'), 'a helper is not a check and must not be named');
 });
 
+test('only a plain check name is ever emitted, since the workflow reads the list unquoted', () => {
+  const why = sel.select('', ['render-talk', 'render-talk $(touch x)', 'a b']);
+  assert.deepEqual([...why.keys()], ['render-talk']);
+});
+
 test('a known-red check is left out and said to be left out', () => {
   const [n] = Object.keys(sel.KNOWN_RED);
   assert.ok(n, 'KNOWN_RED is empty: delete this arm with it');

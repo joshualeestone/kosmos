@@ -78,8 +78,11 @@ be reached that way, so it says so on its first lines:
 
     // Browser-check-scope: page
 
-and runs on every page change. `render-fields` and `contrast` carry it. Run the
-selector yourself to see what a branch will run, and why:
+and runs on every page change. `render-fields` and `contrast` carry it. A check that is red on
+the CI runner for a reason that is not the PR's (the nightly card, #3973) is listed in the
+tool's `KNOWN_RED` and left out of this selection, with a line saying so; the allowlist, the
+nightly and the cut still run it. Run the selector yourself to see what a branch will run, and
+why:
 
     node tools/bc-pr-select.js origin/main HEAD
 
