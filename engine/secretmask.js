@@ -771,6 +771,9 @@ function plainWordRun(t) {
   /* A label: one letter and one or two digits, or the other way round (Q1, V2, A10, 4K, 3D; review round 10: a held
      Q1Q2Q3Q4Q5Q6 was masked out of a sentence about quarters). */
   if (/^(?:[A-Za-z][0-9]{1,2}|[0-9]{1,2}[A-Za-z])$/.test(t)) return true;
+  /* Mixed-case units and platform names a guide writes as words (review round 11: a held dBmGHzkHzmAh was masked out of
+     a spec line). */
+  if (/^(?:[kMGT]?Hz|dBm?|mAh|[kmM]?Wh|[kmM]W|mL|pH|iOS|iPadOS|macOS|tvOS|watchOS|visionOS)$/.test(t)) return true;
   if (!/^(?:[a-z]+|[A-Z]+|[A-Z][a-z]+)$/.test(t)) return false;
   return t.length < 3 || wordLike(t);
 }
@@ -819,7 +822,10 @@ function shortChunkSpans(text) {
   /* Latest start first, with one set of explored points per form shared by every start (review round 9: each mention
      of a shared opening re-walked every form, so a reply naming a JWT header's chunks was withheld). A point a later
      start already explored can only complete at runs that start already completed at, which the latest-start rule
-     keeps; so an earlier start skips it, and the work per form is bounded by its points, not by its mentions. */
+     keeps; so an earlier start skips it, and the work per form is bounded by its points, not by its mentions.
+     A point that was queued but never expanded (the search stops at its first completion) is skipped too, so an
+     earlier start whose only way to finish runs through such a point is not tried; that is the abandoned-first-try
+     case named under "Not covered". */
   const seenByForm = new Map();
   for (let r = runs.length - 1; r >= 0; r -= 1) {
     for (const open of runs[r][2]) {
@@ -897,8 +903,9 @@ function shortChunkSpans(text) {
       pieceSpan(i, t);
       /* And every other copy of the same piece between the key's first and last chunk: the search keeps one path,
          which can run through a repeated copy and leave the one that was really the key's showing (review rounds 9
-         and 10). The copies are the key's own characters, so masking them hides nothing else. */
-      for (const k of at.get(t) || []) if (k !== i && k > first && k < last) pieceSpan(k, t);
+         and 10). Not for a piece that is a plain word ("is", "the", "2"): its copies are ordinary words (review round
+         11), and what a repeated plain-word chunk can leave showing is that word. */
+      if (!plainWordRun(t)) for (const k of at.get(t) || []) if (k !== i && k > first && k < last) pieceSpan(k, t);
     }
   }
   return spans;

@@ -6,7 +6,7 @@ Card: #3995 (gap 4, from #3935's review round 34). Gaps 1 to 3 merged in #4061.
 Held Zq8vLm3pRt6wXy9kHb2nWc4d written "Zq8 and vLm and 3pR and ..." showed in full: no word walk starts under
 OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catch-all.
 
-## Change (engine/secretmask.js), as it stands after review round 3
+## Change (engine/secretmask.js), as first reworked in review round 3 (later rounds below)
 - shortChunkSpans: a second, stricter walk. It starts at a run of two or three characters (glue taken off) that
   begins a walked form the text can spell at all (a word break over the text's runs, memoised); advances only on runs
   that are exactly the form's next characters, each within SPLIT_REACH x the form's length (non-space) of the last
@@ -27,7 +27,8 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
   ordinary text would still be masked there. What would change it: a real guide reply that trips it.
 
 ## Not covered (also in the file)
-- One character per chunk; an all-lowercase or all-uppercase key at any short chunking; a hex form in short chunks.
+- One character per chunk; a single-case key whose chunks read as words (round 4); anything hex in short chunks;
+  see the file's own Not covered list, which is kept current.
 
 ## Review round 1 (Opus), what changed
 - BLOCKER fixed: the key-like start let a Titlecase two-letter word ("My", "Up", "Go") start a walk, so a held
@@ -140,3 +141,11 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
 - Every copy of a completed key's piece between its first and last chunk is masked, not only the copy on the path the
   search kept (the deferred rounds 9 and 10 case: a repeated chunk left the real copy showing). The copies are the
   key's own characters. Tested; red on the previous commit.
+
+## Review round 11 (Opus), what changed
+- The copies-between rule masked ordinary words when a key chunk was one ("is", "in", "the"): about 1.2 percent of
+  random keys cut in twos with filler. Extra copies are masked only for pieces that are not plain words; the comment
+  that said "hides nothing else" was wrong and is corrected. Tested; red on the previous commit.
+- Mixed-case units and platform names (GHz, kHz, dBm, mAh, kWh, iOS, iPadOS, macOS ...) count as plain words, so a held
+  value made of them is not masked out of a spec line. Tested; red on the previous commit.
+- The shared explored-set comment names the queued-not-expanded residual. This plan's stale lines corrected.

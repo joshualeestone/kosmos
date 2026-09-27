@@ -1583,3 +1583,19 @@ test('#3995 gap 4 review round 10: labels like Q1 are plain words, and a repeate
     assert.ok(t.includes('aaaa') && t.includes('dddd'), 'the words between were masked: ' + t);
   } finally { setKnownSecrets([]); }
 });
+
+test('#3995 gap 4 review round 11: ordinary words that are also a key chunk are not masked elsewhere, and units are plain words', () => {
+  setKnownSecrets(['Zq8theXy9kHb']);
+  try {
+    const input = 'Zq8 goes first; the next is the word the, then the Xy9, and the kHb last.';
+    const t = mask(input).text;
+    for (const c of ['Zq8', 'Xy9', 'kHb']) assert.ok(!t.includes(c), `the chunk ${c} survived: ${t}`);
+    // One "the" is the key's own piece on its path; every other copy is an ordinary word and stays.
+    const count = (x) => (x.match(/\bthe\b/g) || []).length;
+    assert.equal(count(t), count(input) - 1, 'ordinary copies of "the" were masked: ' + t);
+  } finally { setKnownSecrets([]); }
+  for (const [held, text] of [['dBmGHzkHzmAh', 'Specs: 20 dBm, 5 GHz, 32 kHz, 5000 mAh battery.'], ['iOSiPadOS17a', 'Update to iOS or iPadOS 17 on a device.']]) {
+    setKnownSecrets([held]);
+    try { assert.equal(mask(text).text, text, `${held}: a spec line was masked`); } finally { setKnownSecrets([]); }
+  }
+});
