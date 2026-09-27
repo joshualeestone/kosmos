@@ -476,7 +476,7 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *  - (a false mask, the other side of SHORT_WALK_MIN_KEYLIKE) a held value shaped like configuration rather than a key
  *    is masked out of prose that names it. The collector no longer holds one assigned to a public NAME (OPENAI_MODEL,
  *    AWS_REGION, API_VERSION: engine/knownsecrets.js isPublicName, #4111), so this is left for a model id held some
- *    other way: a bare one-line file, or a NAME with no public part (DEFAULT=gpt-4o-mini-2024-07-18);
+ *    other way: a bare one-line file, or a NAME that does not END in a public part (MODEL_FALLBACK=gpt-4o-mini-...);
  *  - an uppercase-and-digit key (A-Z 0-9) in chunks of two: its vowel pairs, labels and digit pairs all read as plain,
  *    so some show in full, more the shorter the key: measured in review round 29 on 400 keys per length, in twos
  *    26 percent at 16 characters, 14 at 20, 1 at 32; in threes 5 percent at 16, 3 at 20 (an AWS key id), 0 at 32;

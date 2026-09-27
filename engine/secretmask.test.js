@@ -1853,11 +1853,12 @@ test('#4111 a model id from a secrets file is not masked out of the guide prose 
   const key = j('sk-proj-', 'Held4111', 'Zq8vLm3pRt6wXy9k');
   try {
     fs.mkdirSync(path.join(root, 'data', 'secrets'), { recursive: true });
-    fs.writeFileSync(path.join(root, 'data', 'secrets', 'openai.env'), `OPENAI_MODEL=gpt-4o-mini-2024-07-18\nOPENAI_API_KEY=${key}\n`);
+    fs.writeFileSync(path.join(root, 'data', 'secrets', 'openai.env'), `OPENAI_MODEL=gpt-4o-mini-2024-07-18\nBEDROCK_MODEL=anthropic.claude-3-5-sonnet-20240620-v1:0\nOPENAI_API_KEY=${key}\n`);
     setKnownSecrets(collect({ dataRoot: path.join(root, 'data'), home: path.join(root, 'nohome') }));
     for (const prose of ['Pick gpt 4o mini, the snapshot dated 2024 07 18, for the cheap tier.',
       'Set OPENAI_MODEL to gpt-4o-mini-2024-07-18 in the file.',
-      'The model is gpt-4o-mini-2024-07-18.']) {
+      'The model is gpt-4o-mini-2024-07-18.',
+      'Use anthropic.claude-3-5-sonnet-20240620-v1:0 on Bedrock.']) {
       assert.equal(mask(prose).text, prose, `the guide's own prose was masked: ${mask(prose).text}`);
     }
     const out = mask(`your key is ${key} ok`).text;

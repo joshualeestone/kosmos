@@ -46,7 +46,10 @@ function valuesIn(text, out) {
        walks a NAME=value line whose value is NOT held (engine/secretmask.js isEnvLine), which would mask pieces of
        it in prose. Every OTHER key-shaped token on the line is still held (a key in a trailing comment). */
     if (a && isPublicName(a.name)) {
-      for (const tok of keyTokens(t)) if (tok !== a.value) out.add(tok);
+      /* The value is blanked before the line is cut into tokens: keyTokens cuts at : , ; so a value such as
+         anthropic.claude-3-5-sonnet-20240620-v1:0 or ft:gpt-4o-mini-2024-07-18:acme would otherwise be held
+         piece by piece (review round 1). */
+      for (const tok of keyTokens(t.replace(a.value, ' '))) out.add(tok);
       continue;
     }
     out.add(t);
@@ -55,7 +58,7 @@ function valuesIn(text, out) {
   }
 }
 
-/* The value a secrets-file line assigns to a public NAME, or null (#3935 review round 27): NAME=value, export
+/* The value a secrets-file line assigns to a NAME (names are public, the value is not), or null (#3935 review round 27): NAME=value, export
    NAME=value, YAML "name: value" (a space after the colon, so a URL's scheme is not a name) and JSON
    "name": "value". Trimmed and unquoted. engine/secretmask.js reads the same function: a line whose value is held
    on its own here is masked whole there but not walked, so its NAME stays readable. One parser, two uses. */
@@ -81,15 +84,21 @@ function parseAssignment(line) {
 }
 
 /* #4111: a NAME that says its value is public configuration, not a secret: OPENAI_MODEL, model, AWS_REGION,
-   API_VERSION. The setup guide names such values constantly (a model id such as gpt-4o-mini-2024-07-18 has digits and
-   no words, so it is key-shaped), and holding one masked the guide's own prose. A NAME with any secret-like part
-   (MODEL_API_KEY, REGION_TOKEN) is not public, whatever else it says. URL, HOST and ENDPOINT are deliberately NOT
-   public here: a URL can carry a token or a password, and holding one costs only a masked address. */
-const PUBLIC_NAME_PARTS = new Set(['MODEL', 'MODELS', 'REGION', 'VERSION', 'ZONE', 'LOCALE', 'LANG', 'LANGUAGE', 'TZ', 'TIMEZONE']);
-const SECRET_NAME_PARTS = /^(KEY|KEYS|APIKEY|TOKEN|TOKENS|SECRET|SECRETS|PASSWORD|PASSWD|PASS|PWD|AUTH|CREDENTIAL|CREDENTIALS|PRIVATE|SIG|SIGNATURE|SALT|COOKIE|SESSION|DSN|CERT|PEM)$/;
+   API_VERSION, defaultModel, OPENAI_MODEL_ID. The setup guide names such values constantly (a model id such as
+   gpt-4o-mini-2024-07-18 has digits and no words, so it is key-shaped), and holding one masked the guide's own prose.
+   The NAME must END in a public part (or in <public>_ID / <public>_NAME), so a secret named after a model or a region
+   (MODEL_PASSPHRASE, REGION_BEARER, MODEL_API_KEY) stays held by its last word, and a secret-like part anywhere
+   (REGION_TOKEN_VERSION) also keeps it held. camelCase names are split like snake_case ones. URL, HOST and ENDPOINT
+   are deliberately NOT public: a URL can carry a token or a password, and holding one costs only a masked address.
+   ZONE is not public either: Cloudflare's CF_ZONE_ID is read from the secrets folder, and TZ/TIMEZONE cover time. */
+const PUBLIC_NAME_PARTS = new Set(['MODEL', 'MODELS', 'REGION', 'VERSION', 'LOCALE', 'LANG', 'LANGUAGE', 'TZ', 'TIMEZONE']);
+const SECRET_NAME_PARTS = /^(KEY|KEYS|APIKEY|TOKEN|TOKENS|SECRET|SECRETS|PASSWORD|PASSWD|PASSPHRASE|PASS|PWD|PIN|AUTH|OAUTH|BEARER|JWT|HMAC|OTP|TOTP|CREDENTIAL|CREDENTIALS|CREDS|PRIVATE|SIG|SIGNATURE|SALT|NONCE|COOKIE|SESSION|DSN|CERT|PEM|SEED|MNEMONIC)$/;
 function isPublicName(name) {
-  const parts = String(name).toUpperCase().split(/[_.-]+/).filter(Boolean);
-  return parts.some((p) => PUBLIC_NAME_PARTS.has(p)) && !parts.some((p) => SECRET_NAME_PARTS.test(p));
+  const parts = String(name).replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase().split(/[_.-]+/).filter(Boolean);
+  if (!parts.length || parts.some((p) => SECRET_NAME_PARTS.test(p))) return false;
+  const last = parts[parts.length - 1];
+  if (PUBLIC_NAME_PARTS.has(last)) return true;
+  return (last === 'ID' || last === 'NAME') && parts.length >= 2 && PUBLIC_NAME_PARTS.has(parts[parts.length - 2]);
 }
 
 /* The key-shaped tokens of a secrets-file line (#3935). The mask does not walk a line with spaces in it (a comment,

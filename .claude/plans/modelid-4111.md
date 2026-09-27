@@ -20,8 +20,10 @@ masked the setup guide's own prose naming the model (found in #3995 gap-4 review
   that happens to start the same way. The NAME is what says the value is configuration.
 
 ## Weakest premise
-A secret stored under a public-sounding NAME with no secret part (for example a password in `REGION=...`) is no longer
-held. That would be a misnamed secret; the mask's shape rules still catch key-shaped text anywhere.
+A secret stored under a NAME that ENDS in a public part with no secret-like part anywhere (a password in `REGION=...`)
+is no longer held by value, and the mask's shape rules do NOT reliably catch it in prose: review round 1 measured a
+24-character mixed-case key under MODEL_PASSPHRASE going unmasked (that NAME is now secret by its last word). The rule
+is narrowed to the last part so a misnamed secret needs a NAME that says, in its last word, that it is configuration.
 
 ## Tests
 - knownsecrets.test.js: public values not held (env, export, YAML, JSON, one-line file); controls: OPENAI_API_KEY and
@@ -30,3 +32,15 @@ held. That would be a misnamed secret; the mask's shape rules still catch key-sh
   untouched; the key beside it is masked.
 - All three red on origin/main's knownsecrets.js. Perturbation (hold the line, skip only the value) turns the end-to-
   end test red: the walked-line trap is guarded by the behaviour test, not only by the collector test.
+
+## Challenge loop record
+### Iteration 1 (opus): 3 WARNINGs, 3 NITs, all fixed.
+- W: exact-equality exclusion missed values keyTokens cuts at ":" (Bedrock anthropic.claude-...-v1:0, OpenAI ft:...).
+  keyTokens now runs on the line with the value blanked. Exact-equality perturbation turns both tests red.
+- W: MODEL_PASSPHRASE, REGION_BEARER counted as public, and the plan's premise that shape rules catch such a key was
+  measured false. isPublicName now requires the LAST part public (or <public>_ID/_NAME); more secret words added;
+  premise rewritten.
+- W: camelCase JSON names (defaultModel, modelId) were never public. Now split on camelCase.
+- N: ZONE dropped (CF_ZONE_ID stays held, with a control); assignedValue comment reworded; isPublicName table widened
+  (model.api-key, model-secret, modelToken, SESSION_ID, ID).
+- Note: the background validation run overlapped these edits; it is discarded and rerun.
