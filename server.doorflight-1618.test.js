@@ -84,7 +84,9 @@ const TOKEN = 'hetzner-token-long-enough-to-be-real-0123456789';
 /* #4073: wait until `ok()` holds, or `ms` passes, polling every 10ms. A fixed sleep here raced a loaded machine:
    under load (35 to 85 in the card's runs, 47 to 74 in Renet's, on 10 cores) neither request had reached the
    verifier within 150ms, and the count read 0 as "not shared". */
-async function until(ok, ms = 5000) {
+/* How long the verifier (or a forget()) is given before a wait fails: one budget, used by every wait below. */
+const VERIFY_WAIT_MS = 5000;
+async function until(ok, ms = VERIFY_WAIT_MS) {
   const end = Date.now() + ms;
   while (!ok() && Date.now() < end) await new Promise((r) => setTimeout(r, 10));
   return ok();
@@ -152,7 +154,7 @@ test('#1618: forget() observes its OWN write while a shelf read is in flight', a
 
     /* A forget() that shares the held read waits on it for ever, so it is given the same deadline and fails as
        that, rather than hanging the file. */
-    const gone = await Promise.race([h.door.forget(), new Promise((r) => setTimeout(() => r('waited'), 5000))]);
+    const gone = await Promise.race([h.door.forget(), new Promise((r) => setTimeout(() => r('waited'), VERIFY_WAIT_MS))]);
     assert.notEqual(gone, 'waited', 'forget() waited on the shelf read already in flight, so it shares that read and answers from before its write');
     assert.equal(gone.connected, false,
       'forget() was answered from a read that began before its write, so the door reports connected after being forgotten');
