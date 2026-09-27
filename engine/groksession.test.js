@@ -265,4 +265,11 @@ test('the floor is the FIRST turn only: a later single-call turn after a compact
   writeSession({ encDir: 'enc-usage', sessionId: 'compacted', cwd: WORKDIR, model: 'grok-4.6', numMessages: 40, lastActive: '2026-09-27T04:00:00Z', lastTurn: 'x', tokensUsed: 30000, windowTokens: 500000 });
   writeUsage('compacted', [{ turnNumber: 1, inputTokens: 900000, modelCalls: 3 }, { turnNumber: 2, inputTokens: 380000, modelCalls: 1 }]);
   assert.equal(grok.read(WORKDIR).contextUsed, 30000, 'an old single-call turn\'s 380000 overrode the gauge after it dropped');
+
+  /* The first turn WAS single-call (the measured 40111); later turns and a compaction follow. Only the
+     turn-count check keeps the first turn's prompt from pinning the ring (modelCalls alone would pass). */
+  reset();
+  writeSession({ encDir: 'enc-usage', sessionId: 'later', cwd: WORKDIR, model: 'grok-4.6', numMessages: 30, lastActive: '2026-09-27T04:10:00Z', lastTurn: 'x', tokensUsed: 30000, windowTokens: 500000 });
+  writeUsage('later', [{ turnNumber: 1, inputTokens: 40111, modelCalls: 1 }, { turnNumber: 2, inputTokens: 80000, modelCalls: 2 }]);
+  assert.equal(grok.read(WORKDIR).contextUsed, 30000, 'the first turn\'s 40111 pinned the ring after later turns');
 });

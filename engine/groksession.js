@@ -136,7 +136,10 @@ function forWorkdir(dir, home) {
  * exactly ONE turn and it made ONE call (the measured case). A later single-call turn is left
  * alone: after a compaction the gauge drops and an old turn's prompt would pin the ring high.
  * MEASURED: usage.json is written 27-63 ms BEFORE signals.json at the end of a turn (both real
- * sessions), so contextUsedAt (signals.json's mtime) is never earlier than the floored figure. Never throws; any doubt keeps Grok's own figure.
+ * sessions), so contextUsedAt (signals.json's mtime) is never earlier than the floored figure. In
+ * that gap a second turn can briefly read the stale estimate again; the next write corrects it.
+ * MEASURED too: a resume in a NEW process (`grok -r <id>`) appended turn 2 to the same usage.json,
+ * so turns[] is the whole session and "one turn" really means the first. Never throws; any doubt keeps Grok's own figure.
  */
 function singleCallFloor(used, sessionDir) {
   if (used == null) return used;
