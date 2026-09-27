@@ -35,15 +35,21 @@ test('#2270: on win32, executability is the EXTENSION, not the exec bit', () => 
   const execNoExt = file('claude', 0o755);
   assert.equal(runnableExactly(execNoExt, 'win32'), false,
     'win32 must reject an extensionless file even with the exec bit set (X_OK is a no-op there)');
-  assert.equal(runnableExactly(execNoExt, 'darwin'), true,
-    'POSIX control: the same 0o755 file IS runnable by X_OK');
+  // The POSIX controls read the real exec bit through X_OK, which a Windows HOST does not
+  // have (#1777 measured this arm red on windows-latest), so they hold only on a POSIX host.
+  if (process.platform !== 'win32') {
+    assert.equal(runnableExactly(execNoExt, 'darwin'), true,
+      'POSIX control: the same 0o755 file IS runnable by X_OK');
+  }
 
   // A 0o644 `.exe`: NOT X_OK-executable, but Windows launches it by extension.
   const exe644 = file('claude.exe', 0o644);
   assert.equal(runnableExactly(exe644, 'win32'), true,
     'win32 must accept a .exe by its extension regardless of the (meaningless-there) mode bit');
-  assert.equal(runnableExactly(exe644, 'darwin'), false,
-    'POSIX control: a 0o644 file is not runnable, .exe or not');
+  if (process.platform !== 'win32') {
+    assert.equal(runnableExactly(exe644, 'darwin'), false,
+      'POSIX control: a 0o644 file is not runnable, .exe or not');
+  }
 });
 
 test('#2270: win32 honours PATHEXT (env-aware), and a directory is never runnable', () => {

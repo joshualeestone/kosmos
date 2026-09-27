@@ -39,6 +39,13 @@ jobs:
     # verdict, never cancelled mid-file (a cancel reads as a fail with no reason, #3499).
     timeout-minutes: 55
     steps:
+      # Check out the bytes that ship. The Windows bundle is built from this repo's LF sources
+      # on a Mac, but git on a Windows runner converts to CRLF at checkout (core.autocrlf=true),
+      # and tests that cut functions out of source by '\n}\n' then read the wrong bytes (#1777
+      # measured web.win32-board-copy red for exactly that). Before checkout, so it applies.
+      - name: check out LF, as shipped
+        shell: bash
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
       # Node 26, as test.yml (#1794): the suite is written on node 26.
       - uses: actions/setup-node@v4
