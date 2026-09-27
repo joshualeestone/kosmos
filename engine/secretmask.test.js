@@ -1308,3 +1308,82 @@ test('#3935 a key with - before its note, and a key glued with : on a line with 
     assert.equal(mask(t).text, t);
   } finally { setKnownSecrets([]); fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('#3995 a held key grouped with / + or =, spread past the reach limit, or cut by symbols without its opening is masked', () => {
+  const held = j('Zq8vLm3p', 'Rt6wXy9k', 'Hb2nWc4d');
+  const pw = j('Zq8v!Lm3p', '#Rt6w$Xy9k');
+  const long = j('Qm4tZr8wLp2x', 'Nc6vHb9yKd3sFg7j');
+  setKnownSecrets([held, pw, long]);
+  try {
+    const four = held.match(/.{4}/g);
+    const filler = ' which is the part you copy from the settings page of your account and paste into the box ';
+    const cases = [
+      ['grouped with /', `Here it is ${four.join('/')} done`, four],
+      ['grouped with +', `Here it is ${four.join('+')} done`, four],
+      ['grouped with =', `Here it is ${four.join('=')} done`, four],
+      ['no opening, grouped', `the rest is ${four.slice(1, 5).join('/')}`, four.slice(1, 5)],
+      ['short = groups with words between', `Start ${four[0]}${four[1]} then ${four[2]}=${four[3]} then ${four[4]}=${four[5]} end`, four],
+      ['symbols, no opening', 'The end is Lm3p#Rt6w$Xy9k', ['Lm3p', 'Rt6w', 'Xy9k']],
+      ['pieces past the reach limit', long.match(/.{7}/g).map((c) => c + filler).join(''), long.match(/.{7}/g)],
+    ];
+    for (const [name, input, pieces] of cases) {
+      const r = mask(input);
+      for (const piece of pieces) assert.ok(!r.text.includes(piece), `${name}: the piece ${piece} survived: ${r.text}`);
+      assert.ok(r.fired.some((f) => f.kind === 'split_secret'), `${name}: reported as ${JSON.stringify(r.fired)}`);
+    }
+    /* Ordinary text with the same characters is left alone. */
+    const plain = 'See https://example.com/docs/api/v2 and note that 1/2 + 3 = 4, a+b=c, and/or TCP/IP. The end is near!';
+    assert.equal(mask(plain).text, plain);
+    const spread = 'Qm4tZr8' + filler + 'nothing else here' + filler.repeat(3);
+    assert.ok(mask(spread).text.includes('nothing else here'), 'one piece alone swallowed the text after it');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 review round 1: a guide naming a held key\'s prefix many times is not withheld or slowed, a bare mention far before the key stays, and text glued to a key by punctuation is not swallowed', () => {
+  const held = j('sk-ant-', 'api03-', 'QaQ7xZk2mP9wLr4TbV8nHc6Jd');
+  const pw = j('Zq8vLm3p', 'Rt6wXy9k', 'Hb2nWc4d');
+  setKnownSecrets([held, pw]);
+  try {
+    const para = 'To connect, paste a key that starts with sk-ant-api03- into a box on a page. A key like that is a secret, and a guide never shows a real one. ';
+    const guide = para.repeat(160);
+    const ms = cpuMillisecondsOf(() => { const r = mask(guide); assert.equal(r.text, guide, 'a guide naming the prefix was changed or withheld'); });
+    assert.ok(ms < 600, `a guide naming the prefix 160 times cost ${ms}ms`);
+    const mention = 'Every Anthropic key begins sk-ant-api03- and continues. ';
+    const input = mention + 'This is a note about a thing and a setting you set in a page of a menu. '.repeat(3)
+      + 'Here it is: sk-ant-api03-QaQ7 then xZk2mP9wL then r4TbV8nH then c6Jd done.';
+    const r = mask(input);
+    assert.ok(r.text.startsWith(mention), `the bare mention was masked: ${r.text}`);
+    for (const piece of ['QaQ7', 'xZk2mP9wL', 'r4TbV8nH', 'c6Jd']) assert.ok(!r.text.includes(piece), `the piece ${piece} survived: ${r.text}`);
+    const glued = [
+      ['JSON', '{"name":"myproject","region":"us-east-1","apiKey":"Lm3pRt6w#Xy9kHb2n","timeout":30}', ['myproject', 'us-east-1', 'timeout']],
+      ['CSV', '1,alpha,us-east-1,Lm3p#Rt6w$Xy9k,primary.account;see.docs', ['alpha', 'us-east-1', 'primary', 'see']],
+      ['URL', 'Open https://dashboard.example.com/settings?tab=keys&id=Lm3p#Rt6w$Xy9k&mode=edit#section.two then go on.', ['dashboard', 'settings', 'mode', 'section', 'then go on']],
+    ];
+    for (const [name, text, kept] of glued) {
+      const g = mask(text);
+      for (const piece of ['Lm3p', 'Rt6w', 'Xy9k']) assert.ok(!g.text.includes(piece), `${name}: the piece ${piece} survived: ${g.text}`);
+      for (const k of kept) assert.ok(g.text.includes(k), `${name}: "${k}" glued to the key was masked with it: ${g.text}`);
+    }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3995 review round 3: a / + or = inside the opening, labels glued to a grouped key, a symbol-cut password\'s symbols, and dense paths and sums', () => {
+  const held = j('Zq8vLm3p', 'Rt6wXy9k', 'Hb2nWc4d');
+  const pw = j('Zq8v!Lm3p', '#Rt6w$Xy9k');
+  setKnownSecrets([held, pw]);
+  try {
+    for (const sep of ['/', '+', '=']) {
+      const input = `Here Zq8${sep}vLm3pR then t6wX${sep}y9kHb then 2nWc${sep}4d ok`;
+      assert.equal(mask(input).text, `Here ${MASK} then ${MASK} then ${MASK} ok`, `a ${sep} inside the opening`);
+    }
+    assert.equal(mask('Use name=production+region=useast+token=Lm3p/Rt6w/Xy9k then save').text, `Use name=production+region=useast+token=${MASK} then save`);
+    assert.equal(mask('id=Lm3p/Rt6w/Xy9k/and/more/stuff/here ok').text, `id=${MASK}/and/more/stuff/here ok`);
+    assert.equal(mask('pw is Lm3p#Rt6w$Xy9k.').text, `pw is ${MASK}.`);
+  } finally { setKnownSecrets([]); }
+  const keys = Array.from({ length: 5 }, (_, i) => j('sk-ant-', 'api03-', `Dense${i}Paths`, 'Qm4tZr8wLp2xNc6vHb9yKd3sFg7jQm4tZr8wLp2xNc6vHb9yKd3sFg7jQm4tZr8wLp2xNc6vHb9yKd3s'));
+  setKnownSecrets(keys);
+  try {
+    const para = 'Paste sk-ant-api03- into the box at settings/api/keys/new and a/b/c/d, x+y=z, k=v/w, then/or save/apply. '.repeat(400);
+    assert.equal(mask(para).text, para, 'text dense with paths and sums was changed or withheld');
+  } finally { setKnownSecrets([]); }
+});
