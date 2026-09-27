@@ -30,3 +30,7 @@ With the flag on, on a Mac with Muse Code installed, a person can pick Meta in A
 - The code falls back to the address's user_code when no dashed code is printed (weakest premise 1).
 - The test tmux sockets are removed, and the server test reads Muse's file from the sandbox home only.
 - Carried into 3b: the page must keep the id from its own start POST, never from the GET (the GET hands the id to any caller). And the signed-in mark can outlive a sign-out until 3c clears it on "missing meta credential"; this is named in musestatus.signedIn's comment, and no screen reads it before then.
+
+## 3a review round 2 (decided)
+- Both round-1 margins now have tests with a stubbed tmux: one missed session check does not end a sign-in and two in a row do, and a send failure is named only after MAX_KEY_FAILURES. Each control (the margin lowered to 1) went red.
+- The fake's self-check reads only its drawn lines, not its comments.
