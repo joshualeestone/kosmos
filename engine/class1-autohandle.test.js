@@ -400,3 +400,19 @@ test('#4169: arm names the trigger that DECIDED; a by:agent card showing trust e
   assert.equal(standingFromAgent({ state: 'needs_you', stateReportedBy: null, stateEvidence: TRUST_ROW }, isTrustDialogEvidence).arm, 'trust-dialog');
   assert.equal(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', stateEvidence: TRUST_ROW }, isTrustDialogEvidence).arm, 'trust-dialog');
 });
+
+test('#4169: the standing shape from a card is pinned whole', () => {
+  assert.deepEqual(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto', because: 'asking permission to use Bash: kill 1' }),
+    { found: true, state: 'needs_you', by: 'auto-tool-permission', runner: '', arm: 'tool-permission', prompt: 'asking permission to use Bash' });
+  assert.deepEqual(standingFromAgent({ state: 'needs_you', stateReportedBy: null, stateEvidence: TRUST_ROW }, isTrustDialogEvidence),
+    { found: true, state: 'needs_you', by: 'auto', runner: '', arm: 'trust-dialog', prompt: TRUST_ROW });
+  // A by:auto card that is not waiting names no arm (only a waiting card can be a prompt).
+  assert.equal(standingFromAgent({ state: 'working', stateReportedBy: 'auto' }).arm, null);
+});
+
+test('#4169: the board.log line names the arm and the prompt', () => {
+  const { formatLogLine } = require('./class1-autohandle');
+  const line = formatLogLine({ name: 'Kano', session: 'kano', act: 'trust-and-restart', handled: true, because: 'wrote the key', arm: 'trust-dialog', prompt: 'Quick safety check: Is this' });
+  assert.equal(line, 'class1-autohandle: Kano (kano) handled (trust+restart) - wrote the key [arm=trust-dialog; prompt="Quick safety check: Is this"]\n');
+  assert.match(formatLogLine({ name: 'A', session: 'a', act: 'escalate', because: 'b' }), /ESCALATED .* \[arm=unknown; prompt=""\]\n$/);
+});

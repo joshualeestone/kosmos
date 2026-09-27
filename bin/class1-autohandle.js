@@ -21,7 +21,16 @@
  */
 
 const selfreport = require('../engine/selfreport');
-const { sweepClass1 } = require('../engine/class1-autohandle');
+const { sweepClass1, standingFromAgent } = require('../engine/class1-autohandle');
+
+/* #4169: a self-report goes through the SAME adapter the board's armed sweep uses (standingFromAgent), so this dry-run
+   and the board give one answer. A self-report carries no screen, so it can never show the folder-trust dialog, and a
+   by:auto report on its own (a tool prompt) plans none here exactly as it does on the board. */
+function standingOf(name) {
+  const s = selfreport.read(name);
+  if (!s || s.found !== true) return s;
+  return standingFromAgent({ state: s.state, stateReportedBy: s.by || null, because: s.because });
+}
 
 function main(argv) {
   const names = argv.slice(2).filter((a) => a && !a.startsWith('-'));
@@ -33,16 +42,11 @@ function main(argv) {
   // history: every class-1 wait plans as trust-and-restart, never escalate. That is
   // correct for a dry run (it shows the fresh decision); the armed path supplies a
   // real attemptsFor.
-  const plans = sweepClass1(names, { read: (n) => selfreport.read(n) }, Date.now());
+  const plans = sweepClass1(names, { read: standingOf }, Date.now());
   process.stdout.write('class1-autohandle DRY-RUN (no action taken)\n');
-  /* #4169: this reads raw self-reports, with no screen. The board acts ONLY on the folder-trust dialog it sees on screen, so a
-     by:auto tool prompt that plans trust-and-restart here is NOT restarted by the board. */
-  process.stdout.write('note: from self-reports only; the board restarts only for the folder-trust dialog it sees on screen\n');
+  process.stdout.write('note: from self-reports only; the board restarts only for the folder-trust dialog, which shows only on screen, so a self-report alone never plans a restart here\n');
   for (const { name, plan } of plans) {
-    /* #4169: a self-report cannot show the screen, so a would-restart plan here is only what the board does IF it sees the
-       folder-trust dialog; a by:auto report on its own is a tool prompt, which the board leaves for a person. */
-    const when = plan.act === 'trust-and-restart' ? ' (the board does this ONLY if its screen shows the folder-trust dialog; a tool prompt is left for a person)' : '';
-    process.stdout.write(`  ${name}: ${plan.act}${when} - ${plan.because}\n`);
+    process.stdout.write(`  ${name}: ${plan.act} - ${plan.because}\n`);
   }
 }
 

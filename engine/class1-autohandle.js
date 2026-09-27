@@ -101,7 +101,8 @@ function isClass1(standing) {
  * (ms since epoch, most recent last), and the current time, decide what to do.
  *
  * @param {object} standing  the result of selfreport.read(name), or standingFromAgent(card), which adds
- *   `runner` (#4006: a non-Claude runner, or null for unknown, plans 'none').
+ *   `runner` (#4006: a non-Claude runner, or null for unknown, plans 'none'), and `arm` / `prompt` (#4169: the
+ *   trigger that decided, and the screen line or report text behind it, for the log; the plan does not read them).
  * @param {number[]} attempts  ms timestamps of prior auto-handles for THIS agent.
  * @param {number} now  ms.
  * @param {{maxAttempts?:number, windowMs?:number}} [opts]
@@ -335,9 +336,10 @@ function standingFromAgent(agent, isTrustDialogEvidence) {
   // catches every case this handle exists for. A tool-permission prompt keeps its needs_you card for a person.
   const promoted = trustDialogScrape && (!rawBy || rawBy === 'auto');
   /* `arm` names the trigger that DECIDED (null when neither did: a by:'agent' card showing trust evidence stays its own). */
-  const arm = promoted ? 'trust-dialog' : (rawBy === 'auto' ? 'tool-permission' : null);
+  const waiting = agent && agent.state === 'needs_you';
+  const arm = promoted ? 'trust-dialog' : (rawBy === 'auto' && waiting ? 'tool-permission' : null);
   const by = promoted ? 'auto'
-    : (arm === 'tool-permission' ? 'auto-tool-permission' : rawBy);   // internal adapter value: not class-1
+    : (rawBy === 'auto' ? 'auto-tool-permission' : rawBy);   // internal adapter value: not class-1
   /* The card's runner as the card says it: a string, or null for a row that could not say (see planClass1Handle). */
   const runner = agent && typeof agent.runner === 'string' ? agent.runner : (agent && agent.runner === null ? null : '');
   /* What the log names (#4169: which arm fired, and the prompt behind it). Only a trust-dialog plan is ever logged
@@ -456,7 +458,15 @@ function sweepOnce(o) {
   return { results, attempts: book };
 }
 
+/* #4169: the board.log line for one sweep record, exported so the text people read (and count restarts by) is tested,
+   not only the fields behind it. */
+function formatLogLine(r) {
+  const what = r.act === 'escalate' ? 'ESCALATED (restart not clearing it, left red)' : (r.handled ? 'handled (trust+restart)' : 'attempted');
+  return `class1-autohandle: ${r.name} (${r.session}) ${what} - ${r.because} [arm=${r.arm || 'unknown'}; prompt=${JSON.stringify(r.prompt || '')}]\n`;
+}
+
 module.exports = {
+  formatLogLine,
   isClass1,
   planClass1Handle,
   runClass1Handle,

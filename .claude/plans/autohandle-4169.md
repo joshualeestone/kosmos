@@ -36,8 +36,10 @@ fired and the prompt behind it, so tomorrow's board.log can show the count near 
   needs_you until someone answers, instead of silently restarting the agent and wiping its context. That is better, and
   it has a cost: an unattended agent can now sit on one such prompt overnight, where before it was restarted (and met the
   prompt again later, having lost its work). The trade is named, not hidden.
-- The dry-run bin (bin/class1-autohandle.js) reads raw self-reports and still PRINTS trust-and-restart for a by:auto
-  report; it takes no action, and now says in its output that the board acts only on the trust dialog it sees on screen.
+- The dry-run bin (bin/class1-autohandle.js) now runs each self-report through the same adapter (standingFromAgent), so
+  it gives the board's answer: a by:auto tool prompt plans none there too (review 7: a caveat on a wrong verdict was
+  the two-derivations defect). The generic sweepClass1 is unchanged; its callers supply the standings.
+- The board.log line is built by an exported formatLogLine, so the text restarts are counted by is tested.
 
 ## Open (not covered by this fix)
 - scorpion 03:30:34 was restarted after an ordinary `working` report, not a permission prompt. Next I would look at:
