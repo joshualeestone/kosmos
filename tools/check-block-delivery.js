@@ -67,12 +67,18 @@ function hasContent(name) {
   switch (name) {
     case 'you':      return safe(() => require(path.join(REPO, 'engine', 'you.js')).read().state !== 'absent');
     case 'policy':   return safe(() => (require(path.join(REPO, 'engine', 'policy.js')).read().policies || []).length > 0);
-    case 'doctrine': return safe(() => { const d = require(path.join(REPO, 'engine', 'doctrine.js')); const r = d.read ? d.read() : null; return !!(r && (r.text || r.state === 'present')); });
+    /* doctrine is never asked here: it has no read(), and asking one made every
+       agent's working-rules block read "nothing to deliver" (#1071). It is
+       measured per agent below, through the module's own planFor. */
     /* Unconditional instruction text: these produce a body even with an empty
        argument, so "nothing to deliver" can never explain their absence. */
     case 'reports':    return safe(() => String(require(path.join(REPO, 'engine', 'reports.js')).blockBody({}) || '').length > 0);
     case 'colleagues': return safe(() => String(require(path.join(REPO, 'engine', 'messages.js')).blockBody([]) || '').length > 0);
     case 'connections': return true;
+    /* Per agent (its own Files path), never empty. */
+    case 'dmfiles':     return true;
+    /* A swarm lead's block always has a body; WHO leads is the entitlement. */
+    case 'swarm':       return true;
     /* ⚠️ MEMBERSHIP, NOT UNIVERSAL. An agent outside every project is RIGHT to
        lack this, so a raw count reads fifteen correct absences as a failure. */
     case 'projects': return safe(() => (projects.readAll() || []).length > 0);
@@ -82,6 +88,14 @@ function hasContent(name) {
 
 /* Who is entitled to each block. Only `projects` is narrower than everyone. */
 function entitled(name, agents) {
+  /* ⚠️ ROLE, NOT UNIVERSAL: only an agent made as a swarm carries the swarm block. */
+  if (name === 'swarm') {
+    try {
+      const store = require(path.join(REPO, 'engine', 'store.js'));
+      const swarm = require(path.join(REPO, 'engine', 'swarm.js'));
+      return agents.filter((a) => { try { return swarm.settingsOf(store.readProfile(a)) !== null; } catch { return false; } });
+    } catch { return null; }
+  }
   if (name !== 'projects') return agents;
   try {
     const members = new Set();
@@ -90,7 +104,16 @@ function entitled(name, agents) {
   } catch { return null; }
 }
 
-const names = ['projects', 'you', 'reports', 'connections', 'policy', 'doctrine', 'colleagues'];
+/* 🛑 THE BLOCK LIST COMES FROM THE REGISTRY, NOT FROM THIS FILE (#1071). A
+   hardcoded list of seven went blind to dmfiles and swarm the day they were
+   added, and a block the tool does not list reads as nothing at all, which is
+   the quietest possible way to be wrong. A block added later with no case in
+   hasContent reads CANNOT TELL, which is loud on purpose. */
+const names = [];
+for (const m of projects.ALL_MARKERS()) {
+  const hit = /^<!-- kosmos:([a-z0-9-]+):start -->$/.exec(m);
+  if (hit && !names.includes(hit[1])) names.push(hit[1]);
+}
 
 let agents;
 try {
@@ -121,10 +144,30 @@ console.log('engine: ' + REPO);
 console.log('');
 console.log('block'.padEnd(14) + 'has it'.padEnd(9) + 'entitled'.padEnd(10) + 'verdict');
 
-let undelivered = 0; let stale = 0; let cannotTell = 0;
+let undelivered = 0; let stale = 0; let cannotTell = 0; let awaiting = 0;
 for (const name of names) {
   const marker = '<!-- kosmos:' + name + ':start -->';
   const have = agents.filter((a) => text[a].includes(marker));
+  if (name === 'doctrine') {
+    /* 🔑 THE WORKING RULES ARE CONSENTED, NOT SWEPT (#539). An agent is current
+       when every section is in its file, inside the managed span or as its own
+       text, so the marker count says little. Asked of doctrine.planFor on the
+       text read above, the same composition the consent dialog shows. Behind
+       is its own verdict: the path to current is the person's click, not a
+       sync, so it is never counted as undelivered. */
+    let verdict;
+    try {
+      const doctrine = require(path.join(REPO, 'engine', 'doctrine.js'));
+      const behind = agents.filter((a) => doctrine.planFor(text[a]).state === 'refresh');
+      const unsure = agents.filter((a) => doctrine.planFor(text[a]).state === 'could_not');
+      if (unsure.length) { verdict = 'CANNOT TELL on ' + unsure.join(', '); cannotTell += 1; }
+      else if (!behind.length) verdict = 'current on all';
+      else { verdict = 'behind on ' + behind.length + ', awaiting the person\'s consented refresh (#539)'; awaiting += 1; }
+    } catch { verdict = 'CANNOT TELL -- could not read its source'; cannotTell += 1; }
+    console.log('  ' + name.padEnd(12) + String(have.length + '/' + agents.length).padEnd(9)
+      + String(agents.length).padEnd(10) + verdict);
+    continue;
+  }
   const content = hasContent(name);
   const ent = entitled(name, agents);
   let verdict;
@@ -148,7 +191,15 @@ for (const name of names) {
 }
 
 console.log('');
-console.log(undelivered + ' block(s) undelivered, ' + stale + ' stale, ' + cannotTell + ' unreadable.');
+console.log(undelivered + ' block(s) undelivered, ' + stale + ' stale, ' + cannotTell + ' unreadable, '
+  + awaiting + ' awaiting consent.');
+/* ⚠️ colleagues IS BIRTH-ONLY, AND ONLY FOR ROLE-TEMPLATE AGENTS (engine/create.js:
+   custom instructions get nothing appended uninvited; projects.healColleagues only
+   refreshes a block already there). Its UNDELIVERED count therefore includes agents
+   made from the person's own words, which lack it by design. Said here rather than
+   guessed per agent, because nothing on disk records which way an agent was made. */
+console.log('Note: colleagues is added at birth to role-template agents only; an agent made');
+console.log('from custom instructions lacks it by design, so its count is an upper bound.');
 console.log('This tool CHANGES NOTHING. Syncing rewrites the files agents boot from (#1071).');
 /* Exit 0 always: this is a REPORT, and a non-zero here would wire a standing
    fleet condition into every caller's failure path. A number is the output. */

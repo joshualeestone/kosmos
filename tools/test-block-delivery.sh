@@ -156,6 +156,38 @@ else
   esac
 fi
 
+# 🔑 THE BLOCK LIST IS THE REGISTRY'S (#1071). The tool once hardcoded seven names and
+# was blind to dmfiles and swarm, which projects.ALL_MARKERS() already carried. Every
+# registry block must have a row, so a block added later can never be invisible here.
+out="$(run "$T/none")"
+missing_rows=""
+for b in $(node -e "for (const m of require('./engine/projects').ALL_MARKERS()) { const h=/^<!-- kosmos:([a-z0-9-]+):start -->$/.exec(m); if (h) console.log(h[1]); }"); do
+  printf '%s\n' "$out" | grep -qE "^  $b " || missing_rows="$missing_rows $b"
+done
+[ -z "$missing_rows" ] && ok "every block in projects.ALL_MARKERS() has a row (dmfiles and swarm included)" \
+                       || bad "blocks in the registry with no row in the table:$missing_rows"
+
+# 🔑 DOCTRINE IS MEASURED, NOT ASSUMED EMPTY (#1071). The tool called doctrine.read(),
+# which does not exist, so every agent's working rules read "nothing to deliver" and
+# three agents carrying them were named STALE. Behind is its own verdict (consented
+# refresh, #539), never STALE and never counted undelivered.
+row="$(run "$T/none" | grep -E '^  doctrine ')"
+case "$row" in
+  *"behind on 2"*"awaiting"*) ok "agents missing the working rules read as behind and awaiting consent" ;;
+  *) bad "doctrine behind case misread: $row" ;;
+esac
+mkdir -p "$T/doct/a"
+node -e "process.stdout.write(require('./engine/doctrine').planFor('# agent\n').fileNext)" > "$T/doct/a/CLAUDE.md"
+row="$(run "$T/doct" | grep -E '^  doctrine ')"
+case "$row" in
+  *"current on all"*) ok "an agent carrying the whole composed working rules reads current" ;;
+  *) bad "doctrine current case misread (fixture is doctrine.planFor's own composition): $row" ;;
+esac
+case "$row" in
+  *STALE*) bad "doctrine read STALE again: the missing-read() defect is back ($row)" ;;
+  *) ok "working rules present on an agent are never called STALE" ;;
+esac
+
 # --- the population floor ----------------------------------------------------
 mkdir -p "$T/empty"
 KOSMOS_WORKERS_DIR="$T/empty" node tools/check-block-delivery.js >/dev/null 2>&1
