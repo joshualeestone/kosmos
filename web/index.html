@@ -32559,8 +32559,13 @@ const USAGE_CLASS_COLORS = [
    value is not lost. Pure + node-tested. */
 function usageAbbr(n) {
   const v = Number(n) || 0;
-  if (v >= 1e9) return (v / 1e9).toFixed(v >= 1e10 ? 0 : 1) + 'B';
-  if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
+  /* #4244: the unit is chosen after rounding. A value whose rounding in one unit reaches the next
+     (999,999 as "1000K", 999,999,999 as "1000.0M", 9,999,999,999 as "10.0B") is shown in the next
+     unit instead, judged by the same toFixed the display uses. */
+  if (v >= 1e9 || Number((v / 1e6).toFixed(1)) >= 1000) {
+    return (v / 1e9).toFixed(v >= 1e10 || Number((v / 1e9).toFixed(1)) >= 10 ? 0 : 1) + 'B';
+  }
+  if (v >= 1e6 || Number((v / 1e3).toFixed(0)) >= 1000) return (v / 1e6).toFixed(1) + 'M';
   if (v >= 1e3) return (v / 1e3).toFixed(0) + 'K';
   return String(v);
 }

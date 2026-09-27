@@ -327,6 +327,52 @@ test('#2840: usageAbbr abbreviates B/M/K and passes small numbers through', () =
   assert.equal(U.usageAbbr(0), '0', 'zero passes through');
 });
 
+test('#4244: usageAbbr picks the unit after rounding, so an edge value never shows 1000K, 1000.0M or 10.0B', () => {
+  const edges = [
+    [999500, '1.0M'], [999999, '1.0M'],
+    [999950000, '1.0B'], [999999999, '1.0B'],
+    [9950000001, '10B'], [9999999999, '10B'],
+    // 9.95 is not exact in binary, so toFixed(1) reads it as 9.9: it never overflowed, then or now.
+    [9950000000, '9.9B'],
+  ];
+  for (const [n, want] of edges) assert.equal(U.usageAbbr(n), want, n + ' rounds into the next unit, so it is shown in it');
+  // Sweep each edge band: no value in it may render with a 4-digit K, a 4-digit M, or 10.0B.
+  for (const [lo, hi] of [[999500, 999999], [999950000, 999999999], [9950000000, 9999999999]]) {
+    for (let k = 0; k <= 200; k += 1) {
+      const n = Math.round(lo + (hi - lo) * k / 200);
+      assert.doesNotMatch(U.usageAbbr(n), /^1000(\.0)?[KM]$|^10\.0B$/, n + ' showed an overflowed unit: ' + U.usageAbbr(n));
+    }
+  }
+});
+
+test('#4244: every value outside the edge bands renders exactly as before the fix', () => {
+  /* The pre-#4244 function, verbatim, as the reference: the fix may change only values whose
+     rounding reached the next unit. */
+  const before = (n) => {
+    const v = Number(n) || 0;
+    if (v >= 1e9) return (v / 1e9).toFixed(v >= 1e10 ? 0 : 1) + 'B';
+    if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
+    if (v >= 1e3) return (v / 1e3).toFixed(0) + 'K';
+    return String(v);
+  };
+  const overflowed = (s) => /^1000(\.0)?[KM]$|^10\.0B$/.test(s);
+  let checked = 0;
+  for (let e = 0; e <= 13; e += 1) {
+    for (const m of [1, 1.2, 2.5, 4.99, 5, 9.4, 9.49, 9.5, 9.94, 9.949, 9.95, 9.99, 9.999]) {
+      for (const d of [-1, 0, 1]) {
+        const n = Math.round(m * 10 ** e) + d;
+        if (n < 0) continue;
+        const was = before(n);
+        if (overflowed(was)) continue;   // the only values the fix is allowed to change
+        assert.equal(U.usageAbbr(n), was, n + ' changed from ' + was);
+        checked += 1;
+      }
+    }
+  }
+  assert.ok(checked > 400, 'the sweep checked too few values: ' + checked);
+  for (const n of [0, 742, 4151, 18103778, 1964004102, 21463000000, 'x', null]) assert.equal(U.usageAbbr(n), before(n));
+});
+
 test('#2840: usageHistoryHtml escapes a hostile model name and is empty on no data', () => {
   const hostile = U.usageHistoryHtml({ '2026-09-01': { '<img src=x onerror=1>': { output_tokens: 5 } } });
   assert.ok(!hostile.includes('<img src=x'), 'a hostile model name is not rendered as a tag');
