@@ -30,10 +30,10 @@ const HANDLER_TIMEOUT_S = 5;
    ignored its matcher, a node start per step. 1.1.9 covers both. */
 const MIN_TOOL_HOOKS = [1, 1, 9];
 
-/** `x.y.z` out of `agy --version` output, or null when there is none. */
+/** `x.y.z` (or `x.y`, read as x.y.0) out of `agy --version` output, or null when there is none. */
 function parseVersion(text) {
-  const m = /(\d+)\.(\d+)\.(\d+)/.exec(String(text || ''));
-  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+  const m = /(\d+)\.(\d+)(?:\.(\d+))?/.exec(String(text || ''));
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3] || 0)] : null;
 }
 
 /** Whether the ask_question tool hooks may be written. An unknown version is NO: a missing tool
@@ -78,13 +78,61 @@ function kosmosEntry(nodeBin, bridge, withToolHooks = true) {
 }
 
 /**
- * Make `<workdir>/.agents/hooks.json` carry the current Kosmos entry. Returns
+ * The git work tree `dir` is inside, or null. Found by walking up for a `.git` entry (a folder, or a
+ * file in a worktree or submodule), with no git binary: git under launchd can be a shim that fails
+ * (the Xcode licence), and a failing check must not read as "not a repository".
+ */
+function gitRootOf(dir) {
+  let d;
+  try { d = fs.realpathSync(dir); } catch { d = path.resolve(String(dir)); }
+  for (;;) {
+    try { fs.lstatSync(path.join(d, '.git')); return d; } catch { /* not here */ }
+    const up = path.dirname(d);
+    if (up === d) return null;
+    d = up;
+  }
+}
+
+/* Replace `target` with `body`, keeping its mode, through a temp file removed on failure (agytrust's). */
+function writeKeepingMode(target, body) {
+  let mode = 0o644;
+  try { mode = fs.statSync(target).mode & 0o777; } catch { /* a new file */ }
+  const tmp = `${target}.kosmos-${process.pid}-${Date.now()}`;
+  try {
+    fs.writeFileSync(tmp, body, { mode });
+    fs.chmodSync(tmp, mode);
+    fs.renameSync(tmp, target);
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch { /* never created */ }
+    throw err;
+  }
+}
+
+/**
+ * Make `<workdir>/.agents/hooks.json` carry the current Kosmos entry.
+ *
+ * 🛑 NEVER IN A GIT PROJECT. An agent Kosmos created lives in its own folder, but an agent it found
+ * (discover.js) is recorded with the person's own folder, often a repository. Kosmos's entry holds
+ * this Mac's absolute node and bridge paths: committed there (a team's tracked hooks.json, or a
+ * `git add .` of a new one) it ships a hook that fails with 127 on every teammate's machine, and on
+ * this one after Kosmos is gone. So a folder inside a git work tree is left alone and that agent's
+ * card keeps saying "Can't tell", with the reason in the agent log.
+ * The person's `enabled` flag on Kosmos's entry is kept: turning our hook off must stick.
+ * A symlinked hooks.json is written through to its target, keeping the link and the file's mode. Returns
  * { ok, changed, why } and never throws.
  */
 function ensureHooks(workdir, nodeBin, bridge, withToolHooks = true) {
   if (!workdir || !nodeBin || !bridge) return { ok: false, changed: false, why: 'missing workdir, node or bridge' };
+  const repo = gitRootOf(workdir);
+  if (repo) return { ok: false, changed: false, why: workdir + ' is inside the git project ' + repo + ', so Kosmos does not put its hook there (it would be committed with this Mac\'s paths)' };
   const dir = path.join(workdir, '.agents');
-  const file = path.join(dir, 'hooks.json');
+  const link = path.join(dir, 'hooks.json');
+  let file = link;
+  let isLink = false;
+  try { isLink = fs.lstatSync(link).isSymbolicLink(); } catch { /* absent */ }
+  if (isLink) {
+    try { file = fs.realpathSync(link); } catch { return { ok: false, changed: false, why: link + ' is a link to a file that is gone, so it was left alone' }; }
+  }
   let current = {};
   let raw = null;
   try { raw = fs.readFileSync(file, 'utf8'); } catch (err) {
@@ -99,15 +147,14 @@ function ensureHooks(workdir, nodeBin, bridge, withToolHooks = true) {
     }
   }
   const want = kosmosEntry(nodeBin, bridge, withToolHooks);
+  const had = current[HOOK_NAME];
+  if (had && typeof had === 'object' && typeof had.enabled === 'boolean') want.enabled = had.enabled;
   if (JSON.stringify(current[HOOK_NAME]) === JSON.stringify(want)) return { ok: true, changed: false, why: null };
   const next = { ...current, [HOOK_NAME]: want };
   try {
-    fs.mkdirSync(dir, { recursive: true });
-    const tmp = file + '.' + process.pid + '.new';
-    fs.writeFileSync(tmp, JSON.stringify(next, null, 2) + '\n', 'utf8');
-    fs.renameSync(tmp, file);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    writeKeepingMode(file, JSON.stringify(next, null, 2) + '\n');
   } catch (err) {
-    try { fs.rmSync(file + '.' + process.pid + '.new', { force: true }); } catch { /* best effort */ }
     return { ok: false, changed: false, why: 'could not write ' + file + ': ' + (err && err.message) };
   }
   return { ok: true, changed: true, why: null };
@@ -125,4 +172,4 @@ if (require.main === module) {
   process.exit(0);
 }
 
-module.exports = { HOOK_NAME, HANDLER_TIMEOUT_S, MIN_TOOL_HOOKS, parseVersion, toolHooksSafe, shQuote, kosmosEntry, ensureHooks };
+module.exports = { HOOK_NAME, HANDLER_TIMEOUT_S, MIN_TOOL_HOOKS, parseVersion, toolHooksSafe, gitRootOf, shQuote, kosmosEntry, ensureHooks };

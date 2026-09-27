@@ -73,3 +73,11 @@ over the scraped UNKNOWN in reconcileReport (checked by calling it: working -> w
   (NIT) marker-before-POST accepted and stated in the header. (NIT) Release check #5: does a subagent's
   or background loop's Stop fire this hook while the parent waits on ask_question (it would clear
   needs_you)?
+- Review iteration 7 (opus): (W1) the person's `enabled` on kosmos-report is kept across launches.
+  (W2) CORRECTION to "the file lives in Kosmos's own workerDir": an agent found by discover.js is
+  recorded with the person's own folder (store profile dir), often a repo. agyhooks now refuses any
+  folder inside a git work tree (walks up for a .git entry, no git binary), so this Mac's paths never
+  land in a committable hooks.json; that agent keeps "Can't tell", reason in the agent log. agy's
+  user-level ~/.gemini/config/hooks.json was rejected: it fires for every agy session the person runs,
+  not only Kosmos's. (W3) a symlinked hooks.json is written through, keeping link and mode (agytrust's
+  pattern); a dangling link is left alone. (NIT) `x.y` versions read as x.y.0.

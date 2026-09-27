@@ -294,3 +294,63 @@ test('#4043: the supervisor hands agy\'s own --version to agyhooks (SOURCE pin)'
   assert.ok(sh.includes('_AGY_VERSION="$("$CLAUDE" --version 2>/dev/null | head -n 1 || true)"'), 'the supervisor no longer reads agy\'s version');
   assert.ok(sh.includes('"$NODE_BIN" "$_eng/agyhooks.js" "$WORKDIR" "$NODE_BIN" "$_AGY_BRIDGE" "$_AGY_VERSION" >/dev/null || true'), 'agyhooks no longer gets the version');
 });
+
+test('#4043: a folder inside a git project is left alone (its hooks.json would be committed with this Mac\'s paths)', () => {
+  const repo = workdir();
+  fs.mkdirSync(path.join(repo, '.git'));
+  const inner = path.join(repo, 'sub dir');
+  fs.mkdirSync(inner);
+  for (const d of [repo, inner]) {
+    const r = hooks.ensureHooks(d, '/opt/node', '/b.js');
+    assert.equal(r.ok, false, d + ' is in a git project and still got the hook');
+    assert.match(r.why, /inside the git project/);
+    assert.equal(fs.existsSync(path.join(d, '.agents', 'hooks.json')), false, 'a hooks.json was written into the project');
+  }
+  /* A worktree or submodule has a .git FILE, not a folder. */
+  const wt = workdir();
+  fs.writeFileSync(path.join(wt, '.git'), 'gitdir: /elsewhere\n');
+  assert.equal(hooks.gitRootOf(wt), fs.realpathSync(wt));
+  assert.equal(hooks.ensureHooks(wt, '/opt/node', '/b.js').ok, false);
+  const plain = workdir();
+  assert.equal(hooks.ensureHooks(plain, '/opt/node', '/b.js').ok, true, 'control: a plain Kosmos folder still gets the hook');
+});
+
+test('#4043: the person turning Kosmos\'s hook off (enabled:false) survives the next launch', () => {
+  const d = workdir();
+  hooks.ensureHooks(d, '/opt/node', '/b.js');
+  const file = path.join(d, '.agents', 'hooks.json');
+  const h = readHooks(d);
+  h[hooks.HOOK_NAME].enabled = false;
+  fs.writeFileSync(file, JSON.stringify(h));
+  assert.equal(hooks.ensureHooks(d, '/opt/node', '/b.js').changed, false, 'an unchanged entry that is switched off was rewritten');
+  assert.equal(readHooks(d)[hooks.HOOK_NAME].enabled, false);
+  hooks.ensureHooks(d, '/opt/node2', '/b.js');
+  assert.equal(readHooks(d)[hooks.HOOK_NAME].enabled, false, 'a changed entry lost the person\'s off switch');
+  assert.match(readHooks(d)[hooks.HOOK_NAME].Stop[0].command, /node2/, 'control: the entry itself was updated');
+});
+
+test('#4043: a symlinked hooks.json stays a link and keeps its mode; a dangling link is left alone', () => {
+  const d = workdir();
+  const real = path.join(SB, 'dotfiles-' + n + '.json');
+  fs.writeFileSync(real, JSON.stringify({ theirs: { Stop: [] } }));
+  fs.chmodSync(real, 0o640);
+  fs.mkdirSync(path.join(d, '.agents'));
+  const link = path.join(d, '.agents', 'hooks.json');
+  fs.symlinkSync(real, link);
+  assert.equal(hooks.ensureHooks(d, '/opt/node', '/b.js').changed, true);
+  assert.ok(fs.lstatSync(link).isSymbolicLink(), 'the link was replaced by a plain file');
+  assert.ok(JSON.parse(fs.readFileSync(real, 'utf8'))[hooks.HOOK_NAME], 'the entry did not reach the link\'s target');
+  assert.equal(fs.statSync(real).mode & 0o777, 0o640, 'the file\'s mode was reset');
+  const d2 = workdir();
+  fs.mkdirSync(path.join(d2, '.agents'));
+  fs.symlinkSync(path.join(SB, 'gone.json'), path.join(d2, '.agents', 'hooks.json'));
+  const r = hooks.ensureHooks(d2, '/opt/node', '/b.js');
+  assert.equal(r.ok, false);
+  assert.ok(fs.lstatSync(path.join(d2, '.agents', 'hooks.json')).isSymbolicLink(), 'a dangling link was replaced');
+});
+
+test('#4043: a two-part agy version is read as x.y.0', () => {
+  assert.deepEqual(hooks.parseVersion('2.0'), [2, 0, 0]);
+  assert.equal(hooks.toolHooksSafe('2.0'), true);
+  assert.equal(hooks.toolHooksSafe('1.1'), false, '1.1 is 1.1.0, older than 1.1.9');
+});
