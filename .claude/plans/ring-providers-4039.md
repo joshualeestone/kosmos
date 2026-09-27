@@ -26,7 +26,7 @@ Findings, all measured on Agent1s, are on the card.
 ## Weakest premises
 - agy's field meanings are inferred from its blobs (the 1.4.3 = 1.4.9 + 1.4.10 identity holds in
   every generation), not documented; a fresh live conversation (4bd5c46f, 19:01 on Agent1s) read
-  correctly: 12465 prompt tokens, gemini-3.8-flash.
+  correctly: 12407 prompt tokens (reply 58; 12465 was the rejected prompt+reply), gemini-3.8-flash.
 - The window table is from Google's published limits as known today, not queried, and ANY later
   3.x text model (3.8 on agy) is assumed to keep 1M: a guess, which is why it is only assumed.
 
@@ -42,3 +42,9 @@ Findings, all measured on Agent1s, are on the card.
   derivation; the table covered 2.0 Pro (2M) and unreleased 3.x --> 2.0 Pro out, the 3.x
   assumption stated; "stated on the ring" --> the Memory box states it. NITs: lastAt from the WAL
   file too; a self-contained gate control; 1318 is an id, not cached tokens (card corrected).
+- 4 (sonnet): agytrust loaded status.js on every agy launch (173ms) --> agy's dir derived once in
+  agytrust (agyHome), agysession imports it (1ms); the supervisor's default path tested; CLAUDE.md.
+- 5 (opus): lastAt counted an empty -wal (our own read) as activity --> ignored; no test told newest
+  from largest prompt --> a compaction fixture; this plan quoted prompt+reply --> 12407; a stale
+  "ring says so"; test temp dirs moved under the sandbox; agyDirUnder makes the one derivation true;
+  readAgyContext carries the Gemini arm's residual note.

@@ -5300,6 +5300,9 @@ function readAgyContext(agentName, sess) {
   }
   if (sess.found && sess.contextUsed == null) return notYetResult();
   if (!sess.found) {
+    /* ⚠️ The Gemini and Codex arms' residual, the same here: notYetStarted/neverRecorded key off a
+       Claude-only `.jsonl` signal, so an agy agent that has run but whose folder is not in agy's
+       map can read "not yet" rather than a fault. It fails SOFT (never a wrong number). */
     if (notYetStarted(agentName)) return notYetResult();
     if (neverRecorded(agentName)) return neverRecordedResult();
     return { ...NONE_BASE, notYet: false, because: NO_READING.NO_TRANSCRIPT };
@@ -5344,7 +5347,7 @@ function readGeminiContext(agentName, sess) {
   // null -- the Claude "assumed ceiling" case). Unlike Codex, Gemini names the
   // model, so the window can be assumed from it (below) and the ring can show it.
   // #4039: that left the ring with nothing to draw for every Gemini agent, so a known model's
-  // published window is used as an ASSUMED ceiling (the ring says so); an unknown model keeps
+  // published window is used as an ASSUMED ceiling (the detail page's Memory box says so); an unknown model keeps
   // the no-ceiling reading.
   if (!sess.contextWindow) {
     const assumed = assumedGeminiWindow(sess.model);

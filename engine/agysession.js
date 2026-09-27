@@ -181,10 +181,11 @@ function read(dir, home = HOME()) {
     if (model !== null && contextUsed !== null) break;
   }
   /* In WAL mode a commit lands in <db>-wal and leaves the db's own mtime alone, so the newer of the
-     two is the last write. */
+     two is the last write. An EMPTY -wal is not a write: any reader (this one included) creates one
+     when agy has exited and removed its own, so counting it would report our poll as activity. */
   let lastAt = null;
-  const mtimeOf = (f) => { try { return fs.statSync(f).mtimeMs; } catch { return 0; } };
-  const newest = Math.max(mtimeOf(file), mtimeOf(file + '-wal'));
+  const writtenAt = (f) => { try { const st = fs.statSync(f); return st.size > 0 ? st.mtimeMs : 0; } catch { return 0; } };
+  const newest = Math.max(writtenAt(file), writtenAt(file + '-wal'));
   if (newest > 0) lastAt = new Date(newest).toISOString();
   return {
     found: true,

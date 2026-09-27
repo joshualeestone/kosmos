@@ -31,7 +31,7 @@ const { generation, writeConversation } = require('../test-support/agyfixture');
 
 /** A workdir with its conversation db, mapped in last_conversations.json. */
 function conversation(gens, opts) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-work-'));
+  const dir = fs.mkdtempSync(path.join(SB, 'agy-work-'));
   const { id, file } = writeConversation(HOME, dir, gens, opts);
   return { dir, id, file };
 }
@@ -94,7 +94,7 @@ test('#4039: a conversation with no usage recorded reads as no reading, never as
 });
 
 test('#4039: a workdir agy never mapped has no transcript', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-unmapped-'));
+  const dir = fs.mkdtempSync(path.join(SB, 'agy-unmapped-'));
   assert.deepEqual(agy.read(dir), { found: false, because: NO_READING.NO_TRANSCRIPT });
 });
 
@@ -129,4 +129,24 @@ test('#4039: the db is opened read-only (a SOURCE pin, and said so)', () => {
   const opens = src.match(/new DatabaseSync\([^)]*\)/g) || [];
   assert.ok(opens.length >= 1, 'no DatabaseSync open found: re-anchor this pin');
   for (const o of opens) assert.match(o, /readOnly:\s*true/, 'an agy db is opened without readOnly: ' + o);
+});
+
+test('#4039: the ring follows the NEWEST prompt down after agy compacts, not the largest ever seen', () => {
+  const { dir } = conversation([
+    generation({ prompt: 90000, reply: 10 }),
+    generation({ prompt: 91000, reply: 10 }),
+    generation({ prompt: 14000, reply: 10 }), // after a compaction
+  ]);
+  assert.equal(agy.read(dir).contextUsed, 14000, 'an older, larger prompt was kept');
+});
+
+test('#4039: an empty -wal (made by any reader, this one included) is not activity', () => {
+  const { dir, file } = conversation([generation({ prompt: 5000, reply: 50 })]);
+  const past = new Date(Date.now() - 3600 * 1000);
+  fs.utimesSync(file, past, past);
+  fs.writeFileSync(file + '-wal', '');
+  const r = agy.read(dir);
+  assert.equal(r.lastAt, past.toISOString(), 'our own read was reported as the agent\'s last activity');
+  fs.writeFileSync(file + '-wal', 'x');
+  assert.notEqual(agy.read(dir).lastAt, past.toISOString(), 'control: a -wal with content IS the newest write');
 });

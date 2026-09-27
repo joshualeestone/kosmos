@@ -34,14 +34,18 @@ const WRITE_TRIES = 3;
    light module (fs/os/path only) because the supervisor forks this file before every agy launch;
    engine/agysession.js imports it from here rather than the other way round, which would load
    status.js into that pre-launch step. */
+/* agy's dir under a home root: the one place the relative path is spelled. */
+function agyDirUnder(root) {
+  return path.join(root, '.gemini', 'antigravity-cli');
+}
+
 function agyHome() {
-  return process.env.AGENT_WORKFORCE_AGY_HOME
-    || path.join(process.env.AGENT_WORKFORCE_HOME || os.homedir(), '.gemini', 'antigravity-cli');
+  return process.env.AGENT_WORKFORCE_AGY_HOME || agyDirUnder(process.env.AGENT_WORKFORCE_HOME || os.homedir());
 }
 
 function settingsPath(home) {
-  // An explicit `home` is an account root, as before; otherwise agy's own dir.
-  return home ? path.join(home, '.gemini', 'antigravity-cli', 'settings.json') : path.join(agyHome(), 'settings.json');
+  // An explicit `home` is a home root (its tests pass one); otherwise agy's own dir.
+  return path.join(home ? agyDirUnder(home) : agyHome(), 'settings.json');
 }
 
 function sleepMs(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
