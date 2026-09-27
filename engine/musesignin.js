@@ -173,7 +173,7 @@ function markSignedIn() {
   const file = musestatus.signedInMarker();
   try {
     fs.mkdirSync(musestatus.signinFolder(), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(file, JSON.stringify({ at: new Date(now()).toISOString() }) + '\n', { mode: 0o600 });
+    fs.writeFileSync(file, JSON.stringify({ at: now() }) + '\n', { mode: 0o600 });
     // #3939 slice 3c-1: a sign-in after a refused turn ends the "signed out" note.
     try { fs.rmSync(musestatus.signedOutMarker(), { force: true }); } catch { /* none */ }
     return true;

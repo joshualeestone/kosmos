@@ -146,6 +146,7 @@ function readNote() {
   if (r.unreadable) return { at: Infinity, digest: null, fileUnread: false, unreadable: true };
   return { at: r.at, digest: typeof r.j.metaDigest === 'string' ? r.j.metaDigest : null, fileUnread: r.j.fileUnread === true, unreadable: false };
 }
+// An unreadable mark is NO mark (never a yes), the same safe direction as an unreadable note's refusal.
 function readMark() { const r = readRecord(signedInMarker()); return r && !r.unreadable ? r.at : null; }
 
 /** Record that Muse refused the credential for a turn that STARTED at `startedAt` (ms). Writes nothing
@@ -155,11 +156,13 @@ function markSignedOut(startedAt = Date.now()) {
   try {
     const mark = readMark();
     if (mark !== null && mark > startedAt) return false;
+    // A newer refusal is already the freshest fact: a late one adds nothing, and must not replace the
+    // newer note's digest with whatever Muse's file holds NOW (review round 4).
     const old = readNote();
-    const at = old && !old.unreadable && old.at > startedAt ? old.at : startedAt;
+    if (old && !old.unreadable && old.at > startedAt) return false;
     const { meta, unread } = readMeta();
     fs.mkdirSync(signinFolder(), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(signedOutMarker(), JSON.stringify({ at, metaDigest: meta ? metaDigest(meta) : null, fileUnread: unread }) + '\n', { mode: 0o600 });
+    fs.writeFileSync(signedOutMarker(), JSON.stringify({ at: startedAt, metaDigest: meta ? metaDigest(meta) : null, fileUnread: unread }) + '\n', { mode: 0o600 });
     return true;
   } catch { return false; }
 }

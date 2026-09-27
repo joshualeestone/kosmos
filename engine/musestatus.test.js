@@ -262,3 +262,25 @@ test('#3939 3c-1: markSignedOut and markTurnSignedIn never throw, and say false 
     assert.equal(a, false); assert.equal(b, false);
   } finally { fs.rmSync(folder, { force: true }); }
 }));
+
+test('#3939 3c-1 round 4: a late refusal never rewrites a newer note\'s digest, in either direction', () => withXdg((xdg) => {
+  // A: a new credential arrives after the newer refusal; an older refusal reporting late must not mark it refused.
+  clean();
+  writeAuth(xdg, { meta: { token: 'X' } });
+  assert.equal(muse.markSignedOut(T + 50), true);
+  writeAuth(xdg, { meta: { token: 'Y' } });
+  assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'file' }, 'CONTROL: a new credential answers yes');
+  const before = fs.readFileSync(muse.signedOutMarker(), 'utf8');
+  assert.equal(muse.markSignedOut(T + 10), false, 'a late, older refusal wrote');
+  assert.equal(fs.readFileSync(muse.signedOutMarker(), 'utf8'), before, 'a late refusal rewrote the newer note');
+  assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'file' }, 'a late refusal marked a never-refused credential refused');
+  // B: the file is briefly empty when the late refusal reports; the refused credential then reappears.
+  clean();
+  writeAuth(xdg, { meta: { token: 'X' } });
+  muse.markSignedOut(T + 50);
+  writeAuth(xdg, {});
+  muse.markSignedOut(T + 10);
+  writeAuth(xdg, { meta: { token: 'X' } });
+  assert.equal(muse.signedIn().signedIn, false, 'the still-refused credential read as signed in after a late refusal');
+  clean();
+}));

@@ -74,3 +74,11 @@ others.
   floored to the millisecond).
 - The integration test that wrote a note and started a turn in the same millisecond now
   backdates the note; 5 of 5 and 10 of 10 repeat runs clean.
+
+## Review round 4 (sonnet): 1 blocker, 0 warnings, 2 nits
+- BLOCKER FIXED: a late refusal from an older turn kept the newer `at` but rewrote the
+  note's digest from the file as it is NOW, which could mark a never-refused credential
+  refused, or revive a still-refused one (both reproduced). A late refusal now writes
+  nothing when a newer note exists. Both scenarios are tests.
+- NIT FIXED: Kosmos's own sign-in writes an integer `at` like the other writer.
+- NIT FIXED: an unreadable mark is no mark (never a yes); commented as deliberate.
