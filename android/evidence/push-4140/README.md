@@ -23,14 +23,17 @@ a URL bar instead of the app.
 
 ## What each screenshot shows
 
+The numbers are the run's step order; steps 01 to 03 (launch and sign-in) and 06 (status bar)
+are not kept because they show nothing this card is about.
+
 | File | What it proves |
 |---|---|
 | `04-prompt.png` | The permission prompt reads "Allow **Kosmos** to send you notifications?", the app's own prompt through the delegation bridge, not Chrome's. |
 | `05-after-allow.png` | Signed in to the local coordinator; the page says this phone will be notified. |
 | `07-shade.png` | The push arrived: "Scorpion needs you, on Kosmos Inside Out". Header: `Kosmos · login.kosmosplus.com`. |
 | `07-small-icon-crop.png` | Enlarged crop of the header icon in 07: it is Chrome's logo, not the Kosmos planet. |
-| `08-tap.png` | The tap first landed on Chrome's own first-run sheet (Chrome proper, not the app). |
-| `09-tap-page.png` | Then Chrome, with a URL bar, at `kano4140.kosmosplus.com/?tab=detail&agent=...`. ERR_CONNECTION_CLOSED is expected locally (no real tunnel); opening in Chrome is the finding. |
+| `08-tap.png` | The tap first showed Chrome's one-time "Enhanced ad privacy in Chrome" notice (Chrome proper, not the app). |
+| `09-tap-page.png` | Then Chrome, with a URL bar, at `kano4140.kosmosplus.com/?tab=` (the bar cuts off there; the rest of the URL is not in the screenshot). ERR_CONNECTION_CLOSED is expected locally (no real tunnel); opening in Chrome is the finding. |
 
 SHA-256:
 
@@ -45,14 +48,15 @@ d009b2bcefb34cb1037cb387a550556230873eb2b0ef06b401aa44f45f7e6b08  07-small-icon-
 
 ## Finding 1: delegation works (the app posted it)
 
+**Measured:** the usagestats record below.
+
 `adb shell dumpsys usagestats` on the device:
 
 ```
 time="2026-09-27 03:46:43" type=NOTIFICATION_INTERRUPTION package=io.kosmos.app channelId=general_channel_id
 ```
 
-The notification was posted by `io.kosmos.app`, and the header's app name is "Kosmos"
-(Android takes it from the posting package; a Chrome notification would say "Chrome").
+The notification was posted by `io.kosmos.app`, and the header's app name is "Kosmos".
 The live notification itself was gone by the time this was checked (the tap dismissed it),
 so `dumpsys notification` no longer lists it; usagestats is the durable record.
 
@@ -63,6 +67,9 @@ was not established.
 
 ## Finding 2: the small icon is Chrome's, and why
 
+**Measured:** the icon in 07 is Chrome's logo; the APK's manifest and the library bytecode
+read as below. **Reasoned, not measured:** that this is the cause.
+
 The installed APK does declare `android.support.customtabs.trusted.SMALL_ICON` on
 `DelegationService`, pointing at `@drawable/ic_notification` (checked with `aapt2 dump
 xmltree` on the pulled APK). But that drawable is a **vector** (`ic_notification.xml`).
@@ -70,18 +77,19 @@ xmltree` on the pulled APK). But that drawable is a **vector** (`ic_notification
 Chrome asks the app for the icon as a bitmap. androidx.browser 1.4.0's
 `TrustedWebActivityService.onGetSmallIconBitmap()` produces it with
 `BitmapFactory.decodeResource(getResources(), id)` (read from the bytecode with `javap -c`).
-`BitmapFactory` cannot decode a vector drawable and returns null, so Chrome falls back to
-its own icon.
+`BitmapFactory` cannot decode a vector drawable and returns null. That Chrome then uses its
+own icon is inferred from the screenshot, not read from Chrome's code.
 
 Likely fix (small, not done here): ship `ic_notification` as white-on-transparent PNGs
 (mdpi to xxxhdpi) instead of a vector, or override `onGetSmallIconBitmap()` to render the
 vector into a Bitmap. The PNG route needs no code. This is reasoned from source, not yet
 measured: the next build should be checked on the AVD the same way.
 
-The `login.kosmosplus.com` origin line in the header is added by Chrome for web
-notifications; it is not controlled by the app.
-
 ## Finding 3: a tap opens Chrome, and why
+
+**Measured:** the tap opened Chrome with a URL bar (08, 09). **Reasoned from source, not
+measured:** the cause below, read from `coordinator/src/sw.js` in kosmos-relay and
+`OpenAddressActivity.java`.
 
 Chrome, not the app, owns the notification's tap: the coordinator's `sw.js`
 `notificationclick` runs in Chrome and calls `clients.openWindow("https://<address>/?tab=detail&agent=<session>")`.
@@ -97,3 +105,5 @@ in ordinary Chrome. The design for this is posted on #4140.
 - Push delivery over a real carrier network, with the phone asleep and the app not
   recently used (Doze and app standby decide whether FCM wakes it promptly).
 - The small icon on a real launcher and lock screen after the icon fix.
+- Whether a second push is shown: notification permission read as not granted after the
+  run (see Finding 1), so re-check after a fresh grant.
