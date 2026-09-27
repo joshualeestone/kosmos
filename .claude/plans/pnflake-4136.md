@@ -19,3 +19,17 @@ validation) the first request finished its mint before the second reached turnOn
 ## Rejected
 - Calling phonenotify.turnOn() twice directly: loses the HTTP path the test is named for.
 - A sleep in the fake tunnel: still a timing guess.
+
+## Challenge loop record
+### Iteration 1 (opus): 2 WARNINGs, 3 NITs, all fixed; plus a defect my own perturbation found.
+- W: the test never checked the turn-ons succeeded; both answers must be 200 with on:true and state on.
+- W: the 20s fallback equalled the tunnel's own 20s timeout; the test now raises AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS
+  to 90s, with the fallback at 45s and the gate loop at about 60s, and the arrival assertion says a late arrival
+  makes the mint count meaningless.
+- N: the sibling "turning off while a turn-on is still minting" test used 150ms against a 1s mint; it now sends the
+  off only once the mint has started and holds the mint until the off reaches turnOff. Perturbation (turnOff no
+  longer waits for the turn-on): red 2/2.
+- N: one LOG_CALL shared by the fake tunnels; the misleading catch removed.
+- FOUND WHILE CHECKING: with the collapse removed, the one-at-a-time test still PASSED 1 run in 5. Instrumented: two
+  tunnels running at once interleaved their log pieces ("ARGV:ARGV: mac-request ..."), so the count saw one mint.
+  The old test had the same latent false pass. LOG_CALL is now a single printf (one append). Perturbation now red 8/8.
