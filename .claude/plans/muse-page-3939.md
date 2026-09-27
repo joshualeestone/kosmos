@@ -43,3 +43,11 @@ That no screen needs a Muse row after "done" to make sense. Today, "done" says s
 - museAsk's latest read wins (a generation counter), so two quick opens cannot leave the option stale.
 - Not a finding: "no proof file". The proof is written when this loop converges.
 - Noted, not rewritten: during the rebase, one commit's subject began with "#3939" and was taken as a comment, leaving it with no subject line. The PR is squash-merged under its title, so it does not reach main.
+
+## Review round 5 (decided)
+- The check now proves three behaviours the rounds had decided but nothing could see: the latest /api/muse read wins; a list already open drops Meta's disabled state and pill when the answer lands; and the intro swap leaves a sign-in again's sentence alone. Controls red.
+- ACCT_ADD_INTRO_MUSE is derived from ACCT_ADD_INTRO (one sentence), with a check that the derivation really changed it.
+- Muse's step put away with focus inside moves focus to the provider picker, not the page body. Control red.
+- A reason that already says to start again is not followed by "You can try again". Control red.
+- Two stale comments removed.
+- Accepted: on reopen, the option can hold the last visit's answer until this visit's read lands (one local fetch; a start in that window refuses in words). An unreachable board is not named during polling, as with Grok's driver.
