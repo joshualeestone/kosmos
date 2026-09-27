@@ -25832,9 +25832,13 @@ const ACCT_MUSE = (() => {
   const el = (x) => document.getElementById('acct-muse-' + x);
   const say = (t) => { const m = el('msg'); if (m) m.textContent = t; };
   const stopPoll = () => { if (poll) { clearInterval(poll); poll = null; } };
-  const post = (path, body) => fetch('/api/muse/signin' + path, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}),
-  });
+  // Each address written out whole (#3957 reads every page fetch's URL as a literal).
+  const post = (which, body) => {
+    const init = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) };
+    if (which === 'retry') return fetch('/api/muse/signin/retry', init);
+    if (which === 'stop') return fetch('/api/muse/signin/stop', init);
+    return fetch('/api/muse/signin', init);
+  };
   function reset() {
     for (const x of ['open-row', 'code', 'retry-row', 'cancel-row']) { const e = el(x); if (e) e.hidden = true; }
     const c = el('code'); if (c) { c.textContent = ''; c.__devKey = ''; }
@@ -25886,9 +25890,9 @@ const ACCT_MUSE = (() => {
     const go = el('go'); if (go) go.disabled = true;
     say(MUSE_SAY.starting);
     let res; let out = null;
-    try { res = await post('', {}); out = await res.json().catch(() => null); }
+    try { res = await post('start', {}); out = await res.json().catch(() => null); }
     catch { if (mine === gen) { if (go) go.disabled = false; say('We could not reach Kosmos to start that sign-in. Try again.'); } return; }
-    if (mine !== gen) { if (res.ok && out && out.id) post('/stop', { id: out.id }).catch(() => {}); return; }
+    if (mine !== gen) { if (res.ok && out && out.id) post('stop', { id: out.id }).catch(() => {}); return; }
     if (!res.ok || !out || !out.id) { if (go) go.disabled = false; say(pjSentence(out && (out.error || out.because)) || 'We could not start that sign-in.'); return; }
     id = out.id;
     if (go) go.hidden = true;
@@ -25901,7 +25905,7 @@ const ACCT_MUSE = (() => {
     if (!id) return;
     const mine = gen; const was = id;
     let res; let out = null;
-    try { res = await post('/retry', { id: was }); out = await res.json().catch(() => null); } catch { say('We could not reach Kosmos to ask for a new code. Try again.'); return; }
+    try { res = await post('retry', { id: was }); out = await res.json().catch(() => null); } catch { say('We could not reach Kosmos to ask for a new code. Try again.'); return; }
     if (mine !== gen || id !== was) return;
     if (!res.ok) { say(pjSentence(out && (out.error || out.because)) || 'We could not ask for a new code.'); return; }
     el('retry-row').hidden = true;
@@ -25910,7 +25914,7 @@ const ACCT_MUSE = (() => {
   function leave() {
     const was = id;
     finish(null); say('');
-    if (was) post('/stop', { id: was }).catch(() => { /* the engine's own limit ends it regardless */ });
+    if (was) post('stop', { id: was }).catch(() => { /* the engine's own limit ends it regardless */ });
   }
   return { start, retry, leave, reset, get active() { return !!id; } };
 })();
