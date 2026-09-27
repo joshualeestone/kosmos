@@ -255,8 +255,8 @@ function chk(ok, label, extra) {
       await page.fill('#tsk-search', 'zzz no task says this');
       await page.waitForTimeout(250);
       const shortEnd = await page.evaluate(() => Math.round(document.querySelector('#panel-tasks .tsk-below').getBoundingClientRect().bottom));
-      /* geo.w still holds after the list is emptied: the stable gutter keeps the root's right edge where it was
-         whether or not the page scrolls. */
+      /* geo.w still holds after the list is emptied: in the tab layout (this loop) the stable gutter keeps the
+         root's right edge where it was whether or not the page scrolls. */
       const bottom = [await px(1, geo.h - 2), await px(geo.w - 2, geo.h - 2)];
       await page.fill('#tsk-search', '');
       await page.waitForTimeout(250);

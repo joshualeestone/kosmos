@@ -2,9 +2,10 @@
 
 /**
  * kosmos#3973: render-boot-no-flash, render-plus-bar-3837 and (#4213) render-tasks-view-3559 each
- * measure their subject against the ROOT's box with a scratch-scroller probe. The copies live inside page.evaluate() callbacks (one of
- * them races a boot cover that is up for moments), so they are not shared code. Pinned here, as text:
- * the root declaration, the probe, the gutter line and the tolerance expression, each once per file.
+ * measure their subject against the ROOT's box with a scratch-scroller probe. The copies live inside
+ * page.evaluate() callbacks (one of them races a boot cover that is up for moments), so they are not
+ * shared code. Pinned here, as text: the root declaration, the probe, the gutter line and the
+ * tolerance expression, each once per file.
  */
 
 const test = require('node:test');
@@ -30,11 +31,20 @@ const ROOT = 'const root = document.documentElement.getBoundingClientRect();';
 test('#3973: every check that measures the root yardstick uses the same probe and the same tolerance', () => {
   const srcs = FILES.map((f) => fs.readFileSync(f, 'utf8'));
   for (let i = 1; i < srcs.length; i += 1) {
-    assert.equal(probe(srcs[i]), probe(srcs[0]), `the scratch-scroller probe in ${path.basename(FILES[i])} differs from ${path.basename(FILES[0])}'s`);
+    const name = path.basename(FILES[i]);
+    assert.equal(probe(srcs[i]), probe(srcs[0]), `the scratch-scroller probe in ${name} differs from the first file's`);
   }
   for (const [name, src] of FILES.map((f, i) => [f, srcs[i]])) {
     assert.equal(src.split(ROOT).length - 1, 1, `${path.basename(name)} should take the root box exactly once`);
     assert.equal(src.split(GUTTER).length - 1, 1, `${path.basename(name)} should compute the gutter exactly once`);
     assert.equal(src.split(TOLERANCE).length - 1, 1, `${path.basename(name)} should apply the root tolerance exactly once`);
   }
+});
+
+test('#4213: render-tasks-view-3559 reads its right edge from the root and asserts the yardstick', () => {
+  // The pin above guards the copied text; this guards its use, which a revert to clientWidth would undo.
+  const src = fs.readFileSync(FILES[2], 'utf8');
+  assert.match(src, /w: Math\.floor\(root\.right\)/, 'the right edge is no longer the root box');
+  assert.doesNotMatch(src, /w: document\.documentElement\.clientWidth/, 'the right edge went back to clientWidth');
+  assert.match(src, /chk\(geo\.rootOk,/, 'the yardstick is measured but never asserted');
 });
