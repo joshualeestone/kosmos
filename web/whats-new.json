@@ -1,6 +1,6 @@
 {"version":"0.7.01","highlights":[
   {"icon":"shield","title":"Gemini on your Google subscription","line":"Sign in on Google's own page, and Gemini gets its own row in AI Models."},
-  {"icon":"chat","title":"See what your Gemini agents are doing","line":"Gemini agents now show Working, Idle or Needs you, like every other agent."},
+  {"icon":"chat","title":"See what your Gemini agents are doing","line":"Gemini agents on a Google subscription can now show Working, Idle or Needs you on their card."},
   {"icon":"phone","title":"Remove this computer from Kosmos Plus","line":"Kosmos Plus has a way to take this computer off your account, with a confirm first."},
   {"icon":"tasks","title":"A clearer Tasks page","line":"Every task grouped by where the work is, with the count right in the title."}
 ]}

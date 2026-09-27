@@ -24,3 +24,8 @@ after the freeze; Remove this computer (#4079, 45db6d73) is on main. Each remain
 was checked on origin/main by ancestry: #3998 (307d8c14), #4043 (e943a4d9), #4079 (45db6d73),
 #4095 (743711ea). `node tools/whats-new-check.js 0.7.01` passes; the same file for 0.7.03 is refused
 (rc=3), so the check discriminates.
+- Review (Baron's re-target, 01:55): line 2 said Gemini agents show Working, Idle or Needs you "like
+  every other agent". #4043 keeps "Can't tell" for an agent whose folder is inside a git project, and
+  Needs you needs agy 1.1.9 or later, so it now reads "Gemini agents on a Google subscription can now
+  show Working, Idle or Needs you on their card." The earlier proof file's "Shape" figures describe the
+  0.7.03 draft, not this file; the checker enforces the real limits (passes for 0.7.01).
