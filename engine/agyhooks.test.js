@@ -191,3 +191,12 @@ test('#4043: run for an ask_question, the bridge answers exactly {} (no permissi
   assert.equal(r.status, 0);
   assert.equal(r.stdout.trim(), '{}');
 });
+
+test('#4043: agents without a pane never share one throttle marker', () => {
+  assert.equal(bridge.throttleKey({ TMUX_PANE: '%3' }, 99), 'pane-%3');
+  const a = bridge.throttleKey({ KOSMOS_AGENT_TOKEN: 'aaaa' }, 99);
+  const b = bridge.throttleKey({ KOSMOS_AGENT_TOKEN: 'bbbb' }, 99);
+  assert.ok(a.startsWith('tok-') && b.startsWith('tok-') && a !== b, 'two agents\' tokens gave one key');
+  assert.notEqual(bridge.throttleKey({}, 4242), bridge.throttleKey({}, 4343), 'two agy processes shared a key');
+  assert.equal(bridge.throttleKey({}, 1), 'nopane', 'control: only an unknowable caller falls back to the shared key');
+});

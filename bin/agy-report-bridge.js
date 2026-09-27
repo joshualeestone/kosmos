@@ -57,12 +57,25 @@ function answerFor() {
   return '{}';
 }
 
-/* The per-pane marker: "<state> <epoch ms>" of the last report sent. */
-function markerFile(env) {
+/* Whose throttle this is: the pane, else the agent's launch token (hashed), else the process that
+   ran the hook (agy itself, one per agent), and 'nopane' only when none is known. A shared key
+   would let one agent's heartbeat hold another's back (engine/kosmos-report-hook.js throttleKey,
+   the same chain). */
+function throttleKey(env, ppid) {
+  const e = env || process.env;
+  if (e.TMUX_PANE) return 'pane-' + String(e.TMUX_PANE);
+  const token = String(e.KOSMOS_AGENT_TOKEN || '').trim();
+  if (token) return 'tok-' + require('node:crypto').createHash('sha256').update(token).digest('hex').slice(0, 16);
+  const parent = ppid === undefined ? process.ppid : ppid;
+  if (parent && parent > 1) return 'ppid-' + parent;
+  return 'nopane';
+}
+
+/* The per-agent marker: "<state> <epoch ms>" of the last report sent. */
+function markerFile(env, ppid) {
   const os = require('node:os');
   const path = require('node:path');
-  const pane = String((env || process.env).TMUX_PANE || 'nopane').replace(/[^A-Za-z0-9_-]/g, '_');
-  return path.join(os.tmpdir(), 'kosmos-agy-throttle', pane);
+  return path.join(os.tmpdir(), 'kosmos-agy-throttle', throttleKey(env, ppid).replace(/[^A-Za-z0-9_-]/g, '_'));
 }
 
 /* Whether this report should be sent: always for a change of state, and for a repeated `working`
@@ -194,4 +207,4 @@ if (require.main === module) {
   main().catch(() => { /* never break the agent */ }).finally(() => process.exit(0));
 }
 
-module.exports = { STATE_FOR_EVENT, ASK_TOOL, answerFor, TIMEOUT_MS, STDIN_TIMEOUT_MS, THROTTLE_MS, markerFile, shouldSend, reportFor, buildBody, engineDir };
+module.exports = { STATE_FOR_EVENT, ASK_TOOL, answerFor, throttleKey, TIMEOUT_MS, STDIN_TIMEOUT_MS, THROTTLE_MS, markerFile, shouldSend, reportFor, buildBody, engineDir };

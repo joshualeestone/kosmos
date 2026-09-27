@@ -62,3 +62,7 @@ over the scraped UNKNOWN in reconcileReport (checked by calling it: working -> w
 - RISK, stated: a needs_you never decays; if the person cancels an ask_question and agy fires neither
   PostToolUse nor Stop (unmeasured), the card reads Needs you until the next prompt's PreInvocation.
   Release check #4: cancel an ask_question and see what fires.
+- Review iteration 4 (sonnet): the stacked base moved (the rebase is planned: --onto origin/main past
+  #4039's old tip); the throttle's bare 'nopane' could merge agents without a pane -> the Claude hook's
+  chain (pane, token hash, parent pid, then nopane). Otherwise clean, with the schema and the empty-
+  decision premise re-verified against the agy 1.2.x binary.
