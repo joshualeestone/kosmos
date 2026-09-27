@@ -13293,7 +13293,27 @@ const server = http.createServer((req, res) => {
            has been set in Settings, so the agent is told the time on every direct
            operator message rather than having to be instructed to know it. No
            timezone set (or an unreadable id) yields the bare prefix, unchanged. */
-        const opPrefix = messages.operatorDirect(messages.operatorNowLabel(store.readSettings().timezone));
+        /* #4256: a reply names the message it answers by its `at` (a DM row has no id), and it must be
+           a message in THIS conversation, the agent's or the person's own. Checked before anything is
+           typed, so a stale or foreign one is refused with nothing sent. '' is refused like the room's
+           route does: the page never sends it. A numbered menu answer (`chose`) is never a reply. */
+        let answered = null;
+        if (body.reply_to !== undefined && body.reply_to !== null) {
+          if (typeof body.reply_to !== 'string' || !body.reply_to) {
+            const bad = new Error('reply_to must name a message in this conversation'); bad.status = 400; throw bad;
+          }
+          let kept = [];
+          try { kept = chat.readThread(chat.DIRECT, name).messages || []; } catch { kept = []; }
+          answered = kept.find((r) => r && r.at === body.reply_to && typeof r.text === 'string'
+            && r.kind !== 'kosmos' && r.kind !== 'question') || null;
+          if (!answered) {
+            const gone = new Error('That message is no longer in this conversation. Press \u00d7 to send this as a new message.');
+            gone.status = 409; throw gone;
+          }
+          if (chose) answered = null;
+        }
+        const replied = messages.dmAnsweredParts(answered, name);
+        const opPrefix = messages.operatorDirect(messages.operatorNowLabel(store.readSettings().timezone), replied.tag);
         /* #3650: reactions the person put on the agent's messages since it was last told
            ride this message as one `[kosmos]` note after the person's words (a reaction
            is feedback, so it waits for a message rather than waking the agent). */
@@ -13301,7 +13321,10 @@ const server = http.createServer((req, res) => {
            ordinary message. */
         const news = chat.dmNoteMayRide(body.text, chose) ? chat.dmReactionNews(name) : { note: '', named: {} };
         const reactionNote = news.note;
-        const delivery = chat.deliver(name, body.text, roster, opPrefix,
+        /* #4256: the quote rides in front of the words, unless it would push a message at the length
+           limit over it; then the bracket alone still says which message is answered. */
+        const quoted = (replied.quote && !chat.messageProblem(replied.quote + body.text)) ? replied.quote : '';
+        const delivery = chat.deliver(name, quoted + body.text, roster, opPrefix,
           (attachments.wireNote(files.recs) || '') + reactionNote);
         /* Only PLACED counts as told. The note is the tail of the wire, so an UNCONFIRMED
            send (a paste that failed part-way, a pane that changed before Enter) is the case
@@ -13333,6 +13356,8 @@ const server = http.createServer((req, res) => {
           wire: chose ? chat.cleanMessage(body.text) : null,
           at: delivery.at,
           delivery,
+          /* #4256: stored only on a reply, so an ordinary message's row is unchanged. */
+          ...(answered ? { replyTo: answered.at } : {}),
         });
         // (No `agentsUnreadable`: nothing reads it here, and the GET on this
         // same route deleted the identical field for the identical reason.
