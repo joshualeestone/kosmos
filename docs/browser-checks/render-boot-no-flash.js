@@ -25,12 +25,22 @@ function check(cond, msg) { if (!cond) problems.push(msg); }
 // What the viewer can actually see: the cover is up (not hidden), opaque, fixed,
 // covering the viewport, and stacked above the board. If all hold, the board is
 // occluded no matter what is painted beneath it.
+// kosmos#3973: the root may give up a gutter only as wide as a real scrollbar, measured on a
+// scratch scroller the page's CSS does not style, so a root that itself shrank or moved cannot become
+// the yardstick that passes a short bar or cover.
 async function coverIsOccluding(page) {
   return page.evaluate(() => {
     const c = document.getElementById('boot-cover');
     if (!c || c.hidden) return { up: false };
     const s = getComputedStyle(c);
     const r = c.getBoundingClientRect();
+    const root = document.documentElement.getBoundingClientRect();
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:absolute;top:-999px;left:0;width:100px;height:100px;overflow:scroll';
+    document.documentElement.appendChild(probe);
+    const sbw = probe.offsetWidth - probe.clientWidth;
+    probe.remove();
+    const gutter = Math.round(innerWidth - root.right);
     return {
       up: true,
       opaque: s.background !== 'transparent' && s.opacity === '1' && s.display !== 'none',
@@ -39,9 +49,12 @@ async function coverIsOccluding(page) {
       // stable gutter reserved and nothing to scroll, Chromium reports clientWidth WITH the empty gutter
       // on a classic-scrollbar machine (1280 of 1280 while html is 1265 wide), and a fixed layer cannot
       // paint that gutter, so a correct cover failed by 15px there and passed on overlay scrollbars.
+      // floor: zoom lays the root out fractionally (the page's own 1px vwMatches tolerance). The
+      // bottom stays on clientHeight: scrollbar-gutter reserves only the vertical scrollbar's strip.
       covers: r.left <= 0 && r.top <= 0
-        && r.right >= Math.floor(document.documentElement.getBoundingClientRect().right)
-        && r.bottom >= document.documentElement.clientHeight,
+        && r.right >= Math.floor(root.right)
+        && r.bottom >= document.documentElement.clientHeight
+        && Math.round(root.left) === 0 && (gutter === 0 || gutter === sbw),
       z: Number(s.zIndex) || 0,
     };
   });
