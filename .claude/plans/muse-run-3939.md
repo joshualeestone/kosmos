@@ -21,3 +21,9 @@ Card #3939. Slice 1 (merged 03bf99deb) finds Muse and reads its version. Splinte
 - Muse runs in its own process group (spawn detached) with input closed and output capped; a timeout stops the whole group, so a launcher that does not exec its binary cannot leave Muse running in the folder. Tested with such a launcher: without the group stop the turn waited for the child to end on its own (the test measures that wait).
 - "Timed out" only when Kosmos stopped it; a crash is "could not run". The not-signed-in words match Muse's singular and plural lines. Too much output is its own sentence.
 - The workspace must be absolute; the symlink resolve is stated as a precaution (only the data folder was measured). The closed-gate test proves nothing ran (a marker file). The refusal log carries <prompt>, never the person's words.
+
+## Review round 2 (decided)
+- The stdout and stderr streams have their own 'error' listeners: an unlistened stream error would crash the whole board, not just the turn (engine/fedseats.js guards the same).
+- runMuse returns a stop; the hard cap calls it, so an answer after the cap never leaves muse running behind it (tested: without the stop, the child outlived the answer).
+- The output cap counts raw bytes. The default approval mode is named. The redacted refusal is tested (the prompt never reaches the log; the command is still named).
+- Left: the pid-reuse window of kill(-pid) (the group is killed only while its pipes are open, which is when it exists); no direct test of a stream 'error' (no seam to raise one on the real child).

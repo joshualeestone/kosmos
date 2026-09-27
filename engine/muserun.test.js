@@ -167,3 +167,36 @@ test('#3939 round 1: at the timeout, what the launcher started is stopped too (i
     assert.equal(alive, false, 'the launcher\'s child kept running after the timeout');
   } finally { gate.resetForTests(); run.resetForTests(); }
 });
+
+test('#3939 round 2: with the gate closed, the refusal names the command but never the person\'s prompt', { skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
+  fakeMuse('exit 0');
+  const seen = [];
+  const real = gate.refuseOrWarn;
+  gate.refuseOrWarn = (mod, file, args) => { seen.push({ mod, file, args }); };
+  gate.resetForTests();
+  try {
+    await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'my private plans for Tuesday' });
+  } finally { gate.refuseOrWarn = real; }
+  assert.equal(seen.length, 1, 'the closed gate was not asked (convention 3)');
+  const said = JSON.stringify(seen[0]);
+  assert.ok(!said.includes('my private plans'), 'the prompt reached the refusal log: ' + said);
+  assert.equal(seen[0].args[seen[0].args.length - 1], '<prompt>');
+  assert.equal(seen[0].args[0], 'exec', 'CONTROL: the rest of the command is still named');
+});
+
+test('#3939 round 2: the hard cap alone stops a running muse, not only answers for it', { timeout: 8000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
+  const pidFile = path.join(SANDBOX, 'cap.pid');
+  fakeMuse('echo $$ > "' + pidFile + '"\nexec sleep 7');
+  run.setForTests({ turnTimeoutMs: 60000, hardCapMs: 300 });   // the turn's own timeout would come far later
+  gate.allowLiveExecution();
+  try {
+    const r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.because, run.TIMED_OUT);
+    const pid = Number(fs.readFileSync(pidFile, 'utf8').trim());
+    await new Promise((res) => setTimeout(res, 300));
+    let alive = true;
+    try { process.kill(pid, 0); } catch { alive = false; }
+    if (alive) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }   // only the PID this test started
+    assert.equal(alive, false, 'the hard cap answered, but muse kept running behind the answer');
+  } finally { gate.resetForTests(); run.resetForTests(); }
+});

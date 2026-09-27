@@ -33,6 +33,7 @@ const TURN_HARD_CAP_MS = TURN_TIMEOUT_MS + 30 * 1000;
 const TURN_MAX_BUFFER = 16 * 1024 * 1024;
 /* The approval modes Muse takes (`--approval-mode`); anything else is refused before a run. */
 const APPROVAL_MODES = Object.freeze(['untrusted', 'on-request', 'never']);
+const DEFAULT_APPROVAL_MODE = 'on-request';   // Muse's own default: it asks before acting
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const COULD_NOT_RUN = 'Kosmos could not run Muse Code just now';
 const TIMED_OUT = 'Muse Code did not finish the turn in time';
@@ -47,7 +48,7 @@ const TIMED_OUT = 'Muse Code did not finish the turn in time';
 function turnArgs({ workspace, sessionId, prompt, approvalMode } = {}) {
   if (typeof prompt !== 'string' || !prompt.trim()) return { error: 'there is nothing to send' };
   if (!UUID_RE.test(String(sessionId || ''))) return { error: 'the session id is not one Muse takes' };
-  const mode = approvalMode || 'on-request';
+  const mode = approvalMode || DEFAULT_APPROVAL_MODE;
   if (!APPROVAL_MODES.includes(mode)) return { error: 'that approval mode is not one Muse takes' };
   // Absolute only (round 1): a relative path would resolve against the board's own folder.
   if (typeof workspace !== 'string' || !path.isAbsolute(workspace)) return { error: 'the agent\'s folder is not there' };
@@ -93,24 +94,29 @@ function parseEvents(jsonl) {
 let runMuse = (bin, args, opts, done) => {
   const gate = require('./live-execution');
   // The prompt is the person's words: never in a log line (round 1).
-  if (!gate.liveExecutionAllowed()) { gate.refuseOrWarn('muserun', bin, args.slice(0, -1).concat('<prompt>')); done(new Error('live execution is off')); return; }
+  if (!gate.liveExecutionAllowed()) { gate.refuseOrWarn('muserun', bin, args.slice(0, -1).concat('<prompt>')); done(new Error('live execution is off')); return () => {}; }
   /* Round 1: its own process group (detached), so a timeout stops the launcher AND anything it started
      (a launcher that does not exec its binary would otherwise leave Muse editing the folder); input
      closed, as in every research run; output capped. The environment passes through untouched. */
   let child;
   try { child = spawn(bin, args, { cwd: opts.cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'] }); }
-  catch (e) { done(e); return; }
-  let out = ''; let err = ''; let over = false; let killed = false; let finished = false;
+  catch (e) { done(e); return () => {}; }
+  const outChunks = []; const errChunks = []; let bytes = 0; let over = false; let killed = false; let finished = false;
+  /* The whole group (POSIX; slice 1 gates Muse to a Mac before this is reached). */
   const killGroup = () => { killed = true; try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* gone */ } } };
   const timer = setTimeout(killGroup, turnTimeoutMs);
-  const take = (which) => (d) => {
+  // Raw bytes, not string length (round 2): the cap is what the comment says it is.
+  const take = (which) => (buf) => {
     if (over) return;
-    if (which === 'out') out += d; else err += d;
-    if (out.length + err.length > TURN_MAX_BUFFER) { over = true; killGroup(); }
+    bytes += buf.length;
+    (which === 'out' ? outChunks : errChunks).push(buf);
+    if (bytes > TURN_MAX_BUFFER) { over = true; killGroup(); }
   };
-  child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
   child.stdout.on('data', take('out')); child.stderr.on('data', take('err'));
-  const end = (e) => { if (finished) return; finished = true; clearTimeout(timer); done(e, out, err); };
+  /* Round 2: an unlistened 'error' on a stream crashes the whole board (engine/fedseats.js guards the same). */
+  child.stdout.on('error', () => {}); child.stderr.on('error', () => {});
+  const text = (chunks) => Buffer.concat(chunks).toString('utf8');
+  const end = (e) => { if (finished) return; finished = true; clearTimeout(timer); done(e, text(outChunks), text(errChunks)); };
   child.on('error', (e) => end(e));
   child.on('close', (code, signal) => {
     if (code === 0 && !killed) { end(null); return; }
@@ -118,6 +124,8 @@ let runMuse = (bin, args, opts, done) => {
     e.code = code; e.signal = signal; e.killed = killed; e.overflow = over;
     end(e);
   });
+  // Round 2: the caller's hard cap can stop the group too, rather than leave it running behind an answer.
+  return () => { if (!finished) killGroup(); };
 };
 
 /**
@@ -129,14 +137,15 @@ function runTurn(input) {
     let settled = false;
     const finish = (r) => { if (settled) return; settled = true; clearTimeout(cap); resolve(r); };
     const fail = (because) => finish({ ok: false, exitCode: null, sessionId: null, model: null, text: '', done: false, because });
-    const cap = setTimeout(() => fail(TIMED_OUT), hardCapMs);
+    let stop = null;
+    const cap = setTimeout(() => { if (stop) { try { stop(); } catch { /* best effort */ } } fail(TIMED_OUT); }, hardCapMs);
     if (cap.unref) cap.unref();
     try {
       const inst = musestatus.installed();
       if (!inst.installed) { fail(inst.because); return; }
       const t = turnArgs(input);
       if (t.error) { fail(t.error); return; }
-      runMuse(inst.bin, t.args, { cwd: t.workspace }, (err, stdout, stderr) => {
+      stop = runMuse(inst.bin, t.args, { cwd: t.workspace }, (err, stdout, stderr) => {
         const parsed = parseEvents(stdout);
         const exitCode = err ? (typeof err.code === 'number' ? err.code : null) : 0;
         let because = null;
