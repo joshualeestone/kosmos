@@ -20640,8 +20640,17 @@ async function tick() {
        check on the unreachable branch could not have failed in production.
        One decider. The raw reason rides the box, as it did before. */
     const boardErr = boardEmpty();
-    document.getElementById('grid').innerHTML = boardErr;
-    document.getElementById('alist').innerHTML = boardErr;
+    /* #718 state 3: written only when it changes, so the five-second poll does not rebuild the
+       card's button (Sign in, Try again) under a keyboard's focus. Kept by NODE identity, not by
+       comparing markup: any other paint of the container in between replaces that node, and
+       then this writes again. */
+    for (const id of ['grid', 'alist']) {
+      const box = document.getElementById(id);
+      if (box.__failHtml === boardErr && box.__failNode && box.firstElementChild === box.__failNode) continue;
+      box.innerHTML = boardErr;
+      box.__failHtml = boardErr;
+      box.__failNode = box.firstElementChild;
+    }
     /* #3387: a failed poll shows no rows, so the consolidated head must not keep reading
        "Project Members" with the top + wired to add-member over a "could not refresh" list.
        Revert to "Agents" / New agent, the same reset the genuine empty-board path makes. */
@@ -28776,17 +28785,19 @@ let BOARD_NEEDS_SIGNIN = false;
    sign-in has lapsed. The relay answers every script fetch with 401 and
    {"signed_out":true} (kosmos-relay crates/tunnel/src/proxy.rs gate_page) and a
    NAVIGATION with its sign-in page, so the remedy is a reload. Keyed on that field, not on
-   401 alone: a bare 401 from anything else is not proof that signing in fixes it. Set and
-   cleared at the same points as BOARD_NEEDS_SIGNIN. */
+   401 alone: a bare 401 from anything else is not proof that signing in fixes it.
+   Two pollers write it, each from its own answer: tick (/api/status) and loadProjects
+   (/api/projects). When their two reads disagree, the one that landed last wins until the next
+   poll, the same as BOARD_NEEDS_SIGNIN. */
 let BOARD_SIGNED_OUT = false;
 function relaySignedOut(status, body) {
   return status === 401 && !!body && body.signed_out === true;
 }
 const ORG_SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos. Your Mac and your agents are fine.';
 const SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos, so it cannot see your agents or projects. Your Mac and your agents are fine. Sign in again from the Agents or Projects page.';
-function deviceSignedOutHtml() {
+function deviceSignedOutHtml(what) {
   return '<div class="pj-empty boardfail">'
-    + '<p><b>Sign in again to see your agents.</b><br>'
+    + '<p><b>Sign in again to see your ' + (what === 'projects' ? 'projects' : 'agents') + '.</b><br>'
     + 'This phone or computer was signed out of your Kosmos. Your Mac and your agents are fine.</p>'
     + '<button class="btn" type="button" data-device-signin>Sign in</button>'
     + '</div>';
@@ -47140,7 +47151,7 @@ async function loadProjects() {
        since dragend is delegated on #pj-list a detached node's dragend never fires to
        clear PJ_DRAGGING. paintProjects self-heals a stranded flag as a backstop, but not
        detaching in the first place keeps the drag itself alive through a transient blip. */
-    if (!PJ_DRAGGING) setIfChanged(document.getElementById('pj-list'), BOARD_SIGNED_OUT ? deviceSignedOutHtml()
+    if (!PJ_DRAGGING) setIfChanged(document.getElementById('pj-list'), BOARD_SIGNED_OUT ? deviceSignedOutHtml('projects')
       : BOARD_NEEDS_SIGNIN ? boardSigninHtml()
       : '<div class="err"><b>We cannot read your projects right now.</b><br>'
       + 'This is not saying you have none, it is saying we cannot see them.</div>');
