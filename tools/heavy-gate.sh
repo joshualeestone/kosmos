@@ -57,6 +57,7 @@ elif [ -n "${BASH_VERSION:-}" ] && [ "${BASH_SOURCE[0]}" != "$0" ]; then
 fi
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
+. "$REPO/tools/lib/process-fixture.sh"
 
 EXCEPT="" ; TWICE=0 ; QUIET=0 ; QUIET_BOX=0 ; EXCEPT_SET=0
 while [ $# -gt 0 ]; do
@@ -162,18 +163,9 @@ script_of() (
 # True if one ancestor IS a node test-runner process: node as the program, with a bare --test
 # among node's OWN options, the words before its script. Subshell with globbing off, as above.
 has_test_runner() (
-  set -f
   IFS="$ANC_SEP"
   for a in $1; do
-    prog="${a%% *}"; prog="${prog##*/}"
-    [ "$prog" = node ] || continue
-    IFS=' '
-    first=1
-    for w in $a; do
-      if [ "$first" = 1 ]; then first=0; continue; fi
-      case "$w" in --test) exit 0 ;; -*) ;; *) break ;; esac
-    done
-    IFS="$ANC_SEP"
+    _kosmos_command_is_node_test_runner "$a" && exit 0
   done
   exit 1
 )
