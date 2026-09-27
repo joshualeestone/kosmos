@@ -105,6 +105,7 @@ jobs:
       # status.snapshot() threw "we could not see what is running on this computer" and live-connect
       # found no runnable tmux. brew tmux with no server started is the hermetic no-server path.
       - name: install tmux (#3973)
+        timeout-minutes: 10
         run: brew install tmux
       - name: 'the FULL page layer, headless, every check (tools/browser-checks.sh, #2518)'
         id: checks

@@ -57,6 +57,7 @@ async function coverIsOccluding(page) {
         && r.bottom >= document.documentElement.clientHeight
         && Math.abs(root.left) <= 1 && (Math.abs(gutter) <= 1 || Math.abs(gutter - sbw) <= 1),
       z: Number(s.zIndex) || 0,
+      yard: { coverRight: Math.round(r.right), rootLeft: Math.round(root.left), rootRight: Math.round(root.right), gutter: Math.round(gutter), sbw },
     };
   });
 }
@@ -82,7 +83,7 @@ async function arm(browser, label, firstRunPayload, expect) {
   const during = await coverIsOccluding(page);
   check(during.up, `${label}: #boot-cover was not up during the gate (the flash is back)`);
   check(during.up && during.opaque && during.fixed && during.covers,
-    `${label}: #boot-cover is up but not occluding (opaque=${during.opaque} fixed=${during.fixed} covers=${during.covers})`);
+    `${label}: #boot-cover is up but not occluding (opaque=${during.opaque} fixed=${during.fixed} covers=${during.covers} ${JSON.stringify(during.yard)})`);
 
   // Release the gate and let the client settle onto its destination.
   released();

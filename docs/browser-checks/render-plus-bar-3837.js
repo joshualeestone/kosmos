@@ -41,12 +41,10 @@ function chk(ok, label, extra) {
   else { fail.push(label); console.log('FAIL  ' + label + (extra ? '  --  ' + extra : '')); }
 }
 // kosmos#3973: "right" is measured to the ROOT's box, not documentElement.clientWidth, which includes
-// the #1309 stable gutter on a classic-scrollbar machine when the page does not scroll (so the bar read
-// 15px short there and exact on overlay scrollbars).
-// kosmos#3973: the root may give up a gutter only as wide as a real scrollbar, measured on a
-// scratch scroller (the page styles it only as it styles the root's own scrollbar), so a root that itself shrank or moved cannot become
-// the yardstick that passes a short bar or cover. Compared within 1px (a fractional root rounds
-// either way); a CSS zoom on the root would scale the scratch scroller and is not supported here.
+// the #1309 stable gutter on a classic-scrollbar machine when the page does not scroll. rootOk keeps
+// that yardstick honest: the root may give up a gutter only as wide as a scratch scroller's scrollbar
+// (within 1px), so a root that shrank or moved cannot pass a short bar. A CSS zoom on the root would
+// scale the scratch scroller and is not supported here.
 const bar = (page) => page.evaluate(() => {
   const b = document.getElementById('kplus-bar');
   if (!b) return { present: false };

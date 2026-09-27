@@ -6,7 +6,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { execFile } = require('node:child_process');
+const { execFile, execFileSync } = require('node:child_process');
 
 const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'connect-live-'));
 console.log('SANDBOX', SB);
@@ -33,7 +33,12 @@ const TMUX_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'lc-'));
 process.env.TMUX_TMPDIR = TMUX_DIR;
 delete process.env.TMUX;
 process.on('exit', () => {
-  try { require('node:child_process').execFileSync(process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux', ['kill-server'], { stdio: 'ignore', timeout: 5000 }); } catch { /* no server was started */ }
+  try {
+    execFileSync(process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux', ['kill-server'], { stdio: ['ignore', 'ignore', 'pipe'], timeout: 5000 });
+  } catch (e) {
+    const why = String((e && e.stderr) || (e && e.message) || '');
+    if (!/no server running|error connecting to .*\(No such file or directory\)/.test(why)) console.error('WARN could not stop the private tmux server in', TMUX_DIR, '-', why.trim().slice(0, 200));
+  }
   try { fs.rmSync(TMUX_DIR, { recursive: true, force: true }); } catch { /* nothing to do about it at exit */ }
 });
 
