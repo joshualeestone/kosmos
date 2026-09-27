@@ -815,7 +815,8 @@ function resolveBin(provider, opts) {
   /* #3939: Meta's Muse Code (`muse`), first slice: found, not yet run. Its own installer (install.sh
      from Meta, measured on the Mortals Mac 2026-09-26) puts a launcher script at ~/.local/bin/muse,
      the same place as Claude Code's and agy's, so it resolves under homeDir() (the
-     AGENT_WORKFORCE_HOME sandbox seam). Env override first, like every runner. A Mac only for now:
+     AGENT_WORKFORCE_HOME sandbox seam). Env override first, like every runner (so an override is honoured
+     on any platform). Otherwise a Mac only for now:
      the Windows install (Homer's captures) lands elsewhere and is its own slice. Not in MANIFEST, so
      runners.status() and every screen that reads it do not list it yet. */
   if (provider === 'muse') {

@@ -32,6 +32,10 @@ test('#3939: the version line Muse Code prints is read; anything else is not a v
   assert.equal(muse.parseVersion('Muse Spark 1.0.0'), null, 'another Meta product read as Muse Code');
   assert.equal(muse.parseVersion(''), null);
   assert.equal(muse.parseVersion('some banner\nMuse Code 9.9.9\nother junk'), null, 'a version line inside other output was taken (round 1)');
+  // Round 3: the end of the line is anchored too.
+  assert.equal(muse.parseVersion('Muse Code 1.4.0 (1.4.0-R4161.1)\nWarning: update available'), null, 'a line after the version was ignored');
+  assert.equal(muse.parseVersion('Muse Code 1.4.0 trailing'), null);
+  assert.equal(muse.parseVersion('Muse Code 1.4.0.7'), null);
 });
 
 test('#3939: not installed until ~/.local/bin/muse is there and runnable (a Mac)', { skip: process.platform !== 'darwin' && 'the Mac branch' }, () => {
@@ -96,14 +100,23 @@ test('#3939 round 1: a muse that never answers still gives an answer (unknown), 
     assert.ok(Date.now() - t0 < 5000, 'version() waited on a child that never answered');
     assert.equal(r.version, null);
     assert.equal(r.because, muse.VERSION_UNKNOWN_BECAUSE);
-    late(null, 'Muse Code 1.4.0');   // a late answer is ignored, and nothing throws
+    late(null, 'Muse Code 1.4.0');   // a late answer after the cap does not throw
   } finally { muse.resetForTests(); }
 });
 
-test('#3939 round 1: the real child is stopped with SIGKILL (a launcher that ignores TERM cannot keep it waiting)', () => {
-  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'musestatus.js'), 'utf8');
-  assert.match(src, /killSignal: 'SIGKILL'/);
-  assert.match(src, /maxBuffer: VERSION_MAX_BUFFER/);
+test('#3939 round 3: a real muse that ignores TERM is stopped by SIGKILL at the timeout (not waited out)', { timeout: 8000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
+  fs.mkdirSync(path.dirname(BIN), { recursive: true });
+  fs.writeFileSync(BIN, "#!/bin/sh\ntrap '' TERM\nexec sleep 30\n", { mode: 0o755 });
+  // The hard cap is left long, so only the kill at the timeout can end this quickly.
+  muse.setRunnerForTests(null, { timeoutMs: 300, hardCapMs: 20000 });
+  gate.allowLiveExecution();
+  try {
+    const t0 = Date.now();
+    const r = await muse.version();
+    assert.ok(Date.now() - t0 < 5000, 'a child ignoring TERM kept version() waiting ' + (Date.now() - t0) + ' ms');
+    assert.equal(r.version, null);
+    assert.equal(r.because, muse.VERSION_UNKNOWN_BECAUSE);
+  } finally { gate.resetForTests(); muse.resetForTests(); }
 });
 
 test('#3939 round 2: version() resolves (never rejects) even if finding muse throws', async () => {
@@ -111,7 +124,8 @@ test('#3939 round 2: version() resolves (never rejects) even if finding muse thr
   runners.resolveBin = () => { throw new Error('boom'); };
   try {
     const r = await muse.version();
+    assert.equal(r.installed, null, 'a failed check read as a confident not-installed (round 3)');
     assert.equal(r.version, null);
-    assert.equal(r.because, muse.VERSION_UNKNOWN_BECAUSE);
+    assert.equal(r.because, muse.CHECK_FAILED_BECAUSE);
   } finally { runners.resolveBin = real; }
 });

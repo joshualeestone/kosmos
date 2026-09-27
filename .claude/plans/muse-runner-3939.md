@@ -3,7 +3,7 @@
 Card #3939 (Josh's spec, 2026-09-26; research complete: Homer's Windows captures, Angel's Mac findings on the Mortals Mac). Splinter, 23:00: start the Mac runner in small slices, the runner and detect-installed first, no UI.
 
 ## What finished looks like (this slice)
-- runners.resolveBin('muse') finds Meta's launcher at ~/.local/bin/muse under the sandboxable home (AGENT_WORKFORCE_HOME), honours AGENT_WORKFORCE_MUSE_BIN, and on anything but a Mac says it is not wired up yet.
+- runners.resolveBin('muse') finds Meta's launcher at ~/.local/bin/muse under the sandboxable home (AGENT_WORKFORCE_HOME), honours AGENT_WORKFORCE_MUSE_BIN (first, on any platform, like every runner), and otherwise on anything but a Mac says it is not wired up yet.
 - engine/musestatus.js: installed() (a file check) and version() (`muse --version` through the live-execution gate, with a timeout; only Muse Code's own line counts as a version; never rejects).
 - Nothing lists it yet: 'muse' is not in MANIFEST, so runners.status() and every screen that reads it are unchanged. No sign-in, no session, no writes.
 
@@ -20,3 +20,4 @@ Card #3939 (Josh's spec, 2026-09-26; research complete: Homer's Windows captures
 - Only the WHOLE trimmed output may be Muse Code's version line (no line picked out of a banner).
 - The unknown and not-installed sentences are named constants.
 - Round 2: installed() runs inside the try, so version() resolves even if finding muse throws (tested). The CLAUDE.md Where to Find Things row waits for the slice that wires the provider in.
+- Round 3: the version match is anchored at the end too (tested); the SIGKILL is proven on a real child that ignores TERM (a TERM kill fails the test at its timeout); a failed install check reads installed: null with its own sentence; VERSION_ARGS named once; the not-installed reason is derived in installed(); the override-first rule stated in the comment and plan.

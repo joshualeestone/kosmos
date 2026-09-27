@@ -27,11 +27,16 @@ const VERSION_MAX_BUFFER = 64 * 1024;
 const VERSION_RE = /^Muse Code (\d+\.\d+\.\d+)(?: \(([^)\s]+)\))?$/;
 const VERSION_UNKNOWN_BECAUSE = 'Kosmos could not read which Muse Code this is';
 const NOT_INSTALLED_BECAUSE = 'Muse Code is not on this computer';
+const CHECK_FAILED_BECAUSE = 'Kosmos could not check for Muse Code';
+/* The one command this module runs; the refusal message and the run both use it (round 3). */
+const VERSION_ARGS = Object.freeze(['--version']);
 
 /** { installed, bin, because }: cheap (a file check), safe on every render. */
 function installed() {
   const r = runners.resolveBin('muse');
-  return { installed: !!(r && r.present), bin: r ? r.bin : null, because: r && r.because ? r.because : null };
+  const present = !!(r && r.present);
+  // One derivation of the reason (round 3): a missing file says so, here, for every reader.
+  return { installed: present, bin: r ? r.bin : null, because: present ? null : ((r && r.because) || NOT_INSTALLED_BECAUSE) };
 }
 
 /** The version from `muse --version`'s text, or null when it is not Muse Code's line. */
@@ -42,9 +47,9 @@ function parseVersion(text) {
 
 let runVersion = (bin, done) => {
   const gate = require('./live-execution');
-  if (!gate.liveExecutionAllowed()) { gate.refuseOrWarn('musestatus', bin, ['--version']); done(new Error('live execution is off')); return; }
+  if (!gate.liveExecutionAllowed()) { gate.refuseOrWarn('musestatus', bin, VERSION_ARGS.slice()); done(new Error('live execution is off')); return; }
   // SIGKILL, not the default SIGTERM (round 1): a launcher script that ignores TERM kept the answer waiting 25 s.
-  execFile(bin, ['--version'], { timeout: VERSION_TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer: VERSION_MAX_BUFFER, encoding: 'utf8' },
+  execFile(bin, VERSION_ARGS.slice(), { timeout: timeoutMs, killSignal: 'SIGKILL', maxBuffer: VERSION_MAX_BUFFER, encoding: 'utf8' },
     (err, stdout) => done(err, stdout));
 };
 
@@ -53,8 +58,9 @@ function version() {
   return new Promise((resolve) => {
     // Inside a try too (round 2): "never rejects" holds by construction, not because resolveBin cannot throw today.
     let inst;
-    try { inst = installed(); } catch { resolve({ installed: false, version: null, build: null, because: VERSION_UNKNOWN_BECAUSE }); return; }
-    if (!inst.installed) { resolve({ installed: false, version: null, build: null, because: inst.because || NOT_INSTALLED_BECAUSE }); return; }
+    // Unknown, not "not installed" (round 3): the check itself failed.
+    try { inst = installed(); } catch { resolve({ installed: null, version: null, build: null, because: CHECK_FAILED_BECAUSE }); return; }
+    if (!inst.installed) { resolve({ installed: false, version: null, build: null, because: inst.because }); return; }
     const unknown = { installed: true, version: null, build: null, because: VERSION_UNKNOWN_BECAUSE };
     let settled = false;
     const finish = (answer) => { if (settled) return; settled = true; clearTimeout(cap); resolve(answer); };
@@ -72,8 +78,9 @@ function version() {
 }
 
 let hardCapMs = VERSION_HARD_CAP_MS;
+let timeoutMs = VERSION_TIMEOUT_MS;
 const REAL = { runVersion };
-function setRunnerForTests(fn, opts) { runVersion = fn; if (opts && opts.hardCapMs) hardCapMs = opts.hardCapMs; }
-function resetForTests() { runVersion = REAL.runVersion; hardCapMs = VERSION_HARD_CAP_MS; }
+function setRunnerForTests(fn, opts) { if (fn) runVersion = fn; if (opts && opts.hardCapMs) hardCapMs = opts.hardCapMs; if (opts && opts.timeoutMs) timeoutMs = opts.timeoutMs; }
+function resetForTests() { runVersion = REAL.runVersion; hardCapMs = VERSION_HARD_CAP_MS; timeoutMs = VERSION_TIMEOUT_MS; }
 
-module.exports = { installed, version, parseVersion, VERSION_TIMEOUT_MS, VERSION_HARD_CAP_MS, VERSION_UNKNOWN_BECAUSE, setRunnerForTests, resetForTests };
+module.exports = { installed, version, parseVersion, VERSION_TIMEOUT_MS, VERSION_HARD_CAP_MS, VERSION_UNKNOWN_BECAUSE, CHECK_FAILED_BECAUSE, setRunnerForTests, resetForTests };
