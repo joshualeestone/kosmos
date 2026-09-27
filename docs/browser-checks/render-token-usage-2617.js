@@ -376,6 +376,31 @@ function readUsage(page) {
     alignArms(await measureAlign(), 'phone');
     await p.setViewportSize({ width: 1280, height: 1100 });
     await p.waitForTimeout(300);
+    // #4242: the four class cards' headers. The name's own text is on ONE line, the tag starts below
+    // it, the total never wraps, and the four headers are the same height. Measured on the name's
+    // text node with a Range, since the name span also holds the tag and its box alone cannot say
+    // how many lines the name took. 600px is the tightest width where the grid is still two columns.
+    const measureCards = () => p.evaluate(() => [...document.querySelectorAll('#usage-charts4 .tv-mini')].map((c) => {
+      const nm = c.querySelector('.tv-nm'), tg = c.querySelector('.tv-tg'), tot = c.querySelector('.tv-tot'), mh = c.querySelector('.tv-mh');
+      const node = nm && [...nm.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
+      const r = document.createRange();
+      let nameLines = 0, nameBottom = 0;
+      if (node) { r.selectNodeContents(node); const rects = [...r.getClientRects()].filter((x) => x.width > 0); nameLines = new Set(rects.map((x) => Math.round(x.top))).size; nameBottom = Math.max(...rects.map((x) => x.bottom)); }
+      const lh = tot ? parseFloat(getComputedStyle(tot).lineHeight) || parseFloat(getComputedStyle(tot).fontSize) * 1.3 : 0;
+      return { name: node ? node.textContent.trim() : null, nameLines, tagBelow: tg ? tg.getBoundingClientRect().top >= nameBottom - 1 : false,
+        totOneLine: tot ? tot.getBoundingClientRect().height <= lh * 1.5 : false, head: mh ? Math.round(mh.getBoundingClientRect().height) : 0 };
+    }));
+    for (const [w, at] of [[1280, 'desktop'], [600, 'two-column at 600px'], [390, 'phone']]) {
+      await p.setViewportSize({ width: w, height: 1100 });
+      await p.waitForTimeout(300);
+      const cards = await measureCards();
+      ok(cards.length === 4 && cards.every((c) => c.name && c.nameLines === 1), `${at}: each class card's name is on one line (#4242) -- ${JSON.stringify(cards.map((c) => c.name + ':' + c.nameLines))}`);
+      ok(cards.length === 4 && cards.every((c) => c.tagBelow), `${at}: each class card's tag sits below its name, not beside it (#4242) -- ${JSON.stringify(cards.map((c) => c.tagBelow))}`);
+      ok(cards.length === 4 && cards.every((c) => c.totOneLine), `${at}: each class card's total stays on one line (#4242) -- ${JSON.stringify(cards.map((c) => c.totOneLine))}`);
+      ok(cards.length === 4 && Math.max(...cards.map((c) => c.head)) - Math.min(...cards.map((c) => c.head)) <= 1, `${at}: the four class card headers are the same height (#4242) -- ${JSON.stringify(cards.map((c) => c.head))}`);
+    }
+    await p.setViewportSize({ width: 1280, height: 1100 });
+    await p.waitForTimeout(300);
     // #2617 CONTROL: repaint in the SAME page life, from a painted block to a
     // response with no byAgent (an older board, a failed split). After a reload
     // the block is hidden by its markup whatever the code does, so the hide path
