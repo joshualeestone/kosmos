@@ -3021,9 +3021,14 @@ make_app() {
   # Test-only by contract, like KOSMOS_SYS_APP_DIR: KOSMOS_SWAP_PERL points the
   # harness at a stub; make_app_register also counts it as a harness, so a stub run
   # stays out of the real LaunchServices database. The other sandbox gates do not
-  # know it: the harness always sets KOSMOS_APP_DIR as well. KOSMOS_CONTENTS_SWAP=off is also the switch that restores
-  # the old whole-bundle rename on a machine where the swap misbehaves.
+  # know it: the harness always sets KOSMOS_APP_DIR as well. KOSMOS_CONTENTS_SWAP=off
+  # is also the switch that restores the old whole-bundle rename on a machine where
+  # the swap misbehaves.
   local _perl="${KOSMOS_SWAP_PERL:-/usr/bin/perl}" _swap_tried=no _had_app=no _swap_errno=""
+  # Per call: the home-folder retry runs make_app a second time, and its log fields
+  # must describe that folder, not carry the first folder's errno.
+  APP_PATH=none
+  APP_SWAP_ERRNO=none
   { [ -e "$app" ] || [ -L "$app" ]; } && _had_app=yes
   if [ "$(uname -s)" = Darwin ] && [ "${KOSMOS_CONTENTS_SWAP:-on}" != off ] \
      && [ -d "$app" ] && [ ! -L "$app" ] && [ -d "$app/Contents" ] && [ ! -L "$app/Contents" ] \
@@ -3039,7 +3044,7 @@ make_app() {
       # Prints 0, or the errno of a refusal (1 EPERM, e.g. App Management; 45 ENOTSUP,
       # a volume without swap; 22 EINVAL, a kernel without the flag; 62 ELOOP, a link),
       # which the app-bundle log line carries as swap_errno.
-      _swap_errno="$("$_perl" -e 'my $r = syscall(488, -2, $ARGV[0], -2, $ARGV[1], 18); print(($r == 0) ? 0 : ($! + 0)); exit($r == 0 ? 0 : 1)' \
+      _swap_errno="$(/usr/bin/env -u PERL5OPT -u PERL5LIB "$_perl" -e 'my $r = syscall(488, -2, $ARGV[0], -2, $ARGV[1], 18); print(($r == 0) ? 0 : ($! + 0)); exit($r == 0 ? 0 : 1)' \
         "$_phys/$(basename "$stage")/Contents" "$_phys/$(basename "$app")/Contents" 2>/dev/null)" || true
       APP_SWAP_ERRNO="${_swap_errno:-none}"
       # WHERE THE STAGED FOLDER IS decides, never the exit code alone: a swap that
@@ -3296,7 +3301,8 @@ if [ "$APP_SKIP_ICON" != "yes" ] && [ -z "${KOSMOS_APP_DIR:-}" ] && [ "$APP_DIR"
   info "if your Mac asks whether Terminal can manage apps, that is this step; Allow puts the icon in Applications"
 fi
 APP_MADE=no
-# #2864: which way make_app put the icon in place (swap | rename | rename-swap-refused),
+# #2864: which way make_app put the icon in place (swap | rename | rename-swap-skipped |
+# rename-swap-refused) and the swap's errno,
 # recorded in the app-bundle log line so a report of duplicate Dock icons can be read.
 APP_PATH=none
 APP_SWAP_ERRNO=none

@@ -814,6 +814,7 @@ APP_INO4="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app" 2>/dev/null || echo none)"
 RC=0; cat "$SETUP" | KOSMOS_SWAP_PERL="$SB/perl-lies" sh > "$SB/update-swaplies.log" 2>&1 || RC=$?
 chk "a swap that did nothing is not believed: install still exits 0" "rc_ok $RC"
 chk "and the app is complete and runnable" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ] && [ -f \"$SB/apps/Kosmos.app/Contents/Info.plist\" ]"
+chk "the install log records app_path=rename-swap-refused for that run" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* app_path=\\([^ ]*\\).*/\\1/')\" = rename-swap-refused ]"
 chk "and the fallback ran (a new folder): the zero exit was not taken as a swap" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" != \"$APP_INO4\" ]"
 # The stub below repeats the installer's syscall; pin the two to the same call, or a
 # change to the installer's flags would leave this case testing a stale shape.
@@ -827,6 +828,7 @@ CONTENTS_INO5="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app/Contents" 2>/dev/null 
 RC=0; cat "$SETUP" | KOSMOS_SWAP_PERL="$SB/perl-swaps-then-fails" sh > "$SB/update-swapfailslie.log" 2>&1 || RC=$?
 chk "a swap that happened but said it failed: install exits 0" "rc_ok $RC"
 chk "and it is believed by where the folder is: the SAME Kosmos.app folder" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" = \"$APP_INO5\" ]"
+chk "the install log records app_path=swap for that run" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* app_path=\\([^ ]*\\).*/\\1/')\" = swap ]"
 chk "with the NEW Contents in it, not the old one put back by the rename" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app/Contents\")\" != \"$CONTENTS_INO5\" ] && [ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ]"
 chk "the stub itself carries the installer's call (so the pin covers both copies)" "grep -qF 'syscall(488, -2, \\\$ARGV[0], -2, \\\$ARGV[1], 18)' \"$SB/perl-swaps-then-fails\""
 # The staged folder in NEITHER place (something moved it; the stub stands in): the stage
@@ -846,10 +848,12 @@ NF="$(cd "$SB" && pwd -P)/nofollow"
 mkdir -p "$NF/stage/Contents" "$NF/victim.app/Contents" "$NF/ok.app/Contents"
 echo victim > "$NF/victim.app/Contents/v"; echo staged > "$NF/stage/Contents/v"; echo ok > "$NF/ok.app/Contents/v"
 ln -s "$NF/victim.app" "$NF/link.app"
-RC=0; /usr/bin/perl -e 'exit(syscall(488, -2, $ARGV[0], -2, $ARGV[1], 18) == 0 ? 0 : 1)' "$NF/stage/Contents" "$NF/link.app/Contents" 2>/dev/null || RC=$?
+SWAPCALL='syscall(488, -2, $ARGV[0], -2, $ARGV[1], 18)'
+chk "the planted-link test uses the installer's own call" "grep -qF \"\$SWAPCALL\" \"$SETUP\""
+RC=0; /usr/bin/perl -e "exit($SWAPCALL == 0 ? 0 : 1)" "$NF/stage/Contents" "$NF/link.app/Contents" 2>/dev/null || RC=$?
 chk "the swap refuses a path through a planted link (non-zero)" "[ \"$RC\" != 0 ]"
 chk "and the link's target keeps its own Contents" "[ \"\$(cat \"$NF/victim.app/Contents/v\")\" = victim ] && [ \"\$(cat \"$NF/stage/Contents/v\")\" = staged ]"
-RC=0; /usr/bin/perl -e 'exit(syscall(488, -2, $ARGV[0], -2, $ARGV[1], 18) == 0 ? 0 : 1)' "$NF/stage/Contents" "$NF/ok.app/Contents" 2>/dev/null || RC=$?
+RC=0; /usr/bin/perl -e "exit($SWAPCALL == 0 ? 0 : 1)" "$NF/stage/Contents" "$NF/ok.app/Contents" 2>/dev/null || RC=$?
 chk "CONTROL: the same call on a link-free path swaps" "[ \"$RC\" = 0 ] && [ \"\$(cat \"$NF/ok.app/Contents/v\")\" = staged ]"
 # CONTROL for the residue checks: the same pipeline must SEE a residue name when one
 # is there, or "none left" could pass on any folder.
