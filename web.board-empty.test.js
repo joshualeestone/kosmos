@@ -43,11 +43,12 @@ function boardEmpty(state) {
      on screen, and a stub would let an escaping bug through the one branch
      that renders a value this code did not write. */
   // eslint-disable-next-line no-new-func
-  return new Function('BOARD_SEEN', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN',
+  return new Function('BOARD_SEEN', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN', 'BOARD_SIGNED_OUT',
     /* win32-board-copy: both painters now ask the platform copy layer, which answers
        "not Windows" here (no stamped meta), so this file keeps asserting the Mac board. */
     page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS) + '\n'
-    + lift('esc') + '\n' + lift('boardSigninHtml') + '\n' + lift('boardEmpty') + '\nreturn boardEmpty();')(state.seen, state.failed, state.signin || false);
+    + lift('esc') + '\n' + lift('boardSigninHtml') + '\n' + page.liftConst(SCRIPT, 'ORG_SIGNED_OUT_SENTENCE') + '\n' + page.liftConst(SCRIPT, 'DEVICE_SIGNIN_BUTTON') + '\n' + lift('deviceSignedOutHtml') + '\n' + lift('boardEmpty')
+    + '\nreturn boardEmpty();')(state.seen, state.failed, state.signin || false, state.signedOut || false);
 }
 
 const LOOKING = { seen: false, failed: null };
@@ -178,4 +179,38 @@ test('both layouts paint the empty board, not just the one that happens to be op
     'the agents list is no longer painted on the board tick');
   assert.match(SCRIPT, /alist\.innerHTML = boardEmpty\(\);/,
     'the agents list no longer falls back to the empty board when there are no agents');
+});
+
+test('a device signed out of the relay renders SIGN IN AGAIN with a Sign in button, and outranks the rest (#718 state 3)', () => {
+  /* The relay's signed-out 401 also sets BOARD_LOOK_FAILED (the read failed), so the
+     signed-out branch must win over the generic cannot-read card, as the 403 one does. */
+  const html = boardEmpty({ seen: true, failed: 'this device is not signed in to this Mac · status 401', signedOut: true });
+  assert.match(html, /Sign in again to see your agents/);
+  assert.match(html, /data-device-signin/, 'no Sign in button: Try again cannot fix a lapsed sign-in');
+  assert.ok(!/We cannot read your agents/.test(html), 'the signed-out device got the generic cannot-read card');
+  assert.ok(!/data-board-retry/.test(html), 'Try again is offered where it can never work');
+  // CONTROL: the same failed read without the flag is the generic card.
+  assert.match(boardEmpty({ seen: true, failed: 'status 401' }), /We cannot read your agents/);
+});
+
+test('the two signed-out sentences say the same two things, so a wording change cannot reach only one (#718 state 3)', () => {
+  /* ORG_SIGNED_OUT_SENTENCE sits beside a Sign in button; SIGNED_OUT_SENTENCE is for surfaces with
+     none, so it adds where to sign in. They are two strings by design; this pins what they share. */
+  const value = (name) => new Function(page.liftConst(SCRIPT, name) + '\nreturn ' + name + ';')();
+  const short = value('ORG_SIGNED_OUT_SENTENCE');
+  const long = value('SIGNED_OUT_SENTENCE');
+  const [lead, fine] = short.split('. ');
+  assert.ok(lead && fine, 'ORG_SIGNED_OUT_SENTENCE is no longer two sentences: ' + short);
+  assert.ok(long.startsWith(lead), 'SIGNED_OUT_SENTENCE no longer opens with: ' + lead);
+  assert.ok(long.includes(fine), 'SIGNED_OUT_SENTENCE no longer says: ' + fine);
+});
+
+test('the projects list gets its own Sign in button and says projects (#718 state 3)', () => {
+  // eslint-disable-next-line no-new-func
+  const html = new Function(lift('esc') + '\n' + page.liftConst(SCRIPT, 'ORG_SIGNED_OUT_SENTENCE') + '\n'
+    + page.liftConst(SCRIPT, 'DEVICE_SIGNIN_BUTTON') + '\n' + lift('deviceSignedOutHtml')
+    + '\nreturn deviceSignedOutHtml("projects");')();
+  assert.match(html, /Sign in again to see your projects/);
+  assert.match(html, /data-device-signin/, 'the projects card has no Sign in button');
+  assert.ok(!/data-board-retry/.test(html), 'Try again is offered on the projects card');
 });
