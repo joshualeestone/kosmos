@@ -48,6 +48,11 @@ tools/test-install.sh proves all of it, with a control showing today's path give
   rename (round 4): keeping the old app and returning success hid a stale bundle from the #2028
   notice, and failing sends the caller on to ~/Applications, a second Kosmos.app.
 
+## Who runs the proof
+tools/test-install.sh is operator-run (`yarn test:install`), not part of CI or the cut, so CI green
+says nothing about the swap. The PR carries this branch's run output, and the release-lane reviewer
+should rerun it.
+
 ## Weakest part
 That the Dock follows the folder's identity (the bookmark's file id and creation date) is
 reasoned from the measured bookmarks, not watched on a Dock: no Dock was driven here. What

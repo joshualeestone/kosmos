@@ -3017,8 +3017,9 @@ make_app() {
   # /usr/bin/stat by path, as elsewhere in this file: a GNU stat first on PATH
   # reads -f differently and would quietly skip the swap.
   # Test-only by contract, like KOSMOS_SYS_APP_DIR: KOSMOS_SWAP_PERL points the
-  # harness at a stub (and, like the other overrides, keeps lsregister away from
-  # the real LaunchServices database in make_app_register). KOSMOS_CONTENTS_SWAP=off is also the switch that restores
+  # harness at a stub; make_app_register also counts it as a harness, so a stub run
+  # stays out of the real LaunchServices database. The other sandbox gates do not
+  # know it: the harness always sets KOSMOS_APP_DIR as well. KOSMOS_CONTENTS_SWAP=off is also the switch that restores
   # the old whole-bundle rename on a machine where the swap misbehaves.
   local _perl="${KOSMOS_SWAP_PERL:-/usr/bin/perl}"
   if [ "$(uname -s)" = Darwin ] && [ "${KOSMOS_CONTENTS_SWAP:-on}" != off ] \
@@ -3036,8 +3037,9 @@ make_app() {
       # happened but reported failure must not fall through to the rename below,
       # which would then install $stage, by now the OLD Contents.
       if [ "$(/usr/bin/stat -f %i "$app/Contents" 2>/dev/null)" = "$_staged_ino" ]; then
-        # $stage now holds the OLD Contents; it is ours, and swept by the loop at the
-        # top of the next run if this delete is interrupted.
+        # $stage now holds the OLD Contents. If this delete is interrupted, the loop at
+        # the top of the next run sweeps it while it still proves ours; a delete that
+        # got far enough to make it unprovable leaves it for --uninstall to name.
         rm -rf "$stage" 2>/dev/null \
           || info "note: could not remove the leftover hidden folder $stage; drag it to the Trash to finish."
         make_app_register "$app"
