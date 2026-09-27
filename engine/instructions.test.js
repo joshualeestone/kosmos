@@ -1578,3 +1578,23 @@ test('a brand-new agent is not born on older instructions', () => {
   assert.equal(instructions.compare(t + 999, t).state, instructions.STALENESS.CURRENT);
   assert.equal(instructions.compare(t + 1000, t).state, instructions.STALENESS.STALE);
 });
+
+test('#4084: wroteBy matches its record in the last half millisecond of a second, given the raw mtimeMs or the rounded mtime', () => {
+  const store = require('./store');
+  const file = makeAgent('edge-4084');
+  const seen = instructions.read('edge-4084');
+  instructions.write('edge-4084', REAL + '\nOne more line.\n', seen.version, undefined, { who: 'kosmos', because: 'Kosmos put it on a project' });
+  /* Move the file into the last half millisecond of a second, then record exactly what recordWrite
+     records (stat.mtime, which Node ROUNDS up into the next second here). */
+  const t = 1790479999.9996;
+  fs.utimesSync(file, t, t);
+  const st = fs.statSync(file);
+  assert.notEqual(Math.floor(st.mtime.getTime() / 1000), Math.floor(st.mtimeMs / 1000),
+    'control: this Node does not round mtime across the second here, so the test proves nothing');
+  store.writeProfile(instructions.registryKey('edge-4084'), { instructionsWrite: { who: 'kosmos', at: st.mtime.toISOString(), because: 'Kosmos put it on a project' } });
+  const want = { who: 'kosmos', because: 'Kosmos put it on a project' };
+  assert.deepEqual(instructions.wroteBy('edge-4084', st.mtimeMs), want, 'the raw mtimeMs float lost the record');
+  assert.deepEqual(instructions.wroteBy('edge-4084', st.mtime.getTime()), want, 'the rounded mtime lost the record');
+  /* CONTROL: a file a whole second newer than its record is still "nobody said". */
+  assert.equal(instructions.wroteBy('edge-4084', st.mtimeMs + 1000), null, 'a later edit was attributed to Kosmos');
+});
