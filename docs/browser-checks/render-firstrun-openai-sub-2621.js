@@ -118,7 +118,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       connectFlipped: btn ? (btn.textContent || '').includes('Connected') : false,
       subCleared: !vis('fr-openai-sub-step'),
       pickCleared: !vis('fr-openai-pick'),
-      /* #4082: the picker the person pressed is hidden, so focus was lost: it lands on the connected box, not the page. */
+      /* #4082: focus was on the sign-in step (pressing the picker moves it there), which hides on connect: it lands on the connected box, not the page. */
       focusOnBox: !!msg && document.activeElement === msg,
       focusedIs: document.activeElement ? (document.activeElement.id || document.activeElement.tagName) : null,
     };

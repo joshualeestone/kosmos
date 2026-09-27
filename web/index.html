@@ -26063,8 +26063,11 @@ const FR_AGY_SUB = agySubDriver('fr-gemini-sub-', async () => {
   const box = document.getElementById('fr-gemini-msg');
   const step = document.getElementById('fr-gemini-sub-step');
   const was = document.activeElement;
+  /* Also lost: Skip (#fr-alt), which the Next that success offers replaces, and Gemini's own Connect, which success
+     disables (review round 7: both measured ending on the page). */
+  const lostOn = [document.getElementById('fr-alt'), document.getElementById('fr-gemini-connect')];
   const lost = (typeof FR_STEP !== 'undefined' && FR_STEP === 5)
-    && (!was || was === document.body || (!!step && typeof step.contains === 'function' && step.contains(was)));
+    && (!was || was === document.body || lostOn.includes(was) || (!!step && typeof step.contains === 'function' && step.contains(was)));
   /* Collapse the finished step now, as Grok's success does, rather than after the repaint's accounts read: its Stop
      must not stay on screen and pressable after focus has left it (review round 2). keepSignIn: the box is kept. */
   if (typeof frKeyedCollapse === 'function') frKeyedCollapse('google', true);
@@ -57923,7 +57926,11 @@ async function frOpenaiSubConnected(_account) {
      picker with focus in it, the poll keeps running, and the picker hides here as well. */
   const pick = document.getElementById('fr-openai-pick');
   const within = (el) => !!el && typeof el.contains === 'function' && el.contains(was);
-  const lost = typeof FR_STEP !== 'undefined' && FR_STEP === 5 && (!was || was === document.body || within(sub) || within(pick));
+  /* Also lost: Skip (#fr-alt), which the Next that success offers replaces, and GPT's own Connect, which the repaint
+     disables (review round 7: both measured ending on the page). */
+  const lostOn = [document.getElementById('fr-alt'), document.getElementById('fr-openai-connect')];
+  const lost = typeof FR_STEP !== 'undefined' && FR_STEP === 5
+    && (!was || was === document.body || lostOn.includes(was) || within(sub) || within(pick));
   if (sub) sub.hidden = true;
   if (pick) pick.hidden = true;
   const box = document.getElementById('fr-openai-msg');

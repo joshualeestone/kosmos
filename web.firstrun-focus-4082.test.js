@@ -25,21 +25,21 @@ function lift(name) {
   return PAGE.slice(start, end);
 }
 
-function run(focusId, { paintFails = false, during = null } = {}) {
+function run(focusId, { paintFails = false, during = null, frStep = 5 } = {}) {
   const els = {};
   const doc = { body: { id: 'body' }, activeElement: null };
   const el = (id) => (els[id] || (els[id] = { id, hidden: false, textContent: '', attrs: {},
-    setAttribute(k, v) { this.attrs[k] = v; }, focus() { doc.activeElement = this; },
+    setAttribute(k, v) { this.attrs[k] = v; }, focus() { doc.activeElement = this; this.textAtFocus = this.textContent; },
     contains(x) {
       const pre = { 'fr-openai-sub-step': 'fr-openai-sub-', 'fr-openai-pick': 'fr-openai-pick-' }[this.id];
       return !!pre && !!x && typeof x.id === 'string' && x.id.startsWith(pre);
     } }));
   doc.getElementById = el;
   doc.activeElement = focusId === 'body' ? doc.body : el(focusId);
-  const fn = new Function('document', 'paintAccounts', 'frPaintOpenai', `
-    let ACCT_OPENAI_SUB_SESSION = 's1'; const FR_STEP = 5;
+  const fn = new Function('document', 'paintAccounts', 'frPaintOpenai', 'FR_STEP', `
+    let ACCT_OPENAI_SUB_SESSION = 's1';
     ${lift('frOpenaiSubConnected')}
-    return frOpenaiSubConnected;`)(doc, async () => { if (during) during(el); }, async () => { if (paintFails) throw new Error('offline'); });
+    return frOpenaiSubConnected;`)(doc, async () => { if (during) during(el); }, async () => { if (paintFails) throw new Error('offline'); }, frStep);
   return { fn, doc, el };
 }
 
@@ -73,6 +73,25 @@ test('#4082: focus in the re-shown picker (Connect pressed again mid sign-in) al
   assert.equal(r.doc.activeElement, r.el('fr-openai-msg'), 'focus was left in the hidden picker');
 });
 
+for (const id of ['fr-alt', 'fr-openai-connect']) {
+  test(`#4082: focus on ${id} (hidden or disabled by the success) also lands on the box`, async () => {
+    const r = run(id);
+    await r.fn({});
+    assert.equal(r.doc.activeElement, r.el('fr-openai-msg'));
+  });
+}
+test('#4082: focus lands first, then the sentence is written (Grok\'s order: the live region reads it once)', async () => {
+  const r = run('fr-openai-sub-open');
+  r.el('fr-openai-msg').textContent = 'Finish signing in on the page that opened.';
+  await r.fn({});
+  assert.notEqual(r.el('fr-openai-msg').textAtFocus, 'GPT is connected.', 'the sentence was written before focus moved');
+  assert.equal(r.el('fr-openai-msg').textContent, 'GPT is connected.');
+});
+test('#4082: off the model step, focus is not moved', async () => {
+  const r = run('fr-openai-sub-open', { frStep: 6 });
+  await r.fn({});
+  assert.equal(r.doc.activeElement, r.el('fr-openai-sub-open'));
+});
 test('#4082 CONTROL: a person who has moved on keeps their place', async () => {
   const r = run('fr-grok-connect');
   await r.fn({});

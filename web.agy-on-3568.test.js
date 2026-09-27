@@ -141,7 +141,7 @@ function agyFlow(answers, { frStep = 5 } = {}) {
   const els = {};
   const el = (id) => (els[id] || (els[id] = { id, textContent: '', hidden: true, href: '', value: '', attrs: {},
     listeners: {}, addEventListener(type, fn) { this.listeners[type] = fn; }, setAttribute(k, v) { this.attrs[k] = v; },
-    hasAttribute(k) { return k in this.attrs; }, focus() { doc.activeElement = this; } }));
+    hasAttribute(k) { return k in this.attrs; }, focus() { doc.activeElement = this; this.textAtFocus = this.textContent; } }));
   const posts = [];
   const doc = { getElementById: (id) => el(id), body: { id: 'body' }, activeElement: null };
   const bodies = [];
@@ -243,6 +243,19 @@ test('#4082: focus already on the page (the step\'s Stop hid) also lands on the 
   assert.equal(f.active(), f.el('fr-gemini-msg'), 'focus stayed on the page');
   assert.deepEqual(f.collapses[0], ['google', true, 'body'], 'the finished step was not collapsed (keeping the box) before focus moved: ' + JSON.stringify(f.collapses));
   assert.equal(f.el('fr-gemini-sub-step').hidden, true);
+});
+for (const id of ['fr-alt', 'fr-gemini-connect']) {
+  test(`#4082: focus on ${id} (hidden or disabled by Ready) also lands on the box`, async () => {
+    const f = agyToReady();
+    await agyWalk(f, id);
+    assert.equal(f.active(), f.el('fr-gemini-msg'));
+  });
+}
+test('#4082: Gemini focuses the box first, then writes the sentence (Grok\'s order)', async () => {
+  const f = agyToReady();
+  await agyWalk(f, 'fr-gemini-sub-paste-go');
+  assert.notEqual(f.el('fr-gemini-msg').textAtFocus, 'Google Gemini (Google subscription) is ready.', 'the sentence was written before focus moved');
+  assert.equal(f.el('fr-gemini-msg').textContent, 'Google Gemini (Google subscription) is ready.');
 });
 test('#4082: off the model step (first run moved on), focus is not moved, and Next is not offered', async () => {
   const f = agyToReady({ frStep: 6 });
