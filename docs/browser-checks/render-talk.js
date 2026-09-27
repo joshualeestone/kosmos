@@ -1237,20 +1237,14 @@ function unreachableStates() {
          `refreshWhens` updates those words in place. This block now checks that
          contract (kosmos 0.7.01 cut, 2026-09-26): after a time-only repaint the
          thread was not rewritten, the words DID move (so the repaint really saw a
-         later clock), and a reader parked at the floor is still at the floor. The
-         old contract this block measured (2026-08-20: a same-height innerHTML
-         rewrite keeps scrollTop) was retired by #3966, since no rewrite happens. */
+         later clock). The old contract this block measured (2026-08-20: a
+         same-height innerHTML rewrite keeps scrollTop) was retired by #3966, since
+         no rewrite happens; a reader at the floor is re-pinned by setThread and a
+         scrolled-back reader is render-talk-anchor-1926's. */
       const clockOnly = await page.evaluate(async () => {
         const at = new Date(Date.now() - 65 * 1000).toISOString();
-        /* ⚠️ COUNT RAISED 8 -> 30 (#3414). The agent-DM rebuild made
-           #d-talk-box (and its #d-dmthread) fill the panel edge-to-edge, so a
-           taller box no longer overflows on eight short lines and `scrolls`
-           went false, which fires the "did not overflow, so the scroll-hold is
-           UNCHECKED" control below. This is the same shape #413 hit with the
-           70-column question the day the page went full-width. The scroll-hold
-           behaviour is unchanged and still worth testing, so the fixture is
-           lengthened to overflow the taller box rather than the control
-           weakened. Thirty matches the sibling scroll block (2c). */
+        /* Thirty rows (#3414 raised it from eight so the thread overflowed, for the scroll-hold
+           assertion this block had until #3966 retired it); kept as a realistic thread. */
         window.__fx = {
           messages: Array.from({ length: 30 }, (_, i) => ({
             text: 'message number ' + (i + 1) + ' with enough words in it to take a line or two of the box',
@@ -1265,21 +1259,14 @@ function unreachableStates() {
         t.scrollTop = t.scrollHeight;
         // Every fixture row shares one `at`, so the first time span is a fixture row's.
         const when = () => { const w = t.querySelector('.mwhen[data-at]'); return w ? w.textContent : null; };
-        const floorGap = () => Math.round(t.scrollHeight - t.scrollTop - t.clientHeight);
         const first = t.firstElementChild;
-        const before = { top: Math.round(t.scrollTop), gap: floorGap(), key: t.__lastThread, whenBefore: when(),
-          scrolls: t.scrollHeight > t.clientHeight };
+        const before = { key: t.__lastThread, whenBefore: when() };
         const real = Date.now;
         Date.now = () => real() + 120000;
         try { await paintTalk('april', 'April'); } finally { Date.now = real; }
-        return { ...before, after: Math.round(t.scrollTop), gapAfter: floorGap(), whenAfter: when(),
+        return { ...before, whenAfter: when(),
           rewrote: t.__lastThread !== before.key || t.firstElementChild !== first };
       });
-      if (!clockOnly.scrolls) {
-        /* CONTROL: with nothing to scroll, `scrollTop` is 0 both times and the
-           check below passes on a box that cannot demonstrate anything. */
-        problems.push(`[${theme}] clock: the thread box did not overflow, so the scroll-hold is UNCHECKED`);
-      }
       if (!clockOnly.whenBefore || clockOnly.whenBefore === clockOnly.whenAfter) {
         /* CONTROL: if the time words did not move, the repaint never saw a later clock
            and the two checks below are measuring nothing. */
@@ -1287,12 +1274,6 @@ function unreachableStates() {
       }
       if (clockOnly.rewrote) {
         problems.push(`[${theme}] clock: a repaint where only the time moved REWROTE the thread (#3966: that rewrite is the flash)`);
-      }
-      if (clockOnly.scrolls && Math.abs(clockOnly.gapAfter - clockOnly.gap) > 1) {
-        /* Distance from the floor, not scrollTop: "a minute ago" -> "3 minutes ago" can wrap a line and
-           grow the thread, and a reader still pinned at the floor would then read as moved. */
-        problems.push(`[${theme}] clock: a repaint where only the time moved took the reader `
-          + `from ${clockOnly.gap}px above the floor to ${clockOnly.gapAfter}px`);
       }
 
       /* 7. THE TWO 404s, which are one status and two different facts.
