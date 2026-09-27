@@ -84,3 +84,26 @@ test('no pill is inert and no door holds a control for an unbuilt flow', () => {
   assert.match(fn, /if \(!dev \|\| !dev\.ready\)/, 'the no-install road is offered without the engine saying it is ready');
   assert.match(fn, /This is a key Kosmos holds for you/, 'the no-install road lost the sentence that says Kosmos holds the key');
 });
+
+/* #529: the Gmail door. No Gmail flow exists, so its door says so plainly and points at the road that works today
+   (Postmark or SendGrid under Sending email), instead of the generic line that promises "you sign in on Gmail's own
+   page", a design nobody has chosen. The REAL svcDoorText, evaluated with the page's own tables. */
+test('#529 Gmail door: says it cannot connect yet, names the working road, promises no sign-in design, and has no control', () => {
+  const grab = (name, optional) => {
+    const at = PAGE.indexOf('const ' + name + ' = {');
+    if (at < 0 && optional) return 'const ' + name + ' = {};';   // a page without the table: judge its door by its words
+    assert.ok(at > 0, name + ' moved');
+    return PAGE.slice(at, PAGE.indexOf('\n};\n', at) + 3);
+  };
+  const fnAt = PAGE.indexOf('function svcDoorText(name) {');
+  const fn = PAGE.slice(fnAt, PAGE.indexOf('\n}\n', fnAt) + 2);
+  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const door = new Function('esc', grab('SVC_DOORS') + grab('SVC_SOON', true) + fn + '; return svcDoorText;')(esc);
+  const gmail = door('Gmail');
+  assert.match(gmail, /Kosmos cannot connect to Gmail yet/, gmail);
+  assert.match(gmail, /Postmark or SendGrid under Sending email/, 'the door does not point at the road that works today');
+  assert.doesNotMatch(gmail, /sign in on Gmail/, 'the door still promises a Gmail sign-in design nobody has chosen');
+  assert.doesNotMatch(gmail, /<button/, 'an unbuilt door offers a control');
+  // CONTROL: every other coming-soon door keeps the generic line.
+  assert.match(door('Google Drive'), /you sign in on Google Drive’s own page/);
+});

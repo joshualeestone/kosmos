@@ -144,6 +144,14 @@ const openDoor = async (p, base) => {
   say('Cloudflare accepts: Connected, says Kosmos keeps it in one file, offers Forget, never shows the token', /Connected\./.test(d.text) && /one file on this computer/.test(d.text) && d.buttons.some((x) => /Forget/.test(x)) && !/cf_walk/.test(d.text), d.text.slice(-160));
   await p.click('[data-svc-forget="Cloudflare"]'); await p.waitForTimeout(900); d = await readCf();
   say('Cloudflare forgotten: back to the paste field', d.field && !/Connected\./.test(d.text), d.text.slice(-100));
+  /* #529: the Gmail door. No Gmail flow exists, so opening its pill shows an honest coming-soon that points at the road
+     that works today (Postmark or SendGrid under Sending email), with no control and no promise of a Gmail sign-in. */
+  await p.evaluate(() => { document.querySelectorAll('#s-sec-connect details').forEach((x) => { x.open = true; }); const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'Gmail'); pill.click(); });
+  const gm = await p.evaluate(() => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'Gmail'); const door = pill.closest('.boardrow').nextElementSibling; return { hidden: door.hidden, drawn: door.getBoundingClientRect().height > 0, text: door.innerText.replace(/\s+/g, ' ').trim(), buttons: door.querySelectorAll('button').length }; });
+  say('#529 the Gmail pill opens a door you can see', !gm.hidden && gm.drawn, JSON.stringify({ hidden: gm.hidden, drawn: gm.drawn }));
+  say('#529 the Gmail door says Kosmos cannot connect to Gmail yet', /Kosmos cannot connect to Gmail yet/.test(gm.text), gm.text);
+  say('#529 the Gmail door points at Postmark or SendGrid under Sending email', /Postmark or SendGrid under Sending email/.test(gm.text), gm.text);
+  say('#529 the Gmail door has no control and promises no Gmail sign-in', gm.buttons === 0 && !/sign in on Gmail/.test(gm.text), JSON.stringify({ buttons: gm.buttons }));
   stub.close();
   await b.close();
   console.log(failed ? failed + ' check(s) failed' : 'all checks passed');
