@@ -42760,6 +42760,8 @@ let ORGCHART_GEN = 0;
    Undo removes: never a re-read of the board, so Undo cannot reach an agent this
    run did not create. Emptied by a fresh preview or a closed panel. */
 let ORGCHART_CREATED = [];
+// The create's result as painted, so Keep them can put it back exactly (refused rows and all).
+let ORGCHART_RESULT = null;
 
 /* The derived-name length ceiling. It MIRRORS engine/create.nameProblem's 32-char
    cap (engine/create.js) so a client-derived candidate is not rejected for length
@@ -42981,9 +42983,6 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
   showOrgchartUndo();
 });
 
-// The create's result as painted, so Keep them can put it back exactly (refused rows and all).
-let ORGCHART_RESULT = null;
-
 function showOrgchartUndo() {
   const undo = document.getElementById('orgchart-undo');
   const n = ORGCHART_CREATED.length;
@@ -43023,6 +43022,7 @@ async function orgchartUndoAsk() {
   const msg = document.getElementById('orgchart-msg');
   undo.disabled = true;
   document.getElementById('orgchart-preview').disabled = true;
+  countEl.textContent = 'Checking ' + (n === 1 ? 'the agent…' : 'the ' + n + ' agents…');
   const plans = {};
   // Read-only, so asked together (the removals themselves go one at a time).
   const answers = await Promise.all(ORGCHART_CREATED.map((c) =>
@@ -43041,14 +43041,21 @@ async function orgchartUndoAsk() {
       : ' <span class="dhint">we could not check this one first' + (plan && plan.error ? ': ' + esc(plan.error) : '') + '</span>';
     return '<li>' + esc(c.shownAs) + ' <span class="dhint">&rarr; ' + esc(c.name) + '</span>' + note + '</li>';
   }).join('');
-  const first = ORGCHART_CREATED.map((c) => plans[c.name]).find((p) => p && p.ok);
+  const first = ORGCHART_CREATED.map((c) => plans[c.name]).find((p) => p && p.ok === true);
+  const canAny = ORGCHART_CREATED.some((c) => !(plans[c.name] && plans[c.name].ok === false));
   msg.hidden = false;
-  msg.textContent = 'Any that is working now stops.'
-    + (first && first.reassurance ? ' ' + first.reassurance : '')
-    + (first && Array.isArray(first.keeps) ? ' Each keeps: ' + first.keeps.join(', ').toLowerCase() + '.' : '')
-    + (first && Array.isArray(first.loses) ? ' Each loses: ' + first.loses.join(', ').toLowerCase() + '.' : '');
+  msg.textContent = !canAny ? 'None of these can be removed right now.'
+    : 'Any that is working now stops.'
+      + (first && first.reassurance ? ' ' + first.reassurance : '')
+      + (first && Array.isArray(first.keeps) ? ' Each keeps: ' + first.keeps.join('; ') + '.' : '')
+      + (first && Array.isArray(first.loses) ? ' Each loses: ' + first.loses.join('; ') + '.' : '');
   undo.hidden = true;
   orgchartUndoAsking(true);
+  const go = document.getElementById('orgchart-undo-go');
+  const willRemove = ORGCHART_CREATED.filter((c) => !(plans[c.name] && plans[c.name].ok === false));
+  go.textContent = willRemove.length === 1 ? 'Remove ' + willRemove[0].shownAs : 'Remove these ' + willRemove.length + ' agents';
+  go.disabled = !canAny;
+  document.getElementById('orgchart-undo-keep').textContent = n === 1 ? 'Keep ' + ORGCHART_CREATED[0].shownAs : 'Keep them';
   document.getElementById('orgchart-undo-keep').focus();
 }
 
@@ -43084,6 +43091,11 @@ document.getElementById('orgchart-undo-go').addEventListener('click', async () =
   countEl.textContent = 'Removing ' + todo.length + (todo.length === 1 ? ' agent…' : ' agents…');
   const answers = [];
   for (const c of todo) {
+    const plan = ORGCHART_UNDO_PLANS[c.name];
+    if (plan && plan.ok === false) {   // the engine already said no: do not ask it again
+      answers.push({ c, out: { outcome: 'refused', because: plan.because || plan.error }, reached: true });
+      continue;
+    }
     let out = null;
     let reached = true;
     try {

@@ -45,8 +45,9 @@ function check(name, pass, detail) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e.message)));
 
-  /* The one intercept: /api/team. A mutable response so each arm sets what the
-     backend "returns" and asserts the UI surfaces it. Nothing real is created. */
+  /* Three intercepts: /api/team (the create), /api/agent/:name/removal (Undo's plan GET and its
+     DELETE) and /api/removed (what Undo re-reads after removing). Each is mutable so an arm sets
+     what the backend "returns" and asserts the UI surfaces it. Nothing real is created or removed. */
   let teamResponse = { outcome: 'created', created: [], refused: [], because: null };
   let teamStatus = 200;
   let lastTeamBody = null;
@@ -274,8 +275,6 @@ function check(name, pass, detail) {
     refused: [],
     because: 'that is 20 agents in one request and the cap is 12. Kosmos holds this bound rather than the prompt. Have the OPERATOR raise the cap (up to 50).',
   };
-  const freshPreviewUndo = await page.evaluate(() => document.getElementById('orgchart-undo').hidden);
-  check('a fresh preview drops the last run\'s Undo (it never reaches an older batch)', freshPreviewUndo);
   await page.click('#orgchart-create');
   await page.waitForTimeout(300);
   const overcap = await page.evaluate(() => document.getElementById('orgchart-count').textContent);
@@ -319,6 +318,10 @@ function check(name, pass, detail) {
   const partialAsk = await page.evaluate(() => [...document.getElementById('orgchart-list').querySelectorAll('li')].map((li) => li.textContent));
   check('a removal the engine would refuse shows its reason while asking, before anything is pressed',
     partialAsk.some((t) => /Marketing Lead/.test(t) && /cannot be removed: .*already been removed/.test(t)), JSON.stringify(partialAsk));
+  const allRefused = await page.evaluate(() => ({ go: document.getElementById('orgchart-undo-go').disabled,
+    msg: document.getElementById('orgchart-msg').textContent }));
+  check('when every agent\'s plan refuses, Remove is not offered and nothing promises it stops',
+    allRefused.go && /None of these can be removed/.test(allRefused.msg) && !/stops/.test(allRefused.msg), JSON.stringify(allRefused));
   plans = {};
   check('Undo never reads refused[]: a row refused as taken is not in the Undo list',
     partialAsk.length === 1 && /Marketing Lead/.test(partialAsk[0]) && !partialAsk.some((t) => /engineer/i.test(t)),
@@ -331,10 +334,14 @@ function check(name, pass, detail) {
     JSON.stringify(partial));
 
   // ---- A transport/auth error (no `outcome`) surfaces its error, not a no-op --
+  const undoBeforePreview = await page.evaluate(() => !document.getElementById('orgchart-undo').hidden);
   await page.click('#orgchart-edit');
   await page.fill('#orgchart-text', 'Marketing Lead\nEngineer');
   await page.click('#orgchart-preview');
   await page.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 5000 });
+  const undoAfterPreview = await page.evaluate(() => document.getElementById('orgchart-undo').hidden);
+  check('a fresh preview drops the Undo that was on offer (it never reaches an older batch)',
+    undoBeforePreview && undoAfterPreview, JSON.stringify({ undoBeforePreview, undoAfterPreview }));
   // An error envelope: HTTP 403 with `error` and NO `outcome` (e.g. the board-token
   // refusal). Must surface the error text, never fall through to "No agents were created".
   teamStatus = 403;
