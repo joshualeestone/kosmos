@@ -20,3 +20,13 @@ With the flag on, on a Mac with Muse Code installed, a person can pick Meta in A
 1. The URL and code line format on a Mac: not captured, so the parser takes the first https URL and a device-code-shaped token (letters and digits with a dash).
 2. That a Keychain save with the real HOME raises no console dialog (Splinter's 09-26 note: an "Allow / Always Allow" dialog is possible on first use).
 3. That the `muse login` wording is the same on Mac as on Windows 1.4.0.
+
+## 3a review round 1 (decided)
+- `muse login` exits after "Logged in.", and the session going with it read as a failure with nothing recorded. The session command now prints an exit line and waits, so the last screen is read, then Kosmos kills it. The fake now exits like the real CLI. Control red.
+- The stray-Enter check could not fail on a Mac (/bin/bash 3.2 refuses read -t 0.2). Whole seconds now; control red.
+- A slow retry held: the old expiry line is ignored until the new code is drawn, and a second retry is refused meanwhile. Control red. The give-up clock restarts with each code.
+- An Enter that did not move Muse on is sent once more after 5 s, then named as stuck. Control red. Two gone-misses in a row before a sign-in ends (the agysignin rule).
+- One sign-in folder for the working folder and the mark (musestatus.signinFolder). The start failure message is a single constant.
+- The code falls back to the address's user_code when no dashed code is printed (weakest premise 1).
+- The test tmux sockets are removed, and the server test reads Muse's file from the sandbox home only.
+- Carried into 3b: the page must keep the id from its own start POST, never from the GET (the GET hands the id to any caller). And the signed-in mark can outlive a sign-out until 3c clears it on "missing meta credential"; this is named in musestatus.signedIn's comment, and no screen reads it before then.
