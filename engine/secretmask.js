@@ -591,13 +591,14 @@ function wordSkippingSpans(text) {
     let v = built.get(i);
     if (!v) {
       const vs = pieceVariants(runs[i][2]);
-      /* #4112: the variants grouped by first character, with what comparing each group costs. */
+      /* #4112: the variants grouped by first character, so a step compares only the group that can match. NOT a
+         charge basis: a landed run is charged its WHOLE variant cost (piecesCost), main's rate; charging only a
+         group's share was tried twice and let the budget buy about 2x main's work (review 2; #3935's guard). */
       const byFirst = new Map();
       for (const x of vs) {
         let g = byFirst.get(x[0]);
-        if (!g) { g = { pieces: [], cost: 0 }; byFirst.set(x[0], g); }
+        if (!g) { g = { pieces: [] }; byFirst.set(x[0], g); }
         g.pieces.push(x);
-        g.cost += chunksOf(x.length);
       }
       v = [vs, vs.reduce((n, x) => n + chunksOf(x.length), 0), byFirst];
       built.set(i, v);

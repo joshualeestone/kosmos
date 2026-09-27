@@ -90,3 +90,18 @@ the same r found nothing in reach: a decoy key made of C's plus a real key split
   filler-glued pieces. Fix: 900 identical to main. Control on 534efb054: 57-59 of 300 differ, 42-46 leak more.
 - Re-verified: original fuzz 1,200 identical; charges 0 above main (ratio 0.35); suites 124/124, 18/18; card 20
   mentions checked. #3935 guard CPU now about 1.23x main (807-834 vs 657-678 ms), inside its 1,500 ms bound.
+
+## Review 7 (opus): no new findings, with a proof
+Invariant: when the index is consulted, every run in (s, limit] is indexed. Holds because every ensureIdx is from the
+walk's opening r and r is non-decreasing across calls; independent of how many forms, offsets or variants share r, of
+early/finished/null walks, of the fast path, and of limit moving. Checked directly: an instrumented copy compared
+every jump with a linear scan of (s, limit], about 1.7M checks, 0 disagreements; the control (index from s) gave 196.
+
+## Review 8 (sonnet): no correctness findings; WARN fixed
+Eight adversarial constructions on the angles review 7 did not cover (partial walks with jumped runs, shared openings
+in both insertion orders, variant heads/tails, shortChunkSpans in the same maskFresh, the spaced-copy call, the mask()
+cache): all identical to main; firstIdx/idxTo/built are per call. CPU 1.31x main on a 150-key stress case.
+- WARN, FIXED: the byFirst groups carried a `cost` nothing read, with exactly the reverted "charge only what was
+  compared" meaning, a trap for a future edit. Removed; the comment says the groups are not a charge basis.
+
+Converged: reviews 7 (opus) and 8 (sonnet) found no correctness issue.
