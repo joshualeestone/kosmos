@@ -164,7 +164,7 @@ test('#3939: with the flag off, nothing starts', { timeout: 5000 }, () => {
   signin.setForTests({ tmux: () => { ran = true; return ''; }, museBin: () => ({ installed: true, bin: '/nowhere/muse' }) });
   const r = signin.start();
   assert.equal(r.ok, false);
-  assert.match(r.because, /not turned on/);
+  assert.equal(r.because, signin.NOT_ON);
   assert.equal(ran, false, 'tmux ran with the flag off');
   assert.equal(musestatus.enabled('darwin'), false);
   process.env.AGENT_WORKFORCE_MUSE = '1';
@@ -523,4 +523,24 @@ test('#3939 round 12: a code scrolled above the visible rows is still read (the 
     await until(() => signin.status().code === 'WXYZ-1234', 15000, 'the code from above the visible rows');
     await until(() => signin.status().state === 'done', 15000, 'the sign-in to finish');
   } finally { t.cleanup(); }
+});
+
+test('#3939 round 13: no resend onto text Muse drew after the prompt, even in unknown words', { skip: !onMac && 'the flag is Mac only' }, () => {
+  const { st, done } = scripted(PROMPT);
+  try {
+    signin.tickForTests();
+    assert.deepEqual(st.sent, ['Enter']);
+    st.text = PROMPT + '\nLaunching Safari...\nPolling for authorization (Esc to cancel)\n';
+    st.skew = signin.RESEND_MS + 1000; signin.tickForTests();
+    st.skew += signin.RESEND_MS + 1000; signin.tickForTests();
+    assert.deepEqual(st.sent, ['Enter'], 'a second Enter went onto a screen Muse had moved on to');
+    assert.equal(signin.status().code, 'WXYZ-1234', 'the code stopped being shown');
+  } finally { done(); }
+});
+
+test('#3939 round 13: the boxes show the address\'s code, not a later dashed token', () => {
+  const text = 'To sign in, open https://auth.meta.com/device?user_code=WXYZ-1234\nand enter the code: WXYZ-1234\nRequest ABCD-9999 created at UTC-0500\nPress Enter to open it in your browser: ';
+  assert.deepEqual(signin.promptOf(text), { url: 'https://auth.meta.com/device?user_code=WXYZ-1234', code: 'WXYZ-1234' });
+  // With no code in the address, the printed one is used.
+  assert.equal(signin.promptOf('open https://auth.meta.com/device\nand enter the code: QRST-5678\nPress Enter to open it in your browser: ').code, 'QRST-5678');
 });

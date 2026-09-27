@@ -41,6 +41,8 @@ const CLOSED = 'Muse Code\'s sign-in closed before it finished';
 const NO_NEW_CODE = 'Muse Code did not send a new code, so start the sign-in again';
 const GAVE_UP = 'The sign-in waited too long, so start it again';
 const NO_EXPIRED = 'There is no expired code to replace';
+const NOT_ON = 'Meta Muse is not turned on for this computer';
+const NO_FOLDER = 'Kosmos could not make a folder for the sign-in';
 const UNSAVED = 'Muse Code signed in but could not save the sign-in on this computer';
 const NOT_RECORDED = 'Muse Code signed in, but Kosmos could not record it on this computer';
 const NOT_WAITING = 'Muse Code did not start waiting for the approval';
@@ -90,6 +92,12 @@ function promptOf(text) {
   const cut = t.lastIndexOf(PRESS_WORDS);
   return tryOf(cut < 0 ? '' : t.slice(0, cut));
 }
+/* Whether anything but whitespace follows the last Press prompt. */
+function movedOnFromPrompt(text) {
+  const t = String(text);
+  const at = t.lastIndexOf(PRESS_WORDS);
+  return at >= 0 && /\S/.test(t.slice(at + PRESS_WORDS.length).replace(/^:/, ''));
+}
 /* The address and code in `before`, from the current try only: after a retry, the lines since the last
    expiry. Also read on the waiting screen (round 9: Muse may go straight there, with no Press line). */
 function tryOf(before) {
@@ -97,7 +105,10 @@ function tryOf(before) {
   const urls = own.match(/https:\/\/\S+/g);
   const codes = own.replace(/https:\/\/\S+/g, ' ').match(CODE_RE);
   const url = urls ? urls[urls.length - 1] : null;
-  return { url, code: codes ? codes[codes.length - 1] : (url ? codeFromUrl(url) : null) };
+  /* The address's own code first (round 13): a later dashed token (a request id, a UTC-0500) must not put
+     a different code in the boxes than the page Meta opens. A printed code only when the address has none. */
+  const fromUrl = url ? codeFromUrl(url) : null;
+  return { url, code: fromUrl || (codes ? codes[codes.length - 1] : null) };
 }
 
 function tmuxBin() { return tmuxBinCached || (tmuxBinCached = require('./create').binPaths().tmuxBin); }
@@ -215,6 +226,9 @@ function step() {
     if (mine.pressed !== p.code) { mine.pressed = p.code; mine.pressedAt = t; mine.resent = false; enterOnce(mine); return; }
     /* Still on the same code's prompt well after the Enter (round 1: a send that failed is never sent
        again otherwise, and Muse never polls): once more, then named. */
+    /* Anything drawn after the prompt means the Enter was taken (round 13), even in words Kosmos does not
+       know: no resend onto it. The code stays shown; "Logged in." still ends it, and the limit backstops. */
+    if (movedOnFromPrompt(text)) return;
     if (t - mine.pressedAt > RESEND_MS) {
       if (!mine.resent) { mine.resent = true; mine.pressedAt = t; enterOnce(mine); }
       else { mine.state = 'stuck'; mine.because = NOT_WAITING; }
@@ -265,14 +279,14 @@ function shq(v) { return "'" + String(v).replace(/'/g, "'\\''") + "'"; }
 const LOGIN_ENV = Object.freeze(['MUSE_LOGIN=1', 'MUSE_NO_AUTO_UPDATE=1', 'MUSE_NO_MODIFY_PATH=1']);
 
 function start() {
-  if (!musestatus.enabled()) return { ok: false, because: 'Meta Muse is not turned on for this computer' };
+  if (!musestatus.enabled()) return { ok: false, because: NOT_ON };
   if (S && S.timer) end('stopped');
   tmuxBinCached = null;
   const inst = museBin();
   if (!inst || !inst.installed) return { ok: false, because: (inst && inst.because) || musestatus.NOT_INSTALLED_BECAUSE };
   if (tmux === REAL.tmux && !live(tmuxBin(), ['-L', socket(), 'new-session', '-s', SESSION])) return { ok: false, because: COULD_NOT_START };
   const folder = musestatus.signinFolder();
-  try { fs.mkdirSync(folder, { recursive: true, mode: 0o700 }); } catch { return { ok: false, because: 'Kosmos could not make a folder for the sign-in' }; }
+  try { fs.mkdirSync(folder, { recursive: true, mode: 0o700 }); } catch { return { ok: false, because: NO_FOLDER }; }
   try { tmux(['kill-session', '-t', SESSION]); } catch { /* none running */ }
   try {
     // -f /dev/null: this private server never reads the person's ~/.tmux.conf.
@@ -333,5 +347,5 @@ function resetForTests() {
   tickMs = TICK_MS;
 }
 
-module.exports = { start, status, retry, stop, socket, SESSION, SCREENS, LOGIN_ENV, NOT_MINE, COULD_NOT_START, MAX_KEY_FAILURES, STUCK_MS, GIVE_UP_MS, RESEND_MS, EXITED, screenOf, promptOf,
+module.exports = { start, status, retry, stop, socket, SESSION, SCREENS, LOGIN_ENV, NOT_MINE, NOT_ON, COULD_NOT_START, MAX_KEY_FAILURES, STUCK_MS, GIVE_UP_MS, RESEND_MS, EXITED, screenOf, promptOf,
   setForTests, tickForTests, resetForTests };

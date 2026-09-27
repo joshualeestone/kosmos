@@ -335,7 +335,7 @@ test('#3939 slice 3: /api/muse is off without the flag; with it, the sign-in sta
     assert.deepEqual(json(await req('/api/muse')), { enabled: false });
     const off = await req('/api/muse/signin', { method: 'POST' });
     assert.equal(off.status, 400);
-    assert.match(json(off).error, /not turned on/);
+    assert.equal(json(off).error, signin.NOT_ON);
     assert.deepEqual(calls, [], 'tmux ran with the flag off');
     process.env.AGENT_WORKFORCE_MUSE = '1';
     const on = json(await req('/api/muse'));
