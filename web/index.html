@@ -1898,8 +1898,9 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    browser layers a face only while its opacity animates, re-rasterizing the faces around it, so a neighbouring
    cluster's circles (pictures at fractional positions) were redrawn a pixel over each time another agent was
    hovered (measured in Chromium). No box moved; render-swarm-ui-3564.js S41 compares the pixels. The hover
-   callout animates its opacity the same way and gets the same treatment. The cost is one small layer per face
-   and per callout while the chart is shown; keep it to the org chart's 44px nodes. */
+   callout animates its opacity the same way and gets the same treatment, as a precaution. The cost is two small
+   layers per agent (face and callout) while the chart is shown, unmeasured on a large fleet; keep it to the org
+   chart's 44px nodes, and do not widen these selectors to the grid or list. */
 .onode .face > * { opacity: .5; transition: opacity .12s ease; will-change: opacity; }
 .onode:hover .face > *, .onode:focus-visible .face > * { opacity: 1; }
 .onode:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 4px; border-radius: 50%; }
@@ -1992,7 +1993,7 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
   bottom: 50px; background: var(--gold-bright); border: 2px solid var(--gold-bright);
   border-radius: 9px; padding: 6px 12px; font: 600 14px var(--font-ui);
   display: inline-flex; align-items: center; text-align: left; line-height: 1.15;
-  color: #14161a; opacity: 0; transition: opacity .12s ease; will-change: opacity;   /* #4052: layered from the start, as the faces are */
+  color: #14161a; opacity: 0; transition: opacity .12s ease; will-change: opacity;   /* #4052: a precaution, the same as the faces (not measured to matter in Chromium) */
 }
 /* #2683: opacity AND pointer-events move together, so the callout is clickable
    exactly when it is visible -- pressable when shown (#284), inert (and unable to

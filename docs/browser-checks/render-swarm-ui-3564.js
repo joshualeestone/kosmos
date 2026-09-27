@@ -59,6 +59,7 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     /* The engine, as the contract says. `engineOn` flips the flag; `crewSwarm` is the crew's card field. */
     let engineOn = false;
     let holdStatus = false;
+    let statusAnswered = 0;
     let crewState = null;
     let crewNoSwarm = false;   // S28: the crew's row without its swarm field
     let putFail = null;   // S26: an answer that refuses the change   // S23: the crew's board state (null = as the fleet says)   // S11: no poll may land while it checks the merge
@@ -86,6 +87,7 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
         delete j.swarms;
         for (const a of j.agents || []) delete a.swarm;
       }
+      statusAnswered += 1;   // S41: a poll that lands is counted, so a comparison can prove none landed during it
       route.fulfill({ response: r, json: j });
     });
     const sent = [];
@@ -445,6 +447,13 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
          that no hover caused. Held here, released below. */
       holdStatus = true;
       await page.waitForTimeout(600);
+      /* A poll already past the hold when it was set can still land; the count and the scroll offsets (the boxes are
+         viewport-relative, and a screenshot or hover can scroll) are read now and again after the comparison. */
+      const answeredAt = statusAnswered;
+      const scrollOf = () => page.evaluate(() => { const m = document.getElementById('orgmap'); const w = m && m.parentElement;
+        return [window.scrollX, window.scrollY, w ? w.scrollLeft : 0, w ? w.scrollTop : 0].join(','); });
+      const scrollAt = await scrollOf();
+      const compared = [];
       /* Anything the hovered node paints within 1px of the compared face counts as lying over it: at exactly
          touching, a sub-pixel difference would otherwise decide the gate from run to run. */
       const COVER_SLACK = 1;
@@ -486,12 +495,19 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
             return [n, ...n.querySelectorAll('*')].some((e) => { const a = e.getBoundingClientRect();
               return a.width > 0 && a.height > 0 && a.left < b.right + m && b.left - m < a.right && a.top < b.bottom + m && b.top - m < a.bottom; });
           }, [who, c, COVER_SLACK]);
-          if (!covered) { const d = await worst(base[c], await shot(c)); if (d > NOISE) moved.push('hovering ' + who + ': ' + c + '\'s pixels moved by up to ' + d + '/255'); }
+          if (!covered) {
+            compared.push(who + '>' + c);
+            const d = await worst(base[c], await shot(c)); if (d > NOISE) moved.push('hovering ' + who + ': ' + c + '\'s pixels moved by up to ' + d + '/255');
+          }
         }
         await page.mouse.move(2, 2);
         await page.waitForTimeout(400);
       }
+      const scrollEnd = await scrollOf(), answeredEnd = statusAnswered;
       holdStatus = false;
+      chk(answeredEnd === answeredAt && scrollEnd === scrollAt,
+        'S41 precondition: no status poll landed and nothing scrolled during the comparison', JSON.stringify({ answeredAt, answeredEnd, scrollAt, scrollEnd }));
+      chk(compared.includes('crew2>crew'), 'S41 precondition: the pair the jiggle was reproduced on (hovering crew2, crew) was compared, not skipped as covered', JSON.stringify(compared));
       chk(moved.length === 0, 'S41 hovering an agent moves no cluster\'s box, nor a pixel of a cluster it is not on (#4052)', JSON.stringify(moved));
     }
     await page.click('[data-scope="agents"] .vt[data-layout="grid"]');
