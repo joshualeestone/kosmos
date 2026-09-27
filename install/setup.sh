@@ -3027,6 +3027,8 @@ make_app() {
     local _staged_ino _phys
     _staged_ino="$(/usr/bin/stat -f %i "$stage/Contents" 2>/dev/null)" || _staged_ino=""
     _phys="$(cd "$appdir" 2>/dev/null && pwd -P)" || _phys=""
+    # Ownership proved again right before the swap, as the rename below re-proves it:
+    # the occupant of a shared folder can change between the gate above and now.
     if [ -n "$_staged_ino" ] && [ -n "$_phys" ] && bundle_is_ours "$app"; then
       "$_perl" -e 'exit(syscall(488, -2, $ARGV[0], -2, $ARGV[1], 18) == 0 ? 0 : 1)' \
         "$_phys/$(basename "$stage")/Contents" "$_phys/$(basename "$app")/Contents" 2>/dev/null || true

@@ -834,6 +834,18 @@ RC=0; cat "$SETUP" | KOSMOS_SWAP_PERL="$SB/perl-moves-it" sh > "$SB/update-neith
 chk "a staged folder found in neither place: install exits 0" "rc_ok $RC"
 chk "and the app is refreshed: NEW Contents, complete and runnable" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app/Contents\")\" != \"$CONTENTS_INO6\" ] && [ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ] && [ -f \"$SB/apps/Kosmos.app/Contents/Info.plist\" ]"
 chk "and its stage is cleaned up, not left behind" "[ -z \"\$(ls -A \"$SB/apps\" | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ]"
+# The symlink refusal (RENAME_NOFOLLOW_ANY): the installer's own call, through a path
+# with a planted link, must fail and leave the link's target untouched. CONTROL: the same
+# call on a link-free path does swap. Physical paths, as the installer passes them.
+NF="$(cd "$SB" && pwd -P)/nofollow"
+mkdir -p "$NF/stage/Contents" "$NF/victim.app/Contents" "$NF/ok.app/Contents"
+echo victim > "$NF/victim.app/Contents/v"; echo staged > "$NF/stage/Contents/v"; echo ok > "$NF/ok.app/Contents/v"
+ln -s "$NF/victim.app" "$NF/link.app"
+RC=0; /usr/bin/perl -e 'exit(syscall(488, -2, $ARGV[0], -2, $ARGV[1], 18) == 0 ? 0 : 1)' "$NF/stage/Contents" "$NF/link.app/Contents" 2>/dev/null || RC=$?
+chk "the swap refuses a path through a planted link (non-zero)" "[ \"$RC\" != 0 ]"
+chk "and the link's target keeps its own Contents" "[ \"\$(cat \"$NF/victim.app/Contents/v\")\" = victim ] && [ \"\$(cat \"$NF/stage/Contents/v\")\" = staged ]"
+RC=0; /usr/bin/perl -e 'exit(syscall(488, -2, $ARGV[0], -2, $ARGV[1], 18) == 0 ? 0 : 1)' "$NF/stage/Contents" "$NF/ok.app/Contents" 2>/dev/null || RC=$?
+chk "CONTROL: the same call on a link-free path swaps" "[ \"$RC\" = 0 ] && [ \"\$(cat \"$NF/ok.app/Contents/v\")\" = staged ]"
 # CONTROL for the residue checks: the same pipeline must SEE a residue name when one
 # is there, or "none left" could pass on any folder.
 mkdir -p "$SB/residue-control/.Kosmos.app.stage.0"
