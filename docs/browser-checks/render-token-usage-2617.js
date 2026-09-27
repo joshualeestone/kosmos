@@ -108,9 +108,6 @@ function readUsage(page) {
         const fig = box && box.querySelector('.tv-fig');
         if (!fig) return null;
         const orig = fig.textContent;
-        /* #4083 made the headline smaller and the two tiles equal, so at this width the full $176,332 now FITS: the
-           abbreviation is no longer needed here, only at narrower widths. The control's job is still to prove the
-           detector can see a clip, so it uses a figure too wide for the tile at any headline size ours can have. */
         fig.textContent = '$176,332,000,000'; const fullOverflows = fig.scrollWidth > fig.clientWidth + 1;
         fig.textContent = '$176.3K'; const abbrFits = fig.scrollWidth <= fig.clientWidth + 1;
         fig.textContent = orig;
@@ -362,6 +359,7 @@ function readUsage(page) {
       ok(align.hero.length === 2 && spread(align.hero, 'divider') <= 0.5, `${at}: the lines above the two hero labels are at the same height (#4083) -- ${JSON.stringify(align.hero.map((t) => t.divider))}`);
       if (at === 'desktop') {
         ok(align.stats.length === 3 && spread(align.stats, 'divider') <= 0.5, `${at}: the lines above the three stat labels are at the same height (#4083) -- ${JSON.stringify(align.stats.map((t) => t.divider))}`);
+        ok(align.stats.length === 3 && spread(align.stats, 'base') <= 0.5, `${at}: the three stat numbers sit on one baseline (#4083) -- ${JSON.stringify(align.stats.map((t) => t.base))}`);
       }
       ok([...align.hero, ...align.stats].every((t) => Math.abs(t.centreOff) <= 1), `${at}: every label is centred in the band under its line (#4083) -- ${JSON.stringify([...align.hero, ...align.stats].map((t) => t.centreOff))}`);
       ok(align.hero.every((t) => t.margin >= 12), `${at}: the big hero numbers keep at least 12px off the tile edges at production scale (#4083) -- ${JSON.stringify(align.hero.map((t) => t.text + ': margin ' + t.margin + ', text ' + t.textW + ' in ' + t.boxW + ' at ' + t.font))}`);
@@ -372,6 +370,19 @@ function readUsage(page) {
     await p.setViewportSize({ width: 390, height: 1100 });
     await p.waitForTimeout(300);
     alignArms(await measureAlign(), 'phone');
+    // #3137 at the phone width: the full $176,332 clips the Approximate Human Cost tile here and $176.3K fits, so the
+    // abbreviation is still needed somewhere (at desktop width the smaller #4083 headline fits the full figure).
+    const phoneFit = await p.evaluate(() => {
+      const box = [...document.querySelectorAll('#usage-hero .tv-fbox')].find((b) => /Approximate Human Cost/.test(b.textContent || ''));
+      const fig = box && box.querySelector('.tv-fig');
+      if (!fig) return null;
+      const orig = fig.textContent;
+      fig.textContent = '$176,332'; const fullOverflows = fig.scrollWidth > fig.clientWidth + 1;
+      fig.textContent = '$176.3K'; const abbrFits = fig.scrollWidth <= fig.clientWidth + 1;
+      fig.textContent = orig;
+      return { fullOverflows, abbrFits };
+    });
+    ok(!!phoneFit && phoneFit.fullOverflows && phoneFit.abbrFits, `phone: the full $176,332 clips the cost tile and $176.3K fits, so the abbreviation is still needed (#3137) -- ${JSON.stringify(phoneFit)}`);
     await p.setViewportSize({ width: 1280, height: 1100 });
     await p.waitForTimeout(300);
     // #2617 CONTROL: repaint in the SAME page life, from a painted block to a

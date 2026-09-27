@@ -38,6 +38,10 @@ The 12px margin arm has 2.8px of headroom on a 390px phone (14.83px measured). A
 font runs wider could red it; the arm prints every width and the font size, so such a red explains itself.
 
 Subgrid needs Safari 16+ / Chrome 117+. Checked: the Mac app's floor is macOS 13.5 (`install/setup.sh`
-MACOS_FLOOR_MAJOR/MINOR, held to `tools/macos-floor` by check-floor-consistency.sh), whose WebKit is
-Safari 16.5's; Windows' WebView2 is an evergreen Chromium. So no supported install lacks it. Without it
-the `subgrid` value would be dropped and a wrapping label would lift its tile again, as before.
+MACOS_FLOOR_MAJOR/MINOR, held to `tools/macos-floor` by check-floor-consistency.sh), whose WebKit is a
+Safari 16.x release (subgrid arrived in 16.0); Windows' WebView2 is an evergreen Chromium. So no
+supported install lacks it. Without it the `subgrid` value would be dropped and a wrapping label would
+lift its tile again, as before.
+
+Coverage given up: at desktop width the full $176,332 now fits the cost tile, so the #3137 abbreviation
+is shown needed only at 390 wide (the phone arm), not at desktop.
