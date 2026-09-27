@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: fr-agy-check-4081
-diff_hash: 2f2c6f88b041db83485a85c3fb1325e7a8ee1d5306deb0ea83e521aa6494112c
+diff_hash: 0784d0e0d3fb5bc4c6545e41a27afe3509222be8fdcc33486d39d972809fe988
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-27T04:10:00Z
+timestamp: 2026-09-27T06:26:00Z
 iterations: 2
 converged: true
 ---
@@ -16,7 +16,7 @@ converged: true
 **Converged:** Yes. Iteration 2 found no BLOCKER, WARNING or CONVENTION (one NIT, left: the entry presses before the paste path use DOM clicks, covered by the visibility assertions taken just before them).
 **Fixed:** every WARNING raised. **Deferred:** the focus drop after Ready, filed as #4082 (a product change; April's card). **Asked (awaiting user):** 0.
 
-Full validation passed at ee82c1a73 (rebased onto current main; validation-log hash 2f2c6f88b041, the diff_hash above): 10545 tests, 10383 pass, 0 fail; subdir audit passed. Both browser-check gates pass. The check itself: 10 PASS. Mutation-checked by both reviewers (removing onReady from the done path, the paste focus, the Stop's id, and the stuck branch's rows each turn it red).
+Full validation passed at 44e7ae03b, after merging main with #3955, #4046 and #3939 in it (validation-log hash 0784d0e0d3fb, the diff_hash above): 10700 tests, 10537 pass, 0 fail; subdir audit passed. (An earlier pass at ee82c1a73 was green too; the only conflict was the reason-grep count, now 186.) Both browser-check gates pass. The check itself: 10 PASS. Mutation-checked by both reviewers (removing onReady from the done path, the paste focus, the Stop's id, and the stuck branch's rows each turn it red).
 
 ### Per-Iteration Breakdown
 
