@@ -19,3 +19,4 @@ Card #3939 (Josh's spec, 2026-09-26; research complete: Homer's Windows captures
 - version() is bounded: the child is stopped with SIGKILL (a launcher that ignores TERM kept it waiting 25 s, measured), its output is capped, and a hard-cap timer answers unknown if no callback ever comes (late callbacks ignored), as engine/agystatus.js does.
 - Only the WHOLE trimmed output may be Muse Code's version line (no line picked out of a banner).
 - The unknown and not-installed sentences are named constants.
+- Round 2: installed() runs inside the try, so version() resolves even if finding muse throws (tested). The CLAUDE.md Where to Find Things row waits for the slice that wires the provider in.

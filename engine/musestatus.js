@@ -51,7 +51,9 @@ let runVersion = (bin, done) => {
 /** Promise of { installed, version, build, because }: never rejects. */
 function version() {
   return new Promise((resolve) => {
-    const inst = installed();
+    // Inside a try too (round 2): "never rejects" holds by construction, not because resolveBin cannot throw today.
+    let inst;
+    try { inst = installed(); } catch { resolve({ installed: false, version: null, build: null, because: VERSION_UNKNOWN_BECAUSE }); return; }
     if (!inst.installed) { resolve({ installed: false, version: null, build: null, because: inst.because || NOT_INSTALLED_BECAUSE }); return; }
     const unknown = { installed: true, version: null, build: null, because: VERSION_UNKNOWN_BECAUSE };
     let settled = false;

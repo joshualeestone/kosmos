@@ -105,3 +105,13 @@ test('#3939 round 1: the real child is stopped with SIGKILL (a launcher that ign
   assert.match(src, /killSignal: 'SIGKILL'/);
   assert.match(src, /maxBuffer: VERSION_MAX_BUFFER/);
 });
+
+test('#3939 round 2: version() resolves (never rejects) even if finding muse throws', async () => {
+  const real = runners.resolveBin;
+  runners.resolveBin = () => { throw new Error('boom'); };
+  try {
+    const r = await muse.version();
+    assert.equal(r.version, null);
+    assert.equal(r.because, muse.VERSION_UNKNOWN_BECAUSE);
+  } finally { runners.resolveBin = real; }
+});
