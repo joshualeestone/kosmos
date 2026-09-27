@@ -92,22 +92,25 @@ test('#4194: with the gate open as shipped, the setting reads available (the mod
 });
 
 /* The lock itself (a release could close the gate again): closed explicitly for these tests. */
-test('gate closed: the setting reads unavailable and off, whatever the file says', async () => {
+test('gate closed: the setting reads unavailable and off, whatever the file says', async (t) => {
   phonenotify.setAvailableForTests(false);
+  t.after(() => phonenotify.setAvailableForTests(phonenotify.PHONE_APP_CAN_RECEIVE));   // back to the shipped gate, whatever the order
   const st = await call('GET', '/api/phone-notify');
   assert.deepEqual(st.json, { available: false, on: false, connected: true });
 });
 
-test('gate closed: turning on is refused and the tunnel never runs', async () => {
+test('gate closed: turning on is refused and the tunnel never runs', async (t) => {
   phonenotify.setAvailableForTests(false);
+  t.after(() => phonenotify.setAvailableForTests(phonenotify.PHONE_APP_CAN_RECEIVE));   // back to the shipped gate, whatever the order
   const r = await call('PUT', '/api/phone-notify', { body: { on: true } });
   assert.equal(r.code, 400);
   assert.match(r.json.error, /not available yet/);
   assert.equal(fs.existsSync(TUNNEL_LOG), false);
 });
 
-test('gate closed: nothing is sent, even with the switch file on and a token held', async () => {
+test('gate closed: nothing is sent, even with the switch file on and a token held', async (t) => {
   phonenotify.setAvailableForTests(false);
+  t.after(() => phonenotify.setAvailableForTests(phonenotify.PHONE_APP_CAN_RECEIVE));   // back to the shipped gate, whatever the order
   sent.length = 0;
   await actAsLeo();
   assert.equal(sent.length, 0, 'a notification left the Mac while the ship gate was closed');

@@ -36,8 +36,8 @@ the durable references. Commit ids say exactly what was checked this time.
   no iOS app registration. Steps 2, 3 and 8 describe the separate APNs rollout.
 - **The next Mac/tunnel release must contain two merged tunnel changes.** They
   are relay #161's per-Mac asset links and #174's sign-in gate that preserves
-  the waiting agent. `PHONE_APP_CAN_RECEIVE` is now `true` in
-  `engine/phonenotify.js` (Josh approved #4194; phonegate-4194). A Mac release
+  the waiting agent. phonegate-4194 sets `PHONE_APP_CAN_RECEIVE` to `true` in
+  `engine/phonenotify.js`; it merges only if Josh approves #4194. A Mac release
   carrying it shows the Phone notifications setting (off by default), with a
   line saying the phone app is in testing.
 - **Android vc3 is built and proven.** The signed `io.kosmos.app` versionCode 3,
@@ -205,9 +205,10 @@ No deploy step copies a key file, and the template only holds its path.
   sent to any phone yet, because `KOSMOS_PUSH=log`.
 - **What this turns off:** browser web push, which is live in production today. Production has no
   `KOSMOS_PUSH` set, and the coordinator sends web push for real unless it is exactly `log`
-  (`coordinator/src/main.rs`). The board no longer offers the browser sign-up (#3510), and no Mac
-  sends events while the board's lock is closed, so nothing should be using it. It is still a
-  production change, so it is named here.
+  (`coordinator/src/main.rs`). The board no longer offers the browser sign-up (#3510), so no browser
+  should be subscribed. Macs send events only once they run a board release with the lock open
+  (Step 7) and someone turns the switch on; until Step 8 those events are logged, not pushed. It is
+  still a production change, so it is named here.
 
 **Check:**
 - `curl -s https://coordinator.kosmosplus.com/v1/meta` shows the new `build`.
@@ -458,8 +459,8 @@ this computer needs an update before phone notifications can be turned on”
 
 ## Step 7. Decide whether to open the lock, then carry that decision in a board release [Josh decides; fleet implements and builds]
 
-**Decided and implemented:** Josh approved #4194, and phonegate-4194 set
-`PHONE_APP_CAN_RECEIVE` to `true`. That PR also reworked
+**Implemented in phonegate-4194, for Josh's answer on #4194:** it sets
+`PHONE_APP_CAN_RECEIVE` to `true`, and merges only if he approves. That PR also reworked
 `server.phonenotify-gate-718.test.js`, so the closed-gate tests close the gate
 explicitly and a test pins the open value. It added the Settings line saying
 the phone app is in testing.
@@ -469,6 +470,12 @@ the gate open. The bundle build refuses a gate-open bundle whose Plus connector
 lacks `mac-request` (`tools/lib/connector-verbs.sh`), because turning phone
 notifications on needs it. So the tunnel from Step 6 must be the one inside
 this release.
+
+**Between this release and Step 8:** a user who turns the switch on reaches
+the coordinator, but no push reaches any phone, because the coordinator still
+runs `KOSMOS_PUSH=log`. Only ship this release once steps 4 and 5 have an app
+that receives, and plan Step 8 close behind it, so the switch is not on for
+long with nothing arriving.
 
 **Before the staging cut, Josh signs off the release notes and site copy** [Josh].
 - A staging cut is not private. `KOSMOS_CUT_CHANNEL=staging tools/release.sh` holds back only the
