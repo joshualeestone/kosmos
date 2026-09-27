@@ -917,8 +917,9 @@ test('a write that fails stops the creation instead of loading a job that cannot
   const calls2 = recorder();
   const ok = create.createAgent({ ...BINS, name: 'half-made-2', role: 'pm' });
   assert.equal(ok.outcome, create.OUTCOME.CREATED, ok.because);
-  // Counts `bootstrap` itself: a successful create also runs `enable` first (#4254).
-  assert.equal(calls2.filter(([, a]) => a && a[0] === 'bootstrap').length, 1,
+  // `enable` is excluded by name, as in the start test: a successful create also
+  // runs it first (#4254), and it starts nothing. Everything else still counts.
+  assert.equal(calls2.filter(([, a]) => a && a[0] !== 'print' && a[0] !== 'enable').length, 1,
     'the control did not actually load a job');
 });
 

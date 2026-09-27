@@ -21,9 +21,15 @@ adopt/repair path (engine/create.js, "enable BEFORE bootstrap") already does.
 - Windows: removal disables the Scheduled Task (`/Change /DISABLE`), and create re-registers with `/Create /F`, which
   replaces the task definition including its enabled flag. REASONED from source, not measured (no Windows box here).
 
-## Weakest premise
-The card inferred, and I did not measure, that the disable override is what makes bootstrap fail. It rests on the
-repair path's own comment naming the mechanism and on the card's fresh-name-works / removed-name-fails contrast.
-The fix is harmless if the premise is wrong: `enable` on a label that is not disabled changes nothing.
+## Weakest premise (now MEASURED)
+Measured on macOS 26.7 with a throwaway `/usr/bin/true` job, both arms: never disabled, bootstrap rc 0 and loaded;
+after `launchctl disable`, bootstrap rc 5 (`Bootstrap failed: 5: Input/output error`) and NOT loaded; `enable` then
+bootstrap, rc 0 and loaded. So the standing disable is what refuses the re-create. Not measured: older macOS
+versions, where the repair path's comment claimed a bootstrap that "succeeds and starts nothing"; the fix is the
+same either way. The probe leaves an `enabled` override entry for its own label (harmless).
 
 ## Review record
+- Round 1 (opus): no BLOCKER, no WARNING. NIT the half-written test's control was loosened to count only `bootstrap`
+  -> restored to the exclude-by-name form (`print` and `enable` excluded, everything else counts); perturbed: with
+  create's bootstrap removed that test goes red. NIT my comment (refused) and the repair path's (succeeds, starts
+  nothing) disagreed -> measured (above): refused. The repair-path comment is corrected to the measurement.
