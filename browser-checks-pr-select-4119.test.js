@@ -114,12 +114,16 @@ test('only a plain check name is ever emitted, since the workflow reads the list
   assert.deepEqual([...why.keys()], ['render-talk']);
 });
 
-test('a known-red check is left out and said to be left out', () => {
-  const [n] = Object.keys(sel.KNOWN_RED);
-  assert.ok(n, 'KNOWN_RED is empty: delete this arm with it');
-  const why = sel.select('', [n]);
-  assert.ok(!why.has(n), `${n} is known red on the runner and must not be selected`);
-  assert.match(why.skipped.get(n) || '', /LEFT OUT, known red/);
+test('a known-red check is left out and said to be left out, unless the PR edits it', () => {
+  const n = 'render-provider-combobox-1040';
+  assert.ok(sel.KNOWN_RED[n], `${n} left KNOWN_RED: point this arm at an entry that is still there, or delete it`);
+  const diff = 'diff --git a/web/index.html b/web/index.html\n@@ -1 +1 @@\n+<ul id="pcombo-list"></ul>\n';
+  const why = sel.select(diff, []);
+  assert.ok(!why.has(n), `${n} is known red on the runner and must not be selected by the page diff`);
+  assert.match(why.skipped.get(n) || '', /selector[^;]*pcombo-list.*LEFT OUT, known red/);
+  const fix = sel.select('', [n]);
+  assert.deepEqual(fix.get(n), ['changed'], 'a PR that edits a known-red check runs it, so its fix can show green');
+  assert.ok(!fix.skipped.has(n));
 });
 
 test('the whole-page checks carry the page scope, on their first lines only', () => {
