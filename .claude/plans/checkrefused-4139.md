@@ -16,10 +16,17 @@ card for Splinter). Two things my branch's review loop found are not in #4147, a
   behave (they return before the field unless the badge is working).
 
 ## Proof
-- server.badge-observed-1921.test.js: a refused Check now reads rejected with observedFrom 'check'; a stale observation
-  names no source (fails with the gate removed).
+- server.badge-observed-1921.test.js: a stale observation names no source (fails with the gate removed); and, as a
+  CONTROL that is true on main too, a refused Check now reads rejected with observedFrom 'check' (the case the title
+  fix is for).
+- The 1921 check pins BOTH arms of the refusal title: the agent row keeps "a real request on this account was
+  rejected", the check row says it was refused when checked.
 - render-account-badge-1921.js: a check-refused row's title says refused when checked, never "real request" (red on
   main's page, see the PR).
+
+## Decided
+The refusal PILL keeps "Not connected · rejected 2m ago" for a check too: a refused check is rejected, so the word is
+true (unlike "active" for a check green, which #4147 changed to "checked").
 
 ## Weakest part
 None of substance; the wording mirrors #4147's own sentence for the green ("This sign-in answered a check by Kosmos").

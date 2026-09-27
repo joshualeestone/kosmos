@@ -347,7 +347,7 @@ const ACCOUNTS = [
     // #4139: a green from a check says a check answered it (title) and "checked", never "active" or an agent's request.
     { email: 'chk@example.com', cls: 'acct-connected', text: /^Signed in · checked /, titleText: /^This sign-in answered a check by Kosmos recently/,
       notTitle: /real request|not a probe/, checkNow: true },
-    { email: 'rej@example.com', cls: 'acct-none', text: /Not connected/, checkNow: true },
+    { email: 'rej@example.com', cls: 'acct-none', text: /Not connected/, titleText: /a real request on this account was rejected/, checkNow: true },
     // #4139 follow-up: a refusal from Check now says it was refused when checked, never "a real request".
     { email: 'rejchk@example.com', cls: 'acct-none', text: /Not connected/, titleText: /^This sign-in was refused when Kosmos checked it/, notTitle: /real request/, checkNow: true },
     // #3136: unver@ is EXACTLY Josh's state (a signed-in but not-recently-observed account).

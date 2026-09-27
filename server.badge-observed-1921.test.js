@@ -319,7 +319,7 @@ test('#4139 SOURCE: nothing observed names no source', async () => {
 
 /* #4139 follow-up: Claude's Check now records a refusal, and that is a check too; and a STALE observation decides
    nothing (the badge falls back to checkLive), so it names no source. */
-test('#4139 SOURCE: a refused Check now reads rejected, from a check', async () => {
+test('#4139 SOURCE (control): a refused Check now reads rejected, from a check (true on main too; it pins the case the title fix is for)', async () => {
   observed.sawDir(observed.PROVIDER.ANTHROPIC, CLEO_DIR, observed.OUTCOME.REJECTED, Date.now());
   const m = await badges();
   assert.equal(m.get('cleo@example.com').badge, 'rejected', 'CONTROL: ' + JSON.stringify(m.get('cleo@example.com')));
