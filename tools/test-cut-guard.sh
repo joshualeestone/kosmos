@@ -60,43 +60,34 @@ out="$(KOSMOS_CUT_SELF_PID=4242 KOSMOS_CUT_PROBE="$T/probe-two" kosmos_refuse_if
   || fail "excluding self also excluded a real second cut, so the guard cannot fire (rc=$rc)"
 has "$out" "9191" && pass "and it names the OTHER cut, not itself" || fail "it named the wrong process: $out"
 
-# --- END TO END, through the real pgrep, with a script genuinely named
-# --- tools/release.sh. The probe seam cannot prove this one: the bug it
-# --- guards against lives in what pgrep really reports about this process.
-mkdir -p "$T/tools"
-cat > "$T/tools/release.sh" <<SH
-#!/bin/bash
-. "$HERE/lib/cut-guard.sh"
-if [ "\${1:-}" = "--sleep" ]; then sleep "\$2"; exit 0; fi
-kosmos_refuse_if_cut_live "a cut" || exit 1
-echo SELF-OK
-SH
-chmod +x "$T/tools/release.sh"
-live_other="$(pgrep -fl 'release\.sh' 2>/dev/null | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/release\.sh( |$)' || true)"
-if [ -n "$live_other" ]; then
-  # Precomputed, not piped inside the echo: the repo's own hook rejects a pipe
-  # here on sight, and it is right to -- this file exists to be trusted about
-  # exit statuses.
-  _first_live="${live_other%%$'\n'*}"
-  echo "SKIP  end-to-end self-check: a real cut is live on this Mac, so this arm cannot answer"
-  echo "      (that is a skip, NOT a pass: ${_first_live:0:60})"
-else
-  out="$(cd "$T" && bash tools/release.sh 2>&1)"; rc=$?
-  { [ "$rc" -eq 0 ] && has "$out" "SELF-OK"; } \
-    && pass "a real bash tools/release.sh does not refuse ITSELF (the outage this would have caused)" \
-    || fail "a real release.sh refused itself: rc=$rc out=$out"
+# Use ordinary live pids through the probe seam. A test process genuinely named
+# tools/release.sh would be visible to every agent's pgrep and could block a real
+# cut, recreating #4206 merely by testing its fix.
+( sleep 30 ) & cut_self=$!
+( sleep 30 ) & cut_other=$!
+printf '#!/bin/sh\nprintf "%s bash tools/release.sh 0.5.99\\n"\n' "$cut_self" > "$T/probe-real-self"; chmod +x "$T/probe-real-self"
+printf '#!/bin/sh\nprintf "%s bash tools/release.sh 0.5.99\\n%s bash tools/release.sh 0.5.98\\n"\n' "$cut_self" "$cut_other" > "$T/probe-real-two"; chmod +x "$T/probe-real-two"
+out="$(KOSMOS_CUT_SELF_PID="$cut_self" KOSMOS_CUT_PROBE="$T/probe-real-self" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "a live caller pid presented as release.sh does not refuse ITSELF" \
+  || fail "a live caller pid refused itself: rc=$rc out=$out"
+out="$(KOSMOS_CUT_SELF_PID="$cut_self" KOSMOS_CUT_PROBE="$T/probe-real-two" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && has "$out" "$cut_other"; } && pass "but a SECOND live pid presented as release.sh is refused and named" \
+  || fail "a second live cut candidate proceeded: rc=$rc out=$out"
+kill "$cut_self" "$cut_other" 2>/dev/null; wait "$cut_self" "$cut_other" 2>/dev/null
 
-  ( cd "$T" && bash tools/release.sh --sleep 4 ) & sleeper=$!
-  sleep 1
-  out="$(cd "$T" && bash tools/release.sh 2>&1)"; rc=$?
-  [ "$rc" -ne 0 ] && pass "but a SECOND real release.sh is refused while the first runs" \
-    || fail "two real cuts both proceeded: rc=$rc out=$out"
-  kill "$sleeper" 2>/dev/null; wait "$sleeper" 2>/dev/null
-fi
+# A missing classifier must keep every candidate. browser-checks.sh does not
+# enable set -e, so a bare failed source followed by an undefined pipeline
+# function could otherwise empty `out` and fail open.
+mkdir -p "$T/lone-lib"
+cp "$HERE/lib/cut-guard.sh" "$T/lone-lib/cut-guard.sh"
+out="$(KOSMOS_RUN_MARKER_DIR="$T/markers-empty" KOSMOS_CUT_PROBE="$T/probe-live" bash -c '. "$1" 2>/dev/null; kosmos_refuse_if_cut_live "a cut"' _ "$T/lone-lib/cut-guard.sh" 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && has "$out" "86263" && pass "a missing fixture classifier keeps the candidate and refuses" \
+  || fail "a missing fixture classifier failed open (rc=$rc, out=$out)"
 
 # --- #1713: the MIRROR guard, kosmos_refuse_if_harness_live, shown red, green,
 # --- and unable to answer via its own KOSMOS_HARNESS_PROBE seam. Reuses the
 # --- probe-quiet/probe-dead fixtures above (exit 1 / exit 3 are guard-agnostic).
+mkdir -p "$T/tools"
 printf '#!/bin/sh\nprintf "77123 bash tools/test-install.sh\\n"\n' > "$T/hprobe-live"; chmod +x "$T/hprobe-live"
 out="$(KOSMOS_HARNESS_PROBE="$T/hprobe-live" kosmos_refuse_if_harness_live "this cut" 2>&1)"; rc=$?
 if [ "$rc" -eq 1 ]; then pass "the cut refuses while an install harness is running"; else fail "the cut refuses while a harness runs (rc=$rc)"; fi

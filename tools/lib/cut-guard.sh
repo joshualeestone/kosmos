@@ -2,7 +2,12 @@
 # is sourced by Bash callers, so BASH_SOURCE resolves this library even when the
 # caller's cwd is elsewhere.
 _kosmos_cut_guard_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-. "$_kosmos_cut_guard_lib_dir/process-fixture.sh"
+if ! . "$_kosmos_cut_guard_lib_dir/process-fixture.sh"; then
+  # Not every caller enables set -e. Keep every candidate when the classifier
+  # is unavailable, so a missing library can only over-refuse, never turn a
+  # live cut into an empty process list.
+  _kosmos_pid_has_node_test_ancestor() { return 1; }
+fi
 unset _kosmos_cut_guard_lib_dir
 
 # --- Shared: is a matched process THIS run, or a separate one? (#1391) -------
