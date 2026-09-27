@@ -336,7 +336,8 @@ function readUsage(page) {
         const inner = { top: lb.top + parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop), bottom: lb.bottom - parseFloat(cs.paddingBottom) };
         return { base: +ft.rect.bottom.toFixed(2), divider: +lb.top.toFixed(2), lines: lt.lines,
           centreOff: +(((lt.rect.top + lt.rect.bottom) / 2) - ((inner.top + inner.bottom) / 2)).toFixed(2),
-          margin: +Math.min(ft.rect.left - bb.left, bb.right - ft.rect.right).toFixed(2), text: (fig.textContent || '').trim() };
+          margin: +Math.min(ft.rect.left - bb.left, bb.right - ft.rect.right).toFixed(2), text: (fig.textContent || '').trim(),
+          boxW: +bb.width.toFixed(1), textW: +ft.rect.width.toFixed(1), font: getComputedStyle(fig).fontSize };
       });
       return { hero: row('#usage-hero .tv-heq > .tv-fbox'), stats: row('#usage-hero .tv-stats3 > .tv-sbox') };
     });
@@ -347,7 +348,7 @@ function readUsage(page) {
     ok(align.stats.length === 3 && Math.max(...align.stats.map((t) => t.divider)) - Math.min(...align.stats.map((t) => t.divider)) <= 0.5,
       `the lines above the three stat labels are at the same height (#4083) -- ${JSON.stringify(align.stats.map((t) => t.divider))}`);
     ok([...align.hero, ...align.stats].every((t) => Math.abs(t.centreOff) <= 1), `every label is centred in its label area (#4083) -- ${JSON.stringify([...align.hero, ...align.stats].map((t) => t.centreOff))}`);
-    ok(align.hero.every((t) => t.margin >= 12), `the big hero numbers keep at least 12px off the tile edges at production scale (#4083) -- ${JSON.stringify(align.hero.map((t) => t.text + ':' + t.margin))}`);
+    ok(align.hero.every((t) => t.margin >= 12), `the big hero numbers keep at least 12px off the tile edges at production scale (#4083) -- ${JSON.stringify(align.hero.map((t) => t.text + ': margin ' + t.margin + ', text ' + t.textW + ' in ' + t.boxW + ' at ' + t.font))}`);
     // #2617 CONTROL: repaint in the SAME page life, from a painted block to a
     // response with no byAgent (an older board, a failed split). After a reload
     // the block is hidden by its markup whatever the code does, so the hide path
