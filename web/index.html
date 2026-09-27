@@ -26064,6 +26064,9 @@ const FR_AGY_SUB = agySubDriver('fr-gemini-sub-', async () => {
   const was = document.activeElement;
   const lost = (typeof FR_STEP === 'undefined' || FR_STEP === 5)
     && (!was || was === document.body || (!!step && typeof step.contains === 'function' && step.contains(was)));
+  /* Collapse the finished step now, as Grok's success does, rather than after the repaint's accounts read: its Stop
+     must not stay on screen and pressable after focus has left it (review round 2). keepSignIn: the box is kept. */
+  if (typeof frKeyedCollapse === 'function') frKeyedCollapse('google', true);
   if (box && lost) {
     if (box.setAttribute) box.setAttribute('tabindex', '-1');
     if (box.focus) box.focus();
