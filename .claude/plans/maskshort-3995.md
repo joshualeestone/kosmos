@@ -27,7 +27,8 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
   ordinary text would still be masked there. What would change it: a real guide reply that trips it.
 
 ## Not covered (also in the file)
-- One character per chunk; a single-case key whose chunks read as words (round 4); anything hex in short chunks;
+- One character per chunk; chunks of two with fewer than two key-like pairs (round 12); a single-case key whose chunks
+  read as words (round 4); anything hex in short chunks;
   see the file's own Not covered list, which is kept current.
 
 ## Review round 1 (Opus), what changed
@@ -149,3 +150,14 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
 - Mixed-case units and platform names (GHz, kHz, dBm, mAh, kWh, iOS, iPadOS, macOS ...) count as plain words, so a held
   value made of them is not masked out of a spec line. Tested; red on the previous commit.
 - The shared explored-set comment names the queued-not-expanded residual. This plan's stale lines corrected.
+
+## Review round 12 (Sonnet), what changed
+- BLOCKER fixed: every two-character piece counted as a plain word (the under-three shortcut, and the label rule for
+  any letter with a digit), so a key cut into chunks of two leaked in full about half the time (105 of 300 random
+  24-character keys on the previous commit; the plan's own example key among them). Now two letters are plain only with
+  a vowel (My, Up, Go, In), and a label only with an UPPERCASE letter (Q1, 4K; 8v and 3p are key text). Measured after:
+  0 of 300 in twos, 0 of 300 in threes. The word-password, label (Q1Q2...), unit and numbered-guide tests all still pass.
+- Not covered in the file restated to the real boundary for chunks of two.
+- The budget comment records round 12's large crafted input: 2.4s here against 1.5s on main, not withheld, inside the
+  word walk's documented range.
+- Deferred NIT: the unit list is an enumeration.

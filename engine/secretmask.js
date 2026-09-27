@@ -426,8 +426,9 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *  - a key cut into chunks under OPENING_LEN with fewer than SHORT_WALK_MIN_KEYLIKE chunks that are not plain words or
  *    numbers (shortChunkSpans refuses those, since ordinary text spells a password made of words). That includes
  *    a key given ONE character at a time with words between (every single character is a plain word), a
- *    letters-only single-case key in chunks of two, and a single-case key whose chunks read as words by wordLike's
- *    vowel test;
+ *    key in chunks of two where fewer than SHORT_WALK_MIN_KEYLIKE of the pairs are key-like (a pair is plain when it
+ *    is two letters with a vowel, a digit pair, or an uppercase letter with a digit), and a single-case key whose
+ *    chunks read as words by wordLike's vowel test;
  *  - a short chunk with base64 padding on it (Zq8=);
  *  - a key whose FIRST chunk is one character (the short walk starts only from two or three);
  *  - a key both spaced one character at a time AND cut into short chunks with words between (the short walk reads
@@ -749,7 +750,9 @@ function wordSkippingSpans(text) {
  *    of words, MyPassword123 or 2ndFloorLounge, is spelled by ordinary text: review rounds 1 and 2).
  * Returns [from, to) spans, or null when the walk ran past SHORT_WALK_BUDGET (withheld, as the word walk is).
  */
-/* The word walk's figure, and its unit: one per candidate form, per run visited, per state, and per 16 steps of the
+/* Measured by review round 12 on a large crafted reply (2,000 held values, 6,000 runs, 135,000 characters): 2.4s here
+   against 1.5s on main for the same input, not withheld; inside the word walk's documented range of up to twice its
+   1 to 1.3s. The word walk's figure, and its unit: one per candidate form, per run visited, per state, and per 16 steps of the
    spellability check (chunksOf). Measured on this branch (review round 2's probes: 2,000 forms by 4,000 short runs, 2,000
    near-cap forms sharing one opening, one 20,000-character run): 200 to 600ms, withheld at the budget rather
    than hanging. */
@@ -770,12 +773,16 @@ function plainWordRun(t) {
   if (/^[0-9]+(?:st|nd|rd|th)?$/i.test(t)) return true;
   /* A label: one letter and one or two digits, or the other way round (Q1, V2, A10, 4K, 3D; review round 10: a held
      Q1Q2Q3Q4Q5Q6 was masked out of a sentence about quarters). */
-  if (/^(?:[A-Za-z][0-9]{1,2}|[0-9]{1,2}[A-Za-z])$/.test(t)) return true;
+  if (/^(?:[A-Z][0-9]{1,2}|[0-9]{1,2}[A-Z])$/.test(t)) return true;   // uppercase only: 8v and 3p are key text (round 12)
   /* Mixed-case units and platform names a guide writes as words (review round 11: a held dBmGHzkHzmAh was masked out of
      a spec line). */
   if (/^(?:[kMGT]?Hz|dBm?|mAh|[kmM]?Wh|[kmM]W|mL|pH|iOS|iPadOS|macOS|tvOS|watchOS|visionOS)$/.test(t)) return true;
   if (!/^(?:[a-z]+|[A-Z]+|[A-Z][a-z]+)$/.test(t)) return false;
-  return t.length < 3 || wordLike(t);
+  /* One character is always plain. Two letters are a word only with a vowel in them (My, Up, Go, In): review round 12
+     measured that calling every two-character piece plain left more than half of random keys cut in twos in full. */
+  if (t.length === 1) return true;
+  if (t.length === 2) return /[aeiouy]/i.test(t);
+  return wordLike(t);
 }
 /* A completed short walk masks only when at least this many of its pieces are NOT plain words (review round 2: one
    was not enough; a held 2ndFloorLounge was masked out of "the 2nd ... Floor ... Lounge"). A random key cut into

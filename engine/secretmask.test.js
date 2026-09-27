@@ -1599,3 +1599,22 @@ test('#3995 gap 4 review round 11: ordinary words that are also a key chunk are 
     try { assert.equal(mask(text).text, text, `${held}: a spec line was masked`); } finally { setKnownSecrets([]); }
   }
 });
+
+test('#3995 gap 4 review round 12: a mixed key cut into chunks of TWO with words between is masked', () => {
+  const held = j('Zq8vLm3pRt6w', 'Xy9kHb2nWc4d');
+  setKnownSecrets([held]);
+  try {
+    const pairs = held.match(/.{2}/g);
+    const t = mask(pairs.join(' and ')).text;
+    const left = pairs.filter((c) => new RegExp('(^|[^A-Za-z0-9])' + c + '([^A-Za-z0-9]|$)').test(t));
+    assert.equal(left.length, 0, `pairs left showing: ${left.join(',')}: ${t}`);
+  } finally { setKnownSecrets([]); }
+  const rnd = (n, seed) => { let x = seed; let out = ''; const A = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'; for (let i = 0; i < n; i += 1) { x = (x * 1103515245 + 12345) % 2147483648; out += A[(x >>> 16) % A.length]; } return out; };
+  let leaked = 0;
+  for (let k = 0; k < 50; k += 1) {
+    const key = rnd(24, 7000 + k);
+    setKnownSecrets([key]);
+    try { const text = key.match(/.{2}/g).join(' and '); if (mask(text).text === text) leaked += 1; } finally { setKnownSecrets([]); }
+  }
+  assert.ok(leaked <= 3, `${leaked} of 50 random keys cut in twos showed in full`);
+});
