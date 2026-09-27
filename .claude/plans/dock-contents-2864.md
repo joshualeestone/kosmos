@@ -12,7 +12,7 @@ tools/test-install.sh proves all of it, with a control showing today's path give
 ## Build
 - install/setup.sh make_app: when the target is an existing real folder we can prove is ours,
   on Darwin, exchange $stage/Contents and $app/Contents with renameatx_np(RENAME_SWAP) through
-  /usr/bin/perl (syscall 488, AT_FDCWD -2, flag 2). Believe it only if $app/Contents now has
+  /usr/bin/perl (syscall 488, AT_FDCWD -2, flags 18 = RENAME_SWAP | RENAME_NOFOLLOW_ANY, on the folder's physical path). Believe it only if $app/Contents now has
   the staged Contents' inode. Then delete the stage (which now holds the old Contents).
   Registration (touch + lsregister) moved to make_app_register, called by both paths.
 - Anything else (no folder yet, a symlink, not ours, no perl, not Darwin,
@@ -40,6 +40,12 @@ tools/test-install.sh proves all of it, with a control showing today's path give
 - A running Kosmos now keeps its bundle path while Contents changes under it (its executable runs
   on from the old, unlinked file; kosmos-install.json is read at launch). Before, the whole bundle
   moved aside. Not expected to matter; noted as a new state.
+
+## Review rounds 2 and 3 (applied)
+- Flags 18 refuse every link in a path, including /var -> /private/var, so the call now gets the
+  folder's physical path (the installer test caught the silent fallback under /var).
+- A staged folder found in neither place keeps the app when it is still provably ours: failing
+  there sends the caller on to ~/Applications, and a second Kosmos.app is the duplicate itself.
 
 ## Weakest part
 That the Dock follows the folder's identity (the bookmark's file id and creation date) is

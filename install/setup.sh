@@ -40,8 +40,8 @@
 # one empty hidden folder there; and the icon is assembled in a hidden
 # .Kosmos.app.stage.<pid> folder beside its spot. On an update of an icon it
 # created, its Contents is exchanged with the existing one in a single step
-# (#2864), so the Kosmos.app folder a Dock icon points at stays the same and
-# the stage folder is left holding the OLD Contents; otherwise the new icon is
+# (#2864), so the Kosmos.app folder a Dock icon points at stays the same, and
+# the stage folder, now holding the OLD Contents, is deleted; otherwise the new icon is
 # renamed into place, with the replaced icon renamed aside as
 # .Kosmos.app.old.<pid> until the swap completes (an interrupted run can leave
 # either hidden folder behind; --uninstall sweeps both when it can prove they
@@ -3017,7 +3017,8 @@ make_app() {
   # /usr/bin/stat by path, as elsewhere in this file: a GNU stat first on PATH
   # reads -f differently and would quietly skip the swap.
   # Test-only by contract, like KOSMOS_SYS_APP_DIR: KOSMOS_SWAP_PERL points the
-  # harness at a stub. KOSMOS_CONTENTS_SWAP=off is also the switch that restores
+  # harness at a stub (and, like the other overrides, keeps lsregister away from
+  # the real LaunchServices database in make_app_register). KOSMOS_CONTENTS_SWAP=off is also the switch that restores
   # the old whole-bundle rename on a machine where the swap misbehaves.
   local _perl="${KOSMOS_SWAP_PERL:-/usr/bin/perl}"
   if [ "$(uname -s)" = Darwin ] && [ "${KOSMOS_CONTENTS_SWAP:-on}" != off ] \
@@ -3026,7 +3027,6 @@ make_app() {
     local _staged_ino _phys
     _staged_ino="$(/usr/bin/stat -f %i "$stage/Contents" 2>/dev/null)" || _staged_ino=""
     _phys="$(cd "$appdir" 2>/dev/null && pwd -P)" || _phys=""
-    # Ownership proved again right before the destructive step, as the rename below does.
     if [ -n "$_staged_ino" ] && [ -n "$_phys" ] && bundle_is_ours "$app"; then
       "$_perl" -e 'exit(syscall(488, -2, $ARGV[0], -2, $ARGV[1], 18) == 0 ? 0 : 1)' \
         "$_phys/$(basename "$stage")/Contents" "$_phys/$(basename "$app")/Contents" 2>/dev/null || true
@@ -3042,10 +3042,17 @@ make_app() {
         return 0
       fi
       if [ "$(/usr/bin/stat -f %i "$stage/Contents" 2>/dev/null)" != "$_staged_ino" ]; then
-        # The staged folder is in neither place: something else moved it. Do not
-        # guess which Contents is where; leave the app as it is and fail the step.
-        # The stage is this run's own, so it is removed without the ownership proof.
+        # The staged folder is in neither place: something else moved it, or the
+        # first stat above failed. The stage is this run's own, so it is removed
+        # without the ownership proof. If the app is still a complete Kosmos we can
+        # prove is ours, keep it and succeed: failing here sends the caller on to
+        # ~/Applications, and a second Kosmos.app there is the duplicate this exists
+        # to prevent. Otherwise fail the step as any other make_app failure does.
         rm -rf "$stage" 2>/dev/null || true
+        if bundle_is_ours "$app"; then
+          make_app_register "$app"
+          return 0
+        fi
         return 1
       fi
       # The staged Contents is still in $stage: nothing moved, so the rename is safe.
@@ -3103,7 +3110,7 @@ make_app_register() {
   # id. Measured after harness runs: dozens of dead mktemp paths
   # registered against com.chaoskosmos.kosmos. Any override set means a
   # harness, and a harness must leave that database alone.
-  if [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}${KOSMOS_HOME_APP_DIR:-}" ]; then
+  if [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}${KOSMOS_HOME_APP_DIR:-}${KOSMOS_SWAP_PERL:-}" ]; then
     local lsreg=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
     # ⚠️ TOUCH BEFORE REGISTERING. MEASURED (Josh's clean-machine install,
     # 2026-08-17): app present, Get Info previews the icon, the Dock draws
