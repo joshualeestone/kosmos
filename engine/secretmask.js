@@ -510,7 +510,16 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
    served on every poll pays that once per held set, not per read. Earlier measurements (review round 13): well
    inside it, a 50,000-character reply with five held Anthropic keys and 400 sk-ant-api03- mentions. Measured
    reaching it (review round 13): ten held Anthropic keys and a 36,000-character reply repeating a paragraph that
-   names sk-ant-api03- 200 times, withheld; whether it trips depends on the keys' random next characters. */
+   names sk-ant-api03- 200 times, withheld; whether it trips depends on the keys' random next characters.
+   #4112 (2026-09-27, this Mac, Node 26): the walk now jumps between runs that could match and compares only the
+   variants that could. The OUTPUT is exact (identical on 1,600 randomized split-key replies, and on thousands more in
+   review). A run the walk lands on is charged exactly what main charged for it, runs it passes over are free, and a
+   walk that ends at the bound pays for its positions, so the CHARGE is never more than main's for any input (900
+   adversarial inputs: 0 above main, about 2.9x lower in total) and the time per unit stays near main's (#3935's bound
+   test: about 1.2x main's CPU; charging a landed run only for what it compared had made it about 2x, and that test
+   crossed its 1,500ms guard). Units, with the #4112 test's 200 seeded keys and a guide reply naming sk-ant-api03-:
+   20 times 0.93M (3.17M before, over the budget: withheld); 200 times 10.4M (34.9M before). The budget is unchanged,
+   so the 200-mention reply is still withheld. */
 const WORD_WALK_BUDGET = 1250000;
 /* How many tails after, and heads before, a - or _ one run offers as pieces (review rounds 15 to 19). */
 const PIECE_VARIANTS_MAX = 4;
@@ -580,7 +589,20 @@ function wordSkippingSpans(text) {
   const built = new Map();
   const varsOf = (i) => {
     let v = built.get(i);
-    if (!v) { const vs = pieceVariants(runs[i][2]); v = [vs, vs.reduce((n, x) => n + chunksOf(x.length), 0)]; built.set(i, v); }
+    if (!v) {
+      const vs = pieceVariants(runs[i][2]);
+      /* #4112: the variants grouped by first character, so a step compares only the group that can match. NOT a
+         charge basis: a landed run is charged its WHOLE variant cost (piecesCost), main's rate; charging only a
+         group's share was tried twice and let the budget buy about 2x main's work (review 2; #3935's guard). */
+      const byFirst = new Map();
+      for (const x of vs) {
+        let g = byFirst.get(x[0]);
+        if (!g) { g = { pieces: [] }; byFirst.set(x[0], g); }
+        g.pieces.push(x);
+      }
+      v = [vs, vs.reduce((n, x) => n + chunksOf(x.length), 0), byFirst];
+      built.set(i, v);
+    }
     return v;
   };
   const hasOpening = (raw) => {
@@ -635,6 +657,45 @@ function wordSkippingSpans(text) {
     const at = t.indexOf(piece);
     return at >= 0 ? [a + at, a + at + piece.length] : [a, b];
   };
+  /* #4112: which runs have a variant beginning with each character, in run order. A walk jumps from one run that
+     could match to the next, instead of stepping through every run in reach. Built only over the runs a walk has
+     in reach, from the walk's OPENING run r (review 3: built from the FIRST walk's start, a later walk far down the
+     reply indexed every run between, which no walk reaches). Walks open at a non-decreasing r, so a run below r is
+     never needed again. 🛑 From r, NEVER from the walk's current position (review 6): several held forms share one
+     opening and all walk from the same r, and one that had moved ahead left the runs behind it unindexed while
+     marking them done, so the next form from that r could not see its own pieces and a split key came out whole. */
+  const firstIdx = new Map();
+  let idxTo = -1;   // the last run indexed
+  /* Not charged: it builds each run's variants once, which main's walk also did uncharged (it charged per run
+     visited, and still does in the live scan above), and only runs in some walk's reach are indexed. */
+  const ensureIdx = (opening, upTo) => {
+    for (let i = Math.max(idxTo + 1, opening + 1); i <= upTo; i += 1) {
+      for (const c of varsOf(i)[2].keys()) {
+        if (!firstIdx.has(c)) firstIdx.set(c, []);
+        firstIdx.get(c).push(i);
+      }
+      idxTo = i;
+    }
+  };
+  /* The first index in the ascending list `arr` greater than `after`, or Infinity. */
+  const firstAbove = (arr, after) => {
+    if (!arr) return Infinity;
+    let lo = 0;
+    let hi = arr.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (arr[mid] > after) hi = mid; else lo = mid + 1; }
+    return lo < arr.length ? arr[lo] : Infinity;
+  };
+  /* The last run after `after` still within `bound` non-space characters of `lastAt` (the original loop's break). */
+  const lastInReach = (after, lastAt, bound) => {
+    let lo = after + 1;
+    let hi = runs.length - 1;
+    let ok = after;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (nonSpaceBefore[runs[mid][1]] - nonSpaceBefore[lastAt] <= bound) { ok = mid; lo = mid + 1; } else hi = mid - 1;
+    }
+    return ok;
+  };
   for (let r = 0; r < runs.length; r += 1) {
     const [runFrom] = runs[r];
     /* The opening is looked for in the run as written and in each variant a piece is tried as (glue taken off),
@@ -683,20 +744,62 @@ function wordSkippingSpans(text) {
            (below), not from the opening alone: pieces spread past four times the key's length in all (each with a
            sentence after it) left the later ones unread. */
         let lastAt = from;
-        for (let s = r + 1; s < runs.length; s += 1) {
-          const [, sTo] = runs[s];
-          const [pieces, piecesCost] = varsOf(s);
-          if (nonSpaceBefore[sTo] - nonSpaceBefore[lastAt] > bound) break;
-          let done = false;
-          const next = new Set(reached);
+        /* The last run still in reach, found again only when lastAt moves (reach grows only then). */
+        let limitAt = -1;
+        let limitFor = -1;
+        for (let s = r; ;) {
+          /* None in reach past s: main broke here without charging, and so does this. */
+          if (limitFor !== lastAt) { limitAt = lastInReach(r, lastAt, bound); limitFor = lastAt; }
+          const limit = limitAt;
+          if (limit <= s) break;
           /* Each start position, with the reached position it came from: a piece matched past a skipped
              separator links back to where the walk had got to, not to the skip (review round 17: linking to the
              skip broke the trace back, and every piece before it was left readable). */
           const at = [];
           for (const p of reached) for (const q of skipsFrom(f, p)) at.push([q, p]);
+          /* #4112: a piece matches at q only if it begins with f[q]. So the next run that can change anything is the
+             first after s with a variant beginning with one of those characters; every run before it is a no-op
+             (reached, best and lastAt stay as they are), and the walk jumps to it through the index, the reach
+             bound unchanged. Exact, not a heuristic: what it passes over could never have matched. 200 mentions of
+             sk-ant-api03- in a reply against 200 held keys otherwise compared every key with every run in reach
+             from every mention (ordinary words like "a" and "and" advance a walk by a character or two, and keep
+             it comparing), and the reply was withheld whole at 20 mentions. */
+          /* 🔑 THE CHARGE IS AT MOST MAIN'S AND AT LEAST THE WORK DONE (#4112 reviews 1 and 2). Each step covers the
+             runs (s, t], or (s, limit] when nothing in reach can match, and is charged the larger of at.length (the
+             positions built, and at most the alphabet's worth of index lookups) and the variants it compares. Main
+             charged every run in that range at.length x all its variants' cost, so each step is at most main's
+             charge for its range: a reply main checks within the budget is never withheld here (review 1 found one
+             that was). And no step is free: charging only the compared variants let a reply whose `reached` grew
+             large run for seconds under a tiny charge and come back unmasked where main withheld it (review 2). */
+          let t = Infinity;
+          /* The next run first, directly (review of the rebase: text where nearly every run can continue a key paid the
+             index lookups on every step, about 1.6x main's CPU on #3935's bound test, which then crossed its 1,500ms
+             guard under load). Only when the next run cannot match are the characters gathered and the index used. */
+          if (s + 1 <= limit) {
+            const nb = varsOf(s + 1)[2];
+            for (const [q] of at) if (q < f.length && nb.has(f[q])) { t = s + 1; break; }
+          }
+          if (t === Infinity) {
+            const chars = new Set();
+            for (const [q] of at) if (q < f.length) chars.add(f[q]);
+            ensureIdx(r, limit);
+            for (const c of chars) { const i = firstAbove(firstIdx.get(c), s); if (i < t) t = i; }
+          }
+          if (t > limit) { if ((budget -= at.length) < 0) return null; break; }
+          s = t;
+          const [, sTo] = runs[s];
+          const [, piecesCost, byFirst] = varsOf(s);
+          let done = false;
+          const next = new Set(reached);
+          /* Only the variants that begin with f[q] are compared at q, but a run landed on is charged exactly what main
+             charged for it (every position times all its variants), so where nearly every run is landed on the time
+             per unit is main's (#3935's bound test crossed its 1,500ms CPU guard when a landed run paid only what it
+             compared: the budget then bought about twice main's work before it ran out). */
           if ((budget -= at.length * piecesCost) < 0) return null;
           for (const [q, p] of at) {
-            for (const piece of pieces) {
+            const g = q < f.length && byFirst.get(f[q]);
+            if (!g) continue;
+            for (const piece of g.pieces) {
               if (!f.startsWith(piece, q)) continue;
               const end = q + piece.length;
               if (end === f.length) { done = true; doneFrom = { s, prev: p, start: q }; break; }
