@@ -32,7 +32,11 @@ const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
 
-const SANDBOX = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'trust-win32key-2281-')));
+/* .native, the SAME call trustFolder keys on (#4257). The JS fs.realpathSync keeps a
+   Windows 8.3 short name (os.tmpdir() is C:\\Users\\RUNNER~1\\... on a GitHub runner) while
+   .native expands it, so with the JS variant `work` was spelled short and the key long:
+   red on Windows, green on every Mac, and about the test, not the product. */
+const SANDBOX = fs.realpathSync.native(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'trust-win32key-2281-')));
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, '.claude.json');
 
 const trust = require('./trust');
