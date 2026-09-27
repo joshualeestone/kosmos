@@ -53,9 +53,11 @@ through a planted link fails and leaves the target untouched (control: a link-fr
 the deep-locked bundle runs with the swap on and off; the residue check has a positive control.
 
 ## Who runs the proof
-tools/test-install.sh is operator-run (`yarn test:install`), not part of CI or the cut, so CI green
-says nothing about the swap. The PR carries this branch's run output, and the release-lane reviewer
-should rerun it.
+tools/test-install.sh is not in CI (GitHub), but every release cut runs it: tools/release.sh
+runs it with KOSMOS_INSTALL_GATE=1, which stops at "the release gate stops here (#624)". The
+#2864 update, control and stub checks sit before that stop, so every cut runs them; the
+deep-locked on/off pass sits after it, so only a full `yarn test:install` does. The PR carries
+this branch's full run.
 
 ## Weakest part
 That the Dock follows the folder's identity (the bookmark's file id and creation date) is
