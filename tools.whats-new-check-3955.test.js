@@ -32,16 +32,16 @@ test('#3955: the matching file is accepted', () => {
 
 test('#3955: last release\'s file is refused, naming both versions', () => {
   const r = run('0.6.99', GOOD);
-  assert.equal(r.status, 1);
+  assert.equal(r.status, 3);
   assert.match(r.stderr, /it is for 0\.6\.98, not 0\.6\.99/);
   assert.match(r.stderr, /KOSMOS_CUT_NO_WHATS_NEW=1/, 'the refusal does not say how to cut a hotfix');
 });
 
 test('#3955: a missing, broken or undrawable file is refused', () => {
-  assert.equal(run('0.6.98', undefined).status, 1);
+  assert.equal(run('0.6.98', undefined).status, 3);
   assert.match(run('0.6.98', undefined).stderr, /missing/);
-  assert.equal(run('0.6.98', '{ nope').status, 1);
-  assert.equal(run('0.6.98', { ...GOOD, highlights: [{ icon: 'rocket', title: 'x', line: 'y' }] }).status, 1);
+  assert.equal(run('0.6.98', '{ nope').status, 3);
+  assert.equal(run('0.6.98', { ...GOOD, highlights: [{ icon: 'rocket', title: 'x', line: 'y' }] }).status, 3);
 });
 
 test('#3955: a usage error is its own exit (2), not a verdict', () => {
@@ -75,4 +75,17 @@ test('#3955: release.sh runs the check at 1b-ii, after the versions entry and be
   assert.match(sh.slice(freeze, frozen), /step "== 2b-ii\./, 'the frozen-tree check has no step label (a refusal would be filed under 2b)');
   const doc = fs.readFileSync(path.join(__dirname, 'docs', 'releasing.md'), 'utf8');
   assert.match(doc, /KOSMOS_CUT_NO_WHATS_NEW=1 yarn release/, 'docs/releasing.md does not say how to skip it');
+});
+
+test('#3955 round 13: a check that cannot run is not "not ready": a broken engine module exits 2, never 3', () => {
+  const fs = require('node:fs'); const os = require('node:os'); const path2 = require('node:path');
+  const dir = fs.mkdtempSync(path2.join(os.tmpdir(), 'wn-broken-'));
+  try {
+    fs.mkdirSync(path2.join(dir, 'tools')); fs.mkdirSync(path2.join(dir, 'engine'));
+    fs.copyFileSync(CHECK, path2.join(dir, 'tools', 'whats-new-check.js'));
+    fs.writeFileSync(path2.join(dir, 'engine', 'whatsnew.js'), 'this is not javascript {');
+    const r = spawnSync(process.execPath, [path2.join(dir, 'tools', 'whats-new-check.js'), '0.6.98', path2.join(dir, 'x.json')], { encoding: 'utf8' });
+    assert.equal(r.status, 2, 'a broken module read as not ready: ' + r.stderr);
+    assert.match(r.stderr, /could not run/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

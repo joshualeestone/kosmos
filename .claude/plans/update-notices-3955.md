@@ -99,6 +99,11 @@ Card #3955 (Josh, #admin, 2026-09-26 08:11). Design: Mona Lisa's mock on card-sh
 - One version pattern (whatsnew.VERSION_RE) for the engine and the check; the window's page link and tile cap are named; WN_VERSION (never read) is gone; a malformed highlight is filtered rather than thrown on.
 - Kept inline: the reload's sessionStorage key and the tour wait's hour and second, because tests lift those functions alone and a page const would be a ReferenceError there (the page's stated rule for lifted functions).
 
+## Review round 13 (decided)
+- The cut check's "not ready" answer is exit 3, not 1 (node gives 1 for any crash); a module that will not load, a thrown error or an unreadable file is 2; the opt-out note reads 3 as "no highlights" and anything else as "could not run".
+- The automatic reload also waits while a new agent is being watched for (its staged photo and project tell go after it appears; WATCHING_AGENTS around watchForAgent) and while a photo is staged (PENDING_AVATAR).
+- Left: other document-level shortcuts are not stopped under the open window (none found that does harm); the committed-file shape test asserts nothing while no highlights file is committed, as designed.
+
 ## Tests
 - The chip's two states and its one button; the stale chip never says "Kosmos updated"; engine-stale still first.
 - Safe reload: reloads when hidden and idle; not when visible, sending, drafting, or a dialog is open.

@@ -18700,6 +18700,8 @@ function updateSafeReload(servedVersion) {
          board on load, so those are not held for.) */
       typeof CREATING !== 'undefined' && CREATING, typeof START_FLIGHT !== 'undefined' && !!START_FLIGHT,
       typeof RST_BUSY !== 'undefined' && RST_BUSY,
+      // Round 13: a new agent still being watched for (its photo and project tell come after), or a photo waiting.
+      typeof WATCHING_AGENTS !== 'undefined' && WATCHING_AGENTS > 0, typeof PENDING_AVATAR !== 'undefined' && !!PENDING_AVATAR,
       typeof ATTACH_UPLOADING !== 'undefined' && ATTACH_UPLOADING > 0];   // round 9: a file still going up
     if (busy.some(Boolean)) return false;
     const drafted = (m) => !!m && Object.values(m).some((v) => (typeof v === 'string' ? v : (v && v.text) || '').trim());
@@ -43869,7 +43871,14 @@ function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine, waiting
  * is correct — nothing on its screen says what it is doing yet. So `unknown` is
  * NOT treated as failure here; the structural facts are.
  */
+/* #3955 round 13: while a new agent is being watched for, its staged photo and its project tell have not
+   gone yet, so the automatic reload waits (WATCHING_AGENTS). */
+let WATCHING_AGENTS = 0;
 async function watchForAgent(name, result, attempt) {
+  WATCHING_AGENTS += 1;
+  try { return await watchForAgentNow(name, result, attempt); } finally { WATCHING_AGENTS = Math.max(0, WATCHING_AGENTS - 1); }
+}
+async function watchForAgentNow(name, result, attempt) {
   MADE_LAST = { name, result };
   // ⚠️ MATCH ON `name` (the board's key), SPEAK `shown`. They differ the moment
   // somebody types a capital, and using one for both would either look for a

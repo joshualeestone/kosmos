@@ -226,7 +226,7 @@ test('#3955 round 3: the old-page chip runs the safe reload, and every value the
   /* The reload guards each value with typeof (a missing one is skipped silently), so a rename would
      turn a check off with the tests still green: pin that each is declared under this name. */
   for (const name of ['TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING', 'TALK_DRAFTS', 'TERM_DRAFTS',
-    'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'ATTACH_PENDING', 'UPDATE_TYPED', 'PJ_POSTING', 'ATTACH_UPLOADING', 'CREATING', 'START_FLIGHT', 'RST_BUSY']) {
+    'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'ATTACH_PENDING', 'UPDATE_TYPED', 'PJ_POSTING', 'ATTACH_UPLOADING', 'CREATING', 'START_FLIGHT', 'RST_BUSY', 'WATCHING_AGENTS', 'PENDING_AVATAR']) {
     assert.match(PAGE, new RegExp('^(let|const) ' + name + '\\b', 'm'), name + ' is not declared on the page: the reload\'s check on it is off');
   }
   assert.match(PAGE, /^function tipModalOpen\(/m, 'tipModalOpen is gone: the reload would ignore open windows');
@@ -306,4 +306,23 @@ test('#3955 round 12: an agent being created, one starting, or a restore running
   assert.equal(run(true, null, false), 0, 'a reload dropped an agent being created');
   assert.equal(run(false, { name: 'a' }, false), 0, 'a reload dropped an agent starting');
   assert.equal(run(false, null, true), 0, 'a reload dropped a restore');
+});
+
+test('#3955 round 13: a new agent still being watched for, or a photo waiting to go up, holds the automatic reload', () => {
+  const src = page.liftAll(SCRIPT, ['updateSafeReload']);
+  const run = (watching, avatar) => {
+    let reloaded = 0;
+    new Function('document', 'sessionStorage', 'window', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
+      'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen', 'UPDATE_TYPED', 'ATTACH_PENDING', 'WATCHING_AGENTS', 'PENDING_AVATAR',
+      src + '\nreturn updateSafeReload("0.2.76");')(
+      { hidden: true }, { getItem: () => null, setItem() {} }, { location: { reload: () => { reloaded += 1; } } },
+      false, false, null, false, {}, {}, {}, {}, () => false, new Set(), { room: {}, agent: {} }, watching, avatar);
+    return reloaded;
+  };
+  assert.equal(run(0, null), 1, 'CONTROL: an idle hidden page reloads');
+  assert.equal(run(1, null), 0, 'a reload cut off the watch for a new agent (its photo and project tell)');
+  assert.equal(run(0, { blob: 1 }), 0, 'a reload dropped a staged photo');
+  const w = SCRIPT.slice(SCRIPT.indexOf('async function watchForAgent('), SCRIPT.indexOf('async function watchForAgentNow('));
+  assert.match(w, /WATCHING_AGENTS \+= 1;\s*try \{ return await watchForAgentNow\([^)]*\); \} finally \{ WATCHING_AGENTS = Math\.max\(0, WATCHING_AGENTS - 1\); \}/,
+    'the watch is not counted up before and down in a finally');
 });

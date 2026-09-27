@@ -41,8 +41,7 @@ test('the sweep still covers every modal, and the count is the assertion', () =>
   assert.ok(found.length >= 12,
     `only ${found.length} modals found; the sweep stopped seeing them, so every assertion below is vacuous`);
   assert.ok(found.length <= 18,   // 18: #3955's Kosmos has been updated window
-   
-    `${found.length} modals now, up from 16. A new one joined the page: sweep it, then raise this number.`);
+    `${found.length} modals now, up from 18 (#3955 added the 18th). A new one joined the page: sweep it, then raise this number.`);
 });
 
 /**

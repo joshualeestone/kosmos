@@ -544,7 +544,7 @@ whats_new_optout_note() {   # $1: the tree to read. Informs, never refuses.
   node "$1/tools/whats-new-check.js" "$V" "$1/web/whats-new.json" >/dev/null 2>&1 || rc=$?
   case "$rc" in
     0) echo "KOSMOS_CUT_NO_WHATS_NEW=1: the highlights check is not enforced; web/whats-new.json is for $V, so the \"Kosmos has been updated\" window will show." ;;
-    1) echo "KOSMOS_CUT_NO_WHATS_NEW=1: $V ships with no highlights, so there will be no \"Kosmos has been updated\" window for it." ;;
+    3) echo "KOSMOS_CUT_NO_WHATS_NEW=1: $V ships with no highlights, so there will be no \"Kosmos has been updated\" window for it." ;;
     *) echo "KOSMOS_CUT_NO_WHATS_NEW=1: the highlights check could not run (exit $rc), so whether $V shows a \"Kosmos has been updated\" window is not known." ;;
   esac
 }
