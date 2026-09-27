@@ -235,7 +235,8 @@ function chk(ok, label, extra) {
            edge lands in the gutter. rootOk keeps this yardstick honest: the root may give up a gutter only as wide
            as its own stable scrollbar gutter (within 1px), read off the root after the other reads and restored in a
            finally, as render-plus-bar-3837 does. Not a scratch scroller: the runner hides element scrollbars, and
-           one read 0 against the root's 15px (the first run of #4222). */
+           one read 0 against the root's 15px (the first run of #4222). An engine without scrollbar-gutter reads 0
+           and fails loudly, never falsely passes. */
         const root = document.documentElement.getBoundingClientRect();
         const rs = document.documentElement.style, was = [rs.scrollbarGutter, rs.overflow], sx = scrollX, sy = scrollY;
         let sbw = NaN;
