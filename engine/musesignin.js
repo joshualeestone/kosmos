@@ -47,12 +47,17 @@ const COULD_NOT_START = 'Kosmos could not start Muse Code\'s sign-in just now';
 
 /* The words each screen ends on. The screen that counts is the one whose words come LAST: an expired
    try's lines stay above the retry's. */
+/* Two phrases the code finder cuts at too, so both read one spelling (round 3). */
+const PRESS_WORDS = 'Press Enter to open it in your browser';
+const EXPIRED_WORDS = 'expired before it was approved';
 const SCREENS = Object.freeze({
-  press: /Press Enter to open it in your browser/,
+  press: new RegExp(PRESS_WORDS),
+  // Drawn between the Enter and "Waiting for approval" (Homer); a slow browser keeps it up (round 3).
+  opening: /Opening your browser/,
   waiting: /Waiting for approval/,
   done: /Logged in\./,
   unsaved: /saving failed/,
-  expired: /expired before it was approved/,
+  expired: new RegExp(EXPIRED_WORDS),
 });
 function screenOf(text) {
   let best = null; let at = -1;
@@ -71,10 +76,10 @@ function codeFromUrl(url) {
 }
 function promptOf(text) {
   const t = String(text);
-  const cut = t.lastIndexOf('Press Enter to open it in your browser');
+  const cut = t.lastIndexOf(PRESS_WORDS);
   const before = cut < 0 ? '' : t.slice(0, cut);
   // After a retry, only the lines since the last expiry are this try's.
-  const own = before.slice(Math.max(0, before.lastIndexOf('expired before it was approved')));
+  const own = before.slice(Math.max(0, before.lastIndexOf(EXPIRED_WORDS)));
   const urls = own.match(/https:\/\/\S+/g);
   const codes = own.replace(/https:\/\/\S+/g, ' ').match(CODE_RE);
   const url = urls ? urls[urls.length - 1] : null;
@@ -163,8 +168,12 @@ function step() {
   if (drawn === 'unsaved') { end('failed', 'Muse Code signed in but could not save the sign-in on this computer'); return; }
   if (exited) { end('failed', CLOSED); return; }
   if (drawn === 'expired') {
-    // After a retry, the old expiry line is the last one until Muse draws the new code (round 1).
-    if (mine.retrying) return;
+    /* After a retry, the old expiry line is the last one until Muse draws the new code (round 1). If no
+       new code comes, the retry is given up and another can be asked for (round 3: it waited 20 minutes). */
+    if (mine.retrying) {
+      if (t - mine.seenAt <= STUCK_MS) return;
+      mine.retrying = false; mine.state = null;
+    }
     if (mine.state !== 'expired') { mine.state = 'expired'; mine.code = null; mine.url = null; mine.pressed = null; mine.because = EXPIRED; }
     return;
   }
@@ -184,7 +193,8 @@ function step() {
     }
     return;
   }
-  if (drawn === 'waiting') { if (mine.code) mine.state = 'code'; return; }
+  // Moved on from the prompt: a reason left by an earlier stuck goes with it (round 3).
+  if (drawn === 'waiting' || drawn === 'opening') { if (mine.code) { mine.state = 'code'; mine.because = null; } return; }
   if (t - mine.seenAt > STUCK_MS) { mine.state = 'stuck'; mine.because = UNKNOWN; }
 }
 function tick() {
@@ -222,8 +232,10 @@ function start() {
     // -f /dev/null: this private server never reads the person's ~/.tmux.conf.
     /* Not exec (round 1): when muse exits, the shell prints the exit line and waits, so its last screen
        ("Logged in." or not) is still there to read. Ending the sign-in kills the session. */
+    /* Through /bin/sh (round 3): tmux runs a command with the person's own shell, and fish refuses $?. */
+    const inner = 'env ' + LOGIN_ENV.join(' ') + ' ' + shq(inst.bin) + ' login; printf "\\n%s %s\\n" ' + EXITED + ' "$?"; exec sleep 3600';
     tmux(['-f', '/dev/null', 'new-session', '-d', '-s', SESSION, '-x', String(PANE_COLS), '-y', String(PANE_ROWS), '-c', folder,
-      'env ' + LOGIN_ENV.join(' ') + ' ' + shq(inst.bin) + ' login; printf "\\n%s %s\\n" ' + EXITED + ' "$?"; exec sleep 3600']);
+      'exec /bin/sh -c ' + shq(inner)]);
   } catch (e) {
     logLine('could not start (' + ((e && (e.code || e.message)) || 'unknown') + ')');
     return { ok: false, because: COULD_NOT_START };
@@ -270,5 +282,5 @@ function resetForTests() {
   tickMs = TICK_MS;
 }
 
-module.exports = { start, status, retry, stop, socket, SESSION, SCREENS, LOGIN_ENV, NOT_MINE, COULD_NOT_START, STUCK_MS, GIVE_UP_MS, RESEND_MS, EXITED, screenOf, promptOf,
+module.exports = { start, status, retry, stop, socket, SESSION, SCREENS, LOGIN_ENV, NOT_MINE, COULD_NOT_START, MAX_KEY_FAILURES, STUCK_MS, GIVE_UP_MS, RESEND_MS, EXITED, screenOf, promptOf,
   setForTests, tickForTests, resetForTests };

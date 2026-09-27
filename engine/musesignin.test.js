@@ -236,11 +236,73 @@ test('#3939 round 2: tmux failing to send is named only after MAX_KEY_FAILURES i
     return '';
   });
   try {
-    const limit = 5;
+    const limit = signin.MAX_KEY_FAILURES;
     for (let i = 0; i < limit - 1; i += 1) signin.tickForTests();
     assert.notEqual(signin.status().state, 'stuck', 'CONTROL: not stuck before the limit');
     signin.tickForTests();
     assert.equal(signin.status().state, 'stuck');
     assert.match(signin.status().because, /could not reach Muse Code/);
+  } finally { done(); }
+});
+
+/* Round 3, with tmux stood in. `screenText` is what capture-pane shows; keys sent are recorded. */
+function scripted(first) {
+  const st = { text: first, sent: [] };
+  const realNow = Date.now; st.skew = 0;
+  const done = stubbed((args) => {
+    if (args[0] === 'send-keys') { st.sent.push(args.slice(3).join(' ')); return ''; }
+    return args[0] === 'capture-pane' ? st.text : '';
+  });
+  signin.setForTests({ now: () => realNow() + st.skew });
+  return { st, done };
+}
+const PROMPT = 'To sign in, open https://auth.meta.com/device?user_code=WXYZ-1234\nand enter the code: WXYZ-1234\nPress Enter to open it in your browser: ';
+const EXPIRED_TEXT = PROMPT + '\nWaiting for approval... Esc cancel\nThe login request expired before it was approved. Press r then Enter to try again\n';
+
+test('#3939 round 3: a retry that gets no new code is given up, and another retry is allowed', { skip: !onMac && 'the flag is Mac only' }, () => {
+  const { st, done } = scripted(EXPIRED_TEXT);
+  try {
+    signin.tickForTests();
+    assert.equal(signin.status().state, 'expired');
+    const id = signin.status().id;
+    assert.deepEqual(signin.retry(id), { ok: true });
+    signin.tickForTests();
+    assert.equal(signin.status().state, 'starting', 'CONTROL: the retry holds while a new code may be coming');
+    st.skew = signin.STUCK_MS + 1000;
+    signin.tickForTests(); signin.tickForTests();
+    assert.equal(signin.status().state, 'expired', 'a retry that got no new code was never given up');
+    assert.equal(signin.retry(id).ok, true, 'a second retry was refused after the first was given up');
+  } finally { done(); }
+});
+
+test('#3939 round 3: while the browser opens, no second Enter; a later waiting screen clears an old reason', { skip: !onMac && 'the flag is Mac only' }, () => {
+  const { st, done } = scripted(PROMPT);
+  try {
+    signin.tickForTests();
+    assert.deepEqual(st.sent, ['Enter']);
+    st.text = PROMPT + '\nOpening your browser...\n';
+    st.skew = signin.RESEND_MS + 1000;
+    signin.tickForTests(); signin.tickForTests();
+    assert.deepEqual(st.sent, ['Enter'], 'an Enter was sent while Muse was opening the browser');
+    assert.equal(signin.status().state, 'code');
+    // A stuck reason from the resend path goes once Muse is waiting.
+    st.text = PROMPT; st.skew += signin.RESEND_MS + 1000; signin.tickForTests();
+    st.skew += signin.RESEND_MS + 1000; signin.tickForTests();
+    assert.equal(signin.status().state, 'stuck', 'CONTROL: the resend path named it stuck');
+    st.text = PROMPT + '\nOpening your browser...\nWaiting for approval... Esc cancel\n';
+    signin.tickForTests();
+    assert.equal(signin.status().state, 'code');
+    assert.equal(signin.status().because, undefined, 'the old stuck reason stayed after Muse moved on');
+  } finally { done(); }
+});
+
+test('#3939 round 3: retry reads the screen, not the state, before typing', { skip: !onMac && 'the flag is Mac only' }, () => {
+  const { st, done } = scripted(EXPIRED_TEXT);
+  try {
+    signin.tickForTests();
+    const id = signin.status().id;
+    st.text = PROMPT;   // Muse moved on, the state has not caught up yet
+    assert.equal(signin.retry(id).ok, false);
+    assert.deepEqual(st.sent, [], 'r was typed onto a screen that is no longer the expired one');
   } finally { done(); }
 });

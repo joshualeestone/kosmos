@@ -344,7 +344,7 @@ test('#3939 slice 3: /api/muse is off without the flag; with it, the sign-in sta
     assert.equal(o.status, 200, o.body);
     const id = json(o).id;
     assert.match(String(id), /^[0-9a-f]{16}$/);
-    assert.ok(calls.some((c) => c.startsWith('-f /dev/null new-session -d -s muse-signin') && c.includes("'" + bin + "' login;")), 'muse login was not started in the hidden session: ' + calls.join(' | '));
+    assert.ok(calls.some((c) => c.startsWith('-f /dev/null new-session -d -s muse-signin') && c.includes('exec /bin/sh -c ') && c.includes(bin) && c.includes(' login;')), 'muse login was not started in the hidden session: ' + calls.join(' | '));
     assert.equal(json(await req('/api/muse/signin')).state, 'starting');
     const post = (p, who) => req(p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: who }) });
     assert.equal((await post('/api/muse/signin/stop', '0000000000000000')).status, 409, 'another sign-in\'s Stop ended this one');
