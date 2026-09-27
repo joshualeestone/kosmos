@@ -11,8 +11,10 @@
 # Busy means either of:
 #   - a release reservation holds the machine (tools/who-has-the-box.sh), or
 #   - a REAL tools/release.sh or tools/browser-checks.sh is running.
-# A shell that only mentions those names (a watcher loop, a grep) does not count: the match is
-# on the command, a shell running the script. These do not count either:
+# A shell that only mentions those names in a command string (sh -c '... release.sh ...') does
+# not count. A shell script that takes the path as an ARGUMENT does count (bash watch.sh
+# .../tools/release.sh), because a path with a space arrives split and cannot be told apart from
+# it: that errs toward busy. These do not count either:
 #   - a process with a `node --test` ancestor (a unit test's fixture);
 #   - a process whose cwd or script sits in a kt<digits> folder under a folder named T or tmp, or
 #     directly under this shell's $TMPDIR
@@ -152,9 +154,8 @@ script_of() (
   printf '%s' "$lead"
 )
 
-# True if one ancestor IS a node test-runner process: node as the program, run with a bare
-# --test. Not a wrapper shell whose command line merely mentions it, and not an app flag that
-# only starts with --test (--test-endpoint=1). Subshell with globbing off, as above.
+# True if one ancestor IS a node test-runner process: node as the program, with a bare --test
+# among node's OWN options, the words before its script. Subshell with globbing off, as above.
 has_test_runner() (
   set -f
   IFS="$ANC_SEP"
@@ -162,7 +163,11 @@ has_test_runner() (
     prog="${a%% *}"; prog="${prog##*/}"
     [ "$prog" = node ] || continue
     IFS=' '
-    for w in $a; do [ "$w" = --test ] && exit 0; done
+    first=1
+    for w in $a; do
+      if [ "$first" = 1 ]; then first=0; continue; fi
+      case "$w" in --test) exit 0 ;; -*) ;; *) break ;; esac
+    done
     IFS="$ANC_SEP"
   done
   exit 1

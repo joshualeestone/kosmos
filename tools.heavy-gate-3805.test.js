@@ -129,6 +129,24 @@ test('an app flag that only STARTS with --test is not a test runner (control: a 
   assert.match(runner.out, /ignore 101: a unit-test fixture \(node --test ancestor\)/);
 });
 
+test('a bare --test AFTER the script is the app\'s argument, not a test runner (control: the same flag before it is)', () => {
+  const app = run([realRun(WORK, ancs('node /opt/app/server.js --test', 'zsh'))]);
+  assert.equal(app.code, 1, app.out);
+  assert.match(app.out, /COUNTS 101/);
+  const runner = run([realRun(WORK, ancs('node --test /opt/app/server.js', 'zsh'))]);
+  assert.equal(runner.code, 0, runner.out);
+  assert.match(runner.out, /ignore 101: a unit-test fixture \(node --test ancestor\)/);
+});
+
+test('a script that takes the path as an argument counts, as the header says (control: the path in a -c string does not)', () => {
+  const watcher = run([['101', WORK, 'bash /Users/x/work/other/watch.sh ' + WORK + '/tools/release.sh', 'zsh']]);
+  assert.equal(watcher.code, 1, watcher.out);
+  assert.match(watcher.out, /COUNTS 101/);
+  const mention = run([['101', WORK, 'bash -c "watch ' + WORK + '/tools/release.sh"', 'zsh']]);
+  assert.equal(mention.code, 0, mention.out);
+  assert.match(mention.out, /ignore 101: mentions/);
+});
+
 test('a script path with a space still counts (control: the same path in a -c string only mentions it)', () => {
   const dir = '/Users/someone/My Work/kosmos';
   const r = run([['105', dir, `bash ${dir}/tools/release.sh 0.6.99`, 'zsh']]);
