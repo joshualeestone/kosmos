@@ -16,7 +16,11 @@ render-accounts-openai passes on a Mac with and without the gemini/grok tools in
 - The control arm lives in the harness (it removes the stubs), because the check no longer controls the
   answer. Rejected: keeping KOSMOS_BC_RUNNERS_BOARD_ERROR; with no route there is no pinned branch to
   exercise, and a board error on /api/runners fails the new named assertion.
-- Weakest premise: "with the real tools installed" is reasoned, not measured on this Mac: the override
-  env wins over any installed tool (engine/runners.js checks the env first), so an installed gemini is
-  never consulted by this board.
+- Measured, both ways, on a Mac that HAS gemini and grok installed (/opt/homebrew/bin): the normal run
+  passes (detection {gemini:true, grok:true}, every #3566 key-step assertion PASS); the control arm
+  (KOSMOS_BC_KEYED_STUBS_ABSENT=1) fails (detection {gemini:false, grok:false}, the key step FAIL) even
+  though the real tools are installed. So the override alone decides, and a Mac without the tools (the
+  nightly runner) gets the same answer.
+- Weakest premise: the nightly runner itself was not run here; the claim that it now goes green for this
+  check rests on the override being decisive, which the control arm measures.
 - Coordinated with Baron (#3973, branch nightly-3973): no shared files.
