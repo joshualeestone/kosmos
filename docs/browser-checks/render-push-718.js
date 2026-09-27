@@ -118,6 +118,32 @@ function check(name, pass, detail) {
   const controlled = await page.evaluate(() => !!navigator.serviceWorker.controller);
   check('the worker controls the page after reload', controlled);
 
+  /* --- 3b. #4103: the offline copy of '/' is only ever the board ------------- */
+  /* The reload above went through the worker's navigation handler, so '/' is cached: it must be the board. Then a
+     signed-out navigation (the relay's Kosmos+ sign-in page, a same-origin 200) is served for the next reload; it
+     must reach the page but must NOT replace the offline copy. ctx.route intercepts the worker's own fetch. */
+  const offlineCopy = () => page.evaluate(async () => {
+    const names = await caches.keys();
+    const name = names.find((n) => n.startsWith('kosmos-shell-'));
+    if (!name) return { name: null, board: false, text: '' };
+    const hit = await (await caches.open(name)).match('/');
+    const text = hit ? await hit.text() : '';
+    return { name, board: text.includes('<meta name="kosmos-version"'), signin: text.includes('KOSMOS-PLUS-SIGNIN-STANDIN') };
+  });
+  await page.waitForTimeout(300);
+  const first = await offlineCopy();
+  check('#4103: after a navigation, the offline copy of / is the board', first.board, JSON.stringify(first));
+  const SIGNIN = '<!doctype html><html><head><title>Kosmos+ sign in</title></head><body>KOSMOS-PLUS-SIGNIN-STANDIN</body></html>';
+  await ctx.route(origin + '/', (route) => route.fulfill({ status: 200, contentType: 'text/html', body: SIGNIN }));
+  await page.reload({ waitUntil: 'load' });
+  const servedSignin = await page.evaluate(() => document.body && document.body.textContent.includes('KOSMOS-PLUS-SIGNIN-STANDIN'));
+  await page.waitForTimeout(300);
+  const after = await offlineCopy();
+  await ctx.unroute(origin + '/');
+  check('#4103: CONTROL the signed-out reload really served the sign-in page', servedSignin);
+  check('#4103: a signed-out navigation does not replace the offline copy (it is still the board)', after.board && !after.signin, JSON.stringify(after));
+  await page.goto(BASE, { waitUntil: 'load' });
+
   /* --- 4. a REAL delivered push shows a notification ------------------------ */
   /* Deliver a push to the worker's own `push` handler via CDP and then read the
      notifications the registration is showing. This runs the handler in sw.js,
