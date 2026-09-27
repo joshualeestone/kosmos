@@ -3577,12 +3577,16 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
    The badge takes the tile's own colour, so a zero or "cannot tell" Needs Your Decision is neutral, like its dot. */
 .tsk-mkrow { display: flex; align-items: center; gap: 11px; }
 .tsk-badge { width: 36px; height: 36px; border-radius: 50%; flex: none; display: grid; place-items: center; color: var(--tsk-c);
-  background: color-mix(in srgb, var(--tsk-c) 15%, var(--k-surface)); }
+  background: color-mix(in srgb, var(--tsk-c) 15%, transparent); }
 .tsk-badge svg { width: 19px; height: 19px; }
 /* #3949 (Josh): Needs Your Decision is red, the only tile the person acts on; at zero there is nothing to act on,
    so it is drawn like the others. */
 .tsk-tile[data-tile="decision"]:not([data-n="0"]):not([data-n="unknown"]) { border-color: color-mix(in srgb, var(--danger) 45%, var(--k-rule));
   background: color-mix(in srgb, var(--danger) 9%, var(--k-surface)); }
+/* #4053: the red fill outranks the shared hover and selected rules, so the red tile states them itself: a deeper
+   red on hover, and when it is the filter, the deeper red with a full red edge. */
+.tsk-tile[data-tile="decision"]:not([data-n="0"]):not([data-n="unknown"]):hover { background: color-mix(in srgb, var(--danger) 14%, var(--k-surface)); }
+.tsk-tile[data-tile="decision"]:not([data-n="0"]):not([data-n="unknown"])[aria-pressed="true"] { background: color-mix(in srgb, var(--danger) 14%, var(--k-surface)); border-color: var(--danger); }
 .tsk-tile[data-tile="decision"]:not([data-n="0"]):not([data-n="unknown"]) .num, .tsk-tile[data-tile="decision"]:not([data-n="0"]):not([data-n="unknown"]) .lab { color: var(--danger); }
 .tsk-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--tsk-c); margin-right: 6px; vertical-align: 1px; flex: none; }
 .tsk-grp { margin-top: 24px; }

@@ -504,7 +504,8 @@ function chk(ok, label, extra) {
             redDot: getComputedStyle(t.querySelector('.tsk-dot')).backgroundColor === danger,
             /* #4053: the badge and the tile's fill are neutral at zero too. */
             redBadge: t.querySelector('.tsk-badge') ? getComputedStyle(t.querySelector('.tsk-badge')).color === danger : null,
-            bg: getComputedStyle(t).backgroundColor, other: getComputedStyle(document.querySelector('#tsk-tiles [data-tile="working"]')).backgroundColor,
+            bg: getComputedStyle(t).backgroundColor, other: (() => { const e = document.createElement('span'); e.style.backgroundColor = 'var(--k-surface)';
+              document.getElementById('panel-tasks').appendChild(e); const v = getComputedStyle(e).backgroundColor; e.remove(); return v; })(),
             head: h ? h.textContent : null, headRedDot: h ? getComputedStyle(h.querySelector('.tsk-dot')).backgroundColor === danger : null };
         });
         chk(zero.n === 0 && !zero.red && !zero.redDot && zero.redBadge === false && zero.bg === zero.other, `${tag} a zero Needs Your Decision tile is not red, its dot, badge and fill included`, JSON.stringify(zero));
@@ -569,7 +570,9 @@ function chk(ok, label, extra) {
           const h = [...document.querySelectorAll('#tsk-groups .tsk-grp h3')].find((x) => /Needs Your Decision/.test(x.textContent));
           const out = { num: t.querySelector('.num').textContent, n: t.dataset.n, red: getComputedStyle(t.querySelector('.num')).color === danger,
             label: t.getAttribute('aria-label') || '', redBadge: t.querySelector('.tsk-badge') ? getComputedStyle(t.querySelector('.tsk-badge')).color === danger : null,
-            bgSame: getComputedStyle(t).backgroundColor === getComputedStyle(document.querySelector('#tsk-tiles [data-tile="working"]')).backgroundColor,
+            /* Against the surface itself, not a sibling tile: the pointer can still rest on one from an earlier click (review). */
+            bgSame: (() => { const e = document.createElement('span'); e.style.backgroundColor = 'var(--k-surface)'; document.getElementById('panel-tasks').appendChild(e);
+              const v = getComputedStyle(e).backgroundColor; e.remove(); return getComputedStyle(t).backgroundColor === v; })(),
             headCount: h ? h.querySelector('.count').textContent : null, headRedDot: h ? getComputedStyle(h.querySelector('.tsk-dot')).backgroundColor === danger : null,
             why: h ? h.parentNode.querySelector('.why').textContent : '' };
           TSK.rosterUnknown = false; tskPaint();
@@ -608,6 +611,19 @@ function chk(ok, label, extra) {
           `${tag} each tile has its 36px tinted badge with a 19px icon before the number, 16px padding, a 10px gap and one shared height (#4053)`, JSON.stringify(c2));
         chk(dec && dec.n === '1' && dec.badgeRed && dec.redFill && c2.filter((x) => x.redFill).length === 1 && c2.filter((x) => x.badgeRed).length === 1,
           `${tag} Needs Your Decision with a count has a red badge and the only red-tinted fill (#4053)`, JSON.stringify(dec));
+        /* Review: the red fill outranks the shared selected rule, so selecting the red tile must still show (deeper red, red edge). */
+        {
+          await page.mouse.move(0, 0);
+          const sel = await page.evaluate(() => {
+            const t = document.querySelector('#tsk-tiles [data-tile="decision"]'); const before = getComputedStyle(t);
+            const b = { bg: before.backgroundColor, edge: before.borderTopColor };
+            t.click(); const t2 = document.querySelector('#tsk-tiles [data-tile="decision"]'); const cs = getComputedStyle(t2);
+            const out = { pressed: t2.getAttribute('aria-pressed'), before: b, bg: cs.backgroundColor, edge: cs.borderTopColor };
+            t2.click(); return out;
+          });
+          chk(sel.pressed === 'true' && sel.bg !== sel.before.bg && sel.edge !== sel.before.edge,
+            `${tag} the red Needs Your Decision tile still shows it is selected (#4053 review)`, JSON.stringify(sel));
+        }
         /* The same through the wire (review round 11): the route answers rosterUnreadable, and the page's own read
            (tskLoad) takes it; no flag set by hand. The rows are the route's own, with Max's decision as the route
            would derive it with no roster (not a decision). */
