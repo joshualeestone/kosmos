@@ -20,6 +20,13 @@ test dies on `readFileSync(pidFile)` with ENOENT, not on the behaviour it checks
   with the card's ENOENT; this test green when only the first launch is slow; this test red with
   "did not run" when every launch is slow.
 
+## Challenge loop
+- Iteration 1: the child counts as started only when the pid file holds an integer above 1. The
+  stop can land after the shell created the file and before echo wrote it, and `Number('')` is 0,
+  which `process.kill` reads as the test runner's own process group: the old cleanup could have
+  SIGKILLed the whole `yarn test`. Proved with a launcher that leaves the file empty: it fails with
+  "did not run" and the runner survives. A 5 s deadline makes that message beat the 8 s test timeout.
+
 ## Rejected
 - Raising the timeout (my first cut, 1500 ms): a bigger margin, not a fix, and it slows the test.
 - Reading the launcher's own pid instead: the launcher can be stopped before its first line too, so

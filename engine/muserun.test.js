@@ -158,21 +158,30 @@ test('#3939 round 1: at the timeout, what the launcher started is stopped too (i
     /* #4159: on a loaded machine the 300 ms timeout can stop the launcher before it has started
        its child. Then there is no child and this case has not run, so run the turn again, up to
        TRIES times; the stop itself is checked on a turn where the child did start. */
+    /* The child counts as started only when the file holds a real pid: the stop can also land
+       after the shell created the file and before echo wrote to it, and Number('') is 0, which
+       process.kill reads as this whole process group. Stops early on a deadline so the "did not
+       run" message beats the test's own 8 s timeout. */
     const TRIES = 5;
+    const deadline = Date.now() + 5000;
+    const readPid = () => {
+      try { return Number(fs.readFileSync(pidFile, 'utf8').trim()); } catch { return NaN; }
+    };
     let r;
     let waited = 0;
-    for (let i = 0; i < TRIES; i += 1) {
+    let pid = NaN;
+    for (let i = 0; i < TRIES && Date.now() < deadline; i += 1) {
       fs.rmSync(pidFile, { force: true });
       const t0 = Date.now();
       r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
       waited = Date.now() - t0;
-      if (fs.existsSync(pidFile)) break;
+      pid = readPid();
+      if (Number.isInteger(pid) && pid > 1) break;
     }
-    assert.ok(fs.existsSync(pidFile), 'in ' + TRIES + ' turns the launcher never started its child before the timeout, so this case did not run (#4159)');
+    assert.ok(Number.isInteger(pid) && pid > 1, 'the launcher never started its child before the timeout (' + TRIES + ' turns or 5 s), so this case did not run (#4159)');
     // Without the group stop, the child holds the output open and the turn waits for it to end on its own.
     assert.ok(waited < 3000, 'the turn waited ' + waited + ' ms on a child the launcher started');
     assert.equal(r.because, run.TIMED_OUT);
-    const pid = Number(fs.readFileSync(pidFile, 'utf8').trim());
     await new Promise((res) => setTimeout(res, 200));
     let alive = true;
     try { process.kill(pid, 0); } catch { alive = false; }
