@@ -271,6 +271,37 @@ function chk(ok, label, extra) {
       chk(band.every((p) => same(p, tok.bg)), `${tag} the top band keeps the page's ground to both edges of the page layout`, JSON.stringify({ band, bg: tok.bg }));
       chk(below.every((p) => same(p, tok.surface)), `${tag} from Group by down it is the surface (white) to both edges of the page layout`, JSON.stringify({ below, surface: tok.surface }));
       chk(same(card, tok.bg) && same(tilePx, tok.surface), `${tag} the task cards are shaded with the ground; the tiles stay the surface`, JSON.stringify({ card, tile: tilePx }));
+      /* #4216 (Josh's #3949 "both edges"): where scrollbars take width, the tab layout reserves a gutter that paints the
+         canvas colour, so on Tasks the canvas is the surface and the white band meets the window's edge. Scoped by
+         data-scrollbar-classic (set by the page's own scrollbar measure), so an overlay-scrollbar machine, like this
+         check's headless browser, keeps its canvas. Three arms: as measured here; the attribute forced on (the classic
+         case); and forced on while another tab shows (the rule must not leak). */
+      {
+        const canvas = await page.evaluate(() => { const probe = (v) => { const e = document.createElement('i'); e.style.backgroundColor = v; document.body.appendChild(e);
+            const c = getComputedStyle(e).backgroundColor; e.remove(); return c; };
+          const root = document.documentElement; const had = root.hasAttribute('data-scrollbar-classic');
+          const sbw = parseFloat(getComputedStyle(root).getPropertyValue('--scrollbar-width')) || 0;
+          const read = () => getComputedStyle(root).backgroundColor;
+          const measured = read();
+          root.setAttribute('data-scrollbar-classic', '');
+          const forced = read();
+          const panel = document.getElementById('panel-tasks'); panel.hidden = true;
+          const leak = read();
+          panel.hidden = false;
+          if (!had) root.removeAttribute('data-scrollbar-classic');
+          /* Where the band checks above sample, and what sits there: CI draws classic scrollbars, this Mac does not. */
+          const tiles = document.getElementById('tsk-tiles').getBoundingClientRect(); const by = Math.round((tiles.top + tiles.bottom) / 2);
+          const at = document.elementFromPoint(root.clientWidth - 2, by); const b = document.body.getBoundingClientRect();
+          const where = { client: root.clientWidth, inner: innerWidth, body: [Math.round(b.left), Math.round(b.right)], at: at && (at.id || String(at.className).slice(0, 30) || at.tagName) };
+          return { had, sbw, measured, forced, leak, where, surface: probe('var(--k-surface)'), layout: root.getAttribute('data-layout') || 'tabs' }; });
+        console.log(`INFO  ${tag} #4216 where the edge reads land: ` + JSON.stringify(canvas.where));
+        if (canvas.layout !== 'consolidated') {
+          chk(canvas.had === (canvas.sbw > 0) && (canvas.had ? canvas.measured === canvas.surface : canvas.measured !== canvas.surface),
+            `${tag} the Tasks canvas follows the measured scrollbars (${canvas.sbw}px): surface only where a gutter exists (#4216)`, JSON.stringify(canvas));
+          chk(canvas.forced === canvas.surface, `${tag} with classic scrollbars, the Tasks canvas (what the gutter shows) is the surface (#4216)`, JSON.stringify(canvas));
+          chk(canvas.leak !== canvas.surface, `${tag} with classic scrollbars and Tasks hidden, the canvas is not the surface (the rule does not leak) (#4216)`, JSON.stringify(canvas));
+        }
+      }
       chk(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), `${tag} the full-width band adds no sideways scroll`);
       /* #3949/#3951 (Josh): six single-label tiles in his order; Completed is a tile and still the fold below. */
       chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['decision', 'working', 'assigned', 'nobody', 'built', 'closed']), `${tag} the tiles are Josh's six groups in his order, each from a recorded state`, JSON.stringify(a.tiles.map((t) => t.k)));

@@ -1596,6 +1596,16 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
    reads the root's ground, so a look that sets its ground on the body (Kosmos+ navy) would get light's there. */
 html.tip-dimming:not([data-layout="consolidated"]) { background: linear-gradient(var(--tip-dim), var(--tip-dim)), var(--k-bg); }
 html.tip-dimming[data-tip-ground]:not([data-layout="consolidated"]) { background: var(--tip-canvas, var(--k-bg)); }
+/* #4216 (Josh's #3949: the Tasks bands reach both edges). On a machine that draws classic scrollbars the tab layout
+   reserves a gutter (#1309), and a gutter paints the canvas COLOUR only (see tip-dimming above). The Tasks view has two
+   bands, the ground above and the surface below, so no one colour matches both. The canvas is the surface here, so the
+   white, which is most of the page, reaches the edge; the body still paints the ground over its own box, so nothing
+   else changes. What is left is a 15px strip beside the short top band, near white against near white. Rejected:
+   dropping the gutter on this view, which moves the fixed assistant bubble and chat 15px between tabs and shifts the
+   list while filtering, the jump #1309 exists to prevent. Not while the tour dims (its rules own the canvas then).
+   Only where scrollbars take width (data-scrollbar-classic, set by kosmosMeasureScrollbarWidth): an overlay-scrollbar
+   Mac has no gutter to fix, and there a white canvas would only flash above the header on a rubber-band bounce. */
+html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming):has(> body > #panel-tasks:not([hidden])) { background: var(--k-surface); }
 html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .tipcard .tip-dots { display: flex; gap: 5px; }
 .tipcard .tip-dots i { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--k-ink-2) 35%, transparent); }
@@ -9946,8 +9956,11 @@ window.kosmosMeasureScrollbarWidth = function () {
     var vwMatches = Math.abs(vw.getBoundingClientRect().width - window.innerWidth) <= 1; /* 1px: zoom lays 100vw out fractionally */
     root.style.scrollbarGutter = prevGutter;
     root.style.overflow = prevOverflow;
-    if (!vwMatches) { root.removeAttribute('data-scrollbar-measured'); return; }
+    if (!vwMatches) { root.removeAttribute('data-scrollbar-measured'); root.removeAttribute('data-scrollbar-classic'); return; }
     root.style.setProperty('--scrollbar-width', gutter + 'px');
+    /* #4216: marks a machine whose scrollbars take width, so rules for the reserved gutter apply only there. Set with
+       --scrollbar-width, from the same measurement, so the two never disagree. */
+    root.toggleAttribute('data-scrollbar-classic', gutter > 0);
     root.setAttribute('data-scrollbar-measured', '');
   } catch (e) { /* no measurement: see data-scrollbar-measured in the #3497 CSS */ }
   finally {
