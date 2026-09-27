@@ -36,8 +36,10 @@ over the scraped UNKNOWN in reconcileReport (checked by calling it: working -> w
 - agy runs hooks from the dir holding hooks.json with `sh -c` (documented; the capture confirmed).
 - Stop per turn in INTERACTIVE mode (the supervisor launches agy interactive): measured in print mode
   only. Release check #2.
-- The hooks.json write does not follow a symlink or keep the file's mode (agytrust does both): the
-  file is in Kosmos's own worker folder, never a person's project, so this was left as it is.
+- RETRACTED (review 7): "the hooks.json write need not follow a symlink or keep the mode, because the
+  file is in Kosmos's own worker folder, never a person's project". A discovered agent's folder can be
+  the person's repo. The write now follows links and keeps the mode, and refuses any git project
+  (iterations 7 and 8 below).
 
 ## Challenge-loop iteration 1 (opus)
 - BLOCKERS: the bridge was missing from install-board.sh, test-install.sh and the 2870 fixture --> added.
