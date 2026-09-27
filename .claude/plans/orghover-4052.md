@@ -27,13 +27,14 @@ per face and per callout while the chart is shown.
 ## The check
 
 `render-swarm-ui-3564.js` S41: on the settled org chart (preconditions: settled, and crew and crew2
-really drawn as clusters; the comparison is skipped rather than run on a chart that failed them), hover
-each of rex, crew and crew2 in turn and assert no cluster element's box moves (the hovered one included:
-a border planted on hover squeezed it from 44 to 40px and reddened the check) and no pixel changes in
-the area around a cluster that is not hovered (its face plus 6px, since a cluster may draw past its
-face), unless something the raised hovered node paints lies over it. A CONTROL shows two untouched
-captures are identical. Measured red with will-change removed ("hovering crew2: crew's pixels
-moved"). The hovered cluster's own pixels change by design (half to full strength).
+really drawn as clusters; the comparison is skipped rather than run on a chart that failed them), with
+the status poll held so no repaint lands mid-comparison, hover each of rex, crew and crew2 in turn and
+assert no cluster element's box moves (the hovered one included: a border planted on hover squeezed it
+from 44 to 40px and reddened the check) and no pixel of a cluster that is not hovered moves (its face;
+swarmLayout keeps the circles inside the node's box), unless something the raised hovered node paints
+lies over it. The captures are DECODED and compared per pixel with a 2/255 noise floor: comparing the
+PNG bytes failed on identical pixels (two encodings differ), and a 6px margin picked up 1/255 anti-alias
+noise, which made the check red with and without the fix. The shift it guards measured 9/255.
 
 ## Rejected
 

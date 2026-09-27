@@ -422,11 +422,12 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     chk(await waitFor(page, () => document.querySelectorAll('#grid [data-agent="crew2"] .swd').length === 4, null, 20000),
       'S40 teardown: the next poll has put crew2 back to four helpers', await page.evaluate(() => document.querySelectorAll('#grid [data-agent="crew2"] .swd').length));
     // S41 (#4052, Josh: hovering other agents on the org chart makes the cluster icons "jiggle and shift about maybe 1
-    // or 2 pixels"): hovering any agent moves no cluster's box (the hovered one included), and no pixel in the area
-    // around a cluster it is not on (its face plus a 6px margin, since a cluster may draw past its face). The pixels
-    // are the point: a box that does not move can still be drawn a pixel over (a re-rasterized layer), which a
-    // getBoundingClientRect guard alone cannot see. (A hovered cluster's own pixels change by design: it goes from
-    // half to full strength.)
+    // or 2 pixels"): hovering any agent moves no cluster's box (the hovered one included), and no pixel of a cluster it
+    // is not on (its face: swarmLayout scales the circles inside the node's box). The pixels are the point: a box that
+    // does not move can still be drawn a pixel over (a re-rasterized layer), which a getBoundingClientRect guard
+    // alone cannot see. Pixels are DECODED and compared, not the PNG bytes (two encodings of identical pixels
+    // differ), and a difference of 2/255 or less is ignored as rendering noise; the shift this guards measured 9.
+    // (A hovered cluster's own pixels change by design: it goes from half to full strength.)
     await page.click('[data-scope="agents"] .vt[data-layout="org"]');
     await page.mouse.move(2, 2);
     const clusters = ['crew', 'crew2'];
@@ -444,17 +445,28 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
        that no hover caused. Held here, released below. */
     holdStatus = true;
     await page.waitForTimeout(600);
-    const MARGIN = 6;
-    const shot = async (c) => {
-      const b = await page.evaluate((c2) => { const r = document.querySelector('.onode[data-agent="' + c2 + '"] .face').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; }, c);
-      return page.screenshot({ clip: { x: Math.max(0, b.x - MARGIN), y: Math.max(0, b.y - MARGIN), width: b.w + 2 * MARGIN, height: b.h + 2 * MARGIN } });
-    };
+    const MARGIN = 0;
+    const shot = (c) => page.locator('.onode[data-agent="' + c + '"] .face').screenshot();
+    /* The largest per-channel difference between two captures, decoded in the page (a size change counts as 255). */
+    const NOISE = 2;
+    const worst = (a, b) => page.evaluate(async ([x, y]) => {
+      const load = (s) => new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = 'data:image/png;base64,' + s; });
+      const A = await load(x), B = await load(y);
+      if (A.width !== B.width || A.height !== B.height) return 255;
+      const cv = document.createElement('canvas'); cv.width = A.width; cv.height = A.height; const g = cv.getContext('2d');
+      g.drawImage(A, 0, 0); const da = g.getImageData(0, 0, A.width, A.height).data;
+      g.clearRect(0, 0, A.width, A.height); g.drawImage(B, 0, 0); const db = g.getImageData(0, 0, A.width, A.height).data;
+      let m = 0;
+      for (let i = 0; i < da.length; i += 1) if (i % 4 !== 3) m = Math.max(m, Math.abs(da[i] - db[i]));
+      return m;
+    }, [a.toString('base64'), b.toString('base64')]);
     const base = {};
     for (const c of clusters) base[c] = await shot(c);
     const baseBoxes = await boxes();
     await page.waitForTimeout(400);
-    chk((await Promise.all(clusters.map(async (c) => base[c].equals(await shot(c))))).every(Boolean),
-      'S41 CONTROL: two captures of each untouched cluster are identical, so a difference below means something moved');
+    const again = [];
+    for (const c of clusters) again.push(await worst(base[c], await shot(c)));
+    chk(again.every((d) => d <= NOISE), 'S41 CONTROL: two captures of each untouched cluster match, so a difference below means something moved', JSON.stringify(again));
     const moved = [];
     for (const who of ['rex', 'crew', 'crew2']) {
       await page.hover('.onode[data-agent="' + who + '"]');
@@ -471,13 +483,13 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
           return [n, ...n.querySelectorAll('*')].some((e) => { const a = e.getBoundingClientRect();
             return a.width > 0 && a.height > 0 && a.left < b.right + m && b.left - m < a.right && a.top < b.bottom + m && b.top - m < a.bottom; });
         }, [who, c, MARGIN]);
-        if (!covered && !base[c].equals(await shot(c))) moved.push('hovering ' + who + ': ' + c + '\'s pixels moved');
+        if (!covered) { const d = await worst(base[c], await shot(c)); if (d > NOISE) moved.push('hovering ' + who + ': ' + c + '\'s pixels moved by up to ' + d + '/255'); }
       }
       await page.mouse.move(2, 2);
       await page.waitForTimeout(400);
     }
     holdStatus = false;
-    chk(moved.length === 0, 'S41 hovering an agent moves no cluster\'s box, nor a pixel around a cluster it is not on (#4052)', JSON.stringify(moved));
+    chk(moved.length === 0, 'S41 hovering an agent moves no cluster\'s box, nor a pixel of a cluster it is not on (#4052)', JSON.stringify(moved));
     }
     await page.click('[data-scope="agents"] .vt[data-layout="grid"]');
     await page.waitForTimeout(400);
