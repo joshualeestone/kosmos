@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: brief-note-agents
-diff_hash: 7a7dddbf75a2e6d7b29eef749a8a8d9c99e07081bb48147337433d524df082e0
+diff_hash: 642894d044615f05f7771014295686a35afaf5ddb6d6f45686e2d04068a0a249
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-26T16:51:06Z
+timestamp: 2026-09-27T03:54:13Z
 iterations: 2
 converged: true
 ---
@@ -17,6 +17,8 @@ filter removed reds all five person's-view arms) and its server test was measure
 Iteration 1's fixes were measured before iteration 2: the new server arms red with the tag dropped at
 the create route and with the tag match removed from the filter; the browser check passes 15 of 15
 again. Full validation on the final code: 10030 tests, 0 failed.
+
+**Rebase after approval (2026-09-27T03:54:13Z):** onto main after #4002 and render-avatar-4038 landed; the only conflicts were the gated list (both names kept, sorted) and the reason-grep count (re-measured 182 on main's 181). The server tests (5 of 5) and the browser check were re-run on that base.
 
 **Iterations:** 2 (blind reviews: Opus, then Sonnet)
 **Converged:** Yes
