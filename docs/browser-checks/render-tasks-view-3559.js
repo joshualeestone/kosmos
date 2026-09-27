@@ -376,11 +376,11 @@ function chk(ok, label, extra) {
           const cb = await page.evaluate(() => { const c = document.querySelector('#tsk-groups input[type="checkbox"][data-key]'); c.focus(); return document.activeElement === c; });
           await page.keyboard.press('/');
           const fromCb = await page.evaluate(() => { const id = document.activeElement && document.activeElement.id; document.getElementById('tsk-search').blur(); return id; });
-          await page.evaluate(() => { const g = document.createElement('div'); g.id = 'zz-ghost'; g.hidden = true;
+          await page.evaluate(() => { const g = document.createElement('div'); g.hidden = true; window.__tskGhost = g;
             g.innerHTML = '<button type="button" aria-haspopup="listbox" aria-expanded="true">stale</button>'; document.body.appendChild(g); });
           await page.focus('#tsk-tiles [data-tile="nobody"]');
           await page.keyboard.press('/');
-          const withGhost = await page.evaluate(() => { const id = document.activeElement && document.activeElement.id; document.getElementById('zz-ghost').remove(); document.getElementById('tsk-search').blur(); return id; });
+          const withGhost = await page.evaluate(() => { const id = document.activeElement && document.activeElement.id; window.__tskGhost.remove(); delete window.__tskGhost; document.getElementById('tsk-search').blur(); return id; });
           chk(cb && fromCb === 'tsk-search' && withGhost === 'tsk-search', `${tag} "/" works from a row checkbox, and a hidden expanded trigger does not switch it off`, JSON.stringify({ cb, fromCb, withGhost }));
         }
         /* After Esc (closed, focus kept), a click on the field opens it again. */
