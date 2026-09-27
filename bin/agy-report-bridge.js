@@ -43,7 +43,7 @@
  * up to 60s, inside the board's ~5 min decay, so it is accepted rather than waiting on the answer.
  * ⚠️ UNMEASURED (release check #5): whether a subagent's or background loop's Stop fires this hook
  * while the parent waits on ask_question. If it does, its auto idle clears the needs_you. A board that is
- * down costs at most STDIN_TIMEOUT_MS + TIMEOUT_MS on a call that does send.
+ * down costs at most STDIN_TIMEOUT_MS + TIMEOUT_MS + the 500ms stdout flush on a call that does send.
  */
 
 const TIMEOUT_MS = 1500;
