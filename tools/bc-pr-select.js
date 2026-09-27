@@ -164,8 +164,9 @@ function select(diff, changedChecks = []) {
   const text = changedLines(diff);
   const can = runnable();
   const why = new Map();
+  // A name reaches the workflow's shell unquoted, so only a plain check name is ever emitted.
   const add = (name, reason) => {
-    if (!can.has(name)) return;
+    if (!/^[\w-]+$/.test(name) || !can.has(name)) return;
     if (!why.has(name)) why.set(name, []);
     why.get(name).push(reason);
   };
