@@ -128,3 +128,19 @@ test('#4139: a green from a check says a check answered; a green from an agent k
 test('#4139 review: the green pill says "checked" for a check and "active" for an agent', () => {
   assert.match(PAGE, /Signed in' \+ \(ageStr \? \(fromCheck \? ' · checked ' : ' · active '\) \+ esc\(ageStr\)/, 'the pill still says active for a check');
 });
+
+/* #4139 follow-up: the refusal's tooltip follows its source too (Claude's Check now records a refusal). The REAL
+   expression from paintAccounts, evaluated, so `yarn test` covers it without a browser. */
+test('#4139 follow-up: a refusal from a check says it was refused when checked; one from an agent keeps the request sentence', () => {
+  const f = PAGE.match(/const fromCheck = ([^;]*);/);
+  const m = PAGE.match(/const rejectedWhy = ([\s\S]*?);\n/);
+  assert.ok(f && m, 'rejectedWhy moved');
+  const why = new Function('a', 'ageStr', 'const fromCheck = ' + f[1] + '; return ' + m[1] + ';');
+  const check = why({ connection: { observedFrom: 'check' } }, '5 minutes ago');
+  const agent = why({ connection: { observedFrom: 'agent' } }, '5 minutes ago');
+  const old = why({ connection: {} }, '');
+  assert.equal(check, 'This sign-in was refused when Kosmos checked it (5 minutes ago). The sign-in needs renewing.');
+  assert.doesNotMatch(check, /real request/, 'a check refusal claims an agent request');
+  assert.equal(agent, 'a real request on this account was rejected (5 minutes ago). The sign-in needs renewing.');
+  assert.equal(old, 'a real request on this account was rejected. The sign-in needs renewing.', 'a row with no source changed its sentence');
+});
