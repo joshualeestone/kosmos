@@ -1239,8 +1239,9 @@ function unreachableStates() {
          thread was not rewritten, the words DID move (so the repaint really saw a
          later clock). The old contract this block measured (2026-08-20: a
          same-height innerHTML rewrite keeps scrollTop) was retired by #3966, since
-         no rewrite happens; a reader at the floor is re-pinned by setThread and a
-         scrolled-back reader is render-talk-anchor-1926's. */
+         no rewrite happens. There is no scroll assertion here: on a repaint that does
+         not rewrite, setThread puts the reader back itself, so none could fail (see
+         the talkclock-0701 plan for the three red checks that did not fire). */
       const clockOnly = await page.evaluate(async () => {
         const at = new Date(Date.now() - 65 * 1000).toISOString();
         /* Thirty rows (#3414 raised it from eight so the thread overflowed, for the scroll-hold
@@ -1256,7 +1257,7 @@ function unreachableStates() {
         };
         await paintTalk('april', 'April');
         const t = document.getElementById('d-dmthread');
-        t.scrollTop = t.scrollHeight;
+        t.scrollTop = t.scrollHeight; // at the floor, where a real session sits
         // Every fixture row shares one `at`, so the first time span is a fixture row's.
         const when = () => { const w = t.querySelector('.mwhen[data-at]'); return w ? w.textContent : null; };
         const first = t.firstElementChild;
@@ -1269,7 +1270,7 @@ function unreachableStates() {
       });
       if (!clockOnly.whenBefore || clockOnly.whenBefore === clockOnly.whenAfter) {
         /* CONTROL: if the time words did not move, the repaint never saw a later clock
-           and the two checks below are measuring nothing. */
+           and the check below is measuring nothing. */
         problems.push(`[${theme}] clock: the time words did not move (${clockOnly.whenBefore} -> ${clockOnly.whenAfter}), so the in-place refresh is UNCHECKED`);
       }
       if (clockOnly.rewrote) {
