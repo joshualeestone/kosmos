@@ -150,8 +150,12 @@ test('#4053 (option C v2): every tile, the "cannot tell" one included, draws its
   assert.ok(m, 'the tile painter moved');
   const rows = m[0].match(/'<span class="tsk-mkrow">' \+ tskBadge\(g\.k\) \+ '<span class="num">/g) || [];
   assert.equal(rows.length, 2, 'a tile branch lost its badge row');
+  const icons = SCRIPT.match(/const TSK_ICON = \{([\s\S]*?)\n\};/);
+  assert.ok(icons, 'TSK_ICON moved');
   for (const k of ['decision', 'working', 'assigned', 'nobody', 'built', 'closed']) {
-    assert.match(SCRIPT, new RegExp('\\n  ' + k + ": '<"), 'no icon for the ' + k + ' tile');
+    assert.match(icons[1], new RegExp('\\n  ' + k + ": '<(path|circle) "), 'no icon for the ' + k + ' tile');
   }
-  assert.match(SCRIPT, /aria-hidden="true" focusable="false"/, 'the badge icon is read aloud');
+  const badge = SCRIPT.match(/function tskBadge\(k\) \{[\s\S]*?\n\}/);
+  assert.ok(badge, 'tskBadge moved');
+  assert.match(badge[0], /aria-hidden="true" focusable="false"/, 'the badge icon is read aloud');
 });

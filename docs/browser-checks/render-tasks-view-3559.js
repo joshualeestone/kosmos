@@ -599,7 +599,10 @@ function chk(ok, label, extra) {
             return { k: t.dataset.tile, n: t.dataset.n, badgeFirst: !!(row && row.firstElementChild === b && row.lastElementChild === t.querySelector('.num')),
               badge: br ? [Math.round(br.width), Math.round(br.height)] : null, round: bs ? bs.borderTopLeftRadius : null,
               icon: sr ? [Math.round(sr.width), Math.round(sr.height)] : null, paths: svg ? svg.querySelectorAll('path, circle').length : 0,
-              hidden: svg ? svg.getAttribute('aria-hidden') : null, tinted: bs ? bs.backgroundColor !== cs.backgroundColor : false,
+              hidden: svg ? svg.getAttribute('aria-hidden') : null,
+              /* The exact tint: the tile's own colour at 15% (review round 3: "differs from the tile" could not fail). */
+              tinted: bs ? bs.backgroundColor === probe('color-mix(in srgb, ' + cs.getPropertyValue('--tsk-c').trim() + ' 15%, transparent)', 'backgroundColor')
+                && bs.backgroundColor !== probe('transparent', 'backgroundColor') : false,
               badgeRed: bs ? bs.color === danger : null, pad: cs.padding, h: Math.round(t.getBoundingClientRect().height),
               gap: Math.round(lab.top - (row ? row.getBoundingClientRect().bottom : 0)), bg: cs.backgroundColor, redFill: cs.backgroundColor === tint };
           });
