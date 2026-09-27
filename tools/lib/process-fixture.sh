@@ -37,9 +37,10 @@ _kosmos_pid_has_node_test_ancestor() {
   else
     while [ "$depth" -lt 10 ]; do
       depth=$((depth + 1))
-      q="$(ps -o ppid= -p "$q" 2>/dev/null | tr -d '[:space:]')"
+      # `|| q=""`: a pid gone mid-walk ends the walk here, whatever the caller's set -e.
+      q="$(ps -o ppid= -p "$q" 2>/dev/null | tr -d '[:space:]')" || q=""
       { [ -z "$q" ] || [ "$q" -le 1 ] 2>/dev/null; } && break
-      cmd="$(ps -o command= -p "$q" 2>/dev/null)"
+      cmd="$(ps -o command= -p "$q" 2>/dev/null)" || cmd=""
       [ -n "$cmd" ] && commands="${commands}${commands:+$'\n'}$cmd"
     done
   fi
@@ -68,7 +69,9 @@ _kosmos_path_in_kt_sandbox() {
 _kosmos_pid_is_test_fixture() {
   local pid="$1" script="${2:-}" cwd
   _kosmos_pid_has_node_test_ancestor "$pid" && return 0
-  cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n '/^n/{s/^n//p;q;}')"
+  # `|| cwd=""`: an lsof that fails (a pid gone since the snapshot) reads as no cwd, whatever the
+  # caller's set -e; it must never end a caller's loop over the other candidates.
+  cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n '/^n/{s/^n//p;q;}')" || cwd=""
   [ -n "$cwd" ] && _kosmos_path_in_kt_sandbox "$cwd" && return 0
   [ -n "$script" ] && _kosmos_path_in_kt_sandbox "$script" && return 0
   return 1

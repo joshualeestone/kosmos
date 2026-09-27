@@ -48,6 +48,17 @@ heavy-gate would already drop it. Two points follow up (1 and 4 of #4219, rebase
   - the sandbox rule widened to any child of TMPDIR: the frozen-build-tree arm goes red (a real cut
     dropped), which is the mistake that arm exists to catch.
 
+## Review 2's set -e finding, measured
+
+Review 2 reported that an lsof failure on a pid gone since the snapshot would, under release.sh's
+`set -euo pipefail`, end the filter loop and drop a real cut listed after it. Measured in exactly that
+shape (a dead pid first, a live one second): both lines kept, the guard refused. The call site
+`_kosmos_pid_is_test_fixture ... && continue` puts the predicate in an && context, where bash ignores
+-e. A control showed the same unguarded assignment outside such a context does kill the shell. So it
+is not live today, but the predicate's safety should not depend on its caller: the lsof and the two
+ps assignments now end in `|| x=""`. No test can separate the two (any caller of the predicate is in
+such a context), so the measurement is the evidence.
+
 ## Weakest premise
 
 The negative control runs from `/` so it cannot sit in a kt folder. A machine whose $TMPDIR were `/`
