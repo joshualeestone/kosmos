@@ -4,6 +4,11 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib/cut-guard.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+# A pid proven dead at runtime (#4206 review 11). The guards now run a real lsof and ancestry walk on
+# every candidate, so a fixed probe pid is only safe where it cannot be handed out: 99999 holds on
+# macOS (pids stop at 99998) but not on Linux (pid_max is often 4194304). A reused pid would need the
+# counter to wrap within this run.
+( : ) & DEAD=$!; wait "$DEAD"
 # #1796: isolate the run-marker dir so the always-on marker arm reads THIS test's
 # fixtures, never a real marker a live run on this box may have left in the default
 # /tmp dir. The existing arms below get an empty dir (marker arm inert); the marker
@@ -13,10 +18,13 @@ fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }
 has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
-printf '#!/bin/sh\nprintf "86263 bash tools/release.sh 0.5.54\\n"\n' > "$T/probe-live"; chmod +x "$T/probe-live"
+# A pid named in OUT as a whole number: plain has() would pass if pid 123 were only a substring of a
+# sibling pid 91234 printed there instead (#4206 review 8).
+has_pid() { case " $1 " in *[!0-9]"$2"[!0-9]*) return 0;; *) return 1;; esac; }
+printf '#!/bin/sh\nprintf "'"$DEAD"' bash tools/release.sh 0.5.54\\n"\n' > "$T/probe-live"; chmod +x "$T/probe-live"
 printf '#!/bin/sh\nexit 1\n' > "$T/probe-quiet"; chmod +x "$T/probe-quiet"
 printf '#!/bin/sh\nexit 3\n' > "$T/probe-dead"; chmod +x "$T/probe-dead"
-printf '#!/bin/sh\n[ "$1" = 86263 ] && printf "node --test tools.release-gate.test.js\\nbash tools/run-tests.sh\\n"\n' > "$T/ancestor-fixture"; chmod +x "$T/ancestor-fixture"
+printf '#!/bin/sh\n[ "$1" = '"$DEAD"' ] && printf "node --test tools.release-gate.test.js\\nbash tools/run-tests.sh\\n"\n' > "$T/ancestor-fixture"; chmod +x "$T/ancestor-fixture"
 printf '#!/bin/sh\nexit 0\n' > "$T/ancestor-none"; chmod +x "$T/ancestor-none"
 
 out="$(KOSMOS_CUT_PROBE="$T/probe-live" kosmos_refuse_if_cut_live "a full run" 2>&1)"; rc=$?
@@ -54,24 +62,24 @@ out="$(KOSMOS_CUT_SELF_PID=4242 KOSMOS_CUT_PROBE="$T/probe-self" kosmos_refuse_i
 [ "$rc" -eq 0 ] && pass "the caller's own release.sh is not a reason to refuse itself" \
   || fail "the caller's own release.sh is not a reason to refuse itself (rc=$rc, $out)"
 
-printf '#!/bin/sh\nprintf "4242 bash tools/release.sh 0.5.99\\n9191 bash tools/release.sh 0.5.98\\n"\n' > "$T/probe-two"; chmod +x "$T/probe-two"
-out="$(KOSMOS_CUT_SELF_PID=4242 KOSMOS_CUT_PROBE="$T/probe-two" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+printf '#!/bin/sh\nprintf "4242 bash tools/release.sh 0.5.99\\n'"$DEAD"' bash tools/release.sh 0.5.98\\n"\n' > "$T/probe-two"; chmod +x "$T/probe-two"
+out="$(KOSMOS_CUT_SELF_PID=4242 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-two" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
 [ "$rc" -ne 0 ] && pass "ANOTHER cut still refuses once self is excluded" \
   || fail "excluding self also excluded a real second cut, so the guard cannot fire (rc=$rc)"
-has "$out" "9191" && pass "and it names the OTHER cut, not itself" || fail "it named the wrong process: $out"
+has_pid "$out" "$DEAD" && pass "and it names the OTHER cut, not itself" || fail "it named the wrong process: $out"
 
 # Use ordinary live pids through the probe seam. A test process genuinely named
 # tools/release.sh would be visible to every agent's pgrep and could block a real
 # cut, recreating #4206 merely by testing its fix.
-( sleep 30 ) & cut_self=$!
-( sleep 30 ) & cut_other=$!
+( cd / && exec sleep 30 ) & cut_self=$!
+( cd / && exec sleep 30 ) & cut_other=$!
 printf '#!/bin/sh\nprintf "%s bash tools/release.sh 0.5.99\\n"\n' "$cut_self" > "$T/probe-real-self"; chmod +x "$T/probe-real-self"
 printf '#!/bin/sh\nprintf "%s bash tools/release.sh 0.5.99\\n%s bash tools/release.sh 0.5.98\\n"\n' "$cut_self" "$cut_other" > "$T/probe-real-two"; chmod +x "$T/probe-real-two"
 out="$(KOSMOS_CUT_SELF_PID="$cut_self" KOSMOS_CUT_PROBE="$T/probe-real-self" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "a live caller pid presented as release.sh does not refuse ITSELF" \
   || fail "a live caller pid refused itself: rc=$rc out=$out"
 out="$(KOSMOS_CUT_SELF_PID="$cut_self" KOSMOS_CUT_PROBE="$T/probe-real-two" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
-{ [ "$rc" -ne 0 ] && has "$out" "$cut_other"; } && pass "but a SECOND live pid presented as release.sh is refused and named" \
+{ [ "$rc" -ne 0 ] && has_pid "$out" "$cut_other"; } && pass "but a SECOND live pid presented as release.sh is refused and named" \
   || fail "a second live cut candidate proceeded: rc=$rc out=$out"
 kill "$cut_self" "$cut_other" 2>/dev/null; wait "$cut_self" "$cut_other" 2>/dev/null
 
@@ -81,8 +89,119 @@ kill "$cut_self" "$cut_other" 2>/dev/null; wait "$cut_self" "$cut_other" 2>/dev/
 mkdir -p "$T/lone-lib"
 cp "$HERE/lib/cut-guard.sh" "$T/lone-lib/cut-guard.sh"
 out="$(KOSMOS_RUN_MARKER_DIR="$T/markers-empty" KOSMOS_CUT_PROBE="$T/probe-live" bash -c '. "$1" 2>/dev/null; kosmos_refuse_if_cut_live "a cut"' _ "$T/lone-lib/cut-guard.sh" 2>&1)"; rc=$?
-[ "$rc" -ne 0 ] && has "$out" "86263" && pass "a missing fixture classifier keeps the candidate and refuses" \
+[ "$rc" -ne 0 ] && has_pid "$out" "$DEAD" && pass "a missing fixture classifier keeps the candidate and refuses" \
   || fail "a missing fixture classifier failed open (rc=$rc, out=$out)"
+
+# #4206 follow-up: the run-tests.sh sandbox rule (heavy-gate's) now reaches the cut guard too. A
+# fixture that detached from node --test is marked by its cwd in a kt<digits> folder. Live sleeps
+# through the probe seam, never a pgrep-visible release.sh. The negative control runs from / so it
+# cannot land in a kt folder even where TMPDIR itself is one (run-tests.sh on Linux).
+if ! command -v lsof >/dev/null 2>&1; then
+  echo "SKIP  #4206 follow-up sandbox arms: lsof is not on this machine, so no live cwd can be read (a skip, NOT a pass)"
+else
+mkdir -p "$T/tmp/kt4206"
+# Waits until PID's cwd is DIR (up to 3s), so an arm never reads a process that has not moved yet:
+# a late cd would leave the test's own cwd, and a control could then pass for the wrong reason.
+wait_cwd() { local i=0; while [ "$i" -lt 30 ]; do [ "$(lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n '/^n/{s/^n//p;q;}')" = "$2" ] && return 0; sleep 0.1; i=$((i+1)); done; return 1; }
+( cd "$T/tmp/kt4206" && exec sleep 30 ) & kt_fx=$!
+( cd / && exec sleep 30 ) & kt_real=$!
+wait_cwd "$kt_fx" "$(cd "$T/tmp/kt4206" && pwd -P)" || fail "the kt fixture sleep never reached its cwd, so its arms cannot answer"
+wait_cwd "$kt_real" "/" || fail "the / control sleep never reached its cwd, so its arms cannot answer"
+printf '#!/bin/sh\nprintf "%s bash tools/release.sh 0.5.99\\n"\n' "$kt_fx" > "$T/probe-kt-fixture"; chmod +x "$T/probe-kt-fixture"
+printf '#!/bin/sh\nprintf "%s bash tools/release.sh 0.5.99\\n"\n' "$kt_real" > "$T/probe-kt-real"; chmod +x "$T/probe-kt-real"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-kt-fixture" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "a release.sh fixture running in the run-tests.sh sandbox (no node ancestor) is not a cut" \
+  || fail "a kt-sandbox fixture refused the cut (rc=$rc, out=$out)"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-kt-real" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && has_pid "$out" "$kt_real"; } && pass "but the same candidate outside any sandbox still refuses, and is named" \
+  || fail "the sandbox rule also hid a real cut (rc=$rc, out=$out)"
+
+# #4206 follow-up: the browser-run guard reads the same fixture rule. Its self pid is one that does
+# not exist, so the self-subtree exclusion cannot be what drops a candidate here.
+printf '#!/bin/sh\nprintf "'"$DEAD"' bash tools/browser-checks.sh\\n"\n' > "$T/bprobe-live"; chmod +x "$T/bprobe-live"
+out="$(KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-fixture" KOSMOS_BC_PROBE="$T/bprobe-live" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "a browser-checks.sh fixture beneath node --test is not a browser run" \
+  || fail "a node --test browser-checks fixture refused the run (rc=$rc, out=$out)"
+out="$(KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_BC_PROBE="$T/bprobe-live" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && has_pid "$out" "$DEAD"; } && pass "the same browser-checks.sh without node --test ancestry still refuses, and is named" \
+  || fail "the browser guard's fixture filter hid a real run (rc=$rc, out=$out)"
+printf '#!/bin/sh\nprintf "%s bash tools/browser-checks.sh\\n"\n' "$kt_fx" > "$T/bprobe-kt"; chmod +x "$T/bprobe-kt"
+out="$(KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_BC_PROBE="$T/bprobe-kt" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "a browser-checks.sh fixture in the run-tests.sh sandbox is not a browser run" \
+  || fail "a kt-sandbox browser-checks fixture refused the run (rc=$rc, out=$out)"
+printf '#!/bin/sh\nprintf "%s bash tools/browser-checks.sh\\n"\n' "$kt_real" > "$T/bprobe-real"; chmod +x "$T/bprobe-real"
+out="$(KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_BC_PROBE="$T/bprobe-real" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && has_pid "$out" "$kt_real"; } && pass "but the same live browser run outside any sandbox still refuses, and is named" \
+  || fail "the browser guard's sandbox rule hid a real run (rc=$rc, out=$out)"
+kill "$kt_fx" "$kt_real" 2>/dev/null; wait "$kt_fx" "$kt_real" 2>/dev/null
+
+# The SCRIPT half of the sandbox rule: cwd /, but the script it runs sits in a kt folder. Its
+# control is the same line with a script path outside any sandbox.
+( cd / && exec sleep 30 ) & kt_script=$!
+wait_cwd "$kt_script" "/" || fail "the kt-script sleep never reached /, so its arms cannot answer"
+printf '#!/bin/sh\nprintf "%s bash %s/tools/release.sh 0.5.99\\n"\n' "$kt_script" "$T/tmp/kt4206" > "$T/probe-kt-script"; chmod +x "$T/probe-kt-script"
+printf '#!/bin/sh\nprintf "%s bash /opt/kosmos/tools/release.sh 0.5.99\\n"\n' "$kt_script" > "$T/probe-plain-script"; chmod +x "$T/probe-plain-script"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-kt-script" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "a release.sh whose SCRIPT is in the run-tests.sh sandbox (cwd /) is not a cut" \
+  || fail "a kt-script fixture refused the cut (rc=$rc, out=$out)"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-plain-script" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && has_pid "$out" "$kt_script"; } && pass "but the same pid running a script outside any sandbox still refuses" \
+  || fail "the script rule also hid a real cut (rc=$rc, out=$out)"
+# Only the script word is read: a real cut whose ARGUMENT names a sandbox path (release notes kept in a
+# kt folder, say) is still a cut. Matching the whole line instead would drop it (#4206 review 9).
+printf '#!/bin/sh\nprintf "%s bash /opt/kosmos/tools/release.sh 0.5.99 --notes %s/notes.md\\n"\n' "$kt_script" "$T/tmp/kt4206" > "$T/probe-kt-arg"; chmod +x "$T/probe-kt-arg"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-kt-arg" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && has_pid "$out" "$kt_script"; } && pass "a cut whose argument, not its script, is in the sandbox still refuses, and is named" \
+  || fail "a sandbox path in a real cut's ARGUMENTS dropped it as a fixture (rc=$rc, out=$out)"
+# The browser guard reads the same script word (#4206 review 10): the three script arms again, for
+# browser-checks.sh.
+printf '#!/bin/sh\nprintf "%s bash %s/tools/browser-checks.sh\\n"\n' "$kt_script" "$T/tmp/kt4206" > "$T/bprobe-kt-script"; chmod +x "$T/bprobe-kt-script"
+out="$(KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_BC_PROBE="$T/bprobe-kt-script" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "a browser-checks.sh fixture whose script is in the sandbox is not a browser run, whatever its cwd" \
+  || fail "a kt-sandbox browser-checks script was not recognised (rc=$rc, out=$out)"
+printf '#!/bin/sh\nprintf "%s bash /opt/kosmos/tools/browser-checks.sh\\n"\n' "$kt_script" > "$T/bprobe-plain-script"; chmod +x "$T/bprobe-plain-script"
+out="$(KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_BC_PROBE="$T/bprobe-plain-script" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && has_pid "$out" "$kt_script"; } && pass "but the same pid running browser-checks.sh outside any sandbox still refuses, and is named" \
+  || fail "the browser guard's script rule hid a real run (rc=$rc, out=$out)"
+printf '#!/bin/sh\nprintf "%s bash /opt/kosmos/tools/browser-checks.sh --out %s/report\\n"\n' "$kt_script" "$T/tmp/kt4206" > "$T/bprobe-kt-arg"; chmod +x "$T/bprobe-kt-arg"
+out="$(KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_BC_PROBE="$T/bprobe-kt-arg" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && has_pid "$out" "$kt_script"; } && pass "a browser run whose argument, not its script, is in the sandbox still refuses, and is named" \
+  || fail "a sandbox path in a real browser run's ARGUMENTS dropped it as a fixture (rc=$rc, out=$out)"
+kill "$kt_script" 2>/dev/null; wait "$kt_script" 2>/dev/null
+
+# #4206 follow-up (Baron): a REAL cut runs from its frozen build tree under TMPDIR,
+# ${TMPDIR}/kosmos-release.<X>/kosmos-<sha> (measured on a 0.7.03 cut). That cwd and that script path
+# must never read as a sandbox fixture. TMPDIR is set to its parent, so a "directly under this shell's
+# TMPDIR" branch widened past kt<digits> would take it: that widening is what these arms catch. The double slash in the directory is only how it was
+# made: lsof and pwd -P both normalize it, so the matcher sees a single-slash path.
+# Rooted under /tmp BY NAME, not under $T: where mktemp honours TMPDIR (Linux, under run-tests.sh)
+# $T sits inside a kt<digits> folder, and a frozen tree built there would rightly read as a fixture.
+FR="$(mktemp -d /tmp/cutguard-frozen.XXXXXX)" && [ -n "$FR" ] || { echo "FAIL  no frozen root (mktemp failed), so the frozen-tree arms cannot run"; exit 1; }
+trap 'rm -rf "$T" "$FR"' EXIT
+FROZEN="$FR/T//kosmos-release.msHOlx/kosmos-aad0d84cd3e8"
+mkdir -p "$FROZEN/tools"
+( cd "$FROZEN" && exec sleep 30 ) & frozen=$!
+wait_cwd "$frozen" "$(cd "$FROZEN" && pwd -P)" || fail "the frozen-tree sleep never reached its cwd, so its arm cannot answer"
+printf '#!/bin/sh\nprintf "%s bash %s/tools/release.sh 0.7.03\\n"\n' "$frozen" "$(cd "$FROZEN" && pwd -P)" > "$T/probe-frozen"; chmod +x "$T/probe-frozen"
+FRT="$(cd "$FR/T" && pwd -P)/"
+out="$(TMPDIR="$FRT" KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-frozen" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && has_pid "$out" "$frozen"; } && pass "a real cut running from its frozen build tree under TMPDIR still refuses, and is named" \
+  || fail "a REAL cut's frozen build tree was dropped as a fixture (rc=$rc, out=$out)"
+kill "$frozen" 2>/dev/null; wait "$frozen" 2>/dev/null
+
+# The same for the browser guard: a REAL browser-checks.sh runs from its own frozen tree,
+# ${TMPDIR}/kosmos-bc-freeze.<X>/kosmos-<sha> (tools/browser-checks.sh, via release_freeze), and must
+# still refuse through both halves of the sandbox rule.
+BCFROZEN="$FR/T//kosmos-bc-freeze.sfQH4q/kosmos-71d1f796503531bea19198c04b5768f25f7c998e"
+mkdir -p "$BCFROZEN/tools"
+( cd "$BCFROZEN" && exec sleep 30 ) & bcfrozen=$!
+wait_cwd "$bcfrozen" "$(cd "$BCFROZEN" && pwd -P)" || fail "the browser frozen-tree sleep never reached its cwd, so its arm cannot answer"
+printf '#!/bin/sh\nprintf "%s bash %s/tools/browser-checks.sh\\n"\n' "$bcfrozen" "$(cd "$BCFROZEN" && pwd -P)" > "$T/bprobe-frozen"; chmod +x "$T/bprobe-frozen"
+out="$(TMPDIR="$FRT" KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_BC_PROBE="$T/bprobe-frozen" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && has_pid "$out" "$bcfrozen"; } && pass "a real browser run from its frozen tree under TMPDIR still refuses, and is named" \
+  || fail "a REAL browser run's frozen tree was dropped as a fixture (rc=$rc, out=$out)"
+kill "$bcfrozen" 2>/dev/null; wait "$bcfrozen" 2>/dev/null
+fi
 
 # --- #1713: the MIRROR guard, kosmos_refuse_if_harness_live, shown red, green,
 # --- and unable to answer via its own KOSMOS_HARNESS_PROBE seam. Reuses the
@@ -208,7 +327,7 @@ M1="$T/m1"; mkdir -p "$M1"; ( sleep 30 ) & p1=$!; printf 'FOREIGN\n%s\n' "$(ps -
 out="$(KOSMOS_RUN_MARKER_DIR="$M1" KOSMOS_CUT_PROBE="$T/probe-quiet" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
 [ "$rc" -ne 0 ] && pass "#1796 a live marked cut (foreign cookie) refuses with the name arm clean" \
   || fail "#1796 marked cut did not refuse (rc=$rc, $out)"
-has "$out" "pid $p1" && pass "#1796 and it names the marked run's pid" || fail "#1796 did not name the marked pid: $out"
+has_pid "$out" "$p1" && pass "#1796 and it names the marked run's pid" || fail "#1796 did not name the marked pid: $out"
 kill "$p1" 2>/dev/null; wait "$p1" 2>/dev/null
 
 # The caller's OWN marker (matching cookie) is excluded -- the self-refuse outage.

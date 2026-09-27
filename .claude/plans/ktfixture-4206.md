@@ -1,0 +1,171 @@
+# ktfixture-4206: the run-tests.sh sandbox rule reaches the cut and browser guards (#4206 follow-up)
+
+## Why
+
+#4211 (merged as 478f03df) made the concurrent-cut guard ignore a release.sh fixture with a
+`node --test` ancestor. It shared that one rule with heavy-gate through tools/lib/process-fixture.sh.
+heavy-gate has a second fixture rule the guards did not share: a process whose cwd or script is in
+tools/run-tests.sh's kt<digits> sandbox, because some fixtures detach from node --test.
+
+Baron (review of #4211): in the default suite every release.sh fixture is spawnSync'd under node
+--test, so the gap is latent. The next fixture that detaches would trip the cut guard again, while
+heavy-gate would already drop it. Two points follow up (1 and 4 of #4219, rebased on 478f03df):
+1. move the kt rule into process-fixture.sh;
+4. apply the fixture filter to the browser-run guard as well.
+
+## The change
+
+- tools/lib/process-fixture.sh: `_kosmos_path_in_kt_sandbox` (heavy-gate's in_kt_sandbox, moved
+  unchanged) and `_kosmos_pid_is_test_fixture pid [script]`: a node --test ancestor, OR a cwd or script
+  in the sandbox. An unreadable cwd is not a fixture.
+- tools/heavy-gate.sh: `in_kt_sandbox` delegates to the library. heavy-gate's behaviour is unchanged.
+- tools/lib/cut-guard.sh: `_kosmos_drop_node_test_fixtures` asks `_kosmos_pid_is_test_fixture`
+  (the script word is read in the guard's own line shape); renamed `_kosmos_drop_test_fixtures`
+  since it no longer drops only node fixtures. The load-failure stand-in covers the new predicate too
+  (without it a missing library still refuses, via command-not-found; the stand-in removes the noise).
+- tools/lib/cut-guard.sh: kosmos_refuse_if_browser_run_live applies the same filter after its
+  self-subtree exclusion.
+- tools/test-cut-guard.sh, in #4211's style (live sleeps through the probe seams, nothing
+  pgrep-visible named release.sh or browser-checks.sh):
+  - a kt-sandbox fixture (no node ancestor) is not a cut, and the same candidate from / still refuses
+    and is named;
+  - on the browser guard: a node --test fixture and a kt fixture are not runs, and the same candidate
+    with no ancestry still refuses. The browser guard's self pid is one that does not exist, so
+    self-exclusion cannot be what drops a candidate.
+  - the SCRIPT half: a pid whose script is in a kt folder (cwd /) is not a cut, and the same pid with a
+    script outside any sandbox still refuses.
+  - a REAL cut running from its frozen build tree, ${TMPDIR}/kosmos-release.<X>/kosmos-<sha> (Baron,
+    measured on the 0.7.03 cut), with TMPDIR set to its parent, still refuses and is named.
+
+## Evidence
+
+- test-cut-guard.sh: 0 failures. heavy-gate tests: 39 pass, 0 fail, 1 opt-in live test skipped.
+  test-browser-run-guard.sh: all clear.
+- Mutations:
+  - kt cwd check dropped: the two kt arms go red.
+  - browser guard filter dropped: the two browser fixture arms go red.
+  - every pid a fixture: the negative controls and the pre-existing refusal arms go red (9 failures).
+  - the script check dropped: the kt-script arm goes red.
+  - the sandbox rule widened to any child of TMPDIR: the frozen-build-tree arm goes red (a real cut
+    dropped), which is the mistake that arm exists to catch.
+
+## Review 2's set -e finding, measured
+
+Review 2 reported that an lsof failure on a pid gone since the snapshot would, under release.sh's
+`set -euo pipefail`, end the filter loop and drop a real cut listed after it. Measured in exactly that
+shape (a dead pid first, a live one second): both lines kept, the guard refused. The call site
+`_kosmos_pid_is_test_fixture ... && continue` puts the predicate in an && context, where bash ignores
+-e. A control showed the same unguarded assignment outside such a context does kill the shell. So it
+is not live today, but the predicate's safety should not depend on its caller: the lsof and the two
+ps assignments now end in `|| x=""`. No test can separate the two (any caller of the predicate is in
+such a context), so the measurement is the evidence.
+
+## Review 3
+
+- The frozen-tree arm was rooted under the test's `$T`, which sits in a kt folder where `mktemp`
+  honours TMPDIR (Linux under run-tests.sh), so the real-cut control would have gone red there. It is
+  now rooted under /tmp by name. Latent here: macOS mktemp ignores TMPDIR, and no Linux job runs
+  test:shell.
+- The arms wait (up to 3s) for each sleep to reach its cwd instead of a fixed 0.3s, so a late process
+  cannot make a control pass for the wrong reason.
+- The browser guard's kt arm gained a live-pid negative control.
+
+## Review 4
+
+- A real browser-checks.sh from its own frozen tree (`${TMPDIR}/kosmos-bc-freeze.<X>/kosmos-<sha>`) still
+  refuses: the browser guard's counterpart of the cut guard's frozen-tree control.
+
+## Review 5
+
+- The fixed probe pid 86263 is now 99999, which cannot be live on macOS (pids stop at 99998): the
+  filter runs a real lsof on each pid, and a live 86263 in someone's kt folder would flake the
+  controls red.
+- The frozen arms set TMPDIR in its resolved form, the form lsof reports a cwd in, so the cwd half
+  reaches the "directly under TMPDIR" branch, not only the script half. The same resolution gap exists
+  in production on macOS (TMPDIR /var/..., lsof /private/var/...), where only the regex decides for an
+  lsof cwd; that errs toward counting, predates this branch, and is now named in the function comment.
+- #4211's older live sleeps run from /, so their cwd can never be a kt folder.
+- test-browser-run-guard.sh's temp dir is made under /tmp by name (review 6): its opt-in real-path
+  decoy, a genuine browser-checks.sh run from that dir, would otherwise sit in a kt folder on Linux under
+  run-tests.sh and be dropped as a fixture by the new browser-guard filter, so it would stop testing.
+
+## Review 7
+
+- #1050's probe-two pid 9191 is now 99998, which cannot be live either: it too goes through a real
+  lsof and ancestry walk now.
+- The live-pid sandbox arms SKIP loudly where lsof is missing, rather than going red on the tool.
+- The frozen arm's comment no longer claims the double slash reaches the matcher.
+
+## Review 8
+
+- The six assertions that a refusal names a live pid use has_pid, a whole-number match, instead of a
+  substring match that a sibling pid containing the digits could satisfy.
+
+## Review 9
+
+- A real cut whose ARGUMENT names a sandbox path still refuses: nothing had pinned that only the script
+  word is read, and matching the whole line passed the suite.
+- probe-two's other cut is pid 99999 with ancestry stubbed, so a live stranger at 99998 (a pid macOS can
+  hand out) can never be dropped from under it; the pid assertions that remained substring matches use
+  has_pid.
+- Comments: an unreadable pid stays in unless its script path is in the sandbox; the `||` guards matter
+  under pipefail, which release.sh sets; the frozen arms catch a widened TMPDIR branch rather than
+  reaching it.
+- Not changed: a real release.sh started with TMPDIR already pointing into a run-tests.sh sandbox would
+  freeze inside that kt folder and be ignored by both guards. No production path does that today, and it
+  is the rule heavy-gate already uses.
+
+## Review 10
+
+- The browser guard gets the three script arms the cut guard has (a sandboxed script with cwd /, the
+  same pid with a plain script, a sandbox path only in an argument): breaking browser-checks.sh script
+  extraction passed both suites before.
+- Not changed: the kt<digits> boundary cases are tested once, in tools.heavy-gate-3805.test.js, which
+  runs in the same suite. The rule has one home, so a second copy of its boundary tests here would be
+  two copies of one fact.
+
+## Review 11
+
+- The probe pid is one proven dead at runtime, in test-cut-guard.sh, test-browser-run-guard.sh and
+  test-runner-reexec-1818.sh: the guards now run a real lsof and ancestry walk on it, and 99999 is
+  only unassignable on macOS.
+- The comments say heavy-gate shares the PATH rule, not the whole rule: it keeps its own cwd read and
+  walk, and drops an exited pid where the guards count it.
+- The `||` fallbacks are described as defensive (no caller today can hit them), the regex's match on
+  any folder named T or tmp is stated as accepted, the browser filter's comment says the marker check
+  is not filtered, and a failed mktemp for the frozen root fails the test instead of rooting it at /.
+- Not changed: the live sleeps can outlive an aborted run by up to 30 seconds (the EXIT trap removes
+  directories only); harmless, and a kill in the trap would need every pid defined before it fires.
+
+## Review 12
+
+- The browser filter's comment no longer says fixtures stay out of the marker check by sandboxing
+  HOME: run-tests.sh does not sandbox HOME, so it now states the obligation (point HOME or
+  KOSMOS_RUN_MARKER_DIR at the fixture's own directory) instead of claiming it is met.
+- Not changed: cut-guard.sh now has three near-identical script-matching regexes (the cut and browser
+  pgrep filters, and the fixture script-word extractor). They agree today and the extractor is pinned
+  by the Review 9 and 10 arms; folding them into one is a refactor beyond this card.
+
+## Review 13
+
+- The #1796 marker arm's pid assertion was the last substring match (`has "$out" "pid $p1"`), contrary
+  to Review 9's line that the remaining pid assertions use has_pid; it uses has_pid now.
+- Not changed: without lsof the fixture check falls back to the script path alone, which fails toward
+  counting the run as real (the safe direction), as heavy-gate already does; the suites SKIP loudly
+  when lsof is missing.
+
+## Review 14 (converged: every finding deduplicates)
+
+- The frozen-root mktemp failure exits the suite: that is Review 11's call (a failed mktemp fails the
+  run instead of rooting it at /). It fails loud, non-zero and without the "0 failures" tally, so it
+  cannot read as green. Not changed.
+- The kt<digits> matcher now gates release and browser runs, not only heavy-gate: the match on any
+  folder named T or tmp is Review 11's accepted residual, stated at process-fixture.sh, which both
+  guards call. The review's example (~/tmp/kt-2026-hotfix) does not match (measured); ~/tmp/kt42 does,
+  as documented. Not changed.
+
+## Weakest premise
+
+The negative control runs from `/` so it cannot sit in a kt folder. A machine whose $TMPDIR were `/`
+would make `/kt<digits>` a sandbox path, but `/` itself still is not one, so the control holds. The kt
+arm's directory is under the test's mktemp dir, whose path contains `tmp/kt4206` on every platform.

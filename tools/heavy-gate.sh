@@ -170,17 +170,9 @@ has_test_runner() (
   exit 1
 )
 
-# True if the path is in tools/run-tests.sh's sandbox: a kt<digits> folder under a folder named
-# T (macOS TMPDIR) or tmp, or directly under this shell's own $TMPDIR.
-KT_RE='(^|/)(T|tmp)/kt[0-9]+(/|$)'
-in_kt_sandbox() {
-  [[ "$1" =~ $KT_RE ]] && return 0
-  local t="${TMPDIR:-}"; t="${t%/}"
-  [ -n "$t" ] || return 1
-  case "$1" in "$t"/kt*) ;; *) return 1 ;; esac
-  local rest="${1#"$t"/kt}"; rest="${rest%%/*}"
-  [ -n "$rest" ] && [ -z "${rest//[0-9]/}" ]
-}
+# True if the path is in tools/run-tests.sh's sandbox. The rule is tools/lib/process-fixture.sh's
+# (#4206 follow-up), shared with the cut and browser guards.
+in_kt_sandbox() { _kosmos_path_in_kt_sandbox "$1"; }
 
 # A verdict line shows at most this many characters of the command, then "...": a shell running
 # a long -c string once printed several thousand. Only the printed copy is cut, never $cmd.

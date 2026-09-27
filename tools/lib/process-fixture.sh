@@ -1,5 +1,6 @@
 # Shared process classification for guards that must distinguish a real heavy
-# run from a shell fixture launched by Node's test runner (#4206).
+# run from a unit-test fixture (#4206): a shell launched by Node's test runner, or
+# one running in tools/run-tests.sh's kt<digits> sandbox.
 
 # True only when the command itself is a Node test runner. A shell command that
 # mentions `node --test`, an app flag such as --test-endpoint, and a --test flag
@@ -36,14 +37,51 @@ _kosmos_pid_has_node_test_ancestor() {
   else
     while [ "$depth" -lt 10 ]; do
       depth=$((depth + 1))
-      q="$(ps -o ppid= -p "$q" 2>/dev/null | tr -d '[:space:]')"
+      # `|| q=""`: defensive. Today every caller is the left side of && (where set -e is off), so a
+      # pid gone mid-walk already just ends the walk; this keeps it so if a caller ever calls bare
+      # under set -e with pipefail (release.sh sets both).
+      q="$(ps -o ppid= -p "$q" 2>/dev/null | tr -d '[:space:]')" || q=""
       { [ -z "$q" ] || [ "$q" -le 1 ] 2>/dev/null; } && break
-      cmd="$(ps -o command= -p "$q" 2>/dev/null)"
+      cmd="$(ps -o command= -p "$q" 2>/dev/null)" || cmd=""
       [ -n "$cmd" ] && commands="${commands}${commands:+$'\n'}$cmd"
     done
   fi
   while IFS= read -r cmd; do
     _kosmos_command_is_node_test_runner "$cmd" && return 0
   done <<< "$commands"
+  return 1
+}
+
+# True if PATH is in tools/run-tests.sh's sandbox: a kt<digits> folder under a folder named T
+# (macOS TMPDIR) or tmp, or directly under this shell's own $TMPDIR. Some fixtures detach from
+# node --test, so the path marks them (#4206 follow-up: moved here from heavy-gate so the cut and
+# browser guards read the same rule).
+#
+# The regex matches ANY folder named T or tmp, not only temp roots, so a checkout at ~/tmp/kt1/ would
+# read as a fixture; accepted, since the rule is heavy-gate's and nothing real runs from such a path.
+#
+# The $TMPDIR branch compares the path as given. lsof reports a cwd with symlinks resolved
+# (/private/var/...) while macOS's TMPDIR is /var/..., so for an lsof cwd on macOS only the regex
+# half decides; a fixture that only this branch would mark is counted as a real run instead.
+_KOSMOS_KT_RE='(^|/)(T|tmp)/kt[0-9]+(/|$)'
+_kosmos_path_in_kt_sandbox() {
+  [[ "$1" =~ $_KOSMOS_KT_RE ]] && return 0
+  local t="${TMPDIR:-}"; t="${t%/}"
+  [ -n "$t" ] || return 1
+  case "$1" in "$t"/kt*) ;; *) return 1 ;; esac
+  local rest="${1#"$t"/kt}"; rest="${rest%%/*}"
+  [ -n "$rest" ] && [ -z "${rest//[0-9]/}" ]
+}
+
+# True when PID is a unit-test fixture: a node --test ancestor, or its cwd (or SCRIPT, when given)
+# in the run-tests.sh sandbox. An unreadable cwd is not a fixture: it fails toward counting.
+_kosmos_pid_is_test_fixture() {
+  local pid="$1" script="${2:-}" cwd
+  _kosmos_pid_has_node_test_ancestor "$pid" && return 0
+  # `|| cwd=""`: defensive, as above. An lsof that fails (a pid gone since the snapshot) reads as no
+  # cwd and must never end a caller's loop over the other candidates.
+  cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n '/^n/{s/^n//p;q;}')" || cwd=""
+  [ -n "$cwd" ] && _kosmos_path_in_kt_sandbox "$cwd" && return 0
+  [ -n "$script" ] && _kosmos_path_in_kt_sandbox "$script" && return 0
   return 1
 }
