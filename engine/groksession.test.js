@@ -273,3 +273,19 @@ test('the floor is the FIRST turn only: a later single-call turn after a compact
   writeUsage('later', [{ turnNumber: 1, inputTokens: 40111, modelCalls: 1 }, { turnNumber: 2, inputTokens: 80000, modelCalls: 2 }]);
   assert.equal(grok.read(WORKDIR).contextUsed, 30000, 'the first turn\'s 40111 pinned the ring after later turns');
 });
+
+test('a session seen past its first turn never has usage.json read again; a first-turn session still is', () => {
+  reset();
+  writeSession({ encDir: 'enc-usage', sessionId: 'grown', cwd: WORKDIR, model: 'grok-4.6', numMessages: 20, lastActive: '2026-09-27T05:00:00Z', lastTurn: 'x', tokensUsed: 40783, windowTokens: 500000 });
+  writeUsage('grown', [{ turnNumber: 1, inputTokens: 40111, modelCalls: 1 }, { turnNumber: 2, inputTokens: 81382, modelCalls: 2 }]);
+  assert.equal(grok.read(WORKDIR).contextUsed, 40783);
+  /* Not a real Grok state (turns only grow): it proves the second read never happened. */
+  writeUsage('grown', [{ turnNumber: 1, inputTokens: 99999, modelCalls: 1 }]);
+  assert.equal(grok.read(WORKDIR).contextUsed, 40783, 'usage.json was read again after the session passed its first turn');
+  /* CONTROL: a session still on its first turn is read on every poll, so a usage.json that lands later is seen. */
+  reset();
+  writeSession({ encDir: 'enc-usage', sessionId: 'fresh', cwd: WORKDIR, model: 'grok-4.6', numMessages: 9, lastActive: '2026-09-27T05:01:00Z', lastTurn: 'x', tokensUsed: 2716, windowTokens: 500000 });
+  assert.equal(grok.read(WORKDIR).contextUsed, 2716, 'no usage.json yet: Grok\'s own figure');
+  writeUsage('fresh', [{ turnNumber: 1, inputTokens: 40111, modelCalls: 1 }]);
+  assert.equal(grok.read(WORKDIR).contextUsed, 40111, 'a first-turn session stopped being read');
+});

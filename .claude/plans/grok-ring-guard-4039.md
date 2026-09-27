@@ -27,3 +27,8 @@ Card: #4039 (Grok follow-up; #4039's main change merged as PR #4071, 65f5d9b9d).
 ## Weakest premise
 Three turns, one model, one Grok version. The lag mechanism is read from Grok's update stream, not its
 source. A Grok that updates the gauge before the first call returns makes the floor a no-op.
+
+## Review
+Iterations 1-4 opus (converged at 4), iteration 5 sonnet (no BLOCKER/WARN; NIT: usage.json re-read on
+every poll for a session's whole life -> FIXED: a per-process set of session folders seen past turn 1,
+since turns only grow). Iteration 6 opus on that change.

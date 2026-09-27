@@ -141,11 +141,18 @@ function forWorkdir(dir, home) {
  * MEASURED too: a resume in a NEW process (`grok -r <id>`) appended turn 2 to the same usage.json,
  * so turns[] is the whole session and "one turn" really means the first. Never throws; any doubt keeps Grok's own figure.
  */
+/* Session folders already seen past their first turn. usage.json only ever gains turns, so once a
+   session has two the floor can never apply again; remembering that skips re-reading a file that
+   grows every turn, on every status poll of every Grok agent (review 5). One short path per session. */
+const PAST_FIRST_TURN = new Set();
+
 function singleCallFloor(used, sessionDir) {
   if (used == null) return used;
+  if (PAST_FIRST_TURN.has(sessionDir)) return used;
   try {
     const u = JSON.parse(fs.readFileSync(path.join(sessionDir, 'usage.json'), 'utf8'));
     const turns = u && Array.isArray(u.turns) ? u.turns : [];
+    if (turns.length > 1) PAST_FIRST_TURN.add(sessionDir);
     const only = turns.length === 1 ? turns[0] : null;
     if (only && only.modelCalls === 1 && typeof only.inputTokens === 'number' && only.inputTokens > used) return only.inputTokens;
   } catch { /* no usage.json: Grok's own gauge stands */ }
