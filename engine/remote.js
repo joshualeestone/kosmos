@@ -69,6 +69,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn, execFileSync } = require('node:child_process');
+// Narrow test seam for setupRun's child lifecycle. The supervised tunnel uses
+// spawn directly and cannot be replaced through this seam.
+let setupSpawn = spawn;
+const SETUP_CLOSE_GRACE_MS = 2000;
 const os = require('node:os');
 const store = require('./store');
 
@@ -613,10 +617,19 @@ function setupRun(args, stdin = null, timeoutMs = 0) {
   return new Promise((resolve) => {
     let spawned;
     let timer = null;
+    let closeTimer = null;
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (closeTimer) clearTimeout(closeTimer);
+      resolve(result);
+    };
     try {
-      spawned = spawn(BIN(), args, { stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
+      spawned = setupSpawn(BIN(), args, { stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
     } catch (err) {
-      resolve({ ok: false, because: 'the tunnel program could not be started: ' + (err && err.message) });
+      finish({ ok: false, because: 'the tunnel program could not be started: ' + (err && err.message) });
       return;
     }
     let out = '';
@@ -624,7 +637,7 @@ function setupRun(args, stdin = null, timeoutMs = 0) {
     spawned.stdout.on('data', (d) => { out += d; });
     spawned.stderr.on('data', (d) => { errOut += d; });
     spawned.on('error', (err) => {
-      resolve({ ok: false, because: 'the tunnel program could not be started: ' + (err && err.message) });
+      finish({ ok: false, because: 'the tunnel program could not be started: ' + (err && err.message) });
     });
     if (stdin !== null && spawned.stdin) {
       // A child that exits before reading breaks the pipe with EPIPE; that is
@@ -635,17 +648,30 @@ function setupRun(args, stdin = null, timeoutMs = 0) {
     if (timeoutMs > 0) {
       timer = setTimeout(() => {
         try { spawned.kill('SIGKILL'); } catch { /* already gone */ }
-        resolve({ ok: false, because: 'the tunnel program did not answer in time', timedOut: true });
+        finish({ ok: false, because: 'the tunnel program did not answer in time', timedOut: true });
       }, timeoutMs);
       if (typeof timer.unref === 'function') timer.unref();
     }
-    spawned.on('exit', (code) => {
-      if (timer) clearTimeout(timer);
-      if (code === 0) { resolve({ ok: true, because: null, said: out.trim() }); return; }
+    const resultFor = (code) => {
+      if (code === 0) { finish({ ok: true, because: null, said: out.trim() }); return; }
       const lines = (errOut.trim() || out.trim()).split('\n').filter(Boolean);
       /* `stderr` is the WHOLE of it: a caller that must recognise a message clap prints
          across several lines (an unknown subcommand, #3660) cannot use the last line. */
-      resolve({ ok: false, because: lines[lines.length - 1] || ('setup failed (exit ' + code + ')'), stderr: errOut, code });
+      finish({ ok: false, because: lines[lines.length - 1] || ('setup failed (exit ' + code + ')'), stderr: errOut, code });
+    };
+    spawned.on('exit', (code) => {
+      if (settled) return;
+      // The process has ended, so its operation timeout no longer applies. Give
+      // inherited pipe holders a short drain window, then answer instead of
+      // hanging callers that deliberately have no operation timeout.
+      if (timer) { clearTimeout(timer); timer = null; }
+      closeTimer = setTimeout(() => {
+        console.error('remote: setup child stdio did not close within 2 seconds after exit; using collected output');
+        resultFor(code);
+      }, SETUP_CLOSE_GRACE_MS);
+    });
+    spawned.on('close', (code) => {
+      resultFor(code);
     });
   });
 }
@@ -1713,7 +1739,8 @@ module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondR
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); stopChild(); },
+  resetForTests: () => { setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); stopChild(); },
+  setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* test seam: the live child's pid, or null. spawn() sets the handle
      synchronously, so a test can assert "nothing spawned" deterministically
      right after ensure() instead of waiting a fixed interval and hoping. */
