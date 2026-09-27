@@ -114,7 +114,15 @@ test('editing a fixture under docs/browser-checks/ selects every check that load
   assert.ok(users.includes('render-talk'), `render-talk loads fixtures/agent-card.json; found only ${users.join(' ')}`);
   const why = sel.select('', ['fixtures/agent-card.json']);
   assert.match((why.get('render-talk') || []).join(' '), /changed fixtures\/agent-card\.json/);
-  assert.equal(sel.select('', ['README.md']).size, 0, 'a file no check names selects nothing');
+  assert.equal(sel.select('', ['README.md']).size, 0, 'the README is not a fixture');
+  assert.equal(sel.select('', ['fixtures/no-check-loads-this.json']).size, 0, 'a file no check names selects nothing');
+});
+
+test('editing a top-level helper that is not a check selects the checks that use it', () => {
+  assert.ok(!sel.runnable().has('thread-server'), 'thread-server became a check: point this arm at another helper');
+  const why = sel.select('', ['thread-server']);
+  assert.match((why.get('render-thread') || []).join(' '), /changed thread-server/);
+  assert.ok(!why.has('thread-server'));
 });
 
 test('only a plain check name is ever emitted, since the workflow reads the list unquoted', () => {

@@ -8,7 +8,11 @@
  * passed it and broke a check outside it, found only at the cut: #3985 broke render-talk, #4095
  * broke render-fields. This names the checks a `web/index.html` diff reaches, so the PR job runs
  * them too. It diffs `<base>...<head>` (the merge base, as the #2518 gate does), web/index.html
- * only, and reads the changed (+/-) lines.
+ * only, and reads the changed (+/-) lines. `head` picks the diff only: the checks, the page index
+ * and gated.txt are read from the working tree, so a replay asks what TODAY's checks select.
+ *
+ * NOT READ: test-support/, tools/browser-checks.sh, and web/ files other than index.html. The job
+ * fires on them, but a change there runs the fixed allowlist only, as it did before #4119.
  *
  * FIVE WAYS A CHECK IS SELECTED, each printed as its reason:
  *   `changed`  the PR edits the check's own file, a `lib-*.js` helper the check requires, or
@@ -170,6 +174,15 @@ function referrersOf(rel) {
     .map((f) => f.slice(0, -3));
 }
 
+/* A top-level helper that is not a check and not a `lib-*` (thread-server.js, which the driver
+   starts for render-thread): the checks whose code, comments stripped, names it whole-token. */
+function namersOf(name) {
+  const re = new RegExp(`(?<![\\w-])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`);
+  return fs.readdirSync(CHECKS)
+    .filter((f) => f.endsWith('.js') && f !== `${name}.js` && re.test(stripComments(fs.readFileSync(path.join(CHECKS, f), 'utf8'))))
+    .map((f) => f.slice(0, -3));
+}
+
 function select(diff, changedChecks = []) {
   const text = changedLines(diff);
   const can = runnable();
@@ -183,7 +196,8 @@ function select(diff, changedChecks = []) {
   for (const n of changedChecks) {
     if (/[./]/.test(n)) for (const r of referrersOf(n)) add(r, `changed ${n}`);
     else if (/^lib-/.test(n)) for (const r of requirersOf(n)) add(r, `changed ${n}`);
-    else add(n, 'changed');
+    else if (can.has(n)) add(n, 'changed');
+    else for (const r of new Set([...requirersOf(n), ...namersOf(n)])) add(r, `changed ${n}`);
   }
   if (text) selectByPage(diff, text, add);
   const skipped = new Map();
@@ -240,5 +254,5 @@ function main(argv) {
   return 0;
 }
 
-module.exports = { KNOWN_RED, isPageScoped, requirersOf, referrersOf, selectorsOf, namesOf, pageIndex, stripComments, hits, changedLines, runnable, select, PAGE_SCOPE };
+module.exports = { KNOWN_RED, isPageScoped, requirersOf, referrersOf, namersOf, selectorsOf, namesOf, pageIndex, stripComments, hits, changedLines, runnable, select, PAGE_SCOPE };
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
