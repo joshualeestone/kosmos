@@ -44,17 +44,49 @@ function isRegularFile(fd) {
   try { return fs.fstatSync(fd).isFile(); } catch { return false; }
 }
 
+/* Whether the file open on `fd` ends in the middle of a line (a previous board that died mid-write). A board's stdout is
+   write-only, so it is read back through a PATH instead: the first of `logPaths` that is the same file (same device and
+   inode) as `fd`. False when none is, or the file is empty or ends with a newline. */
+function endsMidLine(fd, logPaths) {
+  let st;
+  try { st = fs.fstatSync(fd); } catch { return false; }
+  if (!st.size) return false;
+  for (const p of logPaths || []) {
+    if (!p) continue;
+    try {
+      const ps = fs.statSync(p);
+      if (ps.dev !== st.dev || ps.ino !== st.ino) continue;
+      const rfd = fs.openSync(p, 'r');
+      try {
+        const b = Buffer.alloc(1);
+        fs.readSync(rfd, b, 0, 1, ps.size - 1);
+        return b[0] !== 0x0a;
+      } finally { fs.closeSync(rfd); }
+    } catch { /* not this one */ }
+  }
+  return false;
+}
+
 /* Wraps stream.write so every line written from now on starts with the time. A no-op unless fd is a regular file (see the
-   header), and only once per stream. `now` is the test seam. `shared` is one line-start state for two streams that write
-   the SAME file (the board's stdout and stderr both go to board.log), so a line one begins and the other ends is stamped
-   once. Returns whether it installed. */
-function install(stream, fd, now, shared) {
+   header), and only once per stream. Options:
+   - now: the clock (the test seam);
+   - shared: one line-start state for two streams on the SAME file (the board's stdout and stderr both go to board.log),
+     so a line one begins and the other ends is stamped once;
+   - logPaths: where board.log may be, so a file left mid-line by a board that died is ended first, and this run's first
+     line starts on a line of its own (endsMidLine).
+   Returns whether it installed. */
+function install(stream, fd, opts) {
+  const o = opts || {};
   if (!stream || typeof stream.write !== 'function' || stream.__logstamp) return false;
   if (!isRegularFile(fd)) return false;
-  const clock = typeof now === 'function' ? now : () => new Date();
+  const clock = typeof o.now === 'function' ? o.now : () => new Date();
   const write = stream.write.bind(stream);
-  const state = shared && typeof shared === 'object' ? shared : { atLineStart: true };
+  const state = o.shared && typeof o.shared === 'object' ? o.shared : { atLineStart: true };
   if (typeof state.atLineStart !== 'boolean') state.atLineStart = true;
+  if (!state.checkedTail) {
+    state.checkedTail = true;
+    if (endsMidLine(fd, o.logPaths)) write('\n');
+  }
   const decoder = new StringDecoder('utf8');   // a character split across two Buffer writes stays whole
   stream.write = function (chunk, encoding, cb) {
     if (typeof encoding === 'function') { cb = encoding; encoding = undefined; }
@@ -69,6 +101,8 @@ function install(stream, fd, now, shared) {
     state.atLineStart = r.atLineStart;
     return write(r.text, 'utf8', cb);
   };
+  /* Bytes of a character still waiting for the rest of it when the board exits are written as they are, not dropped. */
+  process.once('exit', () => { const rest = decoder.end(); if (rest) { try { write(rest); } catch { /* exiting */ } } });
   stream.__logstamp = true;
   return true;
 }
@@ -78,4 +112,4 @@ function sameFile(fdA, fdB) {
   try { const a = fs.fstatSync(fdA), b = fs.fstatSync(fdB); return a.dev === b.dev && a.ino === b.ino; } catch { return false; }
 }
 
-module.exports = { stampText, isRegularFile, install, sameFile };
+module.exports = { stampText, isRegularFile, endsMidLine, install, sameFile };

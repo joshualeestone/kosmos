@@ -28,7 +28,11 @@ server.js as a module, so it is never stamped.
 - stdout and stderr share one line-start state when they are the same file (same device and inode), so a line one
   starts and the other ends is stamped once.
 - A string written in another encoding (hex, base64) goes through untouched; Buffer writes are decoded with a
-  StringDecoder, so a character split across writes stays whole.
+  StringDecoder, so a character split across writes stays whole, and bytes still waiting at exit are written, not dropped.
+- A board that died mid-line leaves board.log ending mid-line (review 2). At start the board reads the file's last byte
+  and, if it is not a newline, ends that line first, so its own first line is not glued to the old one. stdout is
+  write-only, so the byte is read through board.log's PATH ($KOSMOS_HOME/logs/board.log, and ../logs/board.log beside the
+  app), and only when that path is the same file (device and inode) as stdout; any other file is left as it is.
 
 ## Rejected
 - Stamping only class1-autohandle / restart lines (the card's minimum): the time is useful on every line (the "server

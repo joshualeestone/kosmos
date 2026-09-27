@@ -7,8 +7,11 @@
 if (require.main === module) {
   const logstamp = require('./engine/logstamp');
   const shared = logstamp.sameFile(1, 2) ? { atLineStart: true } : undefined;   // both to board.log: one line state
-  logstamp.install(process.stdout, 1, undefined, shared);
-  logstamp.install(process.stderr, 2, undefined, shared);
+  /* Where board.log is (install/kosmos: $KOSMOS_HOME/logs/board.log, and the app sits in $KOSMOS_HOME/app). */
+  const logPaths = [process.env.KOSMOS_HOME && require('path').join(process.env.KOSMOS_HOME, 'logs', 'board.log'),
+    require('path').join(__dirname, '..', 'logs', 'board.log')];
+  logstamp.install(process.stdout, 1, { shared, logPaths });
+  logstamp.install(process.stderr, 2, { shared, logPaths });
 }
 
 /**

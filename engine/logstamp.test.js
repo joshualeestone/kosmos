@@ -69,8 +69,8 @@ test('#4199 install: once per stream, and never on a stream that is not a regula
   const out = [];
   const s = { write: (t) => { out.push(t); return true; } };
   try {
-    assert.equal(logstamp.install(s, fd, () => new Date(0)), true);
-    assert.equal(logstamp.install(s, fd, () => new Date(0)), false, 'installed twice (lines would get two times)');
+    assert.equal(logstamp.install(s, fd, { now: () => new Date(0) }), true);
+    assert.equal(logstamp.install(s, fd, { now: () => new Date(0) }), false, 'installed twice (lines would get two times)');
     s.write('x\n');
     assert.deepEqual(out, ['1970-01-01T00:00:00.000Z x\n']);
     assert.equal(logstamp.install({ write() {} }, 999999), false, 'a bad descriptor was treated as a file');
@@ -99,7 +99,7 @@ function fileStream() {
 test('#4199 install: a UTF-8 character split across two Buffer writes stays whole', () => {
   const f = fileStream();
   try {
-    logstamp.install(f.s, f.fd, () => new Date(0));
+    logstamp.install(f.s, f.fd, { now: () => new Date(0) });
     const bytes = Buffer.from('é\n');   // c3 a9 0a
     f.s.write(bytes.subarray(0, 1)); f.s.write(bytes.subarray(1));
     assert.equal(f.out.map((x) => x[0]).join(''), '1970-01-01T00:00:00.000Z é\n', 'the character came out broken');
@@ -109,7 +109,7 @@ test('#4199 install: a UTF-8 character split across two Buffer writes stays whol
 test('#4199 install: a string in another encoding goes through untouched', () => {
   const f = fileStream();
   try {
-    logstamp.install(f.s, f.fd, () => new Date(0));
+    logstamp.install(f.s, f.fd, { now: () => new Date(0) });
     f.s.write('68690a', 'hex');
     assert.deepEqual(f.out, [['68690a', 'hex']], 'a hex write was stamped or re-encoded');
   } finally { f.done(); }
@@ -121,12 +121,58 @@ test('#4199 install: two streams on the SAME file share one line state, so a lin
   g.s = { write: (t) => { g.out.push(t); return true; } };
   try {
     const shared = { atLineStart: true };
-    logstamp.install(f.s, f.fd, () => new Date(0), shared);
-    logstamp.install(g.s, f.fd, () => new Date(0), shared);
+    logstamp.install(f.s, f.fd, { now: () => new Date(0), shared });
+    logstamp.install(g.s, f.fd, { now: () => new Date(0), shared });
     f.s.write('half ');
     g.s.write('the rest\n');
     f.s.write('next\n');
     assert.deepEqual([f.out[0][0], g.out[0], f.out[1][0]], ['1970-01-01T00:00:00.000Z half ', 'the rest\n', '1970-01-01T00:00:00.000Z next\n']);
     assert.equal(logstamp.sameFile(f.fd, f.fd), true);
   } finally { f.done(); }
+});
+
+test('#4199 a board.log left mid-line by a board that died is ended first, so this run starts on its own line', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'logstamp-4199-'));
+  const file = path.join(dir, 'board.log');
+  fs.writeFileSync(file, 'the old board died in the middle of this');
+  const fd = fs.openSync(file, 'a');
+  const out = [];
+  const s = { write: (t) => { out.push(t); fs.writeSync(fd, t); return true; } };
+  try {
+    assert.equal(logstamp.endsMidLine(fd, [path.join(dir, 'other.log'), file]), true, 'the unfinished line was not seen');
+    logstamp.install(s, fd, { now: () => new Date(0), logPaths: [file] });
+    s.write('Kosmos on http://127.0.0.1:1\n');
+  } finally { fs.closeSync(fd); }
+  const text = fs.readFileSync(file, 'utf8');
+  fs.rmSync(dir, { recursive: true, force: true });
+  assert.equal(text, 'the old board died in the middle of this\n1970-01-01T00:00:00.000Z Kosmos on http://127.0.0.1:1\n', 'the new line was glued to the old one');
+});
+
+test('#4199 a board.log that ends a line, or that is not the file on fd, gets no extra newline', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'logstamp-4199-'));
+  const file = path.join(dir, 'board.log');
+  const other = path.join(dir, 'other.log');
+  fs.writeFileSync(file, 'a finished line\n');
+  fs.writeFileSync(other, 'mid');
+  const fd = fs.openSync(file, 'a');
+  try {
+    assert.equal(logstamp.endsMidLine(fd, [file]), false);
+    assert.equal(logstamp.endsMidLine(fd, [other]), false, 'a different file was read in its place');
+  } finally { fs.closeSync(fd); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#4199 bytes of a character still waiting when the board exits reach the file, not dropped', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'logstamp-4199-'));
+  const file = path.join(dir, 'board.log');
+  const fd = fs.openSync(file, 'a');
+  const script = "require(" + JSON.stringify(path.join(__dirname, 'logstamp.js')) + ").install(process.stdout, 1);"
+    + "process.stdout.write('line\\n'); process.stdout.write(Buffer.from([0xc3]));";
+  try {
+    const r = spawnSync(process.execPath, ['-e', script], { stdio: ['ignore', fd, 'inherit'] });
+    assert.equal(r.status, 0);
+  } finally { fs.closeSync(fd); }
+  const bytes = fs.readFileSync(file);
+  fs.rmSync(dir, { recursive: true, force: true });
+  assert.ok(bytes.length > 0 && bytes.toString('utf8').includes('line\n'), 'setup: the line was not written');
+  assert.notEqual(bytes.toString('utf8').replace(/^.* line\n/, ''), '', 'the waiting byte was dropped at exit');
 });
