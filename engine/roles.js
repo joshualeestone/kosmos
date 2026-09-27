@@ -14,7 +14,7 @@ const GUIDE_TAG = "Josh's AI";
    place the chat says the guide is an AI, so the guide no longer volunteers that in its first
    answer. ONE copy here; the bubble in web/index.html shows the same words (roles.test.js pins
    the two together) and the role's firstAction is this line. */
-const GUIDE_GREETING = "Hi I'm Josh, an AI Assistant to help you get your Kosmos setup. What can I help you with?";
+const GUIDE_GREETING = "Hi I'm Josh, an AI Assistant to help you get your Kosmos setup. I am context aware, so I can help with whatever screen you are stuck on or even with troubleshooting agents. What can I help you with?";
 /* #3739 (Josh, 2026-09-25 08:51): the guide's title everywhere it shows. */
 const GUIDE_TITLE = 'Kosmos Guide';
 

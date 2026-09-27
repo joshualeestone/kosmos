@@ -144,6 +144,32 @@ function copyGuideAvatar(agentName, dir) {
   } catch { return false; }
 }
 
+/* #4230 (Josh's new photo, 2026-09-27): a guide created before a photo change keeps the old
+ * one, because copyGuideAvatar copied it at creation. On start, the guide's picture is
+ * replaced only when it is byte-for-byte a retired bundled photo, so a picture the person
+ * chose is never touched. Best-effort: any failure leaves the picture as it is. */
+const RETIRED_GUIDE_AVATARS = new Set([
+  '13237cdb0cb2ed39e422492810482ed847e9a78b2875a4aa431e58c33684efa9',   // web/icons/setup-guide-avatar.jpg before #4230
+]);
+function refreshGuideAvatar(dir = GUIDE_AVATAR_DIR, retired = RETIRED_GUIDE_AVATARS) {
+  try {
+    const name = guideName();
+    if (!name || !isGuideFolder(name)) return false;
+    const cur = store.avatarPath(name);
+    if (!cur) return false;
+    const sha = (b) => require('crypto').createHash('sha256').update(b).digest('hex');
+    if (!retired.has(sha(fs.readFileSync(cur)))) return false;
+    const pic = guideAvatarPath(dir);
+    if (!pic) return false;
+    const type = MIME_BY_EXT[path.extname(pic).toLowerCase()];
+    if (!type) return false;
+    const bytes = fs.readFileSync(pic);
+    if (retired.has(sha(bytes))) return false;   // the bundle still holds a retired photo
+    store.saveAvatar(name, type, bytes);
+    return true;
+  } catch { return false; }
+}
+
 function guideFolder(agentName) {
   try {
     const file = require('./instructions').fileFor(agentName);
@@ -715,6 +741,8 @@ module.exports = {
   isGuideFolder,
   GUIDE_AVATAR_BASE,
   guideAvatarPath,
+  refreshGuideAvatar,
+  RETIRED_GUIDE_AVATARS,
   guideName,
   FIRSTRUN_AUTOCREATE_ENABLED,
   flagPath,
