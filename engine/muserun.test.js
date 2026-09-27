@@ -80,7 +80,7 @@ test('#3939: parseEvents reads the session, the model, the answer and whether th
   assert.equal(failed.terminal, 'failed');
 });
 
-test('#3939: runTurn runs the launcher it found, in the agent\'s folder, and reports a finished turn', { skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
+test('#3939: runTurn runs the launcher it found, in the agent\'s folder, and reports a finished turn', { timeout: 8000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
   const argsFile = path.join(SANDBOX, 'args.txt'); const cwdFile = path.join(SANDBOX, 'cwd.txt');
   fs.writeFileSync(path.join(SANDBOX, 'turn.jsonl'), TURN);
   fakeMuse('printf "%s\\n" "$@" > "' + argsFile + '"\npwd -P > "' + cwdFile + '"\ncat "' + path.join(SANDBOX, 'turn.jsonl') + '"');
@@ -94,8 +94,9 @@ test('#3939: runTurn runs the launcher it found, in the agent\'s folder, and rep
   } finally { gate.resetForTests(); }
 });
 
-test('#3939: runTurn says why in words: a busy session, no sign-in, a turn that stopped early', { skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
+test('#3939: runTurn says why in words: a busy session, no sign-in, a turn that stopped early', { timeout: 20000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
   gate.allowLiveExecution();
+  run.setForTests({ turnTimeoutMs: 2000, hardCapMs: 4000 });   // round 3: a regression fails here, not after ten minutes
   try {
     fakeMuse('echo "session ' + SID + ' is already in use" >&2\nexit 1');
     let r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
@@ -116,7 +117,7 @@ test('#3939: runTurn says why in words: a busy session, no sign-in, a turn that 
     r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
     assert.equal(r.ok, false, 'an exit 0 with no finished turn read as ok');
     assert.match(r.because, /stopped before finishing/);
-  } finally { gate.resetForTests(); }
+  } finally { gate.resetForTests(); run.resetForTests(); }
 });
 
 test('#3939: a turn that ignores TERM is stopped by SIGKILL at the timeout', { timeout: 8000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
@@ -168,7 +169,7 @@ test('#3939 round 1: at the timeout, what the launcher started is stopped too (i
   } finally { gate.resetForTests(); run.resetForTests(); }
 });
 
-test('#3939 round 2: with the gate closed, the refusal names the command but never the person\'s prompt', { skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
+test('#3939 round 2: with the gate closed, the refusal names the command but never the person\'s prompt', { timeout: 8000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
   fakeMuse('exit 0');
   const seen = [];
   const real = gate.refuseOrWarn;
@@ -199,4 +200,57 @@ test('#3939 round 2: the hard cap alone stops a running muse, not only answers f
     if (alive) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }   // only the PID this test started
     assert.equal(alive, false, 'the hard cap answered, but muse kept running behind the answer');
   } finally { gate.resetForTests(); run.resetForTests(); }
+});
+
+test('#3939 round 3: a turn that says more than Kosmos reads is stopped at once, and says so', { timeout: 8000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
+  const pidFile = path.join(SANDBOX, 'over.pid');
+  fakeMuse('echo $$ > "' + pidFile + '"\nhead -c 5000 /dev/zero | tr "\\0" x\nexec sleep 7');
+  run.setForTests({ turnTimeoutMs: 60000, hardCapMs: 60000, maxBytes: 1024 });
+  gate.allowLiveExecution();
+  try {
+    const t0 = Date.now();
+    const r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.ok(Date.now() - t0 < 3000, 'the turn kept running past the output cap');
+    assert.match(r.because, /said more than Kosmos reads/);
+    assert.equal(r.ok, false);
+  } finally {
+    try { process.kill(Number(fs.readFileSync(pidFile, 'utf8').trim()), 'SIGKILL'); } catch { /* gone: only the PID this test started */ }
+    gate.resetForTests(); run.resetForTests();
+  }
+});
+
+test('#3939 round 3: once the launcher has exited, its group is never signalled (the number may be someone else\'s)', { timeout: 8000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
+  const pidFile = path.join(SANDBOX, 'launcher.pid'); const helperFile = path.join(SANDBOX, 'helper.pid');
+  // A helper that leaves the group (a new session) keeps the output open after the launcher exits 0.
+  fakeMuse('echo $$ > "' + pidFile + '"\nperl -MPOSIX -e \'setsid(); sleep 5\' &\necho $! > "' + helperFile + '"\nexit 0');
+  run.setForTests({ turnTimeoutMs: 500, hardCapMs: 20000 });
+  gate.allowLiveExecution();
+  const realKill = process.kill; const groupSignals = [];
+  process.kill = function (pid, sig) { if (pid < 0 && sig) groupSignals.push(pid); return realKill.apply(process, arguments); };
+  try {
+    const t0 = Date.now();
+    const r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.ok(Date.now() - t0 < 3000, 'the turn waited on a helper outside the group');
+    assert.equal(r.because, run.TIMED_OUT);
+    const launcher = Number(fs.readFileSync(pidFile, 'utf8').trim());
+    assert.ok(launcher > 0, 'CONTROL: the launcher ran');
+    assert.deepEqual(groupSignals.filter((g) => g === -launcher), [], 'the exited launcher\'s group number was signalled');
+  } finally {
+    process.kill = realKill;
+    try { process.kill(Number(fs.readFileSync(helperFile, 'utf8').trim()), 'SIGKILL'); } catch { /* gone: only the PID this test started */ }
+    gate.resetForTests(); run.resetForTests();
+  }
+});
+
+test('#3939 round 3: on anything but a Mac, runTurn refuses before running anything (the override bypasses slice 1\'s check)', { timeout: 5000 }, async () => {
+  const marker = path.join(SANDBOX, 'win-ran.txt');
+  fakeMuse('touch "' + marker + '"\nexit 0');
+  process.env.AGENT_WORKFORCE_MUSE_BIN = BIN;
+  run.setForTests({ platform: 'win32' });
+  gate.allowLiveExecution();
+  try {
+    const r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.because, run.NOT_WIRED_UP);
+    assert.equal(fs.existsSync(marker), false, 'muse ran off a Mac');
+  } finally { delete process.env.AGENT_WORKFORCE_MUSE_BIN; gate.resetForTests(); run.resetForTests(); }
 });

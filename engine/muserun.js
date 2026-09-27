@@ -37,6 +37,7 @@ const DEFAULT_APPROVAL_MODE = 'on-request';   // Muse's own default: it asks bef
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const COULD_NOT_RUN = 'Kosmos could not run Muse Code just now';
 const TIMED_OUT = 'Muse Code did not finish the turn in time';
+const NOT_WIRED_UP = 'Muse Code is not wired up on this computer yet';
 
 /**
  * The arguments for one turn, or { error } when an input is not one Kosmos will hand Muse.
@@ -101,16 +102,24 @@ let runMuse = (bin, args, opts, done) => {
   let child;
   try { child = spawn(bin, args, { cwd: opts.cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'] }); }
   catch (e) { done(e); return () => {}; }
-  const outChunks = []; const errChunks = []; let bytes = 0; let over = false; let killed = false; let finished = false;
-  /* The whole group (POSIX; slice 1 gates Muse to a Mac before this is reached). */
-  const killGroup = () => { killed = true; try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* gone */ } } };
+  const outChunks = []; const errChunks = []; let bytes = 0; let over = false; let killed = false; let finished = false; let exited = false;
+  /* Round 3: once the launcher has exited, its group number is no longer ours to signal. A helper that
+     left the group can still hold the output open, and by then the number may have been reused by
+     some other process on this shared Mac. So after the exit, stopping means dropping the output
+     (which ends the turn), never a signal to -pid. (POSIX; runTurn refuses anything but a Mac.) */
+  child.on('exit', () => { exited = true; });
+  const killGroup = () => {
+    killed = true;
+    if (exited) { try { child.stdout.destroy(); child.stderr.destroy(); } catch { /* gone */ } return; }
+    try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* gone */ } }
+  };
   const timer = setTimeout(killGroup, turnTimeoutMs);
   // Raw bytes, not string length (round 2): the cap is what the comment says it is.
   const take = (which) => (buf) => {
     if (over) return;
     bytes += buf.length;
     (which === 'out' ? outChunks : errChunks).push(buf);
-    if (bytes > TURN_MAX_BUFFER) { over = true; killGroup(); }
+    if (bytes > maxBytes) { over = true; killGroup(); }
   };
   child.stdout.on('data', take('out')); child.stderr.on('data', take('err'));
   /* Round 2: an unlistened 'error' on a stream crashes the whole board (engine/fedseats.js guards the same). */
@@ -141,6 +150,8 @@ function runTurn(input) {
     const cap = setTimeout(() => { if (stop) { try { stop(); } catch { /* best effort */ } } fail(TIMED_OUT); }, hardCapMs);
     if (cap.unref) cap.unref();
     try {
+      // Round 3: the AGENT_WORKFORCE_MUSE_BIN override is honoured on any platform, and the stop above is POSIX.
+      if (platform !== 'darwin') { fail(NOT_WIRED_UP); return; }
       const inst = musestatus.installed();
       if (!inst.installed) { fail(inst.because); return; }
       const t = turnArgs(input);
@@ -149,12 +160,13 @@ function runTurn(input) {
         const parsed = parseEvents(stdout);
         const exitCode = err ? (typeof err.code === 'number' ? err.code : null) : 0;
         let because = null;
-        if (err && /already in use/.test(String(stderr || ''))) because = 'Muse Code is still working on this agent\'s last turn';
+        // Kosmos's own stop first (round 3): stderr from a turn Kosmos stopped does not say why it ended.
+        if (err && err.overflow) because = 'Muse Code said more than Kosmos reads in one turn';
+        else if (err && err.killed) because = TIMED_OUT;
+        else if (err && /already in use/.test(String(stderr || ''))) because = 'Muse Code is still working on this agent\'s last turn';
         // Singular and plural both appear in the captures (round 1).
         else if (err && /missing meta credential/.test(String(stderr || ''))) because = 'Muse Code is not signed in on this computer';
-        else if (err && err.overflow) because = 'Muse Code said more than Kosmos reads in one turn';
         // Timed out only when Kosmos stopped it (round 1): another signal is a crash, not a timeout.
-        else if (err && err.killed) because = TIMED_OUT;
         else if (err) because = COULD_NOT_RUN;
         else if (!parsed.done) because = 'Muse Code stopped before finishing the turn';
         finish({ ok: !err && parsed.done, exitCode, sessionId: parsed.sessionId, model: parsed.model, text: parsed.text, done: parsed.done, because });
@@ -167,12 +179,16 @@ function runTurn(input) {
 
 let turnTimeoutMs = TURN_TIMEOUT_MS;
 let hardCapMs = TURN_HARD_CAP_MS;
+let maxBytes = TURN_MAX_BUFFER;
+let platform = process.platform;
 const REAL = { runMuse };
 function setForTests(o) {
   if (o && o.runMuse) runMuse = o.runMuse;
   if (o && o.turnTimeoutMs) turnTimeoutMs = o.turnTimeoutMs;
   if (o && o.hardCapMs) hardCapMs = o.hardCapMs;
+  if (o && o.maxBytes) maxBytes = o.maxBytes;
+  if (o && o.platform) platform = o.platform;
 }
-function resetForTests() { runMuse = REAL.runMuse; turnTimeoutMs = TURN_TIMEOUT_MS; hardCapMs = TURN_HARD_CAP_MS; }
+function resetForTests() { runMuse = REAL.runMuse; turnTimeoutMs = TURN_TIMEOUT_MS; hardCapMs = TURN_HARD_CAP_MS; maxBytes = TURN_MAX_BUFFER; platform = process.platform; }
 
-module.exports = { turnArgs, parseEvents, runTurn, APPROVAL_MODES, TURN_TIMEOUT_MS, TURN_HARD_CAP_MS, TIMED_OUT, COULD_NOT_RUN, setForTests, resetForTests };
+module.exports = { turnArgs, parseEvents, runTurn, APPROVAL_MODES, TURN_TIMEOUT_MS, TURN_HARD_CAP_MS, TIMED_OUT, COULD_NOT_RUN, NOT_WIRED_UP, setForTests, resetForTests };
