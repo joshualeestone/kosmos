@@ -172,7 +172,7 @@ function runTurn(input) {
           because = 'Muse Code is not signed in on this computer';
           // #3939 slice 3c-1: from now on GET /api/muse says so too, until a sign-in or a completed
           // turn after this. It never throws, and the turn's answer does not depend on it.
-          musestatus.markSignedOut(startedAt, atStart);
+          musestatus.markSignedOut(startedAt, atStart, Date.now());
         }
         // Timed out only when Kosmos stopped it (round 1): another signal is a crash, not a timeout.
         else if (err) because = COULD_NOT_RUN;

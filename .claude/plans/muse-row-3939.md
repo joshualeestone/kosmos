@@ -121,3 +121,23 @@ others.
 Two: that "missing meta credential" is the only way Muse reports a lost sign-in, and
 that Muse's meta entry in auth.json has no self-updating field (file backend only).
 - Mutation gap closed: "last listed wins" survived because APFS lists names sorted; a test now reverses the listing so only a real time comparison passes.
+
+## Review round 7 (opus): 0 blockers, 2 warnings, 7 nits
+Cross-process stress by the reviewer (15 trials, 6 real node processes, random writes,
+checked against an oracle): no failures.
+- W1 FIXED: when a turn reads the credential inside [start, finish] is unknown, so
+  overlapping success and refusal were ambiguous and settled toward yes. Three event
+  kinds now: TURN (a completed turn, by its start), SIGN (Kosmos's own sign-in, by its
+  finish), NOTE (a refusal, named by its FINISH with its start inside). A turn beats a
+  note only if it started after the note finished; a sign-in beats a note if it finished
+  after the refused turn started (round 1's case). Every ambiguity is signed out.
+- W2 FIXED: notes at the same moment are combined, failing closed (all digests refused;
+  unread if any is).
+- N1: a time that is not a whole number of ms below 1e15 is refused, never written unseen.
+- N2: a future-dated slice 3a mark is ignored; Kosmos's own sign-in removes that file.
+- N3: a failed save's note names no credential in Muse's file (it blocks older sign-ins
+  only).
+- N4: a note pruned between listing and reading makes latest() read once more.
+- N5: every muserun test sandboxes XDG_CONFIG_HOME.
+- N6: leftover .tmp files older than a minute are pruned.
+- N7: noted (the garbled case's early return); the answer is still asserted there.

@@ -169,10 +169,10 @@ test('#3939 3c-1: a refusal ends an earlier mark; a mark after it wins; a tie is
   clean();
 }));
 
-test('#3939 3c-1: a refusal from a turn that began BEFORE a sign-in finished writes nothing (round 1)', () => withXdg(() => {
+test('#3939 3c-1: a sign-in that finished while a refused turn ran wins over that refusal (round 1)', () => withXdg(() => {
   clean();
   muse.markKosmosSignedIn(T + 50);
-  assert.equal(muse.markSignedOut(T + 40), false, 'the stale refusal wrote');
+  muse.markSignedOut(T + 40, null, T + 60);          // began before the sign-in finished, reported after
   assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'kosmos' });
   clean();
 }));
@@ -180,8 +180,8 @@ test('#3939 3c-1: a refusal from a turn that began BEFORE a sign-in finished wri
 test('#3939 3c-1: a success that began BEFORE a refusal does not undo it, either order of finishing (rounds 2 and 3)', () => withXdg(() => {
   clean();
   muse.markSignedOut(T + 50);
-  assert.equal(muse.markTurnSignedIn(T + 40), false, 'an older success wrote over a newer refusal');
-  assert.equal(muse.signedIn().signedIn, false);
+  muse.markTurnSignedIn(T + 40);
+  assert.equal(muse.signedIn().signedIn, false, 'an older success undid a newer refusal');
   assert.equal(muse.markTurnSignedIn(T + 60), true, 'CONTROL: a success that began after the refusal counts');
   assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'kosmos' });
   clean();
@@ -196,7 +196,7 @@ test('#3939 3c-1 round 6: events from other boards, arriving in ANY order, never
   clean();
   place('note', T + 100); place('note', T + 90);
   muse.markKosmosSignedIn(T + 95);
-  assert.equal(muse.latest().note.at, T + 100, 'a late, older note displaced the newer one');
+  assert.equal(muse.latest().note.finish, T + 100, 'a late, older note displaced the newer one');
   assert.equal(muse.signedIn().signedIn, false, 'a sign-in between two refusals read as signed in');
   // A success never removes a note, even one that looked damaged (round 6 scenario B).
   clean();
@@ -212,10 +212,10 @@ test('#3939 3c-1: older events of a kind are pruned; the newest of each stays; n
   clean();
   muse.markSignedOut(T); muse.markTurnSignedIn(T + 10); muse.markSignedOut(T + 20); muse.markTurnSignedIn(T + 30);
   const names = events();
-  assert.equal(names.filter((n) => /-mark-/.test(n)).length, 1, 'older marks were not pruned: ' + names);
+  assert.equal(names.filter((n) => /-turn-/.test(n)).length, 1, 'older turns were not pruned: ' + names);
   assert.equal(names.filter((n) => /-note-/.test(n)).length, 1, 'older notes were not pruned: ' + names);
   assert.deepEqual(fs.readdirSync(muse.eventsFolder()).filter((n) => n.endsWith('.tmp')), [], 'a temporary file was left');
-  assert.deepEqual(muse.latest(), { mark: T + 30, note: { at: T + 20, metaDigest: null, fileUnread: false } });
+  assert.deepEqual(muse.latest(), { turn: T + 30, sign: null, note: { finish: T + 20, start: T + 20, digests: [], fileUnread: false, vanished: false } });
   clean();
 }));
 
@@ -305,14 +305,70 @@ test('#3939 3c-1 round 6: the latest event decides, whatever order the folder li
   // APFS lists names sorted, so "last listed" and "latest" agree on a Mac by accident; other
   // filesystems do not sort. Reverse the listing so only a real comparison passes.
   clean();
-  place('note', T + 100); place('note', T + 90); place('mark', T + 95); place('mark', T + 80);
+  place('note', T + 100); place('note', T + 90); place('turn', T + 95); place('turn', T + 80);
   const real = fs.readdirSync;
   fs.readdirSync = function (p, ...rest) {
     const r = real.call(this, p, ...rest);
     return String(p) === muse.eventsFolder() ? r.slice().sort().reverse() : r;
   };
   try {
-    assert.deepEqual([muse.latest().mark, muse.latest().note.at], [T + 95, T + 100], 'the listing order, not the time, decided');
+    assert.deepEqual([muse.latest().turn, muse.latest().note.finish], [T + 95, T + 100], 'the listing order, not the time, decided');
     assert.equal(muse.signedIn().signedIn, false);
   } finally { fs.readdirSync = real; clean(); }
+}));
+
+test('#3939 3c-1 round 7: overlapping turns settle to signed out; a success counts only if it began after the refusal FINISHED', () => withXdg(() => {
+  clean();
+  // B began at T+120 and was refused at T+200; A began at T+130 (inside B) and completed.
+  muse.markTurnSignedIn(T + 130);
+  muse.markSignedOut(T + 120, null, T + 200);
+  assert.equal(muse.signedIn().signedIn, false, 'an overlapping success hid a refusal');
+  muse.markTurnSignedIn(T + 201);
+  assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'kosmos' }, 'CONTROL: a success after the refusal finished counts');
+  clean();
+}));
+
+test('#3939 3c-1 round 7: notes at the same moment are combined, failing closed', () => withXdg((xdg) => {
+  clean();
+  writeAuth(xdg, { meta: { token: 'Y' } });
+  const dY = muse.fileAtStart().metaDigest;
+  place('note', T, JSON.stringify({ start: T, metaDigest: 'x'.repeat(64), fileUnread: false }));
+  place('note', T, JSON.stringify({ start: T, metaDigest: dY, fileUnread: false }));
+  assert.equal(muse.signedIn().signedIn, false, 'a credential refused by either note answered yes');
+  clean();
+  place('note', T, JSON.stringify({ start: T, metaDigest: null, fileUnread: false }));
+  place('note', T, JSON.stringify({ start: T, metaDigest: null, fileUnread: true }));
+  assert.equal(muse.signedIn().signedIn, false, 'one unread note among two let the file answer yes');
+  clean();
+}));
+
+test('#3939 3c-1 round 7: an event time that is not a whole number of milliseconds is refused, never written unseen', () => withXdg(() => {
+  clean();
+  muse.markKosmosSignedIn(T);
+  for (const bad of [T + 10.5, NaN, -1, 1e15, Infinity]) {
+    assert.equal(muse.markSignedOut(bad), false, 'a bad time was reported written: ' + bad);
+  }
+  assert.throws(() => muse.markKosmosSignedIn(1.5));
+  assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'kosmos' }, 'CONTROL: nothing unseen was written');
+  clean();
+}));
+
+test('#3939 3c-1 round 7: a slice 3a mark dated in the future is ignored; Kosmos\'s own sign-in removes that file', () => withXdg(() => {
+  clean();
+  fs.mkdirSync(muse.signinFolder(), { recursive: true });
+  fs.writeFileSync(muse.signedInMarker(), JSON.stringify({ at: 1e14 }) + '\n');
+  assert.equal(muse.signedIn().signedIn, false, 'a future-dated old mark answered yes');
+  muse.markKosmosSignedIn(T);
+  assert.equal(fs.existsSync(muse.signedInMarker()), false, 'the old single mark file outlived a sign-in');
+  clean();
+}));
+
+test('#3939 3c-1 round 7: a failed save blocks an older sign-in but does not condemn the credential in Muse\'s file', () => withXdg((xdg) => {
+  clean();
+  muse.markKosmosSignedIn(T);
+  muse.markSaveFailed(T + 10);
+  assert.equal(muse.signedIn().signedIn, false, 'an older sign-in answered yes beside a failed save');
+  writeAuth(xdg, { meta: { token: 'good' } });
+  assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'file' }, 'a failed save condemned a credential nothing refused');
+  clean();
 }));

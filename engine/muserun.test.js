@@ -13,6 +13,8 @@ const path = require('node:path');
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'muse-run-'));
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
+// #3939 3c-1: every turn now reads Muse's own file (fileAtStart), so never the real one (round 7).
+process.env.XDG_CONFIG_HOME = path.join(SANDBOX, 'xdg');
 delete process.env.AGENT_WORKFORCE_MUSE_BIN;
 const run = require('./muserun');
 const gate = require('./live-execution');
