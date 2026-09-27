@@ -93,7 +93,7 @@ design, which is why this project ships the Gradle wrapper.
 
 **This skeleton builds, and the JDK requirement is pinned in the repo so a fresh
 clone builds too.** `./gradlew :app:assembleDebug` produces a signed debug APK
-(`app/build/outputs/apk/debug/app-debug.apk`, `io.kosmos.app` v0.1.0,
+(`app/build/outputs/apk/debug/app-debug.apk`, `io.kosmos.app` v0.1.1,
 compileSdk 35). No `JAVA_HOME` juggling is needed at the command line.
 
 **Why the pin is necessary.** This box's system-default JDK is OpenJDK 26, and
