@@ -1757,3 +1757,13 @@ test('#3995 gap 4 review round 23: a vendor key given without its prefix, its bo
     assert.ok(!t.includes('Zq8vLm'), 'a regrouped repeat after the key showed: ' + t);
   } finally { setKnownSecrets([]); }
 });
+
+test('#3995 gap 4 review round 24: a vendor key whose body is hex, given without its prefix in short chunks, is masked', () => {
+  setKnownSecrets(['sk-proj-3f9a2c7e1b4d8f6a0c5e9b2d17aa22bb']);
+  try {
+    const chunks = '3f9a2c7e1b4d8f6a0c5e9b2d17aa22bb'.match(/.{1,3}/g);
+    const t = mask('Here it is, without the prefix: ' + chunks.join(' then ') + ' done.').text;
+    const shown = chunks.filter((c) => c.length === 3 && t.includes(' ' + c + ' '));
+    assert.equal(shown.length, 0, 'chunks of a hex body showed: ' + shown.join(',') + ': ' + t);
+  } finally { setKnownSecrets([]); }
+});

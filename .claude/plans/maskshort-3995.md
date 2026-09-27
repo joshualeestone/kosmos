@@ -273,3 +273,12 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
 - Off-path copies are also masked up to one reach after the key's last chunk (a regrouped repeat after it showed).
 - Not covered gives the reason for no partial-try rule in the short walk (short pieces alone are ordinary tokens), and
   SHORT_PUBLIC_HEAD's comment ties it to PATTERNS.
+
+## Review round 24 (Sonnet), what changed
+- BLOCKER fixed (a gap in my round-23 fix): a vendor key whose body is hex (sk-proj-3f9a...) given without its prefix
+  leaked, because the body form met the hex exclusion. A vendor body is walked even when hex: its prefix says it is a
+  key, and it is one form per held value. Hex encodings and raw hex values stay out (the numbered-guide case).
+  Tested; red on the previous commit.
+- The vendor-prefix match is computed once per value (it was computed twice); the copies loop is charged to the budget.
+- Already deferred, confirmed with repros: DNSoverTCPandUDP01 masked from prose (round 13); 200,000 repeats of a key's
+  opening withhold the reply (round 21).

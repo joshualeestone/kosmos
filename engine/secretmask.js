@@ -273,15 +273,16 @@ function addWalked(w, walked) {
     const forms = [];
     for (const v of [w, ...bodies]) { forms.push(v); if (/[-_]/.test(v)) forms.push(v.replace(/[-_]+/g, '')); }
     for (const form of forms) {
-      /* Each form is checked, not the value: a UUID-shaped secret is hex once its - are taken out (review round 6). */
-      if (form.length < MIN_VALUE_LEN || /^[0-9a-f]+$/i.test(form)) continue;
+      const isBody = bodies.length > 0 && (form === bodies[0] || form === bodies[0].replace(/[-_]+/g, ''));
+      /* Each form is checked, not the value: a UUID-shaped secret is hex once its - are taken out (review round 6). A
+         vendor key's body is walked even when it is hex (review round 24: sk-proj-3f9a... given without its prefix
+         leaked): its prefix says it is a key, not stray hex, and it is one form per held value, not every encoding. */
+      if (form.length < MIN_VALUE_LEN || (!isBody && /^[0-9a-f]+$/i.test(form))) continue;
       /* How much of this form is the value's public head (sk-ant-api03-): used to assemble it, never masked where a
          guide names it (review round 15), as the word walk leaves a public prefix readable. */
       /* Only a KNOWN public prefix, and exactly it: any - or _ in the first 16 characters would make a licence-style
          key's own chunks (Ab3-Zq8-vLm-...) a "head" and leave them showing. */
-      const known = w.match(SHORT_PUBLIC_HEAD);
-      const isBody = bodies.length && (form === bodies[0] || form === bodies[0].replace(/[-_]+/g, ''));
-      shortHead.set(form, known && !isBody ? (form === w ? known[0].length : known[0].replace(/[-_]+/g, '').length) : 0);
+      shortHead.set(form, vendor && !isBody ? (form === w ? vendor[0].length : vendor[0].replace(/[-_]+/g, '').length) : 0);
       for (let l = 2; l < OPENING_LEN; l += 1) {   // the short walk starts from two or three characters
         const h = form.slice(0, l);
         if (!knownByShort.has(h)) knownByShort.set(h, []);
@@ -461,7 +462,8 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *  - a key both spaced one character at a time AND cut into short chunks with words between (the short walk reads
  *    the text, not the single-spacing copy the word walk also reads);
  *  - anything that is hex (0-9 a-f only) cut into chunks under OPENING_LEN: the hex encodings of held values AND a
- *    held value that is itself hex (a raw hex token). Neither is walked short (see addWalked);
+ *    held value that is itself hex (a raw hex token). Neither is walked short (see addWalked); a vendor key's hex body
+ *    IS walked;
  *  - a first chunk of OPENING_LEN or more followed by chunks under it, once the text from the first chunk runs past
  *    SPLIT_REACH times the key's length in all (the word walk extends its reach only on pieces of OPENING_LEN or
  *    more, and the short walk starts only from a chunk under OPENING_LEN);
@@ -1032,7 +1034,11 @@ function shortChunkSpans(text) {
          which can run through a repeated copy and leave the one that was really the key's showing (review rounds 9
          and 10). Not for a piece that is a plain word ("is", "the", "2"): its copies are ordinary words (review round
          11), and what a repeated plain-word chunk can leave showing is that word. */
-      if (t.length >= 3 && !plainWordRun(t)) for (const k of at.get(t) || []) if (k !== i && k > first && k < last) pieceSpan(k, t);
+      if (t.length >= 3 && !plainWordRun(t)) {
+        const copies = at.get(t) || [];
+        budget -= copies.length;   // charged, as nearPieces is (review round 24)
+        for (const k of copies) if (k !== i && k > first && k < last) pieceSpan(k, t);
+      }
     }
   }
   return budget < 0 ? null : spans;   // the masking above spent past the budget: withheld, as elsewhere
