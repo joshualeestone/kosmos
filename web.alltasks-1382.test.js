@@ -105,7 +105,8 @@ test('#1346 on the new destination: the count and the rows come from the same sc
   const fn = body('tskPaint');
   assert.match(fn, /const scoped = tskScoped\(all, TSK, now\);/);
   assert.match(fn, /const open = scoped\.filter\(\(t\) => t\.state !== 'closed'\);/);
-  assert.match(fn, /getElementById\('tsk-sub'\)\.textContent = [\s\S]{0,80}open\.length/, 'the count is not taken from the scoped rows');
+  // #3949: the count is the title now ("30 Tasks on 2 Projects").
+  assert.match(fn, /getElementById\('tsk-title'\)\.textContent = [\s\S]{0,40}open\.length/, 'the count is not taken from the scoped rows');
   assert.match(fn, /const shown = TSK\.tile \? scoped\.filter/, 'the rows are not taken from the same scoped array');
 });
 
