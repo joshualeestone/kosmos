@@ -28,10 +28,19 @@ bc_quarantine_note() {
   # on purpose: QUARANTINED in capitals is the token, and "quarantined" in lower case is a real
   # moderation status a fully-run check can report on (review round 6). awk, not a grep pipe:
   # under pipefail an early-exiting `grep -q` reads as a failure (SIGPIPE).
-  awk '$0 ~ /(^|[^A-Za-z0-9_])PASS([^A-Za-z0-9_]|$)/ && $0 ~ /(^|[^A-Za-z0-9_])QUARANTINED([^A-Za-z0-9_]|$)/ { f = 1 }
-       END { exit !f }' "$cap" 2>/dev/null || return 1
+  # LC_ALL=C: under a UTF-8 locale macOS awk exits 2 on one invalid byte anywhere in the output,
+  # and an error read as "no match" would log a quarantined check as PASS (review round 9). The
+  # patterns are ASCII, so the C locale changes nothing else. 0 = match, 1 = no match, anything
+  # else = the output could not be read, which fails CLOSED: it cannot be shown to be a pass.
+  local rc=0
+  LC_ALL=C awk '$0 ~ /(^|[^A-Za-z0-9_])PASS([^A-Za-z0-9_]|$)/ && $0 ~ /(^|[^A-Za-z0-9_])QUARANTINED([^A-Za-z0-9_]|$)/ { f = 1 }
+       END { exit !f }' "$cap" 2>/dev/null || rc=$?
+  case "$rc" in
+    0) log "QUARANTINED  $label (exited 0 but says it did not run its assertions; this is not a pass)" ;;
+    1) return 1 ;;
+    *) log "QUARANTINED  $label (its output could not be read for the quarantine token, awk exit $rc; not counted as a pass)" ;;
+  esac
   QUARANTINED+=("$label")
-  log "QUARANTINED  $label (exited 0 but says it did not run its assertions; this is not a pass)"
   return 0
 }
 

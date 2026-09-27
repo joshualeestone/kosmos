@@ -23,6 +23,7 @@ printf 'PASS  a quarantined post is hidden from the feed\n' > "$TMP/modpass.out"
 printf 'QUARANTINED: PASS regress-a-night\n' > "$TMP/order.out"
 printf 'Passed QUARANTINED\n' > "$TMP/mixed.out"
 printf 'hid 1 QUARANTINED post\nPASS  moderation\n' > "$TMP/modsplit.out"
+printf 'PASS  x QUARANTINED\n\377\376 bad \303\n' > "$TMP/badbyte.out"
 
 # --- the #1079 output is QUARANTINED, not PASS ------------------------------------
 reset
@@ -39,8 +40,14 @@ bc_quarantine_note modsplit "$TMP/modsplit.out" && bad "quarantined on a non-PAS
 bc_quarantine_note order "$TMP/order.out" && ok "either order counts (quarantined before PASS)" || bad "QUARANTINED before PASS was missed"
 bc_quarantine_note mixed "$TMP/mixed.out" && bad "a lower-case Passed was taken as PASS" || ok "PASS is matched as written, as in the source test"
 QUARANTINED=()
-bc_quarantine_note gone "$TMP/missing.out" && bad "a missing capture was taken as quarantined" || ok "a missing capture is not a quarantine"
+bc_quarantine_note gone "$TMP/missing.out" && ok "an unreadable capture fails closed, not PASS" || bad "a missing capture read as a pass"
+case "$LOGGED" in *"QUARANTINED  gone (its output could not be read"*) ok "and says it could not read it" ;; *) bad "log: $LOGGED" ;; esac
+QUARANTINED=()
 [ "${#QUARANTINED[@]}" -eq 0 ] && ok "none of those were recorded" || bad "QUARANTINED=${QUARANTINED[*]:-}"
+QUARANTINED=()
+LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 bc_quarantine_note badbyte "$TMP/badbyte.out" && ok "an invalid byte in the output under a UTF-8 locale still reads the token (review round 9)" || bad "an invalid byte turned a quarantine into PASS"
+case "$LOGGED" in *"QUARANTINED  badbyte (exited 0"*) ok "and it is the token match, not the unreadable fallback" ;; *) bad "log: $LOGGED" ;; esac
+QUARANTINED=()
 bc_quarantine_note lower "$TMP/lower.out" && bad "lower-case quarantined was taken as the token" || ok "lower-case quarantined is not the token (a real moderation status)"
 bc_quarantine_note modpass "$TMP/modpass.out" && bad "a full pass reporting on quarantined posts was refused" || ok "a full pass that reports on quarantined posts stays a pass (review round 6)"
 
@@ -114,4 +121,4 @@ out="$(run1e 0.7.02)"; rc=$?
 [ "$rc" -eq 0 ] && ok "step 1e lets a version below until through (the control)" || bad "step 1e exited $rc at 0.7.02: $out"
 
 echo "bc-quarantine: $passes passed, $fails failed"
-[ "$fails" -eq 0 ] && [ "$passes" -eq 31 ] || { echo "expected 31 passes and 0 failures"; exit 1; }
+[ "$fails" -eq 0 ] && [ "$passes" -eq 34 ] || { echo "expected 34 passes and 0 failures"; exit 1; }
