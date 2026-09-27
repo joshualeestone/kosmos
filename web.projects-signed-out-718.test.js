@@ -23,24 +23,28 @@ test('#718 loadProjects: the signed-out flag follows each read and never latches
   };
   let pjList = '';
   let fetchImpl;
+  let offline = false; // what deviceOffline() answers: kplusRemote and navigator.onLine === false
   const G = globalThis;
   Object.assign(G, {
     PJ_GEN: 0, PJ_DRAGGING: false, PROJECTS: [], PJ_LOADED_ONCE: false, WANT_PROJECT: null,
     PJ_CURRENT: null, WANT_PROJECT_DONE: false, PJ_AUTO_OPENED_ONCE: true, PJ_SORT: 'newest',
     WANT_TASK: null, PARAMS: new URLSearchParams(''), PJ_AGENTS_UNREADABLE: false,
     PJ_READ_FAILED: false, BOARD_NEEDS_SIGNIN: false, BOARD_SIGNED_OUT: false, TK_OPEN: null,
+    BOARD_DEVICE_OFFLINE: false,
   });
   // eslint-disable-next-line no-new-func
   const loadProjects = new Function('fetch', 'document', 'setIfChanged', 'deviceSignedOutHtml', 'boardSigninHtml',
     'paintPjNone', 'pjTilesUnknown', 'ringNewMessages', 'pjById', 'openProject', 'sortProjects',
     'SIGNED_OUT_SENTENCE', 'SIGNIN_SENTENCE', 'paintProjects', 'paintOneProject', 'paintRailPjNotice', 'paintTaskPage',
     'paintSettingsFacts', 'staleReadMsg', 'openTaskPage', 'openDocsView',
+    'deviceOffline', 'deviceOfflineHtml', 'OFFLINE_SENTENCE',
     page.lift(SCRIPT, 'relaySignedOut') + '\n' + page.lift(SCRIPT, 'loadProjects') + '\nreturn loadProjects;')(
     (...a) => fetchImpl(...a), document, (_node, html) => { pjList = html; },
     (what) => 'SIGNED-OUT-CARD:' + what, () => 'SIGNIN-CARD',
     () => {}, () => {}, () => {}, () => null, () => {}, (list) => list,
     'signed out sentence', 'signin sentence', () => {}, () => {}, () => {}, () => {},
-    () => {}, () => '', () => {}, () => {});
+    () => {}, () => '', () => {}, () => {},
+    () => offline, () => 'OFFLINE-CARD', 'offline sentence');
   try {
     const step = async (fetcher) => { fetchImpl = fetcher; await loadProjects(); };
 
@@ -66,9 +70,23 @@ test('#718 loadProjects: the signed-out flag follows each read and never latches
     // CONTROL: a bare 401 without the relay's field is not signed out.
     await step(answer(401, { error: 'unauthorized' }));
     assert.strictEqual(G.BOARD_SIGNED_OUT, false, 'a bare 401 was read as signed out');
+
+    // #718 state 1: no answer while this device is offline sets the offline flag and card, and
+    // any answer clears it.
+    offline = true;
+    await step(() => Promise.reject(new TypeError('Load failed')));
+    assert.strictEqual(G.BOARD_DEVICE_OFFLINE, true, 'an offline device with no answer was not flagged offline');
+    assert.strictEqual(pjList, 'OFFLINE-CARD');
+    offline = false;
+    await step(answer(200, { projects: [] }));
+    assert.strictEqual(G.BOARD_DEVICE_OFFLINE, false, 'a good read left the offline flag standing');
+    // CONTROL: an answered failure is not offline, even if the browser says so.
+    offline = true;
+    await step(answer(500, { error: 'boom' }));
+    assert.strictEqual(G.BOARD_DEVICE_OFFLINE, false, 'an answered 500 was read as the device being offline');
   } finally {
     for (const k of ['PJ_GEN', 'PJ_DRAGGING', 'PROJECTS', 'PJ_LOADED_ONCE', 'WANT_PROJECT', 'PJ_CURRENT',
       'WANT_PROJECT_DONE', 'PJ_AUTO_OPENED_ONCE', 'PJ_SORT', 'WANT_TASK', 'PARAMS', 'PJ_AGENTS_UNREADABLE',
-      'PJ_READ_FAILED', 'BOARD_NEEDS_SIGNIN', 'BOARD_SIGNED_OUT', 'TK_OPEN']) delete G[k];
+      'PJ_READ_FAILED', 'BOARD_NEEDS_SIGNIN', 'BOARD_SIGNED_OUT', 'TK_OPEN', 'BOARD_DEVICE_OFFLINE']) delete G[k];
   }
 });
