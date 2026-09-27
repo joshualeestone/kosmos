@@ -64,6 +64,9 @@ test('#3939: the sign-in shows Meta\'s code, presses Enter once, and ends signed
   const t = setup('normal');
   try {
     assert.equal(musestatus.signedIn().signedIn, false, 'CONTROL: not signed in before');
+    // #3939 3c-1: an earlier refused turn left a "signed out" note; this sign-in must end it.
+    musestatus.markSignedOut();
+    assert.equal(fs.existsSync(musestatus.signedOutMarker()), true, 'CONTROL: the note is there before');
     const started = signin.start();
     assert.equal(started.ok, true, JSON.stringify(started));
     await until(() => signin.status().code === 'WXYZ-1234', 15000, 'the code');
@@ -79,6 +82,7 @@ test('#3939: the sign-in shows Meta\'s code, presses Enter once, and ends signed
     assert.match(log, /^xdg:unset$/m, 'XDG_CONFIG_HOME was set for muse');
     assert.equal(signin.status().code, undefined, 'a used code is still shown after the sign-in ended');
     assert.equal(signin.status().url, undefined, 'the used code is still served inside the address (round 5)');
+    assert.equal(fs.existsSync(musestatus.signedOutMarker()), false, 'a sign-in left the "signed out" note behind');
     assert.deepEqual(musestatus.signedIn(), { signedIn: true, how: 'kosmos' });
     assert.throws(() => execFileSync(TMUX, ['-L', process.env.AGENT_WORKFORCE_MUSE_SIGNIN_SOCKET, 'has-session', '-t', signin.SESSION], { stdio: 'ignore' }), 'the session outlived the sign-in');
   } finally { t.cleanup(); }

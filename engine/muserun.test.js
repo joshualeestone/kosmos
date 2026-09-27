@@ -278,3 +278,24 @@ test('#3939 round 3: on anything but a Mac, runTurn refuses before running anyth
     assert.equal(fs.existsSync(marker), false, 'muse ran off a Mac');
   } finally { delete process.env.AGENT_WORKFORCE_MUSE_BIN; gate.resetForTests(); run.resetForTests(); }
 });
+
+test('#3939 3c-1: a turn Muse refuses for its credential clears the signed-in answer; a crash does not', { timeout: 20000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
+  const musestatus = require('./musestatus');
+  const markIn = () => { fs.mkdirSync(musestatus.signinFolder(), { recursive: true }); fs.writeFileSync(musestatus.signedInMarker(), '{}\n'); };
+  const clean = () => { fs.rmSync(musestatus.signedInMarker(), { force: true }); fs.rmSync(musestatus.signedOutMarker(), { force: true }); };
+  gate.allowLiveExecution();
+  run.setForTests({ turnTimeoutMs: 2000, hardCapMs: 4000 });
+  try {
+    clean(); markIn();
+    fakeMuse('kill -SEGV $$');
+    await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(musestatus.signedIn().signedIn, true, 'a crash cleared the sign-in (it says nothing about it)');
+    fakeMuse('echo "session ' + SID + ' is already in use" >&2\nexit 1');
+    await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(musestatus.signedIn().signedIn, true, 'a busy session cleared the sign-in');
+    fakeMuse('echo "missing meta credential in /x/auth.json: run muse login" >&2\nexit 1');
+    const r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.match(r.because, /not signed in/, 'the turn\'s own answer changed');
+    assert.equal(musestatus.signedIn().signedIn, false, 'a refused credential left Kosmos saying signed in');
+  } finally { run.resetForTests(); clean(); }
+});

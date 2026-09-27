@@ -92,6 +92,21 @@ function enabled(platform = process.platform) {
    could be anybody's. */
 function signinFolder() { return path.join(require('./store').ROOT, 'muse-signin'); }   // the sign-in's folder, and its mark's
 function signedInMarker() { return path.join(signinFolder(), 'signed-in.json'); }
+/* #3939 slice 3c: the note Kosmos leaves when a turn says Muse has no credential. It outranks any
+   sign-in OLDER than it (Kosmos's mark is removed; Muse's own auth.json, which on the file backend can
+   still list meta after Muse refused it, loses if it was written before the note). A sign-in after
+   it wins: Kosmos's own sign-in removes the note, and an auth.json written later is newer. */
+function signedOutMarker() { return path.join(signinFolder(), 'signed-out.json'); }
+function mtimeMs(file) { try { return fs.statSync(file).mtimeMs; } catch { return null; } }
+/** Record that Muse refused the credential: true when the note was written. Never throws. */
+function markSignedOut(at = Date.now()) {
+  try { fs.rmSync(signedInMarker(), { force: true }); } catch { /* none */ }
+  try {
+    fs.mkdirSync(signinFolder(), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(signedOutMarker(), JSON.stringify({ at: new Date(at).toISOString() }) + '\n', { mode: 0o600 });
+    return true;
+  } catch { return false; }
+}
 /* Muse's own file store (the file backend, and every non-Mac build): XDG_CONFIG_HOME, else ~/.config. */
 function authFile() {
   const base = process.env.XDG_CONFIG_HOME || path.join(runners.homeDir(), '.config');
@@ -99,15 +114,18 @@ function authFile() {
 }
 
 /** { signedIn, how }: a file check, never a run, never the Keychain, never a value read out.
-    Known gap (round 1): the mark is not cleared by a `muse logout` or a removed Keychain item, so it can
-    say yes after a sign-out. Slice 3c clears it when a turn reports "missing meta credential"; no screen
-    reads this before then. */
+    Known gap (round 1): nothing sees a `muse logout` or a removed Keychain item by itself. Slice 3c-1
+    clears the answer the first time a turn reports "missing meta credential" (markSignedOut), so a
+    screen may read this once turns run. Until an agent has run a turn it can still say yes. */
 function signedIn() {
   try {
     const j = JSON.parse(fs.readFileSync(authFile(), 'utf8'));
     const meta = j && j.providers && j.providers.meta;
-    // Present and not empty: `muse logout` leaves {"providers":{}}.
-    if (meta && typeof meta === 'object' && Object.keys(meta).length) return { signedIn: true, how: 'file' };
+    const out = mtimeMs(signedOutMarker());
+    const written = mtimeMs(authFile());
+    // Present and not empty (`muse logout` leaves {"providers":{}}), and not refused since it was written.
+    if (meta && typeof meta === 'object' && Object.keys(meta).length
+      && !(out !== null && (written === null || written <= out))) return { signedIn: true, how: 'file' };
   } catch { /* no file, or not Muse's */ }
   try { if (fs.statSync(signedInMarker()).isFile()) return { signedIn: true, how: 'kosmos' }; } catch { /* never signed in here */ }
   return { signedIn: false, how: null };
@@ -119,4 +137,4 @@ const REAL = { runVersion };
 function setRunnerForTests(fn, opts) { if (fn) runVersion = fn; if (opts && opts.hardCapMs) hardCapMs = opts.hardCapMs; if (opts && opts.timeoutMs) timeoutMs = opts.timeoutMs; }
 function resetForTests() { runVersion = REAL.runVersion; hardCapMs = VERSION_HARD_CAP_MS; timeoutMs = VERSION_TIMEOUT_MS; }
 
-module.exports = { installed, version, parseVersion, enabled, NOT_INSTALLED_BECAUSE, signedIn, signinFolder, signedInMarker, authFile, VERSION_TIMEOUT_MS, VERSION_HARD_CAP_MS, VERSION_UNKNOWN_BECAUSE, CHECK_FAILED_BECAUSE, setRunnerForTests, resetForTests };
+module.exports = { installed, version, parseVersion, enabled, NOT_INSTALLED_BECAUSE, signedIn, signinFolder, signedInMarker, signedOutMarker, markSignedOut, authFile, VERSION_TIMEOUT_MS, VERSION_HARD_CAP_MS, VERSION_UNKNOWN_BECAUSE, CHECK_FAILED_BECAUSE, setRunnerForTests, resetForTests };

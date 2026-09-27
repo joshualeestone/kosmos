@@ -165,7 +165,12 @@ function runTurn(input) {
         else if (err && err.killed) because = TIMED_OUT;
         else if (err && /already in use/.test(String(stderr || ''))) because = 'Muse Code is still working on this agent\'s last turn';
         // Singular and plural both appear in the captures (round 1).
-        else if (err && /missing meta credential/.test(String(stderr || ''))) because = 'Muse Code is not signed in on this computer';
+        else if (err && /missing meta credential/.test(String(stderr || ''))) {
+          because = 'Muse Code is not signed in on this computer';
+          // #3939 slice 3c-1: from now on GET /api/muse says so too, until a sign-in after this.
+          // markSignedOut never throws, and the turn's answer does not depend on it.
+          musestatus.markSignedOut();
+        }
         // Timed out only when Kosmos stopped it (round 1): another signal is a crash, not a timeout.
         else if (err) because = COULD_NOT_RUN;
         else if (!parsed.done) because = 'Muse Code stopped before finishing the turn';
