@@ -12,6 +12,8 @@
  * convention 3) and has a timeout; an answer that does not look like Muse Code is "unknown",
  * never a guessed version.
  */
+const fs = require('node:fs');
+const path = require('node:path');
 const { execFile } = require('node:child_process');
 const runners = require('./runners');
 
@@ -77,10 +79,40 @@ function version() {
   });
 }
 
+/* ---- #3939 slice 3: the flag and the sign-in -------------------------------------------------- */
+
+/** Whether Meta Muse shows anywhere: AGENT_WORKFORCE_MUSE=1, on a Mac (the only platform the runner
+    is built for). Off by default, so every screen is as before until someone turns it on. */
+function enabled(platform = process.platform) {
+  return process.env.AGENT_WORKFORCE_MUSE === '1' && platform === 'darwin';
+}
+
+/* The mark Kosmos leaves when ITS sign-in ended "Logged in." (engine/musesignin.js writes it). On a
+   Mac, Muse keeps the sign-in in the login Keychain, which Kosmos never reads: an item named "meta"
+   could be anybody's. */
+function signedInMarker() { return path.join(require('./store').ROOT, 'muse-signin', 'signed-in.json'); }
+/* Muse's own file store (the file backend, and every non-Mac build): XDG_CONFIG_HOME, else ~/.config. */
+function authFile() {
+  const base = process.env.XDG_CONFIG_HOME || path.join(runners.homeDir(), '.config');
+  return path.join(base, 'muse', 'auth.json');
+}
+
+/** { signedIn, how }: a file check, never a run, never the Keychain, never a value read out. */
+function signedIn() {
+  try {
+    const j = JSON.parse(fs.readFileSync(authFile(), 'utf8'));
+    const meta = j && j.providers && j.providers.meta;
+    // Present and not empty: `muse logout` leaves {"providers":{}}.
+    if (meta && typeof meta === 'object' && Object.keys(meta).length) return { signedIn: true, how: 'file' };
+  } catch { /* no file, or not Muse's */ }
+  try { if (fs.statSync(signedInMarker()).isFile()) return { signedIn: true, how: 'kosmos' }; } catch { /* never signed in here */ }
+  return { signedIn: false, how: null };
+}
+
 let hardCapMs = VERSION_HARD_CAP_MS;
 let timeoutMs = VERSION_TIMEOUT_MS;
 const REAL = { runVersion };
 function setRunnerForTests(fn, opts) { if (fn) runVersion = fn; if (opts && opts.hardCapMs) hardCapMs = opts.hardCapMs; if (opts && opts.timeoutMs) timeoutMs = opts.timeoutMs; }
 function resetForTests() { runVersion = REAL.runVersion; hardCapMs = VERSION_HARD_CAP_MS; timeoutMs = VERSION_TIMEOUT_MS; }
 
-module.exports = { installed, version, parseVersion, VERSION_TIMEOUT_MS, VERSION_HARD_CAP_MS, VERSION_UNKNOWN_BECAUSE, CHECK_FAILED_BECAUSE, setRunnerForTests, resetForTests };
+module.exports = { installed, version, parseVersion, enabled, signedIn, signedInMarker, authFile, VERSION_TIMEOUT_MS, VERSION_HARD_CAP_MS, VERSION_UNKNOWN_BECAUSE, CHECK_FAILED_BECAUSE, setRunnerForTests, resetForTests };
