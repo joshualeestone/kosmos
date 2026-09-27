@@ -17,7 +17,7 @@ Rejected:
 - Only skipping the arm on win32 (review 1's first version): the product would then still take `%Wi-Fi` on Windows while the comment said it did not.
 
 ## Evidence
-- `node --test engine/win32handoff.test.js`: 68 tests, 67 pass, 1 skipped. The skip is a pre-existing Windows-only arm. This Mac has `en0` link-local (scope 7), so the name arm ran here.
+- `node --test engine/win32handoff.test.js`: 69 tests, 68 pass, 1 skipped (re-measured after review 1 added the `zoneNamesInterface` test). `yarn test` on 6c8929cfa: exit 0. The skip is a pre-existing Windows-only arm. This Mac has `en0` link-local (scope 7), so the name arm ran here.
 - The win32 arm runs only on Windows; the `zoneNamesInterface` test checks the win32 rule on any machine. Kano's Windows CI job on `win-ci-1777` listed win32handoff as KNOWN_RED at 4c12c931f (its tip e773de8d3 is a temporary control without it): with this on main, the entry can go.
 
 ## Weakest premise
