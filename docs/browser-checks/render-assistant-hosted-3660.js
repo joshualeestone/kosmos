@@ -578,7 +578,12 @@ const BUBBLE_SHOWN_ON_JOSH = () => {
     await page.keyboard.press('Enter');
     chk(back29 && await waitFor(page, () => document.getElementById('asp-say').value === '', 8000) && asked.length === before29 && threadPosts.length === posts29 + 1,
       'H29 once the board says it answers, the question goes to the guide\'s thread', JSON.stringify({ back29, asked: asked.length - before29, posts: threadPosts.length - posts29 }));
-    chk(await page.evaluate(() => ASB.fallback === null && document.querySelector('#asp .asp-note').textContent === ''), 'H29 and the backup line is gone');
+    /* #4203: waited for, not read once. The send clears ASB.fallback when the board answers, then posts, and only
+       repaints the note in its finally, AFTER one more poll round trip (asbSend: `await asbPoll(true); asbPaint()`).
+       The waits above end when the box clears, which is before that repaint, so a single read could catch the old
+       backup line for the length of one poll. Bounded: a note that never clears still fails, with what it said. */
+    chk(await waitFor(page, () => ASB.fallback === null && document.querySelector('#asp .asp-note').textContent === '', 8000),
+      'H29 and the backup line is gone', (await state(page)).note);
     chk((await state(page)).msg === 'Your own AI is answering again.', 'H29 and the chat says their own AI is answering again', (await state(page)).msg);
     await page.unroute(/\/api\/setup-guide$/);
     await page.click('#asp-fold');
