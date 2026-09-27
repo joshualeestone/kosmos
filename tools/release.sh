@@ -640,9 +640,12 @@ step "== 1e. no browser-check quarantine expires at $V (#4160) =="
 # A quarantine marked `until=<version>` goes red once package.json reaches it, and main's
 # package.json only reaches $V at step 2's pushed bump. Checked here against $V instead, so an
 # expiring quarantine refuses before the bump rather than aborting the cut after it.
-if ! ( cd "$REPO" && KOSMOS_QUARANTINE_AT_VERSION="$V" node --test "$REPO/browser-checks-quarantine-guard.test.js" >/dev/null 2>&1 ); then
+# Captured once, and the assignment carries its status through `&& ||`, so `set -e` cannot end
+# the script before the message below prints (review round 4).
+_q_out="$( cd "$REPO" && KOSMOS_QUARANTINE_AT_VERSION="$V" node --test "$REPO/browser-checks-quarantine-guard.test.js" 2>&1 )" && _q_rc=0 || _q_rc=$?
+if [ "$_q_rc" -ne 0 ]; then
   echo "a browser-check quarantine expires at $V, or a check says PASS and exits before its browser starts:"
-  ( cd "$REPO" && KOSMOS_QUARANTINE_AT_VERSION="$V" node --test "$REPO/browser-checks-quarantine-guard.test.js" 2>&1 ) | grep -E "says PASS|expired|does not say" | head -5
+  printf '%s\n' "$_q_out" | grep -E "says PASS|expired|does not say" | head -5 || true
   echo "fix the check (see browser-checks-quarantine-guard.test.js) before cutting $V."
   exit 1
 fi

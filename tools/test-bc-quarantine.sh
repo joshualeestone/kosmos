@@ -90,5 +90,22 @@ rc=$?
 pat="$(grep -oE "grep -E '[^']*QUARANTINED[^']*' \"\\\$_page_log\"" "$REPO/tools/release.sh" | sed -E "s/^grep -E '([^']*)'.*/\1/")"
 if [ -n "$pat" ] && printf 'QUARANTINED  regress-a-night (exited 0 ...)\n' | grep -qE "$pat"; then ok "release 3b's summary grep shows the QUARANTINED line"; else bad "release 3b's summary grep (${pat:-not found}) misses QUARANTINED"; fi
 
+# --- release step 1e refuses an expiring quarantine BEFORE the bump, and says why ---
+# Run release.sh's own step-1e block, under release.sh's shell options, against a fixture
+# tree holding the real guard test and one planted check.
+blk="$(awk '/^step "== 1e\./{on=1; next} on&&/^step "== 2\./{exit} on{print}' "$REPO/tools/release.sh")"
+case "$blk" in *'KOSMOS_QUARANTINE_AT_VERSION="$V"'*'exit 1'*) ok "step 1e runs the guard test against the version being cut" ;; *) bad "step 1e block not found or changed: $blk" ;; esac
+fx="$TMP/fx"; mkdir -p "$fx/docs/browser-checks"
+cp "$REPO/browser-checks-quarantine-guard.test.js" "$fx/"
+printf '{ "version": "0.7.01" }\n' > "$fx/package.json"
+for n in $(seq 1 101); do printf "const b = await chromium.launch();\nconsole.log('PASS  c$n');\nprocess.exit(0);\n" > "$fx/docs/browser-checks/c$n.js"; done
+printf "(async () => {\n  // QUARANTINE until=0.7.03 card=#9999: planted\n  console.log('PASS  planted QUARANTINED');\n  process.exit(0);\n  const b = await chromium.launch();\n})();\n" > "$fx/docs/browser-checks/planted.js"
+run1e() { ( set -euo pipefail; REPO="$fx"; V="$1"; eval "$blk" ) 2>&1; }
+out="$(run1e 0.7.03)"; rc=$?
+[ "$rc" -eq 1 ] && ok "step 1e refuses a quarantine that expires at the version being cut" || bad "step 1e exited $rc at 0.7.03: $out"
+case "$out" in *"planted.js:4 is quarantined until 0.7.3"*"fix the check"*) ok "and names the check and says what to do (set -e does not cut it short)" ;; *) bad "step 1e output: $out" ;; esac
+out="$(run1e 0.7.02)"; rc=$?
+[ "$rc" -eq 0 ] && ok "step 1e lets a version below until through (the control)" || bad "step 1e exited $rc at 0.7.02: $out"
+
 echo "bc-quarantine: $passes passed, $fails failed"
-[ "$fails" -eq 0 ] && [ "$passes" -eq 24 ] || { echo "expected 24 passes and 0 failures"; exit 1; }
+[ "$fails" -eq 0 ] && [ "$passes" -eq 28 ] || { echo "expected 28 passes and 0 failures"; exit 1; }

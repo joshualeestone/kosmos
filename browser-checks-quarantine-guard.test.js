@@ -85,7 +85,11 @@ function scan(name, src, version) {
     }
     /* The harness can only see a quarantine by the word it prints, so a marked one must print it,
        or it would satisfy this test and still be logged as PASS (review WARNING 3). */
-    if (!SAYS_QUARANTINED.test(near)) {
+    /* On the SAME line as a PASS string: the harness greps output line by line for PASS and
+       quarantined together, so a "quarantined" on a neighbouring line would satisfy a window
+       test here and still be logged as a pass there (review round 4). */
+    const nearLines = lines.slice(Math.max(0, i - 6), i + 1);
+    if (!nearLines.some((x) => PASS_STRING.test(x) && SAYS_QUARANTINED.test(x))) {
       problems.push(name + ':' + (i + 1) + ' is marked as a quarantine but its PASS line does not say QUARANTINED, '
         + 'so tools/browser-checks.sh would log it as a pass. Print QUARANTINED in it.');
       return;
@@ -206,4 +210,15 @@ test('control (review round 3): the marker must sit within 12 lines of the exit'
   assert.match(scan('f.js', far, [0, 7, 1])[0], /no "QUARANTINE until=/);
   const near = far.replace('// filler\n', ''); /* 12 lines above: inside */
   assert.deepEqual(scan('n.js', near, [0, 7, 1]), []);
+});
+
+test('control (review round 4): quarantined on a neighbouring line does not count', () => {
+  const split = [
+    '  // QUARANTINE until=0.9.00 card=#1079: stale click',
+    "  console.log('hid 1 quarantined post from the feed');",
+    "  console.log('PASS  x (skipped for this cut)');",
+    '  process.exit(0);',
+    '  await chromium.launch();',
+  ].join('\n');
+  assert.match(scan('s.js', split, [0, 7, 1])[0], /does not say QUARANTINED/);
 });
