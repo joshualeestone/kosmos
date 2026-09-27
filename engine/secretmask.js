@@ -456,6 +456,9 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *    is two letters with a vowel, a digit pair, or an uppercase letter with a digit), and a single-case key whose
  *    chunks read as words by wordLike's vowel test;
  *  - a key whose FIRST chunk is one character (the short walk starts only from two or three);
+ *  - a chunk with a number glued straight onto it, no separator (0Zq8 1vLm ..., or Zq80 vLm1 ...);
+ *  - (a false mask, the other side of SHORT_WALK_MIN_KEYLIKE) a held value shaped like configuration rather than a key,
+ *    such as a model id held from a settings file (gpt-4o-mini-2024-07-18), is masked out of prose that names it;
  *  - an uppercase-and-digit key (A-Z 0-9) in chunks of two: its vowel pairs, labels and digit pairs all read as plain,
  *    so about one in ten shows in full, and in chunks of three about one in two hundred (measured in review rounds 13
  *    and 19);

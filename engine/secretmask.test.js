@@ -1748,6 +1748,8 @@ test('#3995 gap 4 review round 23: a vendor key given without its prefix, its bo
       const chunks = body.match(/.{1,3}/g);
       const t = mask('Here: ' + chunks.join(' then ') + ' done').text;
       const shown = chunks.filter((c) => /[A-Za-z0-9]{2}/.test(c) && t.includes(' ' + c + ' '));
+      // One chunk may show: a body starting with - or _ opens with a chunk holding that separator (p-Y), which the check
+      // above counts only when it is written in the text exactly as sliced; every other chunk must be masked.
       assert.ok(shown.length <= 1, `${held}: chunks showed: ${shown.join(',')}: ${t}`);
     } finally { setKnownSecrets([]); }
   }

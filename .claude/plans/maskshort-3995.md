@@ -282,3 +282,14 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
 - The vendor-prefix match is computed once per value (it was computed twice); the copies loop is charged to the budget.
 - Already deferred, confirmed with repros: DNSoverTCPandUDP01 masked from prose (round 13); 200,000 repeats of a key's
   opening withhold the reply (round 21).
+
+## Review round 25 (Opus): no leak in the targeted case, no new withheld reply; two WARNINGs, both named and routed
+- Deferred and routed: a held value shaped like configuration (a model id, gpt-4o-mini-2024-07-18, held from a
+  secrets file) is masked out of prose that names the model. It is the SHORT_WALK_MIN_KEYLIKE trade-off (round 13),
+  and changing the plain-word rule again reopens the chunks-of-two leak (round 12). Its root is knownsecrets holding a
+  model id at all: filed as #4111. Named in Not covered.
+- Named in Not covered: a chunk with a number glued straight onto it (0Zq8, Zq80) shows, as on main.
+- The round-23 test says why it allows one chunk to show.
+- Outside this branch, filed as #4112: a reply naming sk-ant-api03- many times is withheld with many Anthropic keys held
+  (main too).
+- Noted: the cost tests are time-based, like the existing #3769 ones.
