@@ -16,6 +16,9 @@
  *   B. an online phone whose reads get no answer (aborted): that IS the Mac not answering, so the Mac copy stays.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-phone-offline-718.js
+ * #718 state 2 rides CONTROL B: an online phone whose reads get no answer is told "Your Mac is
+ * not answering" with "asleep or turned off", no Applications-folder remedy, and an agents card
+ * that names your Mac with no Terminal hatch.
  */
 const fs = require('node:fs');
 const os = require('node:os');
