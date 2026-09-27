@@ -45,11 +45,21 @@ const DIR = nodePath.join(__dirname, 'docs', 'browser-checks');
 const MARKER = /QUARANTINE[ \t]+until=(\d+)\.(\d+)\.(\d+)[ \t]+card=#(\d+):[ \t]*\S/;
 const LAUNCH = /\.launch(?:PersistentContext)?\s*\(/;
 const EXIT0 = /process\.exit\(\s*0?\s*\)/;
-/* PASS anywhere inside a one-line string ('✓ PASS', `[${n}] PASS`), not only at its start. */
-const PASS_STRING = /['"`][^'"`\n]*\bPASS\b/;
-/* Case-insensitive whole word, the same test tools/lib/bc-quarantine.sh applies (grep -iw). */
-const SAYS_QUARANTINED = /['"`][^'"`\n]*\bquarantined\b/i;
-const COMMENT_LINE = /^\s*(\/\/|\/\*|\*)/;
+/* PASS as a word anywhere on a code line, not only inside a quote on that line: a multi-line
+   template literal prints PASS from a line with no opening quote (review round 5). */
+const PASS_WORD = /\bPASS\b/;
+/* A marked quarantine must print PASS and quarantined in ONE string literal, so they reach the
+   output on one line, where the harness looks (tools/lib/bc-quarantine.sh). Either order;
+   quarantined in any case, PASS as written, the same rule the harness applies. */
+const LITERAL = /(['"`])((?:(?!\1)[^\\\n]|\\.)*)\1/g;
+function literalSaysQuarantinedPass(line) {
+  for (const m of line.matchAll(LITERAL)) if (PASS_WORD.test(m[2]) && /\bquarantined\b/i.test(m[2])) return true;
+  return false;
+}
+/* A whole-line comment only. `/* temp *\/ console.log('PASS')` is code after its comment. */
+function isCommentLine(l) {
+  return /^\s*\/\//.test(l) || /^\s*\*/.test(l) || (/^\s*\/\*/.test(l) && !/\*\/\s*\S/.test(l));
+}
 
 function parseVersion(v) {
   const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(v).trim());
@@ -68,13 +78,13 @@ function scan(name, src, version) {
      the first `.launch(` (render-fields.js does), and measuring from it would read an early
      PASS-exit in the main flow as "after the launch" and pass it (review WARNING 2). */
   let launchAt = -1;
-  lines.forEach((l, i) => { if (!COMMENT_LINE.test(l) && LAUNCH.test(l)) launchAt = i; });
+  lines.forEach((l, i) => { if (!isCommentLine(l) && LAUNCH.test(l)) launchAt = i; });
   const problems = [];
   lines.forEach((l, i) => {
-    if (!EXIT0.test(l) || COMMENT_LINE.test(l)) return;
+    if (!EXIT0.test(l) || isCommentLine(l)) return;
     if (launchAt >= 0 && i > launchAt) return;
-    const near = lines.slice(Math.max(0, i - 6), i + 1).join('\n');
-    if (!PASS_STRING.test(near)) return;
+    const nearLines = lines.slice(Math.max(0, i - 6), i + 1).filter((x) => !isCommentLine(x));
+    if (!nearLines.some((x) => PASS_WORD.test(x))) return;
     const above = lines.slice(Math.max(0, i - 12), i + 1).join('\n');
     const m = MARKER.exec(above);
     if (!m) {
@@ -83,15 +93,11 @@ function scan(name, src, version) {
         + 'mark the quarantine with the version it must be gone by.');
       return;
     }
-    /* The harness can only see a quarantine by the word it prints, so a marked one must print it,
-       or it would satisfy this test and still be logged as PASS (review WARNING 3). */
-    /* On the SAME line as a PASS string: the harness greps output line by line for PASS and
-       quarantined together, so a "quarantined" on a neighbouring line would satisfy a window
-       test here and still be logged as a pass there (review round 4). */
-    const nearLines = lines.slice(Math.max(0, i - 6), i + 1);
-    if (!nearLines.some((x) => PASS_STRING.test(x) && SAYS_QUARANTINED.test(x))) {
-      problems.push(name + ':' + (i + 1) + ' is marked as a quarantine but its PASS line does not say QUARANTINED, '
-        + 'so tools/browser-checks.sh would log it as a pass. Print QUARANTINED in it.');
+    /* The harness can only see a quarantine by the word it prints, so a marked one must print it
+       where the harness reads it: PASS and quarantined in one string literal (rounds 1, 4, 5). */
+    if (!nearLines.some(literalSaysQuarantinedPass)) {
+      problems.push(name + ':' + (i + 1) + ' is marked as a quarantine but no string near its exit says PASS and QUARANTINED together, '
+        + 'so tools/browser-checks.sh would log it as a pass. Print both in one line, for example "PASS  <name> QUARANTINED".');
       return;
     }
     const until = [+m[1], +m[2], +m[3]];
@@ -188,7 +194,7 @@ test('control (review WARNING 3): a marked quarantine must print QUARANTINED', (
   ].join('\n');
   const p = scan('q.js', quiet, [0, 7, 1]);
   assert.equal(p.length, 1);
-  assert.match(p[0], /does not say QUARANTINED/);
+  assert.match(p[0], /says PASS and QUARANTINED together/);
 });
 
 test('control (review round 2): lower-case quarantined counts, as in the harness; a commented exit is not an exit', () => {
@@ -220,5 +226,19 @@ test('control (review round 4): quarantined on a neighbouring line does not coun
     '  process.exit(0);',
     '  await chromium.launch();',
   ].join('\n');
-  assert.match(scan('s.js', split, [0, 7, 1])[0], /does not say QUARANTINED/);
+  assert.match(scan('s.js', split, [0, 7, 1])[0], /says PASS and QUARANTINED together/);
+});
+
+test('control (review round 5): the shapes the harness and this test disagreed on', () => {
+  const marked = (lines) => ['  // QUARANTINE until=0.9.00 card=#1079: stale click'].concat(lines, ['  process.exit(0);', '  await chromium.launch();']).join('\n');
+  /* Either order is a quarantine, here and in the harness. */
+  assert.deepEqual(scan('o.js', marked(["  console.log('QUARANTINED: PASS x');"]), [0, 7, 1]), []);
+  /* Two literals on one source line print two output lines: not a quarantine. */
+  assert.match(scan('t.js', marked(["  console.log('PASS x'); console.log('quarantined');"]), [0, 7, 1])[0], /says PASS and QUARANTINED together/);
+  /* Code after a leading block comment is code. */
+  const unmarked = ["/* temp */ console.log('PASS x'); process.exit(0);", 'await chromium.launch();'].join('\n');
+  assert.equal(scan('c.js', unmarked, [0, 7, 1]).length, 1);
+  /* PASS on a later line of a multi-line template literal. */
+  const tmpl = ['console.log(`', 'PASS x`);', 'process.exit(0);', 'await chromium.launch();'].join('\n');
+  assert.equal(scan('m.js', tmpl, [0, 7, 1]).length, 1);
 });
