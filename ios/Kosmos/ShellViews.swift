@@ -83,6 +83,14 @@ struct LoadFailureView: View {
         }
     }
 
+    private var icon: String {
+        switch failure {
+        case .offline: return "wifi.slash"
+        case .macUnreachable: return "desktopcomputer"
+        case .unreachable, .other: return "exclamationmark.icloud"
+        }
+    }
+
     private var message: String {
         switch failure {
         case .offline: return "Kosmos opens again as soon as your phone is back online."
@@ -96,7 +104,7 @@ struct LoadFailureView: View {
         ZStack {
             Color(uiColor: .kosmosNavy).ignoresSafeArea()
             VStack(spacing: 16) {
-                Image(systemName: failure == .offline ? "wifi.slash" : failure == .macUnreachable ? "desktopcomputer" : "exclamationmark.icloud")
+                Image(systemName: icon)
                     .font(.system(size: 44, weight: .regular))
                     .foregroundColor(KosmosColor.gold)
                     .accessibilityHidden(true)

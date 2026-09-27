@@ -53,13 +53,21 @@ enum Shell {
         return .other
     }
 
-    // The same, told which address failed: an unreachable Mac's own address is the
-    // Mac not answering, not Kosmos+. The coordinator's host, and any host that is not
-    // a Mac's, stay .unreachable.
+    // The codes that mean nothing answered at the far end. A certificate error or a bad
+    // response on a Mac's address means the Mac DID answer (the tunnel ends TLS on the Mac),
+    // and a DNS failure is the phone's own lookup, so those keep the Kosmos+ wording.
+    static let noAnswerCodes: Set<Int> = [
+        NSURLErrorTimedOut, NSURLErrorCannotConnectToHost,
+        NSURLErrorNetworkConnectionLost, NSURLErrorSecureConnectionFailed,
+    ]
+
+    // The same, told which address failed: a Mac's own address that did not answer is the
+    // Mac not answering, not Kosmos+. The coordinator's host, any host that is not a Mac's,
+    // and any failure outside noAnswerCodes stay .unreachable.
     static func loadFailure(domain: String, code: Int, failingHost: String?, coordinator: URL) -> LoadFailure? {
         guard let failure = loadFailure(domain: domain, code: code) else { return nil }
-        if failure == .unreachable, let host = failingHost?.lowercased(),
-           PushBridge.isMacHost(host, coordinator: coordinator) {
+        if failure == .unreachable, domain == NSURLErrorDomain, noAnswerCodes.contains(code),
+           let host = failingHost?.lowercased(), PushBridge.isMacHost(host, coordinator: coordinator) {
             return .macUnreachable
         }
         return failure
