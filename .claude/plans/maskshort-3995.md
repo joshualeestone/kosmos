@@ -182,3 +182,16 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
   = _ - + and /, as the word walk's pieceVariants does. Tested; red on the previous commit. Twos and threes still 0 of
   300 shown; the cost tests pass.
 - Not covered no longer lists base64 padding (Zq8=; round 8's split already takes it off) or + / glue; a test pins both.
+
+## Review round 15 (Opus), what changed
+- Two chunks joined in one run after the first (3pR/t6w, with / + - _ =) were never tried together: shortPieces now
+  offers runs of up to four consecutive parts joined, each piece carrying where it sits in its run. Tested for all five
+  separators; red on the previous commit.
+- A piece is masked where it sits in its run, not at the first place its letters appear (t6wx/t6w/q masked the label).
+  Tested.
+- Found on the way, my own: joined parts let a walk assemble through a guide's own mention of a public prefix
+  ("starts with sk-ant-api03") and mask it (two #3935 tests went red). Each short-index form now records how long its
+  KNOWN public head is (sk-, xai-, ghp_, github_pat_ and the like; a licence key's own - is not a head), and pieces
+  wholly inside it are used to assemble but not masked, as the word walk leaves a public prefix readable. My first try
+  (keeping such forms out of the short index) broke keys with their own -; reverted.
+- Noted NIT: the round-14 padding arm guards regressions only (it passed before round 14 too).

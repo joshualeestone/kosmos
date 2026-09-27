@@ -1630,3 +1630,17 @@ test('#3995 gap 4 review round 14: short chunks glued to a label by + or /, or c
     }
   } finally { setKnownSecrets([]); }
 });
+
+test('#3995 gap 4 review round 15: two chunks joined in one run are tried together, and a chunk is masked where it sits in its run', () => {
+  const held = j('Zq8vLm3pRt6w', 'Xy9kHb2nWc4d');
+  setKnownSecrets([held]);
+  try {
+    for (const sep of ['/', '+', '-', '_', '=']) {
+      const t = mask(`Zq8 and vLm and 3pR${sep}t6w and Xy9 and kHb and 2nW and c4d`).text;
+      for (const c of ['Zq8', 'vLm', '3pR', 't6w', 'Xy9', 'kHb', '2nW', 'c4d']) assert.ok(!t.includes(c), `joined by ${sep}: ${c} survived: ${t}`);
+    }
+    const t = mask('Zq8 and vLm and 3pR and see t6wx/t6w/q and Xy9 and kHb and 2nW and c4d').text;
+    assert.ok(t.includes('t6wx/'), 'the label t6wx was masked instead of the chunk: ' + t);
+    assert.ok(!/\/t6w\//.test(t), 'the real chunk t6w between the separators stayed visible: ' + t);
+  } finally { setKnownSecrets([]); }
+});

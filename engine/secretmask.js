@@ -107,6 +107,7 @@ function setKnownSecrets(values) {
   knownByPrefix = new Map();
   knownByOpening = new Map();
   knownByShort = new Map();
+  shortHead = new Map();
   knownGrams = new Set();
   const walked = new Set();
   for (const f of knownForms) {
@@ -267,6 +268,12 @@ function addWalked(w, walked) {
     for (const form of /[-_]/.test(w) ? [w, w.replace(/[-_]+/g, '')] : [w]) {
       /* Each form is checked, not the value: a UUID-shaped secret is hex once its - are taken out (review round 6). */
       if (form.length < MIN_VALUE_LEN || /^[0-9a-f]+$/i.test(form)) continue;
+      /* How much of this form is the value's public head (sk-ant-api03-): used to assemble it, never masked where a
+         guide names it (review round 15), as the word walk leaves a public prefix readable. */
+      /* Only a KNOWN public prefix counts: any - or _ in the first 16 characters would make a licence-style key's own
+         chunks (Ab3-Zq8-vLm-...) a "head" and leave them showing. */
+      const cut = SHORT_PUBLIC_HEAD.test(w) ? publicHeadCut(w) : -1;
+      shortHead.set(form, cut > 0 ? (form === w ? cut + 1 : w.slice(0, cut + 1).replace(/[-_]+/g, '').length) : 0);
       for (let l = 2; l < OPENING_LEN; l += 1) {   // the short walk starts from two or three characters
         const h = form.slice(0, l);
         if (!knownByShort.has(h)) knownByShort.set(h, []);
@@ -304,6 +311,10 @@ let knownByPrefix = new Map();
 let knownByOpening = new Map();
 /* #3995 gap 4: the walked forms by their first 2 and 3 characters (shortChunkSpans). */
 let knownByShort = new Map();
+/* #3995 gap 4: per short-index form, the length of its public head (0 when it has none). */
+let shortHead = new Map();
+/* The public key prefixes a guide names in pieces (the same set shapeHint in mask() looks for). */
+const SHORT_PUBLIC_HEAD = /^(?:sk-|sk_|rk_|xai-|gh[pousr]_|github_pat_|glpat-|xox[abprs]-)/;
 const NOT_KEY_CHARS = /[^A-Za-z0-9_+/=-]+/g;
 /* The board also holds whole files (engine/knownsecrets.js, up to 64KB) and their encodings. A form that
    long is not a key someone spells out in pieces, and the walk's reach grows with the form's length, so
@@ -757,15 +768,28 @@ function wordSkippingSpans(text) {
    near-cap forms sharing one opening, one 20,000-character run): 200 to 600ms, withheld at the budget rather
    than hanging. */
 const SHORT_WALK_BUDGET = 1250000;
+/* The pieces a run offers, each with WHERE it sits in the run ([from, to)), so the mask covers that place and not the
+   first place the same letters happen to appear (review round 15: in t6wx/t6w/q the chunk is the middle part). */
 function shortPieces(run) {
-  const out = new Set([run]);
-  const trimmed = run.replace(/^[-+_/]+/, '').replace(/[-+_/]+$/, '');
-  if (trimmed) out.add(trimmed);
-  /* Every part between = - _ (review round 8: a label on BOTH sides, x0-Zq8-y0 or var_Zq8_tmp0, left only the labels
-     to try): a label before (part-Zq8), after (Zq8-part0, review round 2), or around it. */
-  /* And + and / (review round 14: Zq8+part0 and Zq8/part0 were never tried; the word walk's pieceVariants takes them). */
-  if (/[=_+/-]/.test(trimmed)) for (const part of trimmed.split(/[=_+/-]+/)) if (part) out.add(part);
-  return [...out];
+  const out = new Map();
+  const put = (t, a, b) => { if (t && !out.has(t)) out.set(t, [a, b]); };
+  put(run, 0, run.length);
+  const lead = run.length - run.replace(/^[-+_/]+/, '').length;
+  const trimmed = run.slice(lead).replace(/[-+_/]+$/, '');
+  put(trimmed, lead, lead + trimmed.length);
+  /* Every part between = _ + / - (review rounds 8 and 14: a label before, after or around a chunk: part-Zq8,
+     Zq8-part0, x0-Zq8-y0, Zq8+part0, Zq8/part0), and runs of up to four consecutive parts with the separators taken out
+     (review round 15: two chunks in one run, 3pR/t6w, were never tried together). */
+  if (/[=_+/-]/.test(trimmed)) {
+    const parts = [];
+    for (const m of trimmed.matchAll(/[^=_+/-]+/g)) parts.push([m[0], lead + m.index, lead + m.index + m[0].length]);
+    for (const [t, a, b] of parts) put(t, a, b);
+    for (let i = 0; i < parts.length; i += 1) {
+      let t = parts[i][0];
+      for (let k = i + 1; k < parts.length && k < i + 4; k += 1) { t += parts[k][0]; put(t, parts[i][1], parts[k][2]); }
+    }
+  }
+  return out;
 }
 /* A plain word or number, as ordinary text writes one: digits or an ordinal (2nd), or letters in one case shape
    (lower, upper, Titlecase) that are either under three characters or read as a word by wordLike's vowel test
@@ -792,7 +816,10 @@ const SHORT_WALK_MIN_KEYLIKE = 2;
 function shortChunkSpans(text) {
   if (!knownByShort.size) return [];
   const runs = [];
-  for (const m of text.matchAll(/[A-Za-z0-9_+/=-]+/g)) runs.push([m.index, m.index + m[0].length, shortPieces(m[0]), m[0]]);
+  for (const m of text.matchAll(/[A-Za-z0-9_+/=-]+/g)) {
+    const where = shortPieces(m[0]);
+    runs.push([m.index, m.index + m[0].length, [...where.keys()], m[0], where]);
+  }
   if (runs.length < 2) return [];
   const present = new Set();
   const at = new Map();   // piece -> the runs offering it, in order
@@ -890,24 +917,24 @@ function shortChunkSpans(text) {
           }
         }
         let done = null;
-        if (end) { done = []; for (let n = end; n; n = n.prev) done.unshift([n.run, n.piece]); }
+        if (end) { done = []; for (let n = end; n; n = n.prev) done.unshift([n.run, n.piece, n.pos]); }
         if (!done || done.filter(([, t]) => !plainWordRun(t)).length < SHORT_WALK_MIN_KEYLIKE) continue;
         const key = f + '|' + done[done.length - 1][0];
         const had = completed.get(key);
-        if (!had) completed.set(key, done);   // starts run latest first, so the first completion here is the latest
+        if (!had) completed.set(key, { done, head: shortHead.get(f) || 0 });   // starts run latest first: the first completion here is the latest
       }
     }
   }
   const spans = [];
   const pieceSpan = (i, t) => {
-    /* Only the piece, not a label glued to it (review round 2; the word walk's pieceSpan does the same). */
-    const run = runs[i][3];
-    const off = run.endsWith(t) ? run.length - t.length : Math.max(0, run.indexOf(t));
-    spans.push([runs[i][0] + off, runs[i][0] + off + t.length]);
+    /* Only the piece, where it sits in its run (not a label glued to it: review rounds 2 and 15). */
+    const [a, b] = runs[i][4].get(t);
+    spans.push([runs[i][0] + a, runs[i][0] + b]);
   };
-  for (const done of completed.values()) {
+  for (const { done, head } of completed.values()) {
     const first = done[0][0], last = done[done.length - 1][0];
-    for (const [i, t] of done) {
+    for (const [i, t, pos] of done) {
+      if (pos <= head) continue;   // wholly inside the public head: assembled from, not masked
       pieceSpan(i, t);
       /* And every other copy of the same piece between the key's first and last chunk: the search keeps one path,
          which can run through a repeated copy and leave the one that was really the key's showing (review rounds 9
