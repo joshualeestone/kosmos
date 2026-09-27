@@ -7,8 +7,8 @@
  *   off         -> the pill says Off, Turn on is the one primary action, no address chip;
  *   connected   -> a green Connected pill, the address in ONE chip with Copy and Open, one plain line,
  *                  Turn off quiet, and View my account pointing at the web account;
- *   one request -> a compact card: the device, when, the code LARGE, one device-neutral sentence,
- *                  Allow / Deny; no Not now, no Not me; the request is NOT repeated in the devices list;
+ *   one request -> a compact card: the device, when, one device-neutral sentence, then the code LARGE in
+ *                  boxes directly above Allow / Deny (#3952); no Not now, no Not me; the request is NOT repeated in the devices list;
  *   two requests-> one stale (older than an hour, faded) and one unnamed ("Unknown device").
  * #3978: with one request, Allow (on Kosmos Plus) and the notice's Review (elsewhere) keep keyboard focus
  * and stay the same nodes through two real 5-second polls; the rows were rebuilt on every poll.
@@ -85,7 +85,34 @@ const STATES = {
           status: document.getElementById('plus-status').textContent.trim(), sw: sw.textContent.trim(), swClass: sw.className,
           cardShown: vis('plus-asks'), cardText: (document.getElementById('plus-asks').innerText || '').replace(/\s+/g, ' '),
           reqs: document.querySelectorAll('#plus-ask-rows .askreq').length, stale: document.querySelectorAll('#plus-ask-rows .askreq.stale').length, topCardShown: vis('askcard'), inPanel: vis('plus-asks'), panelW: document.getElementById('plus-asks').getBoundingClientRect().width, flowW: document.getElementById('plus-flow').getBoundingClientRect().width, asksAbove: document.getElementById('plus-asks').getBoundingClientRect().bottom <= document.getElementById('plus-flow').getBoundingClientRect().top + 1,
-          codes: [...document.querySelectorAll('#plus-ask-rows .askcode')].map((e) => ({ t: e.textContent.replace(/^code /, ''), px: parseFloat(getComputedStyle(e).fontSize) })),
+          codes: [...document.querySelectorAll('#plus-ask-rows .askcode')].map((e) => ({ t: e.textContent, label: (e.querySelector('.devcode') || { getAttribute: () => '' }).getAttribute('aria-label'), cells: e.querySelectorAll('.devcode-cell').length, nextIsActs: !!(e.nextElementSibling && e.nextElementSibling.classList.contains('acts')),   /* Mona 09-26: nothing between the code and Allow */ h: Math.min(...[...e.querySelectorAll('.devcode-cell')].map((c) => c.getBoundingClientRect().height)), inside: [...e.querySelectorAll('.devcode-cell')].every((c) => c.getBoundingClientRect().right <= e.closest('.askreq').getBoundingClientRect().right),
+            /* #3952 round 2: the code must read against what is actually behind it (a white fill on the navy skin gave
+               light on light). Ink of the first box against the first opaque background at or behind it. */
+            contrast: (() => {
+              const c = e.querySelector('.devcode-cell'); if (!c) return 0;
+              const rgb = (v) => (v.match(/[\d.]+/g) || []).map(Number);
+              const lum = ([r, g, b]) => { const f = (x) => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+              // Composite every translucent fill from the box outward over the first opaque ground (a background
+              // colour, or the Kosmos+ gradient's first stop): a 60% white fill on navy is what made this unreadable.
+              let n = c; let bg = null; const layers = [];
+              while (n && n.nodeType === 1) {
+                const cs = getComputedStyle(n);
+                const v = rgb(cs.backgroundColor);
+                if (v.length >= 3) {
+                  const al = v.length >= 4 ? v[3] : 1;
+                  if (al >= 0.95) { bg = v.slice(0, 3); break; }
+                  if (al > 0) layers.push([v[0], v[1], v[2], al]);
+                }
+                const g = (cs.backgroundImage || '').match(/rgba?\(([^)]+)\)/);
+                if (g) { const gv = g[1].split(',').map(Number); bg = gv.slice(0, 3); break; }
+                n = n.parentElement;
+              }
+              if (!bg) return { ratio: 0, ink: '', bg: 'none found', at: 'none' };
+              for (let i = layers.length - 1; i >= 0; i--) { const [r, g2, b2, al] = layers[i]; bg = [r * al + bg[0] * (1 - al), g2 * al + bg[1] * (1 - al), b2 * al + bg[2] * (1 - al)]; }
+              const ink = rgb(getComputedStyle(c).color);
+              const a = lum(ink), b = lum(bg);
+              return { ratio: Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 10) / 10, ink: ink.join(','), bg: bg.map(Math.round).join(','), at: n ? (n.id || n.className || n.tagName) : 'none' };
+            })() })),   // #3952: the code in the shared boxes
           listPending: document.querySelectorAll('#plus-devlist [data-ask]').length, listNames: [...document.querySelectorAll('#plus-devlist .devname')].map((e) => e.textContent.trim()),
           leftBar: [...document.querySelectorAll('#plus-ask-rows .askreq')].every((c) => getComputedStyle(c).borderLeftWidth === getComputedStyle(c).borderTopWidth),
         };
@@ -111,7 +138,7 @@ const STATES = {
         chk(v.cardShown && v.reqs === 1, `${t} one request is one card`, String(v.reqs));
         chk(/Windows browser/.test(v.cardText) && !/phone/i.test(v.cardText), `${t} a Windows browser is never called a phone`, v.cardText);
         chk(/Allow only if this code is showing on the device in your hand\./.test(v.cardText) && /\bAllow\b/.test(v.cardText) && /\bDeny\b/.test(v.cardText) && !/Not now|Not me/.test(v.cardText), `${t} one sentence, Allow / Deny, no Not now or Not me`, v.cardText);
-        chk(v.codes.length === 1 && v.codes[0].t === 'VR-D6' && v.codes[0].px >= 24, `${t} the code is shown large`, JSON.stringify(v.codes));
+        chk(v.codes.length === 1 && v.codes[0].t === 'VR-D6' && v.codes[0].label === 'V R, D 6' && v.codes[0].cells === 4 && v.codes[0].h >= 30 && v.codes[0].inside && v.codes[0].nextIsActs && v.codes[0].contrast.ratio >= 4.5, `${t} the code is shown large, one box per character, inside its card (#3952)`, JSON.stringify(v.codes));
         chk(v.listPending === 0, `${t} the request is not repeated in the devices list`, String(v.listPending));
         chk(v.leftBar, `${t} no solid left bar on the card (#3692)`);
         // #3829 addendum (Josh 20:00): on Kosmos Plus the requests sit directly ABOVE the panel at its width; no top banner.

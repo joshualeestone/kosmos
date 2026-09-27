@@ -30,7 +30,7 @@ function build(doc) {
   // eslint-disable-next-line no-new-func
   return new Function('document',
     page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS) + '\n'
-    + lift('esc') + '\n' + lift('openaiSubDeviceMarkup') + '\n' + lift('openaiSubDeviceAddress') + '\n' + lift('openaiSubPaintDevice')
+    + lift('esc') + '\n' + lift('devCodeHtml') + '\n' + lift('openaiSubDeviceMarkup') + '\n' + lift('openaiSubDeviceAddress') + '\n' + lift('openaiSubPaintDevice')
     + '\nreturn { openaiSubDeviceMarkup, openaiSubDeviceAddress, openaiSubPaintDevice, windowsCopyTable };')(doc);
 }
 
@@ -41,8 +41,15 @@ test('a read code is shown in a copy row with a Copy button', () => {
   /* 0.6.96: the line names the address, so the screen makes sense even when the browser
      came up behind Kosmos and the person has to go and find it. */
   assert.match(v.html, /^In your browser, go to <b>auth\.openai\.com\/codex\/device<\/b> and enter this code:/);
-  assert.match(v.html, /<span class="fr-cmd-row oa-devrow"><code class="fr-cmd oa-devcode">Q7RT-4KXWZ<\/code><button class="btn-quiet fr-copy" type="button" data-copy-command>Copy<\/button><\/span>/,
-    'the code is not in the row the shared Copy handler reads (.fr-cmd-row / .fr-cmd / data-copy-command)');
+  const row = v.html.match(/<span class="fr-cmd-row oa-devrow"><code class="fr-cmd oa-devcode devcode-copytext" aria-hidden="true">([\s\S]*?)<\/code><button class="btn-quiet fr-copy" type="button" data-copy-command>Copy<\/button><\/span>/);
+  assert.ok(row, 'the code is not in the row the shared Copy handler reads (.fr-cmd-row / .fr-cmd / data-copy-command)');
+  // #3952: drawn as boxes, one per character, grouped as OpenAI prints it; Copy reads the .fr-cmd's text, which is
+  // still exactly the code.
+  assert.equal(row[1], 'Q7RT-4KXWZ', 'the text Copy takes is not exactly the code');
+  // The boxes sit ABOVE the Copy row (round 1: inside its scrolling cell a phone showed 3 of 9).
+  assert.equal((v.html.match(/class="devcode-cell"/g) || []).length, 9, 'not one box per character');
+  const fit = v.html.indexOf('class="devcode-fit"');
+  assert.ok(fit >= 0 && fit < v.html.indexOf('fr-cmd-row'), 'the boxes are not above the Copy row');
 });
 
 test('the address beside the code is host and path only, and only from an https link', () => {
