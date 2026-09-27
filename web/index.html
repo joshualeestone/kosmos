@@ -10678,6 +10678,7 @@ window.kosmosMeasureScrollbarWidth();
          send logic is untouched; only the box around it changed. -->
     <!-- #4256: "Replying to <name>: <first words>" with an x, as the room's (#3745). -->
     <div class="pj-replying" id="d-reply" hidden></div>
+    <p class="vh" id="d-reply-say" role="status" aria-live="polite"></p>
     <div class="dmbar composerbox">
       <button class="attachbtn" id="d-attach" type="button" aria-label="Add a file to this conversation" title="Add a file"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
       <input id="d-attach-file" type="file" multiple hidden>
@@ -30462,6 +30463,11 @@ function dmReplySay(words) {
   const said = document.getElementById('d-say-msg');
   if (said) said.textContent = words;
 }
+/* Heard, not seen: the strip itself is not a live region (as the room's pjRoomAnnounce). */
+function dmReplyAnnounce(words) {
+  const el = document.getElementById('d-reply-say');
+  if (el) { el.textContent = ''; setTimeout(() => { el.textContent = words; }, 30); }
+}
 function dmReplyStart(at) {
   const agent = CURRENT && CURRENT.sessionName;
   const m = at ? DM_ROWS.get(at) : null;
@@ -30470,6 +30476,7 @@ function dmReplyStart(at) {
   if (!agent || !m || DM_ROWS_OF !== agent) { dmReplySay('Could not start a reply. Try again.'); return; }
   DM_REPLY[agent] = { at, who: dmReplyWho(m, DM_ROWS_NAME), words: pjReplyGist(m) };
   dmReplyPaint(agent);
+  dmReplyAnnounce('Replying to ' + DM_REPLY[agent].who + ': ' + DM_REPLY[agent].words);
   const said = document.getElementById('d-say-msg');   // a refusal about the previous reply is done with
   if (said && /Press \u00d7/.test(said.textContent)) said.textContent = '';
   const input = document.getElementById('d-say');
@@ -30512,6 +30519,15 @@ function talkFilterRows(rows, name, q) {
 let TALK_QUERY = '';
 function paintTalkThread(body, name) {
   const allRows = Array.isArray(body.messages) ? body.messages : [];
+  /* #4256: the rows by `at` and the reply strip, for the agent this paint is for, before any branch below can
+     return: an empty or unreadable thread must not keep another agent's "Replying to" strip. The first row
+     with an `at` wins, as the server's lookup does. */
+  DM_ROWS = new Map();
+  for (const r of allRows) if (r && typeof r.at === 'string' && !DM_ROWS.has(r.at)) DM_ROWS.set(r.at, r);
+  DM_ROWS_OF = CURRENT ? CURRENT.sessionName : null;
+  DM_ROWS_NAME = name;
+  DM_ROWS_OLDER = Number(body.olderCount) || 0;
+  dmReplyPaint(DM_ROWS_OF);
   /* #2660: record WHEN THIS PAGE LEARNED of the agent's latest reply, so the
      working line can tell a state sample that is merely OLD from one that is
      wrong. Mirrors the room's loop deliberately, including its deny test: a row
@@ -30626,12 +30642,6 @@ function paintTalkThread(body, name) {
     const threadKey = (filtering ? TALK_QUERY : '') + '\u0000' + rows.length
       + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '')
       + (pendingHtml ? '\u0000' + (pending.failed ? 'failed:' : 'sending:') + pending.startedAt : '');
-    /* #4256: every row the thread sent (not only the ones a search leaves), by `at`. */
-    DM_ROWS = new Map((Array.isArray(body.messages) ? body.messages : []).filter((r) => r && typeof r.at === 'string').map((r) => [r.at, r]));
-    DM_ROWS_OF = CURRENT ? CURRENT.sessionName : null;
-    DM_ROWS_NAME = name;
-    DM_ROWS_OLDER = Number(body.olderCount) || 0;
-    dmReplyPaint(DM_ROWS_OF);
     const dmHtml = rows.map((m) => dmRow(m, name)).join('') + pendingHtml + (filtering ? '' : dmOwesLine(body.owes, rows));
     setThread(thread, dmHtml, threadKey);
     if (!filtering && CURRENT && CURRENT.sessionName) unreadEdgeApply(thread, 'dm:' + CURRENT.sessionName);   // #3743
@@ -51696,7 +51706,7 @@ document.getElementById('d-dmthread').addEventListener('click', async (e) => {
     }
     return;
   }
-  if (e.target.closest('.rxn-reply')) { dmReplyStart(box.getAttribute('data-at')); return; }   // #4256
+  if (e.target.closest('.rxn-reply')) { rxnCloseAllPickers(); dmReplyStart(box.getAttribute('data-at')); return; }   // #4256, closing a picker open on another row as the room does
   const btn = e.target.closest('.rxn, .rxn-pick');
   if (!btn) return;
   await dmRxnToggle(CURRENT.sessionName, box, btn.getAttribute('data-emoji'));
@@ -51727,18 +51737,21 @@ document.getElementById('d-reply').addEventListener('click', (e) => {
   dmReplyPaint(agent);
   const said = document.getElementById('d-say-msg');
   if (said && /Press \u00d7/.test(said.textContent)) said.textContent = '';
+  dmReplyAnnounce('Not replying.');
   document.getElementById('d-say').focus();
 });
 /* #4256: the DM's agent bar is kept inside the thread the same way the room's is (a short bubble with
    Reply in its bar would run off the thread's left edge). */
-document.getElementById('d-dmthread').addEventListener('mouseover', (e) => {
+function dmRxnKeepInside(e) {
   const row = e.target && e.target.closest ? e.target.closest('#d-dmthread .msg') : null;
   if (!row || row.classList.contains('you')) return;
   const q = row.querySelector('.rxn-quick'); const thread = document.getElementById('d-dmthread');
   if (!q) return;
   row.classList.remove('rxn-left');
   if (q.getBoundingClientRect().left < thread.getBoundingClientRect().left) row.classList.add('rxn-left');
-});
+}
+document.getElementById('d-dmthread').addEventListener('mouseover', dmRxnKeepInside);
+document.getElementById('d-dmthread').addEventListener('focusin', dmRxnKeepInside);   // a keyboard reaching the bar
 
 /* #718 mobile: on a phone (max-width 30rem) the conversation comes FIRST on the project page,
    before Members and Files. Moved in the DOM, not with CSS order: a visual-only reorder makes
@@ -52538,7 +52551,7 @@ function rxnsInner(list, withReply) {
      smiley (`.rxn-more`) that opens the full picker -- the Discord shape he asked
      for. Existing pills stay visible always; only the `.rxn-quick` bar is hover-
      gated. #2834: the smiley opens the SHARED `#rxn-picker`, not an inline one. */
-  /* #3745: Reply, in the same hover bar, for a ROOM post only (the DM thread shares this bar). */
+  /* #3745 / #4256: Reply, in the same hover bar, for a room post and for an agent's message in a DM. */
   const reply = withReply ? '<button class="rxn-reply" type="button" aria-label="Reply to this message">Reply</button>' : '';
   return pills
     + '<span class="rxn-quick">' + quicks + reply

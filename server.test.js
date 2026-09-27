@@ -15244,6 +15244,15 @@ test('#4256: a DM reply tells the agent what it answers, keeps replyTo, and refu
     assert.equal(stale.status, 409, stale.body);
     assert.match(stale.body, /no longer in this conversation/);
     assert.equal(pastedChunks(sends).join('').includes('too late'), false, 'a refused reply was typed');
+    /* A thread that cannot be read is not a message that is gone: its own error, and nothing typed. */
+    const realRead = chatEngine.readThread;
+    chatEngine.readThread = () => { throw new Error('EACCES'); };
+    sends.length = 0;
+    let unread;
+    try { unread = await say({ text: 'still there?', reply_to: AT }); } finally { chatEngine.readThread = realRead; }
+    assert.equal(unread.status, 503, unread.body);
+    assert.match(unread.body, /could not read this conversation just now/);
+    assert.equal(pastedChunks(sends).join('').includes('still there?'), false, 'a reply whose thread could not be read was typed');
     const junk = await say({ text: 'x', reply_to: 42 });
     assert.equal(junk.status, 400, junk.body);
     const empty = await say({ text: 'x', reply_to: '' });

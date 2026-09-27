@@ -13302,8 +13302,13 @@ const server = http.createServer((req, res) => {
           if (typeof body.reply_to !== 'string' || !body.reply_to) {
             const bad = new Error('reply_to must name a message in this conversation'); bad.status = 400; throw bad;
           }
-          let kept = [];
-          try { kept = chat.readThread(chat.DIRECT, name).messages || []; } catch { kept = []; }
+          /* Could not read is not gone (the room draws them apart too): a read that failed says so and
+             leaves the reply for a retry, rather than telling the person their original has left. */
+          let kept;
+          try { kept = chat.readThread(chat.DIRECT, name).messages || []; } catch {
+            const unread = new Error('We could not read this conversation just now to find the message you are replying to. Try again in a moment.');
+            unread.status = 503; throw unread;
+          }
           answered = kept.find((r) => r && r.at === body.reply_to && typeof r.text === 'string'
             && r.kind !== 'kosmos' && r.kind !== 'question') || null;
           if (!answered) {

@@ -15,6 +15,7 @@
  *   R7  a header whose original is not in the thread says so: "unavailable", or "further back" when
  *       older messages were not sent; never silence
  *   R8  phone: Reply in the tapped-open bar is a thumb-sized target
+ *   R10 the strip belongs to one agent: another agent's page (even an empty thread) does not show it
  *
  * Harness: loaded over file:// with fetch answered here (render-unread-edge-3743.js's posture), so the
  * DM goes through the real paintTalk and the real sendTalk.
@@ -144,6 +145,21 @@ async function openDm(page, messages, olderCount) {
     const back = await page.evaluate(() => { const h = document.querySelector('#d-dmthread .msg.you .msg-replyto'); return h ? h.textContent : null; });
     chk(gone && /\bgone\b/.test(gone.cls) && gone.text === 'Original message unavailable' && back === 'Original message is further back',
       'R7 a missing original says unavailable, or further back when older messages were not sent', JSON.stringify({ gone, back }));
+
+    // R10: a reply started with one agent does not follow the person to another agent's page, even one whose thread
+    // is empty (a branch of the paint that draws no rows). Back on the first agent, it is still there.
+    await openDm(page, [agentRow(1, 'Morning. I read the brief.')], 0);
+    await page.hover('#d-dmthread .msg:not(.you) >> nth=0');
+    await page.click('#d-dmthread .msg:not(.you) >> nth=0 >> .rxn-reply');
+    const before10 = await page.evaluate(() => !document.getElementById('d-reply').hidden);
+    await page.evaluate(() => { window.__fx = { messages: [] }; CURRENT = { sessionName: 'bruno', name: 'Bruno' }; });
+    await page.evaluate(() => paintTalk('bruno', 'Bruno'));
+    const other = await page.evaluate(() => ({ hidden: document.getElementById('d-reply').hidden, described: document.getElementById('d-say').getAttribute('aria-describedby') }));
+    await page.evaluate(() => { window.__fx = { messages: [{ from: 'april', at: '2026-09-27T14:01:00.000Z', text: 'Morning. I read the brief.' }] }; CURRENT = { sessionName: 'april', name: 'April' }; });
+    await page.evaluate(() => paintTalk('april', 'April'));
+    const back10 = await page.evaluate(() => !document.getElementById('d-reply').hidden);
+    chk(before10 && other.hidden && other.described === null && back10,
+      'R10 another agent\'s page (an empty thread) shows no "Replying to"; the first agent\'s reply is kept for it', JSON.stringify({ before10, other, back10 }));
 
     // R8: phone, the tapped-open bar's Reply is a thumb-sized target
     const phone = await browser.newContext({ viewport: { width: 390, height: 800 }, isMobile: true, hasTouch: true });
