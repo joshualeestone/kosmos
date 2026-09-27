@@ -33,3 +33,6 @@ validation) the first request finished its mint before the second reached turnOn
 - FOUND WHILE CHECKING: with the collapse removed, the one-at-a-time test still PASSED 1 run in 5. Instrumented: two
   tunnels running at once interleaved their log pieces ("ARGV:ARGV: mac-request ..."), so the count saw one mint.
   The old test had the same latent false pass. LOG_CALL is now a single printf (one append). Perturbation now red 8/8.
+### Iteration 2 (sonnet): CONVERGED. NITs only, accepted: `answers` undefined if Promise.all rejected (the route
+always answers with a status, so the call resolves); the gated tunnel body repeated in two tests (two short,
+commented sites).
