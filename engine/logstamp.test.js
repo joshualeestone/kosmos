@@ -84,7 +84,8 @@ test('#4199 server.js installs the stamp right after the world bootstrap, for st
   assert.ok(boot > 0 && at > boot, 'the stamp is not after the world bootstrap (which must stay the first engine require)');
   const between = src.slice(src.indexOf('\n', boot) + 1, at).replace(/\/\*[\s\S]*?\*\//g, '').trim();
   assert.ok(between.startsWith('if (require.main === module) {'), 'something runs between the bootstrap and the stamp: ' + between.slice(0, 80));
-  const block = src.slice(src.lastIndexOf('if (require.main === module)', at), at + 900);
+  const blockStart = src.lastIndexOf('if (require.main === module)', at);
+  const block = src.slice(blockStart, src.indexOf('\n}\n', at) + 2);   // the whole guard block, however long its comments
   assert.match(block, /logstamp\.install\(process\.stdout, 1\b/, 'stdout is not stamped');
   assert.match(block, /logstamp\.install\(process\.stderr, 2\b/, 'stderr is not stamped');
   assert.match(block, /logstamp\.sameFile\(1, 2\)/, 'stdout and stderr do not share a line state when they are the same file');
@@ -111,12 +112,14 @@ test('#4199 install: Buffer writes go out byte for byte, a split UTF-8 character
   } finally { f.done(); }
 });
 
-test('#4199 install: a string in another encoding goes through untouched', () => {
+test('#4199 install: hex goes through untouched; latin1 and ascii text is stamped and keeps its encoding', () => {
   const f = fileStream();
   try {
     logstamp.install(f.s, f.fd, { now: () => new Date(0) });
     f.s.write('68690a', 'hex');
-    assert.deepEqual(f.out, [['68690a', 'hex']], 'a hex write was stamped or re-encoded');
+    f.s.write('caf\xe9\n', 'latin1');
+    f.s.write('plain\n', 'ascii');
+    assert.deepEqual(f.out, [['68690a', 'hex'], ['1970-01-01T00:00:00.000Z caf\xe9\n', 'latin1'], ['1970-01-01T00:00:00.000Z plain\n', 'ascii']]);
   } finally { f.done(); }
 });
 
@@ -172,4 +175,37 @@ test('#4199 stampBytes: stamps after each newline byte and changes no byte of th
   assert.equal(r.atLineStart, false);
   const e = logstamp.stampBytes(Buffer.alloc(0), true, 'T');
   assert.equal(e.buf.length, 0, 'an empty write stamped something');
+});
+
+test('#4199 end to end: a child whose stdout AND stderr are the same board.log stamps console.log and console.error once each', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'logstamp-4199-'));
+  const file = path.join(dir, 'board.log');
+  const fd = fs.openSync(file, 'a');
+  const mod = JSON.stringify(path.join(__dirname, 'logstamp.js'));
+  const script = "const l = require(" + mod + "); const shared = l.sameFile(1, 2) ? { atLineStart: true } : undefined;"
+    + "l.install(process.stdout, 1, { shared }); l.install(process.stderr, 2, { shared });"
+    + "process.stdout.write('half from stdout, '); process.stderr.write('ended by stderr\\n');"
+    + "console.log('a log line'); console.error('an error line');";
+  try {
+    const r = spawnSync(process.execPath, ['-e', script], { stdio: ['ignore', fd, fd] });
+    assert.equal(r.status, 0);
+  } finally { fs.closeSync(fd); }
+  const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
+  fs.rmSync(dir, { recursive: true, force: true });
+  assert.equal(lines.length, 3, JSON.stringify(lines));
+  for (const l of lines) assert.equal((l.match(new RegExp(ISO, 'g')) || []).length, 1, 'a line has no time, or two: ' + l);
+  assert.match(lines[0], /half from stdout, ended by stderr$/, 'the shared line was split or double-stamped');
+  assert.match(lines[1], /a log line$/);
+  assert.match(lines[2], /an error line$/);
+});
+
+test('#4199 endsMidLine: a file truncated to empty after the board opened it is never "mid-line" (the read-count guard for a race between the two looks is defensive and not reproducible here)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'logstamp-4199-'));
+  const file = path.join(dir, 'board.log');
+  fs.writeFileSync(file, 'x');
+  const fd = fs.openSync(file, 'a');
+  try {
+    fs.truncateSync(file, 0);   // truncated after the board opened it
+    assert.equal(logstamp.endsMidLine(fd, [file]), false, 'an empty file was read as mid-line (a spurious blank line)');
+  } finally { fs.closeSync(fd); fs.rmSync(dir, { recursive: true, force: true }); }
 });
