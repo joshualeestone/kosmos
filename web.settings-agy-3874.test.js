@@ -102,7 +102,7 @@ function choice({ offered = true, cli = { present: true } } = {}) {
   const els = {};
   const el = (id) => (els[id] || (els[id] = stubEl(id)));
   const calls = [];
-  const sub = { leave: () => calls.push('leave'), start: () => calls.push('start') };
+  const sub = { leave: () => calls.push('leave'), stop: () => calls.push('stop'), start: () => calls.push('start') };   // stop: #3998 round 28
   const state = { gen: 1, which: 'google', cli, onRead: null };
   // eslint-disable-next-line no-new-func
   const api = new Function('document', 'ACCT_AGY_SUB', 'acctKeyedReveal', 'acctKeyedInstallShow', 'keyedSubReady', 'ACCT_KEYED_FOCUS',

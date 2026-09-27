@@ -552,6 +552,157 @@ function agyRealName(bin) {
   const given = String(bin || '');
   try { return path.basename(fs.realpathSync(given)); } catch { return path.basename(given); }
 }
+/* The name an agy binary may have: `agy` on a Mac (the pane shows it), `agy` or `agy.exe` on Windows. */
+function isAgyName(name, platform = process.platform) {
+  const n = String(name || '');
+  if (platform === 'win32') return /^agy(\.exe)?$/i.test(path.win32.basename(n));
+  return n === 'agy';
+}
+
+/* ---- #3568: Antigravity (agy) on Windows ------------------------------------------------------
+ * MEASURED on a Windows 11 box (2026-09-26): Google's own install.ps1 reads a per-CPU update manifest
+ * { version, url, sha512 } from the URL below, downloads the exe, checks its SHA-512 and then runs
+ * `agy.exe install`, which edits PATH and the shell profiles. Kosmos does the first half only: the
+ * manifest, the download, the SHA-512 (hex, the manifest's own), AND the Authenticode signature, which
+ * must be Valid and signed by Google LLC (agy 1.2.11: CN=Google LLC, O=Google LLC, DigiCert G4). It
+ * never runs `agy install`, and writes nothing outside its own runners folder.
+ * ⚠️ NOT PINNED, AND IT CANNOT BE: agy runs a self-update check on every print run (measured) and
+ * replaces its own exe in place with Google's next release. So the pin is Google's signature, checked
+ * here on the bytes Kosmos installs; the updater is Google's own, updating Google's own program.
+ */
+const AGY_MANIFEST_BASE = 'https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/';
+const AGY_MANIFEST = Object.freeze({ x64: 'windows_amd64.json', arm64: 'windows_arm64.json' });
+const AGY_DOWNLOAD_HOSTS = Object.freeze(['storage.googleapis.com', 'dl.google.com']);
+const AGY_SIGNER = /^CN=Google LLC(,|$)/;
+const AGY_SIGNER_ORG = /(^|,\s*)O=Google LLC(,|$)/;
+/* Host-flavoured paths: they are opened on this machine (on Windows the same as path.win32). */
+function agyWin32Dir() { return path.join(managedRoot(), 'antigravity'); }
+function agyWin32Bin() { return path.join(agyWin32Dir(), 'agy.exe'); }
+function agyWin32Marker() { return path.join(agyWin32Dir(), '.verified'); }
+/* The marker names the file it vouches for; written only after the checks and --version passed, and
+   removed before a new exe is put in place. */
+function agyWin32Verified(bin) {
+  try { return JSON.parse(fs.readFileSync(agyWin32Marker(), 'utf8')).bin === bin; } catch { return false; }
+}
+
+/** The manifest's answer, checked. { version, url, sha512 } or throws a plain error. Pure. */
+function agyCheckManifest(m) {
+  const plain = (msg) => Object.assign(new Error(msg), { plain: true });
+  if (!m || typeof m !== 'object') throw plain('Google\'s Antigravity update list did not answer in a form Kosmos knows, so nothing was downloaded');
+  const version = String(m.version || '');
+  const sha512 = String(m.sha512 || '').toLowerCase();
+  let u;
+  try { u = new URL(String(m.url || '')); } catch { u = null; }
+  if (!/^\d+\.\d+\.\d+([.-][0-9A-Za-z.-]+)?$/.test(version) || !/^[0-9a-f]{128}$/.test(sha512)
+    || !u || u.protocol !== 'https:' || !AGY_DOWNLOAD_HOSTS.includes(u.hostname)) {
+    throw plain('Google\'s Antigravity update list did not answer in a form Kosmos knows, so nothing was downloaded');
+  }
+  return { version, url: u.toString(), sha512 };
+}
+
+/* GET a small JSON document over https (the manifest). */
+function fetchJson(url, getter) {
+  const get = getter || https.get;
+  return new Promise((resolve, reject) => {
+    const req = get(url, (res) => {
+      if (res.statusCode !== 200) { res.resume(); reject(new Error(`the download answered ${res.statusCode}`)); return; }
+      let body = '';
+      res.on('data', (c) => { body += c; if (body.length > 64 * 1024) req.destroy(new Error('the update list was too large')); });
+      res.on('end', () => { try { resolve(JSON.parse(body.replace(/^\uFEFF/, ''))); } catch (e) { reject(Object.assign(new Error('Google\'s Antigravity update list could not be read, so nothing was downloaded'), { plain: true })); } });
+      res.on('error', reject);
+    });
+    req.setTimeout(30000, () => req.destroy(new Error('the download stalled (no data for 30s)')));
+    req.on('error', reject);
+  });
+}
+
+function fileSha512Hex(file) {
+  return new Promise((resolve, reject) => {
+    const h = crypto.createHash('sha512');
+    const s = fs.createReadStream(file);
+    s.on('data', (c) => h.update(c));
+    s.on('end', () => resolve(h.digest('hex')));
+    s.on('error', reject);
+  });
+}
+
+/* Authenticode, asked of Windows itself: { status, subject }. The path rides in the environment, not
+   the command, so no quoting can change what is run. */
+function authenticodeOf(file) {
+  return new Promise((resolve) => {
+    const ps = path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    const script = '$s = Get-AuthenticodeSignature -LiteralPath $env:KOSMOS_SIGNED_FILE; '
+      + '[Console]::Out.Write((@{ status = [string]$s.Status; subject = [string]$s.SignerCertificate.Subject } | ConvertTo-Json -Compress))';
+    execFile(ps, ['-NoProfile', '-NonInteractive', '-Command', script],
+      { windowsHide: true, timeout: 60000, env: Object.assign({}, process.env, { KOSMOS_SIGNED_FILE: file }) },
+      (err, stdout) => {
+        if (err) { resolve({ status: 'Unknown', subject: '' }); return; }
+        try { const j = JSON.parse(String(stdout).trim()); resolve({ status: String(j.status || ''), subject: String(j.subject || '') }); }
+        catch { resolve({ status: 'Unknown', subject: '' }); }
+      });
+  });
+}
+/** Whether an Authenticode answer is Google's. Pure. */
+function agySignedByGoogle(sig) {
+  return !!sig && sig.status === 'Valid' && AGY_SIGNER.test(String(sig.subject || '')) && AGY_SIGNER_ORG.test(String(sig.subject || ''));
+}
+
+/**
+ * Install agy on Windows. Resolves { ok, version?, because? }; never rejects. Seams (tests):
+ * { arch, fetchManifest(url), download(url, file, job), signature(file), prove(bin, done) }.
+ */
+let agyWin32Job = null;
+function installAntigravityWin32(opts) {
+  if (agyWin32Job) return agyWin32Job;
+  const o = opts || {};
+  const name = 'Antigravity';
+  agyWin32Job = (async () => {
+    const arch = o.arch || process.arch;
+    const file = AGY_MANIFEST[arch];
+    if (!file) return { ok: false, because: `Google publishes no Windows Antigravity for this kind of processor (${arch}), so nothing was downloaded` };
+    const dir = agyWin32Dir();
+    const tmpDir = path.join(managedRoot(), '.tmp');
+    const staging = path.join(tmpDir, `antigravity-${process.pid}-${Date.now()}.exe`);
+    let stage = 'download';
+    try {
+      const m = agyCheckManifest(await (o.fetchManifest || fetchJson)(AGY_MANIFEST_BASE + file));
+      fs.mkdirSync(tmpDir, { recursive: true });
+      const job = { receivedBytes: 0, totalBytes: null };
+      await (o.download || download)(m.url, staging, job);
+      stage = 'verify';
+      if (await fileSha512Hex(staging) !== m.sha512) {
+        return { ok: false, because: 'the Antigravity download did not match the checksum Google publishes for it, so it was discarded' };
+      }
+      const sig = await (o.signature || authenticodeOf)(staging);
+      if (!agySignedByGoogle(sig)) {
+        return { ok: false, because: 'the Antigravity download is not signed by Google, so it was discarded' };
+      }
+      stage = 'swap';
+      fs.mkdirSync(dir, { recursive: true });
+      try { fs.rmSync(agyWin32Marker(), { force: true }); } catch { /* none */ }
+      const bin = agyWin32Bin();
+      const old = bin + '.old-' + process.pid;
+      /* An agy already there (a reinstall) is moved aside first; lstat, because presence here is "is
+         something at that name", not "can it run". */
+      let there = false;
+      try { fs.lstatSync(bin); there = true; } catch { there = false; }
+      if (there) await renameRetrying(bin, old, 'win32');
+      await renameRetrying(staging, bin, 'win32');
+      try { fs.rmSync(old, { force: true }); } catch { /* a running agy holds it; the next install sweeps */ }
+      stage = 'prove';
+      const prove = o.prove || ((b, done) => execFile(b, ['--version'], { timeout: 30000, windowsHide: true }, done));
+      const proved = await new Promise((resolve) => prove(bin, (err, stdout) => resolve(err ? null : String(stdout || '').trim())));
+      if (!proved) return { ok: false, because: 'Antigravity was downloaded but did not start on this computer' };
+      fs.writeFileSync(agyWin32Marker(), JSON.stringify({ bin, version: m.version, sha512: m.sha512, proved, at: new Date().toISOString() }));
+      return { ok: true, version: m.version };
+    } catch (err) {
+      return { ok: false, because: plainFailure(err, { name }, stage === 'verify' || stage === 'prove' ? 'prepare' : stage) };
+    } finally {
+      try { fs.rmSync(staging, { force: true }); } catch { /* best effort */ }
+    }
+  })().finally(() => { agyWin32Job = null; });
+  return agyWin32Job;
+}
 function resolveBin(provider, opts) {
   if (provider === 'claude') {
     // Same authoritative-override contract as openai, with Claude's own
@@ -635,6 +786,20 @@ function resolveBin(provider, opts) {
      the basename `agy`: the board recognises the pane by that command (status.isAntigravityCommand). */
   if (provider === 'antigravity') {
     const envAgy = process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN;
+    const plat = (opts && opts.platform) || process.platform;
+    /* Windows (#3568): no panes to recognise by name, so agy.exe is agy. The copy Kosmos installed
+       (installAntigravityWin32) counts only with its verified marker, like codex.exe's. */
+    if (plat === 'win32') {
+      if (envAgy) {
+        if (!isAgyName(agyRealName(envAgy), plat)) {
+          return { bin: envAgy, present: false, managed: false, overridden: true, envName: 'AGENT_WORKFORCE_ANTIGRAVITY_BIN',
+            because: 'AGENT_WORKFORCE_ANTIGRAVITY_BIN must name a file called agy.exe' };
+        }
+        return { bin: envAgy, present: isRunnable(envAgy), managed: false, overridden: true, envName: 'AGENT_WORKFORCE_ANTIGRAVITY_BIN' };
+      }
+      const managed = agyWin32Bin();
+      return { bin: managed, present: isRunnable(managed) && agyWin32Verified(managed), managed: true, overridden: false };
+    }
     if (envAgy) {
       // A pane running any other name is invisible to the board and the supervisor, so say so here.
       if (agyRealName(envAgy) !== 'agy') {
@@ -1741,4 +1906,4 @@ function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 /* pathextCandidates is exported for the SAME reason create.unusablePath is: its
    win32 branch cannot be asserted from the Mac the suite runs on unless the
    platform is injectable from a test. */
-module.exports = { MANIFEST, CODEX_WIN32, GROK_DARWIN, GROK_WIN32, nodeLauncher, winNodeLauncher, spawnTarget, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };
+module.exports = { MANIFEST, CODEX_WIN32, GROK_DARWIN, GROK_WIN32, nodeLauncher, winNodeLauncher, spawnTarget, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, isAgyName, installAntigravityWin32, agyWin32Bin, agyWin32Verified, agyCheckManifest, agySignedByGoogle, AGY_MANIFEST_BASE, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };

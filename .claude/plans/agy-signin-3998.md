@@ -185,3 +185,9 @@ That the screen wording on Josh's 11:27 to 11:33 screenshots is stable across ag
 - Stop this sign-in stops it even with its window open (a driver stop(), used by both Stop buttons). Round 26's leave-it-running applies only to the passive ways out: closing the dialog, switching provider, cancelling first run.
 - The code prompt is read on its own line and the next (where agy shows what is typed), not from anything drawn further down, so a hint under an empty prompt is not a held code.
 - The tmux call and `open` timeouts are named (TMUX_CALL_MS, OPEN_MS); the engine tests remove every temp folder they make.
+
+## Merged with main's #3568 Windows sign-in (#4063) (decided)
+- main added a Windows code-box sign-in to the same driver (win* methods, its own /api/antigravity/win32signin routes, the same element ids as this branch's Mac box). Merged, not rebased (one resolution instead of 41).
+- agystatus.js keeps both: this branch's remembered sign-in, and main's openForSignIn (the Windows route calls it; its Mac Terminal arm has no caller now that the Mac signs in out of sight).
+- One driver: this branch's stop/leave/rows/follow/sendCode and main's winStart/winPaint/winCode side by side. leave() also ends a Windows sign-in (winLeave). The Continue button and Enter are wired once, in wire(): sendCode hands a running Windows sign-in to winCode, so one press is never sent to both the Mac and Windows routes (main's separate loop that wired winCode is removed). The first-run and Settings Stop buttons call stop().
+- main's web.agy-win32-3568 test: its element stubs gain addEventListener (the merged driver wires in wire()), its Windows code goes through the real Continue handler (and asserts nothing reaches the Mac route), and its Mac control expects this branch's "Sign in with Google" instead of main's Terminal "Open".
