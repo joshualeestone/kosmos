@@ -30,7 +30,6 @@ const ALSO = ['platform.test.js', 'store.test.js', 'windows-coupling-audit-1732.
 const KNOWN_RED = {
   'engine/projects.win32-reveal.test.js': '#4257',
   'engine/trust.win32-key-2281.test.js': '#4257',
-  'engine/win32handoff.test.js': '#4258',
 };
 
 const PER_TEST_TIMEOUT_MS = 60000;
