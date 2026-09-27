@@ -17626,6 +17626,24 @@ if (require.main === module) {
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh where agents save the files they make: ${String(err && err.message)}\n`);
   }
+  /* #1071: the About-you block ("Who you work for"), refreshed at boot for the
+     reason the three above give. `you.syncEveryone` had one caller, `PUT /api/you`,
+     so an agent made after the person last saved that form never got the block,
+     and neither did any later wording (#3444's "use their name"). Measured on
+     Mortals before wiring this: reports, connections and dmfiles on 8 of 8
+     agents, this block on 1 of 8. It writes only inside its own markers, never
+     creates a file, removes the block when nothing is saved (what a save of an
+     empty form does), and is never fatal. */
+  try {
+    const told = you.syncEveryone(safeRoster());
+    const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
+    if (stuck.length) {
+      const why = (stuck[0] && stuck[0].because) || 'no reason given';
+      process.stderr.write(`Kosmos could not refresh what ${stuck.length} of ${told.length} agent(s) know about who they work for; they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${why}\n`);
+    }
+  } catch (err) {
+    process.stderr.write(`Kosmos could not refresh what agents know about who they work for: ${String(err && err.message)}\n`);
+  }
   /* #570: on Windows, a board started by hand from the unpacked zip (Kosmos.exe)
      hands itself to its headless logon task and leaves, so the launcher is never
      the board and a relaunch never reports "port in use" over a working
