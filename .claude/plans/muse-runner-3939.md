@@ -14,3 +14,8 @@ Card #3939 (Josh's spec, 2026-09-26; research complete: Homer's Windows captures
 ## Next slices (not this one)
 - 2: the runtime adapter: `muse exec --json --workspace <real path> --session-id <uuid>` per turn, the JSONL events (run.output.delta, run.terminal.completed), resume on the same session and workspace, paths resolved (Muse refuses a path through a symlink).
 - 3: sign-in state (`muse login` / META_API_KEY), then the provider row in Settings, only once a signed-in run has been measured (needs Josh to approve one device code).
+
+## Review round 1 (decided)
+- version() is bounded: the child is stopped with SIGKILL (a launcher that ignores TERM kept it waiting 25 s, measured), its output is capped, and a hard-cap timer answers unknown if no callback ever comes (late callbacks ignored), as engine/agystatus.js does.
+- Only the WHOLE trimmed output may be Muse Code's version line (no line picked out of a banner).
+- The unknown and not-installed sentences are named constants.
