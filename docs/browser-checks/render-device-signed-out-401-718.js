@@ -80,7 +80,16 @@ const BOARD_NOT_SIGNED_IN = /This board is not signed in/i;
     let clickErr = '';
     if (await btn.count()) await btn.click({ timeout: 3000 }).catch((e) => { clickErr = String(e && e.message || e).split('\n')[0]; });
     await page.waitForTimeout(900);
-    check('agents 401 signed_out: Sign in reloads this page (a navigation the relay turns into its sign-in page)', navigated, clickErr);
+    // On a failed click, say which button it was and what covers it, so a red is diagnosable.
+    const where = clickErr ? await btn.evaluate((b) => {
+      const r = b.getBoundingClientRect(), host = b.closest('[id]');
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      const topHost = top && (top.closest('[id]') || top);
+      return ' | button in #' + (host ? host.id : '?') + ' at ' + Math.round(r.left) + ',' + Math.round(r.top)
+        + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + '; on top: ' + (top ? top.tagName.toLowerCase() : 'nothing')
+        + (topHost && topHost.id ? ' in #' + topHost.id : '');
+    }).catch((e) => ' | ' + String(e).slice(0, 80)) : '';
+    check('agents 401 signed_out: Sign in reloads this page (a navigation the relay turns into its sign-in page)', navigated, clickErr + where);
     await ctx.close();
   }
 
