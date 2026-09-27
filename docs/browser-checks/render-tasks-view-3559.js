@@ -339,6 +339,17 @@ function chk(ok, label, extra) {
           await page.evaluate(() => document.getElementById('tsk-search').blur());
           chk(onTab === 'tasks' && fromTab === 'tsk-search', `${tag} "/" right after clicking the Tasks tab focuses the search`, JSON.stringify({ onTab, fromTab }));
         }
+        /* Not while a header popover is open: the account menu keeps focus on its button; "/" leaves it there. */
+        {
+          await page.click('#userpop-btn');
+          await page.waitForTimeout(150);
+          const pop = await page.evaluate(() => ({ open: !document.getElementById('userpop-menu').hidden, on: document.activeElement && document.activeElement.id }));
+          await page.keyboard.press('/');
+          const popAfter = await page.evaluate(() => ({ on: document.activeElement && document.activeElement.id, open: !document.getElementById('userpop-menu').hidden }));
+          await page.keyboard.press('Escape');
+          await page.evaluate(() => { const m = document.getElementById('userpop-menu'); if (m && !m.hidden) document.getElementById('userpop-btn').click(); document.activeElement && document.activeElement.blur && document.activeElement.blur(); });
+          chk(pop.open && popAfter.open && popAfter.on !== 'tsk-search', `${tag} "/" with the account menu open does not move focus into the search`, JSON.stringify({ pop, popAfter }));
+        }
         /* "/" from a control inside the Tasks view (a tile button) focuses the search too. */
         await page.focus('#tsk-tiles [data-tile="nobody"]');
         await page.keyboard.press('/');

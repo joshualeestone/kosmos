@@ -46929,6 +46929,10 @@ document.addEventListener('keydown', (e) => {
   // <dialog>, and focus can sit on the page behind one when its button disables itself).
   if (t && t.closest && t.closest('[role="dialog"], [role="alertdialog"], [aria-modal="true"]')) return;
   if ([...document.querySelectorAll('[aria-modal="true"]')].some((m) => m.getClientRects().length > 0)) return;
+  // Nor while a header popover or menu is open (the world switcher and account menu are plain groups, not dialogs,
+  // and keep focus on their trigger): their open trigger says aria-expanded="true".
+  if (t && t.closest && t.closest('[aria-expanded="true"], #worldsw-menu, #userpop-menu')) return;
+  if ([...document.querySelectorAll('#worldsw-menu, #userpop-menu')].some((m) => !m.hidden && m.getClientRects().length > 0)) return;
   e.preventDefault();
   document.getElementById('tsk-search').focus();
 });
