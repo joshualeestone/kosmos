@@ -4,8 +4,9 @@
 /**
  * #4043: the Antigravity (agy) side of self-reporting, the sibling of bin/grok-report-bridge.js and
  * bin/gemini-report-bridge.js. agy runs a hook command from the agent's `.agents/hooks.json` at
- * each lifecycle event, INSIDE the agent's tmux pane (so it inherits TMUX_PANE, the identity
- * /api/report resolves), with the event's payload as JSON on stdin.
+ * each lifecycle event, with the event's payload as JSON on stdin. It is EXPECTED to run inside the
+ * agent's tmux pane and so inherit TMUX_PANE, the identity /api/report resolves; that is not yet
+ * measured under the supervisor (release check #1), which is why throttleKey has fallbacks.
  *
  * 📌 MEASURED on Agent1s 2026-09-26 (agy 1.2.x, a real print-mode turn with capture hooks):
  *   PreInvocation -> PostInvocation -> Stop, in that order; every payload carries conversationId,

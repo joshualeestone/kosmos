@@ -11,8 +11,8 @@ over the scraped UNKNOWN in reconcileReport (checked by calling it: working -> w
 
 ## Change
 - bin/agy-report-bridge.js: event from argv; prints `{}` FIRST for EVERY event (agy reads stdout as the
-  answer; an empty decision is no decision since agy 1.0.16); PreInvocation -> working, Stop -> idle,
-  ask_question PreToolUse -> needs_you, ask_question PostToolUse -> working (an error named in the text); POST budget 1.5s,
+  answer; an empty decision is no decision since agy 1.0.16); PreInvocation -> working, Stop -> idle (an error named in the text),
+  ask_question PreToolUse -> needs_you, ask_question PostToolUse -> working; POST budget 1.5s,
   stdin 1s, since PreInvocation runs before every model call; auto:true; exit 0 always.
 - engine/agyhooks.js: merges one `kosmos-report` entry into <workdir>/.agents/hooks.json; keeps the
   person's other hooks; leaves a non-JSON file alone; atomic write only on change; sh-quoted paths.
@@ -54,8 +54,7 @@ over the scraped UNKNOWN in reconcileReport (checked by calling it: working -> w
 ## Added after convergence (Splinter, 2026-09-26 20:59, from Gemini-Sub's spec on the card)
 - agy's `ask_question` tool: PreToolUse (matcher `^ask_question$` only) -> needs_you with the question
   as the text; PostToolUse (same matcher) -> working. The bridge re-checks toolCall.name. PreToolUse
-  answers `{}` (superseded below: first `allow`, then `{}` after review 3). Unmeasured live: the ask_question args key (Question/question/...
-  tried, a fixed sentence otherwise) and PreToolUse firing for it. Release check #3.
+  answers `{}` (superseded below: first `allow`, then `{}` after review 3). Unmeasured live: PreToolUse firing for it (the args key was settled by review 3, below). Release check #3.
 - Review iteration 3 (opus): the question is at args.questions[].question (agy's schema, from the
   binary) -> read there; `allow` was an unmeasured active decision -> `{}`; header/plan contradictions
   fixed; the stdout test isolated its pane.

@@ -106,6 +106,7 @@ test('#4043: run as agy runs it, the bridge answers {} first and exits 0 fast ev
     encoding: 'utf8',
     timeout: 15000,
   });
+  try { fs.rmSync(bridge.markerFile({ TMUX_PANE: '%stdout-' + process.pid }), { force: true }); } catch { /* none */ }
   assert.equal(r.status, 0);
   assert.equal(r.stdout.trim(), '{}', 'agy reads stdout as the hook\'s answer; it must be exactly {}');
   assert.ok(Date.now() - start < (bridge.STDIN_TIMEOUT_MS + bridge.TIMEOUT_MS + 3000), 'the bridge stalled the agent');
@@ -151,8 +152,9 @@ test('#4043: the supervisor writes the hook before every agy launch, and cannot 
   /* The launch needs tmux and agy, so the order is pinned in source, as
      supervisor.pane-reach-1160.test.js pins agytrust's. */
   const sh = fs.readFileSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
-  const branch = sh.slice(sh.indexOf('elif [ "$RUNNER" = antigravity ]; then'));
-  assert.ok(branch.length > 0, 'the antigravity branch moved: re-anchor this pin');
+  const at = sh.indexOf('elif [ "$RUNNER" = antigravity ]; then');
+  assert.ok(at > -1, 'the antigravity branch moved: re-anchor this pin');
+  const branch = sh.slice(at);
   const call = branch.indexOf('"$NODE_BIN" "$_eng/agyhooks.js" "$WORKDIR" "$NODE_BIN" "$_AGY_BRIDGE" >/dev/null || true');
   const launch = branch.indexOf('new-session');
   assert.ok(call > -1, 'the supervisor no longer runs agyhooks for an agy agent');
@@ -188,6 +190,7 @@ test('#4043: run for an ask_question, the bridge answers exactly {} (no permissi
     env: { ...process.env, KOSMOS_PORT: '9', TMUX_PANE: '%pretool-' + process.pid },
     encoding: 'utf8', timeout: 15000,
   });
+  try { fs.rmSync(bridge.markerFile({ TMUX_PANE: '%pretool-' + process.pid }), { force: true }); } catch { /* none */ }
   assert.equal(r.status, 0);
   assert.equal(r.stdout.trim(), '{}');
 });
@@ -199,4 +202,58 @@ test('#4043: agents without a pane never share one throttle marker', () => {
   assert.ok(a.startsWith('tok-') && b.startsWith('tok-') && a !== b, 'two agents\' tokens gave one key');
   assert.notEqual(bridge.throttleKey({}, 4242), bridge.throttleKey({}, 4343), 'two agy processes shared a key');
   assert.equal(bridge.throttleKey({}, 1), 'nopane', 'control: only an unknowable caller falls back to the shared key');
+});
+
+/* Drive the real bridge, as agy runs it, against a fake board in THIS process (grok-report-bridge.test.js's
+   drive()). Async spawn so the stub can answer; the handler records before it responds, so the child's
+   close is a sufficient barrier. */
+function driveBridge(port, eventName, payload, pane) {
+  const { spawn } = require('node:child_process');
+  return new Promise((resolve, reject) => {
+    const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: pane };
+    delete env.KOSMOS_AGENT_TOKEN;
+    const child = spawn(process.execPath, [BRIDGE_FILE, eventName], { env, stdio: ['pipe', 'ignore', 'ignore'] });
+    child.on('error', reject);
+    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error('bridge exited ' + code))));
+    child.stdin.end(JSON.stringify(payload));
+  });
+}
+
+test('#4043: what the board actually receives: the route, state, text, auto and pane, with the throttle', async () => {
+  const http = require('node:http');
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => { body += d; });
+    req.on('end', () => {
+      seen.push({ method: req.method, url: req.url, body: JSON.parse(body) });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"recorded":true}');
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  const pane = '%post-' + process.pid;
+  try { fs.rmSync(bridge.markerFile({ TMUX_PANE: pane }), { force: true }); } catch { /* none */ }
+  try {
+    await driveBridge(port, 'PreInvocation', { conversationId: 'c' }, pane);
+    await driveBridge(port, 'PreInvocation', { conversationId: 'c' }, pane); // a repeat inside the window
+    await driveBridge(port, 'PreToolUse', { toolCall: { name: 'ask_question', args: { questions: [{ question: 'Ship it?' }, { question: 'Which env?' }] } } }, pane);
+    await driveBridge(port, 'PreToolUse', { toolCall: { name: 'run_command', args: {} } }, pane); // not ours: nothing sent
+    await driveBridge(port, 'PostToolUse', { toolCall: { name: 'ask_question' } }, pane);
+    await driveBridge(port, 'Stop', { fullyIdle: true, error: 'quota exceeded' }, pane);
+  } finally {
+    server.closeAllConnections(); server.close();
+    try { fs.rmSync(bridge.markerFile({ TMUX_PANE: pane }), { force: true }); } catch { /* none */ }
+  }
+  assert.deepEqual(seen.map((s) => s.body.state), ['working', 'needs_you', 'working', 'idle'],
+    'the repeated working must be held by the throttle, and a non-ask_question PreToolUse must send nothing');
+  for (const s of seen) {
+    assert.equal(s.method, 'POST');
+    assert.equal(s.url, '/api/report');
+    assert.equal(s.body.auto, true, 'every report is auto (#1456)');
+    assert.equal(s.body.from_pane, pane, 'the pane identity must travel');
+  }
+  assert.equal(seen[1].body.text, 'Ship it? / Which env?', 'the question the person sees is agy\'s own');
+  assert.equal(seen[3].body.text, 'The turn ended with an error: quota exceeded');
 });
