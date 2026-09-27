@@ -26067,13 +26067,14 @@ const FR_AGY_SUB = agySubDriver('fr-gemini-sub-', async () => {
   /* Collapse the finished step now, as Grok's success does, rather than after the repaint's accounts read: its Stop
      must not stay on screen and pressable after focus has left it (review round 2). keepSignIn: the box is kept. */
   if (typeof frKeyedCollapse === 'function') frKeyedCollapse('google', true);
-  /* The result is said NOW, in the box, as Grok's success does (review round 3): the step's own Ready line has just
-     hidden with it, and the box would otherwise sit empty for the whole accounts read. The repaint replaces it. */
-  if (box) { box.className = 'dhint'; box.textContent = 'Google Gemini (Google subscription) is ready.'; }
   if (box && lost) {
     if (box.setAttribute) box.setAttribute('tabindex', '-1');
     if (box.focus) box.focus();
   }
+  /* The result is said NOW, in the box, AFTER focus lands (Grok's order: its live region reads the new sentence
+     once). The step's own Ready line has just hidden with it, and the box would otherwise sit empty for the whole
+     accounts read (review round 3). The repaint replaces it. */
+  if (box) { box.className = 'dhint'; box.textContent = 'Google Gemini (Google subscription) is ready.'; }
   const painting = frPaintKeyed();   // the row reads Connected and the step offers Next (review round 3)
   /* Not dependent on the accounts read (review round 9: frPaintKeyed returns early if it fails). */
   { const b = document.getElementById('fr-gemini-connect');
@@ -57921,21 +57922,20 @@ async function frOpenaiSubConnected(_account) {
   if (sub) sub.hidden = true;
   const pick = document.getElementById('fr-openai-pick'); if (pick) pick.hidden = true;
   const box = document.getElementById('fr-openai-msg');
-  /* The result is said NOW (review round 3): the poll left its in-progress line in the box ("Finish signing in on the
-     page that opened."), which is wrong once connected and would stay there for the whole accounts read, or for
-     good if the repaint failed. The repaint below replaces it with the gold box. */
-  if (box) { box.className = 'dhint'; box.textContent = 'GPT is connected.'; }
   if (box && lost) {
     if (box.setAttribute) box.setAttribute('tabindex', '-1');
     if (box.focus) box.focus();
   }
+  /* The result is said NOW, after focus lands (Grok's order): the poll left its in-progress line in the box ("Finish
+     signing in on the page that opened."), which is wrong once connected and would stay there for the whole accounts
+     read, or for good if the repaint failed (review round 3). The repaint below replaces it with the gold box. */
+  if (box) { box.className = 'dhint'; box.textContent = 'GPT is connected.'; }
   // paintAccounts refreshes the row list; frPaintOpenai paints the SAME gold
   // connected box the key path uses -- a subscription carries no keyTail, so it
   // reads "This computer is signed in." with no key suffix, which is exactly right.
-  try {
-    await paintAccounts();
-    await frPaintOpenai({ connected: true, justAdded: true });
-  } finally { /* the sentence written above stays if the repaint failed: it already says what happened */ }
+  // If the repaint fails, the sentence above stays: it already says what happened.
+  await paintAccounts();
+  await frPaintOpenai({ connected: true, justAdded: true });
 }
 document.getElementById('fr-openai-pick-sub').addEventListener('click', () => frOpenaiChoose('sub'));
 document.getElementById('fr-openai-pick-key').addEventListener('click', () => frOpenaiChoose('key'));

@@ -143,7 +143,7 @@ function agyFlow(answers, { frStep = 5 } = {}) {
     listeners: {}, addEventListener(type, fn) { this.listeners[type] = fn; }, setAttribute(k, v) { this.attrs[k] = v; },
     hasAttribute(k) { return k in this.attrs; }, focus() { doc.activeElement = this; } }));
   const posts = [];
-  const doc = { getElementById: (id) => el(id) };
+  const doc = { getElementById: (id) => el(id), body: { id: 'body' }, activeElement: null };
   const bodies = [];
   const fetchStub = async (path, opts) => {
     posts.push(path);
@@ -158,19 +158,20 @@ function agyFlow(answers, { frStep = 5 } = {}) {
   let painted = 0;
   // eslint-disable-next-line no-new-func
   const successes = [];
-  const nexts = [];
+  const nexts = []; const collapses = [];
   const api = new Function('document', 'fetch', 'paintAgyOption', 'frPaintKeyed', 'setTimeout', 'acctShowSuccess', 'frCheckRow', 'paintAccounts',
-    'FR_STEP', 'frActions', 'frGo', 'frStepAfter', `
+    'FR_STEP', 'frActions', 'frGo', 'frStepAfter', 'frKeyedCollapse', `
     let AGY_INSTALLED = null; let AGY_OFFERED = null;
     ${PAGE.slice(at, end)}
     return { FR_AGY_SUB, ACCT_AGY_SUB, ready: () => FR_AGY_READY, offered: () => AGY_OFFERED };
   `)(doc, fetchStub, () => {}, () => { painted += 1; }, (fn) => setImmediate(fn),
     (label, box) => successes.push([label, box]), (o) => 'BOX:' + o.title + '|' + o.detail, async () => {},
-    frStep, (primary) => nexts.push(primary && primary.label), () => {}, (n) => n + 1);
+    frStep, (primary) => nexts.push(primary && primary.label), () => {}, (n) => n + 1,
+    (which, keep) => { collapses.push([which, keep, doc.activeElement && doc.activeElement.id]); el('fr-gemini-sub-step').hidden = true; });
   const view = () => ({ text: el('fr-gemini-sub-code').textContent, button: el('fr-gemini-sub-go').hidden ? '' : el('fr-gemini-sub-go').textContent,
     stop: !el('fr-gemini-sub-cancel-row').hidden });
   const settle = async (pred, n = 200) => { for (let i = 0; i < n && !pred(); i++) await new Promise((r) => setImmediate(r)); };
-  return { ...api, view, posts, bodies, el, settle, successes, painted: () => painted, active: () => doc.activeElement, nexts };
+  return { ...api, view, posts, bodies, el, settle, successes, painted: () => painted, active: () => doc.activeElement, nexts, collapses, focusBody: () => { doc.activeElement = doc.body; } };
 }
 
 test('#3998: Sign in with Subscription walks not installed -> Install -> Sign in (hidden) -> paste the code -> Ready, with no Terminal', async () => {
@@ -223,7 +224,7 @@ async function agyWalk(f, focusId) {
   await f.FR_AGY_SUB.start();   // the hidden sign-in starts
   await f.settle(() => !f.el('fr-gemini-sub-paste-row').hidden);
   f.el('fr-gemini-sub-paste').value = '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v-TZgGLs9n';
-  f.el(focusId).focus();
+  if (focusId === 'body') f.focusBody(); else f.el(focusId).focus();
   await f.FR_AGY_SUB.sendCode();
   await f.settle(() => f.ready());
   for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));   // onReady awaits the repaint
@@ -235,6 +236,13 @@ test('#4082: on Ready, focus that was in the step lands on Gemini\'s connected b
   assert.equal(f.active(), box, 'focus was left on a control in the hidden step: ' + (f.active() && f.active().id));
   assert.equal(box.attrs.tabindex, '-1', 'the box is not focusable');
   assert.match(box.textContent, /Gemini/, 'focus landed on an empty box (the repaint stand-in paints nothing here)');
+});
+test('#4082: focus already on the page (the step\'s Stop hid) also lands on the box; the step collapses first, keeping the box', async () => {
+  const f = agyToReady();
+  await agyWalk(f, 'body');
+  assert.equal(f.active(), f.el('fr-gemini-msg'), 'focus stayed on the page');
+  assert.deepEqual(f.collapses[0], ['google', true, 'body'], 'the finished step was not collapsed (keeping the box) before focus moved: ' + JSON.stringify(f.collapses));
+  assert.equal(f.el('fr-gemini-sub-step').hidden, true);
 });
 test('#4082: off the model step (first run moved on), focus is not moved, and Next is not offered', async () => {
   const f = agyToReady({ frStep: 6 });
