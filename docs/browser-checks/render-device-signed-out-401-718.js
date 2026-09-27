@@ -77,9 +77,24 @@ const BOARD_NOT_SIGNED_IN = /This board is not signed in/i;
     const here = page.url();
     let navigated = false;
     page.on('request', (req) => { if (req.isNavigationRequest() && req.frame() === page.mainFrame() && req.url() === here) navigated = true; });
-    if (await btn.count()) await btn.click().catch(() => {});
+    let clickErr = '';
+    if (await btn.count()) await btn.click({ timeout: 3000 }).catch((e) => { clickErr = String(e && e.message || e).split('\n')[0]; });
     await page.waitForTimeout(900);
-    check('agents 401 signed_out: Sign in reloads this page (a navigation the relay turns into its sign-in page)', navigated);
+    check('agents 401 signed_out: Sign in reloads this page (a navigation the relay turns into its sign-in page)', navigated, clickErr);
+    await ctx.close();
+  }
+
+  // ---- Scenario 1b: the five-second poll must not rebuild the org note's button (a keyboard's
+  // focus would be lost). Its own page, because Scenario 1's click reloads the page it is on.
+  {
+    const { ctx, page } = await fresh();
+    await stub(page, 401, RELAY_401);
+    await page.goto(BASE + '/?tab=agents', { waitUntil: 'load' });
+    await page.waitForTimeout(900);
+    const noteBtn = await page.$('#orgnote [data-device-signin]');
+    await page.waitForTimeout(6500);
+    const kept = noteBtn ? await noteBtn.evaluate((n) => n.isConnected).catch(() => false) : false;
+    check('agents 401 signed_out: the org note keeps the same Sign in button across a poll', kept);
     await ctx.close();
   }
 
@@ -92,6 +107,30 @@ const BOARD_NOT_SIGNED_IN = /This board is not signed in/i;
     const pj = await page.evaluate(() => (document.getElementById('pj-list') || {}).textContent || '');
     check('projects 401 signed_out: #pj-list says sign in again', SIGN_IN_AGAIN.test(pj), pj.slice(0, 140));
     check('projects 401 signed_out: #pj-list is not the generic cannot-read', !CANNOT_READ.test(pj), pj.slice(0, 140));
+    await ctx.close();
+  }
+
+  // ---- Scenario 3: projects 401 signed_out, THEN a network outage -> #pj-list un-latches to
+  // cannot-read. An abort, not a 500, so it reaches loadProjects' catch with the prior 401's
+  // flag standing (the same reasoning as render-board-signin-403-2023's anti-latch scenario).
+  {
+    const { ctx, page } = await fresh();
+    let mode = '401';
+    await page.route('**/api/status', (r) => r.fulfill({ status: 401, json: RELAY_401 }));
+    await page.route('**/api/projects', (r) => (mode === 'abort' ? r.abort() : r.fulfill({ status: 401, json: RELAY_401 })));
+    await page.goto(BASE + '/?tab=projects', { waitUntil: 'load' });
+    await page.waitForTimeout(900);
+    const first = await page.evaluate(() => (document.getElementById('pj-list') || {}).textContent || '');
+    check('anti-latch: projects 401 signed_out first says sign in again', SIGN_IN_AGAIN.test(first), first.slice(0, 100));
+    mode = 'abort';
+    await page.evaluate(() => (typeof loadProjects === 'function' ? loadProjects() : null)).catch(() => null);
+    let unlatched = false;
+    try {
+      await page.waitForFunction(() => /cannot read your projects/i.test((document.getElementById('pj-list') || {}).textContent || ''), { timeout: 8000 });
+      unlatched = true;
+    } catch { unlatched = false; }
+    const after = await page.evaluate(() => (document.getElementById('pj-list') || {}).textContent || '');
+    check('anti-latch: an outage after the relay 401 un-latches #pj-list to cannot-read', unlatched && !SIGN_IN_AGAIN.test(after), after.slice(0, 120));
     await ctx.close();
   }
 
@@ -137,7 +176,7 @@ const BOARD_NOT_SIGNED_IN = /This board is not signed in/i;
     await page.goto(BASE + '/?tab=agents', { waitUntil: 'load' });
     await page.waitForTimeout(900);
     const t = await boardText(page);
-    const drew = await page.evaluate(() => document.querySelectorAll('#grid .acard, #alist .acard, #grid .pj-empty, #alist .pj-empty').length);
+    const drew = await page.evaluate(() => document.querySelectorAll('#grid .acard, #alist .acard, #grid .pj-empty:not(.boardfail), #alist .pj-empty:not(.boardfail)').length);
     check('CONTROL 200: a normal board drew its agents (or its own empty state)', drew > 0, 'elements ' + drew);
     check('CONTROL 200: a normal board does not say sign in again or cannot read', !SIGN_IN_AGAIN.test(t) && !CANNOT_READ.test(t), t.slice(0, 100));
     await ctx.close();
