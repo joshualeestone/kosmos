@@ -577,3 +577,13 @@ test('MAC UNCHANGED: every static Mac string this branch keyed or hid still read
   ];
   for (const re of MAC_MARKUP) assert.match(PAGE, re, `a Mac string changed: ${re}`);
 });
+
+test('#718 state 2: a Windows board reached remotely is never told "your Mac"', () => {
+  /* The Kosmos+ wording names a Mac. A Windows host keeps its own copy whatever address it was
+     reached on; the CONTROL is the same remote address on a Mac board, which does say your Mac. */
+  const remote = { location: { hostname: 'pc.kosmosplus.com', host: 'pc.kosmosplus.com' } };
+  const card = (platform) => runPage(platform, ['esc', 'boardSigninHtml', 'kplusRemote', 'boardEmpty'], 'boardEmpty()',
+    { BOARD_SEEN: true, BOARD_LOOK_FAILED: 'no answer', BOARD_NEEDS_SIGNIN: false, BOARD_SIGNED_OUT: false, BOARD_DEVICE_OFFLINE: false, ...remote });
+  assert.doesNotMatch(card('win32'), /your Mac/, 'a Windows board was told its Mac did not answer');
+  assert.match(card('darwin'), /Something on your Mac did not answer/, 'CONTROL: a Mac board reached remotely names the Mac');
+});

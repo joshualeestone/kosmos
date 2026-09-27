@@ -354,3 +354,13 @@ test('#718 state 2: through Kosmos+, the note says it is the Mac, why, and what 
   assert.match(mac.innerHTML, /Kosmos is not answering on this computer/);
   assert.match(mac.innerHTML, /Applications folder/);
 });
+
+test('#718 state 2: the Kosmos+ note hedges its one named cause and names no other', () => {
+  /* The loopback note names no cause at all; the remote one names the usual one a person far from
+     the Mac can act on, only as "may be", and nothing the page cannot know. */
+  const said = slotAfter([true], { host: 'leo.kosmosplus.com', hostname: 'leo.kosmosplus.com' }).innerHTML.toLowerCase();
+  assert.match(said, /may be asleep or turned off/, 'the cause is no longer hedged');
+  for (const word of ['server', 'crashed', 'stopped', 'offline', 'restart', 'down', 'firewall', 'quit', 'not running']) {
+    assert.ok(!said.includes(word), `the Kosmos+ note names a cause it cannot know: ${word}`);
+  }
+});

@@ -19743,6 +19743,13 @@ function agoWords(ms) {
  * ever appears it is because somebody decided the page can tell, and that
  * decision should be visible rather than arriving inside a copy tweak.
  *
+ * 📌 ONE NAMED EXCEPTION, THROUGH KOSMOS+ (#718 state 2). A phone or remote computer is not at
+ * the Mac, so "on this computer" names the wrong machine and the Applications-folder remedy
+ * cannot be done from it. That arm says "Your Mac is not answering" and names the usual cause,
+ * hedged ("It may be asleep or turned off"), because it is the one a person far from the Mac can
+ * act on, and points at the phone's own connection because that looks the same from here. It
+ * still names no server, crash, stop, restart or firewall; its own test holds that.
+ *
  * ⚠️ "ON THIS COMPUTER" IS DOING REAL WORK, and rules out the reading a
  * non-technical person reaches for first: that Kosmos the product is down, or
  * that their internet is broken. Kosmos runs locally and almost nobody knows
@@ -19798,7 +19805,7 @@ function paintOfflineNote(down, deviceIsOffline) {
      here; and since a phone on a captive portal also reads as online (state 1 cannot see it),
      point at its own connection too. */
   let remote = false;
-  try { remote = kplusRemote(); } catch { /* a document with no location is not remote */ }
+  try { remote = !onWindows() && kplusRemote(); } catch { /* a document with no location is not remote */ }
   if (remote) {
     let at = '';
     try { if (location && location.host) at = ' Nothing answered at ' + esc(location.host) + '.'; }
@@ -28923,7 +28930,7 @@ function boardEmpty() {
     return '<div class="pj-empty boardfail">'
       + '<p><b>We cannot read your agents right now.</b><br>'
       + 'This is not the same as having none. Something on '
-      + (kplusRemote() ? 'your Mac' : 'this computer') // #718 state 2: through Kosmos+, "this computer" is the phone
+      + (!onWindows() && kplusRemote() ? 'your Mac' : 'this computer') // #718 state 2: through Kosmos+, "this computer" is the phone
       + ' did not answer, so we are not telling you the board is empty. ('
       + esc(BOARD_LOOK_FAILED) + ')</p>'
       /* #274: the moment a person most needs to look for themselves is the
