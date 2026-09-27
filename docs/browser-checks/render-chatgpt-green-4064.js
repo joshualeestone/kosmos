@@ -11,6 +11,9 @@
  *     every 100ms while the new check runs: it is never amber and it is green;
  *   - control: after that, the handshake answers dead, and once the cached green has gone the row reads
  *     Not connected (red), never green: a recorded green does not paint over a newer dead answer.
+ *     Expected on that arm: `green > red`. The recorded green shows while the re-check runs and turns red when it
+ *     answers dead; a dead sign-in shows green for one check's length inside the observed window, the same trade the
+ *     Grok check makes. The arm fails on green AFTER red, not on the leading green.
  *
  * Controls, measured: on main's server.js the reopen arm reds (the row is amber from the first sample).
  *

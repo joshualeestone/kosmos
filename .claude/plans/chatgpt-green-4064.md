@@ -11,32 +11,37 @@ server test that both fail on main; and a control: a dead answer after a recorde
 older green does not come back.
 
 ## Change
-- engine/codexsigninlive.js: `cachedAnswer(dir)` returns the fresh cache entry's `{ verdict, at }` (null otherwise).
-- server.js, the OpenAI overlay in /api/accounts, ChatGPT rows only (`authMode === 'chatgpt'`):
-  a live answer is recorded `observed.sawDir(OPENAI, dir, OK, answer.at)` (dated when it was learned, as Grok's is);
-  a dead answer `forgetDir`s it; the recorded observation is read (not on a read that answered dead) and the newest of
-  it and the agent observation feeds the unchanged `observed.verdict`. #3997's `deadIsNewer` guard is kept as is.
-- API-key rows are untouched: their `connected` is already a real /v1/models proof.
+- engine/codexsigninlive.js: where the check's cache is written (livenessDetailed and livenessNow), a live answer is also
+  recorded `observed.sawDir(OPENAI, dir, OK, at)` (dated when it was learned, as Grok's is) and a dead one
+  `forgetDir`s it. At the cache write, so every caller counts (the list, Check now, codexauthprobe), not only a later
+  read of the list (review 1: a dead Check now nobody read the list after left the old green standing).
+- server.js, the OpenAI overlay in /api/accounts, ChatGPT rows only (`authMode === 'chatgpt'`): the recorded
+  observation is read newest-wins with the agent's own and feeds the unchanged `observed.verdict`. A row that is itself
+  Not connected (a dead answer, or a subscription the offline id_token check found lapsed) never reads it and forgets
+  it (review 1: a recorded green would otherwise paint a lapsed subscription green). #3997's `deadIsNewer` is kept.
+- API-key rows are untouched: their `connected` is already a real /v1/models proof, and the read is gated on ChatGPT.
 
 ## Measured
-- server.chatgpt-green-4064.test.js: 3/3 on the branch. On main's server.js and codexsigninlive.js the reopen test fails
-  (`state: unknown, liveCheckPending: true`, no badge). With the `forgetDir` line deleted, the dead control fails at the
-  read after the dead answer's own cache has expired (the old green comes back), so that line is guarded.
+- server.chatgpt-green-4064.test.js, 5 tests, all pass on the branch. On main's server.js and codexsigninlive.js the
+  reopen test fails (`state: unknown, liveCheckPending: true`, no badge). Each control fails with its line removed:
+  the forget on a dead answer (the green comes back once the dead answer leaves its own cache), the record in
+  livenessNow (a dead Check now leaves the green), the Not-connected guard (a lapsed subscription paints green), and
+  the ChatGPT gate (a recorded answer on an API-key folder paints that row).
 - docs/browser-checks/render-chatgpt-green-4064.js: see the PR for the branch and main runs.
 
 ## Rejected
 - Lengthening the check's 30s cache: it would also hold a dead answer, or a repair, for longer; the card asks for the
   Grok shape, which keeps the check fresh and only carries the green.
-- Recording from inside codexsigninlive: the observed store is the board's, and the Grok path records in server.js;
-  keeping both in the overlay keeps the two providers readable side by side.
+- Recording in the /api/accounts overlay, as first built (and as the Grok list path does): an answer learned by Check
+  now or codexauthprobe was only recorded if somebody read the list inside its 30s cache (review 1).
 
 ## Weakest part
 The green's tooltip is the observed-outcome sentence ("a real request on this account succeeded recently ... not a
 probe"), which describes an agent's request, not the free check. Grok's check-derived green already says the same, so
 this is left alone here and flagged; a wording change would cover both providers.
-Also: the green is recorded when /api/accounts is READ after the check finished (the overlay), not the moment the check
-finishes. The page reads again while a check is pending (#3997 follow-ups), so in practice it is recorded; a check
-nobody reads the list after leaves no record, which only matters to the next reopen within 30s, which the cache covers.
+Also: inside the observed window a DEAD sign-in shows green on reopen for one check's length (the recorded green, then
+red when the check answers). That is the same trade the Grok check makes and the reverse of the amber flash this fixes;
+the browser check's dead arm expects `green > red` and fails only on green after red.
 
 ## Decided, not missed: a new sign-in in the same folder
 Nothing on main invalidates on a sign-in: the check's cache is keyed by folder alone (`homeKey(dir)`), and an agent's

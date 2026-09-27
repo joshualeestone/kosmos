@@ -39,13 +39,6 @@ const CODEX_KEY = nodePath.join(HOME, '.codex-key');
 fs.mkdirSync(CODEX_KEY, { recursive: true });
 fs.writeFileSync(nodePath.join(CODEX_KEY, 'auth.json'), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-workingkeyworkingKEYX' }));
 
-const GROK = nodePath.join(HOME, '.grok');
-fs.mkdirSync(GROK, { recursive: true });
-function grokSignIn(expiresInMs) {
-  fs.writeFileSync(nodePath.join(GROK, 'auth.json'), JSON.stringify({ 'https://auth.x.ai::1': {
-    key: 'sess', refresh_token: 'r', email: 'g@example.com', expires_at: new Date(Date.now() + expiresInMs).toISOString() } }));
-}
-
 const codexsigninlive = require('./engine/codexsigninlive');
 const openaiAccounts = require('./engine/openaiaccounts');
 const grokAccounts = require('./engine/grokaccounts');
@@ -83,7 +76,6 @@ test.afterEach(() => { Date.now = realNow; });
 
 async function recordGreen() {
   codexsigninlive.setRunner(async () => ({ ok: true, stdout: DOC('ok') }));
-  grokAccounts.setFetcher(async () => ({ status: 200 }));
   await accounts();
   await settle();
   const warm = await openaiRow();
@@ -126,10 +118,43 @@ test('#4064 control: a dead answer after a recorded green shows the sign-in as n
   } finally { release(); await settle(); }
 });
 
-test('#4064 control: an API-key account is not given a recorded green by this path', async () => {
+test('#4064 control: a Check now that answers dead forgets the green without anyone reading the list', async () => {
   await recordGreen();
-  advanceClock(61 * 1000);
+  codexsigninlive.setRunner(async () => ({ ok: true, stdout: DOC('warning') }));
+  advanceClock(40 * 1000);
+  const j = await (await post('/api/accounts/openai/check', { dir: CODEX })).json();
+  assert.equal(j.state, 'none', 'setup: Check now did not answer dead');
+  // Nobody reads the list until that dead answer has left its own 30s cache; the reopen's check then has no answer.
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  codexsigninlive.setRunner(async () => { await gate; return { ok: false }; });
+  advanceClock(40 * 1000 + 31 * 1000);
+  try {
+    const row = await openaiRow();
+    assert.notEqual(row.connection.badge, 'working', 'the green from before Check now answered dead came back');
+  } finally { release(); await settle(); }
+});
+
+test('#4064 control: a subscription the offline check finds lapsed is not painted green by a recorded check', async () => {
+  const good = fs.readFileSync(nodePath.join(CODEX, 'auth.json'));
+  await recordGreen();
+  const lapsed = { email: 'sub@example.com', exp: Math.floor(Date.now() / 1000) + 3600,
+    'https://api.openai.com/auth': { chatgpt_subscription_active_until: new Date(Date.now() - 86400 * 1000).toISOString() } };
+  fs.writeFileSync(nodePath.join(CODEX, 'auth.json'), JSON.stringify({ auth_mode: 'chatgpt',
+    tokens: { id_token: 'x.' + Buffer.from(JSON.stringify(lapsed)).toString('base64url') + '.y' } }));
+  try {
+    const row = await openaiRow();
+    assert.equal(row.connection.state, 'none', 'setup: the lapse was not found ' + JSON.stringify(row.connection));
+    assert.notEqual(row.connection.badge, 'working', 'a recorded check green painted a lapsed subscription green');
+  } finally { fs.writeFileSync(nodePath.join(CODEX, 'auth.json'), good); }
+});
+
+test('#4064 control: an API-key account is not painted by a recorded check answer on its folder', async () => {
+  // Seed the case the gate exists for: a live answer cached (and so recorded) on the API-KEY folder.
+  codexsigninlive.setRunner(async () => ({ ok: true, stdout: DOC('ok') }));
+  assert.equal(await codexsigninlive.liveness(CODEX_KEY), 'live');
+  assert.ok(observed.readDir(observed.PROVIDER.OPENAI, CODEX_KEY), 'setup: nothing recorded on the API-key folder');
   const keyRow = (await accounts()).find((a) => a.provider === 'openai' && a.authMode !== 'chatgpt');
   assert.ok(keyRow, 'setup: no API-key row listed');
-  assert.equal(observed.readDir(observed.PROVIDER.OPENAI, keyRow.dir), null, 'an API-key dir got a check observation');
+  assert.notEqual(keyRow.connection.badge, 'working', 'an API-key row was painted from a check answer: ' + JSON.stringify(keyRow.connection));
 });

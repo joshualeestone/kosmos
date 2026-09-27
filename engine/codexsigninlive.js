@@ -48,6 +48,7 @@
 
 const { execFile } = require('node:child_process');
 const runners = require('./runners');
+const observed = require('./observed');
 
 // Same TTL/reasoning as codexauthprobe.TTL_MS: short enough that a repair or a fresh death
 // shows within a poll or two, long enough that nothing storms subprocesses.
@@ -141,6 +142,16 @@ const inflight = new Map();
    it, so every run carries the generation it started in. */
 let generation = 0;
 function resetForTest() { cache.clear(); inflight.clear(); runner = defaultRunner; generation += 1; }
+/* #4064: every answer this cache keeps is also recorded on the observed per-dir store, dated when it was learned, as
+   the Grok check's is: a live one keeps a working ChatGPT sign-in green for the observed freshness window rather than
+   only this cache's 30s (reopening AI Models no longer flashes amber), and a dead one forgets that green. Here, at the
+   cache write, so every caller counts (the list, Check now, codexauthprobe), not only a later read of the list.
+   /api/accounts reads it for ChatGPT rows only. */
+function record(dir, verdict, at) {
+  if (!dir) return;
+  if (verdict === 'live') observed.sawDir(observed.PROVIDER.OPENAI, String(dir), observed.OUTCOME.OK, at);
+  else if (verdict === 'dead') observed.forgetDir(observed.PROVIDER.OPENAI, String(dir));
+}
 
 /**
  * livenessDetailed(dir, nowMs?) -> Promise<{ verdict, cause }>. The full result: the verdict AND
@@ -167,7 +178,9 @@ async function livenessDetailed(dir, nowMs) {
       const had = cache.get(key);
       /* ...except a newer entry that says nothing (unknown) does not block an older run's real live or dead (round 6). */
       if (gen === generation && !(had && had.at > startedAt && !(had.verdict === 'unknown' && res.verdict !== 'unknown'))) {
-        cache.set(key, { verdict: res.verdict, cause: res.cause, at: (typeof nowMs === 'number' ? nowMs : Date.now()) });
+        const at = typeof nowMs === 'number' ? nowMs : Date.now();
+        cache.set(key, { verdict: res.verdict, cause: res.cause, at });
+        record(dir, res.verdict, at);
       }
       if (inflight.get(key) === p) inflight.delete(key);
       return res;
@@ -200,15 +213,6 @@ function deadIsNewer(dir, observedAt, nowMs) {
   const cur = cache.get(homeKey(dir));
   return !!cur && (now - cur.at) < TTL_MS && cur.verdict === 'dead' && Number.isFinite(observedAt) && cur.at > observedAt;
 }
-/* #4064: this home's fresh cached answer WITH when it was learned, or null. /api/accounts records a live one on the
-   observed per-dir store (as the Grok check does), so a working ChatGPT sign-in stays green for the observed
-   freshness window instead of only this cache's 30s. No side effect, like livenessCached. */
-function cachedAnswer(dir, nowMs) {
-  const now = typeof nowMs === 'number' ? nowMs : Date.now();
-  const cur = cache.get(homeKey(dir));
-  if (cur && (now - cur.at) < TTL_MS) return { verdict: cur.verdict, at: cur.at };
-  return null;
-}
 function livenessCached(dir, nowMs) {
   const now = typeof nowMs === 'number' ? nowMs : Date.now();
   const cur = cache.get(homeKey(dir));
@@ -239,9 +243,11 @@ async function livenessNow(dir) {
   const had = cache.get(key);
   const hadFresh = had && (Date.now() - had.at) < TTL_MS && had.verdict !== 'unknown';
   if (gen === generation && !(res.verdict === 'unknown' && hadFresh)) {
-    cache.set(key, { verdict: res.verdict, cause: res.cause, at: Date.now() });
+    const at = Date.now();
+    cache.set(key, { verdict: res.verdict, cause: res.cause, at });
+    record(dir, res.verdict, at);
   }
   return res.verdict;
 }
 
-module.exports = { liveness, livenessDetailed, livenessCached, cachedAnswer, deadIsNewer, checkState, livenessNow, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };
+module.exports = { liveness, livenessDetailed, livenessCached, deadIsNewer, checkState, livenessNow, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };
