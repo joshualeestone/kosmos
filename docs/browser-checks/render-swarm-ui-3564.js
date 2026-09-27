@@ -1,4 +1,4 @@
-// Browser-check-surface: create-kind create-swarm create-swarm-max create-swarm-cap create-swarm-warn d-swarm d-swarm-panel d-swarm-stop d-swarm-max d-swarm-why swmini swc
+// Browser-check-surface: create-kind create-swarm create-swarm-max create-swarm-cap create-swarm-cap-sub create-swarm-warn d-swarm d-swarm-panel d-swarm-stop d-swarm-max d-swarm-cap d-swarm-cap-sub d-swarm-why swmini swc
 'use strict';
 
 /**
@@ -109,6 +109,21 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       }
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, swarm: settingsOf(crewSwarm), ...(putTold ? { told: putTold } : {}) }) });
     });
+    /* S33/S34 (#3946 items 9, 10): while `calibrated` is on, the default Claude account's weekly allowance reads as
+       one million tokens a point. The board's own answer is kept; a sandbox with no default Claude row gets one. */
+    let calibrated = false;
+    await page.route('**/api/accounts', async (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      const res = await route.fetch();
+      let body = null;
+      try { body = await res.json(); } catch { body = null; }
+      if (!calibrated || !body || !Array.isArray(body.accounts)) return route.fulfill({ response: res });
+      let hit = false;
+      body.accounts = body.accounts.map((a) => (a && a.provider === 'anthropic' && a.isDefault ? (hit = true, { ...a, weeklyTokensPerPoint: 1000000 }) : a));
+      if (!hit) body.accounts.push({ provider: 'anthropic', providerName: 'Anthropic / Claude', isDefault: true, dir: '/nonexistent/.claude', label: 'main',
+        memoryShared: true, connection: { state: 'connected', badge: 'connected' }, weeklyTokensPerPoint: 1000000 });
+      return route.fulfill({ response: res, json: body });
+    });
     let createBody = null;
     await page.route('**/api/agents', async (route) => {
       if (route.request().method() !== 'POST') return route.continue();
@@ -200,6 +215,12 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     chk(s3.v === '9' && s3.warn === 'With all 9 helpers active, the swarm can use roughly 10 times as many tokens as a single agent.'
       && s3.explain === 'The lead agent brings in up to 9 helpers when parts of a task can be done at the same time. Otherwise, it works alone.'
       && s3.cap === '9,000,000' && s3.circles === 9, 'S3 the slider moves the value, Josh\'s explainer and warning (its numbers), and the cluster past seven (#3946)', JSON.stringify(s3));
+    // S3c CONTROL for S33: on an account whose allowance cannot be read as tokens, the limit is in tokens under Josh's
+    // heading, with no allowance subtext and no percentage.
+    chk(await page.evaluate(() => document.getElementById('create-swarm-cap-sub').hidden
+      && document.querySelector('label[for="create-swarm-cap"]').textContent === 'Daily usage limit'
+      && !/%/.test(document.getElementById('create-swarm-cap-v').textContent)),
+    'S3c uncalibrated: "Daily usage limit" in tokens, no allowance words and no percentage (#3946)');
     // S3b (#3946 item 4): every circle whole at every count, 2 to 10: inside its box and clear of every other circle.
     const whole = await page.evaluate(() => {
       const bad = [];
@@ -242,6 +263,39 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     chk(await page.evaluate(() => { const o = [...document.getElementById('create-provider').options].find((x) => x.value === 'openai');
       return !!o && !o.disabled && o.dataset.off !== 'Swarms run on Claude for now' && o.dataset.swarmGated === undefined; }),
       'S4c a plain Agent gets OpenAI back: the swarm greying is undone');
+    // S33 (#3946 items 9, 10): on a calibrated account the limit is a % of the weekly allowance: Josh's subtext, a
+    // low default (3%), and the request carries the % and the tokens it is worth today.
+    calibrated = true;
+    await page.evaluate(() => loadCreateExtras());
+    await openForm();
+    await page.click('label.ctype-opt:has(input[value="swarm"])');
+    const s33 = await waitFor(page, () => !document.getElementById('create-swarm-cap-sub').hidden, null, 8000)
+      && await page.evaluate(() => ({ v: document.getElementById('create-swarm-cap-v').textContent,
+        aria: document.getElementById('create-swarm-cap').getAttribute('aria-valuetext'),
+        sub: document.getElementById('create-swarm-cap-sub').textContent }));
+    chk(!!s33 && s33.v === '3%' && s33.aria === '3% of your weekly allowance'
+      && s33.sub === 'Choose how much of your weekly allowance this swarm can use in one day.',
+    'S33 calibrated: the limit is a % of the weekly allowance, 3% by default, with Josh\'s words (#3946)', JSON.stringify(s33));
+    // S33b (#3946 review): the account list changes under the slider without a repaint (it can be refilled with no
+    // change event). Create sends nothing, shows the slider in the unit it now has, and says why; S33 below is the
+    // control, the same button with the unit in step.
+    const s33saved = await page.evaluate(() => { const k = CREATE_ACCOUNTS.map((x) => x.weeklyTokensPerPoint); CREATE_ACCOUNTS.forEach((x) => { x.weeklyTokensPerPoint = null; }); return k; });
+    createBody = null;
+    await page.evaluate(() => document.getElementById('create-go').click());
+    await page.waitForTimeout(800);
+    const s33b = await page.evaluate(() => ({ mode: document.getElementById('create-swarm-cap').dataset.mode, msg: document.getElementById('create-msg').textContent }));
+    chk(!createBody && s33b.mode === 'tok' && /changed with the account/.test(s33b.msg),
+      'S33b the unit changed under the slider: nothing is sent, the slider shows tokens, and the page says why (#3946)', JSON.stringify({ s33b, createBody }));
+    await page.evaluate((k) => { CREATE_ACCOUNTS.forEach((x, i) => { x.weeklyTokensPerPoint = k[i]; }); swarmCreatePaint(); }, s33saved);
+    await waitFor(page, () => document.getElementById('create-swarm-cap').dataset.mode === 'pct', null, 8000);
+    await page.fill('#create-swarm-cap', '5');
+    await page.dispatchEvent('#create-swarm-cap', 'input');
+    createBody = null;
+    await page.evaluate(() => document.getElementById('create-go').click());
+    for (let i = 0; i < 20 && !createBody; i++) await page.waitForTimeout(150);
+    chk(!!createBody && createBody.dailyAllowancePct === 5 && createBody.dailyTokenLimit === 5000000,
+      'S33 the request carries dailyAllowancePct 5 and the 5,000,000 tokens it is worth (#3946)', JSON.stringify(createBody));
+    calibrated = false;
 
     // S5: the board card. The crew is its cluster (min(max, 7) circles, the badge working/most, the Swarm line);
     // Rex stays a plain face (the control).
@@ -345,6 +399,42 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       && await page.evaluate(() => document.getElementById('d-swarm-cap').getAttribute('aria-valuetext') === '2,500,000 tokens a day'),
       'S13b a 2,500,000 limit shows as 2,500,000, and the slider is spoken in tokens', await page.evaluate(() => document.getElementById('d-swarm-cap-v').textContent));
     crewSwarm = { ...crewSwarm, dailyTokenLimit: 6000000 };
+    // S34 (#3946): on a calibrated account the swarm's page shows its limit as a % of the weekly allowance, with
+    // Josh's subtext, and a change sends the % (the engine turns it into tokens). S13 above is the tokens control.
+    crewSwarm = { ...crewSwarm, dailyTokenLimit: 4000000, dailyAllowancePct: 4, allowanceCalibrated: true, tokensPerPoint: 1000000 };
+    await page.evaluate(() => document.getElementById('d-swarm-cap').blur());
+    chk(await waitFor(page, () => document.getElementById('d-swarm-cap-v').textContent === '4%' && !document.getElementById('d-swarm-cap-sub').hidden, null, 8000)
+      && await page.evaluate(() => document.getElementById('d-swarm-cap').getAttribute('aria-valuetext') === '4% of your weekly allowance'),
+    'S34 calibrated: the page shows 4% of the weekly allowance with Josh\'s subtext', await page.evaluate(() => document.getElementById('d-swarm-cap-v').textContent));
+    await page.fill('#d-swarm-cap', '7');
+    for (let i = 0; i < 20 && !find((q) => q.body.dailyAllowancePct === 7); i++) await page.waitForTimeout(100);
+    chk(!!find((q) => q.method === 'PUT' && q.body.dailyAllowancePct === 7 && !('dailyTokenLimit' in q.body)),
+      'S34 moving it sends PUT { dailyAllowancePct: 7 } and no token number', JSON.stringify(sent.slice(-2)));
+    // S34b: a limit set in tokens on a calibrated account shows "about" the % it is worth, never a % as if chosen.
+    crewSwarm = { ...crewSwarm, dailyTokenLimit: 3000000, dailyAllowancePct: null, allowanceCalibrated: true, tokensPerPoint: 1000000 };
+    await page.evaluate(() => document.getElementById('d-swarm-cap').blur());
+    chk(await waitFor(page, () => document.getElementById('d-swarm-cap-v').textContent === 'about 3%', null, 8000),
+      'S34b a token limit worth 3% shows as about 3%', await page.evaluate(() => document.getElementById('d-swarm-cap-v').textContent));
+    // S34c: worth more than the slider's 20%, it stays in tokens rather than claiming 20%.
+    crewSwarm = { ...crewSwarm, dailyTokenLimit: 50000000 };
+    chk(await waitFor(page, () => document.getElementById('d-swarm-cap-v').textContent === '50,000,000'
+      && document.getElementById('d-swarm-cap').dataset.mode === 'tok' && document.getElementById('d-swarm-cap-sub').hidden, null, 8000),
+      'S34c a token limit worth 50% stays in tokens, with no allowance words', await page.evaluate(() => document.getElementById('d-swarm-cap-v').textContent));
+    // S34d: the account becomes calibrated while the person holds the token slider: the mode does not change under
+    // them, so their token choice is not sent as a %. CONTROL: once they let go, it does change.
+    crewSwarm = { ...crewSwarm, dailyTokenLimit: 6000000, allowanceCalibrated: false, tokensPerPoint: null };
+    await waitFor(page, () => document.getElementById('d-swarm-cap-v').textContent === '6,000,000', null, 8000);
+    await page.focus('#d-swarm-cap');
+    crewSwarm = { ...crewSwarm, allowanceCalibrated: true, tokensPerPoint: 1000000 };
+    chk(await waitFor(page, () => !!SWARM_ROW && SWARM_ROW.swarm.allowanceCalibrated === true, null, 15000), 'S34d precondition: the page has the calibrated row');
+    chk(await page.evaluate(() => document.getElementById('d-swarm-cap').dataset.mode === 'tok'),
+      'S34d the mode stays tokens while the slider is held', await page.evaluate(() => document.getElementById('d-swarm-cap').dataset.mode));
+    await page.evaluate(() => document.getElementById('d-swarm-cap').blur());
+    chk(await waitFor(page, () => document.getElementById('d-swarm-cap').dataset.mode === 'pct' && document.getElementById('d-swarm-cap-v').textContent === 'about 6%', null, 8000),
+      'S34d CONTROL: let go, it becomes about 6%', await page.evaluate(() => document.getElementById('d-swarm-cap-v').textContent));
+    crewSwarm = { ...crewSwarm, dailyTokenLimit: 6000000, dailyAllowancePct: null, allowanceCalibrated: false, tokensPerPoint: null };
+    await page.evaluate(() => document.getElementById('d-swarm-cap').blur());
+    await waitFor(page, () => document.getElementById('d-swarm-cap-v').textContent === '6,000,000', null, 8000);
     // S17: today's tokens could not be read in full (metered false): the page says so, with no bar, rather than a
     // low number that reads as plenty left. CONTROL: metered true shows the number again.
     crewSwarm = { ...crewSwarm, metered: false, tokensToday: 1200, helperTokenRatio: 2.3 };

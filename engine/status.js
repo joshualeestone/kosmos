@@ -4415,6 +4415,20 @@ function sessionIdsFor(sessionName, exactSession) {
   return found;
 }
 
+/**
+ * The Claude account folder an agent runs on (#3946): its launch job's configDir, or
+ * the default ~/.claude when that is null. Null for a non-Claude runner or an agent
+ * with no readable job: only Claude accounts have a weekly figure to read.
+ */
+function claudeAccountDirOf(agentName) {
+  let job = null;
+  try { job = require('./create').readJob(agentName); } catch { job = null; }
+  if (!job) return null;
+  if (job.runner && job.runner !== 'claude') return null;
+  if (typeof job.configDir === 'string' && job.configDir) return job.configDir;
+  try { return path.join(require('./accounts').homeDir(), '.claude'); } catch { return null; }
+}
+
 /* #3564: the card's `swarm` field. The transcript is resolved only for a swarm. `owns` tells
    the meter whether a session file in the lead's folder is this agent's: two workdirs can
    flatten to one folder (see byWorkdirDetailed). */
@@ -4422,13 +4436,19 @@ function swarmField(profile, agentName, exactSession) {
   try {
     const swarm = require('./swarm');
     if (!swarm.settingsOf(profile)) return null;
-    const belongs = workdirBelongs(agentName);
-    const owns = (file) => {
-      const cwd = transcriptCwd(file);
-      return belongs && cwd != null ? belongs(cwd) : null;
-    };
-    return swarm.cardField(profile, () => transcriptFor(agentName, exactSession), undefined, owns);
+    let calibration = null;
+    try { calibration = require('./allowance').readCalibration(claudeAccountDirOf(agentName)); } catch { calibration = null; }
+    return swarm.cardField(profile, () => transcriptFor(agentName, exactSession), undefined, ownsFor(agentName), calibration);
   } catch { return null; }
+}
+
+/** The meter's `owns` for an agent: whether a session file in its folder is this agent's (see swarmField). */
+function ownsFor(agentName) {
+  const belongs = workdirBelongs(agentName);
+  return (file) => {
+    const cwd = transcriptCwd(file);
+    return belongs && cwd != null ? belongs(cwd) : null;
+  };
 }
 
 /**
@@ -7731,7 +7751,7 @@ module.exports = {
   countAgents, needsPerson, projectsUnreadTotal, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
   /* #3532: exported so the pane-filter + advisory wiring is testable with injected deps. */
   computeLoginAdvisories,
-  rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext,
+  rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext, claudeAccountDirOf, ownsFor,
   codexLastCompletionAt,
   // #3296 observability follow-on: the Gemini completion-time helper (wired into
   // snapshot's GOOGLE observation arm; exported for the direct-caller/test path).

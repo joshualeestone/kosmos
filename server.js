@@ -2597,6 +2597,51 @@ function agentReplyProblem(text) {
   return chat.messageProblem(text) || chat.storedProblem(text) || messages.markerProblem(text) || null;
 }
 
+/* #3946 item 10: before the daily-limit sweep, measure each Claude account's calibration
+   and re-derive each % swarm's token limit from it. Every account is measured, swarm or
+   not, so the create screen can offer the % for an account's first swarm. The calibration
+   needs every Kosmos agent's tokens today on the account: a swarm's share of the week is
+   measured against all of them. Counted with swarm.meter, the same count the limit enforces.
+   Accounts are keyed on the folder's real path, so two spellings of one folder are one account. */
+function calibrateSwarmAllowances(roster, now = Date.now(), tokensFor = null) {
+  const swarmMod = require('./engine/swarm');
+  const allowance = require('./engine/allowance');
+  const status = require('./engine/status');
+  const rows = swarmMod.sweepRows(roster);
+  const dirOf = new Map();
+  const tokens = new Map();
+  for (const c of Array.isArray(roster) ? roster : []) {
+    if (!c || c.isNamedOurs !== true || !c.sessionName) continue;
+    let dir = status.claudeAccountDirOf(c.sessionName);
+    if (!dir) continue;
+    try { dir = fs.realpathSync(dir); } catch { /* not there yet: its own spelling */ }
+    dirOf.set(c.sessionName, dir);
+    /* A count not read to its end this time (metered false with tokens behind it, or a meter call that ran
+       out of its read budget) leaves the account's number unknown for this tick: NaN, so calibrate keeps
+       what it has. An agent with no transcript today counts zero. */
+    let n = 0;
+    if (c.swarm && Number.isFinite(c.swarm.tokensToday)) n = c.swarm.metered === false && c.swarm.tokensToday > 0 ? NaN : c.swarm.tokensToday;
+    else if (tokensFor) { try { n = tokensFor(c.sessionName); } catch { n = NaN; } }
+    else {
+      try {
+        const file = status.transcriptFor(c.sessionName);
+        if (file) { const m = swarmMod.meter(file, now, status.ownsFor(c.sessionName)); n = m.complete ? m.tokensToday : NaN; }
+      } catch { n = NaN; }
+    }
+    tokens.set(dir, (tokens.has(dir) ? tokens.get(dir) : 0) + n);
+  }
+  const cal = new Map();
+  for (const [dir, n] of tokens) {
+    cal.set(dir, allowance.calibrate(dir, n, { now, dayStart: swarmMod.startOfDay(now) }));
+  }
+  if (!rows.length) return [];
+  return swarmMod.rederiveLimits(rows, {
+    readProfile: (n) => store.readProfile(n),
+    writeProfile: (n, patch) => store.writeProfile(n, patch),
+    calibrationFor: (n) => cal.get(dirOf.get(n)) || null,
+  });
+}
+
 /* #3564: what the daily-limit sweep acts through, for one roster. Named so its wiring is
    tested (server.swarm-3564.test.js), not only the sweep's decisions. */
 function swarmSweepDeps(roster) {
@@ -4271,7 +4316,16 @@ const server = http.createServer((req, res) => {
                 profile,
                 /* #3564: a swarm that is not running is still a swarm (its settings, unmeasured), so the
                    screen offers its On/Off and not the provider switch create refuses for a swarm. */
-                swarm: (() => { try { return require('./engine/swarm').offlineCardField(profile); } catch { return null; } })(),
+                swarm: (() => {
+                  try {
+                    const sw = require('./engine/swarm');
+                    if (!sw.settingsOf(profile)) return null;
+                    /* #3946: its account's calibration too, so a stopped % swarm keeps its % on screen. */
+                    let cal = null;
+                    try { cal = require('./engine/allowance').readCalibration(require('./engine/status').claudeAccountDirOf(k.name)); } catch { cal = null; }
+                    return sw.offlineCardField(profile, cal);
+                  } catch { return null; }
+                })(),
                 plannedModelName: plannedFor({ sessionName: k.name, isNamedOurs: true }),
                 /* #149/#150: same field the roster rows carry, same meaning.
                    A stopped agent with no launch file is exactly the state
@@ -5395,6 +5449,15 @@ const server = http.createServer((req, res) => {
         if (!swarm.settingsOf(profile)) { sendJson(res, 404, { ok: false, because: 'that agent is not a swarm' }); return; }
         const problem = swarm.patchProblem(body);
         if (problem) { sendJson(res, 400, { ok: false, because: problem }); return; }
+        /* #3946: a new share of the weekly allowance takes effect now on a calibrated account,
+           not a minute later at the next sweep, and its tokens are the account's, whatever
+           token number came with it; uncalibrated, the token limit stands. */
+        if (Number.isInteger(body.dailyAllowancePct)) {
+          let cal = null;
+          try { cal = require('./engine/allowance').readCalibration(require('./engine/status').claudeAccountDirOf(name)); } catch { cal = null; }
+          const t = swarm.limitFromAllowance(body.dailyAllowancePct, cal);
+          if (t) body.dailyTokenLimit = t;
+        }
         const next = swarm.applyPatch(profile, body);
         store.writeProfile(name, { swarm: next });
         const told = 'maxHelpers' in body ? swarm.tellLead(name, next.maxHelpers) : null;
@@ -5711,6 +5774,7 @@ const server = http.createServer((req, res) => {
           kind: body.kind,
           maxHelpers: body.maxHelpers,
           dailyTokenLimit: body.dailyTokenLimit,
+          dailyAllowancePct: body.dailyAllowancePct, // #3946: the share of the weekly allowance, when chosen
           // Validated above; composed into the file BEFORE the session starts
           // (#323), so the addAgent below finds the block already there.
           projects: projectsToJoin,
@@ -7664,9 +7728,14 @@ const server = http.createServer((req, res) => {
             now: nowMs,
             freshMs: freshWindow,
           });
+          /* #3946: whether this account's weekly allowance can be read as tokens, so the
+             create screen offers the % limit only where it means something. */
+          let cal = null;
+          try { cal = a.dir ? require('./engine/allowance').readCalibration(a.dir) : null; } catch { cal = null; }
           return {
             provider: 'anthropic', providerName: 'Anthropic / Claude', ...a,
             connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs },
+            weeklyTokensPerPoint: cal ? Math.round(cal.tokensPerPoint) : null,
           };
         });
         /* 🛑 `offerable` TRAVELS WITH THE ROW, for the same reason `memoryShared` does
@@ -16677,6 +16746,7 @@ function start(port = PORT) {
         try {
           const roster = safeRoster();
           const swarmMod = require('./engine/swarm');
+          try { calibrateSwarmAllowances(roster); } catch { /* the limit in tokens still holds */ }
           swarmMod.sweepOnce(swarmMod.sweepRows(roster), swarmSweepDeps(roster));
         } catch { /* best-effort; the card still shows today's tokens against the limit */ }
       }, 60 * 1000);
@@ -17222,6 +17292,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  calibrateSwarmAllowances, // #3946: the sweep's calibration step, for its test
   HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
   get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker); read it when needed, a destructured copy goes stale after setTaskMsgCapForTests
