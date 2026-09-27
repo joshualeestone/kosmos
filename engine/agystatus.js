@@ -31,10 +31,16 @@ function installed() {
   const r = runners.resolveBin('antigravity');
   return { installed: !!(r && r.present), bin: r ? r.bin : null, because: r && r.because ? r.because : null };
 }
-/* Offered at all? Only where agy can run (a Mac: the supervisor refuses agy on Windows) and while
-   the runner is switched on (AGENT_WORKFORCE_ANTIGRAVITY=0 turns it off; review round 3: with it off
-   the screen must not offer a path create would refuse). */
-function supported() { return process.platform === 'darwin'; }
+/* Offered at all? Only where agy can run and while the runner is switched on
+   (AGENT_WORKFORCE_ANTIGRAVITY=0 turns it off; review round 3: with it off the screen must not offer
+   a path create would refuse). A Mac always; Windows behind its own switch (engine/win32agy.js switchOn), ON by default
+   since a real Windows sign-in proved it, and turned off on one computer with
+   AGENT_WORKFORCE_ANTIGRAVITY_WINDOWS=0 or an antigravity-windows.off file in the board's data folder. */
+let platformForTests = null;
+function platform() { return platformForTests || process.platform; }
+function onWin32() { return platform() === 'win32'; }
+function supported() { return platform() === 'darwin' || (onWin32() && require('./win32agy').switchOn()); }
+function setPlatformForTests(p) { platformForTests = p || null; }
 function enabled() { return require('./create').antigravityEnabled(); }
 function offered() { return supported() && enabled(); }
 /* What a screen is told: whether it is offered and installed, never the path (review round 1). */
@@ -45,11 +51,24 @@ function installedForScreen() {
    agy named elsewhere (AGENT_WORKFORCE_ANTIGRAVITY_BIN) would install where it then does not look
    (review round 3). */
 let sandboxInstallAllowedForTests = false;
-function sandboxed() { return !sandboxInstallAllowedForTests && !!(process.env.AGENT_WORKFORCE_HOME || process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN); }
+/* On Windows the install lands in the runners folder (runners.managedRoot, which has its own sandbox
+   seam), so only an agy named elsewhere keeps it from installing there. */
+function sandboxed() {
+  if (sandboxInstallAllowedForTests) return false;
+  if (onWin32()) return !!process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN;
+  return !!(process.env.AGENT_WORKFORCE_HOME || process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN);
+}
 function allowSandboxInstallForTests(v) { sandboxInstallAllowedForTests = !!v; }
 
-/* The seam a test replaces: run agy once and hand back (err, stdout). */
+/* The seam a test replaces: run agy once and hand back (err, stdout). On Windows a prompt is never
+   spent: a signed-out print run waits 60 s and would open a browser, while `agy models` answers in
+   under a second with no browser (engine/win32agy.js modelsCheck), so that is the Windows check. */
 let runAgy = (bin, done) => {
+  if (onWin32()) {
+    const w = require('./win32agy');
+    w.modelsCheck(bin, w.signinHome().geminiDir, { tmp: w.signinHome().tmp }).then((r) => done(null, '', r));
+    return;
+  }
   let dir = null;
   try { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-agy-check-')); } catch { dir = os.tmpdir(); }
   execFile(bin, ['-p', PROMPT, '--print-timeout', CAP_SECONDS + 's'], { cwd: dir, timeout: KILL_MS, killSignal: 'SIGKILL', maxBuffer: 64 * 1024 },
@@ -74,9 +93,14 @@ function checkOnce() {
     const unknown = { installed: true, signedIn: null,
       because: 'Antigravity did not answer, so it may need signing in (or this computer is offline)' };
     const cap = setTimeout(() => { if (!done) { done = true; resolve(unknown); } }, KILL_MS + 5000);
-    runAgy(inst.bin, (err, out) => {
+    runAgy(inst.bin, (err, out, win) => {
       if (done) return;
       done = true; clearTimeout(cap);
+      if (win) {   // Windows: agy models' own answer; false (signed out) stays "could not confirm" to the screen
+        resolve(win.signedIn === true ? { installed: true, signedIn: true }
+          : { installed: true, signedIn: null, because: win.because || unknown.because });
+        return;
+      }
       // The whole answer must be "ok" (review round 7): "Not ok" or a banner with OK in it is not signed in.
       resolve(!err && /^\s*ok[.!]?\s*$/i.test(out) ? { installed: true, signedIn: true } : unknown);
     });
@@ -93,12 +117,20 @@ function check() { return shared(); }
    browser. Sign in using your approved account credentials." So Kosmos types nothing into it; the
    person signs in in the browser and presses Check again. macOS only (agy is refused on Windows). */
 let openTerminal = (bin, done) => execFile('/usr/bin/open', ['-a', 'Terminal', bin], { timeout: 15000 }, (err) => done(err));
+/* Windows (#3568): no Terminal. Kosmos runs agy's sign-in itself, out of sight, opens Google's page in
+   the default browser and takes the code the page shows (engine/win32agysignin.js). The answer carries
+   `signin` (its id and state) so the screen shows the code box and follows it. */
 function openForSignIn() {
   return new Promise((resolve) => {
     if (!supported()) { resolve({ ok: false, because: 'Gemini on a Google subscription is not available on this computer yet' }); return; }
     if (!enabled()) { resolve({ ok: false, because: 'Gemini on a Google subscription is switched off on this computer' }); return; }
     const inst = installed();
     if (!inst.installed) { resolve({ ok: false, because: 'Antigravity is not installed on this computer' }); return; }
+    if (onWin32()) {
+      const r = require('./win32agysignin').start({ bin: inst.bin });
+      resolve(r.ok ? { ok: true, signin: { id: r.id, state: r.state } } : { ok: false, because: r.because });
+      return;
+    }
     openTerminal(inst.bin, (err) => resolve(err
       ? { ok: false, because: 'we could not open Antigravity\'s sign-in just now' }
       : { ok: true }));
@@ -134,6 +166,17 @@ function installOnce() {
     if (!enabled()) { resolve({ ok: false, because: 'Gemini on a Google subscription is switched off on this computer' }); return; }
     if (installed().installed) { resolve({ ok: true, installed: true }); return; }
     if (sandboxed()) { resolve({ ok: false, installed: false, because: 'this board is set to a different home, so Kosmos will not install Antigravity into this computer\'s own' }); return; }
+    /* Windows: Google's signed build from its own update manifest, checked (SHA-512 and Google's
+       signature) and placed in Kosmos's runners folder. Never `agy install` (it edits PATH and the
+       shell profiles). */
+    if (onWin32()) {
+      runWin32Install().then((r) => {
+        const now = installed();
+        resolve(now.installed ? { ok: true, installed: true }
+          : { ok: false, installed: false, because: (r && r.because) || 'Antigravity was downloaded but Kosmos could not find it afterwards' });
+      }, () => resolve({ ok: false, installed: false, because: 'Kosmos could not install Antigravity just now' }));
+      return;
+    }
     /* A hard cap of our own, as check() has (review round 2): an installer child that holds stdout
        would keep execFile's callback from firing, and an unsettled install would hold every later one. */
     let done = false;
@@ -153,14 +196,16 @@ function installOnce() {
     });
   });
 }
+let runWin32Install = () => require('./runners').installAntigravityWin32();
+function setWin32InstallerForTests(fn) { runWin32Install = fn || (() => require('./runners').installAntigravityWin32()); }
 const sharedInstall = inflight.collapse(installOnce);
 function install() { return sharedInstall(); }
 function setInstallerForTests(fn) { runInstall = fn; }
 /* The real runner, opener and installer, kept so a test file can put them back when it is done. */
 const REAL = {};
-function resetForTests() { runAgy = REAL.runAgy; openTerminal = REAL.openTerminal; runInstall = REAL.runInstall; sandboxInstallAllowedForTests = false; }
+function resetForTests() { runAgy = REAL.runAgy; openTerminal = REAL.openTerminal; runInstall = REAL.runInstall; sandboxInstallAllowedForTests = false; platformForTests = null; setWin32InstallerForTests(null); }
 function setOpenerForTests(fn) { openTerminal = fn; }
 function setRunnerForTests(fn) { runAgy = fn; }
 
 REAL.runAgy = runAgy; REAL.openTerminal = openTerminal; REAL.runInstall = runInstall;
-module.exports = { resetForTests, allowSandboxInstallForTests, installed, installedForScreen, offered, check, openForSignIn, install, setRunnerForTests, setOpenerForTests, setInstallerForTests, PROMPT, INSTALL_URL };
+module.exports = { resetForTests, allowSandboxInstallForTests, installed, installedForScreen, offered, supported, check, openForSignIn, install, setRunnerForTests, setOpenerForTests, setInstallerForTests, setPlatformForTests, setWin32InstallerForTests, PROMPT, INSTALL_URL };

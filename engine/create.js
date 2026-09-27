@@ -1620,7 +1620,7 @@ function setProvider(name, provider, opts) {
   }
   const platform = opts && opts.platform;
   // #3568: Windows has no Antigravity launch path, the same refusal create and installJob take.
-  if (provider === 'antigravity' && (platform || process.platform) === 'win32') {
+  if (provider === 'antigravity' && (platform || process.platform) === 'win32' && !win32AgyOn()) {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_ANTIGRAVITY_WIN32 };
   }
   const verdict = readJobVerdict(clean, undefined, platform);
@@ -1641,7 +1641,7 @@ function setProvider(name, provider, opts) {
   }
   const { claudeBin, codexBin, geminiBin, grokBin, antigravityBin } = binPaths(opts);
   const runnerBin = runner === 'codex' ? codexBin : runner === 'gemini' ? geminiBin : runner === 'grok' ? grokBin : runner === 'antigravity' ? antigravityBin : claudeBin;
-  if (!DRY_RUN && runner === 'antigravity' && !agyNameOk(runnerBin)) {
+  if (!DRY_RUN && runner === 'antigravity' && !agyNameOk(runnerBin, platform)) {
     return { outcome: OUTCOME.REFUSED, because: AGY_NAME_REFUSAL };
   }
   if (!DRY_RUN && !runnerRunnable(runnerBin)) {
@@ -2928,7 +2928,10 @@ function runnerRunnable(p) { return runners.isRunnable(p); }
 /* #3568: the board and the supervisor recognise an Antigravity pane by the command name `agy`, so
    a binary under any other name would start an agent nobody can see. Refused with this sentence. */
 const AGY_NAME_REFUSAL = 'the Antigravity program must be named agy, or Kosmos cannot see the agent running';
-function agyNameOk(bin) { return runners.agyRealName(bin) === 'agy'; }
+function agyNameOk(bin, platform) { return runners.isAgyName(runners.agyRealName(bin), platform || process.platform); }
+/* #3568: Windows runs Antigravity behind its own switch (engine/win32agy.js switchOn: on by default, off with
+   AGENT_WORKFORCE_ANTIGRAVITY_WINDOWS=0 or an antigravity-windows.off file). */
+function win32AgyOn() { return require('./win32agy').switchOn(); }
 
 /**
  * Where the two things an agent needs actually live on this computer.
@@ -3272,7 +3275,7 @@ function installJob(name, opts) {
   if (wantRunner === 'antigravity' && !antigravityEnabled()) {
     return { ok: false, because: `${spokenName(clean)} runs on Antigravity, and setting up Antigravity agents is switched off on this computer, so it cannot be set up here while that is off` };
   }
-  if (wantRunner === 'antigravity' && jobPlatform === 'win32') {
+  if (wantRunner === 'antigravity' && jobPlatform === 'win32' && !win32AgyOn()) {
     return { ok: false, because: REFUSE_ANTIGRAVITY_WIN32 };
   }
   /* 📌 gemini/grok are no longer refused on win32: the Windows per-turn supervisor runs them
@@ -3298,7 +3301,7 @@ function installJob(name, opts) {
       : runner === 'grok' ? grokBin
         : runner === 'antigravity' ? antigravityBin
           : claudeBin;
-  if (!DRY_RUN && runner === 'antigravity' && !agyNameOk(runnerBin)) return { ok: false, because: AGY_NAME_REFUSAL };
+  if (!DRY_RUN && runner === 'antigravity' && !agyNameOk(runnerBin, jobPlatform)) return { ok: false, because: AGY_NAME_REFUSAL };
   if (unusablePath(runnerBin) || unusablePath(tmuxBin)) {
     return { ok: false, /* ⚠️ NEITHER BINARY IS NAMED, and `tmux` least of all (Mona Lisa). A person
        who installed Kosmos has no reason to have heard the word, and it cost a
@@ -3928,11 +3931,11 @@ function createAgentInner(opts) {
   }
   if (provider === 'antigravity') {
     // Windows first, as setProvider and installJob do: there the binary check would name the wrong cause.
-    if ((opts && opts.platform ? opts.platform : process.platform) === 'win32') {
+    if ((opts && opts.platform ? opts.platform : process.platform) === 'win32' && !win32AgyOn()) {
       return { outcome: OUTCOME.REFUSED, because: REFUSE_ANTIGRAVITY_WIN32, steps };
     }
     // #3568: the same "could this machine ever start it" preflight as the other runners.
-    if (!DRY_RUN && !agyNameOk(antigravityBin)) {
+    if (!DRY_RUN && !agyNameOk(antigravityBin, opts && opts.platform ? opts.platform : process.platform)) {
       return { outcome: OUTCOME.REFUSED, because: AGY_NAME_REFUSAL, steps };
     }
     if (!DRY_RUN && !runnerRunnable(antigravityBin)) {
