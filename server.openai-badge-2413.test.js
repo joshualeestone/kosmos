@@ -186,3 +186,38 @@ test('GREY PRESERVED: a STALE observed ok leaves the subscription row exactly as
     else process.env.AGENT_WORKFORCE_OBSERVED_FRESH_MS = prev;
   }
 });
+
+/* #4139: the row says which kind of observation made it green, so the page does not call a check "a real request". */
+test('#4139 an OpenAI green says whether an agent or a check made it (newest wins, as the badge does)', async () => {
+  const dir = (await rows()).sub.dir;
+  observed.saw(observed.PROVIDER.OPENAI, 'codexsub', observed.OUTCOME.OK, Date.now() - 5000);
+  let r = await rows();
+  assert.equal(r.sub.connection.badge, 'working', 'setup: ' + JSON.stringify(r.sub.connection));
+  assert.equal(r.sub.connection.observedFrom, 'agent');
+  observed.sawDir(observed.PROVIDER.OPENAI, dir, observed.OUTCOME.OK, Date.now());
+  r = await rows();
+  assert.equal(r.sub.connection.observedFrom, 'check', 'a newer check did not name itself: ' + JSON.stringify(r.sub.connection));
+  observed.saw(observed.PROVIDER.OPENAI, 'codexsub', observed.OUTCOME.OK, Date.now() + 1);
+  r = await rows();
+  assert.equal(r.sub.connection.observedFrom, 'agent', 'a newer agent success was still labelled a check');
+});
+
+test('#4139 a Claude green from Check now says check; one from an agent says agent', async () => {
+  const dir = (await rows()).claudeBoss.dir;
+  assert.ok(dir, 'setup: the Claude row has no folder');
+  observed.sawDir(observed.PROVIDER.ANTHROPIC, dir, observed.OUTCOME.OK, Date.now());
+  let r = await rows();
+  assert.equal(r.claudeBoss.connection.badge, 'working', 'setup: ' + JSON.stringify(r.claudeBoss.connection));
+  assert.equal(r.claudeBoss.connection.observedFrom, 'check');
+  observed._clearForTest();
+  observed.saw(observed.PROVIDER.ANTHROPIC, 'bossagent', observed.OUTCOME.OK, Date.now());
+  r = await rows();
+  assert.equal(r.claudeBoss.connection.badge, 'working', 'setup: ' + JSON.stringify(r.claudeBoss.connection));
+  assert.equal(r.claudeBoss.connection.observedFrom, 'agent');
+});
+
+test('#4139 a row with no observation carries no observedFrom', async () => {
+  const r = await rows();
+  assert.equal(r.claudeBoss.connection.observedFrom, undefined);
+  assert.equal(r.sub.connection.observedFrom, undefined);
+});

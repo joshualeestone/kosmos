@@ -7758,7 +7758,9 @@ const server = http.createServer((req, res) => {
           try { cal = a.dir ? require('./engine/allowance').readCalibration(a.dir) : null; } catch { cal = null; }
           return {
             provider: 'anthropic', providerName: 'Anthropic / Claude', ...a,
-            connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs },
+            /* #4139: which kind of observation decided it, so the page does not call a check "a real request". */
+            connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
+              ...(obs ? { observedFrom: obs === checkObs ? 'check' : 'agent' } : {}) },
             weeklyTokensPerPoint: cal ? Math.round(cal.tokensPerPoint) : null,
           };
         });
@@ -7842,7 +7844,8 @@ const server = http.createServer((req, res) => {
           if (v.badge !== 'working') return base;
           /* From base.connection, which carries liveCheckPending: a green row whose own check is still running must
              still be read again, so a newer dead answer can reach it (review round 9). */
-          return { ...base, connection: { ...(base.connection || a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs } };
+          return { ...base, connection: { ...(base.connection || a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
+            observedFrom: obs === checkObs ? 'check' : 'agent' } };   // #4139
         });
         /* #3296 observability follow-on: the GOOGLE/Gemini observed-overlay badge, the
            exact sibling of the OpenAI overlay above and positive-only for the same reason
@@ -7957,6 +7960,7 @@ const server = http.createServer((req, res) => {
           /* Still being checked in this read: keep saying so, so the page reads again (review round 9). */
           const stillChecking = thisCheck && thisCheck.verdict === 'pending';
           return { ...a, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
+            observedFrom: obs === checkObs ? 'check' : 'agent',   // #4139
             ...(stillChecking ? { liveCheckPending: true } : {}) } };
         });
         /* #3998 (Josh, 11:34: "it doesn't show up here as a connected subscription"): Gemini on the

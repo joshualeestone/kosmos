@@ -187,6 +187,7 @@ test('#3997 Grok subscription: a current key checked live on open reads working;
   let row = (await accounts()).find((a) => a.provider === 'xai');
   assert.equal(calls, 1);
   assert.equal(row.connection.badge, 'working', JSON.stringify(row.connection));
+  assert.equal(row.connection.observedFrom, 'check', '#4139: a green from the free check must say so, not "a real request"');
   // An expired key is not sent anywhere, and the row says why it is not green.
   observed._clearForTest();   // forget that green, as a stale one would be
   grokSignIn(-60 * 1000);

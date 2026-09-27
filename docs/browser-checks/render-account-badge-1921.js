@@ -131,6 +131,10 @@ const GROK_SUB_UNKNOWN = grokSubRow('grok-unk@example.com', '/home/.grok-gu', 'u
 const ACCOUNTS = [
   row('work@example.com', 'working', 'wd'),
   row('rej@example.com', 'rejected', 'rd'),
+  /* #4139: the same greens and refusal, told apart by what produced them (a check Kosmos ran, or an agent's request). */
+  { ...row('chk@example.com', 'working', 'cg'), connection: { ...row('chk@example.com', 'working', 'cg').connection, observedFrom: 'check' } },
+  { ...row('agt@example.com', 'working', 'ag'), connection: { ...row('agt@example.com', 'working', 'ag').connection, observedFrom: 'agent' } },
+  { ...row('rejchk@example.com', 'rejected', 'rc'), connection: { ...row('rejchk@example.com', 'rejected', 'rc').connection, observedFrom: 'check' } },
   row('unver@example.com', 'signed_in_unverified', 'ud'),
   row('out@example.com', 'signed_out', 'od'),
   row('unk@example.com', 'unchecked', 'kd'),
@@ -340,6 +344,11 @@ const ACCOUNTS = [
     // OpenAI subscription reauth. #2568/#2584: the two reauth affordances never cross.
     { email: 'work@example.com', cls: 'acct-connected', text: /Signed in.*active/, claudeReauth: true, openaiReauth: false, checkNow: true, checkSignin: '' },
     { email: 'rej@example.com', cls: 'acct-none', text: /Not connected/, checkNow: true },
+    // #4139: a green from a check says so, and does not claim "a real request" or "not a probe"; one from an agent keeps
+    // the old sentence; a refusal from a check says it was refused when checked.
+    { email: 'chk@example.com', cls: 'acct-connected', text: /^Signed in · checked /, titleText: /answered when Kosmos checked it/, notTitleText: /real request|not a probe/ },
+    { email: 'agt@example.com', cls: 'acct-connected', titleText: /a real request on this account succeeded/, notTitleText: /Kosmos checked/ },
+    { email: 'rejchk@example.com', cls: 'acct-none', titleText: /refused when Kosmos checked it/, notTitleText: /real request/ },
     // #3136: unver@ is EXACTLY Josh's state (a signed-in but not-recently-observed account).
     // The VISIBLE pill now reads a NEUTRAL "Signed in" (Josh read the old "not recently checked"
     // as "not connected" though he was); the nuance moves to the TITLE, and it carries "Check
@@ -389,6 +398,7 @@ const ACCOUNTS = [
     if (w.text && !w.text.test(got.text || '')) problems.push(`${w.email}: text "${got.text}" does not match ${w.text}`);
     if (w.notText && w.notText.test(got.text || '')) problems.push(`${w.email}: the long status sentence is in the VISIBLE pill (${w.notText}) - the #2568 overflow is back`);
     if (w.titleText && !w.titleText.test(got.title || '')) problems.push(`${w.email}: the full reason is missing from the title (${w.titleText}); got title "${got.title}"`);
+    if (w.notTitleText && w.notTitleText.test(got.title || '')) problems.push(`${w.email}: the title says ${w.notTitleText}, which is not what happened (#4139); got "${got.title}"`);
     if (w.honesty && got.cls && got.cls.indexOf('acct-connected') !== -1) {
       problems.push(`${w.email}: a merely-existing credential rendered GREEN (acct-connected) - the #874 false-green is back`);
     }
