@@ -41,8 +41,9 @@ Do it only once the server half has merged and is on a cut.
 
 There is no server-side record of a file being open in the Kosmos editor (searched: none). The guard
 is the settle window: act only when the file has not changed for SETTLE_MS. A person who pauses longer
-than that mid-edit and then keeps typing could have the managed block rewritten under their open
-editor. The alternative, the page telling the board which file it has open, is a larger change.
+than that mid-edit and then saves does not lose work: the editor's save carries a version and
+`instructions.write` refuses a stale one ("these instructions changed since you opened them"). The
+cost is a reload before their save, not an overwrite.
 
 ## As built (2026-09-27 03:13 CDT)
 
@@ -53,7 +54,15 @@ editor. The alternative, the page telling the board which file it has open, is a
   live execution, brake `AGENT_WORKFORCE_AUTORETELL_OFF=1`.
 - The file compared is `instructions.fileFor(name)`, the one tellAgent reads, not `create.instructionFile`.
 - Candidates: the NEWEST could_not verdict across the agent's projects; the file must be newer than it.
-- No valve: one retell per settled change, bounded by the person's own edits.
+- No valve: one retell per settled change to the file. Any write counts, Kosmos's own too (an
+  unrelated Kosmos write can cost one extra retell, which types nothing on a could_not).
+- A RUNNING agent whose file was changed after it started by anyone but Kosmos is left for its
+  restart (the `ready` check), and the change is not spent. Retelling it would write the file as
+  Kosmos, and `toldOverride` would then show "told it on its screen" for an agent that never read
+  the person's change. Found in review 2.
+- A retell that fails, even for a passing reason, is not retried until the file changes again: the
+  notice's Try again retries sooner. A list of "passing" reasons to auto-retry was rejected: it would
+  be a second copy of tellAgent's reasons, and drift.
 - Tests: engine/autoretell.test.js (9), server.test.js "#3932" (end-to-end: no file, settle window,
   retell writes the block and keeps the person's words, the listed line typed once, second tick no-op).
 - Mutations: dropping the settle, newer-than-verdict or acted checks each reds the unit tests.

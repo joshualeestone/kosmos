@@ -15301,6 +15301,18 @@ test('#3932: once the person fixes the file an Act row asked about, the board re
     assert.deepEqual(autoretellTick(mtime + SETTLE_MS - 1, acted), [], 'rewrote the file inside the settle window');
     assert.equal(fs.readFileSync(file, 'utf8'), edited, 'the file changed inside the settle window');
 
+    /* Running, on a change a person made after it started: left for its restart, file untouched.
+       (The sandbox has no session, so staleness reads unknown; this is the running case.) */
+    const instr = require('./engine/instructions');
+    const realStaleness = instr.staleness;
+    try {
+      instr.staleness = () => ({ state: instr.STALENESS.STALE, wroteBy: { who: 'person', because: null } });
+      assert.deepEqual(autoretellTick(mtime + SETTLE_MS, acted), [], 'retold a running agent that has not read the person\'s change');
+      assert.equal(fs.readFileSync(file, 'utf8'), edited, 'wrote the file under a running agent that has not read the person\'s change');
+      instr.staleness = () => ({ state: instr.STALENESS.STALE, wroteBy: null });
+      assert.deepEqual(autoretellTick(mtime + SETTLE_MS, acted), [], 'retold a running agent on a hand edit nobody attributed');
+    } finally { instr.staleness = realStaleness; }
+
     const rows = autoretellTick(mtime + SETTLE_MS, acted);
     assert.deepEqual(rows, [{ name: 'rhea', id, state: eng.TOLD.TOLD }], 'the fixed agent was not re-told');
     assert.equal(toldOf().state, eng.TOLD.TOLD, 'the retell did not flip the stored verdict to told');

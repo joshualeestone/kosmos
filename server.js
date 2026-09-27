@@ -959,6 +959,14 @@ function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
       },
       now,
       acted,
+      /* A running agent whose file changed after it started, by anyone but Kosmos, waits for its
+         restart: a retell now would write the file as Kosmos and the board would say the agent was
+         told, though it never read the person's change. Unknown (not running, or no start time)
+         is ready: the agent reads its file when it next starts. */
+      ready: (name) => {
+        const st = instructions.staleness(name);
+        return !(st && st.state === instructions.STALENESS.STALE && !(st.wroteBy && st.wroteBy.who === 'kosmos'));
+      },
       retell: (name, id) => retellMember(name, id, roster === undefined ? (roster = safeRoster()) : roster),
       log: (r) => process.stdout.write(`autoretell: ${r.name} on ${r.id} -> ${r.state}\n`),
     });

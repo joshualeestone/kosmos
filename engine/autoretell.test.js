@@ -90,6 +90,35 @@ test('one retell per change: a second sweep with no new change does nothing, a n
   assert.equal(calls.length, 2);
 });
 
+test('an agent not ready (running on a person\'s unread change) is left, and the change is not spent', () => {
+  const w = world();
+  let isReady = false;
+  const calls = [];
+  const retell = (name) => { calls.push(name); return { told: { state: 'told' } }; };
+  assert.deepEqual(sweepOnce({ ...w, ready: () => isReady, retell }), [], 'retold an agent that was not ready');
+  assert.deepEqual(sweepOnce({ ...w, ready: () => { throw new Error('x'); }, retell }), [], 'a ready check that throws was read as ready');
+  isReady = true;   // it restarted
+  assert.deepEqual(sweepOnce({ ...w, ready: () => isReady, retell, now: w.now + 60000 }).map((r) => r.name), ['ada'],
+    'the change was spent while the agent was not ready, so it was never retold');
+  assert.deepEqual(calls, ['ada']);
+});
+
+test('a newer told verdict on another project wins over an older could_not', () => {
+  const w = world({
+    projects: [
+      { id: 'p1', agents: ['ada'], told: { ada: couldNot(T0) } },
+      { id: 'p2', agents: ['ada'], told: { ada: told(T0 + 500) } },
+    ],
+  });
+  assert.deepEqual(due(w), [], 'retold an agent whose newest verdict is told');
+  // CONTROL: the order reversed, could_not newest, is due.
+  const r = world({ projects: [
+    { id: 'p1', agents: ['ada'], told: { ada: told(T0 - 500) } },
+    { id: 'p2', agents: ['ada'], told: { ada: couldNot(T0) } },
+  ] });
+  assert.deepEqual(due(r).map((d) => d.id), ['p2']);
+});
+
 test('a retell that throws is recorded as an error and does not stop the next agent', () => {
   const w = world({
     projects: [{ id: 'p1', agents: ['ada', 'bo'], told: { ada: couldNot(T0), bo: couldNot(T0) } }],
