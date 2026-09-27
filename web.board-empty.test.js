@@ -47,7 +47,7 @@ function boardEmpty(state) {
     /* win32-board-copy: both painters now ask the platform copy layer, which answers
        "not Windows" here (no stamped meta), so this file keeps asserting the Mac board. */
     page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS) + '\n'
-    + lift('esc') + '\n' + lift('boardSigninHtml') + '\n' + lift('deviceSignedOutHtml') + '\n' + lift('boardEmpty')
+    + lift('esc') + '\n' + lift('boardSigninHtml') + '\n' + page.liftConst(SCRIPT, 'ORG_SIGNED_OUT_SENTENCE') + '\n' + lift('deviceSignedOutHtml') + '\n' + lift('boardEmpty')
     + '\nreturn boardEmpty();')(state.seen, state.failed, state.signin || false, state.signedOut || false);
 }
 
