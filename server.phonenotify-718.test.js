@@ -40,8 +40,14 @@ process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://coord.example.test/kos
 const TUNNEL_LOG = path.join(SANDBOX, 'tunnel.log');
 const FAKE_TUNNEL = path.join(SANDBOX, 'fake-kosmos-tunnel');
 const MINTED = 'knt1_testtoken0123456789';
+/* The record every fake tunnel writes for a call: mints() counts "ARGV: mac-request" in it (#4136: one copy). It is
+   ONE printf, so one append: written piece by piece, two tunnels running at once interleaved their pieces
+   ("ARGV:ARGV: mac-request ...") and the count read one mint where there were two. */
+const LOG_CALL = `in=$(cat); printf 'ARGV:%s\\nSTDIN:%s\\n' "$(printf ' %s' "$@")" "$in" >> "${TUNNEL_LOG}"`;
+/* Waits (up to about 60s) for a gate file before answering, so a test can hold a mint open (#4136). */
+const WAIT_GATE = (gate) => `n=0; while [ ! -f "${gate}" ] && [ $n -lt 3000 ]; do sleep 0.02; n=$((n + 1)); done`;
 fs.writeFileSync(FAKE_TUNNEL, `#!/bin/bash
-{ printf 'ARGV:'; printf ' %s' "$@"; printf '\\nSTDIN:'; cat; printf '\\n'; } >> "${TUNNEL_LOG}"
+${LOG_CALL}
 printf '{"token":"${MINTED}"}\\n'
 `, { mode: 0o755 });
 process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL;
@@ -212,10 +218,39 @@ test('needs_you names the project it stands under, carried forward when the repo
 
 test('turning on always mints a fresh token, one turn-on at a time', async () => {
   enrol();
-  await Promise.all([
-    call('PUT', '/api/phone-notify', { body: { on: true } }),
-    call('PUT', '/api/phone-notify', { body: { on: true } }),
-  ]);
+  /* #4136: the two turn-ons must really overlap. Fired as two HTTP PUTs, the first could finish its mint before the
+     second reached turnOn on a loaded Mac, and two mints one after the other is correct, so the test went red with
+     nothing wrong. Here the mint is held open (the fake tunnel logs its call, then waits for GATE) until the SECOND
+     request has reached turnOn, so a second mint can only mean the one-at-a-time rule failed. The tunnel's own
+     timeout is raised past the fallback, so a slow second request cannot have the first mint killed under it. */
+  const GATE = path.join(SANDBOX, 'mint-gate');
+  const realTurnOn = phonenotify.turnOn;
+  let arrived = 0;
+  const openGate = () => fs.writeFileSync(GATE, '');
+  const fallback = setTimeout(openGate, 45000);   // a request that never arrives fails the asserts below, not the run
+  phonenotify.turnOn = (...args) => {
+    arrived += 1;
+    if (arrived === 2) openGate();
+    return realTurnOn(...args);
+  };
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = tunnelScript('gated-tunnel', `${LOG_CALL}\n${WAIT_GATE(GATE)}\nprintf '{"token":"${MINTED}"}\\n'`);
+  process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS = '90000';
+  let answers;
+  try {
+    answers = await Promise.all([
+      call('PUT', '/api/phone-notify', { body: { on: true } }),
+      call('PUT', '/api/phone-notify', { body: { on: true } }),
+    ]);
+  } finally {
+    clearTimeout(fallback);
+    phonenotify.turnOn = realTurnOn;
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL;
+    delete process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS;
+    fs.rmSync(GATE, { force: true });
+  }
+  assert.equal(arrived, 2, 'both turn-ons reached phonenotify.turnOn (the overlap this test needs; a later arrival makes the mint count below meaningless)');
+  for (const a of answers) assert.ok(a.code === 200 && a.json.on === true, `a turn-on through the held mint did not succeed: ${a.code} ${JSON.stringify(a.json)}`);
+  assert.equal(phonenotify.readState().on, true, 'the held mint did not save on');
   const mints = () => (fs.readFileSync(TUNNEL_LOG, 'utf8').match(/ARGV: mac-request/g) || []).length;
   assert.equal(mints(), 1, 'two concurrent turn-ons each minted');
   await call('PUT', '/api/phone-notify', { body: { on: false } });
@@ -264,15 +299,36 @@ test('a hung tunnel times out: turning on fails in plain words, and the next tur
 
 test('turning off while a turn-on is still minting ends off', async () => {
   enrol();
-  process.env.AGENT_WORKFORCE_TUNNEL_BIN = tunnelScript('slow-tunnel', `cat >/dev/null; sleep 1; printf '{"token":"${MINTED}"}\\n'`);
+  /* #4136: the off must arrive WHILE the mint is in flight. A 150ms wait against a 1s mint was a timing guess, and on a
+     loaded Mac the mint could finish first, when an off one after the other also ends off, so the test passed without
+     testing the overlap. The mint now waits for GATE, which opens only once the off has reached turnOff. */
+  const GATE = path.join(SANDBOX, 'off-gate');
+  const realTurnOff = phonenotify.turnOff;
+  let offArrived = false;
+  const openGate = () => fs.writeFileSync(GATE, '');
+  const fallback = setTimeout(openGate, 45000);
+  phonenotify.turnOff = (...args) => { offArrived = true; openGate(); return realTurnOff(...args); };
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = tunnelScript('slow-tunnel', `${LOG_CALL}\n${WAIT_GATE(GATE)}\nprintf '{"token":"${MINTED}"}\\n'`);
+  process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS = '90000';
   try {
     const onP = call('PUT', '/api/phone-notify', { body: { on: true } });
-    await new Promise((r) => setTimeout(r, 150));
+    // The off is sent only once the mint has started (its call is in the log), so it cannot overtake the turn-on.
+    for (let i = 0; i < 3000 && !(fs.existsSync(TUNNEL_LOG) && /ARGV: mac-request/.test(fs.readFileSync(TUNNEL_LOG, 'utf8'))); i += 1) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
     const off = await call('PUT', '/api/phone-notify', { body: { on: false } });
-    await onP;
+    const on = await onP;
+    assert.equal(offArrived, true, 'the off reached turnOff');
+    assert.equal(on.code, 200, `the turn-on through the held mint did not succeed: ${on.code}`);
     assert.equal(off.json.on, false);
     assert.equal(phonenotify.readState().on, false, 'the late turn-on saved on over the off');
-  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL; }
+  } finally {
+    clearTimeout(fallback);
+    phonenotify.turnOff = realTurnOff;
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL;
+    delete process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS;
+    fs.rmSync(GATE, { force: true });
+  }
 });
 
 test('names are capped in UTF-8 bytes, never inside a character', () => {
