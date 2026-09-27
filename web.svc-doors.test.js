@@ -104,6 +104,8 @@ test('#529 Gmail door: says it cannot connect yet, names the working road, promi
   assert.match(gmail, /Postmark or SendGrid under Sending email/, 'the door does not point at the road that works today');
   assert.doesNotMatch(gmail, /sign in on Gmail/, 'the door still promises a Gmail sign-in design nobody has chosen');
   assert.doesNotMatch(gmail, /<button/, 'an unbuilt door offers a control');
+  assert.doesNotMatch(gmail, /Connect an address|send and read the email you approve/, 'the door still describes a Gmail design nobody chose, before saying it cannot connect');
   // CONTROL: every other coming-soon door keeps the generic line.
   assert.match(door('Google Drive'), /you sign in on Google Drive’s own page/);
+  assert.match(door('A service with no sentence'), /^<b>A service with no sentence\.<\/b> Coming soon\. When it opens up here/, 'a door with no sentence of its own lost the generic line');
 });
