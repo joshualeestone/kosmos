@@ -36,6 +36,9 @@
 #     own note for the measured allowlist.
 # So a green here is the DOM-STATE gate, NOT full 3b coverage -- see caveat 2 (which
 # checks are and are not headless-viable) and caveat 3 (the trigger leak).
+# #4119: the checks step ALSO runs the checks this PR's page diff selects
+# (tools/bc-pr-select.js), and those can be timing or paint checks. So a green covers the
+# DOM-state gate plus the selected checks, still not full 3b coverage.
 #
 # ADVISORY, like test.yml: kosmos has no required branch protection (a deliberate
 # beta "merge fast" call, #835), so this cannot block a merge. It is the second
@@ -128,6 +131,11 @@ on:
       # is closed rather than documented.
       - 'test-support/**'
       - '.github/workflows/browser-checks.yml'
+      # #4119: the selection step decides what runs beyond the allowlist, so a change to it or to
+      # the surface map it reads must run this job end to end.
+      - 'tools/bc-pr-select.js'
+      - 'tools/bc-surface-map.sh'
+      - 'tools/lib/browser-check-surface-lib.sh'
 
 # Least privilege: reads the repo, runs the checks, needs no write scope. Uses
 # pull_request (not pull_request_target), so untrusted PR code never runs elevated.
@@ -155,9 +163,15 @@ jobs:
     # a hung run + further allowlist growth, without clipping an honest slow one. (The
     # FULL page-check suite never runs in this job; it runs at the cut's 3b and nightly
     # in browser-checks-full.yml, #2518.)
-    timeout-minutes: 40
+    # #4119: 60, up from 40, for the checks the diff selects on top of the allowlist. Their
+    # measured cost is on the #4119 card.
+    timeout-minutes: 60
     steps:
+      # #4119: full history, so the selection step below can diff the PR against its merge
+      # base (base.sha...HEAD). A shallow clone has no merge base and the diff would fail.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       # Match test.yml's node pin: the checks boot node fixture servers, and the
       # suite is written for node 26 (the developer Macs). Drift arrives here as a
       # legible line rather than later as an unrelated red.
@@ -170,11 +184,38 @@ jobs:
           echo "npm:  $(npm --version 2>&1 || echo ABSENT)"
       # Pin + install Playwright the blessed way (tools/provision-pw.sh, #1594):
       # exact playwright@1.62.1 + chromium/webkit builds into ~/work/pw-runtime,
-      # where browser-checks.sh finds it with no env needed. No tmux install (unlike
-      # test.yml): the checks use test-support/fake-tmux.sh, so a real tmux is not
-      # needed. Idempotent, non-interactive -- CI-safe.
+      # where browser-checks.sh finds it with no env needed. Idempotent,
+      # non-interactive -- CI-safe.
       - name: provision the pinned Playwright runtime (#1594)
         run: bash tools/provision-pw.sh
+      # #4119: tmux, as browser-checks-full.yml installs it (#3973). render-talk's reopen arm reads
+      # the real status.snapshot(), which throws without tmux; on the runner that read as a check
+      # failure every night until #4076. A selected render-talk needs it here too.
+      - name: 'install tmux (#3973, #4119)'
+        timeout-minutes: 10
+        run: brew install tmux
+      # #4119: WHICH CHECKS THIS DIFF TOUCHES, beyond the fixed allowlist below. On 2026-09-26 two
+      # page PRs passed this job and broke a check outside the allowlist, found only at the 0.7.01
+      # cut (about 3 hours of release): #3985 broke render-talk, #4095 broke render-fields.
+      # tools/bc-pr-select.js names the checks the diff reaches (its header lists the ways a check
+      # is selected), each printed with its reason. The added time is measured on the #4119 card.
+      # A selected check that goes red fails this job, like an allowlisted one: the point is that
+      # the PR author sees it, not the cut.
+      - name: 'the checks this page diff touches (tools/bc-pr-select.js, #4119)'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        # A selector failure must not cost the allowlist its run: it is recorded here and turns the
+        # job red AFTER the checks step, so the DOM-state gate still reports for this PR.
+        run: |
+          set -o pipefail
+          if node tools/bc-pr-select.js "$BASE_SHA" HEAD | tee "$RUNNER_TEMP/bc-selected.tsv"; then
+            names="$(cut -f1 "$RUNNER_TEMP/bc-selected.tsv" | tr '\n' ' ')"
+            echo "selected: $(wc -l < "$RUNNER_TEMP/bc-selected.tsv" | tr -d ' ') checks this diff touches"
+            echo "KOSMOS_BC_PR_SELECTED=$names" >> "$GITHUB_ENV"
+          else
+            echo "::error::tools/bc-pr-select.js failed; running the allowlist only, and this job will fail after it"
+            echo "KOSMOS_BC_PR_SELECT_FAILED=1" >> "$GITHUB_ENV"
+          fi
       # The page gate itself, exactly as the cut runs it at 3b: strict version so a
       # drifted runtime is a hard stop, not a silent lie. Its exit code gates this
       # job -- non-zero fails the PR check, which is the whole point. 126/127 means
@@ -270,4 +311,16 @@ jobs:
             render-win32-board-copy
             render-fed-plus-gate
             render-waiting-badge-4025
-        run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
+        # #4119: the fixed allowlist PLUS the checks the selection step named, deduplicated. The
+        # driver's never-ran guard covers both: a named check that did not run reds the job.
+        run: |
+          extra=""
+          for n in ${KOSMOS_BC_PR_SELECTED:-}; do
+            case " $KOSMOS_BC_CI_ALLOWLIST $extra " in *" $n "*) ;; *) extra="$extra $n" ;; esac
+          done
+          echo "running the allowlist plus$( [ -n "$extra" ] && echo "$extra" || echo ' nothing else' )"
+          KOSMOS_BC_CI_ALLOWLIST="$KOSMOS_BC_CI_ALLOWLIST$extra" KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
+          if [ "${KOSMOS_BC_PR_SELECT_FAILED:-0}" = 1 ]; then
+            echo "::error::the checks this diff touches were NOT selected (tools/bc-pr-select.js failed above); only the allowlist ran"
+            exit 1
+          fi

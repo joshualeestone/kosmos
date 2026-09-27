@@ -67,6 +67,24 @@ from the moment it landed. (#1720 is this fix, not the incident.) Before you mov
 directory for it and read what each hit ASSERTS -- or run the browser gate, which
 is the only check that sees the page.
 
+## Which checks a page PR runs (#4119)
+
+The PR-time `browser-checks` job runs a fixed DOM-state allowlist, plus the checks
+the diff touches, named by `tools/bc-pr-select.js` (its header lists every way a check
+is selected, and each selected check is printed with its reason). A check that judges
+the whole page rather than named elements (every field, every piece of text) can never
+be reached that way, so it says so on its first lines:
+
+    // Browser-check-scope: page
+
+and runs on every page change. `render-fields` and `contrast` carry it. A check that is red on
+the CI runner for a reason that is not the PR's (the nightly card, #3973) is listed in the
+tool's `KNOWN_RED` and left out of this selection, with a line saying so. Run the selector
+yourself to see what a branch will run, and why. A change to `test-support/`, the driver,
+or a `web/` file other than `index.html` still runs the allowlist only:
+
+    node tools/bc-pr-select.js origin/main HEAD
+
 ## The composition check
 
 `regress-a-night.js` is the odd one here and worth knowing about. Every other

@@ -71,6 +71,7 @@ board-auth model, install/update, multi-world ("Kosmos") switching, and provider
 | Run the test suite the way CI does | `yarn test` -> `tools/run-tests.sh` |
 | Add or change a test | Most suites are dot-namespaced at the repo root (`web.foo.test.js`); `engine/` mostly colocates in-directory. The runner (`tools/run-tests.sh`) considers every `*.test.js` in the tree (see Repo-Specific Conventions) |
 | Change the board UI | `web/index.html` (single page); a committed change here needs a browser-check assertion or a `Browser-check:` trailer |
+| See which browser checks a page PR runs, and why (#4119) | `node tools/bc-pr-select.js origin/main HEAD`; the PR job runs the fixed allowlist plus that selection. How a check is selected: the tool's header and `docs/browser-checks/README.md` |
 | Find the data root / Application Support path | `engine/store.js` (`store.ROOT`) |
 | Work on multi-Kosmos switching | `engine/worlds.js`, `engine/worldenv.js`, `engine/worldbootguard.js`, `engine/boardrestart.js`; the switch route in `server.js` (`/api/worlds/active`) |
 | Work on a Kosmos's agents (named worlds) | `engine/launchidentity.js` (the world-keyed task / label / session key), `engine/worldstarts.js` (starting a Kosmos's paused and imported agents when it opens), `engine/worldimport.js` (copying agents from one Kosmos into another), `engine/outbox.js` (a kept-running agent's sends, kept in its own Kosmos until that Kosmos is open again); the routes `/api/worlds/import` and `/api/worlds/list` in `server.js` |

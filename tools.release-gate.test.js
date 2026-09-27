@@ -485,6 +485,11 @@ function git_sandbox(version, { diverge = 'none', whatsNewFor = null } = {}) {
   fs.copyFileSync(path.join(__dirname, 'tools', 'whats-new-check.js'), path.join(dir, 'tools', 'whats-new-check.js'));
   fs.mkdirSync(path.join(dir, 'engine'), { recursive: true });
   fs.copyFileSync(path.join(__dirname, 'engine', 'whatsnew.js'), path.join(dir, 'engine', 'whatsnew.js'));
+  /* #4160: step 1e runs browser-checks-quarantine-guard.test.js against docs/browser-checks, so the
+     sandbox carries the real test and the real checks; the arms past step 1 then exercise step 1e in
+     place (green: no check is quarantined on main) rather than refusing on a missing file. */
+  fs.copyFileSync(path.join(__dirname, 'browser-checks-quarantine-guard.test.js'), path.join(dir, 'browser-checks-quarantine-guard.test.js'));
+  fs.cpSync(path.join(__dirname, 'docs', 'browser-checks'), path.join(dir, 'docs', 'browser-checks'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'web'), { recursive: true });
   // For the version the arms CUT: the next patch of `version` (0.6.02 -> 0.6.03), padding kept.
   const parts = String(version).split('.');
