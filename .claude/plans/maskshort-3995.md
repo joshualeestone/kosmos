@@ -13,13 +13,15 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
   run that advanced it; and masks only a WHOLE form with at least SHORT_WALK_MIN_KEYLIKE pieces that are not plain
   words or numbers, piece by piece (the piece, not a label glued to it), and only from the latest start. Its own
   budget; over it, the reply is withheld, as for the word walk.
-- knownByShort: walked forms by their first 2 and 3 characters, not hex forms, and a form with its own - or _ also
+- knownByShort: walked forms by their first 2 and 3 characters, not hex ENCODINGS (a held hex value and a vendor's
+  hex body are in, since round 29 and 24), and a form with its own - or _ also
   without them.
 
 ## Decided
 - Completion only, no partial masking: completion is the defence against ordinary text.
 - No key-like start rule (removed in round 1): it masked word passwords and missed many keys. Cost is controlled by
-  spellability, false masks by the key-like-piece count, hex by leaving hex forms out of the short index.
+  spellability, false masks by the key-like-piece count, hex by keeping encodings out and limiting the hex-looking
+  runs a hex form may skip (rounds 29 to 31).
 
 ## Weakest premise
 - SHORT_WALK_MIN_KEYLIKE = 2 separates a random key from a password made of words by counting pieces that are not
@@ -28,7 +30,7 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
 
 ## Not covered (also in the file)
 - One character per chunk; chunks of two with fewer than two key-like pairs (round 12); a single-case key whose chunks
-  read as words (round 4); anything hex in short chunks;
+  read as words (round 4); hex ENCODINGS in short chunks;
   see the file's own Not covered list, which is kept current.
 
 ## Review round 1 (Opus), what changed
@@ -336,3 +338,10 @@ OPENING_LEN = 4, no run reaches FRAGMENT_LEN, no run is long enough for the catc
   SHORT_HEX_SKIP_MAX (3) hex-looking runs between two pieces (a dump or numbered hex list skips many; prose skips words).
   Measured after: 0 of 50. The round-27 hex-dense test passes three runs of three; the new test is red on the previous
   commit. Not covered names the residual (several multi-digit numbers between hex chunks).
+
+## Review round 31 (Opus), what changed
+- A hex key given with ordinary words between its chunks leaked when the words were hex letters (be, add, Dec, face):
+  they counted toward SHORT_HEX_SKIP_MAX. Only runs with a digit count now (the reviewer's tested fix: round-27 and
+  round-29 dense-hex shapes stay unmasked, the leak goes from 20 of 20 to 0). Tested; red on the previous commit.
+- The addWalked comment credited the removed total-span cap; it names the skip limit now. This plan's summary sections
+  no longer say hex is out of the short index. The budget comment records round 31's cost with held hex values walked.

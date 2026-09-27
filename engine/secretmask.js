@@ -279,8 +279,8 @@ function addWalked(w, walked) {
          vendor key's body is walked even when it is hex (review round 24: sk-proj-3f9a... given without its prefix
          leaked): its prefix says it is a key, not stray hex, and it is one form per held value, not every encoding. */
       /* And a held value that is itself hex (review round 29): the numbered-guide case was its ENCODINGS, walked from
-         lone digits; a hex form now completes only within SPLIT_REACH x its length in all (round 27), which is what makes
-         walking a hex token safe. Encodings stay out. */
+         lone digits. What makes walking a hex token safe is the limit on hex-looking runs a hex form may skip between
+         two pieces (SHORT_HEX_SKIP_MAX, in shortChunkSpans). Encodings stay out. */
       /* Only a value that is hex exactly as held: a UUID's dash-stripped form stays out (round 6: 2,000 held UUIDs made a
          numbered list withheld). */
       const heldHex = form === w && heldAsGiven.has(form);
@@ -483,7 +483,7 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *  - the hex ENCODINGS of held values, and a UUID-shaped value (hex once its - are taken out), cut into chunks under
  *    OPENING_LEN (not walked short, see addWalked); a held value that is itself hex as held, and a vendor key's hex body,
  *    ARE walked, skipping at most SHORT_HEX_SKIP_MAX hex-looking runs between two pieces (so a hex key with MORE hex-
- *    looking tokens between its chunks, such as several numbers of two or more digits, shows);
+ *    looking tokens, with a digit, between its chunks, such as several numbers of two or more digits, shows);
  *  - a first chunk of OPENING_LEN or more followed by chunks under it, once the text from the first chunk runs past
  *    SPLIT_REACH times the key's length in all (the word walk extends its reach only on pieces of OPENING_LEN or
  *    more, and the short walk starts only from a chunk under OPENING_LEN);
@@ -805,7 +805,9 @@ function wordSkippingSpans(text) {
      200 to 600ms, withheld at the budget rather than hanging;
    - review round 12: a crafted 135,000-character reply with 6,000 runs: 2.4s against main's 1.5s, not withheld;
    - review round 17: held values of 400 to 1,000 characters on 8,000 random one- to three-character tokens: withheld
-     (about 1s; main is not), crafted; realistic texts (code, grids, chess, JWTs) unchanged at 1 to 2.5x main. */
+     (about 1s; main is not), crafted; realistic texts (code, grids, chess, JWTs) unchanged at 1 to 2.5x main;
+   - review round 31, with held hex values walked (round 29): 2,000 held 32-hex values on 60,000 random 1- to
+     3-character hex tokens (180KB): 3.7s against main's 1.1s, not withheld; 95KB of numbered prose 449ms against 224ms. */
 const SHORT_WALK_BUDGET = 1250000;
 /* The pieces a run offers, each with WHERE it sits in the run ([from, to)), so the mask covers that place and not the
    first place the same letters happen to appear (review round 15: in t6wx/t6w/q the chunk is the middle part). */
@@ -900,9 +902,13 @@ function shortChunkSpans(text) {
     runs.push([m.index, m.index + m[0].length, [...where.keys()], m[0], where]);
   }
   if (runs.length < 2) return [];
-  /* hexBefore[i]: how many runs before run i look like hex (two or more characters, 0-9 a-f only). */
+  /* hexBefore[i]: how many runs before run i look like hex tokens: two or more characters, 0-9 a-f only, WITH a digit
+     (review round 31: be, add, Dec and face are words, and counting them leaked a hex key given with prose between). */
   const hexBefore = new Int32Array(runs.length + 1);
-  for (let i = 0; i < runs.length; i += 1) hexBefore[i + 1] = hexBefore[i] + (runs[i][3].length >= 2 && /^[0-9a-f]+$/i.test(runs[i][3]) ? 1 : 0);
+  for (let i = 0; i < runs.length; i += 1) {
+    const r = runs[i][3];
+    hexBefore[i + 1] = hexBefore[i] + (r.length >= 2 && /^[0-9a-f]+$/i.test(r) && /[0-9]/.test(r) ? 1 : 0);
+  }
   const present = new Set();
   const at = new Map();   // piece -> the runs offering it, in order
   runs.forEach((r, i) => { for (const t of r[2]) { present.add(t); if (!at.has(t)) at.set(t, []); at.get(t).push(i); } });

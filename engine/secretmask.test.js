@@ -1831,3 +1831,17 @@ test('#3995 gap 4 review round 30: a hex key with ordinary prose between its sho
     } finally { setKnownSecrets([]); }
   }
 });
+
+test('#3995 gap 4 review round 31: a hex key given with ordinary words made of hex letters between its chunks is masked', () => {
+  const crypto = require('node:crypto');
+  for (let k = 0; k < 8; k += 1) {
+    const key = crypto.randomBytes(16).toString('hex');
+    setKnownSecrets([key]);
+    try {
+      const chunks = key.match(/.{2}/g);
+      const t = mask(chunks.map((c) => `Be sure you add the next one (as of Dec 2025) and it should be: ${c}`).join('\n')).text;
+      const shown = chunks.filter((c) => new RegExp(': ' + c + '$', 'm').test(t));
+      assert.ok(shown.length <= 1, `chunks showed: ${shown.join(',')}`);
+    } finally { setKnownSecrets([]); }
+  }
+});
