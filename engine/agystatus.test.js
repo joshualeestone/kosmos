@@ -5,6 +5,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+/* Sandbox the data root BEFORE anything reads it (repo convention 2, review round 8): the round-4
+   test below checks the real-record guard, and with this a regressed guard would touch a temp
+   folder, never the person's own Kosmos folder. */
+process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'agystatus-data-'));
 const agystatus = require('./agystatus');
 test.after(() => agystatus.resetForTests());   // no stub outlives this file
 
@@ -75,24 +79,6 @@ test('two asks at once share one check (it costs a prompt on the person\'s subsc
   assert.equal(b.signedIn, true);
 }));
 
-test('opening agy for sign-in: runs open -a Terminal on the agy found, and refuses when it is missing', () => withFakeAgy(async (bin) => {
-  if (process.platform !== 'darwin') return;
-  let opened = null;
-  agystatus.setOpenerForTests((b, done) => { opened = b; done(null); });
-  assert.deepEqual(await agystatus.openForSignIn(), { ok: true });
-  assert.equal(opened, bin);
-  agystatus.setOpenerForTests((b, done) => done(new Error('no Terminal')));
-  const r = await agystatus.openForSignIn();
-  assert.equal(r.ok, false);
-  assert.match(r.because, /could not open Antigravity/);
-  // CONTROL: missing agy is refused before anything is opened.
-  process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = bin + '-gone/agy';
-  opened = null;
-  agystatus.setOpenerForTests((b, done) => { opened = b; done(null); });
-  assert.equal((await agystatus.openForSignIn()).ok, false);
-  assert.equal(opened, null);
-}));
-
 test('install: runs Google\'s installer only when agy is missing, and trusts only finding agy afterwards', async () => {
   if (process.platform !== 'darwin') return;
   assert.equal(agystatus.INSTALL_URL, 'https://antigravity.google/cli/install.sh', 'the installer URL is fixed to Google\'s own');
@@ -147,6 +133,34 @@ test('not offered (switched off, or not a Mac): the screen is told so, and the c
     assert.equal(r.offered, false);
     assert.equal(ran, 0);
     assert.equal((await agystatus.install()).ok, false);
-    assert.equal((await agystatus.openForSignIn()).ok, false);
   } finally { if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = was; }
+});
+
+test('#3998: the last confident answer is remembered for the account row, and "could not confirm" never overwrites it', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-last-'));
+  agystatus.setLastFileForTests(() => path.join(dir, 'last.json'));
+  try {
+    assert.equal(agystatus.lastKnown(), null, 'CONTROL: nothing before any answer');
+    agystatus.remember({ installed: true, signedIn: true });
+    assert.equal(agystatus.lastKnown().signedIn, true);
+    agystatus.remember({ installed: true, signedIn: null, because: 'may need signing in' });
+    assert.equal(agystatus.lastKnown().signedIn, true, 'an unconfirmed check erased a known sign-in');
+    agystatus.remember({ installed: false, signedIn: false });
+    assert.equal(agystatus.lastKnown().signedIn, false, 'an uninstalled agy still read as signed in');
+    agystatus.forget();
+    assert.equal(agystatus.lastKnown(), null, 'forget left the row behind');
+    agystatus.remember({ installed: false, signedIn: false, offered: false });
+    assert.equal(agystatus.lastKnown(), null, '"not offered here" was remembered as a signed-out sign-in');
+  } finally { agystatus.setLastFileForTests(null); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#3998 review round 4: a test process never reads or writes the real board\'s remembered sign-in', () => {
+  const real = path.join(require('./store').ROOT, 'agy-account', 'last.json');
+  const before = fs.existsSync(real) ? fs.readFileSync(real, 'utf8') : null;
+  agystatus.setLastFileForTests(null);
+  agystatus.remember({ installed: true, signedIn: true });
+  assert.equal(fs.existsSync(real) ? fs.readFileSync(real, 'utf8') : null, before, 'a test wrote the person\'s own record');
+  assert.equal(agystatus.lastKnown(), null, 'a test read the person\'s own record');
+  agystatus.forget();
+  assert.equal(fs.existsSync(real) ? fs.readFileSync(real, 'utf8') : null, before, 'a test removed the person\'s own record');
 });

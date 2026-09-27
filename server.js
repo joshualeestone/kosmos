@@ -7873,7 +7873,30 @@ const server = http.createServer((req, res) => {
           if (v.badge !== 'working') return unverifiedSub(a);
           return { ...a, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs } };
         });
-        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...grok] });
+        /* #3998 (Josh, 11:34: "it doesn't show up here as a connected subscription"): Gemini on the
+           Google subscription gets its own row, from agystatus's LAST confident answer (a live check
+           costs a prompt on the person's subscription, so it is never run per repaint). No folder:
+           agy keeps its own sign-in, so the row's actions are its own (Sign in again, Remove). */
+        /* provider 'antigravity', NOT 'google': a 'google' row is a Gemini API KEY to every key path
+           on the page (the create menu, the account list sent with a new agent, the move picker, the
+           guided setup's key row), and this row has no key. Grouped under Gemini by providerName.
+           signed_in_unverified: a remembered answer, not a live one, so the muted "Signed in" Grok's
+           subscription row uses. Listed only while agy is still installed. */
+        /* Its own try: a fault in this one row must not turn every account into a 500. */
+        let agySub = [];
+        try {
+          const agy = require('./engine/agystatus');
+          const agyInst = agy.offered() ? agy.installed() : null;
+          const agyLast = agyInst && agyInst.installed ? agy.lastKnown() : null;
+          if (agyLast && agyLast.signedIn) {
+            agySub = [{
+              provider: 'antigravity', providerName: 'Gemini', dir: null, label: null, name: null, isDefault: false,
+              email: null, authMode: 'antigravity', keyTail: null,
+              connection: { state: 'connected', checkedLive: false, checkedAt: agyLast.at, badge: 'signed_in_unverified' },
+            }];
+          }
+        } catch { agySub = []; }
+        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok] });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;
@@ -7897,16 +7920,9 @@ const server = http.createServer((req, res) => {
      prompt on the person's subscription, so a screen calls it only on a press, and concurrent presses
      share one run. signedIn is true, false (not installed) or null (could not confirm). */
   if (pathname === '/api/antigravity' && req.method === 'GET') {
-    sendJson(res, 200, require('./engine/agystatus').installedForScreen());
-    return;
-  }
-  /* #3568: open agy once in Terminal so it launches Google's sign-in in the browser (its documented
-     first-run behaviour). Only on a press; Kosmos types nothing into it. */
-  if (pathname === '/api/antigravity/open' && req.method === 'POST') {
-    req.resume();
-    require('./engine/agystatus').openForSignIn()
-      .then((r) => sendJson(res, r.ok ? 200 : 400, r.ok ? r : { ...r, error: r.because }))
-      .catch(() => sendJson(res, 500, { ok: false, error: 'we could not open Antigravity just now' }));
+    // Its own try (#3998 review round 15): the board has no process-level handler for a throw here.
+    try { sendJson(res, 200, require('./engine/agystatus').installedForScreen()); }
+    catch { sendJson(res, 500, { error: 'we could not check Antigravity just now' }); }
     return;
   }
   /* #3568: install agy with Google's own installer, on a Confirm press (as Kosmos installs every
@@ -7923,6 +7939,76 @@ const server = http.createServer((req, res) => {
     require('./engine/agystatus').check()
       .then((r) => sendJson(res, 200, r))
       .catch(() => sendJson(res, 200, { installed: null, signedIn: null, because: 'we could not check Antigravity just now' }));
+    return;
+  }
+  /* #3998: the Gemini subscription sign-in without a terminal. Kosmos runs agy's interactive sign-in
+     out of sight (engine/agysignin.js) and the screen drives it: start, read the state, hand it the
+     code the person pasted from Google's page, show the hidden window as a last resort, stop. */
+  /* #3998: Remove on the Gemini subscription row. Kosmos forgets the sign-in it remembered, so the
+     row goes; Antigravity's own Google sign-in on this computer is untouched (agy has no sign-out
+     command Kosmos can call), and the row's copy says so. */
+  if (pathname === '/api/antigravity/forget' && req.method === 'POST') {
+    req.resume();
+    try { require('./engine/agystatus').forget(); sendJson(res, 200, { ok: true }); }
+    catch { sendJson(res, 500, { ok: false, error: 'we could not forget that just now' }); }
+    return;
+  }
+  /* Four exact addresses, not a startsWith family (#3957's route check counts only exact comparisons,
+     and an unknown sub-address falls through to the board's own 404). */
+  if (pathname === '/api/antigravity/signin' || pathname === '/api/antigravity/signin/code'
+    || pathname === '/api/antigravity/signin/show' || pathname === '/api/antigravity/signin/stop') {
+    const signin = require('./engine/agysignin');
+    const agy = require('./engine/agystatus');
+    const sub = pathname.slice('/api/antigravity/signin'.length);
+    if (sub === '' && req.method === 'GET') {
+      try { sendJson(res, 200, signin.status()); } catch { sendJson(res, 500, { error: 'we could not read the sign-in just now' }); }
+      return;
+    }
+    if (req.method !== 'POST') { req.resume(); sendJson(res, 405, { error: 'that is not something this address does' }); return; }
+    /* A request naming a sign-in that has ended or been replaced is a conflict (409) on every
+       route, so a screen can tell it apart from a refused code. */
+    const refusal = (r) => (r.because === signin.NOT_MINE ? 409 : 400);
+    // Only STARTING needs the subscription to be offered: Stop and Show must work on a sign-in already
+    // running, whatever changed since.
+    if (sub === '' && !agy.offered()) { req.resume(); sendJson(res, 400, { ok: false, error: 'Gemini on a Google subscription is not offered on this computer' }); return; }
+    if (sub === '') {
+      req.resume();
+      /* A throw while starting (finding tmux resolves every runner's path) must not take the board
+         down for everyone (review round 15): the board has no process-level uncaughtException handler.
+         The live-execution gate's test-process throw is not caught here: it must stay loud in tests. */
+      let r;
+      try { r = signin.start(); } catch (e) {
+        if (require('./engine/live-execution').inTestProcess() && /for real inside a test/.test(String(e && e.message))) throw e;
+        sendJson(res, 500, { ok: false, error: 'Kosmos could not start Antigravity\'s sign-in just now' }); return;
+      }
+      sendJson(res, r.ok ? 200 : 400, r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
+      return;
+    }
+    /* Code, Show and Stop name the sign-in they mean (the id start() answered), so one tab never
+       stops or types into a sign-in another tab started since. */
+    if (sub === '/code' || sub === '/show' || sub === '/stop') {
+      readBody(req).then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const id = body && typeof body.id === 'string' ? body.id : '';
+        if (sub === '/code') {
+          let r;
+          try { r = signin.code(body && body.code, id); } catch { sendJson(res, 500, { ok: false, error: 'Kosmos could not pass the code just now' }); return; }
+          sendJson(res, r.ok ? 200 : refusal(r), r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
+          return;
+        }
+        if (sub === '/stop') {
+          let r;
+          try { r = signin.stop(id); } catch { sendJson(res, 500, { ok: false, error: 'Kosmos could not stop the sign-in just now' }); return; }
+          sendJson(res, r.ok ? 200 : refusal(r), r.ok ? r : { ...r, error: r.because }); return;
+        }
+        signin.show(id)
+          .then((r) => sendJson(res, r.ok ? 200 : refusal(r), r.ok ? r : { ...r, error: r.because }))
+          .catch(() => sendJson(res, 500, { ok: false, error: 'Kosmos could not open the sign-in window' }));
+      }).catch(() => sendJson(res, 400, { ok: false, error: 'we could not read that request' }));
+      return;
+    }
+    // (every one of the four addresses was answered above; any other falls through to the board 404)
     return;
   }
   /**

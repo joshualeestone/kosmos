@@ -139,63 +139,100 @@ function agyFlow(answers) {
   const end = PAGE.indexOf('const KEYED_SUB_START', at);
   assert.ok(at > 0 && end > at, 'FR_AGY_SUB moved; re-anchor');
   const els = {};
-  const el = (id) => (els[id] || (els[id] = { id, textContent: '', hidden: true, href: '' }));
+  const el = (id) => (els[id] || (els[id] = { id, textContent: '', hidden: true, href: '', value: '', attrs: {},
+    listeners: {}, addEventListener(type, fn) { this.listeners[type] = fn; }, setAttribute(k, v) { this.attrs[k] = v; },
+    hasAttribute(k) { return k in this.attrs; }, focus() { doc.activeElement = this; } }));
   const posts = [];
   const doc = { getElementById: (id) => el(id) };
-  const fetchStub = async (path) => {
+  const bodies = [];
+  const fetchStub = async (path, opts) => {
     posts.push(path);
-    const queue = answers[path] || [];
+    if (opts && opts.body) bodies.push([path, opts.body]);
+    // #3998: one address is both read (GET) and started (POST), so an answer can name its method.
+    const method = (opts && opts.method) || 'GET';
+    const queue = answers[method + ' ' + path] || answers[path] || [];
     const a = queue.length > 1 ? queue.shift() : queue[0];
     if (a === 'throw') throw new Error('offline');
     return { json: async () => a };
   };
   let painted = 0;
   // eslint-disable-next-line no-new-func
-  const api = new Function('document', 'fetch', 'paintAgyOption', 'frPaintKeyed', `
+  const successes = [];
+  const api = new Function('document', 'fetch', 'paintAgyOption', 'frPaintKeyed', 'setTimeout', 'acctShowSuccess', 'frCheckRow', 'paintAccounts', `
     let AGY_INSTALLED = null; let AGY_OFFERED = null;
     ${PAGE.slice(at, end)}
-    return { FR_AGY_SUB, ready: () => FR_AGY_READY, offered: () => AGY_OFFERED };
-  `)(doc, fetchStub, () => {}, () => { painted += 1; });
+    return { FR_AGY_SUB, ACCT_AGY_SUB, ready: () => FR_AGY_READY, offered: () => AGY_OFFERED };
+  `)(doc, fetchStub, () => {}, () => { painted += 1; }, (fn) => setImmediate(fn),
+    (label, box) => successes.push([label, box]), (o) => 'BOX:' + o.title + '|' + o.detail, async () => {});
   const view = () => ({ text: el('fr-gemini-sub-code').textContent, button: el('fr-gemini-sub-go').hidden ? '' : el('fr-gemini-sub-go').textContent,
     stop: !el('fr-gemini-sub-cancel-row').hidden });
-  return { ...api, view, posts, painted: () => painted };
+  const settle = async (pred, n = 200) => { for (let i = 0; i < n && !pred(); i++) await new Promise((r) => setImmediate(r)); };
+  return { ...api, view, posts, bodies, el, settle, successes, painted: () => painted };
 }
 
-test('#3568: Sign in with Subscription walks not installed -> Install -> Open -> Check again -> Ready', async () => {
+test('#3998: Sign in with Subscription walks not installed -> Install -> Sign in (hidden) -> paste the code -> Ready, with no Terminal', async () => {
   const f = agyFlow({
-    '/api/antigravity/check': [{ installed: false, signedIn: false }, { installed: true, signedIn: true }],
+    '/api/antigravity/check': [{ installed: false, signedIn: false }],
     '/api/antigravity/install': [{ ok: true, installed: true }],
-    '/api/antigravity/open': [{ ok: true }],
+    'POST /api/antigravity/signin': [{ ok: true, id: 'a1b2c3d4e5f60718', state: 'starting' }],
+    'GET /api/antigravity/signin': [{ id: 'a1b2c3d4e5f60718', state: 'starting' }, { id: 'a1b2c3d4e5f60718', state: 'code', url: 'https://accounts.google.com/o/oauth2/auth?x=1' },
+      { id: 'a1b2c3d4e5f60718', state: 'code', url: 'https://accounts.google.com/o/oauth2/auth?x=1' }, { id: 'a1b2c3d4e5f60718', state: 'setup', step: 'terms' }, { id: 'a1b2c3d4e5f60718', state: 'done' }],
+    '/api/antigravity/signin/code': [{ ok: true, state: 'checking' }],
   });
   await f.FR_AGY_SUB.start();
   assert.match(f.view().text, /not on this computer yet/);
   assert.equal(f.view().button, 'Install Antigravity');
   assert.equal(f.view().stop, true, 'Stop is offered during the step');
   await f.FR_AGY_SUB.start();   // Install
-  assert.match(f.view().text, /Antigravity is installed\. Open it once to sign in/);
-  assert.equal(f.view().button, 'Open Antigravity to sign in');
+  assert.match(f.view().text, /Antigravity is installed\. Now sign in/);
+  assert.equal(f.view().button, 'Sign in with Google');
   assert.deepEqual(f.posts, ['/api/antigravity/check', '/api/antigravity/install'], 'a fresh install must not spend a check');
-  await f.FR_AGY_SUB.start();   // Open
-  assert.match(f.view().text, /opens Google's sign-in in your browser/);
-  assert.equal(f.view().button, 'Check again');
-  await f.FR_AGY_SUB.start();   // Check again
+  await f.FR_AGY_SUB.start();   // Sign in with Google: the hidden sign-in starts
+  assert.ok(!f.posts.includes('/api/antigravity/open'), 'the old Terminal route was used');
+  await f.settle(() => !f.el('fr-gemini-sub-paste-row').hidden);
+  assert.match(f.view().text, /copy the code Google shows and paste it below/);
+  assert.equal(f.el('fr-gemini-sub-page').attrs.href, 'https://accounts.google.com/o/oauth2/auth?x=1', 'no way back to Google\'s page');
+  f.el('fr-gemini-sub-paste').value = '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v-TZgGLs9n';
+  await f.FR_AGY_SUB.sendCode();
+  assert.deepEqual(f.bodies.find(([p]) => p === '/api/antigravity/signin/code'), ['/api/antigravity/signin/code', JSON.stringify({ code: '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v-TZgGLs9n', id: 'a1b2c3d4e5f60718' })],
+    'the code did not name the sign-in it is for (another tab\'s sign-in could take it)');
+  await f.settle(() => f.ready());
   assert.match(f.view().text, /^Ready\./);
   assert.equal(f.view().button, '');
   assert.equal(f.view().stop, false, 'no Stop once it is ready');
-  assert.equal(f.ready(), true);
   assert.equal(f.painted(), 1, 'the row must be repainted as connected');
-  // Opening happened exactly once, and only on its own press.
-  assert.equal(f.posts.filter((p) => p === '/api/antigravity/open').length, 1);
 });
 
-test('#3568: installed but unconfirmed offers Open as its own press; a check never opens a window by itself', async () => {
-  const f = agyFlow({ '/api/antigravity/check': [{ installed: true, signedIn: null }], '/api/antigravity/open': [{ ok: false, error: 'we could not open it' }] });
+test('#3998: Settings ends a signed-in Gemini subscription on the gold connected box, like GPT and Grok', async () => {
+  const f = agyFlow({ '/api/antigravity/check': [{ installed: true, signedIn: true }] });
+  await f.ACCT_AGY_SUB.start();
+  assert.equal(f.successes.length, 1, 'no success shown');
+  assert.equal(f.successes[0][1], 'BOX:Gemini is connected|Signed in with your Google subscription, through Antigravity on this computer.');
+});
+
+test('#3998: a failed or stuck hidden sign-in says why, offers the window only when stuck, and leaving stops it', async () => {
+  const f = agyFlow({
+    '/api/antigravity/check': [{ installed: true, signedIn: null }],
+    'POST /api/antigravity/signin': [{ ok: true, id: 'feedc0de00000001' }],
+    'GET /api/antigravity/signin': [{ id: 'feedc0de00000001', state: 'stuck', because: 'Kosmos could not find the Done button on Antigravity\'s terms' }],
+    '/api/antigravity/signin/stop': [{ ok: true }],
+  });
   await f.FR_AGY_SUB.start();
-  assert.equal(f.view().button, 'Open Antigravity to sign in');
-  assert.ok(!f.posts.includes('/api/antigravity/open'), 'a check opened a window by itself');
+  assert.equal(f.view().button, 'Sign in with Google');
   await f.FR_AGY_SUB.start();
-  assert.match(f.view().text, /^We could not open it\./, 'the server reason is shown with a capital');
-  assert.equal(f.view().button, 'Open Antigravity to sign in', 'a failed open offers the open again');
+  await f.settle(() => !f.el('fr-gemini-sub-show-row').hidden);
+  f.FR_AGY_SUB.leave();   // first, so a failed assertion below never leaves the follow loop running
+  assert.match(f.view().text, /^Kosmos could not find the Done button on Antigravity's terms\. Show the sign-in window/);
+  assert.ok(f.posts.includes('/api/antigravity/signin/stop'), 'leaving the step left the hidden sign-in running');
+  assert.deepEqual(f.bodies.find(([p]) => p === '/api/antigravity/signin/stop'), ['/api/antigravity/signin/stop', JSON.stringify({ id: 'feedc0de00000001' })],
+    'Stop did not name its own sign-in, so it could end another tab\'s');
+  const g = agyFlow({ '/api/antigravity/check': [{ installed: true, signedIn: null }], 'POST /api/antigravity/signin': [{ ok: true }],
+    'GET /api/antigravity/signin': [{ state: 'failed', because: 'Antigravity closed before the sign-in finished' }] });
+  await g.FR_AGY_SUB.start(); await g.FR_AGY_SUB.start();
+  await g.settle(() => /closed before/.test(g.view().text));
+  assert.match(g.view().text, /^Antigravity closed before the sign-in finished/);
+  assert.equal(g.view().button, 'Sign in with Google', 'a failed sign-in offers it again');
+  assert.equal(g.el('fr-gemini-sub-show-row').hidden, true);
 });
 
 test('#3568: Stop partway: the late answer writes nothing and a new press starts clean', async () => {
@@ -293,4 +330,176 @@ test('#3568: a saved Gemini-by-subscription create pick waits for the installed 
   const next = PAGE.slice(at, at + 600);
   assert.match(next, /if \(pref && pref\.provider === 'antigravity'\) \{\s*await agyAsk\(\);[\s\S]{0,160}if \(gen !== EXTRAS_GEN \|\| CREATE_PROVIDER_TOUCHED\) return;/);
   assert.ok(PAGE.lastIndexOf('async function loadCreateExtras', at) > PAGE.lastIndexOf('\nfunction ', at), 'the restore must sit inside the async loadCreateExtras');
+});
+
+test('#3998: a sign-in another tab started since is not this step\'s to follow', async () => {
+  const f = agyFlow({
+    '/api/antigravity/check': [{ installed: true, signedIn: null }],
+    'POST /api/antigravity/signin': [{ ok: true, id: 'aaaaaaaaaaaaaaaa' }],
+    'GET /api/antigravity/signin': [{ id: 'bbbbbbbbbbbbbbbb', state: 'code', url: 'https://accounts.google.com/o/oauth2/auth?x=2' }],
+  });
+  await f.FR_AGY_SUB.start(); await f.FR_AGY_SUB.start();
+  await f.settle(() => /somewhere else/.test(f.view().text));
+  assert.match(f.view().text, /^A sign-in started somewhere else, so this one stopped\./);
+  assert.equal(f.el('fr-gemini-sub-paste-row').hidden, true, 'this step offered to paste a code into another tab\'s sign-in');
+  assert.equal(f.view().button, 'Sign in with Google');
+});
+
+test('#3998 round 4: leaving while the sign-in is still starting stops the sign-in that press began', async () => {
+  const f = agyFlow({
+    '/api/antigravity/check': [{ installed: true, signedIn: null }],
+    'POST /api/antigravity/signin': [{ ok: true, id: 'c0ffee0000000001' }],
+    '/api/antigravity/signin/stop': [{ ok: true }],
+  });
+  await f.FR_AGY_SUB.start();   // Check: not signed in, offers Sign in with Google
+  const pending = f.FR_AGY_SUB.start();   // the start request is in flight...
+  f.FR_AGY_SUB.leave();          // ...and the person closes the step
+  await pending;
+  await f.settle(() => f.posts.includes('/api/antigravity/signin/stop'));
+  assert.deepEqual(f.bodies.find(([p]) => p === '/api/antigravity/signin/stop'), ['/api/antigravity/signin/stop', JSON.stringify({ id: 'c0ffee0000000001' })],
+    'the sign-in started as the step closed kept running out of sight');
+});
+
+test('#3998 round 4: the status line is rewritten only when its words change (a live region re-reads every write)', () => {
+  const at = PAGE.indexOf('function agySubDriver(');
+  const src = PAGE.slice(at, PAGE.indexOf('\n}', at));
+  assert.match(src, /if \(code\.textContent !== text\) code\.textContent = text;/);
+});
+
+test('#3998 round 5: a code that came back refused puts the cursor in the paste box again', async () => {
+  const f = agyFlow({
+    '/api/antigravity/check': [{ installed: true, signedIn: null }],
+    'POST /api/antigravity/signin': [{ ok: true, id: 'abad1dea00000001' }],
+    'GET /api/antigravity/signin': [{ id: 'abad1dea00000001', state: 'code', url: 'https://accounts.google.com/o/oauth2/auth?x=1' },
+      { id: 'abad1dea00000001', state: 'checking' },
+      { id: 'abad1dea00000001', state: 'code', url: 'https://accounts.google.com/o/oauth2/auth?x=1', because: 'Antigravity did not take that code. Copy the newest code from Google\'s page and paste it again.' }],
+  });
+  await f.FR_AGY_SUB.start(); await f.FR_AGY_SUB.start();
+  await f.settle(() => !f.el('fr-gemini-sub-paste-row').hidden);
+  const box = f.el('fr-gemini-sub-paste');
+  let focuses = 0; box.focus = () => { focuses += 1; };
+  await f.settle(() => /did not take that code/.test(f.view().text), 400);
+  f.FR_AGY_SUB.leave();
+  assert.match(f.view().text, /did not take that code/, 'CONTROL: the refusal was shown');
+  assert.ok(focuses >= 1, 'the cursor was left where it was after the code came back refused');
+});
+
+test('#3998 round 6: the paste box is focused once, not on every poll (Tab must be able to leave it)', async () => {
+  const code = { id: 'f0cus0000000001', state: 'code', url: 'https://accounts.google.com/o/oauth2/auth?x=1' };
+  const f = agyFlow({
+    '/api/antigravity/check': [{ installed: true, signedIn: null }],
+    'POST /api/antigravity/signin': [{ ok: true, id: 'f0cus0000000001' }],
+    'GET /api/antigravity/signin': [code, code, code, code, code, code],
+  });
+  let focuses = 0;
+  f.el('fr-gemini-sub-paste').focus = () => { focuses += 1; };
+  await f.FR_AGY_SUB.start(); await f.FR_AGY_SUB.start();
+  await f.settle(() => f.posts.filter((p) => p === '/api/antigravity/signin').length >= 6, 600);
+  f.FR_AGY_SUB.leave();
+  assert.ok(f.posts.filter((p) => p === '/api/antigravity/signin').length >= 5, 'CONTROL: several polls ran');
+  assert.equal(focuses, 1, 'the box took focus back ' + focuses + ' times');
+});
+
+test('#3998 round 6: why a pasted code was refused stays on screen until the person types again', async () => {
+  const code = { id: 'c0de00000000001', state: 'code', url: 'https://accounts.google.com/o/oauth2/auth?x=1' };
+  const f = agyFlow({
+    '/api/antigravity/check': [{ installed: true, signedIn: null }],
+    'POST /api/antigravity/signin': [{ ok: true, id: 'c0de00000000001' }],
+    'GET /api/antigravity/signin': [code, code, code, code],
+    '/api/antigravity/signin/code': [{ ok: false, error: 'that does not look like the code from Google\'s page' }],
+  });
+  await f.FR_AGY_SUB.start(); await f.FR_AGY_SUB.start();
+  await f.settle(() => !f.el('fr-gemini-sub-paste-row').hidden);
+  f.el('fr-gemini-sub-paste').value = 'nope';
+  await f.FR_AGY_SUB.sendCode();
+  const polls = f.posts.length;
+  await f.settle(() => f.posts.length >= polls + 2, 400);
+  const text = f.view().text;
+  f.FR_AGY_SUB.leave();
+  assert.match(text, /^That does not look like the code/, 'the next poll wrote over the refusal: ' + text);
+});
+
+test('#3998 round 6: once the window is shown, the panel says to finish there and offers no second window', async () => {
+  const f = agyFlow({
+    '/api/antigravity/check': [{ installed: true, signedIn: null }],
+    'POST /api/antigravity/signin': [{ ok: true, id: '5h0wn0000000001' }],
+    'GET /api/antigravity/signin': [{ id: '5h0wn0000000001', state: 'stuck', shown: true, because: 'x' }],
+  });
+  await f.FR_AGY_SUB.start(); await f.FR_AGY_SUB.start();
+  await f.settle(() => /window is open/.test(f.view().text));
+  f.FR_AGY_SUB.leave();
+  assert.match(f.view().text, /^The sign-in window is open\. Finish it there/);
+  assert.equal(f.el('fr-gemini-sub-show-row').hidden, true, 'a second Show would open another window');
+});
+
+test('#3998 round 8: hiding the paste row with focus in it moves focus to Stop, not behind the dialog', () => {
+  const f = agyFlow({ '/api/antigravity/check': [{ installed: true, signedIn: null }] });
+  const row = f.el('fr-gemini-sub-paste-row');
+  const box = f.el('fr-gemini-sub-paste');
+  row.hidden = false; row.contains = (x) => x === box;
+  f.el('fr-gemini-sub-cancel-row').hidden = false;
+  let moved = null;
+  f.el('fr-gemini-sub-cancel').focus = () => { moved = 'cancel'; };
+  box.focus();   // the flow's own document now has focus in the paste box
+  f.FR_AGY_SUB.rows(false, false);
+  assert.equal(row.hidden, true);
+  assert.equal(moved, 'cancel', 'focus was left in a hidden row');
+});
+
+test('#3998 round 11: Sign in again waits for the availability read, and refuses where the subscription is not offered', async () => {
+  const at = PAGE.indexOf('async function acctGeminiSignInAgain(');
+  assert.notEqual(at, -1);
+  const src = PAGE.slice(at, PAGE.indexOf('\n}\n', at) + 2);
+  const run = async (offered, askAnswers, dialogOpen = true) => {
+    const els = { 'acct-add-modal': { hidden: !dialogOpen } };
+    const el = (id) => (els[id] || (els[id] = { id, hidden: true, textContent: '', attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, hasAttribute(k) { return k in this.attrs; }, focus() {} }));
+    const state = { AGY_OFFERED: null, started: 0 };
+    const sub = { next: 'check', start: () => { state.started += 1; } };
+    // eslint-disable-next-line no-new-func
+    const fn = new Function('document', 'openAcctAdd', 'acctPick', 'agyAsk', 'ACCT_AGY_SUB', 'setTimeout', 'state',
+      'let AGY_OFFERED = null;\n' + src.replace(/AGY_OFFERED/g, 'state.AGY_OFFERED') + '\nreturn acctGeminiSignInAgain();');
+    await fn({ getElementById: el }, () => {}, () => {}, () => (askAnswers ? Promise.resolve().then(() => { state.AGY_OFFERED = offered; }) : new Promise(() => {})),
+      sub, (f) => setImmediate(f), state);
+    return { state, els };
+  };
+  const yes = await run(true, true);
+  assert.equal(yes.state.started, 1, 'an offered subscription was not signed in again');
+  const no = await run(false, true);
+  assert.equal(no.state.started, 0, 'Sign in again started where the subscription is not offered');
+  assert.match(no.els['acct-gemini-sub-code'].textContent, /not available on this computer/);
+  const silent = await run(null, false);
+  assert.equal(silent.state.started, 0, 'Sign in again started before the availability read answered');
+  const closed = await run(true, true, false);
+  assert.equal(closed.state.started, 0, 'Sign in again started a hidden sign-in after the dialog was closed (round 12)');
+});
+
+test('#3998 round 26: leaving the step does not stop a sign-in whose window the person has open', async () => {
+  const f = agyFlow({
+    '/api/antigravity/check': [{ installed: true, signedIn: null }],
+    'POST /api/antigravity/signin': [{ ok: true, id: 'feedc0de00000002' }],
+    'GET /api/antigravity/signin': [{ id: 'feedc0de00000002', state: 'stuck', shown: true, because: 'x' }],
+    '/api/antigravity/signin/stop': [{ ok: true }],
+  });
+  await f.FR_AGY_SUB.start();
+  await f.FR_AGY_SUB.start();
+  await f.settle(() => /window is open/.test(f.view().text));
+  f.FR_AGY_SUB.leave();
+  assert.equal(f.posts.includes('/api/antigravity/signin/stop'), false, 'closing the dialog cut off the window the person is finishing it in');
+});
+
+test('#3998 round 28: Stop this sign-in stops it even with its window open', async () => {
+  const f = agyFlow({
+    '/api/antigravity/check': [{ installed: true, signedIn: null }],
+    'POST /api/antigravity/signin': [{ ok: true, id: 'feedc0de00000003' }],
+    'GET /api/antigravity/signin': [{ id: 'feedc0de00000003', state: 'stuck', shown: true, because: 'x' }],
+    '/api/antigravity/signin/stop': [{ ok: true }],
+  });
+  await f.FR_AGY_SUB.start();
+  await f.FR_AGY_SUB.start();
+  await f.settle(() => /window is open/.test(f.view().text));
+  f.FR_AGY_SUB.stop();
+  assert.ok(f.posts.includes('/api/antigravity/signin/stop'), 'Stop this sign-in left the sign-in running because its window was open');
+  const page = require('node:fs').readFileSync(require('node:path').join(__dirname, 'web', 'index.html'), 'utf8');
+  assert.match(page, /getElementById\('fr-gemini-sub-cancel'\)[\s\S]{0,200}FR_AGY_SUB\.stop\(\)/, 'the first-run Stop button does not stop');
+  assert.match(page, /getElementById\('acct-gemini-sub-cancel'\)[\s\S]{0,120}ACCT_AGY_SUB\.stop\(\)/, 'the Settings Stop button does not stop');
 });
