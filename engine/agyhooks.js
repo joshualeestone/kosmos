@@ -31,9 +31,10 @@ function shQuote(s) {
 }
 
 /** The Kosmos entry: PreInvocation reports working (it fires before every model call, which
-    follows every tool, so it is also the heartbeat), Stop reports idle. Not PostToolUse (a second
-    node start per step inside agy's blocking loop, for nothing PreInvocation does not say), and
-    not PreToolUse (in agy a permission gate; Kosmos does not take over agy's permission decisions).
+    follows every tool, so it is also the heartbeat), Stop reports idle, and PreToolUse/PostToolUse
+    are hooked for agy's ask_question tool ONLY (needs_you while it waits for the person, working
+    once answered). No other tool is hooked: a hook per tool is a node start inside agy's blocking
+    loop, and PreToolUse is agy's permission gate (the bridge answers allow, as the launch flag does).
     ⚠️ Unix only: `sh -c` quoting. agy runs hooks with `cmd /c` on Windows, where Kosmos does not
     run agy agents yet; only the bash supervisor calls this. */
 function kosmosEntry(nodeBin, bridge) {
@@ -41,6 +42,10 @@ function kosmosEntry(nodeBin, bridge) {
   return {
     PreInvocation: [handler('PreInvocation')],
     Stop: [handler('Stop')],
+    /* #4043 (Gemini-Sub's spec): agy's ask_question stops the turn for the person; report it as
+       needs_you, and working again once answered. Matched to that one tool only. */
+    PreToolUse: [{ matcher: '^ask_question$', hooks: [handler('PreToolUse')] }],
+    PostToolUse: [{ matcher: '^ask_question$', hooks: [handler('PostToolUse')] }],
   };
 }
 

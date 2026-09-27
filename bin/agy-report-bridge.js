@@ -20,10 +20,15 @@
  *                               and the agent is alive at its prompt, so idle, never stuck working)
  *   PostToolUse   -> NOT HOOKED: PreInvocation already follows each tool, and each hook is a node
  *                    start inside agy's loop (hooks run synchronously and block it).
- *   PreToolUse    -> NOT HOOKED at all: in agy it is a PERMISSION GATE (its answer decides
- *                    whether a tool runs), and Kosmos must not take over agy's permission
- *                    decisions to get a status.
- *   needs_you     -> never, from any event (#4006: an idle loop is idle).
+ *   PreToolUse    -> needs_you, ONLY for agy's `ask_question` tool (hooked with that matcher
+ *                    alone; the payload's toolCall.name is checked again here): agy is stopped,
+ *                    waiting for the person to answer (Gemini-Sub's spec, #4043). Its answer is
+ *                    `{"decision":"allow"}`, which is what --dangerously-skip-permissions (the
+ *                    supervisor's launch flag) decides anyway, so nothing about agy changes.
+ *   PostToolUse   -> working, ONLY for `ask_question`: the person answered, the turn goes on.
+ *   Everything else in PreToolUse/PostToolUse is NOT hooked: PreToolUse is agy's permission gate,
+ *                    and a hook per tool is a node start inside agy's blocking loop.
+ *   needs_you     -> only from a real ask_question; never from an idle loop (#4006).
  *
  * ⚠️ THIS MUST NEVER BREAK THE AGENT OR SLOW IT MUCH. agy expects JSON on stdout: `{}` (no change)
  * is printed FIRST, before anything else can fail. Every failure is swallowed and the exit code is
@@ -41,7 +46,17 @@ const THROTTLE_MS = 60 * 1000;
 const STATE_FOR_EVENT = Object.freeze({
   PreInvocation: 'working',
   Stop: 'idle',
+  PreToolUse: 'needs_you', // ask_question only; see reportFor
+  PostToolUse: 'working', // ask_question only
 });
+/* agy's tool that asks the person something and waits (Gemini-Sub's spec, #4043). */
+const ASK_TOOL = 'ask_question';
+
+/* What agy reads on stdout: PreToolUse needs a decision, and `allow` is what the launch flag
+   (--dangerously-skip-permissions) decides anyway; every other event takes `{}` (no change). */
+function answerFor(eventName) {
+  return eventName === 'PreToolUse' ? '{"decision":"allow"}' : '{}';
+}
 
 /* The per-pane marker: "<state> <epoch ms>" of the last report sent. */
 function markerFile(env) {
@@ -96,6 +111,18 @@ function readStdin() {
 function reportFor(eventName, payload) {
   const state = STATE_FOR_EVENT[eventName];
   if (!state) return null; // an event we did not hook is ignored, never guessed at
+  if (eventName === 'PreToolUse' || eventName === 'PostToolUse') {
+    /* Only ask_question, whatever the matcher let through. A PostToolUse payload carries no tool
+       name in agy's docs, so it is trusted to the matcher; a PreToolUse one is checked. */
+    const name = payload && payload.toolCall && payload.toolCall.name;
+    if (eventName === 'PreToolUse' && name !== ASK_TOOL) return null;
+    if (eventName === 'PreToolUse') {
+      const args = (payload.toolCall && payload.toolCall.args) || {};
+      const q = [args.Question, args.question, args.Prompt, args.prompt, args.Text, args.text].find((v) => typeof v === 'string' && v.trim());
+      return { state, text: q ? q.trim() : 'Antigravity is asking you a question' };
+    }
+    return { state, text: '' };
+  }
   let text = '';
   if (state === 'idle' && payload && typeof payload === 'object') {
     /* A Stop with an error is still the end of the turn; say so on the card rather than hide it. */
@@ -128,9 +155,9 @@ function engineDir(here) {
 }
 
 async function main() {
-  /* agy reads our stdout as the hook's answer: `{}` means "change nothing". First, always. */
-  try { process.stdout.write('{}\n'); } catch { /* nothing to do */ }
+  /* agy reads our stdout as the hook's answer. First, always. */
   const eventName = process.argv[2] || '';
+  try { process.stdout.write(answerFor(eventName) + '\n'); } catch { /* nothing to do */ }
   if (!STATE_FOR_EVENT[eventName]) return;
   const raw = await readStdin();
   let payload = null;
@@ -165,4 +192,4 @@ if (require.main === module) {
   main().catch(() => { /* never break the agent */ }).finally(() => process.exit(0));
 }
 
-module.exports = { STATE_FOR_EVENT, TIMEOUT_MS, STDIN_TIMEOUT_MS, THROTTLE_MS, markerFile, shouldSend, reportFor, buildBody, engineDir };
+module.exports = { STATE_FOR_EVENT, ASK_TOOL, answerFor, TIMEOUT_MS, STDIN_TIMEOUT_MS, THROTTLE_MS, markerFile, shouldSend, reportFor, buildBody, engineDir };

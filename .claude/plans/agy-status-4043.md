@@ -21,7 +21,7 @@ over the scraped UNKNOWN in reconcileReport (checked by calling it: working -> w
 
 ## Rejected
 - Hooking PreToolUse: in agy it is a permission gate; any answer changes whether a tool runs.
-- Mapping anything to needs_you (#4006).
+- Mapping an idle loop, or any event but a real ask_question, to needs_you (#4006).
 - Liveness from the conversation db (card's fallback): not built. An agent shows "Can't tell" until
   its first hook fires, and a `working` report goes stale after REPORT_WORKING_DECAY (~5 min, measured
   with reconcileReport: 6 min old -> unknown, "it said it was working and has not said anything
@@ -44,3 +44,14 @@ over the scraped UNKNOWN in reconcileReport (checked by calling it: working -> w
   order untested --> source pin; timeouts untested --> a silent-board test; "Can't tell only until
   the first hook" overstated --> reworded above.
 - CONVENTION: symlink/mode on the hooks write --> left, with the reason above. NITs fixed.
+
+## Iteration 2 (sonnet): converged
+- No BLOCKER/WARNING; its notes (the shared `nopane` throttle bucket, mirroring kosmos-report-hook.sh;
+  the symlink/mode write) are the decisions recorded above.
+
+## Added after convergence (Splinter, 2026-09-26 20:59, from Gemini-Sub's spec on the card)
+- agy's `ask_question` tool: PreToolUse (matcher `^ask_question$` only) -> needs_you with the question
+  as the text; PostToolUse (same matcher) -> working. The bridge re-checks toolCall.name. PreToolUse
+  answers `{"decision":"allow"}`: the launch flag --dangerously-skip-permissions decides allow anyway,
+  so agy's behaviour does not change. Unmeasured live: the ask_question args key (Question/question/...
+  tried, a fixed sentence otherwise) and PreToolUse firing for it. Release check #3.

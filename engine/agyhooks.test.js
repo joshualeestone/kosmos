@@ -29,11 +29,13 @@ test('#4043: a fresh workdir gets the kosmos-report hook: working before each mo
   const r = hooks.ensureHooks(d, '/opt/node', '/support/bin/agy-report-bridge.js');
   assert.deepEqual(r, { ok: true, changed: true, why: null });
   const h = readHooks(d)[hooks.HOOK_NAME];
-  assert.deepEqual(Object.keys(h).sort(), ['PreInvocation', 'Stop']);
+  assert.deepEqual(Object.keys(h).sort(), ['PostToolUse', 'PreInvocation', 'PreToolUse', 'Stop']);
   assert.match(h.PreInvocation[0].command, / PreInvocation$/);
   assert.match(h.Stop[0].command, / Stop$/);
-  assert.equal(h.PreToolUse, undefined, 'PreToolUse is agy\'s permission gate and must never be hooked');
-  assert.equal(h.PostToolUse, undefined, 'PostToolUse adds a node start per step inside agy\'s blocking loop');
+  for (const ev of ['PreToolUse', 'PostToolUse']) {
+    assert.equal(h[ev][0].matcher, '^ask_question$', ev + ' must be hooked for ask_question ONLY (a hook per tool slows agy\'s loop)');
+    assert.match(h[ev][0].hooks[0].command, new RegExp(' ' + ev + '$'));
+  }
 });
 
 test('#4043: the person\'s own hooks are kept, and a second run changes nothing', () => {
@@ -78,8 +80,15 @@ test('#4043: the bridge maps the three hooked events, never needs_you, and ignor
   assert.deepEqual(bridge.reportFor('Stop', { fullyIdle: true, error: '' }), { state: 'idle', text: '' });
   assert.equal(bridge.reportFor('Stop', { fullyIdle: false, error: 'boom' }).state, 'idle', 'an errored turn is still over');
   assert.match(bridge.reportFor('Stop', { error: 'boom' }).text, /boom/);
-  for (const ev of ['PreToolUse', 'PostToolUse', 'PostInvocation', 'Notification', '', undefined]) assert.equal(bridge.reportFor(ev, {}), null, String(ev));
-  assert.ok(!Object.values(bridge.STATE_FOR_EVENT).includes('needs_you'), '#4006: no event may map to needs_you');
+  for (const ev of ['PostInvocation', 'Notification', '', undefined]) assert.equal(bridge.reportFor(ev, {}), null, String(ev));
+  /* needs_you only from a real ask_question (Gemini-Sub's spec), never from anything idle (#4006). */
+  assert.equal(bridge.reportFor('PreToolUse', { toolCall: { name: 'run_command', args: {} } }), null, 'another tool was reported as needs_you');
+  assert.equal(bridge.reportFor('PreToolUse', {}), null, 'a PreToolUse with no tool named was reported');
+  assert.deepEqual(bridge.reportFor('PreToolUse', { toolCall: { name: 'ask_question', args: { Question: 'Deploy now?' } } }), { state: 'needs_you', text: 'Deploy now?' });
+  assert.equal(bridge.reportFor('PreToolUse', { toolCall: { name: 'ask_question', args: {} } }).text, 'Antigravity is asking you a question', 'the route refuses a needs_you with no reason');
+  assert.deepEqual(bridge.reportFor('PostToolUse', {}), { state: 'working', text: '' }, 'answered: back to working');
+  assert.equal(bridge.answerFor('PreToolUse'), '{"decision":"allow"}', 'PreToolUse must answer with a decision; allow is what the launch flag decides');
+  for (const ev of ['PreInvocation', 'Stop', 'PostToolUse']) assert.equal(bridge.answerFor(ev), '{}');
 });
 
 test('#4043: the report is marked auto, so a turn ending cannot erase a deliberate blocked', () => {
