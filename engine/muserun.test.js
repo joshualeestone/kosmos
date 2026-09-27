@@ -279,23 +279,48 @@ test('#3939 round 3: on anything but a Mac, runTurn refuses before running anyth
   } finally { delete process.env.AGENT_WORKFORCE_MUSE_BIN; gate.resetForTests(); run.resetForTests(); }
 });
 
-test('#3939 3c-1: a turn Muse refuses for its credential clears the signed-in answer; a crash does not', { timeout: 20000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
+test('#3939 3c-1: a refused turn ends the signed-in answer; a crash does not; a sign-in during the turn survives; a completed turn restores it', { timeout: 30000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
   const musestatus = require('./musestatus');
   const markIn = () => { fs.mkdirSync(musestatus.signinFolder(), { recursive: true }); fs.writeFileSync(musestatus.signedInMarker(), '{}\n'); };
   const clean = () => { fs.rmSync(musestatus.signedInMarker(), { force: true }); fs.rmSync(musestatus.signedOutMarker(), { force: true }); };
+  const was = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = fs.mkdtempSync(path.join(SANDBOX, 'xdg-'));   // never the real auth.json (round 1)
   gate.allowLiveExecution();
-  run.setForTests({ turnTimeoutMs: 2000, hardCapMs: 4000 });
+  run.setForTests({ turnTimeoutMs: 4000, hardCapMs: 6000 });
   try {
     clean(); markIn();
+    const old = Date.now() / 1000 - 60; fs.utimesSync(musestatus.signedInMarker(), old, old);   // signed in before the turns
     fakeMuse('kill -SEGV $$');
     await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
-    assert.equal(musestatus.signedIn().signedIn, true, 'a crash cleared the sign-in (it says nothing about it)');
+    assert.equal(musestatus.signedIn().signedIn, true, 'a crash ended the sign-in (it says nothing about it)');
     fakeMuse('echo "session ' + SID + ' is already in use" >&2\nexit 1');
     await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
-    assert.equal(musestatus.signedIn().signedIn, true, 'a busy session cleared the sign-in');
+    assert.equal(musestatus.signedIn().signedIn, true, 'a busy session ended the sign-in');
     fakeMuse('echo "missing meta credential in /x/auth.json: run muse login" >&2\nexit 1');
-    const r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    let r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
     assert.match(r.because, /not signed in/, 'the turn\'s own answer changed');
     assert.equal(musestatus.signedIn().signedIn, false, 'a refused credential left Kosmos saying signed in');
-  } finally { run.resetForTests(); clean(); }
+
+    // The race (round 1): a turn that began signed out finishes AFTER the person signed in.
+    clean();
+    fakeMuse('sleep 1\necho "missing meta credential" >&2\nexit 1');
+    const turn = run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    await new Promise((res) => setTimeout(res, 300));
+    markIn();                                            // Kosmos's sign-in finished mid-turn
+    r = await turn;
+    assert.match(r.because, /not signed in/, 'CONTROL: the slow turn was refused');
+    assert.deepEqual(musestatus.signedIn(), { signedIn: true, how: 'kosmos' }, 'a refusal that began before the sign-in undid it');
+
+    // A completed turn restores the answer after a refusal (a terminal muse login is seen only this way).
+    clean();
+    musestatus.markSignedOut();
+    assert.equal(musestatus.signedIn().signedIn, false, 'CONTROL: signed out before the good turn');
+    fakeMuse('cat > /dev/null\ncat "' + path.join(SANDBOX, 'turn.jsonl') + '"');
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.ok, true, 'CONTROL: the turn completed');
+    assert.deepEqual(musestatus.signedIn(), { signedIn: true, how: 'kosmos' }, 'a completed turn did not restore the answer');
+  } finally {
+    run.resetForTests(); clean();
+    if (was === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = was;
+  }
 });
