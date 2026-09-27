@@ -86,7 +86,7 @@ function hasContent(name) {
   }
 }
 
-/* Who is entitled to each block. Only `projects` is narrower than everyone. */
+/* Who is entitled to each block. `projects` (members) and `swarm` (leads) are narrower than everyone. */
 function entitled(name, agents) {
   /* ⚠️ ROLE, NOT UNIVERSAL: only an agent made as a swarm carries the swarm block. */
   if (name === 'swarm') {
