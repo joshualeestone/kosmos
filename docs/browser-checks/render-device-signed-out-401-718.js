@@ -50,6 +50,10 @@ const BOARD_NOT_SIGNED_IN = /This board is not signed in/i;
     return { ctx, page: await ctx.newPage() };
   };
   const stub = async (page, status, json) => {
+    /* The relay answers EVERY script fetch from a signed-out device with its 401, so its scenarios
+       stub every /api/ read. Stubbing only these two left /api/first-run reaching the sandbox board,
+       whose first-run screen then opened over the card and swallowed the Sign in click. */
+    if (json === RELAY_401) await page.route('**/api/**', (r) => r.fulfill({ status, json }));
     await page.route('**/api/status', (r) => r.fulfill({ status, json }));
     await page.route('**/api/projects', (r) => r.fulfill({ status, json }));
   };
@@ -125,6 +129,7 @@ const BOARD_NOT_SIGNED_IN = /This board is not signed in/i;
   {
     const { ctx, page } = await fresh();
     let mode = '401';
+    await page.route('**/api/**', (r) => r.fulfill({ status: 401, json: RELAY_401 }));
     await page.route('**/api/status', (r) => r.fulfill({ status: 401, json: RELAY_401 }));
     await page.route('**/api/projects', (r) => (mode === 'abort' ? r.abort() : r.fulfill({ status: 401, json: RELAY_401 })));
     await page.goto(BASE + '/?tab=projects', { waitUntil: 'load' });
