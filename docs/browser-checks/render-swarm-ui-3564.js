@@ -350,7 +350,9 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     await page.click('[data-scope="agents"] .vt[data-layout="org"]');
     await page.mouse.move(2, 2);
     const clusters = ['crew', 'crew2'];
-    const boxes = () => page.evaluate((cs) => cs.map((c) => { const f = document.querySelector('.onode[data-agent="' + c + '"] .face');
+    /* The cluster element itself, not the face around it: the face is border-box, so a border or padding planted on
+       hover leaves its box alone and squeezes the cluster inside it. */
+    const boxes = () => page.evaluate((cs) => cs.map((c) => { const f = document.querySelector('.onode[data-agent="' + c + '"] .face > .swc');
       if (!f) return c + ':none'; const b = f.getBoundingClientRect(); return c + ':' + [b.x, b.y, b.width, b.height].map((v) => +v.toFixed(3)).join(','); }).join(' '), clusters);
     let settled = false;
     for (let i = 0; i < 40 && !settled; i += 1) { const a = await boxes(); await page.waitForTimeout(500); settled = a === await boxes(); }
