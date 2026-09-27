@@ -25875,12 +25875,9 @@ const ACCT_MUSE = (() => {
     if (st.state === 'expired') el('retry-row').hidden = false; else hideRow('retry-row');
   }
   function finish(text) {
-    // Focus on a control that is about to go goes back to the button that starts a sign-in.
-    const a = document.activeElement;
-    const had = !!a && ['cancel', 'open', 'retry'].some((x) => a === el(x));
+    // reset() hides each row through hideRow, which moves focus off a control that is going.
     gen += 1; stopPoll(); id = null; reset();
     if (text != null) say(text);
-    if (had) { const g = el('go'); if (g) g.focus(); }
   }
   function watch(mine) {
     stopPoll();
