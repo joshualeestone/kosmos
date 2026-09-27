@@ -1246,6 +1246,8 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .wn-title { margin: 16px 0 22px; font-size: 1.5rem; letter-spacing: -.01em; color: var(--label); }
 .wn-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; text-align: left; list-style: none; margin: 0; padding: 0; }
 .wn-tiles.one { grid-template-columns: minmax(0, 320px); justify-content: center; }
+/* An odd last tile spans both columns, so five highlights leave no empty cell beside the fifth (0.7.03 walk). */
+.wn-tiles:not(.one) > .wn-tile:last-child:nth-child(odd) { grid-column: 1 / -1; }
 .wn-tile { display: flex; gap: 12px; align-items: flex-start; background: var(--bg); border: 1px solid var(--border-strong);
   border-radius: 14px; padding: 14px; }
 .wn-ico { flex: none; width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center;
@@ -9486,6 +9488,12 @@ body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.att
 /* #4080: the Lost your phone? dialog is a child of this section (the body's 38-row limit), and the rule above, at id
    specificity, would make it position:relative, a block at the foot of the pane. Give it back the .rm-back overlay. */
 #s-sec-plus > #plus-lost-modal { position: fixed; inset: 0; z-index: 50; }
+/* 0.7.03 walk, against Josh's 22:22 mock: while connected the status line and the device message are empty, and their
+   padding and reserved line opened loose gaps above "Devices that can reach this computer" and below the list. They
+   collapse while empty and stay rendered (both are live regions, so later text is still announced). */
+#s-sec-plus .setrow:has(#plus-status:empty):not(:has(#plus-next:not([hidden]))) { padding-top: 0; padding-bottom: 0; }
+#s-sec-plus #plus-status:empty { margin: 0; }
+#s-sec-plus #plus-devmsg:empty { min-height: 0; margin-top: 0; }
 /* state 1 (HOME) — the immersive marketing view, where most of the visual lands */
 #plus-mark { display: block; width: min(560px, 82%); height: auto; margin: 6px 0 4px; }
 .plus-hero-h { font-size: 26px; font-weight: 650; letter-spacing: -.01em;
@@ -22595,7 +22603,8 @@ async function paintAccounts(opts) {
       // True of this row (round 10): nothing rechecks it by itself; Sign in again does.
       const why = 'Antigravity was signed in to Google the last time Kosmos checked.' + when + ' Kosmos does not recheck it by itself; Sign in again checks it.';
       return '<div class="acct-box" data-agy-row="1"><div class="acct-box-top"><div class="acct-who"><b>' + esc(a.email || 'Google subscription') + '</b>'
-        + '<span class="acct-tag"> Google subscription, through Antigravity on this computer</span></div>'
+        /* With no email the title already says "Google subscription", so the tag does not repeat it (0.7.03 walk). */
+        + '<span class="acct-tag"> ' + (a.email ? 'Google subscription, through Antigravity on this computer' : 'Through Antigravity on this computer') + '</span></div>'
         // The why is also in the text a screen reader reads (round 14): a title alone is mouse-only.
         + '<span class="acct-unknown" title="' + esc(why) + '"><span class="dot" aria-hidden="true"></span>Signed in<span class="vh"> (' + esc(why) + ')</span></span></div>'
         + '<div class="acct-actions">'
@@ -33034,7 +33043,7 @@ async function paintUsage() {
     const roots = Array.isArray(data.rootsRead) ? data.rootsRead.length : null;
     msg.textContent = roots === null
       ? 'Counted from the transcripts on this computer.'
-      : 'Counted from ' + roots + (roots === 1 ? ' place' : ' places') + ' on this computer that hold transcripts.';
+      : 'Counted from ' + roots + (roots === 1 ? ' place on this computer that holds' : ' places on this computer that hold') + ' transcripts.';
     /* #2840: name any model excluded from the API-cost figure for want of a
        published price (Splinter's flag-do-not-guess rule), so an incomplete cost
        is never read as complete. */

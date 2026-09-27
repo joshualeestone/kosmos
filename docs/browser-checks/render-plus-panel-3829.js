@@ -143,6 +143,12 @@ const STATES = {
           `${t} #4080: gone from the pane: Use Kosmos from anywhere, the devices line, the lost-phone essay, Pause/Turn off`, v.sectionText.slice(0, 300));
         chk(v.account === 'https://login.kosmosplus.com/', `${t} View account opens the web account`, v.account);
         if (key === 'connected') {
+          /* 0.7.03 walk (Josh's 22:22 mock): the empty status line and device message take no room while connected, so
+             "Devices that can reach this computer" sits close under the sign-in box and the bottom row follows the list. */
+          const gap = await page.evaluate(() => { const r = (el) => el.getBoundingClientRect(); const rows = [...document.querySelectorAll('#plus-devlist > *')].filter((e) => r(e).height > 0);
+            return { top: Math.round(r(document.querySelector('#plus-devices .setname')).top - r(document.getElementById('plus-chip')).bottom),
+              bottom: rows.length ? Math.round(r(document.getElementById('plus-forget')).top - r(rows[rows.length - 1]).bottom) : null }; });
+          chk(gap.top <= 20 && gap.bottom !== null && gap.bottom <= 22, `${t} the pane keeps the mock's spacing: no empty gap above the devices or below the list`, JSON.stringify(gap));
           /* #4080: the bottom row, left to right: Remove this computer (red), Lost your phone?, View account. */
           const foot = await page.evaluate(() => {
             const r = (id) => { const e = document.getElementById(id); if (!e || e.closest('[hidden]')) return null; const b = e.getBoundingClientRect(); return { x: Math.round(b.left), y: Math.round(b.top), text: e.textContent.trim(), color: getComputedStyle(e).color }; };
