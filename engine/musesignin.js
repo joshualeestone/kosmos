@@ -28,7 +28,7 @@ function socket() {
 }
 const SESSION = 'muse-signin';
 const TICK_MS = 1000;
-const STUCK_MS = 15000;          // a screen Kosmos does not recognise this long is named, not guessed at
+const STUCK_MS = 15000;          // an unknown screen this long is named; a retry with no new code this long ends
 const GIVE_UP_MS = 20 * 60000;   // a device code nobody approves ends by itself (Muse's own expire comes first)
 const TMUX_CALL_MS = 5000;
 const MAX_KEY_FAILURES = 5;
@@ -37,6 +37,9 @@ const PANE_ROWS = 40;
 const UNKNOWN = 'Muse Code is showing a step Kosmos does not recognise';
 const EXPIRED = 'The code expired before it was approved';
 const CLOSED = 'Muse Code\'s sign-in closed before it finished';
+/* Final, not retryable (round 5): start again. A retry typed after one was given up can land on the late code. */
+const NO_NEW_CODE = 'Muse Code did not send a new code, so start the sign-in again';
+const GAVE_UP = 'The sign-in waited too long, so start it again';
 /* An Enter that did not move Muse off the code screen this long is sent once more, then named (round 1). */
 const RESEND_MS = 5000;
 /* The line the session prints when muse has exited, so its last screen can still be read (round 1:
@@ -107,7 +110,7 @@ let now = () => Date.now();
 let tickMs = TICK_MS;
 
 /* ---- one sign-in at a time ------------------------------------------------------------------ */
-let S = null;   // { id, state, url, code, because, folder, startedAt, seenAt, screen, pressed, timer, keyFailures }
+let S = null;   // { id, state, url, code, because, folder, startedAt, seenAt, screen, pressed, pressedAt, resent, retrying, gone, timer, keyFailures }
 
 /** What a screen is told: never the folder, never the raw screen. */
 function status() {
@@ -126,7 +129,10 @@ function screen() {
     return e && (e.code === 'ETIMEDOUT' || e.signal || e.kosmosInternal) ? undefined : null;
   }
 }
-function keys(...k) { tmux(['send-keys', '-t', SESSION].concat(k)); }
+/* Sends are counted, not ticks (round 5): a failure adds one, a send that went out clears the count. */
+function keys(...k) { tmux(['send-keys', '-t', SESSION].concat(k)); if (S) S.keyFailures = 0; }
+/* A code is served only while it can be used, the address included (it carries ?user_code=). */
+function dropCode(mine) { mine.code = null; mine.url = null; mine.pressed = null; }
 function logLine(what) { try { console.error('muse sign-in: ' + what); } catch { /* nothing to log to */ } }
 function end(state, because) {
   if (!S) return;
@@ -134,7 +140,7 @@ function end(state, because) {
   S.timer = null;
   S.state = state;
   S.because = because || null;
-  if (state !== 'code' && state !== 'waiting') { S.code = null; }   // a code is only shown while it can be used
+  dropCode(S);
   logLine('ended ' + state + (because ? ' (' + because + ')' : ''));
   try { tmux(['kill-session', '-t', SESSION]); } catch { /* already gone */ }
 }
@@ -171,10 +177,10 @@ function step() {
     /* After a retry, the old expiry line is the last one until Muse draws the new code (round 1). If no
        new code comes, the retry is given up and another can be asked for (round 3: it waited 20 minutes). */
     if (mine.retrying) {
-      if (t - mine.seenAt <= STUCK_MS) return;
-      mine.retrying = false; mine.state = null;
+      if (t - mine.seenAt > STUCK_MS) end('failed', NO_NEW_CODE);
+      return;
     }
-    if (mine.state !== 'expired') { mine.state = 'expired'; mine.code = null; mine.url = null; mine.pressed = null; mine.because = EXPIRED; }
+    if (mine.state !== 'expired') { mine.state = 'expired'; dropCode(mine); mine.because = EXPIRED; }
     return;
   }
   if (drawn === 'press') {
@@ -184,11 +190,11 @@ function step() {
     mine.code = p.code; mine.url = p.url; mine.because = null; mine.state = 'code';
     /* Enter once per code: Muse only waits for the approval after it (Homer), and it opens Meta's page
        in the browser itself. Marked before sending: a second Enter would land on the next screen. */
-    if (mine.pressed !== p.code) { mine.pressed = p.code; mine.pressedAt = t; mine.resent = false; keys('Enter'); return; }
+    if (mine.pressed !== p.code) { mine.pressed = p.code; mine.pressedAt = t; mine.resent = false; enterOnce(mine); return; }
     /* Still on the same code's prompt well after the Enter (round 1: a send that failed is never sent
        again otherwise, and Muse never polls): once more, then named. */
     if (t - mine.pressedAt > RESEND_MS) {
-      if (!mine.resent) { mine.resent = true; mine.pressedAt = t; keys('Enter'); }
+      if (!mine.resent) { mine.resent = true; mine.pressedAt = t; enterOnce(mine); }
       else { mine.state = 'stuck'; mine.because = 'Muse Code did not start waiting for the approval'; }
     }
     return;
@@ -197,12 +203,19 @@ function step() {
   if (drawn === 'waiting' || drawn === 'opening') { if (mine.code) { mine.state = 'code'; mine.because = null; } return; }
   if (t - mine.seenAt > STUCK_MS) { mine.state = 'stuck'; mine.because = UNKNOWN; }
 }
+/* One Enter. A failure that proves it never went out re-arms it for the next tick (the agysignin rule);
+   a timeout says nothing about delivery, so that Enter is left to the resend rule. */
+function enterOnce(mine) {
+  try { keys('Enter'); } catch (e) {
+    if (!(e && (e.code === 'ETIMEDOUT' || e.signal))) { mine.pressed = null; mine.resent = false; }
+    throw e;
+  }
+}
 function tick() {
   const mine = S;
-  if (mine && mine.timer && now() - mine.startedAt > GIVE_UP_MS) { end('expired', EXPIRED); return; }
+  if (mine && mine.timer && now() - mine.startedAt > GIVE_UP_MS) { end('failed', GAVE_UP); return; }
   try {
     step();
-    if (mine) mine.keyFailures = 0;
   } catch (e) {
     if (!mine || S !== mine || !mine.timer) return;
     mine.keyFailures = (mine.keyFailures || 0) + 1;
@@ -255,7 +268,8 @@ function retry(id) {
   // The screen, not the state, right before typing: an r on any other screen is keystrokes there.
   const text = screen();
   if (typeof text !== 'string' || screenOf(text) !== 'expired') return { ok: false, because: 'There is no expired code to replace' };
-  try { keys('-l', 'r'); keys('Enter'); } catch { return { ok: false, because: 'Kosmos could not ask Muse Code for a new code' }; }
+  // One call (round 5): an r typed without its Enter would be doubled by the next retry.
+  try { keys('r', 'Enter'); } catch { return { ok: false, because: 'Kosmos could not ask Muse Code for a new code' }; }
   // The give-up clock is the new code's (round 1), and the old expiry is ignored until it is drawn.
   S.state = 'starting'; S.because = null; S.seenAt = now(); S.screen = null; S.startedAt = now(); S.retrying = true;
   return { ok: true };

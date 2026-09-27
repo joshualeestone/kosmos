@@ -78,6 +78,7 @@ test('#3939: the sign-in shows Meta\'s code, presses Enter once, and ends signed
     assert.match(log, new RegExp('^home:' + os.homedir().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'm'), 'HOME was changed for muse (it hides the Keychain on a Mac)');
     assert.match(log, /^xdg:unset$/m, 'XDG_CONFIG_HOME was set for muse');
     assert.equal(signin.status().code, undefined, 'a used code is still shown after the sign-in ended');
+    assert.equal(signin.status().url, undefined, 'the used code is still served inside the address (round 5)');
     assert.deepEqual(musestatus.signedIn(), { signedIn: true, how: 'kosmos' });
     assert.throws(() => execFileSync(TMUX, ['-L', process.env.AGENT_WORKFORCE_MUSE_SIGNIN_SOCKET, 'has-session', '-t', signin.SESSION], { stdio: 'ignore' }), 'the session outlived the sign-in');
   } finally { t.cleanup(); }
@@ -233,8 +234,8 @@ test('#3939 round 2: tmux failing to send is named only after MAX_KEY_FAILURES i
   let n = 0;
   const done = stubbed((args) => {
     if (args[0] === 'send-keys') throw Object.assign(new Error('send failed'), { status: 1 });
-    // A new code each read, so every tick tries (and fails) to send its Enter.
-    if (args[0] === 'capture-pane') { n += 1; return 'open https://auth.meta.com/device?user_code=AAAA-' + (1000 + n) + '\nand enter the code: AAAA-' + (1000 + n) + '\nPress Enter to open it in your browser: '; }
+    // One code throughout, as a real run draws (round 5): each failed send is re-armed and tried again.
+    if (args[0] === 'capture-pane') { n += 1; return 'open https://auth.meta.com/device?user_code=AAAA-1000\nand enter the code: AAAA-1000\nPress Enter to open it in your browser: '; }
     return '';
   });
   try {
@@ -261,7 +262,7 @@ function scripted(first) {
 const PROMPT = 'To sign in, open https://auth.meta.com/device?user_code=WXYZ-1234\nand enter the code: WXYZ-1234\nPress Enter to open it in your browser: ';
 const EXPIRED_TEXT = PROMPT + '\nWaiting for approval... Esc cancel\nThe login request expired before it was approved. Press r then Enter to try again\n';
 
-test('#3939 round 3: a retry that gets no new code is given up, and another retry is allowed', { skip: !onMac && 'the flag is Mac only' }, () => {
+test('#3939 round 3/5: a retry that gets no new code ends the sign-in (start again), and no further retry is typed', { skip: !onMac && 'the flag is Mac only' }, () => {
   const { st, done } = scripted(EXPIRED_TEXT);
   try {
     signin.tickForTests();
@@ -272,8 +273,11 @@ test('#3939 round 3: a retry that gets no new code is given up, and another retr
     assert.equal(signin.status().state, 'starting', 'CONTROL: the retry holds while a new code may be coming');
     st.skew = signin.STUCK_MS + 1000;
     signin.tickForTests(); signin.tickForTests();
-    assert.equal(signin.status().state, 'expired', 'a retry that got no new code was never given up');
-    assert.equal(signin.retry(id).ok, true, 'a second retry was refused after the first was given up');
+    assert.equal(signin.status().state, 'failed', 'a retry that got no new code was never given up');
+    assert.match(signin.status().because, /start the sign-in again/);
+    const before = st.sent.length;
+    assert.equal(signin.retry(id).ok, false, 'a second retry was taken after the first was given up (round 5: its r lands on the late code)');
+    assert.equal(st.sent.length, before, 'keys went to muse after the sign-in was given up');
   } finally { done(); }
 });
 
@@ -306,5 +310,18 @@ test('#3939 round 3: retry reads the screen, not the state, before typing', { sk
     st.text = PROMPT;   // Muse moved on, the state has not caught up yet
     assert.equal(signin.retry(id).ok, false);
     assert.deepEqual(st.sent, [], 'r was typed onto a screen that is no longer the expired one');
+  } finally { done(); }
+});
+
+test('#3939 round 5: the 20-minute limit is final, not an expiry a retry can answer', { skip: !onMac && 'the flag is Mac only' }, () => {
+  const { st, done } = scripted(EXPIRED_TEXT);
+  try {
+    signin.tickForTests();
+    assert.equal(signin.status().state, 'expired', 'CONTROL: Muse\'s own expiry is retryable');
+    st.skew = signin.GIVE_UP_MS + 1000;
+    signin.tickForTests();
+    assert.equal(signin.status().state, 'failed');
+    assert.match(signin.status().because, /waited too long/);
+    assert.equal(signin.retry(signin.status().id).ok, false);
   } finally { done(); }
 });
