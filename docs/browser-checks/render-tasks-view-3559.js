@@ -182,6 +182,43 @@ function chk(ok, label, extra) {
       chk(after, '[gate] once shown (the saved flag), the Tasks tab is there', String(after));
       await page.close();
     }
+    /* #4226 (Raiden's #718 phone sweep): on a touchscreen every field in the Tasks view is 16px (iOS zooms into a smaller
+       one and does not zoom back) and every tap target is 44px or more. A desktop pointer is the control: fields keep
+       their size and the checkbox's label adds no tap area. */
+    for (const [label, ctxOpts] of [['phone 390x844', { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }],
+      ['desktop control 1400', { viewport: { width: 1400, height: 900 } }]]) {
+      const ctx = await browser.newContext(ctxOpts);
+      const page = await ctx.newPage();
+      await page.goto(URL, { waitUntil: 'networkidle' });
+      await clearFirstRun(page);
+      await page.evaluate(() => showTab('tasks'));
+      await page.waitForFunction(() => document.querySelectorAll('#tsk-groups .tsk-row').length > 0, null, { timeout: 8000 });
+      const m = await page.evaluate(() => {
+        const vis = (e) => e && e.getClientRects().length > 0 && !e.closest('[hidden]');
+        const box = (e) => { const r = e.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; };
+        const fields = [...document.querySelectorAll('#panel-tasks :is(input:not([type=checkbox]):not([type=radio]), select, textarea)')]
+          .filter(vis).map((e) => [e.id || e.className, parseFloat(getComputedStyle(e).fontSize)]);
+        const t = (q) => [...document.querySelectorAll(q)].filter(vis).map((e) => [q, e.id || e.className || e.tagName, box(e)]);
+        const targets = [...t('#tsk-new'), ...t('#panel-tasks select.tsk-sel'), ...t('#tsk-search'),
+          ...t('#tsk-groups .tsk-row .tsk-hit'), ...t('#tsk-groups .tsk-row .tl'), ...t('#tsk-groups .tsk-row .meta button')];
+        const hover = matchMedia('(hover: none)').matches;
+        return { hover, fields, targets, sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth };
+      });
+      if (label.startsWith('phone')) {
+        chk(m.hover, `[${label}] the phone reports hover: none (so the touch rules apply)`, String(m.hover));
+        const small = m.fields.filter(([, px]) => px < 16);
+        chk(m.fields.length >= 5 && small.length === 0, `[${label}] every Tasks field is 16px or more (no iOS zoom) (#4226)`, JSON.stringify(m.fields));
+        const shortOnes = m.targets.filter(([, , [, h]]) => h < 44);
+        const narrowHit = m.targets.filter(([q, , [w]]) => /tsk-hit/.test(q) && w < 44);
+        chk(m.targets.length >= 6 && shortOnes.length === 0 && narrowHit.length === 0, `[${label}] every Tasks tap target is 44px tall, the checkbox's tap area 44px wide too (#4226)`, JSON.stringify(shortOnes.concat(narrowHit).slice(0, 6)));
+        chk(!m.sideways, `[${label}] no sideways scroll`, String(m.sideways));
+      } else {
+        const phoneSized = m.fields.filter(([, px]) => px >= 16);
+        const hits = m.targets.filter(([q, , [w]]) => /tsk-hit/.test(q) && w >= 44);
+        chk(!m.hover && phoneSized.length === 0 && hits.length === 0, `[${label}] with a mouse the Tasks fields and checkboxes keep their desktop size (#4226)`, JSON.stringify({ hover: m.hover, phoneSized, hits: hits.length }));
+      }
+      await ctx.close();
+    }
     for (const [theme, width] of [['light', 1400], ['dark', 1400], ['light', 760], ['dark', 390]]) {
       const tag = `[${theme} ${width}]`;
       const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme });

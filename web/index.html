@@ -3611,6 +3611,22 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-row:first-child { border-top: 0; }
 .tsk-row.sel { background: var(--tsk-wash); }
 .tsk-row input { margin: 3px 0 0; width: 16px; height: 16px; accent-color: var(--gold-deep); }
+.tsk-row .tsk-hit { display: block; line-height: 0; }
+/* #4226 (Raiden's #718 phone sweep): on a touchscreen, every field in the Tasks view is 16px, because iOS zooms into a
+   smaller one and does not zoom back, and every tap target is at least 44px. Font size and target size only: the
+   desktop is unchanged. Scoped to #panel-tasks, which the one-screen (iPad) layout moves inside #panel-projects, so it
+   follows the view there and never reaches Settings (Kano's trap on the project page). The checkbox's tap area is its
+   label's: padding widens it and an equal negative margin keeps the row where it was. */
+@media (hover: none) {
+  #panel-tasks :is(input:not([type=checkbox]):not([type=radio]), select, textarea) { font-size: 16px; }
+  #panel-tasks select.tsk-sel { height: auto; min-height: 44px; }
+  #panel-tasks :is(#tsk-new, #tsk-bclose, #tsk-bclear) { min-height: 44px; }
+  #panel-tasks .tsk-search input { min-height: 44px; }
+  #panel-tasks .tsk-search button { width: 44px; height: 44px; right: 0; }
+  #panel-tasks .tsk-row .tsk-hit { padding: 14px; margin: -14px; }
+  #panel-tasks .tsk-row .tl { display: flex; align-items: center; min-height: 44px; }
+  #panel-tasks .tsk-row .meta button { display: inline-flex; align-items: center; min-height: 44px; }
+}
 .tsk-row .t { min-width: 0; }
 .tsk-row .tl { border: 0; background: none; padding: 0; font: 600 .9375rem var(--font-ui); color: var(--k-ink); cursor: pointer; text-align: left; }
 .tsk-row .tl:hover { text-decoration: underline; text-decoration-color: var(--gold); }
@@ -48005,12 +48021,13 @@ function tskRow(t, at) {
       /* Review round 1: the person can take a mistaken mark off without closing the task. */
       + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(t.projectName) + ' not built yet">Not built yet</button></div>';
   return '<div class="tsk-row' + (on ? ' sel' : '') + (place.depth ? ' d' + place.depth : '') + '" data-key="' + esc(tskKey(t)) + '">'
-    + '<input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
+    /* #4226: the checkbox sits in a label, so on a touchscreen the label can widen the tap area to 44px (below). */
+    + '<label class="tsk-hit"><input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
     /* The row no longer repeats its state in a status group (the heading says it), so there the
        label carries it: a screen reader moving between checkboxes still hears where each task is.
        Grouped by project the row shows its state line, so the label does not say it again. */
     + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(t.projectName)
-    + (g && TSK.by !== 'project' ? ' (' + esc(g.l) + ')' : '') + '">'
+    + (g && TSK.by !== 'project' ? ' (' + esc(g.l) + ')' : '') + '"></label>'
     + '<div class="t">' + partOf + '<span class="n">#' + Number(t.number) + '</span>'
     + '<button type="button" class="tl" data-open-task="' + esc(tskKey(t)) + '">' + esc(t.sentence) + '</button>'
     + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(t.projectName) + '</button>'
