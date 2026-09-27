@@ -7820,6 +7820,8 @@ const server = http.createServer((req, res) => {
              `connected` is already a real /v1/models proof. */
           const isChatgpt = a.authMode === 'chatgpt' && !!a.dir;
           const refused = isChatgpt && !!a.connection && a.connection.state === 'none';
+          /* codexsigninlive already forgets on every dead answer; this is for the offline id_token lapse, which never
+             reaches the check. */
           if (refused) observed.forgetDir(observed.PROVIDER.OPENAI, a.dir);
           const checkObs = isChatgpt && !refused ? observed.readDir(observed.PROVIDER.OPENAI, a.dir) : null;
           const agentObs = a.dir ? obsByOpenaiDir.get(a.dir) : null;
