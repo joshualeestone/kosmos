@@ -183,7 +183,8 @@ test('#3939: the screen words: the last one drawn counts, and the code is the cu
   assert.deepEqual(signin.promptOf(second), { url: 'https://auth.meta.com/device?user_code=BBBB-2222', code: 'BBBB-2222' });
   assert.equal(signin.screenOf(second + '\nLogged in. Credential saved.'), 'done');
   // The fake draws every screen the engine reads, in the same words.
-  const fake = fs.readFileSync(FAKE, 'utf8');
+  // Its drawn lines only, not its comments (round 2: a header comment matched "saving failed").
+  const fake = fs.readFileSync(FAKE, 'utf8').split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
   for (const [name, re] of Object.entries(signin.SCREENS)) assert.ok(re.test(fake), 'the fake muse does not draw the ' + name + ' screen');
 });
 
@@ -198,4 +199,48 @@ test('#3939: signed in from Muse\'s own file: a providers.meta entry counts, an 
     assert.deepEqual(musestatus.signedIn(), { signedIn: true, how: 'file' });
     assert.ok(file.startsWith(process.env.AGENT_WORKFORCE_HOME), 'CONTROL: the file read is inside the sandbox home');
   } finally { fs.rmSync(path.dirname(file), { recursive: true, force: true }); }
+});
+
+/* Round 2: the two failure margins, with tmux stood in (no real session). Ticks are driven by hand. */
+function stubbed(tmuxFn) {
+  signin.resetForTests();
+  process.env.AGENT_WORKFORCE_MUSE = '1';
+  signin.setForTests({ tmux: tmuxFn, museBin: () => ({ installed: true, bin: '/nowhere/muse' }), tickMs: 2147483647 });
+  const r = signin.start();
+  assert.equal(r.ok, true, JSON.stringify(r));
+  return () => { signin.resetForTests(); delete process.env.AGENT_WORKFORCE_MUSE; };
+}
+
+test('#3939 round 2: one missed session check does not end a sign-in; two in a row do', { skip: !onMac && 'the flag is Mac only' }, () => {
+  let gone = false;
+  const done = stubbed((args) => {
+    if (gone && (args[0] === 'capture-pane' || args[0] === 'has-session')) throw Object.assign(new Error('no session'), { status: 1 });
+    return args[0] === 'capture-pane' ? 'Starting...\n' : '';
+  });
+  try {
+    signin.tickForTests();
+    gone = true;
+    signin.tickForTests();
+    assert.equal(signin.status().state, 'starting', 'one missed check ended the sign-in');
+    signin.tickForTests();
+    assert.equal(signin.status().state, 'failed', 'two missed checks in a row did not end it');
+  } finally { done(); }
+});
+
+test('#3939 round 2: tmux failing to send is named only after MAX_KEY_FAILURES in a row', { skip: !onMac && 'the flag is Mac only' }, () => {
+  let n = 0;
+  const done = stubbed((args) => {
+    if (args[0] === 'send-keys') throw Object.assign(new Error('send failed'), { status: 1 });
+    // A new code each read, so every tick tries (and fails) to send its Enter.
+    if (args[0] === 'capture-pane') { n += 1; return 'open https://auth.meta.com/device?user_code=AAAA-' + (1000 + n) + '\nand enter the code: AAAA-' + (1000 + n) + '\nPress Enter to open it in your browser: '; }
+    return '';
+  });
+  try {
+    const limit = 5;
+    for (let i = 0; i < limit - 1; i += 1) signin.tickForTests();
+    assert.notEqual(signin.status().state, 'stuck', 'CONTROL: not stuck before the limit');
+    signin.tickForTests();
+    assert.equal(signin.status().state, 'stuck');
+    assert.match(signin.status().because, /could not reach Muse Code/);
+  } finally { done(); }
 });
