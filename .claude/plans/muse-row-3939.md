@@ -120,3 +120,4 @@ others.
 ## Weakest premise (updated)
 Two: that "missing meta credential" is the only way Muse reports a lost sign-in, and
 that Muse's meta entry in auth.json has no self-updating field (file backend only).
+- Mutation gap closed: "last listed wins" survived because APFS lists names sorted; a test now reverses the listing so only a real time comparison passes.

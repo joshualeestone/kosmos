@@ -300,3 +300,19 @@ test('#3939 3c-1: the writers never throw; they say false when they could not wr
     assert.throws(() => muse.markKosmosSignedIn(T), 'CONTROL: Kosmos\'s own sign-in is told its mark was not written');
   } finally { fs.rmSync(muse.eventsFolder(), { force: true }); }
 }));
+
+test('#3939 3c-1 round 6: the latest event decides, whatever order the folder lists them in', () => withXdg(() => {
+  // APFS lists names sorted, so "last listed" and "latest" agree on a Mac by accident; other
+  // filesystems do not sort. Reverse the listing so only a real comparison passes.
+  clean();
+  place('note', T + 100); place('note', T + 90); place('mark', T + 95); place('mark', T + 80);
+  const real = fs.readdirSync;
+  fs.readdirSync = function (p, ...rest) {
+    const r = real.call(this, p, ...rest);
+    return String(p) === muse.eventsFolder() ? r.slice().sort().reverse() : r;
+  };
+  try {
+    assert.deepEqual([muse.latest().mark, muse.latest().note.at], [T + 95, T + 100], 'the listing order, not the time, decided');
+    assert.equal(muse.signedIn().signedIn, false);
+  } finally { fs.readdirSync = real; clean(); }
+}));
