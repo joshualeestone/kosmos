@@ -2,8 +2,7 @@
 /**
  * #4119: which browser checks does this page diff touch?
  *
- *   node tools/bc-pr-select.js <base> [head]          # one `<check>\t<why>` line per check
- *   node tools/bc-pr-select.js --names <base> [head]  # the names only, space-separated
+ *   node tools/bc-pr-select.js <base> [head]   # one `<check>\t<why>` line per check
  *
  * The PR-time `browser-checks` job runs a FIXED allowlist (#2445). Twice on 2026-09-26 a page PR
  * passed it and broke a check outside it, found only at the cut: #3985 broke render-talk, #4095
@@ -202,10 +201,9 @@ function selectByPage(diff, text, add) {
 }
 
 function main(argv) {
-  const namesOnly = argv[0] === '--names';
-  const [base, head = 'HEAD'] = namesOnly ? argv.slice(1) : argv;
+  const [base, head = 'HEAD'] = argv;
   if (!base) {
-    process.stderr.write('usage: node tools/bc-pr-select.js [--names] <base> [head]\n');
+    process.stderr.write('usage: node tools/bc-pr-select.js <base> [head]\n');
     return 2;
   }
   let diff;
@@ -223,8 +221,7 @@ function main(argv) {
     return 2;
   }
   const names = [...why.keys()].sort();
-  if (namesOnly) process.stdout.write(names.join(' ') + (names.length ? '\n' : ''));
-  else for (const n of names) process.stdout.write(`${n}\t${why.get(n).join('; ')}\n`);
+  for (const n of names) process.stdout.write(`${n}\t${why.get(n).join('; ')}\n`);
   for (const [n, r] of why.skipped) process.stderr.write(`bc-pr-select: ${n}: ${r}\n`);
   return 0;
 }
