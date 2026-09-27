@@ -1,0 +1,39 @@
+09-26 23:33:58.767  4078  4259 F libc    : Fatal signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0 in tid 4259 (CompositorGpuTh), pid 4078 (ileged_process0)
+09-26 23:33:59.042  4352  4352 F DEBUG   : *** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***
+09-26 23:33:59.042  4352  4352 F DEBUG   : Build fingerprint: 'google/sdk_gphone64_arm64/emu64a:14/UE1A.230829.036.A4/12096271:user/release-keys'
+09-26 23:33:59.042  4352  4352 F DEBUG   : Revision: '0'
+09-26 23:33:59.042  4352  4352 F DEBUG   : ABI: 'arm64'
+09-26 23:33:59.042  4352  4352 F DEBUG   : Timestamp: 2026-09-26 23:33:58.843543888-0500
+09-26 23:33:59.042  4352  4352 F DEBUG   : Process uptime: 2s
+09-26 23:33:59.042  4352  4352 F DEBUG   : Cmdline: com.android.chrome:privileged_process0
+09-26 23:33:59.042  4352  4352 F DEBUG   : pid: 4078, tid: 4259, name: CompositorGpuTh  >>> com.android.chrome:privileged_process0 <<<
+09-26 23:33:59.042  4352  4352 F DEBUG   : uid: 10150
+09-26 23:33:59.042  4352  4352 F DEBUG   : tagged_addr_ctrl: 0000000000000001 (PR_TAGGED_ADDR_ENABLE)
+09-26 23:33:59.042  4352  4352 F DEBUG   : pac_enabled_keys: 000000000000000f (PR_PAC_APIAKEY, PR_PAC_APIBKEY, PR_PAC_APDAKEY, PR_PAC_APDBKEY)
+09-26 23:33:59.042  4352  4352 F DEBUG   : signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0000000000000000
+09-26 23:33:59.042  4352  4352 F DEBUG   : Cause: null pointer dereference
+09-26 23:33:59.042  4352  4352 F DEBUG   :     x0  b4000079bdc368b0  x1  0000007891cf4be0  x2  0000007891cf4c1c  x3  0000000000000065
+09-26 23:33:59.042  4352  4352 F DEBUG   :     x4  00ffffffffffffff  x5  0000000000002b54  x6  0000000000000000  x7  002200030000003f
+09-26 23:33:59.042  4352  4352 F DEBUG   :     x8  0000000000000000  x9  000000788ffcaeb0  x10 0000000000000007  x11 0000000000000001
+09-26 23:33:59.042  4352  4352 F DEBUG   :     x12 00000004cccccccc  x13 00000000001e2400  x14 000000760012b800  x15 00001b09e716ac63
+09-26 23:33:59.042  4352  4352 F DEBUG   :     x16 0000000000000001  x17 0000007bd3ef1a5c  x18 0000007881f34000  x19 0000007891cf4c90
+09-26 23:33:59.042  4352  4352 F DEBUG   :     x20 0000000000000010  x21 b4000079bdc368b0  x22 0000007891cf4c90  x23 0000007891cf6000
+09-26 23:33:59.042  4352  4352 F DEBUG   :     x24 000000788aa2e8ac  x25 0000007891cf50b0  x26 000000760007c408  x27 0000007600029ccc
+09-26 23:33:59.042  4352  4352 F DEBUG   :     x28 0000007891cf6000  x29 0000007891cf4c00
+09-26 23:33:59.042  4352  4352 F DEBUG   :     lr  000000788fd7547c  sp  0000007891cf4bd0  pc  0000000000000000  pst 0000000060000800
+09-26 23:33:59.042  4352  4352 F DEBUG   : 24 total frames
+09-26 23:33:59.042  4352  4352 F DEBUG   : backtrace:
+09-26 23:33:59.042  4352  4352 F DEBUG   :       #00 pc 0000000000000000  <unknown>
+09-26 23:33:59.042  4352  4352 F DEBUG   :       #01 pc 0000000005977478  /data/app/~~pL8k2kh6se7EqmiwnE3Ijw==/com.google.android.trichromelibrary_567263634-i5X8CiWuaelW-1mu3wZq4w==/TrichromeLibrary.apk!libmonochrome_64.so (offset 0x8a9000) (BuildId: a9be1d2e268df6c76a313ac9cecd6781ab930141)
+09-26 23:33:59.042  4352  4352 F DEBUG   :       #02 pc 0000000005b9698c  /data/app/~~pL8k2kh6se7EqmiwnE3Ijw==/com.google.android.trichromelibrary_567263634-i5X8CiWuaelW-1mu3wZq4w==/TrichromeLibrary.apk!libmonochrome_64.so (offset 0x8a9000) (BuildId: a9be1d2e268df6c76a313ac9cecd6781ab930141)
+09-26 23:33:59.042  4352  4352 F DEBUG   :       #03 pc 00000000037781d4  /data/app/~~pL8k2kh6se7EqmiwnE3Ijw==/com.google.android.trichromelibrary_567263634-i5X8CiWuaelW-1mu3wZq4w==/TrichromeLibrary.apk!libmonochrome_64.so (offset 0x8a9000) (BuildId: a9be1d2e268df6c76a313ac9cecd6781ab930141)
+09-26 23:33:59.042  4352  4352 F DEBUG   :       #04 pc 00000000036bad40  /data/app/~~pL8k2kh6se7EqmiwnE3Ijw==/com.google.android.trichromelibrary_567263634-i5X8CiWuaelW-1mu3wZq4w==/TrichromeLibrary.apk!libmonochrome_64.so (offset 0x8a9000) (BuildId: a9be1d2e268df6c76a313ac9cecd6781ab930141)
+09-26 23:33:59.042  4352  4352 F DEBUG   :       #05 pc 0000000003751274  /data/app/~~pL8k2kh6se7EqmiwnE3Ijw==/com.google.android.trichromelibrary_567263634-i5X8CiWuaelW-1mu3wZq4w==/TrichromeLibrary.apk!libmonochrome_64.so (offset 0x8a9000) (BuildId: a9be1d2e268df6c76a313ac9cecd6781ab930141)
+09-26 23:33:59.042  4352  4352 F DEBUG   :       #06 pc 00000000037511a4  /data/app/~~pL8k2kh6se7EqmiwnE3Ijw==/com.google.android.trichromelibrary_567263634-i5X8CiWuaelW-1mu3wZq4w==/TrichromeLibrary.apk!libmonochrome_64.so (offset 0x8a9000) (BuildId: a9be1d2e268df6c76a313ac9cecd6781ab930141)
+09-26 23:33:59.042  4352  4352 F DEBUG   :       #07 pc 00000000037510f8  /data/app/~~pL8k2kh6se7EqmiwnE3Ijw==/com.google.android.trichromelibrary_567263634-i5X8CiWuaelW-1mu3wZq4w==/TrichromeLibrary.apk!libmonochrome_64.so (offset 0x8a9000) (BuildId: a9be1d2e268df6c76a313ac9cecd6781ab930141)
+09-26 23:33:59.042  4352  4352 F DEBUG   :       #08 pc 0000000005c32cb8  /data/app/~~pL8k2kh6se7EqmiwnE3Ijw==/com.google.android.trichromelibrary_567263634-i5X8CiWuaelW-1mu3wZq4w==/TrichromeLibrary.apk!libmonochrome_64.so (offset 0x8a9000) (BuildId: a9be1d2e268df6c76a313ac9cecd6781ab930141)
+09-26 23:33:59.042  4352  4352 F DEBUG   :       #09 pc 00000000037510a0  /data/app/~~pL8k2kh6se7EqmiwnE3Ijw==/com.google.android.trichromelibrary_567263634-i5X8CiWuaelW-1mu3wZq4w==/TrichromeLibrary.apk!libmonochrome_64.so (offset 0x8a9000) (BuildId: a9be1d2e268df6c76a313ac9cecd6781ab930141)
+09-26 23:33:59.042  4352  4352 F DEBUG   :       #10 pc 0000000003750df8  /data/app/~~pL8k2kh6se7EqmiwnE3Ijw==/com.google.android.trichromelibrary_567263634-i5X8CiWuaelW-1mu3wZq4w==/TrichromeLibrary.apk!libmonochrome_64.so (offset 0x8a9000) (BuildId: a9be1d2e268df6c76a313ac9cecd6781ab930141)
+09-26 23:33:59.042  4352  4352 F DEBUG   :       #11 pc 0000000003750d70  /data/app/~~pL8k2kh6se7EqmiwnE3Ijw==/com.google.android.trichromelibrary_567263634-i5X8CiWuaelW-1mu3wZq4w==/TrichromeLibrary.apk!libmonochrome_64.so (offset 0x8a9000) (BuildId: a9be1d2e268df6c76a313ac9cecd6781ab930141)
+09-26 23:33:59.042  4352  4352 F DEBUG   :       #12 pc 0000000003783090  /data/app/~~pL8k2kh6se7EqmiwnE3Ijw==/com.google.android.trichromelibrary_567263634-i5X8CiWuaelW-1mu3wZq4w==/TrichromeLibrary.apk!libmonochrome_64.so (offset 0x8a9000) (BuildId: a9be1d2e268df6c76a313ac9cecd6781ab930141)
+09-26 23:33:59.042  4352  4352 F DEBUG   :       #13 pc 000000000361c3c4  /data/app/~~pL8k2kh6se7EqmiwnE3Ijw==/com.google.android.trichromelibrary_567263634-i5X8CiWuaelW-1mu3wZq4w==/TrichromeLibrary.apk!libmonochrome_64.so (offset 0x8a9000) (BuildId: a9be1d2e268df6c76a313ac9cecd6781ab930141)
