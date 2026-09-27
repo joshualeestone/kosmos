@@ -10,6 +10,8 @@
  *   - the page does not scroll, and there is no sideways scroll;
  *   - at least MIN_THREAD_PX of the conversation is on screen, and the message box and Post are on screen;
  *   - the Profile tab is on screen and a 44px target (the rest of the agent is one tap away);
+ *   - the All agents link and the header avatar step aside, and an empty search box steps aside while the
+ *     conversation keeps its heading for screen readers; at 640x360 a search that is filtering stays on screen;
  * and, as controls: portrait phones keep the chat-first layout as before (the "All agents" link, the
  * search row and the avatar are shown), and a short but wide window with a mouse (800x400) does not get
  * the sideways rules.
@@ -33,7 +35,7 @@ const chk = (ok, label, extra) => {
   if (!ok) fail.push(label);
 };
 
-/** Enough of the conversation to read a message or two (measured 57 to 116px on the fixed page). */
+/** Enough of the conversation to read a message or two (measured 57 to 90px sideways, 125px at 932x430, on the fixed page). */
 const MIN_THREAD_PX = 50;
 const MIN_TAP_PX = 44;
 const SIDEWAYS = [[640, 360], [740, 360], [667, 375], [852, 393]];   // from 56rem (a 932x430 Pro Max) the side-by-side layout already fits the chat
@@ -98,6 +100,8 @@ function measure() {
         chk(m.composer, `${t} the message box and Post are on screen`, JSON.stringify(m));
         chk(m.profile && m.profile.onScreen && m.profile.h >= MIN_TAP_PX, `${t} the Profile tab is on screen and a ${MIN_TAP_PX}px target`, JSON.stringify(m.profile));
         chk(!m.search && m.heading, `${t} an empty search box steps aside, and the conversation keeps its heading for screen readers`, JSON.stringify({ search: m.search, heading: m.heading }));
+        // The two other rules this block exists for, asserted directly (review round 2): the room is not left to the thread count alone.
+        chk(!m.back && !m.avatar, `${t} the All agents link and the header avatar step aside`, JSON.stringify({ back: m.back, avatar: m.avatar }));
         if (w === 640) {
           /* A search that is filtering the conversation must stay on screen with its clear button: turning the
              phone must not leave a hidden filter (review round 1). */
@@ -139,7 +143,7 @@ function measure() {
       await browser.close();
     }
   }
-  const EXPECTED_PER_ENGINE = 64;   // 8 sideways runs x 6, 2 of them (640x360) +1 active search, 2 wide-sideways runs x 4, 2 portrait x 2, 2 mouse
+  const EXPECTED_PER_ENGINE = 72;   // 8 sideways runs x 7, 2 of them (640x360) +1 active search, 2 wide-sideways runs x 4, 2 portrait x 2, 2 mouse
   const want = EXPECTED_PER_ENGINE * (process.env.ENGINES || 'chromium').split(',').length;
   if (RAN !== want) { console.log(`FAIL  ran ${RAN} checks, expected ${want}`); fail.push('check count'); }
   console.log(fail.length ? `\n${fail.length} FAILED` : `\nALL PASS (${RAN} checks)`);
