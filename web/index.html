@@ -22000,19 +22000,24 @@ function acctCancelSay() { if (acctSayTimer) { clearTimeout(acctSayTimer); acctS
 /* #3997: how often, and how many times, the list is read again while a sign-in's free check (ChatGPT or Grok) is still under way.
    A healthy check answers within a second or two; a dead or slow one takes up to about 20 seconds (codex's own
    handshake timeout), so the reads continue until nothing is pending or the count runs out. */
-const ACCT_FOLLOWUP = { ms: 3500, max: 6 };
+const ACCT_FOLLOWUP = { ms: 3500, max: 6, busyMax: 60 };
 /* Never rebuild the list under the person's hands (review round 2): a Check now in flight (its button disabled) or a
    half-pressed Disconnect or Delete. Focus alone is not busy (round 4: a button keeps focus after its answer, and the
    row then kept saying "checking" long after its check had ended). */
 function acctListBusy(box) { return !!(box && box.querySelector('.acct-check:disabled, .armed')); }
 /* The next follow-up read, `n` of at most ACCT_FOLLOWUP.max. One that finds the list busy waits a turn, still counted,
    and none reads if the list has been painted again meanwhile. */
-function acctFollowUp(n) {
+function acctFollowUp(n, busy) {
   if (n > ACCT_FOLLOWUP.max) return;
+  /* A turn skipped because the list is busy (a Check now in flight, a half-armed Disconnect) waits without spending a
+     read, under its own cap (about 3.5 minutes), so a long press does not use up the reads and leave a row saying
+     "checking" after the check has finished (review round 15). */
+  const waited = Number.isInteger(busy) ? busy : 0;
+  if (waited > ACCT_FOLLOWUP.busyMax) return;
   const mine = ACCT_EPOCH;
   setTimeout(() => {
     if (mine !== ACCT_EPOCH) return;
-    if (acctListBusy(document.getElementById('set-accounts'))) { acctFollowUp(n + 1); return; }
+    if (acctListBusy(document.getElementById('set-accounts'))) { acctFollowUp(n, waited + 1); return; }
     paintAccounts({ followUp: n });
   }, ACCT_FOLLOWUP.ms);
 }
@@ -22076,7 +22081,7 @@ async function paintAccounts(opts) {
   }
   /* #3997 round 10: the person may have started something WHILE this follow-up was reading (a Check now, a
      half-pressed Disconnect): look again before rebuilding, and if so wait a turn instead. */
-  if (followUp && acctListBusy(box)) { acctFollowUp(followUp + 1); return; }
+  if (followUp && acctListBusy(box)) { acctFollowUp(followUp, 1); return; }   // busy: wait, do not spend a read (round 15)
   accountsRead(list);
   /* #3997: a sign-in (ChatGPT or Grok) whose free check is still under way is read again a few seconds on, so it turns green
      (or says what is wrong) without the person doing anything; bounded by ACCT_FOLLOWUP.max, never a loop. */

@@ -166,3 +166,16 @@ Design and measurements are on the card (comment 5849157780).
   with a real answer the row does not show yet (so the follow-up read shows it). Tested; red on the previous commit.
 - NIT noted: in the minute before a Grok key's margin, Check now is still offered and answers "expired" at once
   (no request is sent).
+
+## Review round 15 (Opus), what changed
+- A follow-up turn skipped because the list is busy no longer spends a read: it waits under its own cap (60 turns,
+  about 3.5 minutes), in both places that skip (acctFollowUp and paintAccounts). Before, a Check now or a half-armed
+  Disconnect held for about 21 seconds used up the reads and left a row saying "checking" after its check finished.
+  Browser-check arm: busy for longer than every read allows, then released, and a read follows. Red on the previous
+  commit, green now.
+- A duplicated comment line in the badge check removed.
+- Deferred to #4064 (filed): a ChatGPT green lasts only the 30s check cache, so reopening the screen shows amber
+  for one follow-up read; Grok's green lasts the observed window. Recording ChatGPT's live answer as an observation
+  changes how long a green lasts and has its own races, so it gets its own card and review.
+- Deferred NITs: a HEAD request also starts the checks (nothing shows them); the Grok wait's timer is not cleared
+  when the check wins (unref'd, at most 1.5s); livenessNow's clock (noted above).

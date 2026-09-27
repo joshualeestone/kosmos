@@ -261,11 +261,13 @@ const ACCOUNTS = [
     // placed in it; the in-flight state is the same rule's other arm.
     const focusBtn = document.querySelector('#set-accounts .acct-check'); focusBtn.disabled = true;
     const focused = focusBtn.disabled === true;
-    await wait(450);
+    // Busy for LONGER than every read the bound allows (review round 15): waiting must not spend them.
+    await wait(300 * (ACCT_FOLLOWUP.max + 3));
     const whileBusy = lists;
     focusBtn.disabled = false;
     listAnswer = [sub, row];
     await wait(900);
+    const afterLongBusy = lists;
     // Round 6: a follow-up read leaves the message line (a "Removed ..." sentence) alone, and a failed one keeps the list.
     const msgEl = document.getElementById('set-accounts-msg');
     listAnswer = [pendingSub, row];
@@ -306,7 +308,7 @@ const ACCOUNTS = [
     listAnswer = [{ ...row, connection: { ...row.connection, liveVerdict: 'pending', liveCheckPending: true, because: 'Checking this sign-in now' } }];
     await paintAccounts();
     const pendTitle = (document.querySelector('#set-accounts .acct-box .acct-unverified') || { title: '' }).title;
-    return { expiredSays, expiredTitle, listsAfterExpired, green, focused, whileBusy, afterBusy: lists, expTitle, pendTitle, msgAfter, rowsBefore, rowsAfterFail, keptInflight };
+    return { expiredSays, expiredTitle, listsAfterExpired, green, focused, whileBusy, afterLongBusy, afterBusy: lists, expTitle, pendTitle, msgAfter, rowsBefore, rowsAfterFail, keptInflight };
   }, { row: grokRow, sub: ACCOUNTS.find((a) => a.email === 'sub@example.com') });
 
   await browser.close();
@@ -324,6 +326,7 @@ const ACCOUNTS = [
   if (!clicks.focused) problems.push('#3997: the busy arm could not mark a Check now in flight, so it tested nothing: ' + JSON.stringify(clicks));
   if (clicks.whileBusy !== 1) problems.push('#3997: a follow-up rebuilt the list while a Check now was in flight: ' + JSON.stringify(clicks));
   if (clicks.afterBusy < 2) problems.push('#3997: the follow-up never read again once the person was done: ' + JSON.stringify(clicks));
+  if (clicks.afterLongBusy < 2) problems.push('#3997 round 15: a long busy spell used up the follow-up reads, so a row stays "checking": ' + JSON.stringify(clicks));
   if (r.error) problems.push(r.error);
   if (!(follow.before === 'acct-unverified' && follow.afterOne === 3 && follow.after === 'acct-connected')) {
     problems.push('#3997: a row whose check was under way was not read again until it could say, and turned green: ' + JSON.stringify(follow));
@@ -371,7 +374,6 @@ const ACCOUNTS = [
     { email: 'No Email Grok', grokReauth: false },
     // #3391: the Grok subscription row; #3997: amber, with its own free Check now (checkSignin) and a title that
     // points at it. Disconnect / Delete say sign-in, never key.
-    // #3997: amber, with its own free Check now (the models listing), so its title points at it.
     { email: 'grok@example.com', cls: 'acct-unverified', text: /^Signed in$/, honesty: true, checkNow: false, grokReauth: true,
       checkSignin: 'grok', titleText: /Check now/,
       disconnectTitle: /sign-in/, notDisconnectTitle: /key/, deleteTitle: /sign-in/, notDeleteTitle: /API key/ },
