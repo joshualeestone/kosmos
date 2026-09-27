@@ -38,8 +38,11 @@ section (the widest stacked) and 390 (phone), for all four cards:
 At a 1280 window, a 500px section stacks the cards and a full one does not, so the stacking follows the
 section, not the window.
 
-Then at 1280 and a 541px section with the widest total usageAbbr can emit forced into every card
-(`1000.0M`, a #4244 rounding edge, and `100.0%`), the same header arms hold. The fixture's own totals
+Then at 1280 and a 541px section with the widest total that occurs in practice forced into every card
+(`999.9M`, the last M value, beside `99.9%`), the same header arms hold. Past it (`1000.0M`, a #4244
+rounding edge, beside `100.0%`, which needs one class to hold 99.95% of every token) "Cache reads" and
+"Cache writes" take two lines, measured; there the check pins only that the total stays on one line,
+inside the card and clear of the name. The fixture's own totals
 fit even without `nowrap` (see above), so these arms pin the fit, not the nowrap.
 
 ## Review 1
@@ -69,8 +72,9 @@ width, at 540px or narrower.
   That also pins the threshold to 540 exactly, where the old arms allowed 514 to 540.
 - A 500px section at a 1280 window must stack: a viewport query of any width passed the old arms.
 - The name/total baseline is measured, since flex-start and flex-end both passed before.
-- The clear arm also requires the total inside the card, and the widest total is now `1000.0M` beside
-  `100.0%`, the true widest usageAbbr string (#4244 files its rounding edge).
+- The clear arm also requires the total inside the card. The reviewer reported `1000.0M` fitting (its
+  share unstated); beside `100.0%` two names wrap even at desktop (measured), so `999.9M 99.9%` is pinned as the widest
+  in practice and the extreme is pinned to degrade cleanly (#4244 files the `1000.0M` edge).
 - The CSS comment's card width is 238px, as measured; the README row says only what the arms pin.
 
 ## Weakest premise

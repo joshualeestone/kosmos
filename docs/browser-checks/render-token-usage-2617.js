@@ -442,16 +442,26 @@ function readUsage(page) {
     await p.evaluate(() => { document.getElementById('s-sec-usage').style.maxWidth = ''; });
     await p.waitForTimeout(300);
     ok(narrowCols === 1 && narrowSec === 500 && (await cols()) === 2, `at a 1280 window, a 500px usage section stacks the class cards and a full one does not (#4242) -- ${narrowCols} column(s) at ${narrowSec}px`);
-    // The widest total usageAbbr can emit (1000.0M, one of the #4244 rounding edges) beside the widest
-    // share (100.0%), at the two narrowest two-up cards: the arms that go red when a card too narrow
-    // for it is left two-up. They do not test the total's nowrap, which is inert on today's markup.
-    const saved = await p.evaluate(() => [...document.querySelectorAll('#usage-charts4 .tv-mini .tv-tot')].map((t) => {
+    // The widest total that occurs in practice (999.9M, the last M value before B, beside a 99.9% share),
+    // at the two narrowest two-up cards: the arms that go red when a card too narrow for it is left
+    // two-up. They do not test the total's nowrap, which is inert on today's markup.
+    const setTotals = (num, pct) => p.evaluate(([n, s]) => [...document.querySelectorAll('#usage-charts4 .tv-mini .tv-tot')].map((t) => {
       const pc = t.querySelector('.tv-pc'), was = [t.firstChild.textContent, pc ? pc.textContent : null];
-      t.firstChild.textContent = '1000.0M'; if (pc) pc.textContent = '100.0%'; return was;
-    }));
+      t.firstChild.textContent = n; if (pc) pc.textContent = s; return was;
+    }), [num, pct]);
+    const saved = await setTotals('999.9M', '99.9%');
     for (const [at, go] of [['desktop, widest total', () => atWindow(1280)], ['a 541px section, widest total', () => atSection(541)]]) {
       await go();
       armsAt(at, await measureCards());
+    }
+    // Past it (1000.0M is the #4244 rounding edge, 100.0% needs one class to hold 99.95% of every token)
+    // a name may take two lines, and that is the whole cost: the total stays on one line, inside the card
+    // and clear of the name, so the header degrades rather than overlapping.
+    await setTotals('1000.0M', '100.0%');
+    for (const [at, go] of [['desktop, beyond the widest total', () => atWindow(1280)], ['a 541px section, beyond the widest total', () => atSection(541)]]) {
+      await go();
+      const cards = await measureCards();
+      ok(cards.length === 4 && cards.every((c) => c.totOneLine && c.clear && c.nameLines <= 2), `${at}: each total stays on one line, inside the card and clear of a name of at most two lines (#4242) -- ${JSON.stringify(cards.map((c) => c.nameLines + ':' + c.totOneLine + ':' + c.clear))}`);
     }
     await p.evaluate((was) => document.querySelectorAll('#usage-charts4 .tv-mini .tv-tot').forEach((t, i) => {
       t.firstChild.textContent = was[i][0]; const pc = t.querySelector('.tv-pc'); if (pc && was[i][1] !== null) pc.textContent = was[i][1];
