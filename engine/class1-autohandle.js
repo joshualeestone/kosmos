@@ -343,7 +343,7 @@ function standingFromAgent(agent, isTrustDialogEvidence) {
      the part before the command ("asking permission to use Bash") is kept; the trust dialog's line is a fixed screen.
      The format is the hook's: "asking permission to use <tool>[: <cmd>]" (install/kosmos-report-hook.sh and
      engine/kosmos-report-hook.js reportFor); if it changes, change this split with it. */
-  const said = arm === 'trust-dialog' ? agent.stateEvidence : String((agent && agent.because) || '').split(':')[0];
+  const said = arm === 'trust-dialog' ? agent.stateEvidence : String((agent && agent.because) || '').replace(/:[\s\S]*$/, '');
   const prompt = String(said || '').replace(/\s+/g, ' ').trim().slice(0, 120);
   return { found: true, state: agent && agent.state, by, runner, arm, prompt };
 }
