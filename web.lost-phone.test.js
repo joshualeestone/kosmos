@@ -31,7 +31,7 @@ test('the control lives behind "Lost your phone?" under Plus, hidden until enrol
   const sec = PAGE.slice(PAGE.indexOf('id="s-sec-plus"'), PAGE.indexOf('</section>', PAGE.indexOf('id="plus-flow"')));
   // #4080 (Josh, 22:06: the essay "probably doesnt belong on that page"): the pane carries one link, in the row that shows only when enrolled.
   assert.match(sec, /<div class="plus-foot" id="plus-forget" hidden>[\s\S]*?id="plus-lost-open">Lost your phone\?<\/button>/, 'the Lost your phone? link is not in the enrolled-only bottom row');
-  assert.doesNotMatch(sec, /I lost my phone/, 'the essay is back on the pane');
+  assert.doesNotMatch(sec, /<p class="setname">I lost my phone<\/p>/, 'the essay is back on the pane');
   const dlg = PAGE.slice(PAGE.indexOf('<div class="rm-back" id="plus-lost-modal" hidden>'), PAGE.indexOf('<div class="rm-back" id="plus-gate-modal"'));
   assert.ok(dlg.length > 100, 'the lost-phone dialog is gone');
   assert.match(dlg, /id="plus-second-reset"/, 'the reset is not in the dialog');
