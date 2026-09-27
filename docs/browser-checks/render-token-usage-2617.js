@@ -323,6 +323,31 @@ function readUsage(page) {
     });
     ok(scale.big.includes('B'), `hero shows the production-scale total in the B band (got ${scale.big})`);
     ok(scale.clipped.length === 0, `hero figures fit their boxes at production scale, none clipped (clipped: ${JSON.stringify(scale.clipped)})`);
+    // #4083 (Josh, 2026-09-26): the two big numbers on one baseline, the lines above the labels at the same height in
+    // each row of tiles, the labels centred in that area, and the big numbers kept off the tile edges. Measured at
+    // the widest headline above ($135.0M, as wide as the $999.9K the card names), with one hero label wrapping to two
+    // lines and the other on one (the precondition), because that uneven wrap is what used to lift one tile.
+    const align = await p.evaluate(() => {
+      const textBox = (el) => { const r = document.createRange(); r.selectNodeContents(el); return { rect: r.getBoundingClientRect(), lines: r.getClientRects().length }; };
+      const row = (sel) => [...document.querySelectorAll(sel)].map((box) => {
+        const fig = box.querySelector('.tv-fig'), lab = box.querySelector('.tv-flabel');
+        const ft = textBox(fig), lt = textBox(lab), lb = lab.getBoundingClientRect(), bb = box.getBoundingClientRect();
+        const cs = getComputedStyle(lab);
+        const inner = { top: lb.top + parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop), bottom: lb.bottom - parseFloat(cs.paddingBottom) };
+        return { base: +ft.rect.bottom.toFixed(2), divider: +lb.top.toFixed(2), lines: lt.lines,
+          centreOff: +(((lt.rect.top + lt.rect.bottom) / 2) - ((inner.top + inner.bottom) / 2)).toFixed(2),
+          margin: +Math.min(ft.rect.left - bb.left, bb.right - ft.rect.right).toFixed(2), text: (fig.textContent || '').trim() };
+      });
+      return { hero: row('#usage-hero .tv-heq > .tv-fbox'), stats: row('#usage-hero .tv-stats3 > .tv-sbox') };
+    });
+    const [g, gr] = align.hero;
+    ok(!!g && !!gr && g.lines !== gr.lines, `precondition: one hero label wraps and the other does not, so the uneven case is measured (${JSON.stringify(align.hero)})`);
+    ok(!!g && !!gr && Math.abs(g.base - gr.base) <= 0.5, `the two big hero numbers sit on one baseline (#4083) -- ${JSON.stringify(align.hero.map((t) => t.base))}`);
+    ok(!!g && !!gr && Math.abs(g.divider - gr.divider) <= 0.5, `the lines above the two hero labels are at the same height (#4083) -- ${JSON.stringify(align.hero.map((t) => t.divider))}`);
+    ok(align.stats.length === 3 && Math.max(...align.stats.map((t) => t.divider)) - Math.min(...align.stats.map((t) => t.divider)) <= 0.5,
+      `the lines above the three stat labels are at the same height (#4083) -- ${JSON.stringify(align.stats.map((t) => t.divider))}`);
+    ok([...align.hero, ...align.stats].every((t) => Math.abs(t.centreOff) <= 1), `every label is centred in its label area (#4083) -- ${JSON.stringify([...align.hero, ...align.stats].map((t) => t.centreOff))}`);
+    ok(align.hero.every((t) => t.margin >= 12), `the big hero numbers keep at least 12px off the tile edges at production scale (#4083) -- ${JSON.stringify(align.hero.map((t) => t.text + ':' + t.margin))}`);
     // #2617 CONTROL: repaint in the SAME page life, from a painted block to a
     // response with no byAgent (an older board, a failed split). After a reload
     // the block is hidden by its markup whatever the code does, so the hide path
