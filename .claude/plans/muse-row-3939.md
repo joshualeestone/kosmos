@@ -54,3 +54,23 @@ others.
   read as new. It now hashes a canonical form (keys sorted at every depth).
 - Nits: the note's field is metaDigest; the stat-then-read window is documented as
   deliberately failing closed; both mark writers write the same shape.
+
+## Review round 3 (opus): 2 blockers, 2 warnings, 2 nits -- redesign
+- B1: file mtimes keep sub-millisecond precision that Date.now() drops, so an mtime read
+  as later than a clock taken after it; a committed test failed 3 runs in 4 and the
+  refusal guard sat on the unsafe side. Mtimes are no longer compared: each record
+  carries its own integer `at` written inside the file.
+- B2: a slow success stamped its FINISH, hiding a refusal from a turn that began
+  after it. Both records now carry the turn's START (a completed turn proves the
+  credential it began with); Kosmos's own sign-in carries its finish. Later wins; a tie
+  is signed out. Neither record ever moves back.
+- W1: an auth.json that could not be read at the refusal revived the refused entry
+  later. The note records fileUnread, and the file is ignored until a later completed
+  turn or sign-in.
+- W2: an unreadable note blocked every later turn for ever. A completed turn removes it.
+- N1/N2: comments now describe the start-time rule. N3 (canonical form lossy only
+  toward signed out) needs nothing.
+- A mark from before this slice (ISO `at`, or none) is still read (none: its mtime,
+  floored to the millisecond).
+- The integration test that wrote a note and started a turn in the same millisecond now
+  backdates the note; 5 of 5 and 10 of 10 repeat runs clean.

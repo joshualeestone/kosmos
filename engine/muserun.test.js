@@ -313,7 +313,7 @@ test('#3939 3c-1: a refused turn ends the signed-in answer; a crash does not; a 
 
     // A completed turn restores the answer after a refusal (a terminal muse login is seen only this way).
     clean();
-    musestatus.markSignedOut();
+    musestatus.markSignedOut(Date.now() - 5000);   // refused well before: a same-millisecond tie is signed out by design (round 3)
     assert.equal(musestatus.signedIn().signedIn, false, 'CONTROL: signed out before the good turn');
     fakeMuse('cat > /dev/null\ncat "' + path.join(SANDBOX, 'turn.jsonl') + '"');
     r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
