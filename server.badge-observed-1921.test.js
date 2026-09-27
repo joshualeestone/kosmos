@@ -316,3 +316,26 @@ test('#4139 SOURCE: nothing observed names no source', async () => {
   assert.equal(m.get('cleo@example.com').badge, 'signed_in_unverified', 'CONTROL');
   assert.equal(m.get('cleo@example.com').observedFrom, undefined);
 });
+
+/* #4139 follow-up: Claude's Check now records a refusal, and that is a check too; and a STALE observation decides
+   nothing (the badge falls back to checkLive), so it names no source. */
+test('#4139 SOURCE: a refused Check now reads rejected, from a check', async () => {
+  observed.sawDir(observed.PROVIDER.ANTHROPIC, CLEO_DIR, observed.OUTCOME.REJECTED, Date.now());
+  const m = await badges();
+  assert.equal(m.get('cleo@example.com').badge, 'rejected', 'CONTROL: ' + JSON.stringify(m.get('cleo@example.com')));
+  assert.equal(m.get('cleo@example.com').observedFrom, 'check');
+});
+
+test('#4139 SOURCE: a STALE observation decides nothing, so it names no source', async () => {
+  const prev = process.env.AGENT_WORKFORCE_OBSERVED_FRESH_MS;
+  process.env.AGENT_WORKFORCE_OBSERVED_FRESH_MS = '1';   // any observation is instantly stale
+  try {
+    observed.sawDir(observed.PROVIDER.ANTHROPIC, CLEO_DIR, observed.OUTCOME.OK, Date.now() - 1000);
+    const m = await badges();
+    assert.equal(m.get('cleo@example.com').badge, 'signed_in_unverified', 'CONTROL: the stale check did not decide: ' + JSON.stringify(m.get('cleo@example.com')));
+    assert.equal(m.get('cleo@example.com').observedFrom, undefined, 'a stale check still named itself');
+  } finally {
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_OBSERVED_FRESH_MS;
+    else process.env.AGENT_WORKFORCE_OBSERVED_FRESH_MS = prev;
+  }
+});

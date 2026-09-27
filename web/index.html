@@ -22637,7 +22637,10 @@ async function paintAccounts(opts) {
     const workingWhy = fromCheck
       ? 'This sign-in answered a check by Kosmos recently' + (ageStr ? ' (' + ageStr + ')' : '') + ', so it is working.'
       : 'a real request on this account succeeded recently' + (ageStr ? ' (' + ageStr + ')' : '') + '. This is an observed outcome, not a probe.';
-    const rejectedWhy = 'a real request on this account was rejected' + (ageStr ? ' (' + ageStr + ')' : '') + '. The sign-in needs renewing.';
+    /* #4139 follow-up: Claude's Check now records a refusal too, and that was a check, not an agent's request. */
+    const rejectedWhy = fromCheck
+      ? 'This sign-in was refused when Kosmos checked it' + (ageStr ? ' (' + ageStr + ')' : '') + '. The sign-in needs renewing.'
+      : 'a real request on this account was rejected' + (ageStr ? ' (' + ageStr + ')' : '') + '. The sign-in needs renewing.';
     // #3136 (Josh, 6.68): the PILL now reads a neutral "Signed in" (Josh saw "not recently
     // checked" and read it as "not connected" though he was). The "not verified live" nuance
     // moves here, into the tooltip, and nudges toward the "Check now" button beside the badge

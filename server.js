@@ -7760,7 +7760,7 @@ const server = http.createServer((req, res) => {
             provider: 'anthropic', providerName: 'Anthropic / Claude', ...a,
             /* #4139: which outcome the badge came from, so a green from Check now does not claim an agent's request. */
             connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
-              ...(obs ? { observedFrom: obs === checkObs ? 'check' : 'agent' } : {}) },
+              ...(obs && v.observedAt != null ? { observedFrom: obs === checkObs ? 'check' : 'agent' } : {}) },   // a stale one decided nothing (#4139 follow-up)
             weeklyTokensPerPoint: cal ? Math.round(cal.tokensPerPoint) : null,
           };
         });

@@ -132,6 +132,8 @@ const ACCOUNTS = [
   row('work@example.com', 'working', 'wd'),
   /* #4139: a green that came from Check now, not from an agent's request. */
   { ...row('chk@example.com', 'working', 'cd'), connection: { ...row('chk@example.com', 'working', 'cd').connection, observedFrom: 'check' } },
+  /* #4139 follow-up: a refusal that came from Check now, not from an agent's request. */
+  { ...row('rejchk@example.com', 'rejected', 'rc'), connection: { ...row('rejchk@example.com', 'rejected', 'rc').connection, observedFrom: 'check' } },
   row('rej@example.com', 'rejected', 'rd'),
   row('unver@example.com', 'signed_in_unverified', 'ud'),
   row('out@example.com', 'signed_out', 'od'),
@@ -346,6 +348,8 @@ const ACCOUNTS = [
     { email: 'chk@example.com', cls: 'acct-connected', text: /^Signed in · checked /, titleText: /^This sign-in answered a check by Kosmos recently/,
       notTitle: /real request|not a probe/, checkNow: true },
     { email: 'rej@example.com', cls: 'acct-none', text: /Not connected/, checkNow: true },
+    // #4139 follow-up: a refusal from Check now says it was refused when checked, never "a real request".
+    { email: 'rejchk@example.com', cls: 'acct-none', text: /Not connected/, titleText: /^This sign-in was refused when Kosmos checked it/, notTitle: /real request/, checkNow: true },
     // #3136: unver@ is EXACTLY Josh's state (a signed-in but not-recently-observed account).
     // The VISIBLE pill now reads a NEUTRAL "Signed in" (Josh read the old "not recently checked"
     // as "not connected" though he was); the nuance moves to the TITLE, and it carries "Check
