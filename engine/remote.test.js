@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
+const { EventEmitter } = require('node:events');
 
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-remote-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
@@ -374,6 +375,65 @@ test('the email step drives the binary and failures surface its last sentence', 
   const down = await remote.setupStart('down@example.com');
   assert.equal(down.ok, false);
   assert.match(down.because, /unreachable/);
+});
+
+test('setup waits for close so stdout and stderr arriving after exit are kept', async () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.kill = () => {};
+  remote.setSetupSpawnForTests(() => child);
+
+  let settled = false;
+  const running = remote.setupStart('late@example.com').then((result) => {
+    settled = true;
+    return result;
+  });
+  child.emit('exit', 1);
+  assert.equal(settled, false, 'setup resolved on exit before the pipes closed');
+  child.stdout.emit('data', Buffer.from('a minted token that arrived late\n'));
+  child.stderr.emit('data', Buffer.from('this computer needs an update\n'));
+  child.emit('close', 1);
+
+  const result = await running;
+  assert.equal(result.ok, false);
+  assert.equal(result.because, 'this computer needs an update');
+  assert.equal(result.stderr, 'this computer needs an update\n');
+});
+
+test('setup keeps successful stdout that arrives after exit', async () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.kill = () => {};
+  remote.setSetupSpawnForTests(() => child);
+
+  const running = remote.setupStart('token@example.com');
+  child.emit('exit', 0);
+  child.stdout.emit('data', Buffer.from('minted-token-after-exit\n'));
+  child.emit('close', 0);
+
+  const result = await running;
+  assert.equal(result.ok, true);
+  assert.equal(result.said, 'minted-token-after-exit');
+});
+
+test('setup settles once when spawn error is followed by close', async () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.kill = () => {};
+  remote.setSetupSpawnForTests(() => child);
+
+  const running = remote.setupStart('error@example.com');
+  child.emit('error', new Error('permission denied'));
+  child.stderr.emit('data', Buffer.from('a later close must not replace the spawn error\n'));
+  child.emit('close', 1);
+
+  const result = await running;
+  assert.equal(result.ok, false);
+  assert.equal(result.because, 'the tunnel program could not be started: permission denied');
+  assert.equal(remote.read().email, '');
 });
 
 test('the code step validates in words, enrolls through the binary, and brings the tunnel up', async () => {
