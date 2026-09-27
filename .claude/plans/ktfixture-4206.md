@@ -69,6 +69,11 @@ such a context), so the measurement is the evidence.
   cannot make a control pass for the wrong reason.
 - The browser guard's kt arm gained a live-pid negative control.
 
+## Review 4
+
+- A real browser-checks.sh from its own frozen tree (`${TMPDIR}/kosmos-bc-freeze.<X>/kosmos-<sha>`) still
+  refuses: the browser guard's counterpart of the cut guard's frozen-tree control.
+
 ## Weakest premise
 
 The negative control runs from `/` so it cannot sit in a kt folder. A machine whose $TMPDIR were `/`

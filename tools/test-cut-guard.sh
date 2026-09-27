@@ -155,6 +155,19 @@ out="$(TMPDIR="$FR/T/" KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_C
   || fail "a REAL cut's frozen build tree was dropped as a fixture (rc=$rc, out=$out)"
 kill "$frozen" 2>/dev/null; wait "$frozen" 2>/dev/null
 
+# The same for the browser guard: a REAL browser-checks.sh runs from its own frozen tree,
+# ${TMPDIR}/kosmos-bc-freeze.<X>/kosmos-<sha> (tools/browser-checks.sh, via release_freeze), and must
+# still refuse through both halves of the sandbox rule.
+BCFROZEN="$FR/T//kosmos-bc-freeze.sfQH4q/kosmos-71d1f796503531bea19198c04b5768f25f7c998e"
+mkdir -p "$BCFROZEN/tools"
+( cd "$BCFROZEN" && exec sleep 30 ) & bcfrozen=$!
+wait_cwd "$bcfrozen" "$(cd "$BCFROZEN" && pwd -P)" || fail "the browser frozen-tree sleep never reached its cwd, so its arm cannot answer"
+printf '#!/bin/sh\nprintf "%s bash %s/tools/browser-checks.sh\\n"\n' "$bcfrozen" "$BCFROZEN" > "$T/bprobe-frozen"; chmod +x "$T/bprobe-frozen"
+out="$(TMPDIR="$FR/T/" KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_BC_PROBE="$T/bprobe-frozen" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && has "$out" "$bcfrozen"; } && pass "a real browser run from its frozen tree under TMPDIR still refuses, and is named" \
+  || fail "a REAL browser run's frozen tree was dropped as a fixture (rc=$rc, out=$out)"
+kill "$bcfrozen" 2>/dev/null; wait "$bcfrozen" 2>/dev/null
+
 # --- #1713: the MIRROR guard, kosmos_refuse_if_harness_live, shown red, green,
 # --- and unable to answer via its own KOSMOS_HARNESS_PROBE seam. Reuses the
 # --- probe-quiet/probe-dead fixtures above (exit 1 / exit 3 are guard-agnostic).
