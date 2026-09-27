@@ -68,6 +68,13 @@ set -uo pipefail
 # runners folder (engine/agentbrowser.js); the #1573 pair below does not set
 # AGENT_WORKFORCE_DRY_RUN, so this covers every boot site.
 export KOSMOS_AGENT_BROWSER=off
+# #4253: no board this script boots may phone home. A sandboxed board mints a fresh install id,
+# so each boot sent installkosmos.com a new install (count 0, darwin) and inflated the
+# public install count by thousands a day. The beacon itself is untouched (Josh's 09-14
+# ruling: the real install ping is never removed or made opt-out-able); only this
+# harness points it, and the daily report, at a dead local port.
+export AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created
+export AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback
 
 log()  { printf '%s\n' "$*"; }
 sec()  { printf '\n=== %s ===\n' "$*"; }
