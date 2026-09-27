@@ -34,13 +34,15 @@ copies agysignin.js's tmux plumbing (convention 5).
 | homeSocket ignores the test's socket | 1 | 1 | RED |
 | homeSocket drops the home hash | 2 | 1 | RED |
 | live always allows | 1 | 1 | RED |
-| live allows without the gate's report | 1 | 0 | RED |
+| live allows without the gate's report | 1 | 1 | RED |
 | runTmux loses the kosmosInternal mark | 0 | 1 | RED |
-| runTmux ignores the socket | 0 | 1 | RED |
+| runTmux ignores the socket | 0 | 2 | RED |
 | deliveryUnknown ignores timeouts | 2 | 1 | RED |
 | deliveryUnknown ignores signals | 0 | 1 | RED |
 | shq does not escape quotes | 0 | 1 | RED |
 | forgetTmuxBin forgets nothing | 0 | 1 | RED |
+
+Every break is caught by tmuxsignin.test.js on its own; five were never caught by agysignin.test.js.
 
 ## Checked before moving agy code
 - The only agysignin.js change on main in the last day is #4065 (#3998). The 0.7.03 agy fix #4196
@@ -52,5 +54,7 @@ musesignin.js's copy is read from an in-review branch; if round 12+ changes its 
 to fit that version, not the one read today.
 
 ## State (for a restarted session)
-- Step 1 built and pushed; agysignin.test.js 61/61 and byte-identical; tmuxsignin.test.js 8/8; all
-  10 mutations red. Next: challenge loop, full suite, PR (held for 0.7.03 and the Muse lane's answer).
+- Step 1 built and pushed; challenge-loop iteration 1 addressed (shared cache stated plainly, the gate
+  test reaches production's fail-closed branch, agysignin's socket comment cut to a pointer, unused
+  export dropped, consumer list for the no-copy check). Next: iteration 2, full suite, PR (held for
+  0.7.03 and the Muse lane's answer on #4195).
