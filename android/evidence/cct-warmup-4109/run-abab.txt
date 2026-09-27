@@ -1,0 +1,65 @@
+gate CLEAR after 1 busy reads at 2026-09-27T08:13:18Z
+booted after 6s
+Physical size: 720x1600
+Physical density: 268
+    versionName=124.0.6367.219
+gate CLEAR after 2 busy reads at 2026-09-27T08:20:12Z
+main-a	1	COLD	132	136	1418	49.1	0.0	122
+main-a	2	COLD	165	166	1477	49.1	0.0	123
+main-a	3	COLD	153	155	1522	49.1	1.0	133
+main-a	4	COLD	159	160	1432	49.1	4.2	127
+main-a	5	COLD	146	148	1582	49.1	0.0	125
+main-a	6	COLD	158	162	1446	49.1	0.0	141
+main-a	7	COLD	116	121	1647	49.1	0.0	135
+main-a	median_paint_ms	1477
+gate CLEAR after 0 busy reads at 2026-09-27T08:21:44Z
+warm-a	1	COLD	124	126	1213	49.1	0.0	112
+warm-a	2	COLD	93	95	1241	49.1	0.0	116
+warm-a	3	COLD	114	115	1170	49.1	0.0	111
+warm-a	4	COLD	1133	1153	4028	49.1	0.0	351
+warm-a	5	COLD	395	409	2264	49.1	0.0	282
+warm-a	6	COLD	379	380	2302	49.1	0.0	320
+warm-a	7	COLD	461	469	2242	49.1	0.0	264
+warm-a	median_paint_ms	2242
+gate CLEAR after 0 busy reads at 2026-09-27T08:23:21Z
+main-b	1	COLD	286	291	1955	49.1	4.2	214
+main-b	2	COLD	193	195	1473	49.1	4.2	200
+main-b	3	COLD	247	250	1793	49.1	0.0	248
+main-b	4	COLD	220	230	1820	49.1	0.0	215
+main-b	5	COLD	163	164	1406	49.1	10.5	150
+main-b	6	COLD	160	191	1618	49.1	0.0	170
+main-b	7	COLD	158	161	1492	49.1	0.0	140
+main-b	median_paint_ms	1618
+gate CLEAR after 0 busy reads at 2026-09-27T08:24:56Z
+warm-b	1	COLD	136	137	1383	49.1	1.0	129
+warm-b	2	COLD	219	223	1413	49.1	0.0	129
+warm-b	3	COLD	175	177	1385	49.1	0.0	156
+warm-b	4	COLD	197	199	1728	49.1	0.0	161
+warm-b	5	COLD	118	119	1315	49.1	0.0	153
+warm-b	6	COLD	167	169	1337	49.1	0.0	132
+warm-b	7	COLD	145	149	1300	49.1	0.0	135
+warm-b	median_paint_ms	1383
+gate CLEAR after 1 busy reads at 2026-09-27T08:29:27Z
+main-c	1				None	101.4	None	426
+main-c	2				None	57.3	None	249
+main-c	3	COLD	940	941	5537	49.1	0.0	750
+main-c	4	COLD	268	270	5062	49.1	0.0	673
+main-c	5	COLD	775	776	4192	49.1	0.0	479
+main-c	6	COLD	1104	1199	6150	49.1	0.0	661
+main-c	7	COLD	463	466	2703	49.1	0.0	318
+main-c: 2 run(s) never matched; no median reported
+gate CLEAR after 0 busy reads at 2026-09-27T08:32:17Z
+warm-c	1	COLD	184	187	1263	49.1	1.0	134
+warm-c	2	COLD	129	130	1270	49.1	1.0	133
+warm-c	3	COLD	100	104	1247	49.1	0.0	133
+warm-c	4	COLD	211	216	1209	49.1	10.5	133
+warm-c	5	COLD	185	186	1190	49.1	10.5	132
+warm-c	6	COLD	222	237	1403	49.1	0.0	170
+warm-c	7	COLD	311	325	1990	49.1	0.0	258
+warm-c	median_paint_ms	1263
+leaked connections: 0
+OK: killing emulator, bye bye
+OK
+ALL_DONE rc=1
+
+[exited with code 1]

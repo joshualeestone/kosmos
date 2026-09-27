@@ -102,8 +102,8 @@ public final class KosmosLauncherActivity extends LauncherActivity {
 
     /**
      * #4109: binds to the browser and warms it up first thing, before LauncherActivity's own launch
-     * binds. Skipped when the activity is being recreated, since LauncherActivity then finishes
-     * without launching. No mayLaunchUrl: see android/README.md, Browser warmup.
+     * binds. Skipped whenever the activity is recreated. No mayLaunchUrl. Both are explained in
+     * android/README.md, Browser warmup.
      */
     private void warmBrowser(boolean restored) {
         TwaProviderPicker.Action action = TwaProviderPicker.pickProvider(getPackageManager());
