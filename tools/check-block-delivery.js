@@ -95,14 +95,15 @@ function entitled(name, agents, text) {
       const store = require(path.join(REPO, 'engine', 'store.js'));
       const swarm = require(path.join(REPO, 'engine', 'swarm.js'));
       /* ⚠️ readProfile answers {} for a missing OR unreadable profile, so "not a
-         swarm" and "could not look" arrive looking the same. An agent carrying the
-         swarm block with an empty profile is the one case that matters, and it is
-         CANNOT TELL, never a STALE verdict built on a read that did not happen. */
+         swarm" and "could not look" arrive looking the same. A profile FILE that
+         exists but reads empty is CANNOT TELL, whatever the agent carries. With no
+         file, an agent carrying the block is CANNOT TELL too, never STALE. */
       const leads = [];
       for (const a of agents) {
         const prof = store.readProfile(a);
-        const carries = text[a].includes(projects.SWARM_START);
-        if (carries && (!prof || Object.keys(prof).length === 0)) return null;
+        const empty = !prof || Object.keys(prof).length === 0;
+        const exists = fs.existsSync(path.join(store.PROFILES, store.profileFileName(a)));
+        if (empty && (exists || text[a].includes(projects.SWARM_START))) return null;
         if (swarm.settingsOf(prof) !== null) leads.push(a);
       }
       return leads;
@@ -180,9 +181,10 @@ for (const name of names) {
       const behind = agents.filter((a) => plan[a] === 'refresh');
       const unsure = agents.filter((a) => plan[a] === 'could_not');
       currentDoctrine = agents.filter((a) => plan[a] === 'current').length;
-      if (unsure.length) { verdict = 'CANNOT TELL on ' + unsure.join(', '); cannotTell += 1; }
-      else if (!behind.length) verdict = 'current on all';
-      else { verdict = 'behind on ' + behind.length + ', awaiting the person\'s consented refresh (#539)'; awaiting += 1; }
+      const bits = [];
+      if (unsure.length) { bits.push('CANNOT TELL on ' + unsure.join(', ')); cannotTell += 1; }
+      if (behind.length) { bits.push('behind on ' + behind.length + ', awaiting the person\'s consented refresh (#539)'); awaiting += 1; }
+      verdict = bits.length ? bits.join('; ') : 'current on all';
     } catch { verdict = 'CANNOT TELL -- could not read its source'; cannotTell += 1; }
     /* "has it" is agents CURRENT here, not agents carrying the marker: a file can
        hold the rules as its own text with no marker, or a marked but outdated span. */
