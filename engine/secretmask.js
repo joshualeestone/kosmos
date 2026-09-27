@@ -512,15 +512,14 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
    reaching it (review round 13): ten held Anthropic keys and a 36,000-character reply repeating a paragraph that
    names sk-ant-api03- 200 times, withheld; whether it trips depends on the keys' random next characters.
    #4112 (2026-09-27, this Mac, Node 26): the walk now jumps between runs that could match and compares only the
-   variants that could. The OUTPUT is exact (identical on 1,200 randomized split-key replies, and on 1,900 in review
-   1), and each step's CHARGE is at most main's for the runs it covers and at least the work it does (see the walk;
-   900 adversarial inputs: 0 charged above main, about 3.6x lower in total). Units, which do not depend on load: 200
-   held keys and a guide reply naming sk-ant-api03- 20 times cost 0.60M (2.46M before, over the budget: withheld);
-   200 times cost 6.5M (26.7M before). The budget is unchanged, so the 200-mention reply is still withheld.
-   ⚠️ A unit can now cost more time than before (review 3): where nearly every run in reach could continue a key
-   (40 keys sharing sk-ant-api03-X, lines of X0 ... X9), each step's lookups cost about 2x main's time per unit, so
-   an exhausted search there takes up to about twice the figures above. Charging that overhead too would put some
-   replies above main's charge, and a reply main checks would be withheld (review 1); failing closed is unchanged. */
+   variants that could. The OUTPUT is exact (identical on 1,600 randomized split-key replies, and on thousands more in
+   review). A run the walk lands on is charged exactly what main charged for it, runs it passes over are free, and a
+   walk that ends at the bound pays for its positions, so the CHARGE is never more than main's for any input (900
+   adversarial inputs: 0 above main, about 2.9x lower in total) and the time per unit stays near main's (#3935's bound
+   test: about 1.1x main's CPU; charging a landed run only for what it compared had made it about 2x, and that test
+   crossed its 1,500ms guard). Units, with the #4112 test's 200 seeded keys and a guide reply naming sk-ant-api03-:
+   20 times 0.93M (3.17M before, over the budget: withheld); 200 times 10.4M (34.9M before). The budget is unchanged,
+   so the 200-mention reply is still withheld. */
 const WORD_WALK_BUDGET = 1250000;
 /* How many tails after, and heads before, a - or _ one run offers as pieces (review rounds 15 to 19). */
 const PIECE_VARIANTS_MAX = 4;
@@ -769,21 +768,31 @@ function wordSkippingSpans(text) {
              charge for its range: a reply main checks within the budget is never withheld here (review 1 found one
              that was). And no step is free: charging only the compared variants let a reply whose `reached` grew
              large run for seconds under a tiny charge and come back unmasked where main withheld it (review 2). */
-          const chars = new Set();
-          for (const [q] of at) if (q < f.length) chars.add(f[q]);
-          ensureIdx(s, limit);
           let t = Infinity;
-          for (const c of chars) { const i = firstAbove(firstIdx.get(c), s); if (i < t) t = i; }
+          /* The next run first, directly (review of the rebase: text where nearly every run can continue a key paid the
+             index lookups on every step, about 1.6x main's CPU on #3935's bound test, which then crossed its 1,500ms
+             guard under load). Only when the next run cannot match are the characters gathered and the index used. */
+          if (s + 1 <= limit) {
+            const nb = varsOf(s + 1)[2];
+            for (const [q] of at) if (q < f.length && nb.has(f[q])) { t = s + 1; break; }
+          }
+          if (t === Infinity) {
+            const chars = new Set();
+            for (const [q] of at) if (q < f.length) chars.add(f[q]);
+            ensureIdx(s, limit);
+            for (const c of chars) { const i = firstAbove(firstIdx.get(c), s); if (i < t) t = i; }
+          }
           if (t > limit) { if ((budget -= at.length) < 0) return null; break; }
           s = t;
           const [, sTo] = runs[s];
-          const [, , byFirst] = varsOf(s);
+          const [, piecesCost, byFirst] = varsOf(s);
           let done = false;
           const next = new Set(reached);
-          /* Only the variants that begin with f[q] are compared at q. */
-          let cost = 0;
-          for (const [q] of at) { const g = q < f.length && byFirst.get(f[q]); if (g) cost += g.cost; }
-          if ((budget -= Math.max(at.length, cost)) < 0) return null;
+          /* Only the variants that begin with f[q] are compared at q, but a run landed on is charged exactly what main
+             charged for it (every position times all its variants), so where nearly every run is landed on the time
+             per unit is main's (#3935's bound test crossed its 1,500ms CPU guard when a landed run paid only what it
+             compared: the budget then bought about twice main's work before it ran out). */
+          if ((budget -= at.length * piecesCost) < 0) return null;
           for (const [q, p] of at) {
             const g = q < f.length && byFirst.get(f[q]);
             if (!g) continue;

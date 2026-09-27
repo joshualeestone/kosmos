@@ -61,3 +61,18 @@ on main and here). Units now: 200 keys, 20 mentions 0.60M (main 2.46M, withheld)
   it would break "never above main's charge" (review 1's regression). Still fails closed.
 - Re-verified: identical output 1,600 replies; 900 inputs 0 charged above main; suites 92/92, 18/18.
 - No test pins the index start (a timing property); the gap measurement above is the evidence.
+
+## After the rebase onto #4124 (a5907aca4): the accepted 2x was wrong, fixed
+#4124 added a separate short-chunk pass (its own SHORT_WALK_BUDGET; it does not call the word walk), and the only
+conflict was appended tests. Validation after the rebase then FAILED on #3935's bound test: 1,538ms of CPU against
+its 1,500ms guard. Measured: that input exhausts the budget on both main and the branch, and the branch spent about
+0.53-0.60 us per unit against main's 0.26-0.28, so the budget bought twice main's work. Review 3's "about 2x per unit,
+accepted" was the cause; accepting it was wrong once an existing guard reads CPU.
+- Fix: a run landed on is charged at.length x all its variants' cost, exactly main's charge for that run; runs passed
+  over stay free; a walk ending at the bound pays at.length. Never above main (landed = main's, skipped = 0), at least
+  the work (>= positions and >= compared variants).
+- Measured: the bound test's own CPU, 3 runs each, main 537/563/539 ms, branch 667/579/613 (was about 1.7x).
+  Units: 900 inputs 0 above main, ratio 0.35; output identical on 1,600; suites 123/123, 18/18. Card (seeded keys):
+  20 mentions 0.93M (main 3.17M, withheld) passes; 200 mentions 10.4M (main 34.9M) still withheld.
+- A next-run fast path was tried first and did not help (the cost was the charge, not the lookups); it stays because
+  it is exact and cheap.
