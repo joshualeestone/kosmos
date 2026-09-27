@@ -2940,7 +2940,9 @@ esac
 # attributes at all and macOS reports it as a proper application bundle. We still
 # ship one terminal line. That line just leaves an icon behind.
 # ⚠️ STAGED, LIKE EVERY OTHER SWAP IN THIS FILE. The bundle is built complete
-# in a hidden sibling and renamed into place, because a build that dies
+# in a hidden sibling and put in place (on an update of our own icon by
+# exchanging its Contents in one step, #2864; otherwise renamed into place),
+# because a build that dies
 # between mkdir and the launcher write used to leave a launcher-less husk at
 # the real path -- which every later run's ownership check read as foreign
 # (divert forever) and which --uninstall refused to touch for the same
@@ -3021,7 +3023,7 @@ make_app() {
   # stays out of the real LaunchServices database. The other sandbox gates do not
   # know it: the harness always sets KOSMOS_APP_DIR as well. KOSMOS_CONTENTS_SWAP=off is also the switch that restores
   # the old whole-bundle rename on a machine where the swap misbehaves.
-  local _perl="${KOSMOS_SWAP_PERL:-/usr/bin/perl}"
+  local _perl="${KOSMOS_SWAP_PERL:-/usr/bin/perl}" _swap_tried=no
   if [ "$(uname -s)" = Darwin ] && [ "${KOSMOS_CONTENTS_SWAP:-on}" != off ] \
      && [ -d "$app" ] && [ ! -L "$app" ] && [ -d "$app/Contents" ] && [ ! -L "$app/Contents" ] \
      && [ -f "$_perl" ] && [ -x "$_perl" ] && bundle_is_ours "$app"; then
@@ -3029,8 +3031,10 @@ make_app() {
     _staged_ino="$(/usr/bin/stat -f %i "$stage/Contents" 2>/dev/null)" || _staged_ino=""
     _phys="$(cd "$appdir" 2>/dev/null && pwd -P)" || _phys=""
     # Ownership proved again right before the swap, as the rename below re-proves it:
-    # the occupant of a shared folder can change between the gate above and now.
-    if [ -n "$_staged_ino" ] && [ -n "$_phys" ] && bundle_is_ours "$app"; then
+    # the occupant of a shared folder can change between the gate above and now. It is
+    # proved on the physical path the swap is given, so the two name the same folder.
+    if [ -n "$_staged_ino" ] && [ -n "$_phys" ] && bundle_is_ours "$_phys/$(basename "$app")"; then
+      _swap_tried=yes
       "$_perl" -e 'exit(syscall(488, -2, $ARGV[0], -2, $ARGV[1], 18) == 0 ? 0 : 1)' \
         "$_phys/$(basename "$stage")/Contents" "$_phys/$(basename "$app")/Contents" 2>/dev/null || true
       # WHERE THE STAGED FOLDER IS decides, never the exit code alone: a swap that
@@ -3042,6 +3046,7 @@ make_app() {
         # got far enough to make it unprovable leaves it for --uninstall to name.
         rm -rf "$stage" 2>/dev/null \
           || info "note: could not remove the leftover hidden folder $stage; drag it to the Trash to finish."
+        APP_PATH=swap
         make_app_register "$app"
         return 0
       fi
@@ -3050,8 +3055,8 @@ make_app() {
         # after the swap failed. The stage is this run's own, so it is removed without
         # the ownership proof and built again, and the whole-bundle rename below
         # installs it: the app is refreshed (not left stale and reported as made), and
-        # in the same folder, never a second Kosmos.app in ~/Applications, which a
-        # failure here would lead the caller to.
+        # in the same folder rather than failing on to ~/Applications. (Only if this
+        # rebuild itself fails does the step fail as any other make_app failure does.)
         rm -rf "$stage" 2>/dev/null || true
         /bin/mkdir "$stage" 2>/dev/null || return 1
         if ! build_app_bundle "$stage"; then
@@ -3095,6 +3100,7 @@ make_app() {
   fi
   rm -rf "$aside" 2>/dev/null \
     || info "note: could not remove the leftover hidden folder $aside; drag it to the Trash to finish."
+  if [ "$_swap_tried" = yes ]; then APP_PATH=rename-swap-refused; else APP_PATH=rename; fi
   make_app_register "$app"
   return 0
 }
@@ -3268,6 +3274,9 @@ if [ "$APP_SKIP_ICON" != "yes" ] && [ -z "${KOSMOS_APP_DIR:-}" ] && [ "$APP_DIR"
   info "if your Mac asks whether Terminal can manage apps, that is this step; Allow puts the icon in Applications"
 fi
 APP_MADE=no
+# #2864: which way make_app put the icon in place (swap | rename | rename-swap-refused),
+# recorded in the app-bundle log line so a report of duplicate Dock icons can be read.
+APP_PATH=none
 if [ "$APP_SKIP_ICON" = "yes" ]; then
   : # said below, where the not-made sentences live
 elif ! mkdir -p "$APP_DIR" 2>/dev/null; then
@@ -3506,9 +3515,9 @@ fi
 # (e.g. the logs dir gone) is itself suppressed -- a bare `printf >> "$LOG"
 # 2>/dev/null` does NOT catch the shell's own redirect-open error. `|| true`
 # keeps errexit from aborting the install over a diagnostic line.
-{ printf '[%s] app-bundle: made=%s skip_icon=%s skip_reason=%s fresh_install=%s sys_stale=%s sys_failed=%s home_foreign=%s\n' \
+{ printf '[%s] app-bundle: made=%s skip_icon=%s skip_reason=%s fresh_install=%s sys_stale=%s sys_failed=%s home_foreign=%s app_path=%s\n' \
   "$$" "$APP_MADE" "$APP_SKIP_ICON" "${APP_SKIP_REASON:-none}" "$FRESH_INSTALL" \
-  "${APP_SYS_STALE:-no}" "${APP_SYS_FAILED:-no}" "${APP_HOME_FOREIGN:-no}" \
+  "${APP_SYS_STALE:-no}" "${APP_SYS_FAILED:-no}" "${APP_HOME_FOREIGN:-no}" "${APP_PATH:-none}" \
   >> "$LOG"; } 2>/dev/null || true
 # (2) On an UPDATE that did not rewrite the bundle, route the operator to the
 # reliable open path rather than a relaunch. This never ASSERTS the app is stale

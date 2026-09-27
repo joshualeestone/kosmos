@@ -30,23 +30,27 @@ tools/test-install.sh proves all of it, with a control showing today's path give
 - Stops NEW duplicates only. A Dock that already has two kept Kosmos icons keeps them until the
   person removes the stale one once (release note). No code edits anyone's Dock.
 
-## Review round 1 (applied)
+## What review changed (rounds 1 to 7)
 - /usr/bin/stat by path (a GNU stat on PATH would skip the swap silently).
-- Decide by where the staged folder IS: a swap that happened but reported failure is taken as
-  done; a staged folder found in neither place fails the step instead of guessing. Tested with
-  a stub that really swaps and then exits 1.
-- Flags 18 (RENAME_SWAP | RENAME_NOFOLLOW_ANY): a symlink anywhere in either path makes the call
-  fail (measured ELOOP, the other folder untouched) and the rename fallback runs.
-- A running Kosmos now keeps its bundle path while Contents changes under it (its executable runs
-  on from the old, unlinked file; kosmos-install.json is read at launch). Before, the whole bundle
-  moved aside. Not expected to matter; noted as a new state.
+- The staged folder's location decides, never the exit code: a swap that happened but reported
+  failure is kept; a staged folder found in neither place is built again and installed by the
+  whole-bundle rename (not kept stale and reported as made, not failed on to ~/Applications).
+- Flags 18 (RENAME_SWAP | RENAME_NOFOLLOW_ANY) on the folder's physical path: a planted link
+  anywhere makes the call fail (ELOOP, the other folder untouched) and the rename runs; the
+  physical path is needed because the flag also refuses system links such as /var.
+- Ownership is proved again, on that physical path, right before the swap.
+- The install log's app-bundle line records app_path=swap|rename|rename-swap-refused, so a report
+  of duplicate icons can say whether the swap ran on that machine.
+- A running Kosmos keeps its bundle path while Contents changes under it (its executable runs on
+  from the old, unlinked file; kosmos-install.json is read at launch). New state, not expected to
+  matter.
 
-## Review rounds 2 and 3 (applied)
-- Flags 18 refuse every link in a path, including /var -> /private/var, so the call now gets the
-  folder's physical path (the installer test caught the silent fallback under /var).
-- A staged folder found in neither place is built again and installed by the whole-bundle
-  rename (round 4): keeping the old app and returning success hid a stale bundle from the #2028
-  notice, and failing sends the caller on to ~/Applications, a second Kosmos.app.
+## Tests (tools/test-install.sh)
+The update keeps the folder inode and replaces Contents (app_path=swap); CONTROL swap-off gives a
+new folder (app_path=rename); a failing stub, a no-op stub, a swap-then-fail stub and a
+moves-it-away stub each end complete, with where it came from asserted; the installer's syscall
+through a planted link fails and leaves the target untouched (control: a link-free path swaps);
+the deep-locked bundle runs with the swap on and off; the residue check has a positive control.
 
 ## Who runs the proof
 tools/test-install.sh is operator-run (`yarn test:install`), not part of CI or the cut, so CI green

@@ -786,6 +786,7 @@ echo "== #2864: an update keeps the Kosmos.app folder, so a kept Dock icon stays
 chk "the premise: there was an app folder before the update" "[ \"$APP_INO1\" != none ]"
 chk "an update keeps the SAME Kosmos.app folder (inode $APP_INO1)" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" = \"$APP_INO1\" ]"
 chk "an update does replace Contents (the swap happened, not a no-op)" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app/Contents\")\" != \"$CONTENTS_INO1\" ]"
+chk "the install log records app_path=swap for that run" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* app_path=//')\" = swap ]"
 chk "the swapped app is complete and runnable" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ] && [ -f \"$SB/apps/Kosmos.app/Contents/Info.plist\" ]"
 chk "no stage or aside folder is left behind by the swap" "[ -z \"\$(ls -A \"$SB/apps\" | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ]"
 # CONTROL, the property the fix exists for: with the swap switched off, the old
@@ -795,6 +796,7 @@ APP_INO2="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app")"
 RC=0; cat "$SETUP" | KOSMOS_CONTENTS_SWAP=off sh > "$SB/update-noswap.log" 2>&1 || RC=$?
 chk "CONTROL: an update with the swap off exits 0" "rc_ok $RC"
 chk "CONTROL: with the swap off the Kosmos.app folder is a NEW one (what made kept Dock icons stale)" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" != \"$APP_INO2\" ]"
+chk "the install log records app_path=rename for that run" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* app_path=//')\" = rename ]"
 chk "CONTROL: and that app is complete and runnable" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ]"
 # A swap that FAILS falls back to the whole-bundle rename: never a half-empty folder.
 printf '#!/bin/sh\nexit 1\n' > "$SB/perl-fails"; chmod +x "$SB/perl-fails"
@@ -802,6 +804,7 @@ APP_INO3="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app")"
 RC=0; cat "$SETUP" | KOSMOS_SWAP_PERL="$SB/perl-fails" sh > "$SB/update-swapfail.log" 2>&1 || RC=$?
 chk "a failed swap still installs (exits 0)" "rc_ok $RC"
 chk "after a failed swap the app is complete and runnable, not a husk" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ] && [ -f \"$SB/apps/Kosmos.app/Contents/Info.plist\" ]"
+chk "the install log records app_path=rename-swap-refused for that run" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* app_path=//')\" = rename-swap-refused ]"
 chk "and it got there by the whole-bundle fallback (a new folder), so the failure was really taken" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" != \"$APP_INO3\" ]"
 # A swap call that claims success but moved nothing is caught by the inode proof, and
 # the fallback installs a complete app (the stage was never touched).
@@ -1300,43 +1303,48 @@ else
   chflags nouchg "$SYS_WEDGE/Kosmos.app"
   KOSMOS_HOME="$SB/home7" "$SB/bin7/kosmos" stop > /dev/null 2>&1 || true
 
-  echo "== a deep-locked old bundle can no longer wedge the slot =="
-  # The reproduced husk: rm -rf on a bundle with one unwritable nested
-  # directory deletes the launcher, then dies, leaving a husk no later
-  # ownership check can prove and no uninstall will touch. The rename-
-  # aside swap must leave the VISIBLE slot holding a complete bundle at
-  # every moment; the locked residue may survive only under the hidden
-  # aside name.
-  SYS_DEEP="$SB/sysdeep"
-  seed_kosmos_bundle "$SYS_DEEP" "$SB/home19"
-  mkdir -p "$SYS_DEEP/Kosmos.app/Contents/Resources/sub"
-  touch "$SYS_DEEP/Kosmos.app/Contents/Resources/sub/keep"
-  chmod 555 "$SYS_DEEP/Kosmos.app/Contents/Resources/sub"
-  SBH17="$SB/deep-home"
-  mkdir -p "$SBH17"
-  export KOSMOS_HOME="$SB/home19" KOSMOS_BIN_DIR="$SB/bin19"
-  RC=0; cat "$SETUP" | HOME="$SBH17" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_DEEP" sh > "$SB/deep.log" 2>&1 || RC=$?
-  chk "deep-locked reinstall exits 0" "rc_ok $RC"
-  chk "the visible slot holds a complete bundle" "[ -x \"$SYS_DEEP/Kosmos.app/Contents/MacOS/Kosmos\" ]"
-  # #677: the anchor moved off the (now compiled) launcher and onto its
-  # per-install config file -- bundle_is_ours checks the same new anchor,
-  # see install/setup.sh.
-  chk "the new bundle is provably ours" "grep -qF '\"kosmosHome\":\"$SB/home19\"' \"$SYS_DEEP/Kosmos.app/Contents/Resources/kosmos-install.json\""
-  chk "the locked aside is named at install time" "grep -q 'could not remove the leftover hidden folder' \"$SB/deep.log\""
-  KOSMOS_HOME="$SB/home19" "$SB/bin19/kosmos" stop > /dev/null 2>&1 || true
-  # ⚠️ The lock STAYS for the uninstall. The first version of this pass
-  # unlocked before uninstalling, which undid the exact condition under
-  # test and let a silent best-effort sweep read as a kept promise. The
-  # served header says the sweep names what it cannot remove; hold it to
-  # that.
-  RC=0; HOME="$SBH17" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_DEEP" sh -s -- --uninstall < "$SETUP" > "$SB/deep-un.log" 2>&1 || RC=$?
-  chk "deep-world uninstall exits 0" "rc_ok $RC"
-  chk "deep-world slot fully cleared" "[ ! -e \"$SYS_DEEP/Kosmos.app\" ]"
-  # The aside here is OUR OWN, gutted unprovable by its best-effort
-  # cleanup dying on the locked dir; either it is gone, or the transcript
-  # names it (as unremovable, or as unprovable, whichever was observed).
-  chk "surviving locked residue is gone or named" "[ -z \"\$(ls -A \"$SYS_DEEP\" 2>/dev/null | grep -F '.Kosmos.app.old')\" ] || grep -Eq 'could not remove the leftover hidden folder|could not be proven to belong to this install' \"$SB/deep-un.log\""
-  chmod -R u+w "$SYS_DEEP" 2>/dev/null || true
+  for DEEP_MODE in on off; do
+    echo "== a deep-locked old bundle can no longer wedge the slot (swap $DEEP_MODE) =="
+    # The reproduced husk: rm -rf on a bundle with one unwritable nested
+    # directory deletes the launcher, then dies, leaving a husk no later
+    # ownership check can prove and no uninstall will touch. Both ways an
+    # update can put the icon in place must leave the VISIBLE slot holding a
+    # complete bundle at every moment, so this runs twice (#2864): with the
+    # Contents swap on (the locked old Contents ends up in the hidden STAGE
+    # folder) and off (the rename-aside, where it ends up in the hidden ASIDE).
+    SYS_DEEP="$SB/sysdeep-$DEEP_MODE"
+    seed_kosmos_bundle "$SYS_DEEP" "$SB/home19$DEEP_MODE"
+    mkdir -p "$SYS_DEEP/Kosmos.app/Contents/Resources/sub"
+    touch "$SYS_DEEP/Kosmos.app/Contents/Resources/sub/keep"
+    chmod 555 "$SYS_DEEP/Kosmos.app/Contents/Resources/sub"
+    SBH17="$SB/deep-home-$DEEP_MODE"
+    mkdir -p "$SBH17"
+    export KOSMOS_HOME="$SB/home19$DEEP_MODE" KOSMOS_BIN_DIR="$SB/bin19$DEEP_MODE"
+    RC=0; cat "$SETUP" | HOME="$SBH17" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_DEEP" KOSMOS_CONTENTS_SWAP="$DEEP_MODE" sh > "$SB/deep-$DEEP_MODE.log" 2>&1 || RC=$?
+    chk "deep-locked reinstall exits 0" "rc_ok $RC"
+    chk "the visible slot holds a complete bundle" "[ -x \"$SYS_DEEP/Kosmos.app/Contents/MacOS/Kosmos\" ]"
+    # #677: the anchor moved off the (now compiled) launcher and onto its
+    # per-install config file -- bundle_is_ours checks the same new anchor,
+    # see install/setup.sh.
+    chk "the new bundle is provably ours" "grep -qF '\"kosmosHome\":\"$SB/home19$DEEP_MODE\"' \"$SYS_DEEP/Kosmos.app/Contents/Resources/kosmos-install.json\""
+    DEEP_WANT=rename; [ "$DEEP_MODE" = on ] && DEEP_WANT=swap
+    chk "the install log records the path it took (app_path=$DEEP_WANT)" "grep -q 'app-bundle: .* app_path='$DEEP_WANT'\$' \"$SB/home19$DEEP_MODE/logs/install.log\""
+    chk "the locked residue is named at install time" "grep -q 'could not remove the leftover hidden folder' \"$SB/deep-$DEEP_MODE.log\""
+    KOSMOS_HOME="$SB/home19$DEEP_MODE" "$SB/bin19$DEEP_MODE/kosmos" stop > /dev/null 2>&1 || true
+    # ⚠️ The lock STAYS for the uninstall. The first version of this pass
+    # unlocked before uninstalling, which undid the exact condition under
+    # test and let a silent best-effort sweep read as a kept promise. The
+    # served header says the sweep names what it cannot remove; hold it to
+    # that.
+    RC=0; HOME="$SBH17" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_DEEP" sh -s -- --uninstall < "$SETUP" > "$SB/deep-un-$DEEP_MODE.log" 2>&1 || RC=$?
+    chk "deep-world uninstall exits 0" "rc_ok $RC"
+    chk "deep-world slot fully cleared" "[ ! -e \"$SYS_DEEP/Kosmos.app\" ]"
+    # The stage (swap on) or aside (swap off) here is OUR OWN, gutted unprovable by
+    # its best-effort cleanup dying on the locked dir; either it is gone, or the
+    # transcript names it (as unremovable, or as unprovable, whichever was observed).
+    chk "surviving locked residue (stage or aside) is gone or named" "[ -z \"\$(ls -A \"$SYS_DEEP\" 2>/dev/null | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ] || grep -Eq 'could not remove the leftover hidden folder|could not be proven to belong to this install' \"$SB/deep-un-$DEEP_MODE.log\""
+    chmod -R u+w "$SYS_DEEP" 2>/dev/null || true
+  done
 
   echo "== a survivor is NAMED (positive control for the could-not-remove note) =="
   # Without this pass the survivor-note branches could be deleted whole and
