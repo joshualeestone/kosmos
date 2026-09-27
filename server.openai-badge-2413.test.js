@@ -101,6 +101,10 @@ test.beforeEach(() => {
   // GREY-PRESERVED tests: before the render swap they awaited a real doctor handshake on a fake
   // token (dead), and the 20s timeout made them race.
   codexsigninlive.resetForTest();
+  // #3997: /api/accounts now STARTS a cold ChatGPT sign-in's check (without waiting). resetForTest puts the REAL runner
+  // back, which would run `codex doctor` against chatgpt.com with this file's fake token; a runner with no report keeps
+  // the row unknown (grey/amber) and never leaves this machine.
+  codexsigninlive.setRunner(async () => ({ ok: false }));
 });
 
 async function rows() {

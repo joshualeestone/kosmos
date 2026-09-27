@@ -7695,6 +7695,14 @@ function waitingTotal(counts, agents) {
   return n(counts && counts.needsYou) + dms + n(counts && counts.projectsUnread);
 }
 
+/* #4025: the person's switch for that count on the app icon (Settings > Computer > App icon). On
+   unless the stored settings say exactly false: a missing or unreadable setting is the default, on.
+   Off, the board serves counts.waiting as null, which clears the Mac Dock badge (it reads null as
+   "no count"); a Windows taskbar count, when it ships, reads the same field. */
+function waitingBadgeOn(stored) {
+  return !(stored && typeof stored === 'object' && stored.waitingBadge === false);
+}
+
 // `transcriptFor` is exported for the instructions module, which needs a
 // session start time. It resolves by session id rather than by guessing a
 // directory from the agent's name, for the reason its own comment gives: a
@@ -7786,6 +7794,7 @@ function sessionStartedAtFromTmux(sessionName, now = Date.now()) {
 
 module.exports = {
   waitingTotal,   // #3996: the Dock badge's number
+  waitingBadgeOn, // #4025: the switch for it
   /* #1500: exported so discover.foundCodex can honour the same refusal.
      The Codex walk reaches ~/.codex without ever calling configRoots. */
   sandboxIsInconsistent,

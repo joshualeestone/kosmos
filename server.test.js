@@ -14431,6 +14431,25 @@ test('#3996: /api/status carries counts.waiting = needsYou + every DM unread + p
   assert.equal(b2.counts.waiting, b1.counts.waiting - 2, 'reading the thread did not take its two messages off the count');
 });
 
+// #4025: the Settings switch for the icon count. Off, counts.waiting is null (the apps clear the
+// badge on null); on again, it is the number. A value that is not a boolean is refused.
+test('#4025: /api/settings waitingBadge switches counts.waiting off (null) and on again', async (t) => {
+  t.after(async () => { await postJson('/api/settings', { waitingBadge: true }); });
+  const status = async () => JSON.parse((await req('/api/status')).body);
+  const settings = async () => JSON.parse((await req('/api/settings')).body);
+  assert.equal((await settings()).waitingBadge, true, 'the switch is not on by default');
+  assert.equal(typeof (await status()).counts.waiting, 'number', 'CONTROL: on, the count is served');
+  const off = await postJson('/api/settings', { waitingBadge: false });
+  assert.equal(off.status, 200);
+  assert.equal(JSON.parse(off.body).waitingBadge, false, 'the save did not answer with what it stored');
+  assert.equal((await settings()).waitingBadge, false);
+  assert.equal((await status()).counts.waiting, null, 'switched off, the icon count was still served');
+  assert.equal((await postJson('/api/settings', { waitingBadge: 'no' })).status, 400, 'a non-boolean was taken');
+  assert.equal((await settings()).waitingBadge, false, 'a refused value changed the stored switch');
+  assert.equal((await postJson('/api/settings', { waitingBadge: true })).status, 200);
+  assert.equal(typeof (await status()).counts.waiting, 'number', 'switched back on, no count');
+});
+
 // #2863: the /seen route's error mapping, exercised through HTTP (the engine-layer
 // BAD_THREAD refusal is unit-tested in engine/chat.dm-unread-2863.test.js; this
 // pins that the ROUTE maps it to 400). `bad.name` is a single path segment (no

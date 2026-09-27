@@ -1,4 +1,4 @@
-// Browser-check-surface: acct-connected acct-none acct-unknown acct-check
+// Browser-check-surface: acct-connected acct-none acct-unknown acct-unverified acct-check
 'use strict';
 
 /**
@@ -170,7 +170,7 @@ const ACCOUNTS = [
     const byEmail = {};
     for (const b of boxes) {
       const who = b.querySelector('.acct-who b');
-      const badge = b.querySelector('.acct-connected, .acct-none, .acct-unknown');
+      const badge = b.querySelector('.acct-connected, .acct-none, .acct-unverified, .acct-unknown');
       if (who) byEmail[(who.textContent || '').trim()] = {
         cls: badge ? badge.className : null,
         text: badge ? (badge.textContent || '').trim() : null,
@@ -185,6 +185,8 @@ const ACCOUNTS = [
         // claude -p call). It must appear on every Claude row -- including the
         // api-key one -- and never on an OpenAI row.
         checkNow: !!b.querySelector('[data-check-claude]'),
+        // #3997: the FREE Check now on a ChatGPT sign-in or a Grok subscription, and which route it asks.
+        checkSignin: (b.querySelector('[data-check-signin]') || { dataset: {} }).dataset.checkSignin || '',
         // #3391: the Disconnect / Delete titles, read off the rendered buttons.
         disconnectTitle: ([...b.querySelectorAll('button')].find((x) => /^Disconnect$/.test((x.textContent || '').trim())) || { getAttribute: () => '' }).getAttribute('title') || '',
         deleteTitle: ([...b.querySelectorAll('button')].find((x) => /^Delete and remove$/.test((x.textContent || '').trim())) || { getAttribute: () => '' }).getAttribute('title') || '',
@@ -193,22 +195,157 @@ const ACCOUNTS = [
     return { count: boxes.length, byEmail };
   }, ACCOUNTS);
 
+  /* #3997: a ChatGPT row whose free check the board only just started reads ONCE more, a few seconds on, and turns
+     green then; a list with nothing under way is read once (CONTROL). */
+  const pendingRow = ACCOUNTS.find((a) => a.email === 'sub@example.com');
+  const follow = await page.evaluate(async (row) => {
+    const reads = (answers) => {
+      let n = 0;
+      window.fetch = (u) => (String(u).indexOf('/api/accounts') !== -1
+        ? Promise.resolve({ ok: true, json: async () => ({ accounts: [answers[Math.min(n++, answers.length - 1)]] }) })
+        : Promise.reject(new Error('not in this check')));
+      return () => n;
+    };
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const pill = () => { const b = document.querySelector('#set-accounts .acct-box .acct-connected, #set-accounts .acct-box .acct-unverified'); return b ? b.className : null; };
+    const pending = { ...row, connection: { ...row.connection, liveCheckPending: true } };
+    const confirmed = { ...row, connection: { ...row.connection, state: 'connected', because: 'the OpenAI sign-in reached ChatGPT, so it is working' } };
+    ACCT_FOLLOWUP.ms = 400;   // the page's own knob, shortened so the check is quick (the logic is the same)
+    // Pending on the first two reads, confirmed on the third: it keeps reading until it can say, then turns green.
+    let count = reads([pending, pending, confirmed]);
+    await paintAccounts();
+    const before = pill();
+    await wait(2000);
+    const afterOne = count();
+    const after = pill();
+    // Never confirmed: the reads stop at the bound (1 + ACCT_FOLLOWUP.max), never a loop.
+    count = reads([pending]);
+    await paintAccounts();
+    await wait(400 * (ACCT_FOLLOWUP.max + 3));
+    const afterTwo = count();
+    const bound = 1 + ACCT_FOLLOWUP.max;
+    count = reads([row]);
+    await paintAccounts();
+    await wait(1500);
+    return { before, after, afterOne, afterTwo, bound, control: count() };
+  }, pendingRow);
+
+  /* #3997 round 2: the free Check now's click, and a follow-up that must not rebuild the list under the person. */
+  const grokRow = ACCOUNTS.find((a) => a.email === 'grok@example.com');
+  const clicks = await page.evaluate(async ({ row, sub }) => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    let checkAnswer = { state: 'expired', because: 'Grok renews this sign-in the next time it runs, so it cannot be checked until then' };
+    let listAnswer = [row];
+    let lists = 0;
+    window.fetch = (u) => {
+      const url = String(u);
+      if (url.indexOf('/api/accounts/grok/check') !== -1) return Promise.resolve({ ok: true, json: async () => checkAnswer });
+      if (url.indexOf('/api/accounts') !== -1) { lists++; return Promise.resolve({ ok: true, json: async () => ({ accounts: listAnswer }) }); }
+      return Promise.reject(new Error('not in this check'));
+    };
+    await paintAccounts();
+    const btn = () => document.querySelector('#set-accounts [data-check-signin="grok"]');
+    btn().click(); await wait(200);
+    const expiredSays = btn().textContent; const expiredTitle = btn().title; const listsAfterExpired = lists;
+    checkAnswer = { state: 'connected' };
+    listAnswer = [{ ...row, connection: { ...row.connection, badge: 'working', observedAt: new Date().toISOString(), observedAgeMs: 1000 } }];
+    btn().click(); await wait(300);
+    const green = !!document.querySelector('#set-accounts .acct-box .acct-connected');
+    // Busy: a pending ChatGPT row, and a Check now in flight inside the list. The follow-up must wait, then read.
+    ACCT_FOLLOWUP.ms = 300;
+    const pendingSub = { ...sub, connection: { ...sub.connection, liveCheckPending: true } };
+    listAnswer = [pendingSub, row];
+    lists = 0;
+    await paintAccounts();
+    // A Check now in flight (its button disabled while it asks). The list is not on screen here, so focus cannot be
+    // placed in it; the in-flight state is the same rule's other arm.
+    const focusBtn = document.querySelector('#set-accounts .acct-check'); focusBtn.disabled = true;
+    const focused = focusBtn.disabled === true;
+    // Busy for LONGER than every read the bound allows (review round 15): waiting must not spend them.
+    await wait(300 * (ACCT_FOLLOWUP.max + 3));
+    const whileBusy = lists;
+    focusBtn.disabled = false;
+    listAnswer = [sub, row];
+    await wait(900);
+    const afterLongBusy = lists;
+    // Round 6: a follow-up read leaves the message line (a "Removed ..." sentence) alone, and a failed one keeps the list.
+    const msgEl = document.getElementById('set-accounts-msg');
+    listAnswer = [pendingSub, row];
+    await paintAccounts();
+    if (msgEl) msgEl.textContent = 'Removed test@example.com. It moved to your old sign-ins.';
+    await wait(450);
+    const msgAfter = msgEl ? msgEl.textContent : null;
+    listAnswer = [pendingSub, row];
+    await paintAccounts();
+    const rowsBefore = document.querySelectorAll('#set-accounts .acct-box').length;
+    const realFetch2 = window.fetch;
+    window.fetch = (u) => (String(u).indexOf('/api/accounts') !== -1 ? Promise.reject(new Error('offline')) : realFetch2(u));
+    await wait(450);
+    const rowsAfterFail = document.querySelectorAll('#set-accounts .acct-box').length;
+    window.fetch = realFetch2;
+    // Round 10: a Check now that starts WHILE a follow-up is reading: the follow-up must not rebuild the list under it.
+    listAnswer = [row];
+    await paintAccounts();
+    const inflightBtn = document.querySelector('#set-accounts .acct-check');
+    let releaseRead;
+    const realFetch3 = window.fetch;
+    window.fetch = (u) => (String(u).indexOf('/api/accounts') !== -1
+      ? new Promise((r) => { releaseRead = () => r({ ok: true, json: async () => ({ accounts: [row] }) }); })
+      : realFetch3(u));
+    const reading = paintAccounts({ followUp: 1 });
+    await wait(50);
+    inflightBtn.disabled = true;   // the person pressed Check now while the follow-up was reading
+    releaseRead();
+    await reading;
+    const keptInflight = inflightBtn.isConnected;
+    inflightBtn.disabled = false;
+    window.fetch = realFetch3;
+    // An expired key's row does not point its title at Check now (the server's structured verdict, round 4).
+    listAnswer = [{ ...row, connection: { ...row.connection, liveVerdict: 'expired', because: 'Grok renews this sign-in the next time it runs, so it cannot be checked until then' } }];
+    await paintAccounts();
+    const expTitle = (document.querySelector('#set-accounts .acct-box .acct-unverified') || { title: '' }).title;
+    // Round 8: a Grok check still under way does not point at Check now either.
+    listAnswer = [{ ...row, connection: { ...row.connection, liveVerdict: 'pending', liveCheckPending: true, because: 'Checking this sign-in now' } }];
+    await paintAccounts();
+    const pendTitle = (document.querySelector('#set-accounts .acct-box .acct-unverified') || { title: '' }).title;
+    return { expiredSays, expiredTitle, listsAfterExpired, green, focused, whileBusy, afterLongBusy, afterBusy: lists, expTitle, pendTitle, msgAfter, rowsBefore, rowsAfterFail, keptInflight };
+  }, { row: grokRow, sub: ACCOUNTS.find((a) => a.email === 'sub@example.com') });
+
   await browser.close();
 
   const problems = [];
+  if (clicks.expiredSays !== 'Not until Grok runs again' || !/renews this sign-in/.test(clicks.expiredTitle) || clicks.listsAfterExpired !== 1) {
+    problems.push('#3997: Check now on an expired Grok key did not say so (or repainted for nothing): ' + JSON.stringify(clicks));
+  }
+  if (!/renews this sign-in/.test(clicks.expTitle) || /Check now/.test(clicks.expTitle)) problems.push('#3997: an expired key\'s title points at Check now: ' + JSON.stringify(clicks.expTitle));
+  if (!/^Removed test@example\.com/.test(clicks.msgAfter || '')) problems.push('#3997: a follow-up read wiped the message line: ' + JSON.stringify(clicks.msgAfter));
+  if (!(clicks.rowsBefore >= 2 && clicks.rowsAfterFail === clicks.rowsBefore)) problems.push('#3997: a failed follow-up read replaced the list: ' + JSON.stringify({ before: clicks.rowsBefore, after: clicks.rowsAfterFail }));
+  if (!/Checking this sign-in now/.test(clicks.pendTitle) || /Check now/.test(clicks.pendTitle)) problems.push('#3997: a Grok check under way points its title at Check now: ' + JSON.stringify(clicks.pendTitle));
+  if (!clicks.keptInflight) problems.push('#3997: a follow-up rebuilt the list over a Check now started while it was reading');
+  if (!clicks.green) problems.push('#3997: Check now answering connected did not repaint the row green: ' + JSON.stringify(clicks));
+  if (!clicks.focused) problems.push('#3997: the busy arm could not mark a Check now in flight, so it tested nothing: ' + JSON.stringify(clicks));
+  if (clicks.whileBusy !== 1) problems.push('#3997: a follow-up rebuilt the list while a Check now was in flight: ' + JSON.stringify(clicks));
+  if (clicks.afterBusy < 2) problems.push('#3997: the follow-up never read again once the person was done: ' + JSON.stringify(clicks));
+  if (clicks.afterLongBusy < 2) problems.push('#3997 round 15: a long busy spell used up the follow-up reads, so a row stays "checking": ' + JSON.stringify(clicks));
   if (r.error) problems.push(r.error);
+  if (!(follow.before === 'acct-unverified' && follow.afterOne === 3 && follow.after === 'acct-connected')) {
+    problems.push('#3997: a row whose check was under way was not read again until it could say, and turned green: ' + JSON.stringify(follow));
+  }
+  if (follow.afterTwo !== follow.bound) problems.push('#3997: a check that never finished was not read exactly up to the bound (a loop, or it gave up early): ' + JSON.stringify(follow));
+  if (follow.control !== 1) problems.push('#3997 CONTROL: a list with no check under way was read again: ' + JSON.stringify(follow));
   if (r.count !== ACCOUNTS.length) problems.push('expected ' + ACCOUNTS.length + ' account rows, got ' + r.count);
 
   const want = [
     // A Claude subscription row carries the browser-OAuth reauth (data-reauth), never the
     // OpenAI subscription reauth. #2568/#2584: the two reauth affordances never cross.
-    { email: 'work@example.com', cls: 'acct-connected', text: /Signed in.*active/, claudeReauth: true, openaiReauth: false, checkNow: true },
+    { email: 'work@example.com', cls: 'acct-connected', text: /Signed in.*active/, claudeReauth: true, openaiReauth: false, checkNow: true, checkSignin: '' },
     { email: 'rej@example.com', cls: 'acct-none', text: /Not connected/, checkNow: true },
     // #3136: unver@ is EXACTLY Josh's state (a signed-in but not-recently-observed account).
     // The VISIBLE pill now reads a NEUTRAL "Signed in" (Josh read the old "not recently checked"
     // as "not connected" though he was); the nuance moves to the TITLE, and it carries "Check
     // now" so he can positively verify. Still honesty:true -- muted, never green (#874).
-    { email: 'unver@example.com', cls: 'acct-unknown', text: /Signed in/, notText: /not recently checked/,
+    // #3997 (Josh 09-26): unconfirmed is AMBER (.acct-unverified) on every provider; grey is only "could not check".
+    { email: 'unver@example.com', cls: 'acct-unverified', text: /^Signed in$/, notText: /not recently checked/,
       titleText: /Check now|not seen a request/, honesty: true, checkNow: true },
     // #3136: signed_out and unchecked are still CLAUDE rows, so "Check now" must render on
     // them too -- assert it, so the "every Claude row" claim is tested for every badge state
@@ -221,27 +358,29 @@ const ACCOUNTS = [
     // visibly, so a revert to the legacy fallback (which put it in the span) reds here.
     // #2584: it also now carries the OpenAI subscription reauth (data-openai-reauth), and
     // NOT the Claude data-reauth -- the affordance #2568 deferred, now that the driver exists.
-    { email: 'sub@example.com', cls: 'acct-unknown', text: /Signed in . not checked live/,
-      notText: /may or may not still work/, titleText: /may or may not still work/, honesty: true,
-      claudeReauth: false, openaiReauth: true, checkNow: false },
+    // #3997: the same amber "Signed in" as every unconfirmed sign-in (was a grey "Signed in · not checked live"),
+    // and its own free Check now (codex's handshake), never the Claude probe.
+    { email: 'sub@example.com', cls: 'acct-unverified', text: /^Signed in$/,
+      notText: /may or may not still work|not checked live/, titleText: /may or may not still work/, honesty: true,
+      claudeReauth: false, openaiReauth: true, checkNow: false, checkSignin: 'openai' },
     // api-key rows of both providers: NEITHER reauth button. (Keyed by the primary label
     // paintAccounts renders -- an api-key OpenAI row has no email, so its label is its key tail.)
     // #3136: the CLAUDE api-key row DOES get Check now (a claude -p probe works for it);
-    // the OpenAI api-key row does NOT (Check now is Claude-only).
+    // the OpenAI api-key row does NOT (this `checkNow` is the Claude probe; the free sign-in checks of #3997 are `checkSignin`).
     { email: 'clkey@example.com', claudeReauth: false, openaiReauth: false, checkNow: true },
-    { email: 'API key ending cd34', claudeReauth: false, openaiReauth: false, checkNow: false },
+    { email: 'API key ending cd34', claudeReauth: false, openaiReauth: false, checkNow: false, checkSignin: '' },
     // #3391 part 2: a Grok KEY row has no sign-in to redo, so no Grok Sign in again.
-    { email: 'API key ending gk12', claudeReauth: false, openaiReauth: false, grokReauth: false, checkNow: false },
+    { email: 'API key ending gk12', claudeReauth: false, openaiReauth: false, grokReauth: false, checkNow: false, checkSignin: '' },
     { email: 'No Email Grok', grokReauth: false },
-    // #3391: the Grok subscription row. Muted (honesty), no Check now button, and a title that
-    // does not point at one; Disconnect / Delete say sign-in, never key.
-    { email: 'grok@example.com', cls: 'acct-unknown', text: /Signed in/, honesty: true, checkNow: false, grokReauth: true,
-      titleText: /confirms itself the next time an agent on it runs/, notTitle: /Check now/,
+    // #3391: the Grok subscription row; #3997: amber, with its own free Check now (checkSignin) and a title that
+    // points at it. Disconnect / Delete say sign-in, never key.
+    { email: 'grok@example.com', cls: 'acct-unverified', text: /^Signed in$/, honesty: true, checkNow: false, grokReauth: true,
+      checkSignin: 'grok', titleText: /Check now/,
       disconnectTitle: /sign-in/, notDisconnectTitle: /key/, deleteTitle: /sign-in/, notDeleteTitle: /API key/ },
     // #3391 round 18: the lapsed and unknown Grok sign-ins show their short sentence, never green,
     // and keep the pill short (#2568). #3391 part 2: the remedy is the row's Sign in again button.
-    { email: 'grok-lapsed@example.com', text: /^Grok sign-in expired$/, honesty: true, notText: /sign in again|please/i, checkNow: false, grokReauth: true },
-    { email: 'grok-unk@example.com', text: /^Could not check the Grok sign-in$/, honesty: true, notText: /sign in again|please/i, checkNow: false, grokReauth: true },
+    { email: 'grok-lapsed@example.com', text: /^Grok sign-in expired$/, honesty: true, notText: /sign in again|please/i, checkNow: false, grokReauth: true, checkSignin: '' },
+    { email: 'grok-unk@example.com', text: /^Could not check the Grok sign-in$/, honesty: true, notText: /sign in again|please/i, checkNow: false, grokReauth: true, checkSignin: '' },
   ];
   for (const w of want) {
     const got = (r.byEmail || {})[w.email];
@@ -252,6 +391,9 @@ const ACCOUNTS = [
     if (w.titleText && !w.titleText.test(got.title || '')) problems.push(`${w.email}: the full reason is missing from the title (${w.titleText}); got title "${got.title}"`);
     if (w.honesty && got.cls && got.cls.indexOf('acct-connected') !== -1) {
       problems.push(`${w.email}: a merely-existing credential rendered GREEN (acct-connected) - the #874 false-green is back`);
+    }
+    if (typeof w.checkSignin === 'string' && got.checkSignin !== w.checkSignin) {
+      problems.push(`${w.email}: free Check now "${got.checkSignin}", expected "${w.checkSignin}" (#3997)`);
     }
     if (typeof w.claudeReauth === 'boolean' && got.claudeReauth !== w.claudeReauth) {
       problems.push(`${w.email}: Claude reauth button ${got.claudeReauth ? 'present' : 'absent'}, expected ${w.claudeReauth ? 'present' : 'absent'}`);
@@ -280,5 +422,5 @@ const ACCOUNTS = [
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-account-badge-1921: the badge renders verified liveness per state; a merely-existing credential is muted, never green.');
+  console.log('render-account-badge-1921: the badge renders verified liveness per state; a merely-existing credential is amber (unconfirmed), never green.');
 })();

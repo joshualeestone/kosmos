@@ -673,6 +673,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    drop to its own line and wrap there rather than overrun the identity. */
 .acct-box-top > .acct-connected,
 .acct-box-top > .acct-none,
+.acct-box-top > .acct-unverified,
 .acct-box-top > .acct-unknown { margin-left: auto; max-width: 100%; white-space: normal; }
 .acct-who b { font-weight: 650; display: block; }
 .acct-org, .acct-keytail { display: block; color: var(--label-2); font-size: .8125rem; }
@@ -716,12 +717,19 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 /* #881: the two states a live check can also confirm, alongside .acct-connected.
    Neither dot pulses -- pulsing is reserved for "actively connected" (Josh's own
    framing for .acct-connected above); a static dot reads as a fact, not a
-   heartbeat. .acct-none is the genuine negative (warn tokens, same as this
-   file's other danger states); .acct-unknown is deliberately muted, not red --
+   heartbeat. .acct-none is the genuine negative (--danger since #3997, red); .acct-unknown is deliberately muted, not red --
    "we could not check" must never look as alarming as a confirmed problem. */
 .acct-none { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
+  font-weight: 600; color: var(--danger); white-space: nowrap; }
+.acct-none .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); flex: 0 0 8px; }
+/* #3997 (Josh, 2026-09-26: "only some of these that are signed in are actually green"): ONE vocabulary across every
+   provider. Green (.acct-connected) = confirmed working. AMBER (.acct-unverified) = signed in, not confirmed yet,
+   with Check now beside it. Red (.acct-none) = signed out, or a request was rejected. Muted grey (.acct-unknown) is
+   left only for "we could not check at all". The pill stays a short "Signed in" (Josh 6.68, #3136); the reason is
+   in its title. */
+.acct-unverified { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
   font-weight: 600; color: var(--warn-ink); white-space: nowrap; }
-.acct-none .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn-ink); flex: 0 0 8px; }
+.acct-unverified .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn-ink); flex: 0 0 8px; }
 .acct-unknown { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
   font-weight: 600; color: var(--label-2); white-space: nowrap; }
 .acct-unknown .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--label-2); flex: 0 0 8px; }
@@ -15497,6 +15505,19 @@ window.kosmosMeasureScrollbarWidth();
          ON, the per-project toggles govern each project as they do today. On by default
          (Josh chose the sound); the static markup starts ON and paintSettings confirms it
          from storage, so there is no flash. Copy is Mona Lisa's (the card). -->
+    <!-- #4025: the waiting count on the app icon (#3996), switchable. Kept on the board, not in this
+         browser, because the app reads the count from the board even with no page open. Ships hidden
+         and unclickable until the setting has loaded (paintSwitch), the auto-handoff pattern. Above
+         Sounds (#3138 keeps Sounds last). Hidden on Windows until its taskbar count ships (Homer). -->
+    <section class="dbox" data-win-hide>
+      <h3 class="dlab">App icon</h3>
+      <div class="setrow" id="wb-row" style="margin-top:14px;">
+        <div><b>Show the waiting count on the Kosmos icon</b>
+          <p class="dhint" style="margin:2px 0 0;">In the Kosmos app, the icon in the Dock shows how many things are waiting on you: agents that need you and unread messages. On by default.</p></div>
+        <button class="toggle" id="wb-toggle" role="switch" aria-label="Show the waiting count on the Kosmos icon" hidden><i></i></button>
+      </div>
+      <p class="dhint" id="wb-note" role="status" tabindex="-1"></p>
+    </section>
     <section class="dbox">
       <h3 class="dlab">Sounds</h3>
       <div class="setrow" id="snd-row" style="margin-top:14px;">
@@ -20279,7 +20300,7 @@ async function tick() {
        app need not ask the board itself while this page is polling. Nothing outside the Mac app. */
     try {
       const h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosBadge;
-      // null when this board has no count (older than #3996): the app clears the badge, and does not poll.
+      // null when this board has no count (older than #3996, or the person switched it off in Settings, #4025): the app clears the badge.
       if (h) h.postMessage(typeof c.waiting === 'number' ? c.waiting : null);
     } catch { /* not in the Mac app, or no window (a test): nothing to tell */ }
     /* #3423: if the Issue filter is on and there is nothing left to filter, exit it
@@ -21175,6 +21196,64 @@ async function paintYouTz() {
    newer paint or save cannot repaint over the fresher state -- which is the exact
    "a moved setting keeps its stored value" acceptance under tab churn. */
 let AH_EPOCH = 0;
+/* #4025: the App icon switch. Painted only from what the board holds (a read that fails leaves it
+   hidden, never a guessed Off), and a click saves and repaints from the board's answer. */
+let WB_EPOCH = 0;
+let WB_SAVING = false;
+async function paintWaitingBadge() {
+  if (WB_SAVING) return;   // a save in flight paints the board's answer itself; a repaint now could read the old value
+  await readWaitingBadge();
+}
+/* The read itself, for paintWaitingBadge and for a save whose answer was lost (round 5: that re-read
+   runs with WB_SAVING still set, so a second click or a Settings repaint waits for it). */
+async function readWaitingBadge() {
+  const mine = ++WB_EPOCH;
+  const wbMsg = document.getElementById('wb-note');
+  try {
+    const res = await fetch('/api/settings', { cache: 'no-store' });
+    if (mine !== WB_EPOCH) return;
+    if (!res.ok) throw new Error('not ok');
+    const r = await res.json();
+    if (mine !== WB_EPOCH) return;
+    if (!r || typeof r.waitingBadge !== 'boolean') throw new Error('no setting');   // an older board
+    paintSwitch('wb-toggle', r.waitingBadge);
+    if (wbMsg) wbMsg.textContent = '';
+  } catch {
+    if (mine !== WB_EPOCH) return;
+    /* The switch hides; if the keyboard was on it, the sentence under it takes focus (round 5), so
+       focus never falls to the page behind. */
+    const tog = document.getElementById('wb-toggle');
+    const hadFocus = !!tog && typeof document !== 'undefined' && document.activeElement === tog;
+    paintSwitch('wb-toggle', null);
+    if (wbMsg) wbMsg.textContent = 'We could not read this setting just now. Open Settings again to retry.';
+    if (hadFocus && wbMsg && typeof wbMsg.focus === 'function') wbMsg.focus();
+  }
+}
+async function saveWaitingBadge() {
+  const tog = document.getElementById('wb-toggle');
+  if (!tog || WB_SAVING || !tog.hasAttribute('aria-checked')) return;   // not loaded: never write over a stored value
+  WB_SAVING = true;
+  const mine = ++WB_EPOCH;
+  const wbMsg = document.getElementById('wb-note');
+  try {
+    const res = await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ waitingBadge: tog.getAttribute('aria-checked') !== 'true' }) });
+    const out = await res.json().catch(() => null);
+    if (mine !== WB_EPOCH) return;
+    if (!res.ok || !out || typeof out.waitingBadge !== 'boolean') throw new Error('not saved');
+    paintSwitch('wb-toggle', out.waitingBadge);   // what the board stored, not the click
+    if (wbMsg) wbMsg.textContent = '';
+  } catch {
+    if (mine === WB_EPOCH) {
+      /* Re-read (round 3): the board may have stored it and only the answer was lost, so the switch
+         draws what the board holds, then says the save did not come back. WB_SAVING stays set. */
+      await readWaitingBadge();
+      if (wbMsg && document.getElementById('wb-toggle') && !document.getElementById('wb-toggle').hidden) wbMsg.textContent = 'We could not save that just now. Try again in a moment.';
+    }
+  } finally { WB_SAVING = false; }
+}
+document.getElementById('wb-toggle') && document.getElementById('wb-toggle').addEventListener('click', saveWaitingBadge);
+
 async function paintAutomation() {
   const mine = ++AH_EPOCH;
   const th = document.getElementById('ah-threshold');
@@ -21586,6 +21665,7 @@ async function paintSettings() {
   /* #2436: a per-viewer localStorage preference, so there is nothing to fetch -- confirm
      the master sound toggle from storage on open (always a real boolean, never null). */
   paintSwitch('snd-toggle', soundMasterOn());
+  paintWaitingBadge();   // #4025
   const loc = document.getElementById('set-applocation');
   const mach = document.getElementById('set-machine');
   try {
@@ -22144,12 +22224,39 @@ function accountGroupsHtml(list, rowHtml) {
 let acctSayTimer = null;
 function acctCancelSay() { if (acctSayTimer) { clearTimeout(acctSayTimer); acctSayTimer = null; } }
 
-async function paintAccounts() {
+/* #3997: how often, and how many times, the list is read again while a sign-in's free check (ChatGPT or Grok) is still under way.
+   A healthy check answers within a second or two; a dead or slow one takes up to about 20 seconds (codex's own
+   handshake timeout), so the reads continue until nothing is pending or the count runs out. */
+const ACCT_FOLLOWUP = { ms: 3500, max: 6, busyMax: 60 };
+/* Never rebuild the list under the person's hands (review round 2): a Check now in flight (its button disabled) or a
+   half-pressed Disconnect or Delete. Focus alone is not busy (round 4: a button keeps focus after its answer, and the
+   row then kept saying "checking" long after its check had ended). */
+function acctListBusy(box) { return !!(box && box.querySelector('.acct-check:disabled, .armed')); }
+/* The next follow-up read, `n` of at most ACCT_FOLLOWUP.max. One that finds the list busy waits a turn, still counted,
+   and none reads if the list has been painted again meanwhile. */
+function acctFollowUp(n, busy) {
+  if (n > ACCT_FOLLOWUP.max) return;
+  /* A turn skipped because the list is busy (a Check now in flight, a half-armed Disconnect) waits without spending a
+     read, under its own cap (about 3.5 minutes), so a long press does not use up the reads and leave a row saying
+     "checking" after the check has finished (review round 15). */
+  const waited = Number.isInteger(busy) ? busy : 0;
+  if (waited > ACCT_FOLLOWUP.busyMax) return;
+  const mine = ACCT_EPOCH;
+  setTimeout(() => {
+    if (mine !== ACCT_EPOCH) return;
+    if (acctListBusy(document.getElementById('set-accounts'))) { acctFollowUp(n, waited + 1); return; }
+    paintAccounts({ followUp: n });
+  }, ACCT_FOLLOWUP.ms);
+}
+async function paintAccounts(opts) {
+  const followUp = (opts && Number.isInteger(opts.followUp)) ? opts.followUp : 0;
   const box = document.getElementById('set-accounts');
   const msg = document.getElementById('set-accounts-msg');
   /* A repaint is itself a writer to that line ("Checking your accounts..."), so
      it cancels too: otherwise a refusal scheduled 60ms ago lands over it. */
-  acctCancelSay();
+  /* A follow-up read (#3997) is not the person's repaint: it leaves the message line and its timer alone, so a
+     "Removed ..." sentence written just before it survives (review round 6). */
+  if (!followUp) acctCancelSay();
   if (!box) return;
   /* #881: GET /api/accounts now confirms each account live with Anthropic
      (a real check per account, not an instant directory stat), so this
@@ -22164,7 +22271,8 @@ async function paintAccounts() {
      able to paint stale data over fresh -- unlikely when this was an
      instant stat, a real risk now. */
   const mine = ++ACCT_EPOCH;
-  box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">Checking…</p>';
+  /* #3997: the follow-up read (below) repaints in place, without the placeholder flash. */
+  if (!followUp) box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">Checking…</p>';
   // ⚠️ THE ANNOUNCEMENT GOES THROUGH #set-accounts-msg (already
   // role="status"), NOT the list box itself. Making the whole account
   // list a live region would read out every account row on every
@@ -22172,7 +22280,7 @@ async function paintAccounts() {
   // announcing state changes politely. Caught in challenge-loop
   // iteration 6: this box went from an effectively-instant paint to a
   // real, multi-second one and had no announcement for that span at all.
-  if (msg) msg.textContent = 'Checking your accounts…';
+  if (msg && !followUp) msg.textContent = 'Checking your accounts…';
   let list = [];
   try {
     const res = await fetch('/api/accounts', { cache: 'no-store' });
@@ -22182,6 +22290,7 @@ async function paintAccounts() {
     if (mine !== ACCT_EPOCH) return;
   } catch {
     if (mine !== ACCT_EPOCH) return;
+    if (followUp) return;   // #3997: a failed background re-read keeps the list the person is looking at
     /* 🛑 CANCEL HERE TOO. The cancel at the top of this function runs BEFORE the
        await, so these two writes were the third and fourth exceptions to the
        "every writer cancels" claim above, and this diff has already corrected
@@ -22197,9 +22306,17 @@ async function paintAccounts() {
     accountsUnreadable();
     return;
   }
+  /* #3997 round 10: the person may have started something WHILE this follow-up was reading (a Check now, a
+     half-pressed Disconnect): look again before rebuilding, and if so wait a turn instead. */
+  if (followUp && acctListBusy(box)) { acctFollowUp(followUp, 1); return; }   // busy: wait, do not spend a read (round 15)
   accountsRead(list);
-  acctCancelSay();  /* post-await writer, same reason as the catch above */
-  if (msg) msg.textContent = '';
+  /* #3997: a sign-in (ChatGPT or Grok) whose free check is still under way is read again a few seconds on, so it turns green
+     (or says what is wrong) without the person doing anything; bounded by ACCT_FOLLOWUP.max, never a loop. */
+  if (followUp < ACCT_FOLLOWUP.max && list.some((a) => a && a.connection && a.connection.liveCheckPending)) acctFollowUp(followUp + 1);
+  if (!followUp) {
+    acctCancelSay();  /* post-await writer, same reason as the catch above */
+    if (msg) msg.textContent = '';
+  }
   /* 🔑 GROUPED BY PROVIDER (kosmos#1393). Josh, twice on 2026-08-28: the Claude
      Max 20x line "is still not in that bounding box that it's supposed to be in,
      that goes underneath Claude". The heading above already promised the shape,
@@ -22243,6 +22360,11 @@ async function paintAccounts() {
        holds a sign-in, not a key, and its titles say so. */
     const keyRoute = ACCT_KEYED_ROUTE[acctProvider(a)] || '';
     const isKeyed = !!keyRoute;
+    /* #3997: a ChatGPT sign-in and a Grok subscription each have a FREE live check, so they get Check now too. */
+    /* A Grok sign-in that has lapsed, or that could not be read, has nothing a check could confirm: no button there. */
+    const signInCheck = isOpenai && a.authMode === 'chatgpt' ? 'openai'
+      : (acctProvider(a) === 'xai' && a.authMode === 'subscription' && a.connection && a.connection.state === 'connected') ? 'grok' : '';
+    const canCheckSignIn = !!signInCheck;
     /* #2095: the human-chosen name is the primary label (was key-last-4-only). */
     const who = esc(acctPrimaryName(a));
     const org = a.organization && a.organization !== a.email
@@ -22373,7 +22495,9 @@ async function paintAccounts() {
        the ONLY green and it means we SAW a request succeed -- so the pulsing dot's
        "actively connected" (Josh, #864) is finally true rather than merely "a
        credential exists". A credential that only EXISTS is `signed_in_unverified`:
-       muted, NOT green, which is the say-what-you-know half #874 could not reach. */
+       amber since #3997 (it was muted grey), NOT green, which is the say-what-you-know half #874 could not reach.
+       #3997: green also comes from a free live check that got an answer (the ChatGPT handshake, the Grok models
+       listing), recorded the same way; still never from a credential that merely exists. */
     const badge = a.connection && a.connection.badge;
     const ageStr = agoWords(a.connection && a.connection.observedAgeMs);
     const workingWhy = 'a real request on this account succeeded recently' + (ageStr ? ' (' + ageStr + ')' : '') + '. This is an observed outcome, not a probe.';
@@ -22381,17 +22505,22 @@ async function paintAccounts() {
     // #3136 (Josh, 6.68): the PILL now reads a neutral "Signed in" (Josh saw "not recently
     // checked" and read it as "not connected" though he was). The "not verified live" nuance
     // moves here, into the tooltip, and nudges toward the "Check now" button beside the badge
-    // (added with #3145's on-demand probe). Still #874-safe: the dot stays muted, not green --
+    // (added with #3145's on-demand probe). Still #874-safe: the dot stays amber (#3997), not green --
     // we are NOT claiming the sign-in works, only that it exists and can be verified on demand.
     const unverifiedWhy = 'This account is signed in. We have not seen a request on it succeed recently, so we are not confirming it live here. '
-      + (isKeyed ? 'It confirms itself the next time an agent on it runs.' : 'Use Check now to verify it, or it confirms itself the next time an agent on it runs.');
+      + ((isKeyed && !canCheckSignIn) ? 'It confirms itself the next time an agent on it runs.' : 'Use Check now to verify it, or it confirms itself the next time an agent on it runs.');
+    /* #3997: a Grok subscription's own reason (for example, its key expired and Grok renews it on its next run). */
+    const grokWhy = acctProvider(a) === 'xai' && a.authMode === 'subscription' && a.connection ? a.connection.because : '';
+    /* An expired key cannot be checked until Grok runs, so that title does not point at Check now (the server's
+       structured verdict, not a match on its sentence: review round 4). */
+    const unverifiedTitle = grokWhy ? ((a.connection.liveVerdict === 'expired' || a.connection.liveVerdict === 'pending') ? grokWhy + '.' : grokWhy + '. Use Check now to verify it.') : null;
     let connBadge;
     if (badge === 'working') {
       connBadge = '<span class="acct-connected" title="' + esc(workingWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in' + (ageStr ? ' · active ' + esc(ageStr) : '') + '</span>';
     } else if (badge === 'rejected') {
       connBadge = '<span class="acct-none" title="' + esc(rejectedWhy) + '"><span class="dot" aria-hidden="true"></span>Not connected' + (ageStr ? ' · rejected ' + esc(ageStr) : '') + '</span>';
     } else if (badge === 'signed_in_unverified') {
-      connBadge = '<span class="acct-unknown" title="' + esc(unverifiedWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in</span>';
+      connBadge = '<span class="acct-unverified" title="' + esc(unverifiedTitle || unverifiedWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in</span>';
     } else if (badge === 'signed_out') {
       connBadge = '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(noneWhy) + '</span>';
     } else if (badge === 'unchecked') {
@@ -22399,8 +22528,8 @@ async function paintAccounts() {
     } else if (isOpenai && a.authMode === 'chatgpt') {
       /* #2568: a ChatGPT SUBSCRIPTION row. Its checkLive() honestly returns state
          UNKNOWN with a real, LONG because sentence ("this sign-in method is not yet
-         checked live; it may or may not still work") -- there is no live probe for a
-         subscription sign-in yet (openaiaccounts.js checkLive). OpenAI rows carry no
+         checked live; it may or may not still work") -- at the time there was no live probe
+         for a subscription sign-in (there is since #2790, codex's handshake, and #3997 starts it on open). OpenAI rows carry no
          server `badge`, so before this it fell to the legacy fallback below and rendered
          that whole sentence in the pill span. The pill classes are `white-space: nowrap`,
          so a long sentence cannot wrap: it overflowed the pill and collided with the email
@@ -22412,7 +22541,17 @@ async function paintAccounts() {
          rule the #1921 badge vocabulary already uses, so the pill states what it knows without
          the whole reason living in the visible span. This is the "auth_mode-shape display"
          #2568 asks the OpenAI row to adopt. */
-      connBadge = '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · not checked live</span>';
+      /* #3997: amber "Signed in" like every other unconfirmed sign-in (was a grey "Signed in · not checked live").
+         Opening this screen starts the free check (server.js), and a row still waiting on it says so in its title;
+         the page reads the list again, a bounded number of times, until that check has finished. */
+      const checkingWhy = 'Checking this sign-in now.';
+      const cstate = a.connection && a.connection.state;
+      /* The check's own verdict: confirmed is green, a sign-in ChatGPT refused is red ("sign in again" is its title). */
+      connBadge = cstate === 'connected'
+        ? '<span class="acct-connected" title="' + esc((a.connection && a.connection.because) || 'this sign-in reached ChatGPT, so it is working') + '"><span class="dot" aria-hidden="true"></span>Signed in</span>'
+        : cstate === 'none'
+          ? '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>Not connected</span>'
+          : '<span class="acct-unverified" title="' + esc(a.connection && a.connection.liveCheckPending ? checkingWhy : unknownWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in</span>';
     } else {
       /* The legacy state ternary, kept as the fallback for any row without a `badge`.
          Two rows land here today: an OpenAI API-KEY row (the server overlays `badge` onto
@@ -22469,9 +22608,15 @@ async function paintAccounts() {
          honestly reddens) THIS account's badge on demand. The passive badge only
          greens from a witnessed streaming turn, so a signed-in-but-idle account
          reads as "not connected" though it is fine (Josh, 0.6.68); this lets the
-         person confirm it now. Claude rows only: the probe is a real `claude -p`
-         call, and "not recently checked" is the Claude-side report this answers. */
-      + (isKeyed ? ''
+         person confirm it now. This button is the Claude probe (a real `claude -p` call);
+         #3997 adds a FREE Check now for a ChatGPT sign-in or a Grok subscription (data-check-signin). */
+      + (isKeyed ? (canCheckSignIn
+          /* data-check-dir FIRST: focus restoration finds a control again by its first data-* attribute, and the
+             folder is unique where the provider kind is not (review round 7). */
+          ? '<button class="acct-check" type="button" data-check-dir="' + esc(a.dir) + '" data-check-signin="' + esc(signInCheck) + '" '
+            + 'aria-label="Check now whether ' + who + (qual ? ' (' + esc(qual) + ')' : '') + ' is connected" '
+            + 'title="' + esc('Asks the provider whether this sign-in works right now. It uses no quota.') + '">Check now</button>'
+          : '')
         : '<button class="acct-check" type="button" data-check-claude="' + esc(a.dir) + '" '
           + 'aria-label="Check now whether ' + who + (qual ? ' (' + esc(qual) + ')' : '') + ' is connected" '
           + 'title="' + esc('Makes one real request on this account to confirm it is connected right now, then updates the badge.') + '">Check now</button>')
@@ -22615,7 +22760,15 @@ async function paintAccounts() {
       + '</div>'
       + '</div>';
   };
+  /* #3997 round 6: a follow-up rebuild keeps keyboard focus where it was, found again by the control's own data-*
+     attribute and value, so a person tabbing through the rows does not lose their place. */
+  const fEl = followUp && box.contains(document.activeElement) ? document.activeElement : null;
+  const fAttr = fEl ? [...fEl.attributes].find((x) => x.name.startsWith('data-')) : null;
   box.innerHTML = accountGroupsHtml(list, acctRowHtml);
+  if (fAttr) {
+    const back = [...box.querySelectorAll('[' + fAttr.name + ']')].find((x) => x.getAttribute(fAttr.name) === fAttr.value);
+    if (back && typeof back.focus === 'function') back.focus();
+  }
   /* #1372: remove an OpenAI account. The engine FORGETS rather than
      deletes, so the sentence says the sign-in file is still on the
      computer: "removed" and "deleted" are different promises and the
@@ -22683,6 +22836,28 @@ async function paintAccounts() {
      is NOT a dead account (#1916) — the badge is left untouched and the button
      says so briefly rather than asserting a result. On connected/none the outcome
      is recorded server-side, so a repaint renders the real badge. */
+  /* #3997: Check now on a ChatGPT sign-in or a Grok subscription. Free checks (no quota), otherwise the same shape as
+     the Claude one below: disabled while in flight, and an answer that confirms nothing leaves the badge as it is
+     and says so on the button, with the provider's reason in its title. */
+  for (const btn of box.querySelectorAll('[data-check-signin]')) {
+    btn.addEventListener('click', async () => {
+      const label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Checking…';
+      let j = {};
+      try {
+        const res = await fetch('/api/accounts/' + btn.dataset.checkSignin + '/check', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir: btn.dataset.checkDir }),
+        });
+        j = res.ok ? ((await res.json()) || {}) : {};
+      } catch { j = {}; }
+      if (j.state === 'connected' || j.state === 'none' || j.state === 'refused') { await paintAccounts(); return; }
+      btn.textContent = j.state === 'expired' ? 'Not until Grok runs again' : 'Could not confirm, try again';
+      if (j.because) btn.title = j.because;
+      btn.disabled = false;
+      setTimeout(() => { if (btn.isConnected) btn.textContent = label; }, 4000);
+    });
+  }
   for (const btn of box.querySelectorAll('[data-check-claude]')) {
     btn.addEventListener('click', async () => {
       const dir = btn.dataset.checkClaude;

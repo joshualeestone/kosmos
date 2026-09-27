@@ -2397,8 +2397,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /* A forward check, not a switch the person can reach today: macOS lists an app under
        Notifications (with its Badges switch) only once it has asked for notification permission,
        and Kosmos does not ask (a system dialog nobody asked for). So this reads .notSupported and
-       the badge shows; if Kosmos ever asks, turning badges off there will hide it. An in-app off
-       switch is a follow-up card. UNUserNotificationCenter needs a real bundle, so a bare binary
+       the badge shows; if Kosmos ever asks, turning badges off there will hide it. The in-app off
+       switch is Settings > Computer > App icon (#4025): off, the board serves counts.waiting as null
+       and the badge clears. UNUserNotificationCenter needs a real bundle, so a bare binary
        (a selftest, the prototype build) skips the question. */
     /* Asked at most every five minutes (the setting almost never changes, and a badge update runs
        every few seconds): the last answer is kept and handed on in between. */

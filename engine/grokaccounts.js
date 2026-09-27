@@ -308,9 +308,10 @@ async function checkLive(dir, _opts) {
   return { ...live, checkedLive: true };
 }
 
-/* A subscription account, judged OFFLINE from its auth.json (#3391). There is no
-   live check: grok has no `login status`, `grok models` lists models even with an
-   empty key, and refreshing a person's token from a probe is not ours to do. So a
+/* A subscription account, judged OFFLINE from its auth.json (#3391). grok has no
+   `login status`, `grok models` lists models even with an empty key, and refreshing a
+   person's token from a probe is not ours to do. (#3997 adds a separate free live check,
+   subscriptionLive below, for a key that has not expired.) So a
    sign-in grok can renew (a refresh token) or one still inside its expiry is
    CONNECTED; the /api/accounts overlay in server.js badges it signed_in_unverified
    until a real grok session succeeds on it. NONE only for a sign-in that has
@@ -329,6 +330,83 @@ function subscriptionVerdict(dir) {
   /* Pill-sized: a long sentence overflows the account pill (#2568). The remedy is the
      row's own Sign in again button (startGrokLogin with reauthDir), not this text. */
   return { state: STATE.NONE, checkedLive: true, because: 'Grok sign-in expired' };
+}
+
+/* #3997: a FREE live check for a subscription sign-in. grok's stored key is short-lived (about six hours, measured
+   2026-09-26) and grok renews it itself whenever it runs. Kosmos never renews it: a renewal rotates the refresh token
+   under a running grok (#3391). So only a key that has not expired is checked, with the same models listing grok
+   itself reads (cli-chat-proxy.grok.com/v1/models, measured: 200 with a working sign-in, 401 with a bad key). It
+   spends nothing.
+     live       200: the sign-in works right now.
+     refused    401/403: not confirmed. Not "dead": grok may renew it on its next run.
+     expired    the key has expired, so there is nothing to check until grok runs again.
+     unknown    no answer (network, an unreadable file, anything else); never a negative. */
+const SUBSCRIPTION_EXPIRY_MARGIN_MS = 60 * 1000;
+/* Callers asking about the same folder at the same moment (two screens reading the list) share one request. */
+const subscriptionLiveInflight = new Map();
+/* A definite answer (live or refused) is kept 30 seconds per folder AND key, so the list's follow-up reads do not ask
+   xAI again each time (review round 4); a new key (grok renewed it) asks afresh. "No answer" is never kept. */
+const SUBSCRIPTION_LIVE_TTL_MS = 30 * 1000;
+const subscriptionLiveCache = new Map();
+/* Bumped by a reset, so a check started before it never writes after it. */
+let subscriptionLiveGeneration = 0;
+function resetSubscriptionLiveForTest() { subscriptionLiveCache.clear(); subscriptionLiveInflight.clear(); subscriptionLiveGeneration += 1; }
+function subscriptionLive(dir) {
+  const key = path.resolve(String(dir || ''));
+  if (subscriptionLiveInflight.has(key)) return subscriptionLiveInflight.get(key);
+  const p = subscriptionLiveOnce(dir).finally(() => { if (subscriptionLiveInflight.get(key) === p) subscriptionLiveInflight.delete(key); });
+  subscriptionLiveInflight.set(key, p);
+  return p;
+}
+/* `fresh`: Check now. Its own request, never a kept answer, and what it learns is kept for the list. */
+async function subscriptionLiveOnce(dir, opts) {
+  const fresh = !!(opts && opts.fresh);
+  const auth = readAuth(dir);
+  if (auth.kind !== 'ok') return { verdict: 'unknown', because: 'Could not read the Grok sign-in' };
+  const e = auth.entry;
+  const until = typeof e.expires_at === 'string' ? Date.parse(e.expires_at) : NaN;
+  if (typeof e.key !== 'string' || !e.key || !Number.isFinite(until) || until <= Date.now() + SUBSCRIPTION_EXPIRY_MARGIN_MS) {
+    return { verdict: 'expired', because: 'Grok renews this sign-in the next time it runs, so it cannot be checked until then' };
+  }
+  const cacheKey = path.resolve(String(dir || '')) + '|' + e.key;
+  const kept = subscriptionLiveCache.get(cacheKey);
+  /* Every answer carries `at`, when it was learned, so a kept one is never recorded as newer than it is (round 6). */
+  if (!fresh && kept && Date.now() - kept.at < SUBSCRIPTION_LIVE_TTL_MS) return kept.answer;
+  const gen = subscriptionLiveGeneration;
+  const startedAt = Date.now();
+  /* #3997 round 11: a check that finishes after a NEWER one (a Check now that started later and answered first) neither
+     overwrites it nor reports its own older answer; both callers then see the newer one. */
+  const keep = (answer) => {
+    const had = subscriptionLiveCache.get(cacheKey);
+    if (had && had.at > startedAt) return had.answer;
+    const at = Date.now();
+    const a = { ...answer, at };
+    if (gen === subscriptionLiveGeneration) subscriptionLiveCache.set(cacheKey, { answer: a, at });
+    return a;
+  };
+  const f = fetcher || (async (url, init) => {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 8000);
+    try {
+      const res = await fetch(url, { ...init, signal: ctl.signal });
+      return { status: res.status };
+    } finally { clearTimeout(t); }
+  });
+  const url = process.env.AGENT_WORKFORCE_GROK_SUB_MODELS_URL || 'https://cli-chat-proxy.grok.com/v1/models';
+  let r;
+  try { r = await f(url, { method: 'GET', headers: { authorization: 'Bearer ' + e.key } }); }
+  catch { return { verdict: 'unknown', because: 'we could not reach Grok to check this sign-in' }; }
+  const status = r && r.status;
+  if (status === 200) return keep({ verdict: 'live', because: 'Grok confirmed this sign-in works' });
+  if (status === 401 || status === 403) return keep({ verdict: 'refused', because: 'Grok did not accept this sign-in just now. Signing in again fixes it' });
+  return { verdict: 'unknown', because: 'we asked Grok about this sign-in and could not tell' };
+}
+
+/** True when this read's check REFUSED the sign-in after the agent's observed success (review round 12, the Grok
+    sibling of codexsigninlive.deadIsNewer): the older success then no longer paints the row green. */
+function refusalIsNewer(check, agentObs) {
+  return !!(check && check.verdict === 'refused' && Number.isFinite(check.at)
+    && agentObs && agentObs.outcome === 'ok' && Number.isFinite(agentObs.at) && check.at > agentObs.at);
 }
 
 /* ---- add / store / forget / remove ---------------------------------------- */
@@ -927,7 +1005,7 @@ const listLive = inflight.collapse(listLiveNow);
 module.exports = {
   STATE, PROVIDER, PROVIDER_NAME, DIR_PREFIX, KEY_BASENAME, FORGOTTEN_PREFIX,
   homeDir, defaultDir, keyFile, identityOf, list,
-  setFetcher, askModels, validateLive, checkLive, listLive,
+  setFetcher, askModels, validateLive, checkLive, listLive, subscriptionLive, subscriptionLiveOnce, resetSubscriptionLiveForTest, refusalIsNewer,
   keyProblem, cleanLabel, dirForLabel, nextWorkDir,
   storeKey, forgetKey, forgetAccount, removeAccount,
   authFile, readAuth, parseGrokLoginOutput, startGrokLogin, reauthTarget, grokLoginStatus, cancelGrokLogin, setGrokTimers,

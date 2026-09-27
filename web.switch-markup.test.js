@@ -41,7 +41,7 @@ function openingTag(id) {
 // #2054: ah-toggle and hb-toggle joined the family (Auto-save and Prompter became
 // sliders). #2623: tell-toggle and notify-toggle (the "let the Kosmos team know..."
 // telemetry opt-outs) were DELETED with the telemetry itself, so they leave this list.
-const SWITCHES = ['auto-toggle', 'lim-toggle', 'eng-toggle', 'ah-toggle', 'hb-toggle'];
+const SWITCHES = ['auto-toggle', 'lim-toggle', 'eng-toggle', 'ah-toggle', 'hb-toggle', 'wb-toggle'];   // wb-toggle: #4025
 
 test('#229: no switch carries a static aria-checked in the markup', () => {
   for (const id of SWITCHES) {

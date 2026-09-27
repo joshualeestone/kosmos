@@ -137,7 +137,10 @@ function setRunner(fn) { runner = fn; }              // tests
 const cache = new Map();
 // homeKey -> Promise<{ verdict, cause }>, so concurrent callers on a miss share one doctor run.
 const inflight = new Map();
-function resetForTest() { cache.clear(); inflight.clear(); runner = defaultRunner; }
+/* #3997 round 4: a run started before a reset (a test's, or a board restart's) must not write into the cache after
+   it, so every run carries the generation it started in. */
+let generation = 0;
+function resetForTest() { cache.clear(); inflight.clear(); runner = defaultRunner; generation += 1; }
 
 /**
  * livenessDetailed(dir, nowMs?) -> Promise<{ verdict, cause }>. The full result: the verdict AND
@@ -152,13 +155,21 @@ async function livenessDetailed(dir, nowMs) {
   const cur = cache.get(key);
   if (cur && (now - cur.at) < TTL_MS) return { verdict: cur.verdict, cause: cur.cause };
   if (inflight.has(key)) return inflight.get(key);
+  const gen = generation;
+  const startedAt = now;
   const p = Promise.resolve()
     .then(() => runner(dir))
     .then((r) => (r && r.ok ? classifyDetailed(r.stdout) : { verdict: 'unknown', cause: 'indeterminate' }))
     .catch(() => ({ verdict: 'unknown', cause: 'indeterminate' }))
     .then((res) => {
-      cache.set(key, { verdict: res.verdict, cause: res.cause, at: (typeof nowMs === 'number' ? nowMs : Date.now()) });
-      inflight.delete(key);
+      /* #3997 round 4: never overwrite a NEWER answer (a Check now that ran while this one was in flight, against a
+         sign-in the person had just fixed), and never write across a reset. */
+      const had = cache.get(key);
+      /* ...except a newer entry that says nothing (unknown) does not block an older run's real live or dead (round 6). */
+      if (gen === generation && !(had && had.at > startedAt && !(had.verdict === 'unknown' && res.verdict !== 'unknown'))) {
+        cache.set(key, { verdict: res.verdict, cause: res.cause, at: (typeof nowMs === 'number' ? nowMs : Date.now()) });
+      }
+      if (inflight.get(key) === p) inflight.delete(key);
       return res;
     });
   inflight.set(key, p);
@@ -178,11 +189,17 @@ async function liveness(dir, nowMs) { return (await livenessDetailed(dir, nowMs)
  * cause:'indeterminate' } -- and it NEVER runs `codex doctor`. It is synchronous and has NO side
  * effect (it does not spawn and does not kick a warm), so `/api/accounts` can read a chatgpt row's
  * verdict and return immediately (grey on a cold miss) without ever blocking on the 1.8-20s
- * handshake. The off-tick warm is codexauthprobe's job (it calls the AWAITING liveness/checkLive to
- * fill this same cache), so the next render is warm; a truly idle account nobody probes stays grey,
- * which is honest. Contrast liveness()/livenessDetailed(), which DO run a fresh doctor on a cold
+ * handshake. The warm is codexauthprobe's (for a home with a running agent) and, since #3997, the
+ * /api/accounts read's own: it STARTS a check for a cold home without waiting on it. Contrast liveness()/livenessDetailed(), which DO run a fresh doctor on a cold
  * miss -- create.accountConnectable and codexauthprobe want that real, awaited verdict.
  */
+/* #3997 round 6/7: true when this home's fresh cached answer is DEAD and was learned after `observedAt` (an agent's
+   older success). The OpenAI overlay uses it so a person's newer "not connected" is not painted over. */
+function deadIsNewer(dir, observedAt, nowMs) {
+  const now = typeof nowMs === 'number' ? nowMs : Date.now();
+  const cur = cache.get(homeKey(dir));
+  return !!cur && (now - cur.at) < TTL_MS && cur.verdict === 'dead' && Number.isFinite(observedAt) && cur.at > observedAt;
+}
 function livenessCached(dir, nowMs) {
   const now = typeof nowMs === 'number' ? nowMs : Date.now();
   const cur = cache.get(homeKey(dir));
@@ -190,4 +207,32 @@ function livenessCached(dir, nowMs) {
   return { verdict: 'unknown', cause: 'indeterminate' };
 }
 
-module.exports = { liveness, livenessDetailed, livenessCached, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };
+/* #3997: where this home's check stands, so /api/accounts can say "checking" only while one really is running (a
+   finished check that got no answer is 'fresh' too: its 'unknown' is the answer, not a check still under way). */
+function checkState(dir, nowMs) {
+  const now = typeof nowMs === 'number' ? nowMs : Date.now();
+  const key = homeKey(dir);
+  const cur = cache.get(key);
+  if (cur && (now - cur.at) < TTL_MS) return 'fresh';
+  return inflight.has(key) ? 'running' : 'cold';
+}
+/* #3997 round 3: a NEW run for Check now, never joined to one already in flight (opening the list may have started
+   one against the sign-in from before the person fixed it). Its answer is cached as the freshest. */
+async function livenessNow(dir) {
+  const gen = generation;
+  let res;
+  try {
+    const r = await runner(dir);
+    res = r && r.ok ? classifyDetailed(r.stdout) : { verdict: 'unknown', cause: 'indeterminate' };
+  } catch { res = { verdict: 'unknown', cause: 'indeterminate' }; }
+  /* No answer changes nothing (the #1316/#1916 rule the route states): a fresh live or dead stays as it is. */
+  const key = homeKey(dir);
+  const had = cache.get(key);
+  const hadFresh = had && (Date.now() - had.at) < TTL_MS && had.verdict !== 'unknown';
+  if (gen === generation && !(res.verdict === 'unknown' && hadFresh)) {
+    cache.set(key, { verdict: res.verdict, cause: res.cause, at: Date.now() });
+  }
+  return res.verdict;
+}
+
+module.exports = { liveness, livenessDetailed, livenessCached, deadIsNewer, checkState, livenessNow, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };

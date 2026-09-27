@@ -97,5 +97,6 @@ test('#3996: the bundle build runs the badge selftest and requires its verdict',
 
 test('#3996: the board serves the one number the badge shows', () => {
   const server = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
-  assert.match(server, /counts\.waiting = waitingTotal\(counts, rows\);/);
+  // #4025: behind the Settings switch (null when off); the served value is pinned by server.test.js '#4025'.
+  assert.match(server, /counts\.waiting = waitingBadgeOn\(badgeSettings\) \? waitingTotal\(counts, rows\) : null;/);
 });

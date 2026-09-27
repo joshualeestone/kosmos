@@ -269,4 +269,5 @@ jobs:
             render-login-expiry-3532
             render-win32-board-copy
             render-fed-plus-gate
+            render-waiting-badge-4025
         run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
