@@ -7878,6 +7878,38 @@ const server = http.createServer((req, res) => {
       return;
     }
   }
+  /* #3568 on Windows: the Gemini subscription sign-in with nothing but Google's page and a code box.
+     Kosmos runs agy's sign-in out of sight (engine/win32agysignin.js), opens Google's page itself, and
+     hands agy the code the person pastes. POST starts (replacing any other), GET reads the state,
+     /code and /stop name the sign-in they mean by the id the start answered. Windows only: anywhere
+     else these addresses do not exist. Starting needs the subscription to be offered (its switch on). */
+  if (pathname === '/api/antigravity/win32signin' || pathname.startsWith('/api/antigravity/win32signin/')) {
+    if (process.platform !== 'win32') { req.resume(); sendJson(res, 404, { error: 'there is nothing at that address' }); return; }
+    const signin = require('./engine/win32agysignin');
+    const sub = pathname.slice('/api/antigravity/win32signin'.length);
+    if (sub === '' && req.method === 'GET') {
+      try { sendJson(res, 200, signin.status()); } catch { sendJson(res, 500, { error: 'we could not read the sign-in just now' }); }
+      return;
+    }
+    if (req.method !== 'POST' || !['', '/code', '/stop'].includes(sub)) { req.resume(); sendJson(res, 404, { error: 'there is nothing at that address' }); return; }
+    readBody(req).then(async (raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      const id = body && typeof body.id === 'string' ? body.id : '';
+      const conflict = (r) => (r.because === signin.NOT_MINE ? 409 : 400);
+      try {
+        if (sub === '') {
+          const r = await require('./engine/agystatus').openForSignIn();
+          if (!r.ok) { sendJson(res, 400, { ok: false, error: r.because }); return; }
+          sendJson(res, 200, { ok: true, ...signin.status() });
+          return;
+        }
+        const r = sub === '/code' ? await signin.code(body && body.code, id) : signin.stop(id);
+        sendJson(res, r.ok ? 200 : conflict(r), r.ok ? { ok: true, ...signin.status() } : { ok: false, error: r.because, because: r.because });
+      } catch { sendJson(res, 500, { ok: false, error: 'Kosmos could not do that just now' }); }
+    }).catch(() => sendJson(res, 400, { ok: false, error: 'we could not read that request' }));
+    return;
+  }
   /* Add an OpenAI account from a pasted key (#540). The key goes to codex's
      own login on stdin and is never echoed, logged, or answered back. */
   if (pathname === '/api/accounts/openai' && req.method === 'POST') {

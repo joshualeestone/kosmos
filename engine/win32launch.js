@@ -160,7 +160,8 @@ function childEnv(baseEnv, token, configDir, cliDir, runner) {
      GEMINI AND GROK TOO: both run their shell tool through PowerShell on Windows
      (gemini 0.61.0's getShellConfiguration picks powershell.exe; grok 1.0.41 ships a
      PowerShell shell), so their `kosmos reply` meets the same policy. */
-  if (runner === 'codex' || runner === 'gemini' || runner === 'grok') env.PSExecutionPolicyPreference = 'Bypass';
+  /* #3568: Antigravity too; its shell tool on Windows is PowerShell's (UNPROVEN until a real turn). */
+  if (runner === 'codex' || runner === 'gemini' || runner === 'grok' || runner === 'antigravity') env.PSExecutionPolicyPreference = 'Bypass';
   return env;
 }
 
@@ -264,7 +265,7 @@ function mcpConfigFor(s) {
  */
 /* The bare name per runner. gemini/grok are here so a stale hint never falls back to
    `claude` for them; their per-turn supervisor asks the resolver again before using it. */
-const BARE = Object.freeze({ codex: 'codex', gemini: 'gemini', grok: 'grok' });
+const BARE = Object.freeze({ codex: 'codex', gemini: 'gemini', grok: 'grok', antigravity: 'agy' });
 function binFor(s) {
   const bare = String(BARE[(s && s.runner) || ''] || 'claude');
   const given = s && s.claudeBin;

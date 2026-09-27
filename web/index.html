@@ -11546,6 +11546,16 @@ window.kosmosMeasureScrollbarWidth();
           <a class="btn" id="acct-gemini-sub-open" href="#" target="_blank" rel="noopener">About Antigravity</a>
         </div>
         <p class="dhint" id="acct-gemini-sub-code" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
+        <!-- #3568 (Windows): the code Google's page shows is pasted HERE; Kosmos hands it to Antigravity, which it runs out of sight.
+             Same ids as #3998's Mac box. -->
+        <div id="acct-gemini-sub-paste-row" hidden style="margin-top:8px;">
+          <label class="dhint" for="acct-gemini-sub-paste" style="display:block;margin:0 0 6px;">Paste the code from Google's page here.</label>
+          <div class="frow">
+            <input type="text" id="acct-gemini-sub-paste" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="4/0A&hellip;">
+            <button class="btn uprime" id="acct-gemini-sub-paste-go" type="button">Continue</button>
+          </div>
+          <p class="acct-help" style="margin:6px 0 0;"><a class="btn-quiet" id="acct-gemini-sub-page" href="#" target="_blank" rel="noreferrer noopener">Open Google's sign-in page again<span class="vh"> (opens in your browser)</span></a></p>
+        </div>
         <div class="frow" id="acct-gemini-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="acct-gemini-sub-cancel" type="button">Stop this sign-in</button></div>
       </div>
     </div>
@@ -12636,6 +12646,16 @@ window.kosmosMeasureScrollbarWidth();
                     <a class="btn" id="fr-gemini-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a>
                   </div>
                   <p class="dhint" id="fr-gemini-sub-code" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
+                  <!-- #3568 (Windows): the code Google's page shows is pasted HERE; Kosmos hands it to Antigravity, which it runs out of sight.
+                       Same ids as #3998's Mac box. -->
+                  <div id="fr-gemini-sub-paste-row" hidden style="margin-top:8px;">
+                    <label class="dhint" for="fr-gemini-sub-paste" style="display:block;margin:0 0 6px;">Paste the code from Google's page here.</label>
+                    <div class="frow">
+                      <input type="text" id="fr-gemini-sub-paste" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="4/0A&hellip;">
+                      <button class="btn uprime" id="fr-gemini-sub-paste-go" type="button">Continue</button>
+                    </div>
+                    <p class="acct-help" style="margin:6px 0 0;"><a class="btn-quiet" id="fr-gemini-sub-page" href="#" target="_blank" rel="noreferrer noopener">Open Google's sign-in page again<span class="vh"> (opens in your browser)</span></a></p>
+                  </div>
                   <div class="frow" id="fr-gemini-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="fr-gemini-sub-cancel" type="button">Stop this sign-in</button></div>
                 </div>
                 <div id="fr-gemini-flow" hidden class="fr-confirm">
@@ -25318,6 +25338,8 @@ const FR_KEYED = { google: { pre: 'gemini' }, xai: { pre: 'grok' } };
    step is: check agy (installed? signed in?), and either say it is ready, show Google's installer, or
    open agy once in Terminal for the sign-in and offer Check again. Nothing is typed into agy. */
 let FR_AGY_READY = false;   // Gemini on a Google subscription confirmed signed in on this computer
+/* #3568: Windows signs in without a Terminal (the driver's win* steps). */
+const agyOnWindows = () => typeof onWindows === 'function' && onWindows();
 const frCap = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
 /* #3874: one driver, two places. `pre` is the id prefix of the step it paints (first run's Gemini
    row, or Settings' Add a provider); `onReady` is what that place does once agy is signed in. Each
@@ -25326,7 +25348,89 @@ function agySubDriver(pre, onReady) { return {
   busy: false,
   gen: 0,          // bumped when the row closes: an answer for a closed row writes nothing (review round 1)
   next: 'check',   // what the step's button does next: 'install' Antigravity, 'open' its sign-in, or 'check'
-  leave() { this.gen += 1; this.busy = false; this.next = 'check'; },
+  leave() { this.gen += 1; this.busy = false; this.next = 'check'; this.winLeave(); },
+  /* #3568 on Windows: no Terminal. Kosmos runs agy's sign-in out of sight (POST
+     /api/antigravity/win32signin), opens Google's page itself, and the person pastes the code Google's
+     page shows into this step's box. The state is read once a second until it is signed in or ended. */
+  winId: null,
+  winState: null,
+  winReady: onReady,
+  winShowPaste(on, link) {
+    const row = this.el('paste-row'); if (row) row.hidden = !on;
+    const a = this.el('page'); if (a && link) a.href = link;
+    const go = this.el('paste-go'); if (go) go.disabled = false;
+    if (on) { const inp = this.el('paste'); if (inp && document.activeElement !== inp) inp.focus(); }
+  },
+  winLeave() {
+    const id = this.winId; this.winId = null; this.winState = null;
+    this.winShowPaste(false);
+    if (id) fetch('/api/antigravity/win32signin/stop', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) }).catch(() => {});
+  },
+  async winStart(live) {
+    this.winShowPaste(false);
+    this.winState = null;
+    this.say("Opening Google's sign-in page…", '', false);
+    const r = await this.post('/api/antigravity/win32signin');
+    if (!live()) return;
+    if (!r || !r.ok || !r.id) {
+      this.next = 'open';
+      this.say(frCap((r && r.error) || "We could not start Google's sign-in just now") + '.', 'Sign in with Google', false);
+      return;
+    }
+    this.winId = r.id;
+    this.winPaint(r);
+    const id = r.id;
+    const tick = async () => {
+      if (!live() || this.winId !== id) return;
+      let st = null;
+      try { st = await (await fetch('/api/antigravity/win32signin', { cache: 'no-store' })).json(); } catch { st = null; }
+      if (!live() || this.winId !== id) return;
+      if (st && st.id && st.id !== id) { this.winId = null; return; }   // another screen started a newer one
+      if (st && st.id === id) this.winPaint(st);
+      if (this.winId === id) setTimeout(tick, 1000);
+    };
+    setTimeout(tick, 1000);
+  },
+  winPaint(st) {
+    const state = st && st.state;
+    if (state === this.winState && state !== 'waiting') return;
+    const first = state !== this.winState;
+    this.winState = state;
+    if (state === 'waiting') {
+      this.winShowPaste(true, st.link);
+      if (first) this.say("Google's sign-in page is open in your browser. Sign in there, then copy the code the page shows and paste it here. Google allows about a minute.", '', false);
+    } else if (state === 'checking') {
+      const go = this.el('paste-go'); if (go) go.disabled = true;
+      this.say('Checking with Google…', '', false);
+    } else if (state === 'signed-in') {
+      this.winId = null;
+      this.winShowPaste(false);
+      this.next = 'check';
+      AGY_INSTALLED = true;
+      this.say('Ready. Gemini runs on your Google subscription on this computer: pick Google Gemini (Google subscription) when you create an agent.', '', false, true);
+      this.winReady();
+    } else if (state === 'failed') {
+      this.winId = null;
+      this.winShowPaste(false);
+      this.next = 'open';
+      this.say(frCap(st.because || 'The sign-in did not finish') + '.', 'Sign in with Google', false);
+    } else {
+      this.say("Opening Google's sign-in page…", '', false);
+    }
+  },
+  async winCode() {
+    const inp = this.el('paste'); const go = this.el('paste-go');
+    const v = inp ? String(inp.value || '').trim() : '';
+    if (!v || !this.winId) return;
+    if (go) go.disabled = true;
+    let r = null;
+    try {
+      r = await (await fetch('/api/antigravity/win32signin/code', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: this.winId, code: v }) })).json();
+    } catch { r = null; }
+    if (go) go.disabled = false;
+    if (r && r.ok) { if (inp) inp.value = ''; this.winPaint(r); return; }
+    this.say(frCap((r && r.error) || 'We could not pass that code just now') + '.', '', false);
+  },
   el(part) { return document.getElementById(pre + part); },
   say(text, button, about, done) {
     const code = this.el('code'); if (code) { code.textContent = text; code.hidden = !text; }
@@ -25357,6 +25461,7 @@ function agySubDriver(pre, onReady) { return {
     const mine = this.gen;
     const live = () => mine === this.gen;
     try {
+      if (this.next === 'open' && agyOnWindows()) { await this.winStart(live); return; }   // #3568: no Terminal on Windows
       if (this.next === 'open') {
         /* Opening Terminal is its own press, never a side effect of a check (review round 1): each
            check costs a prompt and each open is another window. */
@@ -25392,6 +25497,7 @@ function agySubDriver(pre, onReady) { return {
         /* Freshly installed means not signed in yet, so go straight to the sign-in step rather than
            spending a check on it (review round 2: a signed-out check may itself open a browser). */
         this.next = 'open';
+        if (agyOnWindows()) { await this.winStart(live); return; }   // #3568: straight to Google's page
         this.say('Antigravity is installed. Open it once to sign in with your Google account.', 'Open Antigravity to sign in', false);
         return;
       }
@@ -25421,6 +25527,11 @@ function agySubDriver(pre, onReady) { return {
         this.next = 'check';
         this.say('Ready. Gemini runs on your Google subscription on this computer: pick Google Gemini (Google subscription) when you create an agent.', '', false, true);
         onReady();
+      } else if (agyOnWindows()) {
+        /* #3568: the Windows check costs no prompt and opens nothing, so a not-signed-in answer goes
+           straight to Google's page: no screen whose only job is a second press. */
+        this.next = 'open';
+        await this.winStart(live);
       } else {
         this.next = 'open';
         this.say("Antigravity is on this computer but we could not confirm it is signed in. Open it once to sign in with your Google account.",
@@ -25443,10 +25554,17 @@ const FR_AGY_SUB = agySubDriver('fr-gemini-sub-', () => {
    hint, the guided setup's Gemini row on its next paint), but paints nothing of first run's. */
 const ACCT_AGY_SUB = agySubDriver('acct-gemini-sub-', () => { FR_AGY_READY = true; });
 const KEYED_SUB_START = { google: () => FR_AGY_SUB.start(), xai: () => FR_GROK_SUB.start() };
+/* #3568 (Windows): the code box's Continue, and Enter in it, for both places. */
+for (const d of [FR_AGY_SUB, ACCT_AGY_SUB]) {
+  const go = d.el('paste-go'); const inp = d.el('paste');
+  if (go) go.addEventListener('click', () => d.winCode());
+  if (inp) inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); d.winCode(); } });
+}
 /* #3568: Gemini's subscription only where it can run (a Mac, runner on); AGY_OFFERED is read before
-   the choice is shown (frKeyedConnect). */
+   the choice is shown (frKeyedConnect). On Windows only once the board has said yes (its switch is on,
+   engine/win32agy.js): a board that has not answered, or an older one, offers the key only. */
 const keyedSubReady = (which) => typeof KEYED_SUB_START[which] === 'function'
-  && (which !== 'google' || (AGY_OFFERED !== false && !onWindows()));   // agy runs on a Mac only
+  && (which !== 'google' || (onWindows() ? AGY_OFFERED === true : AGY_OFFERED !== false));
 let FR_KEYED_GEN = 0;   // an answer, a finished download or an Add from an earlier opening changes nothing
 const frK = (which, part) => document.getElementById('fr-' + FR_KEYED[which].pre + '-' + part);
 const frKeyedPanels = (which) => ['confirm', 'pick', 'sub-step', 'flow'].map((part) => frK(which, part)).filter(Boolean);
