@@ -219,6 +219,29 @@ case "$row" in
   *) ok "working rules present on an agent are never called STALE" ;;
 esac
 
+# 🔑 AN UNREADABLE you RECORD IS CANNOT TELL, never "something to deliver" (#1071).
+BAD_HOME="$T/bad-home"; mkdir -p "$BAD_HOME"
+YOUFILE="$(AGENT_WORKFORCE_HOME="$BAD_HOME" node -e "process.stdout.write(require('./engine/you').FILE)")"
+if [ -z "$YOUFILE" ] || ! { mkdir -p "$(dirname "$YOUFILE")" && printf '{ not json' > "$YOUFILE"; }; then
+  bad "UNREADABLE-YOU SETUP: could not place a corrupt you record (arm unusable)"
+else
+  row="$(AGENT_WORKFORCE_HOME="$BAD_HOME" KOSMOS_WORKERS_DIR="$T/stale" node tools/check-block-delivery.js 2>&1 | grep -E '^  you ')"
+  case "$row" in
+    *"CANNOT TELL"*) ok "an unreadable you record reads CANNOT TELL, not STALE or delivered" ;;
+    *) bad "unreadable you record misread: $row" ;;
+  esac
+fi
+
+# 🔑 TWO WORKING-RULES BLOCKS IN ONE FILE: planFor refuses, and the row says CANNOT TELL
+# and names the agent, rather than calling it behind or current.
+mkdir -p "$T/doct2/dup"
+printf '# agent\n<!-- kosmos:doctrine:start -->\nx\n<!-- kosmos:doctrine:end -->\n\n<!-- kosmos:doctrine:start -->\ny\n<!-- kosmos:doctrine:end -->\n' > "$T/doct2/dup/CLAUDE.md"
+row="$(run "$T/doct2" | grep -E '^  doctrine ')"
+case "$row" in
+  *"CANNOT TELL on dup"*) ok "an ambiguous working-rules file reads CANNOT TELL and names the agent" ;;
+  *) bad "ambiguous doctrine misread: $row" ;;
+esac
+
 # --- the population floor ----------------------------------------------------
 mkdir -p "$T/empty"
 KOSMOS_WORKERS_DIR="$T/empty" node tools/check-block-delivery.js >/dev/null 2>&1
