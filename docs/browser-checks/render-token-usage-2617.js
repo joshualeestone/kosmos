@@ -98,8 +98,8 @@ function readUsage(page) {
       // is silently cut, so measure the real horizontal fit of every .tv-fig in the hero.
       heroFigsFit: [...document.querySelectorAll('#usage-hero .tv-fig')]
         .every((f) => f.scrollWidth <= f.clientWidth + 1),
-      // #3137 NON-VACUOUS fit control: on the real Approximate Human Cost tile, the FULL
-      // reported figure "$176,332" overflows the box while the abbreviated "$176.3K" fits.
+      // #3137 NON-VACUOUS fit control: on the real Approximate Human Cost tile, a figure too
+      // wide for it overflows the box while the abbreviated "$176.3K" fits.
       // Proves the abbreviation is both necessary (full clips) and sufficient (abbr fits) at
       // the tile's real rendered width, not just that a short fixture value happens to fit.
       tileFitControl: (() => {
@@ -108,7 +108,10 @@ function readUsage(page) {
         const fig = box && box.querySelector('.tv-fig');
         if (!fig) return null;
         const orig = fig.textContent;
-        fig.textContent = '$176,332'; const fullOverflows = fig.scrollWidth > fig.clientWidth + 1;
+        /* #4083 made the headline smaller and the two tiles equal, so at this width the full $176,332 now FITS: the
+           abbreviation is no longer needed here, only at narrower widths. The control's job is still to prove the
+           detector can see a clip, so it uses a figure too wide for the tile at any headline size ours can have. */
+        fig.textContent = '$176,332,000,000'; const fullOverflows = fig.scrollWidth > fig.clientWidth + 1;
         fig.textContent = '$176.3K'; const abbrFits = fig.scrollWidth <= fig.clientWidth + 1;
         fig.textContent = orig;
         return { fullOverflows, abbrFits };
@@ -208,7 +211,7 @@ function readUsage(page) {
     ok(v.heroApi, 'the Equivalent Token API Cost stat abbreviates its thousands figure to $1.2K (#3137, was the clipping $1,152)');
     ok(v.heroFigsFit, 'no hero stat tile clips its figure -- every .tv-fig fits its box after the #3137 abbreviation');
     ok(v.tileFitControl && v.tileFitControl.fullOverflows && v.tileFitControl.abbrFits,
-      'CONTROL: the full $176,332 overflows the cost tile but the abbreviated $176.3K fits (#3137, non-vacuous fit proof) -- '
+      'CONTROL: a figure too wide for the cost tile overflows it and the abbreviated $176.3K fits (#3137, non-vacuous fit proof) -- '
       + JSON.stringify(v.tileFitControl));
     ok(v.heroDays, 'the Active Days on Kosmos eyebrow is shown');
     // charts4
