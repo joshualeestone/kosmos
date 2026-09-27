@@ -44,7 +44,7 @@ is the settle window: act only when the file has not changed for SETTLE_MS. A pe
 than that mid-edit and then keeps typing could have the managed block rewritten under their open
 editor. The alternative, the page telling the board which file it has open, is a larger change.
 
-## As built (2026-09-27 03:40 CDT)
+## As built (2026-09-27 03:13 CDT)
 
 - `engine/autoretell.js`: `due()` decides, `sweepOnce()` remembers and retells. Pure, injected deps.
 - `server.js`: `retellMember(name, id, roster)` is the Try again route's core, lifted unchanged; it calls
