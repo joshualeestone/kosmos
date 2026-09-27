@@ -58,14 +58,24 @@ function check(name, pass, detail) {
      "answers" for that agent; every call is recorded so a check can assert Undo
      reached exactly the created agents, one each. */
   let removal = {};
+  let plans = {};
   const removeCalls = [];
+  const removedNow = new Set();
+  const PLAN = { ok: true, reassurance: 'Removing is not deleting. Its files will not be deleted.',
+    loses: ['Its place on the board', 'Starting again on its own, until you put it back'],
+    keeps: ['Its folder, on this computer', 'Its instructions', 'Everything it has written'] };
   await page.route('**/api/agent/*/removal', (r) => {
-    if (r.request().method() !== 'DELETE') return r.continue();
     const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
+    if (r.request().method() === 'GET') return r.fulfill({ status: 200, json: plans[name] || { ...PLAN, name, label: name } });
+    if (r.request().method() !== 'DELETE') return r.continue();
     removeCalls.push(name);
     const ans = removal[name] || { outcome: 'removed' };
+    if (ans.outcome === 'removed' || ans.recorded) removedNow.add(name);
     r.fulfill({ status: ans.outcome === 'refused' ? 400 : 200, json: ans });
   });
+  // The removed list the page re-reads after Undo: exactly what the mocked removals recorded.
+  await page.route('**/api/removed', (r) => r.fulfill({ status: 200,
+    json: { agents: [...removedNow].map((name) => ({ name, shownAs: name, removedAt: '2026-09-27T00:00:00Z', stopped: true })) } }));
 
   /* /?tab=create is the deep link that opens the create panel and loads the
      role menu (web/index.html: BOOT_TAB === 'create' -> loadRoles()). The fifth
@@ -150,6 +160,14 @@ function check(name, pass, detail) {
   const created = await page.evaluate(() => document.getElementById('orgchart-count').textContent);
   check('a successful create surfaces the created count', /Created 3 agents/.test(created), JSON.stringify(created));
 
+  check('the request carried the parsed, title-derived members',
+    Boolean(lastTeamBody) && lastTeamBody.creator === 'operator'
+      && Array.isArray(lastTeamBody.members) && lastTeamBody.members.length === 3
+      && lastTeamBody.members[0].role === 'own'
+      && lastTeamBody.members[0].label === 'Marketing Lead'
+      && lastTeamBody.members[0].name === 'marketing-lead',
+    JSON.stringify(lastTeamBody && lastTeamBody.members));
+
   // ---- #1280 Undo: offered after a create, NAMES and COUNTS before it acts ----
   const undoShown = await page.evaluate(() => {
     const u = document.getElementById('orgchart-undo');
@@ -170,20 +188,32 @@ function check(name, pass, detail) {
       && /Marketing Lead/.test(asked.items[0]) && /Head of Sales/.test(asked.items[1]) && /Engineer/.test(asked.items[2])
       && asked.keep && removeCalls.length === 0,
     JSON.stringify({ asked, removeCalls }));
-  check('it says what happens to one already working: it stops, nothing is deleted, it can be started again',
-    /stops where it is/.test(asked.msg) && /Nothing is deleted/.test(asked.msg) && /Show removed agents/.test(asked.msg),
+  check('it says what happens to one already working, in the engine\'s words: it stops, keeps its work, loses its place',
+    /working now stops/.test(asked.msg) && /Removing is not deleting/.test(asked.msg)
+      && /keeps: .*everything it has written/i.test(asked.msg) && /loses: its place on the board/i.test(asked.msg),
     JSON.stringify(asked.msg));
+  const askFocus = await page.evaluate(() => ({ focus: document.activeElement && document.activeElement.id,
+    backHidden: document.getElementById('orgchart-edit').hidden }));
+  check('asking puts the keyboard on Keep them and moves Back to the list aside',
+    askFocus.focus === 'orgchart-undo-keep' && askFocus.backHidden, JSON.stringify(askFocus));
   await page.click('#orgchart-undo-keep');
-  await page.waitForTimeout(150);
+  await page.waitForFunction(() => /Created 3 agents/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 5000 });
   const kept = await page.evaluate(() => ({
     count: document.getElementById('orgchart-count').textContent,
     undo: !document.getElementById('orgchart-undo').hidden,
+    focus: document.activeElement && document.activeElement.id,
+    back: !document.getElementById('orgchart-edit').hidden,
   }));
-  check('Keep them removes nothing and offers Undo again',
-    /Kept 3 agents/.test(kept.count) && kept.undo && removeCalls.length === 0, JSON.stringify({ kept, removeCalls }));
+  check('Keep them removes nothing, puts the create result back, and returns the keyboard to Undo',
+    /Created 3 agents/.test(kept.count) && kept.undo && kept.back && kept.focus === 'orgchart-undo' && removeCalls.length === 0,
+    JSON.stringify({ kept, removeCalls }));
 
-  removal = { 'head-of-sales': { outcome: 'refused', because: 'that agent is busy; try again in a moment' } };
+  removal = {
+    'head-of-sales': { outcome: 'refused', because: 'that agent is busy; try again in a moment' },
+    engineer: { outcome: 'partial', recorded: true, because: 'Engineer has been stopped, but something called engineer is still running.' },
+  };
   await page.click('#orgchart-undo');
+  await page.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
   await page.click('#orgchart-undo-go');
   await page.waitForFunction(() => /Removed/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 5000 });
   const undone = await page.evaluate(() => ({
@@ -194,16 +224,20 @@ function check(name, pass, detail) {
   check('Remove them asks the engine to remove exactly the three created agents, once each',
     JSON.stringify(removeCalls.slice().sort()) === JSON.stringify(['engineer', 'head-of-sales', 'marketing-lead']),
     JSON.stringify(removeCalls));
-  check('Undo reports each answer: two removed, one not, with the engine\'s reason',
+  check('Undo reports each answer: a partial the engine recorded counts as removed with its sentence, a refusal stays',
     /Removed 2 of 3/.test(undone.count)
-      && undone.items.some((t) => /Head of Sales/.test(t) && /busy/.test(t))
-      && undone.items.filter((t) => /removed$/.test(t.trim())).length === 2,
+      && undone.items.some((t) => /Head of Sales/.test(t) && /not removed: .*busy/.test(t))
+      && undone.items.some((t) => /Engineer/.test(t) && /removed, but .*still running/.test(t))
+      && undone.items.some((t) => /Marketing Lead removed$/.test(t.trim())),
     JSON.stringify(undone));
+  const afterFocus = await page.evaluate(() => document.activeElement && document.activeElement.id);
+  check('after removing, the keyboard lands on the Undo still on offer', afterFocus === 'orgchart-undo', JSON.stringify(afterFocus));
   check('Undo is offered again for the one left, and only it',
     undone.undo.visible && /remove this agent/.test(undone.undo.text), JSON.stringify(undone.undo));
   removal = {};
   removeCalls.length = 0;
   await page.click('#orgchart-undo');
+  await page.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
   const askedAgain = await page.evaluate(() => [...document.getElementById('orgchart-list').querySelectorAll('li')].map((li) => li.textContent));
   check('the retry names only the one left before acting',
     askedAgain.length === 1 && /Head of Sales/.test(askedAgain[0]) && removeCalls.length === 0, JSON.stringify(askedAgain));
@@ -265,9 +299,14 @@ function check(name, pass, detail) {
     /remove this agent/.test(partialUndo), JSON.stringify(partialUndo));
   // The refused row here is the shape an agent that ALREADY EXISTED takes: createAgent refuses a
   // taken name, so it lands in refused[]. Undo must never name it, even though the name matches.
+  plans = { 'marketing-lead': { ok: false, because: 'Marketing Lead has already been removed from Kosmos.' } };
   await page.click('#orgchart-undo');
+  await page.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
   const partialAsk = await page.evaluate(() => [...document.getElementById('orgchart-list').querySelectorAll('li')].map((li) => li.textContent));
-  check('an agent that already existed (refused as taken) is never in the Undo list',
+  check('a removal the engine would refuse shows its reason while asking, before anything is pressed',
+    partialAsk.some((t) => /Marketing Lead/.test(t) && /cannot be removed: .*already been removed/.test(t)), JSON.stringify(partialAsk));
+  plans = {};
+  check('Undo never reads refused[]: a row refused as taken is not in the Undo list',
     partialAsk.length === 1 && /Marketing Lead/.test(partialAsk[0]) && !partialAsk.some((t) => /engineer/i.test(t)),
     JSON.stringify(partialAsk));
   await page.click('#orgchart-undo-keep');

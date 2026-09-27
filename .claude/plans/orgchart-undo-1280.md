@@ -21,6 +21,15 @@ removal, and shows each answer. A fresh preview or a closed panel drops it.
 - What happens to one already working (condition 2), said before acting: it stops where it is;
   its folder and anything it wrote stay; Show removed agents starts it again.
 - One at a time, not in parallel: removal shells out to launchctl/tmux per agent.
+- The ask shows the engine's own words: each agent's GET removal plan (keeps, loses, the
+  reassurance, and a refusal's reason up front), plus one page sentence, "Any that is working now
+  stops", because Liu Kang asked for exactly that and the plan's lists do not say it.
+- An engine `partial` is two different states (removed but still running, or not removed at all),
+  so after the run the page re-reads /api/removed: an agent on it counts as removed, with the
+  engine's sentence; only one that is not is offered again.
+- Undo lasts until the next preview. Back to the list steps aside while Undo asks or removes; after
+  that, pressing it starts the next batch.
+- Review round 1 also restored a browser-check arm (the Create POST body) the first commit dropped.
 - Rejected: an engine "undo team" route (a second removal path to keep in step with remove.js),
   and a one-press Undo (Liu Kang asked for the named count first).
 
