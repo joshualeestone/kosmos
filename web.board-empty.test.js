@@ -204,3 +204,13 @@ test('the two signed-out sentences say the same two things, so a wording change 
   assert.ok(long.startsWith(lead), 'SIGNED_OUT_SENTENCE no longer opens with: ' + lead);
   assert.ok(long.includes(fine), 'SIGNED_OUT_SENTENCE no longer says: ' + fine);
 });
+
+test('the projects list gets its own Sign in button and says projects (#718 state 3)', () => {
+  // eslint-disable-next-line no-new-func
+  const html = new Function(lift('esc') + '\n' + page.liftConst(SCRIPT, 'ORG_SIGNED_OUT_SENTENCE') + '\n'
+    + page.liftConst(SCRIPT, 'DEVICE_SIGNIN_BUTTON') + '\n' + lift('deviceSignedOutHtml')
+    + '\nreturn deviceSignedOutHtml("projects");')();
+  assert.match(html, /Sign in again to see your projects/);
+  assert.match(html, /data-device-signin/, 'the projects card has no Sign in button');
+  assert.ok(!/data-board-retry/.test(html), 'Try again is offered on the projects card');
+});
