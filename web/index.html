@@ -20524,7 +20524,7 @@ function paintRestartScreen(down, deviceIsOffline) {
       if (typeof FR_CHOICE_HIDDEN_BY_RESTART !== 'undefined' && FR_CHOICE_HIDDEN_BY_RESTART) {
         FR_CHOICE_HIDDEN_BY_RESTART = false;
         const frc = document.getElementById('fr-choice');
-        if (frc && FR_CHOICE_PENDING) { frc.hidden = false; frChoiceInert(true); }
+        if (frc && FR_CHOICE_PENDING && typeof frChoiceInert === 'function') { frc.hidden = false; frChoiceInert(true); }
       }
     }
     return;

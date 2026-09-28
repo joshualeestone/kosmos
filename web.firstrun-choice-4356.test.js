@@ -304,11 +304,76 @@ test('#4356: #4343\'s restart screen stands down while Connect stops the board, 
 test('#4356: a restart screen that clears without a reload gives back a first screen still waiting', () => {
   const paint = lift('paintRestartScreen');
   assert.match(paint, /if \(typeof FR_CHOICE_PENDING !== 'undefined' && FR_CHOICE_PENDING\) FR_CHOICE_HIDDEN_BY_RESTART = true;/);
-  assert.match(paint, /if \(frc && FR_CHOICE_PENDING\) \{ frc\.hidden = false; frChoiceInert\(true\); \}/,
+  assert.match(paint, /if \(frc && FR_CHOICE_PENDING && typeof frChoiceInert === 'function'\) \{ frc\.hidden = false; frChoiceInert\(true\); \}/,
     'the board recovers and first run never opens: the choice it awaits is hidden for good');
   const choose = lift('frChoose');
   assert.match(choose, /FR_CHOICE_PENDING = true;\n\s+el\.hidden = false;/);
   assert.match(choose, /if \(mode !== 'connect' \|\| told\) FR_CHOICE_PENDING = false;/);
+});
+
+test('#4356: the restart screen, run for real: it hides a waiting first screen, and gives it back when the board answers', () => {
+  // A small DOM: <body> with the board, the wizard and the first screen as its children. The restart
+  // screen appends its own backdrop; the lifted functions are the page's, only their helpers stubbed.
+  const mkEl = (id, extra = {}) => ({ nodeType: 1, id, hidden: false, inert: false, classList: { contains: () => false }, ...extra });
+  const board = mkEl('grid'), wizard = mkEl('firstrun', { hidden: true }), frc = mkEl('fr-choice');
+  const kids = [board, wizard, frc];
+  let back = null;
+  const doc = {
+    body: { appendChild(n) { kids.push(n); } },
+    documentElement: { classList: { add() {}, remove() {} } },
+    activeElement: null,
+    getElementById: (id) => kids.find((k) => k.id === id) || null,
+    querySelector: (sel) => (sel === '.restart-back' ? (kids.includes(back) ? back : null) : null),
+    querySelectorAll: (sel) => (sel === 'body > *' ? kids.slice() : sel === 'body > *:not(#fr-choice)' ? kids.filter((k) => k.id !== 'fr-choice') : []),
+    createElement: () => {
+      const holder = {};
+      Object.defineProperty(holder, 'innerHTML', { set() {
+        back = mkEl('restart-screen', { classList: { contains: (c) => c === 'restart-back' }, remove() { kids.splice(kids.indexOf(back), 1); },
+          querySelector: () => ({ focus() {} }) });
+        holder.firstElementChild = back;
+      } });
+      return holder;
+    },
+  };
+  let now = 1000;
+  const ctx = {
+    document: doc, location: { protocol: 'http:', host: '127.0.0.1:1' }, Date: { now: () => now }, console: { info() {} },
+    MutationObserver: undefined,
+    offlineRemoteView: () => false, bakedVersion: () => '0.0.0', platformCopy: (k, mac) => mac, restartHowMac: () => '',
+    asSentence: (s) => s, startKLoader() {},
+  };
+  vm.createContext(ctx);
+  vm.runInContext([
+    'var UPDATING_NOW = false, WORLDSW_SWITCHING = false, RESTART_SCREEN_AFTER_MS = 15000;',
+    'var BOARD_NO_ANSWER_SINCE = null, RESTART_SCREEN_INERTED = [], RESTART_SCREEN_WATCH = null, RESTART_SCREEN_RETURN = null;',
+    'var FR_CHOICE_WATCH = null, FR_CHOICE_INERTED = [], FR_CHOICE_CONNECTING = false, FR_CHOICE_PENDING = false, FR_CHOICE_HIDDEN_BY_RESTART = false;',
+    lift('frChoiceHold'), lift('frChoiceInert'), lift('restartScreenInert'), lift('paintRestartScreen'),
+  ].join('\n'), ctx);
+
+  // The first screen is up and waiting (what frChoose does): pending, the page held.
+  vm.runInContext('FR_CHOICE_PENDING = true; frChoiceInert(true);', ctx);
+  assert.equal(board.inert, true);
+  // The board stops answering, long enough for the restart screen.
+  ctx.paintRestartScreen(true, false); now += 16000; ctx.paintRestartScreen(true, false);
+  assert.ok(kids.includes(back), 'the restart screen did not show');
+  assert.equal(frc.hidden, true, 'the first screen stays over a board that is down, its buttons dead');
+  assert.equal(frc.inert, true, 'the restart screen does not hold the hidden first screen');
+  assert.equal(vm.runInContext('FR_CHOICE_HIDDEN_BY_RESTART', ctx), true);
+  // The board answers again, with no reload.
+  ctx.paintRestartScreen(false, false);
+  assert.ok(!kids.includes(back), 'the restart screen stayed');
+  assert.equal(frc.hidden, false, 'THE FIRST SCREEN IS NOT GIVEN BACK: first run waits on it forever');
+  assert.equal(frc.inert, false, 'the given-back first screen is still inert');
+  assert.equal(board.inert, true, 'the board under the given-back first screen is live');
+  assert.equal(vm.runInContext('FR_CHOICE_HIDDEN_BY_RESTART', ctx), false, 'the flag is stuck');
+
+  // CONTROL: with no answer pending (answered before the restart screen), nothing comes back.
+  vm.runInContext('frChoiceInert(false); FR_CHOICE_PENDING = false;', ctx);
+  frc.hidden = true; board.inert = false; now += 1;
+  ctx.paintRestartScreen(true, false); now += 16000; ctx.paintRestartScreen(true, false);
+  ctx.paintRestartScreen(false, false);
+  assert.equal(frc.hidden, true, 'an answered first screen came back');
+  assert.equal(board.inert, false, 'the board stays held after the restart screen cleared');
 });
 
 test('#4356: the address keeper carries ?mode=, or first run never sees it', () => {
