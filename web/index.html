@@ -26628,9 +26628,12 @@ function museOffered() {
   const opt = museMetaOption();
   return !!opt && !opt.disabled;
 }
-const ACCT_MUSE = (() => {
+/* #3939 3c-4: one sign-in controller per place it is drawn: Add a provider (acct-muse-*) and the first-run
+   Meta row (fr-muse-*). `prefix` names its elements; `opts.onDone` repaints that place after a sign-in. Only one
+   place is usable at a time (first run makes the rest of the page inert), and each stops its own sign-in by id. */
+function museSigninFlow(prefix, opts) {
   let id = null; let poll = null; let gen = 0; let retrying = false;
-  const el = (x) => document.getElementById('acct-muse-' + x);
+  const el = (x) => document.getElementById(prefix + x);
   const say = (t) => { const m = el('say'); if (m) m.textContent = t; };   // named 'say': the surface gate maps the usual name to other checks
   const stopPoll = () => { if (poll) { clearInterval(poll); poll = null; } };
   // Each address written out whole (#3957 reads every page fetch's URL as a literal).
@@ -26690,7 +26693,7 @@ const ACCT_MUSE = (() => {
       if (st.state === 'done') {
         finish('');
         say('Signed in to Meta Muse.');
-        try { await paintAccounts(); } catch { /* the row repaints on the next visit */ }
+        try { if (opts && opts.onDone) await opts.onDone(); } catch { /* the place repaints on the next visit */ }
         return;
       }
       if (st.state === 'failed' || st.state === 'stopped') {
@@ -26744,7 +26747,19 @@ const ACCT_MUSE = (() => {
     if (was) post('stop', { id: was }).catch(() => { /* the engine's own limit ends it regardless */ });
   }
   return { start, retry, leave, reset, get active() { return !!id; } };
-})();
+}
+/* The three buttons of one place, wired to its controller. */
+function museSigninWire(flow, prefix) {
+  const el = (x) => document.getElementById(prefix + x);
+  el('go').addEventListener('click', () => flow.start());
+  el('retry').addEventListener('click', () => flow.retry());
+  el('cancel').addEventListener('click', () => {
+    flow.leave();
+    const m = el('say'); if (m) m.textContent = 'Sign-in stopped.';
+    el('go').focus();
+  });
+}
+const ACCT_MUSE = museSigninFlow('acct-muse-', { onDone: () => paintAccounts() });
 /* Show Muse's step, or put it away (on === false): every open, close and provider switch reaches it. */
 function acctMuseShow(on) {
   const flow = document.getElementById('acct-muse-flow');
@@ -26758,13 +26773,7 @@ function acctMuseShow(on) {
   }
   flow.hidden = !on;
 }
-document.getElementById('acct-muse-go').addEventListener('click', () => ACCT_MUSE.start());
-document.getElementById('acct-muse-retry').addEventListener('click', () => ACCT_MUSE.retry());
-document.getElementById('acct-muse-cancel').addEventListener('click', () => {
-  ACCT_MUSE.leave();
-  const m = document.getElementById('acct-muse-say'); if (m) m.textContent = 'Sign-in stopped.';
-  document.getElementById('acct-muse-go').focus();
-});
+museSigninWire(ACCT_MUSE, 'acct-muse-');
 /* #3874: Gemini's choice in Settings, or put it away (which !== 'google'). Called from acctApikeyShow
    and the install box, so every open, close and switch reaches it. */
 function acctGeminiShow(which) {
