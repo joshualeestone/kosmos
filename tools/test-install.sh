@@ -67,8 +67,8 @@ if ! kosmos_holds_machine_claim && [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ]; t
   kosmos_refuse_if_cut_live "a full install-harness run" || exit 1
 fi
 # #4410: and not beside a live test suite (tools/run-tests.sh), which can make this run's board-port
-# checks red (Kano and Raiden, 2026-09-28; the two use different port ranges, so the likely cause
-# is load, see .claude/plans/heavygate-testinstall-4410.md). run-tests.sh asks the mirror question.
+# checks red (Kano and Raiden, 2026-09-28; the two use different port ranges, so the cause is load
+# or the product's default port, neither proven; see .claude/plans/heavygate-testinstall-4410.md). run-tests.sh asks the mirror question.
 # Not in a cut's own gate run, which holds the live machine claim: the cut's suite has finished by
 # step 4b and its claim already refuses any new suite, so a refusal there would only abort a cut.
 # KOSMOS_INSTALL_GATE=1 alone is not enough (`yarn test:install-gate` sets it outside any cut).

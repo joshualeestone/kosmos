@@ -88,8 +88,22 @@ test('#4410: the install harness follows the shared fixture rule (controls: the 
   assert.match(nodeTest.out, /ignore 114: a unit-test fixture \(node --test ancestor\)/);
   const mention = run([['115', WORK, 'bash -c pgrep -f tools/test-install.sh', 'zsh']]);
   assert.equal(mention.code, 0, mention.out);
+  assert.match(mention.out, /ignore 115: mentions the name but does not run it/);
   // The control differs from 113 only in the folder the script sits in.
   assert.equal(run([['116', WORK, 'bash ' + WORK + '/tools/test-install.sh --sleep 4', 'zsh']]).code, 1);
+});
+
+test('#4410: --except-cwd never rules out an install harness, which collides with your own suite too (control: a browser run there is ruled out)', (t) => {
+  const own = fs.mkdtempSync(path.join(os.tmpdir(), 'hg-own-'));
+  t.after(() => fs.rmSync(own, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(own, '.git'));
+  const real = fs.realpathSync(own);
+  const harness = run([['118', real, 'bash tools/test-install.sh', 'zsh']], { args: ['--except-cwd', own] });
+  assert.equal(harness.code, 1, harness.out);
+  assert.match(harness.out, /COUNTS 118/);
+  const browser = run([['119', real, 'bash tools/browser-checks.sh', 'zsh']], { args: ['--except-cwd', own] });
+  assert.equal(browser.code, 0, browser.out);
+  assert.match(browser.out, /ignore 119: your own run \(--except-cwd\)/);
 });
 
 test('a shell that only MENTIONS the names does not count (control: a real run beside them does)', () => {

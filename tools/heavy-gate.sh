@@ -26,10 +26,13 @@
 #   - with --except-cwd DIR, EVERY run whose cwd is DIR or below it, whoever started it. It is
 #     for ruling out your own run, so pass your own worktree, never a shared checkout (that would
 #     rule out other agents' runs there too). DIR must be a checkout (it has a .git), so a parent
-#     folder passed by mistake is exit 2, not a clear.
+#     folder passed by mistake is exit 2, not a clear. An install harness (test-install.sh) is
+#     never ruled out this way: your own harness collides with your own suite too, and
+#     run-tests.sh would refuse beside it (#4410).
 # --quiet: print nothing on stdout, not even the CLEAR/BUSY verdict; read the exit code.
 # --quiet-box: for timing-sensitive work, also count a live tools/run-tests.sh validation
 #   suite. The default deliberately does not count validation suites, which may overlap.
+#   Use it before tools/test-install.sh, which refuses beside a live suite (#4410).
 # --twice: clear only if two reads, KOSMOS_HG_TWICE_SECONDS apart (default 60, whole seconds;
 #   anything else is exit 2), are both clear.
 # Every candidate is printed with the reason it counts or does not; its command is cut to
@@ -206,7 +209,9 @@ classify() {
       if in_kt_sandbox "$cwd" || in_kt_sandbox "$script"; then why="a unit-test fixture (run-tests.sh sandbox)"; fi
     fi
     if [ -z "$why" ] && [ -n "$EXCEPT" ] && [ -n "$cwd" ]; then
-      case "$cwd" in "$EXCEPT"|"$EXCEPT"/*) why="your own run (--except-cwd)" ;; esac
+      case "$script" in */test-install.sh|test-install.sh) ;;   # #4410: see --except-cwd above
+        *) case "$cwd" in "$EXCEPT"|"$EXCEPT"/*) why="your own run (--except-cwd)" ;; esac ;;
+      esac
     fi
     if [ -n "$why" ]; then say "  ignore $pid: $why ($cwd: $show)"; continue; fi
     n=$((n + 1)); say "  COUNTS $pid: a real run (${cwd:-cwd unknown}: $show), script $script"

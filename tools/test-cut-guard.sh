@@ -236,7 +236,7 @@ out="$(KOSMOS_HARNESS_SELF_PID=5252 KOSMOS_HARNESS_PROBE="$T/hprobe-self" kosmos
 # _kosmos_drop_self_subtree would drop the spawned processes as "self's subtree"
 # and both arms would pass for the WRONG reason (self-exclusion, not the filter or
 # detection). Measured: the direct form silently dropped the real harness.
-# #4410: the stand-in harness below is a REAL `bash tools/test-install.sh` for 4 seconds, and every
+# #4410: the stand-in harness below is a REAL `bash tools/test-install.sh` for 8 seconds, and every
 # suite runs this file. Outside the fixture sandbox, every other guard on the Mac saw it: a cut
 # starting then refused (#3619 measured 12 of 26 release-gate arms red on it), and since #4410
 # heavy-gate and any other agent's run-tests.sh would read it as a live harness too. So the
@@ -268,7 +268,9 @@ kosmos_refuse_if_harness_live "this cut" || exit 1
 echo CUT-PROCEEDS
 SH
 chmod +x "$E2E/tools/cut-start-plain.sh"
-live_harness="$(pgrep -fl 'test-install\.sh' 2>/dev/null | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/test-install\.sh( |$)' || true)"
+# #4410: fixtures dropped, so another agent's sandboxed stand-in (this same test, running in their
+# suite) neither skips this section nor reaches the plain guard calls below.
+live_harness="$(pgrep -fl 'test-install\.sh' 2>/dev/null | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/test-install\.sh( |$)' | _kosmos_drop_test_fixtures || true)"
 if [ -n "$live_harness" ]; then
   _fh="${live_harness%%$'\n'*}"
   echo "SKIP  harness end-to-end: a real harness is live on this Mac, so this arm cannot answer"
@@ -282,7 +284,7 @@ else
   # pre-flight is over a second stale. The re-check is placed at the mention arm,
   # the one with real exposure; this arm is left to the fresh pre-flight
   # deliberately, not by oversight.
-  out="$(bash "$E2E/tools/cut-start.sh" 2>&1)"; rc=$?
+  out="$(bash "$E2E/tools/cut-start-plain.sh" 2>&1)"; rc=$?
   { [ "$rc" -eq 0 ] && has "$out" "CUT-PROCEEDS"; } \
     && pass "no harness running: the cut proceeds through the real pgrep" \
     || fail "the cut refused with no harness running: rc=$rc out=$out"
@@ -314,16 +316,16 @@ else
   # spawned until AFTER this arm -- so a match here can only be a CONCURRENT run,
   # never this test's own process. SKIP rather than FAIL, as step 1 does. This
   # narrows the collision window to the moment before the assertion; it cannot
-  # close it (a 4s harness can still appear in the gap), and re-running alone is
+  # close it (an 8 s harness can still appear in the gap), and re-running alone is
   # what settles a genuine red -- but it removes the DESIGNED-IN case where our
   # own paired step 7 is another run's live harness.
-  _foreign_harness="$(pgrep -fl 'test-install\.sh' 2>/dev/null | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/test-install\.sh( |$)' || true)"
+  _foreign_harness="$(pgrep -fl 'test-install\.sh' 2>/dev/null | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/test-install\.sh( |$)' | _kosmos_drop_test_fixtures || true)"
   if [ -n "$_foreign_harness" ]; then
     _fh5="${_foreign_harness%%$'\n'*}"
     echo "SKIP  a mere MENTION does not count: a real harness is live (a concurrent run), so this arm cannot answer"
     echo "      (that is a skip, NOT a pass: ${_fh5:0:60})"
   else
-    out="$(bash "$E2E/tools/cut-start.sh" 2>&1)"; rc=$?
+    out="$(bash "$E2E/tools/cut-start-plain.sh" 2>&1)"; rc=$?
     { [ "$rc" -eq 0 ] && has "$out" "CUT-PROCEEDS"; } \
       && pass "a mere MENTION of test-install.sh in a command line does not count" \
       || fail "a mention was mistaken for a live harness: rc=$rc out=$out"
@@ -476,6 +478,32 @@ out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-fixture" KOSMOS_SUITE_SELF_PID
   || fail "#4410 a node --test run-tests.sh fixture refused the harness (rc=$rc, $out)"
 out="$(KOSMOS_SUITE_SELF_PID=5353 KOSMOS_SUITE_PROBE="$T/sprobe-self" kosmos_refuse_if_suite_live "a full install-harness run" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#4410 the caller's own pid is not a separate suite" || fail "#4410 the guard refused its own caller (rc=$rc, $out)"
+
+# The suite guard's REAL name arm (pgrep plus the filter), through _kosmos_suite_candidates. Other
+# agents' real suites may be live, so a refusal would prove nothing; instead this looks for its OWN
+# stand-in's pid in the candidates, then shows the fixture rule drops exactly that line. Started by
+# pid and stopped by pid (never by pattern).
+cat > "$E2E/tools/run-tests.sh" <<'SH'
+#!/bin/bash
+if [ "${1:-}" = "--sleep" ]; then sleep "$2"; exit 0; fi
+exit 0
+SH
+chmod +x "$E2E/tools/run-tests.sh"
+bash "$E2E/tools/run-tests.sh" --sleep 8 & suite_sp=$!
+sleep 1
+cands="$(_kosmos_suite_candidates)"; crc=$?
+kept="$(printf '%s\n' "$cands" | _kosmos_drop_test_fixtures || true)"
+if kill -0 "$suite_sp" 2>/dev/null; then
+  printf '%s\n' "$cands" | grep -qE "^$suite_sp " \
+    && pass "#4410 the suite guard's real pgrep and filter see a live bash .../tools/run-tests.sh (rc=$crc)" \
+    || fail "#4410 the suite guard's real name arm missed a live run-tests.sh stand-in (pid $suite_sp): $cands"
+  printf '%s\n' "$kept" | grep -qE "^$suite_sp " \
+    && fail "#4410 the sandboxed run-tests.sh stand-in survived the fixture rule, so it would refuse other agents' harnesses" \
+    || pass "#4410 the same stand-in, in the fixture sandbox, is dropped by the fixture rule"
+else
+  echo "SKIP  suite name arm: the stand-in exited before the read (a loaded Mac), so neither arm can answer"
+fi
+kill "$suite_sp" 2>/dev/null; wait "$suite_sp" 2>/dev/null
 
 # Wired, not only defined: each script asks the other's question on a line that is not a comment,
 # and test-install.sh skips it only in a cut's own gate run or on its named override.

@@ -55,6 +55,12 @@
 - The stand-in is started by its absolute path, so its script path proves the sandbox to other
   guards (its cwd is the test's, never in the sandbox, so the path is the only proof); it lives 8 s, and its two guard arms count only if it is
   still alive after both (else SKIP), so the "dropped" arm cannot pass on an empty table (review 3).
+- heavy-gate's --except-cwd never rules out an install harness (review 7): your own harness still
+  collides with your own suite, and run-tests.sh refuses beside it, so a CLEAR there would be one the
+  scripts overrule. Before test-install.sh the read to use is --quiet-box, which counts suites.
+- The suite guard's real name arm is tested through _kosmos_suite_candidates (pgrep plus the filter)
+  against its own stand-in's pid, because a refusal on a busy Mac cannot say whose suite it saw.
+  Breaking the filter turns that arm red (measured).
 - No run marker for the suite: markers exist for callers that self-match their own script (#1796);
   nothing that asks the suite question is a run-tests.sh. The harness keeps its existing marker.
 - The harness guard's override text is now the caller's (second argument). The cut's default
@@ -62,7 +68,7 @@
 - The harness guard's refusal no longer says "the install gate's fixed port": outside a cut the
   port is probed from 4460 up, and the reason that holds for both callers is the real boards on
   test ports.
-- tools/test-cut-guard.sh's end-to-end stand-in (a real `bash tools/test-install.sh` for 4 s in every
+- tools/test-cut-guard.sh's end-to-end stand-in (a real `bash tools/test-install.sh` for 8 s in every
   suite run) now sits in a T/kt<digits> folder, so the shared fixture rule drops it in every guard on
   the Mac (review 1, W1: outside it, heavy-gate and other agents' run-tests.sh would read it as a live
   harness; #3619 measured the same stand-in reddening release-gate arms). Its own detection arm keeps
@@ -74,8 +80,14 @@
   suites, before or after this change), and the cut's own gate stands down, so a long suite can
   overlap step 4b. Making a cut refuse on any agent's suite is release policy, not this card; named
   in the code and raised on the PR for Liu Kang (review 5, W1).
-- A suite and a harness starting within milliseconds of each other can both pass: each asks before
-  the other shows in pgrep. The harness's run marker narrows it one way only.
+- A suite and a harness starting within milliseconds of each other can both pass (each asks before
+  the other shows in pgrep), or both refuse (the harness marks itself before it asks). Both-refuse
+  is the safe direction.
+- On a busy Mac a suite is live much of the time, so a harness outside a cut will often refuse and
+  have to wait; there is no built-in wait (review 7). The refusal names `heavy-gate --twice
+  --quiet-box` as the way to see when the box is quiet and says to expect waiting rather than
+  overriding, because the override brings the #4410 collision back. A bounded wait-and-retry is a
+  possible follow-up if agents start overriding.
 - The new guard's test seams (KOSMOS_SUITE_PROBE, KOSMOS_SUITE_SELF_PID) could weaken it if left set,
   as the older guards' seams can. Only KOSMOS_HARNESS_KEEP_FIXTURES is one-directional (it only refuses
   more).

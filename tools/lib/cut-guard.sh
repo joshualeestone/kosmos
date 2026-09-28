@@ -437,14 +437,23 @@ kosmos_refuse_if_harness_live() {
 # run-tests.sh, which is the race markers exist for (#1796). The seam is KOSMOS_SUITE_PROBE.
 # Coverage, named: a zsh, a bare `bash run-tests.sh` from tools/, and a bare `node --test` are not
 # matched; `yarn test` and `bash tools/run-tests.sh`, the documented ways, are.
+# The name arm on its own, so tools/test-cut-guard.sh can prove the real pgrep and filter see a
+# stand-in suite even while other agents' real suites are live (a refusal alone could not tell whose
+# suite it saw). Prints the matching `pid command` lines; exits 1 for none, 2+ when pgrep failed.
+_kosmos_suite_candidates() {
+  local raw rc
+  raw="$(pgrep -fl 'run-tests\.sh' 2>/dev/null)"; rc=$?
+  [ "$rc" -ge 2 ] && return "$rc"
+  printf '%s\n' "$raw" | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/run-tests\.sh( |$)' || return 1
+}
+
 kosmos_refuse_if_suite_live() {
   local what="${1:-this run}" override="${2:-KOSMOS_HARNESS_IGNORE_SUITE=1 runs anyway}" probe="${KOSMOS_SUITE_PROBE:-}" raw out rc self
   self="${KOSMOS_SUITE_SELF_PID:-$$}"
   if [ -n "$probe" ]; then
     out="$("$probe" 2>/dev/null)"; rc=$?
   else
-    raw="$(pgrep -fl 'run-tests\.sh' 2>/dev/null)"; rc=$?
-    out="$(printf '%s\n' "$raw" | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/run-tests\.sh( |$)' || true)"
+    out="$(_kosmos_suite_candidates)"; rc=$?
     if [ "$rc" -le 1 ]; then rc=0; [ -n "$out" ] || rc=1; fi
   fi
   if [ -n "$out" ] && [ -n "$self" ]; then
@@ -459,7 +468,7 @@ kosmos_refuse_if_suite_live() {
   fi
   if [ "$rc" -eq 0 ] && [ -n "$out" ]; then
     local detail; detail="$(printf '%s\n' "$out" | head -1 | cut -c1-80)"
-    echo "a test suite (tools/run-tests.sh) is already running on this Mac ($detail); $what boots real boards on test ports and checks that they let go of them, and a suite beside it can make those checks red for reasons that are not the change. Wait for the suite to finish, or $override." >&2
+    echo "a test suite (tools/run-tests.sh) is already running on this Mac ($detail); $what boots real boards on test ports and checks that they let go of them, and a suite beside it can make those checks red for reasons that are not the change. Wait for the suite to finish (bash tools/heavy-gate.sh --twice --quiet-box says when the box is quiet), or $override. On a busy Mac a suite is often running, so expect to wait rather than to override." >&2
     return 1
   fi
   return 0
