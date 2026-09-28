@@ -595,6 +595,33 @@ test('#4277: a killed tunnel is relaunched by the supervisor, counted, and comes
   remote.resetForTests();
 });
 
+/* kosmos#4277 reviews 6 and 7: a relaunch is counted only when the supervisor really starts the
+   tunnel again. A restart timer that fires into a board that is no longer wanted counts nothing,
+   and a later start by the person is not a supervisor relaunch either. */
+test('#4277: a restart timer firing into an unwanted board counts nothing, and a later start is not a relaunch', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9446';
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  process.env.FAKE_TUNNEL_MODE = 'crash';
+  await remote.setupComplete('123456', 'hers');
+  remote.ensure(4320);
+  await until(() => remote.status().state === 'restarting', 'the crash to schedule a restart');
+  const before = remote.restartCount();
+  // The board stops being enrolled before the restart timer fires: ensure() finds it unwanted.
+  const crt = nodePath.join(remote.stateDir(), 'tls.crt');
+  const saved = fs.readFileSync(crt);
+  fs.rmSync(crt);
+  await new Promise((r) => setTimeout(r, 2500));   // past the 1 s first backoff
+  assert.equal(remote.restartCount(), before, 'a timer firing into an unwanted board counted a relaunch');
+  // The person puts it right and the board starts the tunnel: not a supervisor relaunch.
+  delete process.env.FAKE_TUNNEL_MODE;
+  fs.writeFileSync(crt, saved);
+  remote.ensure(4320);
+  await until(() => remote.status().state === 'up', 'the tunnel to come up after the fix');
+  assert.equal(remote.restartCount(), before, 'a start after a deliberate stop was counted as a relaunch');
+  remote.resetForTests();
+});
+
 test('#648: enrolled with nothing set dials the REAL relay and coordinator, with no CA flag', async () => {
   /* Until 2026-08-24 this asserted "no relay set is off with the reason, not
      a spawn into nowhere": the relay's domain was undecided, so a default

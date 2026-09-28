@@ -55,7 +55,9 @@ const CODES = [
   ['status-unreadable', /status unreadable/i],
   ['binary-missing', /could not be started|ENOENT|EACCES|unrecognized subcommand/i],
   ['state-dir-invalid', /does not look like a Mac state dir/i],
-  ['state-file-unreadable', /reading \S+ from|pinned coordinator_pubkey|decoding mac_key/i],
+  ['state-file-unreadable', /reading \S+ from|pinned coordinator_pubkey|decoding mac_key|mac_key is not 32 bytes/i],
+  // The coordinator's ticket does not fit this Mac (the pinned key, or a stale address file).
+  ['ticket-mismatch', /ticket does not verify|ticket names /i],
   ['cert-renewal', /renewal/i],
   // The tunnel's dial of the RELAY (session.rs dial_relay): kept apart from the coordinator,
   // which is the whole question when a Mac never gets a ticket (review 6).
@@ -70,7 +72,7 @@ const CODES = [
   // close): routine, not a failure (review 5).
   ['reconnecting', /the connection closed/i],
   ['crashed', /crash|killed|restarting/i],
-  ['awaiting-sign-in', /waiting for the (code|sign-in)/i],
+  ['awaiting-sign-in', /^waiting for the (code|sign-in)/i],
   ['not-started', /has not started the tunnel/i],
 ];
 function classify(text) {
