@@ -28011,11 +28011,20 @@ document.getElementById('auto-toggle').addEventListener('click', autoToggleClick
    the fast-follow (PR-C2). */
 let FEEDBACK_EPOCH = 0;
 function feedbackPaint(r) {
-  const unread = !r || r.ok === false || typeof r.on !== 'boolean';
-  paintSwitch('feedback-toggle', unread ? null : r.on === true);
+  /* Two different could-not-reads (#4332, the #4308 rule). NO ANSWER (a failed fetch, a 403 on an enforcing
+     board) says nothing about the setting, so the switch stays hidden: never a false Off. A DAMAGED FILE is an
+     answer: the board read it, found it unreadable, and treats it as off (feedbacksend's send gate reads
+     read().on, which is false), so Off is true and the switch shows it. Hiding it there was a dead end: the
+     damage stays on disk and only the person's own switch (setOn) rewrites the file. So say so, and let them. */
+  /* Readable means exactly ok:true with a boolean on; damaged means exactly the engine's {on:false, ok:false}.
+     Anything else (ok:false with on:true, or no ok field at all) is treated as no answer and hidden, so no
+     unexpected shape can ever be drawn as a position on this privacy switch (review of #4337). */
+  const damaged = !!r && r.ok === false && r.on === false;
+  const unread = !r || typeof r.on !== 'boolean' || (r.ok !== true && !damaged);
+  paintSwitch('feedback-toggle', unread ? null : (damaged ? false : r.on === true));
   document.getElementById('feedback-msg').textContent = unread
     ? 'We could not check this setting here. Open Kosmos from its icon and you can change it.'
-    : '';
+    : (damaged ? 'Your Daily report setting could not be read, so no report is being sent. Turn it on to set it again.' : '');
 }
 async function refreshFeedback() {
   const mine = ++FEEDBACK_EPOCH;
