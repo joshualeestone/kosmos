@@ -137,6 +137,10 @@ test('kosmos#1656: acctFlowPaint on the connected phase shows success (Claude wi
   dom.els.get('acct-claude-flow').hidden = true;
   dom.els.get('acct-openai-flow').hidden = true;
   dom.els.get('acct-add-note').classList = { add() {}, remove() {} };
+  /* #4271: acctFlowPaint asks whether focus was inside the panel before hiding it. Focus
+     IS inside here, and on Connected the focus move is left to acctShowSuccess: the move
+     helper is deliberately not in scope, so calling it would throw. */
+  dom.els.get('acct-flow').contains = () => true;
   const src = [lift(SCRIPT, 'acctFlowPaint'), lift(SCRIPT, 'acctShowSuccess'), 'return acctFlowPaint;'].join('\n');
   const paint = new Function(
     'document', 'frConnActive', 'ACCT_FLOW_SAY', 'acctPick', 'acctFlowStop', 'paintAccounts', 'pjSentence', 'ACCT_FLOW_LAST', src,
