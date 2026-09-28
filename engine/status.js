@@ -7426,7 +7426,7 @@ function snapshot() {
        model, read from the record its own CLI keeps, never asked of the agent: Gemini's session names the model per
        message, Grok's names current_model_id, Codex's rollout names it on each turn_context. A runner whose record
        names none yet (no turn since it started) falls back to the job's planned model (server.js plannedFor). */
-    const sessModel = (x) => (x && x.found !== false && typeof x.model === 'string' && x.model) || null;
+    const sessModel = (x) => (x && x.found && typeof x.model === 'string' && x.model) || null;   // found, as the agy line always required
     const { model } = !tied ? { model: null }
       : isAgyPane ? { model: sessModel(agySess) }
       : isMusePane ? { model: null }

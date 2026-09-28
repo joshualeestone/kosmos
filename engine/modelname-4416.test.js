@@ -6,6 +6,7 @@
  *
  *   node --test engine/modelname-4416.test.js
  */
+require('../test-support/tmpscope');   // the #4273 leak gate: its temp dirs stay in this process's own
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
