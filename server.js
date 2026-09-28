@@ -14035,11 +14035,30 @@ const server = http.createServer((req, res) => {
          nowhere else. A branch its own endpoint cannot trigger is not a feature
          with no users, it is a state the screen claims to handle and does not. */
       const readOut = instructions.read(name, sessionOf(name));
+      /* #4406: the page offers "Put the previous version in the box" from hasPrevious, so it must mean what the
+         button can do: read's cheap check (a regular file is there) confirmed by the same reader the restore uses
+         (not empty, readable, UTF-8). Here only, not in read(): its other callers do not need it. */
+      if (readOut && readOut.hasPrevious) readOut.hasPrevious = instructions.readPrevious(name).exists;
       sendJson(res, 200, readOut && readOut.staleness
         ? { ...readOut, staleness: projects.toldOverride(readOut.staleness, sessionOf(name) || name) }
         : readOut);
     } catch {
       sendJson(res, 500, { error: 'those instructions could not be read' });
+    }
+    return;
+  }
+
+  /* #4406: the version kept beside the file, for the Instructions tab to put back in the box. Read-only:
+     putting it back is the person's own Save (the PUT below), with its version check. */
+  const instrPrev = pathname.match(/^\/api\/agent\/([^/]+)\/instructions\/previous$/);
+  if (instrPrev && (req.method === 'GET' || req.method === 'HEAD')) {
+    const name = decodeSegment(instrPrev[1]);
+    if (name === null) { sendJson(res, 404, { error: 'that is not a name we can read' }); return; }
+    if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    try {
+      sendJson(res, 200, instructions.readPrevious(name));
+    } catch {
+      sendJson(res, 500, { error: 'the previous version could not be read' });   // as the GET beside it
     }
     return;
   }

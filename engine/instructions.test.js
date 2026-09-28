@@ -1598,3 +1598,62 @@ test('#4084: wroteBy matches its record in the last half millisecond of a second
   /* CONTROL: a file a whole second newer than its record is still "nobody said". */
   assert.equal(instructions.wroteBy('edge-4084', st.mtimeMs + 1000), null, 'a later edit was attributed to Kosmos');
 });
+
+/* #4406: the version kept beside the file, which the Instructions tab puts back in the box. */
+test('#4406: readPrevious answers the text a write kept, and nothing when none was kept', () => {
+  const name = 'prev4406a';
+  const dir = path.join(ROOT, name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), '# First\n\nThe words I wrote.\n');
+  const none = instructions.readPrevious(name);
+  assert.equal(none.exists, false, 'CONTROL: no write yet, so nothing is kept');
+  const before = instructions.read(name);
+  instructions.write(name, '# Second\n\nReplaced with a longer set of words.\n', before.version);
+  const prev = instructions.readPrevious(name);
+  assert.equal(prev.exists, true);
+  assert.equal(prev.text, '# First\n\nThe words I wrote.\n', 'the kept version is the text before the write');
+  assert.equal(instructions.read(name).text, '# Second\n\nReplaced with a longer set of words.\n', 'reading it writes nothing');
+});
+
+test('#4406: readPrevious refuses a .previous that is a symlink, as read refuses the file itself', () => {
+  const name = 'prev4406b';
+  const dir = path.join(ROOT, name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), '# Mine\n');
+  const outside = path.join(HOME, 'outside-4406.txt');
+  fs.writeFileSync(outside, 'not the agent\'s\n');
+  fs.symlinkSync(outside, path.join(dir, 'CLAUDE.md.previous'));
+  const got = instructions.readPrevious(name);
+  assert.equal(got.exists, false);
+  assert.equal(got.text, '');
+  assert.ok(!String(got.because || '').includes('not the agent'), 'nothing from the link target leaks');
+});
+
+test('#4406: a missing instruction file still says its previous version is kept, so it can be put back', () => {
+  const name = 'prev4406c';
+  const dir = path.join(ROOT, name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), '# First\n\nThe words I wrote for this agent.\n');
+  instructions.write(name, '# Second\n\nReplaced with a longer set of words.\n', instructions.read(name).version);
+  fs.rmSync(path.join(dir, 'CLAUDE.md'));
+  const got = instructions.read(name);
+  assert.equal(got.exists, false);
+  assert.equal(got.editable, true);
+  assert.equal(got.hasPrevious, true, 'the lost-file case is where the kept version matters most');
+  assert.equal(instructions.readPrevious(name).text, '# First\n\nThe words I wrote for this agent.\n');
+  fs.rmSync(path.join(dir, 'CLAUDE.md.previous'));
+  assert.equal(instructions.read(name).hasPrevious, false, 'CONTROL: nothing kept, nothing offered');
+});
+
+test('#4406: an empty kept previous version is not offered as one', () => {
+  const name = 'prev4406d';
+  const dir = path.join(ROOT, name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), '# Mine\n\nThe words I wrote for this agent.\n');
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md.previous'), '  \n');
+  const got = instructions.readPrevious(name);
+  assert.equal(got.exists, false);
+  assert.equal(got.text, '');
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md.previous'), '# Kept\n\nWords from before, kept.\n');
+  assert.equal(instructions.readPrevious(name).exists, true, 'CONTROL: a kept version with words is offered');
+});

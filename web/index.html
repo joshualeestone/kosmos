@@ -7954,6 +7954,7 @@ svg { display: block; }
   border-radius: var(--radius-control);   /* `--radius-sm` does not exist; this is the defined one */
 }
 
+#d-instr-prev .linkish { font-size: inherit; }   /* #4406: the restore link reads at its sentence's size */
 #d-instr {
   width: 100%; box-sizing: border-box; resize: vertical; min-height: 220px;
   font: var(--text-body) var(--font-ui); line-height: 1.5;
@@ -11137,8 +11138,11 @@ window.kosmosMeasureScrollbarWidth();
          CLAUDE.md.previous", which is both jargon and, on a non-Claude agent,
          simply the wrong name. What the reader needs is that the old version
          still exists, not what it is called. -->
-    <div class="fpath" id="d-instr-prev" hidden>The previous version is kept alongside it, so nothing you replace is lost.</div>
+    <div class="fpath" id="d-instr-prev" hidden>The previous version is kept alongside it, so nothing you replace is lost. <button class="linkish" id="d-instr-prev-load" type="button">Put the previous version in the box</button></div>
     <div class="fmsg" id="d-instr-msg" role="status" aria-live="polite"></div>
+    <!-- #4406: while the box loads it says so with the loading mark, never an empty box; a failed load offers a retry. -->
+    <p class="dhint" id="d-instr-loading" role="status" aria-live="polite" hidden style="margin:6px 0 0;"><span class="spin spin-sweep" style="--sz:14px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span> Loading instructions…</p>
+    <div class="frow" id="d-instr-retry-row" hidden style="margin-top:6px;"><button class="btn" id="d-instr-retry" type="button">Try again</button></div>
   </div>
   </section>
   </section>
@@ -20715,6 +20719,7 @@ async function tick() {
           document.getElementById('d-instr').disabled = true;
           document.getElementById('d-instr-save').disabled = true;
           document.getElementById('d-instr-foot').hidden = true;
+          document.getElementById('d-instr-prev').hidden = true;   // #4406: its restore could not finish either
         }
         // If the poll cannot see a version (the file became unreadable), say
         // nothing new rather than RETRACTING a notice that was true. Hiding it
@@ -32556,7 +32561,8 @@ function openDetail(sessionName, section, fromProject) {
   // agent…" (an aria-live region) on the new agent's panel until the superseded reload
   // settled. openDetail runs only on a real agent open, never on the poll, so this
   // cannot hide the loader during the update's own reload.
-  document.getElementById('d-instr-updating').hidden = true;
+  for (const id of ['d-instr-updating', 'd-instr-loading', 'd-instr-retry-row']) document.getElementById(id).hidden = true;   // #4406 too
+  document.getElementById('d-instr').placeholder = '';
   const a = LAST.find((x) => x.sessionName === sessionName);
   if (!a) return;
   /* #2574: remember a project origin (a member click passes PJ_CURRENT) so
@@ -34951,7 +34957,9 @@ function setWritesOffered(a, tied) {
   const controls = ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save'];
   for (const id of controls) {
     const el = document.getElementById(id);
-    if (el) el.disabled = !tied;
+    /* #4406: the instructions box and Save also wait for their content. This runs on every 5 s poll, and turning
+       them on mid-load left an empty, editable box whose typing the landing load then replaced. */
+    if (el) el.disabled = !tied || ((id === 'd-instr' || id === 'd-instr-save') && !INSTR_READY);
   }
   const fileBtn = document.getElementById('d-file-btn');
   if (fileBtn) { if (tied) fileBtn.removeAttribute('aria-describedby'); else fileBtn.setAttribute('aria-describedby', 'd-untied'); }
@@ -34959,11 +34967,11 @@ function setWritesOffered(a, tied) {
   if (!tied) {
     // Clear, don't just disable. A disabled textarea still SHOWS the text.
     const box = document.getElementById('d-instr');
-    if (box) box.value = '';
+    if (box) { box.value = ''; box.placeholder = ''; }   // #4406: no "Loading" for a load this card will not make
     INSTR_READY = false;
     INSTR_BANNER = false;   // not our card: nothing here is about the agent on screen
     INSTR_VERSION = null;
-    for (const id of ['d-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-updating']) {
+    for (const id of ['d-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-updating', 'd-instr-loading', 'd-instr-retry-row']) {
       const el = document.getElementById(id);
       if (el) el.hidden = true;
     }
@@ -35026,6 +35034,9 @@ let INSTR_LOAD = 0;
  * for the text it is showing.
  */
 let INSTR_VERSION = null;
+/* #4406: the text the box last loaded or saved, so putting the previous version back never replaces unsaved
+   typing. */
+let INSTR_LOADED_TEXT = '';
 
 /**
  * Bumped whenever the panel's idea of the file changes: a load, or a save.
@@ -35123,6 +35134,17 @@ async function loadInstructions(sessionName) {
   // agent with no folder at all.
   document.getElementById('d-instr-prev').hidden = true;
   renderStale(null);
+  /* #4406: an empty, greyed box while the load is in flight read as "the instructions are gone" (a restart can
+     hold the answer for a while). It says it is loading until the answer lands, whichever way. */
+  box.placeholder = 'Loading instructions…';
+  /* Update's reload (#3050) already shows its own loader in #d-instr-updating; one is enough. */
+  document.getElementById('d-instr-loading').hidden = !document.getElementById('d-instr-updating').hidden;
+  { const rr = document.getElementById('d-instr-retry-row');
+    if (rr.contains(document.activeElement)) {
+      // Not the box: it is disabled for the load and cannot take focus. The status line can.
+      const m = document.getElementById('d-instr-msg'); m.tabIndex = -1; m.focus();
+    }
+    rr.hidden = true; }
 
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/instructions?t=' + Date.now(),
@@ -35135,10 +35157,13 @@ async function loadInstructions(sessionName) {
     // on B's panel. A new sibling does not inherit the guard; this one
     // now guards the whole family below it.
     if (mine !== INSTR_LOAD) return; // a newer agent is open; this answer is for the old one
-    if (!CURRENT || CURRENT.sessionName !== sessionName) return;
+    if (!CURRENT || CURRENT.sessionName !== sessionName) { document.getElementById('d-instr-loading').hidden = true; box.placeholder = ''; return; }
     if (!res.ok) throw new Error(data.error || 'that did not work');
 
+    box.placeholder = '';
+    document.getElementById('d-instr-loading').hidden = true;
     box.value = data.text || '';
+    INSTR_LOADED_TEXT = box.value;   // #4406: what an unsaved edit is measured against
     // Remember which version this is, so Save can refuse to clobber an edit
     // made after this load.
     INSTR_VERSION = data.version || null;
@@ -35178,7 +35203,9 @@ async function loadInstructions(sessionName) {
     // the engine was restructured to remove, moved into the browser.
     if (!data.exists) {
       if (data.editable) {
-        msg.textContent = 'There is no instruction file for this one yet.';
+        msg.textContent = data.hasPrevious   // #4406: the file is gone but its previous version is kept
+          ? 'There is no instruction file for this one right now. The previous version is kept, and can go back in the box.'
+          : 'There is no instruction file for this one yet.';
       } else {
         msg.textContent = 'This cannot be edited from this screen: '
           + (data.because || 'we cannot read it') + '.';
@@ -35193,9 +35220,17 @@ async function loadInstructions(sessionName) {
       }
     }
     renderStale(data.staleness);
+    /* #4406: Try again moved focus to the status line, which this load rewrites: the box when it ended editable,
+       else the line stays (never the page). */
+    if (document.activeElement === msg && !box.disabled) box.focus();
     loadDoctrine(sessionName); // #539: fire-and-forget beside the staleness read; its own guard inside
   } catch (err) {
     if (mine !== INSTR_LOAD) return;
+    box.placeholder = '';
+    document.getElementById('d-instr-loading').hidden = true;
+    // #4406: another agent opened (an untied one bumps no load token): its card gets nothing from this load.
+    if (!CURRENT || CURRENT.sessionName !== sessionName) return;
+    document.getElementById('d-instr-retry-row').hidden = false;   // a way to ask again, beside the sentence
     // The load is finished and broken, which is a different state from "still
     // in flight" and gets a different sentence. It leaves INSTR_READY false, so
     // Save stays refused: we have no version, and saving without one would be
@@ -35587,6 +35622,45 @@ function renderStale(s) {
   return;
 }
 
+/* #4406: a failed load is asked again for the agent on screen. */
+document.getElementById('d-instr-retry').addEventListener('click', () => {
+  if (CURRENT && CURRENT.sessionName && CURRENT.isNamedOurs) loadInstructions(CURRENT.sessionName);
+});
+/* #4406: put the kept previous version in the box. Writes nothing: the person's Save keeps it, with the version
+   this box loaded, and that Save keeps today's text as the new previous version, so this can be undone the same
+   way. A read that answers after another agent was opened is dropped. */
+document.getElementById('d-instr-prev-load').addEventListener('click', async () => {
+  const box = document.getElementById('d-instr');
+  const msg = document.getElementById('d-instr-msg');
+  const who = CURRENT && CURRENT.sessionName;
+  if (!who) return;
+  if (!INSTR_READY || box.disabled) { msg.textContent = 'These instructions cannot be edited right now, so the previous version cannot be put in the box.'; return; }
+  // Never over the person's unsaved typing: a script-set value cannot be undone with the keyboard.
+  if (box.value !== INSTR_LOADED_TEXT) {
+    msg.textContent = 'The box has changes that are not saved. Save them, or reopen this agent to drop them, before putting the previous version back.';
+    return;
+  }
+  const forLoad = INSTR_LOAD;
+  let data = null;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(who) + '/instructions/previous?t=' + Date.now(), { cache: 'no-store' });
+    data = await res.json().catch(() => null);
+    if (!res.ok) data = null;
+  } catch { data = null; }
+  if (!CURRENT || CURRENT.sessionName !== who || INSTR_LOAD !== forLoad || !INSTR_READY || box.disabled) return;   // the box moved on
+  // Asked again after the wait: the person may have typed while the previous version was being read.
+  if (box.value !== INSTR_LOADED_TEXT) {
+    msg.textContent = 'The box has changes that are not saved. Save them, or reopen this agent to drop them, before putting the previous version back.';
+    return;
+  }
+  if (!data || !data.exists) {
+    msg.textContent = 'The previous version could not be read' + (data && data.because ? ': ' + data.because : '') + '.';
+    return;
+  }
+  box.value = data.text || '';
+  msg.textContent = 'This is the kept previous version. Nothing is saved until you press Save.';
+  box.focus();
+});
 document.getElementById('d-instr-save').addEventListener('click', async () => {
   if (!CURRENT) return;
   const msg = document.getElementById('d-instr-msg');
@@ -35643,6 +35717,7 @@ document.getElementById('d-instr-save').addEventListener('click', async () => {
     if (!res.ok) throw new Error(data.error || 'that did not work');
     msg.textContent = 'Saved.';
     INSTR_VERSION = data.version || null;
+    INSTR_LOADED_TEXT = text;   // #4406: the box now holds what is saved
     INSTR_EPOCH += 1;
     // ⚠️ Updating INSTR_VERSION above is what stops the very next poll deciding
     // the file has "changed since you opened it" and telling the person to

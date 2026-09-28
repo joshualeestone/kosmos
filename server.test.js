@@ -1565,6 +1565,42 @@ test('a successful PUT rewrites the file and answers with the new stale state', 
   assert.equal(JSON.parse(back.body).text, text, 'a re-read did not see the write');
 });
 
+/* #4406: the version kept beside the file, for the Instructions tab to put back in the box. */
+test('#4406: GET instructions/previous answers the kept version, writes nothing, and refuses an unknown agent', async (t) => {
+  const unknown = await req('/api/agent/definitely-not-an-agent/instructions/previous');
+  assert.equal(unknown.status, 404);
+  const bad = await req('/api/agent/%zz/instructions/previous?t=1');
+  assert.equal(bad.status, 404, 'a malformed name is refused, not crashed on');
+  const name = await anyAgent(t);
+  if (!name) return;
+  const dir = nodePath.join(WORKERS, decodeURIComponent(name));
+  fs.mkdirSync(dir, { recursive: true });
+  const file = nodePath.join(dir, 'CLAUDE.md');
+  fs.writeFileSync(file, 'The instructions this agent had before the #4406 test ran.');
+  const text = 'Replaced by the #4406 test, so the old words are kept as the previous version.';
+  const put = await req(`/api/agent/${name}/instructions`,
+    { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
+  assert.equal(put.status, 200, put.body);
+  const res = await req(`/api/agent/${name}/instructions/previous?t=1`);
+  assert.equal(res.status, 200, res.body);
+  assert.match(res.type, /application\/json/);
+  const body = JSON.parse(res.body);
+  assert.equal(body.exists, true);
+  assert.equal(body.text, 'The instructions this agent had before the #4406 test ran.');
+  assert.equal(fs.readFileSync(file, 'utf8'), text, 'reading the previous version must not write');
+  const offered = JSON.parse((await req(`/api/agent/${name}/instructions?t=2`)).body);
+  assert.equal(offered.hasPrevious, true, 'CONTROL: a kept version with words is offered');
+  // An empty kept file is not offered, so the offer and the button agree.
+  fs.writeFileSync(file + '.previous', '   \n');
+  const empty = JSON.parse((await req(`/api/agent/${name}/instructions?t=3`)).body);
+  assert.equal(empty.hasPrevious, false, 'an empty kept file must not be offered as a previous version');
+  // And nothing kept at all answers a plain no.
+  fs.rmSync(file + '.previous');
+  const none = await req(`/api/agent/${name}/instructions/previous`);
+  assert.equal(none.status, 200);
+  assert.equal(JSON.parse(none.body).exists, false);
+});
+
 test('both modules resolve worker files under the SAME sandboxed root', async (t) => {
   // ⚠️ Pins the one thing standing between `node --test` and the live CLAUDE.md
   // files that real agents boot from. `status.js` used to carry its own
@@ -2209,7 +2245,7 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
   // eslint-disable-next-line no-new-func
   const run = new Function('document', `let INSTR_READY = true; let INSTR_VERSION = 'v1';
     ${script.slice(start, end)}
-    return (a, tied) => { setWritesOffered(a, tied); return { INSTR_READY, INSTR_VERSION }; };`)(document);
+    return (a, tied, ready) => { if (ready !== undefined) INSTR_READY = ready; setWritesOffered(a, tied); return { INSTR_READY, INSTR_VERSION }; };`)(document);
 
   // ⚠️ REAL CARDS, from the route the page actually reads. These were object
   // literals, and an object literal is free to carry fields `/api/status` does
@@ -2303,10 +2339,18 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
     'the poll never re-applies the tie check, so an agent that dies while its '
     + 'panel is open keeps offering writes for a card that is now a stranger’s');
 
-  // And a tied card gets everything back.
-  run(tiedCard, tiedCard.isNamedOurs);
-  for (const id of ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save']) {
+  // And a tied card gets everything back. #4406: the instructions box and Save only once their content has
+  // loaded (INSTR_READY); before that, a poll tick turning them on gave an empty, editable box mid-restart.
+  run(tiedCard, tiedCard.isNamedOurs, false);
+  for (const id of ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename']) {
     assert.equal(els[id].disabled, false, `${id} stayed withdrawn for a tied agent`);
+  }
+  for (const id of ['d-instr', 'd-instr-save']) {
+    assert.equal(els[id].disabled, true, `${id} was turned on for a tied agent before its content loaded`);
+  }
+  run(tiedCard, tiedCard.isNamedOurs, true);
+  for (const id of ['d-instr', 'd-instr-save']) {
+    assert.equal(els[id].disabled, false, `${id} stayed withdrawn for a tied agent whose content has loaded`);
   }
   // #4038: a hidden element still describes whatever points at it, so a live button must point at no reason.
   assert.equal(els['d-file-btn'].attrs['aria-describedby'], undefined, 'a live Change picture button still names a reason');
