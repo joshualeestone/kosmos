@@ -14,14 +14,20 @@ inside your own folder", which names the folder the agent then used.
 - The block (every runner): two new sentences right after the path: directly inside it, not your own folder above
   it and not a subfolder; only files there appear on your page; never say a file is under Files unless saved at that
   exact path. "is inside your own folder" removed (the summaries rule it carried stays).
-- A one-line pointer (new marker pair kosmos:dmfiles-top, registered in ALL_MARKERS) right under the first heading
-  of a NON-Claude agent's instructions; a Claude agent carries none (one left from another runner is removed), so the
-  fleet's CLAUDE.md files are untouched. dmfiles.applyTo is the one composition, used at birth and by tellAgent.
+- ROOT CAUSE (the agent's own account, on the card 15:33): the doctrine's EARLIER "### Where the files you make go"
+  (engine/defaults.js) said work not tied to a project goes in "your own folder", and the agent stopped there. That
+  section now says: project work in the project's folder; a file for the person in the Files folder (the only place
+  they see it), naming the dmfiles section with the path; working notes in your own folder. DOCTRINE_VERSION 16.
+  Same heading, so it reaches new agents and managed spans; the doctrine is the person's text once born, so existing
+  agents get the rule from the pointer below, which is Kosmos's to keep current without consent.
+- A one-line pointer (new marker pair kosmos:dmfiles-top, in ALL_MARKERS) for EVERY agent (Splinter 15:34: all
+  agents): right BEFORE the working rules' heading when the file has them (read before the earlier rule; the person's
+  own words stay first, #591), else under the first heading. dmfiles.applyTo is the one composition (birth, tellAgent).
 
 ## Rejected
 - Showing an empty Files panel ("Files you ask for appear here"): Josh ruled the section hidden when empty (#3757,
   "let's not show this section"). Left to him, said on the card.
-- The pointer for Claude agents too: no report of Claude missing it, and it would rewrite every fleet CLAUDE.md.
+- Rewriting an existing agent's doctrine text without consent: the doctrine is the person's once born (#122).
 
 ## Weakest premise
 That position and wording are why the model missed it. A model can still ignore a top line; this makes the rule the

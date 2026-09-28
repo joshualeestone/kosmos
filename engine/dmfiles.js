@@ -160,38 +160,40 @@ function blockBody(dir) {
   ].join('\n');
 }
 
-/* #4420: the pointer near the top, for an agent whose model is not Claude. One line, so it costs nothing to read
-   first; the rule itself stays in the block. PURE. */
+/* #4420: the pointer near the top, for EVERY agent (Splinter, 15:34: the fix is for all agents, not Gemini's). It
+   sits above the doctrine's "Where the files you make go", which an existing agent holds as plain text Kosmos may not
+   rewrite without consent, so this is the line that reaches them. One line; the rule itself stays in the block. PURE. */
 function topLine(dir) {
   const where = projects.neutralise(String(dir == null ? '' : dir));
-  return 'Files you make for the person go directly in `' + where + '`, never your own folder above it: only files there '
-    + 'show on your page in Kosmos. The full rule is under "Where to save files you make for the person" below.';
+  return 'A file you make for the person goes directly in `' + where + '` (or in a project\u2019s folder when it is that '
+    + 'project\u2019s work): it is the only folder they see on your page in Kosmos. Your own folder above it is for your '
+    + 'working notes. The full rule is under "Where to save files you make for the person" below.';
 }
 
-/* Put the pointer right under the file's first heading (or at the very top when it has none), or replace it where it
-   already is. Refuses (returns the text unchanged) on two pointers, like spliceBlock. PURE. */
+/* Where the pointer goes: right BEFORE the working rules' heading when the file carries them (it has to be read before
+   their "Where the files you make go"; and the person's own words stay first, #591), else right under the file's first
+   heading, else at the very top. Replaced where it already is; refused (text unchanged) on two pointers. PURE. */
+const DOCTRINE_HEADING = '## How you work, whatever the job';
 function spliceTop(text, dir) {
   const original = String(text == null ? '' : text);
   const block = TOP_START + '\n' + topLine(dir) + '\n' + TOP_END;
   const at = projects.findBlock(original, TOP_START, TOP_END);
   if (at && at.ambiguous) return original;
   if (at) return original.slice(0, at.start) + block + original.slice(at.end);
+  const rules = original.indexOf('\n' + DOCTRINE_HEADING);
+  if (rules !== -1) return original.slice(0, rules + 1) + block + '\n\n' + original.slice(rules + 1);
+  if (original.startsWith(DOCTRINE_HEADING)) return block + '\n\n' + original;
   const nl = original.indexOf('\n');
   if (/^#\s/.test(original) && nl !== -1) return original.slice(0, nl + 1) + '\n' + block + '\n' + original.slice(nl + 1);
   return block + '\n\n' + original;
 }
 
-/* #4420: both managed parts for one agent: the block (every runner) and, for a runner other than Claude, the pointer
-   at the top; a Claude agent carries no pointer (one it had from another runner is taken out). The ONE composition,
-   used at birth (create.js, which knows the runner before the job is written) and by tellAgent. Null when the agent
-   has no folder to name. */
-function applyTo(text, sessionName, runner) {
+/* #4420: both managed parts for one agent, the block and the pointer at the top. The ONE composition, used at birth
+   (create.js) and by tellAgent. Null when the agent has no folder to name. */
+function applyTo(text, sessionName) {
   const dir = filesDir(sessionName);
   if (!dir) return null;
-  let next = projects.spliceBlock(text, blockBody(dir), START, END);
-  const claude = !runner || runner === 'claude';
-  next = claude ? projects.removeBlock(next, TOP_START, TOP_END) : spliceTop(next, dir);
-  return next;
+  return spliceTop(projects.spliceBlock(text, blockBody(dir), START, END), dir);
 }
 
 /** The body for an agent, or null when it has no folder to name. */
@@ -233,13 +235,11 @@ function tellAgent(sessionName, roster, opts) {
         because: `its instructions contain ${found.pairs} Kosmos files blocks, so we cannot tell which is ours and did not change anything`,
       };
     }
-    let runner = null;
-    try { runner = require('./create').recordedRunner(sessionName); } catch { runner = null; }
     const topFound = projects.findBlock(current.text || '', TOP_START, TOP_END);
     if (topFound && topFound.ambiguous) {
       return { state: projects.TOLD.COULD_NOT, because: `its instructions contain ${topFound.pairs} Kosmos files pointers, so we cannot tell which is ours and did not change anything` };
     }
-    const next = applyTo(current.text || '', sessionName, runner);   // #4420: the block, and the pointer for a non-Claude runner
+    const next = applyTo(current.text || '', sessionName);   // #4420: the block, and the pointer at the top
     if (next === null) return { state: projects.TOLD.COULD_NOT, because: 'it has no folder of its own on this computer to name' };
     /* Unchanged is TOLD, not a failure: the block already says this. */
     if (next === current.text) return { state: projects.TOLD.TOLD, because: null };

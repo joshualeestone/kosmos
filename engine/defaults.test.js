@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -288,8 +288,12 @@ test('#1943: the block says where a file belongs', () => {
   const b = defaults.block();
   assert.match(b, /Work you do for a project goes in that project’s folder/,
     'project work is not pointed at the project folder');
-  assert.match(b, /Work that is\s+your own goes in your own folder/,
+  /* #4420: "your own work" is now said to be the agent's working notes; a file made for the person goes to Files
+     (a Gemini agent read "work not tied to a project goes in your own folder" as where Josh's document went). */
+  assert.match(b, /Work that is your own, your working\s+notes, goes in your own folder/,
     'own work is not pointed at your own folder');
+  assert.match(b, /A file you make\s+for the person that is not a project\u2019s goes in your Files folder/,
+    '#4420: a file for the person is not sent to Files');
   assert.match(b, /do not invent a new place/,
     'the invented-folder failure the card reports is not forbidden');
   assert.match(b, /only as a message in\s+this window/,

@@ -5042,8 +5042,8 @@ function createAgentInner(opts) {
           // dmfiles.bodyFor is the ONE derivation of "this agent's Files folder" (the sweep uses it too).
           // It resolves through instructions.fileFor (workerDir(safeKey(name))) while the file here is written
           // through workerDir(name): the same folder only because creation names already pass [a-z0-9_-].
-          // #4420: applyTo adds the one-line pointer at the top too, for a runner other than Claude.
-          const spliced = dmMod.applyTo(text, name, runner);
+          // #4420: applyTo adds the one-line pointer at the top too.
+          const spliced = dmMod.applyTo(text, name);
           if (spliced === null) throw new Error('no folder to name');
           const { MAX_BYTES } = require('./instructions');
           if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; filesLanded = true; }

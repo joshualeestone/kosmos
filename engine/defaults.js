@@ -404,14 +404,18 @@ const BLOCK = [
   '',
   '### Where the files you make go',
   '',
-  '**Work you do for a project goes in that project\u2019s folder. Work that is',
-  'your own goes in your own folder. You do not invent a new place for it, and',
-  'you do not leave a finished file sitting in this chat as its only copy.**',
+  '**Work you do for a project goes in that project\u2019s folder. A file you make',
+  'for the person that is not a project\u2019s goes in your Files folder, the only',
+  'place they see it on your page in Kosmos: the section "Where to save files you',
+  'make for the person" names its exact path. Work that is your own, your working',
+  'notes, goes in your own folder. You do not invent a new place for it, and you',
+  'do not leave a finished file sitting in this chat as its only copy.**',
   '',
   'When your work is a project\u2019s, its folder on this computer is named for',
   'you in these instructions: put the files there, in the obvious spot inside',
-  'it, not in a deeper path you made up under it. When the work is your own and',
-  'not tied to a project, your own folder is where it goes.',
+  'it, not in a deeper path you made up under it. Your own folder, the one above',
+  'Files, is never where a file made for the person goes: one saved there is one',
+  'they cannot see.',
   '',
   'The reason is that a person looks for their work where they keep it. A file',
   'in a folder they never named, or a document that lives only as a message in',
@@ -775,8 +779,19 @@ function block() {
  *     WEAKEST PREMISE, NAMED: this binds an agent that follows its instructions. It does
  *     not stop one that ignores them: the routes still accept the board token (#4475
  *     steps 2 and 3), and every agent has a shell as the same Mac user.
+ *
+ *  18. kosmos#4420 (Josh, 2026-09-28 15:29): a Gemini agent saved a file for him in its own folder and said it was
+ *     in the files panel. Its instructions held the Files rule (the dmfiles block, at the END of the file), but
+ *     this section, much earlier, said work "not tied to a project" goes in "your own folder", and the agent
+ *     stopped there (its own account, relayed on the card). The section now sends a file made for the person to
+ *     the Files folder, names the dmfiles section that carries its path, and says the folder above Files is for
+ *     working notes only. SAME HEADING, so it reaches new agents and agents with a managed span; every EXISTING
+ *     agent gets the same rule from the managed dmfiles pointer at the top of its file (engine/dmfiles.js), which
+ *     needs no consent because that block is Kosmos's to keep current.
+ *     WEAKEST PREMISE, NAMED: that the earlier section is what the agent obeyed. It said so itself, which is the
+ *     least reliable kind of evidence; the pointer above the doctrine covers the case whatever the reason.
  */
-const DOCTRINE_VERSION = 17;
+const DOCTRINE_VERSION = 18;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
