@@ -207,8 +207,10 @@ No deploy step copies a key file, and the template only holds its path.
   `KOSMOS_PUSH` set, and the coordinator sends web push for real unless it is exactly `log`
   (`coordinator/src/main.rs`). The board no longer offers the browser sign-up (#3510), so no browser
   should be subscribed. Macs send events only once they run a board release with the lock open
-  (Step 7) and someone turns the switch on; until Step 8 those events are logged, not pushed. It is
-  still a production change, so it is named here.
+  (Step 7) and someone turns the switch on; until Step 8 those events are logged, not pushed. The
+  30-minute needs_you email is separate: `KOSMOS_PUSH` does not govern it, and the coordinator sends it
+  whenever its `needs_you_email` flag is on, with or without a phone (whether that flag is on in
+  production is for the coordinator's owner to confirm). It is still a production change, so it is named here.
 
 **Check:**
 - `curl -s https://coordinator.kosmosplus.com/v1/meta` shows the new `build`.
@@ -473,7 +475,8 @@ this release.
 
 **Between this release and Step 8:** a user who turns the switch on reaches
 the coordinator, but no push reaches any phone, because the coordinator still
-runs `KOSMOS_PUSH=log`. Only ship this release once steps 4 and 5 have an app
+runs `KOSMOS_PUSH=log`. The 30-minute needs_you email is not part of that: it can still arrive
+while `needs_you_email` is on, phone or not. Only ship this release once steps 4 and 5 have an app
 that receives, and plan Step 8 close behind it, so the switch is not on for
 long with nothing arriving.
 

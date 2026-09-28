@@ -164,5 +164,8 @@ test('#4194: the Phone notifications section says the phone app is in testing, n
   assert.match(note, /still in testing/, 'the section does not say the app is in testing: ' + note);
   assert.match(note, /Android test build/);
   assert.match(note, /not in the App Store or Google Play/);
+  // #4194 review (Sonya): the 30-minute needs_you email can still arrive with no phone, so the note must not say nothing does.
+  assert.match(note, /these will not reach your phone/, 'the note should say only what it means: not on your phone');
+  assert.doesNotMatch(note, /anywhere/, 'the note says nothing arrives anywhere, but the needs_you email can: ' + note);
   assert.ok(section.indexOf('phone-notify-testing') < section.indexOf('phone-notify-toggle'), 'the note should come before the switch');
 });
