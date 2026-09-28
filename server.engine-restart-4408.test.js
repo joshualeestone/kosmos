@@ -5,6 +5,7 @@
  * uses. Its own file because it stubs boardrestart (no launchd, a fake installed CLI, a recording
  * spawner) and those stubs cannot be undone; node --test runs each file in its own process.
  */
+require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
