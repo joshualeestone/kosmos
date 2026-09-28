@@ -180,6 +180,45 @@ function changedFiles(root) {
   return r.stdout.split('\n').map((l) => l.trim()).filter(Boolean);
 }
 
+// Why a file failed, as node's spec reporter says it: the "failing tests:" section it prints at the
+// end, one entry per failing test (each starts "test at <file>:<line>"), minus stack frames. Before
+// #4301 only lines containing "Error" were kept, so a test that ran out of its own timeout ("test timed
+// out after 30000ms") showed its name and nothing else. Each entry is capped on its own and says what
+// it left out, so one long assertion diff cannot hide the next test's reason; entries for tests the
+// caller did not expect to fail come first. A crash before that section falls back to the output's tail.
+const DETAIL_LINES_PER_TEST = 15;
+const DETAIL_TESTS = 10;
+// A file that crashed before node printed its failing-tests section: this much of its output's tail.
+const CRASH_TAIL_LINES = 60;
+// A stack frame: "at" then a location in parentheses or at the end, including the unlocated
+// (<anonymous>), (native) and (index N) shapes node prints for built-ins and Promise.all.
+// The last frame before an error's properties ends in " {", so that is allowed too.
+const STACK_FRAME = /^\s+at .*(\(.*:\d+:\d+\)|:\d+:\d+|\((?:native|<anonymous>|index \d+)\)|\(node:[^)]*\))( \{)?$/;
+function failureDetail(output, expected = []) {
+  const lines = String(output).replace(/\r/g, '').split('\n');
+  const at = lines.findIndex((l) => /^\s*✖ failing tests:\s*$/.test(l));
+  const keep = (l) => l.trim() && !STACK_FRAME.test(l);
+  if (at < 0) return lines.slice(-CRASH_TAIL_LINES).filter(keep).map((l) => l.trimEnd());
+  // An entry starts at its "test at" line. Anything before the first one (normally a blank line) opens
+  // an entry only if it has something to keep, so it cannot take a slot as an empty entry.
+  const entries = [];
+  for (const l of lines.slice(at + 1)) {
+    if (/^\s*test at /.test(l)) entries.push([]);
+    if (!keep(l)) continue;
+    if (!entries.length) entries.push([]);
+    entries[entries.length - 1].push(l.trimEnd());
+  }
+  const named = (e) => { const m = e.find((l) => /^\s*✖ /.test(l)); return m ? m.replace(/^\s*✖ /, '').replace(/ \([\d.]+m?s\)$/, '') : ''; };
+  const ordered = [...entries.filter((e) => !expected.includes(named(e))), ...entries.filter((e) => expected.includes(named(e)))];
+  const out = [];
+  for (const e of ordered.slice(0, DETAIL_TESTS)) {
+    out.push(...e.slice(0, DETAIL_LINES_PER_TEST));
+    if (e.length > DETAIL_LINES_PER_TEST) out.push(`  ... ${e.length - DETAIL_LINES_PER_TEST} more line(s) of this test's detail not shown`);
+  }
+  if (ordered.length > DETAIL_TESTS) out.push(`... ${ordered.length - DETAIL_TESTS} more failing test(s) not shown; run the file alone for all of it`);
+  return out;
+}
+
 function count(output, label) {
   const m = String(output).match(new RegExp('^ℹ ' + label + ' (\\d+)$', 'm'));
   return m ? Number(m[1]) : null;
@@ -217,10 +256,13 @@ function main() {
     console.log(`${ok ? 'PASS' : 'FAIL'} ${Math.round(ms / 1000)}s ${file}${why}${counts}${slow}`);
     const failing = ok ? [] : failingTests(output, file);
     if (!ok) {
-      // Every failing name (a KNOWN_RED entry is copied from these), then the first errors.
+      // Every failing name (a KNOWN_RED entry is copied from these), then why (#4301).
       for (const n of failing) console.log('    ✖ ' + n);
-      const errors = output.split('\n').filter((l) => /Error/.test(l));
-      for (const l of errors.slice(0, 20)) console.log('    ' + l.trim());
+      const expected = [...((KNOWN_RED[file] && KNOWN_RED[file].tests) || []), ...((FLAKY[file] && FLAKY[file].tests) || [])];
+      // node's reporter writes the failing-tests section to stdout; reading stdout alone keeps a file's
+      // own stderr out of the last entry. A file with no section there (a crash) shows both streams' tail.
+      const hasSection = /^\s*✖ failing tests:\s*$/m.test(String(run.stdout || '').replace(/\r/g, ''));
+      for (const l of failureDetail(hasSection ? run.stdout : output, expected)) console.log('    ' + l);
     }
     results.push({ file, ok, failing, killed, tests, skipped: skipped || 0,
       error: !killed && run.error ? (run.error.code || run.error.message) : undefined });
@@ -241,6 +283,6 @@ function main() {
   return failed.length || blocking ? 1 : 0;
 }
 
-module.exports = { selectFiles, failingTests, judge, staleBlocks, FLAKY, ALSO, ALSO_ROOT, HOST_BRANCH_EXCLUDED, ALL_SKIP_OK, KNOWN_RED, PER_FILE_TIMEOUT_MS, START_BUDGET_MS };
+module.exports = { selectFiles, failingTests, failureDetail, judge, staleBlocks, FLAKY, ALSO, ALSO_ROOT, HOST_BRANCH_EXCLUDED, ALL_SKIP_OK, KNOWN_RED, PER_FILE_TIMEOUT_MS, START_BUDGET_MS };
 
 if (require.main === module) process.exitCode = main();
