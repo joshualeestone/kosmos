@@ -63,5 +63,12 @@ condition (one update, no second prompt) is first observable on the update after
 
 ## Weakest premises
 1. The cause of the extra relaunch is read from code, not measured on Josh's Mac.
-2. The fallback dialog keeps Return on Restart. It appears only when the page cannot tell, or when words have
-   sat in a box for 10 minutes, so a person mid-sentence pressing Return into it is unlikely but possible.
+2. The 180 s wait for the new app is read from setup.sh, not measured. After it, the person is told once
+   (per version pair) and the window keeps looking quietly, so a late app still gets the silent restart.
+
+## Review iteration 4 (changes)
+- A page still loading answers "loading" (ask it again), never "unknown" (which asks the person).
+- When words are waiting, no button answers to Return, so a Return meant for a message box cannot restart.
+  Restart keeps Return (the blue default) only when the page cannot tell.
+- A dialog or sheet of the app's own (Cmd-Q, a file picker) counts as "would lose": never restart under it.
+- A test ties the function name the window asks for to the one the page defines.
