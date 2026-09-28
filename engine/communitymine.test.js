@@ -149,3 +149,20 @@ test('the agent shows by its display name when it has one', () => {
   writeSent({ [a.id]: SENT('ava') });
   assert.equal(mine.mine()[0].agent, 'Ava');
 });
+
+test('a held post that was released later lists by when it went public, not when it came in', async () => {
+  const pause = () => new Promise((r) => setTimeout(r, 15));
+  // Not trusted: publishPost holds it for review, stamped receivedAt now.
+  const held = feedpublish.publishPost({ kind: 'community_post', agent: 'bea', at: new Date().toISOString(), topic: 'Held first', body: 'Waited for review.' }, { agentId: 'bea' });
+  assert.equal(held.ok, true, JSON.stringify(held));
+  await pause();
+  const later = agentPost('ava', { topic: 'Straight out', body: 'Trusted, published at once.' });
+  await pause();
+  communitystore.releaseHeld(held.id);
+  writeSent({ [held.id]: SENT('bea'), [later.id]: SENT('ava') });
+  const rows = mine.mine();
+  assert.deepEqual(rows.map((r) => r.title), ['Held first', 'Straight out'], 'the released post went public last, so it lists first');
+  const released = communitystore.publishedPosts().find((p) => p.id === held.id);
+  assert.ok(released && released.releasedAt && released.releasedAt > released.receivedAt, 'CONTROL: the fixture really is held-then-released');
+  assert.equal(rows[0].postedAt, released.releasedAt);
+});

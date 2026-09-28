@@ -59,7 +59,9 @@ function mine() {
       id,
       title: post ? communitysend.titleFor(post) : '',
       agent: post ? agentName(post) : '',
-      postedAt: post && typeof post.receivedAt === 'string' ? post.receivedAt : null,
+      // A held post goes public when it is released, not when it came in (communitysend's sweep reads it the same way).
+      postedAt: post ? (typeof post.releasedAt === 'string' ? post.releasedAt
+        : typeof post.receivedAt === 'string' ? post.receivedAt : null) : null,
       state: rec.state,
       deleteRequested: rec.deleteRequested === true,
       takenDown: rec.takenDown === true,
