@@ -279,8 +279,10 @@ func isKosmosPlusURL(_ url: URL) -> Bool {
 /// PURE, for --kosmos-app-mode-selftest. A connect computer's main-frame navigations, as the iOS
 /// app decides them: Kosmos Plus and the person's computers in the window; any other https site in
 /// the browser; plain http only from a click, and then in the browser; mail, phone and text links
-/// only from a click; about:blank for the page's own use; every other scheme refused. A page on
-/// another site can never show a fake Kosmos screen inside the app's own window.
+/// only from a click; about:blank for the page's own use; every other scheme refused. So another
+/// site can never REPLACE the window's page with a fake Kosmos screen. This decides main-frame
+/// navigations only: a frame inside a Kosmos Plus page is that page's to choose (as on iOS, which
+/// adds an https-only rule for frames; not ported here).
 func connectLinkDecision(for url: URL, clicked: Bool) -> ConnectLink {
     switch url.scheme?.lowercased() ?? "" {
     case "https":
