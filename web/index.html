@@ -6083,7 +6083,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .msg:not(.you) .msg-bd[data-unread]::after { visibility: hidden; transition: none; }
 .msg:not(.you) .msg-bd[data-unread]::before { border-bottom-right-radius: 0; transition: none; }
 /* A jump to an unread message flashes its own ring; the outline would trace round that ring too. */
-.msg-flash:not(.you) .msg-bd[data-unread] { filter: none; }
+.msg-flash:not(.you) .msg-bd[data-unread] { filter: none; transition: outline-color .3s; }   /* at once, not a 1.2s fade under the ring */
 @media (prefers-reduced-motion: reduce) {
   .msg:not(.you) .msg-bd, .asp-m.him, .msg:not(.you) .msg-bd::after, .msg:not(.you) .msg-bd::before { transition: none; }
 }

@@ -79,7 +79,14 @@ function chk(ok, label, extra) {
     const flags = u1.map((r) => r.unread);
     chk(u1.length === 4 && JSON.stringify(flags) === JSON.stringify([false, false, true, true]), 'U1 the two unread agent messages have the edge; history does not', JSON.stringify(flags));
     const GOLD = 'rgb(214, 166, 46)';
-    chk(u1[3] && (u1[3].edge.match(/drop-shadow\(rgb\(214, 166, 46\)/g) || []).length === 4 && u1[0].edge === 'none', 'U1 an unread message carries the gold outline (four 1px drop-shadows, one per side); a read one carries none', JSON.stringify([u1[0] && u1[0].edge, u1[3] && u1[3].edge]));
+    const OUTLINE = 'drop-shadow(rgb(214, 166, 46) 1px 0px 0px) drop-shadow(rgb(214, 166, 46) -1px 0px 0px) drop-shadow(rgb(214, 166, 46) 0px 1px 0px) drop-shadow(rgb(214, 166, 46) 0px -1px 0px)';
+    chk(u1[3] && u1[3].edge === OUTLINE && u1[0].edge === 'none', 'U1 an unread message carries the gold outline (four 1px drop-shadows, one per side, each direction once); a read one carries none', JSON.stringify([u1[0] && u1[0].edge, u1[3] && u1[3].edge]));
+    // U1b: a jump's flash on an unread message takes the outline away at once (the flash draws its own ring), and
+    // the flash keeps its own .3s fade.
+    const flash = await page.evaluate(() => { const r = document.querySelectorAll('#d-dmthread .msg:not(.you)')[3]; r.classList.add('msg-flash');
+      const cs = getComputedStyle(r.querySelector('.msg-bd')); const out = { filter: cs.filter, prop: cs.transitionProperty, dur: cs.transitionDuration };
+      r.classList.remove('msg-flash'); return out; });
+    chk(flash.filter === 'none' && flash.prop === 'outline-color' && flash.dur === '0.3s', 'U1b a flash on an unread message removes the outline at once and keeps its own .3s fade', JSON.stringify(flash));
     chk(u1[3] && u1[3].mask === 'hidden' && u1[0].mask === 'visible', 'U1 while unread the tail\'s ground mask is hidden (the wing carves itself), so the outline traces no block; a read bubble keeps it', JSON.stringify([u1[0] && u1[0].mask, u1[3] && u1[3].mask]));
 
     // U17: the tail is INSIDE the outline (the #3967 defect). Gold pixels in the wing's strip just outside the bubble's
