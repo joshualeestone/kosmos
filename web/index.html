@@ -30606,28 +30606,36 @@ function renderAvatar(a) {
  */
 function followRename(fresh) {
   if (!CURRENT || !fresh || fresh.sessionName !== CURRENT.sessionName) return;
-  if (typeof fresh.name !== 'string' || !fresh.name || fresh.name === CURRENT.name) return;
-  const was = CURRENT.name;
-  CURRENT.name = fresh.name;
-  const h = document.getElementById('d-name');
-  if (h) h.textContent = fresh.name;
-  detailNavNames(fresh.name);
-  fitDetailName();
-  /* The other places openDetail named it once (#4421 sweep). */
-  const ini = document.getElementById('d-initials');
-  if (ini) ini.textContent = initials(fresh.name);
-  paintInstrLede(CURRENT);
-  paintDetailMeta(fresh);
-  /* CURRENT, not fresh: CURRENT now has the new name and still the open-time memory reading, which the ring and
-     badge beside the box also show. Only the name changes; the reading stays the one they agree on. */
-  const mem = document.getElementById('d-memory');
-  if (mem) mem.innerHTML = memoryBox(CURRENT);
-  /* 🛑 THE RENAME BOX, and this one is not cosmetic: Save always sends its value as the name, so a box still
-     holding the old name after a rename made elsewhere would quietly rename the agent BACK the next time somebody
-     saved its role. Moved only while it still says the old name and nobody is typing in it; a name somebody is in
-     the middle of typing is theirs. */
+  if (typeof fresh.name !== 'string' || !fresh.name) return;
+  if (fresh.name !== CURRENT.name) {
+    CURRENT.name = fresh.name;
+    const h = document.getElementById('d-name');
+    if (h) h.textContent = fresh.name;
+    detailNavNames(fresh.name);
+    fitDetailName();
+    /* The other places openDetail named it once (#4421 sweep). renderAvatar, not just the letter: the disc's tint
+       and ink are derived from the name too (review iteration 2). */
+    renderAvatar(CURRENT);
+    const ini = document.getElementById('d-initials');   // the letter is openDetail's to set, not renderAvatar's
+    if (ini) ini.textContent = initials(fresh.name);
+    paintInstrLede(CURRENT);
+    /* fresh: the title line's role and "no name was chosen" note are the card's CURRENT facts. */
+    paintDetailMeta(fresh);
+    /* CURRENT, not fresh: CURRENT now has the new name and still the open-time memory reading, which the ring and
+       badge beside the box also show. Only the name changes; the reading stays the one they agree on. */
+    const mem = document.getElementById('d-memory');
+    if (mem) mem.innerHTML = memoryBox(CURRENT);
+  }
+  /* 🛑 THE RENAME BOX, and this one is not cosmetic: before Save sent a name only when edited, a box still holding
+     the old name renamed the agent BACK on the next Save of its role. It is moved only while untouched (it still
+     holds what it was last filled with, `dataset.shown`) and not focused; a name somebody is typing is theirs.
+     Checked on EVERY poll, not only the one where the name changed, so a box that had focus on that poll still
+     catches up once it is left (review iteration 2). */
   const box = document.getElementById('d-rename');
-  if (box && box.value === (was || '') && document.activeElement !== box) { box.value = fresh.name; box.dataset.shown = fresh.name; }
+  if (box && box.value === (box.dataset.shown || '') && box.dataset.shown !== fresh.name && document.activeElement !== box) {
+    box.value = fresh.name;
+    box.dataset.shown = fresh.name;
+  }
 }
 
 /* "What <name> is for", the Instructions lede: one sentence, painted at open and after a rename (#4421).
@@ -30677,7 +30685,9 @@ function refreshAvatar() {
   if (!CURRENT) return;
   const a = LAST.find((x) => x.sessionName === CURRENT.sessionName);
   if (!a) return;
-  followRename(a);   // #4421: before CURRENT is replaced, or a rename it carries would never be painted
+  /* #4421: before CURRENT is replaced, or a rename this card carries would never be painted. Belt and braces: its
+     callers poll first, and the poll is where a rename is normally followed. */
+  followRename(a);
   CURRENT = a;
   renderAvatar(a);
 }

@@ -24,16 +24,17 @@ const OLD = 'Gemini-Sub';          // the session name, which the old surfaces k
 const NEW = 'Demis Hassabis - Gemini';
 
 function world({ boxValue = OLD, focused = false } = {}) {
+  const state = { focused };
   const heading = { textContent: OLD };
   const els = {
     'd-name': heading,
-    'd-initials': { textContent: 'G' },
     'd-instr-lede': { textContent: '' },
     'd-memory': { innerHTML: '' },
+    'd-initials': { textContent: 'G' },
     'd-rename': { value: boxValue, dataset: { shown: OLD } },
   };
   const nav = [];
-  const doc = { getElementById: (id) => els[id] || null, get activeElement() { return focused ? els['d-rename'] : null; } };
+  const doc = { getElementById: (id) => els[id] || null, get activeElement() { return state.focused ? els['d-rename'] : null; } };
   const src = 'let CURRENT = null;\nlet LAST = [];\n'
     + page.liftConst(SCRIPT, 'WORKING_VERB') + '\n'
     // The avatar tints: one line each (DISC_INKS is aligned with two spaces, which liftConst does not match).
@@ -44,9 +45,11 @@ function world({ boxValue = OLD, focused = false } = {}) {
   /* memoryBox and paintDetailMeta are the page's own; stubbed to show which card each was handed (the browser check
      runs the real ones). */
   const metas = [];
-  const w = new Function('document', 'detailNavNames', 'fitDetailName', 'memoryBox', 'paintDetailMeta', src)(
-    doc, (n) => nav.push(n), () => {}, (a) => 'memory of ' + (a && a.name) + ' at ' + (a && a.memPct), (a) => metas.push(a));
-  return { ...w, heading, nav, els, metas };
+  const avatars = [];
+  const w = new Function('document', 'detailNavNames', 'fitDetailName', 'memoryBox', 'paintDetailMeta', 'renderAvatar', src)(
+    doc, (n) => nav.push(n), () => {}, (a) => 'memory of ' + (a && a.name) + ' at ' + (a && a.memPct), (a) => metas.push(a),
+    (a) => avatars.push(a && a.name));
+  return { ...w, heading, nav, els, metas, avatars, state };
 }
 
 const opened = () => ({ sessionName: OLD, name: OLD, state: 'working', hasAvatar: false, memPct: 40, nameDerived: false });
@@ -71,8 +74,8 @@ test('#4421: after a rename, the poll moves every surface to the new name, and t
   assert.doesNotMatch(busy, new RegExp(OLD), 'the "is working" line still names the id: ' + busy);
   assert.equal(w.heading.textContent, NEW, 'the heading follows a rename made anywhere else too');
   assert.deepEqual(w.nav, [NEW]);
-  assert.equal(w.els['d-initials'].textContent, w.initials(NEW), 'the initials on the picture (the page\'s own rule)');
-  assert.notEqual(w.initials(NEW), w.initials(OLD), 'fixture: the two names share initials, so this proves nothing');
+  assert.deepEqual(w.avatars, [NEW], 'the picture\'s name-derived tint was not redrawn from the new name');
+  assert.equal(w.els['d-initials'].textContent, w.initials(NEW), 'the picture\'s initial (renderAvatar does not set it)');
   assert.match(w.els['d-instr-lede'].textContent, /^What Demis Hassabis - Gemini is for/, 'the Instructions lede');
   assert.equal(w.els['d-memory'].innerHTML, 'memory of ' + NEW + ' at 40',
     'the memory box: the new name, and still the open-time reading the ring and badge beside it show');
@@ -104,6 +107,9 @@ test('#4421: the rename box follows only while untouched, so Save cannot rename 
   focused.set(opened());
   focused.followRename(polled());
   assert.equal(focused.els['d-rename'].value, OLD, 'the box was changed under somebody\'s cursor');
+  focused.state.focused = false;
+  focused.followRename(polled());   // a later poll, the name already followed
+  assert.equal(focused.els['d-rename'].value, NEW, 'a box that had focus on the renaming poll never caught up once left');
 });
 
 test('#4421: a room or task label for an agent that has left the project uses its current card, not its id', () => {

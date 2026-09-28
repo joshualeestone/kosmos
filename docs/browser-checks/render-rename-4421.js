@@ -51,7 +51,8 @@ async function surfaces(page) {
     const labels = box ? [...box.querySelectorAll('.msg-nm')].map((b) => b.textContent.trim()) : [];
     const note = document.querySelector('#d-meta .dmeta-note');
     return { title: txt('d-talk-label'), heading: txt('d-name'), busy: txt('d-busy'), labels, rows: box ? box.querySelectorAll('.msg').length : 0,
-      note: note ? note.textContent : '', box: (document.getElementById('d-rename') || {}).value };
+      note: note ? note.textContent : '', box: (document.getElementById('d-rename') || {}).value,
+      ini: (document.getElementById('d-initials') || {}).textContent, tint: (document.getElementById('d-initials') || { style: {} }).style.background };
   });
 }
 
@@ -101,6 +102,9 @@ async function surfaces(page) {
     chk(![after.title, after.busy, after.heading, ...after.labels].some((s) => (s || '').includes(ID)), 'RENAMED: the old name appears on none of them', all);
     chk(after.note === '', 'RENAMED: the "no name was chosen" note is gone', all);
     chk(after.box === NEW, 'RENAMED: the rename box shows the new name', all);
+    const want = await page.evaluate((n) => { const d = document.createElement('div'); d.style.background = discTint(n); return { ini: initials(n), tint: d.style.background, oldTint: (() => { d.style.background = discTint('Gemini-Sub'); return d.style.background; })() }; }, NEW);
+    chk(want.tint !== want.oldTint, 'fixture: the two names have different disc tints (or the tint arm proves nothing)', JSON.stringify(want));
+    chk(after.ini === want.ini && after.tint === want.tint, 'RENAMED: the picture\'s initial and its tint are the new name\'s', JSON.stringify({ ini: after.ini, tint: after.tint, want }));
 
     const puts = await page.evaluate(async () => {
       document.getElementById('d-role').value = 'Chief of Staff';
