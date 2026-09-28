@@ -65,6 +65,20 @@ test('#4340: the agent\'s reply in the thread clears it', async () => {
   assert.equal((await owes()).state, 'clear');
 });
 
+test('#4340: an owed DM behind more than 200 later menu answers is still owed (owes is taken before the tail)', async () => {
+  const T = 'novatail';
+  fs.mkdirSync(create.workerDir(T), { recursive: true });
+  fs.writeFileSync(path.join(create.workerDir(T), 'CLAUDE.md'), `# ${T}\n`);
+  const base0 = Date.now() - 60 * 60000;
+  chat.appendMessage(chat.DIRECT, T, { text: 'can you check the invoice?', at: new Date(base0).toISOString(), delivery: { state: chat.DELIVERY.PLACED } });
+  for (let k = 1; k <= 201; k += 1) {
+    chat.appendMessage(chat.DIRECT, T, { text: 'Yes', wire: '1', at: new Date(base0 + k * 1000).toISOString(), delivery: { state: chat.DELIVERY.PLACED } });
+  }
+  const body = await (await fetch(`${base}/api/agent/${T}/thread`)).json();
+  assert.ok(body.olderCount > 0, 'fixture: the thread is not longer than the tail, so this proves nothing');
+  assert.equal(body.owes.state, 'owes', 'the owed DM fell outside the 200-row tail and was forgotten');
+});
+
 test('#4340: a thread that cannot be read answers unknown, never a confident clear', async () => {
   const file = chat.threadFile(chat.DIRECT, AGENT);
   const kept = fs.readFileSync(file);

@@ -2804,7 +2804,8 @@ function looksLikeManager(role) {
  * agent row goes through keepAgentReply with `from` equal to the agent (its `kosmos reply`, a drained reply, and
  * Kosmos's own daily-limit notice said in the agent's name, which clears the debt too: an answer is visibly
  * there). Only a person message that REACHED the agent (`delivery.state === placed`) can put it in debt: one
- * that could not be delivered was never received, the same rule dmOwesLine applies to its timing. A MENU ANSWER
+ * that could not be delivered was never received (the page draws only this answer, timed from `lastHeardAt`, so the
+ * rule lives here alone). A MENU ANSWER
  * (a row with a `wire`: the keystroke that picked one of the agent's own buttons, stored by appendMessage) is not a
  * message to answer: the agent carries on working and owes nothing.
  * ⚠️ A TYPED answer to a question the agent asked in prose is NOT told apart and still counts as owed: nothing

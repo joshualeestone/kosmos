@@ -13069,6 +13069,15 @@ const server = http.createServer((req, res) => {
     const reach = chat.addressable(name, roster);
     const presence = reach.ok ? 'on' : (!Array.isArray(roster) ? 'unsure' : 'off');
     const presenceBecause = reach.ok ? null : reach.because;
+    /* #4340: from THIS thread's own rows, not messages.owesReply. That reads the `kosmos msg` / room log, where a
+       person's DM and the agent's `kosmos reply` never are: a DM never made it owe, and a colleague's message
+       could make it owe under a visible answer. The stored rows (before the question/account rows are added,
+       which are Kosmos's own and not a reply), matched on `name`, the key the thread was read under: readThread
+       refuses a file whose stored agent differs, so every agent row it returns carries exactly that name. A
+       thread we could not read (messages null) answers `unknown`. On the FULL stored thread, BEFORE the 200-row tail:
+       dmOwes skips menu answers and undelivered rows, so a tail of those could hide an owed message just outside
+       it (review iteration 7). */
+    const owes = chat.dmOwes(messages, name);
     const TAIL = 200;
     const olderCount = Array.isArray(messages) && messages.length > TAIL
       ? messages.length - TAIL : 0;
@@ -13086,13 +13095,6 @@ const server = http.createServer((req, res) => {
      * the vocabulary the composer uses ('unsure'), so a second spelling of it
      * would be two derivations of one fact again.
      */
-    /* #4340: from THIS thread's own rows, not messages.owesReply. That reads the `kosmos msg` / room log, where a
-       person's DM and the agent's `kosmos reply` never are: a DM never made it owe, and a colleague's message
-       could make it owe under a visible answer. The stored rows (before the question/account rows are added,
-       which are Kosmos's own and not a reply), matched on `name`, the key the thread was read under: readThread
-       refuses a file whose stored agent differs, so every agent row it returns carries exactly that name. A
-       thread we could not read (messages null) answers `unknown`. */
-    const owes = chat.dmOwes(messages, name);
     /* #3419: surface the agent's live question as a MESSAGE in the thread, not only
        as the interruptive "waiting on an answer" banner. ADDITIVE for now — the
        banner fields (asking/question/…) below are unchanged, so Mona's banner

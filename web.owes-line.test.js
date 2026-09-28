@@ -31,12 +31,12 @@ const OLD = new Date(Date.now() - 10 * 60 * 1000).toISOString();
 const landed = (at) => ({ at, delivery: { state: 'placed' } });
 const failed = (at) => ({ at, delivery: { state: 'could_not' } });
 
-function line(owes, rows = []) {
+function line(owes) {
   // eslint-disable-next-line no-new-func
-  return new Function('OWES', 'ROWS',
+  return new Function('OWES',
     page.lift(SCRIPT, 'pjOldEnoughToJudge') + '\n'
     + 'const PJ_SILENCE_AFTER_MS = ' + (SCRIPT.match(/const PJ_SILENCE_AFTER_MS = ([^;]+);/)[1]) + ';\n'
-    + page.lift(SCRIPT, 'dmOwesLine') + '\nreturn dmOwesLine(OWES, ROWS);')(owes, rows);
+    + page.lift(SCRIPT, 'dmOwesLine') + '\nreturn dmOwesLine(OWES);')(owes);
 }
 
 test('an agent that has gone quiet on you says so, after the grace period', () => {
@@ -89,6 +89,11 @@ test('the route carries the answer, computed from the one-to-one thread itself (
      server.dm-owes-4340.test.js proves the behaviour through the route; this pins where it comes from. */
   assert.match(srv, /const owes = chat\.dmOwes\(messages, name\);/,
     'the thread route no longer computes it from the thread it serves');
+  /* On the FULL thread, before the 200-row tail (the DM thread route's slice is the first in server.js). */
+  const owesAt = srv.indexOf('const owes = chat.dmOwes(messages, name);');
+  const sliceAt = srv.indexOf('if (olderCount) messages = messages.slice(-TAIL);');
+  assert.ok(owesAt > 0 && sliceAt > 0 && owesAt < sliceAt,
+    'owes is taken after the 200-row tail, so an owed message just outside it is forgotten');
   assert.doesNotMatch(srv, /owes = messageLog\.owesReply|owes = messages\.owesReply/,
     'the thread route went back to the message log, which never holds a person DM');
   assert.match(srv, /^\s+owes,$/m, 'the payload no longer carries it');
