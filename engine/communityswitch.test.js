@@ -115,6 +115,17 @@ test('migrate: an unreadable file is left exactly as it is', () => {
   assert.equal(fs.readFileSync(sw.FILE, 'utf8'), '{not json');
 });
 
+test('migrate: a stat error other than ENOENT is not treated as no file (a self-looping link stays)', () => {
+  /* ELOOP, not EACCES: a locked folder also blocks the write, so it cannot tell "refused" from "tried".
+     A link to itself fails stat but would be replaced by the rename, so only a real refusal leaves it. */
+  fs.mkdirSync(nodePath.dirname(sw.FILE), { recursive: true });
+  fs.symlinkSync(nodePath.basename(sw.FILE), sw.FILE);
+  try {
+    assert.deepEqual(sw.migrate({ existingInstall: true }), { ok: false, wrote: false }, 'a stat error other than ENOENT was treated as no file');
+    assert.equal(fs.lstatSync(sw.FILE).isSymbolicLink(), true, 'migrate wrote over a file it could not read');
+  } finally { fs.rmSync(sw.FILE, { force: true }); }
+});
+
 test('a failed save says so and leaves the old value', () => {
   sw.setOn(false);
   const dir = nodePath.dirname(sw.FILE);

@@ -69,6 +69,15 @@ Nothing goes out until you release it." with Got it and Change in Settings. Acce
 - Not in this diff: What's New has the same boot-cover gap (its `held()` does not wait for `#boot-cover`).
   Filed as its own card, with the one-line fix, rather than widening this PR into What's New.
 
+## Review 5
+
+- Converged: no blocker, no warning. Two NITs:
+  - `migrate()`'s refusal on a stat error other than ENOENT was untested. Pinned with a link that points at
+    itself (ELOOP). A locked folder was tried first and could not tell refusing from trying, since the
+    write fails there too; the mutation passed it, so it was replaced.
+  - `dialog[open]` in `cnHeld` is unexercised: no `<dialog>` exists on the page, and it mirrors
+    `tipModalOpen`. Noted, not acted on.
+
 ## Weakest premise
 
 That a FRESH install is told in first run. The install-screen checkbox that does that is Mona's
