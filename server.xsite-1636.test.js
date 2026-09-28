@@ -35,22 +35,8 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = path.join(SANDBOX, 'claude-confi
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
-/* #4309: /api/connections also asks the gh and Vercel doors, which run the HOST's real `gh` and `vercel`
-   with this SANDBOX as HOME. `vercel whoami` writes home/Library, and its detached update check (a
-   grandchild the board never holds, so nothing can stop or wait for it) keeps writing home/.npm seconds
-   after the test process exits: the run-root leak guard's aw-xsite leftover. A path that is not a program
-   makes each door say "not installed" and start nothing, as CLAUDE_BIN and TMUX_BIN do above. */
-process.env.AGENT_WORKFORCE_GH_BIN = path.join(SANDBOX, 'no-such-gh');
-process.env.AGENT_WORKFORCE_VERCEL_BIN = path.join(SANDBOX, 'no-such-vercel');
-
-/* #4309: every child the board starts, recorded before server.js loads (devicedoor.js takes execFile
-   and spawn at require time), so the last test can say no host tool ran with this sandbox as HOME. */
-const childProcess = require('node:child_process');
-const STARTED = [];
-for (const name of ['execFile', 'spawn']) {
-  const real = childProcess[name];
-  childProcess[name] = function recorded(file, ...rest) { STARTED.push(String(file)); return real.call(this, file, ...rest); };
-}
+/* #4309: never run the host's gh or vercel with this sandbox as HOME (see test-support/nohostcli.js). */
+const hostClis = require('./test-support/nohostcli').sandboxHostClis(SANDBOX);
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -167,9 +153,5 @@ test('#1636: the page reads this route with a plain same-origin fetch', () => {
    SANDBOX after exit and failed full runs on the leak guard. Both halves are checked: the start itself,
    and its footprint (vercel writes home/Library at once, its update check home/.npm). */
 test('#4309: no host gh or vercel ran with this sandbox as its home', () => {
-  const host = STARTED.filter((f) => /(^|\/)(gh|vercel)$/.test(f));
-  assert.deepEqual(host, [], 'a sweep started the host\'s own CLI, which can outlive this test and write into SANDBOX after it exits');
-  for (const left of ['Library', '.npm']) {
-    assert.equal(fs.existsSync(path.join(HOME, left)), false, 'home/' + left + ' exists, so a host tool wrote into this sandbox');
-  }
+  hostClis.assertNoHostCli(assert, HOME);
 });

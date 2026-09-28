@@ -26,14 +26,18 @@ Addresses #4309 (claimed:raiden, Liu Kang m2189 and m2227). Filed by Johnny Cage
   fix it leaves nothing.
 
 ## Change
-- All three tests set `AGENT_WORKFORCE_GH_BIN` and `AGENT_WORKFORCE_VERCEL_BIN` to non-existent
-  paths inside the sandbox, so each door reports the tool as missing and starts nothing. This
-  is the same pattern as `CLAUDE_BIN` and `TMUX_BIN` in the same files, and as
-  `engine.dirmode-1763.test.js`.
-- Each test records the files passed to `child_process.execFile` / `spawn` (wrapped before
-  `server.js` loads, because `devicedoor.js` takes them at require time), and a last test
-  asserts no host `gh` or `vercel` started and that `home/Library` and `home/.npm` are absent.
-- Control: with the two env lines removed, the new test fails on this Mac in all three files.
+- One helper, `test-support/nohostcli.js` (`sandboxHostClis(SANDBOX)`), called by all three
+  tests before `require('./server')`. It sets `AGENT_WORKFORCE_GH_BIN` and
+  `AGENT_WORKFORCE_VERCEL_BIN` to non-existent paths inside the sandbox, so each door reports
+  the tool as missing and starts nothing (the same idea as `CLAUDE_BIN` and `TMUX_BIN` in these
+  files, and as `engine.dirmode-1763.test.js`). It also records the files passed to
+  `child_process.execFile` / `spawn`; that has to happen before `server.js` loads, because
+  `devicedoor.js` takes them at require time.
+- Each test ends with `hostClis.assertNoHostCli(assert, HOME)`: no host `gh` or `vercel`
+  started, and `home/Library` and `home/.npm` are absent.
+- One helper rather than three copies (review iteration 2): a fourth sweep test would
+  otherwise copy it again, and the copies could drift.
+- Control: with the helper's two env lines removed, all three tests fail on this Mac.
 
 ## Scope decisions
 - `server.connect.test.js` has the same defect (3 gh + 3 vercel starts, measured), so it is
