@@ -22,7 +22,7 @@ render-dm-reply-4256.js (R1 to R8, red on main) and server.test.js "#4256" (red 
 - Route (`POST /api/agent/:name/thread`): `reply_to` = the answered row's `at` (a DM row has no id;
   reactions key on `at` too). Must be a kept row in this DM with text and not a kosmos/question
   row, else 409 with nothing typed; non-string or '' is 400. A numbered-menu answer (`chose`) is
-  never a reply. The quote is dropped (tag kept) if it would push a message at the limit over it.
+  never a reply. The quote rides in deliver's envelope (Kosmos's framing), so the person's words reach deliver unchanged and every check on them treats a reply like any message.
 - Page: Reply in the agent row's bar (`rxnsInner(..., true)`, and `repaintReactions` keeps it for
   `data-at` boxes); `#d-reply` strip reusing `.pj-replying`; `DM_REPLY` per agent like drafts;
   `DM_ROWS` by `at` from every row the thread sent (so a jump can say "hidden by your search");
