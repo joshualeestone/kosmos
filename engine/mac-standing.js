@@ -76,9 +76,13 @@ async function fetchStanding() {
     // Gate on the switch AND enrolment: a PAID route must not be called when the
     // feature is off, and there is no Mac identity when not enrolled.
     if (!remote.read().on || !remote.enrolled()) return null;
-    /* POST with an empty JSON object: the coordinator's route is POST, and the Mac is
-       identified by the signature the tunnel adds, not by anything in the body. */
-    const r = await remote.macRequest('POST', ROUTE, {});
+    /* POST: the Mac is identified by the signature the tunnel adds, not by anything in
+       the body. The body carries this Mac's remote-access report (kosmos#4277,
+       engine/remote-report.js), which a coordinator without #4277 ignores; `{}` when
+       the report cannot be built. */
+    let report = null;
+    try { report = require('./remote-report').build(); } catch { report = null; }
+    const r = await remote.macRequest('POST', ROUTE, report ? { remote: report } : {});
     if (!r || !r.ok) { logFailure(r && r.because); return null; }
     const standing = parseStanding(r.data);
     if (standing === null) { logFailure('the answer carried no standing'); return null; }

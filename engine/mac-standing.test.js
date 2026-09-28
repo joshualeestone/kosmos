@@ -80,8 +80,84 @@ test('fetchStanding: goes out SIGNED -- one `mac-request` POST /v1/mac/standing 
   assert.equal(fake.flag(c, '--path'), '/v1/mac/standing');
   assert.equal(fake.flag(c, '--state-dir'), remote.stateDir(), 'signed with THIS Mac\'s key directory');
   assert.equal(fake.flag(c, '--coordinator'), 'https://coord.example');
-  assert.deepEqual(JSON.parse(c.stdin), {}, 'the body goes on stdin, never argv');
+  // kosmos#4277: the body is this Mac's remote report, and it goes on stdin, never argv.
+  const body = JSON.parse(c.stdin);
+  assert.deepEqual(Object.keys(body), ['remote'], 'the body carries the remote report and nothing else');
+  assert.deepEqual(Object.keys(body.remote).sort(), ['app', 'error', 'heal', 'macId', 'macKey', 'on', 'stateDir', 'tunnel'].sort());
+  assert.equal(body.remote.on, true);
+  assert.equal(body.remote.macId, true, 'enrolled writes mac_id');
+  assert.equal(body.remote.macKey, false, 'this fixture writes no mac_key');
+  assert.equal(body.remote.stateDir, 'custom', 'AGENT_WORKFORCE_TUNNEL_STATE is set in this suite');
+  assert.ok(!c.stdin.includes(os.homedir()), 'the home directory (a user name) left the Mac');
+  assert.ok(!c.args.join(' ').includes('"remote"'), 'the report went on argv');
   assert.equal(r.stderr, '', 'a success logs nothing');
+});
+
+/* kosmos#4277: a board whose switch is ON but which believes it is NOT enrolled never asks
+   for a relay ticket, and this report is the only way the reason reaches us. It goes signed
+   with the key alone, at most every five minutes, and never when off or keyless. */
+async function waitForCalls(n, ms) {
+  const until = Date.now() + (ms || 3000);
+  while (fake.calls().length < n && Date.now() < until) await new Promise((r) => setTimeout(r, 25));
+  return fake.calls();
+}
+function keyOnly(on) {
+  unenroll();
+  for (const f of ['mac_id', 'mac_key']) fs.writeFileSync(path.join(STATE, f), 'x');
+  fs.mkdirSync(path.dirname(remote.FILE), { recursive: true });
+  fs.writeFileSync(remote.FILE, JSON.stringify({ on: on !== false, standing: '' }) + '\n');
+}
+
+test('#4277: ON, holding a key, NOT enrolled: one key-signed report of why, then none within five minutes', async () => {
+  remote.resetForTests();
+  keyOnly(true);
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+  const wire = tripwire();
+  try {
+    const t0 = Date.now() + 10 * 60 * 1000;   // well past any earlier report
+    await remote.refreshStandingIfStale({ now: t0, ttlMs: 0 });
+    const calls = await waitForCalls(1);
+    assert.equal(calls.length, 1, 'the not-enrolled report did not go');
+    const c = calls[0];
+    assert.equal(c.args[0], 'mac-request');
+    assert.equal(fake.flag(c, '--path'), '/v1/mac/standing');
+    const body = JSON.parse(c.stdin);
+    assert.equal(body.remote.on, true);
+    assert.equal(body.remote.macId, true);
+    assert.equal(body.remote.macKey, true);
+    assert.equal(body.remote.tunnel, 'starting', 'ON and not enrolled is status() "connecting", reported as starting');
+    assert.ok(body.remote.error && /sign-in|code sent/.test(body.remote.error), 'the report did not say why: ' + body.remote.error);
+    assert.deepEqual(wire.dialled, [], 'the report went out unsigned');
+    // Within the five minutes: no second report.
+    await remote.refreshStandingIfStale({ now: t0 + 60 * 1000, ttlMs: 0 });
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(fake.calls().length, 1, 'a second report went out inside five minutes');
+    // Past them: another.
+    await remote.refreshStandingIfStale({ now: t0 + 6 * 60 * 1000, ttlMs: 0 });
+    assert.equal((await waitForCalls(2)).length, 2, 'no report after five minutes');
+  } finally {
+    wire.restore();
+    delete process.env.FAKE_MAC_REQUEST_MODE;
+  }
+});
+
+test('#4277: no not-enrolled report when the switch is OFF, or when there is no key to sign with', async () => {
+  for (const [label, setup] of [
+    ['switch off', () => keyOnly(false)],
+    ['no mac_key', () => { keyOnly(true); fs.rmSync(path.join(STATE, 'mac_key'), { force: true }); }],
+  ]) {
+    remote.resetForTests();
+    setup();
+    fake.reset();
+    process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+    try {
+      await remote.refreshStandingIfStale({ now: Date.now() + 20 * 60 * 1000, ttlMs: 0 });
+      await new Promise((r) => setTimeout(r, 300));
+      assert.equal(fake.calls().length, 0, label + ': a report went out');
+    } finally { delete process.env.FAKE_MAC_REQUEST_MODE; }
+  }
+  fs.rmSync(path.join(STATE, 'mac_key'), { force: true });
 });
 
 test('fetchStanding: NULL and NO tunnel call when not enrolled', async () => {

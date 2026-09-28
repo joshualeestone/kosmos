@@ -131,6 +131,9 @@ let child = null;
 let restartTimer = null;
 let restartBecause = null;
 let backoffMs = 1000;
+/* kosmos#4277: how many times the supervisor has relaunched the tunnel, so the remote
+   report (engine/remote-report.js) can say a relaunch happened, and whether it took. */
+let restarts = 0;
 let localPort = null;
 
 /** Ensure the state dir exists and is owner-only. It holds the identity key
@@ -243,7 +246,10 @@ async function refreshStandingIfStale(opts) {
   const fetcher = typeof opts.fetcher === 'function' ? opts.fetcher : fetchStanding;
   if (standingRefreshInFlight) return;
   if (busy()) return;                        // not on a key being replaced or retired
-  if (!enrolled()) return;                  // no account on this board -> nothing to refresh
+  if (!enrolled()) {                        // no account on this board -> nothing to refresh,
+    reportNotEnrolledIfDue(now);            // but a switch that is ON says why it cannot serve (#4277)
+    return;
+  }
   const s = read();
   if (s.ok !== true) return;
   if (now - (s.standing_at || 0) < ttl) return;   // still fresh
@@ -263,6 +269,32 @@ async function refreshStandingIfStale(opts) {
   } catch { /* refresh is best-effort; a poll must never see this throw */ }
   finally { standingRefreshInFlight = false; }
 }
+/* kosmos#4277: the one report a board sends while it believes it is NOT enrolled, when its
+   switch is on and it still holds a key: a board in that state never asks for a relay
+   ticket, and this is the only way the reason reaches us. At most every
+   NOT_ENROLLED_REPORT_MS, signed with the key alone, and the answer is ignored (it is not
+   a standing refresh: a board that is not enrolled has no standing to keep). Never under
+   the test runner unless a test supplies its own tunnel (the fetchStanding guard). */
+const NOT_ENROLLED_REPORT_MS = 5 * 60 * 1000;
+let notEnrolledReportAt = 0;
+let notEnrolledReportInFlight = false;
+function reportNotEnrolledIfDue(now) {
+  if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_TUNNEL_BIN) return;
+  if (notEnrolledReportInFlight || now - notEnrolledReportAt < NOT_ENROLLED_REPORT_MS) return;
+  const s = read();
+  if (s.ok !== true || s.on !== true || !hasKey()) return;
+  const report = require('./remote-report').build();
+  if (!report) return;
+  notEnrolledReportAt = now;
+  notEnrolledReportInFlight = true;
+  macRequest('POST', '/v1/mac/standing', { remote: report }, { keyOnly: true })
+    .then((r) => {
+      if (!r || !r.ok) process.stderr.write('kosmos#4277: the remote report did not go: ' + ((r && r.because) || 'unknown') + '\n');
+    })
+    .catch(() => {})
+    .finally(() => { notEnrolledReportInFlight = false; });
+}
+
 /* Federation Kosmos+ gate: is THIS account an authenticated Kosmos+ member?
    True iff the cached coordinator standing is exactly "good" (ICK's contract:
    kosmos_plus == standing=="good"). Fail-safe: any other/unknown value is false,
@@ -571,6 +603,7 @@ function scheduleRestart() {
   restartTimer = setTimeout(() => {
     restartTimer = null;
     backoffMs = Math.min(backoffMs * 2, 60000);
+    restarts += 1;
     ensure(localPort);
   }, backoffMs);
   /* A pending restart must not hold the board open on shutdown. */
@@ -748,8 +781,17 @@ function setupRun(args, stdin = null, timeoutMs = 0) {
 // A signed request is one round trip; 20 s covers a slow network and still
 // frees a caller (a Settings turn-on) stuck on a hung tunnel.
 const MAC_REQUEST_TIMEOUT_MS = 20 * 1000;
-async function macRequest(method, routePath, body) {
-  if (!enrolled()) return { ok: false, because: 'this computer is not connected to Kosmos+' };
+/* kosmos#4277: `opts.keyOnly` signs with only the identity files (mac_id and mac_key),
+   for the one call that must still go out when the board believes it is NOT enrolled:
+   the remote report, which is how we learn WHY. The tunnel's mac-request verb needs no
+   more than those two files. Every other caller keeps the enrolled() gate. */
+function hasKey() {
+  const dir = STATE_DIR();
+  return ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(dir, f)));
+}
+async function macRequest(method, routePath, body, opts) {
+  const identityThere = opts && opts.keyOnly ? hasKey() : enrolled();
+  if (!identityThere) return { ok: false, because: 'this computer is not connected to Kosmos+' };
   const args = ['mac-request', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR(),
     '--method', method, '--path', routePath];
   // AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS is a test seam (a hung tunnel in a test).
@@ -1802,11 +1844,13 @@ module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondR
      something. */
   coordinator: COORDINATOR,
   stateDir: STATE_DIR,
+  /* kosmos#4277: the supervisor's relaunch count, read by engine/remote-report.js. */
+  restartCount: () => restarts,
   /* test seam: stops the supervised child between cases (the name is the
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); stopChild(); },
+  resetForTests: () => { notEnrolledReportAt = 0; notEnrolledReportInFlight = false; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* test seam: the live child's pid, or null. spawn() sets the handle
      synchronously, so a test can assert "nothing spawned" deterministically

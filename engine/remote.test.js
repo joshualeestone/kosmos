@@ -569,6 +569,32 @@ test('a crashing child renders restarting with a because, never fine', async () 
   assert.notEqual(s.state, 'up', 'a crashed child rendered as fine');
 });
 
+/* kosmos#4277 acceptance: the supervisor is the self-heal. A tunnel killed out from under the
+   board comes back on its own, as a NEW process, and the relaunch is counted so the remote
+   report can say it happened. Then the update path: a board restart (the child stopped, the
+   switch still on) brings the tunnel back on the next ensure(), with no person involved. */
+test('#4277: a killed tunnel is relaunched by the supervisor, counted, and comes back up; a board restart brings it back too', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9445';
+  delete process.env.FAKE_TUNNEL_MODE;
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  await remote.setupComplete('123456', 'hers');
+  remote.ensure(4310);
+  await until(() => remote.status().state === 'up', 'the tunnel to come up');
+  const first = remote.currentChildPid();
+  const before = remote.restartCount();
+  process.kill(first, 'SIGKILL');
+  await until(() => remote.status().state === 'up' && remote.currentChildPid() && remote.currentChildPid() !== first,
+    'the supervisor to relaunch the killed tunnel as a new process');
+  assert.equal(remote.restartCount(), before + 1, 'the relaunch was not counted');
+  // The update path: the board goes away (its child with it) and starts again with the switch on.
+  remote.resetForTests();
+  assert.equal(remote.currentChildPid(), null, 'the old board left a tunnel running');
+  remote.ensure(4310);
+  await until(() => remote.status().state === 'up', 'the tunnel to come back after a board restart');
+  remote.resetForTests();
+});
+
 test('#648: enrolled with nothing set dials the REAL relay and coordinator, with no CA flag', async () => {
   /* Until 2026-08-24 this asserted "no relay set is off with the reason, not
      a spawn into nowhere": the relay's domain was undecided, so a default
