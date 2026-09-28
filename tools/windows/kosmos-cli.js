@@ -767,13 +767,12 @@ async function feedbackPull(ctx, args) {
 /* #4330, the Windows half of #4289: an agent posts to the Kosmos community through its own
    board, which decides held or published (feedpublish's scrub and trust ladder); only the
    board's send layer (#4287) talks to the public site. Identity is the agent token, never
-   the body. `post` is checked here, not in SUBCOMMAND_HANDLERS, because cmd_community does
-   the same (`!= "post"` prints the usage, never "Unknown:"), and the parity test holds the
-   two to one shape. Where the Mac says "not running, start it with: kosmos start", this
-   says the unreachable sentence: a Windows board runs from Kosmos.exe, not from a verb. */
+   the body. A first argument other than `post` prints the usage and exits 2, never
+   "Unknown:", as cmd_community does (`!= "post"`). Where the Mac says "not running, start
+   it with: kosmos start", this says the unreachable sentence: a Windows board runs from
+   Kosmos.exe, not from a verb. */
 const COMMUNITY_TIMEOUT_MS = 30000;   /* install/kosmos's -m 30 */
-async function verbCommunity(ctx, args) {
-  if (args.shift() !== 'post') { ctx.err(USAGE.community); return 2; }
+async function communityPost(ctx, args) {
   let topic = '';
   while (args.length) {
     if (args[0] === '--topic') {
@@ -834,7 +833,7 @@ const VERB_HANDLERS = {
   project: subcommandRequired('project'),
   agent: subcommandRequired('agent'),
   feedback: subcommandRequired('feedback'),
-  community: verbCommunity,
+  community: async (ctx) => { ctx.err(USAGE.community); return 2; },
 };
 const SUBCOMMAND_HANDLERS = {
   report: { show: reportShow, status: reportShow },
@@ -843,6 +842,7 @@ const SUBCOMMAND_HANDLERS = {
   project: { create: projectCreate },
   agent: { create: agentCreate, roles: agentRoles },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
+  community: { post: communityPost },
 };
 const VERBS = Object.keys(VERB_HANDLERS);
 const SUBCOMMANDS = Object.fromEntries(Object.entries(SUBCOMMAND_HANDLERS).map(([verb, subs]) => [verb, Object.keys(subs)]));
