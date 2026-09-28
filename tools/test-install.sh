@@ -821,7 +821,7 @@ RC=0; cat "$SETUP" | sh > "$SB/update-unreadable.log" 2>&1 || RC=$?
 chk "an update with an unreadable choice exits 0" "rc_ok $RC"
 chk "an unreadable choice does not become run: the board stays down" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
 chk "and it says the choice could not be read, not that this computer connects" "grep -q 'setup choice could not be read' \"$SB/update-unreadable.log\" && ! grep -q 'connects to agents on another computer' \"$SB/update-unreadable.log\""
-chk "its summary says why no board was started, not 'on purpose'" "grep -q 'No board was started, because this computer.s setup choice could not be read' \"$SB/update-unreadable.log\" && ! grep -q 'on purpose' \"$SB/update-unreadable.log\""
+chk "its summary says why no board was started, not 'on purpose'" "grep -q 'No board was started, because this computer.s setup choice could not be read' \"$SB/update-unreadable.log\" && ! grep -q 'No board runs on this computer, on purpose' \"$SB/update-unreadable.log\""
 printf 'run\n' > "$SB/home/mode"
 RC=0; cat "$SETUP" | sh > "$SB/update-run.log" 2>&1 || RC=$?
 chk "CONTROL: the same update on a run computer exits 0" "rc_ok $RC"
