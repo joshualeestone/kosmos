@@ -124,6 +124,7 @@ test('#1649: one board start refreshes writable agents, skips a missing file, an
     });
 
     await t.test('a refusal is nonfatal and does not stop writable siblings', () => {
+      /* A board that refuses to boot because one agent cannot be rewritten is worse than stale text. */
       assert.match(result.out, /Kosmos on http/, 'the board must start even when an agent could not be told');
       assert.equal(fs.readFileSync(writable, 'utf8').includes(MARKER), true,
         'the agents it COULD tell are still told');
