@@ -409,14 +409,14 @@ const chk = (ok, label, extra) => {
   await q(() => { closeAcctAdd(); window.__museOn = true; document.querySelector('#set-accounts [data-muse-reauth]').click(); });
   await page.waitForTimeout(300);
   const busy = await q(() => ({ say: document.getElementById('acct-add-pick-say').textContent, pick: document.getElementById('acct-provider-pick').value, muse: !document.getElementById('acct-muse-flow').hidden, claudeShown: !document.getElementById('acct-claude-flow').hidden, focus: document.activeElement && document.activeElement.id }));
-  chk(/Finish or stop the sign-in that is under way/.test(busy.say) && busy.pick === 'claude' && !busy.muse && busy.claudeShown && busy.focus === 'acct-cancel', 'Sign in again while another sign-in is under way says so, shows it, focuses its Stop, and does not lay Meta\'s step over it', JSON.stringify(busy));
+  chk(/Finish or stop the Claude sign-in first/.test(busy.say) && busy.pick === 'claude' && !busy.muse && busy.claudeShown && busy.focus === 'acct-cancel', 'Sign in again while another sign-in is under way says so, shows it, focuses its Stop, and does not lay Meta\'s step over it', JSON.stringify(busy));
   // Round 7, W2: the line is written after the dialog appears, not in the same step (so it is announced).
   await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); }); await settle();
   await q(() => { openAcctAdd(); ACCT_FLOW_LAST = 'downloading|probe'; acctFlowPaint({ phase: 'downloading' }); });
   const sameStep = await q(() => { closeAcctAdd(); document.querySelector('#set-accounts [data-muse-reauth]').click(); return document.getElementById('acct-add-pick-say').textContent; });
   await page.waitForTimeout(300);
   const later = await q(() => document.getElementById('acct-add-pick-say').textContent);
-  chk(sameStep === '' && /under way/.test(later), 'the "under way" line is written after the dialog appears, not in the same step', JSON.stringify({ sameStep, later }));
+  chk(sameStep === '' && /Claude sign-in first/.test(later), 'the "under way" line is written after the dialog appears, not in the same step', JSON.stringify({ sameStep, later }));
   // Round 8: another provider picked, or the sign-in ended, inside that moment: nothing stale is written.
   for (const [how, act] of [['another provider picked', "const s = document.getElementById('acct-provider-pick'); s.value = 'openai'; s.dispatchEvent(new Event('change'));"], ['the sign-in ended', 'ACCT_FLOW_LAST = null;']]) {
     await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); }); await settle();
@@ -426,7 +426,13 @@ const chk = (ok, label, extra) => {
     const stale = await q(() => document.getElementById('acct-add-pick-say').textContent);
     chk(stale === '', 'with ' + how + ' inside that moment, the "under way" line is not written', JSON.stringify(stale));
   }
-  // Round 4: when that sign-in ends (here in failure), the line no longer asks to finish or stop it.
+  // Round 4: when that sign-in ends (here in failure), the line no longer asks to finish or stop it. Round 9: the
+  // arm makes its own state and checks the line is THERE first, or it would pass on an earlier arm's empty line.
+  await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); }); await settle();
+  await q(() => { openAcctAdd(); ACCT_FLOW_LAST = 'downloading|probe'; acctFlowPaint({ phase: 'downloading' }); });
+  await q(() => { closeAcctAdd(); document.querySelector('#set-accounts [data-muse-reauth]').click(); });
+  await page.waitForTimeout(300);
+  chk(/Claude sign-in first/.test(await q(() => document.getElementById('acct-add-pick-say').textContent)), 'CONTROL: the "under way" line is there before the sign-in ends');
   await q(() => acctFlowPaint({ phase: 'failed', because: 'Claude closed before the sign-in finished' })); await settle();
   chk(await q(() => document.getElementById('acct-add-pick-say').textContent === ''), 'the "under way" line goes when that sign-in ends in failure');
   // Round 4: the line takes room only while it speaks (the page reset gives every element no margin).
@@ -442,7 +448,7 @@ const chk = (ok, label, extra) => {
   await q(() => { closeAcctAdd(); window.__museOn = true; document.querySelector('#set-accounts [data-muse-reauth]').click(); });
   await page.waitForTimeout(300);
   const moved = await q(() => ({ say: document.getElementById('acct-add-pick-say').textContent, pick: document.getElementById('acct-provider-pick').value, claudeShown: !document.getElementById('acct-claude-flow').hidden, openaiShown: !document.getElementById('acct-openai-flow').hidden, focus: document.activeElement && document.activeElement.id, inDialog: !!(document.activeElement && document.activeElement.closest('#acct-add-modal')) }));
-  chk(/under way/.test(moved.say) && moved.pick === 'claude' && moved.claudeShown && !moved.openaiShown, 'with the picker moved off a running Claude sign-in, Sign in again puts that sign-in back on screen beside the line', JSON.stringify(moved));
+  chk(/Claude sign-in first/.test(moved.say) && moved.pick === 'claude' && moved.claudeShown && !moved.openaiShown, 'with the picker moved off a running Claude sign-in, Sign in again puts that sign-in back on screen beside the line', JSON.stringify(moved));
   // Round 6: and focus lands inside the dialog, on that sign-in's Stop (never left on the page behind it, #1918).
   chk(moved.inDialog && moved.focus === 'acct-cancel', 'focus lands on the running sign-in\'s Stop, inside the dialog', JSON.stringify({ focus: moved.focus, inDialog: moved.inDialog }));
   // Round 7, N1: at the sign-in's code step, focus goes to the code field instead.
@@ -462,7 +468,7 @@ const chk = (ok, label, extra) => {
   await q(() => { closeAcctAdd(); window.__museOn = true; document.querySelector('#set-accounts [data-muse-reauth]').click(); });
   await page.waitForTimeout(300);
   const emptied = await q(() => ({ pick: document.getElementById('acct-provider-pick').value, muse: !document.getElementById('acct-muse-flow').hidden, claudeShown: !document.getElementById('acct-claude-flow').hidden, say: document.getElementById('acct-add-pick-say').textContent }));
-  chk(emptied.pick === 'claude' && !emptied.muse && emptied.claudeShown && /under way/.test(emptied.say), 'with the picker set back to "Choose a provider" mid-sign-in, Sign in again still keeps that sign-in on screen and says so', JSON.stringify(emptied));
+  chk(emptied.pick === 'claude' && !emptied.muse && emptied.claudeShown && /Claude sign-in first/.test(emptied.say), 'with the picker set back to "Choose a provider" mid-sign-in, Sign in again still keeps that sign-in on screen and says so', JSON.stringify(emptied));
   chk(await q((n) => window.__posts.filter((p) => p.path === '/stop').length === n, stopsBefore), 'and no Muse sign-in is started or stopped by it');
   // And with that panel not painted (no poll has run yet), focus still stays inside the dialog, on the picker.
   await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); }); await settle();   // the previous arm's flow fully put away first
@@ -475,6 +481,18 @@ const chk = (ok, label, extra) => {
   await q(() => { openAcctAdd(); acctAddPickSay('stale words'); const sel = document.getElementById('acct-provider-pick'); sel.value = ''; sel.dispatchEvent(new Event('change')); });
   chk(await q(() => document.getElementById('acct-add-pick-say').textContent === ''), 'going back to "Choose a provider" clears the line beside the picker');
   await q(() => closeAcctAdd());
+  // Round 9: Meta picked in the picker while a Claude sign-in runs stays on Claude and says so; nothing of
+  // Muse's is started (and so nothing is stopped by that sign-in's next poll).
+  await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); }); await settle();
+  await q(() => { openAcctAdd(); window.__museOn = true; ACCT_FLOW_LAST = 'downloading|probe'; acctFlowPaint({ phase: 'downloading' }); });
+  const museCallsBefore = await q(() => window.__posts.length);
+  await q(() => { const s = document.getElementById('acct-provider-pick'); s.value = 'meta'; s.dispatchEvent(new Event('change')); });
+  await settle();
+  const pickedMeta = await q(() => ({ pick: document.getElementById('acct-provider-pick').value, muse: !document.getElementById('acct-muse-flow').hidden, claudeShown: !document.getElementById('acct-claude-flow').hidden, say: document.getElementById('acct-add-pick-say').textContent }));
+  chk(pickedMeta.pick === 'claude' && !pickedMeta.muse && pickedMeta.claudeShown && /Claude sign-in first/.test(pickedMeta.say), 'Meta picked while a Claude sign-in runs stays on Claude and says so', JSON.stringify(pickedMeta));
+  await q(() => acctFlowPaint({ phase: 'signin-browser-open' })); await settle();
+  chk(await q((n) => window.__posts.length === n, museCallsBefore), 'and no Muse sign-in is started or stopped around it, even as the Claude sign-in moves on');
+  await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); }); await settle();
   // Round 1, W5: the Connections box never counts Meta Muse as thinking for agents (no agent runs on it yet).
   await q((row) => { window.__accounts = [row]; }, MUSE_ROW);
   await q(() => paintConnLive()); await settle();

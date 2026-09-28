@@ -22685,7 +22685,7 @@ async function paintAccounts(opts) {
        to forget, and signing Muse out would touch a credential every Muse run on this Mac shares. */
     if (a && a.authMode === 'muse') {
       // True of all three ways the row appears (round 1): Muse's own record, Kosmos's sign-in, a turn that worked.
-      const why = 'Muse Code is signed in to Meta as far as Kosmos knows: from Kosmos\'s own sign-in, a turn that worked, or Muse Code\'s own record. Kosmos does not check it by itself; a turn Meta refuses, or Sign in again, updates it.';
+      const why = 'Muse Code is signed in to Meta as far as Kosmos knows: from Kosmos\'s own sign-in, a turn that worked, or Muse Code\'s own record. Kosmos does not check it by itself; a turn Meta refuses, or signing in again, updates it.';
       return '<div class="acct-box" data-muse-row="1"><div class="acct-box-top"><div class="acct-who"><b>Meta account</b>'
         + '<span class="acct-tag"> through Muse Code on this computer</span></div>'
         + '<span class="acct-unknown" title="' + esc(why) + '"><span class="dot" aria-hidden="true"></span>Signed in<span class="vh"> (' + esc(why) + ')</span></span></div>'
@@ -24166,6 +24166,15 @@ document.getElementById('acct-provider-pick').addEventListener('change', (e) => 
   const which = e.target.value;
   /* #3939: Meta Muse goes through acctPick like every live provider (round 3: one rule for putting the
      others away, not a second copy of it here). */
+  /* #3939 slice 3c-2 (review round 9): Meta picked while a Claude sign-in runs would be put away, and its
+     sign-in stopped, by that sign-in's next poll (acctFlowPaint puts Claude back). Stay on Claude and say so,
+     as the Meta row's Sign in again does. */
+  if (which === 'meta' && frConnActive((ACCT_FLOW_LAST || '').split('|')[0])) {
+    acctPick('claude', { focus: false });
+    acctClaudeShowSub();
+    acctAddPickSay(MUSE_BUSY);
+    return;
+  }
   if (which === 'meta' && museOffered()) { acctPick('meta'); return; }
   acctMuseShow(false);
   if (which === 'claude' || which === 'openai' || ACCT_APIKEY_PROVIDERS[which]) { acctPick(which); return; }
@@ -25989,7 +25998,7 @@ document.getElementById('acct-grok-sub-cancel').addEventListener('click', () => 
    OWN start answered, never one read back from the poll (another tab's start replaces the sign-in, and
    this screen then says so rather than driving the other one). */
 const MUSE_NOT_HERE = 'Meta Muse is not available on this computer just now.';
-const MUSE_BUSY = 'Finish or stop the sign-in that is under way first, then sign in to Meta again.';
+const MUSE_BUSY = 'Finish or stop the Claude sign-in first, then sign in to Meta again.';   // round 9: say which
 const MUSE_SAY = {
   starting: 'Starting Muse Code\'s sign-in\u2026',
   code: 'Confirm the code on Meta\'s page. Kosmos carries on by itself once you have.',

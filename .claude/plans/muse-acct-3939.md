@@ -146,3 +146,18 @@ picker lists only the Claude row. Both arms go red when acctProvider forgets Met
   red with its re-check removed.
 - NIT FIXED: the plan's copy matched to the shipped row (name "Meta account", tag "through
   Muse Code on this computer", the Gemini subscription row's shape).
+
+## Review round 9 (opus): 0 blockers, 2 warnings, 2 nits
+Reviewer ran the real 1 s poll (acctFlowWatch) with /api/connect stubbed: the round-8
+re-checks hold, repeated same-phase polls leave the line, a failed phase and Stop clear it.
+- W1 FIXED: the round-4 "line goes when the sign-in fails" arm had come to follow an arm
+  that already emptied the line, so it could not fail (proved by deleting the clear). It now
+  makes its own state and asserts the line is there first; the same mutation now fails it.
+- W2 FIXED (slice 3b code, reached from this slice): Meta picked in the picker beside a
+  running Claude sign-in let that sign-in's next poll put Claude back and stop the Muse
+  sign-in the person had started. The change handler now stays on Claude and says so, as
+  Sign in again does. Arm, including that nothing of Muse's is started or stopped as the
+  Claude sign-in moves on.
+- NITs FIXED: the row's tooltip says "signing in again" (pressing only opens the step);
+  the line names the Claude sign-in ("Finish or stop the Claude sign-in first, then sign in
+  to Meta again.").
