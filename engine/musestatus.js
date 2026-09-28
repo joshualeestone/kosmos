@@ -92,7 +92,8 @@ function enabled(platform = process.platform) {
 }
 /* #3939: the preview marker. The board's launchd job is rewritten on every install and update with a
    fixed list of variables, so an environment variable set there does not last; this file does. Read on
-   every check: creating or deleting it needs no restart. store.ROOT is read at call time on purpose, so
+   every check (one existsSync; store.ROOT's first read per root may run its one-time legacy-store
+   migration, as signinFolder's does): creating or deleting it needs no restart. store.ROOT is read at call time on purpose, so
    the path follows the AGENT_WORKFORCE_HOME / _DATA seams (a module-level constant would freeze it). */
 const PREVIEW_MARKER = 'muse-preview-on';
 function previewMarker() { return path.join(require('./store').ROOT, PREVIEW_MARKER); }

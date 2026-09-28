@@ -52,3 +52,14 @@ sandboxed data folder.
   Weakest premise: a minute is short enough that Josh never sees the stale state; his one line ends with
   reopening the window anyway.
 - The test asserts against the exported PREVIEW_MARKER, so the export has a reader.
+
+## Review round 3 (opus, 12:50)
+- The recheck test used its own copy of the window, so a changed page value passed; it now slices
+  MUSE_OFF_RECHECK_MS from the page and pins it at one minute. Its name and the file header no longer say
+  "not asked again". (Both lines were this loop's own round-2 output.)
+- NITs taken: README row wording, create.test.js comment, a clause that the recheck runs on a paint, not
+  a timer, and that enabled()'s store.ROOT read may run the one-time migration. Left: no operator-facing
+  doc for the marker (the line goes to Josh through Splinter; a Settings switch would replace it).
+- Validation after round 2 went red only on the #3011 LaunchAgents leak guard: three zz-test-4039-* agents
+  created at 13:02 on the live board by #4039's owner, mid-run. Nothing in this branch names them;
+  Splinter told.

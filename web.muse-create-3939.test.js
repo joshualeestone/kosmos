@@ -1,7 +1,8 @@
 'use strict';
 /**
  * #3939 slice 3c-3b: Meta Muse in the Create Agent form. The Meta option is gated on GET /api/muse
- * (turned on here, installed, signed in), a read turned off here is not asked again, and a Meta pick
+ * (turned on here, installed, signed in), a read turned off here is asked again only after the page's
+ * MUSE_OFF_RECHECK_MS, and a Meta pick
  * a read turns off goes back to the default with a sentence that names the real reason.
  */
 const test = require('node:test');
@@ -10,6 +11,11 @@ const fs = require('node:fs');
 const nodePath = require('node:path');
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+function grabLine(sig) {
+  const at = PAGE.indexOf(sig);
+  assert.notEqual(at, -1, sig + ' is gone from the page');
+  return PAGE.slice(at, PAGE.indexOf('\n', at) + 1);
+}
 function grab(sig) {
   const at = PAGE.indexOf(sig);
   assert.notEqual(at, -1, sig + ' is gone from the page');
@@ -25,10 +31,10 @@ function menu(id) {
 const load = new Function('document', 'fetch', 'CURRENT', 'providerOf', 'createPickGone', `
   let CREATE_ACCOUNTS_KNOWN = true;
   let MUSE_CREATE = null; let MUSE_CREATE_ASKING = null;
-  const MUSE_OFF_RECHECK_MS = 60000;
+  ${grabLine('const MUSE_OFF_RECHECK_MS')}
   ${grab('function paintMuseOption(')}
   ${grab('function museCreateAsk(')}
-  return { paintMuseOption, museCreateAsk, state: () => MUSE_CREATE, set: (v) => { MUSE_CREATE = v; } };
+  return { paintMuseOption, museCreateAsk, state: () => MUSE_CREATE, set: (v) => { MUSE_CREATE = v; }, recheckMs: MUSE_OFF_RECHECK_MS };
 `);
 
 function page(answers) {
@@ -82,7 +88,7 @@ test('#3939 3c-3b: a failed read (thrown, or not ok) keeps the last good answer'
   }
 });
 
-test('#3939 3c-3b: turned off here is not asked again; turned on is asked on every paint', async () => {
+test('#3939 3c-3b: turned off here is not asked again within the recheck window; turned on is asked on every paint', async () => {
   const off = page([{ enabled: false }, { enabled: true, installed: true, signedIn: true }]);
   await off.api.museCreateAsk();
   await off.api.museCreateAsk();
@@ -96,14 +102,15 @@ test('#3939 3c-3b: turned off here is not asked again; turned on is asked on eve
 
 test('#3939: a switched-off answer older than a minute is asked again (the preview marker can switch it on)', async () => {
   const p = page([{ enabled: false }, { enabled: true, installed: true, signedIn: true }]);
+  assert.equal(p.api.recheckMs, 60000, 'the page\'s own recheck window, one minute');
   await p.api.museCreateAsk();
-  p.api.set({ ...p.api.state(), at: Date.now() - 60001 });
+  p.api.set({ ...p.api.state(), at: Date.now() - p.api.recheckMs - 1 });
   await p.api.museCreateAsk();
   assert.equal(p.calls.fetch, 2, 'an old off must be asked again');
   assert.equal(p.els['create-provider'].opt('meta').disabled, false, 'and switching on shows without a reload');
   const q = page([{ enabled: false }, { enabled: true, installed: true, signedIn: true }]);
   await q.api.museCreateAsk();
-  q.api.set({ ...q.api.state(), at: Date.now() - 1000 });
+  q.api.set({ ...q.api.state(), at: Date.now() - Math.floor(q.api.recheckMs / 2) });
   await q.api.museCreateAsk();
   assert.equal(q.calls.fetch, 1, 'CONTROL: a fresh off is not asked again');
 });
