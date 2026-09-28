@@ -2,21 +2,21 @@
 pre_challenge: true
 method: challenge-loop
 branch: shard-4317
-diff_hash: a269cfb2a26f1b134fda60e8e232532f64919f483f23486e4dfaaa2289aeca3a
+diff_hash: 353cb5fe3ebfacc319a3ad6cfeca9a2dd7cd317b79b3971b649eebf06a4f12eb
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-28T14:21:02Z
-iterations: 8
+timestamp: 2026-09-28T14:55:25Z
+iterations: 9
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 8 (reviewer models rotated opus, sonnet, fable)
-**Converged:** Yes (iteration 8 returned one NIT only)
+**Iterations:** 9 (reviewer models rotated opus, sonnet, fable; iteration 9 reviewed the post-review fix to PR #4344)
+**Converged:** Yes (iterations 8 and 9 returned NITs only)
 **Total findings:** 0 BLOCKERs, 17 WARNINGs, 8 CONVENTIONs, many NITs
 **Fixed:** all WARNINGs and CONVENTIONs | **Deferred:** 0 | **Asked (awaiting user):** 0
-**Final validation (6j):** passed at fc5f6ba behind heavy-gate, 11264 tests, 0 failures, shell part included, hash a269cfb2a26f; subdir audit clean.
+**Final validation (6j):** passed at ca61bd3 behind heavy-gate, 11266 tests, 0 failures, shell part included, hash 353cb5fe3ebf; subdir audit clean. (Earlier: fc5f6ba, 11264 tests, hash a269cfb2a26f.)
 **Runner evidence:** run of record 36429871904 on 2bc46cc (10b46e6 plus a temporary push trigger, since dropped): node 705 s (26%), shell 1/2 554 s (21%), shell 2/2 645 s (24%) of 45 min.
 
 ### Per-Iteration Breakdown
@@ -80,6 +80,18 @@ converged: true
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 1 NIT
 **Converged** - no new actionable findings.
 - [NIT] tools/shell-shard.js:71 - return r.status || 1 collapses a signal to exit 1 --> not changed: the signal name is still logged on the line above.
+
+#### Post-review fix (Scorpion, PR #4344 approval with one WARNING)
+- [WARNING] .github/workflows/test.yml: an unset SUITE_T0 defaulted to now, so the 70% step read 0% and could never warn --> FIXED (ca61bd3): ${SUITE_T0:?...} fails the step loudly; two tests RUN the step with bash -e (warns at 40 of 45 min, silent at 5, fails with no clock). Mutations seen red: the old now-default; a 90% threshold.
+
+#### Iteration 9
+**Reviewer model:** fable
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 4 NITs
+**Converged** - no new actionable findings.
+- [NIT] tools.shell-shard-4317.test.js: the blanket ${{ }} substitution would silently rewrite a future new expression --> not changed: correct for the step as it is (two expressions, printed and checked).
+- [NIT] only the shell arm's fix text is executed --> not changed: bash parses both arms, so a syntax error still fails.
+- [NIT] JS and bash clocks may differ by a second --> not changed: the regexes tolerate up to 59 s.
+- [NIT] a job cancelled before step 1 now prints the :? error instead of 0% --> not changed: that job is already cancelled and `test` is skipped.
 
 ### Final Ledger
 All WARNINGs and CONVENTIONs FIXED; no deferrals; no open ASKED findings.
