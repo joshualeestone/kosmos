@@ -2052,7 +2052,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// ⭐ A check that reads one thing and vouches for another is worse than no
     /// check: it is a reassuring sentence over the defect it names.
     static func relaunchKeyEquivalents(_ spec: (titles: [String], returnIndex: Int, restartIndex: Int)) -> [String] {
-        spec.titles.indices.map { $0 == spec.returnIndex ? "\r" : "" }
+        spec.titles.indices.map { $0 == spec.returnIndex ? "\r" : "\u{1b}" }
     }
 
     /* 🛑 THE QUIT DIALOG'S BUTTONS (#1316). Josh, 2026-08-28: "we also need a
@@ -2066,13 +2066,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
        button returns on Escape too, and every return was read as confirmation.
        The only way out of a dialog about quitting was to quit.
 
-       ⭐ ENTER STAYS ON THE DESTRUCTIVE BUTTON HERE, AND THAT IS A DELIBERATE
-       DIVERGENCE FROM `relaunchButtons`, WHICH PUTS IT ON THE HARMLESS ONE.
-       The difference is bidden versus unbidden. The relaunch notice ARRIVES over
-       whatever the person was doing, so a reflexive Return must not quit. This
-       dialog only appears because the person just pressed Cmd-Q, so Return
-       confirming what they asked for is the expected thing, and moving it would
-       silently break the deliberate quit that works today.
+       ⭐ ENTER STAYS ON THE DESTRUCTIVE BUTTON HERE. This dialog only appears
+       because the person just pressed Cmd-Q, so Return confirming what they asked
+       for is the expected thing, and moving it would silently break the deliberate
+       quit that works today.
        ⇒ ESCAPE is what answers Josh's case, and it is the right key for it: he
        hit Cmd-Q, so his hands are already on the keyboard. */
     static let quitButtons: (titles: [String], returnIndex: Int, destructiveIndex: Int, cancelIndex: Int) =
@@ -2152,8 +2149,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         (["Keep Working"], 0, -1)
 
     private var staleAppNoticeShown = false
-    /* #1182. The version this app was running when the person last accepted
-       "Quit and Open Again". Survives the relaunch it describes, which is the
+    /* #1182. The version this app was running when it last relaunched itself onto a newer
+       version. Survives the relaunch it describes, which is the
        whole point: the loop is only visible ACROSS a restart, so the one fact
        that breaks it has to outlive the process that learned it.
        ⚠️ UserDefaults, not the diagnostic log. The log is prose for a human to
@@ -2501,19 +2498,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
        canonical /Applications copy first. An unreadable candidate (version nil) is
        skipped, never chosen. */
     static func pickFresh(_ candidates: [(url: URL, version: String?)], theirs: String) -> URL? {
-        for c in candidates where c.version == theirs { return c.url }
+        for c in candidates {
+            guard let v = c.version else { continue }
+            if v == theirs || isBehind(theirs, v) == true { return c.url }
+        }
         return nil
     }
 
-    /* #2094: the installed Kosmos.app that actually carries the board's version,
-       if one exists somewhere other than this possibly-stale process's own bundle.
-       offerRelaunch used to reopen `Bundle.main.bundleURL` -- the path THIS process
-       was launched FROM -- so a person launching a stale leftover copy (Josh, on a
-       new account, with three 0.6.26 windows against a 0.6.27 board) relaunched the
-       SAME stale bundle forever and the version never advanced. Prefer the canonical
-       install that carries `theirs`; nil when none does, so the caller falls back to
-       today's behaviour and is never worse off. Reads each candidate's Info.plist,
-       never this running process's. */
+    /* #2094 / #4347: the installed Kosmos.app that carries the board's version or newer, read
+       from each candidate's Info.plist on disk. Reopening the path this process came from while
+       it still held the old version is what made a person relaunch more than once. nil: no
+       candidate has caught up yet. */
     static func onDiskVersion(_ app: URL) -> String? {
         let plist = app.appendingPathComponent("Contents/Info.plist")
         return NSDictionary(contentsOf: plist)?["CFBundleShortVersionString"] as? String
@@ -2550,13 +2545,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         /// The app on disk never caught up: reopening cannot help, say so once.
         case giveUp
     }
+    /// What the page said when asked whether a restart would lose anything.
+    enum PageSays: Equatable {
+        case safe
+        /// Something is being sent, typed or attached.
+        case wouldLose
+        /// The page answered but cannot tell (an older page, or the check itself failed).
+        case cannotTell
+        /// No answer at all (the page is mid-load or its process is gone): ask again shortly.
+        case noReply
+    }
     static let relaunchWaitLimit: TimeInterval = 180
-    static func relaunchStep(freshFound: Bool, waited: TimeInterval, pageSafe: Bool?) -> RelaunchStep {
+    /// With the new app ready, how long words left in a box hold the restart before the person is asked.
+    static let relaunchAskAfter: TimeInterval = 600
+    static func relaunchStep(freshFound: Bool, waited: TimeInterval, freshFor: TimeInterval,
+                             page: PageSays) -> RelaunchStep {
         guard freshFound else { return waited >= relaunchWaitLimit ? .giveUp : .wait }
-        switch pageSafe {
-        case .some(true): return .relaunchNow
-        case .some(false): return .wait
-        case .none: return .askPerson
+        switch page {
+        case .safe: return .relaunchNow
+        case .cannotTell: return .askPerson
+        case .wouldLose, .noReply: return freshFor >= relaunchAskAfter ? .askPerson : .wait
         }
     }
 
@@ -2571,42 +2579,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             showCannotSelfHeal(mine: mine, theirs: theirs)
             return
         }
-        stepRelaunch(mine: mine, theirs: theirs, since: Date())
+        if relaunchGaveUpAt == mine {
+            logLine("relaunch: already told the person the app on this computer did not update from \(mine); not asking again")
+            return
+        }
+        stepRelaunch(mine: mine, theirs: theirs, since: Date(), freshSince: nil)
+    }
+
+    private static let relaunchGaveUpKey = "kosmos.relaunchGaveUpAt"
+    /// #4347: the version at which the wait for a new app timed out and the person was told once.
+    private var relaunchGaveUpAt: String? {
+        get { UserDefaults.standard.string(forKey: Self.relaunchGaveUpKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.relaunchGaveUpKey) }
     }
 
     /// #4347: one step of the wait-then-restart. Re-arms itself until it relaunches, asks, or gives up.
-    private func stepRelaunch(mine: String, theirs: String, since: Date) {
+    private func stepRelaunch(mine: String, theirs: String, since: Date, freshSince: Date?) {
         let target = Self.freshAppURL(theirs: theirs)
-        let waited = Date().timeIntervalSince(since)
-        let decide = { (pageSafe: Bool?) in
-            switch Self.relaunchStep(freshFound: target != nil, waited: waited, pageSafe: pageSafe) {
+        let now = Date()
+        let waited = now.timeIntervalSince(since)
+        let freshAt = target == nil ? nil : (freshSince ?? now)
+        let freshFor = freshAt.map { now.timeIntervalSince($0) } ?? 0
+        let decide = { [weak self] (page: PageSays) in
+            guard let self else { return }
+            switch Self.relaunchStep(freshFound: target != nil, waited: waited, freshFor: freshFor, page: page) {
             case .wait:
                 let again: TimeInterval = target == nil ? 3 : 15
                 DispatchQueue.main.asyncAfter(deadline: .now() + again) { [weak self] in
-                    self?.stepRelaunch(mine: mine, theirs: theirs, since: since)
+                    self?.stepRelaunch(mine: mine, theirs: theirs, since: since, freshSince: freshAt)
                 }
             case .relaunchNow:
                 self.relaunch(mine: mine, theirs: theirs, target: target!, waited: waited, asked: false)
             case .askPerson:
-                self.askToRestart(mine: mine, theirs: theirs, target: target!, waited: waited)
+                self.askToRestart(mine: mine, theirs: theirs, target: target!, waited: waited,
+                                  wordsWaiting: page == .wouldLose)
             case .giveUp:
                 logLine("relaunch: \(ISO8601DateFormatter().string(from: Date())) no app on disk reached \(theirs) "
                         + "after \(Int(waited))s; not reopening")
+                self.relaunchGaveUpAt = mine
                 self.showCannotSelfHeal(mine: mine, theirs: theirs, reopened: false)
             }
         }
-        guard target != nil, let web = webView else { decide(nil); return }
-        web.evaluateJavaScript("typeof window.kosmosSafeToRestart === 'function' ? window.kosmosSafeToRestart() : null") { result, _ in
-            DispatchQueue.main.async { decide(result as? Bool) }
+        guard target != nil else { decide(.noReply); return }
+        guard let web = webView else { decide(.cannotTell); return }
+        let ask = "(function(){ if (typeof window.kosmosSafeToRestart !== 'function') return 'unknown';"
+            + " var v = window.kosmosSafeToRestart(); return v === true ? true : v === false ? false : 'unknown'; })()"
+        web.evaluateJavaScript(ask) { result, error in
+            let page: PageSays
+            if error != nil { page = .noReply }
+            else if let b = result as? Bool { page = b ? .safe : .wouldLose }
+            else if (result as? String) == "unknown" { page = .cannotTell }
+            else { page = .noReply }
+            decide(page)
         }
     }
 
-    /// #4347: only when the page cannot say whether a restart is safe. Restart is the default.
-    private func askToRestart(mine: String, theirs: String, target: URL, waited: TimeInterval) {
+    /// #4347: when the page cannot say whether a restart is safe, or words have waited in a box for
+    /// relaunchAskAfter. Restart is the default (Josh: the recommended action is the blue one).
+    private func askToRestart(mine: String, theirs: String, target: URL, waited: TimeInterval, wordsWaiting: Bool) {
         window?.makeKeyAndOrderFront(nil)
         let alert = NSAlert()
         alert.messageText = "Restart Kosmos to finish updating"
-        alert.informativeText = "Your agents keep running."
+        alert.informativeText = wordsWaiting
+            ? "Your agents keep running. Words you have typed and not sent yet will be lost, so send them first if you need them."
+            : "Your agents keep running."
         alert.alertStyle = .informational
         let spec = AppDelegate.relaunchButtons
         let keys = AppDelegate.relaunchKeyEquivalents(spec)
@@ -3813,6 +3849,7 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
         btnCheck(keys[btn.restartIndex] == "\r",
                  "Return reaches the restart button (it is \"\(btn.titles[btn.restartIndex])\")")
         btnCheck(keys.enumerated().filter { $0.element == "\r" }.count == 1, "exactly one button answers to Return")
+        btnCheck(keys.count == 2 && keys[1 - btn.restartIndex] == "\u{1b}", "Not Now answers to Escape")
     }
     btnCheck(btn.titles.indices.contains(btn.restartIndex)
              && btn.titles[btn.restartIndex] == "Restart Kosmos",
@@ -3829,20 +3866,32 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
         print((ok ? "PASS  " : "FAIL  ") + "relaunch step: \(why) -> \(got)")
         ran += 1
     }
-    stepCheck(AppDelegate.relaunchStep(freshFound: false, waited: 0, pageSafe: true), .wait,
-              "the app on disk is still old: wait, even if the page is safe")
-    stepCheck(AppDelegate.relaunchStep(freshFound: false, waited: 179, pageSafe: nil), .wait,
-              "still inside the wait limit")
-    stepCheck(AppDelegate.relaunchStep(freshFound: false, waited: AppDelegate.relaunchWaitLimit, pageSafe: true), .giveUp,
-              "the app never caught up: stop, do not reopen")
-    stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 5, pageSafe: true), .relaunchNow,
-              "fresh app, nothing to lose: restart with no question")
-    stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 5, pageSafe: false), .wait,
-              "fresh app, but a draft or a send: wait, never interrupt")
-    stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 500, pageSafe: false), .wait,
-              "a long draft does not turn into giving up once the app is fresh")
-    stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 5, pageSafe: nil), .askPerson,
-              "the page cannot answer: ask, with Restart as the default")
+    typealias P = AppDelegate.PageSays
+    func step(_ fresh: Bool, _ waited: TimeInterval, _ freshFor: TimeInterval, _ page: P) -> AppDelegate.RelaunchStep {
+        AppDelegate.relaunchStep(freshFound: fresh, waited: waited, freshFor: freshFor, page: page)
+    }
+    stepCheck(step(false, 0, 0, .safe), .wait, "the app on disk is still old: wait, even if the page is safe")
+    stepCheck(step(false, 179, 0, .cannotTell), .wait, "still inside the wait limit")
+    stepCheck(step(false, AppDelegate.relaunchWaitLimit, 0, .safe), .giveUp, "the app never caught up: stop, do not reopen")
+    stepCheck(step(true, 5, 0, .safe), .relaunchNow, "fresh app, nothing to lose: restart with no question")
+    stepCheck(step(true, 5, 0, .wouldLose), .wait, "fresh app, but a draft or a send: wait, never interrupt")
+    stepCheck(step(true, 5, 0, .noReply), .wait, "no answer (page mid-load): ask the page again, never the person")
+    stepCheck(step(true, 900, AppDelegate.relaunchAskAfter - 1, .wouldLose), .wait,
+              "words waiting, not yet for the ask-after time (a long wait for the app does not count)")
+    stepCheck(step(true, 900, AppDelegate.relaunchAskAfter, .wouldLose), .askPerson,
+              "words left in a box for the ask-after time: ask, rather than stay old forever")
+    stepCheck(step(true, 900, AppDelegate.relaunchAskAfter, .noReply), .askPerson,
+              "a page that never answers is asked about after the same time")
+    stepCheck(step(true, 5, 0, .cannotTell), .askPerson, "the page cannot tell: ask, with Restart as the default")
+
+    /* #4347: a newer app than the board version we started waiting for is accepted: the board can
+       move on again during the wait, and an exact match would then wait out the limit and wrongly
+       say the app did not update. */
+    let a1 = URL(fileURLWithPath: "/Applications/Kosmos.app")
+    stepCheck(AppDelegate.pickFresh([(a1, "0.7.06")], theirs: "0.7.05") == a1 ? .wait : .giveUp, .wait,
+              "an app NEWER than the awaited version is accepted")
+    stepCheck(AppDelegate.pickFresh([(a1, "0.7.04")], theirs: "0.7.05") == nil ? .wait : .giveUp, .wait,
+              "an app OLDER than the awaited version is not")
 
     /* #4347: the version is read from the plist ON DISK. A scratch bundle whose plist is rewritten must
        read as the new version, which the cached Bundle(url:) does not do for a path already loaded. */

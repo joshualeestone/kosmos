@@ -47,3 +47,21 @@ updateSafeReload keeps its own hidden-window and once-per-version guards and cal
 - Keep the dialog, restyle it (option B) as the main path: Josh's first complaint is that it appears at all.
 - Stop loadBoard from starting the board mid-update: waiting for the bundle already makes the early board
   harmless for this card, and changing start behaviour during an update is its own risk.
+
+## Review iteration 2 (changes)
+- The page's answer has four values: safe (restart now), would lose (wait), cannot tell (an old page, or the
+  check threw: ask), and no reply (a JS error, the page mid-load: ask the page again, never the person).
+- Words left in a box no longer hold the window on the old version forever: after 10 minutes with the new app
+  ready, the person is asked, and the dialog says unsent words would be lost. Restart stays the blue default
+  (Josh's ask); Not Now answers to Escape.
+- An app NEWER than the awaited version is accepted (the board can move on again during the wait).
+- The "app did not update" notice is remembered per version (kosmos.relaunchGaveUpAt), so it shows once.
+
+## First update after this ships
+The update that INSTALLS this change is run by the old window code (old dialog, old fallback). The pass
+condition (one update, no second prompt) is first observable on the update after that.
+
+## Weakest premises
+1. The cause of the extra relaunch is read from code, not measured on Josh's Mac.
+2. The fallback dialog keeps Return on Restart. It appears only when the page cannot tell, or when words have
+   sat in a box for 10 minutes, so a person mid-sentence pressing Return into it is unlikely but possible.

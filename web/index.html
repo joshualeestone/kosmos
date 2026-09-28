@@ -19463,7 +19463,7 @@ if (typeof document !== 'undefined' && document.addEventListener) {
    restarts itself onto a new version (kosmosSafeToRestart, below). True only when a reload or restart right
    now would drop nothing the person has on the way or has typed. */
 function updateNothingToLose() {
-  try {
+  {
     const busy = [typeof TALK_SENDING !== 'undefined' && TALK_SENDING, typeof PJ_SENDING !== 'undefined' && PJ_SENDING,
       typeof PJ_REPLY_SENDING !== 'undefined' && PJ_REPLY_SENDING, typeof TERM_SENDING !== 'undefined' && TERM_SENDING,
       typeof PJ_POSTING !== 'undefined' && PJ_POSTING,   // round 9: a room post in flight
@@ -19487,7 +19487,7 @@ function updateNothingToLose() {
     if (attached && Object.values(attached).some((m) => m && Object.values(m).some((v) => Array.isArray(v) ? v.length : !!v))) return false;
     if (typeof tipModalOpen === 'function' && tipModalOpen()) return false;
     return true;
-  } catch { return false; }
+  }
 }
 function updateSafeReload(servedVersion) {
   try {
@@ -19501,7 +19501,7 @@ function updateSafeReload(servedVersion) {
   } catch { return false; }
 }
 /* #4347: asked by the Mac window (native-app/main.swift) before it restarts itself after an update. */
-if (typeof window !== 'undefined') window.kosmosSafeToRestart = () => updateNothingToLose();
+if (typeof window !== 'undefined') window.kosmosSafeToRestart = () => { try { return updateNothingToLose(); } catch { return 'unknown'; } };
 function renderUpdateToast(u) {
   const slot = document.getElementById('utoast-slot');
   /* 🛑 THE ENGINE STATE OUTRANKS BOTH OTHERS (#338). A server behind the code

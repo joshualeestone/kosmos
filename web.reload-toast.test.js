@@ -334,7 +334,7 @@ function safeToRestart({ sending = {}, drafts = {}, typed = [], attached = null,
   const typedSet = new Set(typed.map((v) => ({ value: v, isConnected: true })));
   const win = {};
   const src = page.liftAll(SCRIPT, ['updateNothingToLose']);
-  const line = SCRIPT.match(/^if \(typeof window !== 'undefined'\) window\.kosmosSafeToRestart = \(\) => updateNothingToLose\(\);$/m);
+  const line = SCRIPT.match(/^if \(typeof window !== 'undefined'\) window\.kosmosSafeToRestart = \(\) => \{ try \{ return updateNothingToLose\(\); \} catch \{ return 'unknown'; \} \};$/m);
   assert.ok(line, 'the page no longer publishes kosmosSafeToRestart for the Mac window');
   new Function('window', 'document', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
     'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen', 'UPDATE_TYPED', 'ATTACH_PENDING',
@@ -352,4 +352,15 @@ test('#4347: the page tells the Mac window when a restart would lose nothing, ev
   assert.equal(safeToRestart({ typed: ['a task comment, half typed'] }), false, 'lost typed words');
   assert.equal(safeToRestart({ attached: { room: { p1: [{ name: 'a.png' }] }, agent: {} } }), false, 'lost a waiting file');
   assert.equal(safeToRestart({ modal: true }), false, 'restarted under an open window');
+});
+
+test('#4347: a check that throws tells the Mac window it cannot tell, never "would lose" (which would hold the update forever)', () => {
+  const line = SCRIPT.match(/^if \(typeof window !== 'undefined'\) window\.kosmosSafeToRestart = .*$/m);
+  assert.ok(line, 'kosmosSafeToRestart is gone');
+  const win = {};
+  new Function('window', 'updateNothingToLose', line[0])(win, () => { throw new Error('boom'); });
+  assert.equal(win.kosmosSafeToRestart(), 'unknown');
+  const ok = {};
+  new Function('window', 'updateNothingToLose', line[0])(ok, () => true);
+  assert.equal(ok.kosmosSafeToRestart(), true, 'CONTROL: a working check still answers');
 });
