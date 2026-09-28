@@ -86,11 +86,13 @@ test('the switch is wired to /api/feedback-setting, and refreshed with its sibli
 
 test('could-not-read is the PRIVACY treatment: knob hidden, actionable line, never a false Off', () => {
   const fp = lift('feedbackPaint');
-  // paintSwitch(..., null) HIDES the knob on unread (no false position claimed).
-  assert.match(fp, /paintSwitch\('feedback-toggle', unread \? null : r\.on === true\)/,
-    'the switch paints a position on an unread setting (a false Off on a privacy control)');
-  // Unread = no body, ok:false, or a non-boolean on (403-safe).
-  assert.match(fp, /const unread = !r \|\| r\.ok === false \|\| typeof r\.on !== 'boolean'/,
+  // paintSwitch(..., null) HIDES the knob when there is NO ANSWER (no false position claimed).
+  // #4332: a damaged file (ok:false) IS an answer, read as off by the engine, so it shows Off with a
+  // repair line instead (web.feedback-unreadable-4332.test.js runs both cases for real).
+  assert.match(fp, /paintSwitch\('feedback-toggle', unread \? null : \(damaged \? false : r\.on === true\)\)/,
+    'the switch paints a position when there was no answer (a false Off on a privacy control)');
+  // Unread = no body or a non-boolean on (403-safe).
+  assert.match(fp, /const unread = !r \|\| typeof r\.on !== 'boolean'/,
     'the unread test is not 403-safe');
   assert.match(fp, /We could not check this setting here\. Open Kosmos from its icon/,
     'the could-not-read line is not the actionable privacy message');
