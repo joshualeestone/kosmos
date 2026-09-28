@@ -30284,7 +30284,7 @@ function dmWho(from, name) {
   return from === CURRENT.sessionName ? (name || CURRENT.name || String(from)) : String(from);
 }
 
-function dmRow(m, name) {
+function dmRow(m, name, replyAdjacent) {
   /**
    * 🛑 A ROW THE AGENT WROTE, which this thread could not hold until now. Every
    * row was the person's by definition — this function said "You" with no
@@ -30351,7 +30351,7 @@ function dmRow(m, name) {
     return '<div class="msg" data-mid="' + midOf(m) + '">' + av
       + '<div class="msg-b"><div class="msg-bd">'
       + '<b class="msg-nm">' + esc(dmWho(m.from, name)) + '</b>'
-      + (typeof dmReplyHead === 'function' ? dmReplyHead(m, name) : '')   // #4256 (guarded: the lifted dmRow tests run without it)
+      + (typeof dmReplyHead === 'function' ? dmReplyHead(m, name, replyAdjacent) : '')   // #4256 (guarded: the lifted dmRow tests run without it)
       + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
       + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
       + '</div>' + rxns + '</div></div>';
@@ -30410,7 +30410,7 @@ function dmRow(m, name) {
     : '<div class="msg-av mine" aria-hidden="true"></div>';
   return '<div class="msg you" data-mid="' + midOf(m) + '">' + youAv
     + '<div class="msg-b"><div class="msg-bd">'
-    + (typeof dmReplyHead === 'function' ? dmReplyHead(m, name) : '')   // #4256: the message this answers
+    + (typeof dmReplyHead === 'function' ? dmReplyHead(m, name, replyAdjacent) : '')   // #4256: the message this answers
     + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
     + '<span class="msg-t">' + whenStr + wire
     + (v.said ? ' <span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span>' : '')
@@ -30430,9 +30430,15 @@ let DM_ROWS_OF = null;         // which agent DM_ROWS was painted for
 let DM_ROWS_NAME = '';         // that agent's display name
 let DM_ROWS_OLDER = 0;         // older messages the thread did not send (only the last 200 come)
 function dmReplyWho(m, name) { return m && m.from ? dmWho(m.from, name) : 'You'; }
-function dmReplyHead(m, name) {
+function dmReplyHead(m, name, adjacent) {
   if (!m || typeof m.replyTo !== 'string' || !m.replyTo) return '';
   const orig = DM_ROWS.get(m.replyTo);
+  /* As in a room (#3745): right under the message it answers, the thread already reads that way, so the
+     header is left out; a screen reader still hears what it answers. */
+  if (adjacent === true && orig) {
+    const gist = pjReplyGist(orig);
+    return '<span class="vh">Answers ' + esc(dmReplyWho(orig, name)) + ': ' + esc(gist) + (/[.!?\u2026]$/.test(gist) ? '' : '.') + '</span>';   // one full stop, not two
+  }
   /* Never silence: a header whose original is not here says why, and "further back" is not "gone". */
   if (!orig) return '<span class="msg-replyto gone">' + (DM_ROWS_OLDER ? 'Original message is further back' : 'Original message unavailable') + '</span>';
   const who = dmReplyWho(orig, name); const gist = pjReplyGist(orig);
@@ -30642,7 +30648,9 @@ function paintTalkThread(body, name) {
     const threadKey = (filtering ? TALK_QUERY : '') + '\u0000' + rows.length
       + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '')
       + (pendingHtml ? '\u0000' + (pending.failed ? 'failed:' : 'sending:') + pending.startedAt : '');
-    const dmHtml = rows.map((m) => dmRow(m, name)).join('') + pendingHtml + (filtering ? '' : dmOwesLine(body.owes, rows));
+    /* #4256: a reply right under what it answers draws no header; not while searching, which hides the rows between. */
+    const dmHtml = rows.map((m, i) => dmRow(m, name, !filtering && i > 0 && !!rows[i - 1] && typeof m.replyTo === 'string'
+      && rows[i - 1].at === m.replyTo)).join('') + pendingHtml + (filtering ? '' : dmOwesLine(body.owes, rows));
     setThread(thread, dmHtml, threadKey);
     if (!filtering && CURRENT && CURRENT.sessionName) unreadEdgeApply(thread, 'dm:' + CURRENT.sessionName);   // #3743
   }

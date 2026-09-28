@@ -15253,6 +15253,17 @@ test('#4256: a DM reply tells the agent what it answers, keeps replyTo, and refu
     assert.equal(unread.status, 503, unread.body);
     assert.match(unread.body, /could not read this conversation just now/);
     assert.equal(pastedChunks(sends).join('').includes('still there?'), false, 'a reply whose thread could not be read was typed');
+    /* At the length limit the quote is dropped and the bracket still says which message is answered. */
+    sends.length = 0;
+    const long = 'a'.repeat(chatEngine.MAX_TEXT - 10);
+    const atLimit = await say({ text: long, reply_to: AT });
+    assert.ok([200, 202].includes(atLimit.status), atLimit.body);
+    const typedLong = pastedChunks(sends).join('');
+    assert.ok(typedLong.includes(long.slice(0, 200)), 'CONTROL: the long reply was not typed at all');
+    assert.match(typedLong, /answers your message, posted /, 'the tag was dropped with the quote');
+    assert.equal(typedLong.includes('(answering:'), false, 'the quote rode a message it would push over the limit');
+
+
     const junk = await say({ text: 'x', reply_to: 42 });
     assert.equal(junk.status, 400, junk.body);
     const empty = await say({ text: 'x', reply_to: '' });

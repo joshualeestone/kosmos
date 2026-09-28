@@ -12,6 +12,8 @@
  *   R4  once the reply has gone, the strip goes
  *   R5  x stops replying
  *   R6  a reply in the thread carries a header naming what it answers, and the header jumps to it
+ *   R6b right under what it answers there is no visible header (the room's rule); a screen reader still hears it
+ *   R11 a reaction toggled on an agent's message keeps Reply in that bar
  *   R7  a header whose original is not in the thread says so: "unavailable", or "further back" when
  *       older messages were not sent; never silence
  *   R8  phone: Reply in the tapped-open bar is a thumb-sized target
@@ -64,6 +66,7 @@ async function openDm(page, messages, olderCount) {
       const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
       window.fetch = async (url, init) => {
         const u = String(url);
+        if (u.includes('/thread/react')) return enc({ reactions: [{ emoji: '\u{1F44D}', count: 1, who: ['you'], mine: true }] });
         if (u.includes('/thread') && init && init.method === 'POST') {
           const body = JSON.parse(init.body || '{}');
           window.__posts.push(body);
@@ -114,22 +117,38 @@ async function openDm(page, messages, olderCount) {
     const plain = await page.evaluate(() => window.__posts[1]);
     chk(plain && !('reply_to' in plain), 'R3 CONTROL: an ordinary send carries no reply_to', JSON.stringify(plain));
 
-    // R6: the kept reply now carries a header naming what it answers, and it jumps there
-    await page.waitForTimeout(300);
+    // R6: a reply that is NOT right under what it answers carries a header naming it, and the header jumps there.
+    await openDm(page, [agentRow(1, 'Morning. I read the brief.'), youRow(2, 'Great'), agentRow(3, 'The login fix is done\nand tested on staging'),
+      youRow(4, 'About the brief', { replyTo: at(1) })], 0);
     const head = await page.evaluate(() => {
       const h = document.querySelector('#d-dmthread .msg.you .msg-replyto');
       return h ? { tag: h.tagName, text: h.textContent.replace(/\s+/g, ' ').trim(), jump: h.getAttribute('data-jump-at') } : null;
     });
-    chk(head && head.tag === 'BUTTON' && head.text === 'April: The login fix is done' && head.jump === at(3),
-      'R6 the reply carries a header naming the message it answers', JSON.stringify(head));
+    chk(head && head.tag === 'BUTTON' && head.text === 'April: Morning. I read the brief.' && head.jump === at(1),
+      'R6 a reply carries a header naming the message it answers', JSON.stringify(head));
     await page.click('#d-dmthread .msg.you .msg-replyto');
     const jumped = await page.evaluate((want) => {
       const row = document.activeElement && document.activeElement.closest ? document.activeElement.closest('.msg') : null;
       return { mid: row && row.getAttribute('data-mid'), flash: !!(row && row.classList.contains('msg-flash')), want };
-    }, at(3));
-    chk(jumped.mid === at(3) && jumped.flash, 'R6 the header jumps to the original and highlights it', JSON.stringify(jumped));
+    }, at(1));
+    chk(jumped.mid === at(1) && jumped.flash, 'R6 the header jumps to the original and highlights it', JSON.stringify(jumped));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'dm-reply-header.png') });
+    // R6b: right under what it answers, there is no visible header (the room's rule, #3745); a screen reader still
+    // hears it. CONTROL: R6's non-adjacent reply above did draw one.
+    await openDm(page, [agentRow(1, 'Morning. I read the brief.'), youRow(2, 'Got it', { replyTo: at(1) })], 0);
+    const adj = await page.evaluate(() => { const b = document.querySelector('#d-dmthread .msg.you .msg-bd');
+      return { visible: !!b.querySelector('.msg-replyto'), heard: (b.querySelector('.vh') || {}).textContent || null }; });
+    chk(!adj.visible && adj.heard === 'Answers April: Morning. I read the brief.', 'R6b a reply right under what it answers draws no header, and says it to a screen reader', JSON.stringify(adj));
 
+    // R11: a reaction toggled on an agent's message keeps Reply in that bar (the repaint of one row).
+    await openDm(page, [agentRow(1, 'Morning. I read the brief.')], 0);
+    await page.hover('#d-dmthread .msg:not(.you) >> nth=0');
+    await page.click('#d-dmthread .msg:not(.you) >> nth=0 >> .rxn-pick >> nth=0');
+    await page.waitForFunction(() => !!document.querySelector('#d-dmthread .msg:not(.you) .rxn.mine'));
+    const kept11 = await page.evaluate(() => !!document.querySelector('#d-dmthread .msg:not(.you) .rxn-reply'));
+    chk(kept11, 'R11 after a reaction, the agent message\'s bar still offers Reply', String(kept11));
+
+    await openDm(page, [agentRow(1, 'Morning. I read the brief.'), youRow(2, 'Great'), agentRow(3, 'The login fix is done\nand tested on staging')], 0);
     // R5: x stops replying
     await page.hover('#d-dmthread .msg:not(.you) >> nth=0');
     await page.click('#d-dmthread .msg:not(.you) >> nth=0 >> .rxn-reply');

@@ -13298,9 +13298,9 @@ const server = http.createServer((req, res) => {
            typed, so a stale or foreign one is refused with nothing sent. '' is refused like the room's
            route does: the page never sends it. A numbered menu answer (`chose`) is never a reply. */
         let answered = null;
-        if (body.reply_to !== undefined && body.reply_to !== null) {
+        if (!chose && body.reply_to !== undefined && body.reply_to !== null) {   // a menu answer is never a reply, so it is not checked as one
           if (typeof body.reply_to !== 'string' || !body.reply_to) {
-            const bad = new Error('reply_to must name a message in this conversation'); bad.status = 400; throw bad;
+            const bad = new Error('That is not a message you can reply to.'); bad.status = 400; throw bad;
           }
           /* Could not read is not gone (the room draws them apart too): a read that failed says so and
              leaves the reply for a retry, rather than telling the person their original has left. */
@@ -13315,7 +13315,6 @@ const server = http.createServer((req, res) => {
             const gone = new Error('That message is no longer in this conversation. Press \u00d7 to send this as a new message.');
             gone.status = 409; throw gone;
           }
-          if (chose) answered = null;
         }
         const replied = messages.dmAnsweredParts(answered, name);
         const opPrefix = messages.operatorDirect(messages.operatorNowLabel(store.readSettings().timezone), replied.tag);
