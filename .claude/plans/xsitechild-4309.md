@@ -1,4 +1,4 @@
-# xsitechild-4309: the xsite and connect tests never start the host's gh or vercel
+# xsitechild-4309: the xsite, connect and doorflight tests never start the host's gh or vercel
 
 Addresses #4309 (claimed:raiden, Liu Kang m2189 and m2227). Filed by Johnny Cage.
 
@@ -32,14 +32,20 @@ Addresses #4309 (claimed:raiden, Liu Kang m2189 and m2227). Filed by Johnny Cage
 - Each test records the files passed to `child_process.execFile` / `spawn` (wrapped before
   `server.js` loads, because `devicedoor.js` takes them at require time), and a last test
   asserts no host `gh` or `vercel` started and that `home/Library` and `home/.npm` are absent.
-- Control: with the two env lines removed, the new test fails on this Mac in both files.
+- Control: with the two env lines removed, the new test fails on this Mac in all three files.
 
 ## Scope decisions
 - `server.connect.test.js` has the same defect (3 gh + 3 vercel starts, measured), so it is
   fixed here. Its leftover folder did NOT reproduce in my before/after run, so for this file
   the claim is "it started host CLIs", not "it leaked".
-- `server.doorflight-1618.test.js` also starts them (5 + 5), but Johnny's #4298 edits that
-  file, so he takes the same two lines there (m2235).
+- `server.doorflight-1618.test.js` also starts them (5 + 5). First agreed that Johnny's #4298
+  would take it (m2235), but this branch's first validation went red on the leak guard with
+  `aw-doorflight` (not on the allowlist), and #4298 has no PR yet, so main fails every full run
+  until one of us lands. It is fixed here instead (Johnny agreed, m2239): #4298 will then drop
+  its doorflight change and its aw-xsite allowlist line. Measured: main leaves
+  `aw-doorflight/home/Library/Application Support` 8 s after exit; the fix leaves nothing in
+  two runs. Johnny noted an in-process half too (board timers writing after rm); it did not
+  show in these runs, and the full-suite leak guard is the check for it.
 - Rejected: adding the two bins to `engine/sandbox.js`'s half-sandbox audit. It would make
   every sandboxed board refuse to start without them, roughly 100 tests plus the browser
   check fixtures, which is a product change well beyond this card.

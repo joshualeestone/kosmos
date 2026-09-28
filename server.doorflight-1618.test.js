@@ -35,6 +35,20 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = path.join(SANDBOX, 'claude-confi
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+/* #4309: the Connections sweep asks the gh and Vercel doors, which would run the HOST's real `gh` and
+   `vercel` with this SANDBOX as HOME. Vercel writes home/Library and leaves a detached update check
+   writing after the test exits (see server.xsite-1636.test.js). A path that is not a program makes each
+   door say "not installed" and start nothing. */
+process.env.AGENT_WORKFORCE_GH_BIN = path.join(SANDBOX, 'no-such-gh');
+process.env.AGENT_WORKFORCE_VERCEL_BIN = path.join(SANDBOX, 'no-such-vercel');
+
+/* #4309: every child the board starts, recorded before server.js loads, for the last test below. */
+const childProcess = require('node:child_process');
+const STARTED = [];
+for (const name of ['execFile', 'spawn']) {
+  const real = childProcess[name];
+  childProcess[name] = function recorded(file, ...rest) { STARTED.push(String(file)); return real.call(this, file, ...rest); };
+}
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -208,4 +222,13 @@ test('#1618: a door whose check throws is null for BOTH sharers, never false', a
       assert.equal(st.connected, null, `the ${who} caller was told a confident answer for a door we could not check`);
     }
   } finally { door.setFetcher(null); await door.forget().catch(() => {}); }
+});
+
+/* #4309: no sweep in this file may have started the host's gh or vercel (a writer the test cannot stop). */
+test('#4309: no host gh or vercel ran with this sandbox as its home', () => {
+  const host = STARTED.filter((f) => /(^|\/)(gh|vercel)$/.test(f));
+  assert.deepEqual(host, [], 'a sweep started the host\'s own CLI, which can outlive this test and write into SANDBOX after it exits');
+  for (const left of ['Library', '.npm']) {
+    assert.equal(fs.existsSync(path.join(HOME, left)), false, 'home/' + left + ' exists, so a host tool wrote into this sandbox');
+  }
 });
