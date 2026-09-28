@@ -1588,7 +1588,7 @@ function runnerDisplayName(runner) {
      speculative transform would quietly produce a WRONG name instead of an
      obviously unfinished one, and this file has already deleted one branch for
      describing behaviour the code could not produce. */
-  return runner === 'codex' ? 'Codex' : runner === 'antigravity' ? 'Antigravity' : String(runner); // #3568
+  return runner === 'codex' ? 'Codex' : runner === 'antigravity' ? 'Antigravity' : runner === 'muse' ? 'Meta Muse' : String(runner); // #3568, #3939
 }
 
 function sentenceForWhoami(account, model, runner) {
@@ -1671,6 +1671,8 @@ function sentenceForWhoami(account, model, runner) {
     : (named ? named + (runner === 'antigravity'
       // #3568 (review round 9): no Kosmos account by design, so not a fault to report.
       ? 'it signs in with your Google account inside Antigravity'
+      // #3939: no Kosmos account either; Muse has one sign-in per person on this Mac.
+      : runner === 'muse' ? 'it uses the Muse sign-in on this computer'
       : 'we cannot tell which account it runs on') : why));
   parts.push(model && model.name ? 'and its model is ' + model.name : 'and we cannot tell which model it is running');
   return parts.join(', ') + '.';
@@ -6528,6 +6530,13 @@ const server = http.createServer((req, res) => {
     const name = decodeSegment(ctx[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    /* #3939: a Muse agent's pane takes every line as a prompt, so "/clear" would run a Muse turn and clear nothing. */
+    let ctxRunner = null;
+    try { ctxRunner = create.recordedRunner(name); } catch { ctxRunner = null; }
+    if (ctxRunner === 'muse') {
+      sendJson(res, 409, { command: ctx[2], delivery: { state: chat.DELIVERY.COULD_NOT, because: 'Meta Muse keeps its own memory, so Kosmos cannot ' + ctx[2] + ' it' } });
+      return;
+    }
     const command = '/' + ctx[2];
     let delivery;
     try { delivery = chat.deliver(name, command, safeRoster(), undefined, undefined); }

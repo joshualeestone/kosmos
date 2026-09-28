@@ -1675,7 +1675,9 @@ function connect(dir, opts) {
   if (instructionsFile !== null && opts && opts.provider) {
     const hinted = create.providerRunner(String(opts.provider));
     // #3568: an Antigravity hint counts only with its flag on, like every other way to make one.
-    if (create.briefFilename(hinted) === instructionsFile && (hinted !== 'antigravity' || create.antigravityEnabled())) {
+    // #3939: and a Muse hint only with the Muse flag on.
+    if (create.briefFilename(hinted) === instructionsFile && (hinted !== 'antigravity' || create.antigravityEnabled())
+      && (hinted !== 'muse' || create.museEnabled())) {
       runner = hinted === 'claude' ? null : hinted;
     }
   }

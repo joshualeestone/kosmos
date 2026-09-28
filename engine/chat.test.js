@@ -283,6 +283,15 @@ test('#3568: a dead Antigravity agent (shell pane) is refused naming Antigravity
   });
 });
 
+test('#3939: a dead Muse agent (shell pane) is refused naming Muse Code, not Claude', () => {
+  withFleet([fleet.agent('musebot', { state: 'stopped', runner: 'muse', command: '-zsh' })], (board) => {
+    const verdict = chat.deliver('musebot', 'hello', board.agents);
+    assert.equal(verdict.state, chat.DELIVERY.COULD_NOT);
+    assert.match(verdict.because, /no Muse Code running in its window/);
+    assert.doesNotMatch(verdict.because, /no Claude running/);
+  });
+});
+
 /* #3568 round 19: an agy pane read before its runner tag lands still has runner 'antigravity' on its
    card, so chat gives it the non-Claude Enter gap and names Antigravity, not Claude. */
 test('#3568: an untagged agy pane carries runner antigravity on its card', () => {

@@ -837,7 +837,7 @@ function addressable(sessionName, roster) {
     if (card.isAgentSession === true) {
       return { ok: false, because: 'its window is scrolled back right now, so anything we typed would go to the scrollback instead of to the agent' };
     }
-    const runnerName = card.runner === 'codex' ? 'Codex' : card.runner === 'gemini' ? 'Gemini' : card.runner === 'grok' ? 'Grok' : card.runner === 'antigravity' ? 'Antigravity' : 'Claude';
+    const runnerName = card.runner === 'codex' ? 'Codex' : card.runner === 'gemini' ? 'Gemini' : card.runner === 'grok' ? 'Grok' : card.runner === 'antigravity' ? 'Antigravity' : card.runner === 'muse' ? 'Muse Code' : 'Claude';   // #3939
     return { ok: false, because: 'there is no ' + runnerName + ' running in its window right now, so anything we typed would be run as a command instead of read' };
   }
   return { ok: true, card };
@@ -1038,7 +1038,7 @@ function waitingNote(state, outcome, runner, backgroundWait) {
   // provider copy class). Product name 'Gemini', matching create.js's create/model copy.
   // #3391: grok names Grok for the same reason -- an auth-failed grok agent points at its
   // own XAI_API_KEY/sign-in, not Claude's. Product name 'Grok', matching create.js.
-  const provider = runner === 'codex' ? 'OpenAI' : runner === 'gemini' ? 'Gemini' : runner === 'grok' ? 'Grok' : runner === 'antigravity' ? 'Google' : 'Claude';   // #3568: its sign-in is Google's
+  const provider = runner === 'codex' ? 'OpenAI' : runner === 'gemini' ? 'Gemini' : runner === 'grok' ? 'Grok' : runner === 'antigravity' ? 'Google' : runner === 'muse' ? 'Meta' : 'Claude';   // #3568: its sign-in is Google's; #3939: Muse's is Meta's
   /* 🛑 #1889. ONE `working` MEANS THE OPPOSITE OF THE OTHER, FOR THIS SENTENCE.
      A pane whose screen says it is waiting on a BACKGROUND agent classifies
      `working`, but its own turn has ENDED and its REPL is at its prompt, so the

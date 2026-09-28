@@ -60,7 +60,8 @@ LOG="${5:-}"
 MODEL="${6:-}"
 # The RUNNER this agent runs on, optional and NEW as of #245 (2026-08-24).
 # 'claude' (the default every existing plist means by omission), 'codex', 'gemini', 'grok',
-# or 'antigravity' (#3568, on by default; AGENT_WORKFORCE_ANTIGRAVITY=0 turns off setting one up).
+# or 'antigravity' (#3568, on by default; AGENT_WORKFORCE_ANTIGRAVITY=0 turns off setting one up),
+# or 'muse' (#3939, Meta Muse: only set up with AGENT_WORKFORCE_MUSE=1 on a Mac).
 # Per the vector contract above: optional, defaulted, position seven, and
 # every earlier argument keeps its position and meaning. $3 stays "the path
 # to the runner binary" -- for a codex agent, create.js writes the codex
@@ -425,7 +426,7 @@ if [ -z "$adopt" ]; then
   # scrollback. `Does not destroy` is not a reason to move it while fixing a
   # prompt.
   # #3568: not for an Antigravity pane either; this is a Claude Code setting.
-  if [ "$RUNNER" != codex ] && [ "$RUNNER" != antigravity ]; then
+  if [ "$RUNNER" != codex ] && [ "$RUNNER" != antigravity ] && [ "$RUNNER" != muse ]; then   # #3939: nor Muse
     PANE_ENV+=(-e "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1")
   fi
   # 🛑 #3383c: HOME is the load-bearing addition here (its position in the loop is irrelevant --
@@ -456,8 +457,10 @@ if [ -z "$adopt" ]; then
   # var) reaches the pane with the home the CLI reads. Absent for a default-account
   # agent, so this is a no-op there -- exactly like CODEX_HOME.
   # #3568: CLAUDE_CONFIG_DIR is not forwarded from this supervisor's env into an Antigravity pane.
+  # #3939: nor into a Muse pane.
   for _var in HOME KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME GEMINI_CLI_HOME GROK_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do
     [ "$RUNNER" = antigravity ] && [ "$_var" = CLAUDE_CONFIG_DIR ] && continue
+    [ "$RUNNER" = muse ] && [ "$_var" = CLAUDE_CONFIG_DIR ] && continue
     # #3769: not even one this supervisor inherited from its own environment.
     if [ "$IS_SETUP_GUIDE" = 1 ]; then
       case "$_var" in CLOUDFLARE_API_TOKEN|GH_TOKEN) continue ;; esac
@@ -526,7 +529,7 @@ if [ -z "$adopt" ]; then
   # below (it is not Claude-specific: a board cold-started under one account's CODEX_HOME leaks
   # it into a default-account codex pane the same way).
   EFFECTIVE_CCD="${CLAUDE_CONFIG_DIR:-}"
-  if [ "$RUNNER" != codex ] && [ "$RUNNER" != antigravity ] && [ -z "$EFFECTIVE_CCD" ]; then # #3568: no explicit pin for an agy pane
+  if [ "$RUNNER" != codex ] && [ "$RUNNER" != antigravity ] && [ "$RUNNER" != muse ] && [ -z "$EFFECTIVE_CCD" ]; then # #3568, #3939: no explicit pin for an agy or Muse pane
     _srv_ccd="$("$TMUX_BIN" show-environment -g CLAUDE_CONFIG_DIR 2>/dev/null || true)"
     case "$_srv_ccd" in
       # `CLAUDE_CONFIG_DIR=<val>` sets it; a `-CLAUDE_CONFIG_DIR` unset line or an absent
@@ -796,6 +799,26 @@ if [ -z "$adopt" ]; then
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
       "$CLAUDE" "${_AGY_ARGS[@]}" || exit 1
     unset _AGY_ARGS
+  elif [ "$RUNNER" = muse ]; then
+    # #3939 slice 3c-3a: Meta Muse. Muse Code's own screen cannot be read from outside, and Meta's
+    # headless route is one `muse exec` per turn, so the pane runs Kosmos's front instead
+    # (engine/musefront.js): it takes each message the board types and runs one Muse turn on this
+    # agent's own session. $CLAUDE is the muse binary create.js checked, handed to the front's turns
+    # as AGENT_WORKFORCE_MUSE_BIN so they run that one. The report bridge beside this script is passed
+    # only when it is there; otherwise the front uses the one beside the engine.
+    if [ -z "${NODE_BIN:-}" ] || [ -z "${_eng:-}" ] || [ ! -f "$_eng/musefront.js" ]; then
+      say "cannot start $SESSION: Kosmos's Muse front or node is not on this computer"
+      exit 1
+    fi
+    _MUSE_ENV=(-e "AGENT_WORKFORCE_MUSE_BIN=$CLAUDE")
+    _MUSE_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)"
+    if [ -n "$_MUSE_DIR" ] && [ -f "$_MUSE_DIR/agy-report-bridge.js" ]; then
+      _MUSE_ENV+=(-e "KOSMOS_MUSE_BRIDGE=$_MUSE_DIR/agy-report-bridge.js")
+    fi
+    "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
+      "${_MUSE_ENV[@]}" \
+      "$NODE_BIN" "$_eng/musefront.js" "$WORKDIR" || exit 1
+    unset _MUSE_ENV _MUSE_DIR
   else
     # #2808 class-1 / #2129: re-apply the folder-trust write + bypass pre-accept BEFORE
     # this (re)launch. engine/create.js writes them once at CREATE, but a restart re-runs

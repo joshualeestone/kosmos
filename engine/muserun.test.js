@@ -346,3 +346,28 @@ test('#3939 3c-1: a refused turn ends the signed-in answer; a crash does not; a 
     if (was === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = was;
   }
 });
+
+test('#3939 3c-3a: the caller\'s stop ends a running turn: Muse is stopped and the answer says Stopped', { timeout: 8000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
+  const pidFile = path.join(SANDBOX, 'stop.pid');
+  fakeMuse('echo $$ > "' + pidFile + '"\nexec sleep 7');
+  run.setForTests({ turnTimeoutMs: 60000, hardCapMs: 60000 });   // neither limit comes during this test
+  gate.allowLiveExecution();
+  try {
+    let stop = null;
+    const turn = run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi', onStop: (f) => { stop = f; } });
+    assert.equal(typeof stop, 'function', 'the caller was not handed a stop');
+    for (let i = 0; i < 250 && !fs.existsSync(pidFile); i++) await new Promise((res) => setTimeout(res, 20));
+    assert.ok(fs.existsSync(pidFile), 'the fake muse never started, so this test cannot say anything about stop');
+    stop();
+    const r = await turn;
+    assert.equal(r.ok, false);
+    assert.equal(r.because, run.STOPPED);
+    const pid = Number(fs.readFileSync(pidFile, 'utf8').trim());
+    await new Promise((res) => setTimeout(res, 300));
+    let alive = true;
+    try { process.kill(pid, 0); } catch { alive = false; }
+    if (alive) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }   // only the PID this test started
+    assert.equal(alive, false, 'Stopped was answered, but muse kept running behind it');
+    assert.doesNotThrow(() => stop(), 'a second stop after the turn ended must do nothing');
+  } finally { gate.resetForTests(); run.resetForTests(); }
+});

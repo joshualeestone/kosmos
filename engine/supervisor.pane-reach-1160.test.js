@@ -48,7 +48,7 @@ const script = () => fs.readFileSync(create.supervisorSource(), 'utf8');
  */
 function paneEnvFor(runner) {
   const src = script();
-  const m = src.match(/if \[ "\$RUNNER" != codex \] && \[ "\$RUNNER" != antigravity \]; then\n\s*PANE_ENV\+=\([^\n]*\)\n\s*fi/);
+  const m = src.match(/if \[ "\$RUNNER" != codex \] && \[ "\$RUNNER" != antigravity \] && \[ "\$RUNNER" != muse \]; then[^\n]*\n\s*PANE_ENV\+=\([^\n]*\)\n\s*fi/);
   assert.ok(m, 'the renderer guard is gone from the supervisor');
   const frag = `PANE_ENV=()\nRUNNER=${runner}\n${m[0]}\nprintf '%s\\n' "\${PANE_ENV[@]:-}"\n`;
   return execFileSync('/bin/bash', ['-c', frag], { encoding: 'utf8' }).trim();
@@ -78,6 +78,9 @@ test('the forwarding loop hands CLAUDE_CONFIG_DIR to a claude pane and not to an
   const agy = forwardedFor('antigravity');
   assert.doesNotMatch(agy, /CLAUDE_CONFIG_DIR/, 'an agy pane carries no Claude account folder');
   assert.match(agy, /HOME=\/h/, 'CONTROL: the rest of the loop still runs for an agy pane');
+  const muse = forwardedFor('muse');   // #3939
+  assert.doesNotMatch(muse, /CLAUDE_CONFIG_DIR/, 'a Muse pane carries no Claude account folder');
+  assert.match(muse, /HOME=\/h/, 'CONTROL: the rest of the loop still runs for a Muse pane');
 });
 
 /* #3568: the adopt path's "is this pane a live agent or a crashed shell" test, RUN under bash.
@@ -96,12 +99,14 @@ test('the supervisor counts a live agy pane as an agent, not a crashed shell (#3
   assert.equal(aliveFor('-zsh'), '0', 'CONTROL: a shell is still a crashed pane');
   // #3953: and a live Grok agent, by every name the board counts as Grok.
   for (const g of ['grok-native', 'grok', 'grok.exe']) assert.equal(aliveFor(g), '1', `a live Grok agent (${g}) would be killed as a crashed shell`);
+  // #3939: a live Muse agent's pane runs Kosmos's front under node.
+  assert.equal(aliveFor('node'), '1', 'a live Muse agent (node) would be killed as a crashed shell');
 });
 
 /* #3568 round 14: the SECOND guard that keeps a Claude account out of an agy pane -- the one that
    pins the tmux server-global CLAUDE_CONFIG_DIR for a default-account agent -- RUN under bash. */
 function pinsCcdFor(runner) {
-  const m = script().match(/  if \[ "\$RUNNER" != codex \] && \[ "\$RUNNER" != antigravity \] && \[ -z "\$EFFECTIVE_CCD" \]; then/);
+  const m = script().match(/  if \[ "\$RUNNER" != codex \] && \[ "\$RUNNER" != antigravity \] && \[ "\$RUNNER" != muse \] && \[ -z "\$EFFECTIVE_CCD" \]; then/);
   assert.ok(m, 'the server-global CLAUDE_CONFIG_DIR guard is gone or no longer excludes antigravity');
   const frag = `RUNNER=${runner}\nEFFECTIVE_CCD=\n${m[0]} echo pin; else echo skip; fi\n`;
   return execFileSync('/bin/bash', ['-c', frag], { encoding: 'utf8' }).trim();
@@ -110,6 +115,7 @@ function pinsCcdFor(runner) {
 test('the server-global CLAUDE_CONFIG_DIR pin runs for a claude pane and not for an agy pane (#3568)', () => {
   assert.equal(pinsCcdFor('claude'), 'pin', 'CONTROL: a default-account claude pane is still pinned');
   assert.equal(pinsCcdFor('antigravity'), 'skip', 'an agy pane would be pinned to a Claude account');
+  assert.equal(pinsCcdFor('muse'), 'skip', 'a Muse pane (#3939) would be pinned to a Claude account');
 });
 
 /* #3568 spike: agy asks "trust this folder?" on every new folder and has no flag to skip it, so the
@@ -127,6 +133,7 @@ test('the antigravity arm pre-answers agy folder trust before it starts the pane
 
 test('an Antigravity agent does not either (#3568)', () => {
   assert.equal(paneEnvFor('antigravity'), '', 'an agy pane carries no claude-only variable');
+  assert.equal(paneEnvFor('muse'), '', 'a Muse pane (#3939) carries no claude-only variable');
 });
 
 /**

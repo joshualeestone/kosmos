@@ -3500,7 +3500,7 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   // launchd environment alone never reaches the agent.
   const script = supervisorText();
   const launches = script.split('\n').filter((l) => /new-session -d -s "\$SESSION"/.test(l));
-  assert.equal(launches.length, 7, 'the supervisor launch lines moved; update this test with them'); // #3568: +1 antigravity
+  assert.equal(launches.length, 8, 'the supervisor launch lines moved; update this test with them'); // #3568: +1 antigravity; #3939: +1 muse
   for (const l of launches) assert.match(l, /PANE_ENV/, 'a launch line does not pass the pane environment: ' + l);
   // The names handed into the pane, pinned as a list so a new one cannot be forgotten silently
   // (#577, #540, #529). #3296/#3391 added GEMINI_CLI_HOME + GROK_HOME so a per-account gemini/grok
@@ -4701,6 +4701,105 @@ test('#3568: the supervisor launches agy with its documented auto-approve flag, 
   assert.match(script, /_AGY_ARGS=\(--dangerously-skip-permissions\)/);
   assert.match(script, /\[ -n "\$\{MODEL:-\}" \] && _AGY_ARGS\+=\(--model "\$MODEL"\)/);
   assert.match(script, /"\$CLAUDE" "\$\{_AGY_ARGS\[@\]\}" \|\| exit 1/);
+});
+
+/* #3939 slice 3c-3a: Meta Muse agents, behind AGENT_WORKFORCE_MUSE=1 and Mac only. */
+const MUSE_ONLY_MAC = { skip: process.platform !== 'darwin' && 'Meta Muse agents are Mac only' };
+function withMuseFlag(on, fn) {
+  const was = process.env.AGENT_WORKFORCE_MUSE;
+  if (on) process.env.AGENT_WORKFORCE_MUSE = '1'; else delete process.env.AGENT_WORKFORCE_MUSE;
+  try { return fn(); } finally { if (was === undefined) delete process.env.AGENT_WORKFORCE_MUSE; else process.env.AGENT_WORKFORCE_MUSE = was; }
+}
+test('#3939: with the Muse flag off, a Meta create is refused as an unknown provider, exactly as before', MUSE_ONLY_MAC, () => {
+  recorder();
+  create.setDryRun(false);
+  const r = withMuseFlag(false, () => create.createAgent({ ...BINS, museBin: '/bin/echo', name: 'muse-off', role: 'pm', provider: 'meta' }));
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.match(r.because, /pick a provider/);
+  assert.equal(create.readJob('muse-off'), null, 'a refused create must not write a job');
+  // CONTROL: the same create with the flag on is not refused for its provider.
+  const on = withMuseFlag(true, () => create.createAgent({ ...BINS, museBin: '/bin/echo', name: 'muse-on', role: 'pm', provider: 'meta' }));
+  assert.equal(on.outcome, create.OUTCOME.CREATED, on.because);
+});
+test('#3939: the Muse flag is Mac only: on another platform a Meta create is refused even with it set', MUSE_ONLY_MAC, () => {
+  recorder();
+  create.setDryRun(false);
+  const r = withMuseFlag(true, () => create.createAgent({ ...BINS, museBin: '/bin/echo', name: 'muse-lnx', role: 'pm', provider: 'meta', platform: 'linux' }));
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.match(r.because, /pick a provider/);
+});
+test('#3939: with the flag on, a Meta agent is created on the muse runner, with AGENTS.md, no model and no Claude trust', MUSE_ONLY_MAC, () => {
+  recorder();
+  create.setDryRun(false);
+  const name = 'muse-kid';
+  const out = withMuseFlag(true, () => create.createAgent({ ...BINS, museBin: '/bin/echo', name, role: 'pm', provider: 'meta' }));
+  assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+  const args = plistArgs(name);
+  assert.equal(args[4], '/bin/echo', 'the runner binary is not the muse path');
+  assert.equal(args[7], '', 'Muse picks its own model: the slot stays empty');
+  assert.equal(args[8], 'muse', 'the recorded runner is not muse');
+  assert.equal(store.readProfile(name).provider, 'meta');
+  const dir = create.workerDir(name);
+  assert.ok(fs.existsSync(nodePath.join(dir, 'AGENTS.md')), 'a Muse agent got no AGENTS.md');
+  assert.ok(!fs.existsSync(nodePath.join(dir, 'CLAUDE.md')), 'a Muse agent must not get CLAUDE.md');
+  assert.equal(create.recordedRunner(name), 'muse');
+  let cfg = {};
+  try { cfg = JSON.parse(fs.readFileSync(nodePath.join(SANDBOX, 'claude.json'), 'utf8')); } catch { /* absent is fine */ }
+  const projects = cfg.projects || {};
+  assert.ok(!Object.keys(projects).some((k) => k === dir || k === fs.realpathSync(dir)), 'a Claude trust entry was written for a Muse agent');
+  assert.deepEqual(create.trustAgentFolder(name), { wrote: false, runner: 'muse' });
+  assert.match(create.setAccount(name, '/somewhere/.claude-x').because, /Muse sign-in on this computer/);
+  // A model is refused on a Muse agent, including a Claude one (which the Claude arm would otherwise write).
+  assert.match(create.setModel(name, 'opus').because, /picks its own model/);
+  assert.match(create.setModel(name, 'muse-spark-1.3').because, /picks its own model/);
+  assert.equal(plistArgs(name)[7], '', 'a refused model must not reach the job');
+});
+test('#3939: a Meta create is refused when Muse Code is missing, when an account or a model is given', MUSE_ONLY_MAC, () => {
+  recorder();
+  create.setDryRun(false);
+  withMuseFlag(true, () => {
+    const missing = create.createAgent({ ...BINS, museBin: '/nonexistent/muse', name: 'muse-none', role: 'pm', provider: 'meta' });
+    assert.equal(missing.outcome, create.OUTCOME.REFUSED);
+    assert.match(missing.because, /could not find Muse Code/);
+    const acct = create.createAgent({ ...BINS, museBin: '/bin/echo', name: 'muse-acct', role: 'pm', provider: 'meta', account: '/x/.claude-y' });
+    assert.equal(acct.outcome, create.OUTCOME.REFUSED);
+    assert.match(acct.because, /Muse sign-in on this computer/);
+    const mdl = create.createAgent({ ...BINS, museBin: '/bin/echo', name: 'muse-mdl', role: 'pm', provider: 'meta', model: 'muse-spark-1.3' });
+    assert.equal(mdl.outcome, create.OUTCOME.REFUSED);
+    assert.match(mdl.because, /picks its own model/);
+    // An empty model is "let Muse pick", not a choice.
+    const auto = create.createAgent({ ...BINS, museBin: '/bin/echo', name: 'muse-auto', role: 'pm', provider: 'meta', model: '' });
+    assert.equal(auto.outcome, create.OUTCOME.CREATED, auto.because);
+  });
+  for (const n of ['muse-none', 'muse-acct', 'muse-mdl']) assert.equal(create.readJob(n), null, n + ': a refused create must not write a job');
+});
+test('#3939: installJob keeps a Muse agent on muse, and refuses it with the flag off or with an account', MUSE_ONLY_MAC, () => {
+  recorder();
+  create.setDryRun(false);
+  fs.mkdirSync(create.workerDir('muse-inst'), { recursive: true });
+  const off = withMuseFlag(false, () => create.installJob('muse-inst', { ...BINS, museBin: '/bin/echo', runner: 'muse' }));
+  assert.equal(off.ok, false);
+  assert.match(off.because, /not switched on/);
+  const acct = withMuseFlag(true, () => create.installJob('muse-inst', { ...BINS, museBin: '/bin/echo', runner: 'muse', configDir: '/x/.claude-y' }));
+  assert.equal(acct.ok, false);
+  assert.match(acct.because, /Muse sign-in/);
+  // CONTROL: flag on, no account: the job is written, on the muse runner.
+  const ok = withMuseFlag(true, () => create.installJob('muse-inst', { ...BINS, museBin: '/bin/echo', runner: 'muse' }));
+  assert.equal(ok.ok, true, ok.because);
+  assert.equal(plistArgs('muse-inst')[8], 'muse', 'a repaired Muse agent must stay on muse, never fall back to claude');
+});
+test('#3939: the provider and runner maps round-trip meta and muse, and muse is a non-Claude runner', () => {
+  assert.equal(create.providerRunner('meta'), 'muse');
+  assert.equal(create.runnerProvider('muse'), 'meta');
+  assert.equal(create.isNonClaudeRunner('muse'), true);
+  assert.equal(create.briefFilename('muse'), 'AGENTS.md');
+  assert.equal(create.providerLabel('meta'), 'Meta Muse');
+});
+test('#3939: the supervisor runs the Muse front under node, in the agent folder, with the report bridge', () => {
+  const script = supervisorText();
+  assert.match(script, /elif \[ "\$RUNNER" = muse \]; then/);
+  assert.match(script, /"\$NODE_BIN" "\$_eng\/musefront\.js" "\$WORKDIR" \|\| exit 1/);
+  // Run against the real script, with a fake tmux: supervisor.muse-launch-3939.test.js.
 });
 
 test('#3391: a Grok create is refused when the runner is missing', () => {
