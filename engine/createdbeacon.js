@@ -37,7 +37,9 @@
  *     more, rather than climbing +1 forever.
  * The contract with the collector is exactly:
  *   POST <endpoint>  application/json
- *   { installId, count, version, os }
+ *   { installId, count, version, os, guide }
+ * `guide` (#4350) is one word from guidestate.STATES, or 'unknown' when this install has
+ * recorded none yet.
  *   200 { ok: true }
  * payload() below is the single source of that shape; a test pins the keys so
  * the two sides cannot drift.
@@ -52,7 +54,8 @@
  */
 
 const os = require('node:os');
-const ping = require('./ping');       // installId + the under-test guard
+const ping = require('./ping');
+const guidestate = require('./guidestate');   // #4350: the setup guide's last outcome, one word       // installId + the under-test guard
 
 const DEFAULT_ENDPOINT = 'https://installkosmos.com/api/created';
 
@@ -90,7 +93,9 @@ function payload(count) {
   let install = null;
   try { install = ping.installId(); } catch { install = null; }
   const n = Number.isInteger(count) && count >= 0 ? count : 0;
-  return { installId: install || 'unknown', count: n, version: version(), os: osTag() };
+  let guide = null;
+  try { guide = guidestate.current(); } catch { guide = null; }
+  return { installId: install || 'unknown', count: n, version: version(), os: osTag(), guide: guide || 'unknown' };
 }
 
 /**

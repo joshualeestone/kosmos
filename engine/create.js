@@ -3629,7 +3629,15 @@ function createdLog() {
    was ever made here. It only sees births since the birth log shipped (#157);
    agents created before that are not in the log and cannot be counted here. */
 function createdCount() {
-  return createdLog().filter((e) => e.outcome === OUTCOME.CREATED || e.outcome === OUTCOME.PARTIAL).length;
+  return createdLog().filter((e) => (e.outcome === OUTCOME.CREATED || e.outcome === OUTCOME.PARTIAL)
+    && !isAutoGuideBirth(e)).length;
+}
+
+/* #4350 (Splinter's call on the card): the setup guide Kosmos creates by itself is not an
+   agent the PERSON created, so it is left out of the public "agents created" number. It is
+   recognised by what setup-assistant.js writes for it: createdBy 'kosmos' and role 'setup'. */
+function isAutoGuideBirth(e) {
+  return e.createdBy === 'kosmos' && e.role === 'setup';
 }
 
 /* #1916: REAL liveness for a CLAUDE account. `claude auth status` (what

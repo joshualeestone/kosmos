@@ -37,9 +37,9 @@ function capture() {
   return calls;
 }
 
-test('payload() pins the collector contract {installId, count, version, os}', () => {
+test('payload() pins the collector contract {installId, count, version, os, guide}', () => {
   const p = beacon.payload(4);
-  assert.deepEqual(Object.keys(p).sort(), ['count', 'installId', 'os', 'version']);
+  assert.deepEqual(Object.keys(p).sort(), ['count', 'guide', 'installId', 'os', 'version']);   // guide: #4350
   assert.equal(p.count, 4);
   assert.equal(typeof p.installId, 'string');
   assert.ok(p.installId.length > 0);
