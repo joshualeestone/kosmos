@@ -22484,7 +22484,7 @@ function keyOnlyProvider(p) {
 /* #3568 (review round 4): a provider that is neither Claude nor OpenAI and picks its own model:
    the key-based ones (Gemini, Grok) and Gemini on a Google subscription ('antigravity', no account).
    ONE predicate for every "no Claude model, no Claude account" site, so a new one is not missed. */
-function vendorPicksModel(p) { return keyOnlyProvider(p) || p === 'antigravity'; }
+function vendorPicksModel(p) { return keyOnlyProvider(p) || p === 'antigravity' || p === 'meta'; }   // #3939 3c-3b: Meta Muse picks its own too
 /* #3651 (Josh, 2026-09-24 17:05, #admin): "i want to put Grok right under Gemini in all
    lists, so it would be Claude/OpenAI/Gemini/Grok." THE ONE provider order. Every provider
    picker is sorted by it at startup (orderProviderOptions, before its logo combobox is
@@ -22588,6 +22588,50 @@ function agyAsk() {
       if (small) small.innerHTML = keyedSubReady('google') ? 'Google &middot; subscription or API key today' : 'Google &middot; API key today';
     });
   return AGY_ASKING;   // review round 6: the caller awaits this read
+}
+/* #3939 slice 3c-3b: Meta Muse in the Create Agent form. Muse has no Kosmos account to pick and picks its own
+   model, like Gemini on a Google subscription, so its option is gated on GET /api/muse: offered only when
+   Muse is turned on here (AGENT_WORKFORCE_MUSE=1 on a Mac), installed, and signed in. null = not read yet or
+   the read failed: the option keeps today's "Coming soon", never a guess, so a board with the flag off
+   looks exactly as before. On the agent page (#d-provider) Meta is selectable only as the agent's CURRENT
+   provider: switching an agent onto Muse is not offered yet. */
+let MUSE_CREATE = null;   // { on, ready } from the last good read
+let MUSE_CREATE_ASKING = null;
+function paintMuseOption(sel, current) {
+  const opt = sel && sel.options ? Array.from(sel.options).find((o) => o.value === 'meta') : null;
+  if (!opt) return;
+  const creating = sel.id === 'create-provider';
+  const on = current === 'meta' || (creating && !!MUSE_CREATE && MUSE_CREATE.ready === true);
+  opt.disabled = !on;
+  if (on || !creating || !MUSE_CREATE || !MUSE_CREATE.on) delete opt.dataset.off;
+  else opt.dataset.off = 'Set up in Settings: Add a provider';   // turned on here, not installed or not signed in
+  if (typeof swarmProviderGate === 'function') swarmProviderGate(sel, { fresh: true });   // a Swarm keeps non-Claude providers greyed
+  if (sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
+}
+function museCreateAsk() {
+  /* Asked again on every paint (the read is a file check): a person who signs in to Meta with the
+     board open sees the option turn on without a reload. One read in flight at a time. */
+  if (MUSE_CREATE_ASKING) return MUSE_CREATE_ASKING;
+  MUSE_CREATE_ASKING = fetch('/api/muse', { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((b) => {
+      if (!b || typeof b !== 'object') return;
+      const on = b.enabled === true;
+      MUSE_CREATE = { on, ready: on && b.installed === true && b.signedIn === true };
+    })
+    .catch(() => { /* kept as it was: never a confident answer from a failed read */ })
+    .finally(() => {
+      MUSE_CREATE_ASKING = null;
+      for (const id of ['d-provider', 'create-provider']) {
+        const sel = document.getElementById(id);
+        const cur = id === 'd-provider' && typeof CURRENT !== 'undefined' && CURRENT ? providerOf(CURRENT) : '';
+        paintMuseOption(sel, cur);
+      }
+      // A Meta pick this read turned off (signed out, or turned off here) is undone and said.
+      const pv = document.getElementById('create-provider');
+      if (pv && pv.value === 'meta') createPickGone(CREATE_ACCOUNTS_KNOWN);
+    });
+  return MUSE_CREATE_ASKING;
 }
 function paintKeyedProviderOptions(sel, accounts, known, current, failed) {
   if (!sel || !sel.options) return;
@@ -34463,9 +34507,9 @@ async function paintConnLive() {
        one tab over correctly shows it as needing renewal (the #874 defect on this
        surface). Unverified logins still count, so this never falsely says
        "nothing connected" when logins exist. */
-    /* #3939 slice 3c-2 (round 1): no agent runs on Meta Muse yet (that is slice 3c-3), so its row is not
-       counted as an account "thinking for your agents". */
-    const list = all.filter((a) => acctUsableLogin(a) && !(a && a.authMode === 'muse'));
+    /* #3939 slice 3c-3b: a signed-in Meta Muse counts, now that an agent can be made on it (3c-2 left it
+       out while none could). */
+    const list = all.filter((a) => acctUsableLogin(a));
     el.textContent = '';
     if (!list.length) {
       // ⚠️ "NOTHING IS CONNECTED YET" IS A CLAIM, and it must be true, not
@@ -34478,12 +34522,9 @@ async function paintConnLive() {
       // Settings > Accounts badge). Said honestly here too, now for
       // either provider.
       const anyUnknown = all.some((a) => acctUnknownLive(a));
-      // #3939 slice 3c-2: a signed-in Meta Muse is not "nothing", and not yet an account agents run on.
-      const museOnly = all.some((a) => a && a.authMode === 'muse' && acctUsableLogin(a));
       el.textContent = anyUnknown
         ? 'We could not check your accounts just now.'
-        : museOnly ? 'Meta Muse is signed in, but no agent can run on it yet.'
-          : 'Nothing is connected yet.';
+        : 'Nothing is connected yet.';
       return;
     }
     const what = list.length === 1
@@ -41872,7 +41913,8 @@ const agentShown = () => (CURRENT && (CURRENT.name || CURRENT.sessionName)) || '
    (create.js providerRunner), so a Gemini agent's switch menu opens on Gemini rather
    than claiming it runs on Claude. One line on purpose: harnesses lift it by `const`. */
 const providerOf = (a) => ((a && a.runner === 'codex') ? 'openai' : (a && a.runner === 'gemini') ? 'google' : (a && a.runner === 'grok') ? 'xai'
-  : (a && a.runner === 'antigravity') ? 'antigravity' : 'anthropic');   // #3568: Gemini on a Google subscription
+  : (a && a.runner === 'antigravity') ? 'antigravity'   // #3568: Gemini on a Google subscription
+  : (a && a.runner === 'muse') ? 'meta' : 'anthropic');   // #3939 3c-3b: an agent on Meta Muse is not a Claude agent
 
 function paintProviderPicker(a) {
   const sel = document.getElementById('d-provider');
@@ -41908,6 +41950,7 @@ function paintProviderPicker(a) {
   }
   paintKeyedProviderOptions(sel, ACCOUNTS, ACCOUNTS_LOADED && !ACCOUNTS_UNREADABLE, current, ACCOUNTS_UNREADABLE);
   paintAgyOption(sel, current); agyAsk();   // #3568: Gemini by subscription is gated on agy, not an account
+  paintMuseOption(sel, current);   // #3939 3c-3b: Meta shows as the current provider of an agent on Muse
   /* An unrecognised provider leaves the select alone rather than silently
      showing the first option as though it were the answer. */
   sel.value = current || '';
@@ -42036,6 +42079,7 @@ function fillSwitchAccounts() {
   const keyed = ACCT_KEYED_ROUTE[prov.value] ? prov.value : '';
   paintKeyedProviderOptions(prov, ACCOUNTS, ACCOUNTS_LOADED && !ACCOUNTS_UNREADABLE, CURRENT ? providerOf(CURRENT) : '', ACCOUNTS_UNREADABLE);
   paintAgyOption(prov, CURRENT ? providerOf(CURRENT) : ''); agyAsk();   // #3568
+  paintMuseOption(prov, CURRENT ? providerOf(CURRENT) : '');   // #3939 3c-3b
   /* ⚠️ ONLY WHEN THE SWITCH IS ACTUALLY ARMED. paintProviderPicker sets
      #d-provider to the agent's CURRENT provider, so on an agent already running
      on OpenAI this menu would render live and enabled while Switch stays
@@ -42772,6 +42816,7 @@ async function changeProviderNow(say) {
     if (vendorPicksModel(want) && wantOpt && wantOpt.disabled) {
       const line = want === 'antigravity'
         ? 'Gemini (Google subscription) is not set up on this computer, so there is nothing to switch onto. Set it up in Settings, AI Models: Add a provider, then Google Gemini.'
+        : want === 'meta' ? 'An agent cannot be switched onto Meta Muse yet. Make a new agent on it instead.'   // #3939 3c-3b
         : 'There is no ' + switchKeyedWord(want) + ' account connected, so there is nothing to switch onto. Add one in Settings, AI Models.';
       if (msg) { msg.textContent = line; SWITCH_ACCT_SAID = line; }
       tell(line, false);
@@ -43257,6 +43302,35 @@ let CREATE_ACCOUNTS_FAILED = false;
    deliberately-set provider -- the value alone cannot tell an untouched 'anthropic'
    default from an import that deliberately set 'anthropic'. */
 let CREATE_PROVIDER_TOUCHED = false;
+/* #3566: a Gemini/Grok pick made against an earlier visit's list can be turned off by a later
+   read (the account is gone, or the read failed); leaving it selected would post a create
+   with no account. Fall back to the form's default provider and say which of the two it was.
+   #3939 3c-3b: one function, so the Meta Muse read (museCreateAsk) does the same when Muse is no
+   longer signed in or turned on. `known`: whether the account list was read. */
+function createPickGone(known) {
+  const pv = document.getElementById('create-provider');
+  const cur = pv && pv.options[pv.selectedIndex];
+  if (!(cur && cur.disabled && vendorPicksModel(cur.value))) return;
+  const gone = switchKeyedWord(cur.value);
+  // The same default the form opens on: OpenAI only when it is the one usable provider.
+  const hasClaude = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'anthropic');
+  const hasOpenai = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'openai');
+  pv.value = (!hasClaude && hasOpenai) ? 'openai' : 'anthropic';
+  applyCreateProviderUI();
+  // Said, not silent: a deliberate pick was undone under the person.
+  const why = document.getElementById('create-model-why');
+  const back = pv.value === 'openai' ? 'OpenAI' : 'Claude';
+  if (why) {
+    why.textContent = cur.value === 'antigravity'
+      ? 'Gemini (Google subscription) is not set up on this computer, so this is back on ' + back + '. Set it up in Settings, AI Models: Add a provider, then Google Gemini.'
+      : cur.value === 'meta'
+      ? 'Meta Muse is not signed in on this computer, so this is back on ' + back + '. Sign in in Settings, AI Models: Add a provider, then Meta.'
+      : known
+      ? 'There is no ' + gone + ' account connected, so this is back on ' + back + '. Add one in Settings, AI Models.'
+      : 'We could not check your ' + gone + ' accounts just now, so this is back on ' + back + '.';
+    why.hidden = false;
+  }
+}
 function fillCreateAccounts() {
   const asel = document.getElementById('create-account');
   if (!asel) return;
@@ -43264,10 +43338,12 @@ function fillCreateAccounts() {
   /* #3566: Gemini and Grok are offered only once an account for them is connected. */
   paintKeyedProviderOptions(provSel, CREATE_ACCOUNTS, CREATE_ACCOUNTS_KNOWN, '', CREATE_ACCOUNTS_FAILED);
   paintAgyOption(provSel, ''); agyAsk();   // #3568
+  paintMuseOption(provSel, ''); museCreateAsk();   // #3939 3c-3b
   /* #3568: Gemini on a Google subscription signs in inside the agent's own window and has no
      Kosmos account, so there is nothing to pick and no account is sent. Without this, acctProvider
-     reads 'antigravity' as Claude and would list (and send) a Claude account. */
-  if (provSel.value === 'antigravity') {
+     reads 'antigravity' as Claude and would list (and send) a Claude account. #3939 3c-3b: Meta Muse
+     the same (its Settings row has no account an agent takes, and no key). */
+  if (provSel.value === 'antigravity' || provSel.value === 'meta') {
     asel.innerHTML = '<option value="" selected></option>';
     asel.value = '';
     const arow = document.getElementById('create-account-row');
@@ -45915,32 +45991,7 @@ async function loadCreateExtras() {
     CREATE_ACCOUNTS_FAILED = !known;
     fillCreateAccounts();
     swarmCreatePaint(); // #3946: the accounts' calibration decides whether the daily usage limit is in %
-    /* #3566: a Gemini/Grok pick made against an earlier visit's list can be turned off by this
-       read (the account is gone, or the read failed); leaving it selected would post a create
-       with no account. Fall back to the form's default provider and say which of the two it was. */
-    {
-      const pv = document.getElementById('create-provider');
-      const cur = pv && pv.options[pv.selectedIndex];
-      if (cur && cur.disabled && vendorPicksModel(cur.value)) {
-        const gone = switchKeyedWord(cur.value);
-        // The same default the form opens on: OpenAI only when it is the one usable provider.
-        const hasClaude = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'anthropic');
-        const hasOpenai = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'openai');
-        pv.value = (!hasClaude && hasOpenai) ? 'openai' : 'anthropic';
-        applyCreateProviderUI();
-        // Said, not silent: a deliberate pick was undone under the person.
-        const why = document.getElementById('create-model-why');
-        const back = pv.value === 'openai' ? 'OpenAI' : 'Claude';
-        if (why) {
-          why.textContent = cur.value === 'antigravity'
-            ? 'Gemini (Google subscription) is not set up on this computer, so this is back on ' + back + '. Set it up in Settings, AI Models: Add a provider, then Google Gemini.'
-            : known
-            ? 'There is no ' + gone + ' account connected, so this is back on ' + back + '. Add one in Settings, AI Models.'
-            : 'We could not check your ' + gone + ' accounts just now, so this is back on ' + back + '.';
-          why.hidden = false;
-        }
-      }
-    }
+    createPickGone(known);   // #3566: a pick this read turned off goes back to the default, said
     /* #2097: resetCreateProvider ran before this with CREATE_ACCOUNTS still empty, so on
        the FIRST create of a page session the provider fell back to the Claude default even
        on an OpenAI-only machine (the array persists, so the openai default only took effect
@@ -45971,6 +46022,12 @@ async function loadCreateExtras() {
         if (gen !== EXTRAS_GEN || CREATE_PROVIDER_TOUCHED) return;
         paintAgyOption(document.getElementById('create-provider'), '');
       }
+      // #3939 3c-3b: a saved Meta Muse pick waits for its read the same way.
+      if (pref && pref.provider === 'meta') {
+        await museCreateAsk();
+        if (gen !== EXTRAS_GEN || CREATE_PROVIDER_TOUCHED) return;
+        paintMuseOption(document.getElementById('create-provider'), '');
+      }
       /* The saved provider must (a) name an ENABLED provider option and (b) have a usable
          account for it. (a) mirrors the import guard (~line 34503): a coming-soon or unknown
          provider left in localStorage (a hand-edit, or a future provider rename) has a
@@ -45983,7 +46040,9 @@ async function loadCreateExtras() {
         && ((pref.provider === 'openai' && hasOpenai) || (pref.provider === 'anthropic' && hasClaude)
           || (keyOnlyProvider(pref.provider) && CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === pref.provider))
           // #3568: a saved Gemini-by-subscription pick comes back while it is offered and installed.
-          || (pref.provider === 'antigravity' && AGY_OFFERED !== false && AGY_INSTALLED === true));
+          || (pref.provider === 'antigravity' && AGY_OFFERED !== false && AGY_INSTALLED === true)
+          // #3939 3c-3b: and a saved Meta Muse pick while Muse is on, installed and signed in.
+          || (pref.provider === 'meta' && !!MUSE_CREATE && MUSE_CREATE.ready === true));
       if (prefProviderUsable) {
         // Only re-run the provider UI when the provider actually changes; otherwise the account
         // and model selects filled above are already the right ones to override in place.
