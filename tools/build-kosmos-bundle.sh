@@ -190,7 +190,7 @@ _tunnel_src="$CONNECTOR_COMMIT"; _tunnel_in="$CONNECTOR_SHA"
 # it does not; one line saying what stays inactive while the gate is closed.
 # The probe's scratch file lands in a dir on the ONE EXIT trap above.
 . "$REPO/tools/lib/connector-verbs.sh"
-_connector_probe_dir="$(mktemp -d)"
+_connector_probe_dir="$(mktemp -d "${TMPDIR:-/tmp}/build-kosmos-bundle.XXXXXXXXXX")"
 TMPDIR="$_connector_probe_dir" connector_verbs_check "$TUNNEL_BIN" "$REPO/engine/phonenotify.js" || exit 1
 cp "$TUNNEL_BIN" "$STAGE/app/bin/kosmos-tunnel"
 chmod +x "$STAGE/app/bin/kosmos-tunnel"
@@ -616,7 +616,7 @@ else
   NARCH="$(node_arch)"
   TARBALL="node-v$NODE_VERSION-darwin-$NARCH.tar.gz"
   BASE="https://nodejs.org/dist/v$NODE_VERSION"
-  TMP="$(mktemp -d)"
+  TMP="$(mktemp -d "${TMPDIR:-/tmp}/build-kosmos-bundle.XXXXXXXXXX")"
   # A cut re-downloads this ~35 MB runtime every time, though nodejs.org publishes
   # each version's bytes IMMUTABLY. Cache the VERIFIED tarball across cuts, keyed by
   # its version+arch name, so a repeat cut skips the download. This is the first
@@ -726,7 +726,7 @@ floor_gate_tree "$STAGE"
 # that line is parsed rather than guessed, so this never collides with a
 # real board on this machine.
 echo "==> smoke test: the staged app boots and serves its page"
-SMOKE_LOG="$(mktemp)"
+SMOKE_LOG="$(mktemp "${TMPDIR:-/tmp}/build-kosmos-bundle.XXXXXXXXXX")"
 # ⚠️ Disposable roots for EVERY root the app has, and an inert tmux: without
 # these the staged server points at the BUILD MACHINE'S live store, projects
 # folder, workers folder, launchd directory, tmux fleet, claude config and
@@ -741,7 +741,7 @@ SMOKE_LOG="$(mktemp)"
 # behind it (2026-08-24). tools/test-build-smoke-sandbox.sh runs the gate's
 # own audit over the environment below, so the two cannot drift again; if
 # the app grows a root, the gate names it and that test goes red here.
-SMOKE_ROOTS="$(mktemp -d)"
+SMOKE_ROOTS="$(mktemp -d "${TMPDIR:-/tmp}/build-kosmos-bundle.XXXXXXXXXX")"
 PORT=0 AGENT_WORKFORCE_DATA="$SMOKE_ROOTS/data" \
   AGENT_WORKFORCE_PROJECTS="$SMOKE_ROOTS/projects" \
   AGENT_WORKFORCE_LAUNCH="$SMOKE_ROOTS/launch" \

@@ -12,7 +12,7 @@ LOGGED=""
 log() { LOGGED+="$*"$'\n'; }
 reset() { QUARANTINED=(); FAILED=(); REASONS=(); LOGGED=""; }
 
-TMP="$(mktemp -d)"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/bc-quarantine.XXXXXXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 printf 'PASS  regress-a-night QUARANTINED for this cut (stale click)\n' > "$TMP/q.out"
 printf 'PASS  all 55 assertions\n' > "$TMP/pass.out"

@@ -824,9 +824,9 @@ if kosmos_cut_parallel_ok; then _cut_parallel=1; fi
 if [ "$_cut_parallel" = 1 ]; then
   step "== 3+3b. the suite (nice, overlapped) and the page layer, headless (#2760 P1) =="
   echo "   #2760 P1: KOSMOS_CUT_PARALLEL=1 and the box has spare cycles -- running the node suite at low priority (nice) CONCURRENTLY with the render checks, which keep scheduling priority. Both gates still run and still abort on red below."
-  _suite_log="$(mktemp)"
+  _suite_log="$(mktemp "${TMPDIR:-/tmp}/release-suite.XXXXXXXXXX")"
   _suite_exit=0
-  _page_log="$(mktemp)"
+  _page_log="$(mktemp "${TMPDIR:-/tmp}/release-page.XXXXXXXXXX")"
   _page_exit=0
   # The node suite, backgrounded at the lowest user priority. A `( ... ) &` job
   # never trips errexit; its exit is reaped by `wait` below. nice -n 19 means the
@@ -860,7 +860,7 @@ step "== 3. the whole suite, on the tree that ships =="
 # wrong was refuse SILENTLY, with the reason invisible. This form
 # captures the exit before errexit can eat it, prints the suite's own
 # summary lines, and names the log a red run's detail lives in.
-_suite_log="$(mktemp)"
+_suite_log="$(mktemp "${TMPDIR:-/tmp}/release-suite.XXXXXXXXXX")"
 _suite_exit=0
 ( cd "$REPO" && yarn test >"$_suite_log" 2>&1 ) || _suite_exit=$?
 fi
@@ -928,7 +928,7 @@ step "== 3b. the page layer, headless (#39) =="
 # (KOSMOS_SKIP_BROWSER_CHECKS=1 is the explicit, printed opt-out), so a
 # release machine without a browser says so rather than shipping an
 # unchecked page.
-_page_log="$(mktemp)"
+_page_log="$(mktemp "${TMPDIR:-/tmp}/release-page.XXXXXXXXXX")"
 _page_exit=0
 # ENFORCE the Playwright version pin in the cut (#1708): the gate WARNS by
 # default (a developer running it by hand should not be hard-blocked over
@@ -1065,7 +1065,7 @@ step "== 4b. a real install from the bundle just built, sandboxed, before anythi
 cp "$SITE/dist/tmux-arm64.tar.gz" "$SITE/dist/tmux-arm64.tar.gz.sha256" "$REPO/dist/"
 rm -rf "$REPO/dist/tmux-bundle"; mkdir -p "$REPO/dist/tmux-bundle"
 tar -xzf "$REPO/dist/tmux-arm64.tar.gz" -C "$REPO/dist/tmux-bundle" || { echo "the served tmux bundle does not extract"; exit 1; }
-# A bare mktemp, like step 3's suite log: the red branch exits, the 2b trap
+# A mktemp outside BUILD_ROOT, like step 3's suite log: the red branch exits, the 2b trap
 # removes BUILD_ROOT, and a log under it would be gone before anyone read it.
 # ⚠️ DISK, SAID BY NAME. A gate run uses ~300 MB transiently (measured
 # 2026-08-24: 277 MB peak, returned on exit; gate mode never reaches the
@@ -1097,7 +1097,7 @@ fi
 # would abort the assignment before the guard below could name the cause, so
 # extract to a file first (tar's own non-zero is captured, not fatal here) and
 # let the guard speak.
-_tunnel_tmp="$(mktemp)"
+_tunnel_tmp="$(mktemp "${TMPDIR:-/tmp}/release-tunnel.XXXXXXXXXX")"
 if tar -xzOf "$REPO/dist/kosmos-arm64.tar.gz" app/bin/kosmos-tunnel > "$_tunnel_tmp" 2>/dev/null && [ -s "$_tunnel_tmp" ]; then
   TUNNEL_SHA="$(shasum -a 256 "$_tunnel_tmp" | awk '{print $1}')"
 else
@@ -1111,7 +1111,7 @@ echo "   connector: kosmos-tunnel $TUNNEL_SHA"
 # but codesigning changes its bytes on every build, so the plain tree
 # comparison that works for a .js file cannot apply to it -- this checksum,
 # from the tarball THIS build just produced, is its source of truth instead.
-_native_app_tmp="$(mktemp)"
+_native_app_tmp="$(mktemp "${TMPDIR:-/tmp}/release-native-app.XXXXXXXXXX")"
 if tar -xzOf "$REPO/dist/kosmos-arm64.tar.gz" app/bin/kosmos-app > "$_native_app_tmp" 2>/dev/null && [ -s "$_native_app_tmp" ]; then
   NATIVE_APP_SHA="$(shasum -a 256 "$_native_app_tmp" | awk '{print $1}')"
 else
@@ -1532,7 +1532,7 @@ step "== 9b. the served bundle is the frozen tree, file by file (#597) =="
 # edge THIS fetch lands on can still be a beat behind, and a single try would
 # raise "not the tree that was tested" as a false alarm on cache lag rather
 # than a real mismatch. Six reads, then it is real.
-_served_tgz="$(mktemp)"
+_served_tgz="$(mktemp "${TMPDIR:-/tmp}/release-served-tgz.XXXXXXXXXX")"
 _bundle_ok=0
 # #610 nit 1: the loop reaches its failure for THREE distinct causes, and the old
 # single message ("not the tree that was tested") named only the last one, so a

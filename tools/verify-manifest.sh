@@ -12,7 +12,7 @@
 set -euo pipefail
 V="${1:?usage: verify-manifest.sh <version>}"
 BASE="${KOSMOS_BASE:-https://installkosmos.com/dist}"
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "${TMPDIR:-/tmp}/verify-manifest.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
 curl -fsSL "$BASE/kosmos-$V-arm64.manifest.json" -o "$T/m.json" || { echo "no manifest served for $V at $BASE (releases before #776 have none)"; exit 2; }
 curl -fsSL "$BASE/kosmos-$V-arm64.tar.gz" -o "$T/a.tar.gz"
 NODE="${KOSMOS_NODE:-node}"

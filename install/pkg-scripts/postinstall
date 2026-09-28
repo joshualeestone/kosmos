@@ -196,7 +196,16 @@ echo "Kosmos: install page opened=$PAGE_OPENED"
    # `curl | sh` would have to fetch the thing to check the thing, over the same
    # channel, so it has no independent anchor. Only the pkg does.
    set -e
-   d=$(/usr/bin/mktemp -d) || exit 1
+   # kosmos#4298: a path template, because mktemp with none ignores TMPDIR. sudo resets
+   # the environment here (env_reset), which strips TMPDIR, so a real install falls back to getconf, the same per-user
+   # temp dir a bare mktemp used; the test harness sets TMPDIR and keeps it contained.
+   # The || true keeps set -e from aborting when getconf fails, so /tmp is the fallback.
+   _vt="${TMPDIR:-$(/usr/bin/getconf DARWIN_USER_TEMP_DIR 2>/dev/null || true)}"
+   # A TMPDIR that survives sudo (a sudoers env_keep) may not be writable by this user:
+   # then retry in the per-user temp dir, as a bare mktemp would have used.
+   d=$(/usr/bin/mktemp -d "${_vt:-/tmp}/kosmos-pkg-verify.XXXXXXXXXX" 2>/dev/null) \
+     || d=$(/usr/bin/mktemp -d "$(/usr/bin/getconf DARWIN_USER_TEMP_DIR 2>/dev/null || echo /tmp)/kosmos-pkg-verify.XXXXXXXXXX") \
+     || exit 1
    trap "/bin/rm -rf \"$d\"" EXIT
    # AN UNREACHABLE CHECKSUM REFUSES TOO, AND THAT IS DELIBERATE. The threat this
    # guards is a MISCONFIGURED origin, not a malicious one: an origin that can

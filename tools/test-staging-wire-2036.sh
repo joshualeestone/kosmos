@@ -11,7 +11,7 @@ REPO="$(cd "$HERE/.." && pwd)"
 PASS=0; FAIL=0
 ok(){ echo "PASS  $1"; PASS=$((PASS+1)); }
 no(){ echo "FAIL  $1"; FAIL=$((FAIL+1)); }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "${TMPDIR:-/tmp}/staging-wire-2036.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
 
 # --- release.sh: the channel -> pointer-file case block, extracted and evaluated ----------
 # (Unit-testing the mapping without running a whole cut. The block is the source of truth for

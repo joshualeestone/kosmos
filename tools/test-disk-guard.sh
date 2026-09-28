@@ -5,7 +5,7 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib/disk-guard.sh"
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "${TMPDIR:-/tmp}/disk-guard.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
 fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }

@@ -63,7 +63,10 @@ OUT="${1:-dist}"
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 PREFIX="$OUT/tmux-floor-prefix"
-WORK="$(mktemp -d)"
+# A SHORT name (#4298): the smoke test puts tmux sockets under $WORK, and a socket
+# path over 104 bytes fails. `bts.XXXXXX` is shorter than the old `tmp.XXXXXXXXXX`, but the
+# base is now $TMPDIR, so a very long TMPDIR can still push the socket path over the limit.
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/bts.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 # Refuse in a sentence, not a 20-line configure log, when the toolchain is

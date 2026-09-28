@@ -56,7 +56,7 @@ mkdir -p "$OUT_DIR"
 # must not leave a fresh pkg beside a STALE sidecar and checksum.
 rm -f "$PKG" "$UNSIGNED" "$OUT_DIR/Kosmos.pkg.inputs" "$OUT_DIR/Kosmos.pkg.sha256"
 
-BUILD="$(mktemp -d)"
+BUILD="$(mktemp -d "${TMPDIR:-/tmp}/build-installer-pkg.XXXXXXXXXX")"
 trap 'rm -rf "$BUILD"' EXIT
 RESOURCES="$REPO/install/pkg-resources"
 

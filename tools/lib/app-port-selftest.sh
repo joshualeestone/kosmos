@@ -35,7 +35,7 @@
 bounded_run() {
   local secs="$1"; shift
   local tmp pid waited rc _g _how
-  tmp="$(mktemp)"
+  tmp="$(mktemp "${TMPDIR:-/tmp}/app-port-selftest.XXXXXXXXXX")"
   # The two test seams are honoured ONLY with KOSMOS_BOUNDED_RUN_TEST=1 beside them, so a
   # value left exported in a shell cannot change a real run (review 5): a stray delay would
   # make a healthy bundle read as behind.

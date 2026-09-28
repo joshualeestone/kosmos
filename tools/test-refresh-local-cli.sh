@@ -16,7 +16,7 @@ SCRIPT="$HERE/refresh-local-cli.sh"
 # unreachable too. A test must not be able to touch the real machine even when
 # the code it tests is wrong.
 export PATH=/usr/bin:/bin
-T="$(mktemp -d)"; trap 'chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T"' EXIT
+T="$(mktemp -d "${TMPDIR:-/tmp}/refresh-local-cli.XXXXXXXXXX")"; trap 'chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T"' EXIT
 fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }
