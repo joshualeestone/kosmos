@@ -647,13 +647,14 @@ const chk = (ok, label, extra) => {
     const sel = document.getElementById('create-provider');
     sel.value = 'meta'; sel.dispatchEvent(new Event('change', { bubbles: true }));
     fillCreateAccounts();
-    PICKED = 'own';
+    PICKED = 'own'; OWN_ROLE = OWN_ROLE || { key: 'own', label: '', instructions: '' };   // the roles read is not served here
     document.getElementById('create-label').value = 'Checks Meta';
     const name = document.getElementById('create-name');
     name.value = 'musecheck'; name.dispatchEvent(new Event('input', { bubbles: true }));
     window.__created = null;
     document.getElementById('create-go').click();
-    return new Promise((r) => setTimeout(() => r(window.__created), 300));
+    return new Promise((r) => setTimeout(() => r(window.__created || { notSent: document.getElementById('create-msg').textContent
+      + ' | ' + ((document.getElementById('create-label-err') || {}).textContent || '') + ' | prov ' + sel.value }), 300));
   }, [MUSE_ROW, CLAUDE_ROW]);
   chk(!!sent && sent.provider === 'meta' && !('account' in sent) && !('model' in sent),
     'Create with Meta chosen sends provider meta, no account, no model', JSON.stringify(sent));
