@@ -54,6 +54,12 @@ function shQuote(s) {
   return "'" + String(s).replace(/'/g, "'\\''") + "'";
 }
 
+/** The inverse, kept beside it (#4353): the words shQuote made, in order, from a handler command
+    such as `'<node>' '<bridge>' Stop`. Unquoted words are skipped. */
+function shUnquoteAll(cmd) {
+  return [...String(cmd || '').matchAll(/'((?:[^']|'\\'')*)'/g)].map((m) => m[1].replace(/'\\''/g, "'"));
+}
+
 /** The Kosmos entry: PreInvocation reports working (it fires before every model call, which
     follows every tool, so it is also the heartbeat), Stop reports idle, and PreToolUse/PostToolUse
     are hooked for agy's ask_question tool ONLY (needs_you while it waits for the person, working
@@ -212,4 +218,4 @@ if (require.main === module) {
   process.exit(0);
 }
 
-module.exports = { HOOK_NAME, HANDLER_TIMEOUT_S, MIN_TOOL_HOOKS, parseVersion, toolHooksSafe, gitRootOf, shQuote, kosmosEntry, ensureHooks };
+module.exports = { HOOK_NAME, HANDLER_TIMEOUT_S, MIN_TOOL_HOOKS, parseVersion, toolHooksSafe, gitRootOf, shQuote, shUnquoteAll, kosmosEntry, ensureHooks };

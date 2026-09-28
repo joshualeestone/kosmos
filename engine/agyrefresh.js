@@ -41,7 +41,7 @@ function readEntry(workdir, hookName) {
 function runsLive(e, ev) {
   const h = Array.isArray(e[ev]) ? e[ev][0] : null;
   const cmd = h && typeof h.command === 'string' ? h.command : '';
-  const quoted = [...cmd.matchAll(/'((?:[^']|'\\'')*)'/g)].map((m) => m[1].replace(/'\\''/g, "'"));
+  const quoted = require('./agyhooks').shUnquoteAll(cmd);   // the inverse of the shQuote that wrote it
   return quoted.length >= 2 && quoted.slice(0, 2).every((p) => fs.existsSync(p));
 }
 
