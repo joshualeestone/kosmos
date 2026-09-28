@@ -10626,8 +10626,10 @@ const server = http.createServer((req, res) => {
           if (now && !now.ok && now.removed) {
             let back = null;
             try { back = removal.restore(now.removed); } catch { back = null; }
-            /* A refusal because another window restored it a moment ago is a success: check again. */
-            const ok = (!!back && back.outcome !== removal.OUTCOME.REFUSED) || setupGuideNow().ok;
+            /* Only a FULL restore is success (a partial one, started but still on the removed list, is not); a refusal
+               because another window restored it a moment ago is, so a refusal checks again. */
+            const ok = (!!back && back.outcome === removal.OUTCOME.RESTORED)
+              || ((!back || back.outcome === removal.OUTCOME.REFUSED) && setupGuideNow().ok);
             if (ok) recordGuideOutcome(GUIDE_SEEDED);   // #4350: the guide is here again
             // A refusal that does not clear with time (its account folder is gone, say) carries restore's own sentence.
             sendJson(res, 200, { ...reply, guide: { state: ok ? 'restored' : 'refused', seeded: ok, ...(ok || !back || !back.because ? {} : { because: String(back.because) }) } });
