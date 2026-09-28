@@ -10,7 +10,7 @@ A name with a space or parentheses is therefore not an IP literal to `bindHostPr
 ## Call
 Windows zones are the numeric scope id, and libuv reads a Windows zone with `atoi`. That is read from libuv source and not measured: `uv_ip6_addr` uses `atoi` on `_WIN32` and `if_nametoindex` elsewhere. So a name zone reads as scope 0, which is no zone. Whether Windows then lets a board bind that address is not measured either.
 
-So the look stays **conservative**. On win32, `windowsZoneAsLibuvReadsIt` turns a bind host of the form `<IPv6>%<non-numeric>` into the bare address, and the existing unzoned path then probes it through every interface that has it (`<addr>%<scopeid>`). This applies to both kinds of name, with or without a space. Every other platform, and a numeric zone, are unchanged. `platform` is injectable through `probeBoardOnEveryAddress`, so a Mac test drives the whole look for win32.
+So the look stays **conservative**: it never probes less than a board could hold. On win32, `windowsZoneAsLibuvReadsIt` reads the bind host's zone as atoi would. An all-digit zone becomes its number (`%014` is probed as `%14`). Zero, empty, a name (with a space or without) or a mix (`%14abc`) all become no zone, and the existing unzoned path then probes the address through every interface that has it (`<addr>%<scopeid>`), a superset of whatever the board bound (review 5). Every other platform is unchanged. `platform` is injectable through `probeBoardOnEveryAddress`, so a Mac test drives the whole look for win32.
 
 Rejected:
 - **Refusing a name zone on win32** (review 1's version). If Windows does bind the scope-0 address, a board there would be probed on no address, and the uninstall or move would read "no board" and proceed (review 3). A look that probes too much costs a refused connection; a look that probes too little can remove a live board.
@@ -21,8 +21,11 @@ Rejected:
 - `node --test engine/win32handoff.test.js` on this Mac: 69 tests, 68 pass, 1 skipped (a pre-existing Windows-only arm). This Mac has `en0` link-local (scope 7), so the real-interface arm ran.
 - The new end-to-end test (injected interfaces and platform): on win32, `%Wi-Fi` and `%Ethernet 2` are each probed as `<addr>%9` and `<addr>%14`, `%14` only as itself, and on darwin `%Wi-Fi` by that name.
 - Mutants (a full worktree copy): not calling the normaliser fails 1; keeping every zone fails 1; normalising on every platform fails 2.
-- The real-interface arm on a Windows runner now expects the scope-id spelling to be probed, which holds whether the runner's name has a space or not.
+- The new end-to-end test also pins `%014` as `%14` and `%0` as every interface; the helper test pins the empty and mixed zones.
 - **The coupling with #1777, which is stronger than "can go":** on `win-ci-1777` (tip 2d9039292), `judge()` counts a KNOWN_RED entry that now passes as STALE and fails the job. Whichever of this and win-ci-1777 lands second must also remove the `engine/win32handoff.test.js` entry from KNOWN_RED.
+
+## Inferred, not measured (no Windows run of this branch yet)
+- The real-interface arm on a Windows runner expects the scope-id spelling to be probed. That holds for an adapter name with or without a space, but not for a name made only of digits: an adapter named `3` would be read as scope 3, which would contain `byScope` only if its scope id is 3. Kano's Windows job is the first real run.
 
 ## Weakest premise
 The libuv reading, which is from source and not measured on Windows. If Windows instead rejected a name-zoned bind outright, this look would probe addresses no board holds. That costs refused connections, never a missed board.

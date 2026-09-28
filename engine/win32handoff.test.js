@@ -605,6 +605,10 @@ test('#4258: on Windows a zone by interface name reads as no zone, so the addres
   assert.equal(windowsZoneAsLibuvReadsIt(LL + '%Wi-Fi', 'win32'), LL, 'a space-free Windows name zone');
   assert.equal(windowsZoneAsLibuvReadsIt(LL + '%Ethernet 2', 'win32'), LL, 'a Windows name zone with a space');
   assert.equal(windowsZoneAsLibuvReadsIt(LL + '%14', 'win32'), LL + '%14', 'a Windows numeric zone is kept');
+  assert.equal(windowsZoneAsLibuvReadsIt(LL + '%014', 'win32'), LL + '%14', 'a Windows zone with a leading zero, as atoi reads it');
+  assert.equal(windowsZoneAsLibuvReadsIt(LL + '%0', 'win32'), LL, 'a Windows zone of 0 is no zone');
+  assert.equal(windowsZoneAsLibuvReadsIt(LL + '%', 'win32'), LL, 'a Windows empty zone is no zone');
+  assert.equal(windowsZoneAsLibuvReadsIt(LL + '%14abc', 'win32'), LL, 'a Windows mixed zone is no zone (every interface)');
   assert.equal(windowsZoneAsLibuvReadsIt(LL + '%en0', 'darwin'), LL + '%en0', 'a Mac name zone is kept');
   assert.equal(windowsZoneAsLibuvReadsIt('board.example', 'win32'), 'board.example', 'a host name is not a zoned address');
   assert.equal(windowsZoneAsLibuvReadsIt('192.0.2.1%x', 'win32'), '192.0.2.1%x', 'only an IPv6 literal is read this way');
@@ -625,6 +629,8 @@ test('#4258: on Windows a zone by interface name reads as no zone, so the addres
   assert.deepEqual(await lookedOn(LL + '%Wi-Fi', 'win32'), everyInterface, 'a Windows bind host zoned by a space-free name was not looked on through its interfaces');
   assert.deepEqual(await lookedOn(LL + '%Ethernet 2', 'win32'), everyInterface, 'a Windows bind host zoned by a name with a space was not looked on through its interfaces');
   assert.deepEqual(await lookedOn(LL + '%14', 'win32'), ['127.0.0.1', '::1', LL + '%14'].sort(), 'a Windows numeric zone looked beyond its own interface');
+  assert.deepEqual(await lookedOn(LL + '%014', 'win32'), ['127.0.0.1', '::1', LL + '%14'].sort(), 'a Windows zone written with a leading zero was not looked on as the scope atoi reads');
+  assert.deepEqual(await lookedOn(LL + '%0', 'win32'), everyInterface, 'a Windows zone of 0 was not looked on through every interface');
   assert.deepEqual(await lookedOn(LL + '%Wi-Fi', 'darwin'), ['127.0.0.1', '::1', LL + '%Wi-Fi'].sort(), 'off Windows a name zone is looked on by that name');
 });
 

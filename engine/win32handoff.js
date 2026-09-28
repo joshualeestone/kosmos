@@ -385,8 +385,8 @@ function canonicalAddress(bare) {
  * Round 5, findings 1 and 3: is this address one of this machine's own, so a board of this user could be
  * listening on it? Returns the spelling to probe it by, or null when it is not this machine's. Loopback
  * (127/8, ::1) always is. Anything else must be an address one of this machine's interfaces has, compared
- * without its zone, and a zone (`%14`, `%en0`) must name that interface, by scope id or by name (on Windows a
- * name never reaches here: see windowsZoneAsLibuvReadsIt, #4258): the
+ * without its zone, and a zone (`%14`, `%en0`) must name that interface, by scope id or by name (on Windows the
+ * bind host's zone is read first by windowsZoneAsLibuvReadsIt, #4258; a lookup result is not): the
  * same link-local address on another adapter is another address.
  *
  * Round 6, finding 1: a link-local address WITHOUT a zone (as a host name's lookup gives this PC's own) is
@@ -421,20 +421,24 @@ function thisMachinesSpellings(address, interfaces) {
 
 /**
  * #4258: the bind host as Windows reads it. Windows zones are the numeric scope id, and libuv reads a Windows
- * zone with atoi (read from libuv source, not measured), so a zone by interface NAME (`%Wi-Fi`, `%Ethernet 2`)
- * reads as scope 0: no zone. Whether Windows then lets a board bind that address is not measured either, so
- * the look stays conservative and takes the address as unzoned, which probes it through every interface that
- * has it (the unzoned path of thisMachinesSpellings). A numeric zone, a non-IPv6 host, and every host on
- * another platform are returned unchanged. `platform` replaces process.platform in a test.
+ * zone with atoi (read from libuv source, not measured). The look never probes LESS than a board could hold:
+ *   - all digits: the number atoi gives, so `%014` is probed as `%14`; 0 is no zone (below);
+ *   - anything else (a NAME such as `%Wi-Fi` or `%Ethernet 2`, a mix such as `%14abc`, or nothing after `%`):
+ *     no zone. atoi would give 0 or a leading number, and whether Windows then binds is not measured either,
+ *     so the address is taken as unzoned, which probes it through EVERY interface that has it (the unzoned
+ *     path of thisMachinesSpellings), a superset of whatever the board bound.
+ * A non-IPv6 host, and every host on another platform, are returned unchanged. `platform` replaces
+ * process.platform in a test.
  */
 function windowsZoneAsLibuvReadsIt(bound, platform) {
   if ((platform || process.platform) !== 'win32') return bound;
   const at = String(bound).indexOf('%');
   if (at < 0) return bound;
-  const zone = bound.slice(at + 1);
-  if (/^[0-9]+$/.test(zone)) return bound;
   const bare = bound.slice(0, at);
-  return require('node:net').isIP(bare) === 6 ? bare : bound;
+  if (require('node:net').isIP(bare) !== 6) return bound;
+  const zone = bound.slice(at + 1);
+  if (/^[0-9]+$/.test(zone) && Number(zone) > 0) return bare + '%' + Number(zone);
+  return bare;
 }
 
 /* fe80::/10, the link-local range: its first ten bits are 1111111010, so its first group is fe80 to febf. */
