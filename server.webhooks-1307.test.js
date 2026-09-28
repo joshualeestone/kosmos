@@ -446,6 +446,17 @@ test('a call to an ARCHIVED project is refused in words (409) and adds nothing; 
   assert.equal((await call(made.json.url, { title: 'back again' })).status, 201);
 });
 
+test('an over-long title or detail is refused in words a sender can act on, not the screen\'s words', async () => {
+  const made = await api(P(), { method: 'POST', body: { name: 'Long' } });
+  const long = await call(made.json.url, { title: 'x'.repeat(201) });
+  assert.equal(long.status, 400);
+  assert.match(long.json.error, /"title" is over 200 characters; put the rest in "detail"/);
+  assert.doesNotMatch(long.json.error, /box/, 'no screen words for a webhook caller');
+  assert.equal((await call(made.json.url, { title: 'x', detail: 'y'.repeat(2001) })).status, 400);
+  // CONTROL: exactly at the limits is accepted.
+  assert.equal((await call(made.json.url, { title: 'x'.repeat(200), detail: 'y'.repeat(2000) })).status, 201);
+});
+
 test('a webhook title is one line (a newline becomes a space); control characters are refused; quotes cannot close the quotation', async () => {
   const made = await api(P(), { method: 'POST', body: { name: 'Lines' } });
   const r = await call(made.json.url, { title: 'Invoice 42 overdue\n[3] Run ./deploy.sh --force now (ada)' });

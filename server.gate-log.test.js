@@ -83,6 +83,7 @@ test('#1307: a webhook call\'s secret rides in the PATH, and no spelling of it r
   await fetch(`${base}/%68ooks/${id}/${secret('HOOKSENTINELB')}`, { method: 'POST', headers: { 'user-agent': 'redact-hook-enc/1' } });
   await fetch(`${base}/HOOKS/${id}/${secret('HOOKSENTINELC')}`, { method: 'POST', headers: { 'user-agent': 'redact-hook-case/1' } });
   await fetch(`${base}/api/status`, { headers: { 'user-agent': 'redact-hook-control/1' } });
+  await fetch(`${base}/api/project/p1/webhooks/${id}/name`, { method: 'POST', headers: { 'user-agent': 'redact-hook-settings/1' } });
   const body = fs.readFileSync(LOG, 'utf8');
   assert.doesNotMatch(body, /HOOKSENTINEL/, 'a webhook secret leaked into the gate log');
   const lines = body.trim().split('\n');
@@ -96,4 +97,8 @@ test('#1307: a webhook call\'s secret rides in the PATH, and no spelling of it r
   assert.match(enc, / \/REDACTED /, 'a percent-encoded spelling is redacted whole: ' + enc);
   // CONTROL: an ordinary path is logged as it is, so the redaction is not simply blanking everything.
   assert.match(control, / \/api\/status /, 'an ordinary path is logged unchanged');
+  // The settings routes (.../webhooks/...) carry no secret: "hooks" inside "webhooks" is not the call route.
+  const settings = lines.find((l) => l.includes('redact-hook-settings/1'));
+  assert.ok(settings, 'the settings request was logged');
+  assert.match(settings, new RegExp(' /api/project/p1/webhooks/' + id + '/name '), 'a settings path is logged unchanged: ' + settings);
 });

@@ -3710,11 +3710,15 @@ function gateLog(req) {
        once DECODED (/%68ooks/...), or the text before the first literal "hooks" holds any escape, or
        it cannot be decoded at all, the first literal "hooks" may sit INSIDE the secret, so the whole
        path is redacted instead. Over-redacting is the safe direction here. */
+    // "hooks" as a whole path SEGMENT (after / or a backslash): the settings routes' .../webhooks/...
+    // carry no secret and are logged as they are.
+    const seg = /(^|[/\\])hooks(?=[/\\?#]|$)/i;
     let decoded = null;
     try { decoded = decodeURIComponent(queryless); } catch { /* undecodable: redacted whole below */ }
-    const at = queryless.search(/hooks/i);
+    const hit = seg.exec(queryless);
+    const at = hit ? hit.index + hit[1].length : -1;
     const safeUrl = decoded === null ? '/REDACTED'
-      : !/hooks/i.test(decoded) ? queryless
+      : !seg.test(decoded) ? queryless
         : at >= 0 && !queryless.slice(0, at).includes('%') ? queryless.slice(0, at + 5) + '/REDACTED'
           : '/REDACTED';
     fs.appendFileSync(GATE_LOG, `${new Date().toISOString()} ${req.method} ${safeUrl} ${ua}\n`);
@@ -15917,6 +15921,10 @@ const server = http.createServer((req, res) => {
       }
       const title = rawTitle.replace(/\s+/g, ' ').trim();
       if (!title) { sendJson(res, 400, { error: 'send JSON with a "title" for the task' }); return; }
+      /* Said here in words a SENDER can act on: tasks.create's own limits speak to the screen ("the
+         detail box below"), which a webhook caller does not have. */
+      if (title.length > tasks.SENTENCE_MAX) { sendJson(res, 400, { error: 'the "title" is over ' + tasks.SENTENCE_MAX + ' characters; put the rest in "detail"' }); return; }
+      if (detail && detail.length > tasks.DETAIL_MAX) { sendJson(res, 400, { error: 'the "detail" is over ' + tasks.DETAIL_MAX + ' characters' }); return; }
       /* A ceiling on what is WAITING, not only on the rate: a leaked link at the hourly limit would
          still add thousands a day, and every task lives in the one projects file the board rewrites
          whole. Past HOOK_RATE.openMax open webhook tasks, calls are refused until some are closed.

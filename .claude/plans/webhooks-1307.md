@@ -84,7 +84,7 @@
   network peers are still refused by remoteWriteGuard (it is not in REMOTE_AGENT_ROUTES). JSON only,
   since a plain-text POST is refused by the board's cross-site guard. The settings routes are
   ordinary board-token /api routes and never return a hash.
-- Tests: server.webhooks-1307.test.js (enforcing board, 34 arms; three use held or trickled
+- Tests: server.webhooks-1307.test.js (enforcing board, 35 arms; three use held or trickled
   bodies: the concurrent open-task ceiling, delete-while-held, and the body deadline); engine/assigner.test.js (the webhook arm);
   web.webhooks-1307.test.js (the page's tkAdded, pjsHooksPaint and pjsHooksOpen from its real
   source: escaping, the one-row reveal, a half-typed name kept, a read never dropping the row whose
@@ -116,3 +116,8 @@
 - A call to an ARCHIVED project is refused with 409 and words a sender shows ("this project is
   archived, so its webhooks are paused"): its tasks are left out of the Tasks view, so a task added
   there would wait where nobody looks. Unarchived, the same link works again.
+- engine/webhooks.js is tested from the root (server.webhooks-1307.test.js), not a colocated
+  engine test: the store, the rate limits and the HTTP route are one behaviour, and every arm drives
+  the real route against an enforcing board.
+- A title or detail over its limit is refused by the route in words a sender can act on ("put the
+  rest in detail"), before tasks.create's own limits, which speak to the screen.
