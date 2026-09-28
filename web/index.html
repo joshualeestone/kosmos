@@ -23212,13 +23212,13 @@ async function paintAccounts(opts) {
        neutral, with the date; it turns green when an agent uses it or Check now answers. */
     const loginUntil = a.connection && Number.isFinite(a.connection.loginValidUntil) ? a.connection.loginValidUntil : null;
     const loginDate = loginUntil ? new Date(loginUntil).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
-    const loginOkWhy = 'Kosmos read this account\'s sign-in on this computer: it is good until ' + loginDate + '. It turns green the first time an agent uses it, or when you press Check now.';
+    const loginOkWhy = () => 'Kosmos read this account\'s sign-in on this computer: it is good until ' + loginDate + '. It turns green the first time an agent uses it, or when you press Check now.';
     let connBadge;
     if (badge === 'working' && a.connection && a.connection.observedFrom === 'login' && loginDate) {
       // Only with the server's switch on (Josh's call): the same words, in green.
-      connBadge = '<span class="acct-connected" title="' + esc(loginOkWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
+      connBadge = '<span class="acct-connected" title="' + esc(loginOkWhy()) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
     } else if (badge === 'signed_in_unverified' && loginDate) {
-      connBadge = '<span class="acct-loginok" title="' + esc(loginOkWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
+      connBadge = '<span class="acct-loginok" title="' + esc(loginOkWhy()) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
     } else if (badge === 'working') {
       connBadge = '<span class="acct-connected" title="' + esc(workingWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in' + (ageStr ? (fromCheck ? ' · checked ' : ' · active ') + esc(ageStr) : '') + '</span>';
     } else if (badge === 'rejected') {

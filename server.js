@@ -7904,8 +7904,9 @@ const server = http.createServer((req, res) => {
           const prev = obsByDir.get(acct.dir);
           if (!prev || o.at > prev.at) obsByDir.set(acct.dir, { outcome: o.outcome, at: o.at });
         }
-        /* #3997 (ruling C): each Claude sign-in's login date, read beside the rest and cached (claudeloginlive). */
-        const loginUntil = new Map(await Promise.all(claudeRows.map(async (a) => [a, await claudeloginlive.validUntil(a, nowMs)])));
+        /* #3997 (ruling C): each Claude sign-in's login date, waited on briefly (claudeloginlive); a slow read shows
+           on the next poll rather than holding this one. */
+        const loginUntil = new Map(await Promise.all(claudeRows.map(async (a) => [a, await claudeloginlive.validUntilWithin(a, undefined, nowMs)])));
         const claude = claudeRows.map((a) => {
           /* #3136: the badge is the FRESHER of a passively-witnessed agent
              observation (obsByDir, filled by the ~60s sweep) and a

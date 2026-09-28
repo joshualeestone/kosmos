@@ -35,8 +35,9 @@ Addresses #3997 (reopened 2026-09-28 by Splinter; claimed:raiden, Liu Kang m2407
     token), from the entry `claude auth status` reads for that row: the default account with `CLAUDE_CONFIG_DIR`
     unset, others with their folder (`accounts.listLiveNow`; the #2129 set-vs-unset class). Key accounts are
     skipped (they have a real live check).
-  - The read is async, cached for 60 s per entry, never rejects, and returns null off macOS and under
-    `node --test` unless a reader is injected.
+  - The read is async, never rejects, and returns null off macOS and under `node --test` unless a reader is
+    injected. Concurrent requests share one read. An answer is cached 60 s and no answer 10 minutes.
+    `/api/accounts` waits for it 750 ms at most (`validUntilWithin`).
   - `loginGood()`: an unverified badge, `claude auth status` connected, the date ahead, and no rejection on record
     (the newest outcome of any age).
   - `greenFromLogin()`: the same, only while `GREEN_FROM_LOGIN` is on (off by the ruling).
@@ -66,3 +67,8 @@ Addresses #3997 (reopened 2026-09-28 by Splinter; claimed:raiden, Liu Kang m2407
 - The neutral state is still a local fact. A login cancelled on Anthropic's side shows "login good" until an agent
   or Check now meets the refusal (then red). The tooltip does not claim a live answer, and the pill is not green.
 - `toLocaleDateString` is the viewer's locale and time zone, so the date can read one day off near midnight UTC.
+- A rejection on record of any age keeps the row out of "login good". An account that was refused and then signed in
+  again stays unconfirmed until an agent uses it or Check now answers: the refresh-token date alone cannot say whether
+  the login came after the refusal (review iteration 1). This is conservative, and the same as before this change.
+- The keychain read is waited on for 750 ms at most (`validUntilWithin`). A slower read shows its date on the next
+  poll, and no answer is cached for 10 minutes (review iteration 1).

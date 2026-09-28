@@ -43,3 +43,29 @@ test('#3997: a reader that throws or answers nonsense gives no date, never a thr
   m.setReaderForTests(() => 'soon');
   assert.equal(await m.validUntil({ dir: '/a' }, 1), null);
 });
+
+test('#3997 review 1: the route waits for a slow read only within its budget, and the answer is there on the next poll', async () => {
+  let release;
+  m.setReaderForTests(() => new Promise((ok) => { release = () => ok(7000); }));
+  assert.equal(await m.validUntilWithin({ dir: '/slow' }, 20, 100), null, 'a slow read held the route past its budget');
+  release();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(await m.validUntilWithin({ dir: '/slow' }, 20, 100), 7000, 'the finished read was not kept for the next poll');
+});
+
+test('#3997 review 1: concurrent requests share one read', async () => {
+  let calls = 0;
+  m.setReaderForTests(() => { calls += 1; return new Promise((ok) => setTimeout(() => ok(9000), 10)); });
+  const [a, b] = await Promise.all([m.validUntil({ dir: '/same' }, 1), m.validUntil({ dir: '/same' }, 1)]);
+  assert.deepEqual([a, b, calls], [9000, 9000, 1]);
+});
+
+test('#3997 review 1: no answer is kept longer than an answer, so a missing entry is not asked every minute', async () => {
+  let calls = 0;
+  m.setReaderForTests(() => { calls += 1; return null; });
+  await m.validUntil({ dir: '/none' }, 0);
+  await m.validUntil({ dir: '/none' }, m.CACHE_MS + 1);
+  assert.equal(calls, 1, 'a miss was asked again after the answer window');
+  await m.validUntil({ dir: '/none' }, m.MISS_CACHE_MS);
+  assert.equal(calls, 2, 'a miss was never asked again');
+});
