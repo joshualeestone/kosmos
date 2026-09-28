@@ -96,6 +96,19 @@ test('#4301: failure detail is node\'s failing-tests section, so a test timeout 
   assert.ok(crashed.some((l) => /TypeError: x is not a function/.test(l)), 'a crash with no section shows its tail');
 });
 
+test('#4301: detail is capped per failing test, says what it left out, and puts unexpected reds first', () => {
+  const entry = (name, n) => ['test at engine\\x.test.js:1:1', '✖ ' + name + ' (5ms)', ...Array.from({ length: n }, (_, i) => '  diff line ' + i)];
+  const out = ['✖ failing tests:', ...entry('known one', 40), ...entry('new one', 3), '  at least 3 agents'].join('\n');
+  const got = w.failureDetail(out, ['known one']);
+  const newAt = got.findIndex((l) => /new one/.test(l)); const knownAt = got.findIndex((l) => /known one/.test(l));
+  assert.ok(newAt >= 0 && knownAt > newAt, 'the unexpected red comes first: ' + JSON.stringify(got.slice(0, 6)));
+  assert.ok(got.includes('  at least 3 agents'), 'a message line starting "at" is not taken for a stack frame');
+  assert.ok(got.some((l) => /more line\(s\) of this test's detail not shown/.test(l)), 'a long entry says it was cut');
+  assert.ok(got.filter((l) => /diff line/.test(l)).length < 40, 'the long entry is capped');
+  const many = ['✖ failing tests:', ...Array.from({ length: 12 }, (_, i) => entry('t' + i, 1)).flat()].join('\n');
+  assert.ok(w.failureDetail(many).some((l) => /2 more failing test\(s\) not shown/.test(l)));
+});
+
 test('a real test whose title ends in .test.js is still read as failing', () => {
   const out = [
     '✖ engine/win32x.test.js (12ms)',

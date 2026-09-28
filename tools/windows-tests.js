@@ -181,15 +181,33 @@ function changedFiles(root) {
 }
 
 // Why a file failed, as node's spec reporter says it: the "failing tests:" section it prints at the
-// end, minus stack frames, capped. Before #4301 only lines containing "Error" were kept, so a test
-// that ran out of its own timeout ("test timed out after 30000ms") showed its name and nothing else.
-// A crash before that section (no section at all) falls back to the tail of the output.
-const DETAIL_LINES = 60;
-function failureDetail(output) {
+// end, one entry per failing test (each starts "test at <file>:<line>"), minus stack frames. Before
+// #4301 only lines containing "Error" were kept, so a test that ran out of its own timeout ("test timed
+// out after 30000ms") showed its name and nothing else. Each entry is capped on its own and says what
+// it left out, so one long assertion diff cannot hide the next test's reason; entries for tests the
+// caller did not expect to fail come first. A crash before that section falls back to the output's tail.
+const DETAIL_LINES_PER_TEST = 15;
+const DETAIL_TESTS = 10;
+const STACK_FRAME = /^\s+at .*(\(.*:\d+:\d+\)|:\d+:\d+|\(native\)|\(node:[^)]*\))$/;
+function failureDetail(output, expected = []) {
   const lines = String(output).replace(/\r/g, '').split('\n');
   const at = lines.findIndex((l) => /^\s*✖ failing tests:\s*$/.test(l));
-  const section = at >= 0 ? lines.slice(at + 1) : lines.slice(-DETAIL_LINES);
-  return section.filter((l) => l.trim() && !/^\s+at /.test(l)).slice(0, DETAIL_LINES).map((l) => l.trimEnd());
+  const keep = (l) => l.trim() && !STACK_FRAME.test(l);
+  if (at < 0) return lines.slice(-60).filter(keep).map((l) => l.trimEnd());
+  const entries = [];
+  for (const l of lines.slice(at + 1)) {
+    if (/^\s*test at /.test(l) || !entries.length) entries.push([]);
+    if (keep(l)) entries[entries.length - 1].push(l.trimEnd());
+  }
+  const named = (e) => { const m = e.find((l) => /^\s*✖ /.test(l)); return m ? m.replace(/^\s*✖ /, '').replace(/ \([\d.]+m?s\)$/, '') : ''; };
+  const ordered = [...entries.filter((e) => !expected.includes(named(e))), ...entries.filter((e) => expected.includes(named(e)))];
+  const out = [];
+  for (const e of ordered.slice(0, DETAIL_TESTS)) {
+    out.push(...e.slice(0, DETAIL_LINES_PER_TEST));
+    if (e.length > DETAIL_LINES_PER_TEST) out.push(`  ... ${e.length - DETAIL_LINES_PER_TEST} more line(s) of this test's detail not shown`);
+  }
+  if (ordered.length > DETAIL_TESTS) out.push(`... ${ordered.length - DETAIL_TESTS} more failing test(s) not shown; run the file alone for all of it`);
+  return out;
 }
 
 function count(output, label) {
@@ -231,7 +249,8 @@ function main() {
     if (!ok) {
       // Every failing name (a KNOWN_RED entry is copied from these), then why (#4301).
       for (const n of failing) console.log('    ✖ ' + n);
-      for (const l of failureDetail(output)) console.log('    ' + l);
+      const expected = [...((KNOWN_RED[file] && KNOWN_RED[file].tests) || []), ...((FLAKY[file] && FLAKY[file].tests) || [])];
+      for (const l of failureDetail(output, expected)) console.log('    ' + l);
     }
     results.push({ file, ok, failing, killed, tests, skipped: skipped || 0,
       error: !killed && run.error ? (run.error.code || run.error.message) : undefined });

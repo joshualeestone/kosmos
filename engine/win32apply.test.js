@@ -1161,7 +1161,7 @@ test('SAFETY 1: a boot recovery left stuck starts the whole OLD app from previou
   assertRolledBack(c, before, null, null, 'put back');
 });
 
-test('SAFETY 1: when the old app in previous is not whole, the shim says so and the folder\'s app starts as before', WIN32_ONLY_HELD, async () => {
+test('SAFETY 1: when the old app in previous is not whole, the shim says so and the folder\'s app starts as before', WIN32_ONLY_T, async () => {
   const c = freshInstall();
   stage(c);
   await stuckOnApp(c);
@@ -2466,7 +2466,7 @@ test('ROUND 6 F2 (PROBE6-B): a journal write held after H7 is tried again within
   assert.equal(win32apply.recoverAtBoot(c.journal, sim.deps()).action, 'nothing', 'a later boot has nothing to do');
 });
 
-test('ROUND 6 F2: a journal write held past the patience: the helper still reports updated and leaves starting, the documented residual a later boot rolls back', HELD, async () => {
+test('ROUND 6 F2: a journal write held past the patience: the helper still reports updated and leaves starting, the documented residual a later boot rolls back', T, async () => {
   const c = freshInstall();
   stage(c);
   const before = installState(c);
@@ -2643,7 +2643,7 @@ test('ROUND 6 F6 (PROBE6-F): begin()\'s settlement and its abandoned staged jour
   }
 });
 
-test('ROUND 7 A (PROBE6-E): an entry that answers EACCES for good at boot is asked about for the whole budget on every pass, then the recovery is stuck in words with the whole old app named; the next boot and the resume helper converge', HELD, async () => {
+test('ROUND 7 A (PROBE6-E): an entry that answers EACCES for good at boot is asked about for the whole budget on every pass, then the recovery is stuck in words with the whole old app named; the next boot and the resume helper converge', T, async () => {
   for (const next of ['boot', 'resume']) {
     const c = freshInstall();
     const before = installState(c);

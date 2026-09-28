@@ -1,0 +1,37 @@
+# TEMP (#4301): durations of every win32apply test that awaits a real process, quiet and under load.
+name: probe-4301
+on:
+  push:
+    branches: ["w4-4301"]
+permissions:
+  contents: read
+jobs:
+  durations:
+    strategy:
+      fail-fast: false
+      matrix:
+        load: [0, 2]
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: the process-awaiting tests, three passes
+        run: |
+          for j in $(seq 1 ${{ matrix.load }}); do
+            ( while true; do node --test engine/win32apply.test.js < /dev/null > /dev/null 2>&1; done ) &
+          done
+          for i in 1 2 3; do
+            node --test --test-name-pattern="^(H1:|ROUND 8 decisions 1 and 2 \(W4\)|ROUND 8 decision 2 \(W5\)|ROUND 8 decision 4 and ROUND 9 decision 3 \(P4\)|ROUND 9 decision 2 \(P2\)|ROUND 9 decision 3 \(P3\)|ROUND 10 decision 1 \(P8\))" engine/win32apply.test.js < /dev/null > sel.txt 2>&1 && rc=0 || rc=$?
+            echo "LOAD ${{ matrix.load }} pass $i exit $rc"
+            node -e '
+              const t = require("fs").readFileSync("sel.txt", "utf8").replace(/\r/g, "");
+              for (const l of t.split("\n")) { const m = l.match(/^([✔✖]) (.+) \(([\d.]+)ms\)$/); if (m) console.log(`LOAD ${process.argv[1]} pass ${process.argv[2]} ${Math.round(m[3])}ms ${m[1]} ${m[2].slice(0, 70)}`); }
+            ' "${{ matrix.load }}" "$i"
+          done
