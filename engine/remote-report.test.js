@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 
 /**
  * kosmos#4277: engine/remote-report.js builds this Mac's remote-access report. A fake
@@ -137,7 +138,7 @@ test('classify: each known failure kind gets its code, anything else is other, n
     ['ticket names "a" but this Mac\'s address is "b"', 'ticket-mismatch'],
     // Unreachable in a report: only a not-enrolled board says it, and that board sends
     // `not-enrolled; missing: ...` instead. It must never leak.
-    ['waiting for the code sent to josh@stuff.io', 'other'],
+    ['waiting for the code sent to agent@example.com', 'other'],
     // session.rs local TLS setup, verbatim: this Mac's own certificate or key.
     ['opening certificate: No such file or directory (os error 2)', 'local-cert-unreadable'],
     ['parsing certificate: invalid PEM', 'local-cert-unreadable'],
@@ -195,7 +196,7 @@ test('classify is bounded: a 100k-character hostile line classifies fast', () =>
 test('switch on, key held, not enrolled: the error names the missing enrolment files, not the sign-in sentence', () => {
   report.resetForTests();
   const dir = stateDir(['mac_id', 'mac_key']);
-  const r = report.build({ remote: fakeRemote({ dir, state: 'connecting', because: 'waiting for the code sent to josh@stuff.io' }), env: {} });
+  const r = report.build({ remote: fakeRemote({ dir, state: 'connecting', because: 'waiting for the code sent to agent@example.com' }), env: {} });
   // kosmos-relay coordinator/src/macremote.rs says_not_enrolled() matches this `not-enrolled` prefix
   // so the Mac is not shown as seen: change both together.
   assert.equal(r.error, 'not-enrolled; missing: address, tls.crt, tls.key',
