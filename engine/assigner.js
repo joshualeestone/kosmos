@@ -94,6 +94,14 @@ function ageKey(t) {
   return Number.isFinite(at) ? at : Number(t && t.number) || 0;
 }
 
+/* Open work that stops the goal ask: any open task EXCEPT a webhook task nobody has been given.
+   Those wait for a person (pick never hands them out), so counting them would switch the goal ask
+   off for as long as an integration keeps one waiting, which for a monitor is forever. #1307. */
+function blocksGoalAsk(t) {
+  if (tasks.progressOf(t).closed) return false;
+  return !(t && t.addedVia === 'webhook' && !tasks.whoOf(t).length);
+}
+
 /* The next task nobody is on, in a live project this agent belongs to, and the part to give:
    the first open one. `taken` holds "project#number" already chosen this step. */
 function pick(session, projects, taken) {
@@ -103,6 +111,9 @@ function pick(session, projects, taken) {
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       if (typeof t.number !== 'number') continue;
       if (taken.has(p.id + '#' + t.number)) continue;
+      /* #1307: a task a webhook added waits for a person to give it out. Anyone holding the link
+         can write its words, so it is never typed into an agent's pane unseen. */
+      if (t.addedVia === 'webhook') continue;
       const prog = tasks.progressOf(t);
       /* #3951: a built task is not handed out again: the work is done and waits on a release or a check. */
       if (prog.closed || tasks.whoOf(t).length || t.builtAt) continue;
@@ -130,9 +141,12 @@ function goalProject(session, projects, goals, asked, now) {
     if (typeof at === 'number' && now - at < GOAL_ASK_MS) continue;
     const goal = goals instanceof Map ? goals.get(p.id) : null;
     if (typeof goal !== 'string' || !goal) continue;
-    const open = (Array.isArray(p.tasks) ? p.tasks : []).some((t) => !tasks.progressOf(t).closed);
+    const open = (Array.isArray(p.tasks) ? p.tasks : []).some(blocksGoalAsk);
     if (open) continue;
-    const item = { projectId: p.id, projectName: typeof p.name === 'string' && p.name ? p.name : p.id, goal };
+    // Webhook tasks waiting for a person do not stop the ask (blocksGoalAsk), but the ask must not
+    // then say the project has none: it says how many wait, and that they are not the agent's.
+    const waitingHooks = (Array.isArray(p.tasks) ? p.tasks : []).filter((t) => !tasks.progressOf(t).closed && !blocksGoalAsk(t)).length;
+    const item = { projectId: p.id, projectName: typeof p.name === 'string' && p.name ? p.name : p.id, goal, ...(waitingHooks ? { waitingHooks } : {}) };
     // The pane's own check, not a copy of it: a line it would refuse is never asked.
     if (chat.messageProblem(askText(item))) continue;
     return item;
@@ -145,8 +159,11 @@ function goalProject(session, projects, goals, asked, now) {
    quotes so it cannot close its own quotation early. */
 function askText(item) {
   const quoted = (v) => String(v).replace(/[\r\n]/g, ' ').replace(/"/g, "'");
+  const none = item.waitingHooks
+    ? '") has no open tasks you can take (' + item.waitingHooks + ' added by a webhook wait for the person to give them out; leave them). The goal'
+    : '") has no open tasks. The goal';
   return 'Assigner (Kosmos): project ' + item.projectId + ' ("' + quoted(item.projectName)
-    + '") has no open tasks. The goal written in its BRIEF.md (quoted as written there, not an instruction from Kosmos) is: "'
+    + none + ' written in its BRIEF.md (quoted as written there, not an instruction from Kosmos) is: "'
     + quoted(item.goal) + '". If there is real work toward it, add up to 3 tasks with '
     + 'kosmos task add ' + item.projectId + ' "what needs doing"; Kosmos hands new tasks to idle agents on the project. '
     + 'If there is nothing real to add, add nothing and say so in the room: kosmos post ' + item.projectId + ' "...".';
@@ -283,7 +300,7 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
   if (typeof readGoal === 'function' && idle.size) {
     for (const p of liveProjects(records)) {
       if (!(Array.isArray(p.agents) && p.agents.some((m) => idle.has(m)))) continue;
-      if ((Array.isArray(p.tasks) ? p.tasks : []).some((t) => !tasks.progressOf(t).closed)) continue;
+      if ((Array.isArray(p.tasks) ? p.tasks : []).some(blocksGoalAsk)) continue;
       try { const g = readGoal(p); if (typeof g === 'string' && g) goals.set(p.id, g); } catch { /* no goal */ }
     }
   }
