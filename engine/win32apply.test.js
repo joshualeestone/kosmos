@@ -44,17 +44,16 @@ test.after(() => {
 
 const T = { timeout: 30000 };
 const LONG = { timeout: 600000 };
-/* #4301: a test that waits through the product's REAL held budgets (a held journal write retries for
-   about 7 s at OWNER_READ_BUDGET, a stuck recovery asks for its whole budget, a shim is spawned) has a
-   floor that no machine can go under, and T left too little room above it. Measured on windows-latest
-   (probe runs 36379665882 and 36380610883, quiet and with up to two more whole-file runs alongside):
-   W4 up to 28.0 s against T's 30 s on a QUIET runner, and it failed once (run 36377105912) when that
-   runner ran the file about 40% slower. PROBE6-E reached 36.0 s and passed only because its body
-   blocks in sleepSync: a test's timeout is a timer, so it can fire only when the test yields, and an
-   async test (W4 awaits real shims) is the one that gets cut off.
-   The rule: a T test that measured over half its budget on the runner moves here. 120 s is the file's
-   own budget for its held-handle tests (WINDOWS_ONLY), more than three times the worst measurement,
-   and still a hang-guard, unlike LONG. */
+/* #4301: HELD is for a test whose time limit can actually cut it off. These tests run the product on
+   sim.deps(), whose sleep and sleepSync only move a fake clock, so the real time goes to what the sim
+   does not replace: the held renames win32swap.renameWithRetry really waits through, and the real
+   shims a test spawns. A node:test timeout is a timer, so it can fire only while the test is waiting
+   on real async work; here that means awaiting a real process (bootShimAsync). A test that never
+   does is not cut off by its limit, however long it runs.
+   The rule: a test that awaits a real process, and whose worst time on windows-latest times 4.5 (the
+   largest one-off slowdown seen there) passes 30 s, is HELD. That is W4 and W5; the measurements are
+   in .claude/plans/w4-4301.md. 120 s is the file's own budget for its held-handle tests
+   (WINDOWS_ONLY) and is still a hang-guard, unlike LONG. */
 const HELD = { timeout: 120000 };
 /* A test that spawns the REAL logon shim or a real board (bootShim/bootShimAsync, and the crash- and
    boot-recovery tests that boot the shim after a crashAt) can only run on win32: the shim resolves
@@ -2971,7 +2970,7 @@ test('ROUND 8 decisions 1 and 2 (W4): the helper\'s rollback tries a held journa
   }
 });
 
-test('ROUND 8 decision 2 (W5): the resume helper whose rollback meets a journal write held past its budget ends held and starts the board it ended once; the next boot converges', WIN32_ONLY_T, async () => {
+test('ROUND 8 decision 2 (W5): the resume helper whose rollback meets a journal write held past its budget ends held and starts the board it ended once; the next boot converges', WIN32_ONLY_HELD, async () => {
   const c = freshInstall();
   const before = installState(c);
   stage(c);
