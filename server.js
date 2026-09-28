@@ -17588,6 +17588,22 @@ if (require.main === module) {
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh the script it starts agents with: ${String(err && err.message)}\n`);
   }
+  /* #4353: an agy agent that was already running when this board started keeps its OLD
+     supervisor, which (before #4043) wrote no report hook, and the board adopts it rather than
+     restarting it, so its card said "Can't tell" until someone restarted it. Write the hook for
+     every running agy agent now: agy picks up a hooks.json written while it runs, on its next
+     turn (measured, #4353). After the refresh above, so the bridge the hook runs is current.
+     Deferred off the boot path (it asks each agy binary its version) and never under the test
+     dry run. Best effort. */
+  if (process.env.AGENT_WORKFORCE_DRY_RUN !== '1') {
+    setImmediate(() => {
+      try {
+        for (const r of require('./engine/agyrefresh').refreshAtBoardStart()) {
+          if (!r.ok) process.stderr.write(`agy hooks for ${r.name}: ${r.why}\n`);
+        }
+      } catch { /* best effort: the supervisor still writes it at the next launch */ }
+    });
+  }
   /**
    * #570 BLOCKER 4: make sure something brings the BOARD back at logon on Windows.
    *
