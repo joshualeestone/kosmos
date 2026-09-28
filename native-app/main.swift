@@ -2607,9 +2607,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         let told = relaunchGaveUpAt == "\(mine)|\(theirs)"
         if told { logLine("relaunch: already told the person about \(mine) -> \(theirs); looking for the new app quietly") }
-        stepRelaunch(mine: mine, theirs: theirs, since: Date(), freshSince: nil, toldGaveUp: told)
+        stepRelaunch(mine: mine, theirs: theirs, since: Date(), freshSince: nil, toldGaveUp: told, askedBefore: told)
     }
 
+    private var loggedRelaunchPageError = false
     private static let relaunchGaveUpKey = "kosmos.relaunchGaveUpAt"
     /// #4347: the "mine|theirs" pair for which the wait for a new app timed out and the person was told once.
     private var relaunchGaveUpAt: String? {
@@ -2664,7 +2665,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                         + "after \(Int(waited))s; not reopening")
                 self.relaunchGaveUpAt = "\(mine)|\(theirs)"
                 self.showCannotSelfHeal(mine: mine, theirs: theirs, reopened: false)
-                self.stepRelaunch(mine: mine, theirs: theirs, since: since, freshSince: nil, toldGaveUp: true)
+                // After this notice, only the silent restart remains: never a second question.
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.relaunchPollAfterGiveUp) { [weak self] in
+                    self?.stepRelaunch(mine: mine, theirs: theirs, since: since, freshSince: nil, toldGaveUp: true,
+                                       askedBefore: true)
+                }
             }
         }
         guard target != nil else { decide(.noReply); return }
@@ -2675,7 +2680,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.relaunchPageReplyLimit) { decide(.noReply) }
         web.evaluateJavaScript(ask) { result, error in
             let page: PageSays
-            if error != nil { page = .noReply }
+            if let error {
+                page = .noReply
+                // Once per window, not per poll: a page that keeps failing would bury the diagnostic file.
+                if !self.loggedRelaunchPageError {
+                    self.loggedRelaunchPageError = true
+                    logLine("relaunch: the page did not answer whether a restart is safe: \(error.localizedDescription); asking again")
+                }
+            }
             else if let b = result as? Bool { page = b ? .safe : .wouldLose }
             else if (result as? String) == "unknown" { page = .cannotTell }
             else if (result as? String) == "loading" { page = .noReply }
@@ -2772,6 +2784,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 if let handoffURL = relaunchHandoffURL() {
                     try? FileManager.default.removeItem(at: handoffURL)
                 }
+                // #4347: nobody asked for a silent restart, so its failure is logged, not put in front of them.
+                guard asked else { return }
                 let f = NSAlert()
                 f.messageText = "Kosmos could not open a new window"
                 f.informativeText = "This window is still working and still on version \(mine). "
@@ -3946,6 +3960,9 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
               "the new app was seen, then briefly unreadable (mid-swap) past the limit: wait, do not say it did not update")
     stepCheck(AppDelegate.relaunchStep(freshFound: false, waited: 9999, freshFor: 0, page: .safe, toldGaveUp: true), .wait,
               "after telling the person once, keep looking quietly: never a second notice")
+    stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 9999, freshFor: 9999, page: .cannotTell, toldGaveUp: true,
+                                       askedBefore: true), .wait,
+              "an app that lands after the notice, on a page that cannot tell: no second question for the same update")
     stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 9999, freshFor: 0, page: .safe, toldGaveUp: true), .relaunchNow,
               "an app that lands after the notice still gets the silent restart")
 

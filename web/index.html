@@ -19508,8 +19508,11 @@ if (typeof document !== 'undefined' && document.addEventListener) {
     document.addEventListener(t, () => { window.kosmosLastActivity = Date.now(); }, { capture: true, passive: true });
   }
 }
+/* whatsNewCheck waits at most an hour for the boot cover; a check pending longer than that (a fetch that never
+   answered) no longer holds the restart. */
+const RESTART_WN_HOLD_MS = 65 * 60 * 1000;
 function restartHold() {
-  if (window.kosmosWhatsNewPending === true) return true;
+  if (window.kosmosWhatsNewPending === true && Date.now() - (window.kosmosWhatsNewSince || 0) < RESTART_WN_HOLD_MS) return true;
   if (document.getElementById('whatsnew')) return true;   // removed on close, so present means open
   return Date.now() - (window.kosmosLastActivity || 0) < RESTART_QUIET_MS;
 }
@@ -34426,7 +34429,7 @@ function wnNewer(a, b) {
 async function whatsNewCheck() {
   /* #4347: while this is deciding (it can wait an hour for the boot cover), the Mac window must not restart,
      or the old page records the version as seen and the new window never shows What's New. */
-  if (typeof window !== 'undefined') window.kosmosWhatsNewPending = true;
+  if (typeof window !== 'undefined') { window.kosmosWhatsNewPending = true; window.kosmosWhatsNewSince = Date.now(); }
   try {
     const res = await fetch('/api/whats-new', { cache: 'no-store' });
     if (!res.ok) return;

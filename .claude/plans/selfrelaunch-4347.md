@@ -92,3 +92,9 @@ condition (one update, no second prompt) is first observable on the update after
 - A page that never answers is treated like one holding words in the ask (no Return, the loss sentence).
 - Accepted: in stay-running mode with the window hidden, a silent restart shows the window again, as the old
   dialog did.
+
+## Review iteration 9 (changes)
+- After the "did not update" notice only the silent restart remains; no second question for the same update.
+- A silent restart that fails to open the new window is logged, not shown (nobody asked for it).
+- A page error is logged once per window, then asked again.
+- A What's New check pending longer than its own one-hour wait no longer holds the restart.

@@ -341,7 +341,7 @@ function safeToRestart({ sending = {}, drafts = {}, typed = [], attached = null,
   win.kosmosWhatsNewPending = false;
   new Function('window', 'document', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
     'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen', 'UPDATE_TYPED', 'ATTACH_PENDING',
-    src + '\nconst RESTART_QUIET_MS = 30000;\n' + page.liftAll(SCRIPT, ['restartHold']) + '\n' + pub[0])(
+    src + '\nconst RESTART_QUIET_MS = 30000; const RESTART_WN_HOLD_MS = 65 * 60 * 1000;\n' + page.liftAll(SCRIPT, ['restartHold']) + '\n' + pub[0])(
     win, { hidden: false, getElementById: () => null }, !!sending.talk, false, null, false,
     drafts.talk || {}, {}, {}, drafts.room || {}, () => modal, typedSet, attached || { room: {}, agent: {} });
   return win.kosmosSafeToRestart();
@@ -369,13 +369,15 @@ test('#4347: a check that throws tells the Mac window it cannot tell, never "wou
 });
 
 test('#4347: What\'s New deciding or open, or the person active in the last 30 s, holds the restart ("hold", never a question)', () => {
-  const src = 'const RESTART_QUIET_MS = 30000;\n' + page.liftAll(SCRIPT, ['restartHold']);
+  const src = 'const RESTART_QUIET_MS = 30000; const RESTART_WN_HOLD_MS = 65 * 60 * 1000;\n' + page.liftAll(SCRIPT, ['restartHold']);
   const hold = (win, open) => new Function('window', 'document', src + '\nreturn restartHold();')(
     win, { getElementById: (id) => (id === 'whatsnew' && open ? {} : null) });
-  assert.equal(hold({ kosmosWhatsNewPending: true, kosmosLastActivity: 0 }, false), true, 'restarted while What\'s New was deciding: the new window would never show it');
+  assert.equal(hold({ kosmosWhatsNewPending: true, kosmosWhatsNewSince: Date.now() - 1000, kosmosLastActivity: 0 }, false), true, 'restarted while What\'s New was deciding: the new window would never show it');
+  assert.equal(hold({ kosmosWhatsNewPending: true, kosmosWhatsNewSince: Date.now() - 66 * 60 * 1000, kosmosLastActivity: 0 }, false), false,
+    'a What\'s New check pending past its own hour (a fetch that never answered) held the restart forever');
   assert.equal(hold({ kosmosWhatsNewPending: false, kosmosLastActivity: 0 }, true), true, 'restarted with What\'s New open');
   assert.equal(hold({ kosmosWhatsNewPending: false, kosmosLastActivity: Date.now() - 5000 }, false), true, 'restarted 5 s after the person clicked');
   assert.equal(hold({ kosmosWhatsNewPending: false, kosmosLastActivity: Date.now() - 60000 }, false), false, 'CONTROL: a quiet page is not held');
-  assert.match(SCRIPT, /async function whatsNewCheck\(\) \{\n[\s\S]{0,400}?window\.kosmosWhatsNewPending = true;/, 'whatsNewCheck no longer marks itself pending');
+  assert.match(SCRIPT, /async function whatsNewCheck\(\) \{\n[\s\S]{0,400}?window\.kosmosWhatsNewPending = true; window\.kosmosWhatsNewSince = Date\.now\(\);/, 'whatsNewCheck no longer marks itself pending');
   assert.match(SCRIPT, /\} finally \{\n\s*if \(typeof window !== 'undefined'\) window\.kosmosWhatsNewPending = false;/, 'whatsNewCheck no longer clears its pending mark');
 });
