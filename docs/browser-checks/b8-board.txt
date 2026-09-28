@@ -8,6 +8,7 @@ import-agent-flow
 named-controls
 render-adopt-1531
 render-boot-no-flash
+render-community-switch-4288
 render-create-form
 render-first-run
 render-found-undo

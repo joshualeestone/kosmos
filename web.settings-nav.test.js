@@ -82,7 +82,7 @@ test('the nav is in the ruled order, only You shows before a click, and the two 
 // report (#2037) is block 4. #2619 (Josh review) adds two more automations:
 // Recommender (block 5, with its three irreversible-consequence guards) and
 // Assigner (block 6).
-test('#2054/#3138/#2619: Automation holds Auto-save, Prompter, Agent Communication, Daily report, Recommender, Assigner in order (Sounds moved to This computer), and Agents Talking is no longer its own tab', () => {
+test('#2054/#3138/#2619/#4288: Automation holds Auto-save, Prompter, Agent Communication, Daily report, Community, Recommender, Assigner in order (Sounds moved to This computer), and Agents Talking is no longer its own tab', () => {
   const at = BODY.indexOf('id="s-sec-automation"');
   assert.ok(at > -1, 'the Automation section is gone');
   const end = BODY.indexOf('<section class="dsec"', at + 1);
@@ -92,8 +92,10 @@ test('#2054/#3138/#2619: Automation holds Auto-save, Prompter, Agent Communicati
   // placeholder note reserved ("before the future Daily report (#2037)").
   // #3138 (Josh, 6.68): "Sounds" MOVED out of Automation to Settings > This computer
   // (bottom) -- whether YOU hear the pop is a per-device property, not a board setting.
-  assert.deepEqual(headings, ['Auto-save', 'Prompter', 'Agent Communication', 'Daily report', 'Recommender', 'Assigner'],
-    'the Automation blocks are not Auto-save, Prompter, Agent Communication, Daily report, Recommender, Assigner in that order (#2619 added the last two; Sounds moved out per #3138)');
+  // #4288: "Community" sits directly below Daily report (Mona Lisa's design), its own box
+  // because it is a different consent.
+  assert.deepEqual(headings, ['Auto-save', 'Prompter', 'Agent Communication', 'Daily report', 'Community', 'Recommender', 'Assigner'],
+    'the Automation blocks are not Auto-save, Prompter, Agent Communication, Daily report, Community, Recommender, Assigner in that order (#2619 added Recommender and Assigner; #4288 added Community; Sounds moved out per #3138)');
   assert.ok(!headings.includes('Sounds'), '#3138: Sounds must NOT be in Automation anymore');
   // #2619: the Recommender carries its three irreversible-consequence guards, each a
   // real checkbox, all present. (Their DEFAULT-checked state + persistence are pinned

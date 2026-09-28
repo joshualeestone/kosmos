@@ -13,9 +13,9 @@
  *  - the section's control headings read exactly the list in the headings
  *    assertion below (that assertion is the source of truth; do not keep a second
  *    copy of the array here that can drift) -- currently ["Auto-save", "Prompter",
- *    "Agent Communication", "Daily report", "Recommender", "Assigner"] in order
- *    (#3138 moved "Sounds" out to Settings > This computer; #2619 added Recommender
- *    and Assigner) -- so a future edit that drops the rename, renames the wrong box,
+ *    "Agent Communication", "Daily report", "Community", "Recommender", "Assigner"] in
+ *    order (#3138 moved "Sounds" out to Settings > This computer; #2619 added Recommender
+ *    and Assigner; #4288 added Community below Daily report) -- so a future edit that drops the rename, renames the wrong box,
  *    or changes which controls the section carries, goes red,
  *  - no visible text inside the section still reads "Heartbeat" (the old name),
  *  - the save button's accessible name is "Save prompter settings" (a screen
@@ -149,8 +149,10 @@ function chk(ok, label, extra) {
       // section now has SIX headings. This cut-time-only check is not on any PR gate
       // (#2518 class), so #3549's node test (web.settings-nav.test.js) was updated but
       // this sibling was not, staling it and blocking the 0.6.91 cut (#3552).
-      chk(JSON.stringify(sec.headings) === JSON.stringify(['Auto-save', 'Prompter', 'Agent Communication', 'Daily report', 'Recommender', 'Assigner']),
-        `[${theme}] the Automation headings read Auto-save, Prompter, Agent Communication, Daily report, Recommender, Assigner (#2619)`, JSON.stringify(sec.headings));
+      // #4288 added the "Community" box directly below Daily report (SEVEN headings); the PR's
+      // browser-checks job caught this sibling after web.settings-nav had been updated alone.
+      chk(JSON.stringify(sec.headings) === JSON.stringify(['Auto-save', 'Prompter', 'Agent Communication', 'Daily report', 'Community', 'Recommender', 'Assigner']),
+        `[${theme}] the Automation headings read Auto-save, Prompter, Agent Communication, Daily report, Community, Recommender, Assigner (#2619, #4288)`, JSON.stringify(sec.headings));
       // #2054: the Prompter is a .toggle slider on screen with the visible-word aria.
       // #2632/#2771 (Josh 2026-09): the toggle copy was changed so it no longer promises
       // an undeliverable nudge -- both the visible <b> label and the slider's aria-label
