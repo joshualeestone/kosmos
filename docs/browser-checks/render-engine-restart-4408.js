@@ -50,10 +50,14 @@ function chk(ok, label, extra) {
         : { startedAt: '2026-09-28T14:59:00Z', staleSince: '2026-09-28T15:10:00Z', changed: ['engine/roles.js'], canRestart: can };
       return route.fulfill({ response: res, body: JSON.stringify(body) });
     });
-    let refuse = true;   // the first press is refused, the second accepted
+    let answer = 'refuse';   // refused, then an update in flight, then accepted
     await page.route('**/api/engine/restart', (route) => {
       posts += 1;
-      if (refuse) return route.fulfill({ status: 409, contentType: 'application/json', body: '{"ok":false,"because":"refused for this check"}' });
+      if (answer === 'refuse') return route.fulfill({ status: 409, contentType: 'application/json', body: '{"ok":false,"because":"refused for this check"}' });
+      if (answer === 'updating') {
+        restarted = true;   // the installer's own restart brings the board back
+        return route.fulfill({ status: 409, contentType: 'application/json', body: '{"ok":false,"updating":true,"because":"an update is installing"}' });
+      }
       restarted = true;
       return route.fulfill({ status: 202, contentType: 'application/json', body: '{"ok":true,"restarting":true}' });
     });
@@ -91,7 +95,20 @@ function chk(ok, label, extra) {
     chk(ref.title === 'Kosmos could not restart itself', 'a refused restart says so in the title', ref.title);
     chk(!/restart your computer|Kosmos\.exe|sign out/i.test(ref.small), 'and promises no remedy it cannot keep', ref.small);
     chk(!!ref.btn && ref.btn.on && ref.btn.t === 'Restart Kosmos', 'and the button is back to press again', JSON.stringify(ref.btn));
-    refuse = false;
+    /* AN UPDATE IN FLIGHT: the board is between the installer's file swap and its own restart. The page
+       waits for that restart like its own, and never says it could not restart. */
+    answer = 'updating';
+    const navU = page.waitForNavigation({ timeout: 20000 }).then(() => true).catch(() => false);
+    await page.click('#ut-engine-restart');
+    const upd = await page.evaluate(() => ({ title: (document.querySelector('#utoast-slot b') || {}).textContent || '',
+      label: (document.getElementById('ut-engine-restart') || {}).textContent || 'gone' })).catch(() => ({ title: '', label: 'gone' }));
+    chk(!/could not/.test(upd.title) && (upd.label === 'Restarting…' || upd.label === 'gone'), 'an update in flight: the page waits for its restart instead of refusing', JSON.stringify(upd));
+    chk(await navU, 'and reloads when the updated board answers');
+    await page.waitForSelector('#firstrun', { state: 'hidden', timeout: 5000 }).catch(() => {});
+    restarted = false;
+    await page.waitForSelector('#ut-engine-restart', { timeout: 20000 }).catch(() => {});
+
+    answer = 'ok';
     posts = 0;
     const nav = page.waitForNavigation({ timeout: 20000 }).then(() => true).catch(() => false);
     await page.click('#ut-engine-restart');

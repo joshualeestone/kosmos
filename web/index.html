@@ -19554,6 +19554,8 @@ if (typeof window !== 'undefined') window.kosmosSafeToRestart = () => {
    "Restarting" and the did-not-answer screen stands down (the board is away on purpose, as in an update). */
 let ENGINE_RESTARTING = false;
 const ENGINE_RESTART_WAIT_MS = 120 * 1000;   // how long the page waits for the restarted board before saying so
+const ENGINE_RESTART_POLL_MS = 1000;         // how often it asks whether the restarted board is back
+const ENGINE_SAID_HOLD_MS = 15 * 1000;       // how long a failure stays in the toast before the next poll repaints it
 async function engineRestartClick() {
   const btn = document.getElementById('ut-engine-restart');
   const toast = btn && btn.closest('.utoast');
@@ -19564,14 +19566,18 @@ async function engineRestartClick() {
      guard would otherwise keep it, since nothing it keys on changed). */
   const said = (head) => {
     if (title) title.textContent = head;
-    setTimeout(() => { const sl = document.getElementById('utoast-slot'); if (sl) delete sl.dataset.v; }, 15000);
+    setTimeout(() => { const sl = document.getElementById('utoast-slot'); if (sl) delete sl.dataset.v; }, ENGINE_SAID_HOLD_MS);
   };
   if (btn) { btn.disabled = true; btn.textContent = 'Restarting…'; }
+  /* A press after a refused one must not keep saying it could not restart while it is restarting. */
+  if (title) title.textContent = 'Kosmos is restarting';
   const before = ENGINE_STALE && ENGINE_STALE.startedAt;
   try {
     const r = await fetch('/api/engine/restart', { method: 'POST' });
     const out = await r.json().catch(() => ({}));
-    if (!r.ok) {
+    /* An update is installing and restarts the board itself: wait for that restart like our own. */
+    const updating = r.status === 409 && out && out.updating === true;
+    if (!r.ok && !updating) {
       /* Already current (another page, or a restart that just finished): nothing to restart, so show it. */
       if (r.status === 409 && out && out.current === true) { location.reload(); return; }
       try { console.info('Kosmos could not restart itself: ' + String((out && out.because) || r.status)); } catch { /* no console */ }
@@ -19592,7 +19598,7 @@ async function engineRestartClick() {
   /* Back when a board with a different start time answers; then the page itself reloads onto it. */
   const until = Date.now() + ENGINE_RESTART_WAIT_MS;
   while (Date.now() < until) {
-    await new Promise((res) => setTimeout(res, 1000));
+    await new Promise((res) => setTimeout(res, ENGINE_RESTART_POLL_MS));
     try {
       const st = await (await fetch('/api/status', { cache: 'no-store' })).json();
       if (st && st.engine && st.engine.startedAt && st.engine.startedAt !== before) { location.reload(); return; }

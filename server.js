@@ -247,6 +247,7 @@ const ENGINE_ROOT = __dirname + path.sep;
 let engineLook = { at: 0, staleSince: null, changed: [], canRestart: false };
 const ENGINE_SWEEP_MS = 5000;                 // how long one sweep's answer is reused
 const ENGINE_RESTART_CHECK_MS = 90 * 1000;    // a board still here this long after its restart started: log it
+const ENGINE_RESTART_FLUSH_MS = 500;          // lets the 202 reach the page before the restart ends this process
 /* Whether this board can restart itself, asked once: it does not change while the process runs, and on
    Windows the answer costs two blocking schtasks calls, which must not repeat every sweep. */
 let engineCanRestart = null;
@@ -4037,13 +4038,17 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/engine/restart' && req.method === 'POST') {
     const fresh = engineFreshness();
     if (!fresh.staleSince) { sendJson(res, 409, { ok: false, current: true, because: 'the board is already running the code on disk' }); return; }
+    /* One restart at a time: every open page shows the button, and a second detached `kosmos restart`
+       racing the first can leave a board no `kosmos stop` can name. Later presses get the same answer,
+       before the (blocking, on Windows) restart check below. */
+    if (engineRestartAsked) { sendJson(res, 202, { ok: true, restarting: true }); return; }
+    /* An update swaps the files and then restarts the board itself, so between the two the board reads
+       stale. A restart from here would race the installer's own; the page waits for that one instead. */
+    if (updates.alreadyInstalling()) { sendJson(res, 409, { ok: false, updating: true, because: 'an update is installing and restarts the board itself' }); return; }
     let can;
     try { can = require('./engine/boardrestart').canSelfRestart(); } catch (e) { can = { canRestart: false, because: String((e && e.message) || e) }; }
     engineCanRestart = can.canRestart === true;   // what a press just learned also decides the next button
     if (!can.canRestart) { sendJson(res, 409, { ok: false, because: can.because || 'this board cannot restart itself' }); return; }
-    /* One restart at a time: every open page shows the button, and a second detached `kosmos restart`
-       racing the first can leave a board no `kosmos stop` can name. Later presses get the same answer. */
-    if (engineRestartAsked) { sendJson(res, 202, { ok: true, restarting: true }); return; }
     engineRestartAsked = true;
     sendJson(res, 202, { ok: true, restarting: true });
     /* After the response has flushed: the restart ends this process, the connection that asked with it. */
@@ -4056,7 +4061,7 @@ const server = http.createServer((req, res) => {
         engineRestartAsked = false;
         console.error('FAIL /api/engine/restart: this board is still running 90 s after its restart was started');
       }, ENGINE_RESTART_CHECK_MS).unref();
-    }, 500);
+    }, ENGINE_RESTART_FLUSH_MS);
     return;
   }
 

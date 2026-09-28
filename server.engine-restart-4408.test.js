@@ -26,6 +26,7 @@ process.env.AGENT_WORKFORCE_RELEASE_BASE = 'http://127.0.0.1:9/dist';
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const board = require('./engine/boardrestart');
+const update = require('./engine/update');
 const spawned = [];
 board.setRunner(() => ({ ok: false, because: 'no such service' }));   // no launchd job: the kosmos CLI arm decides
 board.setUid(() => 501);
@@ -75,6 +76,16 @@ test('#4408: a stale board that can restart itself says so, and the button runs 
     assert.ok(e.staleSince, 'CONTROL: the edited module made the board stale');
     assert.deepEqual(e.changed, [path.basename(dir) + '/x.js'], 'the edited file is not named');
     assert.equal(e.canRestart, true, 'a stale board that can restart itself did not offer the button');
+
+    /* An update between its file swap and its own restart reads stale; the button must not race it. */
+    const installing = update.alreadyInstalling;
+    update.alreadyInstalling = () => true;
+    let mid;
+    try { mid = await post(); } finally { update.alreadyInstalling = installing; }
+    assert.equal(mid.status, 409);
+    assert.equal(mid.body.updating, true, 'the page reads `updating` to wait for the installer\'s restart');
+    await wait(700);
+    assert.deepEqual(spawned, [], 'a restart raced an update that restarts the board itself');
 
     // CONTROL first: with no way to bring itself back, it refuses and spawns nothing.
     cli = null;

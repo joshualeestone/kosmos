@@ -525,7 +525,8 @@ test('the board reports when its own engine is behind the disk, and says nothing
    * running across a merge answers with old code while looking current.
    * Measured 2026-08-23: six hours, three merged PRs, /api/roles serving the
    * morning's file. A version comparison cannot see it (nothing bumped), so
-   * the field compares loaded modules' mtimes to the process start. Always
+   * the field compares each loaded module's content with what the process
+   * loaded (#4408: an mtime alone called a byte-for-byte restore stale). Always
    * present, null when current, so the fixture's field list is stable.
    */
   const board = await req('/api/status');
