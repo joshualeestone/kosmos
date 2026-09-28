@@ -51036,7 +51036,7 @@ function pjsHooksPaint() {
         + '<button class="linkish" type="button" data-hook-delete-no="' + id + '">Keep it</button></div>'
       : '';
     return '<div class="pjs-hook" role="listitem" data-hook="' + id + '">'
-      + '<div class="pjs-hook-top"><input class="tk-inp" type="text" maxlength="60" value="' + esc(h.name) + '" data-hook-name="' + id + '" aria-label="Name of this webhook">'
+      + '<div class="pjs-hook-top"><input class="tk-inp" type="text" maxlength="60" value="' + esc(h.name) + '" data-hook-name="' + id + '" aria-label="Name of the webhook ' + esc(h.name) + '">'
       + (PJS_HOOKS.confirm === h.id ? '' : '<button class="linkish" type="button" data-hook-delete="' + id + '" aria-label="Delete ' + esc(h.name) + '">Delete</button>') + '</div>'
       + '<p class="pjs-hook-when">' + esc(pjsHooksWhen(h)) + '</p>' + confirm + reveal + '</div>';
   }).join('');
@@ -51085,8 +51085,10 @@ async function pjsHookRename(id, name) {
     return;
   }
   PJS_HOOKS.gen += 1;
+  const forProject = PJS_HOOKS.projectId;   // settings may move to another project while this is on its way
   try {
-    const out = await pjsHooksSend(fetch('/api/project/' + encodeURIComponent(PJS_HOOKS.projectId) + '/webhooks/' + id + '/name', pjsHooksInit('POST', { name })));
+    const out = await pjsHooksSend(fetch('/api/project/' + encodeURIComponent(forProject) + '/webhooks/' + id + '/name', pjsHooksInit('POST', { name })));
+    if (PJS_HOOKS.projectId !== forProject) return;
     h.name = out.webhook.name;
     msg.textContent = 'Renamed. Its link has not changed.';
     /* In place, not a repaint: a repaint would drop focus if the person has tabbed on, and throw
@@ -51096,8 +51098,10 @@ async function pjsHookRename(id, name) {
     const del = row && row.querySelector('[data-hook-delete]');
     if (input && document.activeElement !== input) input.value = h.name;
     if (del) del.setAttribute('aria-label', 'Delete ' + h.name);
+    if (input) input.setAttribute('aria-label', 'Name of the webhook ' + h.name);
     pjsHooksAfter(PJS_HOOKS.projectId);
   } catch (e) {
+    if (PJS_HOOKS.projectId !== forProject) return;
     msg.textContent = asSentence(e.message);
     /* Put back only this row's name, for the same reason as above. */
     const row = document.querySelector('[data-hook="' + CSS.escape(id) + '"]');
@@ -51109,14 +51113,17 @@ async function pjsHookDelete(id) {
   const msg = document.getElementById('pjs-hooks-msg');
   const h = PJS_HOOKS.list.find((x) => x.id === id);
   PJS_HOOKS.gen += 1;
+  const forProject = PJS_HOOKS.projectId;   // settings may move to another project while this is on its way
   try {
-    await pjsHooksSend(fetch('/api/project/' + encodeURIComponent(PJS_HOOKS.projectId) + '/webhooks/' + id, pjsHooksInit('DELETE')));
+    await pjsHooksSend(fetch('/api/project/' + encodeURIComponent(forProject) + '/webhooks/' + id, pjsHooksInit('DELETE')));
+    if (PJS_HOOKS.projectId !== forProject) return;
     PJS_HOOKS.list = PJS_HOOKS.list.filter((x) => x.id !== id);
     if (PJS_HOOKS.reveal && PJS_HOOKS.reveal.id === id) PJS_HOOKS.reveal = null;
     PJS_HOOKS.confirm = null;
     msg.textContent = 'Deleted ' + (h ? h.name : 'the webhook') + '. Its link no longer works.';
     pjsHooksAfter(PJS_HOOKS.projectId);
   } catch (e) {
+    if (PJS_HOOKS.projectId !== forProject) return;
     msg.textContent = asSentence(e.message);
   }
   pjsHooksPaint();

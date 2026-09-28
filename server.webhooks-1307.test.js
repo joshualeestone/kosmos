@@ -214,6 +214,27 @@ test('an orphan the clean-up missed still answers for nobody: the project stamp 
   assert.ok(!fs.readFileSync(file, 'utf8').includes(orphanId), 'the orphan was swept on the next change');
 });
 
+test('the orphan sweep deletes NOTHING when the project list is unreadable or reads empty (a sweep cannot be undone)', async () => {
+  const p = projects.create({ name: 'Kept' });
+  const a = await api(`/api/project/${encodeURIComponent(p.id)}/webhooks`, { method: 'POST', body: {} });
+  const b = await api(`/api/project/${encodeURIComponent(p.id)}/webhooks`, { method: 'POST', body: {} });
+  const file = path.join(require('./engine/store').ROOT, 'webhooks', 'webhooks.json');
+  const both = () => { const t = fs.readFileSync(file, 'utf8'); return t.includes(a.json.webhook.id) && t.includes(b.json.webhook.id); };
+  assert.ok(both(), 'fixture: both webhooks are stored');
+  const orig = projects.readAll;
+  for (const [what, stub] of [['unreadable', () => { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); }], ['empty (missing)', () => []]]) {
+    projects.readAll = stub;
+    try { webhooks.rename(p.id, a.json.webhook.id, 'Renamed while ' + what, p.createdAt || null); }
+    finally { projects.readAll = orig; }
+    // POSITIVE CONTROL: the change really ran (so the sweep path ran), then the assertion that matters.
+    assert.ok(fs.readFileSync(file, 'utf8').includes('Renamed while ' + what), `fixture: the rename with the list ${what} was written`);
+    assert.ok(both(), `with the project list ${what}, a change swept webhooks away`);
+  }
+  // Both links still work once the list reads again.
+  assert.equal((await call(a.json.url, { title: 'still here a' })).status, 201);
+  assert.equal((await call(b.json.url, { title: 'still here b' })).status, 201);
+});
+
 test('a project gets at most 120 webhook tasks an hour across all its webhooks', async () => {
   const p = projects.create({ name: 'Hourly' });
   const url = [];

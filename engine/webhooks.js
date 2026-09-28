@@ -227,7 +227,8 @@ function readCached() {
     if (e && e.code === 'ENOENT') { cached = { key: null, hooks: [] }; return []; }
     throw e;
   }
-  // The inode too: every write replaces the file, so two writes in one mtime tick still differ.
+  // The inode too: every write replaces the file, so two writes in one mtime tick usually differ
+  // (a freed inode can come back; the cost of a miss is a stale name or last-used time, not a secret).
   const key = fileOf() + ':' + st.ino + ':' + st.mtimeMs + ':' + st.size;
   if (cached.key !== key) cached = { key, hooks: readAll() };
   return cached.hooks;
