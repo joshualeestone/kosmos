@@ -223,8 +223,8 @@ const DEEP = [
 ];
 /* Lopsided under one manager: one report with eleven of its own, one with two. The big report sits well
    off its manager's angle, and its own reports fan back across toward the manager; without the tangent
-   cap in orgPlace their lines dip inward and cross the manager's (measured: m1 x x9, c2 x x9). This tree
-   is what arms the cap. */
+   cap their lines could dip inward; since the rework it no longer crosses without the cap, so the cap is
+   pinned by the two trees in the 'cross without the tangent cap' test below. */
 const LOPSIDED = [
   ['m1'], ['s0'], ['c1', 'm1'], ['c2', 'm1'],
   ...Array.from({ length: 11 }, (_, i) => ['x' + i, 'c1']),
@@ -270,6 +270,16 @@ test('first paint: every report sits inside its manager\'s sector, and nothing o
       }
     }
     assert.equal(overlaps(pos, 46), 0, label + ': two nodes overlap on first paint');
+  }
+});
+
+test('first paint: the trees that cross without the tangent cap do not cross (#4434, review it3)', () => {
+  /* Found by review it3 over 6000 random trees: without the cap on managers that have a manager, these cross
+     on first paint (n35 x n27, n23 x n26). This is what pins the cap. */
+  for (const [seed, n] of [[1953, 39], [2064, 30]]) {
+    const { pos, parentOf } = firstPaint(cards(randomTree(seed, n)));
+    const bad = crossings(segments(pos, parentOf, { x: 0, y: 0 }));
+    assert.deepEqual(bad, [], 'randomTree(' + seed + ', ' + n + '): ' + bad.length + ' crossing(s): ' + bad.slice(0, 4).join(', '));
   }
 });
 
