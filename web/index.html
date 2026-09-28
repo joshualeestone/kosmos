@@ -63897,8 +63897,10 @@ function frChoose() {
         const mode = b.dataset.mode;
         let told = true;
         try { frChoiceBridge().postMessage(mode); } catch { told = false; }
-        // The app has its answer and stops listening, so a Reload must not ask again.
-        if (told) frChoiceForget(mode);
+        // The app has its answer and stops listening, so a Reload must not ask again. Told or not, a
+        // both choice keeps ?mode=both for this session's last step (frPlusLast); if the app did not
+        // hear it, the next launch asks again anyway.
+        if (told || mode === 'both') frChoiceForget(mode);
         if (mode === 'connect') {
           if (!told) return;
           btns.forEach((x) => { x.disabled = true; });

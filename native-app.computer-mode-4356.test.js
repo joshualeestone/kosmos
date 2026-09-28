@@ -131,6 +131,19 @@ test('#4356: a run or both answer starts the board if an update stopped it while
   assert.match(body('private func ensureBoardRunning(home: String)'), /startBoard\(kosmosHome: home, port: port\)/);
 });
 
+test('#4356: on a connect computer a new window to Kosmos Plus opens in the app, not the browser', () => {
+  const at = SRC.indexOf('createWebViewWith configuration: WKWebViewConfiguration,');
+  const fn = SRC.slice(at, SRC.indexOf('\n    }\n', at));
+  const inApp = fn.indexOf('if computerMode == .connect && connectLinkDecision(for: url, clicked: true) == .inApp {');
+  assert.notEqual(inApp, -1, 'a new window to Kosmos Plus leaves the app for the browser');
+  assert.ok(inApp < fn.indexOf('NSWorkspace.shared.open(url)'), 'the browser is chosen before the connect check');
+  assert.match(fn, /webView\.load\(URLRequest\(url: url\)\)\n\s+return nil/);
+});
+
+test('#4356: a start after the choice that fails is said, not only logged', () => {
+  assert.match(body('private func ensureBoardRunning(home: String)'), /self\?\.showStartupFailureAlert\(/);
+});
+
 test('#4356: Settings refuses on a connect computer even from its key equivalent', () => {
   assert.match(body('@objc func openSettings(_ sender: Any?)'), /guard computerMode != \.connect else \{ NSSound\.beep\(\); return \}/);
 });

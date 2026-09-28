@@ -1861,7 +1861,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private func ensureBoardRunning(home: String) {
         guard let port = resolvedPort ?? modePort else { return }
         DispatchQueue.global(qos: .utility).async {
-            if case .failed(let why) = startBoard(kosmosHome: home, port: port) { logLine("#4356: start after the choice failed: \(why)") }
+            if case .failed(let why) = startBoard(kosmosHome: home, port: port) {
+                logLine("#4356: start after the choice failed: \(why)")
+                DispatchQueue.main.async { [weak self] in
+                    self?.showStartupFailureAlert(detail: "Kosmos could not start its board on this computer after your choice. Click OK, then press Cmd-R (View > Reload) to try again.")
+                }
+            }
         }
     }
 
@@ -2376,6 +2381,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             showLinkRefusedAlert(detail:
                 "Kosmos only opens web links, and this one is a \(scheme) link, so it was not "
                 + "opened.\n\n\(url.absoluteString)")
+            return nil
+        }
+        // #4356: on a connect computer, a new window to Kosmos Plus or one of the person's computers
+        // opens in this window, as a same-window link would (connectLinkDecision); others go on to
+        // the browser as before. A new window is a click or a page's own window.open, so "clicked".
+        if computerMode == .connect && connectLinkDecision(for: url, clicked: true) == .inApp {
+            logLine("#4356: new window to Kosmos Plus opened in the app window: \(url.absoluteString)")
+            webView.load(URLRequest(url: url))
             return nil
         }
         NSWorkspace.shared.open(url)

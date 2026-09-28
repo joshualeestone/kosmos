@@ -193,6 +193,19 @@ test('#4356: Connect tells the app "connect" and leaves the screen up, buttons o
   assert.ok(w.siblings.every((n) => n.inert), 'the board comes back to life under a Mac that is switching away');
 });
 
+test('#4356: if the app cannot be told, both still ends this first run at the Kosmos Plus sign-in', async () => {
+  const w = world({ search: '?mode=unset', throws: true });
+  const choice = w.ctx.frChoose();
+  w.btns[2].onclick();
+  assert.equal(await choice, 'both');
+  assert.deepEqual(w.replaced, ['/?mode=both&token=t'], 'a failed post loses the last step the button promised');
+  const r = world({ search: '?mode=unset', throws: true });
+  const rc = r.ctx.frChoose();
+  r.btns[0].onclick();
+  assert.equal(await rc, 'run');
+  assert.deepEqual(r.replaced, [], 'a run the app never heard would stop being asked on Reload');
+});
+
 test('#4356: if the app cannot be told, Connect does nothing rather than leave dead buttons', async () => {
   const w = world({ search: '?mode=unset', throws: true });
   let settled = false;
