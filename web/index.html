@@ -29137,6 +29137,7 @@ const ORG_SIM = {
   damping: 0.82,
   maxForce: 6,
   minGap: 52,      // two 44px discs plus breathing room
+  sectorMargin: 0.02, // radians kept clear of a sector's edge (#4434)
   rest: 0,         // set from ORG_STEP at use
 };
 /* #1738: how many synchronous relaxation steps a reduced-motion render takes to
@@ -29192,8 +29193,22 @@ function orgStep(nodes, hub, alpha, box) {
   for (const n of all) {
     if (n.fixed) { n.vx = 0; n.vy = 0; continue; }
     n.vx *= ORG_SIM.damping; n.vy *= ORG_SIM.damping;
-    const nx = box ? clamp(n.x + n.vx, box.lo, box.hi) : n.x + n.vx;
-    const ny = box ? clamp(n.y + n.vy, box.lo, box.hi) : n.y + n.vy;
+    let tx = n.x + n.vx; let ty = n.y + n.vy;
+    /* #4434: a node stays inside its sector (orgPlace's slice, as an angle around the hub), so settling,
+       a released drag and a re-parent all end inside its own branch and its line cannot cross another. */
+    if (Number.isFinite(n.lo) && Number.isFinite(n.hi)) {
+      const mid = (n.lo + n.hi) / 2;
+      const half = Math.max(0, (n.hi - n.lo) / 2 - ORG_SIM.sectorMargin);
+      const ax = tx - hub.x; const ay = ty - hub.y;
+      const off = Math.atan2(Math.sin(Math.atan2(ay, ax) - mid), Math.cos(Math.atan2(ay, ax) - mid));
+      if (Math.abs(off) > half) {
+        const to = mid + Math.sign(off) * half;
+        const rr = Math.hypot(ax, ay);
+        tx = hub.x + Math.cos(to) * rr; ty = hub.y + Math.sin(to) * rr;
+      }
+    }
+    const nx = box ? clamp(tx, box.lo, box.hi) : tx;
+    const ny = box ? clamp(ty, box.lo, box.hi) : ty;
     moved += Math.abs(nx - n.x) + Math.abs(ny - n.y);
     n.x = nx; n.y = ny;
   }
@@ -29284,55 +29299,130 @@ function orgTreeOf(agents) {
 }
 
 function orgPlace(nodes) {
-  /* Ring by ring. Within a ring, a node sits at its parent's angle when it has
-     one, so a chain runs outward along its own branch rather than being
-     scattered by index. */
-  const byDepth = new Map();
-  for (const n of nodes) {
-    if (!byDepth.has(n.depth)) byDepth.set(n.depth, []);
-    byDepth.get(n.depth).push(n);
-  }
   const placed = new Map();
   let maxR = ORG_R0;
-  for (const depth of [...byDepth.keys()].sort((a, b) => a - b)) {
-    const ring = byDepth.get(depth);
-    const base = ORG_R0 + depth * ORG_STEP;
+  /* kosmos#4434 (Josh, 2026-09-28: "the agents in the bottom left are crossing over lines"). A FLAT fleet
+     (nobody reports to anybody) keeps the ring layout below unchanged: its lines all run straight out from
+     the hub and cannot cross, and it is the first screen most people see. */
+  if (!nodes.some((n) => n.parent)) {
+    /* Ring by ring: one ring here, since nobody has a manager. */
+    const ring = nodes;
+    const base = ORG_R0;
     /* The spill: how many fit at this radius before they touch. A ring that
        needs more than that is split across two distances. */
     const fit = Math.max(4, Math.floor((2 * Math.PI * base) / ORG_MIN_ARC));
-    const lanes = Math.ceil(ring.length / fit);
-    /* 🔑 CHILDREN ARE ANGLED AMONG THEIR SIBLINGS (#352). The first version
-       took a child's index among every node at this depth, so its place in
-       its parent's arc was decided by how many COUSINS came before it: a lone
-       child sat at the edge of the arc rather than straight out, and two
-       managers' pairs were each shoved to one side. The no-parent ring keeps
-       the depth-wide index, because that ring is one circle around the hub
-       and the index is exactly what spaces it. */
-    const siblings = new Map();
-    for (const n of ring) {
-      const key = n.parent || '';
-      if (!siblings.has(key)) siblings.set(key, []);
-      siblings.get(key).push(n);
-    }
     ring.forEach((n, i) => {
       const lane = Math.floor(i / fit);
       const r = base + lane * 58;
-      const parent = n.parent ? placed.get(n.parent) : null;
-      const kin = parent ? siblings.get(n.parent) : ring.filter((x, j) => Math.floor(j / fit) === lane);
-      const inLane = kin.length;
-      const idx = parent ? kin.indexOf(n) : i % fit;
-      /* Around the parent's own angle when there is one; evenly round the
-         circle when there is not. The half-lane offset stops two lanes lining
+      const inLane = ring.filter((x, j) => Math.floor(j / fit) === lane).length;
+      /* Evenly round the circle. The half-lane offset stops two lanes lining
          up spoke-for-spoke, which reads as one ring with gaps. */
-      const spread = parent ? Math.PI / 2.6 : Math.PI * 2;
-      const centre = parent ? parent.ang : -Math.PI / 2;
-      const span = inLane > 1 ? spread : 0;
-      const ang = parent
-        ? centre - span / 2 + (span * idx) / Math.max(1, inLane - 1 || 1)
-        : centre + (Math.PI * 2 * idx) / inLane + (lane * Math.PI) / Math.max(1, inLane);
-      placed.set(n.agent.sessionName, { ang, r, node: n });
+      const ang = -Math.PI / 2 + (Math.PI * 2 * (i % fit)) / inLane + (lane * Math.PI) / Math.max(1, inLane);
+      placed.set(n.agent.sessionName, { ang, r, node: n, lo: ang - Math.PI / inLane, hi: ang + Math.PI / inLane });
       maxR = Math.max(maxR, r);
     });
+    return { placed, maxR };
+  }
+  /* 🔑 A TREE IS LAID OUT BY SECTORS, so no two connector lines can cross (#4434). The old layout fanned
+     every manager's reports over a FIXED arc centred on the manager, whatever room that manager had:
+     two managers side by side with several reports each had overlapping fans, and their lines crossed.
+
+     - Each first-ring agent owns a slice of the circle sized by its LEAF count (the people at the ends of
+       its branch, who are what fill the outer rings), and sits at the slice's centre.
+     - A manager's reports share a window centred on the manager: its slice, but never wider than the
+       tangent angle acos(r_manager / r_report), so each line runs steadily AWAY from the hub. Each report
+       gets a sub-slice by its own leaf count and sits at its centre, so a lone report is straight out and
+       a pair is centred on its manager (#352).
+     - Why nothing crosses: every line stays inside its manager's slice (sibling slices never overlap), and
+       the tangent cap keeps each line's distance from the hub rising, so a manager's own line and its
+       reports' lines meet only at the manager. web.org-sectors-4434.test.js counts crossings.
+     - Each ring's radius grows from its base until no two nodes on it are closer than ORG_MIN_ARC.
+     Same input, same positions: nothing here is random or order-dependent beyond the input order. */
+  const kids = new Map();
+  for (const n of nodes) {
+    const k = n.parent || '';
+    if (!kids.has(k)) kids.set(k, []);
+    kids.get(k).push(n);
+  }
+  const leaves = new Map();
+  const weigh = (n) => {
+    const name = n.agent.sessionName;
+    if (leaves.has(name)) return leaves.get(name);
+    leaves.set(name, 1);   // a guard: orgTreeOf yields a tree, but a repeated name must not recurse
+    const ks = kids.get(name) || [];
+    const w = ks.length ? ks.reduce((sum, k) => sum + weigh(k), 0) : 1;
+    leaves.set(name, w);
+    return w;
+  };
+  const TAU = Math.PI * 2;
+  const norm = (a) => ((a % TAU) + TAU) % TAU;
+  /* The closest two angles in a set, as a chord at radius r: what "do they touch" means on a ring. */
+  const tightest = (angs, r) => {
+    if (angs.length < 2) return Infinity;
+    const s = angs.map(norm).sort((a, b) => a - b);
+    let gap = TAU - s[s.length - 1] + s[0];
+    for (let i = 1; i < s.length; i += 1) gap = Math.min(gap, s[i] - s[i - 1]);
+    return 2 * r * Math.sin(Math.min(Math.PI, gap) / 2);
+  };
+  // The first ring: slices by leaf count, the first one centred at the top as before.
+  const roots = kids.get('') || [];
+  const total = roots.reduce((sum, n) => sum + weigh(n), 0) || 1;
+  let at = -Math.PI / 2 - (TAU * weigh(roots[0])) / total / 2;
+  const lanes = [];   // per lane, the angles already on it
+  for (const n of roots) {
+    const span = (TAU * weigh(n)) / total;
+    const ang = at + span / 2;
+    /* A crowded first ring still spills to a further lane. Its lines come straight from the hub, so a
+       lane cannot cause a crossing; it only keeps two faces from touching. */
+    let lane = 0;
+    while (lanes[lane] && tightest(lanes[lane].concat(ang), ORG_R0 + lane * 58) < ORG_MIN_ARC) lane += 1;
+    if (!lanes[lane]) lanes[lane] = [];
+    lanes[lane].push(ang);
+    const r = ORG_R0 + lane * 58;
+    placed.set(n.agent.sessionName, { ang, r, node: n, lo: at, hi: at + span });
+    maxR = Math.max(maxR, r);
+    at += span;
+  }
+  // The rings beyond: each manager's reports inside its window, the ring pushed out until nothing touches.
+  let depth = 1;
+  let prev = roots;
+  while (true) {
+    const ring = [];
+    for (const p of prev) for (const k of (kids.get(p.agent.sessionName) || [])) ring.push({ n: k, p });
+    if (!ring.length) break;
+    const inner = Math.max(...prev.map((n) => placed.get(n.agent.sessionName).r));
+    const lay = (r) => {
+      const out = new Map();
+      for (const p of prev) {
+        const ks = kids.get(p.agent.sessionName) || [];
+        if (!ks.length) continue;
+        const ps = placed.get(p.agent.sessionName);
+        const half = Math.min((ps.hi - ps.lo) / 2, Math.acos(ps.r / r) * 0.9);
+        const w = ks.reduce((sum, k) => sum + weigh(k), 0);
+        let from = ps.ang - half;
+        for (const k of ks) {
+          const span = (2 * half * weigh(k)) / w;
+          out.set(k.agent.sessionName, { ang: from + span / 2, r, node: k, lo: from, hi: from + span });
+          from += span;
+        }
+      }
+      return out;
+    };
+    let r = Math.max(ORG_R0 + depth * ORG_STEP, inner + ORG_STEP);
+    let spots = lay(r);
+    for (let tries = 0; tries < 400 && tightest([...spots.values()].map((s) => s.ang), r) < ORG_MIN_ARC; tries += 1) {
+      r += 8;
+      spots = lay(r);
+    }
+    for (const [name, spot] of spots) placed.set(name, spot);
+    maxR = Math.max(maxR, r);
+    prev = ring.map((x) => x.n);
+    depth += 1;
+  }
+  /* Anything orgTreeOf returned that the walk above did not reach (it never happens for a tree, but an
+     agent missing from the picture is the one failure a picture cannot admit to): the first ring. */
+  for (const n of nodes) {
+    if (!placed.has(n.agent.sessionName)) placed.set(n.agent.sessionName, { ang: -Math.PI / 2, r: ORG_R0, node: n, lo: -Math.PI, hi: Math.PI });
   }
   return { placed, maxR };
 }
@@ -29677,6 +29767,7 @@ function orgLiveStart(map, placed, cx, cy, size) {
       x: was ? was.x : cx + Math.cos(spot.ang) * spot.r,
       y: was ? was.y : cy + Math.sin(spot.ang) * spot.r,
       vx: 0, vy: 0, ring: spot.r, parentKey: spot.node.parent || null, parent: null, fixed: false,
+      lo: spot.lo, hi: spot.hi,   // #4434: its sector, which orgStep keeps it inside
       wire: map.querySelector('line[data-for="' + CSS.escape(key) + '"]'),
       agent: spot.node.agent,   // #4040: its picture, where its wires stop
     });
