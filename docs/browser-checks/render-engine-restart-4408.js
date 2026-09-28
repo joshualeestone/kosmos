@@ -40,7 +40,10 @@ function chk(ok, label, extra) {
        until the restart is asked for, then a board with a NEW start time. The page draws the toast
        from its own poll, the real flow. */
     await page.route('**/api/status', async (route) => {
-      const res = await route.fetch();
+      /* The page polls on its own clock, so a poll can be in flight when the check ends and closes the
+         browser; that closed context is the end of the run, not a failure of the page. */
+      const res = await route.fetch().catch(() => null);
+      if (!res) return;
       const body = await res.json();
       body.engine = restarted
         ? { startedAt: '2026-09-28T16:00:00Z', staleSince: null, canRestart: false }
@@ -97,6 +100,7 @@ function chk(ok, label, extra) {
     chk(await nav, 'the page reloads once a board with a new start time answers');
     chk(posts === 1, 'exactly one restart was asked for', String(posts));
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
   } finally {
     await browser.close();
   }
