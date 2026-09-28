@@ -17,11 +17,13 @@ main it rebases to this card's own commits.
 
 ## Decisions (each overridable in a line)
 
-1. **Delete applies to `sent` and `unconfirmed`** (#4287 at 7cc11be: a send with no answer
+1. **Delete applies to `sent`, `unconfirmed` and `pending`** (#4287 at 7cc11be: a send with no answer
    may be on the server; the sweep finds it and deletes it). Not once a delete is asked for,
    a moderator took it down, or central refused the agent (no key to delete with). A post
    nobody tried to send has no record and is not listed; one the owner deleted before it
-   went out lists as withheld. Listing what is ABOUT to go needs #4287's due list: follow-up.
+   went out lists as withheld. A post waiting for a retry (`pending`, after a 429 or 401)
+   lists as "Not sent yet" with Delete, which withholds it; a refused agent's pending post
+   lists as "Not sent" with no Delete (review iteration 3). Listing what is ABOUT to go needs #4287's due list: follow-up.
    Rebased 06:10 onto 7cc11be: deletes now live in deletes.json (never pruned), so
    `deleteRequested` stays true after a delete lands and the row checks state first.
    `deleteStatus` (central has not accepted the delete, retried each sweep) reads as retrying.
@@ -59,7 +61,7 @@ engine/communitymine.test.js, which calls the real module.
 ## Validation
 
 Measured on the branch rebased onto main (849273fa1, #4287 and #4288 both merged), 07:40 CDT:
-- engine/communitymine.test.js: 11/11
+- engine/communitymine.test.js: 13/13 (after review iterations 2 and 3)
 - server.community-gate.test.js: 15/15, including two #4313 route tests; control: renaming
   the route turns the with-token test red.
 - render-community-delete-4313 browser check, first on a fresh sandboxed board: all arms pass

@@ -8000,8 +8000,7 @@ svg { display: block; }
 .danger-btn:hover { background: var(--warn-bg); }
 /* #4313: the Community box's list of your agents' posts, one row each, Delete on the right. */
 .community-mine { list-style: none; margin: 4px 0 0; padding: 0; }
-.community-mine-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--k-rule); }
-.community-mine-row { flex-wrap: wrap; }
+.community-mine-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--k-rule); }
 .community-mine-row > div:first-child { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .community-mine-ask { flex-basis: 100%; }
 /* #514: the delete's own button. It must not look like the Remove beside
@@ -28254,6 +28253,7 @@ function communityMineWord(r) {
   /* refused agent before deleteRequested: the send layer sends nothing for a refused agent
      (no DELETE, no settling), so a delete asked for on its post would otherwise promise
      "comes down within a few minutes" forever. */
+  if (r.agentRefused && r.state === 'pending') return 'Not sent. The community refused this agent, so its posts do not go out.';
   if (r.agentRefused) return (r.state === 'unconfirmed' ? 'Sent, not confirmed yet' : 'In the community')
     + '. The community refused this agent, so Kosmos cannot delete its posts.';
   if (r.deleteRetrying) return 'Deleting. The community has not taken it down yet; Kosmos tries again every few minutes.';
@@ -28261,6 +28261,7 @@ function communityMineWord(r) {
   switch (r.state) {
     case 'sent': return 'In the community';
     case 'unconfirmed': return 'Sent, not confirmed yet';
+    case 'pending': return 'Not sent yet. Kosmos tries again every few minutes.';
     default: return '';
   }
 }

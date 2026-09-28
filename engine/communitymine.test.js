@@ -166,3 +166,18 @@ test('a held post that was released later lists by when it went public, not when
   assert.ok(released && released.releasedAt && released.releasedAt > released.receivedAt, 'CONTROL: the fixture really is held-then-released');
   assert.equal(rows[0].postedAt, released.releasedAt);
 });
+
+test('a post waiting for a retry (pending) lists with Delete, and a delete withholds it; a refused agent\'s pending post has none', () => {
+  const retry = agentPost('ava', { topic: 'retry', body: 'retry' }).id;
+  const refusedPending = agentPost('ava', { topic: 'refusedPending', body: 'refusedPending' }).id;
+  writeKeys({ bo: { refused: true } });
+  // sendPost's own shapes: a 429 settles with no fields, a 401 records lastStatus; a refused agent is left pending.
+  writeSent({
+    [retry]: { state: 'pending', agent: 'ava', lastStatus: 429 },
+    [refusedPending]: { state: 'pending', agent: 'bo' },
+  });
+  const by = () => Object.fromEntries(mine.mine().map((r) => [r.title, [r.state, r.canDelete, r.agentRefused]]));
+  assert.deepEqual(by(), { retry: ['pending', true, false], refusedPending: ['pending', false, true] });
+  assert.equal(cs.requestDelete(retry).ok, true);
+  assert.deepEqual(by().retry, ['withheld', false, false], 'a delete on a pending post withholds it: it never goes out');
+});

@@ -109,16 +109,20 @@ async function run() {
       row('e5', { deleteRequested: true, deleteRetrying: true, canDelete: false }),
       row('f6', { agentRefused: true, canDelete: false }),
       row('g7', { agentRefused: true, deleteRequested: true, canDelete: false }),   // refused after the owner asked
+      row('h8', { state: 'pending' }),   // waiting for a retry (429 / 401): not out yet, Delete withholds it
+      row('i9', { state: 'pending', agentRefused: true, canDelete: false }),   // never goes out
     ] })(route));
     await p2.route(DELETE, (route) => { posts.push(route.request().postData()); deleted = true; return answer({ ok: true, state: 'sent' })(route); });
     await openAutomation(p2);
     const r = await readList(p2);
-    check('ROWS: seven posts are listed', r.rows.length === 7, JSON.stringify(r.rows));
-    check('ROWS: Delete shows on ONLY the posts still out (sent, unconfirmed)', JSON.stringify(r.rows.map((x) => x.del)) === '[true,false,false,true,false,false,false]', JSON.stringify(r.rows));
+    check('ROWS: nine posts are listed', r.rows.length === 9, JSON.stringify(r.rows));
+    check('ROWS: Delete shows on ONLY the posts still out or about to go (sent, unconfirmed, pending)', JSON.stringify(r.rows.map((x) => x.del)) === '[true,false,false,true,false,false,false,true,false]', JSON.stringify(r.rows));
     check('ROWS: each row says its state in words', /In the community/.test(r.rows[0].text) && /Deleted from the community/.test(r.rows[1].text) && /Taken down by a moderator: off topic/.test(r.rows[2].text)
       && /Sent, not confirmed yet/.test(r.rows[3].text) && /tries again every few minutes/.test(r.rows[4].text)
       && /refused this agent/.test(r.rows[5].text)
-      && /refused this agent/.test(r.rows[6].text) && !/Deleting/.test(r.rows[6].text), JSON.stringify(r.rows.map((x) => x.text)));
+      && /refused this agent/.test(r.rows[6].text) && !/Deleting/.test(r.rows[6].text)
+      && /Not sent yet/.test(r.rows[7].text)
+      && /Not sent\. The community refused this agent/.test(r.rows[8].text) && !/In the community/.test(r.rows[8].text), JSON.stringify(r.rows.map((x) => x.text)));
 
     await p2.click('li[data-id="a1"] .community-mine-start');
     await p2.waitForTimeout(200);

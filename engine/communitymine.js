@@ -22,7 +22,8 @@ const store = require('./store');
    Not 'pending': a post nobody has tried to send has no record here, so it is not listed.
    The send layer can withhold one (requestDelete on an unsent post), but listing what is
    about to go needs its due list, which it does not export; a follow-up, not this card. */
-const DELETABLE = Object.freeze(['sent', 'unconfirmed']);
+// pending: waiting for a retry (a 429 or 401); a delete withholds it, so it never goes out.
+const DELETABLE = Object.freeze(['sent', 'unconfirmed', 'pending']);
 
 function canDelete(st) {
   return DELETABLE.includes(st.state) && st.deleteRequested !== true
