@@ -23603,7 +23603,10 @@ function acctFlowPaint(st) {
   const note = document.getElementById('acct-add-note');
   const phase = st && st.phase;
   const key = phase + '|' + ((st && st.because) || '');
-  if (key === ACCT_FLOW_LAST) return;
+  /* #4275: a repeat of an ENDED phase still stops the poll. Without this, a watch started
+     after that phase was painted (the code or cancel handler starting one) would poll once
+     a second until some later flow ended differently. */
+  if (key === ACCT_FLOW_LAST) { if (!frConnActive(phase)) acctFlowStop(); return; }
   ACCT_FLOW_LAST = key;
   if (frConnActive(phase)) {
     if (document.getElementById('acct-provider-pick').value !== 'claude') acctPick('claude', { focus: false });
@@ -23722,8 +23725,10 @@ async function acctAddStart(installConfirmed) {
       if (go) { go.disabled = false; go.focus(); }
       return;
     }
-    acctFlowPaint(out && out.phase ? out : { phase: 'signin-launching' });
-    acctFlowWatch();
+    const started = out && out.phase ? out : { phase: 'signin-launching' };
+    acctFlowPaint(started);
+    // #4275: poll only a flow that is still going; an ended one has nothing to watch.
+    if (frConnActive(started.phase)) acctFlowWatch();
     /* Focus follows the news onto the flow's own status line, which sits before
        #acct-add-note in the DOM and is what aria-live announces next. The
        Confirm handler put focus on #acct-add-note first to bridge the await
@@ -27227,6 +27232,7 @@ document.getElementById('acct-code-go').addEventListener('click', async () => {
       return;
     }
     ACCT_FLOW_LAST = null; // the next poll repaints whatever the code caused
+    acctFlowWatch(); // #4275: make sure there IS a next poll (a no-op while one runs)
   } catch {
     say.textContent = 'We could not reach Kosmos to send that code. It is still waiting; try again.';
   }
@@ -27241,6 +27247,8 @@ document.getElementById('acct-cancel').addEventListener('click', async () => {
     note.textContent = 'Stopped. Nothing changed; start the sign-in again whenever you like.';
   } catch { note.textContent = 'We could not reach Kosmos to stop it. It is still waiting; try again.'; }
   ACCT_FLOW_LAST = null;
+  // #4275: the poll paints the stop and then ends itself; start it if nothing is polling.
+  acctFlowWatch();
 });
 
 /* The conversation limit card: painted from the engine's read, and the
