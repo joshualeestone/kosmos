@@ -12,7 +12,7 @@
  *
  * Arms (light and dark):
  *   - down, before the wait is up: only the small note (positive control: the poll really failed);
- *   - down, after it: the screen. Exact headline, the Mac remedy, the details line, opaque, full
+ *   - down, after it: the screen. Exact headline, the Mac remedy and nothing else (details logged), opaque, full
  *     window, centered, page scroll off, everything behind it inert (including a node added while it
  *     is up), focus on it, and a K that is drawn and does not move;
  *   - up again: the real poll removes it, gives back exactly the inert elements it took, and puts
@@ -136,7 +136,9 @@ const nextPolls = (page) => page.waitForTimeout(6500);
           dy: Math.abs((m.top + m.height / 2) - window.innerHeight / 2),
           allInert: others.every((el) => el.inert),
           focused: msg.contains(document.activeElement),
-          role: msg.getAttribute('role'),
+          role: msg.getAttribute('role'), modal: msg.getAttribute('aria-modal'),
+          name: (document.getElementById(msg.getAttribute('aria-labelledby') || '') || {}).textContent,
+          desc: (document.getElementById(msg.getAttribute('aria-describedby') || '') || {}).textContent,
           scrollOff: document.documentElement.classList.contains('restart-up') && getComputedStyle(document.documentElement).overflow === 'hidden',
         };
       });
@@ -148,7 +150,8 @@ const nextPolls = (page) => page.waitForTimeout(6500);
       ok(t + ' it fills the window and covers the header, the board and the corners', s.full && s.covered, JSON.stringify({ full: s.full, covered: s.covered }));
       ok(t + ' the message is centered (within 2px each way)', s.dx <= 2 && s.dy <= 2, JSON.stringify({ dx: s.dx, dy: s.dy }));
       ok(t + ' everything behind it is inert, and focus is on it', s.allInert && s.focused, JSON.stringify({ allInert: s.allInert, focused: s.focused }));
-      ok(t + ' it is announced (role=alert)', s.role === 'alert');
+      ok(t + ' it is a modal alert dialog named by its headline and described by its how-to', s.role === 'alertdialog' && s.modal === 'true'
+        && s.name === 'Kosmos requires a full restart' && /Command-Q/.test(s.desc || ''), JSON.stringify({ role: s.role, modal: s.modal, name: s.name, desc: s.desc }));
       ok(t + ' the page behind does not scroll or keep its scrollbar gutter', s.scrollOff === true);
       const late = await page.evaluate(() => {
         const d = document.createElement('div'); d.tabIndex = 0; window.__late4343 = d; document.body.appendChild(d);
@@ -202,6 +205,12 @@ const nextPolls = (page) => page.waitForTimeout(6500);
     await nextPolls(page);
     ok(t + ' while an update runs its own overlay owns the screen, not this', !(await shown(page)));
     await page.evaluate(() => { UPDATING_NOW = false; });
+    // A world switch restarts the board on purpose (it can take minutes): the switcher owns the screen.
+    await page.evaluate(() => { WORLDSW_SWITCHING = true; });
+    await ageIt(page);
+    await nextPolls(page);
+    ok(t + ' during a world switch the switcher owns the screen, not this', !(await shown(page)));
+    await page.evaluate(() => { WORLDSW_SWITCHING = false; });
 
     const offline = await page.evaluate(() => {
       BOARD_NO_ANSWER_SINCE = Date.now() - 16000;
@@ -214,7 +223,7 @@ const nextPolls = (page) => page.waitForTimeout(6500);
     await page.close();
   }
 
-  // ── A baked Windows page: the Windows remedy, and the version on the details line. ──
+  // ── A baked Windows page: the Windows remedy, and the version in the logged details. ──
   {
     MODE = 'down';
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });

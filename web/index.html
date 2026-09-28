@@ -20390,11 +20390,14 @@ function restartScreenInert(el) {
 }
 function paintRestartScreen(down, deviceIsOffline) {
   const shown = document.querySelector('.restart-back');
-  if (!down) BOARD_NO_ANSWER_SINCE = null;
   const remote = offlineRemoteView();
   let served = false;
   try { served = location.protocol === 'http:' || location.protocol === 'https:'; } catch { /* no location: not served */ }
-  if (!down || deviceIsOffline || remote || !served || UPDATING_NOW) {
+  /* A world switch restarts the board on purpose and can take minutes (worldswReconnect), so it
+     stands down like an update does. Any stand-down also restarts the 15 s clock, so a board still
+     down afterwards gets a fresh wait rather than the screen on the very next poll. */
+  if (!down || deviceIsOffline || remote || !served || UPDATING_NOW || WORLDSW_SWITCHING) {
+    BOARD_NO_ANSWER_SINCE = null;
     if (shown) {
       shown.remove();
       if (RESTART_SCREEN_WATCH) { RESTART_SCREEN_WATCH.disconnect(); RESTART_SCREEN_WATCH = null; }
@@ -20417,10 +20420,11 @@ function paintRestartScreen(down, deviceIsOffline) {
   catch { /* no location: the version stands alone */ }
   const back = document.createElement('div');
   back.className = 'restart-back';
-  back.innerHTML = '<div class="restart-msg" role="alert" tabindex="-1">'
+  // A modal that takes the whole page: announced once, by its heading and its how-to, on focus.
+  back.innerHTML = '<div class="restart-msg" role="alertdialog" aria-modal="true" aria-labelledby="restart-h" aria-describedby="restart-how" tabindex="-1">'
     + '<canvas class="restart-k" width="176" height="206" aria-hidden="true"></canvas>'
-    + '<h1>Kosmos requires a full restart</h1>'
-    + '<p>' + platformCopy('restartHow', 'Quit Kosmos with Command-Q, then open it again from your Applications folder.') + '</p>'
+    + '<h1 id="restart-h">Kosmos requires a full restart</h1>'
+    + '<p id="restart-how">' + platformCopy('restartHow', 'Quit Kosmos with Command-Q, then open it again from your Applications folder.') + '</p>'
     + '</div>';
   /* Josh (via Splinter, 10:39): nothing else on the screen, so the version and the address that did
      not answer go to the log, not onto the page. */
@@ -20637,6 +20641,8 @@ async function tick() {
        a painter that throws lands in the catch as "nothing answered", and the full-restart screen
        would lock a person out of a board that is up. */
     answered = true;
+    BOARD_NEEDS_SIGNIN = false;   // a 200 means this browser is authed (#2023), whatever throws below
+    BOARD_SIGNED_OUT = false;
 
     const lim = new URLSearchParams(location.search).get('limit');
     LAST = data.agents;
