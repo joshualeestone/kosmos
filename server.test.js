@@ -15244,6 +15244,17 @@ test('#4256: a DM reply tells the agent what it answers, keeps replyTo, and refu
     assert.equal(stale.status, 409, stale.body);
     assert.match(stale.body, /no longer in this conversation/);
     assert.equal(pastedChunks(sends).join('').includes('too late'), false, 'a refused reply was typed');
+    /* deliver gets the person's words UNCHANGED as the message, and the quote in the envelope: every check
+       deliver makes on the message (its length budget, the commands a paused swarm may take) sees exactly what
+       the person typed, reply or not. */
+    const realDeliver = chatEngine.deliver;
+    const seen = [];
+    chatEngine.deliver = (...args) => { seen.push({ raw: args[1], envelope: args[3] }); return realDeliver(...args); };
+    try { await say({ text: '/status', reply_to: AT }); } finally { chatEngine.deliver = realDeliver; }
+    assert.equal(seen.length, 1, 'CONTROL: deliver was not reached, so this arm tests nothing');
+    assert.equal(seen[0].raw, '/status', 'the quote was glued onto the person\'s words: ' + JSON.stringify(seen[0].raw));
+    assert.match(seen[0].envelope, /\] \(answering: "Done with the login fix"\)$/, 'the quote is not in the envelope: ' + seen[0].envelope);
+
     /* A thread that cannot be read is not a message that is gone: its own error, and nothing typed. */
     const realRead = chatEngine.readThread;
     chatEngine.readThread = () => { throw new Error('EACCES'); };
@@ -15253,7 +15264,7 @@ test('#4256: a DM reply tells the agent what it answers, keeps replyTo, and refu
     assert.equal(unread.status, 503, unread.body);
     assert.match(unread.body, /could not read this conversation just now/);
     assert.equal(pastedChunks(sends).join('').includes('still there?'), false, 'a reply whose thread could not be read was typed');
-    /* At the length limit the quote is dropped and the bracket still says which message is answered. */
+    /* At the length limit the quote still rides: it is Kosmos's framing (the envelope), not the person's words. */
     sends.length = 0;
     const long = 'a'.repeat(chatEngine.MAX_TEXT - 10);
     const atLimit = await say({ text: long, reply_to: AT });
@@ -15261,7 +15272,7 @@ test('#4256: a DM reply tells the agent what it answers, keeps replyTo, and refu
     const typedLong = pastedChunks(sends).join('');
     assert.ok(typedLong.includes(long.slice(0, 200)), 'CONTROL: the long reply was not typed at all');
     assert.match(typedLong, /answers your message, posted /, 'the tag was dropped with the quote');
-    assert.equal(typedLong.includes('(answering:'), false, 'the quote rode a message it would push over the limit');
+    assert.ok(typedLong.includes('(answering: "Done with the login fix") ' + long.slice(0, 50)), 'at the limit the quote did not ride in front of the words');
 
 
     /* THIS conversation only: a real `at` from ANOTHER agent's DM is refused here. (Kosmos and question rows are added

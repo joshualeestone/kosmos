@@ -13330,10 +13330,11 @@ const server = http.createServer((req, res) => {
            ordinary message. */
         const news = chat.dmNoteMayRide(body.text, chose) ? chat.dmReactionNews(name) : { note: '', named: {} };
         const reactionNote = news.note;
-        /* #4256: the quote rides in front of the words unless the two together would be refused (in practice, a
-           message at the length limit pushed over it); then the bracket alone still says which message is answered. */
-        const quoted = (replied.quote && !chat.messageProblem(replied.quote + body.text)) ? replied.quote : '';
-        const delivery = chat.deliver(name, quoted + body.text, roster, opPrefix,
+        /* #4256: the quote is Kosmos's framing, so it rides in the ENVELOPE, after the operator's bracket: the
+           person's words reach deliver unchanged, so their length budget and the paused-agent command check see
+           exactly what they typed. The pane gets the same bytes: '[bracket] (answering: "...") words'. */
+        const envelope = replied.quote ? opPrefix + ' ' + replied.quote.trim() : opPrefix;
+        const delivery = chat.deliver(name, body.text, roster, envelope,
           (attachments.wireNote(files.recs) || '') + reactionNote);
         /* Only PLACED counts as told. The note is the tail of the wire, so an UNCONFIRMED
            send (a paste that failed part-way, a pane that changed before Enter) is the case

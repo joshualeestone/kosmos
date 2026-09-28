@@ -30347,7 +30347,8 @@ function dmRow(m, name, replyAdjacent) {
        (a DM row has no id; the react route finds the message by it). `typeof`-guarded
        because the lifted dmRow tests run without the room's reaction helpers. */
     const rxns = (m.at && typeof rxnsInner === 'function')
-      ? '<div class="rxns" data-at="' + esc(String(m.at)) + '">' + rxnsInner(m.reactions, true) + '</div>' : '';   // #4256: with Reply
+      ? '<div class="rxns" data-at="' + esc(String(m.at)) + '">' + rxnsInner(m.reactions,
+        typeof CURRENT === 'undefined' || !CURRENT || m.from === CURRENT.sessionName) + '</div>' : '';   // #4256: Reply on this agent's own messages (the server takes no other sender's)
     return '<div class="msg" data-mid="' + midOf(m) + '">' + av
       + '<div class="msg-b"><div class="msg-bd">'
       + '<b class="msg-nm">' + esc(dmWho(m.from, name)) + '</b>'
@@ -30430,6 +30431,7 @@ let DM_ROWS = new Map();
 let DM_ROWS_OF = null;         // which agent DM_ROWS was painted for
 let DM_ROWS_NAME = '';         // that agent's display name
 let DM_ROWS_OLDER = 0;         // older messages the thread did not send (only the last 200 come)
+let DM_ROWS_OLDEST = null;     // the `at` of the oldest row the thread did send
 function dmReplyWho(m, name) { return m && m.from ? dmWho(m.from, name) : 'You'; }
 function dmReplyHead(m, name, adjacent) {
   if (!m || typeof m.replyTo !== 'string' || !m.replyTo) return '';
@@ -30438,7 +30440,9 @@ function dmReplyHead(m, name, adjacent) {
      header is left out; a screen reader still hears what it answers. */
   if (adjacent === true && orig) return '<span class="vh">' + esc(replyHeardLine(dmReplyWho(orig, name), pjReplyGist(orig))) + '</span>';
   /* Never silence: a header whose original is not here says why, and "further back" is not "gone". */
-  if (!orig) return '<span class="msg-replyto gone">' + (DM_ROWS_OLDER ? 'Original message is further back' : 'Original message unavailable') + '</span>';
+  /* "Further back" only when older messages were left out AND the original is older than the oldest one sent;
+     otherwise it is gone (pruned, or never here). */
+  if (!orig) return '<span class="msg-replyto gone">' + (DM_ROWS_OLDER && DM_ROWS_OLDEST && m.replyTo < DM_ROWS_OLDEST ? 'Original message is further back' : 'Original message unavailable') + '</span>';
   const who = dmReplyWho(orig, name); const gist = pjReplyGist(orig);
   return '<button type="button" class="msg-replyto" data-jump-at="' + esc(m.replyTo) + '" aria-label="'
     + esc(who + ': ' + gist + ', the message this answers. Go to it') + '"><b>' + esc(who) + ':</b> ' + esc(gist) + '</button>';
@@ -30531,6 +30535,8 @@ function paintTalkThread(body, name) {
   DM_ROWS_OF = CURRENT ? CURRENT.sessionName : null;
   DM_ROWS_NAME = name;
   DM_ROWS_OLDER = Number(body.olderCount) || 0;
+  DM_ROWS_OLDEST = null;
+  for (const r of allRows) if (r && typeof r.at === 'string' && (DM_ROWS_OLDEST === null || r.at < DM_ROWS_OLDEST)) DM_ROWS_OLDEST = r.at;
   dmReplyPaint(DM_ROWS_OF);
   /* #2660: record WHEN THIS PAGE LEARNED of the agent's latest reply, so the
      working line can tell a state sample that is merely OLD from one that is

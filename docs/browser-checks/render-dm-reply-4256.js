@@ -21,6 +21,8 @@
  *   R10 the strip belongs to one agent: another agent's page (even an empty thread) does not show it
  *   R12 ... nor one whose thread cannot be read
  *   R13 after a jump, a repaint that rewrites the thread keeps focus on the original
+ *   R14 a refused reply keeps the strip and says to press x; R15 x in flight does not pretend to cancel;
+ *   R16 a jump to an original hidden by the search says so, and the search change clears it
  *
  * Harness: loaded over file:// with fetch answered here (render-unread-edge-3743.js's posture), so the
  * DM goes through the real paintTalk and the real sendTalk.
@@ -73,6 +75,10 @@ async function openDm(page, messages, olderCount) {
         if (u.includes('/thread') && init && init.method === 'POST') {
           const body = JSON.parse(init.body || '{}');
           window.__posts.push(body);
+          if (window.__slowPost) await new Promise((r) => setTimeout(r, window.__slowPost));
+          if (window.__refuseReply && body.reply_to) {
+            return new Response(JSON.stringify({ error: 'That message is no longer in this conversation. Press \u00d7 to send this as a new message.' }), { status: 409, headers: { 'content-type': 'application/json' } });
+          }
           window.__fx = { messages: window.__fx.messages.concat([{ at: new Date().toISOString(), text: body.text,
             delivery: { state: 'placed', paneState: 'idle' }, ...(body.reply_to ? { replyTo: body.reply_to } : {}) }]) };
           return enc({ delivery: { state: 'placed', at: new Date().toISOString() }, recorded: true });
@@ -208,6 +214,46 @@ async function openDm(page, messages, olderCount) {
     const failed12 = await page.evaluate(() => ({ hidden: document.getElementById('d-reply').hidden, described: document.getElementById('d-say').getAttribute('aria-describedby') }));
     await page.evaluate(() => { window.__failRead = false; });
     chk(failed12.hidden && failed12.described === null, 'R12 an agent whose thread cannot be read shows no other agent\'s "Replying to"', JSON.stringify(failed12));
+
+    // R14: a refused reply (the original left the conversation) keeps the strip and says "Press ×"; pressing × clears
+    // both the strip and that line.
+    await openDm(page, [agentRow(1, 'Morning. I read the brief.')], 0);
+    await page.hover('#d-dmthread .msg:not(.you) >> nth=0');
+    await page.click('#d-dmthread .msg:not(.you) >> nth=0 >> .rxn-reply');
+    await page.evaluate(() => { window.__refuseReply = true; });
+    await page.fill('#d-say', 'Too late');
+    await page.click('#d-send');
+    await page.waitForFunction(() => /Press \u00d7/.test(document.getElementById('d-say-msg').textContent));
+    const refused = await page.evaluate(() => ({ strip: !document.getElementById('d-reply').hidden, line: document.getElementById('d-say-msg').textContent }));
+    await page.evaluate(() => { window.__refuseReply = false; });
+    await page.click('#d-reply .pj-replying-x');
+    const cleared = await page.evaluate(() => ({ strip: !document.getElementById('d-reply').hidden, line: document.getElementById('d-say-msg').textContent }));
+    chk(refused.strip && /Press \u00d7/.test(refused.line) && !cleared.strip && !/Press \u00d7/.test(cleared.line),
+      'R14 a refused reply keeps the strip and says to press x; x clears both', JSON.stringify({ refused, cleared }));
+
+    // R15: while THIS reply is on its way, x does not pretend to cancel it.
+    await openDm(page, [agentRow(1, 'Morning. I read the brief.')], 0);
+    await page.hover('#d-dmthread .msg:not(.you) >> nth=0');
+    await page.click('#d-dmthread .msg:not(.you) >> nth=0 >> .rxn-reply');
+    await page.evaluate(() => { window.__slowPost = 1500; });
+    await page.fill('#d-say', 'On its way');
+    await page.click('#d-send');
+    await page.waitForTimeout(200);
+    await page.click('#d-reply .pj-replying-x');
+    const inflight = await page.evaluate(() => ({ strip: !document.getElementById('d-reply').hidden, line: document.getElementById('d-say-msg').textContent }));
+    await page.waitForTimeout(1800);
+    await page.evaluate(() => { window.__slowPost = 0; });
+    chk(inflight.strip && inflight.line === 'This is already being sent as a reply.', 'R15 x during the reply\'s flight says it is already being sent, and does not drop the strip', JSON.stringify(inflight));
+
+    // R16: a header whose original the search is hiding says so; changing the search clears that line.
+    await openDm(page, [agentRow(1, 'Morning. I read the brief.'), agentRow(2, 'Anything else?'), youRow(3, 'Zebra plan', { replyTo: at(1) })], 0);
+    await page.fill('#d-talk-search', 'Zebra');
+    await page.waitForFunction(() => document.querySelectorAll('#d-dmthread .msg').length === 1);
+    await page.click('#d-dmthread .msg.you .msg-replyto');
+    const hiddenLine = await page.evaluate(() => document.getElementById('d-say-msg').textContent);
+    await page.fill('#d-talk-search', '');
+    const afterSearch = await page.evaluate(() => document.getElementById('d-say-msg').textContent);
+    chk(hiddenLine === 'That message is hidden by your search.' && afterSearch === '', 'R16 a jump to an original the search hides says so, and changing the search clears it', JSON.stringify({ hiddenLine, afterSearch }));
 
     // R8: phone, the tapped-open bar's Reply is a thumb-sized target
     const phone = await browser.newContext({ viewport: { width: 390, height: 800 }, isMobile: true, hasTouch: true });
