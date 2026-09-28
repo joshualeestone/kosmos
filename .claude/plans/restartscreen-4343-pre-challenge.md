@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: restartscreen-4343
-diff_hash: 5ce32b7870c0e499237995ca0060471e3494bf0418c1ad008e47f73b94d87aa8
+diff_hash: 8439eef506f71bbbd6d3b3038f4bc16b87b29c6b7b90aecebc05f7dbeb61152d
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-28T17:37:33Z
@@ -32,6 +32,9 @@ Validation history, stated plainly:
   counted as "nothing answered"). With a 200 now an answer, the header is shorter and the panel fits
   at 120, so the check adds 90 (ff8c1fc). It passes on this branch and on origin/main. That commit is
   test-only (no page code), so the full-suite result above still describes web/index.html.
+- Rebased onto main again for a conflict in browser-checks-reason-grep.test.js (#4340 had taken the
+  next numbers): re-measured to 199 / 122, which the test confirms. The key unit tests (73) and the
+  check (62) pass on the new base.
 
 Every fix came with a control: the change removed or reverted, the arm confirmed red, then restored.
 
