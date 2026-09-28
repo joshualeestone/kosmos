@@ -65,9 +65,11 @@ let fetcher = null;            // tests inject; null means global fetch
 //      an explicit choice. 'staging' is staging, ANY other value is prod (as before).
 //   2. the source-channel stamp: 'staging' is staging; missing, unreadable or anything else
 //      is prod, so a corrupt file can never move a prod box onto staging builds.
-// Losing nothing by it: staging is always at or ahead of prod (a promote copies staging's
-// build to prod, #2036), so a staging subscriber never misses a prod build. Leaving the beta
-// is a plain prod install line, which rewrites the stamp to prod.
+// Staging is NOT always at or ahead of prod: tools/release.sh cuts straight to prod by default
+// and a prod-only cut never touches the staging pointer. So a staging look is also compared with
+// prod and the newer build is offered (refresh, installPointer), and the installer is told the
+// subscription separately so taking a prod hotfix keeps the box on staging (KOSMOS_SOURCE_CHANNEL
+// in setup.sh). Leaving the beta is a plain prod install line, which rewrites the stamp to prod.
 // Windows is unchanged: it reads only KOSMOS_UPDATE_CHANNEL and has no stamp.
 function readSourceChannelAt(root) {
   try {
