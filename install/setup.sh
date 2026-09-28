@@ -2671,6 +2671,12 @@ _kosmos_mode_read() {
     _kosmos_mode_word="$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" || _kosmos_mode_word=""
   fi
 }
+# Why the board stays off, for the lines that say so: connect is a choice; an unreadable file is not
+# (the app starts the board and asks at its next launch), so it gets its own words (review round 29).
+_kosmos_off_why() {
+  if [ "$_kosmos_mode_word" = connect ]; then printf 'while this computer connects to agents on another computer'
+  else printf "until this computer's setup is chosen in the Kosmos app"; fi
+}
 _kosmos_board_decide() {
   _kosmos_mode_read
   if _kosmos_mode_keeps_board_off; then _kosmos_board_off=yes; else _kosmos_board_off=no; fi
@@ -2762,7 +2768,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
         # board on the port is not ours to pause. Refusing would make the install line, a connect
         # computer's only way to update, fail every time on a shared Mac (review round 19).
         if _kosmos_mode_keeps_board_off; then
-          info "another Kosmos is answering on port $PORT; it is not this install's, and this computer does not run a board, so it is left alone"
+          info "another Kosmos is answering on port $PORT; it is not this install's, and this install does not start a board here now, so it is left alone"
         else
           die "Another Kosmos is answering on port $PORT, but this install's own board is not running -- so 'kosmos stop' would do nothing and the update cannot pause it. That board belongs to a different install or account on this computer. Quit it, or reinstall on a free port by running the install line with KOSMOS_PORT set to a different number."
         fi
@@ -3821,7 +3827,7 @@ ok
 # #4356: the heading says what this run does. On a computer set not to run a board, the login item is
 # still installed (so "Run agents on this computer" works later) and board.stopped keeps it off.
 if [ "$_kosmos_board_off" = yes ]; then
-  step "Setting Kosmos to open at login. It stays off while this computer is set not to run agents."
+  step "Setting Kosmos to open at login. It stays off $(_kosmos_off_why)."
 else
   step "Keeping Kosmos running after a restart."
 fi
@@ -4076,7 +4082,7 @@ if [ "$_board_ok" = yes ]; then
   elif [ "$_kosmos_board_off" = yes ]; then
     # #4356: the job is installed so "Run agents on this computer" works later, but board.stopped
     # keeps it from starting anything while the board is off on purpose.
-    info "Kosmos will not start itself at login while this computer is set not to run agents"
+    info "Kosmos will not start itself at login $(_kosmos_off_why)"
   else
     info "Kosmos will start itself when you log in"
   fi
@@ -4086,7 +4092,7 @@ else
   # Everything else about this install works; the person loses exactly one
   # thing, and the thing they would do instead is the thing they already do.
   info "note: could not write $_board_plist, so Kosmos will not start itself after a restart."
-  [ "$_kosmos_board_off" = yes ] || info "Opening the Kosmos icon starts it, as it always has."
+  [ "$_kosmos_mode_word" = connect ] || info "Opening the Kosmos icon starts it, as it always has."
 fi
 
 # #2955: THE BOARD WATCHDOG login job.
@@ -4116,7 +4122,7 @@ fi
 # (no launchctl under AGENT_WORKFORCE_LAUNCH), enable-before-bootstrap, and
 # leave-an-already-loaded-job-alone idempotency.
 if [ "$_kosmos_board_off" = yes ]; then
-  step "Setting up the helper that restarts Kosmos if it stops. It stays off while this computer is set not to run agents."
+  step "Setting up the helper that restarts Kosmos if it stops. It stays off $(_kosmos_off_why)."
 else
   step "Watching the board so it comes back after a restart."
 fi
@@ -4248,7 +4254,8 @@ if [ "$_kosmos_mode_word" = connect ] && [ "$BOARD_OURS" = yes ]; then
   if ! curl -s -m 2 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; then BOARD_OURS=no; fi
 elif [ "$_kosmos_board_off" = no ] && [ "$_kosmos_wrote_marker" = yes ]; then
   # Now run or both (the app's menu, during this run): the marker this run wrote would keep launchd
-  # and the watchdog from ever bringing that board back, so it goes. The app starts the board.
+  # and the watchdog from ever bringing that board back, so it goes. The app starts the board, or
+  # launchd does as soon as the marker is gone (its KeepAlive keys on it).
   rm -f "$KOSMOS_HOME/board.stopped" 2>/dev/null || true
 fi
 # ⚠️ KNOWN, NOT CLOSED: each reading above is followed by an action, and the app can change the file
@@ -4288,7 +4295,7 @@ elif [ "$_kosmos_board_off" = "yes" ]; then
   # #4356: no board on purpose. Not the "something else is on the port" branch below, whose
   # advice would start a board on a computer that connects elsewhere.
   if [ "$_kosmos_mode_word" = connect ]; then
-    printf '\n  Kosmos is installed. No board runs on this computer, on purpose: it connects to agents on another computer.\n'
+    printf '\n  Kosmos is installed. No board of this install runs here, on purpose: this computer connects to agents on another computer.\n'
     printf '  Open the Kosmos app from your Applications folder.\n\n'
   else
     printf '\n  Kosmos is installed. No board was started, because this computer'"'"'s setup choice could not be read.\n'

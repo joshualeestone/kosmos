@@ -810,14 +810,14 @@ chk "CONTROL: the connect computer's board is down before the update" "! curl -s
 RC=0; cat "$SETUP" | sh > "$SB/update-connect.log" 2>&1 || RC=$?
 chk "an update on a connect computer exits 0" "rc_ok $RC"
 chk "it says why it did not start Kosmos" "grep -q 'connects to agents on another computer, so Kosmos is not started here' \"$SB/update-connect.log\""
-chk "its summary says no board runs here, on purpose" "grep -q 'No board runs on this computer, on purpose: it connects to agents on another computer' \"$SB/update-connect.log\""
+chk "its summary says no board runs here, on purpose" "grep -q 'No board of this install runs here, on purpose: this computer connects to agents on another computer' \"$SB/update-connect.log\""
 chk "and never tells the person to start a board on another port" "! grep -q 'Start yours on a different port' \"$SB/update-connect.log\""
 chk "nor that Kosmos will bring the board back" "! grep -q 'Kosmos will bring the board back' \"$SB/update-connect.log\""
 chk "the pause does not say it is pausing a board that is already off" "grep -q 'making sure Kosmos is paused for the update' \"$SB/update-connect.log\" && ! grep -q 'pausing Kosmos for the update' \"$SB/update-connect.log\""
-chk "a connect computer's pause leaves another install's board on the port alone instead of refusing" "grep -B2 'it is not this install.s, and this computer does not run a board, so it is left alone' \"$SETUP\" | grep -q 'if _kosmos_mode_keeps_board_off; then'"
+chk "a connect computer's pause leaves another install's board on the port alone instead of refusing" "grep -B2 'it is not this install.s, and this install does not start a board here now, so it is left alone' \"$SETUP\" | grep -q 'if _kosmos_mode_keeps_board_off; then'"
 chk "an update of a set-up install from before #4356 records run, so it is never asked (source; the run-it arm is below)" "sed -n '/^if \\[ \"\$FRESH_INSTALL\" = no \\] && \\[ ! -e \"\$KOSMOS_HOME\/mode\" \\]/,/^fi\$/p' \"$SETUP\" | grep -q \"printf 'run\\\\\\\\n' > \\\"\\\$KOSMOS_HOME/mode.new\""
-chk "and no step heading promises a running board" "! grep -qE 'Keeping Kosmos running after a restart|Watching the board so it comes back' \"$SB/update-connect.log\" && grep -q 'It stays off while this computer is set not to run agents' \"$SB/update-connect.log\""
-chk "the login-item line is held by the same decision (the sandbox never prints it)" "grep -q 'elif \\[ \"\$_kosmos_board_off\" = yes \\]; then' \"$SETUP\" && grep -q 'Kosmos will not start itself at login while this computer is set not to run agents' \"$SETUP\""
+chk "and no step heading promises a running board" "! grep -qE 'Keeping Kosmos running after a restart|Watching the board so it comes back' \"$SB/update-connect.log\" && grep -q 'It stays off while this computer connects to agents on another computer' \"$SB/update-connect.log\""
+chk "the login-item line is held by the same decision (the sandbox never prints it)" "grep -q 'elif \\[ \"\$_kosmos_board_off\" = yes \\]; then' \"$SETUP\" && grep -q 'Kosmos will not start itself at login \$(_kosmos_off_why)' \"$SETUP\""
 chk "a good update does not start a connect computer's board" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
 chk "and leaves board.stopped, which launchd and the watchdog obey" "[ -e \"$SB/home/board.stopped\" ]"
 # ⚠️ What this pair can prove depends on #4342 (Raiden): until a failed update restarts the board,
@@ -833,6 +833,7 @@ RC=0; cat "$SETUP" | sh > "$SB/update-unreadable.log" 2>&1 || RC=$?
 chk "an update with an unreadable choice exits 0" "rc_ok $RC"
 chk "an unreadable choice does not become run: the board stays down" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
 chk "and board.stopped is there for launchd and the watchdog" "[ -e \"$SB/home/board.stopped\" ]"
+chk "its step lines give the unreadable reason, not the connect one" "grep -q \"It stays off until this computer.s setup is chosen in the Kosmos app\" \"$SB/update-unreadable.log\""
 chk "and it says the choice could not be read, not that this computer connects" "grep -q 'setup choice could not be read' \"$SB/update-unreadable.log\" && ! grep -q 'connects to agents on another computer' \"$SB/update-unreadable.log\""
 chk "its summary says why no board was started, not 'on purpose'" "grep -q 'No board was started, because this computer.s setup choice could not be read' \"$SB/update-unreadable.log\" && ! grep -q 'No board runs on this computer, on purpose' \"$SB/update-unreadable.log\""
 # The migration, measured by running it (the grep above only finds its lines): an update of an install
