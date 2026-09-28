@@ -36,8 +36,14 @@ function check(name, pass, detail) {
 
 async function openAutomation(pg) {
   await pg.goto(BASE, { waitUntil: 'networkidle' });
-  if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+  /* The first-run overlay can paint after networkidle on a fresh board, and a check that
+     reads it too early clicks into it (seen 04:00 and 06:25 when this check ran first on a
+     new board). Wait, then Escape it, and wait until it is actually hidden. */
   await pg.waitForTimeout(800);
+  if (!(await pg.$('#firstrun[hidden]'))) {
+    await pg.keyboard.press('Escape');
+    await pg.waitForSelector('#firstrun', { state: 'hidden', timeout: 5000 }).catch(() => {});
+  }
   await pg.evaluate(() => showTab('settings'));
   await pg.waitForTimeout(400);
   await pg.click('#s-nav button[data-go="automation"]');
@@ -73,7 +79,7 @@ function readList(pg) {
 }
 
 const answer = (body, status = 200) => (route) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
-const row = (id, over) => ({ id, title: 'Post ' + id, agent: 'Ava', postedAt: '2026-09-28T08:00:00Z', state: 'sent', deleteRequested: false, takenDown: false, takeDownReason: null, canDelete: true, ...over });
+const row = (id, over) => ({ id, title: 'Post ' + id, agent: 'Ava', postedAt: '2026-09-28T08:00:00Z', state: 'sent', deleteRequested: false, takenDown: false, takeDownReason: null, agentRefused: false, deleteRetrying: false, canDelete: true, ...over });
 
 async function run() {
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
@@ -99,13 +105,18 @@ async function run() {
         : deleted ? row('a1', { deleteRequested: true, canDelete: false }) : row('a1'),
       row('b2', { state: 'deleted', deleteRequested: true, canDelete: false }),   // the sweep's real shape
       row('c3', { takenDown: true, takeDownReason: 'off topic', canDelete: false }),
+      row('d4', { state: 'unconfirmed' }),
+      row('e5', { deleteRequested: true, deleteRetrying: true, canDelete: false }),
+      row('f6', { agentRefused: true, canDelete: false }),
     ] })(route));
     await p2.route(DELETE, (route) => { posts.push(route.request().postData()); deleted = true; return answer({ ok: true, state: 'sent' })(route); });
     await openAutomation(p2);
     const r = await readList(p2);
-    check('ROWS: three posts are listed', r.rows.length === 3, JSON.stringify(r.rows));
-    check('ROWS: Delete shows on ONLY the post still out', JSON.stringify(r.rows.map((x) => x.del)) === '[true,false,false]', JSON.stringify(r.rows));
-    check('ROWS: each row says its state in words', /In the community/.test(r.rows[0].text) && /Deleted from the community/.test(r.rows[1].text) && /Taken down by a moderator: off topic/.test(r.rows[2].text), JSON.stringify(r.rows.map((x) => x.text)));
+    check('ROWS: six posts are listed', r.rows.length === 6, JSON.stringify(r.rows));
+    check('ROWS: Delete shows on ONLY the posts still out (sent, unconfirmed)', JSON.stringify(r.rows.map((x) => x.del)) === '[true,false,false,true,false,false]', JSON.stringify(r.rows));
+    check('ROWS: each row says its state in words', /In the community/.test(r.rows[0].text) && /Deleted from the community/.test(r.rows[1].text) && /Taken down by a moderator: off topic/.test(r.rows[2].text)
+      && /Sent, not confirmed yet/.test(r.rows[3].text) && /tries again every few minutes/.test(r.rows[4].text)
+      && /refused this agent/.test(r.rows[5].text), JSON.stringify(r.rows.map((x) => x.text)));
 
     await p2.click('li[data-id="a1"] .community-mine-start');
     await p2.waitForTimeout(200);

@@ -17,12 +17,14 @@ main it rebases to this card's own commits.
 
 ## Decisions (each overridable in a line)
 
-1. **Delete applies to `sent` only**, and not once a delete is asked for or a moderator took it
-   down. Not `pending`: the send layer never saves a pending record (review, 04:58), so a post
-   waiting to go out is not listed at all. Withholding before send is a follow-up that needs
-   #4287 to expose its due list.
-6. **The list repaints each time Automation opens** (settingsGo), because the sweep changes it
-   on its own clock; page load alone left "Deleting" rows stale forever (review finding 4).
+1. **Delete applies to `sent` and `unconfirmed`** (#4287 at 7cc11be: a send with no answer
+   may be on the server; the sweep finds it and deletes it). Not once a delete is asked for,
+   a moderator took it down, or central refused the agent (no key to delete with). A post
+   nobody tried to send has no record and is not listed; one the owner deleted before it
+   went out lists as withheld. Listing what is ABOUT to go needs #4287's due list: follow-up.
+   Rebased 06:10 onto 7cc11be: deletes now live in deletes.json (never pruned), so
+   `deleteRequested` stays true after a delete lands and the row checks state first.
+   `deleteStatus` (central has not accepted the delete, retried each sweep) reads as retrying.
 2. **A new read route rather than widening `/api/community/sent`.** #4287 owns that route's shape
    and is still in review; a separate route keeps this card off its lines.
 3. **Ask inside the row, not a modal.** A new modal is a direct child of `<body>`, which trips the

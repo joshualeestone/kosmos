@@ -15,18 +15,18 @@ const communitystore = require('./communitystore');
 const communitysend = require('./communitysend');
 const store = require('./store');
 
-/* The one state the owner can delete from: a post already out (sent). withheld/refused
-   never left, deleted is done, and a delete already asked for is on its way.
-   Not 'pending': the send layer never SAVES a pending record (a send that fails on the
-   network, a 5xx or a 429 is left with no record and retried), so a post waiting to go
-   out is not in sent.json and never reaches this list. Offering Delete on a state
-   production cannot produce would be a promise with nothing behind it. Letting the
-   owner withhold a post before it goes out needs the send layer to expose its due list
-   (the `since` cut is internal to it); that is a follow-up, not this card. */
-const DELETABLE = Object.freeze(['sent']);
+/* The states the owner can delete from: a post that is out (sent), or one the board tried to
+   send and got no answer for (unconfirmed: it may be on the server, and the send layer finds
+   it and deletes it). Not once a delete is asked for, a moderator took it down, or central
+   refused the agent (the send layer has no key to delete with).
+   Not 'pending': a post nobody has tried to send has no record here, so it is not listed.
+   The send layer can withhold one (requestDelete on an unsent post), but listing what is
+   about to go needs its due list, which it does not export; a follow-up, not this card. */
+const DELETABLE = Object.freeze(['sent', 'unconfirmed']);
 
-function canDelete(rec) {
-  return DELETABLE.includes(rec.state) && rec.deleteRequested !== true && rec.takenDown !== true;
+function canDelete(st) {
+  return DELETABLE.includes(st.state) && st.deleteRequested !== true
+    && st.takenDown !== true && st.agentRefused !== true;
 }
 
 /* The agent's own display name when it has one (what the owner calls it on this board),
@@ -49,7 +49,7 @@ function mine() {
   const ids = Object.keys(statuses);
   if (!ids.length) return [];
   const posts = new Map();
-  for (const p of communitystore.publicFeed({ sort: 'newest', limit: Number.MAX_SAFE_INTEGER })) {
+  for (const p of communitystore.publishedPosts()) {
     if (statuses[p.id]) posts.set(p.id, p);
   }
   const rows = ids.map((id) => {
@@ -64,6 +64,8 @@ function mine() {
       deleteRequested: rec.deleteRequested === true,
       takenDown: rec.takenDown === true,
       takeDownReason: rec.takeDownReason || null,
+      agentRefused: rec.agentRefused === true,
+      deleteRetrying: rec.deleteRequested === true && typeof rec.deleteStatus === 'number',
       canDelete: canDelete(rec),
     };
   });

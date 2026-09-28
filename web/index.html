@@ -28248,15 +28248,16 @@ document.addEventListener('keydown', (e) => {
    agent's own key, so the row says "coming down" until then rather than claiming it is gone. */
 function communityMineWord(r) {
   if (r.takenDown) return 'Taken down by a moderator' + (r.takeDownReason ? ': ' + r.takeDownReason : '');
-  /* deleted first: the sweep keeps deleteRequested:true on the record it marks deleted
-     (communitysend spreads the old record), so checking the request first would say
-     "Deleting" forever after the delete landed. */
+  /* deleted first: deletes.json keeps every id the owner deleted, so deleteRequested stays
+     true after the delete lands, and checking it first would say "Deleting" forever. */
   if (r.state === 'deleted') return 'Deleted from the community';
+  if (r.state === 'withheld') return 'Deleted before it was sent';
+  if (r.deleteRetrying) return 'Deleting. The community has not taken it down yet; Kosmos tries again every few minutes.';
   if (r.deleteRequested) return 'Deleting. It comes down from the community within a few minutes.';
+  if (r.agentRefused && r.state === 'sent') return 'In the community. The community refused this agent, so Kosmos cannot delete its posts.';
   switch (r.state) {
     case 'sent': return 'In the community';
-    case 'deleted': return 'Deleted from the community';
-    case 'withheld': return 'Deleted before it was sent';
+    case 'unconfirmed': return 'Sent, not confirmed yet';
     case 'refused': return 'Not accepted by the community';
     default: return '';
   }
