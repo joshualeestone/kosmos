@@ -180,6 +180,13 @@ test('#4356: first run ends at the existing Kosmos Plus sign-in only for "both"'
     'first run does not end at the sign-in, or ends there for every choice');
 });
 
+test('#4356: the address keeper carries ?mode=, or first run never sees it', () => {
+  // syncUrl rebuilds the query from the page's own state at boot; a key it does not carry is gone
+  // before firstRunBoot reads it. That is how the first screen went missing in the browser check.
+  const sync = lift('syncUrl');
+  assert.match(sync, /for \(const k of \['limit', 'first-run', 'mode'\]\)/);
+});
+
 test('#4356: first run asks for the choice before the wizard, and a Connect ends it there', () => {
   const boot = lift('firstRunBoot');
   const ask = boot.indexOf("if (frChoiceWanted(state.done) && (await frChoose()) === 'connect') return;");

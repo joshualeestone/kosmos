@@ -4,11 +4,12 @@
 /**
  * #4356: the first screen asks whether this computer runs agents or connects to agents on another
  * computer. Josh's copy rule (on the card, 2026-09-28): the Kosmos logo, the heading "How would you
- * like to set up Kosmos on this computer?" and two buttons, "Run agents on this computer" and
- * "Connect to agents on another computer". Nothing else on the screen.
+ * like to set up Kosmos on this computer?" and the buttons, nothing else on the screen. Three since
+ * Josh's 10:31 ruling: "Run agents on this computer", "Connect to agents on another computer" and
+ * "Run agents here and connect to other computers".
  *
  * web.firstrun-choice-4356.test.js pins the markup and runs the page's functions. This renders the
- * real page and reads what a person sees: the rendered text, the logo actually loaded, the two
+ * real page and reads what a person sees: the rendered text, the logo actually loaded, the three
  * buttons side by side (and stacked on a phone-width window), nothing of the wizard or the board
  * showing around the screen, and what each button hands the Mac app.
  *
@@ -43,6 +44,8 @@ const srv = require('../../server.js');
 const HEADING = 'How would you like to set up Kosmos on this computer?';
 const RUN = 'Run agents on this computer';
 const CONNECT = 'Connect to agents on another computer';
+const BOTH = 'Run agents here and connect to other computers';
+const LINES = JSON.stringify([HEADING, RUN, CONNECT, BOTH]);
 
 const SHOTS = process.argv[2] || null;
 const fail = [];
@@ -103,12 +106,13 @@ const look = (page) => page.evaluate(() => {
     let page = await open(base + '?mode=unset');
     let s = await look(page);
     chk(s.shown, 'C1 a fresh Mac in the app shows the first screen');
-    chk(JSON.stringify(s.lines) === JSON.stringify([HEADING, RUN, CONNECT]), 'C1 THE RENDERED TEXT IS EXACTLY the heading and the two labels', JSON.stringify(s.lines));
+    chk(JSON.stringify(s.lines) === LINES, 'C1 THE RENDERED TEXT IS EXACTLY the heading and the three labels', JSON.stringify(s.lines));
     chk(s.logo && s.logo.loaded && s.logo.visible, 'C1 the Kosmos logo loaded and shows', JSON.stringify(s.logo));
     chk(s.logo && s.titleTop !== null && s.logo.top < s.titleTop, 'C1 the logo is at the top, above the heading');
-    chk(s.btns.length === 2 && s.btns.every((b) => b.name === null), 'C1 two buttons, each named by its own label');
-    chk(s.btns.length === 2 && Math.abs(s.btns[0].top - s.btns[1].top) < 1 && s.btns[0].left < s.btns[1].left, 'C1 the buttons sit side by side, Run on the left', JSON.stringify(s.btns));
-    chk(s.btns.length === 2 && s.btns.every((b) => b.h >= 150), 'C1 the buttons are large');
+    chk(s.btns.length === 3 && s.btns.every((b) => b.name === null), 'C1 three buttons, each named by its own label');
+    chk(s.btns.length === 3 && s.btns.every((b) => Math.abs(b.top - s.btns[0].top) < 1) && s.btns[0].left < s.btns[1].left && s.btns[1].left < s.btns[2].left,
+      'C1 the buttons sit side by side in order, Run on the left', JSON.stringify(s.btns));
+    chk(s.btns.length === 3 && s.btns.every((b) => b.h >= 150), 'C1 the buttons are large');
     chk(s.covered, 'C1 nothing of the board or the wizard shows around the screen');
     chk(s.focused === RUN, 'C1 a keyboard starts on the first button', String(s.focused));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'firstrun-choice-4356.png') });
@@ -131,11 +135,21 @@ const look = (page) => page.evaluate(() => {
     chk(s.shown && s.btns.every((b) => b.disabled) && !s.wizard, 'C3 the screen stays, buttons off, no wizard behind a Mac that is switching away');
     await page.context().close();
 
-    // C4: a phone-width window stacks the buttons and still shows only the three strings.
+    // C3b: Run agents here and connect hands the app "both", first run opens, and ?mode=both stays for its end.
+    page = await open(base + '?mode=unset');
+    await page.click('text=' + BOTH);
+    await page.waitForTimeout(400);
+    s = await look(page);
+    chk(JSON.stringify(s.posted) === '["both"]', 'C3b Run agents here and connect tells the app "both"', JSON.stringify(s.posted));
+    chk(!s.shown && s.wizard && /[?&]mode=both\b/.test(s.search), 'C3b first run opens, and the address keeps mode=both for its last step', s.search);
+    chk(await page.evaluate(() => frPlusLast()), 'C3b the end of first run knows to go to Kosmos Plus sign-in');
+    await page.context().close();
+
+    // C4: a phone-width window stacks the buttons and still shows only the heading and labels.
     page = await open(base + '?mode=unset', { width: 390 });
     s = await look(page);
-    chk(s.btns.length === 2 && s.btns[1].top > s.btns[0].top, 'C4 on a narrow window the buttons stack');
-    chk(JSON.stringify(s.lines) === JSON.stringify([HEADING, RUN, CONNECT]), 'C4 and the text is still exactly the three strings');
+    chk(s.btns.length === 3 && s.btns[1].top > s.btns[0].top && s.btns[2].top > s.btns[1].top, 'C4 on a narrow window the buttons stack');
+    chk(JSON.stringify(s.lines) === LINES, 'C4 and the text is still exactly the heading and the three labels');
     chk(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'C4 nothing runs off the side');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'firstrun-choice-4356-narrow.png') });
     await page.context().close();
@@ -160,6 +174,18 @@ const look = (page) => page.evaluate(() => {
     await page.waitForTimeout(400);
     s = await look(page);
     chk(!s.shown && !s.wizard && JSON.stringify(s.posted) === '["run"]', 'C6 and Run agents lands on the board, not first run');
+    await page.context().close();
+
+    // C8: a run-and-connect computer's last step is the Settings Kosmos Plus sign-in that already exists.
+    page = await open(base + '?mode=both');
+    await page.evaluate(() => frPlusSignIn());
+    await page.waitForTimeout(400);
+    chk(await page.evaluate(() => {
+      const panel = document.getElementById('panel-settings'), email = document.getElementById('plus-signin-email');
+      const box = email && email.getBoundingClientRect();
+      return !!panel && !panel.hidden && SETTINGS_SEC === 'plus' && !!box && box.height > 0 && document.activeElement === email;
+    }), 'C8 the last step opens Settings, Kosmos Plus, at its own email sign-in, focused');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'firstrun-choice-4356-plus-step.png') });
     await page.context().close();
 
     chk(errs.length === 0, 'C7 no page errors', errs.join(' | '));

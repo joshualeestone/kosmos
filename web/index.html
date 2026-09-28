@@ -21353,8 +21353,9 @@ function syncUrl() {
     } else if (tab && tab !== 'agents') {
       q.set('tab', tab);
     }
-    /* Carry through the two debugging knobs a person may have typed. */
-    for (const k of ['limit', 'first-run']) { const v = new URLSearchParams(location.search).get(k); if (v) q.set(k, v); }
+    /* Carry through the two debugging knobs a person may have typed, and #4356's ?mode=, which the
+       Mac app puts there for first run to read (dropping it here lost the first screen). */
+    for (const k of ['limit', 'first-run', 'mode']) { const v = new URLSearchParams(location.search).get(k); if (v) q.set(k, v); }
     const want = q.toString() ? '?' + q.toString() : location.pathname;
     const have = location.search || location.pathname;
     if (want !== have) history.replaceState(null, '', q.toString() ? '?' + q.toString() : location.pathname);
