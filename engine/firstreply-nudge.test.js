@@ -217,7 +217,9 @@ test('#3226 real store: a person\'s unanswered first DM, a minute old, is nudged
   // Why the message log could never have seen this: the person's DM is not in it. (#4340 deleted owesReply, which
   // read that log; the premise is checked on the log itself.)
   const logged = messageLog.record();
-  assert.ok(!(logged.ok && logged.rows.some((r) => r.to === s)), 'premise: a DM leaves the message log untouched');
+  // An unreadable log proves nothing about what is in it (Scorpion's NIT on #4365), so it must read first.
+  assert.ok(logged.ok, 'premise: the message log could not be read, so this proves nothing');
+  assert.ok(!logged.rows.some((r) => r.to === s), 'premise: a DM leaves the message log untouched');
   const { sent } = realSweep(roster);
   assert.equal(sent.length, 1, 'the card\'s own case was not nudged');
   assert.equal(sent[0].session, s);
