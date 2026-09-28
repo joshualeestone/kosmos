@@ -29825,7 +29825,7 @@ function orgLiveStart(map, placed, cx, cy, size) {
       x: was ? was.x : cx + Math.cos(spot.ang) * spot.r,
       y: was ? was.y : cy + Math.sin(spot.ang) * spot.r,
       vx: 0, vy: 0, ring: spot.r, parentKey: spot.node.parent || null, parent: null, fixed: false,
-      lo: spot.lo, hi: spot.hi,   // #4434: its sector (a tree layout only; a flat fleet has none)
+      lo: spot.lo, hi: spot.hi,   // #4434: its sector; only a tree layout has one, so it also marks a tree (home below)
       /* #4434: a tree node rests where orgPlace put it (relative to the hub), and its parent spring rests
          at the placed edge length, not the ring step: orgPlace grows rings, and a spring at ORG_STEP would
          pull a grown ring back in across other branches. */

@@ -14,7 +14,8 @@
  * crossing count to come from lines that were actually measured (a control pair that does cross is
  * counted by the same function).
  *
- * The board is the one tools/browser-checks.sh boots with boot_board_org and the UNEVEN tree; with such
+ * The board is the one tools/browser-checks.sh boots with boot_board_org and ORG_UNEVEN_TREE (fifteen agents
+ * n0..n14, five managers; not the node test's UNEVEN tree); with such
  * a board on $PORT the check runs standalone:
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" KOSMOS_URL="http://127.0.0.1:$PORT" \
  *     SHOT_DIR=/some/dir node docs/browser-checks/render-org-sectors-4434.js

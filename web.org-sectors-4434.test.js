@@ -172,14 +172,22 @@ function settled(placed, seed, avail) {
     if (fit.k < 1) for (const s of placed.values()) s.r *= fit.k;
     size = fit.size;
   }
-  const cx = size / 2;
-  const shift = cx - HUB.x;   // a seed is given around HUB; move it with the canvas
-  const hub = { x: cx, y: cx, vx: 0, vy: 0, fixed: false, size: 52, home: { x: cx, y: cx } };
+  /* Centred the way paintOrg centres it: on the bounding box of the hub and the faces (review it3: centring at
+     size / 2 hid a node pushed past the edge by a drifted hub). */
+  let minX = -52; let maxX = 52; let minY = -52; let maxY = 52;
+  for (const sp of placed.values()) {
+    const x = Math.cos(sp.ang) * sp.r; const y = Math.sin(sp.ang) * sp.r;
+    minX = Math.min(minX, x - 27); maxX = Math.max(maxX, x + 27); minY = Math.min(minY, y - 27); maxY = Math.max(maxY, y + 27);
+  }
+  const cx = Math.round(size / 2 - (minX + maxX) / 2);
+  const cy = Math.round(size / 2 - (minY + maxY) / 2);
+  const shiftX = cx - HUB.x; const shiftY = cy - HUB.y;   // a seed is given around HUB; move it with the canvas
+  const hub = { x: cx, y: cy, vx: 0, vy: 0, fixed: false, size: 52, home: { x: cx, y: cy } };
   const nodes = new Map();
   for (const [key, spot] of placed) {
     const was = seed && seed.get(key);
     nodes.set(key, {
-      key, x: was ? was.x + shift : cx + Math.cos(spot.ang) * spot.r, y: was ? was.y + shift : cx + Math.sin(spot.ang) * spot.r,
+      key, x: was ? was.x + shiftX : cx + Math.cos(spot.ang) * spot.r, y: was ? was.y + shiftY : cy + Math.sin(spot.ang) * spot.r,
       vx: 0, vy: 0, ring: spot.r, parentKey: spot.node.parent || null, parent: null, fixed: false,
       lo: spot.lo, hi: spot.hi,
       home: Number.isFinite(spot.lo) ? { dx: Math.cos(spot.ang) * spot.r, dy: Math.sin(spot.ang) * spot.r } : null,
@@ -203,7 +211,7 @@ function settled(placed, seed, avail) {
   sim.orgPlanarRepair(bodies, hub);
   const pos = new Map(); const parentOf = new Map();
   for (const n of bodies) { pos.set(n.key, { x: n.x, y: n.y }); parentOf.set(n.key, n.parentKey); }
-  return { pos, parentOf, hub: { x: hub.x, y: hub.y } };
+  return { pos, parentOf, hub: { x: hub.x, y: hub.y }, box, home: { x: cx, y: cy } };
 }
 
 /* ---- the trees ----------------------------------------------------------------------------------- */
@@ -301,14 +309,14 @@ test('first paint: seeded random trees have no crossings and no overlaps (#4434)
   }
 });
 
-test('after the physics settles: still no crossings, and nodes stay apart (#4434)', () => {
+test('after the settle (the physics, then the rest-time repair): no crossings, and faces stay apart (#4434)', () => {
   const specs = Object.entries(NAMED).concat(Array.from({ length: 20 }, (_, i) => ['seed ' + (i + 1), randomTree(i + 1, 8 + (i % 18))]));
   for (const [label, spec] of specs) {
     const { placed } = firstPaint(cards(spec));
     const { pos, parentOf, hub } = settled(placed);
     const bad = crossings(segments(pos, parentOf, hub));
     assert.deepEqual(bad, [], label + ': ' + bad.length + ' crossing(s) after settling: ' + bad.slice(0, 6).join(', '));
-    assert.equal(overlaps(pos, sim.ORG_SIM.minGap * 0.8), 0, label + ': two nodes ended up on top of each other');
+    assert.equal(overlaps(pos, 44), 0, label + ': two faces (44px) overlap after the settle');
   }
 });
 
@@ -336,11 +344,9 @@ test('a settle stays close to the placement: the spring rests at the placed leng
   for (let seed = 1; seed <= 60; seed += 1) {
     const spec = randomTree(seed, 8 + (seed % 40));
     const { placed } = firstPaint(cards(spec));
-    let maxR = 0; for (const s of placed.values()) maxR = Math.max(maxR, s.r);
-    const cx = Math.round((maxR + ORG_PAD) * 2) / 2;
-    const { pos } = settled(placed);
+    const { pos, home } = settled(placed);
     for (const [k, s] of placed) {
-      const d = Math.hypot(pos.get(k).x - (cx + Math.cos(s.ang) * s.r), pos.get(k).y - (cx + Math.sin(s.ang) * s.r));
+      const d = Math.hypot(pos.get(k).x - (home.x + Math.cos(s.ang) * s.r), pos.get(k).y - (home.y + Math.sin(s.ang) * s.r));
       if (d > worst) { worst = d; where = 'seed ' + seed + ' ' + k; }
     }
   }
@@ -388,6 +394,9 @@ test('squeezed to a phone, a large fleet still settles with no crossings (#4434,
     const bad = crossings(segments(pos, parentOf, hub));
     assert.deepEqual(bad, [], 'randomTree(' + seed + ', ' + n + ') at 375px: ' + bad.length + ' crossing(s): ' + bad.slice(0, 4).join(', '));
     assert.equal(overlaps(pos, 44), 0, 'randomTree(' + seed + ', ' + n + ') at 375px: faces overlap (the squeeze went below the tree\'s floor)');
+    const { box } = settled(firstPaint(cards(randomTree(seed, n))).placed, null, 375);
+    const out = [...pos.values()].filter((q) => q.x < box.lo - 0.5 || q.x > box.hi + 0.5 || q.y < box.lo - 0.5 || q.y > box.hi + 0.5);
+    assert.equal(out.length, 0, 'randomTree(' + seed + ', ' + n + ') at 375px: ' + out.length + ' node(s) rest past the canvas edge');
   }
 });
 
@@ -417,6 +426,17 @@ test('the repair never moves a held node or hub, so a drag held still keeps what
   assert.equal(sim.orgPlanarRepair([a, b, c, d], hub), true, 'CONTROL: released, the same crossing is repaired');
   const src = SCRIPT.slice(SCRIPT.indexOf('function orgLiveRun('), SCRIPT.indexOf('\n}', SCRIPT.indexOf('function orgLiveRun(')));
   assert.match(src, /!L\.dragging && orgPlanarRepair/, 'the animation\'s stop no longer skips the repair mid-drag');
+});
+
+test('the repair places the chart around the hub\'s HOME, not where the hub drifted (#4434, review it3)', () => {
+  /* Offsets from a drifted hub land past the canvas edge; the placement around the home fits by construction. */
+  const hub = { x: 380, y: 260, vx: 1, vy: 1, fixed: false, home: { x: 300, y: 300 } };
+  const a = { key: 'a', x: 400, y: 300, parent: null, fixed: false, home: { dx: 100, dy: 0 } };
+  const b = { key: 'b', x: 420, y: 420, parent: null, fixed: false, home: { dx: 0, dy: 100 } };
+  const c = { key: 'c', x: 350, y: 450, parent: a, fixed: false, home: { dx: 150, dy: 50 } };
+  assert.equal(sim.orgPlanarRepair([a, b, c], hub), true, 'CONTROL: the crossing was not repaired');
+  assert.deepEqual([hub.x, hub.y], [300, 300], 'the hub was not returned to its home');
+  assert.deepEqual([c.x, c.y], [450, 350], 'a node was placed around the drifted hub, not its home');
 });
 
 test('the same input gives the same positions (stable across reloads) (#4434)', () => {
