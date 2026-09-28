@@ -7846,7 +7846,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 #firstrun .fr-importrow .btn.uprime:not(.added):hover,
 #import-found .fr-importrow .btn.uprime:not(.added):hover { background: var(--gold-polished-hover); }
 #firstrun .fr-importrow .fr-importgo.added,
-#import-found .fr-importrow .fr-importgo.added { opacity: 1; color: var(--ok, #1f7a4d); border-color: var(--ok, #1f7a4d); background: none; font-weight: 600; box-shadow: none; --gold-light: 0; }
+#import-found .fr-importrow .fr-importgo.added { opacity: 1; border-radius: var(--radius-control); color: var(--ok, #1f7a4d); border-color: var(--ok, #1f7a4d); background: none; font-weight: 600; box-shadow: none; --gold-light: 0; }
 .fr-importrow .fr-importgo.added::before { content: '\2713'; margin-right: 6px; font-weight: 700; }
 .flabel-soft { font-weight: 400; color: var(--label-2); }
 /* ⚠️ CHIPS THAT WRAP, which is the pack's own rule and which the build had
@@ -8656,7 +8656,7 @@ body.consolidated .tkcard:hover { border-color: transparent; }
    `textContent` is exactly "Added" (render-found-undo.js, render-found-board.js);
    putting the glyph in the string would have forced both to be loosened, which is
    how a guard quietly stops guarding. The word is unchanged, the mark is added. */
-#firstrun .fr-foundrow .fr-foundgo.added { opacity: 1; color: var(--ok, #1f7a4d); border-color: var(--ok, #1f7a4d); background: none; font-weight: 600; box-shadow: none; --gold-light: 0; }
+#firstrun .fr-foundrow .fr-foundgo.added { opacity: 1; border-radius: var(--radius-control); color: var(--ok, #1f7a4d); border-color: var(--ok, #1f7a4d); background: none; font-weight: 600; box-shadow: none; --gold-light: 0; }
 /* 🔑 GREEN WITH A CHECK (kosmos#1346), Josh: the Added state should read as clearly
    done. `--ok` rather than a new value, because this file already measured it at
    5.32:1 and its own note says "we already use this green" is not a measurement:
@@ -10346,6 +10346,8 @@ window.kosmosMeasureScrollbarWidth();
     if (!nb || nb === host || !nb.isConnected) return false;
     var r = nb.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1), was = last, keep = lastPush;
     if (Math.max(1, Math.round(r.width * dpr)) === canvas.width && Math.max(1, Math.round(r.height * dpr)) === canvas.height) {
+      /* The old host may still be on the page (only its canvas was taken): give it back what detach() would. */
+      host.classList.remove('gold-lit'); if (hostPos !== null) host.style.position = hostPos;
       hostPos = getComputedStyle(nb).position === 'static' ? nb.style.position : null;
       if (hostPos !== null) nb.style.position = 'relative';
       nb.classList.add('gold-lit');

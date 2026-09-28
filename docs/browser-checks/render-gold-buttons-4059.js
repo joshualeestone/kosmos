@@ -25,6 +25,8 @@
  *   G10 no page errors anywhere
  *   G11 a repaint that rebuilds the lit button under a still pointer (the empty board's Create button, every poll)
  *       carries the light to the new copy: it is not dropped until the pointer next moves
+ *   G11b when the old button is still on the page (only its canvas was taken), it gets its class and position back
+ *   G1c the found and import rows' Added state keeps its own shape (the control radius), not the gold pill
  *
  * It also fails if it ran any number of checks other than EXPECTED, so a skipped arm cannot read as green.
  *
@@ -41,7 +43,7 @@ const ENGINES = ['chromium', 'webkit'];
 let ENGINE = '';   // the engine the loop below is on, for chk's labels
 
 const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
-const EXPECTED = 72;   // 36 per engine
+const EXPECTED = 76;   // 38 per engine
 const fail = [];
 let passed = 0;
 function chk(ok, label, extra) {
@@ -147,6 +149,17 @@ async function fillContrast(page, sel) {
       const radii = await page.evaluate(() => ['g1', 'g2', 'g3', 'blue'].map((g) => getComputedStyle(document.querySelector('[data-gx=' + g + ']')).borderTopLeftRadius));
       chk(radii[0] === '999px' && radii[1] === '999px' && radii[2] === '999px', 'G1 every gold primary is a fully rounded pill (999px), the big create-flow one too', JSON.stringify(radii));
       chk(radii[3] !== '999px', 'G1b the blue ask-card primary is not gold and keeps its own shape', radii[3]);
+      const added = await page.evaluate(() => {
+        const out = [];
+        for (const [host, row, cls] of [['#firstrun', 'fr-foundrow', 'fr-foundgo'], ['#import-found', 'fr-importrow', 'fr-importgo']]) {
+          const h = document.querySelector(host); if (!h) { out.push('no ' + host); continue; }
+          const w = document.createElement('div'); w.className = row;
+          w.innerHTML = '<button class="btn uprime ' + cls + ' added" type="button">Added</button>';
+          h.appendChild(w); out.push(getComputedStyle(w.firstChild).borderTopLeftRadius); w.remove();
+        }
+        return out;
+      });
+      chk(added.length === 2 && added.every((r) => r === '10px'), 'G1c the found and import rows\' Added state keeps the control radius, not the gold pill', JSON.stringify(added));
 
       // G2: contrast on every pixel of the fill, at rest, then on the dark theme.
       const cLight = await fillContrast(page, '[data-gx=g1]');
@@ -253,6 +266,22 @@ async function fillContrast(page, sel) {
       const r1 = await state(page);
       const fresh = await page.evaluate(() => { const b = document.querySelector('[data-gx=g1]'); return !!b.querySelector('canvas.gold-light') && b.classList.contains('gold-lit'); });
       chk(r0.running && r0.host === 'g1' && r1.running && r1.host === 'g1' && fresh && (await litCount(page)) === 1, 'G11 a repaint under a still pointer carries the light to the new copy of the button', JSON.stringify({ r0, r1, fresh }));
+      // G11b: the old button stays on the page and only loses its canvas (a label change), while a same-size gold
+      // button now sits under the still pointer: the light moves, and the old button gets its class and position back.
+      await swipe(page, '[data-gx=g1]', 1);
+      await page.waitForTimeout(100);
+      await page.evaluate(() => {
+        const old = document.querySelector('[data-gx=g1]'); const r = old.getBoundingClientRect();
+        const b = document.createElement('button'); b.className = 'btn uprime'; b.type = 'button'; b.dataset.gx = 'g1b'; b.textContent = 'Post';
+        b.style.cssText = 'position:fixed;left:' + r.left + 'px;top:' + r.top + 'px;width:' + r.width + 'px;height:' + r.height + 'px;margin:0;z-index:2147483647;box-sizing:border-box;';
+        document.body.appendChild(b);
+        old.textContent = 'Post';   // takes the canvas out of the old button, which stays on the page
+      });
+      await settle(page); await settle(page);
+      const r2 = await state(page);
+      const oldBack = await page.evaluate(() => { const o = document.querySelector('[data-gx=g1]'); return { lit: o.classList.contains('gold-lit'), pos: o.style.position }; });
+      chk(r2.host === 'g1b' && !oldBack.lit && oldBack.pos === '', 'G11b the old button, still on the page, gets its class and position back when the light moves on', JSON.stringify({ r2, oldBack }));
+      await page.evaluate(() => document.querySelector('[data-gx=g1b]').remove());
       await page.mouse.move(1150, 780);
 
 
