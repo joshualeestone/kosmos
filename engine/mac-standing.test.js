@@ -131,7 +131,7 @@ test('#4277: ON, holding a key, NOT enrolled: one key-signed report of why, then
     assert.equal(body.remote.tunnel, 'starting', 'ON and not enrolled is status() "connecting", reported as starting');
     assert.equal(body.remote.error, 'not-enrolled; missing: address, tls.crt, tls.key', 'the report did not say which enrolment files are missing');
     assert.ok(!c.stdin.includes('her@example.com'), 'the sign-in email left the Mac in the report');
-    assert.deepEqual(wire.dialled, [], 'the report went out unsigned');
+    assert.deepEqual(wire.dialled, [], 'the report went out by a direct dial instead of signed through the tunnel');
     // Within the five minutes: no second report.
     await remote.refreshStandingIfStale({ now: t0 + 60 * 1000, ttlMs: 0 });
     await new Promise((r) => setTimeout(r, 300));

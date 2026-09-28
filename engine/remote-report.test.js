@@ -75,6 +75,9 @@ test('classify: each known failure kind gets its code, anything else is other, n
     ['Kosmos+ unreachable for /v1/mac/relay-ticket: dns error', 'coordinator-unreachable'],
     ['restarting after a crash (exit 3)', 'crashed'],
     ['the connection closed', 'reconnecting'],
+    // The board's own healthy dialling sentences, verbatim from remote.js status().
+    ['connecting to the relay', 'starting'],
+    ['starting the connection', 'starting'],
     ['connecting to relay.plus.installkosmos.com:443: Connection refused (os error 61)', 'relay-unreachable'],
     ['connecting to relay.plus.installkosmos.com:443: failed to lookup address information', 'relay-unreachable'],
     ['relay TLS handshake: invalid peer certificate: Expired', 'relay-unreachable'],

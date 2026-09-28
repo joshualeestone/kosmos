@@ -46,6 +46,9 @@ function tunnelState(state, on) {
    pattern is a short literal, so nothing here can run long on a hostile line. */
 const CLASSIFY_MAX_CHARS = 2000;
 const CODES = [
+  // FIRST: the board's own healthy "still dialling" sentences (remote.js status()), which must
+  // never read as a failure (review 7: "connecting to the relay" matched relay-unreachable).
+  ['starting', /^(starting the connection|connecting to the relay)$/i],
   ['switch-off', /the switch is off/i],
   ['settings-unreadable', /settings could not be read/i],
   ['no-relay-address', /no relay address/i],
@@ -56,7 +59,8 @@ const CODES = [
   ['cert-renewal', /renewal/i],
   // The tunnel's dial of the RELAY (session.rs dial_relay): kept apart from the coordinator,
   // which is the whole question when a Mac never gets a ticket (review 6).
-  ['relay-unreachable', /^connecting to |relay TLS handshake/i],
+  // The tunnel's own dial error is `connecting to <host:port>: <why>` (a colon after the address).
+  ['relay-unreachable', /^connecting to \S+: |relay TLS handshake/i],
   ['relay-refused', /relay refused|relay answered AUTH|relay did not answer AUTH/i],
   ['relay-dropped', /go away|keepalive|connection lost|reader stopped|writer gone|frame from the relay/i],
   // A 4xx from Kosmos+ is a refusal; a 5xx is an outage, so it reads as unreachable.
@@ -68,7 +72,6 @@ const CODES = [
   ['crashed', /crash|killed|restarting/i],
   ['awaiting-sign-in', /waiting for the (code|sign-in)/i],
   ['not-started', /has not started the tunnel/i],
-  ['starting', /starting the connection|connecting to the relay/i],
 ];
 function classify(text) {
   if (typeof text !== 'string' || !text.trim()) return null;
@@ -104,7 +107,7 @@ function build(deps) {
     const restarts = typeof remote.restartCount === 'function' ? remote.restartCount() : 0;
     let heal = 'none';
     let proposedRestarts = restarts;
-    if (lastRestarts !== null && restarts > lastRestarts) {
+    if (restarts > lastRestarts) {
       if (tunnel === 'running') heal = 'relaunched';
       else if (tunnel === 'starting') proposedRestarts = lastRestarts;   // not a result yet
       else heal = 'relaunch-failed';

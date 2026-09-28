@@ -624,6 +624,7 @@ function scheduleRestart() {
 }
 
 function stopChild() {
+  restartPending = false;   // a deliberate stop: the next start is not a supervisor relaunch
   if (restartTimer) { clearTimeout(restartTimer); restartTimer = null; }
   backoffMs = 1000;
   restartBecause = null;
