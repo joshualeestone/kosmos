@@ -35455,6 +35455,8 @@ async function loadInstructions(sessionName) {
     // Now that there is something real in the box, the controls may match it.
     box.disabled = false;
     saveBtn.disabled = false;
+    // #4406: Try again moved focus to the status line, which this load empties; the box is where it belongs now.
+    if (document.activeElement === msg) box.focus();
     const foot = document.getElementById('d-instr-foot');
     foot.hidden = false;
     // Say that the previous version is kept, and where. A safety net nobody
@@ -35483,7 +35485,9 @@ async function loadInstructions(sessionName) {
     // the engine was restructured to remove, moved into the browser.
     if (!data.exists) {
       if (data.editable) {
-        msg.textContent = 'There is no instruction file for this one yet.';
+        msg.textContent = data.hasPrevious   // #4406: the file is gone but its previous version is kept
+          ? 'There is no instruction file for this one right now. The previous version is kept, and can go back in the box.'
+          : 'There is no instruction file for this one yet.';
       } else {
         msg.textContent = 'This cannot be edited from this screen: '
           + (data.because || 'we cannot read it') + '.';
@@ -35909,7 +35913,7 @@ document.getElementById('d-instr-prev-load').addEventListener('click', async () 
   const msg = document.getElementById('d-instr-msg');
   const who = CURRENT && CURRENT.sessionName;
   if (!who) return;
-  if (!INSTR_READY) { msg.textContent = 'These instructions cannot be edited right now, so the previous version cannot be put in the box.'; return; }
+  if (!INSTR_READY || box.disabled) { msg.textContent = 'These instructions cannot be edited right now, so the previous version cannot be put in the box.'; return; }
   // Never over the person's unsaved typing: a script-set value cannot be undone with the keyboard.
   if (box.value !== INSTR_LOADED_TEXT) {
     msg.textContent = 'The box has changes that are not saved. Save them, or reopen this agent to drop them, before putting the previous version back.';
@@ -35922,7 +35926,7 @@ document.getElementById('d-instr-prev-load').addEventListener('click', async () 
     data = await res.json().catch(() => null);
     if (!res.ok) data = null;
   } catch { data = null; }
-  if (!CURRENT || CURRENT.sessionName !== who || INSTR_LOAD !== forLoad || !INSTR_READY) return;   // the box moved on
+  if (!CURRENT || CURRENT.sessionName !== who || INSTR_LOAD !== forLoad || !INSTR_READY || box.disabled) return;   // the box moved on
   // Asked again after the wait: the person may have typed while the previous version was being read.
   if (box.value !== INSTR_LOADED_TEXT) {
     msg.textContent = 'The box has changes that are not saved. Save them, or reopen this agent to drop them, before putting the previous version back.';

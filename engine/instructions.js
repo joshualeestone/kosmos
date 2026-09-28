@@ -568,6 +568,10 @@ function read(agent, exactSession) {
       // satisfy the changed-since-read guard.
       version: seen.missing === true ? ABSENT : UNREADABLE,
       path: seen.file,
+      /* #4406: a missing file is the one case where the kept previous version matters most, so say it is there. */
+      hasPrevious: seen.missing === true && !!seen.file && (() => {
+        try { return fs.lstatSync(`${seen.file}.previous`).isFile(); } catch { return false; }
+      })(),
       text: '',
       because: seen.because,
       staleness: staleness(agent, seen, exactSession),
@@ -608,7 +612,7 @@ function readPrevious(agent) {
     if (!file) return { exists: false, text: '', because: 'that is not a name we can look up' };
     const got = workerfile.readWorkerFile(`${file}.previous`, path.dirname(file));
     if (!got.ok) {
-      return { exists: false, text: '', because: got.missing ? 'there is no previous version kept' : got.because };
+      return { exists: false, text: '', because: got.missing ? 'there is no previous version kept' : 'the previous version is not a file this screen can read' };
     }
     const text = got.buf.toString('utf8');
     if (!Buffer.from(text, 'utf8').equals(got.buf)) {

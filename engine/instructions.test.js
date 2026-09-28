@@ -1628,3 +1628,19 @@ test('#4406: readPrevious refuses a .previous that is a symlink, as read refuses
   assert.equal(got.text, '');
   assert.ok(!String(got.because || '').includes('not the agent'), 'nothing from the link target leaks');
 });
+
+test('#4406: a missing instruction file still says its previous version is kept, so it can be put back', () => {
+  const name = 'prev4406c';
+  const dir = path.join(ROOT, name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), '# First\n\nThe words I wrote for this agent.\n');
+  instructions.write(name, '# Second\n\nReplaced with a longer set of words.\n', instructions.read(name).version);
+  fs.rmSync(path.join(dir, 'CLAUDE.md'));
+  const got = instructions.read(name);
+  assert.equal(got.exists, false);
+  assert.equal(got.editable, true);
+  assert.equal(got.hasPrevious, true, 'the lost-file case is where the kept version matters most');
+  assert.equal(instructions.readPrevious(name).text, '# First\n\nThe words I wrote for this agent.\n');
+  fs.rmSync(path.join(dir, 'CLAUDE.md.previous'));
+  assert.equal(instructions.read(name).hasPrevious, false, 'CONTROL: nothing kept, nothing offered');
+});

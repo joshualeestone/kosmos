@@ -370,6 +370,23 @@ function chk(ok, label, extra) {
        Try again refuses it, as for any untied agent). The card is marked tied here, the state a real agent's
        Instructions tab is in; the untied case is its own arm below. */
     const SN = await page.evaluate(() => { CURRENT.isNamedOurs = true; return CURRENT.sessionName; });   // the session name the page loads by
+    /* The board's own poll must agree, or its 5 s tick reads the stand-in as not ours and takes the editor away
+       mid-arm (measured: the arms went red depending on where a tick landed). */
+    const CARD = await page.evaluate(() => JSON.parse(JSON.stringify(CURRENT)));
+    await page.route('**/api/status*', async (route) => {
+      const r = await route.fetch(); let j = null;
+      try { j = await r.json(); } catch { return route.fulfill({ response: r }); }
+      /* Tied, and no instructions summary for the poll to act on: the real one reads the stand-in's missing file
+         as not editable and would take the editor away. And present: the sandbox board drops the stand-in between
+         ticks, which reads to the page as "this agent is no longer under Agents". A real tied agent is neither. */
+      if (j && Array.isArray(j.agents)) {
+        const at = j.agents.findIndex((a) => a && a.sessionName === SN);
+        const card = { ...(at >= 0 ? j.agents[at] : CARD), isNamedOurs: true };
+        delete card.instructions;
+        if (at >= 0) j.agents[at] = card; else j.agents.push(card);
+      }
+      return route.fulfill({ response: r, json: j });
+    });
     const INSTR_URL = '**/api/agent/' + SN + '/instructions?*';
     const PREV_URL = '**/api/agent/' + SN + '/instructions/previous?*';
     const MINE = { exists: true, editable: true, text: '# Beatrix\n\nYou coordinate collections for the team.\n', version: 'v1', hasPrevious: true, staleness: null };
@@ -404,7 +421,7 @@ function chk(ok, label, extra) {
     const retried = await page.evaluate(() => ({ retry: !document.getElementById('d-instr-retry-row').hidden, value: document.getElementById('d-instr').value, saveOff: document.getElementById('d-instr-save').disabled,
       focus: document.activeElement && (document.activeElement.id || document.activeElement.tagName) }));
     chk(!retried.retry && retried.value === MINE.text && !retried.saveOff, '#4406: Try again loads the instructions and the retry goes away', JSON.stringify(retried));
-    chk(retried.focus !== 'BODY', '#4406: and focus is not dropped to the page when Try again goes away', String(retried.focus));
+    chk(retried.focus === 'd-instr', '#4406: and focus lands in the box once it loads, not on the page or an emptied line', String(retried.focus));
     // The kept previous version goes back in the box, and nothing is written until Save.
     const PREV = '# Beatrix before\n\nThe words from before the last change.\n';
     await page.route(PREV_URL, (route) => answer(route, { exists: true, text: PREV, because: null }));
@@ -443,18 +460,29 @@ function chk(ok, label, extra) {
       sent = JSON.parse(route.request().postData() || '{}');
       return answer(route, { ...MINE, text: sent.text, version: 'v2', keptPrevious: true });
     });
-    await page.click('#d-instr-save'); await page.waitForTimeout(400);
+    chk(await page.evaluate(() => !document.getElementById('d-instr-save').disabled), '#4406: Save is usable after the restore', '');
+    await page.click('#d-instr-save', { timeout: 5000 }); await page.waitForTimeout(400);
     chk(!!sent && sent.text === PREV && sent.version === 'v1', '#4406: Save sends the restored text with the loaded version', JSON.stringify(sent));
     await page.unroute('**/api/agent/' + SN + '/instructions');
     await page.unroute(INSTR_URL); await page.unroute(PREV_URL);
-    // Last, because it takes the card's writes away: an untied card gets no Try again and no loading line from a load.
-    await page.route(INSTR_URL, (route) => answer(route, { error: 'x' }, 500));
-    await page.evaluate(() => { loadInstructions(CURRENT.sessionName); }); await page.waitForTimeout(500);
-    const untied = await page.evaluate(() => { CURRENT.isNamedOurs = false; setWritesOffered(CURRENT, false);
-      const out = { retry: !document.getElementById('d-instr-retry-row').hidden, line: !document.getElementById('d-instr-loading').hidden };
-      CURRENT.isNamedOurs = true; setWritesOffered(CURRENT, true); return out; });
-    chk(!untied.retry && !untied.line, '#4406: an untied card shows no Try again and no loading line left from a load', JSON.stringify(untied));
-    await page.unroute(INSTR_URL);
+    // Last, because they take the card's writes away.
+    // A failed load that lands after an untied card opened leaves that card no Try again (the catch's own check).
+    const heldFail = [];
+    await page.route(INSTR_URL, async (route) => { await new Promise((r) => { heldFail.push(r); }); await answer(route, { error: 'x' }, 500); });
+    await page.evaluate(() => { loadInstructions(CURRENT.sessionName); }); await page.waitForTimeout(150);
+    const realCurrent = await page.evaluate(() => { const was = CURRENT; CURRENT = { ...was, sessionName: 'someone-untied', isNamedOurs: false }; setWritesOffered(CURRENT, false); return was.sessionName; });
+    while (heldFail.length) heldFail.shift()();
+    await page.waitForTimeout(300);
+    const raced = await page.evaluate(() => ({ retry: !document.getElementById('d-instr-retry-row').hidden, line: !document.getElementById('d-instr-loading').hidden }));
+    chk(!raced.retry && !raced.line, '#4406: a failed load that lands after an untied card opened leaves it no Try again and no loading line', JSON.stringify(raced));
+    // Try again on an untied card asks for nothing (openDetail never loads an untied card).
+    const asked = [];
+    page.on('request', (r) => { if (/\/instructions\?/.test(r.url())) asked.push(r.url()); });
+    await page.evaluate(() => { document.getElementById('d-instr-retry-row').hidden = false; document.getElementById('d-instr-retry').click(); });
+    await page.waitForTimeout(300);
+    chk(asked.length === 0, '#4406: Try again on an untied card sends no load', String(asked.length));
+    await page.evaluate(() => { document.getElementById('d-instr-retry-row').hidden = true; });
+    await page.unroute(INSTR_URL); await page.unroute('**/api/status*');
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();

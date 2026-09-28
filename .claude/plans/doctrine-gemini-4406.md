@@ -79,3 +79,19 @@ him the way back (the previous version), which is the part that matters.
   code): it is asked again after the wait. Arm: the read is held, the person types, the typing stays.
 - Round 1's CSS move left the #3731 comment trailing the new rule: the first-run lines are back as they were
   and the #d-instr-prev rule sits above #d-instr.
+
+## Review round 3 (opus, 15:52)
+- BLOCKER, the check was flaky: the page's 5 s poll read the sandbox's stand-in as not on the board (and its
+  missing file as not editable) and took the editor away mid-arm, so arms passed or failed by where a tick
+  landed. The check's /api/status route now keeps the card present and tied with no instructions summary, the
+  state a real tied agent's poll is in; a probe with a forced tick before the restore passes.
+- A missing instruction file hid the restore (read's missing branch reported no hasPrevious): it now does, and
+  the line says the previous version is kept. Engine test with a control.
+- The untied arm now drives the real race (a failed load landing after an untied card opened) and Try again's
+  refusal on an untied card (no load sent).
+- Focus after Try again went to a status line the load then emptied: it moves to the box when the load lands.
+- NITs taken: the restore refuses a disabled box; a bad .previous names the previous version, not "its
+  instruction file". Left: a second press after a restore is refused as unsaved (reopen drops it); the
+  status line keeps tabIndex -1 (harmless).
+- The validation after round 2 was red only on engine/musefront.test.js "a long turn keeps saying working",
+  not in this diff, the same load-sensitive test that passed alone 15/15 this morning.
