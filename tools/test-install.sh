@@ -791,6 +791,9 @@ chk "board serves after update" "curl -s -m 2 -o /dev/null http://127.0.0.1:$POR
 chk "PATH wiring still written exactly once after a rerun" "[ \"\$(grep -cxF '# kosmos: PATH for the kosmos command (removed by --uninstall)' \"$SB/zprofile\")\" = 1 ]"
 
 echo "== a computer that connects elsewhere keeps its board stopped through an update (#4356) =="
+# The installer also writes board.stopped itself when it declines to start (a run that did not pause
+# first would otherwise leave launchd free to start it); checked by a grep below, since every run here
+# is an update whose pause already wrote the marker.
 # The Mac app writes $KOSMOS_HOME/mode and runs `kosmos stop` when a person picks "Connect to agents
 # on another computer". An install or update must not start that board again, whether it finishes
 # or fails, and an unreadable choice must not become "run" either. The controls: the same update with
@@ -820,6 +823,7 @@ printf 'garbled\n' > "$SB/home/mode"
 RC=0; cat "$SETUP" | sh > "$SB/update-unreadable.log" 2>&1 || RC=$?
 chk "an update with an unreadable choice exits 0" "rc_ok $RC"
 chk "an unreadable choice does not become run: the board stays down" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+chk "and board.stopped is there for launchd and the watchdog" "[ -e \"$SB/home/board.stopped\" ]"
 chk "and it says the choice could not be read, not that this computer connects" "grep -q 'setup choice could not be read' \"$SB/update-unreadable.log\" && ! grep -q 'connects to agents on another computer' \"$SB/update-unreadable.log\""
 chk "its summary says why no board was started, not 'on purpose'" "grep -q 'No board was started, because this computer.s setup choice could not be read' \"$SB/update-unreadable.log\" && ! grep -q 'No board runs on this computer, on purpose' \"$SB/update-unreadable.log\""
 printf 'run\n' > "$SB/home/mode"
@@ -832,6 +836,7 @@ printf 'both\n' > "$SB/home/mode"
 RC=0; cat "$SETUP" | sh > "$SB/update-both.log" 2>&1 || RC=$?
 chk "CONTROL: an update on a run-and-connect computer exits 0" "rc_ok $RC"
 chk "CONTROL: and starts its board, as run does" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+chk "a run that declines to start writes board.stopped itself" "grep -q ': > \"\$KOSMOS_HOME/board.stopped\" 2>/dev/null || true' \"$SETUP\""
 chk "the launchd bootstrap's restart is held by the same decision" "grep -q '\\[ \"\$_kosmos_board_off\" = yes \\] || \"\$KOSMOS_HOME/bin/kosmos\" restart' \"$SETUP\""
 rm -f "$SB/home/mode"
 chk "the board is up for the checks below" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"

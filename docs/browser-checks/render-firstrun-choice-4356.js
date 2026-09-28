@@ -184,6 +184,24 @@ const look = (page) => page.evaluate(() => {
     chk(!s.shown && !s.wizard && JSON.stringify(s.posted) === '["run"]', 'C6 and Run agents lands on the board, not first run');
     await page.context().close();
 
+    // C9: the approved dark version: the screen's own dark tokens, not the page's or the wizard's.
+    {
+      const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: 'dark' });
+      await ctx.addInitScript(BRIDGE);
+      const dp = await ctx.newPage();
+      dp.on('pageerror', (e) => errs.push(e.message));
+      await dp.goto(base + '?mode=unset', { waitUntil: 'networkidle' });
+      await dp.waitForTimeout(300);
+      const dark = await dp.evaluate(() => {
+        const cs = (el) => getComputedStyle(el);
+        const e = document.getElementById('fr-choice');
+        return { bg: cs(e).backgroundColor, card: cs(e.querySelector('.frc-btn')).backgroundColor, ink: cs(e.querySelector('.frc-title')).color };
+      });
+      chk(dark.bg === 'rgb(12, 13, 15)' && dark.card === 'rgb(23, 25, 28)' && dark.ink === 'rgb(245, 245, 244)', 'C9 dark: the mockup\'s ground, card and ink', JSON.stringify(dark));
+      if (SHOTS) await dp.screenshot({ path: path.join(SHOTS, 'firstrun-choice-4356-dark.png') });
+      await ctx.close();
+    }
+
     // C8: a run-and-connect computer's last step is the Settings Kosmos Plus sign-in that already exists.
     page = await open(base + '?mode=both');
     await page.evaluate(() => frPlusSignIn());

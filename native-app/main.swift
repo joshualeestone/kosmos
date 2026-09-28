@@ -323,7 +323,21 @@ func stopBoard(kosmosHome: String) -> Bool {
     }
     process.waitUntilExit()
     logLine("#4356: kosmos stop exited \(process.terminationStatus)")
+    if process.terminationStatus != 0 { holdBoardStopped(kosmosHome: kosmosHome) }
     return process.terminationStatus == 0
+}
+
+/// #4356: a stop that failed removes board.stopped on purpose (install/kosmos: a stop it could not
+/// finish must not strand a board it did not stop), and a board it did not start leaves none. On a
+/// computer set not to run a board that is the wrong default: without the marker, launchd's login
+/// item (`board-run`) and the watchdog start the board again at the next login. So the app writes it.
+func holdBoardStopped(kosmosHome: String) {
+    let marker = kosmosHome + "/board.stopped"
+    if FileManager.default.createFile(atPath: marker, contents: Data()) {
+        logLine("#4356: wrote \(marker) so nothing starts the board at the next login")
+    } else {
+        logLine("#4356: could not write \(marker)")
+    }
 }
 
 // MARK: - Starting the board (delegates entirely to `bin/kosmos start`)
@@ -1830,15 +1844,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         return comps.url ?? url
     }
 
-    /// #4356: `kosmos stop` did not stop the board (it did not die, or something else answers on the
-    /// port). Said once, plainly; every later launch tries the stop again (stopBoardIfRunning).
     private func showChoiceNotSaved(_ home: String) {
         showStartupFailureAlert(detail: "Kosmos could not save your choice on this computer, so it will ask again the next time it opens. Check that you can write to \(home).", title: "Kosmos could not save your choice")
     }
 
+    /// #4356: `kosmos stop` did not stop the board (it did not die, or something else answers on the
+    /// port). Said when the person chose Connect; a later launch's retry (stopBoardIfRunning) only logs.
     private func showBoardStillRunning() {
         logLine("#4356: kosmos stop failed; the board may still be running on this computer")
-        showStartupFailureAlert(detail: "Kosmos could not stop the agents' board on this computer, so it may still be running. You can connect to your other computer anyway. Kosmos will try again the next time it opens; restarting this computer also stops it.", title: "Kosmos is still running here")
+        showStartupFailureAlert(detail: "Kosmos could not stop the agents' board on this computer, so it may still be running. You can connect to your other computer anyway. Kosmos will try again the next time it opens, and it will not start again when you restart this computer.", title: "Kosmos is still running here")
     }
 
     /// At every launch of a connect computer: a board left running (a stop that failed, or one started
@@ -1944,8 +1958,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     private func updateRunAgentsItem() {
-        let item = NSApp.mainMenu?.items.first?.submenu?.items.first(where: { $0.action == #selector(AppDelegate.runAgentsHere(_:)) })
-        item?.isHidden = computerMode != .connect
+        let items = NSApp.mainMenu?.items.first?.submenu?.items ?? []
+        items.first(where: { $0.action == #selector(AppDelegate.runAgentsHere(_:)) })?.isHidden = computerMode != .connect
+        // Settings… (Cmd-,) opens the page's own Settings, which on a connect computer is the OTHER
+        // computer's; hidden there, as the plan says this computer's settings are not on that page.
+        items.first(where: { $0.action == #selector(AppDelegate.openSettings(_:)) })?.isHidden = computerMode == .connect
     }
 
     /// #4356: a connect computer's main-frame navigations follow connectLinkDecision. Nothing

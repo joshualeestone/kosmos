@@ -3732,6 +3732,10 @@ _kosmos_mode_keeps_board_off() {
 _kosmos_board_off=no
 if _kosmos_mode_keeps_board_off; then
   _kosmos_board_off=yes
+  # The marker is what launchd's login item (board-run) and the watchdog obey. An update's pause
+  # already wrote it; a run that did not pause (a fresh bin/ over a leftover home) has not, and
+  # without it the login item bootstrapped below would start the board this run just declined to.
+  : > "$KOSMOS_HOME/board.stopped" 2>/dev/null || true
   if [ "$_kosmos_mode_word" = connect ]; then
     step "This computer connects to agents on another computer, so Kosmos is not started here."
   else

@@ -106,6 +106,17 @@ test('#4356: a failed stop is said, and every connect launch stops a board left 
   assert.match(body('private func stopBoardIfRunning()'), /!FileManager\.default\.fileExists\(atPath: home \+ "\/board\.stopped"\)/);
 });
 
+test('#4356: a stop that failed still leaves board.stopped, so the next login does not start the board', () => {
+  const at = SRC.indexOf('func stopBoard(kosmosHome: String) -> Bool');
+  assert.match(SRC.slice(at, SRC.indexOf('\n}\n', at)), /if process\.terminationStatus != 0 \{ holdBoardStopped\(kosmosHome: kosmosHome\) \}/);
+  const hold = SRC.slice(SRC.indexOf('func holdBoardStopped(kosmosHome: String)'));
+  assert.match(hold, /let marker = kosmosHome \+ "\/board\.stopped"\n\s+if FileManager\.default\.createFile\(atPath: marker/);
+});
+
+test('#4356: Settings (the other computer\'s, on a connect computer) is hidden with Run agents shown', () => {
+  assert.match(body('private func updateRunAgentsItem()'), /#selector\(AppDelegate\.openSettings\(_:\)\) \}\)\?\.isHidden = computerMode == \.connect/);
+});
+
 test('#4356: Run agents refuses until every stop of ours has finished; a count, so overlapping stops cannot clear each other', () => {
   assert.match(SRC, /private var stopsInFlight = 0/);
   assert.equal((SRC.match(/stopsInFlight \+= 1/g) || []).length, (SRC.match(/stopsInFlight -= 1/g) || []).length, 'a stop that raises the count and never lowers it (or the reverse)');
@@ -146,7 +157,7 @@ test('#4356: a connect computer keeps its window to Kosmos Plus; a run computer 
 test('#4356: the way back is this Mac\'s own menu, shown only on a connect computer', () => {
   assert.match(SRC, /let runAgentsItem = NSMenuItem\(title: "Run agents on this computer",\n\s+action: #selector\(AppDelegate\.runAgentsHere\(_:\)\),/);
   assert.match(SRC, /runAgentsItem\.isHidden = true/);
-  assert.match(body('private func updateRunAgentsItem()'), /item\?\.isHidden = computerMode != \.connect/);
+  assert.match(body('private func updateRunAgentsItem()'), /#selector\(AppDelegate\.runAgentsHere\(_:\)\) \}\)\?\.isHidden = computerMode != \.connect/);
   const back = body('@objc func runAgentsHere(_ sender: Any?)');
   assert.match(back, /guard writeComputerMode\(\.run, kosmosHome: home\) else \{/);
   assert.ok(back.indexOf('writeComputerMode(.run') < back.indexOf('loadBoard()'), 'the board starts before the choice is saved, so the next launch stops it again');
