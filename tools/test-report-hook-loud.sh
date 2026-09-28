@@ -26,7 +26,7 @@ bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 HOOK="$(cd "$(dirname "$0")/.." && pwd)/install/kosmos-report-hook.sh"
 [ -r "$HOOK" ] || { echo "FAIL  $HOOK not found"; exit 1; }
 
-T="$(mktemp -d)"
+T="$(mktemp -d "${TMPDIR:-/tmp}/report-hook-loud.XXXXXXXXXX")"
 trap 'rm -rf "$T"' EXIT
 
 # A CLI that speaks the verb and delivers. The `report` probe must mention

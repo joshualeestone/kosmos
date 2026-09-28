@@ -22,7 +22,7 @@ FAILS=0
 ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 
-SB="$(mktemp -d)"
+SB="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-codexhome.XXXXXXXXXX")"
 DEFAULT_HOME="$SB/default-codex"   # where auth lives (defaultAgentCodexHome, via the test seam)
 LEAK_HOME="$SB/leaked-codex"       # the tmux server-global CODEX_HOME the pane would inherit -- WRONG
 trap 'rm -rf "${SB:-}"' EXIT

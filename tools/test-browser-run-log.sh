@@ -8,7 +8,7 @@ passes=0
 ok()  { printf 'PASS: %s\n' "$1"; passes=$((passes+1)); }
 bad() { printf 'FAIL: %s\n' "$1"; fails=$((fails+1)); }
 
-TMP="$(mktemp -d)"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/browser-run-log.XXXXXXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
 # --- it records a run, with the variable #1079 is about -----------------------

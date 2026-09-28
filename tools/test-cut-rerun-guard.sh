@@ -13,7 +13,7 @@ fails=0
 ok()  { echo "  PASS  $1"; }
 bad() { echo "  FAIL  $1"; fails=$((fails + 1)); }
 
-WORK="$(mktemp -d)"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/cut-rerun-guard.XXXXXXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 # A scratch repo with one file that passes alone and one that fails alone.

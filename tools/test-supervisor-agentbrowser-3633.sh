@@ -17,7 +17,7 @@
 # The "installed" state is made by the real ensureInstalled/ensureShell with their
 # download/unpack/prove seams stubbed, so the markers are exactly what the code
 # checks, and no browser is downloaded.
-AGENT_WORKFORCE_DATA="$(mktemp -d)"; export AGENT_WORKFORCE_DATA
+AGENT_WORKFORCE_DATA="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-agentbrow.XXXXXXXXXX")"; export AGENT_WORKFORCE_DATA
 trap 'rm -rf "$AGENT_WORKFORCE_DATA" "${SB1:-}" "${SB2:-}" "${SB3:-}" "${SB4:-}" "${SB5:-}"' EXIT
 
 set -u
@@ -83,7 +83,7 @@ run_claude() {
 }
 
 # --- Arm 1: installed -> --mcp-config <file>, before the permissions flag ------
-SB1="$(mktemp -d)"; make_sandbox "$SB1"
+SB1="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-agentbrow.XXXXXXXXXX")"; make_sandbox "$SB1"
 if fake_install "$SB1"; then ok "the fake install marked the server and this Mac's shell installed"; else bad "the fake install failed"; fi
 run_claude "$SB1"
 A="$SB1/new-session.args"
@@ -99,7 +99,7 @@ nxt="$(grep -A2 -x -- '--mcp-config' "$A" | sed -n 3p)"
 if [ "$nxt" = "--dangerously-skip-permissions" ]; then ok "installed: a flag follows the config path, so the variadic list ends there"; else bad "installed: after the config path came '$nxt'"; fi
 
 # --- Arm 2: not installed -> no flag ------------------------------------------
-SB2="$(mktemp -d)"; make_sandbox "$SB2"
+SB2="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-agentbrow.XXXXXXXXXX")"; make_sandbox "$SB2"
 run_claude "$SB2"
 A="$SB2/new-session.args"
 if [ -s "$A" ]; then ok "not installed: the supervisor still launched the agent"; else bad "not installed: new-session never reached: $(tail -3 "$SB2/out.log")"; fi
@@ -109,14 +109,14 @@ if grep -qx -- '--mcp-config' "$A"; then bad "not installed: --mcp-config was pa
 if [ -e "$SB2/runners/playwright-mcp" ]; then bad "not installed: the launch path started an install: $(ls -A "$SB2/runners/playwright-mcp")"; else ok "not installed: the launch path did not start an install"; fi
 
 # --- Arm 3: installed but opted out -> no flag ---------------------------------
-SB3="$(mktemp -d)"; make_sandbox "$SB3"
+SB3="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-agentbrow.XXXXXXXXXX")"; make_sandbox "$SB3"
 fake_install "$SB3" || bad "arm 3: the fake install failed"
 run_claude "$SB3" KOSMOS_AGENT_BROWSER=off
 A="$SB3/new-session.args"
 if [ -s "$A" ] && ! grep -qx -- '--mcp-config' "$A"; then ok "KOSMOS_AGENT_BROWSER=off: launched with no --mcp-config"; else bad "opt-out: $(tr '\n' ' ' < "$A" 2>/dev/null)"; fi
 
 # --- Arm 4: installed, opted out by the file -> no flag -------------------------
-SB4="$(mktemp -d)"; make_sandbox "$SB4"
+SB4="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-agentbrow.XXXXXXXXXX")"; make_sandbox "$SB4"
 fake_install "$SB4" || bad "arm 4: the fake install failed"
 : > "$SB4/runners/playwright-mcp/off"
 run_claude "$SB4"
@@ -124,7 +124,7 @@ A="$SB4/new-session.args"
 if [ -s "$A" ] && ! grep -qx -- '--mcp-config' "$A"; then ok "opt-out file: launched with no --mcp-config"; else bad "opt-out file: $(tr '\n' ' ' < "$A" 2>/dev/null)"; fi
 
 # --- Arm 5: installed, with a model -> the model launch line carries the flag too ---
-SB5="$(mktemp -d)"; make_sandbox "$SB5"
+SB5="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-agentbrow.XXXXXXXXXX")"; make_sandbox "$SB5"
 fake_install "$SB5" || bad "arm 5: the fake install failed"
 MODEL_ARG=sonnet run_claude "$SB5"
 A="$SB5/new-session.args"

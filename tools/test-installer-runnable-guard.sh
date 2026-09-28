@@ -15,7 +15,7 @@ fail() { echo "FAIL  $1"; fails=$((fails + 1)); }
 
 # 1. THE CLASS, demonstrated with a control that can produce the dangerous answer:
 #    a directory with the execute bit passes bare [ -x ] but not [ -f ] && [ -x ].
-_td="$(mktemp -d)"; mkdir -p "$_td/kosmos"; chmod +x "$_td/kosmos"
+_td="$(mktemp -d "${TMPDIR:-/tmp}/installer-runnable-g.XXXXXXXXXX")"; mkdir -p "$_td/kosmos"; chmod +x "$_td/kosmos"
 if [ -x "$_td/kosmos" ]; then pass "a +x directory passes bare [ -x ] (the bug this card is about)"
 else fail "control: [ -x DIR ] should be true on a +x directory, so the fix below means something"; fi
 if [ -f "$_td/kosmos" ] && [ -x "$_td/kosmos" ]; then
@@ -63,7 +63,7 @@ fi
 # 3. CONTROL: the scan can produce the dangerous answer for EACH form it claims
 #    to cover -- an unquoted positive AND a negated test both get flagged. This
 #    is what proves the widened scan is not vacuous for a form.
-_ctl="$(mktemp)"
+_ctl="$(mktemp "${TMPDIR:-/tmp}/installer-runnable-g.XXXXXXXXXX")"
 {
   printf '  if [ -x /opt/some/bin/thing ]; then :; fi\n'
   printf '  if [ ! -x "$SOME/bin/thing" ]; then :; fi\n'
