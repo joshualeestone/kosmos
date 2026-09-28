@@ -59,9 +59,11 @@ const DEFAULT_MODEL = Object.freeze({ gemini: 'gemini-2.5-flash', grok: 'grok-4.
 /* The env var each CLI reads its API key from (the Mac supervisor's names). */
 const KEY_VAR = Object.freeze({ gemini: 'GEMINI_API_KEY', grok: 'XAI_API_KEY' });
 /* #4426: grok's claude-compat reads the person's own Claude Code setup unless each cell is off
-   (Grok's docs, [compat.claude]: env > config.toml > default on). Off, a grok agent runs on its
-   AGENTS.md and its own hooks only. The Mac supervisor's grok launch sets the same list; a test
-   in create.test.js pins the two equal. */
+   (Grok's docs, [compat.claude]: env > config.toml > default on). Off, it no longer loads the
+   person's ~/.claude CLAUDE.md, skills, rules, ~/.claude.json MCP servers or ~/.claude hooks.
+   Grok still reads a plain CLAUDE.md in the agent's own working folder (its docs: those "stay
+   recognized"), and whatever the grok home itself configures. The Mac supervisor's grok launch
+   sets the same list; a test in create.test.js pins the two equal. */
 const GROK_CLAUDE_COMPAT_OFF = Object.freeze({
   GROK_CLAUDE_HOOKS_ENABLED: '0',
   GROK_CLAUDE_AGENTS_ENABLED: 'false',

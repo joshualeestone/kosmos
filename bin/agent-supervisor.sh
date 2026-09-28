@@ -688,9 +688,11 @@ if [ -z "$adopt" ]; then
     # ~/.grok/hooks report hook still fires with this set). #4426: the other four
     # claude-compat cells are off too, or the agent loads the person's own
     # ~/.claude/CLAUDE.md, skills, rules and ~/.claude.json MCP servers on top of its
-    # AGENTS.md (measured with `grok inspect`: 84 live [claude] entries, 0 with these
-    # set). Same list as win32keyed.js GROK_CLAUDE_COMPAT_OFF; a test pins the two
-    # equal. The default account reads
+    # AGENTS.md (one snapshot on the dev Mac, grok 1.0.41: `grok inspect` went from 84
+    # live [claude] entries to 0). A plain CLAUDE.md in the agent's own folder still
+    # loads (grok's docs). An agent ADOPTED at board start keeps the env it launched
+    # with, so a running grok agent gets this at its next launch. Same list as
+    # win32keyed.js GROK_CLAUDE_COMPAT_OFF; a test pins the two equal. The default account reads
     # ~/.grok, exported below as GROK_HOME (#3391).
     # #3391 accounts slice: a PER-ACCOUNT grok agent's account home is in GROK_HOME
     # (read VERBATIM as the storage root, unlike gemini). Its key lives in the mode-600

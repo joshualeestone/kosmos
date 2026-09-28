@@ -13,7 +13,17 @@ The list lives once in JS (`GROK_CLAUDE_COMPAT_OFF`). A test pins the supervisor
 - Today's launch (hooks off only): 84 live `[claude]` entries in `grok inspect`, including `~/.claude/Claude.md` (~13.7k tokens) and every `~/.claude` skill.
 - With the four extra cells off: 0 live, 96 `[disabled]`.
 - Grok's docs say "generic top-level CLAUDE.md stay recognized" with `agents=false`. So I measured rather than assumed: the home `~/.claude/Claude.md` IS disabled.
-- What remains listed (the discord MCP, the code-improver agent, the untagged hooks) comes from this Mac's own `~/.grok` config, not Claude compat. A Kosmos agent runs under its own GROK_HOME.
+- What remains listed (the discord MCP, the code-improver agent, the untagged hooks) comes from this Mac's own `~/.grok` config, not Claude compat.
+  - Out of scope here: a PER-ACCOUNT agent runs under its own GROK_HOME.
+  - A DEFAULT-account agent runs under the person's `~/.grok`, so what they configured there still applies. That is grok's own home, not Claude's.
+
+## Review round 1 (opus, blind): 0 BLOCKERs, 2 WARNINGs, 4 NITs
+- WARNING: a running grok agent is adopted at board start with its old env. KEPT, disclosed: it takes effect at the agent's next launch. A relaunch-on-upgrade path for grok (like #4353 for agy) is a bigger change than this card. Noted in the supervisor comment and on the PR.
+- WARNING: comments said "AGENTS.md and its own hooks only", but a plain CLAUDE.md in the agent's folder still loads. Fixed the wording in win32keyed.js and the supervisor.
+- NIT: "84" read as a standing fact; now worded as a snapshot. Fixed.
+- NIT: my plan said every agent has its own GROK_HOME; a default-account agent does not. Fixed.
+- NIT: create.js "only its own report hooks" had the same caveat. Fixed.
+- NIT: the test regex would count a commented-out `-e` line; hooks '0' vs 'false'. KEPT: '0' was already in use and was measured working (the report hook still fires, 0 live [claude] hooks); a comment inside the tmux command line is not realistic.
 
 ## Rejected
 - A per-agent opt-in to keep the person's Claude setup: nobody has asked for it, and it is reversible later.
