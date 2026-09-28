@@ -199,8 +199,8 @@ func resolveInstall(config: KosmosInstallConfig?) throws -> ResolvedInstall {
 //   both       runs agents, as run does (the app, the installer and updates treat it as run), and
 //              first run ends at Kosmos Plus sign-in (Josh's third button, 10:31 on the card).
 //   anything else, or a file that cannot be read: UNREADABLE. The app asks again (the first screen);
-//   it never quietly becomes one of the two. The installer, which cannot ask, leaves the board as
-//   it was.
+//   it never quietly becomes one of the three. The installer, which cannot ask, does not start the
+//   board (an update's pause stops it); the app starts it when the person answers run or both.
 enum ComputerMode: String {
     case unset, run, connect, both, unreadable
 }
@@ -1404,6 +1404,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Refresh now, then on a repeating timer well inside a11ystatus's staleness
         // window (5 min) so the first-run screen always polls a fresh verdict.
         spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-axcheck")
+        a11yTimer?.invalidate()   // #4356: callable again after a switch back to run; never two timers
         a11yTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             self?.spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-axcheck")
         }
@@ -1441,6 +1442,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         checkScanRequest()
         // 1.5s: fast enough that a grant button feels like it fired the prompt, cheap
         // enough (a fileExists on two paths) to run continuously.
+        promptRequestTimer?.invalidate()   // #4356: callable again after a switch back to run; never two timers
         promptRequestTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
             self?.checkPromptRequests()
             self?.checkScanRequest()
@@ -1852,6 +1854,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         return comps.url ?? url
     }
 
+    /// #4356: after a run or both answer, the board is started if it is not running. The screen was
+    /// served by the board, but an update can stop it while the screen waits (its pause, and it does
+    /// not start a board for an unreadable choice), leaving the answer on a dead page. `kosmos start`
+    /// on a healthy board only checks it, and it clears board.stopped, which a run computer wants.
+    private func ensureBoardRunning(home: String) {
+        guard let port = resolvedPort ?? modePort else { return }
+        DispatchQueue.global(qos: .utility).async {
+            if case .failed(let why) = startBoard(kosmosHome: home, port: port) { logLine("#4356: start after the choice failed: \(why)") }
+        }
+    }
+
     private func showChoiceNotSaved(_ home: String) {
         showStartupFailureAlert(detail: "Kosmos could not save your choice on this computer, so it will ask again the next time it opens. Check that you can write to \(home).", title: "Kosmos could not save your choice")
     }
@@ -1898,11 +1911,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             // First run carries on either way; a choice that could not be saved is asked again next time.
             if !writeComputerMode(.run, kosmosHome: home) { showChoiceNotSaved(home) }
             computerMode = .run
+            ensureBoardRunning(home: home)
             logLine("#4356: this computer runs agents")
         case "both":
             // Runs agents like run; first run ends at Kosmos Plus sign-in, which the page does itself.
             if !writeComputerMode(.both, kosmosHome: home) { showChoiceNotSaved(home) }
             computerMode = .both
+            ensureBoardRunning(home: home)
             logLine("#4356: this computer runs agents and connects to other computers")
         case "connect":
             guard writeComputerMode(.connect, kosmosHome: home) else {
@@ -3589,6 +3604,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     @objc func openSettings(_ sender: Any?) {
+        // #4356: hidden on a connect computer (updateRunAgentsItem), and refused here too, in case its
+        // Cmd-, still fires: the page's Settings there are the OTHER computer's.
+        guard computerMode != .connect else { NSSound.beep(); return }
         /* ⚠️ THE WINDOW MAY BE HIDDEN. ⌘W (new on this branch) routes through
            `windowShouldClose`, which orders the window out and returns false --
            the app keeps running with no window on screen. Switching a tab on an

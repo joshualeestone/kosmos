@@ -2675,7 +2675,7 @@ _kosmos_mode_keeps_board_off() {
   return 0
 }
 if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
-  if _kosmos_mode_keeps_board_off; then info "making sure Kosmos stays paused for the update"; else info "pausing Kosmos for the update"; fi
+  if _kosmos_mode_keeps_board_off; then info "making sure Kosmos is paused for the update"; else info "pausing Kosmos for the update"; fi
   "$KOSMOS_HOME/bin/kosmos" stop >/dev/null 2>&1 || true
   # Did the stop actually work? A POST-CONDITION of the line above, which is
   # why it needs the binary to exist. Fresh installs get their own check far
@@ -3731,6 +3731,11 @@ fi
 # app's reader does.
 # Decided once, here, and read again by the summary at the end, so every line this run prints
 # about the board agrees with what it did.
+# The file was read once, before the pause, for everything this run SAYS. It is read again here for
+# one thing only, declining a start: a person who picks Connect on the first screen while this update
+# runs must not have their board started by it. Declining is the safe direction; the reverse change
+# (Connect to Run agents) is the app's to start (runAgentsHere, ensureBoardRunning).
+if [ "$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" = connect ]; then _kosmos_mode_file=yes; _kosmos_mode_word=connect; fi
 _kosmos_board_off=no
 if _kosmos_mode_keeps_board_off; then
   _kosmos_board_off=yes
@@ -4021,7 +4026,9 @@ if [ "$_board_ok" = yes ]; then
         # the churn, never worsens it. (Bootstrap RunAtLoad is real launchd, skipped
         # under the sandbox above, so this path is verified on a real box, not here.)
         # #4356: not on a computer that connects elsewhere; restart would clear board.stopped.
-        [ "$_kosmos_board_off" = yes ] || "$KOSMOS_HOME/bin/kosmos" restart >/dev/null 2>&1 || true
+        # (and read once more, as above, only to decline: Connect picked during this run)
+        [ "$_kosmos_board_off" = yes ] || [ "$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" = connect ] \
+          || "$KOSMOS_HOME/bin/kosmos" restart >/dev/null 2>&1 || true
       fi
     fi
   else

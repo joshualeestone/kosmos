@@ -125,6 +125,21 @@ test('#4356: a stop that failed still leaves board.stopped, so the next login do
   assert.match(hold, /let marker = kosmosHome \+ "\/board\.stopped"\n\s+if FileManager\.default\.createFile\(atPath: marker/);
 });
 
+test('#4356: a run or both answer starts the board if an update stopped it while the screen waited', () => {
+  const chose = body('func pageChoseMode(_ body: Any)');
+  assert.equal((chose.match(/ensureBoardRunning\(home: home\)/g) || []).length, 2, 'run and both each make sure the board is up');
+  assert.match(body('private func ensureBoardRunning(home: String)'), /startBoard\(kosmosHome: home, port: port\)/);
+});
+
+test('#4356: Settings refuses on a connect computer even from its key equivalent', () => {
+  assert.match(body('@objc func openSettings(_ sender: Any?)'), /guard computerMode != \.connect else \{ NSSound\.beep\(\); return \}/);
+});
+
+test('#4356: the timers restart cleanly after a switch back to run', () => {
+  assert.match(body('private func startPromptRequestWatcher()'), /promptRequestTimer\?\.invalidate\(\)/);
+  assert.match(body('private func startA11yTrustChecks()'), /a11yTimer\?\.invalidate\(\)/);
+});
+
 test('#4356: Settings (the other computer\'s, on a connect computer) is hidden with Run agents shown', () => {
   assert.match(body('private func updateRunAgentsItem()'), /#selector\(AppDelegate\.openSettings\(_:\)\) \}\)\?\.isHidden = computerMode == \.connect/);
 });
