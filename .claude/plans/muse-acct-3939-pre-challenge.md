@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: muse-acct-3939
-diff_hash: e8105a3f80ec5ecca866726dd5c812fdbe2d2f098639eee94f5faae149914fb8
+diff_hash: b5e89e3d1d17938e9da8a2cf24f696ff743caaef9055490002e93cdf6475af66
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-28T04:45:28Z
+timestamp: 2026-09-28T06:02:32Z
 iterations: 13
 converged: true
 ---
@@ -14,8 +14,8 @@ converged: true
 
 **Iterations:** 13
 **Converged:** Yes, at iteration 13 (opus): 0 BLOCKERs, 0 WARNINGs; its two nits were a test-only arm and a
-comment move (no behaviour change). Final validation passed (run 7): 10997 tests, 0 fail, type-check, lint, build,
-the browser-check surface gate (both mapped checks overridden by name, each run and passing on this tree) and
+comment move (no behaviour change). Final validation passed after the 2026-09-28 rebase over #4281/#4299 (a conflict in acctFlowPaint, both kept): 11096 tests, 0 fail, type-check, lint, build,
+the browser-check surface gate (three mapped checks, including #4271's new one, overridden by name, each run and passing on this tree) and
 bc-surface-map; subdir audit rc=0. Runs 1 to 6 were red for reasons outside the diff, recorded in the plan and
 the handoff: a real LaunchAgent written mid-run by another process, my own wrong trailer names (fixed), and three
 unrelated flakes (#3812, contention, #4297), each passing alone.
