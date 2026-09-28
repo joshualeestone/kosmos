@@ -7214,10 +7214,6 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
    something to say; the region itself is never hidden (a live region must stay in the tree to be heard).
    Its place in the rail head is set with the consolidated rules (the head wraps, the notice takes a line). */
 .alist-pjn:not(:empty) { padding: 6px 0 2px; }
-/* #3939 slice 3c-2 (review rounds 3 and 4): the line beside the Add a provider picker is never hidden either,
-   so it is heard the first time it speaks; it takes room only while it has something to say (the reset
-   gives every element no margin, so the gap is added here, not taken away). */
-.acct-add-pick-say:not(:empty) { margin: 10px 0 0; }
 .pnotice { display: flex; gap: 10px; align-items: flex-start; padding: 13px 15px; border-radius: 10px;
   background: var(--k-sunk, rgba(20,22,26,.05)); border: 1px solid var(--k-rule); margin: 0 0 12px; }
 .pn-b { flex: 1 1 auto; min-width: 0; }
@@ -11796,10 +11792,6 @@ window.kosmosMeasureScrollbarWidth();
         <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
         <option value="mistral" disabled>Mistral &middot; coming soon</option>
       </select>
-      <!-- #3939 slice 3c-2 (review round 1): what Sign in again on the Meta Muse row says when it cannot open
-           Meta's step, and (round 9) what picking Meta says while a Claude sign-in runs. Beside the picker, so it is
-           on screen whichever step shows; announced (role=status). -->
-      <p class="acct-help acct-add-pick-say" id="acct-add-pick-say" role="status" aria-live="polite"></p>
       <!-- #2234 (Josh 2026-09-05, his words for the button): help for choosing a provider. It links to
            a STABLE help URL on installkosmos.com, never to the help itself: the site redirects it to the
            current help (a written page today, a video later), so the help can change with no release. -->
@@ -22187,15 +22179,11 @@ function orderProviderOptions(selectId) {
 function acctProvider(a) {
   const p = a && typeof a.provider === 'string' ? a.provider.toLowerCase() : '';
   if (p === 'antigravity' || (a && a.authMode === 'antigravity')) return 'antigravity';
-  /* #3939 slice 3c-2: Meta Muse's row ('meta', authMode 'muse') has no key and no folder either. Without
-     this it fell to 'anthropic' below and was offered as a Claude account in the create form. */
-  if (p === 'meta' || (a && a.authMode === 'muse')) return 'meta';   // the row, and the menu's own 'meta' value
   return Object.prototype.hasOwnProperty.call(ACCT_KEYED_ROUTE, p) ? p : 'anthropic';
 }
 /* #3566: the screen's word for a keyed provider id ('openai' -> 'OpenAI'). */
 function switchKeyedWord(p) {
   if (p === 'antigravity') return 'Gemini (Google subscription)';   // #3568
-  if (p === 'meta') return 'Meta Muse';   // #3939 slice 3c-2: never the OpenAI fallback below
   return p === 'google' ? 'Gemini' : p === 'xai' ? 'Grok' : 'OpenAI';
 }
 /* #3566: an OpenAI sentence re-said for the picker's provider, so "OpenAI sign-in" becomes
@@ -22680,21 +22668,6 @@ async function paintAccounts(opts) {
         + 'title="' + esc('Kosmos stops listing it here. Antigravity stays signed in on this computer and its agents keep working, so it comes back the next time Kosmos checks Antigravity.') + '">Remove</button>'
         + '</div></div>';
     }
-    /* #3939 slice 3c-2: Meta Muse, signed in through Muse Code's own sign-in (on a Mac, the Keychain).
-       Like the Gemini subscription row above: no folder, no key, none of a Claude row's actions. Only
-       Sign in again, which opens Add a provider on Meta's step. No Remove: Kosmos has nothing of its own
-       to forget, and signing Muse out would touch a credential every Muse run on this Mac shares. */
-    if (a && a.authMode === 'muse') {
-      // True of all three ways the row appears (round 1): Muse's own record, Kosmos's sign-in, a turn that worked.
-      const why = 'Muse Code is signed in to Meta as far as Kosmos knows: from Kosmos\'s own sign-in, a turn that worked, or Muse Code\'s own record. Kosmos does not check it by itself; a turn Meta refuses, or signing in again, updates it.';
-      return '<div class="acct-box" data-muse-row="1"><div class="acct-box-top"><div class="acct-who"><b>Meta account</b>'
-        + '<span class="acct-tag"> through Muse Code on this computer</span></div>'
-        + '<span class="acct-unknown" title="' + esc(why) + '"><span class="dot" aria-hidden="true"></span>Signed in<span class="vh"> (' + esc(why) + ')</span></span></div>'
-        + '<div class="acct-actions">'
-        + '<button class="acct-reauth" type="button" data-muse-reauth="1" aria-label="Sign in again to Meta through Muse Code" '
-        + 'title="' + esc('Opens Meta\'s sign-in again, the same way as adding it.') + '">Sign in again</button>'
-        + '</div></div>';
-    }
     /* #540: an OpenAI account signed in with a key has no email; codex's
        own `login status` names it by the key's last characters, so the row
        does the same. Never the key. */
@@ -23158,11 +23131,6 @@ async function paintAccounts(opts) {
       const step = document.getElementById('acct-gemini-sub-step');
       if (m && step) { step.hidden = false; m.hidden = false; m.textContent = 'Kosmos could not start the sign-in just now. Try again.'; }
     }); });
-  }
-  /* #3939 slice 3c-2: the Meta Muse row's Sign in again. */
-  for (const btn of box.querySelectorAll('[data-muse-reauth]')) {
-    // A throw is said where the person is looking, not lost (round 1, as Gemini's round 19).
-    btn.addEventListener('click', (ev) => { acctMuseSignInAgain(ev).catch(() => acctAddPickSay('Kosmos could not open Meta\'s sign-in just now. Try again.')); });
   }
   for (const btn of box.querySelectorAll('[data-agy-forget]')) {
     /* Two presses, like Disconnect: the first arms (danger style, and the name a screen reader
@@ -23670,9 +23638,6 @@ function acctFlowPaint(st) {
   flow.hidden = true;
   codeRow.hidden = true;
   btn.disabled = false;
-  /* #3939 slice 3c-2 (review round 4): the sign-in this flow ran has ended, so the line beside the picker
-     no longer asks the person to finish or stop it. */
-  { const say = document.getElementById('acct-add-pick-say'); if (say && say.textContent === MUSE_BUSY) acctAddPickSay(''); }
   if (focusWasInFlow && phase !== 'connected') acctFocusAfterFlow(btn);
   if (phase === 'connected') {
     /* kosmos#977: say the STATE, not where to go looking for it. "The new
@@ -24099,7 +24064,6 @@ function acctClaudeChoose(which) {
 function acctPick(which, opts) {
   const sel = document.getElementById('acct-provider-pick');
   if (sel.value !== which) sel.value = which;
-  acctAddPickSay('');   // #3939 slice 3c-2: a choice ends what the line beside the picker said (round 3)
   acctMuseShow(which === 'meta');   // #3939: Meta Muse's step, or put away for any other choice
   document.getElementById('acct-claude-flow').hidden = which !== 'claude';
   document.getElementById('acct-openai-flow').hidden = which !== 'openai';
@@ -24167,19 +24131,6 @@ document.getElementById('acct-provider-pick').addEventListener('change', (e) => 
   const which = e.target.value;
   /* #3939: Meta Muse goes through acctPick like every live provider (round 3: one rule for putting the
      others away, not a second copy of it here). */
-  /* #3939 slice 3c-2 (review round 9): Meta picked while a Claude sign-in runs would be put away, and its
-     sign-in stopped, by that sign-in's next poll (acctFlowPaint puts Claude back). Stay on Claude and say so,
-     as the Meta row's Sign in again does. */
-  if (which === 'meta' && frConnActive((ACCT_FLOW_LAST || '').split('|')[0])) {
-    acctPick('claude', { focus: false });
-    acctClaudeShowSub();
-    /* Round 10: the logo picker closes after this handler and puts focus back on its own button; place focus
-       on the sign-in's Stop (or code field) after that, as Sign in again does. Round 11: the line is emptied
-       now and written in that later task, so a second pick is a real change and is announced again. */
-    // acctPick above has already emptied the line, so the later write is a real change (announced again).
-    museBusySayLater(0);
-    return;
-  }
   if (which === 'meta' && museOffered()) { acctPick('meta'); return; }
   acctMuseShow(false);
   if (which === 'claude' || which === 'openai' || ACCT_APIKEY_PROVIDERS[which]) { acctPick(which); return; }
@@ -24188,7 +24139,6 @@ document.getElementById('acct-provider-pick').addEventListener('change', (e) => 
   document.getElementById('acct-claude-flow').hidden = true;
   document.getElementById('acct-openai-flow').hidden = true;
   acctApikeyShow(null);
-  acctAddPickSay('');   // #3939 slice 3c-2 (round 5): going back to "Choose a provider" is a choice too
 });
 /* #770: the door opens the dialog; the dialog remembers nothing between
    visits on purpose (choosing a provider is the first thing a person
@@ -25431,16 +25381,6 @@ function acctShowSuccess(accountLabel, goldBox) {
   document.getElementById('acct-success-close').focus();
 }
 let ACCT_ADD_RETURN_FOCUS = null;
-/* #3939 slice 3c-2 (review round 1): each open and close of Add a provider is a new visit, so an answer
-   that lands after the person closed, reopened or chose another provider acts on nothing. The open's
-   own read of /api/muse is kept, so Sign in again waits on it rather than asking twice. */
-let ACCT_ADD_VISIT = 0;
-let ACCT_MUSE_ASKING = null;
-function acctAddPickSay(text) {
-  const p = document.getElementById('acct-add-pick-say');
-  if (!p) return;
-  p.textContent = text || '';   // text only: the region stays in the tree to be heard (round 3)
-}
 function openAcctAdd(ev) {
   // #2802: remember the control that opened this modal so closeAcctAdd can send
   // focus back to it. The Model tab's "Connect an API key" button lives OUTSIDE
@@ -25458,9 +25398,7 @@ function openAcctAdd(ev) {
   }
   ACCT_GROK_REAUTH_DIR = null;   // #3391 part 2: a fresh add is never a sign-in again
   acctApikeyShow(null);  /* #3566: the key step never outlives a visit (it holds a pasted key) */
-  ACCT_ADD_VISIT += 1;
-  acctAddPickSay('');
-  acctMuseShow(false); ACCT_MUSE_ASKING = museAsk();   // #3939: Meta Muse is offered only when this Kosmos says so
+  acctMuseShow(false); museAsk();   // #3939: Meta Muse is offered only when this Kosmos says so
   ACCT_REAUTH_DIR = null;
   ACCT_OPENAI_REAUTH_DIR = null;
   acctReauthChrome(false);
@@ -25482,7 +25420,6 @@ function openAcctAdd(ev) {
   }
 }
 function closeAcctAdd() {
-  ACCT_ADD_VISIT += 1;   // #3939 slice 3c-2: a late answer from this visit acts on nothing
   /* Dismissing mid-confirm (this button, the backdrop, Escape) must not leave a
      disabled Start button behind a stale confirm panel for the next open, so
      the confirm is reset on the way out (#1587 review). */
@@ -26002,8 +25939,6 @@ document.getElementById('acct-grok-sub-cancel').addEventListener('click', () => 
    the code (#3952 boxes), offers a new code when one expires, and stops it. The id it keeps is the one its
    OWN start answered, never one read back from the poll (another tab's start replaces the sign-in, and
    this screen then says so rather than driving the other one). */
-const MUSE_NOT_HERE = 'Meta Muse is not available on this computer just now.';
-const MUSE_BUSY = 'Finish or stop the Claude sign-in first, then sign in to Meta again.';   // round 9: say which
 const MUSE_SAY = {
   starting: 'Starting Muse Code\'s sign-in\u2026',
   code: 'Confirm the code on Meta\'s page. Kosmos carries on by itself once you have.',
@@ -26025,7 +25960,6 @@ async function museAsk() {
     missing = !!(out && out.enabled === true && out.installed === false) && (pjSentence(out.because) || 'Not ready on this computer');
   } catch { on = false; }   // a failed read keeps it "coming soon": today's screen, never a guess
   if (mine !== MUSE_ASK_GEN) return on;
-  if (on) { const say = document.getElementById('acct-add-pick-say'); if (say && say.textContent === MUSE_NOT_HERE) acctAddPickSay(''); }
   /* Only disabled is toggled: the logo combobox re-reads it on open (syncOpts), and drops its "Coming
      soon" pill, but its row name is fixed at build, so the option text stays as it is. */
   const opt = museMetaOption();
@@ -26232,73 +26166,6 @@ async function acctGeminiSignInAgain() {
   step.focus();
   ACCT_AGY_SUB.next = 'open';
   ACCT_AGY_SUB.start();
-}
-/* #3939 slice 3c-2 (review round 12): the ONE delayed "Claude sign-in first" line. It speaks a moment after the
-   step shows (so it is announced, round 7) and checks everything again when it speaks (round 8): the same
-   visit of Add a provider, a Claude sign-in still running, the picker still on Claude. Both the Meta row's Sign
-   in again and Meta picked in the picker use it, so the two can never drift apart again (round 12 found the
-   second copy without the checks). Focus goes to the sign-in's own control in the same task. */
-function museBusySayLater(delayMs) {
-  const visit = ACCT_ADD_VISIT;
-  setTimeout(() => {
-    if (visit !== ACCT_ADD_VISIT) return;
-    if (!frConnActive((ACCT_FLOW_LAST || '').split('|')[0])) return;
-    if ((document.getElementById('acct-provider-pick') || {}).value !== 'claude') return;
-    acctAddPickSay(MUSE_BUSY);
-    acctFocusRunningSignin();
-  }, delayMs);
-}
-/* #3939 slice 3c-2: focus for a running Claude sign-in brought back on screen, by openAcctAdd's own rule: the
-   code field if it shows, else Stop. Never the page behind (#1918): if that control cannot take focus (its panel
-   not painted yet), the picker can. One rule for Sign in again and for Meta picked in the picker (round 10). */
-function acctFocusRunningSignin() {
-  const codeRow = document.getElementById('acct-code-row');
-  const target = codeRow && !codeRow.hidden ? document.getElementById('acct-code') : document.getElementById('acct-cancel');
-  if (target) target.focus();
-  if (document.activeElement !== target) {
-    const trig = document.querySelector('#acct-provider-field .pcombo-trigger') || document.getElementById('acct-provider-pick');
-    if (trig) trig.focus();
-  }
-}
-/* #3939 slice 3c-2: the Meta Muse row's Sign in again. Opens Add a provider and, once this Kosmos says
-   Muse is offered (waiting up to 3 s for the open's own read, as Gemini's does), lands on Meta's step
-   with focus on its Start. The answer acts only on the same visit with nothing chosen meanwhile (review
-   round 1: a close, a reopen or another provider picked in those 3 s is left alone). Not offered: the
-   line beside the picker says so. */
-async function acctMuseSignInAgain(ev) {
-  openAcctAdd(ev);
-  const visit = ACCT_ADD_VISIT;
-  const pickAtOpen = (document.getElementById('acct-provider-pick') || {}).value || '';
-  /* Round 3: a sign-in already under way is kept on screen; Meta's step is not laid over it and the line
-     beside the picker says what to do instead. Round 7: "under way" is decided as openAcctAdd decides it
-     (frConnActive), never from the picker, which the person may have set back to "Choose a provider".
-     Only a Claude sign-in outlives a close (closeAcctAdd stops every other flow), so it is Claude's. */
-  const running = frConnActive((ACCT_FLOW_LAST || '').split('|')[0]);
-  if (running) {
-    /* Round 5: the picker may have been moved off Claude (or emptied) mid-sign-in, hiding its step and
-       Stop. Put it back on screen as acctFlowPaint does while a sign-in runs. */
-    if (pickAtOpen !== 'claude') acctPick('claude', { focus: false });
-    acctClaudeShowSub();
-    /* Round 7: written a moment after the dialog appears, not in the same step, so the region is already
-       in the tree when it speaks and a screen reader announces it. Only for this visit. */
-    /* Round 8: everything is checked again when it speaks, as the other branch checks after its wait: a Stop,
-       the sign-in's end or another provider picked in those 60 ms leaves nothing stale behind. */
-    museBusySayLater(60);
-    /* Round 6: openAcctAdd tried to focus Stop while its step was still hidden, so focus stayed on the page
-       behind the dialog (#1918). Place it now. */
-    acctFocusRunningSignin();
-    return;
-  }
-  const asking = ACCT_MUSE_ASKING || museAsk();
-  const on = await Promise.race([Promise.resolve(asking).catch(() => false), new Promise((r) => setTimeout(() => r(null), 3000))]);
-  const modal = document.getElementById('acct-add-modal');
-  const sel = document.getElementById('acct-provider-pick');
-  if (visit !== ACCT_ADD_VISIT || !modal || modal.hidden || (sel && sel.value !== '')) return;
-  if (on === true || museOffered()) { acctPick('meta'); return; }
-  acctAddPickSay(MUSE_NOT_HERE);
-  // Round 11: focus the picker's visible button (openAcctAdd leaves it on the hidden native select).
-  const trig = document.querySelector('#acct-provider-field .pcombo-trigger');
-  if (trig) trig.focus();
 }
 document.getElementById('acct-gemini-pick-sub').addEventListener('click', () => {
   ACCT_GEMINI_PRESS += 1;
@@ -33951,9 +33818,7 @@ async function paintConnLive() {
        one tab over correctly shows it as needing renewal (the #874 defect on this
        surface). Unverified logins still count, so this never falsely says
        "nothing connected" when logins exist. */
-    /* #3939 slice 3c-2 (round 1): no agent runs on Meta Muse yet (that is slice 3c-3), so its row is not
-       counted as an account "thinking for your agents". */
-    const list = all.filter((a) => acctUsableLogin(a) && !(a && a.authMode === 'muse'));
+    const list = all.filter((a) => acctUsableLogin(a));
     el.textContent = '';
     if (!list.length) {
       // ⚠️ "NOTHING IS CONNECTED YET" IS A CLAIM, and it must be true, not
@@ -33966,12 +33831,9 @@ async function paintConnLive() {
       // Settings > Accounts badge). Said honestly here too, now for
       // either provider.
       const anyUnknown = all.some((a) => acctUnknownLive(a));
-      // #3939 slice 3c-2: a signed-in Meta Muse is not "nothing", and not yet an account agents run on.
-      const museOnly = all.some((a) => a && a.authMode === 'muse' && acctUsableLogin(a));
       el.textContent = anyUnknown
         ? 'We could not check your accounts just now.'
-        : museOnly ? 'Meta Muse is signed in, but no agent can run on it yet.'
-          : 'Nothing is connected yet.';
+        : 'Nothing is connected yet.';
       return;
     }
     const what = list.length === 1
