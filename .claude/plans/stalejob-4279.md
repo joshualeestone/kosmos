@@ -42,6 +42,19 @@ crash-looping today is still somebody's agent; the proof that a job is a leftove
 - The "present, not temp" fixture used this test file, which is temp when the checkout sits in /tmp:
   it is /etc/hosts now.
 
+## Review 2
+
+- BLOCKER, fixed: the temp-root check used the RAW path launchd reports, so `/tmp/../<a live plist>` passed
+  as temp and a live job was booted out (reproduced by the reviewer through the runner seam). Both checks
+  now use the resolved path, and an existing file's realpath; a `..` test pins it (the raw-path mutation
+  reds).
+- The whole-segment prefix check (`/tmpfoo` is not under `/tmp`) was untested; it is `underRoot`, exported
+  and unit-tested (a naive startsWith reds).
+- When the cleanup fails, the refusal now says it was tried ("removing it did not work"), not the old
+  "nothing else left of it".
+- The print format is noted as checked against real output (macOS 26, 2026-09-27); an unmatched format
+  returns null, which falls back to the old refusal (fails closed).
+
 ## Weakest premise
 
 That a real agent's plist never lives in a temp folder. Kosmos writes real plists to

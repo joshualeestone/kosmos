@@ -930,15 +930,27 @@ function tempRoots() {
 /* #4279: whether a LOADED job for a name is a leftover we may boot out, from
    `launchctl print` output. Returns {path, why} or null. Only when launchd names
    the plist it loaded, that plist is not `ours`, and it is gone or in temp. */
+/* #4279: whether p is the root or inside it, by whole segments: /tmpfoo is not under /tmp. */
+function underRoot(p, root) { return p === root || p.startsWith(root + '/'); }
+
 function leftoverJob(printed, ours) {
+  // The first-level `\tpath = ` line, checked against real `launchctl print` output
+  // on macOS 26 (2026-09-27); nested lines carry two tabs.
   const m = /^\tpath = (.+)$/m.exec(String(printed || ''));
   if (!m) return null;
   const loadedFrom = m[1].trim();
   if (!path.isAbsolute(loadedFrom)) return null;
-  if (path.resolve(loadedFrom) === path.resolve(ours)) return null;
-  if (!fs.existsSync(loadedFrom)) return { path: loadedFrom, why: 'its startup file is gone' };
-  const under = (root) => loadedFrom === root || loadedFrom.startsWith(root.endsWith('/') ? root : root + '/');
-  if (tempRoots().some(under)) return { path: loadedFrom, why: 'its startup file is in a temporary folder' };
+  /* Both checks use the NORMALIZED path, never the raw string launchd reports: a
+     `/tmp/../Users/...` spelling would otherwise pass the temp-root prefix test while
+     naming a live plist elsewhere. A file that exists is also realpath'd, so a
+     symlink in temp that points at a live plist outside it is judged by its target. */
+  const resolved = path.resolve(loadedFrom);
+  if (resolved === path.resolve(ours)) return null;
+  if (!fs.existsSync(resolved)) return { path: loadedFrom, why: 'its startup file is gone' };
+  let real = resolved;
+  try { real = fs.realpathSync.native(resolved); } catch { return null; }
+  if (real === path.resolve(ours)) return null;
+  if (tempRoots().some((root) => underRoot(real, root))) return { path: loadedFrom, why: 'its startup file is in a temporary folder' };
   return null;
 }
 /* {name, worldId} for one of our service labels, or null when it is not ours.
@@ -4375,6 +4387,15 @@ function createAgentInner(opts) {
     }
   }
   if (loaded) {
+    const tried = steps.find((s) => s.ok === false && /would not leave/.test(s.label || ''));
+    if (tried) {
+      return {
+        outcome: OUTCOME.REFUSED,
+        because: `something called ${shown} is still set to start on this computer from a leftover file, and removing it did not work. Pick another name for now.`,
+        field: 'name',
+        steps,
+      };
+    }
     return {
       outcome: OUTCOME.REFUSED,
       because: `something called ${shown} is already set to start on this computer, though there is nothing else left of it. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
@@ -5471,6 +5492,7 @@ module.exports = {
   MODELS,
   /* #4279: exported so the leftover-job rule is tested on its own. */
   leftoverJob,
+  underRoot,
   /* #3034: exported so engine/setup-assistant.js reads the CREATED sentinel from
      one source instead of re-declaring the literal 'created' (convention: a
      duplicated fact needs one source or a pin). */

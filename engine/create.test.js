@@ -829,6 +829,7 @@ test('#4279: a bootout that does not take is still a refusal, not a creation', W
   assert.ok(bootedOut(calls), 'precondition: it tried');
   assert.ok(!calls.some(([, a]) => a && a[0] === 'bootstrap'), 'it loaded a second job over one that would not leave');
   assert.ok(r.steps.some((s) => /would not leave/.test(s.label) && s.ok === false), 'the failed removal is not reported');
+  assert.match(r.because, /removing it did not work/, 'the refusal does not say the cleanup was tried');
 });
 
 test('#4279: leftoverJob reads only the first-level path, and only temp or gone counts', () => {
@@ -847,6 +848,18 @@ test('#4279: leftoverJob reads only the first-level path, and only temp or gone 
     assert.equal(temp.path, t);
   } finally { fs.rmSync(t, { force: true }); }
   assert.equal(create.leftoverJob('\tpath = /etc/hosts\n', ours), null, 'present and not temp');
+  // A `..` spelling that starts with a temp root but names a live plist elsewhere is NOT temp.
+  const live = fs.mkdtempSync(nodePath.join(os.homedir(), '.kosmos-4279-live-'));
+  try {
+    const lp = nodePath.join(live, 'com.kosmos.agent.a.plist'); fs.writeFileSync(lp, '');
+    const dotdot = '/tmp/..' + fs.realpathSync.native(lp);
+    assert.equal(create.leftoverJob(`\tpath = ${dotdot}\n`, ours), null, 'a /tmp/.. spelling of a live plist was treated as temp');
+  } finally { fs.rmSync(live, { recursive: true, force: true }); }
+  // A folder that only SHARES a root's letters is not under it.
+  assert.equal(create.underRoot('/tmpfoo/x.plist', '/tmp'), false);
+  assert.equal(create.underRoot('/var/foldersx/x.plist', '/var/folders'), false);
+  assert.equal(create.underRoot('/tmp/x.plist', '/tmp'), true);
+  assert.equal(create.underRoot('/tmp', '/tmp'), true);
   // TMPDIR is not trusted: a present plist in a folder TMPDIR merely POINTS at is not a leftover.
   const persistent = fs.mkdtempSync(nodePath.join(os.homedir(), '.kosmos-4279-'));
   const saved = process.env.TMPDIR;
