@@ -80,6 +80,13 @@ left=$(ps -Awwo pid=,ppid=,command= | awk '$2 == 1' | grep -F -c -- "$proot/" ||
 kill -0 "$owned" 2>/dev/null && ok "a process something alive still owns is left alone (control)" || bad "the guard killed an owned process"
 kill -0 "$outside" 2>/dev/null && ok "a process outside the root is left alone (control)" || bad "the guard killed a process outside the root"
 kill -KILL "$owned" 2>/dev/null
+# An orphan that is on its way out (a child the last test signalled and did not wait for)
+# is not a leak: it is judged only if still there a second after the first look.
+printf '#!/bin/sh\nsleep 0.4\n' > "$proot/fixture/brief.sh"
+( /bin/sh "$proot/fixture/brief.sh" > /dev/null 2>&1 < /dev/null & )
+sleep 0.1
+out=$(leak_process_check "$proot"); rc=$?
+[ "$rc" -eq 0 ] && ok "an orphan that exits within the grace is not reported" || bad "a short-lived orphan was reported as a leak: rc=$rc out=$out"
 out=$(leak_process_check "$proot"); rc=$?
 [ "$rc" -eq 0 ] && ok "no leaked process: clean" || bad "clean process check: rc=$rc out=$out"
 
@@ -95,6 +102,8 @@ case "\$1" in
   list) printf 'PID\tStatus\tLabel\n'; cat "$work/labels" ;;
   print) case "\$2" in
            */com.kosmos.agent.leak) printf '{\n\tpath = $lreal/rx/leak.plist\n}\n' ;;
+           */com.kosmos.agent.josh) printf '{\n\tpath = $lreal/sandbox/com.kosmos.agent.josh.plist\n}\n' ;;
+           */com.apple.replaced) printf '{\n\tpath = $lreal/other.plist\n}\n' ;;
            */com.kosmos.agent.real) printf '{\n\tpath = $HOME/Library/LaunchAgents/com.kosmos.agent.real.plist\n}\n' ;;
          esac ;;
   bootout) echo "\$2" >> "$work/booted" ;;
@@ -111,6 +120,21 @@ grep -q 'com.kosmos.agent.real' "$work/booted" 2>/dev/null && bad "a job outside
 printf -- '-\t0\tcom.apple.x\n-\t0\tcom.kosmos.agent.real\n' > "$work/labels"
 out=$(PATH="$stub:$PATH" leak_launchd_check "$work/before" "$lroot"); rc=$?
 [ "$rc" -eq 0 ] && ok "no leaked job: clean" || bad "clean launchd check: rc=$rc out=$out"
+
+# A job loaded BEFORE the run that a test REPLACED with one whose plist is under the root
+# (the engine's reinstall path over the operator's own com.kosmos.agent.josh).
+printf -- '-\t0\tcom.apple.x\n-\t0\tcom.kosmos.agent.josh\n' > "$work/labels"
+PATH="$stub:$PATH" leak_labels_snapshot > "$work/before-josh"
+: > "$work/booted"
+out=$(PATH="$stub:$PATH" leak_launchd_check "$work/before-josh" "$lroot"); rc=$?
+if [ "$rc" -eq 1 ] && grep -qx "gui/$(id -u)/com.kosmos.agent.josh" "$work/booted" && printf '%s\n' "$out" | grep -q 'REPLACED'; then
+  ok "a pre-loaded com.kosmos job replaced by one under the root fails, is booted out, and says it replaced a job"
+else bad "replaced pre-loaded job: rc=$rc out=$out booted=$(cat "$work/booted")"; fi
+# Control: a pre-loaded job of anyone else's is not judged (only com.kosmos.* and new ones are).
+printf -- '-\t0\tcom.apple.replaced\n' > "$work/labels"
+PATH="$stub:$PATH" leak_labels_snapshot > "$work/before-other"; : > "$work/booted"
+out=$(PATH="$stub:$PATH" leak_launchd_check "$work/before-other" "$lroot"); rc=$?
+[ "$rc" -eq 0 ] && [ ! -s "$work/booted" ] && ok "a pre-loaded job outside com.kosmos is not judged (control)" || bad "a pre-loaded non-kosmos job was judged: rc=$rc out=$out"
 
 # A new job whose plist path cannot be read is named on a note line, not passed silently.
 printf -- '-\t0\tcom.apple.x\n-\t0\tcom.kosmos.agent.nopath\n' > "$work/labels"

@@ -17,7 +17,8 @@
 #
 # ⚠️ WHAT IT DOES NOT SEE: a job or process that never touched the run's temp root
 # (a load generator started with no fixture path, a job bootstrapped from a plist
-# outside it), a process that names the root only in its ENVIRONMENT (macOS ps cannot
+# outside it), a job loaded before the run and re-pointed by a test, unless it is a
+# `com.kosmos.*` job, a process that names the root only in its ENVIRONMENT (macOS ps cannot
 # read it), a leaked process still parented by something alive, and anything
 # a test file makes when it is run directly, outside run-tests.sh
 # (test-support/tmpscope.js is the fix for that one). An INTERRUPTED run
@@ -42,9 +43,14 @@ leak_plist_path() {
   launchctl print "gui/$1/$2" 2>/dev/null | awk -F' = ' '/^[[:space:]]+path = / { print $2; exit }'
 }
 
-# leak_launchd_check <before-file> <root>: a label loaded since <before-file> whose
-# plist lives under <root> is this run's leak. It is booted out (it would otherwise
-# respawn against a directory about to be removed) and printed.
+# leak_launchd_check <before-file> <root>: a label whose plist lives under <root> is this
+# run's leak. It is booted out (it would otherwise respawn against a directory about to be
+# removed) and printed. Judged: every label loaded since <before-file>, AND every
+# `com.kosmos.*` label that was already loaded, because a test driving the engine's
+# reinstall path can REPLACE the operator's own job (`com.kosmos.agent.josh`, the
+# 8,096-respawn label) with one whose plist is under <root>, and a new-labels-only check
+# never looks at it. <root> is unique to this run, so a plist under it is never someone
+# else's.
 # The path is parsed from `launchctl print` (a `path = ...` line, measured on macOS 26.7);
 # tools/test-test-leak-guard-4273.sh checks that parse against this Mac's real jobs.
 # launchd records a plist's RESOLVED path, and on macOS the temp root is reached
@@ -54,19 +60,26 @@ leak_launchd_check() {
   [ -n "$root" ] && [ -f "$before" ] || return 0
   real=$(cd "$root" 2>/dev/null && pwd -P) || real="$root"
   uid=$(id -u)
-  while IFS= read -r label; do
+  local kind now
+  now=$(leak_labels_snapshot)
+  while IFS=$'\t' read -r kind label; do
     [ -n "$label" ] || continue
     plist=$(leak_plist_path "$uid" "$label")
-    # An unread path cannot be scoped, so it is not judged; but it is SAID, so a change in
-    # launchctl's output shows up as notes instead of a silent clean pass.
-    [ -n "$plist" ] || { echo "note: new launchd job $label: no plist path read, not checked"; continue; }
+    # An unread path cannot be scoped, so it is not judged; but for a NEW job it is SAID,
+    # so a change in launchctl's output shows up as notes instead of a silent clean pass.
+    if [ -z "$plist" ]; then
+      [ "$kind" = new ] && echo "note: new launchd job $label: no plist path read, not checked"
+      continue
+    fi
     case "$plist" in
       "$root"/*|"$real"/*)
         launchctl bootout "gui/$uid/$label" >/dev/null 2>&1 || true
-        echo "launchd job $label (plist $plist): booted out"
+        if [ "$kind" = new ]; then echo "launchd job $label (plist $plist): booted out"
+        else echo "launchd job $label (plist $plist): booted out; it was loaded before the run and a test REPLACED it, so the job it replaced is gone: reinstall it"; fi
         found=1 ;;
     esac
-  done < <(leak_labels_snapshot | LC_ALL=C comm -13 "$before" -)
+  done < <(printf '%s\n' "$now" | LC_ALL=C comm -13 "$before" - | awk '{ print "new\t" $0 }'
+           printf '%s\n' "$now" | LC_ALL=C comm -12 "$before" - | awk '/^com\.kosmos\./ { print "old\t" $0 }')
   return "$found"
 }
 
@@ -85,17 +98,26 @@ leak_process_check() {
   # (measured). -ww stops long command lines being cut. The ENVIRONMENT is not
   # readable: `ps -E` shows none on macOS 26.7, even for this user's own processes
   # (measured), so a child that names the root only in its TMPDIR is not seen.
-  snap=$(ps -Awwo pid=,ppid=,command= 2>/dev/null)
-  while IFS= read -r line; do
-    # `read`, not `set -- $line`: the latter would also glob-expand a `*` in a command.
-    read -r pid ppid cmd <<< "$line"
-    case "$pid$ppid" in ''|*[!0-9]*) continue ;; esac
-    [ "$ppid" = "1" ] || continue
-    case "$line" in *"$root/"*|*"$real/"*|*"=$root "*|*"=$real "*|*"=$root"|*"=$real"|*" $root "*|*" $real "*|*" $root"|*" $real") ;; *) continue ;; esac
-    kill -TERM "$pid" 2>/dev/null || continue
-    echo "process $pid: ${cmd%% *}"
-    found=1
-  done <<< "$snap"
+  # A process is judged only if it is still orphaned and naming the root a second after the
+  # first look: the last test file may have signalled a child it did not wait for, and
+  # that child's own graceful shutdown is not a leak.
+  local cands="" pass
+  for pass in 1 2; do
+    [ "$pass" -eq 2 ] && { [ -n "$cands" ] || break; sleep 1; }
+    snap=$(ps -Awwo pid=,ppid=,command= 2>/dev/null)
+    while IFS= read -r line; do
+      # `read`, not `set -- $line`: the latter would also glob-expand a `*` in a command.
+      read -r pid ppid cmd <<< "$line"
+      case "$pid$ppid" in ''|*[!0-9]*) continue ;; esac
+      [ "$ppid" = "1" ] || continue
+      case "$line" in *"$root/"*|*"$real/"*|*"=$root "*|*"=$real "*|*"=$root"|*"=$real"|*" $root "*|*" $real "*|*" $root"|*" $real") ;; *) continue ;; esac
+      if [ "$pass" -eq 1 ]; then cands="$cands $pid "; continue; fi
+      case "$cands" in *" $pid "*) ;; *) continue ;; esac
+      kill -TERM "$pid" 2>/dev/null || continue
+      echo "process $pid: ${cmd%% *}"
+      found=1
+    done <<< "$snap"
+  done
   if [ "$found" -eq 1 ]; then
     # Three seconds for a load-starved process to finish its own cleanup, then KILL.
     sleep 3
