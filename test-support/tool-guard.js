@@ -105,7 +105,9 @@ function onPath(name, pathVar) {
   for (const dir of String(pathVar || '').split(path.delimiter)) {
     if (!dir) continue;
     const p = path.join(dir, name);
-    try { fs.accessSync(p, fs.constants.X_OK); if (fs.statSync(p).isFile()) return p; } catch { /* next */ }
+    // A regular file with an execute bit, read from a stat: an execute-permission access check
+    // also says yes to a directory (the #1592 trap engine.runnable-not-directory.test.js audits).
+    try { const st = fs.statSync(p); if (st.isFile() && (st.mode & 0o111)) return p; } catch { /* next */ }
   }
   return null;
 }
