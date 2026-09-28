@@ -17594,7 +17594,7 @@ if (require.main === module) {
      every running agy agent now: agy picks up a hooks.json written while it runs, on its next
      turn (measured, #4353). After the refresh above, so the bridge the hook runs is current
      (and nothing is written if it is missing). Only agents with no Kosmos entry yet, and Working/Idle hooks only (the tool
-     hooks wait for the next real launch). Never under the test dry run. Best effort. */
+     hooks wait for a current supervisor's next start). Never under the test dry run. Best effort. */
   if (process.env.AGENT_WORKFORCE_DRY_RUN !== '1') {
     try {
       require('./engine/agyrefresh').refreshAtBoardStart()
