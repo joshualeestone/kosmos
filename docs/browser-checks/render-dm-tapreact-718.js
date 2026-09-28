@@ -192,7 +192,12 @@ function repaint() {
         // closes a bar open on another message. Precondition: one is open right before.
         await midAgent.tap(); await page.waitForTimeout(300);
         const before = (await page.evaluate(openBar, MIN_RXN_TAP_PX)).shown;
-        await page.locator('#d-dmthread .msg.you .msg-bd').nth(2).tap(); await page.waitForTimeout(300);
+        /* The tap lands on the part of your message a person can see: near its bottom-right corner (it sits on the right). The open bar of
+           the agent message above floats over the middle and left of it (#4387 made that visible here: this harness used to
+           show the offline note, which pushed the thread down, until a 200 counted as an answer). */
+        { const own = page.locator('#d-dmthread .msg.you .msg-bd').nth(2); const bb = await own.boundingBox();
+          await own.tap({ position: { x: Math.max(2, bb.width - 6), y: Math.max(2, bb.height - 4) } }); }
+        await page.waitForTimeout(300);
         const own = await page.evaluate(openBar, MIN_RXN_TAP_PX);
         chk(before === 1 && own.shown === 0, `${tag} a tap on your own message opens nothing and closes the open bar`, JSON.stringify({ before, after: own.shown }));
         // A tap outside the thread (the text box) closes it.

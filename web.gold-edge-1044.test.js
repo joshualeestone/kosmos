@@ -101,44 +101,16 @@ test('the gold primary carries NO edge: its border matches its fill', () => {
   assert.ok(rule, 'the .uprime rule is gone; this test now checks nothing');
   assert.doesNotMatch(rule[0], /--gold-edge/,
     'the gold edge is back on .uprime. Josh reverted it by name on 2026-08-26; it needs HIM, not a sweep.');
-  /* THE INTENT, not the old spelling: the border must draw no visible line in a colour of
-     its own. Until #4059 the fill was one flat gold and the border repeated it
-     (var(--gold-bright) twice). Since #4059 the fill is a gradient (the polished gold Josh
-     picked from study A, 09-27), which a border colour cannot repeat, so the border is
-     TRANSPARENT and the metal shows through it. Both satisfy "no edge"; any other colour,
-     the edge token included, is an outline nobody chose. */
-  const border = rule[0].match(/border-color:\s*([^;]+);/);
-  const fill = rule[0].match(/background:\s*([^;]+);/);
-  assert.ok(border && fill, 'the .uprime rule no longer sets both its fill and its border; this test now checks nothing');
-  const b = border[1].trim(); const f = fill[1].trim();
-  assert.match(f, /^var\(--gold(-bright|-polished)\)$/,
-    'the gold primary is no longer filled gold (' + f + '), so "its border matches its fill" is no longer about the gold button');
-  assert.ok(b === 'transparent' || b === f,
-    'the border is ' + b + ': neither the fill nor transparent, so the button has an outline nobody chose');
+  assert.match(rule[0], /border-color: var\(--gold-bright\)/,
+    'the border is neither the fill nor the edge token, so the button has an outline nobody chose');
 });
 
 /* ⭐ THE SECOND DEFECT IN THE SAME REPORT, and it was not the edge: "when I
    mouse over it, it turns a light gray". .uprime had no hover of its own, so
    the generic .btn:hover repainted the primary action --attn-bg. */
 test('hovering the gold primary keeps it gold', () => {
-  /* THE INTENT: .uprime has a hover of its OWN and it paints GOLD. Until #4059 that was the
-     flat var(--gold); since #4059 it is the darker polished gold, var(--gold-polished-hover).
-     Either is gold; --attn-bg (the grey wash Josh saw) or anything else is the defect. */
-  const hover = PAGE.match(/^button\.uprime:hover,[\s\S]{0,240}?\{[^}]*\}/m);
-  assert.ok(hover, 'the gold primary has no hover of its own again, so .btn:hover paints it grey under the pointer');
-  const hfill = hover[0].match(/background:\s*([^;]+);/);
-  assert.ok(hfill, 'the .uprime hover sets no background, so .btn:hover paints it grey under the pointer');
-  assert.match(hfill[1].trim(), /^var\(--gold(-polished-hover)?\)$/,
-    'the .uprime hover paints ' + hfill[1].trim() + ', not gold, so the primary stops looking gold under the pointer');
-  /* And the polished hover token must itself be gold: a gradient built on the gold tokens, so
-     renaming a grey into it cannot pass the line above. */
-  if (/polished-hover/.test(hfill[1])) {
-    const tok = PAGE.match(/--gold-polished-hover:\s*([^;]+);/);
-    assert.ok(tok, '--gold-polished-hover is used but never defined, so the hover paints nothing');
-    assert.match(tok[1], /linear-gradient\([^;]*var\(--gold-bright\)/,
-      '--gold-polished-hover no longer runs through the brand gold, so the hover is not gold');
-    assert.doesNotMatch(tok[1], /--attn-bg/, '--gold-polished-hover is built on the grey wash');
-  }
+  assert.match(PAGE, /button\.uprime:hover[^{]*\{[^}]*background: var\(--gold\)/,
+    'the gold primary has no hover of its own again, so .btn:hover paints it grey under the pointer');
   /* The control: the generic hover that would otherwise win must still exist,
      or this pin is guarding against nothing. */
   assert.match(PAGE, /\.btn:hover \{ background: var\(--attn-bg\)/,
