@@ -543,10 +543,9 @@ function importIntoWorld(base, targetId, picks, opts = {}) {
    same place the read looks. Only the two known values are honoured; any other content
    folds to 'prod' so a corrupt file can never paint a loud STAGING badge on a prod board. */
 function recordedSourceChannel() {
-  try {
-    const raw = fs.readFileSync(path.join(store.ROOT, 'source-channel'), 'utf8').trim().toLowerCase();
-    return raw === 'staging' ? 'staging' : 'prod';
-  } catch { return 'prod'; }
+  // #2969: ONE parser for the stamp, shared with the updater's channel fallback, so the badge and
+  // the pointer the box polls can never read the same file two ways.
+  return updates.readSourceChannelAt(store.ROOT);
 }
 /* #2934: A PROMOTE MOVES NO BYTES, SO THE INSTALL STAMP GOES STALE AND NOTHING CAN
    REWRITE IT. The file above records which pointer this box last FETCHED from, written
@@ -578,7 +577,13 @@ function recordedSourceChannel() {
    predicate returns null, and the box shows STAGING again. That is not a regression of
    this card so much as the honest answer for a real staging subscriber, but anyone
    closing #2969 must decide deliberately what a subscriber sitting on a promoted build
-   should display, rather than discovering it from a reopened #2934. Said on both cards. */
+   should display, rather than discovering it from a reopened #2934. Said on both cards.
+   ✅ DECIDED WHEN #2969 WAS FIXED (2026-09-28): the updater now falls back to the install
+   stamp, so a box installed from staging keeps polling the staging pointer and this badge
+   reads STAGING, even on a build prod has since published, until the next staging build. That
+   is kept on purpose: the box IS subscribed to staging and will take the next staging build
+   before prod does, so STAGING is the true answer to "which builds will this box get". The
+   prod-pointer rung above still serves a box whose environment explicitly names prod. */
 function sourceChannelNow() {
   const recorded = recordedSourceChannel();
   if (recorded !== 'staging') return 'prod';
@@ -630,10 +635,12 @@ function federationLiveNow() {
 }
 
 /* #2036 observability slice (behavior-preserving; changes no channel resolution and moves no
-   bytes). A box INSTALLED from the staging channel but RESOLVING prod has silently lost its
-   staging subscription at login (#2969): the board's launchd job carries no channel, so
-   updateChannel() falls back to prod and the box quietly stops being ahead of prod, with no
-   error -- exactly the silence Josh named as #2036's failure mode. This predicate is the boot
+   bytes). A box INSTALLED from the staging channel but RESOLVING prod is not receiving staging
+   builds. Before #2969 that was the silent loss at login (the board's launchd job carries no
+   channel, and updateChannel() read only the environment). Since #2969 updateChannel() falls
+   back to the install stamp, so the one remaining way into this state is an explicit
+   non-staging channel variable in the board's environment. Still worth a loud line: it is
+   exactly the silence Josh named as #2036's failure mode. This predicate is the boot
    diagnostic's condition, kept PURE so it is testable and so it cannot throw on the listen path.
 
    🔑 IT COMPARES THE RAW INSTALL STAMP, NOT THE BADGE. `recorded` must be recordedSourceChannel()
@@ -672,11 +679,14 @@ function stagingRevertWarningNow() {
    defaults to stderr and exists only as the test seam. */
 function emitStagingRevertWarning(write = (s) => process.stderr.write(s)) {
   if (!stagingRevertWarningNow()) return false;
+  /* #2969: since the updater falls back to this same stamp, the only way left to reach this state
+     is an update-channel variable in the board's environment naming something other than staging,
+     which wins over the stamp by design. So the message names that override, not a lost login. */
   write('Kosmos update check: WARNING -- this box installed from the staging channel '
     + '(source-channel=staging) but is resolving the prod channel, so it is no longer receiving '
-    + 'staging builds (kosmos#2969). The update channel is not carried across login; a durable fix is '
-    + 'tracked in kosmos#2969 and is not yet shipped, and setting the channel only in an interactive shell '
-    + 'does not survive the next login. See kosmos#2969 and kosmos#2036 for status.\n');
+    + 'staging builds. An update-channel variable in this board\'s environment names a channel other '
+    + 'than staging, and it wins over the install stamp (kosmos#2969). Remove it to follow staging '
+    + 'again. See kosmos#2969 and kosmos#2036.\n');
   return true;
 }
 

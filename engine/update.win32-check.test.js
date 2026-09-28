@@ -202,6 +202,61 @@ test('the channel: Windows reads only KOSMOS_UPDATE_CHANNEL; the Mac keeps both 
     'the Mac\'s AGENT_WORKFORCE_ name no longer wins');
 });
 
+/* #2969: the Mac falls back to the install stamp when no channel variable is set. Read through the
+   REAL path (store.ROOT under this file's sandboxed AGENT_WORKFORCE_DATA), the same file setup.sh
+   writes, so the wiring is tested and not just a seam. Josh's laptop, 2026-09-28: installed from
+   staging, polled prod, and said "Up to date." on 0.7.03 with 0.7.05 on staging. */
+test('#2969: with no channel variable the Mac follows its install stamp; an explicit variable still wins; Windows is unchanged', () => {
+  const store = require('./store');
+  const stamp = path.join(store.ROOT, 'source-channel');
+  fs.mkdirSync(store.ROOT, { recursive: true });
+  const withStamp = (content, fn) => {
+    if (content === null) fs.rmSync(stamp, { force: true }); else fs.writeFileSync(stamp, content);
+    try { fn(); } finally { fs.rmSync(stamp, { force: true }); }
+  };
+  withStamp('staging\n', () => {
+    assert.equal(update.updateChannel('darwin', {}), 'staging', 'a staging install with no variable polled prod (the #2969 bug)');
+    assert.equal(update.updateChannel('darwin', { AGENT_WORKFORCE_UPDATE_CHANNEL: '' }), 'staging', 'an empty variable is unset, not a choice');
+    assert.equal(update.updateChannel('darwin', { KOSMOS_UPDATE_CHANNEL: 'prod' }), 'prod', 'an explicit variable wins over the stamp');
+    assert.equal(update.updateChannel('darwin', { AGENT_WORKFORCE_UPDATE_CHANNEL: 'beta' }), 'prod', 'an explicit non-staging value is prod, as before');
+    assert.equal(update.updateChannel('win32', {}), 'prod', 'Windows has no stamp and reads only its variable');
+  });
+  withStamp('  STAGING  ', () => assert.equal(update.updateChannel('darwin', {}), 'staging', 'trimmed and lowercased, as the badge reads it'));
+  for (const content of [null, 'prod\n', 'stagingx', '', 'beta']) {
+    withStamp(content, () => assert.equal(update.updateChannel('darwin', {}), 'prod', JSON.stringify(content) + ' moved a box onto staging'));
+  }
+  /* The seam, and that null restores the real read. */
+  update.setRecordedChannel(() => 'staging');
+  try { assert.equal(update.updateChannel('darwin', {}), 'staging'); } finally { update.setRecordedChannel(null); }
+  assert.equal(update.updateChannel('darwin', {}), 'prod', 'the seam leaked past its reset');
+});
+
+test('#2969: a staging-stamped Mac with no variable FETCHES the staging pointer', async () => {
+  const store = require('./store');
+  const stamp = path.join(store.ROOT, 'source-channel');
+  fs.mkdirSync(store.ROOT, { recursive: true });
+  const saved = { a: process.env.AGENT_WORKFORCE_UPDATE_CHANNEL, k: process.env.KOSMOS_UPDATE_CHANNEL };
+  delete process.env.AGENT_WORKFORCE_UPDATE_CHANNEL; delete process.env.KOSMOS_UPDATE_CHANNEL;
+  update.setPlatform('darwin');
+  let url = '';
+  try {
+    fs.writeFileSync(stamp, 'staging\n');
+    update.resetCache();
+    update.setFetcher(async (u) => { url = u; return { ok: true, json: async () => ({ version: RUNNING }) }; });
+    await update.refresh();
+    assert.match(url, /\/latest-staging\.json$/, 'the look went to ' + url);
+    fs.rmSync(stamp, { force: true });
+    update.resetCache();
+    await update.refresh();
+    assert.match(url, /\/latest\.json$/, 'CONTROL: with no stamp the look is prod');
+  } finally {
+    fs.rmSync(stamp, { force: true });
+    update.setPlatform(null); update.setFetcher(null); update.resetCache();
+    if (saved.a !== undefined) process.env.AGENT_WORKFORCE_UPDATE_CHANNEL = saved.a;
+    if (saved.k !== undefined) process.env.KOSMOS_UPDATE_CHANNEL = saved.k;
+  }
+});
+
 test('the base: KOSMOS_RELEASE_BASE is honoured, and the old name still works and wins', async () => {
   const urls = recordFetches(() => answer({ version: RUNNING }));
   update.setPlatform('darwin');
