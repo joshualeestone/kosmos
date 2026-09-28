@@ -94,10 +94,10 @@ function stubs() {
     const log = path.join(dir, name + '.log');
     const bin = path.join(dir, name);
     fs.writeFileSync(bin, '#!/bin/sh\n{ printf "%s\\n" "$*"; printf "TMUX=%s\\n" "$TMUX"; cat 2>/dev/null; printf "\\n--\\n"; } >> "' + log + '"\n'
-      + (fail === 8 ? 'exit 8\n' : fail ? 'echo "claude-msg: no tmux here" >&2\nexit 3\n' : ''), { mode: 0o755 });
+      + (fail === 8 ? 'exit 8\n' : fail === 7 ? 'exit 7\n' : fail ? 'echo "claude-msg: no tmux here" >&2\nexit 3\n' : ''), { mode: 0o755 });
     return { bin, read: () => { try { return fs.readFileSync(log, 'utf8'); } catch { return ''; } } };
   };
-  return { msg: mk('msg'), failMsg: mk('failmsg', true), busyMsg: mk('busymsg', 8), gh: mk('gh'), failGh: mk('failgh', true), state: path.join(dir, 'state.json') };
+  return { msg: mk('msg'), failMsg: mk('failmsg', true), busyMsg: mk('busymsg', 8), unpaintedMsg: mk('unpaintedmsg', 7), gh: mk('gh'), failGh: mk('failgh', true), state: path.join(dir, 'state.json') };
 }
 
 const ptrs = (prodSha, stagingSha, builtAt, pv = '0.6.99', sv = '0.7.05') => JSON.stringify({
@@ -148,12 +148,20 @@ test('a pane message that does not go is said on the card; a post that goes nowh
   // The pane fails, the card does not: the card says the pane did not get it.
   assert.equal(run([], Object.assign({}, base, { GAP_ALARM_MSG_CMD: s.failMsg.bin, GAP_ALARM_GH_CMD: s.gh.bin })).code, 1);
   assert.match(s.gh.read(), /\(The pane message to test-pane:0\.0 did not go: claude-msg: no tmux here\)/, 'a failed pane message was not said on the card');
-  // Both fail: nothing went, so the clock does not advance and the next run tries again.
+  // Both fail: nothing went, so no channel's clock advances (the failure is recorded for the backoff).
   const s2 = stubs();
   const base2 = Object.assign({}, base, { GAP_ALARM_STATE: s2.state });
   assert.equal(run([], Object.assign({}, base2, { GAP_ALARM_MSG_CMD: '/nonexistent/claude-msg', GAP_ALARM_GH_CMD: '/nonexistent/gh' })).code, 1);
-  assert.equal(fs.existsSync(s2.state), false, 'a failed post advanced the clock');
-  assert.equal(run([], Object.assign({}, base2, { GAP_ALARM_MSG_CMD: s2.msg.bin, GAP_ALARM_GH_CMD: '/nonexistent/gh' })).code, 1);
+  const failed = JSON.parse(fs.readFileSync(s2.state, 'utf8'));
+  for (const ch of ['pane', 'card']) {
+    assert.equal(failed[ch].key, undefined, 'a failed post advanced the ' + ch + ' clock');
+    assert.equal(failed[ch].failedKey, 'alarm:staging-hours');
+  }
+  // An hour later the same message is NOT retried (a failure can have landed; review 5)...
+  run([], Object.assign({}, base2, { GAP_ALARM_MSG_CMD: s2.msg.bin, GAP_ALARM_GH_CMD: '/nonexistent/gh', GAP_ALARM_NOW: String(NOW + H) }));
+  assert.equal(s2.msg.read(), '', 'a failed post was retried within the backoff');
+  // ...and three hours later it is.
+  run([], Object.assign({}, base2, { GAP_ALARM_MSG_CMD: s2.msg.bin, GAP_ALARM_GH_CMD: '/nonexistent/gh', GAP_ALARM_NOW: String(NOW + 3 * H) }));
   assert.match(s2.msg.read(), /staging-hours/, 'the retry after a failed post did not go');
 });
 
@@ -199,12 +207,21 @@ test('claude-msg exit 8 (#1909) is told-but-uncertain: it counts as posted and t
   const ghBefore = s.failGh.read();
   run([], Object.assign({}, env, { GAP_ALARM_NOW: String(NOW + H) }));
   assert.equal(s.busyMsg.read(), before, 'an exit-8 post was treated as not told and repeated an hour later');
-  // ...but the card keeps its own clock: its failed comment is retried (review 4, per-channel clocks).
+  // ...but the card keeps its own clock: its failed comment is retried once its backoff has passed
+  // (review 4, per-channel clocks; review 5, the 3 h backoff).
+  run([], Object.assign({}, env, { GAP_ALARM_NOW: String(NOW + 3 * H) }));
+  assert.equal(s.busyMsg.read(), before, 'the told pane was messaged again');
   assert.ok(s.failGh.read().length > ghBefore.length, 'the pane\'s exit 8 suppressed the retry of a card comment that really failed');
   // With a working gh, the card carries the uncertainty.
   const s2 = stubs();
   run([], Object.assign({}, env, { GAP_ALARM_STATE: s2.state, GAP_ALARM_GH_CMD: s2.gh.bin }));
   assert.match(s2.gh.read(), /may not have gone: claude-msg exit 8/);
+  // Exit 7 (delivered, pane did not repaint) is the same class (review 5).
+  const s3 = stubs();
+  const r7 = run([], Object.assign({}, env, { GAP_ALARM_STATE: s3.state, GAP_ALARM_MSG_CMD: s3.unpaintedMsg.bin, GAP_ALARM_GH_CMD: s3.gh.bin }));
+  assert.match(r7.err, /may not have gone: claude-msg exit 7/);
+  assert.match(s3.gh.read(), /may not have gone: claude-msg exit 7/);
+  assert.equal(JSON.parse(fs.readFileSync(s3.state, 'utf8')).pane.key, 'alarm:staging-hours', 'exit 7 did not count as told for the pane');
 });
 
 test('a state file from before per-channel clocks is read as both channels: no repost on the first run after an upgrade', () => {

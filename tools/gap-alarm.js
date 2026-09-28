@@ -48,6 +48,11 @@ const path = require('node:path');
 const LABEL = 'com.kosmos.gap-alarm';
 const THRESHOLDS = Object.freeze({ mainCommits: 50, mainHours: 24, stagingHours: 48 });
 const REPOST_S = 24 * 3600;
+/* A channel whose post FAILED retries the same message after this, not every hour: a message that
+   reports failure can still have landed (claude-msg can be killed between the paste and the Enter,
+   or report a delivery it could not confirm), and hourly retries would repeat it into a busy pane.
+   A change in what there is to say is still sent at once. */
+const RETRY_S = 3 * 3600;
 const env = process.env;
 
 /* The verdict, pure. `main` is main against staging: { ahead, oldestAt: committer time (s) of the
@@ -155,9 +160,17 @@ function statePath() {
   return env.GAP_ALARM_STATE || path.join(os.homedir(), '.cache', 'kosmos-gap-alarm', 'state.json');
 }
 function readState() { try { return JSON.parse(fs.readFileSync(statePath(), 'utf8')); } catch { return null; } }
+/* Atomic (a crash mid-write cannot leave a half file), and never fatal: the posts already went, so
+   a state that cannot be recorded is said, and costs one repost next hour, not a crashed run. */
 function writeState(s) {
-  fs.mkdirSync(path.dirname(statePath()), { recursive: true });
-  fs.writeFileSync(statePath(), JSON.stringify(s) + '\n');
+  try {
+    fs.mkdirSync(path.dirname(statePath()), { recursive: true });
+    const tmp = statePath() + '.' + process.pid + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(s) + '\n');
+    fs.renameSync(tmp, statePath());
+  } catch (err) {
+    process.stderr.write('gap-alarm: posted, but could not record it (' + ((err && err.message) || err) + '); the next run may repost\n');
+  }
 }
 
 /* The channels that are due, best effort; returns which of them went, per channel ({pane, card}).
@@ -169,18 +182,22 @@ function writeState(s) {
 function post(text, want = { pane: true, card: true }) {
   const underTest = !!env.NODE_TEST_CONTEXT;
   const went = { pane: false, card: false };
+  const tried = { pane: false, card: false };
   const to = env.GAP_ALARM_TO || 'barondraxum-discord:0.0';
   let paneFailed = null;
   let paneUnsure = null;
   const msgCmd = env.GAP_ALARM_MSG_CMD || (underTest ? null : path.join(os.homedir(), '.claude', 'scripts', 'claude-msg'));
   if (want.pane && msgCmd) {
+    tried.pane = true;
     try {
       // claude-msg refuses without $TMUX, which a launchd job never has: point it at the default
       // tmux server socket, as the fleet's slack relay does (the other fields are unused by -t).
       const tmux = env.TMUX || (env.TMUX_TMPDIR || '/tmp') + '/tmux-' + process.getuid() + '/default,0,0';
       execFileSync(msgCmd, [to, '-'], {
         input: '=== HEADS-UP ===\nfrom: gap-alarm (launchd)\nto:   release owner\n\n' + text + '\n=== END HEADS-UP ===\n',
-        stdio: ['pipe', 'ignore', 'pipe'], timeout: 30000,
+        // Above claude-msg's own worst case (a 30 s lock wait, then the paste and its checks), so it
+        // is never killed between pasting and pressing Enter.
+        stdio: ['pipe', 'ignore', 'pipe'], timeout: 90000,
         env: Object.assign({}, env, { TMUX: tmux }),
       });
       went.pane = true;
@@ -188,9 +205,10 @@ function post(text, want = { pane: true, card: true }) {
       // Exit 8 is claude-msg's known false negative (#1909): the recipient was busy and the message
       // usually did land. Counted as told FOR THE PANE ONLY (the card keeps its own clock), and said
       // on the card as uncertain, never as "did not go", so a busy pane is not re-messaged every hour.
-      if (err && err.status === 8) {
+      // Exit 7 is the same class: delivered but the pane did not repaint, so it could not confirm.
+      if (err && (err.status === 8 || err.status === 7)) {
         went.pane = true;
-        paneUnsure = 'claude-msg exit 8, which usually means the pane was busy and the message landed (#1909)';
+        paneUnsure = 'claude-msg exit ' + err.status + ', which usually means the pane was busy and the message landed (#1909)';
         process.stderr.write('gap-alarm: the pane message to ' + to + ' may not have gone: ' + paneUnsure + '\n');
       } else {
         paneFailed = String((err && err.stderr && String(err.stderr).trim()) || (err && err.message) || err).split('\n')[0];
@@ -200,6 +218,7 @@ function post(text, want = { pane: true, card: true }) {
   }
   const ghCmd = env.GAP_ALARM_GH_CMD || (underTest ? null : 'gh');
   if (want.card && ghCmd) {
+    tried.card = true;
     try {
       // A pane message that did not go is said on the card, so the one channel is never silently lost.
       const body = paneFailed ? text + '\n\n(The pane message to ' + to + ' did not go: ' + paneFailed + ')'
@@ -214,7 +233,7 @@ function post(text, want = { pane: true, card: true }) {
       process.stderr.write('gap-alarm: the #1050 comment did not go: ' + why + '\n');
     }
   }
-  return went;
+  return { went, tried };
 }
 
 /* The last post per channel. A state file from before per-channel clocks ({key, at}) is read as both
@@ -299,15 +318,28 @@ async function main(argv) {
   for (const ch of CHANNELS) {
     if (!due[ch].post) continue;
     const last = lastFor(state, ch);
+    // Backoff: the same message failed on this channel less than RETRY_S ago.
+    if (last && last.failedKey === due[ch].key && v.now - (last.failedAt || 0) < RETRY_S) continue;
     texts[ch] = message(due[ch].post, Object.assign({}, v, { after: last && last.key }));
   }
   const sendAt = [...new Set(Object.values(texts))];
   for (const text of sendAt) {
     const want = { pane: texts.pane === text, card: texts.card === text };
-    process.stdout.write(new Date(v.now * 1000).toISOString() + ' ' + text + '\n');
-    const went = post(text, want);
-    // A channel's clock advances only on its OWN post that went, or a dead channel would count as told.
-    for (const ch of CHANNELS) if (want[ch] && went[ch]) { next[ch] = { key: due[ch].key, at: v.now }; changed = true; }
+    const { went, tried } = post(text, want);
+    for (const ch of CHANNELS) {
+      if (!want[ch]) continue;
+      // A channel's clock advances only on its OWN post that went, or a dead channel would count as
+      // told. A post that was TRIED and failed records the failure (for the backoff) and keeps the
+      // last success; a channel with no command was not tried and records nothing.
+      if (went[ch]) { next[ch] = { key: due[ch].key, at: v.now }; changed = true; }
+      else if (tried[ch]) {
+        const keep = next[ch] ? { key: next[ch].key, at: next[ch].at } : {};
+        next[ch] = Object.assign(keep, { failedKey: due[ch].key, failedAt: v.now }); changed = true;
+      }
+    }
+    // The log says what went, after it went.
+    const sentTo = CHANNELS.filter((ch) => want[ch] && went[ch]);
+    process.stdout.write(new Date(v.now * 1000).toISOString() + ' ' + (sentTo.length ? 'posted to ' + sentTo.join(' and ') : 'posted NOWHERE') + ': ' + text + '\n');
   }
   if (changed) writeState({ pane: next.pane, card: next.card });
   return code;
