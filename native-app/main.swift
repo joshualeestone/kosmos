@@ -2740,7 +2740,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         alert.messageText = "This window is on an older version of Kosmos"
         alert.informativeText = "It is running version \(mine), and Kosmos is on \(theirs). "
             + (reopened ? "Reopening this window did not move it to the newer version. "
-                        : "The Kosmos app on this Mac was not updated with it. ")
+                        : "The Kosmos app on this computer was not updated with it. ")
             + "Your agents kept "
             + "running the whole time, and nothing needs signing in to again. To get the current "
             + "version, download the latest Kosmos from installkosmos.com and open it."
