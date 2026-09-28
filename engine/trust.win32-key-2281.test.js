@@ -32,7 +32,11 @@ const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
 
-const SANDBOX = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'trust-win32key-2281-')));
+/* .native, the SAME call trustFolder keys on (#4257). The JS fs.realpathSync keeps a
+   Windows 8.3 short name (os.tmpdir() is C:\Users\RUNNER~1\... on a GitHub runner) while
+   .native expands it. The short-name arm below pins what the key is when a caller hands
+   over the short spelling. */
+const SANDBOX = fs.realpathSync.native(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'trust-win32key-2281-')));
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, '.claude.json');
 
 const trust = require('./trust');
@@ -55,6 +59,22 @@ test('#2281 the written key carries NO backslash, whatever the host spells', () 
     + 'with a forward-slash control that went straight to the prompt. Got: ' + JSON.stringify(keys[0]));
   assert.equal(keys[0], work.split(nodePath.sep).join('/'),
     'and it is the same path, separators normalised');
+});
+
+test('#4257 a folder handed over in its 8.3 SHORT spelling is keyed on the long one', {
+  skip: process.platform !== 'win32' && 'an 8.3 short name exists only on Windows',
+}, (t) => {
+  /* The JS realpath keeps a short name, so it gives the spelling a caller could hand over. */
+  const shortRoot = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'trust-short-4257-')));
+  t.after(() => { try { fs.rmSync(shortRoot, { recursive: true, force: true }); } catch { /* best effort */ } });
+  const longRoot = fs.realpathSync.native(shortRoot);
+  if (shortRoot === longRoot) { t.skip('this host has no short spelling for its temp folder'); return; }
+  const cfgDir = fs.mkdtempSync(nodePath.join(SANDBOX, 'cfg-'));
+  const r = trust.trustFolder(shortRoot, { configDir: cfgDir, createIfAbsent: true });
+  assert.equal(r.ok, true, r.because || '');
+  const keys = Object.keys(readCfg(nodePath.join(cfgDir, '.claude.json')).projects || {});
+  assert.deepEqual(keys, [longRoot.split(nodePath.sep).join('/')],
+    'handed ' + JSON.stringify(shortRoot) + ', the key must be the long native spelling with forward slashes');
 });
 
 test('#2281 the key it RETURNS is the key it WROTE, so a rollback removes the right entry', () => {

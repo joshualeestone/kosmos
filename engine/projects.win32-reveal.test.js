@@ -117,7 +117,11 @@ function withRealDocs(names, body) {
 test('openFile on Windows hands a document to File Explorer as one quoted path, after its own gates', { skip: NEEDS_A_WINDOWS_PATH }, () => {
   withRealDocs(['notes.docx'], (dir, calls) => {
     assert.deepEqual(projects.openFile(dir, 'notes.docx'), { ok: true });
-    assert.deepEqual(calls, [[q(fs.realpathSync.native(path.join(dir, 'notes.docx')))]]);
+    /* Explorer is handed the path the RECORD names (win32explorer.openFile's namedAs), not
+       its realpath. The realpath expectation came in with namedAs itself (#2984) and never
+       ran on Windows until #4257, where os.tmpdir() is the 8.3 short form (RUNNER~1) and the
+       realpath the long one. Same rule as the mapped-drive test below (the named Z: form). */
+    assert.deepEqual(calls, [[q(path.join(dir, 'notes.docx'))]]);
     /* The name gates are platform-free and still run first. */
     assert.equal(projects.openFile(dir, '..\\secret.txt').ok, false);
     assert.equal(calls.length, 1, 'a refused name reached Explorer');
@@ -192,6 +196,6 @@ test('SAFETY 1 through the project route: an agent-written .bat is SHOWN, never 
   withRealDocs(['Q3 report.pdf.bat'], (dir, calls) => {
     const out = projects.openFile(dir, 'Q3 report.pdf.bat');
     assert.deepEqual(out, { ok: true, revealedInstead: true, say: explorer.REVEALED_INSTEAD_SENTENCE });
-    assert.deepEqual(calls, [['/select,' + q(fs.realpathSync.native(path.join(dir, 'Q3 report.pdf.bat')))]]);
+    assert.deepEqual(calls, [['/select,' + q(path.join(dir, 'Q3 report.pdf.bat'))]], 'the .bat was not SHOWN (/select) under the name its record gives (#4257)');
   });
 });
