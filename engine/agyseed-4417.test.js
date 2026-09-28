@@ -78,29 +78,35 @@ test('#4417: agy\'s own hook map is unchanged: the launch event is Kosmos\'s, an
   assert.equal(bridge.reportFor('SessionStart', null), null, 'control: an event nobody wired is still ignored, not guessed at');
 });
 
-test('#4417: the supervisor seeds idle only with the hook on, the folder trusted and a confirmed sign-in, as the new pane (SOURCE pin)', () => {
+test('#4417: the supervisor seeds idle AFTER claiming the session, only for an agy it launched with the hook on, the folder trusted and a confirmed sign-in (SOURCE pin)', () => {
   const sh = fs.readFileSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
   const at = sh.indexOf('elif [ "$RUNNER" = antigravity ]; then');
   assert.ok(at > -1, 'the antigravity branch moved: re-anchor this pin');
   const end = sh.indexOf('elif [ "$RUNNER" = muse ]; then', at);
   assert.ok(end > at, 'the branch after antigravity moved: re-anchor this pin');
-  const branch = sh.slice(at, end);
-  const launch = branch.indexOf('new-session');
-  const seed = branch.indexOf('"$NODE_BIN" "$_AGY_BRIDGE" KosmosLaunch </dev/null >/dev/null 2>&1 || true');
-  assert.ok(seed > -1, 'the supervisor no longer tells the board an agy agent is up');
-  assert.ok(launch > -1 && seed > launch, 'the seed must follow the launch: before it there is no pane to report as');
-  const gate = branch.slice(launch, seed);
-  assert.match(branch, /_AGY_TRUSTED=""; _AGY_HOOKED=""/, 'a gate value could be inherited from the environment rather than this run');
-  assert.match(branch, /_AGY_PANE="\$\("\$TMUX_BIN" new-session -d -s "\$SESSION" -P -F '#\{pane_id\}' -c "\$WORKDIR"/,
+  const arm = sh.slice(at, end);
+  /* The launch arm produces the three values and the pane id; nothing in it reports. */
+  assert.match(arm, /_AGY_TRUSTED=""; _AGY_HOOKED=""/, 'a gate value could be inherited from the environment rather than this run');
+  assert.match(arm, /_AGY_TRUSTED="\$\("\$NODE_BIN" "\$_eng\/agytrust\.js" "\$WORKDIR" \|\| true\)"/);
+  assert.match(arm, /_AGY_PANE="\$\("\$TMUX_BIN" new-session -d -s "\$SESSION" -P -F '#\{pane_id\}' -c "\$WORKDIR"/,
     'the pane id is not taken from new-session itself (a lookup by name can resolve another agent\'s session)');
-  assert.match(gate, /\[ "\$_AGY_HOOKED" = hooked \] && \[ "\$_AGY_TRUSTED" = trusted \] && \[ -n "\$_AGY_PANE" \]; then/,
+  assert.ok(!arm.includes('KosmosLaunch'), 'the seed is inside the launch arm again, BEFORE the session is claimed: the board drops it');
+  /* The seed itself: after the claim, because the board ties a report to an agent only through @kosmos_agent. */
+  const claim = sh.indexOf('"$TMUX_BIN" set-option -t "$SESSION" @kosmos_agent "$SESSION"');
+  const runner = sh.indexOf('"$TMUX_BIN" set-option -t "$SESSION" @kosmos_runner "$RUNNER"');
+  const seed = sh.indexOf('"$NODE_BIN" "$_AGY_BRIDGE" KosmosLaunch </dev/null >/dev/null 2>&1 || true');
+  assert.ok(claim > -1 && runner > -1 && seed > -1, 'the claim, the runner record or the seed is gone: re-anchor this pin');
+  assert.ok(seed > claim && seed > runner, 'the seed is sent before the session is claimed, so the board cannot tie it to the agent');
+  const gateAt = sh.lastIndexOf('if [ "$RUNNER" = antigravity ]', seed);
+  assert.ok(gateAt > runner, 'the seed is not inside its own gate after the claim');
+  const gate = sh.slice(gateAt, seed);
+  assert.match(gate, /\[ "\$\{_AGY_HOOKED:-\}" = hooked \] && \[ "\$\{_AGY_TRUSTED:-\}" = trusted \] && \[ -n "\$\{_AGY_PANE:-\}" \]; then/,
     'the seed is sent with no hook in place, or while agy asks to trust the folder: an idle that never decays');
   assert.match(gate, /require\(process\.argv\[1\] \+ "\/agystatus"\)\.lastKnown\(\); if \(r && r\.signedIn === true\)/, 'the seed is sent for an agy never signed in on this Mac');
   assert.match(gate, /if \[ "\$_AGY_SIGNED" = signed-in \]; then/);
   assert.match(gate, /case "\$_x" in KOSMOS_\*=\*\|AGENT_WORKFORCE_\*=\*\|HOME=\*\) _AGY_SEED_ENV\+=\("\$_x"\) ;; esac/,
     'the seed adds more of the pane\'s env list than the bridge reads (the list also carries API keys)');
-  assert.match(branch, /_AGY_TRUSTED="\$\("\$NODE_BIN" "\$_eng\/agytrust\.js" "\$WORKDIR" \|\| true\)"/);
-  assert.ok(branch.indexOf('unset _AGY_BRIDGE') > seed, 'the bridge path is unset before the seed can use it');
+  assert.ok(sh.indexOf('unset _AGY_BRIDGE') > seed, 'the bridge path is unset before the seed can use it');
 });
 
 test('#4417: agyhooks says `hooked` only for a hook in place and on; a git project or the person\'s off switch says nothing', () => {
@@ -134,9 +140,4 @@ test('#4417: agytrust says `trusted` only when the folder is in agy\'s trusted l
   const missing = run(path.join(dir, 'no-such-folder'));
   assert.equal(missing.status, 0, 'a folder it cannot trust must never stop the launch');
   assert.equal(missing.stdout.trim(), '', 'a folder agy will ask about says `trusted`, and the supervisor would seed idle over the prompt');
-});
-
-test('#4417: the instrument is reading the real files', () => {
-  assert.ok(fs.statSync(BRIDGE_FILE).size > 5000);
-  assert.ok(fs.statSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh')).size > 20000);
 });

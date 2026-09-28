@@ -9,8 +9,10 @@ with no report as UNKNOWN ("Can't tell"). The API-key Gemini CLI has SessionStar
 ## Call
 - bin/agy-report-bridge.js: a Kosmos-only event, KosmosLaunch -> idle, auto. Not in STATE_FOR_EVENT (that map is
   what agy's hooks fire).
-- bin/agent-supervisor.sh, agy arm: right after new-session, run the bridge once with KosmosLaunch as the new pane
-  (its pane id), ONLY when all three conditions below hold, because an idle report never decays and nothing else
+- bin/agent-supervisor.sh: the agy launch arm computes the gates and the pane id; the bridge runs once with
+  KosmosLaunch AFTER the supervisor claims the session (@kosmos_agent, @kosmos_runner), because the board ties a report
+  to an agent only through that claim (launchidentity.paneSessionIsOurs; review 5's blocker: the seed used to run
+  inside the launch arm, before the claim, and a real board would have dropped it). ONLY when all three hold, because an idle report never decays and nothing else
   would correct it (review 1's blocker):
   - the hook is in place and on: engine/agyhooks.js now prints `hooked` on stdout only then (a folder inside a git
     project, a hooks.json left alone, or the person's `enabled:false` print nothing);
@@ -30,9 +32,10 @@ with no report as UNKNOWN ("Can't tell"). The API-key Gemini CLI has SessionStar
 - Posting from the supervisor with curl: a second copy of the bridge's headers (token, board token, world).
 
 ## Weakest premise
-- The REAL /api/report route accepting the seed is not measured: the sandbox used a stand-in board that answers {}.
-  The route resolves the sender by pane (a live snapshot) and launch token; a pane seconds old should resolve like any
-  hook's, but a {recorded:false} would be discarded silently. To be checked live after release (needs-release).
+- The REAL /api/report route recording the seed is REASONED, not measured: the sandbox board answers {} to anything.
+  What IS measured: at the moment the seed arrives the session already carries its @kosmos_agent claim (the stand-in
+  board read it from tmux on receipt), which is what paneSessionIsOurs requires; before review 5's fix it did not.
+  Checked live after release (needs-release).
 - Timing: the seed is sent synchronously as the pane starts and agy takes seconds to boot, but it is not guaranteed
   to land before a turn a launch prompt starts. If it lands mid-turn the card reads idle until agy's next hook:
   PreInvocation fires before each model call, so normally within one model call, at worst until that turn's Stop.
@@ -44,7 +47,8 @@ with no report as UNKNOWN ("Can't tell"). The API-key Gemini CLI has SessionStar
 
 ## Evidence
 - Sandbox (real supervisor, fake agy, tmux socket zz-livecheck-4417, stand-in board): origin/main sends no report;
-  this branch, signed-in record + hook + trusted folder: one idle, auto, from_pane %0, launch token present;
+  this branch, signed-in record + hook + trusted folder: one idle SENT (auto, from_pane %0, launch token present), with
+  the session's @kosmos_agent claim already set when it arrived (iteration 3's order: claim absent on arrival);
   git-project workdir: none; signed-out record: none; no record: none; agy settings a dangling link (trust fails):
   none. (The harness now points agytrust at a sandbox agy home: an earlier run had added its scratch folder to this
   Mac's real agy trusted list, which was then removed by hand.)

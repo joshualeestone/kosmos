@@ -803,29 +803,6 @@ if [ -z "$adopt" ]; then
     _AGY_PANE="$("$TMUX_BIN" new-session -d -s "$SESSION" -P -F '#{pane_id}' -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
       "$CLAUDE" "${_AGY_ARGS[@]}")" || exit 1
     unset _AGY_ARGS
-    # #4417: agy has no session-start hook (only PreInvocation and Stop), so an agent that was just (re)started and
-    # has not been spoken to read "Can't tell" until its first turn (#4414). Tell the board, once, that it is idle, but
-    # ONLY when all three hold, because an idle report never decays and nothing else would ever correct it:
-    #   - the hook is in place and on (_AGY_HOOKED, from agyhooks above);
-    #   - the folder is in agy's trusted list (_AGY_TRUSTED, from agytrust above);
-    #   - agystatus.lastKnown() has signedIn true.
-    # Sent as the new pane (its id from new-session). Of the pane's own env list, only the KOSMOS_*,
-    # AGENT_WORKFORCE_* and HOME entries are added (the launch token, port, world and store root the bridge reads).
-    # `auto`, so it never erases a deliberate blocked. Best-effort: `|| true`, and its output goes nowhere.
-    if [ -n "${NODE_BIN:-}" ] && [ -f "${_AGY_BRIDGE:-}" ] && [ "$_AGY_HOOKED" = hooked ] && [ "$_AGY_TRUSTED" = trusted ] && [ -n "$_AGY_PANE" ]; then
-      _AGY_SIGNED="$("$NODE_BIN" -e 'try { const r = require(process.argv[1] + "/agystatus").lastKnown(); if (r && r.signedIn === true) process.stdout.write("signed-in"); } catch (e) { /* unknown is not signed in */ }' "$_eng" 2>/dev/null || true)"
-      if [ "$_AGY_SIGNED" = signed-in ]; then
-        _AGY_SEED_ENV=()
-        for _x in ${PANE_ENV[@]+"${PANE_ENV[@]}"}; do
-          case "$_x" in KOSMOS_*=*|AGENT_WORKFORCE_*=*|HOME=*) _AGY_SEED_ENV+=("$_x") ;; esac
-        done
-        env ${_AGY_SEED_ENV[@]+"${_AGY_SEED_ENV[@]}"} TMUX_PANE="$_AGY_PANE" "$NODE_BIN" "$_AGY_BRIDGE" KosmosLaunch </dev/null >/dev/null 2>&1 || true
-        unset _AGY_SEED_ENV _x
-      fi
-      unset _AGY_SIGNED
-    fi
-    unset _AGY_HOOKED _AGY_TRUSTED _AGY_PANE
-    unset _AGY_BRIDGE
   elif [ "$RUNNER" = muse ]; then
     # #3939 slice 3c-3a: Meta Muse. Muse Code's own screen cannot be read from outside, and Meta's
     # headless route is one `muse exec` per turn, so the pane runs Kosmos's front instead
@@ -912,6 +889,34 @@ fi
 # it, and the board reads a fact instead of inferring one.
 "$TMUX_BIN" set-option -t "$SESSION" @kosmos_runner "$RUNNER" \
   || say "could not record $SESSION's runner -- the board will read it as claude"
+
+# #4417, for an Antigravity agent THIS run launched (the vars below are set only in its launch arm, never on the
+# adopt path). AFTER the claim above, on purpose: the board ties a report to an agent only once its session carries
+# @kosmos_agent (launchidentity.paneSessionIsOurs), so a report sent before the claim is not recorded.
+# agy has no session-start hook (only PreInvocation and Stop), so an agent that was just (re)started and
+# has not been spoken to read "Can't tell" until its first turn (#4414). Tell the board, once, that it is idle, but
+# ONLY when all three hold, because an idle report never decays and nothing else would ever correct it:
+#   - the hook is in place and on (_AGY_HOOKED, from agyhooks in the launch arm);
+#   - the folder is in agy's trusted list (_AGY_TRUSTED, from agytrust in the launch arm);
+#   - agystatus.lastKnown() has signedIn true.
+# Sent as the new pane (its id from new-session). Of the pane's own env list, only the KOSMOS_*,
+# AGENT_WORKFORCE_* and HOME entries are added (the launch token, port, world and store root the bridge reads).
+# `auto`, so it never erases a deliberate blocked. Best-effort: `|| true`, and its output goes nowhere.
+if [ "$RUNNER" = antigravity ] && [ -n "${NODE_BIN:-}" ] && [ -n "${_eng:-}" ] && [ -f "${_AGY_BRIDGE:-}" ] \
+  && [ "${_AGY_HOOKED:-}" = hooked ] && [ "${_AGY_TRUSTED:-}" = trusted ] && [ -n "${_AGY_PANE:-}" ]; then
+  _AGY_SIGNED="$("$NODE_BIN" -e 'try { const r = require(process.argv[1] + "/agystatus").lastKnown(); if (r && r.signedIn === true) process.stdout.write("signed-in"); } catch (e) { /* unknown is not signed in */ }' "$_eng" 2>/dev/null || true)"
+  if [ "$_AGY_SIGNED" = signed-in ]; then
+    _AGY_SEED_ENV=()
+    for _x in ${PANE_ENV[@]+"${PANE_ENV[@]}"}; do
+      case "$_x" in KOSMOS_*=*|AGENT_WORKFORCE_*=*|HOME=*) _AGY_SEED_ENV+=("$_x") ;; esac
+    done
+    env ${_AGY_SEED_ENV[@]+"${_AGY_SEED_ENV[@]}"} TMUX_PANE="$_AGY_PANE" "$NODE_BIN" "$_AGY_BRIDGE" KosmosLaunch </dev/null >/dev/null 2>&1 || true
+    unset _AGY_SEED_ENV _x
+  fi
+  unset _AGY_SIGNED
+fi
+unset _AGY_HOOKED _AGY_TRUSTED _AGY_PANE
+unset _AGY_BRIDGE
 
 # Stay alive while the session does, so launchd supervises the AGENT rather than
 # a command that exits in a tenth of a second.
