@@ -84,6 +84,7 @@ test('#4301: failure detail is node\'s failing-tests section, so a test timeout 
     '✖ slow one (30012ms)',
     '  \'test timed out after 30000ms\'',
     '    at async Test.run (node:internal/test_runner/test:1402:25)',
+    'test at engine\\win32apply.test.js:2990:1',
     '✖ other (1ms)',
     '  AssertionError [ERR_ASSERTION]: nope',
   ].join('\r\n');
@@ -92,6 +93,7 @@ test('#4301: failure detail is node\'s failing-tests section, so a test timeout 
   assert.ok(got.some((l) => /AssertionError: nope|AssertionError \[ERR_ASSERTION\]: nope/.test(l)));
   assert.ok(!got.some((l) => /^\s+at /.test(l)), 'stack frames are dropped');
   assert.ok(!got.some((l) => /fine/.test(l)), 'passing tests are not repeated');
+  assert.equal(got.filter((l) => /^\s*test at /.test(l)).length, 2, 'each failing test is its own entry, and a leading blank line makes none');
   const crashed = w.failureDetail('boot\nTypeError: x is not a function\n    at foo');
   assert.ok(crashed.some((l) => /TypeError: x is not a function/.test(l)), 'a crash with no section shows its tail');
 });
@@ -105,8 +107,10 @@ test('#4301: detail is capped per failing test, says what it left out, and puts 
   assert.ok(got.includes('  at least 3 agents'), 'a message line starting "at" is not taken for a stack frame');
   assert.ok(got.some((l) => /more line\(s\) of this test's detail not shown/.test(l)), 'a long entry says it was cut');
   assert.ok(got.filter((l) => /diff line/.test(l)).length < 40, 'the long entry is capped');
-  const many = ['✖ failing tests:', ...Array.from({ length: 12 }, (_, i) => entry('t' + i, 1)).flat()].join('\n');
-  assert.ok(w.failureDetail(many).some((l) => /2 more failing test\(s\) not shown/.test(l)));
+  const many = ['✖ failing tests:', '', ...Array.from({ length: 12 }, (_, i) => entry('t' + i, 1)).flat()].join('\n');
+  const manyGot = w.failureDetail(many);
+  assert.ok(manyGot.some((l) => /2 more failing test\(s\) not shown/.test(l)));
+  assert.equal(manyGot.filter((l) => /^\s*test at /.test(l)).length, 10, 'ten entries shown; a leading blank line takes no slot');
 });
 
 test('a real test whose title ends in .test.js is still read as failing', () => {

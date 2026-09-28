@@ -188,16 +188,22 @@ function changedFiles(root) {
 // caller did not expect to fail come first. A crash before that section falls back to the output's tail.
 const DETAIL_LINES_PER_TEST = 15;
 const DETAIL_TESTS = 10;
+// A file that crashed before node printed its failing-tests section: this much of its output's tail.
+const CRASH_TAIL_LINES = 60;
 const STACK_FRAME = /^\s+at .*(\(.*:\d+:\d+\)|:\d+:\d+|\(native\)|\(node:[^)]*\))$/;
 function failureDetail(output, expected = []) {
   const lines = String(output).replace(/\r/g, '').split('\n');
   const at = lines.findIndex((l) => /^\s*✖ failing tests:\s*$/.test(l));
   const keep = (l) => l.trim() && !STACK_FRAME.test(l);
-  if (at < 0) return lines.slice(-60).filter(keep).map((l) => l.trimEnd());
+  if (at < 0) return lines.slice(-CRASH_TAIL_LINES).filter(keep).map((l) => l.trimEnd());
+  // An entry starts at its "test at" line. Anything before the first one (normally a blank line) opens
+  // an entry only if it has something to keep, so it cannot take a slot as an empty entry.
   const entries = [];
   for (const l of lines.slice(at + 1)) {
-    if (/^\s*test at /.test(l) || !entries.length) entries.push([]);
-    if (keep(l)) entries[entries.length - 1].push(l.trimEnd());
+    if (/^\s*test at /.test(l)) entries.push([]);
+    if (!keep(l)) continue;
+    if (!entries.length) entries.push([]);
+    entries[entries.length - 1].push(l.trimEnd());
   }
   const named = (e) => { const m = e.find((l) => /^\s*✖ /.test(l)); return m ? m.replace(/^\s*✖ /, '').replace(/ \([\d.]+m?s\)$/, '') : ''; };
   const ordered = [...entries.filter((e) => !expected.includes(named(e))), ...entries.filter((e) => expected.includes(named(e)))];
