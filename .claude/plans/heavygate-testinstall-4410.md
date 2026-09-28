@@ -64,6 +64,12 @@
   The guard's logic after the source (rc, self drop, fixture drop, refusal) is shared by the seam
   and the live read, so the seam arms cover it; inverting its found/none test turns an arm red
   (review 8, measured).
+- tools/test-install-gate-control.sh (run by hand) calls test-install.sh with KOSMOS_INSTALL_GATE=1
+  outside any cut, so it is now refused on a busy box (review 9). It checks heavy-gate --quiet-box
+  first, and a refusal in any of its three runs is reported as a SKIP (box busy), never scored as the
+  gate's green or red.
+- heavy-gate's live candidate filter (the awk in live_snapshot) is covered by the fake-ps live test
+  with a real harness row; dropping test-install from it turns that test red (review 9, measured).
 - No run marker for the suite: markers exist for callers that self-match their own script (#1796);
   nothing that asks the suite question is a run-tests.sh. The harness keeps its existing marker.
 - The harness guard's override text is now the caller's (second argument). The cut's default

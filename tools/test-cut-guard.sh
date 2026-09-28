@@ -341,8 +341,11 @@ else
   out_plain="$(bash "$E2E/tools/cut-start-plain.sh" 2>&1)"; rc_plain=$?
   out="$(bash "$E2E/tools/cut-start.sh" 2>&1)"; rc=$?
   if kill -0 "$harness" 2>/dev/null; then
-    [ "$rc" -ne 0 ] && pass "a real bash tools/test-install.sh IS detected and refuses the cut" \
-      || fail "a live harness was not detected: rc=$rc out=$out"
+    # #4410: another agent's sandboxed stand-in would also refuse cut-start.sh (it keeps fixtures),
+    # so the pass also needs OUR stand-in in the name arm's own candidate lines.
+    ours="$(pgrep -fl 'test-install\.sh' 2>/dev/null | grep -E "^$harness +(/bin/)?(ba)?sh +([^ ]*/)?tools/test-install\.sh( |\$)" || true)"
+    { [ "$rc" -ne 0 ] && [ -n "$ours" ]; } && pass "a real bash tools/test-install.sh IS detected and refuses the cut" \
+      || fail "a live harness was not detected: rc=$rc ours='$ours' out=$out"
     { [ "$rc_plain" -eq 0 ] && has "$out_plain" "CUT-PROCEEDS"; } \
       && pass "#4410 the same live stand-in, in the fixture sandbox, is dropped by the harness guard without the test seam" \
       || fail "#4410 a sandboxed stand-in refused the harness guard without the seam, so other agents' runs would too: rc=$rc_plain out=$out_plain"

@@ -465,6 +465,8 @@ printf 'p%s\nfcwd\nn%s\n' "$pid" "$cwd"
     ['931', '930', WORK, 'bash tools/run-tests.sh'],
     ['932', '931', WORK, 'sh -c x'],
     ['933', '932', WORK, 'bash tools/release.sh 0.6.9'],
+    /* #4410: a real install harness, so the live candidate filter (not only the seam) must pick it up */
+    ['950', '900', WORK, 'bash tools/test-install.sh'],
   ];
   assert.ok(rows.every((row) => row.every((v) => !v.includes('|'))), 'a value contains the table separator');
   const live = (table, extra = {}, args = []) => {
@@ -481,9 +483,14 @@ printf 'p%s\nfcwd\nn%s\n' "$pid" "$cwd"
   assert.match(r.out, /ignore 911: a unit-test fixture \(node --test ancestor\)/);
   assert.match(r.out, /ignore 920: mentions/);
   assert.match(r.out, /ignore 933: a unit-test fixture \(node --test ancestor\)/);
-  const without = live(rows.filter((row) => row[0] !== '901'));
+  assert.match(r.out, /COUNTS 950: a real run .*script tools\/test-install\.sh/);
+  const harnessOnly = live(rows.filter((row) => row[0] !== '901'));
+  assert.equal(harnessOnly.code, 1, harnessOnly.out);
+  assert.match(harnessOnly.out, /COUNTS 950/);
+  const quiet = rows.filter((row) => row[0] !== '901' && row[0] !== '950');
+  const without = live(quiet);
   assert.equal(without.code, 0, without.out);
-  const quietBox = live(rows.filter((row) => row[0] !== '901'), {}, ['--quiet-box']);
+  const quietBox = live(quiet, {}, ['--quiet-box']);
   assert.equal(quietBox.code, 1, quietBox.out);
   assert.match(quietBox.out, /COUNTS 940: a real run/);
   /* A table that cannot be read must never read as "nothing running". */

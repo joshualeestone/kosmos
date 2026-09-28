@@ -430,9 +430,9 @@ kosmos_refuse_if_harness_live() {
 # only a bash/sh whose own command line IS tools/run-tests.sh counts (a mention does not), the
 # caller's own subtree is dropped (defensive: test-install.sh never self-matches run-tests.sh), and a
 # proven unit-test fixture is dropped: a node --test ancestor (tools.shell-shard-4317.test.js runs
-# run-tests.sh under node --test), or the kt<digits> sandbox, kept for parity with the other guards
-# (no test runs a real run-tests.sh stand-in there today, so that branch is tested through the
-# KOSMOS_SUITE_PROBE seam only). And a
+# run-tests.sh under node --test), or the kt<digits> sandbox, which is what keeps
+# tools/test-cut-guard.sh's own run-tests.sh stand-in (8 s, in every suite) from refusing other
+# agents' harnesses. And a
 # probe that cannot answer is a refusal. No run marker: nothing that asks this self-matches
 # run-tests.sh, which is the race markers exist for (#1796). The seam is KOSMOS_SUITE_PROBE.
 # Coverage, named: a zsh, a bare `bash run-tests.sh` from tools/, and a bare `node --test` are not
