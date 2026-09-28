@@ -21,7 +21,10 @@
  *   - the release owner's pane, by claude-msg (GAP_ALARM_TO, the person who can cut), and
  *   - a comment on kosmos#1050, so the figures keep their history where the decision lives.
  * It posts when an alarm starts or its reasons change, again every 24 h while it lasts, once when it
- * clears, and once a day while it cannot tell (a silent monitor and a healthy gap look alike).
+ * clears, and once a day while it cannot tell (a silent monitor and a healthy gap look alike); a
+ * could-not-tell is said only once it has lasted 3 h. While clear, the card alone gets one "still
+ * watching" line a week, so a job that stopped running is visible. Each channel keeps its own
+ * clock, and a post that failed is retried after 3 h, not hourly.
  *
  *   node tools/gap-alarm.js           gather, decide, post as above
  *   node tools/gap-alarm.js --check   print the verdict as JSON and post nothing (it still fetches
