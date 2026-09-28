@@ -141,7 +141,13 @@ crash-looping today is still somebody's agent; the proof that a job is a leftove
   the failure-as-success shape. Dormant today (the live-execution gate is set once at start and the first
   print already needed ok), but unpinned. Now any answered print is "not confirmed"; only launchd's
   not-found throw confirms. Pinned by an ok:false verify test.
-- The two temp plist fixtures are now registered for the same cleanup as the $HOME ones.
+- The three temp plist fixtures are now registered for the same cleanup as the $HOME ones.
+
+## Review 13
+
+- No blocker or warning; every earlier fix re-verified, and the reachability of each arm traced through
+  createAgent. One NIT, not acted on: one test passes `bootoutWorks: false` beside `verifyThrows`, where the
+  throw decides the outcome and the flag is inert.
 
 ## Weakest premise
 
