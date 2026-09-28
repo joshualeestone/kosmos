@@ -3703,16 +3703,20 @@ function gateLog(req) {
     // and not the one beside it stops being harmless the moment the nonce's
     // lifetime or reusability changes, and nothing else recorded the omission.
     // #1307: a webhook call carries its secret in the PATH (/hooks/<id>/<secret>), redacted too.
-    const loggedUrl = String(req.url || '').replace(/([?&](?:token|boot)=)[^&]*/gi, '$1REDACTED')
-      // Everything after "hooks", in any spelling: an absolute-form target, a backslash, or dot
-      // segments (/hooks/./<id>/<secret>) all reach the route, so no pattern for the secret's
-      // exact position is safe. A webhook call logs as .../hooks/REDACTED.
-      .replace(/(hooks)[\s\S]*$/i, '$1/REDACTED');
-    /* And a percent-encoded spelling (/%68ooks/...): if the DECODED path names hooks, or cannot be
-       decoded at all, the whole path is redacted. Over-redacting is the safe direction here. */
-    let decoded = '';
-    try { decoded = decodeURIComponent(loggedUrl); } catch { /* undecodable: redact below */ }
-    const safeUrl = /hooks/i.test(loggedUrl) || (decoded && !/hooks/i.test(decoded)) ? loggedUrl : '/REDACTED';
+    const queryless = String(req.url || '').replace(/([?&](?:token|boot)=)[^&]*/gi, '$1REDACTED');
+    /* Everything after "hooks", in any spelling: an absolute-form target, a backslash, or dot
+       segments (/hooks/./<id>/<secret>) all reach the route, so no pattern for the secret's exact
+       position is safe. A webhook call logs as .../hooks/REDACTED. But when the path only names hooks
+       once DECODED (/%68ooks/...), or the text before the first literal "hooks" holds any escape, or
+       it cannot be decoded at all, the first literal "hooks" may sit INSIDE the secret, so the whole
+       path is redacted instead. Over-redacting is the safe direction here. */
+    let decoded = null;
+    try { decoded = decodeURIComponent(queryless); } catch { /* undecodable: redacted whole below */ }
+    const at = queryless.search(/hooks/i);
+    const safeUrl = decoded === null ? '/REDACTED'
+      : !/hooks/i.test(decoded) ? queryless
+        : at >= 0 && !queryless.slice(0, at).includes('%') ? queryless.slice(0, at + 5) + '/REDACTED'
+          : '/REDACTED';
     fs.appendFileSync(GATE_LOG, `${new Date().toISOString()} ${req.method} ${safeUrl} ${ua}\n`);
   } catch { /* the instrument never becomes the defect */ }
 }

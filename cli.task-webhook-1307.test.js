@@ -96,3 +96,14 @@ test('tools/windows/kosmos-cli.js: taskList prints exactly the same lines', asyn
   assert.equal(await taskList(ctx, ['proj']), 0);
   assert.deepEqual(out, EXPECTED);
 });
+
+test('engine/tasks.js forAgent quotes the same words the two CLIs print (all three copies of the rule agree)', () => {
+  const { forAgent } = require('./engine/tasks');
+  const quoted = (line) => { const m = String(line).match(/"([^"]*)"(?: \([^)]*\))?$/); return m ? m[1] : null; };
+  const rows = TASKS.tasks.map((t, i) => ({ t, line: EXPECTED[i] })).filter((r) => r.t.addedVia === 'webhook');
+  assert.ok(rows.length >= 4, 'the fixture holds the webhook rows this compares');
+  for (const { t, line } of rows) {
+    const agent = forAgent({ ...t, sentence: undefined }, t.sentence);
+    assert.equal(quoted(agent), quoted(line), `row ${t.number}: forAgent and the CLIs quote the words differently:\n  ${agent}\n  ${line}`);
+  }
+});
