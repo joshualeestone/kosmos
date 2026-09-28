@@ -7,7 +7,9 @@ rounded pills with the light clipped inside, per his 09-27 12:48 notes.
 ## Done means
 
 - Every GOLD primary button (`.uprime` where the surface keeps it gold) is a 999px pill in polished gold A.
-- The #14161a label clears 4.5:1 on every rendered pixel of the fill, at rest and on hover, both themes.
+- The #14161a label clears 4.5:1 on every rendered pixel of the fill: at rest (light and dark), on the CSS
+  hover (the reduced-motion context), and with the light showing (G2d). The fill tokens do not vary by theme,
+  so the dark theme is measured at rest only.
 - Hovering a gold button shows the liquid light from the study, at size 3.3, behind the label, clipped to
   the pill, lingering and fading after the pointer leaves.
 - Exactly one WebGL canvas exists for the whole app, however many gold buttons are hovered.
