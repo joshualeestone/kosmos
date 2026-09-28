@@ -539,10 +539,10 @@ test('the board reports when its own engine is behind the disk, and says nothing
   /* #4408 (an external tester on prod): a file TOUCHED, or restored byte-for-byte, is not stale; only changed CONTENT
      is, and the changed file is named. A throwaway module under engine/ (never a real source file:
      another test file runs beside this one), loaded, remembered by a sweep, then touched and edited. */
-  /* In its own folder under engine/: other suites list engine/ flat and read every file, in parallel. */
-  const dir = nodePath.join(__dirname, 'engine', `.probe-freshness-${process.pid}`);
+  /* At the app folder's root (still under the checked root), in its own folder no other suite walks. */
+  const dir = nodePath.join(__dirname, `.probe-freshness-${process.pid}`);
   const probe = nodePath.join(dir, 'x.js');
-  const rel = 'engine/' + nodePath.basename(dir) + '/x.js';
+  const rel = nodePath.basename(dir) + '/x.js';
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(probe, 'module.exports = 1;\n');
   try {

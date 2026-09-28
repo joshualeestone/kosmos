@@ -33,6 +33,8 @@ board process, so it never cleared.
 - An automatic restart: it interrupts every open page; one button keeps the person in charge of when.
 
 ## Weakest premises
+- The startup snapshot is taken in start(), after server.js's own top-level requires: a file edited during boot,
+  before start(), is taken as the baseline. The window is boot time only.
 - A module required AFTER boot is remembered by the next sweep (every 5 s, on its own timer), not at the moment
   it loaded: an edit inside that window would be taken as its baseline. Exact capture would mean hooking Node's
   module loader in a release-critical change; the 5 s window is the accepted residual.

@@ -56,8 +56,8 @@ test('#4408: a current board is not restarted, and the page is told no button', 
 
 test('#4408: a stale board that can restart itself says so, and the button runs `kosmos restart` once', async () => {
   /* A throwaway module under engine/, never a real source file (server.test.js edits its own beside this). */
-  /* In its own folder under engine/: other suites list engine/ flat and read every file, in parallel. */
-  const dir = path.join(__dirname, 'engine', `.probe-restart-${process.pid}`);
+  /* At the app folder's root (still under the checked root), in its own folder no other suite walks. */
+  const dir = path.join(__dirname, `.probe-restart-${process.pid}`);
   const probe = path.join(dir, 'x.js');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(probe, 'module.exports = 1;\n');
@@ -69,7 +69,7 @@ test('#4408: a stale board that can restart itself says so, and the button runs 
     await wait(5200);
     const e = await status();
     assert.ok(e.staleSince, 'CONTROL: the edited module made the board stale');
-    assert.deepEqual(e.changed, ['engine/' + path.basename(dir) + '/x.js'], 'the edited file is not named');
+    assert.deepEqual(e.changed, [path.basename(dir) + '/x.js'], 'the edited file is not named');
     assert.equal(e.canRestart, true, 'a stale board that can restart itself did not offer the button');
 
     // CONTROL first: with no way to bring itself back, it refuses and spawns nothing.
