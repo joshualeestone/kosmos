@@ -763,6 +763,85 @@ test('a name a live session already answers to is refused, even with no folder',
     'the refusal above was not caused by the roster, so this test proves nothing about it');
 });
 
+/* #4279: a LEFTOVER job holding the name is booted out; anything else still refuses.
+   The runner is stateful: `print` describes the job until `bootout` runs, then
+   describes nothing, which is what launchctl does. */
+function leftoverRunner(printedPath, { bootoutWorks = true } = {}) {
+  const calls = [];
+  let loaded = true;
+  create.setRunner((file, args) => {
+    calls.push([file, args]);
+    if (args && args[0] === 'print') {
+      return loaded && printedPath !== undefined
+        ? { ok: true, stdout: `gui/501/x = {\n\tactive count = 1\n\tpath = ${printedPath}\n\tstate = spawn scheduled\n\truns = 8096\n\tlast exit code = 1\n}\n` }
+        : (loaded ? { ok: true, stdout: 'x = { ... }' } : { ok: false, stdout: '' });
+    }
+    if (args && args[0] === 'bootout' && bootoutWorks) loaded = false;
+    return { ok: true, stdout: '' };
+  });
+  create.setDryRun(false);
+  return calls;
+}
+const bootedOut = (calls) => calls.some(([, a]) => a && a[0] === 'bootout');
+
+test('#4279: a leftover job loaded from a TEMP plist is booted out and the agent is created', WIN_LAUNCHD, () => {
+  // The measured case: a 09-24 test left com.kosmos.agent.josh loaded from T/rx-launch-*.
+  const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'rx-launch-'));
+  const leaked = nodePath.join(dir, 'com.kosmos.agent.leftover-temp.plist');
+  fs.writeFileSync(leaked, '<plist/>');
+  const calls = leftoverRunner(leaked);
+  const r = create.createAgent({ ...BINS, name: 'leftover-temp', role: 'pm' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because || '');
+  assert.ok(bootedOut(calls), 'the leftover job was not booted out');
+  assert.ok(r.steps.some((s) => /removed a leftover startup entry/.test(s.label) && s.ok), 'the removal is not reported as a step');
+});
+
+test('#4279: a leftover job whose plist is GONE is booted out and the agent is created', WIN_LAUNCHD, () => {
+  const calls = leftoverRunner(nodePath.join(os.homedir(), 'nowhere-4279', 'com.kosmos.agent.leftover-gone.plist'));
+  const r = create.createAgent({ ...BINS, name: 'leftover-gone', role: 'pm' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because || '');
+  assert.ok(bootedOut(calls));
+});
+
+test('#4279: a job loaded from THIS board\'s own plist path is still refused, never booted out', WIN_LAUNCHD, () => {
+  const calls = leftoverRunner(create.plistPath('leftover-ours'));
+  const r = create.createAgent({ ...BINS, name: 'leftover-ours', role: 'pm' });
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.match(r.because, /already set to start on this computer/);
+  assert.ok(!bootedOut(calls), 'it unloaded a job loaded from our own plist path');
+});
+
+test('#4279: a job whose plist EXISTS outside a temp folder is still refused, never booted out', WIN_LAUNCHD, () => {
+  // This test file itself: absolute, present, and not in a temp folder.
+  const calls = leftoverRunner(__filename);
+  const r = create.createAgent({ ...BINS, name: 'leftover-live', role: 'pm' });
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.ok(!bootedOut(calls), 'it unloaded a job it cannot prove is dead');
+});
+
+test('#4279: a bootout that does not take is still a refusal, not a creation', WIN_LAUNCHD, () => {
+  const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'rx-launch-'));
+  const leaked = nodePath.join(dir, 'com.kosmos.agent.leftover-stuck.plist');
+  fs.writeFileSync(leaked, '<plist/>');
+  const calls = leftoverRunner(leaked, { bootoutWorks: false });
+  const r = create.createAgent({ ...BINS, name: 'leftover-stuck', role: 'pm' });
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.ok(bootedOut(calls), 'precondition: it tried');
+  assert.ok(!calls.some(([, a]) => a && a[0] === 'bootstrap'), 'it loaded a second job over one that would not leave');
+});
+
+test('#4279: leftoverJob reads only the first-level path, and only temp or gone counts', () => {
+  const ours = '/Users/x/Library/LaunchAgents/com.kosmos.agent.a.plist';
+  assert.equal(create.leftoverJob('x = { ... }', ours), null, 'no path reported: not provable');
+  assert.equal(create.leftoverJob(`\tpath = ${ours}\n`, ours), null, 'our own path');
+  assert.equal(create.leftoverJob('\tpath = relative/x.plist\n', ours), null, 'a relative path');
+  assert.equal(create.leftoverJob('\t\tpath = /nowhere-4279/x.plist\n', ours), null, 'a NESTED path line is not the job\'s plist');
+  assert.match(create.leftoverJob('\tpath = /nowhere-4279/x.plist\n', ours).why, /gone/);
+  const t = nodePath.join(os.tmpdir(), 'x-4279.plist'); fs.writeFileSync(t, '');
+  try { assert.match(create.leftoverJob(`\tpath = ${t}\n`, ours).why, /temporary/); } finally { fs.rmSync(t, { force: true }); }
+  assert.equal(create.leftoverJob(`\tpath = ${__filename}\n`, ours), null, 'present and not temp');
+});
+
 test('a machine we cannot ask about running agents is refused, not risked', WIN_LAUNCHD, () => {
   // ⚠️ FAIL CLOSED. "We could not check" is not "the name is free", and this is
   // the one place where guessing wrong makes a second agent under a live name.

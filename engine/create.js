@@ -912,6 +912,34 @@ function serviceLabel(name, worldId) {
   return `${SERVICE_LABEL_PREFIX}${launchidentity.launchKey(name, world)}`;
 }
 function plistPath(name, worldId) { return path.join(agentsDir(), `${serviceLabel(name, worldId)}.plist`); }
+
+/* #4279: the temp roots a leftover test job's plist can sit in. A real agent's
+   plist never does. Both spellings of macOS's per-user temp are listed, since
+   launchd reports whichever the job was loaded with. */
+function tempRoots() {
+  const roots = new Set(['/tmp', '/private/tmp', '/var/folders', '/private/var/folders']);
+  for (const t of [os.tmpdir(), process.env.TMPDIR]) {
+    if (!t) continue;
+    roots.add(path.resolve(t));
+    try { roots.add(fs.realpathSync.native(t)); } catch { /* not there */ }
+  }
+  return [...roots];
+}
+
+/* #4279: whether a LOADED job for a name is a leftover we may boot out, from
+   `launchctl print` output. Returns {path, why} or null. Only when launchd names
+   the plist it loaded, that plist is not `ours`, and it is gone or in temp. */
+function leftoverJob(printed, ours) {
+  const m = /^\tpath = (.+)$/m.exec(String(printed || ''));
+  if (!m) return null;
+  const loadedFrom = m[1].trim();
+  if (!path.isAbsolute(loadedFrom)) return null;
+  if (path.resolve(loadedFrom) === path.resolve(ours)) return null;
+  if (!fs.existsSync(loadedFrom)) return { path: loadedFrom, why: 'its startup file is gone' };
+  const under = (root) => loadedFrom === root || loadedFrom.startsWith(root.endsWith('/') ? root : root + '/');
+  if (tempRoots().some(under)) return { path: loadedFrom, why: 'its startup file is in a temporary folder' };
+  return null;
+}
 /* {name, worldId} for one of our service labels, or null when it is not ours.
    The stray sweeps use it to keep only THIS board's world and to read the bare
    agent name from a label (#1704). */
@@ -4294,6 +4322,19 @@ function createAgentInner(opts) {
    * and unloading somebody else's service to free up a name is exactly the
    * "act on something we have not tied to us" move the rest of this codebase
    * refuses to make.
+   *
+   * 🔑 #4279: ONE EXCEPTION, AND IT IS NARROW ON PURPOSE. A job whose plist launchd
+   * loaded from somewhere other than this board's own plist path, AND whose plist
+   * is now gone or sits in a temp folder, is a leftover nobody can use: it cannot
+   * survive a restart (its plist is gone or in a folder the system clears), and a
+   * real agent's plist never lives in a temp folder. Measured on Agent1s
+   * 2026-09-27: a 09-24 test left `com.kosmos.agent.josh` loaded from
+   * `T/rx-launch-*`, respawning 8,096 times with exit 1, and it blocked the setup
+   * guide's creation for the name Josh. That kind is booted out and the creation
+   * goes on, with a step saying so. Anything else loaded under this name (a
+   * plist at our own path, or outside temp, or a path launchd does not report)
+   * is still refused: labels are world-scoped, so it can only be this board's
+   * agent or its leftover, and we do not unload what we cannot prove is dead.
    */
   //
   // ⚠️ Loaded means launchctl actually DESCRIBED the service, not merely that
@@ -4303,11 +4344,29 @@ function createAgentInner(opts) {
   // also keeps the seam honest: a recorder that reports every command as
   // succeeding does not thereby claim every name is taken.
   let loaded = false;
+  let printed = '';
   try {
     const r = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${serviceLabel(name)}`]);
-    loaded = Boolean(r && r.ok !== false && String(r.stdout || '').trim());
+    printed = String((r && r.stdout) || '');
+    loaded = Boolean(r && r.ok !== false && printed.trim());
   } catch {
     loaded = false;
+  }
+  if (loaded) {
+    const leftover = leftoverJob(printed, plistPath(name));
+    if (leftover) {
+      let gone = false;
+      try {
+        run('/bin/launchctl', ['bootout', `gui/${process.getuid()}/${serviceLabel(name)}`]);
+        const again = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${serviceLabel(name)}`]);
+        gone = !(again && again.ok !== false && String(again.stdout || '').trim());
+      } catch { gone = false; }
+      if (gone) {
+        try { console.log(`create: removed a leftover startup job for ${name} (${leftover.why}; it was loaded from ${leftover.path})`); } catch { /* never mask */ }
+        steps.push({ label: `removed a leftover startup entry for ${shown} that was blocking the name (${leftover.why})`, ok: true });
+        loaded = false;
+      }
+    }
   }
   if (loaded) {
     return {
@@ -5404,6 +5463,8 @@ const SELF_STARTS = 'it starts itself when this computer is on and it is not rem
 
 module.exports = {
   MODELS,
+  /* #4279: exported so the leftover-job rule is tested on its own. */
+  leftoverJob,
   /* #3034: exported so engine/setup-assistant.js reads the CREATED sentinel from
      one source instead of re-declaring the literal 'created' (convention: a
      duplicated fact needs one source or a pin). */
