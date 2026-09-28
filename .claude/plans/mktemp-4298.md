@@ -47,6 +47,14 @@ lands under TMPDIR, and the name says which script left it.
   or backtick inside double quotes is code, and a string handed to `-c` is code. On origin/main it
   finds 116 calls in tools/ and 1 in install/, the 117 this branch templates.
 
+## After the rebase onto #4306 (its run-root leak guard)
+The first full run on the rebased head failed that guard with three families, as predicted on the card:
+- 3 x kosmos-pkg-verify: mine (templated into the run root now). test-pkg-checksum-1670.sh exports
+  TMPDIR=$T, so the postinstall's exec-skipped dir leaves with $T.
+- aw-doorflight: server.doorflight-1618.test.js's after-hook raced the board's timers; tmpscope fixes it.
+- aw-xsite: server.xsite-1636.test.js; a CHILD process outlives the test and rewrites its SANDBOX after
+  exit (tmpscope's own dir survived with it). Not this card's: filed #4309, allowlisted with that pointer.
+
 ## Mistake recorded
 A `git stash` in the worktree during a measurement run swapped scripts mid-execution; that run was
 discarded and re-run. Never stash or edit a tree a suite is executing.

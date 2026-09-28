@@ -17,6 +17,8 @@
  *
  *   node --test server.doorflight-1618.test.js
  */
+require('./test-support/tmpscope'); // kosmos#4273/#4298: the board's timers can write into SANDBOX after
+// the after-hook removes it; the scope dir goes on process exit, when nothing is left running.
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');

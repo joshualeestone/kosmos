@@ -24,6 +24,9 @@ PY3=/usr/bin/python3; "$PY3" -c '' >/dev/null 2>&1 || PY3=python3
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/pkg-checksum-1670.XXXXXXXXXX")"; trap 'rm -rf "$T"; [ -n "${SRV:-}" ] && kill "$SRV" 2>/dev/null' EXIT
+# #4298: the postinstall block ends in `exec /bin/sh`, so its own EXIT trap never removes its
+# verify dir. Point TMPDIR here so that dir lands in $T and leaves with it.
+export TMPDIR="$T"
 fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }

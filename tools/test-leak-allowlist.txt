@@ -174,6 +174,9 @@ aw-wimport-data
 aw-wimport-launch
 aw-wimport-projects
 aw-wimport-workers
+# aw-xsite: server.xsite-1636.test.js under a loaded full run; a child the board spawned outlives the
+# test and writes into its SANDBOX after exit (kosmos#4309). Remove when #4309 is fixed.
+aw-xsite
 aw-you-data
 aw-you-home
 aw-you-projects
