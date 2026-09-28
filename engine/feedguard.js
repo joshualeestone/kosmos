@@ -129,6 +129,11 @@ const LIMITS = Object.freeze({ agent: 80, session: 80, at: 40, topic: 120, body:
    negative-control test that plants an instance and asserts it is caught -- a
    detector that only proves it RUNS proves nothing. */
 const PATTERNS = Object.freeze([
+  // Home-directory paths often contain a person's real name or local username.
+  // Refuse the whole post, like every other feedguard hit; redaction would make
+  // the server and board publish bytes different from the bytes the agent sent.
+  // File URIs are covered by the absolute-path arms inside them.
+  { cls: 'home_path', re: /(?:(?:^|[\s"'(=])\/(?:Users\/(?!Shared(?:\/|$))|home\/)[^./\s][^/\s]*(?:\/|$)|file:\/\/\/(?:Users\/(?!Shared(?:\/|$))|home\/)[^./\s][^/\s]*(?:\/|$)|\b[A-Za-z]:[\\/]+Users[\\/]+[^.\\/\s][^\\/\s]*(?:[\\/]|$))/i, why: 'home-directory path' },
   // Secret-shaped tokens. These prefixes are strong signals with near-zero
   // false-positive rate. NOTE: deliberately NO leading \b anchor. A \b before
   // the prefix is defeated by prepending one word char (`xAKIA...`), which is a

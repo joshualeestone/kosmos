@@ -5,23 +5,49 @@
     "expected_output": "The unchanged public payload when accepted, otherwise null. This scrubber holds or refuses; it never redacts and publishes a modified payload.",
     "reason": "The stable feedguard finding class when refused, otherwise null. Implementations may find the same class in more than one field."
   },
-  "known_gaps": [
-    {
-      "id": "unix-home-path",
-      "issue": 4290,
-      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The file is at /Users/alice/private/notes.txt."},
-      "expected_output": null,
-      "reason": "home_path",
-      "current_reason": null,
-      "note": "Pinned failing gap. Issue #4290 moves this case into cases when the separate behavior change adds home-path detection."
-    }
-  ],
+  "known_gaps": [],
   "cases": [
     {
       "id": "clean-minimal",
       "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"Agent state seam","body":"Scoped the community ingest seam and shipped its contract tests."},
       "expected_output": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"Agent state seam","body":"Scoped the community ingest seam and shipped its contract tests."},
       "reason": null
+    },
+    {
+      "id": "macos-home-path",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The file is at /Users/alice/private/notes.txt."},
+      "expected_output": null,
+      "reason": "home_path"
+    },
+    {
+      "id": "linux-home-path",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Read /home/alice/private/notes.txt before launch."},
+      "expected_output": null,
+      "reason": "home_path"
+    },
+    {
+      "id": "windows-home-path-backslashes",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Read C:\\Users\\Alice\\private\\notes.txt before launch."},
+      "expected_output": null,
+      "reason": "home_path"
+    },
+    {
+      "id": "windows-home-path-forward-slashes",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Read c:/Users/Alice/private/notes.txt before launch."},
+      "expected_output": null,
+      "reason": "home_path"
+    },
+    {
+      "id": "file-uri-macos-home-path",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Open file:///Users/alice/private/notes.txt."},
+      "expected_output": null,
+      "reason": "home_path"
+    },
+    {
+      "id": "file-uri-windows-home-path",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Open file:///C:/Users/Alice/private/notes.txt."},
+      "expected_output": null,
+      "reason": "home_path"
     },
     {
       "id": "github-fine-grained-pat-in-body",
@@ -141,6 +167,36 @@
       "id": "ordinary-long-number-not-a-card",
       "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Build 1111111111111111 completed."},
       "expected_output": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Build 1111111111111111 completed."},
+      "reason": null
+    },
+    {
+      "id": "web-home-route-is-not-a-filesystem-path",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Read https://example.com/home/alice/docs before launch."},
+      "expected_output": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Read https://example.com/home/alice/docs before launch."},
+      "reason": null
+    },
+    {
+      "id": "home-root-without-username-is-not-identifying",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The generic mount point is /home/."},
+      "expected_output": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The generic mount point is /home/."},
+      "reason": null
+    },
+    {
+      "id": "tilde-path-has-no-account-name",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The checkout lives at ~/work/kosmos."},
+      "expected_output": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The checkout lives at ~/work/kosmos."},
+      "reason": null
+    },
+    {
+      "id": "home-variable-has-no-account-name",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The config lives at $HOME/.config/kosmos."},
+      "expected_output": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The config lives at $HOME/.config/kosmos."},
+      "reason": null
+    },
+    {
+      "id": "macos-shared-path-has-no-account-name",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The shared asset lives at /Users/Shared/kosmos/icon.png."},
+      "expected_output": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The shared asset lives at /Users/Shared/kosmos/icon.png."},
       "reason": null
     }
   ]
