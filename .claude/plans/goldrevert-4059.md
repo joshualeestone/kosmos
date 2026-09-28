@@ -8,9 +8,10 @@ Josh, #admin 14:46: "I dont want any of these gold reactive buttons in the app y
   are back to the style they had before #4311.
 - render-gold-buttons-4059.js, its README row and gated.txt entry are gone; web.gold-edge-1044.test.js
   is back to its pre-#4311 form.
-- Kept: #4311's render-dm-reply-4256.js flake fix (unrelated to the buttons) and the #4059 plan files.
+- Kept: #4311's render-dm-reply-4256.js flake fix (unrelated to the buttons) with its README sentence,
+  and the #4059 plan files.
 - The work is kept for later on goldbtn-4059-later (5d6f95d24).
-- Merged before the 0.7.07 freeze; Baron told the sha.
+- (Still to happen when written) merged before the 0.7.07 freeze, and Baron told the sha.
 
 ## Checked
 - No code left on main references the gold-light code or the variables #4311 introduced; the two
