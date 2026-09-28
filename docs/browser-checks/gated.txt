@@ -70,6 +70,7 @@ render-fed-external-3311
 render-fed-plus-gate
 render-firstrun-access-onebox
 render-firstrun-agy-4081
+render-firstrun-choice-4356
 render-firstrun-connect-box-2187
 render-firstrun-connect-fires
 render-firstrun-enter-2186

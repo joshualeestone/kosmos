@@ -1,0 +1,173 @@
+// Browser-check-surface: fr-choice frc-title frc-btn frc-buttons frc-logo
+'use strict';
+
+/**
+ * #4356: the first screen asks whether this computer runs agents or connects to agents on another
+ * computer. Josh's copy rule (on the card, 2026-09-28): the Kosmos logo, the heading "How would you
+ * like to set up Kosmos on this computer?" and two buttons, "Run agents on this computer" and
+ * "Connect to agents on another computer". Nothing else on the screen.
+ *
+ * web.firstrun-choice-4356.test.js pins the markup and runs the page's functions. This renders the
+ * real page and reads what a person sees: the rendered text, the logo actually loaded, the two
+ * buttons side by side (and stacked on a phone-width window), nothing of the wizard or the board
+ * showing around the screen, and what each button hands the Mac app.
+ *
+ * Harness: the real board on a sandbox data root. The Mac app's message handler
+ * (window.webkit.messageHandlers.kosmosMode) is stood in for by an init script that records what the
+ * page posts; a page without it is the CONTROL (a browser never shows the screen). The app puts
+ * ?mode=unset or ?mode=unreadable on the address; this passes them the same way.
+ *
+ *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-firstrun-choice-4356.js [shots-dir]
+ */
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
+
+const ROOTS = [];
+const mkroot = (tag) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-frc-' + tag)); ROOTS.push(d); return d; };
+const SANDBOX = mkroot('');
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+process.env.AGENT_WORKFORCE_WORKERS = mkroot('workers-');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_CONFIG_ROOT = mkroot('config-');
+process.env.AGENT_WORKFORCE_LAUNCH = mkroot('launch-');
+process.env.AGENT_WORKFORCE_PROJECTS = mkroot('projects-');
+process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
+
+const { chromium } = require('playwright');
+const fleet = require('../../test-support/fleet');
+const store = require('../../engine/store');
+const srv = require('../../server.js');
+
+const HEADING = 'How would you like to set up Kosmos on this computer?';
+const RUN = 'Run agents on this computer';
+const CONNECT = 'Connect to agents on another computer';
+
+const SHOTS = process.argv[2] || null;
+const fail = [];
+let pass = 0;
+function chk(ok, label, extra) {
+  if (ok) { pass++; console.log('PASS  ' + label + (extra ? '  ' + extra : '')); }
+  else { fail.push(label); console.log('FAIL  ' + label + (extra ? '  --  ' + extra : '')); }
+}
+
+// The Mac app's handler, stood in for: every post lands in window.__posted.
+const BRIDGE = () => {
+  window.__posted = [];
+  window.webkit = { messageHandlers: { kosmosMode: { postMessage: (m) => { window.__posted.push(m); } } } };
+};
+
+const look = (page) => page.evaluate(() => {
+  const el = document.getElementById('fr-choice');
+  const shown = !!el && !el.hidden && getComputedStyle(el).display !== 'none';
+  const logo = el && el.querySelector('img.frc-logo');
+  const title = el && el.querySelector('#frc-title');
+  const btns = el ? [...el.querySelectorAll('.frc-btn')] : [];
+  const r = (x) => x.getBoundingClientRect();
+  // What covers the window: every sampled point is inside the screen, never the board or wizard.
+  const pts = [[5, 5], [innerWidth - 5, 5], [5, innerHeight - 5], [innerWidth - 5, innerHeight - 5], [innerWidth / 2, innerHeight / 2]];
+  return {
+    shown,
+    lines: shown ? el.innerText.split('\n').map((s) => s.trim()).filter(Boolean) : [],
+    logo: logo ? { loaded: logo.complete && logo.naturalWidth > 0, top: r(logo).top, visible: r(logo).height > 0 } : null,
+    titleTop: title ? r(title).top : null,
+    btns: btns.map((b) => ({ text: b.innerText.trim(), name: b.getAttribute('aria-label'), top: r(b).top, left: r(b).left, h: r(b).height, disabled: b.disabled })),
+    covered: shown && pts.every(([x, y]) => el.contains(document.elementFromPoint(x, y))),
+    focused: document.activeElement && document.activeElement.classList.contains('frc-btn') ? document.activeElement.innerText.trim() : null,
+    wizard: (() => { const w = document.getElementById('firstrun'); return !!w && !w.hidden; })(),
+    search: location.search,
+    posted: window.__posted || null,
+  };
+});
+
+(async () => {
+  fleet.install([]);
+  const server = await srv.start(0);
+  const port = server.address().port;
+  const base = 'http://127.0.0.1:' + port + '/';
+  const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
+  try {
+    const errs = [];
+    const open = async (url, { bridge = true, width = 1280 } = {}) => {
+      const ctx = await browser.newContext({ viewport: { width, height: 800 } });
+      if (bridge) await ctx.addInitScript(BRIDGE);
+      const page = await ctx.newPage();
+      page.on('pageerror', (e) => errs.push(e.message));
+      await page.goto(url, { waitUntil: 'networkidle' });
+      await page.waitForTimeout(300);
+      return page;
+    };
+
+    // C1: a fresh Mac, first run not done, no choice stored.
+    let page = await open(base + '?mode=unset');
+    let s = await look(page);
+    chk(s.shown, 'C1 a fresh Mac in the app shows the first screen');
+    chk(JSON.stringify(s.lines) === JSON.stringify([HEADING, RUN, CONNECT]), 'C1 THE RENDERED TEXT IS EXACTLY the heading and the two labels', JSON.stringify(s.lines));
+    chk(s.logo && s.logo.loaded && s.logo.visible, 'C1 the Kosmos logo loaded and shows', JSON.stringify(s.logo));
+    chk(s.logo && s.titleTop !== null && s.logo.top < s.titleTop, 'C1 the logo is at the top, above the heading');
+    chk(s.btns.length === 2 && s.btns.every((b) => b.name === null), 'C1 two buttons, each named by its own label');
+    chk(s.btns.length === 2 && Math.abs(s.btns[0].top - s.btns[1].top) < 1 && s.btns[0].left < s.btns[1].left, 'C1 the buttons sit side by side, Run on the left', JSON.stringify(s.btns));
+    chk(s.btns.length === 2 && s.btns.every((b) => b.h >= 150), 'C1 the buttons are large');
+    chk(s.covered, 'C1 nothing of the board or the wizard shows around the screen');
+    chk(s.focused === RUN, 'C1 a keyboard starts on the first button', String(s.focused));
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'firstrun-choice-4356.png') });
+
+    // C2: Run agents hands the app "run", hides the screen, first run carries on, and the address forgets ?mode=.
+    await page.click('text=' + RUN);
+    await page.waitForTimeout(400);
+    s = await look(page);
+    chk(JSON.stringify(s.posted) === '["run"]', 'C2 Run agents tells the app "run"', JSON.stringify(s.posted));
+    chk(!s.shown && s.wizard, 'C2 the screen goes and first run opens');
+    chk(!/[?&]mode=/.test(s.search), 'C2 the address no longer asks, so a Reload does not show the screen again', s.search);
+    await page.context().close();
+
+    // C3: Connect hands the app "connect" and leaves the screen up, buttons off, while the app switches.
+    page = await open(base + '?mode=unset');
+    await page.click('text=' + CONNECT);
+    await page.waitForTimeout(300);
+    s = await look(page);
+    chk(JSON.stringify(s.posted) === '["connect"]', 'C3 Connect tells the app "connect"', JSON.stringify(s.posted));
+    chk(s.shown && s.btns.every((b) => b.disabled) && !s.wizard, 'C3 the screen stays, buttons off, no wizard behind a Mac that is switching away');
+    await page.context().close();
+
+    // C4: a phone-width window stacks the buttons and still shows only the three strings.
+    page = await open(base + '?mode=unset', { width: 390 });
+    s = await look(page);
+    chk(s.btns.length === 2 && s.btns[1].top > s.btns[0].top, 'C4 on a narrow window the buttons stack');
+    chk(JSON.stringify(s.lines) === JSON.stringify([HEADING, RUN, CONNECT]), 'C4 and the text is still exactly the three strings');
+    chk(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'C4 nothing runs off the side');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'firstrun-choice-4356-narrow.png') });
+    await page.context().close();
+
+    // C5 CONTROL: a browser (no app handler) never shows the screen; first run opens as it always has.
+    page = await open(base + '?mode=unset', { bridge: false });
+    s = await look(page);
+    chk(!s.shown && s.wizard, 'C5 CONTROL: in a browser there is no first screen, only first run');
+    await page.context().close();
+
+    // C6: first run already done. No stored choice: never asked (every Mac before #4356). An unreadable one: asked,
+    // and Run agents goes straight to the board.
+    fs.writeFileSync(path.join(store.ROOT, 'first-run.json'), JSON.stringify({ completedAt: new Date().toISOString() }));
+    page = await open(base + '?mode=unset');
+    s = await look(page);
+    chk(!s.shown && !s.wizard, 'C6 a Mac that finished first run before #4356 is not asked');
+    await page.context().close();
+    page = await open(base + '?mode=unreadable');
+    s = await look(page);
+    chk(s.shown, 'C6 an unreadable choice asks again, even after first run');
+    await page.click('text=' + RUN);
+    await page.waitForTimeout(400);
+    s = await look(page);
+    chk(!s.shown && !s.wizard && JSON.stringify(s.posted) === '["run"]', 'C6 and Run agents lands on the board, not first run');
+    await page.context().close();
+
+    chk(errs.length === 0, 'C7 no page errors', errs.join(' | '));
+  } finally {
+    await browser.close();
+    server.close();
+    for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+  }
+  if (fail.length) { console.log('\n' + fail.length + ' FAILED'); for (const f of fail) console.error('  FAIL  ' + f); process.exit(1); }
+  console.log('\nall first-screen checks passed (' + pass + ')');
+})().catch((e) => { console.error(e); process.exit(1); });
