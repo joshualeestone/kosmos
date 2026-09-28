@@ -2032,8 +2032,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
        #1042 gate need a window server, and it would then SKIP on a headless
        build box, which is exactly the property that makes this gate better than
        its sibling. */
-    static let relaunchButtons: (titles: [String], returnIndex: Int, destructiveIndex: Int) =
-        (["Quit and Open Again", "Not Now"], 1, 0)
+    /* #4347: this prompt is now the fallback, shown only when the page cannot say whether a restart
+       would lose anything. Restart is the default: Josh read the old grey "Quit and Open Again" beside a
+       blue "Not Now" as the notice recommending the wrong thing, and a restart that reopens Kosmos is not
+       the destructive quit the old Return rule guarded against. */
+    static let relaunchButtons: (titles: [String], returnIndex: Int, restartIndex: Int) =
+        (["Restart Kosmos", "Not Now"], 0, 0)
 
     /// The key equivalent for each button, DERIVED from the spec.
     ///
@@ -2047,7 +2051,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// it caught was a degenerate one nobody would write.
     /// ⭐ A check that reads one thing and vouches for another is worse than no
     /// check: it is a reassuring sentence over the defect it names.
-    static func relaunchKeyEquivalents(_ spec: (titles: [String], returnIndex: Int, destructiveIndex: Int)) -> [String] {
+    static func relaunchKeyEquivalents(_ spec: (titles: [String], returnIndex: Int, restartIndex: Int)) -> [String] {
         spec.titles.indices.map { $0 == spec.returnIndex ? "\r" : "" }
     }
 
@@ -2510,28 +2514,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
        install that carries `theirs`; nil when none does, so the caller falls back to
        today's behaviour and is never worse off. Reads each candidate's Info.plist,
        never this running process's. */
+    static func onDiskVersion(_ app: URL) -> String? {
+        let plist = app.appendingPathComponent("Contents/Info.plist")
+        return NSDictionary(contentsOf: plist)?["CFBundleShortVersionString"] as? String
+    }
+
     static func freshAppURL(theirs: String) -> URL? {
         let candidates = [
             URL(fileURLWithPath: "/Applications/Kosmos.app"),
             URL(fileURLWithPath: NSHomeDirectory() + "/Applications/Kosmos.app"),
+            /* #4347: this window's own path last. Read from disk below, so an update that rewrote the
+               bundle this process came from is seen as the new version it now holds. */
+            Bundle.main.bundleURL,
         ]
         let pairs: [(url: URL, version: String?)] = candidates.map { url in
             guard FileManager.default.fileExists(atPath: url.path) else { return (url, nil) }
-            /* 🔑 Bundle(url:) hands back a CACHED Bundle for a URL that already has
-               one -- so if THIS stale process was launched from a candidate path
-               (e.g. /Applications/Kosmos.app) that was then updated on disk, this
-               reads the in-memory (stale) version and that candidate looks
-               non-matching. That is why the caller's `?? Bundle.main.bundleURL`
-               fallback is LOAD-BEARING, not decoration: in that exact case
-               freshAppURL returns nil and the fallback relaunches the same path
-               with createsNewApplicationInstance=true, spawning a new process from
-               the FRESH on-disk bytes -- correct. Do NOT drop that fallback trusting
-               freshAppURL alone; the self-path case depends on it. Josh's scenario (a
-               stale LEFTOVER copy at a different, uncached URL) reads the real on-disk
-               version and is selected here directly. */
-            return (url, Bundle(url: url)?.infoDictionary?["CFBundleShortVersionString"] as? String)
+            /* #4347: the version ON DISK, never Bundle(url:), which hands back a CACHED Bundle for a
+               path this process was launched from and so reports the old version after an update
+               rewrote it. Reading the plist file is what lets the relaunch wait for the bundle. */
+            return (url, onDiskVersion(url))
         }
         return pickFresh(pairs, theirs: theirs)
+    }
+
+    /* #4347: what the window does next after it learns the board is newer. PURE, for the stale selftest.
+       Josh: the notice showed on every update, recommended the grey button, and took one or two
+       relaunches to stick, because a relaunch could reopen the app before the update had rewritten it. */
+    enum RelaunchStep: Equatable {
+        /// No app on disk carries the board's version yet, or the page says a restart would lose something.
+        case wait
+        /// A fresh app is on disk and the page says nothing would be lost: restart with no question.
+        case relaunchNow
+        /// A fresh app is on disk but the page could not answer (an older page): ask the person.
+        case askPerson
+        /// The app on disk never caught up: reopening cannot help, say so once.
+        case giveUp
+    }
+    static let relaunchWaitLimit: TimeInterval = 180
+    static func relaunchStep(freshFound: Bool, waited: TimeInterval, pageSafe: Bool?) -> RelaunchStep {
+        guard freshFound else { return waited >= relaunchWaitLimit ? .giveUp : .wait }
+        switch pageSafe {
+        case .some(true): return .relaunchNow
+        case .some(false): return .wait
+        case .none: return .askPerson
+        }
     }
 
     private func offerRelaunch(mine: String, theirs: String) {
@@ -2545,43 +2571,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             showCannotSelfHeal(mine: mine, theirs: theirs)
             return
         }
+        stepRelaunch(mine: mine, theirs: theirs, since: Date())
+    }
+
+    /// #4347: one step of the wait-then-restart. Re-arms itself until it relaunches, asks, or gives up.
+    private func stepRelaunch(mine: String, theirs: String, since: Date) {
+        let target = Self.freshAppURL(theirs: theirs)
+        let waited = Date().timeIntervalSince(since)
+        let decide = { (pageSafe: Bool?) in
+            switch Self.relaunchStep(freshFound: target != nil, waited: waited, pageSafe: pageSafe) {
+            case .wait:
+                let again: TimeInterval = target == nil ? 3 : 15
+                DispatchQueue.main.asyncAfter(deadline: .now() + again) { [weak self] in
+                    self?.stepRelaunch(mine: mine, theirs: theirs, since: since)
+                }
+            case .relaunchNow:
+                self.relaunch(mine: mine, theirs: theirs, target: target!, waited: waited, asked: false)
+            case .askPerson:
+                self.askToRestart(mine: mine, theirs: theirs, target: target!, waited: waited)
+            case .giveUp:
+                logLine("relaunch: \(ISO8601DateFormatter().string(from: Date())) no app on disk reached \(theirs) "
+                        + "after \(Int(waited))s; not reopening")
+                self.showCannotSelfHeal(mine: mine, theirs: theirs, reopened: false)
+            }
+        }
+        guard target != nil, let web = webView else { decide(nil); return }
+        web.evaluateJavaScript("typeof window.kosmosSafeToRestart === 'function' ? window.kosmosSafeToRestart() : null") { result, _ in
+            DispatchQueue.main.async { decide(result as? Bool) }
+        }
+    }
+
+    /// #4347: only when the page cannot say whether a restart is safe. Restart is the default.
+    private func askToRestart(mine: String, theirs: String, target: URL, waited: TimeInterval) {
         window?.makeKeyAndOrderFront(nil)
         let alert = NSAlert()
-        alert.messageText = "Kosmos updated while this window was open"
-        /* ⚠️ "SHOULD", NOT "DOES". `make_app` failing is NON-FATAL to an install
-           (a foreign app home, a failed bundle build, a TCC denial on
-           /Applications), which leaves the icon on the old version while the
-           board moves on. In that state reopening changes nothing, and this
-           notice returns on every launch. Saying "catches it up" as flat fact
-           would be the screen asserting something it cannot know, which is the
-           defect this card is about. The last sentence is the one that IS
-           measured (Kitty, on the coordinator) and it is what makes the advice
-           safe to give at all. */
-        alert.informativeText = "This window is still running version \(mine). The rest of "
-            + "Kosmos is on \(theirs). Opening it again should catch it up. Your agents keep "
-            + "running and nothing needs signing in to again."
+        alert.messageText = "Restart Kosmos to finish updating"
+        alert.informativeText = "Your agents keep running."
         alert.alertStyle = .informational
         let spec = AppDelegate.relaunchButtons
         let keys = AppDelegate.relaunchKeyEquivalents(spec)
         for (i, title) in spec.titles.enumerated() {
             alert.addButton(withTitle: title).keyEquivalent = keys[i]
         }
-        /* 🔑 ENTER LANDS ON THE HARMLESS CHOICE. This notice arrives UNBIDDEN
-           over whatever the person was doing, so a reflexive Return must not
-           quit their app. `showQuitDialog` states this rule for itself, though
-           it does not demonstrate it (its only button is the one that quits),
-           so this is the rule applied rather than a pattern copied.
-           ⚠️ THE BUTTONS ARE CAPTURED, NOT LOOKED UP. `alert.buttons.first?`
-           no-ops if the array is ever empty, and the failure mode is BOTH
-           buttons holding Return with the destructive one winning: silent, and
-           in the dangerous direction. */
-        /* ⚠️ THE ACCEPT BRANCH IS DERIVED TOO, not a literal
-           `.alertFirstButtonReturn`. With the literal, swapping the two TITLES
-           inverted the product silently: the person clicking "Not Now" got the
-           quit. The button that quits is the one at destructiveIndex, by
-           definition, and that is now what is asked. */
         let clicked = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
-        guard clicked == spec.destructiveIndex else { return }
+        guard clicked == spec.restartIndex else { return }
+        relaunch(mine: mine, theirs: theirs, target: target, waited: waited, asked: true)
+    }
+
+    private func relaunch(mine: String, theirs: String, target: URL, waited: TimeInterval, asked: Bool) {
+        logLine("relaunch: \(ISO8601DateFormatter().string(from: Date())) \(mine) -> \(theirs), "
+                + "target \(target.path), waited \(Int(waited))s, \(asked ? "person pressed Restart" : "no question asked")")
 
         /* 🛑 #1182: WRITTEN BEFORE THE RELAUNCH, NOT AFTER IT. There is no after:
            this process calls NSApp.terminate a few lines down, so anything
@@ -2594,11 +2633,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            first and hoping is how a person ends up with no Kosmos at all, which
            is far worse than the stale menu bar this fixes. The new instance is
            launched FIRST, and this one only exits once macOS confirms it. */
-        /* #2094: relaunch the CANONICAL install that carries the board's version,
-           NOT Bundle.main -- the path this possibly-stale process was launched from.
-           Falling back to Bundle.main when no fresher copy is found keeps this no
-           worse than before (showCannotSelfHeal still bounds the loop). */
-        let target = Self.freshAppURL(theirs: theirs) ?? Bundle.main.bundleURL
         let conf = NSWorkspace.OpenConfiguration()
         /* 🛑 ALWAYS force a new instance -- do NOT try to dedup by activating an
            existing one. The fresh copy and this stale process share a
@@ -2686,7 +2720,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
        so again next time is nagging about something the person cannot act on from
        here, so the marker is CLEARED after telling them once and the notice does
        not come back for this version pair. */
-    private func showCannotSelfHeal(mine: String, theirs: String) {
+    private func showCannotSelfHeal(mine: String, theirs: String, reopened: Bool = true) {
         window?.makeKeyAndOrderFront(nil)
         let alert = NSAlert()
         /* #2101: Josh read the old wording ("This window cannot update itself ...
@@ -2705,7 +2739,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            The window still stops re-asking (relaunchedAtVersion cleared below). */
         alert.messageText = "This window is on an older version of Kosmos"
         alert.informativeText = "It is running version \(mine), and Kosmos is on \(theirs). "
-            + "Reopening this window did not move it to the newer version. Your agents kept "
+            + (reopened ? "Reopening this window did not move it to the newer version. "
+                        : "The Kosmos app on this Mac was not updated with it. ")
+            + "Your agents kept "
             + "running the whole time, and nothing needs signing in to again. To get the current "
             + "version, download the latest Kosmos from installkosmos.com and open it."
         alert.alertStyle = .informational
@@ -3768,22 +3804,66 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
         print((ok ? "PASS  " : "FAIL  ") + "buttons: " + what)
     }
     btnCheck(btn.titles.indices.contains(btn.returnIndex)
-             && btn.titles.indices.contains(btn.destructiveIndex),
+             && btn.titles.indices.contains(btn.restartIndex),
              "both indices name a real button")
     btnCheck(keys.count == btn.titles.count, "every button gets a key equivalent")
-    if keys.count == btn.titles.count, btn.titles.indices.contains(btn.destructiveIndex) {
-        btnCheck(keys[btn.destructiveIndex] == "",
-                 "the button that QUITS does not answer to Return (it is \"\(btn.titles[btn.destructiveIndex])\")")
-        btnCheck(keys[btn.returnIndex] == "\r",
-                 "Return reaches \"\(btn.titles[btn.returnIndex])\"")
+    /* #4347: Return now RESTARTS, on purpose (Josh: the button the notice recommends must be the blue
+       default). The rows pin that, and pin it by title, so swapping the two strings is caught. */
+    if keys.count == btn.titles.count, btn.titles.indices.contains(btn.restartIndex) {
+        btnCheck(keys[btn.restartIndex] == "\r",
+                 "Return reaches the restart button (it is \"\(btn.titles[btn.restartIndex])\")")
+        btnCheck(keys.enumerated().filter { $0.element == "\r" }.count == 1, "exactly one button answers to Return")
     }
-    /* ⚠️ THE TITLE IS PINNED BY NAME. Without this, swapping the two strings
-       moves the quit onto the other button and every check above still holds,
-       because they only compare indices to each other. Measured: that mutation
-       inverted the product and the old gate passed. */
-    btnCheck(btn.titles.indices.contains(btn.destructiveIndex)
-             && btn.titles[btn.destructiveIndex] == "Quit and Open Again",
-             "the destructive button is the one titled \"Quit and Open Again\"")
+    btnCheck(btn.titles.indices.contains(btn.restartIndex)
+             && btn.titles[btn.restartIndex] == "Restart Kosmos",
+             "the restart button is the one titled \"Restart Kosmos\"")
+    btnCheck(btn.titles.count == 2 && btn.titles[1 - btn.restartIndex] == "Not Now",
+             "the other button is \"Not Now\"")
+
+    /* #4347: the wait-then-restart decision, as rows. Row 1 is the bug Josh hit: relaunching before the
+       app on disk carries the new version put him back on the old one. */
+    var stepBad = 0
+    func stepCheck(_ got: AppDelegate.RelaunchStep, _ want: AppDelegate.RelaunchStep, _ why: String) {
+        let ok = got == want
+        if !ok { stepBad += 1 }
+        print((ok ? "PASS  " : "FAIL  ") + "relaunch step: \(why) -> \(got)")
+        ran += 1
+    }
+    stepCheck(AppDelegate.relaunchStep(freshFound: false, waited: 0, pageSafe: true), .wait,
+              "the app on disk is still old: wait, even if the page is safe")
+    stepCheck(AppDelegate.relaunchStep(freshFound: false, waited: 179, pageSafe: nil), .wait,
+              "still inside the wait limit")
+    stepCheck(AppDelegate.relaunchStep(freshFound: false, waited: AppDelegate.relaunchWaitLimit, pageSafe: true), .giveUp,
+              "the app never caught up: stop, do not reopen")
+    stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 5, pageSafe: true), .relaunchNow,
+              "fresh app, nothing to lose: restart with no question")
+    stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 5, pageSafe: false), .wait,
+              "fresh app, but a draft or a send: wait, never interrupt")
+    stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 500, pageSafe: false), .wait,
+              "a long draft does not turn into giving up once the app is fresh")
+    stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 5, pageSafe: nil), .askPerson,
+              "the page cannot answer: ask, with Restart as the default")
+
+    /* #4347: the version is read from the plist ON DISK. A scratch bundle whose plist is rewritten must
+       read as the new version, which the cached Bundle(url:) does not do for a path already loaded. */
+    let tmpApp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("kosmos-4347-\(getpid()).app")
+    let plistDir = tmpApp.appendingPathComponent("Contents")
+    try? FileManager.default.createDirectory(at: plistDir, withIntermediateDirectories: true)
+    func writeVersion(_ v: String) {
+        (["CFBundleShortVersionString": v] as NSDictionary).write(to: plistDir.appendingPathComponent("Info.plist"), atomically: true)
+    }
+    writeVersion("0.7.03")
+    stepCheck(AppDelegate.onDiskVersion(tmpApp) == "0.7.03" ? .wait : .giveUp, .wait, "on-disk read sees the old version")
+    _ = Bundle(url: tmpApp)?.infoDictionary   // load and cache it, as a running app has
+    writeVersion("0.7.05")
+    stepCheck(AppDelegate.onDiskVersion(tmpApp) == "0.7.05" ? .wait : .giveUp, .wait,
+              "after the bundle is rewritten, the on-disk read sees the NEW version")
+    try? FileManager.default.removeItem(at: tmpApp)
+    if stepBad > 0 {
+        print("\nstale-check: the wait-then-restart decision or the on-disk version read is wrong (#4347)")
+        exit(1)
+    }
+
     if buttonsBad > 0 {
         print("\nstale-check: the relaunch notice's buttons are wrong, which is not the version comparison")
         exit(1)
