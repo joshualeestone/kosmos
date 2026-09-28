@@ -91,3 +91,11 @@ That removing Stop now from the phone chat header costs nothing important. A per
   - Fixed: the limit line joins the description only while it is true.
   - S8 and S21 read the description from Chromium's own accessibility tree (CDP getFullAXTree). The mutant with the static description turns S21 red with the false sentence.
 - **NIT** In Firefox, Space on Stopped may open the question and close it on keyup, because focus moved to Keep it running. KEPT: it only ever lands on the safe answer, and Kosmos runs on Chromium and WebKit (the gate runs Chromium).
+
+## Review round 8 (sonnet, blind): no issues. CONVERGED.
+
+## Validation (a60e9b06): node tests 11459 / 0 fail; the surface gate named 7 checks
+- 6 ran green on this branch; they carry per-check trailers.
+- render-agent-files-3614 was RED. It counted every nav label and icon, including the Swarm Settings box that is hidden for an ordinary agent.
+  - Fixed: it counts the boxes a person sees (`button:not([hidden])`).
+  - Control: the box shown for every agent (mutant) makes it red (6 labels, a 24px icon).
