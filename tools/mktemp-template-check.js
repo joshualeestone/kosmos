@@ -28,8 +28,8 @@ const fs = require('node:fs');
    `nohup`, `xargs`, `timeout`, `stdbuf`, with their options) and `VAR=value` assignments, then the binary, by
    name or by path (`/usr/bin/mktemp`). */
 const PRE = String.raw`(?:\$\(|` + '`' + String.raw`|^|[;&|!{()]|\b(?:if|then|do|else|elif|while|until)\b|["'])`;
-const OPT = String.raw`(?:\s+-[\w-]+(?:\s+(?:"[^"]*"|'[^']*'|[^\s-]\S*))?)*`;
-const WRAP = String.raw`\s*(?:(?:command|env|exec|sudo|nice|time|nohup|xargs|stdbuf|caffeinate|arch)` + OPT + String.raw`\s+|timeout` + OPT + String.raw`\s+[\d.]+[smhd]?\s+)*`
+const OPT = String.raw`(?:\s+-[\w-]+\S*(?:\s+(?:"[^"]*"|'[^']*'|[^\s-]\S*))?)*`;
+const WRAP = String.raw`\s*(?:(?:builtin|command|env|exec|sudo|nice|time|nohup|xargs|stdbuf|caffeinate|arch)` + OPT + String.raw`\s+|timeout` + OPT + String.raw`\s+[\d.]+[smhd]?\s+)*`
   + String.raw`(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s+)*`;
 /* The name may be quoted (`"mktemp" -d` runs mktemp all the same). */
 const BIN = String.raw`(["']?)\\?(?:\/[\w./-]*\/)?mktemp\1(?![\w.-])`;

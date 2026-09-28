@@ -17,8 +17,6 @@
  *
  *   node --test server.doorflight-1618.test.js
  */
-require('./test-support/tmpscope'); // kosmos#4273/#4298: the board's timers can write into SANDBOX after
-// the after-hook removes it; the scope dir goes on process exit, when nothing is left running.
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -28,6 +26,12 @@ const HOME = path.join(SANDBOX, 'home');
 fs.mkdirSync(HOME, { recursive: true });
 process.env.HOME = HOME;
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+/* #4298/#4309: never run the host's real gh or vercel. A real vercel forks a detached update-check
+   worker that writes $HOME/Library/... after this process exits, re-creating SANDBOX (measured: a
+   leftover on 4 of 4 runs). A path that is not a program makes each door report not-installed
+   (devicedoor.js binEnv), as engine.dirmode-1763.test.js does. */
+process.env.AGENT_WORKFORCE_GH_BIN = path.join(SANDBOX, 'no-such-gh');
+process.env.AGENT_WORKFORCE_VERCEL_BIN = path.join(SANDBOX, 'no-such-vercel');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
 process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');

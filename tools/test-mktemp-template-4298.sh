@@ -80,10 +80,12 @@ aa="$(mktemp -d -t x "${TMPDIR:-/tmp}/n.XXXXXX")"
 ab="$(\mktemp -d)"
 caffeinate -i mktemp -d >/dev/null
 arch -arm64 mktemp -d >/dev/null
+ac="$(builtin command mktemp)"
+printf 'x\n' | xargs -I{} mktemp -d >/dev/null
 SH
 got="$(node tools/mktemp-template-check.js "$T/bare.sh" | cut -d: -f2 | sort -n | tr '\n' ' ')"
-want="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 "
-[ "$got" = "$want" ] && ok "CONTROL: all 33 bare shapes are found, each on its own line" \
+want="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 "
+[ "$got" = "$want" ] && ok "CONTROL: all 35 bare shapes are found, each on its own line" \
   || bad "CONTROL: bare shapes found on lines [$got], want [$want]"
 
 # The other side: templated calls and mentions are not calls to fix.

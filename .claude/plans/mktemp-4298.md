@@ -51,9 +51,13 @@ lands under TMPDIR, and the name says which script left it.
 The first full run on the rebased head failed that guard with three families, as predicted on the card:
 - 3 x kosmos-pkg-verify: mine (templated into the run root now). test-pkg-checksum-1670.sh exports
   TMPDIR=$T, so the postinstall's exec-skipped dir leaves with $T.
-- aw-doorflight: server.doorflight-1618.test.js's after-hook raced the board's timers; tmpscope fixes it.
-- aw-xsite: server.xsite-1636.test.js; a CHILD process outlives the test and rewrites its SANDBOX after
-  exit (tmpscope's own dir survived with it). Not this card's: filed #4309, allowlisted with that pointer.
+- aw-doorflight and aw-xsite: both tests run the host's REAL vercel (and gh); vercel forks a detached
+  update-check worker that writes $HOME/Library/... into the sandbox after the test exits. I first
+  called doorflight a timer race and "fixed" it with tmpscope: wrong, measured too early (the write
+  lands seconds after exit), and it only renamed the leftover to kts-*. A blind review caught it.
+  Fix (Raiden's, #4309): point AGENT_WORKFORCE_GH_BIN/VERCEL_BIN at non-programs, so no real CLI
+  starts. doorflight gets it here (0 left, 10 s after exit, twice); xsite and server.connect get it in
+  Raiden's #4309 PR, and aw-xsite is allowlisted naming #4309 until then.
 
 ## Mistake recorded
 A `git stash` in the worktree during a measurement run swapped scripts mid-execution; that run was

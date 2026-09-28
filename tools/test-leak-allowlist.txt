@@ -174,8 +174,8 @@ aw-wimport-data
 aw-wimport-launch
 aw-wimport-projects
 aw-wimport-workers
-# aw-xsite: server.xsite-1636.test.js under a loaded full run; a child the board spawned outlives the
-# test and writes into its SANDBOX after exit (kosmos#4309). Remove when #4309 is fixed.
+# aw-xsite: server.xsite-1636.test.js runs the host's real vercel, whose detached update-check worker
+# writes into the sandbox HOME after the test exits (kosmos#4309). Remove when #4309 lands.
 aw-xsite
 aw-you-data
 aw-you-home
