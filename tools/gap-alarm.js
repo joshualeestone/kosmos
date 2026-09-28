@@ -317,7 +317,9 @@ function xml(s) {
    binary's Cellar path, which an upgrade deletes. */
 function stableNode() {
   for (const p of ['/opt/homebrew/bin/node', '/usr/local/bin/node']) {
-    try { fs.accessSync(p, fs.constants.X_OK); return p; } catch { /* next */ }
+    // A regular FILE with an execute bit: an execute-permission check alone succeeds on a DIRECTORY
+    // (engine.runnable-not-directory). Inline, so the tool needs nothing from engine/.
+    try { const st = fs.statSync(p); if (st.isFile() && (st.mode & 0o111)) return p; } catch { /* next */ }
   }
   return process.execPath;
 }
