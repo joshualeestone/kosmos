@@ -12,7 +12,7 @@
  *   GRACE    a DM that landed 30 seconds ago: owes, but inside the 2-minute grace, so no line yet.
  *   NOT DELIVERED  a DM that never reached the agent: no line (it was never received).
  *   MENU ANSWER  a DM owed 10 minutes, then a menu button pressed 30 seconds ago (a `wire` row): the line still shows,
- *            because the grace is timed from the message owed, not from the button (the page's own filter).
+ *            because the grace is timed from the message owed (the engine's lastHeardAt), not from the button.
  *            (A TYPED answer to a question is not told apart: a known limit, recorded on #4340.)
  * Every arm also asserts the thread's message rows really rendered, so a "no line" arm cannot pass on a blank paint.
  * Harness posture mirrors render-agentdm-3414.js: load over file://, answer the thread poll from the fixture,

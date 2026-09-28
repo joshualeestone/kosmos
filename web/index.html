@@ -31520,7 +31520,7 @@ function paintTalkThread(body, name) {
         && (prev.at === m.replyTo || (prev.replyTo === m.replyTo && prevHid));
       prevHid = adjacent && DM_ROWS.has(m.replyTo);   // left out only when the original is there to name
       return dmRow(m, name, adjacent);
-    }).join('') + pendingHtml + (filtering ? '' : dmOwesLine(body.owes, rows));
+    }).join('') + pendingHtml + (filtering ? '' : dmOwesLine(body.owes));
     setThread(thread, dmHtml, threadKey);
     /* #4256: a repaint that replaced the row a jump focused puts focus back, only if focus fell to the page. */
     if (DM_JUMP_FOCUS && (!document.activeElement || document.activeElement === document.body)) {
@@ -53289,34 +53289,21 @@ const PJ_SILENCE_AFTER_MS = 2 * 60 * 1000;
  * answered", which is the confident all-clear this product refuses everywhere
  * else.
  */
-function dmOwesLine(owes, rows) {
+function dmOwesLine(owes) {
   if (!owes || typeof owes !== 'object') return '';
   if (owes.state === 'unknown') {
     return '<p class="dmnone">We could not read this conversation, so we cannot tell whether it has answered.</p>';
   }
   if (owes.state !== 'owes') return '';
-  /* 🛑 ONLY WHEN SOMETHING ACTUALLY REACHED IT, which the first version of this
-     did not check and a screenshot caught. A message that could not be
-     delivered still makes `owes` true, because the record says something was
-     addressed to the agent; saying "nothing back yet" over a row already
-     reading "Could not deliver" blames it for silence about a message it never
-     received. Two sentences, one moment, contradicting each other.
-     🔑 THE SAME RULE THE ROOM'S RECEIPT USED: only a recipient a message
-     actually reached (`state === 'placed'`) can be said to have gone quiet.
-     The room enforced this before #3130/#3202 removed that surface; it is kept
-     here because it is correct, not because the room still runs it. */
-  /* #4340: the same rows chat.dmOwes counts: placed, and not a menu answer (a row with a `wire`), so the grace is
-     timed from the message actually owed, not from a button pressed since. */
-  const landed = rows.filter((m) => m && m.delivery && m.delivery.state === 'placed'
-    && !(typeof m.wire === 'string' && m.wire));
-  if (!landed.length) return '';
-  /* ⚠️ THE GRACE IS MEASURED ON THE MESSAGE THAT LANDED, not on the state and
-     not on the newest row. `owes` is true the instant something is recorded, so
-     without this every thread accuses an agent for the first two minutes of
-     every exchange, and timing from an undelivered row would start the clock on
-     something that never arrived. `pjOldEnoughToJudge` is the room's own test
-     and refuses an unparseable timestamp rather than treating it as long ago. */
-  if (!pjOldEnoughToJudge(landed[landed.length - 1].at)) return '';
+  /* #4340: ONE DERIVATION. The engine (chat.dmOwes, on the thread route) decides which message is owed: only a
+     person message that actually REACHED the agent (placed) and is not a menu answer, newer than its last reply.
+     It returns that message's time as `lastHeardAt`, and the grace is timed from exactly that. The page used to
+     re-filter the rows itself to find the same message, a second derivation of one fact (convention #5), and the
+     undelivered-row rule it enforced now lives in the engine, where `owes` can never be true for it.
+     ⚠️ THE GRACE: `owes` is true the instant a message lands, so without it every thread accuses the agent for the
+     first two minutes of every exchange. `pjOldEnoughToJudge` is the room's own test and refuses an unparseable
+     timestamp rather than treating it as long ago. */
+  if (!pjOldEnoughToJudge(owes.lastHeardAt)) return '';
   return '<p class="dmnone">Nothing back yet.</p>';
 }
 
