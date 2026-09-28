@@ -87,6 +87,8 @@ const store = require('./store');
 const BASE = store.ROOT;
 const FILE = path.join(BASE, 'remote.json');
 const STATE_DIR = () => process.env.AGENT_WORKFORCE_TUNNEL_STATE || path.join(BASE, 'remote');
+/* Whether STATE_DIR() is the override rather than the default: one derivation, read by the report. */
+const STATE_DIR_IS_CUSTOM = () => !!process.env.AGENT_WORKFORCE_TUNNEL_STATE;
 const STATUS_FILE = () => path.join(BASE, 'remote-status.json');
 /* Where the connector lives. An explicit AGENT_WORKFORCE_TUNNEL_BIN wins (the
  * test seam, and any operator override). Otherwise prefer the copy this app
@@ -145,6 +147,10 @@ let restartPending = false;
    a tunnel that failed once or twice may still read `starting`; one that keeps failing is caught
    within about a minute, as the backoff passes the 15 s tick. */
 let lastTunnelFailure = null;
+/* When the current process was last seen NOT up (its start, or its first sample after being up),
+   on the board's monotonic clock, so a wall-clock step cannot move it. Null while up. Lets the
+   report tell a tunnel stuck on its first dial (which writes no failure) from one just started. */
+let dialingSince = null;
 let localPort = null;
 
 /** Ensure the state dir exists and is owner-only. It holds the identity key
@@ -591,6 +597,7 @@ function spawnFedSeat(edgeId) {
 function startChild() {
   if (restartPending) { restarts += 1; restartPending = false; }
   lastTunnelFailure = null;   // a new process has written nothing yet
+  dialingSince = performance.now();
   const args = [
     'run',
     '--relay', RELAY(),
@@ -757,8 +764,9 @@ function status() {
     if (!raw || raw.pid !== child.pid) {
       return { state: 'connecting', address: null, because: 'starting the connection' };
     }
-    if (raw.state === 'up') lastTunnelFailure = null;
-    else if (raw.state === 'restarting' && typeof raw.because === 'string' && raw.because) lastTunnelFailure = raw.because;
+    if (raw.state === 'up') { lastTunnelFailure = null; dialingSince = null; }
+    else if (dialingSince === null) dialingSince = performance.now();
+    if (raw.state === 'restarting' && typeof raw.because === 'string' && raw.because) lastTunnelFailure = raw.because;
     if (raw.state === 'up') {
       /* A healthy run earns a fresh backoff: without this the window only
          ever grows (stopChild is the sole other reset), so a board that has
@@ -1942,6 +1950,10 @@ module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondR
   /* kosmos#4277: the current tunnel process's last failure sentence, for
      engine/remote-report.js to classify. Never sent as text. */
   lastTunnelFailure: () => lastTunnelFailure,
+  /* How long the current tunnel process has been dialling without being up, in ms, or null. */
+  dialingForMs: () => (dialingSince === null ? null : performance.now() - dialingSince),
+  holdsKey,
+  stateDirIsCustom: STATE_DIR_IS_CUSTOM,
   /* kosmos#4277: whether the supervisor's tunnel process is up ('alive'), dead with a
      relaunch scheduled ('waiting'), or not running ('none'). This, not status(), says whether a
      relaunch held: status() reads `restarting` for the tunnel's own in-process reconnects too. */
@@ -1952,7 +1964,7 @@ module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondR
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { lastTunnelFailure = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); stopChild(); },
+  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* test seam: the live child's pid, or null. spawn() sets the handle
      synchronously, so a test can assert "nothing spawned" deterministically

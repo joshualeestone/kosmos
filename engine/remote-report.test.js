@@ -16,11 +16,14 @@ const path = require('node:path');
 const report = require('./remote-report');
 
 
-function fakeRemote({ on = true, ok = true, state = 'up', because = null, dir, restarts = 0, sup, lastFailure = null }) {
+function fakeRemote({ on = true, ok = true, state = 'up', because = null, dir, restarts = 0, sup, lastFailure = null, dialingMs = null, custom = false }) {
   const supervisor = sup || (state === 'restarting' ? 'waiting' : (state === 'up' || state === 'connecting' ? 'alive' : 'none'));
   return {
     supervisorState: () => supervisor,
     lastTunnelFailure: () => lastFailure,
+    dialingForMs: () => dialingMs,
+    stateDirIsCustom: () => custom,
+    holdsKey: () => ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(dir, f))),
     read: () => ({ ok, on }),
     status: () => ({ state, because }),
     stateDir: () => dir,
@@ -173,6 +176,16 @@ test('a tunnel dialling again after a failure is named by that failure, not by "
   assert.equal(now.error, 'relay-dropped');
 });
 
+test('a first dial running past STUCK_DIALLING_MS with no failure reads stuck-dialling; a known failure still wins', () => {
+  report.resetForTests();
+  const dir = stateDir(report.ENROL_FILES);
+  const at = (dialingMs, lastFailure = null) => report.build({ remote: fakeRemote({ dir, state: 'connecting', because: 'connecting to the relay', dialingMs, lastFailure }), env: {} }).error;
+  assert.equal(at(10 * 1000), 'starting', 'a tunnel ten seconds in read as stuck');
+  assert.equal(at(report.STUCK_DIALLING_MS + 1), 'stuck-dialling', 'a tunnel stuck on its first dial read as starting');
+  assert.equal(at(report.STUCK_DIALLING_MS + 1, 'relay refused the tunnel: x'), 'relay-refused', 'the age hid a known failure');
+  assert.equal(at(null), 'starting');
+});
+
 test('classify is bounded: a 100k-character hostile line classifies fast', () => {
   const t0 = Date.now();
   assert.equal(report.classify('a1'.repeat(50000)), 'other');
@@ -194,7 +207,8 @@ test('switch on, key held, not enrolled: the error names the missing enrolment f
 test('stateDir: custom when AGENT_WORKFORCE_TUNNEL_STATE is set, missing when the directory is not there', () => {
   report.resetForTests();
   const dir = stateDir([]);
-  assert.equal(report.build({ remote: fakeRemote({ dir }), env: { AGENT_WORKFORCE_TUNNEL_STATE: dir } }).stateDir, 'custom');
+  assert.equal(report.build({ remote: fakeRemote({ dir, custom: true }), env: {} }).stateDir, 'custom');
+  assert.equal(report.build({ remote: fakeRemote({ dir }), env: {} }).stateDir, 'default');
   const gone = path.join(dir, 'not-here');
   assert.equal(report.build({ remote: fakeRemote({ dir: gone }), env: {} }).stateDir, 'missing');
 });

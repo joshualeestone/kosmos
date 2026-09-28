@@ -14,8 +14,9 @@
  * What it carries (fixed values only; no free text ever leaves the Mac):
  *   on        the remote-access switch
  *   tunnel    running | starting | crashed | stopped | off, from remote.status(). `starting`
- *             with an error code is a tunnel process that is up but whose own retries keep
- *             failing (stuck), not one coming up: read the two together
+ *             with an error other than `starting` is a tunnel process that is up but stuck (its
+ *             retries keep failing, or its first dial has run past STUCK_DIALLING_MS), not one
+ *             coming up: read the two together
  *   error     a CODE from the fixed list in CODES, classified on the Mac from status()'s own
  *             sentence (the sentence itself is never sent); or, for a board whose switch is
  *             on and which holds a key but is not enrolled, `not-enrolled; missing: <files>`
@@ -59,12 +60,12 @@ const CODES = [
   // remote-report.test.js asserts that each healthy sentence matches `starting` alone, whatever the
   // order here.
   ['starting', /^(starting the connection|connecting to the relay)$/i],
-  // The coordinator's own sentences (coordinator.rs) all start with `Kosmos+`, so they are taken
-  // right after the healthy sentences, before every other pattern, any of which a gateway error
-  // page in their detail could otherwise match. A 4xx is a refusal and a 5xx
+  // The coordinator's answers to a request (coordinator.rs: refused, answered <code>, unreachable)
+  // start with `Kosmos+`, so they are taken right after the healthy sentences, before every other
+  // pattern, any of which a gateway error page in their detail could otherwise match. Its other
+  // sentences (an unreadable answer, a ticket that does not fit) have their own codes below. A 4xx is a refusal and a 5xx
   // an outage; coordinator.rs writes `Kosmos+ refused this Mac: <why> (HTTP <code> on <path>)` for
   // ANY status whose body parses as a refusal, 5xx included, so the 5xx form is taken first.
-  // These are the only coordinator patterns.
   // 408 and 429 are "not now", not "no" (as remote.js RETIRE_TRANSIENT reads them): an outage.
   ['coordinator-unreachable', /^Kosmos\+ (answered (5\d\d|408|429)|unreachable)|^Kosmos\+ refused.*\bHTTP (5\d\d|408|429)\b/i],
   ['coordinator-refused', /^Kosmos\+ (refused|answered 4\d\d)/i],
@@ -77,7 +78,10 @@ const CODES = [
   // only without mac_id, which enrolled() requires, and only a not-enrolled board says it is
   // waiting for a code, which sends `not-enrolled; missing: ...` instead. Both read `other`.
   ['status-unreadable', /^status unreadable/i],
-  // status() words every spawn failure as `the tunnel program could not be started: <why>`.
+  // status() words every spawn failure as `the tunnel program could not be started: <why>`. The
+  // report is signed by the same program, so it arrives only for a transient spawn failure.
+  // Likewise state-file-unreadable below reaches us only for a file the signer does not read
+  // (address, coordinator_pubkey): an unreadable mac_id or mac_key stops the send too.
   ['binary-unstartable', /^the tunnel program could not be started/i],
   ['state-file-unreadable', /reading \S+ from|pinned coordinator_pubkey|decoding mac_key|mac_key is not 32 bytes/i],
   // The Mac's own check found the coordinator's ticket expired, by this Mac's clock: usually a Mac
@@ -136,7 +140,6 @@ let lastRestarts = 0;   // restarts counts from process start, so 0 is the true 
 function build(deps) {
   try {
     const remote = (deps && deps.remote) || require('./remote');
-    const env = (deps && deps.env) || process.env;
     const settings = remote.read();
     const on = settings && settings.ok === true && settings.on === true;
     const st = remote.status() || {};
@@ -148,6 +151,7 @@ function build(deps) {
     // While the tunnel dials again it says only "connecting to the relay" (it clears its reason at
     // each retry), so a stuck tunnel is named by the last failure its process wrote.
     let because = st.because;
+    const keyHeld = typeof remote.holdsKey === 'function' ? remote.holdsKey() : false;
     if (tunnel === 'starting' && classify(because) === 'starting' && typeof remote.lastTunnelFailure === 'function') {
       const last = remote.lastTunnelFailure();
       if (typeof last === 'string' && last) because = last;
@@ -164,8 +168,8 @@ function build(deps) {
     const r = {
       on,
       tunnel,
-      error: tunnel === 'running' ? null : errorCode(because, on, exists),
-      stateDir: !dirThere ? 'missing' : (env.AGENT_WORKFORCE_TUNNEL_STATE ? 'custom' : 'default'),
+      error: tunnel === 'running' ? null : stuckOr(errorCode(because, on, exists, keyHeld), remote),
+      stateDir: !dirThere ? 'missing' : (typeof remote.stateDirIsCustom === 'function' && remote.stateDirIsCustom() ? 'custom' : 'default'),
       macId: exists('mac_id'),
       macKey: exists('mac_key'),
       app,
@@ -183,14 +187,23 @@ function build(deps) {
 /* The code sent as `error`. A board whose switch is on but which is not enrolled says which
    enrolment files are missing (fixed names), not status()'s sign-in sentence, which would
    blame the person for what may be a half-written state dir. */
-function errorCode(because, on, exists) {
-  // Only a board holding its key (mac_key on disk) is named not-enrolled: enrolled() does not
-  // check mac_key, so this reads it here. A board without it (the key deleted, or an enrolled one
-  // whose key is gone) falls back to classify(), which loses the missing-files detail but never
-  // leaks text.
+function errorCode(because, on, exists, keyHeld) {
+  // Only a board holding its key (remote.holdsKey(): mac_id and mac_key, the sender's own test)
+  // is named not-enrolled. One that is not falls back to classify(), which loses the missing-files
+  // detail but never leaks text.
   const missing = ENROL_FILES.filter((f) => !exists(f));
-  if (on && missing.length && exists('mac_key')) return 'not-enrolled; missing: ' + missing.join(', ');
+  if (on && missing.length && keyHeld) return 'not-enrolled; missing: ' + missing.join(', ');
   return classify(because);
+}
+
+/* A tunnel whose first dial has run this long without a failure or success is stuck, not starting:
+   it writes no failure (a coordinator or relay that accepts and never answers), so only its age
+   tells it apart. Ten-minute reports see it on the first one past the mark. */
+const STUCK_DIALLING_MS = 5 * 60 * 1000;
+function stuckOr(code, remote) {
+  if (code !== 'starting' || typeof remote.dialingForMs !== 'function') return code;
+  const ms = remote.dialingForMs();
+  return typeof ms === 'number' && ms > STUCK_DIALLING_MS ? 'stuck-dialling' : code;
 }
 
 /** Call with the report that was SENT, so its heal baseline counts. */
@@ -199,4 +212,4 @@ function commitHeal(report) {
   if (report && typeof report.healBaseline === 'number') lastRestarts = Math.max(lastRestarts, report.healBaseline);
 }
 
-module.exports = { build, commitHeal, tunnelState, classify, CODES, ENROL_FILES, resetForTests: () => { lastRestarts = 0; } };
+module.exports = { build, commitHeal, tunnelState, classify, CODES, ENROL_FILES, STUCK_DIALLING_MS, resetForTests: () => { lastRestarts = 0; } };

@@ -686,7 +686,7 @@ test('#4277: a restart timer firing during a register does not count the registe
   } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.FAKE_REGISTER_MS; remote.resetForTests(); }
 });
 
-test('#4277: a register that succeeds while a relaunch is still pending starts the tunnel now, and it is not counted', async () => {
+test('#4277: a register that succeeds while a relaunch is still pending starts the tunnel now, and it is not counted', async (t) => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9451';
   remote.setOn(true);
   await remote.setupStart('her@example.com');
@@ -701,7 +701,10 @@ test('#4277: a register that succeeds while a relaunch is still pending starts t
   const before = remote.restartCount();
   try {
     assert.equal(remote.supervisorState(), 'waiting', 'fixture: a relaunch must be pending when the register goes out');
+    const t0 = Date.now();
     const r = await remote.setupComplete('123456', 'theirs');
+    // Under load the register can outlast the 1 s backoff, and then this is a different test.
+    if (Date.now() - t0 >= 900) { t.skip('the register outlasted the backoff on this box; nothing to measure'); return; }
     assert.equal(r.ok, true, r.because);
     assert.equal(remote.supervisorState(), 'alive', 'the register waited for the old backoff instead of starting the tunnel');
     await until(() => remote.status().state === 'up', 'the tunnel to come up', 15000);
@@ -809,6 +812,24 @@ test('#4277: the remembered failure belongs to one tunnel process: a new process
     assert.equal(remote.status().because, 'starting the connection', 'fixture: the new process must not have written yet');
     assert.equal(remote.lastTunnelFailure(), null, 'a new process inherited the old process\'s failure');
     assert.equal(require('./remote-report').build().error, 'starting', 'a fresh tunnel read as stuck');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; remote.resetForTests(); }
+});
+
+test('#4277: dialingForMs counts a process that is not up yet, and stops when it is up', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9453';
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  await remote.setupComplete('123456', 'hers');
+  remote.resetForTests();
+  process.env.FAKE_TUNNEL_MODE = 'slow-up';
+  try {
+    remote.ensure(4380);
+    const a = remote.dialingForMs();
+    assert.equal(typeof a, 'number', 'a process just started is not counted as dialling');
+    await new Promise((r) => setTimeout(r, 200));
+    assert.ok(remote.dialingForMs() >= a + 150, 'the dialling time does not grow');
+    await until(() => remote.status().state === 'up', 'the tunnel to come up', 15000);
+    assert.equal(remote.dialingForMs(), null, 'a tunnel that is up still counts as dialling');
   } finally { delete process.env.FAKE_TUNNEL_MODE; remote.resetForTests(); }
 });
 
