@@ -55,15 +55,23 @@ mkdir -p "$W/state"
 for f in mac_id mac_key tls.crt tls.key coordinator_pubkey; do echo x > "$W/state/$f"; done
 echo "$HOST" > "$W/state/address"
 
-# The stub connector. STUB_MODE picks what it prints (the real connector's wording).
+# The stub connector. STUB_MODE picks what it prints (the real connector's wording). It execs
+# into a sleep NAMED with this run's tag, so the leak check at the end can find a stub that
+# outlived its gate (a bare "exec sleep" would leave nothing with a findable name).
+TAG="$(basename "$W")"
 cat > "$W/stub-tunnel" <<'STUB'
 #!/bin/bash
+state=""; while [ $# -gt 0 ]; do [ "$1" = --state-dir ] && state="$2"; shift; done
+hold() { exec -a "kosmos-gate-stub-$STUB_TAG" sleep 60; }
+up() { echo "2026-09-28T01:21:47Z  INFO kosmos_tunnel_client::session: tunnel up relay=x hostname=y"; }
 case "$(cat "$STUB_MODE_FILE")" in
-  up)     echo "2026-09-28T01:21:47Z  INFO kosmos_tunnel_client::session: tunnel up relay=x hostname=y"; exec sleep 60 ;;
-  ticket) echo "2026-09-28T01:21:47Z  WARN kosmos_tunnel_client: session ended: Kosmos+ unreachable for /v1/mac/relay-ticket: http://127.0.0.1:9/v1/mac/relay-ticket: Connection refused"; exec sleep 60 ;;
-  auth)   echo "2026-09-28T01:21:47Z  WARN kosmos_tunnel_client: session ended: relay TLS handshake: invalid peer certificate: UnknownIssuer"; exec sleep 60 ;;
+  up)     up; hold ;;
+  ticket) echo "2026-09-28T01:21:47Z  WARN kosmos_tunnel_client: session ended: Kosmos+ unreachable for /v1/mac/relay-ticket: http://127.0.0.1:9/v1/mac/relay-ticket: Connection refused"; hold ;;
+  auth)   echo "2026-09-28T01:21:47Z  WARN kosmos_tunnel_client: session ended: relay TLS handshake: invalid peer certificate: UnknownIssuer"; hold ;;
+  retry)  echo "2026-09-28T01:21:47Z  WARN kosmos_tunnel_client: session ended: relay TLS handshake: early eof"; sleep 2; up; hold ;;
+  renew)  echo renewed-crt > "$state/tls.crt"; echo renewed-key > "$state/tls.key"; up; hold ;;
   exits)  echo "error: something broke"; exit 1 ;;
-  silent) exec sleep 60 ;;
+  silent) hold ;;
 esac
 STUB
 chmod +x "$W/stub-tunnel"
@@ -73,7 +81,8 @@ run() {
   local label="$1" want="$2" text="$3" smode="$4" pmode="$5"; shift 5
   echo "$smode" > "$W/stubmode"; echo "$pmode" > "$W/mode"
   local out rc
-  out=$(STUB_MODE_FILE="$W/stubmode" bash "$GATE" --tunnel "$W/stub-tunnel" --state-dir "$W/state" \
+  out=$(STUB_TAG="$TAG" STUB_MODE_FILE="$W/stubmode" bash "$GATE" --tunnel "$W/stub-tunnel" --state-dir "$W/state" \
+        --coordinator "https://127.0.0.1:$PORT" --relay "127.0.0.1:$PORT" \
         --visit-resolve "$HOST:$PORT:127.0.0.1" --visitor-ca "$W/ca.pem" --timeout 4 "$@" 2>&1); rc=$?
   if [ "$rc" -eq "$want" ] && printf '%s' "$out" | grep -qF -- "$text"; then
     pass=$((pass + 1)); echo "  ok    $label"
@@ -91,6 +100,11 @@ run "no tunnel up in time -> FAIL at dial-auth"             1 "no \"tunnel up\" 
 run "a different page -> FAIL at serve"                     1 "not the connector's session page"       up     wrong
 run "HTTP 500 -> FAIL at serve"                             1 "got HTTP 500"                           up     boom
 run "no identity -> CANNOT TELL"                            2 "no enrolled gate identity"              up     ok     --state-dir "$W/nothing-here"
+run "a session ends, the retry comes up -> PASS"            0 "tunnel-gate: PASS"                      retry  ok
+# An outage or a dropped network HOLDS (2), never refuses (1): later arguments override the
+# reachable ones in run().
+run "coordinator unreachable -> CANNOT TELL, not FAIL"      2 "the coordinator (http://127.0.0.1:9)"   up     ok     --coordinator http://127.0.0.1:9
+run "relay unreachable -> CANNOT TELL, not FAIL"            2 "the relay (127.0.0.1:9)"                up     ok     --relay 127.0.0.1:9
 run "--visit-resolve for another host -> CANNOT TELL"       2 "but the gate's address is"              up     ok     --visit-resolve "other.kosmos.test:$PORT:127.0.0.1"
 
 # No connector named at all.
@@ -105,8 +119,8 @@ tarball_case() {
   local label="$1" want="$2" text="$3" tb="$4"
   echo up > "$W/stubmode"; echo ok > "$W/mode"
   local out rc
-  out=$(STUB_MODE_FILE="$W/stubmode" bash "$GATE" --tarball "$tb" --state-dir "$W/state" \
-        --visit-resolve "$HOST:$PORT:127.0.0.1" --visitor-ca "$W/ca.pem" --timeout 4 2>&1); rc=$?
+  out=$(STUB_TAG="$TAG" STUB_MODE_FILE="$W/stubmode" bash "$GATE" --tarball "$tb" --state-dir "$W/state" \
+        --coordinator "https://127.0.0.1:$PORT" --relay "127.0.0.1:$PORT" --visit-resolve "$HOST:$PORT:127.0.0.1" --visitor-ca "$W/ca.pem" --timeout 4 2>&1); rc=$?
   if [ "$rc" -eq "$want" ] && printf '%s' "$out" | grep -qF -- "$text"; then pass=$((pass + 1)); echo "  ok    $label"
   else fail=$((fail + 1)); echo "  FAIL  $label: exit $rc (wanted $want): $out"; fi
 }
@@ -114,11 +128,29 @@ tarball_case "--tarball with a connector -> PASS"         0 "tunnel-gate: PASS" 
 tarball_case "--tarball without a connector -> CANNOT TELL" 2 "has no app/bin/kosmos-tunnel"       "$W/without.tar.gz"
 tarball_case "--tarball that does not exist -> CANNOT TELL" 2 "no such tarball"                    "$W/nope.tar.gz"
 
-# No stub connector outlives its run (the gate's bounded stop).
-left=$(pgrep -f "$W/stub-tunnel" | wc -l | tr -d ' ')
+# An earlier gate's connector still running -> CANNOT TELL. A stand-in with the command line a
+# gate's connector has (its state dir under a tunnel-gate.* temp dir).
+bash -c 'exec -a "kosmos-tunnel run --state-dir /nowhere/tunnel-gate.Stale1/state --coordinator x" sleep 30' &
+STALE=$!
+sleep 0.3
+run "an earlier gate connector still running -> CANNOT TELL" 2 "an earlier gate connector is still running" up ok
+{ kill "$STALE"; wait "$STALE"; } 2>/dev/null
+
+# A renewed certificate is carried back into the enrolled state dir (the connector runs on a
+# copy). The PASS rows above are the control: they leave tls.crt as "x".
+if [ "$(cat "$W/state/tls.crt")" = x ]; then pass=$((pass + 1)); echo "  ok    control: no renewal leaves the enrolled certificate alone"
+else fail=$((fail + 1)); echo "  FAIL  the enrolled certificate changed with no renewal"; fi
+run "a renewed certificate -> PASS"                         0 "kept the connector's renewed certificate" renew ok
+if [ "$(cat "$W/state/tls.crt")" = renewed-crt ] && [ "$(cat "$W/state/tls.key")" = renewed-key ]; then
+  pass=$((pass + 1)); echo "  ok    the renewed certificate and key are in the enrolled state dir"
+else fail=$((fail + 1)); echo "  FAIL  the renewal was thrown away: tls.crt=$(cat "$W/state/tls.crt")"; fi
+
+# No stub connector outlives its run (the gate's bounded stop). The stubs are named by this run's
+# tag, so this finds a leaked one (it went red with the gate's cleanup emptied).
+left=$(pgrep -f "kosmos-gate-stub-$TAG" | wc -l | tr -d ' ')
 if [ "$left" = 0 ]; then pass=$((pass + 1)); echo "  ok    no connector left running"
-else fail=$((fail + 1)); echo "  FAIL  $left stub connector(s) left running"; pkill -f "$W/stub-tunnel"; fi
+else fail=$((fail + 1)); echo "  FAIL  $left stub connector(s) left running"; pkill -f "kosmos-gate-stub-$TAG"; fi
 
 echo "test-tunnel-handshake-gate: $pass passed, $fail failed"
-# 14 = every row above; equal to the count so a dropped row cannot pass.
-[ "$fail" -eq 0 ] && [ "$pass" -eq 14 ]
+# 21 = every row above; equal to the count so a dropped row cannot pass.
+[ "$fail" -eq 0 ] && [ "$pass" -eq 21 ]

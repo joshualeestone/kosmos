@@ -24,8 +24,14 @@
 #              session and is NOT covered here.
 #
 # Exit: 0 pass; 1 FAIL (a step broke: a refusal, never forceable); 2 CANNOT TELL (no connector,
-# no enrolled identity, or no network to the coordinator at all). Same convention as the #2063
-# experience gate that promote-channel.sh runs.
+# no enrolled identity, the coordinator or relay unreachable from here before the run or after a
+# failed one, or an earlier gate's connector still running). Same convention as the #2063
+# experience gate that promote-channel.sh runs. An outage or a network drop must HOLD the promote
+# (2), never refuse it (1): a refusal cannot be forced, and it would blame a healthy build.
+#
+# Retries: a session that ends is NOT a verdict. The connector retries on its own backoff, so the
+# gate waits for "tunnel up" until --timeout, and only then names the step from the last session
+# that ended.
 #
 # Overrides (for a local proof against a dev relay and coordinator; defaults are the live ones):
 #   --state-dir DIR --coordinator URL --relay HOST:PORT --relay-ca FILE
@@ -70,6 +76,23 @@ ADDRESS="$(tr -d ' \n' < "$STATE/address")"
 case "$ADDRESS" in *[!A-Za-z0-9.-]*|'') cannot "the gate's address is not a hostname: '$ADDRESS'" ;; esac
 case "$TIMEOUT" in *[!0-9]*|'') cannot "--timeout is not a number of seconds: $TIMEOUT" ;; esac
 
+# Reachability, the same check before the run and after a failed one. Any HTTP answer from the
+# coordinator counts (-k: this asks only whether it is REACHABLE; the connector does the trusted
+# TLS itself), and a TCP connect to the relay's tunnel port.
+reachable() {
+  curl -s -k -o /dev/null --max-time 10 "$COORD/v1/meta" || { UNREACH="the coordinator ($COORD)"; return 1; }
+  nc -z -G 5 -w 5 "${RELAY%:*}" "${RELAY##*:}" >/dev/null 2>&1 || { UNREACH="the relay ($RELAY)"; return 1; }
+  return 0
+}
+UNREACH=""
+reachable || cannot "$UNREACH is not reachable from here, so this run says nothing about the build"
+
+# An earlier gate's connector still running (its run was SIGKILLed, so its EXIT trap never ran)
+# would take the gate's address back on its next reconnect, and a visit would be answered by
+# THAT binary: a false PASS for this one. Refuse to judge while one is alive.
+stale="$(pgrep -f 'run --state-dir [^ ]*/tunnel-gate\.[A-Za-z0-9]+/state' 2>/dev/null | tr '\n' ' ')"
+[ -n "$stale" ] && cannot "an earlier gate connector is still running (pid ${stale% }); stop it first"
+
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/tunnel-gate.XXXXXX")" || cannot "no temp dir"
 if [ -n "$TARBALL" ]; then
   [ -f "$TARBALL" ] || { rm -rf "$WORK"; cannot "no such tarball: $TARBALL"; }
@@ -93,12 +116,27 @@ cleanup() {
       wait "$PID"
     } 2>/dev/null
   fi
+  keep_renewed_cert
   rm -rf "$WORK"
+}
+# The connector renews its certificate into its state dir when it is near expiry. It runs on a
+# COPY, so a renewal must be carried back, or the enrolled cert is never refreshed, expires, and
+# every later run fails at serve (and each run would spend a Let's Encrypt issuance). The pair is
+# written beside the originals and renamed in, key first, when the certificate changed and both are
+# non-empty (the pair is always carried together: a renewal makes a new key, setup.rs).
+keep_renewed_cert() {
+  [ -s "$WORK/state/tls.crt" ] && [ -s "$WORK/state/tls.key" ] || return 0
+  cmp -s "$WORK/state/tls.crt" "$STATE/tls.crt" && return 0
+  cp "$WORK/state/tls.key" "$STATE/.tls.key.gate-new" && cp "$WORK/state/tls.crt" "$STATE/.tls.crt.gate-new" \
+    && chmod 600 "$STATE/.tls.key.gate-new" \
+    && mv "$STATE/.tls.key.gate-new" "$STATE/tls.key" && mv "$STATE/.tls.crt.gate-new" "$STATE/tls.crt" \
+    && say "kept the connector's renewed certificate in $STATE"
 }
 trap cleanup EXIT
 
-# The connector gets a COPY of the state dir: a run may rewrite files in it (mac_last_signed),
-# and two gates at once must not share one.
+# The connector gets a COPY of the state dir: a run may rewrite files in it (mac_last_signed, a
+# renewed tls.crt/tls.key, which keep_renewed_cert carries back), and two gates at once must
+# not share one.
 cp -R "$STATE" "$WORK/state" || cannot "could not copy the state dir"
 chmod 700 "$WORK/state"
 
@@ -108,20 +146,23 @@ say "connector $(shasum -a 256 "$TUNNEL" | cut -c1-12) -> coordinator $COORD, re
 "$TUNNEL" "${args[@]}" > "$LOG" 2>&1 &
 PID=$!
 
-# Steps ticket and dial-auth: wait for "tunnel up", or classify the first session that ended.
+# Steps ticket and dial-auth: wait for "tunnel up" until the deadline (the connector retries on
+# its own), then classify by the LAST session that ended.
 deadline=$(( $(date +%s) + TIMEOUT ))
 while :; do
   plain="$(sed 's/\x1b\[[0-9;]*m//g' "$LOG" 2>/dev/null)"
   printf '%s' "$plain" | grep -q 'tunnel up' && break
-  ended="$(printf '%s\n' "$plain" | grep -m1 'session ended' || true)"
-  if [ -n "$ended" ]; then
+  kill -0 "$PID" 2>/dev/null || fail dial-auth "the connector exited before the tunnel came up"
+  if [ "$(date +%s)" -ge "$deadline" ]; then
+    # A network that dropped DURING the run holds, as one that was down before it does.
+    reachable || cannot "$UNREACH stopped answering during the run, so the failure says nothing about the build"
+    ended="$(printf '%s\n' "$plain" | grep 'session ended' | tail -1)"
     case "$ended" in
-      *relay-ticket*) fail ticket "the coordinator did not issue a relay ticket: ${ended#*session ended: }" ;;
-      *) fail dial-auth "the relay session did not come up: ${ended#*session ended: }" ;;
+      '') fail dial-auth "no \"tunnel up\" within ${TIMEOUT}s" ;;
+      *relay-ticket*) fail ticket "no relay ticket within ${TIMEOUT}s: ${ended#*session ended: }" ;;
+      *) fail dial-auth "the relay session did not come up within ${TIMEOUT}s: ${ended#*session ended: }" ;;
     esac
   fi
-  kill -0 "$PID" 2>/dev/null || fail dial-auth "the connector exited before the tunnel came up"
-  [ "$(date +%s)" -ge "$deadline" ] && fail dial-auth "no \"tunnel up\" within ${TIMEOUT}s"
   sleep 1
 done
 say "ok  ticket and dial-auth (tunnel up)"
