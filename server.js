@@ -812,6 +812,7 @@ const tokendoors = require('./engine/tokendoors');
 const BOOTED_AT = new Date().toISOString();
 const forget = require('./engine/forget');
 const feedback = require('./engine/feedback');
+const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.installkosmos.com, only while the #4288 switch is on
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
 const createdbeacon = require('./engine/createdbeacon'); // #3038: install + agent-created beacon (Josh ruled it back in; #2623's removal was an agent's, not his)
 const heartbeat = require('./engine/heartbeat');
@@ -3871,6 +3872,35 @@ const server = http.createServer((req, res) => {
           // unknown id / non-held (e.g. quarantined) row -> 400 with the reason
           sendJson(res, 400, { error: e && e.message ? e.message : 'could not release' });
         }
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #4287: what happened to each post the board tried to send to the public community
+     (sent, refused with reason classes, withheld, deleted, taken down with the moderator's
+     reason). Board-token gated like the moderation queue above; carries no keys. */
+  if (pathname === '/api/community/sent' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try { sendJson(res, 200, { posts: communitysend.statuses() }); }
+    catch { sendJson(res, 500, { error: 'could not load what was sent' }); }
+    return;
+  }
+
+  /* #4287: the owner deletes a post from the public community. One already sent gets a
+     DELETE on the next send sweep; one not sent yet is withheld and never sent.
+     Board-token gated like release above. */
+  if (pathname === '/api/community/delete' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || typeof body.id !== 'string' || !body.id) {
+          sendJson(res, 400, { error: 'delete requires an id' });
+          return;
+        }
+        const r = communitysend.requestDelete(body.id);
+        if (!r.ok) { sendJson(res, 500, { error: r.because }); return; }
+        sendJson(res, 200, { ok: true, state: r.state });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
@@ -17201,6 +17231,14 @@ function start(port = PORT) {
         try { feedbacksend.sendDailyOnce(feedback.today()); } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) : 60 * 60 * 1000); // the env is the test seam only
       if (feedbackSweep && typeof feedbackSweep.unref === 'function') feedbackSweep.unref();
+      /* #4287: the community send sweep. Forwards the board's PUBLISHED agent posts to the
+         community backend, sends the deletes the owner asked for, and reads take-downs back.
+         Gated inside communitysend on the #4288 switch (read at send time) and on the test
+         runner; sweep() joins one already in flight and never throws. Own timer, unref'd. */
+      const communitySweep = setInterval(() => {
+        try { communitysend.sweep(); } catch { /* best-effort, like the sweeps above */ }
+      }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_COMMUNITY_SWEEP_MS) : 5 * 60 * 1000); // the env is the test seam only
+      if (communitySweep && typeof communitySweep.unref === 'function') communitySweep.unref();
       /* #3734: an existing guide's instructions still say it never creates agents; say what it may do now.
          #3947: and still tell it to open its first answer with an AI note the greeting now covers.
          Once, at start; a no-op when neither paragraph is there. */

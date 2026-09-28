@@ -28,6 +28,10 @@
  *      A test that builds the child's env by hand does neither by default, and
  *      server.guide-on-connect-3660.test.js did exactly that.
  *
+ * #4287 adds the community send layer's AGENT_WORKFORCE_COMMUNITY_URL to the same
+ * exports. Like the daily report it runs on a sweep (five minutes), so it too is pinned
+ * by the second half only.
+ *
  * ⚠️ The daily report's URL is pinned by the second half only. Its send runs on
  * an hourly sweep, so a short harness boot does not reach it and there is no
  * cheap behavioural control; a renamed variable would slip past this file.
@@ -77,6 +81,7 @@ test('#4253 CONTROL: a board booted outside node --test sends the install ping t
     AGENT_WORKFORCE_DRY_RUN: '1',
     AGENT_WORKFORCE_CREATED_URL: `http://127.0.0.1:${s.port}/api/created`,
     AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:9/api/feedback',
+    AGENT_WORKFORCE_COMMUNITY_URL: 'http://127.0.0.1:9/',
   };
   /* 🔑 This is what makes the child a HARNESS boot rather than a test boot: a
      bash harness never has it, and with it set the beacon stays silent. */
@@ -137,9 +142,9 @@ const HARNESSES = [
 ];
 
 for (const [file, name, bootRe] of HARNESSES) {
-  test(`#4253: ${name} exports both phone-home URLs to a loopback address at top level`, () => {
+  test(`#4253: ${name} exports every phone-home URL to a loopback address at top level`, () => {
     const lines = fs.readFileSync(path.join(REPO, file), 'utf8').split('\n');
-    for (const v of ['AGENT_WORKFORCE_CREATED_URL', 'AGENT_WORKFORCE_FEEDBACK_URL']) {
+    for (const v of ['AGENT_WORKFORCE_CREATED_URL', 'AGENT_WORKFORCE_FEEDBACK_URL', 'AGENT_WORKFORCE_COMMUNITY_URL']) {
       /* Column 0: a top-level statement, not a comment and not inside a function
          that may never run. */
       const i = lines.findIndex((l) => l.startsWith(`export ${v}=`));
@@ -156,7 +161,7 @@ for (const [file, name, bootRe] of HARNESSES) {
   });
 }
 
-test('#4253: the release bundle smoke boot carries both phone-home URLs on its own environment', () => {
+test('#4253: the release bundle smoke boot carries every phone-home URL on its own environment', () => {
   const lines = fs.readFileSync(path.join(REPO, 'tools/build-kosmos-bundle.sh'), 'utf8').split('\n');
   const boot = lines.findIndex((l) => !/^\s*#/.test(l) && /"\$STAGE\/app\/server\.js"/.test(l) && /runtime\/bin\/node/.test(l));
   assert.ok(boot >= 0, 'could not find the smoke boot line in build-kosmos-bundle.sh');
@@ -164,14 +169,14 @@ test('#4253: the release bundle smoke boot carries both phone-home URLs on its o
   let start = boot;
   while (start > 0 && /\\\s*$/.test(lines[start - 1])) start -= 1;
   const block = lines.slice(start, boot + 1).join('\n');
-  for (const v of ['AGENT_WORKFORCE_CREATED_URL', 'AGENT_WORKFORCE_FEEDBACK_URL']) {
+  for (const v of ['AGENT_WORKFORCE_CREATED_URL', 'AGENT_WORKFORCE_FEEDBACK_URL', 'AGENT_WORKFORCE_COMMUNITY_URL']) {
     const m = block.match(new RegExp(`\\b${v}=("?)([^\\s"\\\\]+)\\1`));
     assert.ok(m, `the smoke boot does not set ${v}`);
     assert.match(m[2], LOOPBACK, `the smoke boot points ${v} off this machine: ${m[2]}`);
   }
 });
 
-test('#4253: test-install.sh\'s env -i reboot simulation carries both phone-home URLs', () => {
+test('#4253: test-install.sh\'s env -i reboot simulation carries every phone-home URL', () => {
   const lines = fs.readFileSync(path.join(REPO, 'tools/test-install.sh'), 'utf8').split('\n');
   /* env -i starts from an EMPTY environment, so the top-level export does not
      reach this board; the block has to name the two variables itself. */
@@ -181,7 +186,7 @@ test('#4253: test-install.sh\'s env -i reboot simulation carries both phone-home
   while (end < lines.length - 1 && /\\\s*$/.test(lines[end])) end += 1;
   const block = lines.slice(start, end + 1).join('\n');
   assert.match(block, /bin\/kosmos"? start/, 'the env -i block found is not the board start');
-  for (const v of ['AGENT_WORKFORCE_CREATED_URL', 'AGENT_WORKFORCE_FEEDBACK_URL']) {
+  for (const v of ['AGENT_WORKFORCE_CREATED_URL', 'AGENT_WORKFORCE_FEEDBACK_URL', 'AGENT_WORKFORCE_COMMUNITY_URL']) {
     assert.ok(new RegExp(`\\b${v}=`).test(block), `the env -i reboot simulation does not set ${v}, so that board phones home`);
   }
 });

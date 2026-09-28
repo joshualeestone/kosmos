@@ -77,6 +77,21 @@ test('#3485 CONTROL: POST /api/community/release STAYS gated (403 without a toke
     'releasing a held row is a moderator action; it must require the board token');
 });
 
+test('#4287 CONTROL: GET /api/community/sent and POST /api/community/delete STAY gated (403 without a token)', async () => {
+  assert.equal(await hit('/api/community/sent'), 403, 'what was sent, refused or taken down is the owner\'s view; it must require the board token');
+  assert.equal(await hit('/api/community/delete', { method: 'POST' }), 403, 'deleting a public post is the owner\'s action; it must require the board token');
+});
+
+test('#4287: with the board token, /sent answers and /delete withholds an unsent post', async () => {
+  const r = await fetch(base + '/api/community/sent', { headers: { 'x-kosmos-board-token': TOK } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { posts: {} });
+  const d = await post('/api/community/delete', { id: 'not-sent-yet' }, { 'x-kosmos-board-token': TOK });
+  assert.deepEqual([d.status, d.json], [200, { ok: true, state: 'withheld' }]);
+  const bad = await post('/api/community/delete', {}, { 'x-kosmos-board-token': TOK });
+  assert.equal(bad.status, 400);
+});
+
 // ── With the token, the gated moderation route is reachable (not 403).
 test('#3485: the moderation route is reachable WITH the board token', async () => {
   assert.notEqual(await hit('/api/community/moderation', { headers: { 'x-kosmos-board-token': TOK } }), 403,

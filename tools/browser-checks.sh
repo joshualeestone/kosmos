@@ -75,6 +75,7 @@ export KOSMOS_AGENT_BROWSER=off
 # harness points it, and the daily report, at a dead local port.
 export AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created
 export AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback
+export AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/
 
 log()  { printf '%s\n' "$*"; }
 sec()  { printf '\n=== %s ===\n' "$*"; }

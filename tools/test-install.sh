@@ -259,6 +259,7 @@ export AGENT_WORKFORCE_DATA="$SB/data" AGENT_WORKFORCE_LAUNCH="$SB/launch"
 # The env -i reboot simulation below starts from nothing, so it names both again.
 export AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created
 export AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback
+export AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/
 # 🛑 EVERY ROOT THE GATE NAMES, AND AN INERT TMUX, or the board this harness
 # installs refuses to start (#634): a sandbox with some roots live is the
 # exact thing the app now refuses, and it refused this harness at its first
@@ -1818,6 +1819,7 @@ RC=0; env -i \
   AGENT_WORKFORCE_HALF_SANDBOX_OK="$(_plist_env_line AGENT_WORKFORCE_HALF_SANDBOX_OK)" \
   AGENT_WORKFORCE_CREATED_URL="$AGENT_WORKFORCE_CREATED_URL" \
   AGENT_WORKFORCE_FEEDBACK_URL="$AGENT_WORKFORCE_FEEDBACK_URL" \
+  AGENT_WORKFORCE_COMMUNITY_URL="$AGENT_WORKFORCE_COMMUNITY_URL" \
   "$PETE_HOME/bin/kosmos" start > "$SB/reboot-sim.log" 2>&1 || RC=$?
 chk "a simulated reboot (plist env only) starts the board, not #634's refusal" "rc_ok $RC"
 # ⚠️ board.log, NOT reboot-sim.log: the shell wrapper's own stdout only ever

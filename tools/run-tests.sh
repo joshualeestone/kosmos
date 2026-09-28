@@ -75,6 +75,7 @@ export KOSMOS_NO_LEGACY_MIGRATION=1
 # harness points it, and the daily report, at a dead local port.
 export AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created
 export AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback
+export AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/
 
 # --- what the machine was doing, taken before the first test ---------------
 seen_before() {
