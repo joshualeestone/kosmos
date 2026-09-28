@@ -57,26 +57,32 @@ const CODES = [
   // "connecting to the relay" once read as relay-unreachable); remote-report.test.js asserts that
   // each healthy sentence matches `starting` alone, whatever the order here.
   ['starting', /^(starting the connection|connecting to the relay)$/i],
-  // No switch-off, settings-unreadable or no-relay-address: nothing is sent while the switch is
-  // off or the settings cannot be read, and RELAY() always has a default (review 14).
-  ['status-unreadable', /status unreadable/i],
-  // status() words every spawn failure as `the tunnel program could not be started: <why>` (review 12).
-  ['binary-missing', /could not be started/i],
-  ['state-dir-invalid', /does not look like a Mac state dir/i],
-  ['state-file-unreadable', /reading \S+ from|pinned coordinator_pubkey|decoding mac_key|mac_key is not 32 bytes/i],
-  // The coordinator's ticket does not fit this Mac (the pinned key, or a stale address file).
-  ['ticket-mismatch', /ticket does not verify|ticket names /i],
-  ['cert-renewal', /renewal/i],
   // The coordinator's own sentences (coordinator.rs) all start with `Kosmos+`, so they are taken
-  // before the relay patterns, which a gateway error page in their detail could otherwise match
-  // (review 10). A 4xx is a refusal and a 5xx an outage; coordinator.rs writes `Kosmos+ refused this
-  // Mac: <why> (HTTP <code> on <path>)` for ANY status whose body parses as a refusal, 5xx included,
-  // so the 5xx form is taken first (review 9). These are the only coordinator patterns (review 11).
+  // right after the healthy sentences, before every other pattern, any of which a gateway error
+  // page in their detail could otherwise match (reviews 10 and 16). A 4xx is a refusal and a 5xx
+  // an outage; coordinator.rs writes `Kosmos+ refused this Mac: <why> (HTTP <code> on <path>)` for
+  // ANY status whose body parses as a refusal, 5xx included, so the 5xx form is taken first
+  // (review 9). These are the only coordinator patterns (review 11).
   ['coordinator-unreachable', /^Kosmos\+ (answered 5\d\d|unreachable)|^Kosmos\+ refused.*\bHTTP 5\d\d\b/i],
   ['coordinator-refused', /^Kosmos\+ (refused|answered 4\d\d)/i],
   // An answer that is not what the coordinator sends (coordinator.rs: not JSON, no ticket field,
   // unreadable): a captive portal or a proxy in the way, on the ticket path itself (review 14).
-  ['coordinator-bad-answer', /the Kosmos\+ answer/i],
+  ['coordinator-bad-answer', /^(reading )?the Kosmos\+ answer/i],
+  // No switch-off, settings-unreadable or no-relay-address: nothing is sent while the switch is
+  // off or the settings cannot be read, and RELAY() always has a default (review 14).
+  // No state-dir-invalid or awaiting-sign-in either (review 16): the tunnel refuses a state dir
+  // only without mac_id, which enrolled() requires, and only a not-enrolled board says it is
+  // waiting for a code, which sends `not-enrolled; missing: ...` instead. Both read `other`.
+  ['status-unreadable', /^status unreadable/i],
+  // status() words every spawn failure as `the tunnel program could not be started: <why>` (review 12).
+  ['binary-missing', /^the tunnel program could not be started/i],
+  ['state-file-unreadable', /reading \S+ from|pinned coordinator_pubkey|decoding mac_key|mac_key is not 32 bytes/i],
+  // The coordinator's ticket does not fit this Mac (the pinned key, or a stale address file).
+  ['ticket-mismatch', /ticket does not verify|ticket names /i],
+  ['cert-renewal', /^certificate renewal is due/i],
+  // This Mac's own certificate or key (session.rs local TLS setup): unreadable or unparseable
+  // tls.crt / tls.key, a plausible failure after an update (review 16).
+  ['local-cert-unreadable', /^(opening certificate|parsing certificate|opening private key|parsing private key|no private key found|building local TLS config)/i],
   // The tunnel's dial of the RELAY (session.rs dial_relay): kept apart from the coordinator,
   // which is the whole question when a Mac never gets a ticket (review 6).
   // The tunnel's own dial error is `connecting to <host:port>: <why>` (a colon after the address).
@@ -90,7 +96,6 @@ const CODES = [
   // close): routine, not a failure (review 5).
   ['reconnecting', /the connection closed/i],
   ['crashed', /crash|killed|restarting/i],
-  ['awaiting-sign-in', /^waiting for the (code|sign-in)/i],
   ['not-started', /has not started the tunnel/i],
 ];
 function classify(text) {

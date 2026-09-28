@@ -246,13 +246,19 @@ async function fetchStanding() {
    nothing, and a board makes at most one standing call per ten minutes from it. The TTL sits under
    the interval: the refresh stamps its time AFTER the fetch returns, so a TTL equal to the interval
    skipped every other tick (review 10). Called through module.exports so a test can observe it; a
-   refresh that throws or rejects never stops the timer. unref'd so it never holds the process open. */
+   refresh that throws or rejects never stops the timer. One early tick a minute after boot, so a
+   board that an update just restarted says how it came back without waiting a whole interval
+   (review 16). Both timers are unref'd so neither holds the process open. */
 const REPORT_INTERVAL_MS = 10 * 60 * 1000;
 const REPORT_TTL_MS = 9 * 60 * 1000;
-function startReportTimer({ intervalMs = REPORT_INTERVAL_MS, ttlMs = REPORT_TTL_MS } = {}) {
-  const t = setInterval(() => {
+const REPORT_FIRST_MS = 60 * 1000;
+function startReportTimer({ intervalMs = REPORT_INTERVAL_MS, ttlMs = REPORT_TTL_MS, firstMs = REPORT_FIRST_MS } = {}) {
+  const tick = () => {
     try { Promise.resolve(module.exports.refreshStandingIfStale({ ttlMs })).catch(() => {}); } catch { /* best-effort */ }
-  }, intervalMs);
+  };
+  const first = setTimeout(tick, firstMs);
+  if (typeof first.unref === 'function') first.unref();
+  const t = setInterval(tick, intervalMs);
   if (typeof t.unref === 'function') t.unref();
   return t;
 }
@@ -1860,6 +1866,7 @@ module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondR
   startReportTimer,
   REPORT_INTERVAL_MS,
   REPORT_TTL_MS,
+  REPORT_FIRST_MS,
   federationLive,
   refreshFederationLiveIfStale,
   setOn,

@@ -60,9 +60,9 @@ test('every status maps to the coordinator vocabulary, and off follows the switc
 test('the error is a CODE classified from status()\'s sentence; the sentence never leaves the Mac', () => {
   report.resetForTests();
   const dir = stateDir([]);
-  const because = '/Users/somebody/Library/x does not look like a Mac state dir (no mac_id); run setup first';
+  const because = 'reading mac_key from /Users/somebody/Library/x: Permission denied';
   const r = report.build({ remote: fakeRemote({ dir, state: 'restarting', because }), env: {} });
-  assert.equal(r.error, 'state-dir-invalid');
+  assert.equal(r.error, 'state-file-unreadable');
   assert.ok(!JSON.stringify(r).includes('somebody'), 'text from the sentence left the Mac');
 });
 
@@ -71,7 +71,9 @@ test('classify: each known failure kind gets its code, anything else is other, n
     // session.rs, verbatim shape: the tunnel reconnects to renew its certificate (review 13).
     ['certificate renewal is due (20 days left); reconnecting to renew', 'cert-renewal'],
     ['the tunnel program could not be started: spawn /x ENOENT', 'binary-missing'],
-    ['/Volumes/Josh Stone/x does not look like a Mac state dir (no mac_id)', 'state-dir-invalid'],
+    // Unreachable in a report (review 16: the tunnel refuses a dir only without mac_id, which
+    // enrolled() requires), so it has no code of its own and must not leak.
+    ['/Volumes/Josh Stone/x does not look like a Mac state dir (no mac_id)', 'other'],
     ['reading mac_key from /Users/j/remote: No such file', 'state-file-unreadable'],
     ['relay refused the tunnel: bad ticket', 'relay-refused'],
     ['relay said go away: replaced', 'relay-dropped'],
@@ -106,7 +108,18 @@ test('classify: each known failure kind gets its code, anything else is other, n
     ['mac_key is not 32 bytes', 'state-file-unreadable'],
     ['the Kosmos+ ticket does not verify against the pinned key', 'ticket-mismatch'],
     ['ticket names "a" but this Mac\'s address is "b"', 'ticket-mismatch'],
-    ['waiting for the code sent to josh@stuff.io', 'awaiting-sign-in'],
+    // Unreachable in a report (review 16): only a not-enrolled board says it, and that board sends
+    // `not-enrolled; missing: ...` instead. It must never leak.
+    ['waiting for the code sent to josh@stuff.io', 'other'],
+    // session.rs local TLS setup, verbatim: this Mac's own certificate or key (review 16).
+    ['opening certificate: No such file or directory (os error 2)', 'local-cert-unreadable'],
+    ['parsing certificate: invalid PEM', 'local-cert-unreadable'],
+    ['no private key found', 'local-cert-unreadable'],
+    // A gateway page inside a coordinator answer never reads as a local fault (review 16).
+    ['Kosmos+ answered 502 for /v1/mac/relay-ticket: <html>error reading body from upstream</html>', 'coordinator-unreachable'],
+    ['Kosmos+ answered 503 for /v1/mac/relay-ticket: certificate renewal in progress', 'coordinator-unreachable'],
+    ['Kosmos+ unreachable for /v1/mac/relay-ticket: the tunnel program could not be started', 'coordinator-unreachable'],
+    ['Kosmos+ refused this Mac: the ticket names are wrong (HTTP 400 on /v1/mac/relay-ticket)', 'coordinator-refused'],
     ['the board has not started the tunnel', 'not-started'],
     ["Josh's MacBook Pro at 192.168.1.23 said something new", 'other'],
   ];

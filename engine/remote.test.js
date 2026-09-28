@@ -644,6 +644,8 @@ test('#4277: a restart timer firing during a register does not count the registe
   await remote.setupStart('her@example.com');
   process.env.FAKE_TUNNEL_MODE = 'crash';
   await remote.setupComplete('123456', 'hers');
+  // A fresh supervisor (backoff back at 1 s), so the restart timer fires well inside the register.
+  remote.resetForTests();
   remote.ensure(4330);
   await until(() => remote.status().state === 'restarting', 'the crash to schedule a restart');
   // A rename re-runs setup on an enrolled Mac and keeps its id (the fake writes the same mac_id), so
@@ -669,6 +671,7 @@ test('#4277: the same, through the in-app sign-in register when it keeps this Ma
   await remote.setupStart('her@example.com');
   process.env.FAKE_TUNNEL_MODE = 'crash';
   await remote.setupComplete('123456', 'hers');
+  remote.resetForTests();   // a fresh supervisor (backoff back at 1 s); it also drops any sign-in, so sign in after
   await remote.signinStart('her@example.com');
   await remote.signinVerify('her@example.com', '111111');
   remote.ensure(4340);
@@ -692,7 +695,15 @@ test('#4277: the report timer runs the refresh on its own, under a TTL below its
   const real = remote.refreshStandingIfStale;
   const seen = [];
   remote.refreshStandingIfStale = (opts) => { seen.push(opts); if (seen.length === 1) throw new Error('boom'); return Promise.reject(new Error('later')); };
-  const t = remote.startReportTimer({ intervalMs: 20 });
+  // First, the early tick: an update restarts the board, and a board nobody is watching must not
+  // wait a whole interval to say how it came back (review 16).
+  const early = remote.startReportTimer({ intervalMs: 60 * 60 * 1000, firstMs: 20 });
+  try {
+    await until(() => seen.length >= 1, 'the first report soon after boot');
+  } finally { clearInterval(early); }
+  assert.ok(remote.REPORT_FIRST_MS < remote.REPORT_INTERVAL_MS, 'the first tick is not early');
+  seen.length = 0;
+  const t = remote.startReportTimer({ intervalMs: 20, firstMs: 60 * 60 * 1000 });
   try {
     assert.equal(t.hasRef(), false, 'the report timer holds the process open');
     await until(() => seen.length >= 3, 'the timer to keep firing after a throw and a rejection');
