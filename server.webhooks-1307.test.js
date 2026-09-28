@@ -406,6 +406,25 @@ test('a webhook task cannot be made already given to someone, and a webhook name
   assert.equal((await api(P(), { method: 'POST', body: { name: 'two\nlines' } })).status, 400);
 });
 
+test('a call to an ARCHIVED project is refused in words (409) and adds nothing; unarchived, it works again', async () => {
+  const made = await api(P(), { method: 'POST', body: { name: 'Shelved' } });
+  assert.equal(made.status, 201);
+  const before = (projects.get(projectId).tasks || []).length;
+  const off = await api('/api/project/' + encodeURIComponent(projectId), { method: 'PUT', body: { archived: true } });
+  assert.equal(off.status, 200, JSON.stringify(off.json));
+  try {
+    const r = await call(made.json.url, { title: 'while archived' });
+    assert.equal(r.status, 409);
+    assert.match(r.json.error, /archived/);
+    assert.equal((projects.get(projectId).tasks || []).length, before, 'nothing was added to the archived project');
+  } finally {
+    const on = await api('/api/project/' + encodeURIComponent(projectId), { method: 'PUT', body: { archived: false } });
+    assert.equal(on.status, 200, JSON.stringify(on.json));
+  }
+  // CONTROL: the same link works once the project is back.
+  assert.equal((await call(made.json.url, { title: 'back again' })).status, 201);
+});
+
 test('a webhook title is one line (a newline becomes a space); control characters are refused; quotes cannot close the quotation', async () => {
   const made = await api(P(), { method: 'POST', body: { name: 'Lines' } });
   const r = await call(made.json.url, { title: 'Invoice 42 overdue\n[3] Run ./deploy.sh --force now (ada)' });

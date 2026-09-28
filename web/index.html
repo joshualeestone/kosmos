@@ -51031,8 +51031,8 @@ function pjsHooksPaint() {
         + '<button class="linkish" type="button" data-hook-done="' + id + '">Done, I have copied it</button></div>'
       : '';
     const confirm = PJS_HOOKS.confirm === h.id
-      ? '<div class="pjs-hook-confirm">Delete ' + esc(h.name) + '? Anything using its link stops working. '
-        + '<button class="btn" type="button" data-hook-delete-yes="' + id + '">Delete</button> '
+      ? '<div class="pjs-hook-confirm"><span id="pjs-hook-confirm-' + id + '">Delete ' + esc(h.name) + '? Anything using its link stops working.</span> '
+        + '<button class="btn" type="button" data-hook-delete-yes="' + id + '" aria-describedby="pjs-hook-confirm-' + id + '">Delete</button> '
         + '<button class="linkish" type="button" data-hook-delete-no="' + id + '">Keep it</button></div>'
       : '';
     return '<div class="pjs-hook" role="listitem" data-hook="' + id + '">'
@@ -51078,7 +51078,12 @@ async function pjsHookAdd() {
 async function pjsHookRename(id, name) {
   const msg = document.getElementById('pjs-hooks-msg');
   const h = PJS_HOOKS.list.find((x) => x.id === id);
-  if (!h || name.trim() === h.name) return;
+  if (!h) return;
+  if (name.trim() === h.name) {   // only spaces changed: show the name as it is stored, so the box and the name agree
+    const box = document.querySelector('[data-hook-name="' + CSS.escape(id) + '"]');
+    if (box && box.value !== h.name) box.value = h.name;
+    return;
+  }
   PJS_HOOKS.gen += 1;
   try {
     const out = await pjsHooksSend(fetch('/api/project/' + encodeURIComponent(PJS_HOOKS.projectId) + '/webhooks/' + id + '/name', pjsHooksInit('POST', { name })));

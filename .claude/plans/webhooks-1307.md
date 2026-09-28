@@ -35,8 +35,9 @@
 - The Tasks view rows and a project's task cards say "From <name> (a webhook)", so the person who
   gives it out knows its words came from outside.
 - Wherever a webhook task's words are written for an agent they are MARKED and QUOTED, the way
-  the Assigner quotes a BRIEF.md goal: every quote mark inside (ASCII, curly, guillemet,
-  full-width, prime) becomes a single quote and square brackets become round, so the words can
+  the Assigner quotes a BRIEF.md goal: after NFKC folding, the ASCII " and every
+  initial or final quote mark (Unicode Pi/Pf, plus the prime and ornamental lookalikes listed in the
+  code) become a single quote, and every opening or closing mark becomes round, so the words can
   neither close their own quotation nor open a line that reads like a [Kosmos: ...] note. Always
   one line. A person's own part added to a webhook task is labelled the same way (errs safe).
   - THE READ SIDE: `kosmos task list` (install/kosmos and tools/windows/kosmos-cli.js):
@@ -112,3 +113,6 @@
 - Agents see a webhook task's title only (marked and quoted); its detail stays in the task for the
   person. Nothing may add an unmarked detail line to an agent's view.
 - A task from an unnamed webhook says "From a webhook" once, not "From a webhook (a webhook)".
+- A call to an ARCHIVED project is refused with 409 and words a sender shows ("this project is
+  archived, so its webhooks are paused"): its tasks are left out of the Tasks view, so a task added
+  there would wait where nobody looks. Unarchived, the same link works again.

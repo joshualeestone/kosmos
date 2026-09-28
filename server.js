@@ -3708,7 +3708,12 @@ function gateLog(req) {
       // segments (/hooks/./<id>/<secret>) all reach the route, so no pattern for the secret's
       // exact position is safe. A webhook call logs as .../hooks/REDACTED.
       .replace(/(hooks)[\s\S]*$/i, '$1/REDACTED');
-    fs.appendFileSync(GATE_LOG, `${new Date().toISOString()} ${req.method} ${loggedUrl} ${ua}\n`);
+    /* And a percent-encoded spelling (/%68ooks/...): if the DECODED path names hooks, or cannot be
+       decoded at all, the whole path is redacted. Over-redacting is the safe direction here. */
+    let decoded = '';
+    try { decoded = decodeURIComponent(loggedUrl); } catch { /* undecodable: redact below */ }
+    const safeUrl = /hooks/i.test(loggedUrl) || (decoded && !/hooks/i.test(decoded)) ? loggedUrl : '/REDACTED';
+    fs.appendFileSync(GATE_LOG, `${new Date().toISOString()} ${req.method} ${safeUrl} ${ua}\n`);
   } catch { /* the instrument never becomes the defect */ }
 }
 
@@ -15923,6 +15928,13 @@ const server = http.createServer((req, res) => {
       let fresh = null;
       try { fresh = projects.get(hook.projectId); } catch { ours(); return; }
       if (!fresh || (fresh.createdAt || null) !== hook.projectMade) { nope(); return; }
+      /* An archived project is put away: its tasks are left out of the Tasks view, so a task added now
+         would wait where nobody looks while the sender thinks it arrived. Refused, in words a sender
+         like Zapier shows the person, until the project is unarchived. */
+      if (fresh.archived === true) {
+        sendJson(res, 409, { error: 'this project is archived, so its webhooks are paused; unarchive it in Kosmos to take calls again' });
+        return;
+      }
       const waiting = (fresh.tasks || []).filter((t) => t && t.addedVia === 'webhook' && !tasks.progressOf(t).closed).length;
       if (waiting >= HOOK_RATE.openMax) {
         res.setHeader('retry-after', '3600');
@@ -15931,7 +15943,7 @@ const server = http.createServer((req, res) => {
       }
       let made;
       try {
-        made = tasks.create(hook.projectId, { sentence: title, detail: detail || undefined, made: { via: 'webhook', by: hook.name } });
+        made = tasks.create(hook.projectId, { sentence: title, detail: detail || undefined, made: { via: 'webhook', by: still.name } });   // the name as it is now, if renamed mid-call
       } catch (err) {
         const msg = String((err && err.message) || '');
         if (/no project by that name/.test(msg)) { nope(); return; }
