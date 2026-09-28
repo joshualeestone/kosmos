@@ -8,7 +8,9 @@ Card: #4298 (split from PigeonPete's #4273, slice 2). Assigned by Liu Kang (m207
   `yarn test:shell` run with TMPDIR set to a per-run root.
 - A guard in test:shell fails if a template-less mktemp comes back anywhere in tools/, install/ or bin/
   shell scripts, with a negative control proving it finds each bare shape.
-- `tmp` comes off `tools/test-leak-allowlist.txt` once #4273 (which adds that file) and this both land.
+- A full tools/run-tests.sh passes #4306's run-root leak guard. (The card first said `tmp` would come off
+  that guard's allowlist; the allowlist never had a `tmp` line, because the guard watches the run root
+  and the `tmp.*` leak went to the real temp root, where only the measurement above can see it.)
 
 ## Why
 macOS `mktemp` ignores TMPDIR. `mktemp`, `mktemp -d` and `mktemp -t name` all create in the per-user
