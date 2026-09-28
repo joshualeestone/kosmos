@@ -23,14 +23,14 @@ const SCRIPT = page.scriptOf(HTML);
 const OLD = 'Gemini-Sub';          // the session name, which the old surfaces kept showing
 const NEW = 'Demis Hassabis - Gemini';
 
-function world({ boxValue = OLD, focused = false } = {}) {
+function world({ boxValue = OLD, focused = false, photo = false } = {}) {
   const state = { focused };
   const heading = { textContent: OLD };
   const els = {
     'd-name': heading,
     'd-instr-lede': { textContent: '' },
     'd-memory': { innerHTML: '' },
-    'd-initials': { textContent: 'G' },
+    'd-initials': { textContent: 'G', hidden: photo, style: { background: 'old', color: 'old' }, parentElement: { style: { background: 'old' } } },
     'd-rename': { value: boxValue, dataset: { shown: OLD } },
   };
   const nav = [];
@@ -40,7 +40,7 @@ function world({ boxValue = OLD, focused = false } = {}) {
     // The avatar tints: one line each (DISC_INKS is aligned with two spaces, which liftConst does not match).
     + ['DISC_TINTS', 'DISC_INKS'].map((c) => (SCRIPT.match(new RegExp('^const ' + c + '\\s+=.*$', 'm')) || [''])[0]).join('\n') + '\n'
     + page.liftAll(SCRIPT, ['esc', 'initials', 'discIndex', 'discTint', 'discInk', 'busyRow', 'dmWho', 'followRename', 'paintInstrLede', 'tskAgentName']) + '\n'
-    + 'return { set: (c) => { CURRENT = c; }, get: () => CURRENT, setLast: (l) => { LAST = l; }, followRename, dmWho, busyRow, initials };';
+    + 'return { set: (c) => { CURRENT = c; }, get: () => CURRENT, setLast: (l) => { LAST = l; }, followRename, dmWho, busyRow, initials, discTint, discInk };';
   // eslint-disable-next-line no-new-func
   /* memoryBox and paintDetailMeta are the page's own; stubbed to show which card each was handed (the browser check
      runs the real ones). */
@@ -74,8 +74,12 @@ test('#4421: after a rename, the poll moves every surface to the new name, and t
   assert.doesNotMatch(busy, new RegExp(OLD), 'the "is working" line still names the id: ' + busy);
   assert.equal(w.heading.textContent, NEW, 'the heading follows a rename made anywhere else too');
   assert.deepEqual(w.nav, [NEW]);
-  assert.deepEqual(w.avatars, [NEW], 'the picture\'s name-derived tint was not redrawn from the new name');
-  assert.equal(w.els['d-initials'].textContent, w.initials(NEW), 'the picture\'s initial (renderAvatar does not set it)');
+  const disc = w.els['d-initials'];
+  assert.equal(disc.textContent, w.initials(NEW), 'the picture\'s letter');
+  assert.equal(disc.style.background, w.discTint(NEW), 'the picture\'s tint is the old name\'s');
+  assert.equal(disc.style.color, w.discInk(NEW));
+  assert.equal(disc.parentElement.style.background, w.discTint(NEW));
+  assert.deepEqual(w.avatars, [], 'renderAvatar re-fetches a photo and redraws a swarm cluster; the rename does not need it');
   assert.match(w.els['d-instr-lede'].textContent, /^What Demis Hassabis - Gemini is for/, 'the Instructions lede');
   assert.equal(w.els['d-memory'].innerHTML, 'memory of ' + NEW + ' at 40',
     'the memory box: the new name, and still the open-time reading the ring and badge beside it show');
@@ -126,6 +130,14 @@ test('#4421: a room or task label for an agent that has left the project uses it
   assert.equal(f.pjNameOf({ agents: [{ sessionName: OLD, name: 'Member Name' }] }, OLD), 'Member Name', 'a member keeps its project name');
 });
 
+test('#4421: an agent with a photo keeps its photo: the hidden letter disc is not restyled', () => {
+  const w = world({ photo: true });
+  w.set(opened());
+  w.followRename(polled());
+  assert.equal(w.els['d-initials'].style.background, 'old');
+  assert.equal(w.get().name, NEW, 'the name still followed');
+});
+
 test('#4421: no card this poll, another agent\'s card, or a card with no name keeps the last name rather than guessing', () => {
   const w = world();
   w.set(opened());
@@ -143,9 +155,10 @@ test('#4421: the poll follows the rename BEFORE it paints the title, the labels 
     assert.ok(i > 0, 'moved: ' + needle);
     return i;
   };
-  const m = SCRIPT.match(/^\s*followRename\(fresh\);/m);   // a live call, not a commented-out one
+  const tick = page.lift(SCRIPT, 'tick');
+  const m = tick.match(/^\s*followRename\(fresh\);/m);   // a live call inside the poll, not a commented-out one
   assert.ok(m, 'the poll no longer calls followRename');
-  const follow = m.index;
+  const follow = SCRIPT.indexOf(tick) + m.index;
   assert.ok(follow < at('paintTalk(CURRENT.sessionName, CURRENT.name);'), 'the title and labels are painted before the name follows');
   assert.ok(follow < at('paintBusy(fresh, CURRENT.name);'), 'the working line is painted before the name follows');
   assert.match(SCRIPT, /textContent = 'Direct Message to ' \+ name;/, 'the title no longer comes from the name the poll passes');

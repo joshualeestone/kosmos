@@ -30613,16 +30613,23 @@ function followRename(fresh) {
     if (h) h.textContent = fresh.name;
     detailNavNames(fresh.name);
     fitDetailName();
-    /* The other places openDetail named it once (#4421 sweep). renderAvatar, not just the letter: the disc's tint
-       and ink are derived from the name too (review iteration 2). */
-    renderAvatar(CURRENT);
-    const ini = document.getElementById('d-initials');   // the letter is openDetail's to set, not renderAvatar's
-    if (ini) ini.textContent = initials(fresh.name);
+    /* The other places openDetail named it once (#4421 sweep). The letter disc's letter AND its tint and ink, which
+       are derived from the name (review iteration 2); only while the disc is what shows, so a photo is not fetched
+       again and a swarm's cluster is left to swarmPagePaint (review iteration 3). */
+    const ini = document.getElementById('d-initials');
+    if (ini) {
+      ini.textContent = initials(fresh.name);
+      if (!ini.hidden) {
+        ini.style.background = discTint(fresh.name);
+        ini.style.color = discInk(fresh.name);
+        if (ini.parentElement) ini.parentElement.style.background = discTint(fresh.name);
+      }
+    }
     paintInstrLede(CURRENT);
     /* fresh: the title line's role and "no name was chosen" note are the card's CURRENT facts. */
     paintDetailMeta(fresh);
-    /* CURRENT, not fresh: CURRENT now has the new name and still the open-time memory reading, which the ring and
-       badge beside the box also show. Only the name changes; the reading stays the one they agree on. */
+    /* CURRENT, not fresh: only the name changes here. The reading stays CURRENT's, the one the ring and badge beside
+       the box were last painted from (open, or an avatar refresh), rather than a newer one they do not show. */
     const mem = document.getElementById('d-memory');
     if (mem) mem.innerHTML = memoryBox(CURRENT);
   }
@@ -31683,7 +31690,9 @@ function dmRow(m, name, replyAdjacent) {
        therefore not click targets, and the DM-scoped cursor rule below keeps them plain. */
     const av = (card && card.hasAvatar)
       ? '<div class="msg-av" aria-hidden="true"><img src="/api/agent/' + encodeURIComponent(m.from) + '/avatar?v=' + pjAvatarVer(m.from) + '" alt=""></div>'
-      : '<div class="msg-av" aria-hidden="true" style="background:' + discTint(m.from) + ';color:' + discInk(m.from) + '">' + esc(initials(m.from)) + '</div>';
+      /* #4421: the disc is the NAME's (the label's own dmWho), not the id's: a renamed agent's rows read its new
+         name, and a letter and tint derived from the id would disagree with the label and the working line. */
+      : (() => { const shown = dmWho(m.from, name); return '<div class="msg-av" aria-hidden="true" style="background:' + discTint(shown) + ';color:' + discInk(shown) + '">' + esc(initials(shown)) + '</div>'; })();
     /* #3650: the person can react to the agent's message, as in a project room: the
        room's own pills + hover quick bar (rxnsInner), keyed by the message's `at`
        (a DM row has no id; the react route finds the message by it). `typeof`-guarded
@@ -39093,10 +39102,8 @@ document.getElementById('d-save').addEventListener('click', async () => {
   msg.textContent = 'Saving…';
   try {
     const renameTo = document.getElementById('d-rename').value.trim().slice(0, 80);
-    /* 🛑 #4421: A NAME IS SENT ONLY WHEN SOMEBODY EDITED THE BOX. Save used to send the box every time, so a box
-       still holding the old name (a rename made in another tab, before this page's poll caught up, or a throttled
-       background tab) renamed the agent BACK when somebody only changed its role. `shown` is what the box was last
-       filled with (openDetail, followRename); a box that still says that was not edited. */
+    /* 🛑 #4421: a name only when the box was EDITED (still showing what it was filled with = not edited), or a box
+       left on the old name by a rename made elsewhere renames the agent BACK on a role-only Save. */
     const renameBox = document.getElementById('d-rename');
     const nameEdited = !!renameTo && renameTo !== ((renameBox.dataset.shown || '').trim().slice(0, 80));
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/profile',
@@ -39187,8 +39194,12 @@ document.getElementById('d-save').addEventListener('click', async () => {
        name the record does not hold. An empty-after-trim name is dropped by the
        route (deliberately, so nobody blanks an agent into anonymity), so the
        heading is left alone in that case rather than being emptied. */
+    if (!CURRENT || CURRENT.sessionName !== forAgent) return;   // #4421 (review iteration 3): switched during the read
     if (nameEdited) {
       renameBox.dataset.shown = renameTo;
+      /* The box shows what was saved (trimmed, capped), or it would never again equal `shown` and would stop
+         following renames (review iteration 3). Not under somebody's cursor. */
+      if (document.activeElement !== renameBox) renameBox.value = renameTo;
       const h = document.getElementById('d-name');
       if (h) h.textContent = renameTo;
       detailNavNames(renameTo);
@@ -54795,7 +54806,8 @@ function pjRoomRow(m, p, hideHeader) {
       : '<div class="msg-av mine" aria-hidden="true"></div>')
     : (card && card.hasAvatar
       ? '<div class="msg-av" aria-hidden="true" data-open-agent="' + esc(m.from) + '"><img src="/api/agent/' + encodeURIComponent(m.from) + '/avatar?v=' + pjAvatarVer(m.from) + '" alt=""></div>'
-      : '<div class="msg-av" aria-hidden="true" data-open-agent="' + esc(m.from) + '" style="background:' + discTint(m.from) + ';color:' + discInk(m.from) + '">' + esc(initials(m.from)) + '</div>');
+      /* #4421: the disc from the member's NAME (pjNameOf, the label's own lookup), not the id. */
+      : '<div class="msg-av" aria-hidden="true" data-open-agent="' + esc(m.from) + '" style="background:' + discTint(pjNameOf(p, m.from)) + ';color:' + discInk(pjNameOf(p, m.from)) + '">' + esc(initials(pjNameOf(p, m.from))) + '</div>');
   /* #2806 (Josh, 2026-09-11): the message BODY wears a colored box in the room --
      royal-blue for the person's own post (`.msg.you`), the cream `--agent-msg` for an
      agent's (the same tokens the DM view uses; see the .msg-bd rules).

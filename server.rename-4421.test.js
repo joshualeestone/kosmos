@@ -29,6 +29,7 @@ process.env.AGENT_WORKFORCE_LAUNCH = mk('launch');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';   // as its siblings do: nothing here may start a real claude
 
 const test = require('node:test');
 const assert = require('node:assert/strict');

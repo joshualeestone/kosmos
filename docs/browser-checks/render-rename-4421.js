@@ -11,8 +11,11 @@
  *   RENAMED  after one poll: the title, the agent's message labels, the working line and the heading all name the
  *            new name, and the old one appears in none of them; the "no name was chosen" note under the heading
  *            is gone (it was given one); the rename box shows the new name.
- *   SAVE     the person then changes only the role and presses Save: the request carries the role and NO name,
- *            so the rename made elsewhere is not undone (Save used to send the box every time).
+ *   SAVE     the person then changes only the role and presses Save: the request carries the role and NO name.
+ *   STALE SAVE  the board renames it again ("Third Name") and Save is pressed BEFORE any poll: the box still says the
+ *            previous name, and the old Save sent it, renaming the agent back. Now no name is sent.
+ *   PADDED   a typed name with spaces is saved (the box shows it trimmed), then a rename made elsewhere still
+ *            reaches the box: a box left holding the untrimmed text stopped following.
  * The thread fixture holds a person's message and the agent's reply, so the labels are really drawn.
  * Harness posture mirrors render-dm-owes-4340.js: load over file://, answer fetches from the fixture, no timers.
  *
@@ -115,6 +118,34 @@ async function surfaces(page) {
     const put = puts[puts.length - 1] || null;
     chk(!!put && put.role === 'Chief of Staff', 'SAVE: the role change was sent', JSON.stringify(puts));
     chk(!!put && !('displayName' in put), 'SAVE: no name was sent, so the rename is not undone', JSON.stringify(puts));
+
+    const stale = await page.evaluate(async (c) => {
+      window.__status = { agents: [c], version: '0.0.0' };   // renamed on the board; no poll has run here yet
+      const boxWas = document.getElementById('d-rename').value;
+      document.getElementById('d-role').value = 'Head of Research';
+      document.getElementById('d-save').click();
+      await new Promise((r) => setTimeout(r, 300));
+      return { boxWas, put: window.__puts[window.__puts.length - 1] };
+    }, card('Third Name', 'idle', true));
+    chk(stale.boxWas === NEW, 'STALE SAVE: fixture: the box still showed the previous name when Save was pressed', JSON.stringify(stale));
+    chk(!!stale.put && stale.put.role === 'Head of Research' && !('displayName' in stale.put),
+      'STALE SAVE: no name was sent, so the rename made on the board is not undone', JSON.stringify(stale));
+
+    const padded = await page.evaluate(async ([saved, c]) => {
+      window.__status = { agents: [saved], version: '0.0.0' };   // the board holds what the save records, as the route would
+      const box = document.getElementById('d-rename');
+      box.value = '  Padded Name  ';
+      document.getElementById('d-save').click();
+      await new Promise((r) => setTimeout(r, 300));
+      const afterSave = box.value;
+      box.blur();
+      window.__status = { agents: [c], version: '0.0.0' };
+      await tick();
+      return { afterSave, afterRename: box.value, sent: window.__puts[window.__puts.length - 1] };
+    }, [card('Padded Name', 'idle', true), card('Renamed Elsewhere', 'idle', true)]);
+    chk(padded.sent && padded.sent.displayName === 'Padded Name', 'PADDED: the trimmed name was sent', JSON.stringify(padded));
+    chk(padded.afterSave === 'Padded Name', 'PADDED: the box shows the name as saved', JSON.stringify(padded));
+    chk(padded.afterRename === 'Renamed Elsewhere', 'PADDED: a later rename made elsewhere still reaches the box', JSON.stringify(padded));
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();
   } finally {
