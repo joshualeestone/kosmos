@@ -15270,6 +15270,13 @@ test('#4256: a DM reply tells the agent what it answers, keeps replyTo, and refu
     chatEngine.appendMessage(chatEngine.DIRECT, 'mira', { text: 'Not Lena', from: 'mira', at: OTHER });
     const foreign = await say({ text: 'x', reply_to: OTHER });
     assert.equal(foreign.status, 409, 'a reply to another agent\'s message was accepted: ' + foreign.body);
+    /* And within this thread, only the agent's own rows and the person's: a row some third sender wrote here is
+       refused, so the tag inside the operator's bracket can never misname whose message is answered. */
+    const THIRD = '2026-09-24T21:45:00.000Z';
+    chatEngine.appendMessage(chatEngine.DIRECT, 'lena', { text: 'From someone else', from: 'mira', at: THIRD });
+    assert.ok(chatEngine.readThread(chatEngine.DIRECT, 'lena').messages.some((m) => m.at === THIRD && m.from === 'mira'), 'CONTROL: the third-sender row was not kept, so this arm tests nothing');
+    const third = await say({ text: 'x', reply_to: THIRD });
+    assert.equal(third.status, 409, 'a reply to a third sender\'s row was accepted: ' + third.body);
 
     const junk = await say({ text: 'x', reply_to: 42 });
     assert.equal(junk.status, 400, junk.body);
