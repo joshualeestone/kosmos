@@ -30,6 +30,7 @@ for pair in 'codex-forget-AbC123=codex-forget' 'tmp.ULxoc1RTFh=tmp' 'worlds-1704
             'aw-buildheader-570-data-Qz9xKp=aw-buildheader-data' 'kts-Zx81Pq=kts' \
             'win32stop-Ab12Cd=win32stop' 'yarn--1790560282614-0=yarn' 'yarn--1790999999999-0=yarn' \
             'avatarverAbC123=avatarver' 'kosmos-newAb12Cd=kosmos-new' 'cli path-AbC123=cli path' \
+            'readme=readme' 'status=status' 'logfile=logfile' 'codex-forget-abcdef=codex-forget' \
             'Ab12Cd=(unnamed)'; do
   name=${pair%%=*}; want=${pair#*=}; got=$(leak_family "$name")
   [ "$got" = "$want" ] && ok "family of $name is $want" || bad "family of $name: got '$got', want '$want'"

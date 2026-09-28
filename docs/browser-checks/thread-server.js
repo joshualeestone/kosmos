@@ -69,7 +69,7 @@ if (!process.env.AGENT_WORKFORCE_CONFIG_ROOT) {
   const sweepRoot = () => { try { fs.rmSync(madeRoot, { recursive: true, force: true }); } catch { /* best effort */ } };
   process.on('exit', sweepRoot);
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-    process.once(sig, () => { sweepRoot(); try { process.kill(process.pid, sig); } catch { /* already going */ } });
+    process.once(sig, () => { if (process.listenerCount(sig) > 0) return; sweepRoot(); try { process.kill(process.pid, sig); } catch { /* already going */ } });
   }
 }
 for (const key of ['AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_WORKERS', 'AGENT_WORKFORCE_LAUNCH', 'AGENT_WORKFORCE_PROJECTS']) {

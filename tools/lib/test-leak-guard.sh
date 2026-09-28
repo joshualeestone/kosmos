@@ -74,18 +74,19 @@ leak_process_check() {
     read -r pid ppid cmd <<< "$line"
     case "$pid$ppid" in ''|*[!0-9]*) continue ;; esac
     [ "$ppid" = "1" ] || continue
-    case "$line" in *"$root/"*|*"$real/"*|*"=$root "*|*"=$real "*|*"=$root"|*"=$real") ;; *) continue ;; esac
+    case "$line" in *"$root/"*|*"$real/"*|*"=$root "*|*"=$real "*|*"=$root"|*"=$real"|*" $root "*|*" $real "*|*" $root"|*" $real") ;; *) continue ;; esac
     kill -TERM "$pid" 2>/dev/null || continue
     echo "process $pid: ${cmd%% *}"
     found=1
   done <<< "$snap"
   if [ "$found" -eq 1 ]; then
-    sleep 1
+    # Three seconds for a load-starved process to finish its own cleanup, then KILL.
+    sleep 3
     snap=$(ps -Awwo pid=,ppid=,command= 2>/dev/null)
     while IFS= read -r line; do
       read -r pid ppid cmd <<< "$line"
       [ "$ppid" = "1" ] || continue
-      case "$line" in *"$root/"*|*"$real/"*|*"=$root "*|*"=$real "*|*"=$root"|*"=$real") kill -KILL "$pid" 2>/dev/null || true ;; esac
+      case "$line" in *"$root/"*|*"$real/"*|*"=$root "*|*"=$real "*|*"=$root"|*"=$real"|*" $root "*|*" $real "*|*" $root"|*" $real") kill -KILL "$pid" 2>/dev/null || true ;; esac
     done <<< "$snap"
   fi
   return "$found"
@@ -108,8 +109,11 @@ leak_family() {
     }
     {
       s = $0
+      # The TRAILING 6/10-character token after a separator is always the random tail,
+      # whatever its case mix (an all-lowercase tail is still random). With no separator,
+      # the last 6 go only when they look random, so a real name (`readme`) is kept.
       if (match(s, /[-_.][A-Za-z0-9]+$/) && (RLENGTH == 7 || RLENGTH == 11)) s = substr(s, 1, RSTART)
-      else if (s ~ /[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]$/) s = substr(s, 1, length(s) - 6)
+      else if (s ~ /[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]$/ && length(s) > 6 && random(substr(s, length(s) - 5))) s = substr(s, 1, length(s) - 6)
       gsub(/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]+/, "", s)
       out = ""
       while (match(s, /[-_.]/)) {

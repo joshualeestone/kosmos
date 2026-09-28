@@ -35,7 +35,7 @@ process.on('exit', sweepMade);
    browser check or a test file usually ends early (kosmos#4273). Sweep, then re-raise
    the same signal with this listener gone, so the process still dies the normal way. */
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-  process.once(sig, () => { sweepMade(); try { process.kill(process.pid, sig); } catch { /* already going */ } });
+  process.once(sig, () => { if (process.listenerCount(sig) > 0) return; sweepMade(); try { process.kill(process.pid, sig); } catch { /* already going */ } });
 }
 
 function freshHome() {
