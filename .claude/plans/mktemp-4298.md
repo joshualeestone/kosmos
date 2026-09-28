@@ -28,11 +28,16 @@ lands under TMPDIR, and the name says which script left it.
   script already clean up where they did before; a leftover in the run root is named by script.
 - Include non-test scripts the suite runs (release.sh, verify-served.sh, build scripts, the pkg
   postinstall): the measurement showed they leak during tests. The change is the location/name of a
-  temp file only; in production it lands in the same real temp root as before.
+  temp file only; in production these land in the same real temp root as before (TMPDIR is set there).
 - postinstall: template only. Its real leak (EXIT trap skipped by `exec /bin/sh`) is installer
   behaviour and a separate card; the block is a single-quoted sh -c arg, so no apostrophes added.
+  `sudo -u -H` strips TMPDIR in a real install, so the template falls back to
+  `getconf DARWIN_USER_TEMP_DIR`, the same per-user dir a bare mktemp used (checked with TMPDIR
+  empty and `mktemp -u`), not the shared /tmp. /tmp only if getconf fails.
+- build-tmux-from-source.sh: a short `bts.XXXXXX` name, because its smoke test puts tmux sockets
+  under the dir and a socket path over 104 bytes fails (82 bytes under a run root).
 - Out of scope, noted on the card: shell embedded in JS (engine/reporthook.js, docs/browser-checks,
-  three *.test.js).
+  three *.test.js), and ios/ scripts (run by iOS CI, not by test:shell).
 
 ## Mistake recorded
 A `git stash` in the worktree during a measurement run swapped scripts mid-execution; that run was
@@ -40,6 +45,7 @@ discarded and re-run. Never stash or edit a tree a suite is executing.
 
 ## Tests
 - tools/test-mktemp-template-4298.sh (first in test:shell): scope floor, tree clean, negative control
-  of 9 bare shapes (incl. `/usr/bin/mktemp` and `mktemp 2>/dev/null`), templated calls/messages/comments
-  not flagged. Red on origin/main (114 calls in tools/*.sh alone).
+  of 16 bare shapes asserted by line number (incl. `/usr/bin/mktemp`, `mktemp 2>/dev/null`,
+  `command`/`env`/`VAR=` prefixes, `if`/`{`, `-dt`, a backslash-continued call), templated
+  calls/messages/comments not flagged. Red on origin/main (114 calls in tools/*.sh alone).
 - test-postinstall-inline-quoting.sh and test-pkg-checksum-1670.sh pass with the postinstall change.

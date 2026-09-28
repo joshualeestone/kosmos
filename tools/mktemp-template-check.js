@@ -12,14 +12,19 @@
  *
  *   node tools/mktemp-template-check.js <file>...   prints file:line for each bare call, exit 1 if any
  *
- * Only a CALL counts: `mktemp` at the start of a command ($( , backtick, line start,
- * or after ; && || |), never the word inside an echo or a comment.
+ * Only a CALL counts: `mktemp` in a command position (see PRE below), never the word
+ * inside an echo or a comment.
  */
 const fs = require('node:fs');
 
-/* A call may name the binary by path (`/usr/bin/mktemp`). Its arguments stop at a
-   redirection, and the fd number in front of one (`2>/dev/null`) is not a template. */
-const CALL = /(?:\$\(|`|^|[;&|]\s*)\s*(?:\/[\w./-]*\/)?mktemp\b([^)`;&|<>\n]*)/g;
+/* A command position: `$(`, a backtick, line start, after ; & | ! { (, or after a shell
+   keyword. Then any `command`/`env`/`exec` wrappers and `VAR=value` assignments, then the
+   binary, by name or by path (`/usr/bin/mktemp`). */
+const PRE = String.raw`(?:\$\(|` + '`' + String.raw`|^|[;&|!{(]|\b(?:if|then|do|else|elif|while|until)\b)`;
+const WRAP = String.raw`\s*(?:(?:command|env|exec)\s+)*(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s+)*`;
+const BIN = String.raw`(?:\/[\w./-]*\/)?mktemp(?![\w.-])`;
+/* The arguments stop at a redirection or the end of the command. */
+const CALL = new RegExp(PRE + WRAP + BIN + String.raw`([^)` + '`' + String.raw`;&|<>\n]*)`, 'g');
 
 /** The arguments of one call, split on whitespace with simple quote awareness. */
 function words(s) {
@@ -30,25 +35,33 @@ function words(s) {
   return out;
 }
 
-/** True when the call passes a positional template. `-t` takes a value, which is NOT a template on macOS. */
+/** True when the call passes a positional template. A short-flag cluster holding `t` or `p`
+    (`-t`, `-dt`) takes the next word as its value, and on macOS that value is NOT a template.
+    The fd number in front of a redirection (`2>/dev/null`) is not one either. */
 function hasTemplate(args) {
   const w = words(args.replace(/\s#.*$/, '').replace(/\s\d+\s*$/, ''));
   for (let i = 0; i < w.length; i += 1) {
-    if (w[i] === '-t' || w[i] === '-p') { i += 1; continue; }
+    if (/^-[A-Za-z]+$/.test(w[i])) { if (/[tp]/.test(w[i])) i += 1; continue; }
     if (w[i].startsWith('-')) continue;
     return true;
   }
   return false;
 }
 
+/** Bare calls in a file's text, by the line each command STARTS on. A backslash-newline
+    continues a command, so a call split across lines is read whole. */
 function bareCalls(text) {
   const hits = [];
-  text.split('\n').forEach((line, i) => {
-    if (/^\s*#/.test(line)) return;
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i += 1) {
+    const start = i;
+    let line = lines[i];
+    while (/\\$/.test(line) && i + 1 < lines.length) { i += 1; line = line.slice(0, -1) + ' ' + lines[i]; }
+    if (/^\s*#/.test(line)) continue;
     for (const m of line.matchAll(CALL)) {
-      if (!hasTemplate(m[1])) hits.push({ line: i + 1, text: line.trim() });
+      if (!hasTemplate(m[1])) hits.push({ line: start + 1, text: line.trim() });
     }
-  });
+  }
   return hits;
 }
 

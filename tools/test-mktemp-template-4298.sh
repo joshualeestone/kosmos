@@ -37,7 +37,8 @@ out="$(node tools/mktemp-template-check.js "${scope[@]}" 2>&1)"; rc=$?
   || bad "template-less mktemp calls (give each \"\${TMPDIR:-/tmp}/<name>.XXXXXXXXXX\"):
 $out"
 
-# NEGATIVE CONTROL: each bare shape must be found, one per line.
+# NEGATIVE CONTROL: each bare shape must be found, by its own line number, so one
+# line hitting twice can never cover for a shape that was missed.
 cat > "$T/bare.sh" <<'SH'
 a="$(mktemp -d)"
 b="$(mktemp)"
@@ -48,10 +49,19 @@ mktemp -d >/dev/null
 f=$(mktemp -d) && g=1
 h="$(/usr/bin/mktemp -d)"
 i="$(mktemp 2>/dev/null || echo /tmp/x)"
+j="$(command mktemp -d)"
+k="$(env mktemp -d)"
+l="$(TMPDIR=/x mktemp -d)"
+if mktemp -d >/dev/null; then :; fi
+{ mktemp -d; } >/dev/null
+m="$(mktemp -dt kosmos)"
+n="$(mktemp \
+  -d)"
 SH
-n="$(node tools/mktemp-template-check.js "$T/bare.sh" | wc -l | tr -d ' ')"
-[ "$n" = "9" ] && ok "CONTROL: all 9 bare shapes are found" \
-  || bad "CONTROL: expected 9 bare calls found, got $n"
+got="$(node tools/mktemp-template-check.js "$T/bare.sh" | cut -d: -f2 | sort -n | tr '\n' ' ')"
+want="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 "
+[ "$got" = "$want" ] && ok "CONTROL: all 16 bare shapes are found, each on its own line" \
+  || bad "CONTROL: bare shapes found on lines [$got], want [$want]"
 
 # The other side: templated calls and mentions are not calls to fix.
 cat > "$T/good.sh" <<'SH'
@@ -60,6 +70,9 @@ b="$(mktemp "$out.archive.XXXXXX")"
 c="$(mktemp -d /tmp/cutguard-frozen.XXXXXX)"
 j="$(/usr/bin/mktemp /tmp/kosmos-installing.XXXXXX 2>/dev/null || true)"
 echo "FAIL  mktemp failed, so nothing ran"
+echo "if mktemp fails, nothing ran"
+p="$(mktemp -d \
+  "${TMPDIR:-/tmp}/y.XXXXXXXXXX")"
 # a bare mktemp -d in a comment is not a call
 SH
 node tools/mktemp-template-check.js "$T/good.sh" >/dev/null \
