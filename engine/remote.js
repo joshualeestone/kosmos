@@ -517,7 +517,7 @@ function ensure(port) {
     // address first and fetches the certificate last, so a tunnel started in that
     // minute would run the new identity on the old certificate. The register
     // brings it up itself when it finishes.
-    if (registerInFlight) { restartPending = false; return; }   // the register's start is not a relaunch (#4277 review 10)
+    if (registerInFlight) return;
     startChild();
   } catch (err) {
     process.stderr.write('remote: ensure failed: ' + (err && err.message) + '\n');
@@ -1068,7 +1068,9 @@ async function setupComplete(code, name) {
   if (!result.ok) abandonChangedIdentity(before, addressBefore, startedAt);
   // A new identity: the previous account's cached standing does not carry over.
   if (result.ok && macIdHere() !== before) fedSetStanding('');
-  if (result.ok) ensure(localPort);
+  // kosmos#4277: the register's own start is not a supervisor relaunch, even if a restart timer fired
+  // while it was out; a register that fails leaves the pending relaunch for the next tick (review 12).
+  if (result.ok) { restartPending = false; ensure(localPort); }
   /* #3889: cache this account's standing now. `setup complete` prints no JSON (setupRun never sets .data, so the
      branch that read result.data here never ran), and a new identity was just cleared to '' with a FRESH
      standing_at, so the poll would not re-ask for a whole TTL: the member-only federation UI read "not a member"
@@ -1817,6 +1819,7 @@ async function signinRegister(name) {
   if (macIdHere() !== before) stopChild();
   const switchedOn = offEpoch === offAt;
   if (switchedOn) turnOnAfterSignin();
+  restartPending = false;   // kosmos#4277: the register's start is not a relaunch (see setupComplete)
   ensure(localPort);
   const d = r.data && typeof r.data === 'object' ? r.data : {};
   fedSetStanding(d.standing);   // fed gate: SET (or clear) standing from this fresh register

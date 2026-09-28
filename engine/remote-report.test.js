@@ -40,11 +40,13 @@ test('an up tunnel: running, no error, the identity files seen, the app version'
 });
 
 test('every status maps to the coordinator vocabulary, and off follows the switch', () => {
-  const dir = stateDir([]);
+  const dir = stateDir(report.ENROL_FILES);
   const cases = [
     [{ state: 'up' }, 'running'],
     [{ state: 'connecting', because: 'x' }, 'starting'],
     [{ state: 'restarting', because: 'x' }, 'crashed'],
+    // The tunnel reconnecting inside a live process (a graceful close, a renewal) is not a crash (review 12).
+    [{ state: 'restarting', because: 'the connection closed', sup: 'alive' }, 'starting'],
     [{ state: 'off', because: 'the board has not started the tunnel' }, 'stopped'],
     [{ state: 'off', because: 'the switch is off', on: false }, 'off'],
   ];
@@ -126,6 +128,7 @@ test('switch on, key held, not enrolled: the error names the missing enrolment f
   const dir = stateDir(['mac_id', 'mac_key']);
   const r = report.build({ remote: fakeRemote({ dir, state: 'connecting', because: 'waiting for the code sent to josh@stuff.io' }), env: {} });
   assert.equal(r.error, 'not-enrolled; missing: address, tls.crt, tls.key');
+  assert.equal(r.tunnel, 'stopped', 'a board that is not enrolled will never start; it is not `starting`');
   assert.ok(!JSON.stringify(r).includes('@'), 'the email left the Mac');
 });
 

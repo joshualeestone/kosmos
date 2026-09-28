@@ -32,11 +32,15 @@ const path = require('node:path');
 
 
 /* remote.status().state -> the coordinator's tunnel vocabulary. `off` means the switch
-   is off; a board whose switch is ON but whose tunnel is not started reads `stopped`. */
-function tunnelState(state, on) {
+   is off; a board whose switch is ON but whose tunnel is not started reads `stopped`, and so
+   does one that is not enrolled, which will never start (review 12). status() reads
+   `restarting` for the tunnel's own in-process reconnects too (a graceful close, a certificate
+   renewal), so it is `crashed` only when the supervisor's process is not up (review 12). */
+function tunnelState(state, on, sup, enrolledHere) {
   if (state === 'up') return 'running';
+  if (on && !enrolledHere) return 'stopped';
   if (state === 'connecting') return 'starting';
-  if (state === 'restarting') return 'crashed';
+  if (state === 'restarting') return sup === 'alive' ? 'starting' : 'crashed';
   return on ? 'stopped' : 'off';
 }
 
@@ -57,7 +61,8 @@ const CODES = [
   ['settings-unreadable', /settings could not be read/i],
   ['no-relay-address', /no relay address/i],
   ['status-unreadable', /status unreadable/i],
-  ['binary-missing', /could not be started|ENOENT|EACCES|unrecognized subcommand/i],
+  // status() words every spawn failure as `the tunnel program could not be started: <why>` (review 12).
+  ['binary-missing', /could not be started/i],
   ['state-dir-invalid', /does not look like a Mac state dir/i],
   ['state-file-unreadable', /reading \S+ from|pinned coordinator_pubkey|decoding mac_key|mac_key is not 32 bytes/i],
   // The coordinator's ticket does not fit this Mac (the pinned key, or a stale address file).
@@ -119,9 +124,9 @@ function build(deps) {
     const dir = remote.stateDir();
     const exists = (f) => { try { return fs.existsSync(path.join(dir, f)); } catch { return false; } };
     const dirThere = (() => { try { return fs.statSync(dir).isDirectory(); } catch { return false; } })();
-    const tunnel = tunnelState(st.state, on);
-    const restarts = typeof remote.restartCount === 'function' ? remote.restartCount() : 0;
     const sup = typeof remote.supervisorState === 'function' ? remote.supervisorState() : 'none';
+    const tunnel = tunnelState(st.state, on, sup, ENROL_FILES.every(exists));
+    const restarts = typeof remote.restartCount === 'function' ? remote.restartCount() : 0;
     let heal = 'none';
     if (restarts > lastRestarts) {
       if (sup === 'alive') heal = 'relaunched';
