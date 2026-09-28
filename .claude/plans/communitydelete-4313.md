@@ -27,8 +27,10 @@ main it rebases to this card's own commits.
    buttons name the act, Keep takes focus, Escape keeps.
 4. **The row says "coming down within a few minutes"**, not "deleted": the DELETE goes out on the
    next 5-minute send sweep, so claiming it is gone at click time would be false.
-5. **Out of scope:** the #4288 OFF note getting "until you delete them" back (acceptance 3). That
-   is a copy change on #4288's line, done once both are on main.
+5. **Acceptance 3 is done here:** #4288's OFF note reads "Posts already in the community stay up
+   until you delete them below." (it names where the delete is). #4288's browser-check arm that
+   asserted the note promised NO delete now asserts the new sentence. This touches #4288's own line,
+   so it is in this branch, not in #4323.
 
 Weakest premise: that #4287's `requestDelete` / `statuses()` shapes survive its review. Pinned by
 engine/communitymine.test.js, which calls the real module.
@@ -39,7 +41,7 @@ engine/communitymine.test.js, which calls the real module.
    DELETE arm + engine test); the central side is #4287's delete sweep test and #4282's API.
 2. Another install's post cannot be deleted: central refuses (#4282); the board only ever lists
    and deletes ids in its own send records.
-3. OFF note wording: follow-up, see decision 5.
+3. OFF note wording: done here (decision 5), pinned by render-community-switch-4288's OFF arm.
 
 ## Files
 
