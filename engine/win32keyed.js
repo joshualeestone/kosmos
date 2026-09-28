@@ -58,6 +58,19 @@ const KEYED_RUNNERS = Object.freeze(['gemini', 'grok']);
 const DEFAULT_MODEL = Object.freeze({ gemini: 'gemini-2.5-flash', grok: 'grok-4.6' });
 /* The env var each CLI reads its API key from (the Mac supervisor's names). */
 const KEY_VAR = Object.freeze({ gemini: 'GEMINI_API_KEY', grok: 'XAI_API_KEY' });
+/* #4426: grok's claude-compat reads the person's own Claude Code setup unless each cell is off
+   (Grok's docs, [compat.claude]: env > config.toml > default on). Off, it no longer loads the
+   person's ~/.claude CLAUDE.md, skills, rules, ~/.claude.json MCP servers or ~/.claude hooks.
+   Grok still reads a plain CLAUDE.md in the agent's own working folder (its docs: those "stay
+   recognized"), and whatever the grok home itself configures. The Mac supervisor's grok launch
+   sets the same list; a test in create.test.js pins the two equal. */
+const GROK_CLAUDE_COMPAT_OFF = Object.freeze({
+  GROK_CLAUDE_HOOKS_ENABLED: '0',
+  GROK_CLAUDE_AGENTS_ENABLED: 'false',
+  GROK_CLAUDE_RULES_ENABLED: 'false',
+  GROK_CLAUDE_SKILLS_ENABLED: 'false',
+  GROK_CLAUDE_MCPS_ENABLED: 'false',
+});
 
 function isKeyedRunner(runner) { return KEYED_RUNNERS.includes(String(runner || '')); }
 
@@ -332,8 +345,9 @@ function turnEnv(runner, base, configDir, deps) {
     /* The Mac exports the default account's dir as GROK_HOME too, so the dir judged here is
        the dir grok reads. */
     env.GROK_HOME = String(dir);
-    /* Run only its own hooks, not the machine's Claude Code ones (agent-supervisor.sh). */
-    env.GROK_CLAUDE_HOOKS_ENABLED = '0';
+    /* Run only its own hooks and AGENTS.md, not the person's Claude Code setup (#4426,
+       agent-supervisor.sh). */
+    Object.assign(env, GROK_CLAUDE_COMPAT_OFF);
     let kind = null;
     try { const who = mod.identityOf(dir); kind = who ? who.authMode : null; } catch { kind = null; }
     if (kind === 'subscription') { delete env.XAI_API_KEY; return env; }
@@ -346,6 +360,6 @@ function turnEnv(runner, base, configDir, deps) {
 }
 
 module.exports = {
-  KEYED_RUNNERS, DEFAULT_MODEL, KEY_VAR, isKeyedRunner,
+  KEYED_RUNNERS, DEFAULT_MODEL, KEY_VAR, GROK_CLAUDE_COMPAT_OFF, isKeyedRunner,
   turnArgs, parseTurn, runKeyedTurn, turnEnv, setSpawn,
 };
