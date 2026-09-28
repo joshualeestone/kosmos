@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: cibudget-4317
 diff_hash: e061d0e84d7af89a4e43f2cebe43d6e4aa7feeb2439ee77adf166879d5c78cd2
-validation: passed
+validation: failed (3 timing-bound tests under load; re-run pending)
 subdir_audit: passed (no subdir CLAUDE.md in the diff)
 timestamp: 2026-09-28T07:54:03Z
 iterations: 1
@@ -16,7 +16,10 @@ converged: true
 **Converged:** Yes (no defect)
 **Findings:** 1 NIT (external facts in the comment; they were measured, see below)
 
-Validation (validation_log_run_or_skip, stack=typescript) PASSED on this head.
+Validation (validation_log_run_or_skip, stack=typescript) FAILED on this head: 3 timing-bound tests
+(#3827 register after a cut-off certificate, 5.0 s; #3935 bounded word walk, 11.1 s; #3626 hung tunnel
+and announce(), 5.7 s), while cargo builds and mutants for #4315 ran on the same machine. This diff edits only
+a CI YAML value that no test reads. The re-run on a quiet machine decides; this line is updated with it.
 
 #### Iteration 1 - sonnet - 0 defects, 1 NIT
 - Checked and held: the YAML parses (ruby, the repo's parser), and `jobs.test.timeout-minutes` = 45 is a
