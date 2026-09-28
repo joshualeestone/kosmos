@@ -50,6 +50,16 @@ Nothing goes out until you release it." with Got it and Change in Settings. Acce
 - Not changed, measured: the review read `migrate()` as running after `server.listen`. The real-start
   block calls it before `start()`, which is where `listen` runs, so no request can reach the board first.
 
+## Review 3
+
+- No blocker. The notice's keys acted even with first run or the update overlay drawn over it; they now
+  stand down while covered (`cnCovered`) and are taken in the capture phase and stopped, What's New's rule. An
+  arm draws the update overlay over an open notice and asserts Escape leaves it; dropping the guard reds it.
+- Only the boot-cover hold was pinned: a HELD arm plants a generic dialog, a first-run backdrop and the
+  update overlay before the page's script runs, asserts no notice and no record, then removes it and
+  asserts one of each.
+- Two tabs loaded together each show it once; accepted as What's New accepts it, and now said in a comment.
+
 ## Weakest premise
 
 That a FRESH install is told in first run. The install-screen checkbox that does that is Mona's

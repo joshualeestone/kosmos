@@ -215,6 +215,25 @@ async function run() {
     });
     const pending = { on: true, ok: true, share: null, noticeSeen: false };
 
+    // HELD: anything already covering the page (another dialog, first run, the update overlay) holds the
+    // notice, and it opens once that is gone. Each is planted before the page's own script runs.
+    for (const cls of ['rm-back', 'fr-back', 'upd-back']) {
+      const nh = await page();
+      let heldPosts = 0;
+      await nh.addInitScript((c) => { document.addEventListener('DOMContentLoaded', () => { const d = document.createElement('div'); d.className = c; d.id = 'planted-cover'; document.body.appendChild(d); }); }, cls);
+      await nh.route(ROUTE, answer(pending));
+      await nh.route(SEEN, (route) => { heldPosts++; return answer({ ...pending, noticeSeen: true })(route); });
+      await load(nh);
+      await nh.waitForTimeout(3000);
+      const held = await nh.evaluate(() => Boolean(document.getElementById('cmnotice')));
+      check('HELD (' + cls + '): the notice waits and records nothing while it is up', held === false && heldPosts === 0, JSON.stringify([held, heldPosts]));
+      await nh.evaluate(() => document.getElementById('planted-cover').remove());
+      await nh.waitForSelector('#cmnotice', { timeout: 15000 }).catch(() => {});
+      const opened = await nh.evaluate(() => Boolean(document.getElementById('cmnotice')));
+      check('HELD (' + cls + '): once it is gone the notice opens and records itself once', opened === true && heldPosts === 1, JSON.stringify([opened, heldPosts]));
+      await nh.close();
+    }
+
     // BOOT: while the boot cover is up the notice waits, so "seen" is only recorded once it can be seen.
     const nb = await page();
     let bootPosts = 0;
@@ -250,6 +269,12 @@ async function run() {
     await n1.pg.close();
 
     const n2 = await noticeFor(pending);
+    // A window drawn OVER the notice owns the keys: with the update overlay up, Escape leaves the notice alone.
+    await n2.pg.evaluate(() => { const d = document.createElement('div'); d.className = 'upd-back'; d.id = 'planted-upd'; document.body.appendChild(d); });
+    await n2.pg.keyboard.press('Escape');
+    await n2.pg.waitForTimeout(200);
+    check('NOTICE: with the update overlay over it, Escape does not close the notice', (await noticeState(n2.pg)).open === true);
+    await n2.pg.evaluate(() => document.getElementById('planted-upd').remove());
     await n2.pg.keyboard.press('Escape');
     await n2.pg.waitForTimeout(200);
     check('NOTICE: Escape closes it', (await noticeState(n2.pg)).open === false);

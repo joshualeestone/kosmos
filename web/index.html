@@ -27857,25 +27857,36 @@ async function communityNoticeCheck() {
     const until = Date.now() + 60 * 60 * 1000;
     while (Date.now() < until && cnHeld()) await new Promise((ok) => setTimeout(ok, 1000));
     if (cnHeld()) return;
+    /* Recorded as seen when it OPENS, What's New's rule and its accepted cost: two tabs loaded together
+       each find it pending and each show it once. Nothing is lost; it is only shown twice. */
     fetch('/api/community-setting/notice-seen', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
       .then((x) => x.text()).catch(() => { /* shown again next load */ });
     cnOpen();
   } catch { /* the notice can wait */ }
 }
-/* Escape leaves; Tab stays between its two buttons (the plus-gate machinery). */
+/* Escape leaves; Tab stays between its two buttons. What's New's rules (review 3): a window drawn over this
+   one (first run, the update overlay) owns the keys, and the keys are taken in the capture phase and
+   stopped, so one Escape closes one window. */
+function cnCovered() {
+  return !!document.querySelector('.fr-back:not([hidden]), .upd-back');
+}
 document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape') return;
+  if (e.key !== 'Escape' || cnCovered()) return;
   if (document.getElementById('cmnotice')) cnClose();
-});
+  else return;
+  e.preventDefault();
+  e.stopPropagation();
+}, true);
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Tab') return;
   const back = document.getElementById('cmnotice');
-  if (!back) return;
+  if (!back || cnCovered()) return;
+  e.stopPropagation();
   const order = e.shiftKey ? [document.getElementById('cn-ok'), document.getElementById('cn-settings')] : [document.getElementById('cn-settings'), document.getElementById('cn-ok')];
   // From outside, or from the box itself, Tab goes to the first button in its direction.
   if (!order.includes(document.activeElement)) { e.preventDefault(); order[0].focus(); return; }
   if (document.activeElement === order[order.length - 1]) { e.preventDefault(); order[0].focus(); }
-});
+}, true);
 
 /* #2623: the create-page telemetry checkbox painter (createTellPaint /
    refreshCreateTell, /api/ping-setting) was deleted with the checkbox.
