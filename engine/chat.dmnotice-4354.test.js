@@ -44,3 +44,26 @@ test('the mark survives the real writer, only as true, and an ordinary reply car
   assert.equal('kosmos' in rows.find((m) => m.text === 'odd'), false, 'a mark that is not exactly true was kept');
   assert.equal('kosmos' in rows.find((m) => m.text === 'reply'), false);
 });
+
+test('the notice stands only in the pause it was written in (review of #4354: a later pause does not revive it)', () => {
+  const since = (minAgo) => ({ paused: true, pausedSince: at(minAgo) });
+  assert.equal(chat.noticeStands(notice, since(6)), true, 'written after this pause began');
+  assert.equal(chat.noticeStands(notice, { paused: true, pausedSince: notice.at }), true, 'written the moment it began');
+  assert.equal(chat.noticeStands(notice, since(1)), false, 'written in an earlier pause');
+  assert.equal(chat.noticeStands(notice, { paused: true, pausedSince: null }), true, 'a pause with no start time counts it');
+  assert.equal(chat.noticeStands(notice, { paused: false, pausedSince: at(6) }), false);
+  assert.equal(chat.noticeStands(notice, null), false);
+  assert.equal(chat.noticeStands({ ...notice, at: 'not a time' }, since(6)), false);
+  assert.equal(chat.dmOwes([question, notice], A, since(1)).state, 'owes', 'an old notice hid the line under a new pause');
+  assert.equal(chat.dmOwes([question, notice], A, since(6)).state, 'clear');
+});
+
+test('swarm.pauseOf: switched off with its start time; running, not a swarm, or unreadable reads as not paused', () => {
+  const swarm = require('./swarm');
+  const on = swarm.birthProfile({ dailyTokenLimit: 1000 });
+  const off = { ...on, swarm: swarm.pausedFor(swarm.settingsOf(on), 'limit', Date.parse(at(3))) };
+  assert.deepEqual(swarm.pauseOf(off), { paused: true, pausedSince: at(3) });
+  assert.deepEqual(swarm.pauseOf(on), { paused: false, pausedSince: null });
+  assert.deepEqual(swarm.pauseOf({ role: 'pm' }), { paused: false, pausedSince: null });
+  assert.deepEqual(swarm.pauseOf({}), { paused: false, pausedSince: null });
+});

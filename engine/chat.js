@@ -2807,7 +2807,8 @@ function looksLikeManager(role) {
  * Who writes a DIRECT thread: the person's message has NO `from` (see readThread), with a `delivery`; every
  * agent row goes through keepAgentReply with `from` equal to the agent (its `kosmos reply`, a drained reply, and
  * Kosmos's own daily-limit notice said in the agent's name). #4354: that notice is marked `kosmos: true` and clears
- * the debt only while the agent is PAUSED (`opts.paused`): it says why no answer is coming and when, so a
+ * the debt only while it stands (noticeStands: paused now, and written in this pause; `opts` is swarm.pauseOf's
+ * answer): it says why no answer is coming and when, so a
  * "Nothing back yet." under it would read as the agent ignoring them. Once the agent runs again it is not an
  * answer, and a question still unanswered owes again. A caller that cannot say (no opts) gets not-paused, so the
  * line comes back rather than staying hidden. Only a person message that REACHED the agent (`delivery.state === placed`) can put it in debt: one
@@ -2823,9 +2824,23 @@ function looksLikeManager(role) {
  * `rows === null` is a thread we could not read: UNKNOWN, never a confident clear. Returns {state, lastHeardAt,
  * lastSentAt, because}, the shape dmOwesLine reads.
  */
+/**
+ * #4354: does a row Kosmos wrote in the agent's name (`kosmos: true`, the daily-limit notice) stand in for the
+ * agent having said something? Only while the agent is paused (`pause.paused`) AND the row was written during THIS
+ * pause (at or after `pause.pausedSince`): a notice from an earlier pause says nothing about now. A pause with no
+ * readable start time counts any marked row. Shared by dmOwes and firstreply-nudge's firstContact, so the two
+ * cannot disagree. A row without the mark is not asked about.
+ */
+function noticeStands(row, pause) {
+  if (!pause || pause.paused !== true || !row) return false;
+  const since = typeof pause.pausedSince === 'string' ? Date.parse(pause.pausedSince) : NaN;
+  if (!Number.isFinite(since)) return true;
+  const at = typeof row.at === 'string' ? Date.parse(row.at) : NaN;
+  return Number.isFinite(at) && at >= since;
+}
+
 function dmOwes(rows, agent, opts) {
   const name = String(agent == null ? '' : agent);
-  const paused = Boolean(opts && opts.paused);
   if (rows === null || rows === undefined || !Array.isArray(rows)) {
     return { state: 'unknown', lastHeardAt: null, lastSentAt: null, because: 'we could not read this conversation' };
   }
@@ -2841,7 +2856,7 @@ function dmOwes(rows, agent, opts) {
       if (typeof m.wire === 'string' && m.wire) continue;   // a menu answer, not a message to reply to
       if (heard === null || t > heard) { heard = t; heardAt = m.at; }
     } else if (m.from === name) {
-      if (m.kosmos === true && !paused) continue;   // #4354: Kosmos's notice, and the agent is running again
+      if (m.kosmos === true && !noticeStands(m, opts)) continue;   // #4354: Kosmos's notice, not from this pause
       if (sent === null || t > sent) { sent = t; sentAt = m.at; }
     }
   }
@@ -3145,7 +3160,7 @@ function markDmReactionsTold(agent, named) {
 }
 
 module.exports = {
-  DELIVERY, DIRECT, dmOwes, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
+  DELIVERY, DIRECT, dmOwes, noticeStands, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,

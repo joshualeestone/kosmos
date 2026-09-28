@@ -87,10 +87,10 @@ test('the route carries the answer, computed from the one-to-one thread itself (
   /* #4340: from the DIRECT thread's own rows (chat.dmOwes), under the agent's canonical name, not from the
      `kosmos msg` / room log (messages.owesReply), which never holds a person's DM or the agent's reply.
      server.dm-owes-4340.test.js proves the behaviour through the route; this pins where it comes from. */
-  assert.match(srv, /const owes = chat\.dmOwes\(messages, name, \{ paused: dmPaused \}\);/,
+  assert.match(srv, /const owes = chat\.dmOwes\(messages, name, require\('\.\/engine\/swarm'\)\.pauseOf\(store\.readProfile\(name\)\)\);/,
     'the thread route no longer computes it from the thread it serves');
   /* On the FULL thread, before the 200-row tail (the DM thread route's slice is the first in server.js). */
-  const owesAt = srv.indexOf('const owes = chat.dmOwes(messages, name, { paused: dmPaused });');
+  const owesAt = srv.indexOf('const owes = chat.dmOwes(messages, name, ');
   const sliceAt = srv.indexOf('if (olderCount) messages = messages.slice(-TAIL);');
   assert.ok(owesAt > 0 && sliceAt > 0 && owesAt < sliceAt,
     'owes is taken after the 200-row tail, so an owed message just outside it is forgotten');

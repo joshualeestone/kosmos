@@ -13107,14 +13107,10 @@ const server = http.createServer((req, res) => {
        thread we could not read (messages null) answers `unknown`. On the FULL stored thread, BEFORE the 200-row tail:
        dmOwes skips menu answers and undelivered rows, so a tail of those could hide an owed message just outside
        it (review iteration 7). */
-    /* #4354: whether the agent is switched off now, for Kosmos's daily-limit notice: it stands in for an answer
-       only while the agent is paused. A swarm switched off for any reason cannot answer, so any pause counts. A
-       profile we cannot read, or an agent that is not a swarm, reads as running: the line then comes back rather
-       than being hidden by a notice from a pause we cannot see. */
-    let dmPaused = false;
-    try { const sw = require('./engine/swarm').settingsOf(store.readProfile(name)); dmPaused = Boolean(sw && !sw.active); }
-    catch { dmPaused = false; }
-    const owes = chat.dmOwes(messages, name, { paused: dmPaused });
+    /* #4354: Kosmos's daily-limit notice stands in for an answer only while the agent is switched off, and only
+       if it was written in THIS pause (chat.noticeStands). store.readProfile answers {} when it cannot read, and
+       a non-swarm reads as running: the line then comes back rather than being hidden. */
+    const owes = chat.dmOwes(messages, name, require('./engine/swarm').pauseOf(store.readProfile(name)));
     const TAIL = 200;
     const olderCount = Array.isArray(messages) && messages.length > TAIL
       ? messages.length - TAIL : 0;

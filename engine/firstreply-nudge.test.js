@@ -252,3 +252,32 @@ test('#3226 real store CONTROL: a colleague `kosmos msg` with an empty DIRECT th
   const { sent } = realSweep(roster);
   assert.equal(sent.length, 0, 'a colleague\'s message was read as the person\'s');
 });
+
+/* #4354: Kosmos's daily-limit notice is written in the agent's name. It must not count as the agent answering
+   once it runs again, and while it is paused the sweep must leave it alone (its pane refuses the text, and each
+   refused try spends the budget). Through the REAL store, the REAL profile read (no `paused` injected) and
+   swarm.pausedFor, the sweep's own pause writer. */
+test('#4354 real store: a first DM behind the daily-limit notice is left alone while paused and nudged once running', () => {
+  const store = require('./store');
+  const swarm = require('./swarm');
+  const roster = rosterOf('idle');
+  const s = roster[0].sessionName;
+  freshStore(s);
+  const pausedAt = NOW - 60 * 1000;
+  try {
+    store.writeProfile(s, swarm.birthProfile({ dailyTokenLimit: 1000 }));
+    store.writeProfile(s, { swarm: swarm.pausedFor(swarm.settingsOf(store.readProfile(s)), 'limit', pausedAt) });
+    assert.equal(swarm.pauseOf(store.readProfile(s)).paused, true, 'fixture: the swarm is not paused');
+    personDm(s);
+    const kept = chat.appendMessage(chat.DIRECT, s, { text: 'I paused myself at today\'s token limit', at: new Date(pausedAt).toISOString(), from: s, kosmos: true });
+    assert.equal(kept.recorded, true);
+    const paused = realSweep(roster);
+    assert.equal(paused.sent.length, 0, 'a paused swarm was nudged (its pane refuses the text and the tries run out)');
+    assert.equal(paused.r.results.length, 0, 'the sweep spent a try on a paused swarm');
+    store.writeProfile(s, { swarm: { ...swarm.settingsOf(store.readProfile(s)), active: true, pausedBecause: null, pausedAt: null } });
+    const running = realSweep(roster);
+    assert.equal(running.sent.length, 1, 'running again and still unanswered, but the notice read as its first answer');
+  } finally {
+    fs.rmSync(path.join(require('./store').ROOT, require('./store').PROFILES_DIRNAME), { recursive: true, force: true });
+  }
+});

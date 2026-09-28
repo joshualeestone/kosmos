@@ -441,6 +441,15 @@ function offlineCardField(profile, calibration = null) {
   return cardField(profile, () => null, undefined, null, calibration);
 }
 
+/**
+ * #4354: whether this agent is switched off NOW, and since when, as chat.noticeStands reads it. Not a swarm, or a
+ * profile we cannot read: not paused (a marked notice then does not hide an owed answer).
+ */
+function pauseOf(profile) {
+  const s = settingsOf(profile);
+  return s && !s.active ? { paused: true, pausedSince: s.pausedAt } : { paused: false, pausedSince: null };
+}
+
 /** The settings after a pause for `because` ("limit" or "stopped") at `now`. */
 function pausedFor(settings, because, now = Date.now()) {
   return { ...settings, active: false, pausedBecause: because, pausedAt: new Date(now).toISOString(),
@@ -532,6 +541,6 @@ function resetForTests({ perCallBytes } = {}) {
 module.exports = {
   MIN_HELPERS, MAX_HELPERS, DEFAULT_HELPERS, ALLOWANCE_PCT_MIN, ALLOWANCE_PCT_MAX, ALLOWANCE_PCT_DEFAULT, REDERIVE_SLACK,
   limitFromAllowance, rederiveLimits, ACTIVE_WINDOW_MS, STOP_REPEAT_MS, READ_CHUNK_BYTES, READ_PER_CALL_BYTES, PAUSED_BECAUSE, START, END,
-  createProblem, birthProfile, settingsOf, patchProblem, applyPatch, pausedSentence,
+  createProblem, birthProfile, settingsOf, pauseOf, patchProblem, applyPatch, pausedSentence,
   blockBody, tellLead, tokensOf, meter, cardField, offlineCardField, pausedFor, sweepRows, sweepOnce, startOfDay, resetForTests,
 };
