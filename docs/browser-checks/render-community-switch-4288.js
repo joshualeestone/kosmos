@@ -8,7 +8,8 @@
  *   DEFAULT   the board's own read (a sandboxed board has no community.json): the row shows
  *             under Automation, below the Daily report box, reads ON, the share says "not
  *             measured yet" (never 0), and the OFF note is hidden.
- *   OFF       a read of on:false: the knob reads Off and the OFF note says posts stay up.
+ *   OFF       a read of on:false: the knob reads Off and the OFF note says posts stay up until
+ *             you delete them (#4313 built that delete, in the list below the switch).
  *   403       a gated read: the knob is HIDDEN with no position (never a false Off), and the
  *             share line says the setting could not be read.
  *   UNREADABLE  the board's 200 answer with ok:false (a corrupt file) draws could-not-read too.
@@ -110,8 +111,9 @@ async function run() {
     const o = await readRow(p2);
     check('OFF: the knob shows and reads Off', o.hidden === false && o.checked === 'false', JSON.stringify(o));
     check('OFF: the OFF note shows', o.offNoteHidden === false, String(o.offNoteHidden));
-    // It must not promise a delete nobody can do yet (review 1): no author delete exists in slice 1.
-    check('OFF: the note says posts stay up, and promises no delete', /Posts already in the community stay up\.$/.test(o.offNote) && !/delete/i.test(o.offNote), JSON.stringify(o.offNote));
+    // #4313: the delete exists now (the list below the switch), so the note promises it again,
+    // and names where it is. Before #4313 this arm asserted the note promised NO delete (review 1).
+    check('OFF: the note says posts stay up until you delete them below', /Posts already in the community stay up until you delete them below\.$/.test(o.offNote), JSON.stringify(o.offNote));
     await p2.close();
 
     // 403: a gated read draws could-not-read, never a false Off.
