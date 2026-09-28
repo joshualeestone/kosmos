@@ -55,6 +55,17 @@ crash-looping today is still somebody's agent; the proof that a job is a leftove
 - The print format is noted as checked against real output (macOS 26, 2026-09-27); an unmatched format
   returns null, which falls back to the old refusal (fails closed).
 
+## Review 3
+
+- BLOCKER, fixed: after a SUCCESSFUL bootout, real `launchctl print` throws (run() is execFileSync), and the
+  verify caught that throw as "not gone", so the happy path refused. A throw now means gone (the loaded
+  check's own convention). The test runner now throws once booted out, as launchctl does; with the old
+  verify, the create tests red.
+- BLOCKER, fixed: `existsSync` says false on a permission error too; "gone" is ENOENT from stat and only
+  that. Anything else refuses. Pinned with a chmod 000 folder.
+- Our own plist path is realpath'd too, and a temp symlink to it is pinned as ours (deleting that check
+  reds).
+
 ## Weakest premise
 
 That a real agent's plist never lives in a temp folder. Kosmos writes real plists to

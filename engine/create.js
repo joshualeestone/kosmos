@@ -945,11 +945,18 @@ function leftoverJob(printed, ours) {
      naming a live plist elsewhere. A file that exists is also realpath'd, so a
      symlink in temp that points at a live plist outside it is judged by its target. */
   const resolved = path.resolve(loadedFrom);
-  if (resolved === path.resolve(ours)) return null;
-  if (!fs.existsSync(resolved)) return { path: loadedFrom, why: 'its startup file is gone' };
+  let oursReal = path.resolve(ours);
+  try { oursReal = fs.realpathSync.native(oursReal); } catch { /* ours may not exist yet */ }
+  if (resolved === path.resolve(ours) || resolved === oursReal) return null;
+  /* GONE means ENOENT, and only that: a permission error or a flaky mount also makes
+     existsSync say false, and "could not check" is not "deleted". Anything else refuses. */
+  try { fs.statSync(resolved); } catch (e) {
+    if (e && e.code === 'ENOENT') return { path: loadedFrom, why: 'its startup file is gone' };
+    return null;
+  }
   let real = resolved;
   try { real = fs.realpathSync.native(resolved); } catch { return null; }
-  if (real === path.resolve(ours)) return null;
+  if (real === oursReal || real === path.resolve(ours)) return null;
   if (tempRoots().some((root) => underRoot(real, root))) return { path: loadedFrom, why: 'its startup file is in a temporary folder' };
   return null;
 }
@@ -4372,11 +4379,14 @@ function createAgentInner(opts) {
     const leftover = leftoverJob(printed, plistPath(name));
     if (leftover) {
       let gone = false;
+      try { run('/bin/launchctl', ['bootout', `gui/${process.getuid()}/${serviceLabel(name)}`]); } catch { /* verify below either way */ }
+      /* Real `launchctl print` THROWS when the service is gone (run() is execFileSync),
+         so a throw here means the bootout worked: the same convention as the loaded check
+         above. A print that still describes the job means it did not. */
       try {
-        run('/bin/launchctl', ['bootout', `gui/${process.getuid()}/${serviceLabel(name)}`]);
         const again = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${serviceLabel(name)}`]);
         gone = !(again && again.ok !== false && String(again.stdout || '').trim());
-      } catch { gone = false; }
+      } catch { gone = true; }
       if (gone) {
         try { console.log(`create: removed a leftover startup job for ${name} (${leftover.why}; it was loaded from ${leftover.path})`); } catch { /* never mask */ }
         steps.push({ label: `removed a leftover startup entry for ${shown} that was blocking the name (${leftover.why}: ${leftover.path})`, ok: true });

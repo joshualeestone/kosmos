@@ -772,9 +772,12 @@ function leftoverRunner(printedPath, { bootoutWorks = true } = {}) {
   create.setRunner((file, args) => {
     calls.push([file, args]);
     if (args && args[0] === 'print') {
-      return loaded && printedPath !== undefined
+      /* Real `launchctl print` THROWS for a service that is not there (run() is
+         execFileSync), so once booted out this throws, as the real one does. */
+      if (!loaded) throw new Error('Could not find service in domain for user gui: 501');
+      return printedPath !== undefined
         ? { ok: true, stdout: `gui/501/x = {\n\tactive count = 1\n\tpath = ${printedPath}\n\tstate = spawn scheduled\n\truns = 8096\n\tlast exit code = 1\n}\n` }
-        : (loaded ? { ok: true, stdout: 'x = { ... }' } : { ok: false, stdout: '' });
+        : { ok: true, stdout: 'x = { ... }' };
     }
     if (args && args[0] === 'bootout' && bootoutWorks) loaded = false;
     return { ok: true, stdout: '' };
@@ -860,6 +863,24 @@ test('#4279: leftoverJob reads only the first-level path, and only temp or gone 
   assert.equal(create.underRoot('/var/foldersx/x.plist', '/var/folders'), false);
   assert.equal(create.underRoot('/tmp/x.plist', '/tmp'), true);
   assert.equal(create.underRoot('/tmp', '/tmp'), true);
+  // A symlink in temp whose target is OUR plist is ours, not a leftover. Our plist is itself in
+  // temp here (a launch root pointed there), so only the realpath own-path check can refuse it.
+  const oursDir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'k4279-ours-'));
+  const tmpLink = nodePath.join(os.tmpdir(), `k4279-link-${process.pid}.plist`);
+  try {
+    const realOurs = nodePath.join(oursDir, 'com.kosmos.agent.a.plist'); fs.writeFileSync(realOurs, '');
+    fs.symlinkSync(realOurs, tmpLink);
+    assert.equal(create.leftoverJob(`\tpath = ${tmpLink}\n`, realOurs), null, 'a temp symlink to our own plist was treated as a leftover');
+  } finally { fs.rmSync(tmpLink, { force: true }); fs.rmSync(oursDir, { recursive: true, force: true }); }
+  // A plist we cannot STAT (a permission error, not a deletion) is not "gone".
+  const locked = fs.mkdtempSync(nodePath.join(os.homedir(), '.kosmos-4279-locked-'));
+  try {
+    const inside = nodePath.join(locked, 'com.kosmos.agent.a.plist'); fs.writeFileSync(inside, '');
+    fs.chmodSync(locked, 0o000);
+    if (process.getuid && process.getuid() !== 0) {
+      assert.equal(create.leftoverJob(`\tpath = ${inside}\n`, ours), null, 'an unreadable plist was treated as gone');
+    }
+  } finally { fs.chmodSync(locked, 0o700); fs.rmSync(locked, { recursive: true, force: true }); }
   // TMPDIR is not trusted: a present plist in a folder TMPDIR merely POINTS at is not a leftover.
   const persistent = fs.mkdtempSync(nodePath.join(os.homedir(), '.kosmos-4279-'));
   const saved = process.env.TMPDIR;
