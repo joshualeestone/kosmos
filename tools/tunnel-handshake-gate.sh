@@ -210,11 +210,22 @@ echo $$ > "$LOCK/pid"; OWN_LOCK=1
 state_re="$(printf '%s' "$STATE" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
 stale="$(pgrep -f "kosmos-tunnel run .*--state-dir[= ]$state_re/?( |\$)" 2>/dev/null | tr '\n' ' ')"
 # A connector under ANOTHER gate's temp dir counts only if its state holds THIS identity (the same
-# address), so a gate for another identity, or a concurrent test's gate, does not hold this one.
-# One whose state cannot be read still counts: it could be ours.
-for p in $(pgrep -f "kosmos-tunnel run .*--state-dir[= ][^ ]*/tunnel-gate\\.[A-Za-z0-9]+/" 2>/dev/null); do
-  d="$(ps -o command= -p "$p" 2>/dev/null | sed -n 's/.*--state-dir[= ]\([^ ]*\).*/\1/p')"
-  a="$(tr -d ' \n' < "$d/address" 2>/dev/null)"
+# address), so a gate for another identity does not hold this one. One whose state cannot be read
+# still counts: it could be ours.
+# kosmos#4352, two refinements, both measured with concurrent runs of the test:
+#  - only gates under THIS gate's temp root (${TMPDIR:-/tmp}/tunnel-gate.*) are looked at. That is
+#    where a SIGKILLed earlier gate of this user leaves its copy, and it is what lets a test give
+#    each run its own TMPDIR, so one run's stand-in is never another run's "ours";
+#  - a connector that has already exited by the time its command line is read (pgrep then ps) is
+#    skipped: it holds nothing, and reading its missing command line as "unreadable, could be ours"
+#    turned a finished connector into a CANNOT TELL.
+tmproot="${TMPDIR:-/tmp}"; while [ "${tmproot%/}" != "$tmproot" ]; do tmproot="${tmproot%/}"; done
+tmproot_re="$(printf '%s' "$tmproot" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
+for p in $(pgrep -f "kosmos-tunnel run .*--state-dir[= ]$tmproot_re/+tunnel-gate\\.[A-Za-z0-9]+/" 2>/dev/null); do
+  cmd="$(ps -o command= -p "$p" 2>/dev/null)"
+  [ -n "$cmd" ] || continue
+  d="$(printf '%s' "$cmd" | sed -n 's/.*--state-dir[= ]\([^ ]*\).*/\1/p')"
+  a="$( { tr -d ' \n' < "$d/address"; } 2>/dev/null)"
   [ -z "$a" ] || [ "$a" = "$ADDRESS" ] && stale="$stale$p "
 done
 [ -n "$stale" ] && cannot "another connector with the gate's identity is still running (pid ${stale% }); stop it first"

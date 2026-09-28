@@ -17,7 +17,12 @@ W="$(mktemp -d "${TMPDIR:-/tmp}/tunnelgate-test.XXXXXX")"
 SRV=""
 # The server's stop is wrapped so bash's "Terminated" job report does not read as a failure.
 trap '{ [ -n "$SRV" ] && kill "$SRV" && wait "$SRV"; } 2>/dev/null; pkill -f "kosmos-gate-stub-$(basename "$W")" 2>/dev/null; rm -rf "$W"' EXIT
-HOST=gate-test.kosmos.test
+# kosmos#4352: the gate's address is UNIQUE PER RUN. The gate refuses (CANNOT TELL) while any
+# other connector with this address is running, which is right in production (it could take the
+# tunnel back). With one fixed address, two runs of this file at once (two agents' test suites on
+# one Mac) each saw the other's stub as "ours" and went red. Lowercase letters and digits only,
+# from this run's own temp dir, so it stays a valid hostname.
+HOST="gate-test-$(basename "$W" | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9').kosmos.test"
 
 # A throwaway CA and a leaf for HOST, for the visitor's HTTPS.
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=gate test CA" \
@@ -62,6 +67,9 @@ for _ in $(seq 1 40); do curl -s --max-time 1 --cacert "$W/ca.pem" --resolve "$H
 # An enrolled-looking state dir for HOST.
 mkidentity() { mkdir -p "$1"; for f in mac_id mac_key tls.crt tls.key coordinator_pubkey; do echo x > "$1/$f"; done; echo "$HOST" > "$1/address"; }
 mkidentity "$W/state"
+# kosmos#4352: every gate this file starts gets THIS run's own temp root, so its scan for an earlier
+# gate's connector (${TMPDIR}/tunnel-gate.*) never sees another run's stand-ins.
+GT="$W/tmp"; mkdir -p "$GT"
 
 # The stub connector. Its behaviour comes from the file named by $1's mode env: one mode per
 # LINE, one line consumed per invocation (the last line repeats), so a connector can fail its
@@ -105,7 +113,7 @@ run() {
   echo ok > "$W/mode"
   local ctl=(--control-tunnel "$W/control-tunnel"); [ "$kmodes" = - ] && ctl=()
   local out rc
-  out=$(STUB_TAG="$TAG" STUB_PAGE_FILE="$W/mode" bash "$GATE" \
+  out=$(TMPDIR="$GT" STUB_TAG="$TAG" STUB_PAGE_FILE="$W/mode" bash "$GATE" \
         --tunnel "$W/cand-tunnel" ${ctl[@]+"${ctl[@]}"} --state-dir "$W/state" \
         --coordinator "https://127.0.0.1:$PORT" --relay "127.0.0.1:$PORT" \
         --visit-resolve "$HOST:$PORT:127.0.0.1" --visitor-ca "$W/ca.pem" --timeout 6 "$@" 2>&1); rc=$?
@@ -171,7 +179,7 @@ tarball_case() {
   local out rc
   # The extra arguments go LAST so they override the defaults (the gate takes the last value of a
   # flag). They once went first, and two rows silently tested the defaults instead.
-  out=$(STUB_TAG="$TAG" STUB_PAGE_FILE="$W/mode" bash "$GATE" --tarball "$tb" --state-dir "$W/state" \
+  out=$(TMPDIR="$GT" STUB_TAG="$TAG" STUB_PAGE_FILE="$W/mode" bash "$GATE" --tarball "$tb" --state-dir "$W/state" \
         --coordinator "https://127.0.0.1:$PORT" --relay "127.0.0.1:$PORT" \
         --visit-resolve "$HOST:$PORT:127.0.0.1" --visitor-ca "$W/ca.pem" --timeout 6 "$@" 2>&1); rc=$?
   if [ "$rc" -eq "$want" ] && printf '%s' "$out" | grep -qF -- "$text"; then pass=$((pass + 1)); echo "  ok    $label"
@@ -193,8 +201,18 @@ tarball_case "--control-tarball with no connector -> CANNOT TELL, says why" 2 "g
 # hand on the enrolled state dir, then (control) another Mac's.
 standin() { bash -c "exec -a 'kosmos-tunnel run${2:- --state-dir }$1 --coordinator x' sleep 30" & STALE=$!; sleep 0.3; }
 unstand() { { kill "$STALE"; wait "$STALE"; } 2>/dev/null; }
-standin "/nowhere/tunnel-gate.Stale1/a1/state"
+standin "$GT/tunnel-gate.Stale1/a1/state"
 run "an earlier gate's connector still running -> CANNOT TELL"       2 "gate's identity is still running"   "up" "up"; unstand
+# kosmos#4352: the same stand-in under ANOTHER temp root (another run, another user) does not hold
+# this gate; the case above is its control.
+standin "$W/elsewhere/tunnel-gate.Stale2/a1/state"
+run "an earlier gate's connector under another temp root does not hold -> PASS" 0 "tunnel-gate: PASS" "up" "up"; unstand
+# kosmos#4352: a connector that has exited by the time the gate reads its command line holds
+# nothing. Played by a `ps` that prints nothing (pgrep still finds the stand-in); the first case
+# above, with the real ps, is its control.
+mkdir -p "$W/psbin"; printf '#!/bin/sh\nexit 1\n' > "$W/psbin/ps"; chmod +x "$W/psbin/ps"
+standin "$GT/tunnel-gate.Stale3/a1/state"
+PATH="$W/psbin:$PATH" run "a connector that exited before its command line was read -> PASS" 0 "tunnel-gate: PASS" "up" "up"; unstand
 standin "$W/state"
 run "a hand-started connector on the gate's state -> CANNOT TELL"    2 "gate's identity is still running"   "up" "up"; unstand
 standin "$W/state" " --state-dir="
@@ -203,8 +221,8 @@ standin "$W/state" " --coordinator x --state-dir "
 run "the same, with --state-dir after another flag -> CANNOT TELL"  2 "gate's identity is still running"   "up" "up"; unstand
 # Another gate's connector for ANOTHER identity (its copied state has another address) does not hold
 # this one; the Stale1 stand-in above has no readable state, so it counts (it could be ours).
-mkdir -p "$W/tunnel-gate.Other1/a1/state"; echo other.kosmos.test > "$W/tunnel-gate.Other1/a1/state/address"
-standin "$W/tunnel-gate.Other1/a1/state"
+mkdir -p "$GT/tunnel-gate.Other1/a1/state"; echo other.kosmos.test > "$GT/tunnel-gate.Other1/a1/state/address"
+standin "$GT/tunnel-gate.Other1/a1/state"
 run "another identity's gate connector does not hold this one"      0 "tunnel-gate: PASS"                  "up" "up"; unstand
 standin "$W/state-other"
 run "control: another Mac's connector does not hold the gate"        0 "tunnel-gate: PASS"                  "up" "up"; unstand
@@ -266,5 +284,5 @@ if [ "$left" = 0 ]; then pass=$((pass + 1)); echo "  ok    no connector left run
 else fail=$((fail + 1)); echo "  FAIL  $left stub connector(s) left running"; pkill -f "kosmos-gate-stub-$TAG"; fi
 
 echo "test-tunnel-handshake-gate: $pass passed, $fail failed"
-# 53 = every row above; equal to the count so a dropped row cannot pass.
-[ "$fail" -eq 0 ] && [ "$pass" -eq 53 ]
+# 55 = every row above; equal to the count so a dropped row cannot pass.
+[ "$fail" -eq 0 ] && [ "$pass" -eq 55 ]
