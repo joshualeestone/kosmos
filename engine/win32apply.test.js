@@ -51,11 +51,12 @@ const LONG = { timeout: 600000 };
    on real async work. Here that is awaiting a real process (bootShimAsync), or exclusiveHoldSkipReason's
    real 50 ms polling in the BUG 1 tests, which are already on WINDOWS_ONLY (120 s). A test that never
    yields to real async work is not cut off by its limit, however long it runs.
-   One slowdown factor for the rule and the budget: 4.5, the largest one-off slowdown seen on
-   windows-latest. A test that awaits a real process and whose worst time there times 4.5 passes 30 s
-   is HELD: W4 and W5 (measurements in .claude/plans/w4-4301.md). HELD covers W4's worst time (28.0 s)
-   times 4.5 = 126 s, rounded up to 150 s: a faster hang-guard than LONG. */
-const HELD = { timeout: 150000 };
+   On windows-latest the slow runs are STALLS added to a test, not a slowdown that scales: a 1.8 s test
+   once took 36 s, while W4 (15 s at best) never passed 1.6 times that. So every test here that awaits
+   a real process is HELD, since a stall of about 34 s can take any of them past 30 s. HELD covers the
+   worst such test plus that stall (W4, 28.0 s + 34 s, about 62 s) about twice over, at 120 s, which is
+   also the file's own budget for its held-handle tests. Measurements: .claude/plans/w4-4301.md. */
+const HELD = { timeout: 120000 };
 /* A test that spawns the REAL logon shim or a real board (bootShim/bootShimAsync, and the crash- and
    boot-recovery tests that boot the shim after a crashAt) can only run on win32: the shim resolves
    Kosmos\\board paths and a win32 board. These skip off-win32 so the macOS CI lane does not red on a
@@ -3003,7 +3004,7 @@ test('ROUND 8 decision 2 (W5): the resume helper whose rollback meets a journal 
   assertRolledBack(c, before, null, null, 'after the shim the resume helper started');
 });
 
-test('ROUND 8 decision 4 and ROUND 9 decision 3 (P4): an error the helper cannot handle (ENOSPC on a journal write) is thrown as before, reaches update-apply.log, and after the lock is released the board it ended is started, whose real shim puts the old build back', WIN32_ONLY_T, async () => {
+test('ROUND 8 decision 4 and ROUND 9 decision 3 (P4): an error the helper cannot handle (ENOSPC on a journal write) is thrown as before, reaches update-apply.log, and after the lock is released the board it ended is started, whose real shim puts the old build back', WIN32_ONLY_HELD, async () => {
   const c = freshInstall();
   stage(c);
   const before = installState(c);
@@ -3083,7 +3084,7 @@ test('ROUND 9 decision 1 (P1b): a rollback held because its lock cannot be read,
   assert.deepEqual(installState(c), before);
 });
 
-test('ROUND 9 decision 2 (P2): a rollback that waits on an unreachable working folder RETURNS held; after the lock is released the board it ended is started, and its real shim puts the old build back', WIN32_ONLY_T, async () => {
+test('ROUND 9 decision 2 (P2): a rollback that waits on an unreachable working folder RETURNS held; after the lock is released the board it ended is started, and its real shim puts the old build back', WIN32_ONLY_HELD, async () => {
   const c = freshInstall();
   stage(c);
   const before = installState(c);
@@ -3117,7 +3118,7 @@ test('ROUND 9 decision 2 (P2): a rollback that waits on an unreachable working f
   assertRolledBack(c, before, null, null, 'after the shim');
 });
 
-test('ROUND 9 decision 3 (P3): a helper rollback that ends stuck starts the board it ended after the lock is released, and its real shim puts the old build back', WIN32_ONLY_T, async () => {
+test('ROUND 9 decision 3 (P3): a helper rollback that ends stuck starts the board it ended after the lock is released, and its real shim puts the old build back', WIN32_ONLY_HELD, async () => {
   const c = freshInstall();
   stage(c);
   const before = installState(c);
@@ -3150,7 +3151,7 @@ test('ROUND 9 decision 3 (P3): a helper rollback that ends stuck starts the boar
 
 /* ─── review round 10 ─────────────────────────────────────────────────────────────────────── */
 
-test('ROUND 10 decision 1 (P8): an /End that stops the board but reports a failure still counts as ended: a run that then ends held starts the board once, after the lock is released, and its real shim puts the old build back', WIN32_ONLY_T, async () => {
+test('ROUND 10 decision 1 (P8): an /End that stops the board but reports a failure still counts as ended: a run that then ends held starts the board once, after the lock is released, and its real shim puts the old build back', WIN32_ONLY_HELD, async () => {
   const c = freshInstall();
   stage(c);
   const before = installState(c);

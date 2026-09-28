@@ -192,7 +192,8 @@ const DETAIL_TESTS = 10;
 const CRASH_TAIL_LINES = 60;
 // A stack frame: "at" then a location in parentheses or at the end, including the unlocated
 // (<anonymous>), (native) and (index N) shapes node prints for built-ins and Promise.all.
-const STACK_FRAME = /^\s+at .*(\(.*:\d+:\d+\)|:\d+:\d+|\((?:native|<anonymous>|index \d+)\)|\(node:[^)]*\))$/;
+// The last frame before an error's properties ends in " {", so that is allowed too.
+const STACK_FRAME = /^\s+at .*(\(.*:\d+:\d+\)|:\d+:\d+|\((?:native|<anonymous>|index \d+)\)|\(node:[^)]*\))( \{)?$/;
 function failureDetail(output, expected = []) {
   const lines = String(output).replace(/\r/g, '').split('\n');
   const at = lines.findIndex((l) => /^\s*✖ failing tests:\s*$/.test(l));
@@ -258,7 +259,10 @@ function main() {
       // Every failing name (a KNOWN_RED entry is copied from these), then why (#4301).
       for (const n of failing) console.log('    ✖ ' + n);
       const expected = [...((KNOWN_RED[file] && KNOWN_RED[file].tests) || []), ...((FLAKY[file] && FLAKY[file].tests) || [])];
-      for (const l of failureDetail(output, expected)) console.log('    ' + l);
+      // node's reporter writes the failing-tests section to stdout; reading stdout alone keeps a file's
+      // own stderr out of the last entry. A file with no section there (a crash) shows both streams' tail.
+      const hasSection = /^\s*✖ failing tests:\s*$/m.test(String(run.stdout || '').replace(/\r/g, ''));
+      for (const l of failureDetail(hasSection ? run.stdout : output, expected)) console.log('    ' + l);
     }
     results.push({ file, ok, failing, killed, tests, skipped: skipped || 0,
       error: !killed && run.error ? (run.error.code || run.error.message) : undefined });

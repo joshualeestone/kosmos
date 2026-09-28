@@ -84,6 +84,7 @@ test('#4301: failure detail is node\'s failing-tests section, so a test timeout 
     '✖ slow one (30012ms)',
     '  \'test timed out after 30000ms\'',
     '    at async Test.run (node:internal/test_runner/test:1402:25)',
+    '    at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {',
     '    at new Promise (<anonymous>)',
     '    at async Promise.all (index 0)',
     'test at engine\\win32apply.test.js:2990:1',
