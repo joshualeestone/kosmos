@@ -48,6 +48,10 @@ function boot(box, extraEnv) {
       AGENT_WORKFORCE_TMUX_BIN: path.join(REPO, 'test-support', 'fake-tmux.sh'),
       AGENT_WORKFORCE_FAKE_PANES: path.join(box.sb, 'panes.txt'),
       AGENT_WORKFORCE_DRY_RUN: '1',
+      /* #4253: this env is built by hand, so NODE_TEST_CONTEXT does not reach the
+         board and its install ping would go to installkosmos.com on every run. */
+      AGENT_WORKFORCE_CREATED_URL: 'http://127.0.0.1:9/api/created',
+      AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:9/api/feedback',
       ...extraEnv,
     },
     stdio: ['ignore', 'pipe', 'pipe'],

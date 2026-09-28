@@ -165,7 +165,12 @@ test('maybeSend POSTs the contract payload as JSON once opted in', () => {
   feedbacksend.setOn(true);
   let seen = null;
   feedbacksend.setSender((url, init) => { seen = { url, init }; return Promise.resolve(); });
-  feedbacksend.maybeSend('2026-09-04');
+  // #4253: run-tests.sh points AGENT_WORKFORCE_FEEDBACK_URL at a dead local port, so
+  // pinning the DEFAULT needs the override cleared for this one send.
+  const prevUrl = process.env.AGENT_WORKFORCE_FEEDBACK_URL;
+  delete process.env.AGENT_WORKFORCE_FEEDBACK_URL;
+  try { feedbacksend.maybeSend('2026-09-04'); }
+  finally { if (prevUrl !== undefined) process.env.AGENT_WORKFORCE_FEEDBACK_URL = prevUrl; }
   assert.equal(seen.url, feedbacksend.DEFAULT_ENDPOINT);
   assert.equal(seen.init.method, 'POST');
   assert.match(seen.init.headers['content-type'], /application\/json/);

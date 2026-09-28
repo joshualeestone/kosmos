@@ -68,6 +68,14 @@ unset CODEX_HOME AGENT_WORKFORCE_CODEX_HOME
 # migration to relocate a legacy seed.
 export KOSMOS_NO_LEGACY_MIGRATION=1
 
+# #4253: no board a test boots may phone home. A sandboxed board mints a fresh install id,
+# so each boot sent installkosmos.com a new install (count 0, darwin) and inflated the
+# public install count by thousands a day. The beacon itself is untouched (Josh's 09-14
+# ruling: the real install ping is never removed or made opt-out-able); only this
+# harness points it, and the daily report, at a dead local port.
+export AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created
+export AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback
+
 # --- what the machine was doing, taken before the first test ---------------
 seen_before() {
   local lines=()
