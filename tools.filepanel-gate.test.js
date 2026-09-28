@@ -74,6 +74,10 @@ const GOOD = [
   'press:real-presenter\tpanel-on-screen:yes',
   'press:after-a-cancel\treaches-the-app-again:yes',
   'press:with-a-sheet-up\tno-abort-and-panel-presented:yes',
+  'press:dropped-callback\tno-abort:yes asked:yes',
+  'press:after-a-dropped-callback\treaches-the-app-again:yes',
+  'press:after-a-hung-picker\treaches-the-app-again:yes',
+  'rule:picker-still-up\tshown+here:up gone+here:gone shown+away:up gone+away:up',
 ].join('\n');
 
 test('the gate passes the output a working file picker produces', () => {
@@ -179,4 +183,26 @@ test('spaces where the tabs should be do not pass', () => {
      gate must notice rather than quietly matching a substring. */
   const v = verdict(GOOD.replace(/\t/g, ' '), 0);
   assert.ok(!v.ok, 'the gate matched an arm whose separator had changed');
+});
+
+test('#4412: a run that dies at the dropped-callback arm (the abort itself) fails the gate', () => {
+  const upToSheet = GOOD.split('\n').slice(0, 7).join('\n');   // through with-a-sheet-up, then SIGABRT
+  const v = verdict(upToSheet, 134);
+  assert.equal(v.ok, false, 'a build that aborts when a picker drops its callback passed the gate');
+});
+
+/* The #4412 test above ends at 134, and a non-zero exit fails the gate whether or not its required-line
+   list knows the new lines, so that test cannot show the gate requires them. At exit 0 only that list can
+   refuse, so each new line is dropped in turn and the gate must name it. */
+for (const want of ['press:dropped-callback', 'press:after-a-dropped-callback', 'press:after-a-hung-picker', 'rule:picker-still-up']) {
+  test(`#4412: a clean exit without ${want} fails the gate and names it`, () => {
+    const v = verdict(GOOD.split('\n').filter((l) => !l.startsWith(want + '\t')).join('\n'), 0);
+    assert.equal(v.ok, false, `the gate passed a run that never printed ${want}`);
+    assert.match(v.text, new RegExp(want.replace(/[+]/g, '\\+')));
+  });
+}
+
+test('#4412: a picker rule that answers under a person who is away fails the gate', () => {
+  const v = verdict(GOOD.replace('shown+away:up gone+away:up', 'shown+away:up gone+away:gone'), 0);
+  assert.equal(v.ok, false, 'the gate passed a rule that answers a picker while Kosmos is in the background');
 });
