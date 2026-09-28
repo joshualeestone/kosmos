@@ -80,6 +80,7 @@ case "$mode" in
   ticket)   echo "2026-09-28T01:21:47Z  WARN kosmos_tunnel_client: session ended: Kosmos+ answered 502 for /v1/mac/relay-ticket"; hold ;;
   auth)     echo "2026-09-28T01:21:47Z  WARN kosmos_tunnel_client: session ended: relay TLS handshake: invalid peer certificate: UnknownIssuer"; hold ;;
   renew)    echo renewed-crt > "$state/tls.crt"; echo renewed-key > "$state/tls.key"; up ok; hold ;;
+  renew2)   echo ctl-renewed-crt > "$state/tls.crt"; echo ctl-renewed-key > "$state/tls.key"; up ok; hold ;;
   renewbad) echo bad-crt > "$state/tls.crt"; echo bad-key > "$state/tls.key"; echo "session ended: relay TLS handshake: bad certificate"; hold ;;
   exits)    echo "error: something broke"; exit 1 ;;
   silent)   hold ;;
@@ -224,6 +225,22 @@ if [ "$(cat "$W/state/tls.crt")" = renewed-crt ] && [ "$(cat "$W/state/tls.key")
   pass=$((pass + 1)); echo "  ok    the renewed certificate and key are in the enrolled state dir"
 else fail=$((fail + 1)); echo "  FAIL  the renewal was thrown away: tls.crt=$(cat "$W/state/tls.crt")"; fi
 
+# A real FAIL whose LAST control attempt renewed (and served with) a new pair keeps that pair.
+run "a renewal by the second control, on a FAIL -> kept"           1 "kept the connector's renewed certificate" "auth"  "up renew2"
+if [ "$(cat "$W/state/tls.crt")" = ctl-renewed-crt ]; then pass=$((pass + 1)); echo "  ok    the second control's renewal is in the enrolled state dir"
+else fail=$((fail + 1)); echo "  FAIL  the second control's renewal was dropped: tls.crt=$(cat "$W/state/tls.crt")"; fi
+
+# The takeover lock: a fresh one holds; one left by a gate killed mid-takeover (old) is recovered.
+# A dead pid from a child that exits by itself. NOT a killed `sleep &`: a child killed before its
+# exec still holds this script's EXIT trap and would run it, deleting $W (it did, once).
+sh -c 'exit 0' & DEAD=$!; wait "$DEAD"
+mkdir "$W/state.gate-lock"; echo "$DEAD" > "$W/state.gate-lock/pid"; mkdir "$W/state.gate-lock.takeover"
+run "a fresh takeover lock -> CANNOT TELL"                          2 "taking over this identity's lock"   "up" "up"
+touch -t 202001010000 "$W/state.gate-lock.takeover"
+run "a takeover lock left by a killed gate -> recovered, PASS"      0 "tunnel-gate: PASS"                  "up" "up"
+if [ -e "$W/state.gate-lock.takeover" ] || [ -e "$W/state.gate-lock" ]; then fail=$((fail + 1)); echo "  FAIL  a lock was left behind"
+else pass=$((pass + 1)); echo "  ok    no lock left behind after a takeover"; fi
+
 # No stub connector outlives its run (the gate's bounded stop). The stubs are named by this run's
 # tag, so this finds a leaked one (it went red with the gate's stop emptied).
 left=$(pgrep -f "kosmos-gate-stub-$TAG" | wc -l | tr -d ' ')
@@ -231,5 +248,5 @@ if [ "$left" = 0 ]; then pass=$((pass + 1)); echo "  ok    no connector left run
 else fail=$((fail + 1)); echo "  FAIL  $left stub connector(s) left running"; pkill -f "kosmos-gate-stub-$TAG"; fi
 
 echo "test-tunnel-handshake-gate: $pass passed, $fail failed"
-# 45 = every row above; equal to the count so a dropped row cannot pass.
-[ "$fail" -eq 0 ] && [ "$pass" -eq 45 ]
+# 50 = every row above; equal to the count so a dropped row cannot pass.
+[ "$fail" -eq 0 ] && [ "$pass" -eq 50 ]

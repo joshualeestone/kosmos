@@ -91,7 +91,7 @@ fail() { say "FAIL at $1: $2"; exit 1; }
 case "$TIMEOUT" in *[!0-9]*|'') cannot "--timeout is not a number of seconds: $TIMEOUT" ;; esac
 STATE="${STATE%/}"
 
-WORK=""; PID=""; OWN_LOCK=0; LOCK="$STATE.gate-lock"
+WORK=""; PID=""; OWN_LOCK=0; OWN_TAKEOVER=0; LOCK="$STATE.gate-lock"
 stop_connector() {
   [ -n "$PID" ] || return 0
   # In one redirected block: bash reports a signalled background job ("Terminated: 15")
@@ -107,6 +107,7 @@ stop_connector() {
 cleanup() {
   stop_connector
   [ -n "$WORK" ] && rm -rf "$WORK"
+  [ "$OWN_TAKEOVER" = 1 ] && rmdir "$LOCK.takeover" 2>/dev/null
   [ "$OWN_LOCK" = 1 ] && rm -rf "$LOCK"
 }
 trap cleanup EXIT
@@ -164,16 +165,26 @@ fi
 # it has no pid yet (its owner is between mkdir and writing it) unless it is over a minute old.
 # Taking over a dead owner's lock is itself serialised by a second mkdir, so two gates that both
 # see the same dead owner cannot both take it.
-lock_age() { echo $(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || date +%s) )); }
+lock_age() { echo $(( $(date +%s) - $(stat -f %m "$1" 2>/dev/null || date +%s) )); }
 if ! mkdir "$LOCK" 2>/dev/null; then
   holder="$(cat "$LOCK/pid" 2>/dev/null)"
   if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
     cannot "another gate run holds this identity (pid $holder, lock $LOCK)"
   fi
-  if [ -z "$holder" ] && [ "$(lock_age)" -lt 60 ]; then
+  if [ -z "$holder" ] && [ "$(lock_age "$LOCK")" -lt 60 ]; then
     cannot "another gate run is taking this identity's lock right now ($LOCK)"
   fi
-  mkdir "$LOCK.takeover" 2>/dev/null || cannot "another gate run is taking over this identity's lock ($LOCK)"
+  # The takeover lock recovers the same way: one left by a gate killed mid-takeover (over a minute
+  # old; a takeover takes milliseconds) is removed once, and the takeover is tried again.
+  if ! mkdir "$LOCK.takeover" 2>/dev/null; then
+    if [ "$(lock_age "$LOCK.takeover")" -ge 60 ]; then
+      rmdir "$LOCK.takeover" 2>/dev/null
+      mkdir "$LOCK.takeover" 2>/dev/null || cannot "another gate run is taking over this identity's lock ($LOCK)"
+    else
+      cannot "another gate run is taking over this identity's lock ($LOCK)"
+    fi
+  fi
+  OWN_TAKEOVER=1
   # Re-read under the takeover lock: take it only if it still names the same dead owner.
   if [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$holder" ]; then
     rm -rf "$LOCK"; mkdir "$LOCK" 2>/dev/null
@@ -181,7 +192,7 @@ if ! mkdir "$LOCK" 2>/dev/null; then
   else
     took=1
   fi
-  rmdir "$LOCK.takeover" 2>/dev/null
+  rmdir "$LOCK.takeover" 2>/dev/null; OWN_TAKEOVER=0
   [ "$took" = 0 ] || cannot "could not take the lock $LOCK"
 fi
 echo $$ > "$LOCK/pid"; OWN_LOCK=1
@@ -220,7 +231,9 @@ attempt() {
   local args=(run --state-dir "$st" --coordinator "$COORD" --relay "$RELAY" --local 127.0.0.1:9)
   [ -n "$RELAY_CA" ] && args+=(--tunnel-ca "$RELAY_CA")
   say "attempt $N ($2): connector $(shasum -a 256 "$1" | cut -c1-12) -> coordinator $COORD, relay $RELAY, as $ADDRESS"
-  "$1" "${args[@]}" > "$log" 2>&1 &
+  # The child drops the EXIT trap before it execs: a TERM that lands before the exec would
+  # otherwise run cleanup() IN THE CHILD, removing the work dir and the lock under the gate.
+  ( trap - EXIT; exec "$1" "${args[@]}" ) > "$log" 2>&1 &
   PID=$!
   local deadline=$(( $(date +%s) + TIMEOUT )) plain ended
   while :; do
@@ -300,4 +313,7 @@ if ! attempt "$CTUNNEL" "control again"; then
   show_log
   cannot "the candidate failed twice, but the served build's connector then failed too (at $STEP: $WHY): the environment changed during the run"
 fi
+# The control that just passed may have renewed the certificate, and its visit proved the new pair
+# serves: keep it, or a long run of real FAILs could let the enrolled certificate expire.
+keep_renewed_cert
 fail "$CAND_STEP" "$CAND_WHY (it failed twice, and the served build's connector passed before and after)"
