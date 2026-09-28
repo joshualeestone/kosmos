@@ -53,6 +53,10 @@ const REPOST_S = 24 * 3600;
    or report a delivery it could not confirm), and hourly retries would repeat it into a busy pane.
    A change in what there is to say is still sent at once. */
 const RETRY_S = 3 * 3600;
+/* A job that stopped running looks exactly like a clear gap (review 7): the pane and the card go
+   quiet either way. So while it stays clear the CARD (never the pane) gets one "still watching"
+   line a week, and every run records lastRunAt in the state file for anyone who looks. */
+const WATCHING_S = 7 * 24 * 3600;
 const env = process.env;
 
 /* The verdict, pure. `main` is main against staging: { ahead, oldestAt: committer time (s) of the
@@ -76,7 +80,9 @@ function verdict({ main, staging, now, t = THRESHOLDS }) {
 function decidePost(v, last, now) {
   const key = v.unknown ? 'unknown' : v.alarm ? 'alarm:' + v.reasons.join(',') : 'clear';
   const due = !last || now - (last.at || 0) >= REPOST_S;
-  if (key === 'clear') return last && last.key !== 'clear' ? { post: 'cleared', key } : { post: null, key };
+  // An all-clear only follows something this channel actually said (a first post that failed
+  // leaves no key: there is nothing to clear).
+  if (key === 'clear') return last && last.key && last.key !== 'clear' ? { post: 'cleared', key } : { post: null, key };
   if (!last || last.key !== key || due) return { post: v.unknown ? 'unknown' : 'alarm', key };
   return { post: null, key };
 }
@@ -84,7 +90,9 @@ function decidePost(v, last, now) {
 function message(kind, v) {
   if (kind === 'unknown') return 'gap alarm (kosmos#1050): could not tell (' + v.why + '). This is not a pass: the gap is unmeasured.';
   const line = 'main is ' + v.main.ahead + ' commits past staging ' + v.stagingVersion + ' (oldest waiting ' + v.main.hours + ' h); '
-    + 'staging ' + v.stagingVersion + ' is ' + v.staging.ahead + ' commits past prod ' + v.prodVersion + ' (cut ' + v.staging.hours + ' h ago).';
+    + 'staging ' + v.stagingVersion + ' is ' + v.staging.ahead + ' commits past prod ' + v.prodVersion
+    + (v.staging.ahead > 0 ? ' (cut ' + v.staging.hours + ' h ago).' : '.');
+  if (kind === 'watching') return 'gap alarm (kosmos#1050): still watching, and under the limits. ' + line;
   if (kind === 'cleared') return 'gap alarm (kosmos#1050): ' + (v.after === 'unknown' ? 'measurable again, and under the limits. ' : 'back under the limits. ') + line;
   return 'gap alarm (kosmos#1050): ' + v.reasons.join(', ') + '. ' + line
     + ' Limits: main ' + THRESHOLDS.mainCommits + ' commits or ' + THRESHOLDS.mainHours + ' h past staging; staging '
@@ -113,12 +121,17 @@ async function readPointer(base, arch, file) {
 const GIT_TIMEOUT_MS = Number(env.GAP_ALARM_GIT_TIMEOUT_MS) || 60000;
 function git(repo, args) {
   try {
-    return execFileSync('git', ['-C', repo, ...args], {
-      encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: GIT_TIMEOUT_MS,
+    // gc.auto=0: the hourly fetch must never start a garbage collection in the shared checkout
+    // (a timeout-killed fetch can leave a detached gc running).
+    return execFileSync('git', ['-c', 'gc.auto=0', '-C', repo, ...args], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: GIT_TIMEOUT_MS,
       env: Object.assign({}, env, { GIT_TERMINAL_PROMPT: '0' }),
     }).trim();
   } catch (err) {
     if (err && err.code === 'ETIMEDOUT') throw new Error('git ' + args[0] + ' did not finish in ' + Math.round(GIT_TIMEOUT_MS / 1000) + 's');
+    // git's own first stderr line says why (auth, a locked keychain, the network), not the command.
+    const why = err && err.stderr ? String(err.stderr).trim().split('\n')[0] : '';
+    if (why) throw new Error('git ' + args[0] + ': ' + why);
     throw err;
   }
 }
@@ -305,7 +318,7 @@ async function main(argv) {
   if (argv.includes('--check')) { process.stdout.write(JSON.stringify(v) + '\n'); return code; }
   const state = readState();
   const next = {};
-  let changed = false;   // written only when a channel records a post or a new resting key
+  let changed = true;    // every run records lastRunAt (review 7: a stopped job must be visible)
   const due = {};
   for (const ch of CHANNELS) {
     const last = lastFor(state, ch);
@@ -314,6 +327,11 @@ async function main(argv) {
     due[ch] = d;
     // Nothing to say, but a new resting key (clear after clear, say) is recorded without a post.
     if (!d.post && (!last || last.key !== d.key)) { next[ch] = { key: d.key, at: v.now }; changed = true; }
+  }
+  // Proof of life on the card: clear, and the card last said something a week or more ago.
+  const cardLast = next.card;
+  if (!due.card.post && due.card.key === 'clear' && cardLast && cardLast.key === 'clear' && v.now - (cardLast.at || 0) >= WATCHING_S) {
+    due.card = { post: 'watching', key: 'clear' };
   }
   /* One text for both channels when they agree on what to say (the usual case); otherwise each its
      own, since what a channel says depends on what IT last said (an all-clear after its own unknown). */
@@ -344,7 +362,7 @@ async function main(argv) {
     const sentTo = CHANNELS.filter((ch) => want[ch] && went[ch]).map((ch) => (unsure[ch] ? ch + ' (unconfirmed)' : ch));
     process.stdout.write(new Date(v.now * 1000).toISOString() + ' ' + (sentTo.length ? 'posted to ' + sentTo.join(' and ') : 'posted NOWHERE') + ': ' + text + '\n');
   }
-  if (changed) writeState({ pane: next.pane, card: next.card });
+  if (changed) writeState({ pane: next.pane, card: next.card, lastRunAt: v.now });
   return code;
 }
 

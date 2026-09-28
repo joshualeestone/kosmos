@@ -236,7 +236,7 @@ test('a state file from before per-channel clocks is read as both channels: no r
   run([], Object.assign({}, env, { GAP_ALARM_NOW: String(NOW + 24 * H) }));
   assert.match(s.msg.read(), /staging-hours/); assert.match(s.gh.read(), /staging-hours/);
   const st = JSON.parse(fs.readFileSync(s.state, 'utf8'));
-  assert.deepEqual(Object.keys(st).sort(), ['card', 'pane']);
+  assert.deepEqual(Object.keys(st).sort(), ['card', 'lastRunAt', 'pane']);
 });
 
 test('a state that cannot be recorded is said, is not fatal, and leaves no temp file behind', () => {
@@ -255,11 +255,36 @@ test('a state that cannot be recorded is said, is not fatal, and leaves no temp 
   assert.match(r.out, /posted to pane \(unconfirmed\) and card: /, 'the log line hides that the pane post is unconfirmed');
 });
 
+test('review 7: a clear gap proves life on the card once a week (never the pane); a run records lastRunAt; no cut time is claimed with nothing in staging', () => {
+  const { dir, shas } = repoWith([['prod', NOW - 100 * H]]);
+  const s = stubs();
+  // staging == prod, nothing waiting on main: clear.
+  const env = { KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: s.state, GAP_ALARM_MSG_CMD: s.msg.bin, GAP_ALARM_GH_CMD: s.gh.bin,
+    GAP_ALARM_POINTERS: ptrs(shas.prod, shas.prod, NOW - 100 * H) };
+  assert.equal(run([], env).code, 0);
+  assert.equal(s.msg.read() + s.gh.read(), '', 'a first clear run posted');
+  assert.equal(JSON.parse(fs.readFileSync(s.state, 'utf8')).lastRunAt, NOW);
+  run([], Object.assign({}, env, { GAP_ALARM_NOW: String(NOW + 6 * 24 * H) }));
+  assert.equal(s.gh.read(), '', 'proof of life came before a week');
+  run([], Object.assign({}, env, { GAP_ALARM_NOW: String(NOW + 7 * 24 * H) }));
+  assert.match(s.gh.read(), /still watching, and under the limits\. main is 0 commits past staging 0\.7\.05 \(oldest waiting 0 h\); staging 0\.7\.05 is 0 commits past prod 0\.6\.99\.\n/,
+    'no weekly proof of life on the card, or it claimed a cut time with nothing in staging');
+  assert.equal(s.msg.read(), '', 'proof of life went to the pane');
+  const after = s.gh.read();
+  run([], Object.assign({}, env, { GAP_ALARM_NOW: String(NOW + 7 * 24 * H + H) }));
+  assert.equal(s.gh.read(), after, 'proof of life repeated within the week');
+});
+
+test('review 7: an all-clear never follows an alarm this channel failed to announce', () => {
+  assert.deepEqual(alarm.decidePost({ alarm: false, reasons: [] }, { failedKey: 'alarm:main-hours', failedAt: NOW - H }, NOW), { post: null, key: 'clear' });
+  assert.deepEqual(alarm.decidePost({ alarm: false, reasons: [] }, { key: 'alarm:main-hours', at: NOW - H }, NOW), { post: 'cleared', key: 'clear' }, 'CONTROL');
+});
+
 test('a fetch that hangs is could-not-tell with the reason, not a run that never ends', () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 50 * H]]);
   // A git on PATH that hangs on fetch and is the real git for everything else.
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-gapalarm-hang-'));
-  fs.writeFileSync(path.join(bin, 'git'), '#!/bin/sh\n[ "$3" = fetch ] && exec sleep 30\nexec "' + REAL_GIT + '" "$@"\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, 'git'), '#!/bin/sh\n# git -c gc.auto=0 -C <repo> fetch ...: the subcommand is the 5th argument\n[ "$5" = fetch ] && exec sleep 30\nexec "' + REAL_GIT + '" "$@"\n', { mode: 0o755 });
   const started = Date.now();
   const r = run(['--check'], {
     KOSMOS_REPO_DIR: dir, GAP_ALARM_NO_FETCH: '', GAP_ALARM_GIT_TIMEOUT_MS: '1500',
@@ -351,7 +376,11 @@ test('under the test runner with no seams, the real claude-msg and gh are never 
   const r = run([], envFor({ NODE_TEST_CONTEXT: 'child-v8' }));
   assert.equal(r.code, 1);
   assert.equal(fs.existsSync(called), false, 'the real channels were called under the test runner: ' + (fs.existsSync(called) ? fs.readFileSync(called, 'utf8') : ''));
-  assert.equal(fs.existsSync(state), false, 'the clock advanced with nothing posted');
+  // Every run records lastRunAt (review 7), but with nothing posted no channel has a clock.
+  const st = JSON.parse(fs.readFileSync(state, 'utf8'));
+  assert.equal(st.pane, null, 'the pane clock advanced with nothing posted');
+  assert.equal(st.card, null, 'the card clock advanced with nothing posted');
+  assert.equal(st.lastRunAt, NOW);
   // Control: the same run OUTSIDE the test runner does reach the default channels.
   const outside = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'NODE_TEST_CONTEXT'));
   const r2 = spawnSync(process.execPath, [SCRIPT], { encoding: 'utf8', env: Object.assign(outside, { GAP_ALARM_NO_FETCH: '1', GAP_ALARM_NOW: String(NOW) }, envFor({})) });
