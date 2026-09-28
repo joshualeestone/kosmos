@@ -30,8 +30,10 @@
   - Measured balance at 2 shards: 464 s and 557 s of shell time (a greedy split would be 511/511,
     but it needs the timings kept up to date).
 - tools/run-tests.sh: KOSMOS_TEST_PART = all (the default, what `yarn test` runs, unchanged), node or
-  shell; KOSMOS_SHELL_SHARD = i/n runs one shard. An unknown part, a shard that is not i/n, or a
-  shard outside a shell-only run exits 2 before running anything.
+  shell; KOSMOS_SHELL_SHARD = i/n runs one shard. An unknown part, a shard that is not i/n, a shard
+  outside a shell-only run, or node --test arguments to a shell-only run exits 2 at the top of the
+  file, before the machine claim, the temp root or any test. The test RUNS each refusal, with stub
+  node and yarn on the PATH so a missing refusal fails at once instead of running the suite.
   Every part keeps the coverage, launchd, temp-root and leak guards.
 - .github/workflows/test.yml:
   - a `suite` job over a matrix (node; shell 1/2; shell 2/2), fail-fast off, each with

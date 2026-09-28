@@ -118,9 +118,37 @@ test('the 70% warning reads the same limit as the timeout, and fires at 70%', NE
   assert.equal(suite.steps[0].name, 'start the clock', 'the clock must start first');
 });
 
+test('run-tests.sh refuses a bad part, a bad or misplaced shard, and node arguments to a shell run, first', (t) => {
+  const { spawnSync } = require('node:child_process');
+  /* Stub node and yarn that exit 97, first on the PATH: if a refusal were missing, the run would
+     reach the suite and fail at once with 97, rather than run the real suite on this machine. */
+  const stub = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'shard-4317-stub-'));
+  for (const bin of ['node', 'yarn']) fs.writeFileSync(path.join(stub, bin), '#!/bin/sh\nexit 97\n', { mode: 0o755 });
+  const base = { ...process.env, PATH: stub + path.delimiter + process.env.PATH };
+  delete base.KOSMOS_TEST_PART; delete base.KOSMOS_SHELL_SHARD;
+  t.after(() => fs.rmSync(stub, { recursive: true, force: true }));
+  const cases = [
+    [{ KOSMOS_TEST_PART: 'bogus' }, [], /KOSMOS_TEST_PART must be all, node or shell/],
+    [{ KOSMOS_SHELL_SHARD: '1/2' }, [], /only with KOSMOS_TEST_PART=shell/],
+    [{ KOSMOS_TEST_PART: 'node', KOSMOS_SHELL_SHARD: '1/2' }, [], /only with KOSMOS_TEST_PART=shell/],
+    [{ KOSMOS_TEST_PART: 'shell', KOSMOS_SHELL_SHARD: '2' }, [], /must be i\/n/],
+    [{ KOSMOS_TEST_PART: 'shell', KOSMOS_SHELL_SHARD: 'x/2' }, [], /must be i\/n/],
+    [{ KOSMOS_TEST_PART: 'shell' }, ['engine/store.test.js'], /takes no node --test arguments/],
+  ];
+  for (const [env, args, reason] of cases) {
+    const started = Date.now();
+    const r = spawnSync('bash', [path.join(ROOT, 'tools', 'run-tests.sh'), ...args], { cwd: ROOT, env: { ...base, ...env }, encoding: 'utf8', timeout: 30000 });
+    const label = JSON.stringify(env) + ' ' + args.join(' ');
+    assert.equal(r.status, 2, `${label}: exit ${r.status}, stderr: ${r.stderr}`);
+    assert.match(r.stderr, reason, label);
+    assert.ok(Date.now() - started < 10000, `${label}: took ${Date.now() - started} ms, so it ran something before refusing`);
+  }
+});
+
 test('run-tests.sh: the default part is all, so `yarn test` still runs the node suite and all of test:shell', () => {
   const src = fs.readFileSync(path.join(ROOT, 'tools', 'run-tests.sh'), 'utf8');
   assert.match(src, /KOSMOS_TEST_PART="\$\{KOSMOS_TEST_PART:-all\}"/);
+  assert.match(src, /if \[ "\$NODE_STATUS" -eq 0 \] && \[ "\$KOSMOS_TEST_PART" != node \]; then\n\s+if \[ -n "\$\{KOSMOS_SHELL_SHARD:-\}" \]/, 'the shell half runs for every part but node, so the default all runs it');
   assert.match(src, /\*\) echo "run-tests: KOSMOS_TEST_PART must be all, node or shell/);
   assert.match(src, /if \[ "\$KOSMOS_TEST_PART" != shell \]; then\nnode --test --require/, 'the node --test line must stay flush left (three guards find it by ^node --test)');
   assert.match(src, /else\n\s+yarn -s test:shell\n\s+fi/);

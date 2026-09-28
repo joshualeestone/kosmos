@@ -33,7 +33,7 @@ explicitly to learn the repo's pre-PR commands and conventions.
 - **Use yarn, not npm.** The scripts are also npm-runnable, but `tools/run-tests.sh` itself
   shells out to `yarn` (`yarn -s test:shell`, in its default `all` part, which is what `yarn test`
   runs locally; CI runs the parts separately, #4317), and its own coverage-mismatch message names
-  `yarn test` the canonical helper, so yarn must be present regardless. There is no
+  `yarn test` the canonical helper, so yarn must be present locally. There is no
   committed lockfile or `packageManager` pin.
 
 ### Build / Lint

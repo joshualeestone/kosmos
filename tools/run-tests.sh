@@ -23,6 +23,32 @@ set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 
+# #4317: CI runs the two halves as separate parallel jobs. KOSMOS_TEST_PART picks one:
+#   all   (the default, and what `yarn test` runs): the node suite, then test:shell, as before;
+#   node  the node suite only;
+#   shell test:shell only, or with KOSMOS_SHELL_SHARD=i/n just shard i of n (tools/shell-shard.js).
+# Every part keeps every guard below (coverage, launchd, temp root, leaks, the browser-check gates).
+# A value it does not know refuses HERE, first, before the machine claim, the temp root or any test,
+# rather than running a subset silently. tools.shell-shard-4317.test.js runs each refusal.
+KOSMOS_TEST_PART="${KOSMOS_TEST_PART:-all}"
+case "$KOSMOS_TEST_PART" in
+  all|node|shell) ;;
+  *) echo "run-tests: KOSMOS_TEST_PART must be all, node or shell (got '$KOSMOS_TEST_PART')" >&2; exit 2 ;;
+esac
+# Extra arguments go to node --test, so a shell-only run has nowhere to put them: refuse them.
+if [ "$KOSMOS_TEST_PART" = shell ] && [ "$#" -gt 0 ]; then
+  echo "run-tests: KOSMOS_TEST_PART=shell runs no node tests, so it takes no node --test arguments (got: $*)" >&2
+  exit 2
+fi
+# A shard is only ever part of a shell-only run, and only in the form i/n. Anything else refuses:
+# a stray value would otherwise turn `yarn test` into the node suite plus one shard, green.
+if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
+  if [ "$KOSMOS_TEST_PART" != shell ] || ! printf '%s' "$KOSMOS_SHELL_SHARD" | grep -Eq '^[0-9]+/[0-9]+$'; then
+    echo "run-tests: KOSMOS_SHELL_SHARD must be i/n and only with KOSMOS_TEST_PART=shell (got part '$KOSMOS_TEST_PART', shard '$KOSMOS_SHELL_SHARD')" >&2
+    exit 2
+  fi
+fi
+
 # #2858: strip the ambient Codex-home vars ONCE here, at the single runner every
 # `yarn test` (and the canonical validation / pre-challenge gate) routes through,
 # so the whole suite -- node AND `yarn test:shell`, every test including ones not
@@ -275,30 +301,7 @@ fi
 # makes any fs write into the real ~/Library/LaunchAgents throw, so an unsandboxed test
 # fails on its own line instead of leaking a job file launchd loads at the next login.
 #
-# #4317: CI runs the two halves as separate parallel jobs. KOSMOS_TEST_PART picks one:
-#   all   (the default, and what `yarn test` runs): the node suite, then test:shell, as before;
-#   node  the node suite only;
-#   shell test:shell only, or with KOSMOS_SHELL_SHARD=i/n just shard i of n (tools/shell-shard.js).
-# Every part keeps the guards above and below (coverage, launchd, temp root, leaks). A value it
-# does not know refuses rather than running a subset silently.
-KOSMOS_TEST_PART="${KOSMOS_TEST_PART:-all}"
-case "$KOSMOS_TEST_PART" in
-  all|node|shell) ;;
-  *) echo "run-tests: KOSMOS_TEST_PART must be all, node or shell (got '$KOSMOS_TEST_PART')" >&2; exit 2 ;;
-esac
-# Extra arguments go to node --test, so a shell-only run has nowhere to put them: refuse them.
-if [ "$KOSMOS_TEST_PART" = shell ] && [ "$#" -gt 0 ]; then
-  echo "run-tests: KOSMOS_TEST_PART=shell runs no node tests, so it takes no node --test arguments (got: $*)" >&2
-  exit 2
-fi
-# A shard is only ever part of a shell-only run, and only in the form i/n. Anything else refuses:
-# a stray value would otherwise turn `yarn test` into the node suite plus one shard, green.
-if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
-  if [ "$KOSMOS_TEST_PART" != shell ] || ! printf '%s' "$KOSMOS_SHELL_SHARD" | grep -Eq '^[0-9]+/[0-9]+$'; then
-    echo "run-tests: KOSMOS_SHELL_SHARD must be i/n and only with KOSMOS_TEST_PART=shell (got part '$KOSMOS_TEST_PART', shard '$KOSMOS_SHELL_SHARD')" >&2
-    exit 2
-  fi
-fi
+# #4317: which part runs is decided (and a bad value refused) at the top of this file.
 # ⚠️ The node --test line stays FLUSH LEFT: three guards find the suite by `^node --test`
 # (#1934's count-and-run pin, #3605's preload pin, #4273's guard-after-suite order).
 NODE_STATUS=0
