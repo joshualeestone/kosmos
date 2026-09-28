@@ -75,7 +75,7 @@ test('tkAdded: a webhook task says which webhook, and a webhook named "operator"
   const { tkAdded } = load(stubBox());
   assert.equal(tkAdded({ addedVia: 'webhook', addedBy: 'Zapier' }), 'Zapier (a webhook)');
   assert.equal(tkAdded({ addedVia: 'webhook', addedBy: 'operator' }), 'operator (a webhook)');
-  assert.equal(tkAdded({ addedVia: 'webhook' }), 'A webhook (a webhook)');
+  assert.equal(tkAdded({ addedVia: 'webhook' }), 'A webhook');   // no name: said once, not "A webhook (a webhook)"
   assert.equal(tkAdded({ addedBy: 'operator', addedVia: 'screen' }), 'You', 'control: the screen still reads You');
 });
 

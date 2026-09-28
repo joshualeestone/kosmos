@@ -101,6 +101,14 @@
   exactly that. The control for the internet path is the tunnel's own path filter (crates/tunnel,
   not in this repo, unverified here), not remoteWriteGuard: tunnel traffic reaches the board over
   loopback with the board token. The internet path needs the Kosmos+ tunnel to admit the
-  hook path with this computer's own check (Baron's lane, crates/tunnel), filed as its own card.
+  hook path with this computer's own check (Baron's lane, crates/tunnel). No card exists yet
+  (searched 2026-09-28); Splinter asked to route one.
 - Weakest premise: that a task is what Josh meant; if he wanted a room message, only the one line
   that acts on a call changes.
+
+## Added after the rebuild onto main (2026-09-28)
+- Quote and bracket neutralising is by Unicode class after NFKC folding, not a hand-kept list, in all
+  three copies (engine/tasks.js forAgent, install/kosmos, tools/windows/kosmos-cli.js).
+- Agents see a webhook task's title only (marked and quoted); its detail stays in the task for the
+  person. Nothing may add an unmarked detail line to an agent's view.
+- A task from an unnamed webhook says "From a webhook" once, not "From a webhook (a webhook)".

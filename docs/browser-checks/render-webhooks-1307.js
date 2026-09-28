@@ -153,6 +153,34 @@ function chk(ok, label, extra) {
         chk(evil === 201 && mark.all.includes('From <i id="inj">Zap</i> (a webhook)') && mark.all.includes('From Billing system (a webhook)'),
           '[tasks] webhook tasks say which webhook they came from', JSON.stringify({ evil, mark }));
         chk(!mark.injected, '[tasks] a webhook name with HTML in it is shown as text, never run as markup');
+
+        // The project's own task column (a card per task, the first few open ones): each webhook task's
+        // card says which webhook it came from, the line a person sees where they give it out.
+        await page.evaluate(async (id) => { await loadProjects(); openProject(id); }, proj.id);
+        await page.waitForSelector('#pj-tasklist .tkcard', { timeout: 8000 }).catch(() => {});
+        const card = await page.evaluate((id) => {
+          const p = pjById(id);
+          const byNo = new Map((p.tasks || []).map((t) => [String(t.number), t]));
+          const cards = [...document.querySelectorAll('#pj-tasklist .tkcard')];
+          const hooked = cards.map((c) => {
+            const no = ((c.textContent.match(/Task (\d+)/) || [])[1]);
+            const t = byNo.get(no);
+            return t && t.addedVia === 'webhook' ? { want: t.addedBy ? 'From ' + t.addedBy + ' (a webhook)' : 'From a webhook', got: (c.querySelector('.tkcard-from') || {}).textContent || null } : null;
+          }).filter(Boolean);
+          return { hooked, cards: cards.length };
+        }, proj.id);
+        chk(card.hooked.length > 0 && card.hooked.every((h) => h.want === h.got), '[project] each webhook task\'s card says which webhook it came from', JSON.stringify(card));
+        // Escaping on a card: a project holding only a task from a webhook whose name is HTML.
+        const esc2 = await page.evaluate(async () => {
+          const pr = await (await fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Hook names' }) })).json();
+          const pid = pr.project.id;
+          const h = await (await fetch('/api/project/' + encodeURIComponent(pid) + '/webhooks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: '<i id="inj2">Zap</i>' }) })).json();
+          const c = await fetch(h.url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"title":"from the evil name"}' });
+          await loadProjects(); openProject(pid);
+          await new Promise((r) => setTimeout(r, 400));
+          return { status: c.status, all: [...document.querySelectorAll('#pj-tasklist .tkcard-from')].map((e) => e.textContent), injected: !!document.getElementById('inj2') };
+        });
+        chk(esc2.status === 201 && esc2.all.includes('From <i id="inj2">Zap</i> (a webhook)') && !esc2.injected, '[project] on a task card too, a webhook name with HTML in it is shown as text', JSON.stringify(esc2));
       } else {
         // The other passes: a made webhook as the person sees it.
         await page.click('#pjs-hook-add');

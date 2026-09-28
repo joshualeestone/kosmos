@@ -49183,7 +49183,7 @@ function paintProjectTasks(p) {
       /* #1307: a webhook task says so wherever it can be given out, so the person who gives it
          knows its words came from outside. Inline, not a shared helper: the tests lift this
          function and run it alone. The Tasks view row carries the same line (tsk-from). */
-      + (t.addedVia === 'webhook' ? '<span class="tkcard-from">From ' + esc(t.addedBy || 'a webhook') + ' (a webhook)</span>' : '')
+      + (t.addedVia === 'webhook' ? '<span class="tkcard-from">' + (t.addedBy ? 'From ' + esc(t.addedBy) + ' (a webhook)' : 'From a webhook') + '</span>' : '')
       + who + chip + '</button>';
   }).join('');
   // ⚠️ Change-guarded, the removed-list's own pattern: the five-second poll
@@ -49478,7 +49478,7 @@ function tskRow(t, at) {
     + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(t.projectName) + '</button>'
     + (added ? '<span>added ' + esc(added) + '</span>' : '')
     /* #1307: inline for the same reason as the task card's tkcard-from line. */
-    + (t.addedVia === 'webhook' ? '<span class="tsk-from">From ' + esc(t.addedBy || 'a webhook') + ' (a webhook)</span>' : '')
+    + (t.addedVia === 'webhook' ? '<span class="tsk-from">' + (t.addedBy ? 'From ' + esc(t.addedBy) + ' (a webhook)' : 'From a webhook') + '</span>' : '')
     + (moved && moved !== added ? '<span>last activity ' + esc(moved) + '</span>' : '')
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + chip + allDone
@@ -50009,7 +50009,7 @@ function tkAdded(t) {
      so it says "An agent", never "Somebody" (that word is for records from
      before the field existed). */
   /* #1307: a webhook first, so a webhook someone named "operator" never reads as "You". */
-  const who = t.addedVia === 'webhook' ? (t.addedBy || 'A webhook') + ' (a webhook)'
+  const who = t.addedVia === 'webhook' ? (t.addedBy ? t.addedBy + ' (a webhook)' : 'A webhook')
     : t.addedBy === 'operator' ? 'You'
     : (t.addedBy || (t.addedVia === 'process' ? 'An agent' : 'Somebody'));
   const at = t.createdAt ? new Date(t.createdAt) : null;
