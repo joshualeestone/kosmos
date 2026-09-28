@@ -1,0 +1,29 @@
+# modelname-4416: every agent's actual model, in plain language
+
+## Why
+Josh 2026-09-28 15:17: Gemini agents read the raw "gemini-3.8-flash"; 15:18: Grok reads only "Grok" though it runs
+Grok 4.6, "not as helpful as knowing what actual model these things are on". Read it from what Kosmos can see, never
+by asking the agent.
+
+## Call
+- engine/status.js modelDisplayName: the table first (unchanged), then readableModelId: an unknown id is read in plain
+  language (Gemini 3.8 Flash, Grok 4.6, GPT 5.6 Sol) UNLESS reading it could mis-say a version: two number-only parts
+  side by side (claude-opus-6-1) or a date part stay raw. That is the hazard the table's own comment names ("Haiku 4 5").
+- The card's model per runner, from each CLI's own record: agy conversation, Gemini session (per message), Grok
+  current_model_id, Codex turn_context (new: engine/codexsession.js returns `model`), else the Claude transcript.
+- Before a first turn: a Gemini/Grok job with no recorded model names the supervisor's pinned default, "(default)"
+  (create.LAUNCH_DEFAULT_MODEL, held equal to the script by the test).
+- Page: Codex names its model ("OpenAI Codex" only while none is known). The OpenAI picker's current choice reads a
+  new raw `plannedModelId` (codex only), because plannedModelName is now a readable name no option value matches.
+
+## Rejected
+- A pure dash-to-space transform for every id: "Claude Haiku 4 5" on the next dashed version.
+- Asking agents to report their model: self-report is unreliable (the card says so).
+
+## Not done
+- Muse: it picks its model per turn and records none Kosmos can read; it still shows the provider.
+- The usage-history list (Settings) keys rows by raw id; it is a cost ledger, left as is.
+
+## Weakest premise
+That each CLI's record names the model it runs NOW: Codex's last turn_context and Grok's current_model_id do; Gemini
+names it per message, so a /model switch shows after the next reply, not at the switch.
