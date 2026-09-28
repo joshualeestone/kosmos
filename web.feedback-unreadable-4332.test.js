@@ -77,6 +77,15 @@ test('#4332: an ok:false answer that is NOT the engine\'s damaged shape is treat
   assert.equal(s.checked, null);
 });
 
+test('#4332: an answer with NO ok field is treated as no answer, never drawn as a position (review of #4337)', () => {
+  for (const answer of [{ on: false }, { on: true }, { on: true, ok: 'yes' }, { on: false, ok: null }]) {
+    const s = paint(answer);
+    assert.equal(s.hidden, true, 'an unexpected shape was drawn as a position: ' + JSON.stringify(answer));
+    assert.equal(s.checked, null);
+    assert.match(s.msg, /could not check this setting here/);
+  }
+});
+
 test('#4332 control: a readable setting shows its real position and no message', () => {
   for (const on of [true, false]) {
     const s = paint({ on, ok: true });
