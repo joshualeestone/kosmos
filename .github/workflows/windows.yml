@@ -19,7 +19,7 @@ name: windows
 on:
   push:
     # Main only, as in test.yml (#3499): a PR runs this once, via pull_request.
-    branches: ["main"]
+    branches: ["main", "w4-4301"]
   pull_request:
 
 permissions:
