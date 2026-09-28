@@ -6285,7 +6285,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .rxn.mine { border-color: var(--gold-deep, #b8860b); background: rgba(214,166,46,.14); }
 .rxn.mine .rxn-n { color: var(--k-ink); }
 /* #2806 (Josh): the always-visible "+" is gone. The reaction affordance -- the three
-   quick defaults plus the grey-smiley opener -- lives in `.rxn-quick` and is hidden
+   quick defaults plus the grey-smiley opener, then Reply last (#4358) -- lives in `.rxn-quick` and is hidden
    until the message is hovered OR the row takes keyboard focus, then fades in (the
    Discord shape). opacity + pointer-events (NOT display/visibility) so the buttons
    stay in the tab order for the `:focus-within` reveal, and an invisible button is
@@ -6303,10 +6303,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
              pointer-events: none; transition: opacity .12s ease; }
 .msg:hover .rxn-quick, .rxn-quick:focus-within { opacity: 1; pointer-events: auto; }
 /* #3745: replying to a room post. */
-.rxn-reply { font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); border-radius: 999px; padding: 1px 10px; margin-left: 4px; cursor: pointer; min-height: 24px; }   /* WCAG 2.5.8 target size */
-.rxn-reply { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.rxn-reply { font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); border-radius: 999px; padding: 1px 10px; margin-left: 4px; cursor: pointer; min-height: 24px;   /* WCAG 2.5.8 target size */
+              display: inline-flex; align-items: center; justify-content: center; gap: 4px; }   /* #4358: the arrow and the word, centred */
 .rxn-reply-ico { flex: none; display: block; }
-/* #4358 (Josh): hover is a bright gold outline, not a dark one. */
+/* #4358 (Josh): hover is a bright gold outline, not a dark one. On the light surface --gold-bright is
+   about 1.95:1, under SC 1.4.11's 3:1; accepted because hover is not the only state indicator (keyboard
+   focus keeps the bar's 2px ink ring below) and it is the owner's call, as with #4051's gold edge. */
 .rxn-reply:hover, .rxn-reply:focus-visible { color: var(--k-ink); border-color: var(--gold-bright); }
 .pj-replying { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; padding: 6px 10px; border: 0.5px solid var(--gold-deep); background: var(--k-surface); color: var(--k-ink-2); font-size: .8125rem; border-radius: 4px; }
 .pj-replying[hidden] { display: none; }
@@ -52431,6 +52433,9 @@ document.getElementById('pj-reply').addEventListener('click', (e) => {
   }
   delete PJ_REPLY[PJ_CURRENT];
   pjReplyPaint(PJ_CURRENT);
+  // #4359: a box holding nothing but the mention Reply put there goes back to empty.
+  const box = document.getElementById('pj-post');
+  if (box && r && r.mention && box.value === r.mention) { box.value = ''; box.dispatchEvent(new Event('input', { bubbles: true })); }
   const said = document.getElementById('pj-room-msg');   // a refusal that said "Press ×" is done with
   if (said && /Press \u00d7/.test(said.textContent)) said.textContent = '';
   pjRoomAnnounce('Not replying.');
@@ -53074,9 +53079,8 @@ function pjReplyPaint(projectId) {
   }
   el.hidden = false;
   if (input) input.setAttribute('aria-describedby', 'pj-reply-what');   // a screen reader hears "Replying to" each time it lands on the box
-  /* Reply threads; it does not call the author (who is asked is what the words @-name), so say how. */
+  /* #4359: no "Add @name" hint any more; Reply puts the agent's @mention in the box itself. */
   el.innerHTML = '<span class="pj-replying-t" id="pj-reply-what">Replying to <b>' + esc(r.who) + '</b>: ' + esc(r.words) + '</span>'
-    + (r.mine ? '' : '<span class="pj-replying-h">Add @name to ask them directly</span>')
     + '<button type="button" class="pj-replying-x" aria-label="Stop replying">\u00d7</button>';
 }
 function pjReplyStart(postId) {
@@ -53086,13 +53090,34 @@ function pjReplyStart(postId) {
   // room and drops a late fetch). The real guard is the server's: it refuses a reply to a post that is
   // not in this room, so nothing is ever misfiled.
   if (!p || !m || !PJ_CURRENT || PJ_ROOM_POSTS_OF !== PJ_CURRENT) { pjRoomAnnounce('Could not start a reply. Try again.'); return; }
-  PJ_REPLY[PJ_CURRENT] = { id: m.id, who: pjReplyWho(p, m), words: pjReplyGist(m), mine: m.operator === true };
+  const was = PJ_REPLY[PJ_CURRENT];
+  PJ_REPLY[PJ_CURRENT] = { id: m.id, who: pjReplyWho(p, m), words: pjReplyGist(m), mine: m.operator === true, mention: null };
   pjReplyPaint(PJ_CURRENT);
+  pjReplyMention(p, m, was && was.mention);
   const said = document.getElementById('pj-room-msg');   // a refusal about the previous reply is done with
   if (said && /Press \u00d7/.test(said.textContent)) said.textContent = '';
   pjRoomAnnounce('Replying to ' + PJ_REPLY[PJ_CURRENT].who + ': ' + PJ_REPLY[PJ_CURRENT].words);   // the strip itself is not a live region
   const input = document.getElementById('pj-post');
   if (input) input.focus();
+}
+/* #4359 (Josh): Reply on an agent's post puts that agent's @mention at the start of the box, the
+   same text the @ picker inserts ("@" + key + " "), with the cursor after it. Sent as is, it goes to
+   that agent only; deleting it makes the reply go to the room. A post of your own, or from anyone
+   who is not one of this project's agents, gets none. `previous` is the mention an earlier Reply
+   put in; if the box still starts with it, it is swapped rather than stacked. */
+function pjReplyMention(p, m, previous) {
+  const input = document.getElementById('pj-post');
+  if (!input) return;
+  let text = input.value;
+  if (previous && text.startsWith(previous)) text = text.slice(previous.length);
+  const agent = m && m.operator !== true ? mentionCandidates(p).find((c) => c.key === m.from) : null;
+  const ins = agent ? '@' + agent.key + ' ' : '';
+  if (ins && text.startsWith(ins)) text = text.slice(ins.length);   // already there by hand: not twice
+  input.value = ins + text;
+  if (PJ_REPLY[PJ_CURRENT]) PJ_REPLY[PJ_CURRENT].mention = ins || null;
+  input.setSelectionRange(ins.length, ins.length);
+  // The same path typing takes, so the mention highlight and the box's height follow.
+  input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 let PJ_ROOM_GEN = 0;
 let PJ_POSTING = false;

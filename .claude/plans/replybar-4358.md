@@ -1,4 +1,4 @@
-# replybar-4358: the message hover bar's order, Reply arrow and gold hover (#4358)
+# replybar-4358: the message hover bar (#4358) and Reply's @mention (#4359)
 
 ## Done looks like
 - Every hover bar (rooms, DMs, and anywhere rxnsInner draws it) reads 👍 ❤️ 🔥 (grey smiley) then
@@ -9,11 +9,25 @@
 - render-room-reply-3745.js asserts order, arrow and gold hover in both themes;
   render-dm-reply-4256.js asserts order and arrow in the DM bar.
 
+- #4359: Reply on an agent's room post puts "@<key> " (exactly what the @ picker inserts) at the
+  start of the composer, cursor after it, so it goes to that agent only unless deleted. A post of
+  your own, or from anyone not on the project's agent list, gets none. A second Reply does not
+  stack it; switching the reply to another post swaps or removes the mention Reply put there;
+  x on a box holding only that mention empties it. The "Add @name to ask them directly" hint is gone.
+- render-room-reply-3745.js asserts all of that through pjReplyStart (the click's own function).
+
+## Where the bar is
+rxnsInner has three callers, all project rooms and DMs. The assistant chat draws no hover bar, so
+#4358's third surface needs no change there. DMs get the new order and arrow; #4359's mention is
+rooms only (a DM is already one agent), per the card.
+
 ## Decisions
 - "Far right" read as last in the floating bar (the bar is a pill that floats over the message),
   not pushed to the message's right edge.
 - An SVG arrow, not an emoji, so it takes the button's colour and matches the app's icons.
 - The keyboard focus ring stays the bar's 2px ink ring; only hover and focus border go gold.
+
+- The .pj-replying-h CSS rule stays: render-no-left-bars-3692 renders synthetic markup with it.
 
 ## Weakest premise
 The "far right" reading. If Josh meant the right edge of the message, it is one CSS line.
