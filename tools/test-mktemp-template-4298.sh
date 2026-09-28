@@ -102,6 +102,7 @@ echo 'if mktemp -d' # while mktemp -t x
 bash -c 'q=$(mktemp -d "${TMPDIR:-/tmp}/z.XXXXXXXXXX")'
 grep -c 'mktemp -d' /dev/null
 if command -v mktemp >/dev/null 2>&1; then :; fi
+say "x" mktemp
 echo "mktemp -d failed" >&2
 x='mktemp'
 y="$(mktemp -d "${TMPDIR:-/tmp}/$(basename "$0").XXXXXXXXXX")"

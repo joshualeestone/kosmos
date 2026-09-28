@@ -60,14 +60,13 @@ The first full run on the rebased head failed that guard with three families, as
   Raiden's #4309 (PR #4320, merged as ffa620f6) fixes all three such tests on main, so after the
   rebase this branch touches neither server.doorflight-1618.test.js nor the allowlist.
 
-## Final measurement, on the rebased head (64b248d)
-A full `yarn test` (run-tests.sh, with #4306's run-root guard): PASSED, guard green. Across its window the
-real temp root gained 14 `tmp.*`, none from this branch's code: 11 files of `yarn test` stderr ("Command
-test not found", `../../../package.json`) match main's bare `_suite_log="$(mktemp)"` in release.sh as
-test-cut-parallel-region.sh's red arms keep it (this branch names that `release-suite.*` inside $WORK), and
-3 fake-tmux dirs (bin, new-session.args, out.log) match main's untemplated supervisor tests. Another agent
-was running a main-based validation in the same window. The pre-rebase table above (13 -> 7 -> 0) was
-measured on the same code before the rebase.
+## Final measurement, on the shipped head (840e97f, after rebasing on #4320)
+A full `yarn test` (run-tests.sh, with #4306's run-root guard): PASSED, guard green. Across the run the
+real temp root gained ONE `tmp.*`, an empty directory created mid-run, not attributed (no other suite was
+running when checked). On origin/main before this branch, one `yarn test:shell` alone left 13.
+An earlier run on a pre-#4320 head (64b248d) also passed; its 14 window entries were another agent's
+main-based run (yarn stderr files matching main's bare release.sh suite log, fake-tmux dirs matching main's
+untemplated supervisor tests).
 
 ## Mistake recorded
 A `git stash` in the worktree during a measurement run swapped scripts mid-execution; that run was
@@ -82,7 +81,8 @@ discarded and re-run. Never stash or edit a tree a suite is executing.
   root), `\mktemp`, `caffeinate`/`arch`/`builtin` wrappers, `xargs -I{}`); the scope is every shell script git tracks under
   tools/, install/ and bin/ (git ls-files, by .sh or shell shebang), templated calls, messages,
   comments and `grep -c 'mktemp'` not flagged; and the installer's production arm (TMPDIR stripped:
-  getconf dir; getconf failing under set -e: falls back, no abort).
+  getconf dir; getconf failing under set -e: falls back, no abort; a TMPDIR that cannot be used,
+  simulated with a nonexistent path: retries in the per-user dir).
 - Leftovers in the per-run root, by name, fixed at the test: test-cut-parallel-region.sh (7
   `release`, the region keeps logs on red on purpose) exports TMPDIR=$WORK;
   test-versions-entry-gate.sh's `bash -c` clock probe makes its dir under $T. Both now leave 0.

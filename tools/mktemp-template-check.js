@@ -19,8 +19,11 @@
  * body or a multi-line string can read as code (a false positive: this checker's own
  * test excludes itself for its fixtures), and a line closing a multi-line quote before a
  * call can read as text (a false negative). The wrappers it looks through are a fixed list (WRAP
- * below); a call behind another wrapper may be missed (`flock /x mktemp` is), so extend WRAP when one
- * appears.
+ * below); a call behind another wrapper may be missed (`flock /x mktemp` is, while `x=$(ionice mktemp)`
+ * is caught only because the `x=` assignment arm swallows the one word), so extend WRAP when one appears.
+ * It checks that a template EXISTS, not that it sits under TMPDIR: a literal `/tmp/...XXXXXX` passes
+ * and does not land in the per-run root, so such a call needs its own cleanup (the in-tree ones have
+ * traps). Only a `-t` BEFORE the template is seen; after it, macOS getopt has stopped reading flags.
  * The negative control pins the shapes it finds.
  */
 const fs = require('node:fs');
@@ -30,7 +33,7 @@ const fs = require('node:fs');
    a script: see codeMask). Then any wrappers (`command`, `env`, `exec`, `sudo`, `nice`, `time`,
    `nohup`, `xargs`, `timeout`, `stdbuf`, with their options) and `VAR=value` assignments, then the binary, by
    name or by path (`/usr/bin/mktemp`). */
-const PRE = String.raw`(?:\$\(|` + '`' + String.raw`|^|[;&|!{()]|\b(?:if|then|do|else|elif|while|until)\b|["'])`;
+const PRE = String.raw`(?:\$\(|` + '`' + String.raw`|^|[;&|!{()]|\b(?:if|then|do|else|elif|while|until)\b|(?:^|(?<=[\s=(;&|` + '`' + String.raw`]))["'])`;
 const OPT = String.raw`(?:\s+-[\w-]+\S*(?:\s+(?:"[^"]*"|'[^']*'|[^\s-]\S*))?)*`;
 const WRAP = String.raw`\s*(?:(?:builtin|command|env|exec|sudo|nice|time|nohup|xargs|stdbuf|caffeinate|arch)` + OPT + String.raw`\s+|timeout` + OPT + String.raw`\s+[\d.]+[smhd]?\s+)*`
   + String.raw`(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s+)*`;
