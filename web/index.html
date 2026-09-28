@@ -6133,7 +6133,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
         rounds again only after the fade, like the mask.
    No layout changes (a filter and a mask take no room), so the scroll repin is untouched. The guide's
    replies (.asp-m.him) have no tail and take the same outline. Reduced motion: no fade, no delay.
-   render-unread-edge-3743.js pins the drawn outline, its fade, and that the tail is inside it. */
+   render-unread-edge-3743.js pins the drawn outline, its fade, and that the tail is inside it (that check is unwired
+   while #4418 has the edge switched off). */
 .msg:not(.you) .msg-bd::before {
   -webkit-mask: linear-gradient(#000, #000) right top / 12px 100% no-repeat,
     radial-gradient(12px 16px at -4px 0, transparent calc(100% - .5px), #000 calc(100% + .5px)) left bottom / 8px 16px no-repeat;
@@ -31001,6 +31002,10 @@ function restoreThreadAnchor(el, a) {
    in front. Per thread: `known` is every agent message this page has shown there, `fresh` those still unread,
    `backlog` the count the thread opened with, taken from the newest. The rows are marked after they are painted, by
    their data-mid, so no renderer changes and a repaint puts the edge back until it has been read. */
+/* #4418 (Josh, 2026-09-28): "not yet". The gold unread edge is OFF everywhere (DMs, project rooms, the setup
+   guide): no bubble is marked data-unread, so nothing draws it. The bookkeeping below stays so it can come back by
+   setting this to true; web.unread-edge-off-4418.test.js holds it off. */
+const UNREAD_EDGE_ON = false;
 const UNREAD_EDGE = new Map();
 const UNREAD_EDGE_DWELL = 1200;
 let UNREAD_IO = null;
@@ -31019,7 +31024,7 @@ function unreadEdgeFresh(key, ids) {
   UNREAD_EDGE.set(key, st);
 }
 function unreadEdgeApply(root, key, { row = '.msg:not(.you)[data-mid]', bd: bdSel = '.msg-bd' } = {}) {
-  if (!root) return;
+  if (!root || !UNREAD_EDGE_ON) return;   // #4418: off, so no message is ever marked
   const bubbleOf = (r) => (bdSel ? r.querySelector(bdSel) : r);
   /* Rows with a bubble only: a bodyless post has nothing to edge, and would sit unread forever. */
   const rows = [...root.querySelectorAll(row)].filter((r) => r.dataset.mid && bubbleOf(r) && (bdSel || r.textContent.trim()));
