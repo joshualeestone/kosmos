@@ -58,6 +58,7 @@
   - that the matrix runs the node part once and shards 1..SHELL_SHARDS once each;
   - that SUITE_TIMEOUT_MIN equals timeout-minutes, and the warning's 70% and always();
   - run-tests.sh's default of all.
+  - the "how close to the limit" step, RUN with bash -e: it warns for a job started 40 min ago, not for one started 5 min ago, and fails loudly with no clock (Scorpion, #4344 review; mutations seen red: the old now-default, a 90% threshold).
   - Mutations seen red: dropping shard 2/2 from the matrix; SUITE_TIMEOUT_MIN 30 against 45.
 
 ## Measured on the runner (the real test.yml on this branch, via a temporary push trigger, since reverted)

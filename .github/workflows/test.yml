@@ -187,7 +187,8 @@ jobs:
       - name: how close to the limit
         if: always()
         run: |
-          elapsed=$(( $(date +%s) - ${SUITE_T0:-$(date +%s)} ))
+          # An unset clock fails the step: defaulting it to now would read 0% and hide the warning.
+          elapsed=$(( $(date +%s) - ${SUITE_T0:?the clock step did not run, so this job cannot say how close it came to its limit} ))
           limit=$(( SUITE_TIMEOUT_MIN * 60 ))
           pct=$(( elapsed * 100 / limit ))
           name="${{ matrix.part }}${{ matrix.shard && format(' {0}', matrix.shard) || '' }}"

@@ -118,6 +118,40 @@ test('the 70% warning reads the same limit as the timeout, and fires at 70%', NE
   assert.equal(suite.steps[0].name, 'start the clock', 'the clock must start first');
 });
 
+/* Runs the real "how close to the limit" step, as GitHub does (bash -e), with the matrix expressions
+   filled in for shell 1/2. The summary file lives in the OS temp dir, never the checkout. */
+function runLimitStep(env) {
+  const step = workflow().jobs.suite.steps.find((s) => s.name === 'how close to the limit');
+  const script = step.run.replace(/\$\{\{ matrix\.part \}\}/g, 'shell').replace(/\$\{\{.*?\}\}/g, ' 1/2');
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'limit-4317-'));
+  const summary = path.join(dir, 'summary');
+  try {
+    const r = require('node:child_process').spawnSync('bash', ['-e', '-c', script], {
+      encoding: 'utf8', env: { PATH: process.env.PATH, SUITE_TIMEOUT_MIN: '45', GITHUB_STEP_SUMMARY: summary, ...env },
+    });
+    return { status: r.status, out: r.stdout, err: r.stderr, summary: fs.existsSync(summary) ? fs.readFileSync(summary, 'utf8') : '' };
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+test('the limit step warns when the job started long ago, and not when it started just now', NEEDS_RUBY, () => {
+  const now = Math.floor(Date.now() / 1000);
+  const late = runLimitStep({ SUITE_T0: String(now - 40 * 60) });
+  assert.equal(late.status, 0, late.err);
+  assert.match(late.out, /::warning title=suite near its limit \(#4317\)::suite \(shell 1\/2\): 40m/);
+  assert.match(late.summary, /past 70% of the limit/);
+  const early = runLimitStep({ SUITE_T0: String(now - 5 * 60) });
+  assert.equal(early.status, 0, early.err);
+  assert.doesNotMatch(early.out, /::warning/);
+  assert.match(early.summary, /suite \(shell 1\/2\): 5m/);
+});
+
+test('the limit step fails loudly when the clock never started, instead of reading 0%', NEEDS_RUBY, () => {
+  const r = runLimitStep({});
+  assert.notEqual(r.status, 0, 'an unset SUITE_T0 must fail the step');
+  assert.match(r.err, /the clock step did not run/);
+  assert.equal(r.summary, '', 'no percentage may be reported without a clock');
+});
+
 test('run-tests.sh refuses a bad part, a bad or misplaced shard, and node arguments to a shell run, first', (t) => {
   const { spawnSync } = require('node:child_process');
   /* Stub node and yarn that exit 97, first on the PATH: if a refusal were missing, the run would
