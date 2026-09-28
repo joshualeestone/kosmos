@@ -428,7 +428,9 @@ test('the recovery toasts on Windows say to restart Kosmos by double-clicking Ko
   assert.ok(abort.includes('Kosmos was busy each time. To clear it, sign out of Windows and sign back in. That usually clears whatever'), abort);
   assert.doesNotMatch(abort, /Quit|Kosmos\.exe/, 'the stuck-update toast offers a relaunch that only says "already running"');
   const engine = engineToast('win32');
-  assert.ok(engine.includes('Only a restart picks it up: ' + restart + '</small>'), engine);
+  // #4408: the sign-out remedy, not Kosmos.exe (which only says "already running" on the same build).
+  assert.ok(engine.includes('Signing out of Windows and signing back in picks it up.</small>'), engine);
+  assert.doesNotMatch(engine, /Kosmos\.exe/);
   assert.doesNotMatch(engine, /kosmos restart/);
   const offline = offlineNote('win32');
   assert.match(offline, /Double-click Kosmos\.exe in your Kosmos folder and it will start again if it needs to\./);

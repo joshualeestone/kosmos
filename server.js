@@ -476,6 +476,8 @@ function engineFreshness() {
     const staleSince = changed.length ? new Date(newest || now).toISOString() : null;
     /* #4408: whether the page may offer one Restart Kosmos button. Asked only while stale, so a
        current board never pays for the launchctl read behind it. */
+    /* Asked again each time the board goes from current to stale (a Windows logon task can change). */
+    if (!staleSince) engineCanRestart = null;
     if (staleSince && engineCanRestart === null) {
       try { engineCanRestart = require('./engine/boardrestart').canSelfRestart().canRestart === true; } catch { engineCanRestart = false; }
     }
@@ -4033,6 +4035,7 @@ const server = http.createServer((req, res) => {
     if (!fresh.staleSince) { sendJson(res, 409, { ok: false, current: true, because: 'the board is already running the code on disk' }); return; }
     let can;
     try { can = require('./engine/boardrestart').canSelfRestart(); } catch (e) { can = { canRestart: false, because: String((e && e.message) || e) }; }
+    engineCanRestart = can.canRestart === true;   // what a press just learned also decides the next button
     if (!can.canRestart) { sendJson(res, 409, { ok: false, because: can.because || 'this board cannot restart itself' }); return; }
     /* One restart at a time: every open page shows the button, and a second detached `kosmos restart`
        racing the first can leave a board no `kosmos stop` can name. Later presses get the same answer. */

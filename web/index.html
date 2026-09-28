@@ -17352,7 +17352,9 @@ function windowsCopyTable() {
        the one remedy that is true is a fresh sign-in. */
     updateAbortRemedy: 'Kosmos was busy each time. To clear it, sign out of Windows and sign back in. That usually clears whatever '
       + 'was holding the update, so the next one can finish. Your agents keep working, they do not live in this window.',
-    engineStaleRemedy: 'Only a restart picks it up: ' + restartKosmos,
+    /* #4408: NOT restartKosmos, for the reason updateAbortRemedy gives: double-clicking Kosmos.exe while the
+       same build runs only says "already running". A fresh sign-in restarts the board from its logon task. */
+    engineStaleRemedy: 'Signing out of Windows and signing back in picks it up.',
     /* %NAME% is the Kosmos being switched to, filled in by the caller. */
     worldSwitchRestart: 'Kosmos could not restart itself. To finish switching to %NAME%, ' + restartKosmos,
     /* The Copy button beside a command a person must paste (W-14). */
@@ -19557,9 +19559,13 @@ let ENGINE_RESTARTING = false;
 const ENGINE_RESTART_WAIT_MS = 120 * 1000;   // how long the page waits for the restarted board before saying so
 async function engineRestartClick() {
   const btn = document.getElementById('ut-engine-restart');
-  const small = btn && btn.closest('.utoast') ? btn.closest('.utoast').querySelector('small') : null;
+  const toast = btn && btn.closest('.utoast');
+  const small = toast ? toast.querySelector('small') : null;
+  /* The title too: at narrow widths the toast hides its small line, and an outcome must still be read. */
+  const title = toast ? toast.querySelector('b') : null;
+  const said = (head) => { if (title) title.textContent = head; };
   if (btn) { btn.disabled = true; btn.textContent = 'Restarting…'; }
-  let before = ENGINE_STALE && ENGINE_STALE.startedAt;
+  const before = ENGINE_STALE && ENGINE_STALE.startedAt;
   try {
     const r = await fetch('/api/engine/restart', { method: 'POST' });
     const out = await r.json().catch(() => ({}));
@@ -19569,6 +19575,7 @@ async function engineRestartClick() {
       try { console.info('Kosmos could not restart itself: ' + String((out && out.because) || r.status)); } catch { /* no console */ }
       if (btn) { btn.disabled = false; btn.textContent = 'Restart Kosmos'; }
       /* Windows keeps its own remedy (its copy table), never "restart your computer". Static copy, so innerHTML. */
+      said('Kosmos could not restart itself');
       if (small) {
         if (onWindows()) small.innerHTML = 'Kosmos could not restart itself. ' + windowsCopy('engineStaleRemedy');
         else small.textContent = 'Kosmos could not restart itself. Restarting your computer picks up the change.';
@@ -19578,6 +19585,7 @@ async function engineRestartClick() {
   } catch (e) {
     try { console.info('Kosmos restart request failed: ' + String((e && e.message) || e)); } catch { /* no console */ }
     if (btn) { btn.disabled = false; btn.textContent = 'Restart Kosmos'; }
+    said('Kosmos could not be reached');
     if (small) small.textContent = 'Kosmos could not be reached to restart it. Try again in a moment.';
     return;
   }
@@ -19593,6 +19601,7 @@ async function engineRestartClick() {
   }
   ENGINE_RESTARTING = false;
   if (btn) { btn.disabled = false; btn.textContent = 'Restart Kosmos'; }
+  said('Kosmos is taking longer than it should');
   if (small) small.textContent = 'Kosmos is taking longer than it should to come back. Try again, or restart your computer.';
 }
 function renderUpdateToast(u) {
@@ -19627,7 +19636,7 @@ function renderUpdateToast(u) {
         : onWindows() ? windowsCopy('engineStaleRemedy')
           : 'Restarting your computer picks it up.')
       + '</small></div>'
-      + (can ? '<button type="button" id="ut-engine-restart">Restart Kosmos</button>' : '')
+      + (can ? '<div class="uacts"><button type="button" class="uprime" id="ut-engine-restart">Restart Kosmos</button></div>' : '')
       + '</div>';
     if (can) document.getElementById('ut-engine-restart').addEventListener('click', () => engineRestartClick());
     return;
