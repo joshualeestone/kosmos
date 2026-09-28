@@ -21,6 +21,7 @@ const http = require('node:http');
 const { pipeline } = require('node:stream');
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 /* #1704 slice 2b: apply the ACTIVE world's data-root env BEFORE any engine module
    is required below. ~27 engine modules freeze store.ROOT at REQUIRE time, so 2a's
    apply-inside-start() was too late for them (a named-world boot would leave those
@@ -257,7 +258,7 @@ let engineRestartAsked = false;   // #4408: a restart from the button is already
    re-hash, and a file counts as changed only when its content differs from what the board loaded. */
 const engineSeen = new Map();   // absolute path -> { mtimeMs, sha }
 function engineFileSha(file) {
-  return require('node:crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 function engineLoadedFiles() {
   return Object.keys(require.cache).filter((f) => f.startsWith(ENGINE_ROOT) && !f.includes(path.sep + 'node_modules' + path.sep));
@@ -17025,7 +17026,9 @@ function federateOut(projectId, delivery, operator) {
 }
 
 function start(port = PORT) {
-  /* #4408: what this board is running, taken now, before anything can edit the app folder under it. */
+  /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
+     restart module is loaded first: it is otherwise required lazily, and the button depends on it. */
+  try { require('./engine/boardrestart'); } catch { /* the restart route reports its own failure */ }
   for (const f of engineLoadedFiles()) engineRemember(f);
   /* And a sweep on its own clock, not only when a page polls, so a module required later is remembered
      within a sweep of loading rather than whenever a page next asks (review iteration 2). */
