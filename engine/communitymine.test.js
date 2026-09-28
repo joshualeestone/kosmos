@@ -52,7 +52,7 @@ test('only posts the send layer has a record for are listed, titled from the boa
   assert.equal(rows[0].canDelete, true);
 });
 
-test('Delete is offered only on a post that is out or about to go, and not twice', () => {
+test('Delete is offered only on a post that is out, and not twice', () => {
   const ids = ['sent', 'pending', 'asked', 'withheld', 'refused', 'deleted', 'down']
     .map((t) => [t, agentPost('ava', { topic: t, body: t }).id]);
   const id = Object.fromEntries(ids);
@@ -66,7 +66,8 @@ test('Delete is offered only on a post that is out or about to go, and not twice
     [id.down]: { state: 'sent', takenDown: true, takeDownReason: 'spam' },
   });
   const can = Object.fromEntries(mine.mine().map((r) => [r.title, r.canDelete]));
-  assert.deepEqual(can, { sent: true, pending: true, asked: false, withheld: false, refused: false, deleted: false, down: false });
+  // pending: never saved by the send layer, so never offered even if a record says it.
+  assert.deepEqual(can, { sent: true, pending: false, asked: false, withheld: false, refused: false, deleted: false, down: false });
 });
 
 test('deleting through the send layer flips the row off Delete (the same record the sweep acts on)', () => {
@@ -103,4 +104,17 @@ test("the agent shows by its display name when it has one", () => {
   agentPost('bo', { topic: 'Other', body: 'y' });
   writeSent({ [a.id]: { state: 'sent' } });
   assert.equal(mine.mine()[0].agent, 'Ava');
+});
+
+test('a landed delete keeps deleteRequested (the sweep spreads the record), and state says deleted', () => {
+  const a = agentPost('ava', { topic: 'Out', body: 'x' });
+  // The exact shape communitysend.sweepDeletes writes: { ...rec, state: 'deleted' }.
+  writeSent({ [a.id]: { state: 'sent', remoteId: 'r1', deleteRequested: true } });
+  const sent = JSON.parse(fs.readFileSync(cs._paths.sentFile(), 'utf8'));
+  sent[a.id] = { ...sent[a.id], state: 'deleted' };
+  writeSent(sent);
+  const row = mine.mine()[0];
+  assert.equal(row.state, 'deleted');
+  assert.equal(row.deleteRequested, true, 'the UI must check state before deleteRequested');
+  assert.equal(row.canDelete, false);
 });

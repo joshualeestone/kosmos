@@ -15,10 +15,15 @@ const communitystore = require('./communitystore');
 const communitysend = require('./communitysend');
 const store = require('./store');
 
-/* The states the owner can still delete from: a post already out (sent) or about to go
-   (pending). withheld/refused never left, deleted is done, and a delete already asked
-   for is on its way. */
-const DELETABLE = Object.freeze(['sent', 'pending']);
+/* The one state the owner can delete from: a post already out (sent). withheld/refused
+   never left, deleted is done, and a delete already asked for is on its way.
+   Not 'pending': the send layer never SAVES a pending record (a send that fails on the
+   network, a 5xx or a 429 is left with no record and retried), so a post waiting to go
+   out is not in sent.json and never reaches this list. Offering Delete on a state
+   production cannot produce would be a promise with nothing behind it. Letting the
+   owner withhold a post before it goes out needs the send layer to expose its due list
+   (the `since` cut is internal to it); that is a follow-up, not this card. */
+const DELETABLE = Object.freeze(['sent']);
 
 function canDelete(rec) {
   return DELETABLE.includes(rec.state) && rec.deleteRequested !== true && rec.takenDown !== true;
@@ -27,7 +32,10 @@ function canDelete(rec) {
 /* The agent's own display name when it has one (what the owner calls it on this board),
    else the name the post carries. This view is the owner's own board, never public. */
 function agentName(post) {
-  const who = post.author && typeof post.author.name === 'string' ? post.author.name : '';
+  /* post.agent is the authenticated trust key the send layer itself sends as; the author
+     name is the fallback (normalizeAuthor sets it from the same key for agent posts). */
+  const who = typeof post.agent === 'string' && post.agent ? post.agent
+    : (post.author && typeof post.author.name === 'string' ? post.author.name : '');
   try {
     const p = who ? store.readProfile(who) : null;
     if (p && typeof p.displayName === 'string' && p.displayName.trim()) return p.displayName.trim();

@@ -13,6 +13,7 @@
  *   KEEP      Keep it closes the ask, sends nothing, and puts focus back on Delete.
  *   DELETE    Delete it POSTs exactly {id}, then repaints from the board: the row says it is
  *             coming down and Delete is gone.
+ *   REOPEN    once the sweep lands the delete, opening Automation again repaints it as deleted.
  *   FAIL      a refused delete shows the board's message and leaves both buttons usable.
  *   403       a gated read says it could not read the posts, never "none have gone out".
  * The ROWS arm is also the control for the others: it proves the list is found and painted.
@@ -91,10 +92,12 @@ async function run() {
     // ROWS + ASK + KEEP + DELETE, on one page so the repaint after a delete is observed.
     const p2 = await page();
     let deleted = false;
+    let landed = false;
     const posts = [];
     await p2.route(MINE, (route) => answer({ posts: [
-      deleted ? row('a1', { deleteRequested: true, canDelete: false }) : row('a1'),
-      row('b2', { state: 'deleted', canDelete: false }),
+      landed ? row('a1', { state: 'deleted', deleteRequested: true, canDelete: false })
+        : deleted ? row('a1', { deleteRequested: true, canDelete: false }) : row('a1'),
+      row('b2', { state: 'deleted', deleteRequested: true, canDelete: false }),   // the sweep's real shape
       row('c3', { takenDown: true, takeDownReason: 'off topic', canDelete: false }),
     ] })(route));
     await p2.route(DELETE, (route) => { posts.push(route.request().postData()); deleted = true; return answer({ ok: true, state: 'sent' })(route); });
@@ -124,6 +127,16 @@ async function run() {
     const d = await readList(p2);
     check('DELETE: exactly one POST, carrying only the post id', posts.length === 1 && posts[0] === JSON.stringify({ id: 'a1' }), JSON.stringify(posts));
     check('DELETE: the row repaints as coming down, with no Delete', /Deleting\. It comes down/.test(d.rows[0].text) && d.rows[0].del === false && d.rows[0].ask === false, JSON.stringify(d.rows[0]));
+
+    // REOPEN: the sweep lands the delete on its own clock. Leaving Automation and coming back
+    // repaints from the board, so the row does not say "Deleting" forever.
+    landed = true;
+    await p2.click('#s-nav button[data-go="you"]');
+    await p2.waitForTimeout(200);
+    await p2.click('#s-nav button[data-go="automation"]');
+    await p2.waitForTimeout(500);
+    const ro = await readList(p2);
+    check('REOPEN: opening Automation again repaints the row as deleted', /Deleted from the community/.test(ro.rows[0].text) && !/Deleting/.test(ro.rows[0].text), JSON.stringify(ro.rows[0]));
     await p2.close();
 
     // FAIL

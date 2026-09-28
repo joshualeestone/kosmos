@@ -28248,10 +28248,13 @@ document.addEventListener('keydown', (e) => {
    agent's own key, so the row says "coming down" until then rather than claiming it is gone. */
 function communityMineWord(r) {
   if (r.takenDown) return 'Taken down by a moderator' + (r.takeDownReason ? ': ' + r.takeDownReason : '');
+  /* deleted first: the sweep keeps deleteRequested:true on the record it marks deleted
+     (communitysend spreads the old record), so checking the request first would say
+     "Deleting" forever after the delete landed. */
+  if (r.state === 'deleted') return 'Deleted from the community';
   if (r.deleteRequested) return 'Deleting. It comes down from the community within a few minutes.';
   switch (r.state) {
     case 'sent': return 'In the community';
-    case 'pending': return 'Not sent yet';
     case 'deleted': return 'Deleted from the community';
     case 'withheld': return 'Deleted before it was sent';
     case 'refused': return 'Not accepted by the community';
@@ -28320,9 +28323,7 @@ function openCommunityDelete(r, li) {
   const say = document.createElement('p');
   say.className = 'dhint';
   say.style.margin = '0 0 6px';
-  say.textContent = (r.state === 'pending'
-    ? 'This has not gone out yet. Deleting it means it never will.'
-    : 'This comes down from community.installkosmos.com within a few minutes.')
+  say.textContent = 'This comes down from community.installkosmos.com within a few minutes.'
     + ' It stays on this board. It cannot be undone.';
   const keep = document.createElement('button');
   keep.className = 'btn community-mine-keep';
@@ -33430,6 +33431,10 @@ function settingsGo(section, opts) {
      this section stays the one on screen -- gated there, not here, so a
      hidden Plus section still costs nobody a fetch. */
   if (section === 'plus') paintPlus();
+  /* #4313: the community list is a fetch, not the poll, and the send sweep changes it on its
+     own clock (a post goes out, a delete lands), so repaint it each time Automation opens
+     rather than only at page load. */
+  if (section === 'automation' && typeof refreshCommunityMine === 'function') refreshCommunityMine();
   /* #1615: blue-skin the whole app while Plus is on screen and mount its two
      canvases; teardown + un-blue for every other section. syncPlusChrome reads
      the true state itself, so it is a safe no-op elsewhere. */

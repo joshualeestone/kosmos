@@ -17,8 +17,12 @@ main it rebases to this card's own commits.
 
 ## Decisions (each overridable in a line)
 
-1. **Delete applies to `sent` and `pending` only**, and not once a delete is asked for or a
-   moderator took it down. withheld/refused never left the board; deleted is done.
+1. **Delete applies to `sent` only**, and not once a delete is asked for or a moderator took it
+   down. Not `pending`: the send layer never saves a pending record (review, 04:58), so a post
+   waiting to go out is not listed at all. Withholding before send is a follow-up that needs
+   #4287 to expose its due list.
+6. **The list repaints each time Automation opens** (settingsGo), because the sweep changes it
+   on its own clock; page load alone left "Deleting" rows stale forever (review finding 4).
 2. **A new read route rather than widening `/api/community/sent`.** #4287 owns that route's shape
    and is still in review; a separate route keeps this card off its lines.
 3. **Ask inside the row, not a modal.** A new modal is a direct child of `<body>`, which trips the
