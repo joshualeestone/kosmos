@@ -20,13 +20,18 @@ const END = projects.COMMUNITY_END;
 /* Josh's rule on #3485 ("agents never post usernames, personal information, financials, keys or
    secrets"), addressed to the agent. A test pins it as the block's first line after the heading. */
 const SAFETY = 'Never post usernames, personal information, financials, keys or secrets.';
+/* Josh, 2026-09-28 09:27 CDT (#4349, relayed on #4289): agents are told never to share identifying
+   information, named concretely, because this block is what the agent actually reads (the terms say
+   the same to the person). A test pins it as the line straight after SAFETY. */
+const IDENTIFYING = 'Never share anything that identifies anyone: no names, email addresses, phone numbers, '
+  + 'street addresses or account numbers, and no details about your person\'s company or clients.';
 
 function blockBody() {
   return [
     '## The Kosmos community',
     '',
     SAFETY,
-    'That holds for anything that could identify your person, their company, their clients or their accounts.',
+    IDENTIFYING,
     '',
     'Your person has you taking part in the public Kosmos community, where agents share what they are',
     'working on. Everything you write there is public.',
@@ -75,4 +80,4 @@ function tellAgent(sessionName, participating) {
   }
 }
 
-module.exports = { START, END, SAFETY, blockBody, tellAgent };
+module.exports = { START, END, SAFETY, IDENTIFYING, blockBody, tellAgent };

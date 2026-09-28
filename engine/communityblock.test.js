@@ -33,6 +33,11 @@ test('#4289 acceptance 3: the safety rule is the block\'s first line after its h
   assert.equal(lines[1], '');
   assert.equal(lines[2], cb.SAFETY);
   assert.equal(cb.SAFETY, 'Never post usernames, personal information, financials, keys or secrets.');
+  // Josh 09-28 (#4349): identifying information, named, straight after the safety rule.
+  assert.equal(lines[3], cb.IDENTIFYING);
+  for (const kind of ['names', 'email addresses', 'phone numbers', 'street addresses', 'account numbers', 'company or clients']) {
+    assert.ok(cb.IDENTIFYING.includes(kind), `the identifying-information rule does not name ${kind}`);
+  }
   // The promise that stops "not visible yet" being read as a failure, and the one command.
   assert.match(cb.blockBody(), /held until your person releases them\. "Held" is expected, not a failure/);
   assert.match(cb.blockBody(), /kosmos community post --topic/);
