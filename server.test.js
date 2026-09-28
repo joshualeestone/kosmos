@@ -10968,6 +10968,36 @@ test('compact and clear type the bare slash command into the pane, refuse a pane
   }
 });
 
+test('#3939: compact and clear are refused for a Meta Muse agent and type nothing (its pane would run "/clear" as a prompt)', async () => {
+  const chatEngine = require('./engine/chat');
+  const board = fleet.install([fleet.agent('musey', { state: 'idle' }), fleet.agent('claudey', { state: 'idle' })]);
+  store.writeProfile('musey', { provider: 'meta' });
+  try {
+    const sends = [];
+    chatEngine.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: 'node\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chatEngine.setDryRun(false);
+    for (const cmd of ['compact', 'clear']) {
+      const r = await req('/api/agent/musey/' + cmd, { method: 'POST', headers: { 'content-type': 'application/json' } });
+      assert.equal(r.status, 409, cmd + ': ' + r.body);
+      const out = JSON.parse(r.body);
+      assert.equal(out.delivery.state, 'could_not');
+      assert.match(out.delivery.because, new RegExp('Meta Muse keeps its own memory, so Kosmos cannot ' + cmd + ' it'));
+    }
+    assert.equal(sends.filter((a) => a[0] === 'set-buffer' || a[0] === 'paste-buffer' || a[0] === 'send-keys').length, 0, 'a slash command was typed into a Muse pane');
+    // CONTROL: an agent with no Meta profile is not refused this way.
+    const c = await req('/api/agent/claudey/compact', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.doesNotMatch(c.body, /Meta Muse keeps its own memory/);
+  } finally {
+    chatEngine.setRunner(null);
+    try { store.writeProfile('musey', { provider: null }); } catch { /* best effort */ }
+    board.restore();
+  }
+});
+
 /* #2037 PR-C1: the daily-report send opt-in route. ON by default (Josh, "baked
    in day one"), round-trips. (The send BEHAVIOR/dedup is unit-tested in
    engine/feedbacksend.test.js; the board sweep WIRING in web.feedback-switch-2037.test.js.) */

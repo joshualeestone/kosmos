@@ -107,8 +107,8 @@ test('a failed turn says why in the pane and still ends idle; a throwing runTurn
   assert.deepEqual(h.reports, ['working', 'idle', 'working', 'idle', 'working', 'idle']);
 });
 
-test('the board\'s Stop (one Escape, on its own) never eats the next message', async () => {
-  // chat.interrupt sends exactly one Escape; the next message comes in a later read.
+test('an Escape on its own (what chat.interrupt sends) never eats the next message', async () => {
+  // chat.interrupt sends exactly one Escape; a message comes in a later read.
   for (const next of ['Hello there', 'OK do it', '[x] done']) {
     const h = harness([OK('a')]);
     h.f.feed('\u001b');
@@ -129,7 +129,7 @@ test('the board\'s Stop (one Escape, on its own) never eats the next message', a
   assert.equal(c.calls[0].prompt, 'hi');
 });
 
-test('the board\'s Stop ends the running turn, drops the waiting ones, and the front takes the next message', async () => {
+test('Escape ends the running turn, drops the waiting ones, and the front takes the next message', async () => {
   const h = harness(['hold', OK('never'), OK('after')]);
   h.f.feed('long job\r');
   h.f.feed('queued one\r');
@@ -153,7 +153,7 @@ test('the board\'s Stop ends the running turn, drops the waiting ones, and the f
   assert.deepEqual(c.calls.map((x) => x.prompt), ['long job', 'queued one']);
 });
 
-test('Stop with nothing running only gives the prompt back', async () => {
+test('Escape with nothing running only gives the prompt back', async () => {
   const h = harness([]);
   h.f.feed('\u001b');
   await h.f.drained();
@@ -184,6 +184,17 @@ test('a character split across two reads arrives whole', async () => {
   await h.f.drained();
   assert.equal(h.calls[0].prompt, 'caf\u00e9 \u{1F600}');
   assert.doesNotMatch(h.calls[0].prompt, /\uFFFD/);
+});
+
+test('control sequences in Muse\'s answer never reach the pane; newlines and tabs do', async () => {
+  const osc52 = '\u001b]52;c;ZXZpbA==\u0007';
+  const h = harness([{ ok: false, text: 'line one\r\n\tline ' + osc52 + 'two\u001b[2J\u009b', because: 'bad\u001b[31m' }]);
+  h.f.feed('go\r');
+  await h.f.drained();
+  assert.doesNotMatch(h.out(), /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/, 'a control byte reached the pane: ' + JSON.stringify(h.out()));
+  assert.match(h.out(), /line one\n\tline \]52;c;ZXZpbA==two\[2J\n/);
+  assert.match(h.out(), /\(bad\[31m\)/);
+  assert.ok(front.WORKING_EVERY_MS < 60 * 1000, 'the heartbeat is not under the report bridge\'s 60 s throttle');
 });
 
 test('the session id is made once, kept in the agent folder (mode 600), and reused', () => {

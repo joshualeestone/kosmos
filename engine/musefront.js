@@ -13,8 +13,8 @@
  * Cooked mode would not do: macOS cuts a cooked line at 1024 bytes, and a Kosmos message can be longer.
  *
  * Turns run one at a time, in the order the messages came. Muse refuses a second turn on a session
- * that is still busy, so a message typed during a turn waits for it. The board's Stop (one Escape)
- * ends the running turn and drops the waiting ones.
+ * that is still busy, so a message typed during a turn waits for it. Escape ends the running turn
+ * and drops the waiting ones.
  *
  * The board hears working and idle through bin/agy-report-bridge.js (its PreInvocation and Stop
  * events map to those two states, and it carries the board token, the world header, the per-pane
@@ -59,8 +59,16 @@ function loadSession(workspace, o = {}) {
   return { id, note };
 }
 
+/**
+ * Muse's answer can quote anything it read, including terminal control sequences (a clipboard write,
+ * a cursor move that hides text). Only newline and tab survive; every other C0 and C1 control is removed.
+ */
+function printable(t) {
+  return String(t).replace(/\r\n/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '');
+}
+
 /** While a turn runs, working is said again this often, so a long turn never reads as stale on the board. */
-const WORKING_EVERY_MS = 60 * 1000;
+const WORKING_EVERY_MS = 50 * 1000;   // under the report bridge's 60 s throttle, so no beat is dropped
 
 /**
  * The front's logic, with its edges passed in so a test can drive it:
@@ -92,9 +100,9 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         try { r = await runTurn({ workspace, sessionId, prompt, approvalMode: 'never', onStop: (f) => { stopTurn = f; } }); }
         catch { r = { ok: false, text: '', because: 'Kosmos could not run Muse Code just now' }; }
         finally { clearInterval(beat); stopTurn = null; }
-        const text = r && typeof r.text === 'string' ? r.text.trim() : '';
+        const text = r && typeof r.text === 'string' ? printable(r.text).trim() : '';
         if (text) write(text + '\n');
-        if (!r || !r.ok) write('(' + ((r && r.because) || 'Muse Code did not finish the turn') + ')\n');
+        if (!r || !r.ok) write('(' + printable((r && r.because) || 'Muse Code did not finish the turn') + ')\n');
         // Idle only once nothing is waiting: a queued message starts its turn at once.
         if (!queue.length) report('idle');
         write(PROMPT);
@@ -115,7 +123,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     pump().catch(() => { /* report and write never throw; a turn's own failure is said inside pump */ });
   }
 
-  /** The board's Stop (one Escape): the line being typed, the waiting messages and the running turn all end. */
+  /** Escape: the line being typed, the waiting messages and the running turn all end. */
   function stop() {
     const dropped = queue.length;
     queue.length = 0;
@@ -131,13 +139,13 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     let echo = '';
     const flush = () => { if (echo) { write(echo); echo = ''; } };
     // An escape sequence (an arrow key) arrives whole in one read, so its state never carries into the
-    // next read. Any other Escape is the board's Stop.
+    // next read. Any other Escape is stop().
     let esc = 0;   // 0 = none, 1 = after ESC, 2 = inside ESC [ ...
     for (let i = 0; i < chars.length; i++) {
       const ch = chars[i];
       if (esc === 1) {
         if (ch === '[' || ch === 'O') { esc = 2; continue; }
-        // An Escape followed by anything else was not a key sequence: it was Stop, and this character is typed.
+        // An Escape followed by anything else was not a key sequence: stop(), and this character is typed.
         esc = 0;
         flush();
         stop();
@@ -217,10 +225,12 @@ function main(argv = process.argv) {
   if (process.stdin.isTTY && process.stdin.setRawMode) process.stdin.setRawMode(true);
   process.stdin.on('data', (b) => front.feed(b));
   process.stdin.on('end', leave);
+  process.stdin.on('error', leave);    // a closed pane can show up as EIO rather than end
+  process.stdout.on('error', leave);
   report('idle');   // the board hears from a new agent before its first message
   write(PROMPT);
 }
 
 if (require.main === module) main();
 
-module.exports = { createFront, loadSession, sessionFile, makeReporter, UUID_RE, PROMPT, HELLO };
+module.exports = { createFront, loadSession, sessionFile, makeReporter, printable, UUID_RE, PROMPT, HELLO, WORKING_EVERY_MS };

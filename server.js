@@ -6529,6 +6529,13 @@ const server = http.createServer((req, res) => {
     const name = decodeSegment(ctx[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    /* #3939: a Muse agent's pane takes every line as a prompt, so "/clear" would run a Muse turn and clear nothing. */
+    let ctxRunner = null;
+    try { ctxRunner = create.recordedRunner(name); } catch { ctxRunner = null; }
+    if (ctxRunner === 'muse') {
+      sendJson(res, 409, { command: ctx[2], delivery: { state: chat.DELIVERY.COULD_NOT, because: 'Meta Muse keeps its own memory, so Kosmos cannot ' + ctx[2] + ' it' } });
+      return;
+    }
     const command = '/' + ctx[2];
     let delivery;
     try { delivery = chat.deliver(name, command, safeRoster(), undefined, undefined); }

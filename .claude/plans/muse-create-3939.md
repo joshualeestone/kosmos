@@ -87,7 +87,7 @@ logs, the supervisor loop) is reused unchanged.
 The Create Agent form option and its create branch, the Connections box, connections.js text (3c-3b);
 the first-run Meta row; a real signed-in turn (the Mortals-Mac run, Josh approves the device code).
 
-## Status (2026-09-28 03:00, Angel)
+## Status (2026-09-28 03:25, Angel)
 
 Built, then changed by the challenge loop:
 - Round 1 found that Stop did nothing for a Muse agent (one Escape was swallowed with the next typed
@@ -101,6 +101,28 @@ Built, then changed by the challenge loop:
   `kosmos whoami` names Meta Muse. The context family count in render-talk-goldencard-2519 is 17 -> 18.
 - Round 2: the CLAUDE_CONFIG_DIR forwarding loop now skips Muse too; Escape then a typed character in
   one read is Stop and keeps the character.
+
+- Round 3: control characters are stripped from Muse's answer before it reaches the pane (an answer
+  can quote an OSC 52 clipboard write); the heartbeat is 50 s so no beat falls inside the bridge's 60 s
+  throttle; stdin/stdout errors also stop the turn and exit; Compact and Clear memory are refused for a
+  Muse agent (its pane would run "/clear" as a prompt). Comments no longer call Escape "the board's
+  Stop": chat.interrupt, the only Escape sender, is reached only from swarm routes, and swarms are
+  Claude-only. So today a Muse turn ends by Escape typed in the pane, a pane closing, or the 10-minute
+  cap.
+
+## Deliberately open (for 3c-3b or the signed-in Mortals-Mac run)
+
+- **Stale session lock after SIGKILL (unmeasured).** Stop, the cap and a closing pane SIGKILL the Muse
+  group; the session id is reused across restarts. If a killed `muse exec` leaves its session locked,
+  every later turn answers "still working on this agent's last turn" and a restart cannot clear it.
+  Check on the Mortals Mac; if real, rotate the session after a kill.
+- **The launcher's PATH (unmeasured).** The pane gets no PATH addition; whether Meta's launcher script
+  needs more than launchd's PATH is unknown. Check on the same run.
+- **`.kosmos/muse-session` in a connected folder.** For an agent connected in the person's own repo the
+  file lands there (agy writes `.agents/hooks.json` the same way). Not addressed here.
+- **Escape then `[` in one read** is still read as a key sequence. Nothing sends that shape today.
+- **Switching an agent FROM Muse** goes through setProvider's generic path, untested here; the switch
+  UI for Meta is 3c-3b's.
 
 ## Weakest premise
 

@@ -356,7 +356,8 @@ test('#3939 3c-3a: the caller\'s stop ends a running turn: Muse is stopped and t
     let stop = null;
     const turn = run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi', onStop: (f) => { stop = f; } });
     assert.equal(typeof stop, 'function', 'the caller was not handed a stop');
-    for (let i = 0; i < 50 && !fs.existsSync(pidFile); i++) await new Promise((res) => setTimeout(res, 20));
+    for (let i = 0; i < 250 && !fs.existsSync(pidFile); i++) await new Promise((res) => setTimeout(res, 20));
+    assert.ok(fs.existsSync(pidFile), 'the fake muse never started, so this test cannot say anything about stop');
     stop();
     const r = await turn;
     assert.equal(r.ok, false);
