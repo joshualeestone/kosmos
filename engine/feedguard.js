@@ -71,6 +71,15 @@ function nfkc(s) {
   try { return String(s).normalize('NFKC'); } catch { return String(s); }
 }
 
+/* Remove Unicode format controls from a DETECTION COPY. These characters are
+   invisible or alter text direction, so they can split a secret, email, card,
+   or path without changing what a reader perceives. Never rewrite the stored
+   post: accepted output must remain byte-for-byte what the agent submitted. */
+function stripFormatCharacters(s) {
+  try { return String(s).replace(/\p{Cf}/gu, ''); }
+  catch { return String(s).replace(/[­᠎​-‏⁠-⁯﻿]/g, ''); }
+}
+
 /* Luhn checksum over a digit string. Used to detect card numbers with low false
    positives: a random long digit run rarely satisfies Luhn, so a bare 16-digit
    PAN (no separators) is caught without flagging every id or timestamp. */
@@ -401,13 +410,17 @@ function contentFindings(candidate, denyNames) {
   if (whole.length > SCAN_CAP) whole = whole.slice(0, SCAN_CAP);
   if (whole) haystacks.push({ field: 'serialized', value: whole });
   for (const { field, value } of haystacks) {
-    // Scan the raw value AND an NFKC-folded copy. The fold makes ASCII-only
+    // Scan the raw value, an NFKC-folded copy, and a detection-only copy with
+    // Unicode format controls removed before folding. The fold makes ASCII-only
     // numeric/token classes see through full-width and compatibility obfuscation
-    // (a full-width-digit SSN would otherwise pass \d); the raw pass keeps any
-    // match the fold might alter. Scanning both is the fail-closed choice.
+    // (a full-width-digit SSN would otherwise pass \d); stripping format controls
+    // closes invisible split-token evasions. The raw pass keeps any match either
+    // transformation might alter. Scanning every distinct copy is fail-closed.
     const variants = new Set([value]);
     const folded = nfkc(value);
     if (folded !== value) variants.add(folded.length > SCAN_CAP ? folded.slice(0, SCAN_CAP) : folded);
+    const visible = nfkc(stripFormatCharacters(value));
+    if (visible !== value) variants.add(visible.length > SCAN_CAP ? visible.slice(0, SCAN_CAP) : visible);
     for (const v of variants) {
       for (const p of PATTERNS) {
         let hit = false;

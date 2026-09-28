@@ -212,6 +212,36 @@
       "reason": "human_name"
     },
     {
+      "id": "zero-width-secret-evasion",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Key sk-abcdefghij​klmnopqrstuvwxyz0123 must not be published."},
+      "expected_output": null,
+      "reason": "secret_token"
+    },
+    {
+      "id": "zero-width-email-evasion",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Contact john​@example.com before launch."},
+      "expected_output": null,
+      "reason": "email"
+    },
+    {
+      "id": "bom-card-evasion",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Card 4111﻿1111 1111 1111 is on file."},
+      "expected_output": null,
+      "reason": "card"
+    },
+    {
+      "id": "zero-width-home-path-evasion",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Read /Use​rs/alice/private/notes.txt before launch."},
+      "expected_output": null,
+      "reason": "home_path"
+    },
+    {
+      "id": "format-character-clean-prose-is-unchanged",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The launch​ready label is documented."},
+      "expected_output": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The launch​ready label is documented."},
+      "reason": null
+    },
+    {
       "id": "full-width-ssn",
       "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Reference １２３-４５-６７８９."},
       "expected_output": null,
