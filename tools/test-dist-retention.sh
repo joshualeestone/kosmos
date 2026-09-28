@@ -597,7 +597,7 @@ if command -v openssl >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; the
   openssl req -x509 -newkey rsa:2048 -nodes -keyout "$TLS/k.pem" -out "$TLS/c.pem" -days 1 \
     -subj /CN=127.0.0.1 -addext subjectAltName=IP:127.0.0.1 >/dev/null 2> "$TLS/openssl.err"
   cat > "$TLS/srv.py" <<'PYEOF'
-import http.server, ssl, sys, os
+import http.server, socketserver, ssl, sys, os
 root = sys.argv[3]
 class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -610,7 +610,13 @@ class H(http.server.BaseHTTPRequestHandler):
         b = open(p, 'rb').read()
         self.send_response(200); self.send_header('Content-Length', str(len(b))); self.end_headers(); self.wfile.write(b)
     def log_message(self, *a): pass
-s = http.server.HTTPServer(('127.0.0.1', 0), H)
+# HTTPServer.server_bind calls socket.getfqdn(), a reverse-DNS lookup that hung for 30s+ on a CI
+# runner (PR #4360: "still running after ~30s with no port"). Bind like a plain TCP server instead.
+class S(http.server.HTTPServer):
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = '127.0.0.1', self.server_address[1]
+s = S(('127.0.0.1', 0), H)
 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); ctx.load_cert_chain(sys.argv[1], sys.argv[2])
 s.socket = ctx.wrap_socket(s.socket, server_side=True)
 print(s.server_address[1], flush=True); s.serve_forever()

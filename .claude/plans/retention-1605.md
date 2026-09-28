@@ -85,3 +85,12 @@ turn the suite red.
 
 - [ ] challenge loop (round 3 fixed; round 4 next)
 - [ ] PR, merge, card comment
+
+## CI reopen 2 (PR #4360, shell 2/2 on 1c2fd5d): Gate 10's server hung, and the new diagnostic named why
+- "still running after ~30s with no port; cert made; server stderr: (empty)": alive, not crashed, never
+  printed its port. `http.server.HTTPServer.server_bind` calls `socket.getfqdn()`, a reverse-DNS lookup,
+  before the script prints; on a runner with slow DNS that blocks. (My first guess, a python3 stub
+  without Command Line Tools, was wrong: the log shows GitHub's macos-26-arm64 image, which has Python.)
+- Fix: bind like socketserver.TCPServer and set the name to 127.0.0.1, with no lookup.
+- Proven both ways locally with getfqdn patched to sleep 40s: the old server printed no port within 6s,
+  the new one printed it at once. Suite: 146/146.
