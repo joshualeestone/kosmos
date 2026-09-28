@@ -557,6 +557,7 @@ one invented by somebody who did not write them.
 | `render-org-drag.js` | The org chart's organic layer (#285): grab the hub, the rings follow, wires stay attached, a drag does not open an agent and a click does. |
 | `render-switch-states.js` | The four Settings switches come BACK once their settings read (#229) |
 | `render-optout-403-2020.js` | The privacy opt-out switch (feedback-toggle) is 403-safe: a gated read draws could-not-read, never a false Off (#2047). The two telemetry opt-outs it also covered (tell/notify) were deleted in #2623. |
+| `render-community-switch-4288.js` | The Kosmos Community switch in Settings > Automation (#4288): it sits below the Daily report and reads ON by default, the share says "not measured yet" (never 0), OFF shows a note that posts stay up, a gated read hides the knob (never a false Off), a measured share uses Token Usage's units, and a click PUTs on:false. Every request is answered at the browser, so it writes nothing. |
 | `render-settings-403-2047.js` | The auto-update, engineering-mode and run-limits switches are 403-safe: a gated read draws could-not-read (hidden, no position, a message), never a false Off -- with a 200 control (#2047) |
 | `render-theme-toggle.js` | The light and dark control: two options, gold active, same geometry as the view toggle (#284) |
 | `render-thread.js` | Render and DRIVE the project thread in a real browser |

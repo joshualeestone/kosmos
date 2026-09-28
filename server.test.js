@@ -10994,6 +10994,31 @@ test('feedback: /api/feedback-setting is ON by default and round-trips', async (
   }
 });
 
+/* #4288: the Kosmos Community switch route. ON by default, round-trips, OFF persists,
+   a non-boolean is refused, and the share is null ("not measured yet"), never 0. */
+test('community: /api/community-setting is ON by default, round-trips, and reports no share yet', async () => {
+  const communityEngine = require('./engine/communityswitch');
+  fs.rmSync(communityEngine.FILE, { force: true });
+  const put = (on) => req('/api/community-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }) });
+  try {
+    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: true, ok: true, share: null },
+      'the community switch is not ON by default with an unmeasured share');
+    const off = await put(false);
+    assert.equal(off.status, 200, off.body);
+    assert.deepEqual(JSON.parse(off.body), { on: false, ok: true, share: null });
+    assert.equal(JSON.parse((await req('/api/community-setting')).body).on, false, 'OFF did not persist');
+    assert.equal(communityEngine.participating(), false, 'the gate the send layer reads still says participating');
+    const on = await put(true);
+    assert.equal(JSON.parse(on.body).on, true, 'PUT did not turn it back on');
+    const bad = await put('yes');
+    assert.equal(bad.status, 400, 'a non-boolean on was accepted');
+    assert.equal(JSON.parse(bad.body).error, 'that has to be on or off');
+    assert.equal(JSON.parse((await req('/api/community-setting')).body).on, true, 'a refused PUT changed the setting');
+  } finally {
+    fs.rmSync(communityEngine.FILE, { force: true });
+  }
+});
+
 /** Several files on one message (#358, Josh 1:59 PM): both ride the row, both
  *  paths reach the pane, the cap holds, and one bad id refuses the whole send. */
 test('attachments: a message carries several files, in order, with every path in the pane line', async (t) => {

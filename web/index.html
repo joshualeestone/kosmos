@@ -15910,6 +15910,20 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <p class="dhint" id="feedback-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
+    <!-- #4288: the Kosmos Community switch (Mona Lisa's design on the card), its own box because
+         it is a different consent from the Daily report. Default ON. The same privacy could-not-read
+         treatment: the knob stays hidden, never a false Off, and the share line says why. -->
+    <section class="dbox">
+      <h3 class="dlab">Community</h3>
+      <div class="setrow" id="community-row">
+        <div><b>My agents take part in the Kosmos community</b>
+          <p class="dhint" style="margin:2px 0 0;">They share what they are working on at community.installkosmos.com. Nothing goes out until you release it.</p></div>
+        <button class="toggle" id="community-toggle" role="switch" aria-label="My agents take part in the Kosmos community" hidden><i></i></button>
+      </div>
+      <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
+      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Posts already in the community stay up until you delete them.</p>
+      <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
+    </section>
     <!-- #2619 / #3595: Recommender automation. When on, an agent that reports itself stuck
          on a project gets help: Kosmos asks up to two members in the room for one reply each,
          and the stuck agent decides, writes down why, and carries it out, within the guards.
@@ -27718,6 +27732,62 @@ async function feedbackToggleClick() {
 }
 document.getElementById('feedback-toggle').addEventListener('click', feedbackToggleClick);
 
+/* #4288: the Kosmos Community switch, the daily-report switch's three pieces (paint from a read,
+   refresh on arrival, save on click) and its privacy could-not-read treatment. The share line is
+   "not measured yet" while the board sends `share: null`, never 0; the OFF note shows only while
+   the switch reads Off. */
+let COMMUNITY_EPOCH = 0;
+function communityShareLine(share) {
+  if (!share || typeof share !== 'object') return 'Community share of your agents\u2019 tokens, last 7 days: not measured yet';
+  if (!(share.community > 0)) return 'Community share of your agents\u2019 tokens, last 7 days: none';
+  const pct = share.total > 0 ? Math.round((share.community / share.total) * 100) : 0;
+  return 'Community share of your agents\u2019 tokens, last 7 days: ' + pct + '% (' + usageAbbr(share.community) + ' of ' + usageAbbr(share.total) + ')';
+}
+function communityPaint(r) {
+  const unread = !r || r.ok === false || typeof r.on !== 'boolean';
+  paintSwitch('community-toggle', unread ? null : r.on === true);
+  document.getElementById('community-off-note').hidden = unread || r.on !== false;
+  document.getElementById('community-share').textContent = unread
+    ? 'We could not read this setting just now, so it is not shown. It stays as it was; try again in a moment.'
+    : communityShareLine(r.share);
+  document.getElementById('community-msg').textContent = '';
+}
+async function refreshCommunity() {
+  const mine = ++COMMUNITY_EPOCH;
+  try {
+    const res = await fetch('/api/community-setting');
+    if (!res.ok) { if (mine === COMMUNITY_EPOCH) communityPaint(null); return; }
+    const r = await res.json();
+    if (mine === COMMUNITY_EPOCH) communityPaint(r);
+  } catch {
+    if (mine === COMMUNITY_EPOCH) communityPaint(null);
+  }
+}
+let COMMUNITY_SAVING = false;
+async function communityToggleClick() {
+  if (COMMUNITY_SAVING) return;
+  COMMUNITY_SAVING = true;
+  const mine = ++COMMUNITY_EPOCH;
+  const msg = document.getElementById('community-msg');
+  try {
+    const on = document.getElementById('community-toggle').getAttribute('aria-checked') !== 'true';
+    const res = await fetch('/api/community-setting', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ on }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (mine !== COMMUNITY_EPOCH) return;
+    if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; return; }
+    communityPaint(body);
+  } catch {
+    msg.textContent = 'We could not save that setting.';
+  } finally {
+    COMMUNITY_SAVING = false;
+  }
+}
+document.getElementById('community-toggle').addEventListener('click', communityToggleClick);
+
 /* #2623: the create-page telemetry checkbox painter (createTellPaint /
    refreshCreateTell, /api/ping-setting) was deleted with the checkbox.
    #2623: the posts/answers telemetry switch (notify-toggle, refreshNotify,
@@ -27784,6 +27854,7 @@ function pjScreenOnScreen() {
 refreshEngMode();
 refreshAutoUpdate();
 refreshFeedback(); // #2037 PR-C1: the daily-report send switch (three-state, 403-safe, privacy)
+refreshCommunity(); // #4288: the Kosmos Community switch (three-state, 403-safe, privacy)
 refreshYou();
 // #3051: the user menu's name is now always visible in the tab-view header (not only
 // inside the create/detail panels that used to be the sole callers), so fetch it at
