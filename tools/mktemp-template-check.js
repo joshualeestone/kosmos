@@ -88,7 +88,7 @@ function words(s) {
   return out;
 }
 
-/** True when the call passes a positional template. A short-flag cluster holding `t` or `p`
+/** True when the call passes a positional template ending in X's. A short-flag cluster holding `t` or `p`
     (`-t`, `-dt`) takes the next word as its value, and on macOS that value is NOT a template.
     The fd number in front of a redirection (`2>/dev/null`) is not one either. */
 function hasTemplate(args) {
@@ -96,7 +96,9 @@ function hasTemplate(args) {
   for (let i = 0; i < w.length; i += 1) {
     if (/^-[A-Za-z]+$/.test(w[i])) { if (/[tp]/.test(w[i])) i += 1; continue; }
     if (w[i].startsWith('-')) continue;
-    return true;
+    // A template must END in a run of X's for mktemp to randomise; `"$T/fixed"` names one fixed
+    // path every time, so it is no template at all.
+    return /XXX+$/.test(w[i]);
   }
   return false;
 }

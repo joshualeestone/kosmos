@@ -69,10 +69,11 @@ w="$(mktemp -d -t "$(basename "$0")")"
 bash -c 'mktemp -d >/dev/null'
 eval "mktemp -d"
 timeout 5 mktemp -d >/dev/null
+z="$(mktemp -d "${TMPDIR:-/tmp}/fixed-name")"
 SH
 got="$(node tools/mktemp-template-check.js "$T/bare.sh" | cut -d: -f2 | sort -n | tr '\n' ' ')"
-want="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 18 19 20 21 22 23 24 25 26 27 28 29 "
-[ "$got" = "$want" ] && ok "CONTROL: all 28 bare shapes are found, each on its own line" \
+want="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 18 19 20 21 22 23 24 25 26 27 28 29 30 "
+[ "$got" = "$want" ] && ok "CONTROL: all 29 bare shapes are found, each on its own line" \
   || bad "CONTROL: bare shapes found on lines [$got], want [$want]"
 
 # The other side: templated calls and mentions are not calls to fix.

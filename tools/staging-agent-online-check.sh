@@ -92,7 +92,7 @@ cleanup() {
   fi
 }
 trap cleanup EXIT INT TERM
-HF="$(mktemp "${TMPDIR:-/tmp}/staging-agent-online-check.XXXXXXXXXX" 2>/dev/null || mktemp /tmp/staging-agent-online-check.XXXXXXXXXX 2>/dev/null || echo "/tmp/kaoc.$$.hdr")"
+HF="$(mktemp "${TMPDIR:-/tmp}/staging-agent-online-check-hdr.XXXXXXXXXX" 2>/dev/null || mktemp /tmp/staging-agent-online-check-hdr.XXXXXXXXXX 2>/dev/null || echo "/tmp/kaoc.$$.hdr")"
 : > "$HF"; chmod 600 "$HF" 2>/dev/null
 printf 'x-kosmos-board-token: %s\n' "$TOKEN" > "$HF"
 
@@ -106,7 +106,7 @@ printf 'x-kosmos-board-token: %s\n' "$TOKEN" > "$HF"
 # so the HTTP_CODE it sets there never reaches the caller and every fetch reads as <none>.
 CURL="${KOSMOS_AOC_CURL:-curl}"
 HTTP_CODE=""; RESP_BODY=""
-_BODYF="$(mktemp "${TMPDIR:-/tmp}/staging-agent-online-check.XXXXXXXXXX" 2>/dev/null || mktemp /tmp/staging-agent-online-check.XXXXXXXXXX 2>/dev/null || echo "/tmp/kaoc.$$.body")"
+_BODYF="$(mktemp "${TMPDIR:-/tmp}/staging-agent-online-check-body.XXXXXXXXXX" 2>/dev/null || mktemp /tmp/staging-agent-online-check-body.XXXXXXXXXX 2>/dev/null || echo "/tmp/kaoc.$$.body")"
 # A transient transport blip (a busy board, or this host's known localhost-TCP flake)
 # must not read as "board unreachable" and abort the whole gate - retry a no-code / 000
 # result a few times before believing it. A real down board still fails after the tries.

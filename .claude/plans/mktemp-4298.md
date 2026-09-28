@@ -52,10 +52,10 @@ discarded and re-run. Never stash or edit a tree a suite is executing.
 
 ## Tests
 - tools/test-mktemp-template-4298.sh (first in test:shell): scope floor, tree clean, negative control
-  of 28 bare shapes asserted by line number (incl. `/usr/bin/mktemp`, `mktemp 2>/dev/null`,
+  of 29 bare shapes asserted by line number (incl. `/usr/bin/mktemp`, `mktemp 2>/dev/null`,
   `command`/`env`/`sudo`/`nice`/`VAR=` prefixes, `if`/`{`/a `case` arm, `-dt`, a continued line,
   `bash -c`/`sh -ec`/`eval`/`trap` strings, including one that starts with mktemp, `timeout`,
-  a quoted `"mktemp"`, `-t "$(basename "$0")"`), templated calls, messages,
+  a quoted `"mktemp"`, `-t "$(basename "$0")"`, a template with no X run), templated calls, messages,
   comments and `grep -c 'mktemp'` not flagged; and the installer's production arm (TMPDIR stripped:
   getconf dir; getconf failing under set -e: falls back, no abort).
 - Leftovers in the per-run root, by name, fixed at the test: test-cut-parallel-region.sh (7
