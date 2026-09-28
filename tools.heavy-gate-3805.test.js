@@ -94,10 +94,14 @@ test('#4410: the install harness follows the shared fixture rule (controls: the 
 });
 
 test('#4410: --except-cwd never rules out an install harness, which collides with your own suite too (control: a browser run there is ruled out)', (t) => {
-  const own = fs.mkdtempSync(path.join(os.tmpdir(), 'hg-own-'));
+  /* Under /tmp, not os.tmpdir(), for the reason the --except-cwd test below gives: inside
+     tools/run-tests.sh os.tmpdir() is the kt<pid> sandbox, and both rows would be ignored as
+     fixtures instead of testing the rule (the first version of this test did exactly that). */
+  const own = fs.mkdtempSync('/tmp/hg-own-');
   t.after(() => fs.rmSync(own, { recursive: true, force: true }));
   fs.mkdirSync(path.join(own, '.git'));
   const real = fs.realpathSync(own);
+  assert.doesNotMatch(real, /\/T\/kt[0-9]/, 'the own-run folder must sit outside the kt sandbox pattern');
   const harness = run([['118', real, 'bash tools/test-install.sh', 'zsh']], { args: ['--except-cwd', own] });
   assert.equal(harness.code, 1, harness.out);
   assert.match(harness.out, /COUNTS 118/);
