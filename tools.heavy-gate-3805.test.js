@@ -77,6 +77,12 @@ test('#4410: the install harness follows the shared fixture rule (controls: the 
   const kt = run([['113', KT, 'bash ' + KT + '/tools/test-install.sh --sleep 4', 'zsh']]);
   assert.equal(kt.code, 0, kt.out);
   assert.match(kt.out, /ignore 113: a unit-test fixture \(run-tests\.sh sandbox\)/);
+  // The shape tools/test-cut-guard.sh's stand-in really has: a normal cwd, the SCRIPT in the sandbox.
+  // Only the script-path half of the fixture rule drops it; without that, every agent's gate would
+  // read BUSY for 8 s during every suite (#4410 review 5).
+  const scriptOnly = run([['117', WORK, 'bash ' + KT + '/tools/test-install.sh --sleep 8', 'zsh']]);
+  assert.equal(scriptOnly.code, 0, scriptOnly.out);
+  assert.match(scriptOnly.out, /ignore 117: a unit-test fixture \(run-tests\.sh sandbox\)/);
   const nodeTest = run([['114', WORK, 'bash tools/test-install.sh', ancs('bash', 'node --test tools.x.test.js')]]);
   assert.equal(nodeTest.code, 0, nodeTest.out);
   assert.match(nodeTest.out, /ignore 114: a unit-test fixture \(node --test ancestor\)/);

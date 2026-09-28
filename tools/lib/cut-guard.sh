@@ -363,7 +363,8 @@ kosmos_refuse_if_browser_run_live() {
 # reverse was missing and is not the rarer case: a cut started while a harness is
 # ALREADY running was unprotected, and the harness's own start-check cannot help
 # -- it already ran. Measured 2026-08-31: a harness run overlapped the 16:40
-# cut's start by ~32s; nothing broke that time. The harness holds a FIXED port,
+# cut's start by ~32s; nothing broke that time. The harness holds a port (probed from 4460 up
+# since then, not fixed; #4410) and boots real boards on it,
 # and two things wanting it is not a slow test, it is a failed release step
 # blamed on whatever the cut was doing then. So the CUT asks, at its own start,
 # whether a harness is already live. A harness is a process (tools/test-install.sh)
@@ -390,7 +391,7 @@ kosmos_refuse_if_harness_live() {
   self="${KOSMOS_HARNESS_SELF_PID:-$$}"
   # #1796: the reliable arm -- a marked harness that is not this caller's own. This
   # is the guard the card measured firing during a cut: a real test-install.sh RUN
-  # correctly refuses a cut (they share the fixed install-gate port), but the marker
+  # correctly refuses a cut (they share the install gate's port range), but the marker
   # means only a RUN counts -- editing test-install.sh, `bash -n`ing it, `git add`ing
   # it, or a worktree named after it marks nothing, so the person hardening the
   # guarded script does not block a cut merely by working on it.
@@ -622,16 +623,20 @@ kosmos_refuse_if_machine_claimed() {
 
 # #4410: true only when THIS run holds the live machine claim (a cut, or a gate run the cut
 # started, which inherits KOSMOS_MACHINE_CLAIM_COOKIE). The suite and harness checks stand down for
-# a cut's own runs, which never overlap (step 3's suite ends before step 4b's install gate) and
-# which the cut already checked at its start; everything else, including `yarn test:install-gate`
-# outside a cut, still asks.
-# ⚠️ WHY STANDING DOWN LOSES NOTHING, and what it leans on. A harness that starts DURING the cut is
+# a cut's own runs, which never overlap (step 3's suite ends before step 4b's install gate);
+# everything else, including `yarn test:install-gate` outside a cut, still asks.
+# ⚠️ WHAT STANDING DOWN LEANS ON, and the one gap it leaves. A harness that starts DURING the cut is
 # not caught by this stand-down's callers; it is refused by its own start-time
 # kosmos_refuse_if_cut_live, which sees the cut's `cut` marker (kosmos_mark_run in release.sh) for
 # the cut's whole life (test-install.sh skips that check only for the claim holder itself, not for
 # KOSMOS_INSTALL_GATE=1 alone). A new suite during the cut is refused by
-# kosmos_refuse_if_machine_claimed.
-# Change either of those and this stand-down becomes a real gap.
+# kosmos_refuse_if_machine_claimed. Change either of those and this stand-down becomes a real gap.
+# THE GAP, named: a suite ALREADY running when the cut starts. release.sh asks whether a cut or a
+# harness is live at its start, not whether a suite is, and the claim only refuses later suites;
+# so a suite that outlives steps 1 to 4 can overlap the cut's step-4b gate. That was already true
+# before #4410 (nothing asked about suites), and a cut refusing on any agent's suite is a release
+# policy change this card does not make; cuts wait for a quiet box by practice (heavy-gate
+# --quiet-box counts suites).
 kosmos_holds_machine_claim() {
   local active cookie self="${KOSMOS_MACHINE_CLAIM_COOKIE:-}"
   [ -n "$self" ] || return 1

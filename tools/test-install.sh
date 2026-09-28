@@ -47,10 +47,10 @@ kosmos_require_free_mb "${KOSMOS_HARNESS_MIN_FREE_MB:-3072}" "${TMPDIR:-/tmp}" "
 # ---- a cut, before a port is taken (#708) ------------------------------------
 # Two copies of this gate on one Mac poison each other (fixed ports, the real
 # folder fingerprints, the gui launchd domain); measured 2026-08-26 01:29. A
-# cut's own run (KOSMOS_INSTALL_GATE=1) is the cut and never refuses itself;
+# cut's own run (the holder of its machine claim, #4410) is the cut and never refuses itself;
 # tools/test-cut-guard.sh shows the guard red and green.
 . "$HERE/tools/lib/cut-guard.sh"
-# #1796: declare THIS run an install harness (it holds the fixed install-gate port),
+# #1796: declare THIS run an install harness (it holds an install-gate port and boots boards on it),
 # so a cut starting later sees a RUN via its marker -- while editing/`bash -n`ing/
 # `git add`ing test-install.sh, or a worktree named after it, marks nothing and so
 # never blocks a cut. Marked unconditionally: the cut's own KOSMOS_INSTALL_GATE run

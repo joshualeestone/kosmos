@@ -41,8 +41,7 @@
 - heavy-gate counts the harness in DEFAULT mode, not only under --quiet-box: it boots real boards,
   like browser-checks, and the card's failure was two runs behind a clear default gate.
 - Both new checks stand down for the claim holder (review 1, W2/W3). A cut's own suite (step 3) and
-  its own install gate (step 4b) never overlap, and the cut asked both questions at its start, so a
-  refusal there could only abort a cut. KOSMOS_INSTALL_GATE=1 was the first scope and was wrong:
+  its own install gate (step 4b) never overlap, so a refusal there could only abort a cut. KOSMOS_INSTALL_GATE=1 was the first scope and was wrong:
   `yarn test:install-gate` sets it with no cut and no claim.
   Standing down loses no protection because two OLDER mechanisms cover the cut's whole life (review
   2): a harness starting during a cut is refused by its own kosmos_refuse_if_cut_live (it sees the
@@ -53,8 +52,8 @@
   outside a cut skipped it too, and the stand-down above leaned on it (review 3, W1). It is now skipped
   only for the claim holder. The cut's own gate passes it anyway (it inherits the cut's marker cookie,
   and pgrep does not list its release.sh ancestor), so no cut can refuse itself here.
-- The stand-in is started by its absolute path, so its script path alone proves the sandbox to other
-  guards when lsof cannot read its cwd; it lives 8 s, and its two guard arms count only if it is
+- The stand-in is started by its absolute path, so its script path proves the sandbox to other
+  guards (its cwd is the test's, never in the sandbox, so the path is the only proof); it lives 8 s, and its two guard arms count only if it is
   still alive after both (else SKIP), so the "dropped" arm cannot pass on an empty table (review 3).
 - No run marker for the suite: markers exist for callers that self-match their own script (#1796);
   nothing that asks the suite question is a run-tests.sh. The harness keeps its existing marker.
@@ -71,6 +70,15 @@
   shows the same stand-in dropped without the seam.
 
 ## Weakest part
+- A suite ALREADY running when a cut starts is not refused by the cut (release.sh never asked about
+  suites, before or after this change), and the cut's own gate stands down, so a long suite can
+  overlap step 4b. Making a cut refuse on any agent's suite is release policy, not this card; named
+  in the code and raised on the PR for Liu Kang (review 5, W1).
+- A suite and a harness starting within milliseconds of each other can both pass: each asks before
+  the other shows in pgrep. The harness's run marker narrows it one way only.
+- The new guard's test seams (KOSMOS_SUITE_PROBE, KOSMOS_SUITE_SELF_PID) could weaken it if left set,
+  as the older guards' seams can. Only KOSMOS_HARNESS_KEEP_FIXTURES is one-directional (it only refuses
+  more).
 - The cause of the reds (load vs the default port) is not proven; the fix does not depend on it.
 - A harness started under an override, or a nested run-tests.sh fixture that runs past the guard
   while a real harness is live, would still refuse; that is the refuse-rather-than-guess side.

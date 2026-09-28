@@ -331,7 +331,7 @@ else
   kill "$mention" 2>/dev/null; wait "$mention" 2>/dev/null
 
   # #4410: started by its absolute path, so the SCRIPT path proves the sandbox to every other guard
-  # on the Mac even when lsof cannot read the cwd. Both guard calls run while it is still alive,
+  # on the Mac: its cwd is this test's, never in the sandbox, so the path is the only proof. Both guard calls run while it is still alive,
   # and the kill -0 after them says so: a stand-in that already exited would let the "dropped" arm
   # pass on an empty process table, so that is a SKIP, never a pass.
   bash "$E2E/tools/test-install.sh" --sleep 8 & harness=$!
