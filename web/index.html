@@ -29112,6 +29112,7 @@ function orgPlanarRepair(nodes, hub) {
 let ORG_LIVE = null;   // { nodes: Map key -> node, hub, size, raf, alpha }
 let ORG_DRAG_MOVED = false;   // the last pointer sequence on the map was a drag, not a click (#381)
 let ORG_POS = new Map(); // last positions by key, so a repaint does not snap back
+let ORG_PLANAR_AT = '';   // #4434: the layout whose last rest the repair had to restore (see orgLiveStart)
 let ORG_SIZE = 0;        // the canvas ORG_POS was measured on (#718: a new width rescales them)
 let ORG_VIEW_W = 0;      // the chart box's width at the last paint (#718: width changes, a scrolled chart's centre)
 let ORG_SCROLL_X = 0;    // the box's scroll as the person left it at that width (#718; see the scroll listener)
@@ -29706,7 +29707,18 @@ function orgLiveStart(map, placed, cx, cy, size) {
     const ph = n.parent && n.parent.home ? n.parent.home : { dx: 0, dy: 0 };
     n.rest = Math.hypot(n.home.dx - ph.dx, n.home.dy - ph.dy);
   }
-  ORG_LIVE = { nodes, hub, size, raf: 0, alpha: still ? 0 : 1, box: { lo: ORG_PAD_MIN, hi: size - ORG_PAD_MIN } };
+  /* #4434: the layout, as who is on the chart, who they report to, and the canvas. */
+  const sig = [size, cx, cy].concat([...placed].map(([k, sp]) => k + '<' + (sp.node.parent || ''))).join('|');
+  ORG_LIVE = { nodes, hub, size, raf: 0, alpha: still ? 0 : 1, box: { lo: ORG_PAD_MIN, hi: size - ORG_PAD_MIN }, sig };
+  /* #4434: the repair had to restore this very layout when it last came to rest, so the physics would replay
+     the same crossing and the same snap on every repaint (measured: about 3 in 100 squeezed fleets of 60 to
+     100 agents). It is at rest where it is: paint it there and do not run the physics. A drag still wakes it,
+     and any change to who is on the chart, who reports to whom, or the canvas, changes the layout. */
+  if (sig === ORG_PLANAR_AT && hubWas && [...nodes.keys()].every((k) => ORG_POS.has(k))) {
+    ORG_LIVE.alpha = 0.02;
+    orgLiveSync();
+    return;
+  }
   if (still) {
     /* #1738: reduced motion means do NOT ANIMATE, not do not LAY OUT. The old
        path skipped the relaxation entirely, leaving a reduced-motion user with
@@ -29778,7 +29790,7 @@ function orgLiveSettle() {
     if (a <= 0.02 || moved <= 0.05) break;
   }
   L.alpha = 0.02;
-  orgPlanarRepair(bodies, L.hub);   // #4434: never rest with a crossing
+  if (orgPlanarRepair(bodies, L.hub)) ORG_PLANAR_AT = L.sig;   // #4434: never rest with a crossing
   orgLiveSync();
 }
 function orgLiveSync() {
@@ -29813,7 +29825,7 @@ function orgLiveRun() {
     if (L.alpha > 0.02 && (moved > 0.05 || L.dragging)) L.raf = requestAnimationFrame(tickOnce);
     else {
       L.raf = 0; L.alpha = Math.max(L.alpha, 0.02);
-      if (!L.dragging && orgPlanarRepair([...L.nodes.values()], L.hub)) orgLiveSync();   // #4434: never rest with a crossing (and never mid-drag)
+      if (!L.dragging && orgPlanarRepair([...L.nodes.values()], L.hub)) { ORG_PLANAR_AT = L.sig; orgLiveSync(); }   // #4434: never rest with a crossing (and never mid-drag)
     }
   };
   if (!ORG_LIVE.raf) ORG_LIVE.raf = requestAnimationFrame(tickOnce);
