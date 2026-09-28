@@ -46,7 +46,9 @@ pass "lifted the verification out of the shipped postinstall"
 
 # --- a local origin --------------------------------------------------------
 WWW="$T/www"; mkdir -p "$WWW"
-printf '#!/bin/sh\ntouch "%s/RAN"\n' "$T" > "$WWW/setup"
+# The fake installer also records the directory it was run from (#4319), so an arm can check the
+# verify directory is gone afterwards. macOS mktemp -d ignores TMPDIR, so the path cannot be predicted.
+printf '#!/bin/sh\ntouch "%s/RAN"\ndirname "$0" > "%s/DIR"\n' "$T" "$T" > "$WWW/setup"
 GOOD=$(/usr/bin/shasum -a 256 "$WWW/setup" | /usr/bin/awk '{print $1}')
 cd "$WWW" || exit 1
 "$PY3" -u -m http.server 0 -b 127.0.0.1 >"$T/srv.log" 2>&1 &
@@ -81,13 +83,31 @@ URL="http://127.0.0.1:$PORT/setup"
 # in a REAL install `sudo -u -H` strips them, so production keeps the 5/3 default.
 # The refuse arms below therefore complete instantly instead of waiting ~12s each.
 export KOSMOS_PKG_RETRY_SLEEP=0 KOSMOS_PKG_RETRY_MAX=4
-run_arm() { rm -f "$T/RAN"; /bin/sh -c "$(cat "$INNER")" "$URL" 0 2>&1; }
+run_arm() { rm -f "$T/RAN" "$T/DIR"; /bin/sh -c "$(cat "$INNER")" "$URL" 0 2>&1; }
+# #4319: the verify directory the installer ran from must be gone once the run ends.
+verify_dir_gone() {
+  _vd=$(cat "$T/DIR" 2>/dev/null)
+  if [ -z "$_vd" ]; then fail "$1: the fake installer did not record its directory, so cleanup cannot be checked"
+  elif [ -e "$_vd" ]; then fail "$1: the verify directory was left behind: $_vd"; /bin/rm -rf "$_vd"
+  else pass "$1: the verify directory is gone afterwards"; fi
+}
 
 # --- ARM 1: the checksum matches, so it runs -------------------------------
 printf '%s  setup\n' "$GOOD" > "$WWW/setup.sha256"
 out=$(run_arm); rc=$?
 if [ "$rc" -eq 0 ] && [ -f "$T/RAN" ]; then pass "a matching checksum runs the installer"
 else fail "a matching checksum must run the installer (rc=$rc): $out"; fi
+verify_dir_gone "ARM 1"
+
+# --- ARM 1b (#4319): an installer that FAILS keeps its exit code, and still leaves nothing -----
+cp "$WWW/setup" "$T/setup.good"
+printf '#!/bin/sh\ndirname "$0" > "%s/DIR"\nexit 7\n' "$T" > "$WWW/setup"
+printf '%s  setup\n' "$(/usr/bin/shasum -a 256 "$WWW/setup" | /usr/bin/awk '{print $1}')" > "$WWW/setup.sha256"
+out=$(run_arm); rc=$?
+if [ "$rc" -eq 7 ]; then pass "a failing installer's exit code (7) comes back unchanged"
+else fail "a failing installer's exit code must come back unchanged (rc=$rc, want 7): $out"; fi
+verify_dir_gone "ARM 1b"
+cp "$T/setup.good" "$WWW/setup"
 
 # --- ARM 2: the checksum does not match, so it refuses ---------------------
 printf '%s  setup\n' "0000000000000000000000000000000000000000000000000000000000000000" > "$WWW/setup.sha256"
@@ -144,10 +164,26 @@ for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
   sleep 0.25
 done
 if [ -z "$FPORT" ]; then fail "ARM 4 flip-origin did not start"; else
-  rm -f "$T/RAN"
+  rm -f "$T/RAN" "$T/DIR"
   out=$(/bin/sh -c "$(cat "$INNER")" "http://127.0.0.1:$FPORT/setup" 0 2>&1); rc=$?
   if [ "$rc" -eq 0 ] && [ -f "$T/RAN" ]; then pass "a TRANSIENT mismatch that then matches RECOVERS and runs (retry works)"
   else fail "a transient-then-matching checksum must recover and run (rc=$rc, ran=$([ -f "$T/RAN" ] && echo yes || echo no)): $out"; fi
+  verify_dir_gone "ARM 4"
+fi
+
+# --- CONTROL (#4319): with the old exec restored, the verify directory IS left behind -------
+# So the three cleanup checks above can fail. The inner script is rewritten here only; the file is untouched.
+EXEC_INNER="$T/inner-exec.sh"
+/usr/bin/sed 's|^   /bin/sh "\$d/setup"$|   exec /bin/sh "$d/setup"|' "$INNER" > "$EXEC_INNER"
+if cmp -s "$INNER" "$EXEC_INNER"; then fail "CONTROL #4319: could not restore exec in the lifted script; re-anchor this control"
+elif [ -z "$FPORT" ]; then fail "CONTROL #4319: the ARM 4 origin never started, so this control could not run"
+else
+  # The ARM 4 origin is still up and, past its first hit, serves the matching checksum.
+  rm -f "$T/RAN" "$T/DIR"
+  /bin/sh -c "$(cat "$EXEC_INNER")" "http://127.0.0.1:$FPORT/setup" 0 >/dev/null 2>&1
+  _vd=$(cat "$T/DIR" 2>/dev/null)
+  if [ -n "$_vd" ] && [ -d "$_vd" ]; then pass "CONTROL #4319: with exec the directory is left, so the cleanup checks mean something"; /bin/rm -rf "$_vd"
+  else fail "CONTROL #4319: exec left no directory, so the cleanup checks above prove nothing (dir=$_vd)"; fi
 fi
 
 # --- CONTROL: the harness can tell a run from a refusal --------------------

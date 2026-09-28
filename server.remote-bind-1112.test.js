@@ -31,6 +31,10 @@ process.env.HOME = FAKE_HOME;
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
+// #4326: /api/connections probes gh and vercel. Never the operator's real ones (an
+// unauthenticated `vercel whoami` waits forever): a fake that answers "signed out" at once.
+process.env.AGENT_WORKFORCE_GH_BIN = path.join(__dirname, 'test-support', 'fake-cli-signed-out.sh');
+process.env.AGENT_WORKFORCE_VERCEL_BIN = path.join(__dirname, 'test-support', 'fake-cli-signed-out.sh');
 process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-rb-data-'));
 process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-rb-proj-'));
 process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-rb-work-'));
