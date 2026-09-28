@@ -2305,6 +2305,12 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   #pj-list-view .statsrow > .viewctl { min-width: 0; width: 100%; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
   #pj-list-view .sortctl { flex: 0 0 auto; }
   #pj-list-view .viewctl > .viewtoggle { flex: 0 0 auto; }
+  /* #4428: the Agents row gained the same Sort + view pair. Give the action its
+     narrow column and let the controls wrap inside the remaining width, exactly
+     as the Projects precedent above. */
+  #boardbar { grid-template-columns: min-content minmax(0, 1fr); }
+  #boardbar > .viewctl { min-width: 0; width: 100%; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+  #boardbar .sortctl, #boardbar .viewctl > .viewtoggle { flex: 0 0 auto; }
 }
 @media (max-width: 56rem) {
   .statsrow { grid-template-columns: auto auto; justify-content: space-between; }
