@@ -820,6 +820,7 @@ const heartbeat = require('./engine/heartbeat');
 const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
 const connlostHeal = require('./engine/connlost-heal'); // #3410 PR 2b: nudge a network-wedged agent when the network is back
+const firstreplyNudge = require('./engine/firstreply-nudge'); // #3226: one reminder to an agent that has not answered its first message
 const liveExecution = require('./engine/live-execution'); // #2808 class-1 (c): gate the auto-handle sweep on the board's live-execution opt-in
 /* #3410: the self-heal's per-agent record, at module scope so /api/status can say where a
    connection_lost agent's recovery stands (connlostHeal.reconnectPhase). In memory: a board
@@ -17127,6 +17128,25 @@ function start(port = PORT) {
       });
       const connlostSweep = setInterval(connlostTick, Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) : 60 * 1000); // the env is the test seam only
       if (connlostSweep && typeof connlostSweep.unref === 'function') connlostSweep.unref();
+      /* #3226: a brand-new agent that read its first message and never ran `kosmos reply` (about
+         1 in 10 first contacts; the same session answers its second message) gets ONE typed
+         reminder to answer with `kosmos reply` (engine/firstreply-nudge.js). Only when the card is
+         idle, it owes a reply, it has never sent one, and the owed message is a minute old; one
+         per session per board run. Same gating as the sweeps above: inert under `node --test` and
+         before the live-execution opt-in, operator brake AGENT_WORKFORCE_FIRSTREPLY_NUDGE_OFF=1,
+         own ~1-min timer, unref'd, best-effort. */
+      const FIRSTREPLY_BOOK = new Map();
+      const firstreplyTick = firstreplyNudge.makeTick({
+        allowed: () => liveExecution.liveExecutionAllowed(),
+        roster: () => safeRoster(),
+        book: FIRSTREPLY_BOOK,
+        owes: (session) => messageLog.owesReply(session),
+        deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+        DELIVERY: chat.DELIVERY,
+        log: (r) => process.stdout.write(`firstreply-nudge: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}\n`),
+      });
+      const firstreplySweep = setInterval(firstreplyTick, Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) : 60 * 1000); // the env is the test seam only
+      if (firstreplySweep && typeof firstreplySweep.unref === 'function') firstreplySweep.unref();
       /* #4004: a Gemini agent frozen on its usage-limit question (Keep trying / Stop) is answered Stop
          (engine/geminiquota.js -> chat.answerGeminiQuotaStop, which re-reads the pane first). Same gating as
          the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
