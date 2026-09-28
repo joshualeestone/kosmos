@@ -1361,7 +1361,6 @@ button.uprime:focus-visible, .btn.uprime:focus-visible { outline: 2px solid var(
 .restart-back .restart-k { width: 88px; height: 103px; display: block; margin-bottom: 22px; }
 .restart-back h1 { margin: 0 0 10px; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
 .restart-back p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--k-ink-2); }
-.restart-back small { margin-top: 28px; font-size: 12px; color: var(--k-ink-2); }
 /* The tab layout reserves a scrollbar gutter on <html>, which a fixed layer cannot paint over, so
    while the screen is up the page does not scroll and reserves nothing. */
 html.restart-up { overflow: hidden; scrollbar-gutter: auto; }
@@ -20413,8 +20412,8 @@ function paintRestartScreen(down, deviceIsOffline) {
   if (shown || now - BOARD_NO_ANSWER_SINCE < RESTART_SCREEN_AFTER_MS) return;
   const detail = [];
   const v = bakedVersion();
-  if (v) detail.push('Version ' + esc(v));
-  try { if (location && location.host) detail.push('nothing answered at ' + esc(location.host)); }
+  if (v) detail.push('Version ' + v);
+  try { if (location && location.host) detail.push('nothing answered at ' + location.host); }
   catch { /* no location: the version stands alone */ }
   const back = document.createElement('div');
   back.className = 'restart-back';
@@ -20422,8 +20421,10 @@ function paintRestartScreen(down, deviceIsOffline) {
     + '<canvas class="restart-k" width="176" height="206" aria-hidden="true"></canvas>'
     + '<h1>Kosmos requires a full restart</h1>'
     + '<p>' + platformCopy('restartHow', 'Quit Kosmos with Command-Q, then open it again from your Applications folder.') + '</p>'
-    + (detail.length ? '<small>' + asSentence(detail.join(', ')) + '</small>' : '')
     + '</div>';
+  /* Josh (via Splinter, 10:39): nothing else on the screen, so the version and the address that did
+     not answer go to the log, not onto the page. */
+  if (detail.length) { try { console.info('Kosmos requires a full restart: ' + asSentence(detail.join(', '))); } catch { /* no console */ } }
   RESTART_SCREEN_RETURN = document.activeElement;
   document.body.appendChild(back);
   document.documentElement.classList.add('restart-up');

@@ -97,6 +97,8 @@ const nextPolls = (page) => page.waitForTimeout(6500);
     const t = '[' + theme + ']';
     MODE = 'down';
     page.on('pageerror', (e) => problems.push(t + ' pageerror: ' + e.message));
+    const logs = [];
+    page.on('console', (m) => logs.push(m.text()));
     await page.goto('http://127.0.0.1:' + port + '/?tab=agents');
 
     // ── Positive control: the poll really failed, and the small note says so. ──
@@ -126,7 +128,7 @@ const nextPolls = (page) => page.waitForTimeout(6500);
         return {
           head: (back.querySelector('h1') || {}).textContent,
           how: (back.querySelector('p') || {}).textContent,
-          small: (back.querySelector('small') || {}).textContent || '',
+          parts: [...msg.children].map((c) => c.tagName.toLowerCase()).join(','),
           alpha, bg,
           full: r.left === 0 && r.top === 0 && r.width === window.innerWidth && r.height === window.innerHeight,
           covered,
@@ -140,7 +142,8 @@ const nextPolls = (page) => page.waitForTimeout(6500);
       });
       ok(t + ' the headline is Josh\'s words exactly', s.head === 'Kosmos requires a full restart', JSON.stringify(s.head));
       ok(t + ' it says how: Command-Q, then the Applications folder', /Command-Q/.test(s.how) && /Applications folder/.test(s.how), JSON.stringify(s.how));
-      ok(t + ' the details line starts with a capital and carries the address (and the version when one is baked)', /^[A-Z]/.test(s.small) && /nothing answered at 127\.0\.0\.1:\d+/i.test(s.small), JSON.stringify(s.small));
+      ok(t + ' nothing else on it: the mark, the headline and how to restart, and no details line', s.parts === 'canvas,h1,p', s.parts);
+      ok(t + ' the version and the address that did not answer go to the log instead', logs.some((l) => /^Kosmos requires a full restart: .*nothing answered at 127\.0\.0\.1:\d+\.$/i.test(l)), JSON.stringify(logs.slice(-3)));
       ok(t + ' the ground is opaque (nothing shows through)', s.alpha === 1, s.bg);
       ok(t + ' it fills the window and covers the header, the board and the corners', s.full && s.covered, JSON.stringify({ full: s.full, covered: s.covered }));
       ok(t + ' the message is centered (within 2px each way)', s.dx <= 2 && s.dy <= 2, JSON.stringify({ dx: s.dx, dy: s.dy }));
@@ -216,6 +219,8 @@ const nextPolls = (page) => page.waitForTimeout(6500);
     MODE = 'down';
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     page.on('pageerror', (e) => problems.push('[win] pageerror: ' + e.message));
+    const logs = [];
+    page.on('console', (m) => logs.push(m.text()));
     await page.goto('http://127.0.0.1:' + port + '/win');
     const baked = await page.evaluate(() => ({ win: onWindows(), v: bakedVersion() }));
     ok('[win] CONTROL: the served page really is a baked Windows page', baked.win === true && baked.v === '0.7.09', JSON.stringify(baked));
@@ -224,10 +229,10 @@ const nextPolls = (page) => page.waitForTimeout(6500);
     const drawn = await page.waitForSelector('.restart-back', { timeout: 8000 }).then(() => true, () => false);
     ok('[win] the screen is drawn on Windows too', drawn);
     if (drawn) {
-      const w = await page.evaluate(() => ({ how: document.querySelector('.restart-back p').textContent,
-        small: document.querySelector('.restart-back small').textContent }));
+      const w = { how: await page.evaluate(() => document.querySelector('.restart-back p').textContent),
+        small: logs.find((l) => /^Kosmos requires a full restart: /.test(l)) || '' };
       ok('[win] it gives the Windows remedy, not Command-Q', w.how === 'Close the Kosmos window, then double-click Kosmos.exe in your Kosmos folder.', JSON.stringify(w.how));
-      ok('[win] the details line leads with the baked version', /^Version 0\.7\.09, nothing answered at 127\.0\.0\.1:\d+\.$/.test(w.small), JSON.stringify(w.small));
+      ok('[win] the logged details lead with the baked version', /^Kosmos requires a full restart: Version 0\.7\.09, nothing answered at 127\.0\.0\.1:\d+\.$/.test(w.small), JSON.stringify(w.small));
     }
     await page.close();
   }
