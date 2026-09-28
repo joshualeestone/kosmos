@@ -41,8 +41,11 @@ with no report as UNKNOWN ("Can't tell"). The API-key Gemini CLI has SessionStar
   PreInvocation fires before each model call, so normally within one model call, at worst until that turn's Stop.
 - The seed runs synchronously before the supervisor's keep-alive loop: a board that does not answer delays the start
   of supervision by the bridge's own bounds (a second or two), not the agent, which is already running.
-- The supervisor half is pinned by source (as engine/agyhooks.test.js pins the agy arm); its runtime evidence is the
-  sandbox runs above, which need a real tmux and a fake agy and are not in the repo (review 6, deferred).
+- The supervisor half is RUN in supervisor.agyseed-4417.test.js (review 7: the fake-tmux harness of
+  supervisor.muse-launch-3939.test.js makes that possible; my earlier "needs a real tmux" was wrong): one idle sent as
+  the pane new-session printed, after @kosmos_agent and @kosmos_runner; nothing without a confirmed sign-in, nothing
+  for an untrusted folder, nothing on the adopt path even with every gate value inherited. Mutation: iteration 3's
+  supervisor (seed before the claim) and origin/main's both turn the first case red.
 - Named worlds: the signed-in read (agystatus.lastKnown, via store.ROOT) relies on the supervisor exporting the
   world's AGENT_WORKFORCE_* roots, which it does when KOSMOS_WORLD is set; if that export fails it reads the default
   store, the same fallback the launch-token mint already accepts (review 2, deferred as a known limit).

@@ -86,7 +86,6 @@ test('#4417: the supervisor seeds idle AFTER claiming the session, only for an a
   assert.ok(end > at, 'the branch after antigravity moved: re-anchor this pin');
   const arm = sh.slice(at, end);
   /* The launch arm produces the three values and the pane id; nothing in it reports. */
-  assert.match(arm, /_AGY_TRUSTED=""; _AGY_HOOKED=""/, 'a gate value could be inherited from the environment rather than this run');
   assert.match(arm, /_AGY_TRUSTED="\$\("\$NODE_BIN" "\$_eng\/agytrust\.js" "\$WORKDIR" \|\| true\)"/);
   assert.match(arm, /_AGY_PANE="\$\("\$TMUX_BIN" new-session -d -s "\$SESSION" -P -F '#\{pane_id\}' -c "\$WORKDIR"/,
     'the pane id is not taken from new-session itself (a lookup by name can resolve another agent\'s session)');

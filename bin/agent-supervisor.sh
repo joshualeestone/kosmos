@@ -772,7 +772,6 @@ if [ -z "$adopt" ]; then
       -e "GROK_CLAUDE_HOOKS_ENABLED=0" \
       ${_GROK_PREFIX[@]+"${_GROK_PREFIX[@]}"} "$CLAUDE" --permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL" || exit 1
   elif [ "$RUNNER" = antigravity ]; then
-    _AGY_TRUSTED=""; _AGY_HOOKED=""   # #4417: set below only by this run's own checks, never inherited
     # #3568: the Antigravity runner (Google's agy). The board sets one up unless AGENT_WORKFORCE_ANTIGRAVITY=0, and a job set up while it was on keeps
     # launching here after it is turned off, including the trust write below. Launched with its documented flags only (agy 1.2.10 --help):
     #   --dangerously-skip-permissions : auto-approve tool requests (the claude/gemini/grok analog)
@@ -898,12 +897,14 @@ fi
 # @kosmos_agent (launchidentity.paneSessionIsOurs), so a report sent before the claim is not recorded.
 # agy has no session-start hook (only PreInvocation and Stop), so an agent that was just (re)started and
 # has not been spoken to read "Can't tell" until its first turn (#4414). Tell the board, once, that it is idle, but
-# ONLY when all three hold, because an idle report never decays and nothing else would ever correct it:
+# ONLY when all three hold, because an idle report never decays; each gate removes one known way that idle would be
+# wrong. Not removed: a sign-out after the last confirmed check (lastKnown keeps a confirmed sign-in), and any other
+# agy start-up screen nobody has measured. See .claude/plans/agyseed-4417.md.
 #   - the hook is in place and on (_AGY_HOOKED, from agyhooks in the launch arm);
 #   - the folder is in agy's trusted list (_AGY_TRUSTED, from agytrust in the launch arm);
 #   - agystatus.lastKnown() has signedIn true.
-# Sent as the new pane (its id from new-session). Of the pane's own env list, only the KOSMOS_*,
-# AGENT_WORKFORCE_* and HOME entries are added (the launch token, port, world and store root the bridge reads).
+# Sent as the new pane (its id from new-session). Of the pane's own env list, only entries named KOSMOS_*,
+# AGENT_WORKFORCE_* or HOME are added (among them the launch token, port, world and store root the bridge reads).
 # `auto`, so it never erases a deliberate blocked. Best-effort: `|| true`, and its output goes nowhere.
 if [ "$RUNNER" = antigravity ] && [ -n "${NODE_BIN:-}" ] && [ -n "${_eng:-}" ] && [ -f "${_AGY_BRIDGE:-}" ] \
   && [ "${_AGY_HOOKED:-}" = hooked ] && [ "${_AGY_TRUSTED:-}" = trusted ] && [ -n "${_AGY_PANE:-}" ]; then
