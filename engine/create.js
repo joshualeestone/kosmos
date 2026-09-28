@@ -4403,7 +4403,7 @@ function createAgentInner(opts) {
     const named = /^\tpath = (.+)$/m.exec(printed);
     const namedPath = named ? named[1].trim() : '';
     let namedExists = false;
-    try { namedExists = Boolean(namedPath) && path.isAbsolute(namedPath) && fs.statSync(namedPath).isFile(); } catch { namedExists = false; }
+    try { namedExists = Boolean(namedPath) && path.isAbsolute(namedPath) && fs.statSync(namedPath).isFile(); } catch (e) { namedExists = Boolean(e && e.code && e.code !== 'ENOENT'); }
     if (!tried && namedExists) {
       return {
         outcome: OUTCOME.REFUSED,

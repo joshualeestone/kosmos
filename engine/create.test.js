@@ -797,6 +797,10 @@ test('#4279: a leftover job loaded from a TEMP plist is booted out and the agent
   const r = create.createAgent({ ...BINS, name: 'leftover-temp', role: 'pm' });
   assert.equal(r.outcome, create.OUTCOME.CREATED, r.because || '');
   assert.ok(bootedOut(calls), 'the leftover job was not booted out');
+  // The one destructive call must target THIS agent's own label, and so must the verify.
+  const target = `gui/${process.getuid()}/${create.serviceLabel('leftover-temp')}`;
+  assert.deepEqual(calls.filter(([, a]) => a && a[0] === 'bootout').map(([, a]) => a), [['bootout', target]], 'the bootout targeted another label');
+  assert.ok(calls.filter(([, a]) => a && a[0] === 'print').every(([, a]) => a[1] === target), 'a print looked at another label');
   assert.ok(r.steps.some((s) => /removed a leftover startup entry/.test(s.label) && s.ok && s.label.includes(leaked)), 'the removal is not reported as a step naming the file it removed');
 });
 

@@ -75,9 +75,22 @@ crash-looping today is still somebody's agent; the proof that a job is a leftove
   `/private` spelling. Dropped, with their #1732 rows.
 - A refusal for a present plist outside temp said "nothing else left of it"; it now names the file.
 
+## Review 5
+
+- BLOCKER, fixed: no test checked WHICH label the bootout and the verify print target, so pointing the one
+  destructive call at another label passed all 197. The temp-plist test now asserts both are exactly
+  `gui/<uid>/<this agent's serviceLabel>` (the wrong-label mutation reds).
+- The named-file refusal treats a stat error other than ENOENT as "a file is there" (it was read as none).
+- The gone branch's own weak premise is now stated below.
+
 ## Weakest premise
 
 That a real agent's plist never lives in a temp folder. Kosmos writes real plists to
 ~/Library/LaunchAgents; only a sandboxed launch root (tests, set by AGENT_WORKFORCE_LAUNCH) puts them in
 temp. A person who pointed AGENT_WORKFORCE_LAUNCH at a temp folder on purpose would have their job
 treated as a leftover when they create the same name again; that setting is test-only.
+
+A second, narrower one, for the GONE branch: a job whose plist was deleted while its process still runs
+(an accidental `rm`, an unmounted volume) is booted out too. It cannot come back after a restart either
+way, and the name is blocked until something removes it; this change makes that something the next
+create, and says so in a step.
