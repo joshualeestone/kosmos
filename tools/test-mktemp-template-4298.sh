@@ -65,10 +65,11 @@ s="$(sudo -u "$U" mktemp)"
 eval 'u=$(mktemp -d)'
 trap 'v=$(mktemp)' EXIT
 w="$(mktemp -d -t "$(basename "$0")")"
+"mktemp" -d >/dev/null
 SH
 got="$(node tools/mktemp-template-check.js "$T/bare.sh" | cut -d: -f2 | sort -n | tr '\n' ' ')"
-want="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 18 19 20 21 22 23 24 25 "
-[ "$got" = "$want" ] && ok "CONTROL: all 24 bare shapes are found, each on its own line" \
+want="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 18 19 20 21 22 23 24 25 26 "
+[ "$got" = "$want" ] && ok "CONTROL: all 25 bare shapes are found, each on its own line" \
   || bad "CONTROL: bare shapes found on lines [$got], want [$want]"
 
 # The other side: templated calls and mentions are not calls to fix.
@@ -84,6 +85,7 @@ echo "then mktemp -d is what failed"
 echo 'if mktemp -d' # while mktemp -t x
 bash -c 'q=$(mktemp -d "${TMPDIR:-/tmp}/z.XXXXXXXXXX")'
 grep -c 'mktemp -d' /dev/null
+if command -v mktemp >/dev/null 2>&1; then :; fi
 y="$(mktemp -d "${TMPDIR:-/tmp}/$(basename "$0").XXXXXXXXXX")"
 p="$(mktemp -d \
   "${TMPDIR:-/tmp}/y.XXXXXXXXXX")"

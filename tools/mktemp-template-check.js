@@ -30,7 +30,8 @@ const PRE = String.raw`(?:\$\(|` + '`' + String.raw`|^|[;&|!{()]|\b(?:if|then|do
 const OPT = String.raw`(?:\s+-[\w-]+(?:\s+(?:"[^"]*"|'[^']*'|[^\s-]\S*))?)*`;
 const WRAP = String.raw`\s*(?:(?:command|env|exec|sudo|nice|time|nohup|xargs)` + OPT + String.raw`\s+)*`
   + String.raw`(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s+)*`;
-const BIN = String.raw`(?:\/[\w./-]*\/)?mktemp(?![\w.-])`;
+/* The name may be quoted (`"mktemp" -d` runs mktemp all the same). */
+const BIN = String.raw`(["']?)(?:\/[\w./-]*\/)?mktemp\1(?![\w.-])`;
 const CALL = new RegExp(PRE + WRAP + BIN, 'g');
 
 /* What comes right before a quoted string that is itself a script: a shell's `-c` (in a flag
@@ -149,9 +150,13 @@ function bareCalls(text) {
     if (/^\s*#/.test(line)) continue;
     const mask = codeMask(line);
     for (const m of line.matchAll(CALL)) {
-      // The word itself must be code: a mention in a string or a comment is not a call.
-      const at = m.index + m[0].search(/mktemp(?![\w.-])/);
-      if (!mask[at]) continue;
+      // `command -v mktemp` asks whether mktemp exists; it does not run it.
+      if (/\bcommand\s+-[A-Za-z]*[vV]/.test(m[0])) continue;
+      // The word itself must be code: a mention in a string or a comment is not a call. A quoted
+      // name is judged by what precedes its opening quote.
+      let at = m.index + m[0].search(/["']?(?:\/[\w./-]*\/)?mktemp(?![\w.-])/);
+      if (line[at] === '"' || line[at] === "'") { if (at > 0 && !mask[at - 1] && !/\s/.test(line[at - 1])) continue; at = -1; }
+      if (at >= 0 && !mask[at]) continue;
       if (!hasTemplate(argsAt(line, m.index + m[0].length))) hits.push({ line: start + 1, text: line.trim() });
     }
   }
