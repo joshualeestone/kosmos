@@ -104,3 +104,14 @@ condition (one update, no second prompt) is first observable on the update after
   picker opened while the page was answering is never restarted under or covered.
 - A silent restart that fails to open the new window is tried again quietly (the #1182 marker is cleared,
   since nothing reopened), up to 3 times this launch; after that the person is told once.
+
+## Review iteration 12 (changes)
+- Elapsed time is systemUptime (stops in sleep, like the poll timers), so a Mac that slept mid-update does not
+  wake "past the limit" and show a false "did not update" notice.
+- An exact version match anywhere is preferred over a newer copy (a shared Mac's other account).
+
+## Status against the pass condition, stated honestly
+Mechanism built and unit-tested (the pure decision, the plist read, the page contract). The behaviour (one
+update, one relaunch, no second prompt) is NOT yet observed: that needs a real update from a build that
+contains this change. Every relaunch writes a timestamped `relaunch:` line to the app log, so the count per
+update can be read from there.

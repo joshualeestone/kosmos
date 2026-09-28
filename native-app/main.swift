@@ -2502,9 +2502,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
        canonical /Applications copy first. An unreadable candidate (version nil) is
        skipped, never chosen. */
     static func pickFresh(_ candidates: [(url: URL, version: String?)], theirs: String) -> URL? {
+        /* An exact match anywhere beats a newer copy (#4347): on a shared Mac, another account's newer
+           /Applications copy must not win over this account's own bundle that carries exactly `theirs`. */
+        if let exact = candidates.first(where: { $0.version == theirs }) { return exact.url }
         for c in candidates {
             guard let v = c.version else { continue }
-            if v == theirs || isBehind(theirs, v) == true { return c.url }
+            if isBehind(theirs, v) == true { return c.url }
         }
         return nil
     }
@@ -2608,7 +2611,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         let told = relaunchGaveUpAt == "\(mine)|\(theirs)"
         if told { logLine("relaunch: already told the person about \(mine) -> \(theirs); looking for the new app quietly") }
-        stepRelaunch(mine: mine, theirs: theirs, since: Date(), freshSince: nil, toldGaveUp: told, askedBefore: told)
+        stepRelaunch(mine: mine, theirs: theirs, since: ProcessInfo.processInfo.systemUptime, freshSince: nil, toldGaveUp: told, askedBefore: told)
     }
 
     private var loggedRelaunchPageError = false
@@ -2626,7 +2629,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     static let silentRelaunchFailureLimit = 3
 
     /// #4347: one step of the wait-then-restart. Re-arms itself until it relaunches, asks, or gives up.
-    private func stepRelaunch(mine: String, theirs: String, since: Date, freshSince: Date?, toldGaveUp: Bool,
+    /// `since` and `freshSince` are systemUptime, which stops while the Mac sleeps, as the poll timers do: a Mac
+    /// that slept through an update does not wake up "past the limit" before the install could finish.
+    private func stepRelaunch(mine: String, theirs: String, since: TimeInterval, freshSince: TimeInterval?, toldGaveUp: Bool,
                               askedBefore: Bool = false) {
         /* A dialog, sheet or file picker of the app's own is open: do nothing now and look again later,
            without deciding anything, so no second dialog lands on top of it and no restart closes it. */
@@ -2638,10 +2643,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             return
         }
         let target = Self.freshAppURL(theirs: theirs)
-        let now = Date()
-        let waited = now.timeIntervalSince(since)
+        let now = ProcessInfo.processInfo.systemUptime
+        let waited = now - since
         let freshAt = freshSince ?? (target == nil ? nil : now)
-        let freshFor = freshAt.map { now.timeIntervalSince($0) } ?? 0
+        let freshFor = freshAt.map { now - $0 } ?? 0
         var decided = false
         let decide = { [weak self] (page: PageSays) in
             guard !decided, let self else { return }
@@ -2667,7 +2672,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 if !restarted {
                     // Not Now: no more questions; the silent restart still happens once the page says safe.
                     DispatchQueue.main.asyncAfter(deadline: .now() + Self.relaunchPollForPage) { [weak self] in
-                        self?.stepRelaunch(mine: mine, theirs: theirs, since: since, freshSince: Date(), toldGaveUp: toldGaveUp,
+                        self?.stepRelaunch(mine: mine, theirs: theirs, since: since, freshSince: ProcessInfo.processInfo.systemUptime, toldGaveUp: toldGaveUp,
                                            askedBefore: true)
                     }
                 }
@@ -2739,7 +2744,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            this process calls NSApp.terminate a few lines down, so anything
            recorded "once the replacement is up" is recorded by nobody. If the
            relaunch fails instead, the value is still correct -- we DID try at
-           this version -- and the failure path below clears it again, since nothing reopened. */
+           this version. The failure path below clears it again for a silent restart (nothing reopened);
+           after a restart the person asked for, it stays, and the next launch says so honestly. */
         relaunchedAtVersion = mine
 
         /* 🛑 NEVER QUIT UNTIL THE REPLACEMENT IS ACTUALLY COMING. Terminating
@@ -2804,7 +2810,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                     if self.silentRelaunchFailures < Self.silentRelaunchFailureLimit {
                         DispatchQueue.main.asyncAfter(deadline: .now() + Self.relaunchPollForPage) {
                             // A failure nobody saw is not a question anybody was asked: carry the real value.
-                            self.stepRelaunch(mine: mine, theirs: theirs, since: Date(), freshSince: Date(),
+                            self.stepRelaunch(mine: mine, theirs: theirs, since: ProcessInfo.processInfo.systemUptime, freshSince: ProcessInfo.processInfo.systemUptime,
                                               toldGaveUp: false, askedBefore: askedBefore)
                         }
                         return
@@ -3996,6 +4002,9 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
     let a1 = URL(fileURLWithPath: "/Applications/Kosmos.app")
     stepCheck(AppDelegate.pickFresh([(a1, "0.7.06")], theirs: "0.7.05") == a1 ? .wait : .giveUp, .wait,
               "an app NEWER than the awaited version is accepted")
+    let own = URL(fileURLWithPath: "/Users/x/Applications/Kosmos.app")
+    stepCheck(AppDelegate.pickFresh([(a1, "0.7.06"), (own, "0.7.05")], theirs: "0.7.05") == own ? .wait : .giveUp, .wait,
+              "an EXACT match beats a newer copy listed first (another account's newer /Applications copy)")
     stepCheck(AppDelegate.pickFresh([(a1, "0.7.04")], theirs: "0.7.05") == nil ? .wait : .giveUp, .wait,
               "an app OLDER than the awaited version is not")
 
