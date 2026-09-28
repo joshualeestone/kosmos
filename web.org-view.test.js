@@ -15,6 +15,7 @@
  * was written for it and had never once been exercised.
  */
 
+require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

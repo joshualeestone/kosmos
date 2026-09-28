@@ -9,6 +9,7 @@
  * have treated an unreadable fleet as "nobody is on it".
  */
 
+require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const test = require('node:test');
 const store = require('./engine/store');
 const assert = require('node:assert/strict');

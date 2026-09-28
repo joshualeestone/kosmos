@@ -4,6 +4,7 @@
  * switch, and the migration guarantee that an install with no registry is the
  * single default world with the legacy roots UNCHANGED.
  */
+require('../test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');

@@ -65,6 +65,7 @@
 //      reads the operator's real `~/.claude` on every run here. Reads only —
 //      but `engine/status.test.js` sets it, and this file should, and the
 //      asymmetry is worth knowing before adding a test that writes.
+require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const os = require('node:os');
 const fs = require('node:fs');
 const nodePath = require('node:path');
