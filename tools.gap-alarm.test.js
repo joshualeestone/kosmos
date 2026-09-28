@@ -184,6 +184,21 @@ test('could not tell: a build not in the checkout exits 2 and says so, and is no
   assert.match(s.msg.read(), /could not tell \(the prod build deadbeef is not in .*\)\. This is not a pass/);
 });
 
+test('review 13: a cut straight to prod (staging behind prod) measures main against prod, and says so', () => {
+  const { dir, shas } = repoWith([['staging', NOW - 100 * H], ['a', NOW - 90 * H], ['prod', NOW - 80 * H], ['b', NOW - 2 * H]]);
+  const r = run(['--check'], { KOSMOS_REPO_DIR: dir, GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, NOW - 100 * H, '0.7.06', '0.7.05') });
+  const v = JSON.parse(r.out);
+  assert.equal(v.prodAhead, true);
+  assert.equal(v.main.ahead, 1, 'shipped work counted as waiting: main measured against the older staging build');
+  assert.equal(v.staging.ahead, 0);
+  assert.match(alarm.message('watching', v), /main is 1 commits past prod 0\.7\.06 .*staging 0\.7\.05 is behind prod/);
+  // CONTROL: staging at or ahead of prod still measures against staging.
+  const c = JSON.parse(run(['--check'], { KOSMOS_REPO_DIR: dir, GAP_ALARM_POINTERS: ptrs(shas.staging, shas.prod, NOW - 80 * H) }).out);
+  assert.equal(c.prodAhead, false);
+  assert.equal(c.main.ahead, 1);
+  assert.equal(c.staging.ahead, 2);
+});
+
 test('review 11: a post time stamped in the future (a fast clock) does not silence a standing alarm', () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 90 * H]]);
   const s = stubs();

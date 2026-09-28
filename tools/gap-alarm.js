@@ -13,7 +13,9 @@
  * counts with git, and posts. Main's hours run from the OLDEST commit not yet in staging, read on
  * main's FIRST-PARENT line only: its committer time there is when the work landed on main, whether it
  * was squashed or merged with a merge commit (a side branch's own commits can be days older than their
- * merge, and would alarm the hour they land): how long merged work has waited for a cut. Staging's hours run from when the staging build was CUT (its manifest's built.at), while it
+ * merge, and would alarm the hour they land): how long merged work has waited for a cut. When a cut
+ * went straight to prod and staging is behind it, main is measured against prod instead. Staging's
+ * hours run from when the staging build was CUT (its manifest's built.at), while it
  * holds anything prod does not: how long a build has waited for a promote, which is gated on walks
  * and so is the step a person must take.
  *
@@ -97,13 +99,16 @@ function decidePost(v, last, now) {
 
 function message(kind, v) {
   if (kind === 'unknown') return 'gap alarm (kosmos#1050): could not tell (' + v.why + '). This is not a pass: the gap is unmeasured.';
-  const line = 'main is ' + v.main.ahead + ' commits past staging ' + v.stagingVersion + ' (oldest waiting ' + v.main.hours + ' h); '
-    + 'staging ' + v.stagingVersion + ' is ' + v.staging.ahead + ' commits past prod ' + v.prodVersion
-    + (v.staging.ahead > 0 ? ' (cut ' + v.staging.hours + ' h ago).' : '.');
+  const line = v.prodAhead
+    ? 'main is ' + v.main.ahead + ' commits past prod ' + v.prodVersion + ' (oldest waiting ' + v.main.hours + ' h); '
+      + 'staging ' + v.stagingVersion + ' is behind prod (prod was cut straight to prod).'
+    : 'main is ' + v.main.ahead + ' commits past staging ' + v.stagingVersion + ' (oldest waiting ' + v.main.hours + ' h); '
+      + 'staging ' + v.stagingVersion + ' is ' + v.staging.ahead + ' commits past prod ' + v.prodVersion
+      + (v.staging.ahead > 0 ? ' (cut ' + v.staging.hours + ' h ago).' : '.');
   if (kind === 'watching') return 'gap alarm (kosmos#1050): still watching, and under the limits. ' + line;
   if (kind === 'cleared') return 'gap alarm (kosmos#1050): ' + (v.after === 'unknown' ? 'measurable again, and under the limits. ' : 'back under the limits. ') + line;
   return 'gap alarm (kosmos#1050): ' + v.reasons.join(', ') + '. ' + line
-    + ' Limits: main ' + THRESHOLDS.mainCommits + ' commits or ' + THRESHOLDS.mainHours + ' h past staging; staging '
+    + ' Limits: main ' + THRESHOLDS.mainCommits + ' commits or ' + THRESHOLDS.mainHours + ' h past ' + (v.prodAhead ? 'prod' : 'staging') + '; staging '
     + THRESHOLDS.stagingHours + ' h past prod. Cuts are manual: cut or promote, or say on #1050 why not.';
 }
 
@@ -170,8 +175,17 @@ async function gather() {
       try { git(repo, ['cat-file', '-e', ptrs[k].sha + '^{commit}']); } catch { throw new Error('the ' + k + ' build ' + ptrs[k].sha.slice(0, 8) + ' is not in ' + repo); }
     }
     const st = waiting(repo, ptrs.prod.sha, ptrs.staging.sha);
-    const v = verdict({ main: waiting(repo, ptrs.staging.sha, 'origin/main'), staging: { ahead: st.ahead, builtAt: ptrs.staging.builtAt }, now });
-    return Object.assign(v, { now, prodVersion: ptrs.prod.version, stagingVersion: ptrs.staging.version });
+    /* A cut straight to prod (tools/release.sh's default channel) leaves staging BEHIND prod: prod
+       holds everything staging does and more. Main is then measured against prod, the newest build
+       anyone has, or shipped work would be reported as waiting until someone cut staging just to
+       quiet the alarm (review 13). Otherwise (staging at or ahead of prod) against staging. */
+    let prodAhead = false;
+    if (st.ahead === 0 && ptrs.prod.sha !== ptrs.staging.sha) {
+      try { git(repo, ['merge-base', '--is-ancestor', ptrs.staging.sha, ptrs.prod.sha]); prodAhead = true; } catch { prodAhead = false; }
+    }
+    const mainBase = prodAhead ? ptrs.prod.sha : ptrs.staging.sha;
+    const v = verdict({ main: waiting(repo, mainBase, 'origin/main'), staging: { ahead: st.ahead, builtAt: ptrs.staging.builtAt }, now });
+    return Object.assign(v, { now, prodVersion: ptrs.prod.version, stagingVersion: ptrs.staging.version, prodAhead });
   } catch (err) {
     return { now, unknown: true, alarm: false, reasons: [], why: String((err && err.message) || err) };
   }
