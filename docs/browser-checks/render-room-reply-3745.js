@@ -170,18 +170,32 @@ function chk(ok, label, extra) {
       box.value = '@roomer looks good'; box.setSelectionRange(box.value.length, box.value.length);
       pjReplyStart('agent-4359');   // Reply again: the mention is not stacked
       const again = box.value;
+      box.setSelectionRange(box.value.length, box.value.length);
       pjReplyStart(PJ_REPLY_ORIGINAL_ID);   // then to your own post: the mention Reply put there is taken back out
       const own = box.value;
+      const ownCaret = box.selectionStart;
+      // A draft, then Reply to your own post again: nothing to add, so neither the text nor the caret moves.
+      box.value = 'half a thought'; box.setSelectionRange(14, 14);
+      pjReplyStart(PJ_REPLY_ORIGINAL_ID);
+      const kept = { value: box.value, caret: box.selectionStart };
+      // A post from someone who is not one of this project's agents gets no mention either.
+      PJ_ROOM_POSTS.set('stranger-4359', { id: 'stranger-4359', from: 'not-on-this-project', text: 'Hello?' });
+      box.value = 'draft'; box.setSelectionRange(5, 5);
+      pjReplyStart('stranger-4359');
+      const stranger = { value: box.value, caret: box.selectionStart };
+      PJ_ROOM_POSTS.delete('stranger-4359');
       box.value = ''; pjReplyStart('agent-4359');
       document.querySelector('#pj-reply .pj-replying-x').click();   // x with only the mention in the box empties it
       const afterX = box.value;
       PJ_ROOM_POSTS.delete('agent-4359');
       box.value = '';
-      return { first, again, own, afterX };
+      return { first, again, own, ownCaret, kept, stranger, afterX };
     });
     chk(ment.first.value === '@roomer ' && ment.first.caret === 8 && !ment.first.hint, 'Reply to an agent puts "@roomer " at the start with the cursor after it', JSON.stringify(ment.first));
     chk(ment.again === '@roomer looks good', 'a second Reply to the same agent does not add the mention twice', JSON.stringify(ment.again));
-    chk(ment.own === 'looks good', 'switching the reply to your own post takes the mention back out and keeps what you wrote', JSON.stringify(ment.own));
+    chk(ment.own === 'looks good' && ment.ownCaret === 10, 'switching the reply to your own post takes the mention back out, keeps what you wrote, and keeps the cursor at its end', JSON.stringify({ own: ment.own, caret: ment.ownCaret }));
+    chk(ment.kept.value === 'half a thought' && ment.kept.caret === 14, 'Reply to your own post with a draft in the box moves neither the draft nor the cursor', JSON.stringify(ment.kept));
+    chk(ment.stranger.value === 'draft' && ment.stranger.caret === 5, 'a post from someone not on the project gets no mention, and the cursor stays put', JSON.stringify(ment.stranger));
     chk(ment.afterX === '', 'x on a reply whose box holds only the mention empties the box', JSON.stringify(ment.afterX));
     await firstRow.hover();
     await firstRow.locator('.rxn-reply').click();

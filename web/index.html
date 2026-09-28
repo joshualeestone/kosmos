@@ -53108,14 +53108,21 @@ function pjReplyStart(postId) {
 function pjReplyMention(p, m, previous) {
   const input = document.getElementById('pj-post');
   if (!input) return;
-  let text = input.value;
-  if (previous && text.startsWith(previous)) text = text.slice(previous.length);
+  const before = input.value;
+  const caret = typeof input.selectionStart === 'number' ? input.selectionStart : before.length;
+  let text = before;
+  let cut = 0;   // characters taken off the front, so a caret left alone still sits on the same letter
+  if (previous && text.startsWith(previous)) { text = text.slice(previous.length); cut = previous.length; }
   const agent = m && m.operator !== true ? mentionCandidates(p).find((c) => c.key === m.from) : null;
   const ins = agent ? '@' + agent.key + ' ' : '';
-  if (ins && text.startsWith(ins)) text = text.slice(ins.length);   // already there by hand: not twice
-  input.value = ins + text;
+  if (ins && text.startsWith(ins)) { text = text.slice(ins.length); cut += ins.length; }   // already there by hand: not twice
   if (PJ_REPLY[PJ_CURRENT]) PJ_REPLY[PJ_CURRENT].mention = ins || null;
-  input.setSelectionRange(ins.length, ins.length);
+  const after = ins + text;
+  if (after === before) return;   // nothing to change: leave the draft and the caret exactly as they are
+  input.value = after;
+  // With a mention, the cursor goes right after it (the card). Without one, it stays where it was.
+  const at = ins ? ins.length : Math.max(0, caret - cut);
+  input.setSelectionRange(at, at);
   // The same path typing takes, so the mention highlight and the box's height follow.
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
