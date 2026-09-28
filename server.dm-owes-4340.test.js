@@ -29,6 +29,10 @@ const { start, server, keepAgentReply } = require('./server');
 const chat = require('./engine/chat');
 const messages = require('./engine/messages');
 const create = require('./engine/create');
+const { assertSandboxedDataRoot } = require('./test-support/data-root-sandbox');
+/* The same check as the engine test: every thread file below must land in THIS sandbox, measured against the
+   operator's real data root, never the environment variable alone (#4365 review). */
+assertSandboxedDataRoot(SANDBOX, [require('./engine/store').ROOT, chat.threadFile(chat.DIRECT, 'novadm')]);
 
 const AGENT = 'novadm';
 let base;

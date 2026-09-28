@@ -12,10 +12,13 @@ const os = require('node:os');
 const nodePath = require('node:path');
 /* A SANDBOXED data root before chat is required: the writer test below appends a real thread file, and without
    this it lands in the person's own Kosmos data (it did, once, while this was being written). */
-process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-dmowes-4340-'));
+const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-dmowes-4340-'));
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 const chat = require('./chat');
-const store = require('./store');
-assert.ok(store.ROOT.startsWith(process.env.AGENT_WORKFORCE_DATA), 'the data root is not the sandbox: ' + store.ROOT);
+const { assertSandboxedDataRoot } = require('../test-support/data-root-sandbox');
+/* Measured against the REAL data root, not the variable (#4365 review: an empty variable made startsWith('')
+   always true). The thread file is checked too, because that is what the writer test below creates. */
+assertSandboxedDataRoot(SANDBOX, [require('./store').ROOT, chat.threadFile(chat.DIRECT, 'nova-writer-probe')]);
 
 const A = 'nova';
 const at = (minAgo) => new Date(Date.now() - minAgo * 60000).toISOString();
