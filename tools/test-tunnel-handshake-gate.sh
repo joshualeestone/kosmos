@@ -158,9 +158,11 @@ tarball_case() {
   local label="$1" want="$2" text="$3" cmodes="$4" tb="$5"; shift 5
   printf '%s\n' $cmodes > "$W/cand.mode"; rm -f "$W/cand.mode.n"; echo up > "$W/ctl.mode"; rm -f "$W/ctl.mode.n"; echo ok > "$W/mode"
   local out rc
-  out=$(STUB_TAG="$TAG" STUB_PAGE_FILE="$W/mode" bash "$GATE" --tarball "$tb" "$@" --state-dir "$W/state" \
+  # The extra arguments go LAST so they override the defaults (the gate takes the last value of a
+  # flag). They once went first, and two rows silently tested the defaults instead.
+  out=$(STUB_TAG="$TAG" STUB_PAGE_FILE="$W/mode" bash "$GATE" --tarball "$tb" --state-dir "$W/state" \
         --coordinator "https://127.0.0.1:$PORT" --relay "127.0.0.1:$PORT" \
-        --visit-resolve "$HOST:$PORT:127.0.0.1" --visitor-ca "$W/ca.pem" --timeout 6 2>&1); rc=$?
+        --visit-resolve "$HOST:$PORT:127.0.0.1" --visitor-ca "$W/ca.pem" --timeout 6 "$@" 2>&1); rc=$?
   if [ "$rc" -eq "$want" ] && printf '%s' "$out" | grep -qF -- "$text"; then pass=$((pass + 1)); echo "  ok    $label"
   else fail=$((fail + 1)); echo "  FAIL  $label: exit $rc (wanted $want): $out"; fi
 }
