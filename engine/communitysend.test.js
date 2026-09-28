@@ -598,3 +598,86 @@ test('the registration name falls back to a handle when the scrub returns its ne
   assert.equal(communitysite.scrubAuthorName('​').name, communitysite.DEFAULT_AUTHOR_NAME);
   assert.match(cs.registration('dot').name, /^agent-[0-9a-f]{6}$/);
 });
+
+// A sender whose POST /posts reaches the server but whose answer is lost.
+function losePostAnswers() {
+  cs.setSender(async (url, init) => {
+    if (init.method === 'POST' && url.endsWith('/posts')) { await fetch(url, init); throw new Error('connection reset'); }
+    return fetch(url, init);
+  });
+}
+
+test('with the switch OFF, an unconfirmed post the owner deletes is found on the server and deleted', async () => {
+  await on();
+  const r = agentPost('eli', { topic: 't', body: 'b' });
+  losePostAnswers();
+  await cs.sweep();
+  assert.equal(cs.statuses()[r.id].state, 'unconfirmed');
+  SW = { on: false, ok: true };
+  cs.requestDelete(r.id);
+  cs.setSender((url, init) => fetch(url, init));
+  await cs.sweep();
+  assert.equal([...be.st.posts.values()][0].deleted, true, 'the server copy stayed public with the switch OFF');
+  assert.equal(cs.statuses()[r.id].state, 'deleted');
+});
+
+test('an unconfirmed post is settled after an OFF-then-ON cycle, not stranded', async () => {
+  await on();
+  const r = agentPost('fin', { topic: 't', body: 'b' });
+  losePostAnswers();
+  await cs.sweep();
+  SW = { on: false, ok: true };
+  cs.setSender((url, init) => fetch(url, init));
+  await cs.sweep();
+  await on();
+  await cs.sweep();
+  assert.equal(be.st.posts.size, 1);
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+  assert.equal(cs.statuses()[r.id].lastStatus, undefined, 'a settled post still carries an old failure status');
+});
+
+test('requests are made with redirect: error, so a login key is not re-sent to a redirect target (fetch following a redirect is simulated here)', async () => {
+  await on();
+  agentPost('gil', { topic: 't', body: 'b' });
+  await cs.sweep();
+  const key = [...be.st.agents.values()][0].key;
+  [...be.st.agents.values()][0].token = 'expired';     // the next call logs in with the key
+  const other = await new Promise((resolve) => {
+    const seen = [];
+    const srv = http.createServer((req, res) => { let b = ''; req.on('data', (d) => { b += d; }); req.on('end', () => { seen.push(b); res.end('{}'); }); });
+    srv.listen(0, '127.0.0.1', () => resolve({ srv, seen }));
+  });
+  const real = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  cs.setSender(async (url, init) => {
+    if (url.endsWith('/agents/login')) {
+      // What fetch does with a 307 when asked to follow it, and what redirect:'error' prevents.
+      if (init.redirect !== 'error') return fetch(`http://127.0.0.1:${other.srv.address().port}/agents/login`, init);
+      throw new TypeError('redirect mode is set to error');
+    }
+    return fetch(url, init);
+  });
+  agentPost('gil', { topic: 't2', body: 'b2' });
+  try {
+    await cs.sweep();
+    assert.ok(!other.seen.join('').includes(key), 'the key went to the redirect target');
+  } finally {
+    other.srv.close();
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = real;
+  }
+});
+
+test('a 429 on registration waits instead of registering again every sweep', async () => {
+  await on();
+  agentPost('hal2', { topic: 't', body: 'b' });
+  let registers = 0;
+  cs.setSender(async (url, init) => {
+    if (url.endsWith('/agents/register')) {
+      registers += 1;
+      return new Response('{"detail":"too many registrations"}', { status: 429, headers: { 'content-type': 'application/json', 'retry-after': '3600' } });
+    }
+    return fetch(url, init);
+  });
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(registers, 1);
+});

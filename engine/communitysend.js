@@ -219,7 +219,8 @@ async function request(method, pathname, { token, body } = {}) {
     if (body !== undefined) headers['content-type'] = 'application/json';
     if (token) headers.authorization = 'Bearer ' + token;
     const res = await post(endpoint() + pathname, {
-      method, headers, signal: ctl.signal,
+      // A redirect would re-send the body (a key, on login) to wherever it points.
+      method, headers, signal: ctl.signal, redirect: 'error',
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
     let json = null;
@@ -234,6 +235,12 @@ async function request(method, pathname, { token, body } = {}) {
   }
 }
 
+// A record that has reached a final state carries no leftover failure bookkeeping.
+function settle(rec, fields) {
+  const { attempted: _a, lastStatus: _l, ...rest } = rec;
+  return { ...rest, ...fields };
+}
+
 // The reason classes of a 422, and nothing else from the server's answer.
 function refusalReasons(json) {
   const d = json && json.detail;
@@ -241,8 +248,10 @@ function refusalReasons(json) {
   return r.filter((x) => typeof x === 'string' && /^[a-z_]{1,40}$/.test(x));
 }
 
+const registerRetryAt = new Map();   // agentKey -> ms; a 429 on register waits, in memory
 async function ensureRegistered(agentKey, keys) {
   if (keys[agentKey] && keys[agentKey].apiKey) return keys[agentKey];
+  if ((registerRetryAt.get(agentKey) || 0) > Date.now()) return null;
   const reg = registration(agentKey);
   const base = reg.name;
   for (let i = 0; i < 3; i++) {
@@ -255,6 +264,7 @@ async function ensureRegistered(agentKey, keys) {
       saveJson(keysFile(), keys);
       return keys[agentKey];
     }
+    if (r.status === 429) registerRetryAt.set(agentKey, Date.now() + Math.max(60, r.retryAfter || 3600) * 1000);
     if (r.status !== 409) return null;               // a name clash retries; anything else waits for the next sweep
     reg.name = cutUtf16(base, 72) + '-' + crypto.randomBytes(2).toString('hex');
   }
@@ -299,11 +309,11 @@ async function sendPost(post, keys, sent, now) {
   if (!k || k.refused) return;
   const rec = sent[post.id] || { state: 'pending', agent: agentKey };
   let body = payload(post, rec.channel);
-  if (!body.title || !body.body) { sent[post.id] = { ...rec, state: 'refused', reasons: ['empty'] }; return; }
+  if (!body.title || !body.body) { sent[post.id] = settle(rec, { state: 'refused', reasons: ['empty'] }); return; }
   if (rec.attempted) {
     const found = await findExisting(agentKey, keys, body, sent);
     if (found === undefined) return;                  // cannot tell yet: try again next sweep
-    if (found) { sent[post.id] = { ...rec, state: 'sent', remoteId: found, sentAt: new Date(now).toISOString() }; return; }
+    if (found) { sent[post.id] = settle(rec, { state: 'sent', remoteId: found, sentAt: new Date(now).toISOString() }); return; }
   }
   let r = await asAgent(agentKey, keys, 'POST', '/posts', body);
   const unknownChannel = (x) => x.status === 400 && x.json && /unknown (sub_)?channel/.test(String(x.json.detail || ''));
@@ -313,13 +323,13 @@ async function sendPost(post, keys, sent, now) {
     r = await asAgent(agentKey, keys, 'POST', '/posts', body);
   }
   if (r.status === 201 && r.json && r.json.id) {
-    sent[post.id] = { ...rec, state: 'sent', remoteId: String(r.json.id), sentAt: new Date(now).toISOString() };
+    sent[post.id] = settle(rec, { state: 'sent', remoteId: String(r.json.id), sentAt: new Date(now).toISOString() });
   } else if (r.status === 201) {
     sent[post.id] = { ...rec, attempted: true };      // stored, but no id came back: adopt it next sweep
   } else if (r.status === 422) {
-    sent[post.id] = { ...rec, state: 'refused', reasons: refusalReasons(r.json) };
+    sent[post.id] = settle(rec, { state: 'refused', reasons: refusalReasons(r.json) });
   } else if (r.status === 400) {
-    sent[post.id] = { ...rec, state: 'refused', reasons: ['rejected'] };
+    sent[post.id] = settle(rec, { state: 'refused', reasons: ['rejected'] });
   } else if (r.status === 429) {
     // The daily cap: wait as long as the server says, and remember it across sweeps.
     k.retryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
@@ -329,7 +339,7 @@ async function sendPost(post, keys, sent, now) {
     sent[post.id] = { ...rec, lastStatus: 401 };
     log(`post for ${agentKey}: the server refused the token and a new one could not be had; retrying next sweep`);
   } else if (r.status >= 400 && r.status < 500) {
-    sent[post.id] = { ...rec, state: 'refused', reasons: ['http_' + r.status] };
+    sent[post.id] = settle(rec, { state: 'refused', reasons: ['http_' + r.status] });
     log(`post for ${agentKey}: refused with ${r.status}`);
   } else {
     // No answer, a 5xx, or anything unexpected: the server may have stored it, so the next
@@ -346,7 +356,7 @@ async function sweepDeletes(keys, sent, deletes) {
     const k = keys[rec.agent];
     if (!k || !k.apiKey || k.refused) continue;
     const r = await asAgent(rec.agent, keys, 'DELETE', '/posts/' + encodeURIComponent(rec.remoteId));
-    if (r.status === 204 || r.status === 404) sent[id] = { ...rec, state: 'deleted' };
+    if (r.status === 204 || r.status === 404) sent[id] = settle(rec, { state: 'deleted' });
   }
 }
 
@@ -382,12 +392,20 @@ async function sweepOnce(now) {
   const st = loadJson(stateFile());
   if (!on && st) endOnPeriod(st);
   if (!endpointAllowed()) {
-    log('the community address is not https, so nothing is sent to it');
+    if (!reportedCorrupt.has('insecure:' + endpoint())) {
+      reportedCorrupt.add('insecure:' + endpoint());
+      log('the community address is not https, so nothing is sent to it');
+    }
     return { skipped: 'insecure' };
   }
   const keys = loadJson(keysFile());
   const sent = loadJson(sentFile());
   if (!keys || !sent || !loadJson(deletesFile())) return { skipped: 'unreadable' };
+  // Sends that got no answer are settled first, whatever the switch says: a copy the server
+  // holds is adopted (so a delete and take-down reads reach it), and one it does not hold
+  // is known not to be public.
+  await settleUnconfirmed(keys, sent, now);
+  saveJson(sentFile(), sent);
   if (on && st) {
     const from = sinceForOnPeriod(st);
     const due = communitystore.publishedPosts()
@@ -413,6 +431,20 @@ async function sweepOnce(now) {
   return on ? { ok: true } : { skipped: 'off' };
 }
 
+async function settleUnconfirmed(keys, sent, now) {
+  const byId = new Map(communitystore.publishedPosts().map((p) => [p.id, p]));
+  for (const [id, rec] of Object.entries(sent)) {
+    if (!rec || !rec.attempted || rec.state !== 'pending') continue;
+    const k = keys[rec.agent];
+    const post = byId.get(id);
+    if (!k || !k.apiKey || k.refused || !post) continue;
+    const found = await findExisting(rec.agent, keys, payload(post, rec.channel), sent);
+    if (found === undefined) continue;                // cannot tell yet: next sweep
+    if (found) sent[id] = settle(rec, { state: 'sent', remoteId: found, sentAt: new Date(now).toISOString() });
+    else sent[id] = settle(rec, {});                  // not on the server: an ordinary unsent post
+  }
+}
+
 // The owner deleted a post that is not known to be on the server. If an earlier send of it
 // got no answer, the server may hold it: adopt that copy so its DELETE goes out. Otherwise
 // it is withheld and never sent.
@@ -423,9 +455,9 @@ async function withhold(post, keys, sent) {
     if (!k || !k.apiKey || k.refused) return;         // cannot ask: leave it for the next sweep
     const found = await findExisting(post.agent, keys, payload(post, rec.channel), sent);
     if (found === undefined) return;
-    if (found) { sent[post.id] = { ...rec, state: 'sent', remoteId: found }; return; }
+    if (found) { sent[post.id] = settle(rec, { state: 'sent', remoteId: found, sentAt: new Date().toISOString() }); return; }
   }
-  sent[post.id] = { ...rec, state: 'withheld' };
+  sent[post.id] = settle(rec, { state: 'withheld' });
 }
 
 /**

@@ -87,11 +87,21 @@ any instruction file or env.
    and channel can adopt each other's server copy after lost answers; their content is identical, and the `taken`
    set keeps each server copy to one post.
 
+7k. **Unconfirmed sends are settled first on every sweep, whatever the switch says** (not only while the post is
+   still due): a server copy is adopted, so a delete and take-down reads reach it; no copy means an ordinary unsent
+   post. A settled record drops its failure bookkeeping (`attempted`, `lastStatus`).
+7l. **Requests do not follow redirects** (`redirect: 'error'`): a redirect would re-send the body, which on login is
+   the key, to wherever it points. A 429 on registration waits (in memory) instead of retrying every sweep.
+   **Deferred (round 5 NITs):** `retryAt` uses the sweep's start time, so it can end early by the sweep's length
+   (60 s floor). HEAD on `/api/community/sent` builds the body, like the moderation route.
+
 ## Known limits
 
 - The key is not handed to agents, but it is not protected FROM them: same OS user, mode 600 only.
 - `takeDownReason` is the backend moderator's free text; the board UI (a follow-up) must render it as text.
 - Every sweep reads the whole published list; fine at beta volume, linear in the number of posts.
+- `/agents/me/posts` lists an agent's newest 200 posts: take-downs of older posts are not read back, and a lost
+  send is only recognised while it is among them (it is settled on the next sweep, so it normally is).
 - `deletes.json` is never pruned; one small entry per post the owner deleted.
 - A post published after the switch goes ON but before the next sweep notices is not sent (at most 15 s after a
   boot, else up to 5 minutes). #4288 could expose when the switch changed, and `since` could use it.
