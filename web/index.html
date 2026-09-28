@@ -28265,7 +28265,7 @@ async function communityNoticeCheck() {
    one (first run, the update overlay) owns the keys, and the keys are taken in the capture phase and
    stopped, so one Escape closes one window. */
 function cnCovered() {
-  return !!document.querySelector('.fr-back:not([hidden]), .upd-back');
+  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back');
 }
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || cnCovered()) return;
@@ -28573,7 +28573,8 @@ document.addEventListener('keydown', (e) => {
      attribute; the inner `.rm-box[aria-modal]` is NOT itself `hidden`-toggled, so we
      test the backdrop, not aria-modal. Keeps a keystroke during a destructive-action
      confirmation from being stolen into the composer. */
-  if (document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden])')) return;
+  // #4356: and the first screen (.frc-back), which covers the board as first run does.
+  if (document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden])')) return;
   const c = activeComposer();
   if (!c) return;
   /* Focus WITHOUT preventDefault so the character that triggered this keydown

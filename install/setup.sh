@@ -3713,9 +3713,16 @@ fi
 # including a file that cannot be read, is not started: the installer cannot ask, and the app
 # starts the board and asks again at its next launch. `$(cat ...)` drops trailing newlines, as the
 # app's reader does.
+# Read ONCE: the app can rewrite the file during this run (its menu's "Run agents on this computer"),
+# and every line below about the board must agree with the one decision (review round 5).
+_kosmos_mode_file=no; _kosmos_mode_word=""
+if [ -e "$KOSMOS_HOME/mode" ]; then
+  _kosmos_mode_file=yes
+  _kosmos_mode_word="$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" || _kosmos_mode_word=""
+fi
 _kosmos_mode_keeps_board_off() {
-  [ -e "$KOSMOS_HOME/mode" ] || return 1
-  case "$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" in
+  [ "$_kosmos_mode_file" = yes ] || return 1
+  case "$_kosmos_mode_word" in
     run|both) return 1 ;;
   esac
   return 0
@@ -3725,7 +3732,7 @@ _kosmos_mode_keeps_board_off() {
 _kosmos_board_off=no
 if _kosmos_mode_keeps_board_off; then
   _kosmos_board_off=yes
-  if [ "$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" = connect ]; then
+  if [ "$_kosmos_mode_word" = connect ]; then
     step "This computer connects to agents on another computer, so Kosmos is not started here."
   else
     step "This computer's setup choice could not be read, so Kosmos is not started here. The Kosmos app will ask again when you open it."
@@ -4199,7 +4206,7 @@ if [ "$_kosmos_board_off" = "yes" ] && [ "$BOARD_OURS" = "yes" ]; then
   # #4356: set not to run one, but a board of ours is up anyway (a stop that failed, or one started
   # by hand). Said as it is; the app stops it when it opens (stopBoardIfRunning).
   printf '\n  Kosmos is installed. This computer is set not to run a board, but one is still running.\n'
-  if [ "$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" = connect ]; then
+  if [ "$_kosmos_mode_word" = connect ]; then
     printf '  Open the Kosmos app from your Applications folder and it will stop it.\n\n'
   else
     printf '  Open the Kosmos app from your Applications folder and it will ask how to set up this computer.\n\n'

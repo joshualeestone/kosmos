@@ -1226,10 +1226,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // nil under the KOSMOS_URL test path, where there is no install and the app behaves as today.
     private(set) var computerMode: ComputerMode = .unset
     private var modeHome: String?
-    // #4356: true while a `kosmos stop` of ours is running: the switch to connect, or a connect
-    // launch stopping a board left running. "Run agents on this computer" waits for it, or its
-    // `kosmos start` would race the stop (and the stop can win, leaving a run computer's board down).
-    private var connectSwitchInFlight = false
+    // #4356: how many `kosmos stop`s of ours are running: the switch to connect, a connect launch
+    // stopping a board left running, a start that landed after Connect. "Run agents on this computer"
+    // waits for all of them, or its `kosmos start` would race a stop (and the stop can win, leaving a
+    // run computer's board down). A count, not a flag: two stops can overlap, and the first to finish
+    // must not clear the wait for the second (review round 5).
+    private var stopsInFlight = 0
     private var lastPageBadgeAt: TimeInterval?   // systemUptime: a clock that never steps backwards
     private var badgeAsked = 0
     private var badgeShown = 0
@@ -1753,10 +1755,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                     if let s = self.inFlightStart, s.generation == generation { self.inFlightStart = nil }
                     self.boardStartInFlight = false
                     self.boardStartGeneration += 1
-                    self.connectSwitchInFlight = true
+                    self.stopsInFlight += 1
                     DispatchQueue.global(qos: .utility).async { [weak self] in
                         _ = stopBoard(kosmosHome: resolved.kosmosHome)
-                        DispatchQueue.main.async { self?.connectSwitchInFlight = false }
+                        DispatchQueue.main.async { self?.stopsInFlight -= 1 }
                     }
                     return
                 }
@@ -1845,11 +1847,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private func stopBoardIfRunning() {
         guard let home = modeHome, !FileManager.default.fileExists(atPath: home + "/board.stopped") else { return }
         logLine("#4356: connect computer without board.stopped; stopping the board")
-        connectSwitchInFlight = true
+        stopsInFlight += 1
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let stopped = stopBoard(kosmosHome: home)
             DispatchQueue.main.async {
-                self?.connectSwitchInFlight = false
+                self?.stopsInFlight -= 1
                 if !stopped { logLine("#4356: the launch-time stop failed too") }
             }
         }
@@ -1896,7 +1898,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// after the stop has finished either way, and a stop that failed is logged.
     private func switchToConnect(home: String) {
         computerMode = .connect
-        connectSwitchInFlight = true
+        stopsInFlight += 1
         logLine("#4356: switching this computer to connect")
         // A Reload still in flight must not fall through to a board start when the stop kills its page.
         recoverOnReloadFailure = false
@@ -1910,7 +1912,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             let stopped = stopBoard(kosmosHome: home)
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.connectSwitchInFlight = false
+                self.stopsInFlight -= 1
                 guard self.computerMode == .connect else { return }
                 self.loadConnect()
                 if !stopped { self.showBoardStillRunning() }
@@ -1924,7 +1926,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// finished on this computer, opens as it would on a fresh one.
     @objc func runAgentsHere(_ sender: Any?) {
         guard computerMode == .connect, let home = modeHome else { return }
-        guard !connectSwitchInFlight else {
+        guard stopsInFlight == 0 else {
             logLine("#4356: Run agents waits: a stop of ours is still running")
             showStartupFailureAlert(detail: "Kosmos is still stopping the board on this computer. Try again in a moment.", title: "One moment")
             return

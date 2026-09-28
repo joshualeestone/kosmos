@@ -90,9 +90,9 @@ test('#4356: loadBoard itself refuses on a connect computer, so no path into it 
   assert.ok(guard < load.indexOf('startBoard('), 'the guard comes after the start');
   // A start already running when Connect was chosen is stopped again when it lands.
   const late = load.slice(load.indexOf('if self.computerMode == .connect {'));
-  assert.match(late, /self\.boardStartInFlight = false\n\s+self\.boardStartGeneration \+= 1\n\s+self\.connectSwitchInFlight = true/,
+  assert.match(late, /self\.boardStartInFlight = false\n\s+self\.boardStartGeneration \+= 1\n\s+self\.stopsInFlight \+= 1/,
     'a start that landed after Connect leaves the 300 s watchdog armed, or its stop races Run agents');
-  assert.match(late, /_ = stopBoard\(kosmosHome: resolved\.kosmosHome\)\n\s+DispatchQueue\.main\.async \{ self\?\.connectSwitchInFlight = false \}/);
+  assert.match(late, /_ = stopBoard\(kosmosHome: resolved\.kosmosHome\)\n\s+DispatchQueue\.main\.async \{ self\?\.stopsInFlight -= 1 \}/);
   assert.ok(load.indexOf('if self.computerMode == .connect {') < load.indexOf('guard self.boardStartGeneration == generation'),
     'the stale-generation check drops a start that landed after Connect before it can be undone');
 });
@@ -106,12 +106,14 @@ test('#4356: a failed stop is said, and every connect launch stops a board left 
   assert.match(body('private func stopBoardIfRunning()'), /!FileManager\.default\.fileExists\(atPath: home \+ "\/board\.stopped"\)/);
 });
 
-test('#4356: Run agents waits for any stop of ours to finish, the switch or the launch-time one', () => {
-  assert.match(body('@objc func runAgentsHere(_ sender: Any?)'), /guard !connectSwitchInFlight else \{/);
+test('#4356: Run agents waits for every stop of ours to finish; a count, so overlapping stops cannot clear each other', () => {
+  assert.match(SRC, /private var stopsInFlight = 0/);
+  assert.equal((SRC.match(/stopsInFlight \+= 1/g) || []).length, (SRC.match(/stopsInFlight -= 1/g) || []).length, 'a stop that raises the count and never lowers it (or the reverse)');
+  assert.match(body('@objc func runAgentsHere(_ sender: Any?)'), /guard stopsInFlight == 0 else \{/);
   const relaunch = body('private func stopBoardIfRunning()');
-  assert.match(relaunch, /connectSwitchInFlight = true/, 'the launch-time stop can race Run agents');
-  assert.match(relaunch, /self\?\.connectSwitchInFlight = false/);
-  assert.match(body('private func switchToConnect(home: String)'), /self\.connectSwitchInFlight = false\n\s+guard self\.computerMode == \.connect/);
+  assert.match(relaunch, /stopsInFlight \+= 1/, 'the launch-time stop can race Run agents');
+  assert.match(relaunch, /self\?\.stopsInFlight -= 1/);
+  assert.match(body('private func switchToConnect(home: String)'), /self\.stopsInFlight -= 1\n\s+guard self\.computerMode == \.connect/);
 });
 
 test('#4356: no Dock badge on a connect computer, even from a page still posting while the stop runs', () => {

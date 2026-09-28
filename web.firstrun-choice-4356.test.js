@@ -231,7 +231,12 @@ test('#4356: first run ends at the existing Kosmos Plus sign-in only for "both"'
 test('#4356: tips, the Community notice, What\'s New and the setup assistant all count the first screen as covering the board', () => {
   // The tour started under the screen, took focus and was recorded as seen unseen (review round 3);
   // the setup assistant's layer did the same (round 4).
-  for (const fn of ['tipModalOpen', 'cnHeld', 'wnCovered']) assert.match(lift(fn), /\.frc-back:not\(\[hidden\]\)/, fn + ' does not know the first screen');
+  for (const fn of ['tipModalOpen', 'cnHeld', 'cnCovered', 'wnCovered']) assert.match(lift(fn), /\.frc-back:not\(\[hidden\]\)/, fn + ' does not know the first screen');
+  // The type-to-focus handler that steals a keystroke into the composer bails under every covering backdrop.
+  assert.match(PAGE, /if \(document\.querySelector\('\.rm-back:not\(\[hidden\]\), \.fr-back:not\(\[hidden\]\), \.frc-back:not\(\[hidden\]\)'\)\) return;\n\s+const c = activeComposer\(\);/);
+  // Every covering check that knows first run's .fr-back also knows the first screen.
+  const frOnly = (PAGE.match(/\.fr-back:not\(\[hidden\]\)[^'"]*['"]/g) || []).filter((m) => !/\.frc-back/.test(m));
+  assert.deepEqual(frOnly, [], 'a check that knows first run does not know the first screen');
   assert.match(lift('asbShows'), /const frc = document\.getElementById\('fr-choice'\);\n\s+if \(frc && !frc\.hidden\) return false;/, 'asbShows does not know the first screen');
   // And anything appended to <body> while the screen is up goes inert too.
   assert.match(lift('frChoiceInert'), /new MutationObserver\([\s\S]*n\.inert = true;[\s\S]*observe\(document\.body, \{ childList: true \}\)/);
