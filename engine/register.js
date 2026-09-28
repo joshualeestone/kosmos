@@ -405,7 +405,8 @@ function repair(opts) {
       : provider === 'google' ? { runner: 'gemini' }
         : provider === 'xai' ? { runner: 'grok' }
           : provider === 'antigravity' ? { runner: 'antigravity' } // #3568
-            : {};
+            : provider === 'meta' ? { runner: 'muse' } // #3939
+              : {};
     const r = create.installJob(name, { model, platform, ...runnerOpt });
     return { name, shownAs: shownName(name), ...r };
   });

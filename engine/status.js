@@ -964,7 +964,7 @@ function parsePanes(out) {
          optional runner argument carries (#245). Normalised to the runner
          words the classifier dispatches on (codex, gemini, grok, antigravity;
          empty is claude), so a truncated line cannot invent a runner. */
-      runner: raw.runner === 'codex' ? 'codex' : raw.runner === 'gemini' ? 'gemini' : raw.runner === 'grok' ? 'grok' : raw.runner === 'antigravity' ? 'antigravity' : '',
+      runner: raw.runner === 'codex' ? 'codex' : raw.runner === 'gemini' ? 'gemini' : raw.runner === 'grok' ? 'grok' : raw.runner === 'antigravity' ? 'antigravity' : raw.runner === 'muse' ? 'muse' : '',
       title: raw.title || '',
     };
   /* ⚠️ AND THE ROW ITSELF (#603's other half, MEASURED before believed):
@@ -3750,6 +3750,16 @@ function classify(pane, paneText) {
       return { state: STATE.STOPPED, confidence: CONFIDENCE.STRUCTURED, because: 'Antigravity is not running for this one' };
     }
     return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'Kosmos cannot read what Antigravity is doing yet' };
+  }
+  /* #3939 slice 3c-3a: a Meta Muse pane runs Kosmos's own front (engine/musefront.js) under node, so
+     only the runner tag says what it is: `node` alone is also an npm-installed Claude. Without this arm
+     the pane fell to the Claude screen read below. Running is node in the pane; what it is doing comes
+     from the front's own working / idle reports, which outrank this answer (reconcileReport). */
+  if (pane.runner === 'muse') {
+    if (String(pane.command || '').trim() !== 'node') {
+      return { state: STATE.STOPPED, confidence: CONFIDENCE.STRUCTURED, because: 'Muse is not running for this one' };
+    }
+    return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'Kosmos reads what Muse is doing from its own reports' };
   }
   /* #3953: a Grok pane. grok is a native binary (`grok-native` on a Mac), so the Claude running
      check below called a live Grok agent stopped, and the creation screen said it had not come up.
@@ -7281,6 +7291,7 @@ function snapshot() {
     /* #3568: an Antigravity pane is not a Claude pane either; kept out of the ANTHROPIC
        observation arm below so it can never record a false Claude-account reading. */
     const isAgyPane = pane.runner === 'antigravity' || isAntigravityCommand(pane.command);
+    const isMusePane = pane.runner === 'muse';   // #3939: kept out of the Claude arm below, like agy
     // #4039: the agy conversation, read once per tick (the ring and the model both use it).
     const agySess = (isNamedOurs(pane) && isAgyPane) ? readAgySession(pane.name) : null;
     const grokSess = (isNamedOurs(pane) && isGrokPane) ? readGrokSession(pane.name) : null;
@@ -7296,7 +7307,7 @@ function snapshot() {
          would otherwise record a false observed.saw(PROVIDER.ANTHROPIC, ok). Grok's
          own XAI-provider observation is likewise the launcher slice; until then a grok
          pane takes NEITHER arm, only the context ring below. */
-      if (isNamedOurs(pane) && !isCodexPane && !isGeminiPane && !isGrokPane && !isAgyPane) {
+      if (isNamedOurs(pane) && !isCodexPane && !isGeminiPane && !isGrokPane && !isAgyPane && !isMusePane) {
         /* 🛑 #1889 EXCLUSION, AND IT IS NOT A TWEAK TO THE RULE ABOVE, IT IS THE
            RULE ABOVE HOLDING. The OK arm's whole justification is that a scraped
            WORKING is a WITNESSED live streaming turn. #1889 added one scraped
@@ -7497,7 +7508,7 @@ function snapshot() {
          everywhere the option is absent. The switch screen keys on this, and it is
          the supervisor's record, never an inference from the command. */
       // #3568: an agy pane read before its runner tag lands is still antigravity (as isAgyPane says).
-      runner: pane.runner === 'codex' ? 'codex' : pane.runner === 'gemini' ? 'gemini' : (pane.runner === 'grok' || isGrokCommand(pane.command)) ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : 'claude',
+      runner: pane.runner === 'codex' ? 'codex' : pane.runner === 'gemini' ? 'gemini' : (pane.runner === 'grok' || isGrokCommand(pane.command)) ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : pane.runner === 'muse' ? 'muse' : 'claude',
       task: taskLine(pane.title),
       state: status.state,
       stateConfidence: status.confidence,

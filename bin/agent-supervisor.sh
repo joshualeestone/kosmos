@@ -60,7 +60,8 @@ LOG="${5:-}"
 MODEL="${6:-}"
 # The RUNNER this agent runs on, optional and NEW as of #245 (2026-08-24).
 # 'claude' (the default every existing plist means by omission), 'codex', 'gemini', 'grok',
-# or 'antigravity' (#3568, on by default; AGENT_WORKFORCE_ANTIGRAVITY=0 turns off setting one up).
+# or 'antigravity' (#3568, on by default; AGENT_WORKFORCE_ANTIGRAVITY=0 turns off setting one up),
+# or 'muse' (#3939, Meta Muse: only set up with AGENT_WORKFORCE_MUSE=1 on a Mac).
 # Per the vector contract above: optional, defaulted, position seven, and
 # every earlier argument keeps its position and meaning. $3 stays "the path
 # to the runner binary" -- for a codex agent, create.js writes the codex
@@ -796,6 +797,23 @@ if [ -z "$adopt" ]; then
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
       "$CLAUDE" "${_AGY_ARGS[@]}" || exit 1
     unset _AGY_ARGS
+  elif [ "$RUNNER" = muse ]; then
+    # #3939 slice 3c-3a: Meta Muse. Muse Code's own screen cannot be read from outside, and Meta's
+    # headless route is one `muse exec` per turn, so the pane runs Kosmos's front instead
+    # (engine/musefront.js): it takes each message the board types and runs one Muse turn on this
+    # agent's own session. $CLAUDE is the muse binary create.js checked; the front's turns find it the
+    # same way (runners.resolveBin). The front reports working / idle through the agy report bridge
+    # beside this script (its PreInvocation / Stop map to exactly those), which finds the engine
+    # through the engine-path pointer here. Needs node and the engine; without them it cannot start.
+    if [ -z "${NODE_BIN:-}" ] || [ -z "${_eng:-}" ] || [ ! -f "$_eng/musefront.js" ]; then
+      say "cannot start $SESSION: Kosmos's Muse front or node is not on this computer"
+      exit 1
+    fi
+    _MUSE_BRIDGE="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)/agy-report-bridge.js"
+    "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
+      -e "KOSMOS_MUSE_BRIDGE=$_MUSE_BRIDGE" \
+      "$NODE_BIN" "$_eng/musefront.js" "$WORKDIR" || exit 1
+    unset _MUSE_BRIDGE
   else
     # #2808 class-1 / #2129: re-apply the folder-trust write + bypass pre-accept BEFORE
     # this (re)launch. engine/create.js writes them once at CREATE, but a restart re-runs

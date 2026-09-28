@@ -959,6 +959,25 @@ test('#3953: a running Grok agent on a Mac is a live agent session, so the board
   }
 });
 
+test('#3939: a Meta Muse pane (Kosmos\'s front under node) keeps its runner, is typeable, and is never read as Claude', () => {
+  const [up] = parsePanes('muse-kid\t0.0\tnode\t0\tmuse-kid\tmuse\t');
+  assert.equal(up.runner, 'muse', 'the muse runner tag was dropped at the parse, so the pane read as Claude');
+  assert.equal(isAgentSession(up), true);
+  assert.equal(isAgentPane(up), true, 'a running Muse agent could not be typed into');
+  const live = classify(up, 'Meta Muse, run by Kosmos.\n> ');
+  assert.equal(live.state, 'unknown', 'a live Muse agent read as ' + live.state);
+  assert.match(live.because, /Muse/);
+  const [crashed] = parsePanes('muse-kid\t0.0\tzsh\t0\tmuse-kid\tmuse\t');
+  assert.equal(crashed.runner, 'muse');
+  const down = classify(crashed, '$ ');
+  assert.equal(down.state, 'stopped');
+  assert.match(down.because, /Muse is not running/);
+  // CONTROL: the same node pane with no runner tag is still read the Claude way, not as Muse.
+  const [plain] = parsePanes('muse-kid\t0.0\tnode\t0\tmuse-kid\t\t');
+  assert.equal(plain.runner, '');
+  assert.doesNotMatch(classify(plain, '> ').because || '', /Muse/);
+});
+
 test('#3953: a crashed Grok agent stays restartable but is NOT a running session, and a stray grok is not ours', () => {
   const [crashed] = parsePanes('elon\t0.0\tzsh\t0\telon\tgrok\t');
   assert.equal(crashed.runner, 'grok');
