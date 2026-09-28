@@ -1065,7 +1065,7 @@ step "== 4b. a real install from the bundle just built, sandboxed, before anythi
 cp "$SITE/dist/tmux-arm64.tar.gz" "$SITE/dist/tmux-arm64.tar.gz.sha256" "$REPO/dist/"
 rm -rf "$REPO/dist/tmux-bundle"; mkdir -p "$REPO/dist/tmux-bundle"
 tar -xzf "$REPO/dist/tmux-arm64.tar.gz" -C "$REPO/dist/tmux-bundle" || { echo "the served tmux bundle does not extract"; exit 1; }
-# A bare mktemp, like step 3's suite log: the red branch exits, the 2b trap
+# A mktemp outside BUILD_ROOT, like step 3's suite log: the red branch exits, the 2b trap
 # removes BUILD_ROOT, and a log under it would be gone before anyone read it.
 # ⚠️ DISK, SAID BY NAME. A gate run uses ~300 MB transiently (measured
 # 2026-08-24: 277 MB peak, returned on exit; gate mode never reaches the

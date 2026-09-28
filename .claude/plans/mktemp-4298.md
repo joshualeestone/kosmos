@@ -49,7 +49,15 @@ discarded and re-run. Never stash or edit a tree a suite is executing.
 
 ## Tests
 - tools/test-mktemp-template-4298.sh (first in test:shell): scope floor, tree clean, negative control
-  of 16 bare shapes asserted by line number (incl. `/usr/bin/mktemp`, `mktemp 2>/dev/null`,
-  `command`/`env`/`VAR=` prefixes, `if`/`{`, `-dt`, a backslash-continued call), templated
-  calls/messages/comments not flagged. Red on origin/main (114 calls in tools/*.sh alone).
+  of 24 bare shapes asserted by line number (incl. `/usr/bin/mktemp`, `mktemp 2>/dev/null`,
+  `command`/`env`/`sudo`/`nice`/`VAR=` prefixes, `if`/`{`/a `case` arm, `-dt`, a continued line,
+  `bash -c`/`sh -ec`/`eval`/`trap` strings, `-t "$(basename "$0")"`), templated calls, messages,
+  comments and `grep -c 'mktemp'` not flagged; and the installer's production arm (TMPDIR stripped:
+  getconf dir; getconf failing under set -e: falls back, no abort).
+- Leftovers in the per-run root, by name, fixed at the test: test-cut-parallel-region.sh (7
+  `release`, the region keeps logs on red on purpose) exports TMPDIR=$WORK;
+  test-versions-entry-gate.sh's `bash -c` clock probe makes its dir under $T. Both now leave 0.
+- Deferred: `${TMPDIR:-/tmp}/` gives `//` when TMPDIR ends in `/` (macOS default). A valid path;
+  no changed script compares these paths as strings (reviewed); #3594's string-compare case is
+  already guarded in test-promote-channel-win.sh. Red on origin/main (114 calls in tools/*.sh alone).
 - test-postinstall-inline-quoting.sh and test-pkg-checksum-1670.sh pass with the postinstall change.

@@ -14,24 +14,75 @@
  *
  * Only a CALL counts: `mktemp` in a command position (see PRE below), never the word
  * inside an echo or a comment.
+ *
+ * ⚠️ PER LINE, NOT A SHELL PARSER. Quote state does not carry across lines, so a heredoc
+ * body or a multi-line string can read as code (a false positive: this checker's own
+ * test excludes itself for its fixtures), and a line closing a multi-line quote before a
+ * call can read as text (a false negative). The negative control pins the shapes it finds.
  */
 const fs = require('node:fs');
 
-/* A command position: `$(`, a backtick, line start, after ; & | ! { (, or after a shell
-   keyword. Then any `command`/`env`/`exec` wrappers and `VAR=value` assignments, then the
-   binary, by name or by path (`/usr/bin/mktemp`). */
-const PRE = String.raw`(?:\$\(|` + '`' + String.raw`|^|[;&|!{(]|\b(?:if|then|do|else|elif|while|until)\b)`;
-const WRAP = String.raw`\s*(?:(?:command|env|exec)\s+)*(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s+)*`;
+/* A command position: `$(`, a backtick, line start, after ; & | ! { ( ) (a `case` arm), or
+   after a shell keyword. Then any wrappers (`command`, `env`, `exec`, `sudo`, `nice`, `time`,
+   `nohup`, `xargs`, with their options) and `VAR=value` assignments, then the binary, by
+   name or by path (`/usr/bin/mktemp`). */
+const PRE = String.raw`(?:\$\(|` + '`' + String.raw`|^|[;&|!{()]|\b(?:if|then|do|else|elif|while|until)\b)`;
+const OPT = String.raw`(?:\s+-[\w-]+(?:\s+(?:"[^"]*"|'[^']*'|[^\s-]\S*))?)*`;
+const WRAP = String.raw`\s*(?:(?:command|env|exec|sudo|nice|time|nohup|xargs)` + OPT + String.raw`\s+)*`
+  + String.raw`(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s+)*`;
 const BIN = String.raw`(?:\/[\w./-]*\/)?mktemp(?![\w.-])`;
-/* The arguments stop at a redirection or the end of the command. */
-const CALL = new RegExp(PRE + WRAP + BIN + String.raw`([^)` + '`' + String.raw`;&|<>\n]*)`, 'g');
+const CALL = new RegExp(PRE + WRAP + BIN, 'g');
 
-/** The arguments of one call, split on whitespace with simple quote awareness. */
+/* What comes right before a quoted string that is itself a script: a shell's `-c` (in a flag
+   cluster too: `-lc`, `-ec`), `eval`, or `trap`. A `-c` on anything else (`grep -c`) is not. */
+const SCRIPT_ARG = /(?:(?:^|[\s;&|(`])(?:\S*\/)?(?:ba|z|da|k)?sh(?:\s+-[A-Za-z]+)*\s+-[A-Za-z]*c|(?:^|[\s;&|(`])(?:eval|trap))\s*$/;
+
+/** A call's arguments: from after the binary to the end of the command, which is a `;`, `&`,
+    `|`, a redirection, a backtick or an unmatched `)`. Quotes and a nested `$(...)` are kept
+    whole, so `-t "$(basename $0)"` is one word. */
+function argsAt(line, from) {
+  let depth = 0; let q = '';
+  for (let i = from; i < line.length; i += 1) {
+    const ch = line[i];
+    if (q) {
+      if (ch === '\\' && q === '"') { i += 1; continue; }
+      if (ch === q) q = '';
+      else if (q === '"' && ch === '$' && line[i + 1] === '(') { depth += 1; i += 1; }
+      else if (q === '"' && ch === ')' && depth > 0) depth -= 1;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { q = ch; continue; }
+    if (ch === '\\') { i += 1; continue; }
+    if (ch === '$' && line[i + 1] === '(') { depth += 1; i += 1; continue; }
+    if (ch === ')') { if (depth === 0) return line.slice(from, i); depth -= 1; continue; }
+    if (depth === 0 && /[;&|<>`]/.test(ch)) return line.slice(from, i);
+  }
+  return line.slice(from);
+}
+
+/** The arguments of one call as shell words: whitespace splits only outside quotes and outside
+    a nested `$(...)`, so `"$(basename "$0")"` is one word. Quotes are dropped. */
 function words(s) {
   const out = [];
-  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
-  let m;
-  while ((m = re.exec(s))) out.push(m[1] !== undefined ? m[1] : (m[2] !== undefined ? m[2] : m[3]));
+  let cur = ''; let has = false; let q = ''; let depth = 0;
+  for (let i = 0; i < s.length; i += 1) {
+    const ch = s[i];
+    if (q) {
+      if (ch === q && depth === 0) { q = ''; continue; }
+      if (ch === '$' && s[i + 1] === '(') { depth += 1; cur += '$('; i += 1; continue; }
+      if (ch === ')' && depth > 0) depth -= 1;
+      cur += ch; continue;
+    }
+    if (depth > 0) {
+      if (ch === '(') depth += 1; else if (ch === ')') depth -= 1;
+      cur += ch; continue;
+    }
+    if (ch === '"' || ch === "'") { q = ch; has = true; continue; }
+    if (ch === '$' && s[i + 1] === '(') { depth += 1; cur += '$('; has = true; i += 1; continue; }
+    if (/\s/.test(ch)) { if (has || cur) { out.push(cur); cur = ''; has = false; } continue; }
+    cur += ch; has = true;
+  }
+  if (has || cur) out.push(cur);
   return out;
 }
 
@@ -51,7 +102,8 @@ function hasTemplate(args) {
 /** For each character of a line, whether it is shell CODE (true) or inside a quoted string or a
     comment (false). A `$(...)` or a backtick inside double quotes is code again, so
     `x="$(mktemp -d)"` counts and `echo "if mktemp -d"` or `: # if mktemp -d` does not. A string
-    handed to `-c` (`bash -c '...'`, `sh -c "..."`) is a script, so it is code too. */
+    handed to `-c` (`bash -c '...'`, `sh -ec "..."`), `eval` or `trap` is a script, so it is
+    code too. */
 function codeMask(line) {
   const mask = new Array(line.length).fill(false);
   const stack = [{ kind: 'code', depth: 0 }];
@@ -71,7 +123,7 @@ function codeMask(line) {
     if (top.close && ch === top.close) { mask[i] = false; stack.pop(); continue; }
     if (ch === '\\') { mask[i + 1] = true; i += 1; continue; }
     if (top.kind === 'bt' && ch === '`') { stack.pop(); continue; }
-    if ((ch === "'" || ch === '"') && /(?:^|\s)-c\s*$/.test(line.slice(0, i))) {
+    if ((ch === "'" || ch === '"') && SCRIPT_ARG.test(line.slice(0, i))) {
       mask[i] = false; stack.push({ kind: 'code', depth: 0, close: ch }); continue;
     }
     if (ch === "'") { mask[i] = false; stack.push({ kind: 'sq' }); continue; }
@@ -100,7 +152,7 @@ function bareCalls(text) {
       // The word itself must be code: a mention in a string or a comment is not a call.
       const at = m.index + m[0].search(/mktemp(?![\w.-])/);
       if (!mask[at]) continue;
-      if (!hasTemplate(m[1])) hits.push({ line: start + 1, text: line.trim() });
+      if (!hasTemplate(argsAt(line, m.index + m[0].length))) hits.push({ line: start + 1, text: line.trim() });
     }
   }
   return hits;

@@ -1,5 +1,5 @@
 #!/bin/bash
-# #4298: no script under tools/ may call `mktemp` without a path template.
+# #4298: no script under tools/, install/ or bin/ may call `mktemp` without a path template.
 #
 # macOS `mktemp` ignores TMPDIR, so a bare `mktemp -d` (or `-t name`) lands in the
 # real per-user temp root, outside the per-run root tools/run-tests.sh sets, and
@@ -58,10 +58,17 @@ m="$(mktemp -dt kosmos)"
 n="$(mktemp \
   -d)"
 bash -c 'o=$(mktemp -d); echo "$o"'
+sh -ec "o=\$(mktemp -d)"
+x) mktemp -d >/dev/null ;;
+r="$(nice -n 19 mktemp -d)"
+s="$(sudo -u "$U" mktemp)"
+eval 'u=$(mktemp -d)'
+trap 'v=$(mktemp)' EXIT
+w="$(mktemp -d -t "$(basename "$0")")"
 SH
 got="$(node tools/mktemp-template-check.js "$T/bare.sh" | cut -d: -f2 | sort -n | tr '\n' ' ')"
-want="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 18 "
-[ "$got" = "$want" ] && ok "CONTROL: all 17 bare shapes are found, each on its own line" \
+want="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 18 19 20 21 22 23 24 25 "
+[ "$got" = "$want" ] && ok "CONTROL: all 24 bare shapes are found, each on its own line" \
   || bad "CONTROL: bare shapes found on lines [$got], want [$want]"
 
 # The other side: templated calls and mentions are not calls to fix.
@@ -76,6 +83,8 @@ echo "then mktemp -d is what failed"
 : # if mktemp -d
 echo 'if mktemp -d' # while mktemp -t x
 bash -c 'q=$(mktemp -d "${TMPDIR:-/tmp}/z.XXXXXXXXXX")'
+grep -c 'mktemp -d' /dev/null
+y="$(mktemp -d "${TMPDIR:-/tmp}/$(basename "$0").XXXXXXXXXX")"
 p="$(mktemp -d \
   "${TMPDIR:-/tmp}/y.XXXXXXXXXX")"
 # a bare mktemp -d in a comment is not a call
@@ -83,6 +92,26 @@ SH
 node tools/mktemp-template-check.js "$T/good.sh" >/dev/null \
   && ok "templated calls, a message and a comment are not flagged" \
   || bad "a templated call or a mention was flagged: $(node tools/mktemp-template-check.js "$T/good.sh")"
+
+# THE INSTALLER'S PRODUCTION ARM. In a real .pkg install `sudo -u -H` strips TMPDIR, so the
+# postinstall's verify dir must come from getconf (the per-user temp dir a bare mktemp used),
+# not the shared /tmp, and under its `set -e` a failing getconf must fall back rather than
+# abort. The harness tests all run with TMPDIR set, so they never reach this; it is run
+# here on the line itself, with `mktemp -u` so nothing is created.
+vt_line="$(grep -E '^[[:space:]]*_vt="\$\{TMPDIR:-' install/pkg-scripts/postinstall)"
+[ -n "$vt_line" ] || bad "could not find the postinstall's _vt line; re-point this arm"
+if [ -n "$vt_line" ]; then
+  want_dir="$(/usr/bin/getconf DARWIN_USER_TEMP_DIR)"
+  got="$(TMPDIR= /bin/sh -ec "$vt_line"'; printf %s "$_vt"')"
+  [ "$got" = "$want_dir" ] && ok "installer arm: with TMPDIR stripped the verify dir is the per-user temp dir ($want_dir)" \
+    || bad "installer arm: with TMPDIR stripped _vt is [$got], want [$want_dir]"
+  # A getconf that fails: shadow the absolute path with a function is impossible, so run the
+  # same line with the path swapped for /usr/bin/false. It must not abort under set -e.
+  fail_line="$(printf '%s' "$vt_line" | sed 's#/usr/bin/getconf#/usr/bin/false#')"
+  got="$(TMPDIR= /bin/sh -ec "$fail_line"'; printf "ok[%s]" "$_vt"' 2>/dev/null)"
+  [ "$got" = "ok[]" ] && ok "installer arm: a failing getconf leaves _vt empty under set -e (then /tmp), no abort" \
+    || bad "installer arm: a failing getconf aborted or set _vt: [$got]"
+fi
 
 echo "mktemp-template: $FAILS failures"
 exit $([ "$FAILS" -eq 0 ] && echo 0 || echo 1)
