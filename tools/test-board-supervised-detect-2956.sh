@@ -20,7 +20,7 @@ bad() { echo "FAIL  $1"; fails=1; }
 
 # Pull the two function bodies (each ends at a `}` in column 0) + the LAUNCHCTL
 # default line, into a sourceable snippet.
-SNIP="$(mktemp)"
+SNIP="$(mktemp "${TMPDIR:-/tmp}/board-supervised-det.XXXXXXXXXX")"
 awk '/^LAUNCHCTL=/{print}
      /^_kosmos_board_label\(\) \{/{l=1}
      l{print} l&&/^\}/{l=0}
@@ -34,7 +34,7 @@ grep -q '^_kosmos_board_label()' "$SNIP" && grep -q '^_kosmos_board_supervised()
 #   board-run -> a job defined with board-run in its arguments (supervised)
 #   start     -> a job defined with the old `kosmos start` (NOT supervised)
 #   absent    -> print exits non-zero (no such job)
-STUBDIR="$(mktemp -d)"
+STUBDIR="$(mktemp -d "${TMPDIR:-/tmp}/board-supervised-det.XXXXXXXXXX")"
 cat > "$STUBDIR/launchctl" <<'LC'
 #!/bin/bash
 case "$1 ${KOSMOS_STUB_PRINT:-}" in

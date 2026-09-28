@@ -43,7 +43,7 @@ assert_invariants(){ # $1=dir label $2=dir
   [ "$bad" -eq 0 ] && ok "$lbl: all protected invariants intact" || no "$lbl: an invariant was deleted"
 }
 
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/dist-retention.XXXXXXXXXX")"; trap 'rm -rf "$TMP"' EXIT
 
 # --- Arm 1: dry run deletes nothing ------------------------------------------
 D="$TMP/a1"; make_fixture "$D" 0.6.15 0.6.08 0.6.09 0.6.10 0.6.11 0.6.12 0.6.13 0.6.14 0.6.15 0.6.16 0.6.17 0.6.18 0.6.19 0.6.20 0.6.21 0.6.22

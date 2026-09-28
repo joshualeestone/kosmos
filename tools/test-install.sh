@@ -62,7 +62,7 @@ kosmos_mark_run harness
 if [ "${KOSMOS_INSTALL_GATE:-0}" != 1 ] && [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ]; then
   kosmos_refuse_if_cut_live "a full install-harness run" || exit 1
 fi
-SB="$(mktemp -d)"
+SB="$(mktemp -d "${TMPDIR:-/tmp}/install.XXXXXXXXXX")"
 # ---- ONE Claude Code for every sandbox home (#736) --------------------------
 # setup.sh's "Kosmos needs Claude Code and this Mac does not have it" step runs
 # Anthropic's real installer into any home without one: 345 MB downloaded per

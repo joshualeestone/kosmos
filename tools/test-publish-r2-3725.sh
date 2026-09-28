@@ -31,7 +31,7 @@ if [ -z "$PWSH" ]; then
   if [ -n "${CI:-}" ]; then echo "FAIL pwsh is not installed on this CI runner, so publish-r2.ps1 is untested"; exit 1; fi
   echo "SKIP test-publish-r2-3725: pwsh is not installed here (CI runs it)"; exit 0
 fi
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/publish-r2-3725.XXXXXXXXXX")"; trap 'rm -rf "$TMP"' EXIT
 
 # (pwsh -Command appends trailing words to the command text instead of binding $args, so each
 # PowerShell step is a small -File script.)

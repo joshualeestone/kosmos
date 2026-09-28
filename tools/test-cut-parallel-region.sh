@@ -24,7 +24,7 @@ fails=0
 ok()  { echo "  PASS  $1"; }
 bad() { echo "  FAIL  $1"; fails=$((fails + 1)); }
 
-WORK="$(mktemp -d)"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/cut-parallel-region.XXXXXXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 # --- extract the region between the markers (fail LOUD if absent: a vacuous

@@ -11,7 +11,7 @@ FAILS=0
 ok()   { echo "PASS  $1"; }
 bad()  { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 
-T="$(mktemp -d)"
+T="$(mktemp -d "${TMPDIR:-/tmp}/sweep-leaked.XXXXXXXXXX")"
 trap 'rm -rf "$T"' EXIT
 REAL_DIR="$T/LaunchAgents"
 mkdir -p "$REAL_DIR"

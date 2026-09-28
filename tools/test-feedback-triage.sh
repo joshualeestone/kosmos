@@ -15,8 +15,8 @@ fail() { echo "FAIL: $1"; exit 1; }
 
 # A fake KOSMOS_HOME whose app/ is the repo (so app/engine/* resolves) and whose
 # runtime/bin/node is the real node. The CLI resolves NODE and APP from here.
-HOME_DIR="$(mktemp -d)"
-REPORTS="$(mktemp -d)"
+HOME_DIR="$(mktemp -d "${TMPDIR:-/tmp}/feedback-triage.XXXXXXXXXX")"
+REPORTS="$(mktemp -d "${TMPDIR:-/tmp}/feedback-triage.XXXXXXXXXX")"
 trap 'rm -rf "$HOME_DIR" "$REPORTS"' EXIT
 ln -s "$REPO" "$HOME_DIR/app"
 mkdir -p "$HOME_DIR/runtime/bin"

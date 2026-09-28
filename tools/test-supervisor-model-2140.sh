@@ -15,7 +15,7 @@
 # model flag lives in that recorded argv, so the assertions read it directly.
 # No engine sibling and no secrets/env, so the token-door + mint preamble is a
 # no-op here (that half is test-supervisor-env.sh's job, not this one).
-AGENT_WORKFORCE_DATA="$(mktemp -d)"; export AGENT_WORKFORCE_DATA
+AGENT_WORKFORCE_DATA="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-model-214.XXXXXXXXXX")"; export AGENT_WORKFORCE_DATA
 trap 'rm -rf "$AGENT_WORKFORCE_DATA" "${SBC:-}" "${SBE:-}" "${SBCL:-}"' EXIT
 
 set -u
@@ -52,7 +52,7 @@ run_arm() {
 MODEL_ID='gpt-4o-2024-08-06'   # a dated snapshot: proves the exact id survives verbatim
 
 # --- Arm 1: codex + a chosen model -> `-m <id>` verbatim ----------------------
-SBC="$(mktemp -d)"; make_sandbox "$SBC"
+SBC="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-model-214.XXXXXXXXXX")"; make_sandbox "$SBC"
 run_arm "$SBC" oa-model "$MODEL_ID" codex
 A="$SBC/new-session.args"
 if [ -s "$A" ]; then ok "codex+model: the supervisor reached new-session"; else bad "codex+model: new-session never reached: $(tail -3 "$SBC/out.log")"; fi
@@ -62,7 +62,7 @@ if grep -qx -- '--dangerously-bypass-approvals-and-sandbox' "$A"; then ok "codex
 if grep -qx -- '--model' "$A"; then bad "codex must use -m, not --model: $(tr '\n' ' ' < "$A")"; else ok "codex does NOT use --model (that is the claude flag)"; fi
 
 # --- Arm 2: codex + empty model -> NO model flag (auto) -----------------------
-SBE="$(mktemp -d)"; make_sandbox "$SBE"
+SBE="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-model-214.XXXXXXXXXX")"; make_sandbox "$SBE"
 run_arm "$SBE" oa-auto "" codex
 E="$SBE/new-session.args"
 if [ -s "$E" ]; then ok "codex+auto: the supervisor reached new-session"; else bad "codex+auto: new-session never reached: $(tail -3 "$SBE/out.log")"; fi
@@ -72,7 +72,7 @@ if grep -qx -- '--dangerously-bypass-approvals-and-sandbox' "$E"; then ok "codex
 # --- Arm 3 (CONTROL): claude + a model -> `--model <id>`, never -m ------------
 # The discriminator: the codex `-m` above is codex-SPECIFIC, not a coincidence
 # that any runner would produce. A claude agent on the SAME MODEL uses --model.
-SBCL="$(mktemp -d)"; make_sandbox "$SBCL"
+SBCL="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-model-214.XXXXXXXXXX")"; make_sandbox "$SBCL"
 run_arm "$SBCL" cl-model "$MODEL_ID" claude
 C="$SBCL/new-session.args"
 if [ -s "$C" ]; then ok "claude+model: the supervisor reached new-session"; else bad "claude+model: new-session never reached: $(tail -3 "$SBCL/out.log")"; fi

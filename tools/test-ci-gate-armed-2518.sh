@@ -146,7 +146,7 @@ pass "both gate libs exist and parse (the sourced-and-called scripts are real)"
 # pattern that silently never matches (a typo, a dialect slip) would let Part A
 # pass for the wrong reason (negative-control-before-destructive-check).
 # ---------------------------------------------------------------------------
-tmp="$(mktemp -d)"
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/ci-gate-armed-2518.XXXXXXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 
 # 4a. Drop fetch-depth: 0 from a copy of test.yml -> assertion 1 must now MISS.

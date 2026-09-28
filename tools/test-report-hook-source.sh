@@ -26,7 +26,7 @@ bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 HOOK="install/kosmos-report-hook.sh"
 [ -r "$HOOK" ] || { echo "FAIL  $HOOK not found"; exit 1; }
 
-T="$(mktemp -d)"
+T="$(mktemp -d "${TMPDIR:-/tmp}/report-hook-source.XXXXXXXXXX")"
 trap 'rm -rf "$T"' EXIT
 
 # The stub CLI. Bare `report` must mention needs_you or the hook's own version

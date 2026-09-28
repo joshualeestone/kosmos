@@ -6,7 +6,7 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 BCM="$HERE/bc-surface-map.sh"
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/bc-surface-map.XXXXXXXXXX")"; trap 'rm -rf "$TMP"' EXIT
 fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails + 1)); }

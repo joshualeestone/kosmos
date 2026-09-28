@@ -9,7 +9,7 @@ FAILS=0
 ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 
-T="$(mktemp -d)"
+T="$(mktemp -d "${TMPDIR:-/tmp}/grep-code.XXXXXXXXXX")"
 trap 'rm -rf "$T"' EXIT
 
 cat > "$T/a.html" <<'EOF'

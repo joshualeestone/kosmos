@@ -16,7 +16,7 @@ if ! command -v swiftc >/dev/null 2>&1; then
   exit 0
 fi
 
-tmp="$(mktemp -d)"
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/scan-hatch-symlink-2.XXXXXXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 BIN="$tmp/kosmosapp"
 FLOOR="$(cat "$REPO/tools/macos-floor" 2>/dev/null || echo 13.5)"

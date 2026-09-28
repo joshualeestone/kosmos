@@ -149,7 +149,7 @@ PY3=/usr/bin/python3; "$PY3" -c '' >/dev/null 2>&1 || PY3=python3
 DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$DIR/lib/served-verify.sh"
 
-T="$(mktemp -d)"
+T="$(mktemp -d "${TMPDIR:-/tmp}/served-verify.XXXXXXXXXX")"
 SRV=""
 trap 'rm -rf "$T"; [ -n "${SRV:-}" ] && kill "$SRV" 2>/dev/null' EXIT
 

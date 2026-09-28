@@ -16,7 +16,7 @@ bad()  { echo "FAIL  $1"; fails=1; }
 # healthy/exit 0) and records every `start` (and marks healthy, as a real
 # successful start would).
 new_home() {
-  local h; h="$(mktemp -d)"
+  local h; h="$(mktemp -d "${TMPDIR:-/tmp}/board-watchdog-2955.XXXXXXXXXX")"
   mkdir -p "$h/bin" "$h/logs"
   cat > "$h/bin/kosmos" <<'STUB'
 #!/bin/bash
@@ -139,7 +139,7 @@ run_wd "$H"; rc=$?
 rm -rf "$H"
 
 # 12. No CLI at all (broken install) -> silent no-op.
-H="$(mktemp -d)"; mkdir -p "$H/logs"; : > "$H/board.plist"
+H="$(mktemp -d "${TMPDIR:-/tmp}/board-watchdog-2955.XXXXXXXXXX")"; mkdir -p "$H/logs"; : > "$H/board.plist"
 run_wd "$H"; rc=$?; [ "$rc" = 0 ] && ok "missing CLI: silent no-op" || bad "missing CLI: nonzero exit $rc"; rm -rf "$H"
 
 # ---- the CLI's marker wiring, against the REAL install/kosmos --------------
@@ -147,13 +147,13 @@ CLI="$PWD/install/kosmos"
 FREEPORT=39517
 
 # 13. cmd_start clears the marker EARLY -- even when the start then FAILS.
-H="$(mktemp -d)"; mkdir -p "$H/logs"; : > "$H/board.stopped"
+H="$(mktemp -d "${TMPDIR:-/tmp}/board-watchdog-2955.XXXXXXXXXX")"; mkdir -p "$H/logs"; : > "$H/board.stopped"
 KOSMOS_HOME="$H" KOSMOS_PORT="$FREEPORT" bash "$CLI" start >/dev/null 2>&1 || true
 [ ! -f "$H/board.stopped" ] && ok "cmd_start clears the marker even when start fails" || bad "cmd_start left the marker after a failed start"
 rm -rf "$H"
 
 # 14. cmd_stop writes the marker (not-running branch).
-H="$(mktemp -d)"; mkdir -p "$H/logs"
+H="$(mktemp -d "${TMPDIR:-/tmp}/board-watchdog-2955.XXXXXXXXXX")"; mkdir -p "$H/logs"
 KOSMOS_HOME="$H" KOSMOS_PORT="$FREEPORT" bash "$CLI" stop >/dev/null 2>&1 || true
 [ -f "$H/board.stopped" ] && ok "cmd_stop writes the deliberate-stop marker" || bad "cmd_stop did not write the marker"
 rm -rf "$H"

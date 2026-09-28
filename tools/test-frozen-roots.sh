@@ -13,7 +13,7 @@ bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 
 TOOL="$(cd "$(dirname "$0")/.." && pwd)/tools/check-frozen-roots.js"
 [ -r "$TOOL" ] || { echo "FAIL  $TOOL not found"; exit 1; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "${TMPDIR:-/tmp}/frozen-roots.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
 
 fixture() { printf '%s\n' "$2" > "$T/$1.js"; }
 run() { node "$TOOL" "$T/$1.js" >"$T/out" 2>&1; echo $?; }
