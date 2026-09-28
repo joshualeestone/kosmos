@@ -416,13 +416,14 @@ test('the pre-rail grid rows are auto, never 0: the notice surfaces must be able
      body's `overflow-y: auto` are one fix: the row stays recognisably itself,
      and if the window is too short for that the page scrolls rather than
      clipping. A 0 floor here silently reopens that hole. */
-  assert.match(PAGE, new RegExp(cons + ' \\{[^}]*grid-template-rows: repeat\\(38, auto\\) auto minmax\\(200px, 1fr\\) auto;', 's'),
+  assert.match(PAGE, new RegExp(cons + ' \\{[^}]*grid-template-rows: repeat\\(39, auto\\) auto minmax\\(200px, 1fr\\) auto;', 's'),
     'the pre-rail rows are not auto tracks -- a visible notice surface can vanish under the rails again');
   for (const id of ['id="askcard"', 'id="conn"', 'id="board-msg"']) {
     assert.ok(PAGE.includes(id), id + ' is gone; re-derive whether the auto-rows invariant still protects the right surfaces');
   }
 
-  // The 38-track headroom is a real number: the 39th simultaneously
+  // The 39-track headroom is a real number (#4356's #fr-choice made it 39: it is position:fixed and
+  // takes no row, but the count is headroom, kept honest): the 40th simultaneously
   // renderable auto-placed body child would spill into an implicit row
   // below the clipped viewport -- the same invisible-surface failure the
   // auto rows exist to prevent. Count the body's direct element children
@@ -449,7 +450,7 @@ test('the pre-rail grid rows are auto, never 0: the notice surfaces must be able
     if (depth === 0) children++;
     if (!voidTags.has(tag.toLowerCase()) && !/\/\s*$/.test(attrs)) depth++;
   }
-  assert.ok(children <= 38, 'the body has ' + children + ' direct children; the consolidated grid reserves 38 pre-rail auto rows, and past it a visible notice can be silently clipped. Widening repeat(38, auto) is a FIVE-site renumbering: the rails\' explicit rows must move with it (#rail-agents 39, #alist 40, #rail-me 41, #panel-projects 39 / span 3), or all four land inside the widened pre-rail range');
+  assert.ok(children <= 39, 'the body has ' + children + ' direct children; the consolidated grid reserves 39 pre-rail auto rows, and past it a visible notice can be silently clipped. Widening repeat(39, auto) is a FIVE-site renumbering: the rails\' explicit rows must move with it (#rail-agents 40, #alist 41, #rail-me 42, #panel-projects 40 / span 3), or all four land inside the widened pre-rail range');
   assert.ok(children >= 20, 'the body child counter read ' + children + ', implausibly low -- the counter itself has likely broken, re-derive before trusting the headroom claim');
   assert.equal(depth, 0, 'the child counter ended at depth ' + depth + ', not 0 -- it is mis-parsing the markup and its count cannot be trusted');
 });

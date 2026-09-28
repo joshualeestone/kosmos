@@ -4204,7 +4204,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
    a nothingness space" (the page-level body padding was most of it). The
    body becomes a viewport-height grid with explicit rows for the three
    that need one (the rail heads, the lists, the person -- the header is
-   auto-placed among the pre-rail tracks, which is what `repeat(38, auto)`
+   auto-placed among the pre-rail tracks, which is what `repeat(39, auto)`
    protects), the lists' row is the one that flexes, and every region
    scrolls inside itself.
    ⚠️ "EVER" IS THE GOAL, NOT THE MECHANISM, and the distinction is the
@@ -4259,7 +4259,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
        rail head plus about four rows: enough that the row is recognisably
        itself and can be scrolled inside, rather than a sliver. Below that the
        grid exceeds the viewport and the body scroll above carries it. */
-    grid-template-rows: repeat(38, auto) auto minmax(200px, 1fr) auto; }
+    grid-template-rows: repeat(39, auto) auto minmax(200px, 1fr) auto; }
   html[data-layout="consolidated"] body.consolidated > * { grid-column: 1 / -1; }
   /* ⚠️ #conn CARRIES NO HORIZONTAL MARGIN OF ITS OWN (its `.conn {` rule carries margin-bottom
      only): it is a rounded, bordered card drawn against the body's
@@ -4272,7 +4272,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      inset here rather than inventing one keeps the two cards, which
      appear in the same place, agreeing about where the edge is. */
   html[data-layout="consolidated"] body.consolidated > #conn { margin-left: var(--space-8); margin-right: var(--space-8); }
-  html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 39; }
+  html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 40; }
   /* #867 (Josh, 2026-08-25 11:02): "hide that scrollbar inside of
      agents." Still scrolls -- scrollbar-width/-ms-overflow-style hide
      the track, not the ability to scroll it; content wheels and
@@ -4288,7 +4288,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      agents as well", and his own bound on it: "within reason... not crazy
      tight but a bit tighter". MEASURED at 6px between consecutive rows before
      this change, on a three-agent fixture. */
-  html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 40; margin: 0; display: flex; flex-direction: column; gap: 4px;
+  html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 41; margin: 0; display: flex; flex-direction: column; gap: 4px;
     min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated > #alist::-webkit-scrollbar { display: none; }
   /* The person, pinned under the list on a deeper ground so the row is not
@@ -4319,7 +4319,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      passed over here, only a trade being stated: below the floor,
      reachability beats the visual pin, which is the same call the overflow
      change makes. In every window a person actually uses, it is pinned. */
-  html[data-layout="consolidated"] body.consolidated > #rail-me { grid-column: 1; grid-row: 41; display: flex; align-items: center; gap: 6px;
+  html[data-layout="consolidated"] body.consolidated > #rail-me { grid-column: 1; grid-row: 42; display: flex; align-items: center; gap: 6px;
     margin: 0; padding: 8px 8px; border-top: 1px solid var(--k-rule); border-radius: 0; background: var(--k-side-2, #ebe8e2); }
   html[data-layout="consolidated"] body.consolidated .railme-go { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
   html[data-layout="consolidated"] body.consolidated .railme-face { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; overflow: hidden;
@@ -4653,7 +4653,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      the discussion and the right column all run to the viewport's bottom
      edge (the person's strip lives only in column 1). min-height: 0 lets
      the panel shrink to its row instead of forcing the page taller. */
-  html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 39 / span 3; max-width: none; margin: 0; padding-top: 0 !important; min-height: 0; }
+  html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 40 / span 3; max-width: none; margin: 0; padding-top: 0 !important; min-height: 0; }
   /* #774: the empty-centre sentence sits where the open project would. */
   /* #3597 (Josh, 0.6.91 QA): centred in the empty display column, both ways, not pinned top-left. */
   html[data-layout="consolidated"] body.consolidated #pj-none { grid-column: 2; grid-row: 1; align-self: center; justify-self: center; text-align: center; margin: 0; max-width: 34rem; }

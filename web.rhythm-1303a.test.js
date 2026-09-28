@@ -48,7 +48,7 @@ test('item 4: the agent status is not bold', () => {
 
 test('item 5: the agents sit closer together', () => {
   // MEASURED: 6px between consecutive rows before, 4px after.
-  assert.match(rule('#alist { grid-column: 1; grid-row: 40'), /gap:\s*4px/);
+  assert.match(rule('#alist { grid-column: 1; grid-row: 41'), /gap:\s*4px/);
 });
 
 /**

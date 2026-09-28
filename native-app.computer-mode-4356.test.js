@@ -211,7 +211,7 @@ test('#4356: Reload on a connect computer never starts the board', () => {
 });
 
 test('#4356: a connect computer is not offered #4347\'s restart-to-update for a board that is not its own', () => {
-  assert.match(body('private func checkWhetherThisAppIsBehind(port: Int)'), /guard computerMode != \.connect else \{ return \}/);
+  assert.match(body('private func checkWhetherThisAppIsBehind(port: Int)'), /guard computerMode != \.connect else \{\n\s+sayQuietStaleReason\("this computer connects to agents on another computer/);
   // And a loop already running when Connect is chosen stops at its next step (review round 19).
   const at = SRC.indexOf('private func stepRelaunch(');
   const head = SRC.slice(at, SRC.indexOf('{\n', at) + 600);
