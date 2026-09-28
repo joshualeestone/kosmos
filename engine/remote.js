@@ -310,6 +310,9 @@ let notEnrolledLastLogged = null;   // one stderr line per distinct reason, not 
 function reportNotEnrolledIfDue(now) {
   // Its own guard, stated rather than incidental: nothing here may throw into the status tick.
   try {
+    // NODE_TEST_CONTEXT on purpose, not live-execution.js's execArgv (review 19): this guard keeps a
+    // test from phoning the production coordinator, so a board a test SPAWNS must inherit it too,
+    // as createdbeacon.js and feedbacksend.js reason. A test that supplies its own tunnel opts in.
     if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_TUNNEL_BIN) return;
     // Math.abs: a wall clock stepped backwards must not silence the report until it catches up.
     if (notEnrolledReportInFlight || Math.abs(now - notEnrolledReportAt) < NOT_ENROLLED_REPORT_MS) return;

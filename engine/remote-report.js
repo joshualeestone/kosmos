@@ -168,6 +168,9 @@ function build(deps) {
    enrolment files are missing (fixed names), not status()'s sign-in sentence, which would
    blame the person for what may be a half-written state dir. */
 function errorCode(because, on, exists) {
+  // Both senders hold the key before they build (mac-standing.js via enrolled(), remote.js via
+  // holdsKey()); this re-reads mac_key rather than trusting that, so a key deleted in between (a
+  // Forget) falls back to classify(), which loses the missing-files detail but never leaks text.
   const missing = ENROL_FILES.filter((f) => !exists(f));
   if (on && missing.length && exists('mac_key')) return 'not-enrolled; missing: ' + missing.join(', ');
   return classify(because);

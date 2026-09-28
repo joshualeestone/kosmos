@@ -29,6 +29,11 @@ Rejected:
 ## Accepted (review 5)
 - The coordinator bounds `error` but does not restrict it to known codes, so its privacy rests on the board's classify() discipline. The board sends only fixed tokens or fixed file names.
 
+## Review 19
+- Kept, stated at the code: the not-enrolled report's test-runner guard is NODE_TEST_CONTEXT, not live-execution.js's execArgv. Convention 3's execArgv exists so a server a test spawns may still ACT; this guard exists so nothing a test spawns phones the production coordinator, which wants the inheritance (as createdbeacon.js and feedbacksend.js, and create.js's launch guard).
+- errorCode() says why it re-reads mac_key (a Forget between the sender's check and build() falls back to classify(), losing detail, never leaking text).
+- Deferred: the coordinator's HEAL_RESULTS accepts `not-needed`, which the board never sends. Harmless tolerance, in kosmos-relay; not worth a relay change.
+
 ## Review 18
 - The early tick after boot asks with a TTL of 0: the last report's time lives in remote.json and survives the restart, so under the 9-minute TTL the early tick sent nothing about four restarts in five. Tested (the early tick's ttlMs is 0; a mutant passing the TTL fails).
 - The early timer rides on the returned interval as `.first`, is unref'd, and its unref is tested (a mutant dropping it fails). server.js wraps the call in try, like its neighbours.
