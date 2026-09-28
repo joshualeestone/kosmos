@@ -133,8 +133,10 @@ function chk(ok, label, extra) {
     chk(carve.after === '12px 16px' && /radial-gradient\(12px 16px at -4px 0px/.test(carve.mask), 'U17d the wing\'s mask and the ground mask carve the same ellipse', JSON.stringify(carve));
 
     // U19: a READ bubble looks exactly as before this change: the wing's mask only removes pixels the ground mask
-    // (::after) already paints over, so switching the mask off changes nothing on a read bubble. In light, dark and
-    // Kosmos+ navy (each ground differs). Pixels counted as changed past a small tolerance, over the tail's region.
+    // (::after) already paints over, so switching the mask off changes nothing on a read bubble. In light and dark
+    // (each ground differs). Not Kosmos+ navy: there the bubble (27,42,75) and the ground (28,44,79) are within 4 of
+    // each other, so a mask error is invisible to a person and to this measure alike (a wrong ellipse read 0 there;
+    // light read 30, dark 36 to 38). Pixels counted as changed past a small tolerance, over the tail's region.
     const diffCount = (a, b) => page.evaluate(async ([x, y]) => {
       const load = async (src) => { const i = new Image(); i.src = 'data:image/png;base64,' + src; await i.decode(); const c = document.createElement('canvas'); c.width = i.width; c.height = i.height; const g = c.getContext('2d'); g.drawImage(i, 0, 0); return g.getImageData(0, 0, c.width, c.height).data; };
       const A = await load(x); const B = await load(y); let n = 0;
@@ -142,18 +144,18 @@ function chk(ok, label, extra) {
       return n;
     }, [a, b]);
     const readSame = {};
-    for (const look of ['light', 'dark', 'navy']) {
+    for (const look of ['light', 'dark']) {
       await page.evaluate((how) => { if (how === 'dark') document.documentElement.setAttribute('data-theme', 'dark'); if (how === 'navy') document.body.classList.add('plus-active'); }, look);
       const bb = await bds[0].boundingBox();
       const clip = { x: bb.x - 16, y: bb.y + bb.height - 24, width: 32, height: 26 };
       const withMask = (await page.screenshot({ clip })).toString('base64');
-      await page.addStyleTag({ content: '#d-dmthread .msg-bd::before { -webkit-mask: none !important; mask: none !important; }' });
+      const off = await page.addStyleTag({ content: '#d-dmthread .msg-bd::before { -webkit-mask: none !important; mask: none !important; }' });
       const noMask = (await page.screenshot({ clip })).toString('base64');
       readSame[look] = await diffCount(withMask, noMask);
-      await page.evaluate(() => { const t = [...document.querySelectorAll('style')].pop(); if (t && /mask: none !important/.test(t.textContent)) t.remove();
-        document.documentElement.removeAttribute('data-theme'); document.body.classList.remove('plus-active'); });
+      await off.evaluate((t) => t.remove());   // by its handle: the page adds style tags of its own
+      await page.evaluate(() => { document.documentElement.removeAttribute('data-theme'); document.body.classList.remove('plus-active'); });
     }
-    chk(Object.values(readSame).every((n) => n === 0), 'U19 a read bubble is unchanged by the wing\'s mask (light, dark, navy)', JSON.stringify(readSame));
+    chk(Object.values(readSame).every((n) => n === 0), 'U19 a read bubble is unchanged by the wing\'s mask (light, dark)', JSON.stringify(readSame));
 
     // U18: scrolled to the end, the newest bubble's bottom stroke shows (a filter is not scrollable content; the DM
     // thread's 2px bottom padding keeps it inside). CONTROL: the same strip on a read bubble has no gold.
