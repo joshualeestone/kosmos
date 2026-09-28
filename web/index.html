@@ -161,12 +161,16 @@
      render-gold-buttons-4059.js measures both by pixels. The theme does not change the fill, so
      one pair serves light, dark and navy. */
   --gold-end: #b2841e;
+  /* Each gradient ends in a solid colour layer, the gold the gradient is centred on. It is never seen
+     (the gradient covers the whole pill), but it is the button's computed background-color: a reader of
+     that value (the contrast check, anything laid over the button) finds gold, not transparent, which
+     made the label measure 1.03:1 against the dark page behind it. */
   --gold-polished:
     linear-gradient(180deg, rgba(255,246,214,.55) 0%, rgba(255,246,214,0) 38%, rgba(0,0,0,0) 62%, rgba(74,49,6,.06) 100%),
-    linear-gradient(100deg, var(--gold-end) 0%, var(--gold-deep) 14%, var(--gold-bright) 38%, #f3d27a 50%, var(--gold) 64%, var(--gold-deep) 84%, var(--gold-end) 100%);
+    linear-gradient(100deg, var(--gold-end) 0%, var(--gold-deep) 14%, var(--gold-bright) 38%, #f3d27a 50%, var(--gold) 64%, var(--gold-deep) 84%, var(--gold-end) 100%) var(--gold-bright);
   --gold-polished-hover:
     linear-gradient(180deg, rgba(255,246,214,.35) 0%, rgba(255,246,214,0) 38%, rgba(0,0,0,0) 62%, rgba(74,49,6,.06) 100%),
-    linear-gradient(100deg, var(--gold-end) 0%, var(--gold-deep) 18%, var(--gold) 40%, var(--gold-bright) 50%, #cf9f2a 64%, var(--gold-deep) 84%, var(--gold-end) 100%);
+    linear-gradient(100deg, var(--gold-end) 0%, var(--gold-deep) 18%, var(--gold) 40%, var(--gold-bright) 50%, #cf9f2a 64%, var(--gold-deep) 84%, var(--gold-end) 100%) var(--gold);
   --gold-polished-shadow: inset 0 1px 0 rgba(255,246,214,.7), inset 0 -1px 0 rgba(74,49,6,.25), 0 1px 2px rgba(0,0,0,.25), 0 6px 18px -8px rgba(122,84,16,.55);
   /* ⚠️ THE EDGE OF A GOLD BUTTON, AND IT IS A CONTRAST FLOOR RATHER THAN A
      PREFERENCE (kosmos#1044). `.uprime` painted its border the same colour as
