@@ -79,14 +79,17 @@ case "$mode" in
   up)       up ok; hold ;;
   wrong)    up wrong; hold ;;
   boom)     up boom; hold ;;
-  ticket)   echo "2026-09-28T01:21:47Z  WARN kosmos_tunnel_client: session ended: Kosmos+ answered 502 for /v1/mac/relay-ticket"; hold ;;
-  auth)     echo "2026-09-28T01:21:47Z  WARN kosmos_tunnel_client: session ended: relay TLS handshake: invalid peer certificate: UnknownIssuer"; hold ;;
+  # The failing modes print the real connector's line and EXIT, so a failed attempt costs no wait
+  # for the deadline (test.yml's 30-minute budget); "silent" keeps one row on the deadline path.
+  ticket)   echo "2026-09-28T01:21:47Z  WARN kosmos_tunnel_client: session ended: Kosmos+ answered 502 for /v1/mac/relay-ticket"; exit 1 ;;
+  auth)     echo "2026-09-28T01:21:47Z  WARN kosmos_tunnel_client: session ended: relay TLS handshake: invalid peer certificate: UnknownIssuer"; exit 1 ;;
+  ticketh)  echo "2026-09-28T01:21:47Z  WARN kosmos_tunnel_client: session ended: Kosmos+ answered 502 for /v1/mac/relay-ticket"; hold ;;
   renew)    echo renewed-crt > "$state/tls.crt"; echo renewed-key > "$state/tls.key"; up ok; hold ;;
   checkfresh) # a renewal is "due" unless the control's renewal is already in place: then fine,
              # else the build's renewal breaks (the round-7 false PASS, when the gate kept it early)
-             if [ "$(cat "$state/tls.crt")" = renewed-crt ]; then up ok; else echo "session ended: relay TLS handshake: bad certificate"; fi; hold ;;
+             if [ "$(cat "$state/tls.crt")" = renewed-crt ]; then up ok; hold; else echo "session ended: relay TLS handshake: bad certificate"; exit 1; fi ;;
   renew2)   echo ctl-renewed-crt > "$state/tls.crt"; echo ctl-renewed-key > "$state/tls.key"; up ok; hold ;;
-  renewbad) echo bad-crt > "$state/tls.crt"; echo bad-key > "$state/tls.key"; echo "session ended: relay TLS handshake: bad certificate"; hold ;;
+  renewbad) echo bad-crt > "$state/tls.crt"; echo bad-key > "$state/tls.key"; echo "session ended: relay TLS handshake: bad certificate"; exit 1 ;;
   exits)    echo "error: something broke"; exit 1 ;;
   silent)   hold ;;
 esac
@@ -124,6 +127,8 @@ run "no relay ticket, control passes -> FAIL at ticket"              1 "FAIL at 
 run "relay TLS refused, control passes -> FAIL at dial-auth"         1 "FAIL at dial-auth: the relay session" "auth"        "up"
 run "the connector exits, control passes -> FAIL at dial-auth"       1 "the connector exited"               "exits"         "up"
 run "no tunnel up in time, control passes -> FAIL at dial-auth"      1 "no \"tunnel up\" within 6s"         "silent"        "up"
+# The deadline path WITH an ended session (the connector keeps retrying, as the real one does):
+run "a ticket failure that keeps retrying -> FAIL at ticket, at the deadline" 1 "no relay ticket within 6s" "ticketh" "up"
 run "a different page, control passes -> FAIL at serve"              1 "not the connector's session page"   "wrong"         "up"
 run "HTTP 500, control passes -> FAIL at serve"                      1 "got HTTP 500"                       "boom"          "up"
 # The environment: the control fails too. This is the 502-mid-deploy / relay-restart / lapsed-
@@ -261,5 +266,5 @@ if [ "$left" = 0 ]; then pass=$((pass + 1)); echo "  ok    no connector left run
 else fail=$((fail + 1)); echo "  FAIL  $left stub connector(s) left running"; pkill -f "kosmos-gate-stub-$TAG"; fi
 
 echo "test-tunnel-handshake-gate: $pass passed, $fail failed"
-# 52 = every row above; equal to the count so a dropped row cannot pass.
-[ "$fail" -eq 0 ] && [ "$pass" -eq 52 ]
+# 53 = every row above; equal to the count so a dropped row cannot pass.
+[ "$fail" -eq 0 ] && [ "$pass" -eq 53 ]

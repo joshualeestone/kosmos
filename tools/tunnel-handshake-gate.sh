@@ -232,6 +232,18 @@ nc -z -G 5 -w 5 "${RELAY%:*}" "${RELAY##*:}" >/dev/null 2>&1 \
 # 0 pass, 1 fail. Each attempt gets its OWN copy of the state dir (a run rewrites files in it:
 # mac_last_signed, a renewed tls.crt/tls.key) and its connector is stopped before it returns.
 N=0; STEP=""; WHY=""; LAST_LOG=""; LAST_STATE=""
+# classify <log text> <" within Ns" or ""> <why when no session ended> <suffix>: sets STEP and WHY
+# from the LAST "session ended" line (a relay-ticket failure is the ticket step, anything else is
+# dial-auth).
+classify() {
+  local ended
+  ended="$(printf '%s\n' "$1" | grep 'session ended' | tail -1)"
+  case "$ended" in
+    '') STEP=dial-auth; WHY="$3" ;;
+    *relay-ticket*) STEP=ticket; WHY="no relay ticket$2: ${ended#*session ended: }$4" ;;
+    *) STEP=dial-auth; WHY="the relay session did not come up$2: ${ended#*session ended: }$4" ;;
+  esac
+}
 attempt() {
   N=$((N + 1))
   local st="$WORK/a$N/state" log="$WORK/a$N/connector.log"
@@ -254,19 +266,17 @@ attempt() {
     plain="$(sed 's/\x1b\[[0-9;]*m//g' "$log" 2>/dev/null)"
     printf '%s' "$plain" | grep -q 'tunnel up' && break
     if ! kill -0 "$PID" 2>/dev/null; then
-      STEP=dial-auth; WHY="the connector exited before the tunnel came up"; stop_connector; return 1
+      # Exited. The log is read again (its last lines may have landed after the read above), and
+      # the last ended session, if any, names the step, as at the deadline.
+      classify "$(sed 's/\x1b\[[0-9;]*m//g' "$log" 2>/dev/null)" "" "the connector exited before the tunnel came up" " (then the connector exited)"
+      stop_connector; return 1
     fi
     if [ "$(date +%s)" -ge "$deadline" ]; then
       # The connector retries on its own backoff; the LAST ended session names the step.
-      ended="$(printf '%s\n' "$plain" | grep 'session ended' | tail -1)"
-      case "$ended" in
-        '') STEP=dial-auth; WHY="no \"tunnel up\" within ${TIMEOUT}s" ;;
-        *relay-ticket*) STEP=ticket; WHY="no relay ticket within ${TIMEOUT}s: ${ended#*session ended: }" ;;
-        *) STEP=dial-auth; WHY="the relay session did not come up within ${TIMEOUT}s: ${ended#*session ended: }" ;;
-      esac
+      classify "$plain" " within ${TIMEOUT}s" "no \"tunnel up\" within ${TIMEOUT}s" ""
       stop_connector; return 1
     fi
-    sleep 1
+    sleep 0.25
   done
   say "  ok  ticket and dial-auth (tunnel up)"
   local curl_args=(-s --max-time 20 -o "$WORK/a$N/visit.html" -w '%{http_code}') vcode crc
