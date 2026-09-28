@@ -6195,11 +6195,16 @@ test('#3038: createdCount() counts creations (created + partial), never refusals
   assert.equal(create.createdCount(), before + 1, 'a REFUSED does not grow createdCount (nothing was made)');
   assert.ok(create.createdLog().length >= logLenBefore + 2, 'both attempts (incl. the refusal) were recorded in the birth log');
 
-  // Consistency: createdCount == the created+partial entries in the birth log,
-  // the same "created or partial line is the tie" interpretation register.js uses.
+  // Consistency: createdCount == the created+partial entries in the birth log (the same "created
+  // or partial line is the tie" interpretation register.js uses), MINUS the setup guide Kosmos
+  // made by itself (#4350: createdBy 'kosmos', role 'setup', a guide purpose). Stated here in
+  // full rather than borrowed from create.js, so this test is a second statement of the rule.
+  const sa = require('./setup-assistant');
+  const autoGuide = (e) => e.createdBy === 'kosmos' && e.role === 'setup'
+    && sa.GUIDE_PURPOSE_PREFIXES.some((p) => String(e.purpose || '').startsWith(p));
   const expected = create.createdLog()
-    .filter((e) => e.outcome === create.OUTCOME.CREATED || e.outcome === create.OUTCOME.PARTIAL).length;
-  assert.equal(create.createdCount(), expected, 'createdCount matches the created+partial birth-log entries');
+    .filter((e) => (e.outcome === create.OUTCOME.CREATED || e.outcome === create.OUTCOME.PARTIAL) && !autoGuide(e)).length;
+  assert.equal(create.createdCount(), expected, 'createdCount matches the created+partial birth-log entries, less the auto guide');
 });
 
 test('#4006: a new agent never inherits a failed-restart record left under its name', () => {
