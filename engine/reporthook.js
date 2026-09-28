@@ -244,7 +244,7 @@ function ephemeralMismatch(settingsPath, commandPaths) {
     && !underRoot(settingsPath, rawTmp) && !underRoot(settingsPath, realTmp);
   /* Coupling this fix relies on, verified against the cut scripts (#1582
      review): the sandbox is created with `mktemp -d "${TMPDIR:-/tmp}/install.XXXXXXXXXX"`
-     (test-install.sh:65) and `${TMPDIR:-/tmp}/kosmos-release.XXXXXX` (release.sh), both under
+     (test-install.sh) and `${TMPDIR:-/tmp}/kosmos-release.XXXXXX` (release.sh), both under
      $TMPDIR, and the setup Node process shares that $TMPDIR -- so os.tmpdir()
      here names the same root the ephemeral script lives under. */
   return scriptEphemeral && settingsDurable;
