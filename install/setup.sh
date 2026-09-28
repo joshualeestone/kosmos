@@ -3710,8 +3710,22 @@ if mkdir -p "$_wf_data_root" 2>/dev/null; then
     || printf '  (could not record the source channel; the board will read the default, prod)\n'
 fi
 
+# >>> start_board_after_install (#4408; tools/test-start-after-install-4408.sh runs this block)
+# On an UPDATE the board is RESTARTED, not merely started. The pause above stops it, but anything
+# can start it again before the new files land (the app window's reload runs `kosmos start`, which
+# also clears the stop marker), and that board boots the OLD code. A plain `kosmos start` then finds
+# it healthy and leaves it running: Ben on prod, 2026-09-28, "Kosmos changed on disk" after his
+# update. `kosmos restart` is stop then start, so the board that answers is the one on the new files.
+start_board_after_install() {
+  if [ "${FRESH_INSTALL:-yes}" = "no" ]; then
+    KOSMOS_SAY_INDENT="     " "$KOSMOS_HOME/bin/kosmos" restart
+  else
+    KOSMOS_SAY_INDENT="     " "$KOSMOS_HOME/bin/kosmos" start
+  fi
+}
+# <<< start_board_after_install
 step "Starting Kosmos."
-KOSMOS_SAY_INDENT="     " "$KOSMOS_HOME/bin/kosmos" start || die "Kosmos installed but would not start. What it said is above; it is safe to paste the install line again."
+start_board_after_install || die "Kosmos installed but would not start. What it said is above; it is safe to paste the install line again."
 ok
 
 # ---- and start it again at every login --------------------------------------

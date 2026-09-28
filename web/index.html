@@ -19551,33 +19551,65 @@ function restartHold() {
 if (typeof window !== 'undefined') window.kosmosSafeToRestart = () => {
   try { return restartHold() ? 'hold' : updateNothingToLose(); } catch { return 'unknown'; }
 };
+/* #4408: the board is restarting itself onto the code on disk. While set, the stale toast stays as
+   "Restarting" and the did-not-answer screen stands down (the board is away on purpose, as in an update). */
+let ENGINE_RESTARTING = false;
+async function engineRestartClick() {
+  const btn = document.getElementById('ut-engine-restart');
+  const small = btn && btn.closest('.utoast') ? btn.closest('.utoast').querySelector('small') : null;
+  if (btn) { btn.disabled = true; btn.textContent = 'Restarting…'; }
+  let before = ENGINE_STALE && ENGINE_STALE.startedAt;
+  try {
+    const r = await fetch('/api/engine/restart', { method: 'POST' });
+    const out = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Restart Kosmos'; }
+      if (small) small.textContent = (out && out.because ? 'Kosmos could not restart itself: ' + out.because + '.' : 'Kosmos could not restart itself.') + ' Restarting your computer will finish the update.';
+      return;
+    }
+  } catch {
+    if (btn) { btn.disabled = false; btn.textContent = 'Restart Kosmos'; }
+    return;
+  }
+  ENGINE_RESTARTING = true;
+  /* Back when a board with a different start time answers; then the page itself reloads onto it. */
+  const until = Date.now() + 120 * 1000;
+  while (Date.now() < until) {
+    await new Promise((res) => setTimeout(res, 1000));
+    try {
+      const st = await (await fetch('/api/status', { cache: 'no-store' })).json();
+      if (st && st.engine && st.engine.startedAt && st.engine.startedAt !== before) { location.reload(); return; }
+    } catch { /* the board is away while it restarts */ }
+  }
+  ENGINE_RESTARTING = false;
+  if (btn) { btn.disabled = false; btn.textContent = 'Restart Kosmos'; }
+  if (small) small.textContent = 'Kosmos is taking longer than it should to come back. Try again, or restart your computer.';
+}
 function renderUpdateToast(u) {
   const slot = document.getElementById('utoast-slot');
   /* 🛑 THE ENGINE STATE OUTRANKS BOTH OTHERS (#338). A server behind the code
      on disk is the one condition that makes the page-stale state moot and the
      update offer premature: restarting is the act that settles all three, so
      it is the one to ask for first. Same slot, same class, not dismissible: a
-     state, not a notice. The mechanism that would make this a button has to
-     work on a machine whose plist has no KeepAlive (the shipped one), so until
-     the updater's own stop/start path is reachable from here the remedy is
-     said in words. No version number: the merges that caused this never moved
-     one, which is why this compares files to the process and not numbers. */
+     state, not a notice. #4408 (Ben on prod, 2026-09-28): no Terminal wording (#996). When the board can
+     restart itself it offers one Restart Kosmos button, which runs the same path a world switch does
+     (POST /api/engine/restart). No version number: the merges that caused this never moved one, which is
+     why this compares files to the process and not numbers. */
   if (ENGINE_STALE && ENGINE_STALE.staleSince) {
-    if (slot.dataset.v === 'engine') return;
-    slot.dataset.v = 'engine';
-    const since = (() => {
-      const d = new Date(ENGINE_STALE.startedAt || '');
-      return Number.isNaN(d.getTime()) ? null : d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    })();
+    const can = ENGINE_STALE.canRestart === true;
+    const key = 'engine' + (can ? '-btn' : '');
+    if (slot.dataset.v === key || (typeof ENGINE_RESTARTING !== 'undefined' && ENGINE_RESTARTING)) return;
+    slot.dataset.v = key;
     slot.innerHTML = '<div class="utoast stale" role="status">'
       + '<span class="udot" aria-hidden="true"></span>'
-      + '<div class="utxt"><b>Kosmos changed on disk</b><small>'
-      + (since ? 'The board is running code from ' + esc(since) + '. ' : 'The board is running older code. ')
-      + (onWindows()
-        ? windowsCopy('engineStaleRemedy')
-        : 'Only a restart picks it up: <code>kosmos restart</code>')
+      + '<div class="utxt"><b>Kosmos needs a quick restart</b><small>'
+      + (can ? 'To finish updating. Your agents keep running.'
+        : onWindows() ? windowsCopy('engineStaleRemedy')
+          : 'To finish updating, restart your computer. Your agents keep running.')
       + '</small></div>'
+      + (can ? '<button type="button" id="ut-engine-restart">Restart Kosmos</button>' : '')
       + '</div>';
+    if (can) document.getElementById('ut-engine-restart').addEventListener('click', () => engineRestartClick());
     return;
   }
   /* #3955 (Josh: "You're looking at the previous version. That doesn't make sense"; Mona Lisa's
@@ -20441,7 +20473,8 @@ function paintRestartScreen(down, deviceIsOffline) {
   /* A world switch restarts the board on purpose and can take minutes (worldswReconnect), so it
      stands down like an update does. Any stand-down also restarts the 15 s clock, so a board still
      down afterwards gets a fresh wait rather than the screen on the very next poll. */
-  if (!down || deviceIsOffline || remote || !served || UPDATING_NOW || WORLDSW_SWITCHING) {
+  if (!down || deviceIsOffline || remote || !served || UPDATING_NOW || WORLDSW_SWITCHING
+    || (typeof ENGINE_RESTARTING !== 'undefined' && ENGINE_RESTARTING)) {
     BOARD_NO_ANSWER_SINCE = null;
     if (shown) {
       shown.remove();

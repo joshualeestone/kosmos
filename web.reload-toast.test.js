@@ -43,15 +43,30 @@ test('a board running older engine code than the disk says so, and outranks both
   const engine = { startedAt: '2026-08-23T11:51:00Z', staleSince: '2026-08-23T15:30:00Z' };
   const t = toast({ baked: '0.2.75', served: '0.2.76', offer: { version: '0.2.77' }, engine });
   assert.equal(t.v, 'engine');
-  assert.match(t.html, /Kosmos changed on disk/);
-  assert.match(t.html, /running code from \d/);
-  assert.match(t.html, /kosmos restart/);
+  // #4408: plain words, no Terminal command (#996), no "running code from 9:59".
+  assert.match(t.html, /Kosmos needs a quick restart/);
+  assert.match(t.html, /Your agents keep running/);
+  assert.doesNotMatch(t.html, /kosmos restart|<code>|Terminal|changed on disk|running code from/i);
+  assert.doesNotMatch(t.html, /ut-engine-restart/, 'a board that cannot restart itself offered a button that would fail');
   assert.doesNotMatch(t.html, /previous version|ut-reload|0\.2\.77/, 'a lower state rendered beside the one that settles it');
   // Null and a current engine fall through to the states below.
   for (const e of [null, { startedAt: '2026-08-23T11:51:00Z', staleSince: null }]) {
     const f = toast({ baked: '0.2.75', served: '0.2.76', engine: e });
     assert.equal(f.v, 'stale', 'an engine that is not stale hid the page-stale state');
   }
+});
+
+test('#4408: a stale board that can restart itself offers ONE Restart Kosmos button, no Terminal wording', () => {
+  const engine = { startedAt: '2026-09-28T14:59:00Z', staleSince: '2026-09-28T15:10:00Z', canRestart: true };
+  const t = toast({ baked: '0.2.75', served: '0.2.75', engine });
+  assert.equal(t.v, 'engine-btn');
+  assert.match(t.html, /<button type="button" id="ut-engine-restart">Restart Kosmos<\/button>/);
+  assert.match(t.html, /To finish updating\. Your agents keep running\./);
+  assert.doesNotMatch(t.html, /kosmos restart|<code>|Terminal/i);
+  assert.equal(t.listeners.length, 1, 'the button is not wired');
+  // CONTROL: the same board without canRestart gets no button (the arm above can fail).
+  const n = toast({ baked: '0.2.75', served: '0.2.75', engine: { ...engine, canRestart: false } });
+  assert.doesNotMatch(n.html, /ut-engine-restart/);
 });
 
 test('a page older than the running Kosmos says so, and offers the one thing that fixes it', () => {

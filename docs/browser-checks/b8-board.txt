@@ -11,6 +11,7 @@ render-boot-no-flash
 render-community-delete-4313
 render-community-switch-4288
 render-create-form
+render-engine-restart-4408
 render-first-run
 render-found-undo
 render-full-width

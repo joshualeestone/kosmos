@@ -247,7 +247,7 @@ const BOARD_IDENTITY = boardIdentity(buildIdentity(__dirname) || version, requir
  */
 const ENGINE_STARTED_AT = new Date();
 const ENGINE_ROOT = __dirname + path.sep;
-let engineLook = { at: 0, staleSince: null };
+let engineLook = { at: 0, staleSince: null, canRestart: false };
 /* #761's valve for the part routes (below, near heardBy): unlike a task,
    a part carries no `addedVia`/`createdAt` of its own, so counting
    process-made PARTS the way taskMake counts process-made tasks would need
@@ -449,12 +449,16 @@ function engineFreshness() {
         if (m > newest) newest = m;
       } catch { /* gone or unreadable: not evidence of staleness */ }
     }
-    engineLook = {
-      at: now,
-      staleSince: Math.floor(newest / 1000) > Math.floor(ENGINE_STARTED_AT.getTime() / 1000) ? new Date(newest).toISOString() : null,
-    };
+    const staleSince = Math.floor(newest / 1000) > Math.floor(ENGINE_STARTED_AT.getTime() / 1000) ? new Date(newest).toISOString() : null;
+    /* #4408: whether the page may offer one Restart Kosmos button. Asked only while stale, so a
+       current board never pays for the launchctl read behind it. */
+    let canRestart = false;
+    if (staleSince) {
+      try { canRestart = require('./engine/boardrestart').canSelfRestart().canRestart === true; } catch { canRestart = false; }
+    }
+    engineLook = { at: now, staleSince, canRestart };
   }
-  return { startedAt: ENGINE_STARTED_AT.toISOString(), staleSince: engineLook.staleSince };
+  return { startedAt: ENGINE_STARTED_AT.toISOString(), staleSince: engineLook.staleSince, canRestart: engineLook.canRestart };
 }
 const store = require('./engine/store');
 const communitysite = require('./engine/communitysite'); // #3485: community SITE layer — read + moderation over communitystore
@@ -3991,6 +3995,26 @@ const server = http.createServer((req, res) => {
         sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
       })
       .catch((e) => { console.error('FAIL /api/community/human/comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
+    return;
+  }
+
+  /* #4408: the one-button remedy for a board running older code than is on disk (Ben on prod, 2026-09-28).
+     Board-token gated like every /api/ route. It restarts through the same path a world switch uses
+     (engine/boardrestart: a detached `kosmos restart`, or the launchd/logon job), and only when the board
+     is actually stale and can bring itself back; otherwise it says why and does nothing. */
+  if (pathname === '/api/engine/restart' && req.method === 'POST') {
+    const fresh = engineFreshness();
+    if (!fresh.staleSince) { sendJson(res, 409, { ok: false, because: 'the board is already running the code on disk' }); return; }
+    let can;
+    try { can = require('./engine/boardrestart').canSelfRestart(); } catch (e) { can = { canRestart: false, because: String((e && e.message) || e) }; }
+    if (!can.canRestart) { sendJson(res, 409, { ok: false, because: can.because || 'this board cannot restart itself' }); return; }
+    sendJson(res, 202, { ok: true, restarting: true });
+    /* After the response has flushed: the restart ends this process, the connection that asked with it. */
+    setTimeout(() => {
+      let r;
+      try { r = require('./engine/boardrestart').selfRestart(process.platform, { port: PORT }); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
+      if (!r || !r.ok) console.error('FAIL /api/engine/restart: ' + ((r && r.because) || 'unknown'));
+    }, 500);
     return;
   }
 
