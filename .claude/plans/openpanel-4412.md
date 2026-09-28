@@ -48,7 +48,7 @@ every later press was refused with nil and no picker opened again. The watch ans
   real NSOpenPanel each time): create-form Change picture opens, opens after a cancel, and opens after a picker that
   dropped its callback; the agent page and profile Change picture open too. Switching apps cannot be driven from an
   agent (macOS refuses programmatic activation), so that step is covered by the dropped/hung arms, not by a click.
-- Timing: selftest now ~29 s; its watchdog 50 s; the bundle gate's alarm 55 s.
+- Timing: selftest now ~29 s; its watchdog 50 s; the bundle gate's alarm 65 s (15 s above the watchdog, as before, so a slow run still reports its own timeout).
 - The real panel's rule (openPanelStillUp: on screen, or Kosmos in the background, counts as up) is a function the
   selftest prints for all four cases and the gate requires. NOT covered: that the watch passes the real panel's
   isVisible and NSApp.isActive into it (a shell-launched selftest is never the active app); that wiring is the

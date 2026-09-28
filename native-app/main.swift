@@ -3653,7 +3653,7 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
        fix removed one instance and shipped another. `filepanel selftest TIMED
        OUT` is the unique string the shell keys its gate-fault arm on.
        Budget: 150 x 0.1s = 15s, inside the hatch's own 50s watchdog and the
-       shell's 55s alarm. The page loads in well under half a second here, so
+       shell's 65s alarm. The page loads in well under half a second here, so
        this is ~30x the observed margin rather than the ~12x it was. The whole
        run is about 29s (the #2807 with-a-sheet-up arm added a sheet poll plus a
        wait, and #4412's two arms each wait out the picker's first look), so a
@@ -3818,7 +3818,7 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
             }
         }
     }
-    // A hung run loop must fail, not hang a release cut. (#4412's two arms add ~16 s; the shell's alarm is 55.)
+    // A hung run loop must fail, not hang a release cut. (#4412's two arms add ~16 s; the shell's alarm is 65, so this fires first even on a slow box.)
     DispatchQueue.main.asyncAfter(deadline: .now() + 50) {
         print("filepanel selftest TIMED OUT")
         exit(1)
