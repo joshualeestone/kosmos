@@ -4,7 +4,8 @@
  *   1. not be produced by an interrupted write (the old file stays whole),
  *   2. stay visible until the PERSON repairs it (a background write must not quietly rewrite it as "off"),
  *   3. be repaired by the person turning remote access on,
- *   4. never be taken as permission for a signed call.
+ *   4. never be taken as permission for the remote-access STANDING call (mac-standing.fetchStanding). This is
+ *      that one call only: federation's own signed calls are gated on enrolment, not on this switch (#4318).
  * Sandboxed data root and a FAKE tunnel program before the require; nothing reaches a network.
  */
 const test = require('node:test');
@@ -98,7 +99,7 @@ test('3. the person turning remote access on repairs the file', () => {
   remote.setOn(false);
 });
 
-test('4. no signed call while the file is unreadable; the same enrolled Mac with a readable ON file does call', async () => {
+test('4. no remote-access standing call while the file is unreadable; the same enrolled Mac with a readable ON file does call', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_STATE = ENROLLED_STATE;
   try {
     // Control first: the test can see a call when one is allowed.
@@ -110,7 +111,7 @@ test('4. no signed call while the file is unreadable; the same enrolled Mac with
     fs.writeFileSync(FILE, DAMAGED);
     fs.rmSync(RECORD, { force: true });
     assert.equal(await standing.fetchStanding(), null);
-    assert.deepEqual(calls(), [], 'a signed call went out on an unreadable settings file');
+    assert.deepEqual(calls(), [], 'the standing call went out on an unreadable settings file');
   } finally {
     process.env.AGENT_WORKFORCE_TUNNEL_STATE = EMPTY_STATE;
   }

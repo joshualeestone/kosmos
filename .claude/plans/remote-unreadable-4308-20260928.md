@@ -1,21 +1,24 @@
 # #4308: an unreadable remote-access settings file (Sonya Blade, 2026-09-28)
 
 ## Ruling (Liu Kang, on the card)
-An unreadable settings file is NOT permission for a signed call. Instead: stop the state happening (atomic
+An unreadable settings file is NOT permission for the remote-access standing call (mac-standing.fetchStanding).
+Scope, per Liu Kang's ruling on #4314: that one call only. Federation's own signed calls are gated on enrolment,
+not on this switch, and run with the switch off; whether they should stop on an unreadable file is #4318. Instead: stop the state happening (atomic
 writes, tested), and make it visible locally (a message on the board; turning remote access on repairs it).
 
 ## Finished means
 1. An interrupted write cannot produce an unreadable file: the previous file stays whole (test).
 2. A damaged file shows "Your remote-access settings could not be read. Turn Kosmos Plus on again to repair
    them." on the Plus pane of a real board, and turning remote access on rewrites it.
-3. No signed call goes out while the file is unreadable (test, with a control that does call).
+3. The remote-access standing call does not go out while the file is unreadable (test, with a control that does
+   call). Federation calls are out of scope (#4318).
 
 ## What already existed
 - `write()` already went through `remote.json.tmp` plus a rename, so a crash mid-write left the old file.
   Gaps: no fsync before the rename (a power cut could leave the renamed file empty, which is the
   "cut short" state), and a FIXED temporary name (two writers could interleave into one temporary file).
 - `mac-standing.fetchStanding()` already gates on `read().on`, which is false for an unreadable file, so no
-  signed call went out. Now pinned by a test.
+  standing call went out. Now pinned by a test.
 - `GET /api/remote` already returned `ok: false`, and the engine's status sentence already said "your
   remote-access settings could not be read" (measured on a sandboxed board), which the old page showed under an
   "Off" switch. What was missing: how to repair it, and any guarantee it would still be there to read, because a
@@ -60,7 +63,7 @@ repairs the file.
   2 (a background write leaves the damage), 5 (the device id survives a repair) and 6 (stale temporaries swept).
   1a and 1b pin that an interrupted write leaves the old file whole: that already held, and on the old code they
   fail only on the leftover-temporary check and on writeFileSync bypassing the patched writeSync. 3 (the switch
-  repairs) and 4 (no signed call, with a control that does call) pin behaviour that already held.
+  repairs) and 4 (no standing call, with a control that does call) pin behaviour that already held.
 - Real board (sandboxed data, this branch, fake tunnel): a damaged remote.json on an enrolled Mac shows the repair
   message on the Plus pane under an Off switch; turning remote access on rewrote it as valid settings, the message
   went, and no temporary file was left.
