@@ -56,3 +56,14 @@ That the lighter ends still read as "polished gold A" to Josh. The study's darke
 so this is the closest that does; the rendered floor is 4.61:1 (Chromium, the big pill's rim), so there is
 little room to darken further. Second: the hover arms run in headless engines with software WebGL; a real
 GPU could differ in speed but not in what is drawn where.
+
+## Also on this branch, and why
+
+- `docs/browser-checks/render-dm-reply-4256.js`: each scenario now clears `TALK_PENDING`. CI's browser-checks on
+  PR #4311 selected this check because the page changed, and it failed twice. A "Sending…" row leaked from R3's
+  second send into every later scenario (R13 read 6 rows, R6c a third answer), about one run in three, and also
+  on main. Without the fix this PR cannot go green. It is its own commit (723640d) so it can be found and
+  reverted alone. Control: with that send's reply slowed to 1.5s, the old check fails exactly so every time and
+  the fixed one passes.
+- The two gold gradients end in a solid gold layer, so the button's computed background-color is gold. CI's
+  contrast check and render-agent-nav's #4051 arm both read that value, and it had been transparent.

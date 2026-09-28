@@ -27,6 +27,9 @@
  *       carries the light to the new copy: it is not dropped until the pointer next moves
  *   G11b when the old button is still on the page (only its canvas was taken), it gets its class and position back
  *   G1c the found and import rows' Added state keeps its own shape (the control radius), not the gold pill
+ *   G2d the label clears 4.5:1 on every pixel of the fill WITH THE LIGHT SHOWING (motion on, the light hosted on
+ *       that button while the pixels are read). The light is blended with screen, which can only brighten the fill
+ *       under a dark label, so this should hold by construction; the arm is what proves it.
  *
  * It also fails if it ran any number of checks other than EXPECTED, so a skipped arm cannot read as green.
  *
@@ -43,7 +46,7 @@ const ENGINES = ['chromium', 'webkit'];
 let ENGINE = '';   // the engine the loop below is on, for chk's labels
 
 const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
-const EXPECTED = 76;   // 38 per engine
+const EXPECTED = 78;   // 39 per engine
 const fail = [];
 let passed = 0;
 function chk(ok, label, extra) {
@@ -62,7 +65,7 @@ async function open(browser, opts, init) {
     window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
   });
   if (init) await page.addInitScript(init);
-  await page.goto(PAGE);
+  await page.goto(PAGE, { timeout: 90000 });   // a loaded machine (other agents' suites) took >30s to load this 4MB page
   await page.bringToFront();
   await page.evaluate(() => {
     const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
@@ -233,6 +236,12 @@ async function fillContrast(page, sel) {
       const after = await allCanvas(page);
       chk(after - base === 1 && where.length === 1 && where[0] === 'g2' && s2.host === 'g2', 'G3 after hovering two gold buttons in turn there is exactly one extra canvas, inside the second', JSON.stringify({ base, after, where, s2 }));
       chk(await page.evaluate(() => !document.querySelector('[data-gx=g1] canvas') && !document.querySelector('[data-gx=g1]').classList.contains('gold-lit')), 'G3 the first button gave the canvas up entirely');
+      // G2d: contrast while the light is actually showing on the big pill (the pointer still on it).
+      const litBefore = await state(page);
+      const cLit = await fillContrast(page, '[data-gx=g2]');
+      const litAfter = await state(page);
+      chk(litBefore.running && litBefore.host === 'g2' && litAfter.running && litAfter.host === 'g2' && cLit.n > 500 && cLit.min >= 4.5 && cLit.band >= 4.5 && cLit.ends >= 4.5,
+        'G2d the label clears 4.5:1 on every pixel of the fill with the light showing', JSON.stringify({ cLit, litBefore: litBefore.host, litAfter: litAfter.host }));
 
       // Not gold: the blue ask-card primary and a disabled gold button never host the light.
       await swipe(page, '[data-gx=blue]', 1);
