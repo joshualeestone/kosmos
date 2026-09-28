@@ -9,6 +9,7 @@
  * import textarea's "Bring it in", so this route neither parses nor creates.
  */
 
+require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');

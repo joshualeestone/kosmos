@@ -6,6 +6,7 @@
  * the operator's real home that is somebody's actual account tree. The same
  * lesson the status suite learned by writing into a real `~/.claude`.
  */
+require('../test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

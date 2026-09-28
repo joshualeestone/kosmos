@@ -178,9 +178,12 @@ fi
 # 104 characters, tmux builds `$TMPDIR/tmux-<uid>/default`, and `engine/status`
 # has a test that needs the ordinary "no server" error from a real tmux. Nesting
 # the run under a long directory produced "File name too long" instead, which is
-# a DIFFERENT error the board correctly refuses, and the test failed. This adds
-# under ten characters. If a machine is already within ten characters of that
-# limit its suite is fragile today, which is #1264.
+# a DIFFERENT error the board correctly refuses, and the test failed. The run root
+# adds `/kt<pid>` (under ten characters), and a test file that also uses
+# test-support/tmpscope.js adds `/kts-XXXXXX` on top (11 more): about TWENTY in all.
+# Measured on Agent1s (a 48-character TMPDIR): 84 characters for the tmux socket. A
+# machine whose TMPDIR leaves under about twenty characters of that limit has a
+# fragile suite, which is #1264.
 #
 # 📌 A hard kill skips the trap and leaves ONE directory instead of 92, named
 # for the run that made it.
@@ -197,7 +200,11 @@ fi
 KOSMOS_RUN_TMPDIR="${TMPDIR:-/tmp}"
 KOSMOS_RUN_TMPDIR="${KOSMOS_RUN_TMPDIR%/}/kt$$"
 if mkdir -p "$KOSMOS_RUN_TMPDIR" 2>/dev/null; then
-  trap 'rm -rf "$KOSMOS_RUN_TMPDIR"' EXIT
+  # kosmos#4273: an INTERRUPTED run (Ctrl-C, a runner's timeout) never reaches the leak
+  # guard, and removing the root under a launchd job loaded from a plist in it is the
+  # 8,096-respawn shape. So while the labels snapshot is still unused (the guard removes
+  # it), the trap boots out this run's jobs before the root goes.
+  trap '[ -n "${_tl_labels_before:-}" ] && [ -f "$_tl_labels_before" ] && type leak_launchd_check >/dev/null 2>&1 && leak_launchd_check "$_tl_labels_before" "$KOSMOS_RUN_TMPDIR" >&2; rm -rf "$KOSMOS_RUN_TMPDIR"' EXIT
   export TMPDIR="$KOSMOS_RUN_TMPDIR"
 else
   # Never fail a run over housekeeping: the suite is what matters.
@@ -250,6 +257,17 @@ _la_guard_dir="${HOME}/Library/LaunchAgents"
 _la_guard_before="$(mktemp "${TMPDIR:-/tmp}/la-leak-before.XXXXXXXXXX")" || _la_guard_before=""
 [ -n "$_la_guard_before" ] && launchagent_snapshot "$_la_guard_dir" > "$_la_guard_before"
 
+# --- #4273: what the suite leaves behind: launchd jobs, processes, temp entries -
+# Snapshot the loaded launchd labels now; after the suite, lib/test-leak-guard.sh
+# checks all three, each scoped to THIS run's temp root so a suite running beside
+# another never blames or kills the other's. Only when the per-run root exists.
+. "$(dirname "$0")/lib/test-leak-guard.sh"
+_tl_labels_before=""
+if [ "${TMPDIR:-}" = "$KOSMOS_RUN_TMPDIR" ]; then
+  _tl_labels_before="$(mktemp "$KOSMOS_RUN_TMPDIR/tl-labels.XXXXXXXXXX")" || _tl_labels_before=""
+  [ -n "$_tl_labels_before" ] && leak_labels_snapshot > "$_tl_labels_before"
+fi
+
 # --- the suite ----------------------------------------------------------------
 # Run the SAME set the coverage assertion counted, so the count and the run cannot drift.
 # #3605: --require preloads a guard into EVERY file's process (node forwards it) that
@@ -277,6 +295,23 @@ if [ -n "$_la_guard_before" ]; then
     [ "$NODE_STATUS" -eq 0 ] && NODE_STATUS=1
   fi
   rm -f "$_la_guard_before"
+fi
+# --- #4273: refuse a launchd job, a process or a new temp family the suite left --
+# Runs regardless of the verdict, like #3011, so a leak is reported beside a red. A
+# leaked job is booted out and a leaked process stopped, so the machine is clean
+# either way; the run still fails so the test that leaked gets fixed. The temp check
+# compares FAMILIES (lib/test-leak-guard.sh leak_family) with
+# tools/test-leak-allowlist.txt: families that already leak are listed until fixed,
+# and a NEW one fails. The whole per-run root is removed at exit regardless.
+if [ "${TMPDIR:-}" = "$KOSMOS_RUN_TMPDIR" ]; then
+  if ! _tl_out="$(leak_guard_after_suite "$_tl_labels_before" "$KOSMOS_RUN_TMPDIR" "$REPO/tools/test-leak-allowlist.txt")"; then
+    printf '%s\n' "$_tl_out" | sed 's/^/  /' >&2
+    echo "run-tests: #4273 LEAK -- the suite left the things listed above behind (launchd jobs are booted out and processes stopped already). Make the test that made them clean up: require('./test-support/tmpscope') at the top of a test file contains its temp dirs, a launchd job needs a bootout in its cleanup even on failure, and a spawned process needs a kill. A family that is known to leak and not yet fixed can be added to tools/test-leak-allowlist.txt." >&2
+    [ "$NODE_STATUS" -eq 0 ] && NODE_STATUS=1
+  elif [ -n "$_tl_out" ]; then
+    printf '%s\n' "$_tl_out" | sed 's/^/  /' >&2
+  fi
+  [ -n "$_tl_labels_before" ] && rm -f "$_tl_labels_before"
 fi
 # --- #1720: the repo-local browser-check gate ---------------------------------
 # A committed web/ change must carry a docs/browser-checks/ assertion update, or an

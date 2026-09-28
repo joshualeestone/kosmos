@@ -25,10 +25,14 @@ const os = require('node:os');
 const path = require('node:path');
 
 /* Folders this file made, removed when the check ends; never one a caller set. */
+/* At exit and on SIGINT/SIGTERM/SIGHUP, through the one shared handler (kosmos#4273):
+   a runner's timeout or an interrupt is how a check usually ends early. */
+const { removeAtEnd } = require('../../test-support/remove-at-end');
 const made = [];
-process.on('exit', () => {
-  for (const d of made) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+removeAtEnd(() => {
+  for (const d of made.splice(0)) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
 });
+
 function freshHome() {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-bc-home-'));
   made.push(d);

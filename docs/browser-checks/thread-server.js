@@ -61,8 +61,15 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = process.env.AGENT_WORKFORCE_TMUX_BIN
    tools/browser-checks.sh does not pass it, and demanding it would turn an
    isolation fix into a red suite. The default is a fresh temp dir, so an
    unset caller gets isolation instead of the operator's home. */
-process.env.AGENT_WORKFORCE_CONFIG_ROOT = process.env.AGENT_WORKFORCE_CONFIG_ROOT
-  || fs.mkdtempSync(path.join(os.tmpdir(), 'aw-thread-config-'));
+if (!process.env.AGENT_WORKFORCE_CONFIG_ROOT) {
+  /* Made here, so removed here when this process ends (kosmos#4273: ~116 a day were
+     left behind). A root the caller set is never touched. */
+  const madeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-thread-config-'));
+  process.env.AGENT_WORKFORCE_CONFIG_ROOT = madeRoot;
+  /* The shared handler, not a second one: two handlers that each stand aside for the
+     other left lib-sandbox-home's folders behind on SIGTERM. */
+  require('../../test-support/remove-at-end').removeAtEnd(() => fs.rmSync(madeRoot, { recursive: true, force: true }));
+}
 for (const key of ['AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_WORKERS', 'AGENT_WORKFORCE_LAUNCH', 'AGENT_WORKFORCE_PROJECTS']) {
   const set = process.env[key];
   if (!set) {
