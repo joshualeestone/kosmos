@@ -10,7 +10,9 @@
 # Exit 0: clear. Exit 1: busy. Exit 2: usage error, which also means do not start.
 # Busy means either of:
 #   - a release reservation holds the machine (tools/who-has-the-box.sh), or
-#   - a REAL tools/release.sh or tools/browser-checks.sh is running.
+#   - a REAL tools/release.sh, tools/browser-checks.sh or tools/test-install.sh is running.
+#     (#4410: the install harness boots real boards on test ports and checks that they let go of
+#     them, so a full suite started beside it can make its port checks red.)
 # A shell that only mentions those names in a command string (sh -c '... release.sh ...') does
 # not count. A shell script that takes the path as an ARGUMENT does count (bash watch.sh
 # .../tools/release.sh), because a path with a space arrives split and cannot be told apart from
@@ -100,8 +102,8 @@ claim_line() {
   bash "$REPO/tools/who-has-the-box.sh" 2>&1
 }
 
-# Live snapshot in the seam's format. Every shell that has a release.sh or browser-checks.sh
-# word in its arguments is a candidate. In --quiet-box mode, run-tests.sh is one too.
+# Live snapshot in the seam's format. Every shell that has a release.sh, browser-checks.sh or
+# test-install.sh word in its arguments is a candidate. In --quiet-box mode, run-tests.sh is one too.
 # classify decides whether it is RUNNING the script.
 # How far up the parent chain to look for a node --test runner. A test fixture sits a few hops
 # below it (node, a wrapper shell, the script); a deeper chain stops early and fails toward busy.
@@ -113,7 +115,7 @@ live_snapshot() {
   local p q cwd cmd anc depth listing
   listing="$(ps -axo pid=,command= 2>/dev/null)" || return 3
   printf '%s\n' "$listing" | awk '$1 == 1 { f = 1 } END { exit !f }' || return 3
-  printf '%s\n' "$listing" | awk -v quiet_box="$QUIET_BOX" '$2 ~ /(^|\/)(bash|sh|zsh)$/ { for (i = 3; i <= NF; i++) if ($i ~ /(^|\/)(release|browser-checks)\.sh$/ || (quiet_box == 1 && $i ~ /(^|\/)run-tests\.sh$/)) { print $1; next } }' |
+  printf '%s\n' "$listing" | awk -v quiet_box="$QUIET_BOX" '$2 ~ /(^|\/)(bash|sh|zsh)$/ { for (i = 3; i <= NF; i++) if ($i ~ /(^|\/)(release|browser-checks|test-install)\.sh$/ || (quiet_box == 1 && $i ~ /(^|\/)run-tests\.sh$/)) { print $1; next } }' |
   while read -r p; do
     cmd="$(ps -o command= -p "$p" 2>/dev/null)"
     # Gone means ps no longer knows the pid; a live pid whose cwd lsof cannot read keeps an
@@ -154,7 +156,7 @@ script_of() (
       esac
       lead="$w"
     fi
-    case "$w" in */tools/release.sh|*/tools/browser-checks.sh|tools/release.sh|tools/browser-checks.sh|*/tools/run-tests.sh|tools/run-tests.sh)
+    case "$w" in */tools/release.sh|*/tools/browser-checks.sh|*/tools/test-install.sh|tools/release.sh|tools/browser-checks.sh|tools/test-install.sh|*/tools/run-tests.sh|tools/run-tests.sh)
       printf '%s' "$w"; exit 0 ;; esac
   done
   printf '%s' "$lead"
@@ -190,9 +192,9 @@ classify() {
     case "$base" in bash|sh|zsh) ;; *) say "  ignore $pid: not a shell running the script ($show)"; continue ;; esac
     script="$(script_of "$cmd")"
     case "$script" in
-      */tools/release.sh|*/tools/browser-checks.sh|tools/release.sh|tools/browser-checks.sh) ;;
+      */tools/release.sh|*/tools/browser-checks.sh|*/tools/test-install.sh|tools/release.sh|tools/browser-checks.sh|tools/test-install.sh) ;;
       */tools/run-tests.sh|tools/run-tests.sh) [ "$QUIET_BOX" = 1 ] || script="" ;;
-      release.sh|browser-checks.sh|./release.sh|./browser-checks.sh) case "$cwd" in */tools|"") ;; *) script="" ;; esac ;;
+      release.sh|browser-checks.sh|test-install.sh|./release.sh|./browser-checks.sh|./test-install.sh) case "$cwd" in */tools|"") ;; *) script="" ;; esac ;;
       run-tests.sh|./run-tests.sh) if [ "$QUIET_BOX" = 1 ]; then case "$cwd" in */tools|"") ;; *) script="" ;; esac; else script=""; fi ;;
       *) script="" ;;
     esac

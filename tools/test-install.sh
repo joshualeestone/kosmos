@@ -62,6 +62,13 @@ kosmos_mark_run harness
 if [ "${KOSMOS_INSTALL_GATE:-0}" != 1 ] && [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ]; then
   kosmos_refuse_if_cut_live "a full install-harness run" || exit 1
 fi
+# #4410: and not beside a live test suite (tools/run-tests.sh), which can take this run's board
+# ports and make its port checks red (Kano, 2026-09-28). run-tests.sh asks the mirror question.
+# Not in a cut's own gate run (KOSMOS_INSTALL_GATE=1): the cut's suite has finished by step 4b,
+# and its machine claim already refuses any new suite, so a refusal here would only abort a cut.
+if [ "${KOSMOS_INSTALL_GATE:-0}" != 1 ] && [ "${KOSMOS_HARNESS_IGNORE_SUITE:-0}" != 1 ]; then
+  kosmos_refuse_if_suite_live "a full install-harness run" || exit 1
+fi
 SB="$(mktemp -d)"
 # ---- ONE Claude Code for every sandbox home (#736) --------------------------
 # setup.sh's "Kosmos needs Claude Code and this Mac does not have it" step runs

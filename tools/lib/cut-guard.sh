@@ -70,7 +70,7 @@ _kosmos_drop_self_subtree() {
 # and cwd cannot be read stays in the list unless its script path is in the sandbox, which preserves
 # the guard's refuse-rather-than-guess posture.
 _kosmos_drop_test_fixtures() {
-  local line pid script re='^[0-9]+ +(/bin/)?(ba)?sh +(([^ ]*/)?tools/(release|browser-checks)\.sh)( |$)'
+  local line pid script re='^[0-9]+ +(/bin/)?(ba)?sh +(([^ ]*/)?tools/(release|browser-checks|test-install|run-tests)\.sh)( |$)'
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     pid="${line%% *}"
@@ -370,8 +370,12 @@ kosmos_refuse_if_browser_run_live() {
 # test-install.sh, so it cannot self-match today; a future caller inside a harness
 # would. The seam (KOSMOS_HARNESS_PROBE) shows it red and green without a real
 # harness; a probe that cannot answer is a refusal, the same posture as above.
+# #4410: a proven unit-test fixture (tools/lib/process-fixture.sh, the rule heavy-gate and the
+# two guards above share since #4259) is not a harness, so the cut, heavy-gate and run-tests.sh
+# all read a test-install.sh the same way. tools/run-tests.sh now asks this too, before a suite
+# starts beside a harness; the optional second argument is the caller's own way to override it.
 kosmos_refuse_if_harness_live() {
-  local what="${1:-this run}" probe="${KOSMOS_HARNESS_PROBE:-}" raw out rc self marker_other
+  local what="${1:-this run}" override="${2:-KOSMOS_CUT_IGNORE_HARNESS=1 cuts anyway}" probe="${KOSMOS_HARNESS_PROBE:-}" raw out rc self marker_other
   self="${KOSMOS_HARNESS_SELF_PID:-$$}"
   # #1796: the reliable arm -- a marked harness that is not this caller's own. This
   # is the guard the card measured firing during a cut: a real test-install.sh RUN
@@ -390,13 +394,55 @@ kosmos_refuse_if_harness_live() {
   if [ -n "$out" ] && [ -n "$self" ]; then
     out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self" || true)"
   fi
+  if [ -n "$out" ]; then
+    out="$(printf '%s\n' "$out" | _kosmos_drop_test_fixtures || true)"
+  fi
   if [ "$rc" -ge 2 ]; then
-    echo "could not tell whether an install harness is running (the probe exited $rc); refusing to guess for $what. KOSMOS_CUT_IGNORE_HARNESS=1 cuts anyway." >&2
+    echo "could not tell whether an install harness is running (the probe exited $rc); refusing to guess for $what. $override." >&2
     return 1
   fi
   if { [ "$rc" -eq 0 ] && [ -n "$out" ]; } || [ -n "$marker_other" ]; then
     local detail; detail="$(printf '%s\n' "$out" | head -1 | cut -c1-80)"; [ -n "$detail" ] || detail="$marker_other"
-    echo "an install harness (tools/test-install.sh) is already running on this Mac ($detail); it holds the install gate's fixed port, so $what would collide with it and the failed step would be blamed on the cut rather than the harness. Wait for the harness to finish, or KOSMOS_CUT_IGNORE_HARNESS=1 to cut anyway." >&2
+    echo "an install harness (tools/test-install.sh) is already running on this Mac ($detail); it boots real boards on test ports and checks that they let go of them, so $what would collide with it and either run's red could be the other's. Wait for the harness to finish, or $override." >&2
+    return 1
+  fi
+  return 0
+}
+
+# --- #4410: the other direction, an install harness asking about a SUITE ------
+# Measured 2026-09-28 about 20:04 UTC on Mortals: Kano's tools/test-install.sh started behind a
+# clear gate, a tools/run-tests.sh started 3 minutes later behind a clear gate too, and the
+# harness's board-port checks went red in unrelated sections (uninstall port release, #2073 open,
+# the connect arm). run-tests.sh now asks kosmos_refuse_if_harness_live before it starts; this is
+# the mirror, which test-install.sh asks before it takes a port. Same shape as the guards above:
+# only a bash/sh whose own command line IS tools/run-tests.sh counts (a mention does not), the
+# caller's own subtree is dropped, a proven unit-test fixture (a node --test ancestor, or the
+# kt<digits> sandbox: the suite's own shell tests run run-tests.sh fixtures) is dropped, and a
+# probe that cannot answer is a refusal. No run marker: nothing that asks this self-matches
+# run-tests.sh, which is the race markers exist for (#1796). The seam is KOSMOS_SUITE_PROBE.
+kosmos_refuse_if_suite_live() {
+  local what="${1:-this run}" override="${2:-KOSMOS_HARNESS_IGNORE_SUITE=1 runs anyway}" probe="${KOSMOS_SUITE_PROBE:-}" raw out rc self
+  self="${KOSMOS_SUITE_SELF_PID:-$$}"
+  if [ -n "$probe" ]; then
+    out="$("$probe" 2>/dev/null)"; rc=$?
+  else
+    raw="$(pgrep -fl 'run-tests\.sh' 2>/dev/null)"; rc=$?
+    out="$(printf '%s\n' "$raw" | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/run-tests\.sh( |$)' || true)"
+    if [ "$rc" -le 1 ]; then rc=0; [ -n "$out" ] || rc=1; fi
+  fi
+  if [ -n "$out" ] && [ -n "$self" ]; then
+    out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self" || true)"
+  fi
+  if [ -n "$out" ]; then
+    out="$(printf '%s\n' "$out" | _kosmos_drop_test_fixtures || true)"
+  fi
+  if [ "$rc" -ge 2 ]; then
+    echo "could not tell whether a test suite is running (the probe exited $rc); refusing to guess for $what. $override." >&2
+    return 1
+  fi
+  if [ "$rc" -eq 0 ] && [ -n "$out" ]; then
+    local detail; detail="$(printf '%s\n' "$out" | head -1 | cut -c1-80)"
+    echo "a test suite (tools/run-tests.sh) is already running on this Mac ($detail); $what boots real boards on test ports and checks that they let go of them, and a suite beside it can make those checks red for reasons that are not the change. Wait for the suite to finish, or $override." >&2
     return 1
   fi
   return 0

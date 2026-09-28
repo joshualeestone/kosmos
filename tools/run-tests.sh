@@ -201,6 +201,14 @@ BEFORE="$(seen_before)"
 if command -v kosmos_refuse_if_machine_claimed >/dev/null 2>&1; then
   kosmos_refuse_if_machine_claimed "this test run" || exit 1
 fi
+# #4410: nor beside a live install harness (tools/test-install.sh). It boots real boards on test
+# ports and checks that they let go of them; a suite started 3 minutes into one, both behind a
+# clear heavy-gate, reddened its port checks (Kano, 2026-09-28). Fail-open on the library load,
+# as above. A harness only a unit test started (the #4259 fixture rule) does not count.
+# test-install.sh asks the mirror question (kosmos_refuse_if_suite_live) before it starts.
+if command -v kosmos_refuse_if_harness_live >/dev/null 2>&1 && [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ]; then
+  kosmos_refuse_if_harness_live "this test run" "KOSMOS_TESTS_IGNORE_HARNESS=1 runs anyway" || exit 1
+fi
 
 # --- one temp root for this run, removed when it ends (#1151) -----------------
 #

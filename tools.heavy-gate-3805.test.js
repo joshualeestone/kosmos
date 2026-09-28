@@ -60,6 +60,31 @@ test('a real release or browser-checks run in a checkout reads busy (control: wi
   assert.equal(run([]).code, 0);
 });
 
+/* #4410: a run-tests.sh started 3 minutes into Kano's install harness, both behind a clear gate,
+   and the harness's board-port checks went red. The harness boots real boards, so it is heavy. */
+test('#4410: a real install harness (tools/test-install.sh) reads busy (control: without it, clear)', () => {
+  for (const cmd of ['bash tools/test-install.sh', 'bash /Users/someone/work/kosmos/tools/test-install.sh']) {
+    const r = run([['111', WORK, cmd, 'zsh']]);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /COUNTS 111: .*script .*tools\/test-install\.sh/);
+  }
+  // `yarn test:install` and a bare name run from tools/ are the same run.
+  assert.equal(run([['112', WORK + '/tools', 'bash test-install.sh', 'node /usr/local/bin/yarn test:install']]).code, 1);
+  assert.equal(run([]).code, 0);
+});
+
+test('#4410: the install harness follows the shared fixture rule (controls: the same run in a checkout counts)', () => {
+  const kt = run([['113', KT, 'bash ' + KT + '/tools/test-install.sh --sleep 4', 'zsh']]);
+  assert.equal(kt.code, 0, kt.out);
+  assert.match(kt.out, /ignore 113: a unit-test fixture \(run-tests\.sh sandbox\)/);
+  const nodeTest = run([['114', WORK, 'bash tools/test-install.sh', ancs('bash', 'node --test tools.x.test.js')]]);
+  assert.equal(nodeTest.code, 0, nodeTest.out);
+  assert.match(nodeTest.out, /ignore 114: a unit-test fixture \(node --test ancestor\)/);
+  const mention = run([['115', WORK, 'bash -c pgrep -f tools/test-install.sh', 'zsh']]);
+  assert.equal(mention.code, 0, mention.out);
+  assert.equal(run([['116', WORK, 'bash tools/test-install.sh', 'bash']]).code, 1);
+});
+
 test('a shell that only MENTIONS the names does not count (control: a real run beside them does)', () => {
   const mentions = [
     ['201', WORK, 'zsh -c for i in 1 2; do pgrep -f tools/browser-checks.sh; done', 'claude'],

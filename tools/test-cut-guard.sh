@@ -210,7 +210,7 @@ mkdir -p "$T/tools"
 printf '#!/bin/sh\nprintf "77123 bash tools/test-install.sh\\n"\n' > "$T/hprobe-live"; chmod +x "$T/hprobe-live"
 out="$(KOSMOS_HARNESS_PROBE="$T/hprobe-live" kosmos_refuse_if_harness_live "this cut" 2>&1)"; rc=$?
 if [ "$rc" -eq 1 ]; then pass "the cut refuses while an install harness is running"; else fail "the cut refuses while a harness runs (rc=$rc)"; fi
-if has "$out" "test-install.sh" && has "$out" "fixed port"; then pass "and names the harness and why they collide"; else fail "and names the harness: $out"; fi
+if has "$out" "test-install.sh" && has "$out" "test ports"; then pass "and names the harness and why they collide"; else fail "and names the harness: $out"; fi
 if has "$out" "KOSMOS_CUT_IGNORE_HARNESS=1"; then pass "and names the harness override"; else fail "and names the override: $out"; fi
 
 out="$(KOSMOS_HARNESS_PROBE="$T/probe-quiet" kosmos_refuse_if_harness_live "this cut" 2>&1)"; rc=$?
@@ -230,25 +230,34 @@ out="$(KOSMOS_HARNESS_SELF_PID=5252 KOSMOS_HARNESS_PROBE="$T/hprobe-self" kosmos
 # --- tools/test-install.sh. The probe seam cannot prove the robust filter (a
 # --- MENTION must not match) nor the live detection: both live in what pgrep
 # --- really reports.
-# 🛑 CRITICAL: the guard is called from a SEPARATE process ($T/tools/cut-start.sh,
+# 🛑 CRITICAL: the guard is called from a SEPARATE process ($E2E/tools/cut-start.sh,
 # standing in for the cut that calls it), so a harness/mention this test spawns is
 # a SIBLING of that caller, not its descendant. Called directly from this test,
 # _kosmos_drop_self_subtree would drop the spawned processes as "self's subtree"
 # and both arms would pass for the WRONG reason (self-exclusion, not the filter or
 # detection). Measured: the direct form silently dropped the real harness.
-cat > "$T/tools/test-install.sh" <<SH
+# #4410: the harness guard now drops proven unit-test fixtures (the #4259 rule), and a stand-in
+# under run-tests.sh's kt<digits> sandbox IS one, so run from the suite this arm would pass for
+# the wrong reason (dropped, not detected) and the detection arm would fail. So the stand-ins live
+# outside the sandbox. /tmp is not a kt<digits> folder under a T or tmp folder, nor under TMPDIR.
+E2E="$(mktemp -d /tmp/kosmos-cutguard-e2e.XXXXXX)"; mkdir -p "$E2E/tools"
+trap 'rm -rf "$T" "$E2E"' EXIT
+_kosmos_path_in_kt_sandbox "$E2E/tools/test-install.sh" \
+  && fail "#4410 the end-to-end stand-ins sit in the fixture sandbox, so the arms below cannot answer ($E2E)" \
+  || pass "#4410 the end-to-end stand-ins sit outside the fixture sandbox, so the guard cannot drop them"
+cat > "$E2E/tools/test-install.sh" <<SH
 #!/bin/bash
 if [ "\${1:-}" = "--sleep" ]; then sleep "\$2"; exit 0; fi
 exit 0
 SH
-chmod +x "$T/tools/test-install.sh"
-cat > "$T/tools/cut-start.sh" <<SH
+chmod +x "$E2E/tools/test-install.sh"
+cat > "$E2E/tools/cut-start.sh" <<SH
 #!/bin/bash
 . "$HERE/lib/cut-guard.sh"
 kosmos_refuse_if_harness_live "this cut" || exit 1
 echo CUT-PROCEEDS
 SH
-chmod +x "$T/tools/cut-start.sh"
+chmod +x "$E2E/tools/cut-start.sh"
 live_harness="$(pgrep -fl 'test-install\.sh' 2>/dev/null | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/test-install\.sh( |$)' || true)"
 if [ -n "$live_harness" ]; then
   _fh="${live_harness%%$'\n'*}"
@@ -263,7 +272,7 @@ else
   # pre-flight is over a second stale. The re-check is placed at the mention arm,
   # the one with real exposure; this arm is left to the fresh pre-flight
   # deliberately, not by oversight.
-  out="$(bash "$T/tools/cut-start.sh" 2>&1)"; rc=$?
+  out="$(bash "$E2E/tools/cut-start.sh" 2>&1)"; rc=$?
   { [ "$rc" -eq 0 ] && has "$out" "CUT-PROCEEDS"; } \
     && pass "no harness running: the cut proceeds through the real pgrep" \
     || fail "the cut refused with no harness running: rc=$rc out=$out"
@@ -304,16 +313,16 @@ else
     echo "SKIP  a mere MENTION does not count: a real harness is live (a concurrent run), so this arm cannot answer"
     echo "      (that is a skip, NOT a pass: ${_fh5:0:60})"
   else
-    out="$(bash "$T/tools/cut-start.sh" 2>&1)"; rc=$?
+    out="$(bash "$E2E/tools/cut-start.sh" 2>&1)"; rc=$?
     { [ "$rc" -eq 0 ] && has "$out" "CUT-PROCEEDS"; } \
       && pass "a mere MENTION of test-install.sh in a command line does not count" \
       || fail "a mention was mistaken for a live harness: rc=$rc out=$out"
   fi
   kill "$mention" 2>/dev/null; wait "$mention" 2>/dev/null
 
-  ( cd "$T" && bash tools/test-install.sh --sleep 4 ) & harness=$!
+  ( cd "$E2E" && bash tools/test-install.sh --sleep 4 ) & harness=$!
   sleep 1
-  out="$(bash "$T/tools/cut-start.sh" 2>&1)"; rc=$?
+  out="$(bash "$E2E/tools/cut-start.sh" 2>&1)"; rc=$?
   [ "$rc" -ne 0 ] && pass "a real bash tools/test-install.sh IS detected and refuses the cut" \
     || fail "a live harness was not detected: rc=$rc out=$out"
   kill "$harness" 2>/dev/null; wait "$harness" 2>/dev/null
@@ -399,5 +408,65 @@ out="$(KOSMOS_RUN_MARKER_DIR="$M5" KOSMOS_HARNESS_PROBE="$T/probe-quiet" kosmos_
   || fail "#1796 a kosmos_mark_run harness was not detected (rc=$rc, $out)"
 # and that same run, checking for ITS OWN type, does not refuse itself (cookie set in-process).
 kill "$p5" 2>/dev/null; wait "$p5" 2>/dev/null
+
+# --- #4410: the harness guard follows the shared fixture rule, and its mirror (a harness asking
+# --- about a live suite) is shown red, green and unable to answer. Each drop arm has a control that
+# --- differs only in the deciding detail, so no pass comes from a guard that cannot refuse.
+KTD="$T/T/kt4410"; mkdir -p "$KTD/tools"
+printf '#!/bin/sh\nprintf "%s bash %s/tools/test-install.sh\\n"\n' "$DEAD" "$KTD" > "$T/hprobe-kt"; chmod +x "$T/hprobe-kt"
+printf '#!/bin/sh\nprintf "%s bash /Users/someone/work/kosmos/tools/test-install.sh\\n"\n' "$DEAD" > "$T/hprobe-real"; chmod +x "$T/hprobe-real"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_HARNESS_SELF_PID=999999 KOSMOS_HARNESS_PROBE="$T/hprobe-kt" kosmos_refuse_if_harness_live "a cut" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#4410 a harness whose script sits in the kt<digits> sandbox is a fixture, not a harness" \
+  || fail "#4410 a sandboxed harness fixture refused (rc=$rc, $out)"
+printf '#!/bin/sh\nprintf "%s bash tools/test-install.sh\\n"\n' "$DEAD" > "$T/hprobe-dead-pid"; chmod +x "$T/hprobe-dead-pid"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-fixture" KOSMOS_HARNESS_SELF_PID=999999 KOSMOS_HARNESS_PROBE="$T/hprobe-dead-pid" kosmos_refuse_if_harness_live "a cut" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#4410 a harness with a node --test ancestor is a fixture, not a harness" \
+  || fail "#4410 a node --test harness fixture refused (rc=$rc, $out)"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_HARNESS_SELF_PID=999999 KOSMOS_HARNESS_PROBE="$T/hprobe-real" kosmos_refuse_if_harness_live "a cut" 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && pass "#4410 CONTROL: the same harness in a checkout, with no test ancestor, refuses" \
+  || fail "#4410 CONTROL: a real harness did not refuse (rc=$rc, $out)"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_HARNESS_SELF_PID=999999 KOSMOS_HARNESS_PROBE="$T/hprobe-real" kosmos_refuse_if_harness_live "this test run" "KOSMOS_TESTS_IGNORE_HARNESS=1 runs anyway" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "KOSMOS_TESTS_IGNORE_HARNESS=1 runs anyway" && ! has "$out" "KOSMOS_CUT_IGNORE_HARNESS"; } \
+  && pass "#4410 run-tests.sh's refusal names its own override, not the cut's" \
+  || fail "#4410 the caller's override was not the one named (rc=$rc, $out)"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_HARNESS_SELF_PID=999999 KOSMOS_HARNESS_PROBE="$T/hprobe-real" kosmos_refuse_if_harness_live "a cut" 2>&1)"
+has "$out" "KOSMOS_CUT_IGNORE_HARNESS=1 cuts anyway" && pass "#4410 CONTROL: with no second argument the cut's override is still the one named" \
+  || fail "#4410 the cut's default override text changed: $out"
+
+# The mirror: kosmos_refuse_if_suite_live, through its KOSMOS_SUITE_PROBE seam.
+printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n"\n' "$DEAD" > "$T/sprobe-live"; chmod +x "$T/sprobe-live"
+printf '#!/bin/sh\nprintf "%s bash %s/tools/run-tests.sh\\n"\n' "$DEAD" "$KTD" > "$T/sprobe-kt"; chmod +x "$T/sprobe-kt"
+printf '#!/bin/sh\nprintf "5353 bash tools/run-tests.sh\\n"\n' > "$T/sprobe-self"; chmod +x "$T/sprobe-self"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-live" kosmos_refuse_if_suite_live "a full install-harness run" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "tools/run-tests.sh" && has "$out" "KOSMOS_HARNESS_IGNORE_SUITE=1"; } \
+  && pass "#4410 a harness refuses to start while a test suite is running, and names the override" \
+  || fail "#4410 a live suite did not refuse the harness (rc=$rc, $out)"
+out="$(KOSMOS_SUITE_PROBE="$T/probe-quiet" kosmos_refuse_if_suite_live "a full install-harness run" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#4410 CONTROL: no suite running, the harness proceeds" || fail "#4410 the harness refused with no suite (rc=$rc, $out)"
+out="$(KOSMOS_SUITE_PROBE="$T/probe-dead" kosmos_refuse_if_suite_live "a full install-harness run" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "could not tell"; } && pass "#4410 a suite probe that cannot answer is a refusal, not a guess" \
+  || fail "#4410 an unanswerable suite probe did not refuse (rc=$rc, $out)"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-kt" kosmos_refuse_if_suite_live "a full install-harness run" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#4410 a run-tests.sh fixture in the kt<digits> sandbox is not a live suite (control: the live arm above)" \
+  || fail "#4410 a sandboxed run-tests.sh fixture refused the harness (rc=$rc, $out)"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-fixture" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-live" kosmos_refuse_if_suite_live "a full install-harness run" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#4410 a run-tests.sh with a node --test ancestor is not a live suite (control: the live arm above)" \
+  || fail "#4410 a node --test run-tests.sh fixture refused the harness (rc=$rc, $out)"
+out="$(KOSMOS_SUITE_SELF_PID=5353 KOSMOS_SUITE_PROBE="$T/sprobe-self" kosmos_refuse_if_suite_live "a full install-harness run" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#4410 the caller's own pid is not a separate suite" || fail "#4410 the guard refused its own caller (rc=$rc, $out)"
+
+# Wired, not only defined: each script asks the other's question on a line that is not a comment,
+# and test-install.sh skips it only in a cut's own gate run or on its named override.
+_wired() { grep -vE '^[[:space:]]*#' "$1" | grep -q "$2"; }
+RT="$HERE/run-tests.sh"; TI="$HERE/test-install.sh"
+_wired "$RT" 'kosmos_refuse_if_harness_live "this test run"' \
+  && pass "#4410 run-tests.sh asks whether an install harness is live" \
+  || fail "#4410 run-tests.sh does NOT call kosmos_refuse_if_harness_live -- a suite can start beside a harness"
+_wired "$TI" 'kosmos_refuse_if_suite_live "a full install-harness run"' \
+  && pass "#4410 test-install.sh asks whether a test suite is live" \
+  || fail "#4410 test-install.sh does NOT call kosmos_refuse_if_suite_live -- a harness can start beside a suite"
+_wired "$TI" 'KOSMOS_INSTALL_GATE:-0}" != 1 ] && \[ "${KOSMOS_HARNESS_IGNORE_SUITE' \
+  && pass "#4410 the harness's suite check stands down only in a cut's gate run or on its override" \
+  || fail "#4410 the harness's suite check is not scoped as the cut check is"
 
 echo "cut guard: $fails failures"; [ "$fails" -eq 0 ]
