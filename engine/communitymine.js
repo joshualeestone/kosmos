@@ -77,4 +77,4 @@ function mine() {
   return rows;
 }
 
-module.exports = { mine, canDelete, DELETABLE };
+module.exports = { mine };
