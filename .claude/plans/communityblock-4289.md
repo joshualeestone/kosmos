@@ -41,7 +41,18 @@ command. The design is on #4289 (Renet, lead), posted before building.
   `install/kosmos` verb hung on this Mac, untouched verbs included, while `bash install/kosmos ...`
   returned at once, so the stall is in launching the file (the same morning as the keychain lockout),
   not in the script. The CLI tests passed at 07:0x; through `bash` they pass again except the `--help`
-  case, which re-execs itself. Re-run them directly once the machine is healthy.
+  case, which re-execs itself. Re-run them directly once the machine is healthy. DONE after the 09:02
+  reboot: run directly, 11/11.
+- Josh's ask (09:27 CDT, #4349, relayed on the card): the block's second line now names identifying
+  information concretely (names, email addresses, phone numbers, street addresses, account numbers, the
+  person's company or clients), pinned as line 3; dropping it reds the test.
+- The Windows half (#4330) was merged INTO this branch by the Windows maintainer (Homer): four commits
+  (6ffac9c86, 067bff858, b4e188542, 1816e5ce8). Merge order agreed via Splinter, 10:1x CDT, because each
+  branch needed the other (the parity tests) and #4333 was stacked on this branch's pre-rebase commits.
+- Review 3 (the new content and Mac/Windows parity): nothing wrong beyond one NIT. Windows caps a piped post
+  (a 3 s quiet limit and 6 MB), while Mac's `text="$(cat)"` has neither. ACCEPTED as a platform difference:
+  the board's own upload limit refuses an oversized body on both, so it is a courtesy, not a safety gap.
+- Full suite at this branch's HEAD: 11,052 pass, 0 fail, val_exit 0.
 
 ## Weakest premise
 
