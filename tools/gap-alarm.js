@@ -101,7 +101,7 @@ function message(kind, v) {
   if (kind === 'unknown') return 'gap alarm (kosmos#1050): could not tell (' + v.why + '). This is not a pass: the gap is unmeasured.';
   const line = v.prodAhead
     ? 'main is ' + v.main.ahead + ' commits past prod ' + v.prodVersion + ' (oldest waiting ' + v.main.hours + ' h); '
-      + 'staging ' + v.stagingVersion + ' is behind prod (prod was cut straight to prod).'
+      + 'staging ' + v.stagingVersion + ' is behind prod (the last cut went straight to the prod channel).'
     : 'main is ' + v.main.ahead + ' commits past staging ' + v.stagingVersion + ' (oldest waiting ' + v.main.hours + ' h); '
       + 'staging ' + v.stagingVersion + ' is ' + v.staging.ahead + ' commits past prod ' + v.prodVersion
       + (v.staging.ahead > 0 ? ' (cut ' + v.staging.hours + ' h ago).' : '.');
@@ -179,10 +179,9 @@ async function gather() {
        holds everything staging does and more. Main is then measured against prod, the newest build
        anyone has, or shipped work would be reported as waiting until someone cut staging just to
        quiet the alarm (review 13). Otherwise (staging at or ahead of prod) against staging. */
-    let prodAhead = false;
-    if (st.ahead === 0 && ptrs.prod.sha !== ptrs.staging.sha) {
-      try { git(repo, ['merge-base', '--is-ancestor', ptrs.staging.sha, ptrs.prod.sha]); prodAhead = true; } catch { prodAhead = false; }
-    }
+    // No commit in staging that prod lacks IS staging being an ancestor of prod; no second git call
+    // (one that failed would be swallowed as "not ahead", review 14).
+    const prodAhead = st.ahead === 0 && ptrs.prod.sha !== ptrs.staging.sha;
     const mainBase = prodAhead ? ptrs.prod.sha : ptrs.staging.sha;
     const v = verdict({ main: waiting(repo, mainBase, 'origin/main'), staging: { ahead: st.ahead, builtAt: ptrs.staging.builtAt }, now });
     return Object.assign(v, { now, prodVersion: ptrs.prod.version, stagingVersion: ptrs.staging.version, prodAhead });
