@@ -1504,7 +1504,7 @@ fi
 ORG_UNEVEN_TREE='[["n0",""],["n1",""],["n2",""],["n3",""],["n4","n2"],["n5","n3"],["n6","n3"],["n7",""],["n8","n1"],["n9","n4"],["n10","n2"],["n11","n4"],["n12","n8"],["n13",""],["n14",""]]'
 sbu="$(new_sandbox)"
 if boot_board_org "$sbu" "$P17" "$ORG_UNEVEN_TREE"; then
-  run_one "render-org-sectors-4434" env KOSMOS_URL="http://127.0.0.1:$P17" node docs/browser-checks/render-org-sectors-4434.js
+  run_one "render-org-sectors-4434" env KOSMOS_URL="http://127.0.0.1:$P17" SHOT_DIR="$RUN_DIR/shots-org-sectors" node docs/browser-checks/render-org-sectors-4434.js
 else
   FAILED+=("render-org-sectors-4434 (uneven org board did not boot)")
 fi
