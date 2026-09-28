@@ -68,7 +68,7 @@ test('parseStanding: standing string wins; kosmos_plus bool maps; else null; obj
   assert.equal(macStanding.parseStanding(null), null);
 });
 
-test('fetchStanding: goes out SIGNED -- one `mac-request` POST /v1/mac/standing with {} on stdin, and no direct dial', async () => {
+test('fetchStanding: goes out SIGNED -- one `mac-request` POST /v1/mac/standing with the remote report on stdin, and no direct dial', async () => {
   enroll();
   const r = await run('ok:{"standing":"good","valid_until":1,"grace_until":2,"receipt":"kst1.x"}', () => macStanding.fetchStanding());
   assert.deepEqual(r.dialled, [], 'no direct http/https request: that is the unsigned path the coordinator refuses');

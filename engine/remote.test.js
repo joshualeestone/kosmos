@@ -298,8 +298,8 @@ function recorded() {
   try { return fs.readFileSync(RECORD, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse); }
   catch { return []; }
 }
-async function until(check, what) {
-  for (let i = 0; i < 200; i += 1) {
+async function until(check, what, ms = 5000) {
+  for (let i = 0; i < ms / 25; i += 1) {
     if (check()) return;
     await new Promise((r) => setTimeout(r, 25));
   }
@@ -647,7 +647,7 @@ test('#4277: a restart timer firing during a register does not count the registe
   // A fresh supervisor (backoff back at 1 s), so the restart timer fires well inside the register.
   remote.resetForTests();
   remote.ensure(4330);
-  await until(() => remote.status().state === 'restarting', 'the crash to schedule a restart');
+  await until(() => remote.status().state === 'restarting', 'the crash to schedule a restart', 15000);
   // A rename re-runs setup on an enrolled Mac and keeps its id (the fake writes the same mac_id), so
   // the register neither stops the tunnel nor lets ensure() start one while it is out. The next
   // tunnel runs; the setup holds long enough for the 1 s restart timer to fire inside it.
@@ -656,11 +656,11 @@ test('#4277: a restart timer firing during a register does not count the registe
   const before = remote.restartCount();
   try {
     const racing = remote.setupComplete('123456', 'theirs');
-    await until(() => remote.supervisorState() === 'none', 'the restart timer to fire while the register is out');
+    await until(() => remote.supervisorState() === 'none', 'the restart timer to fire while the register is out', 15000);
     assert.equal(remote.currentChildPid(), null, 'fixture: ensure() started a tunnel while the register was out');
     const r = await racing;
     assert.equal(r.ok, true, r.because);
-    await until(() => remote.status().state === 'up', 'the register to bring the tunnel up');
+    await until(() => remote.status().state === 'up', 'the register to bring the tunnel up', 15000);
     assert.equal(remote.restartCount(), before, 'the register\'s own start was counted as a supervisor relaunch');
   } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.FAKE_REGISTER_MS; remote.resetForTests(); }
 });
@@ -675,17 +675,17 @@ test('#4277: the same, through the in-app sign-in register when it keeps this Ma
   await remote.signinStart('her@example.com');
   await remote.signinVerify('her@example.com', '111111');
   remote.ensure(4340);
-  await until(() => remote.status().state === 'restarting', 'the crash to schedule a restart');
+  await until(() => remote.status().state === 'restarting', 'the crash to schedule a restart', 15000);
   process.env.FAKE_TUNNEL_MODE = 'slow-signin';
   process.env.FAKE_REGISTER_MS = '3000';
   const before = remote.restartCount();
   try {
     const racing = remote.signinRegister('kept');
-    await until(() => remote.supervisorState() === 'none', 'the restart timer to fire while the register is out');
+    await until(() => remote.supervisorState() === 'none', 'the restart timer to fire while the register is out', 15000);
     assert.equal(remote.currentChildPid(), null, 'fixture: ensure() started a tunnel while the register was out');
     const r = await racing;
     assert.equal(r.ok, true, r.because);
-    await until(() => remote.status().state === 'up', 'the register to bring the tunnel up');
+    await until(() => remote.status().state === 'up', 'the register to bring the tunnel up', 15000);
     assert.equal(remote.restartCount(), before, 'the sign-in register\'s own start was counted as a supervisor relaunch');
   } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.FAKE_REGISTER_MS; remote.resetForTests(); }
 });

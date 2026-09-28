@@ -30,6 +30,11 @@ Rejected:
 ## Accepted (review 5)
 - The coordinator bounds `error` but does not restrict it to known codes, so its privacy rests on the board's classify() discipline. The board sends only fixed tokens or fixed file names.
 
+## Review 21
+- The ship-order gate is MET: kosmos-relay #190 merged (07ab09d) and was deployed by Kitty; verified from here 2026-09-28 01:50 CDT: /v1/meta build 07ab09d, and an unsigned POST /v1/mac/standing answers 401 missing signature headers.
+- The two register-race tests give each wait 15 s under load (`until()` takes an optional timeout; the default stays 5 s). Each wait was already separate, but a loaded CI box spawns slowly.
+- mac-standing.test.js's first test title says the body is the remote report, not `{}`.
+
 ## Review 20
 - An enrolled board's refresh read a standing_at in the FUTURE (a wrong Mac clock being corrected) as fresh, which silenced the report, the early tick's TTL 0 included, until the clock caught up. The freshness check is now `Math.abs`, like the not-enrolled throttle; remote-standing-refresh.test.js pins it (a mutant without it fails). That suite's null-backoff test had asked with a synthetic `now` near 1000 against a real Date.now() stamp; it now asks on the real clock, as production does.
 - The module header says `starting` with an error code means stuck, not coming up.
