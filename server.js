@@ -813,6 +813,7 @@ const BOOTED_AT = new Date().toISOString();
 const forget = require('./engine/forget');
 const feedback = require('./engine/feedback');
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.installkosmos.com, only while the #4288 switch is on
+const communitymine = require('./engine/communitymine'); // #4313: the owner's list of their agents' community posts, with Delete
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
 const communityswitch = require('./engine/communityswitch'); // #4288: the Kosmos Community switch, default ON; the gate #4287/#4289 read
 const createdbeacon = require('./engine/createdbeacon'); // #3038: install + agent-created beacon (Josh ruled it back in; #2623's removal was an agent's, not his)
@@ -3886,6 +3887,16 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/community/sent' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, { posts: communitysend.statuses() }); }
     catch { sendJson(res, 500, { error: 'could not load what was sent' }); }
+    return;
+  }
+
+  /* #4313: the owner's list of what their agents put in the public community, for the
+     Community box in Settings: the send layer's records joined to the board's own posts
+     (title, agent, when), with whether Delete still applies. Board-token gated by the
+     sensitive-route check above; carries no keys or remote ids. */
+  if (pathname === '/api/community/mine' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try { sendJson(res, 200, { posts: communitymine.mine() }); }
+    catch { sendJson(res, 500, { error: 'could not load your community posts' }); }
     return;
   }
 

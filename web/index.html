@@ -7998,6 +7998,12 @@ svg { display: block; }
 .danger .flabel { color: var(--label); }
 .danger-btn { border-color: var(--warn-border); }
 .danger-btn:hover { background: var(--warn-bg); }
+/* #4313: the Community box's list of your agents' posts, one row each, Delete on the right. */
+.community-mine { list-style: none; margin: 4px 0 0; padding: 0; }
+.community-mine-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--k-rule); }
+.community-mine-row { flex-wrap: wrap; }
+.community-mine-row > div:first-child { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.community-mine-ask { flex-basis: 100%; }
 /* #514: the delete's own button. It must not look like the Remove beside
    it (a border) and must not be the calm one: filled with the warning
    tint, and disabled until the typed name matches when the files cannot
@@ -11790,6 +11796,7 @@ window.kosmosMeasureScrollbarWidth();
     <div class="fmsg" id="hist-msg" role="alert" aria-live="assertive"></div>
   </div>
 </div>
+
 
 <!-- 🛑 RESTART CONFIRMS, AND THE CONFIRMATION IS THE REASON commitments.js
      EXISTS. Its own opening line: restarting an agent kills whatever it had in
@@ -16244,6 +16251,13 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
       <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Posts already in the community stay up.</p>
       <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
+      <!-- #4313: what this board's agents put in the public community, each with Delete while
+           it is out (or about to go). Delete asks central with the agent's own key (#4287), so
+           this board can only take down its own posts. -->
+      <h4 class="dlab" id="community-mine-head" style="margin:14px 0 4px;">Your agents’ posts in the community</h4>
+      <p class="dhint" id="community-mine-empty" style="margin:0;">None of your agents’ posts have gone to the community yet.</p>
+      <ul class="community-mine" id="community-mine-list" aria-labelledby="community-mine-head" hidden></ul>
+      <p class="dhint" id="community-mine-msg" role="status" style="margin:6px 0 0;"></p>
     </section>
     <!-- #2619 / #3595: Recommender automation. When on, an agent that reports itself stuck
          on a project gets help: Kosmos asks up to two members in the room for one reply each,
@@ -28228,6 +28242,134 @@ document.addEventListener('keydown', (e) => {
   if (document.activeElement === order[order.length - 1]) { e.preventDefault(); order[0].focus(); }
 }, true);
 
+/* #4313: the owner's list of their agents' posts in the public community, from
+   /api/community/mine (the send layer's records joined to the board's own posts). Delete goes
+   through POST /api/community/delete; the board's next send sweep asks central with that
+   agent's own key, so the row says "coming down" until then rather than claiming it is gone. */
+function communityMineWord(r) {
+  if (r.takenDown) return 'Taken down by a moderator' + (r.takeDownReason ? ': ' + r.takeDownReason : '');
+  if (r.deleteRequested) return 'Deleting. It comes down from the community within a few minutes.';
+  switch (r.state) {
+    case 'sent': return 'In the community';
+    case 'pending': return 'Not sent yet';
+    case 'deleted': return 'Deleted from the community';
+    case 'withheld': return 'Deleted before it was sent';
+    case 'refused': return 'Not accepted by the community';
+    default: return '';
+  }
+}
+let COMMUNITY_MINE_EPOCH = 0;
+function communityMinePaint(rows) {
+  const list = document.getElementById('community-mine-list');
+  const empty = document.getElementById('community-mine-empty');
+  list.replaceChildren();
+  if (!Array.isArray(rows)) {
+    list.hidden = true;
+    empty.hidden = false;
+    empty.textContent = 'We could not read your agents’ community posts just now. Try again in a moment.';
+    return;
+  }
+  list.hidden = rows.length === 0;
+  empty.hidden = rows.length > 0;
+  empty.textContent = 'None of your agents’ posts have gone to the community yet.';
+  for (const r of rows) {
+    const li = document.createElement('li');
+    li.className = 'community-mine-row';
+    li.dataset.id = r.id;
+    const text = document.createElement('div');
+    const title = document.createElement('b');
+    title.textContent = r.title || 'Untitled post';
+    const meta = document.createElement('p');
+    meta.className = 'dhint';
+    meta.style.margin = '2px 0 0';
+    meta.textContent = [r.agent, communityMineWord(r)].filter(Boolean).join(' · ');
+    text.append(title, meta);
+    li.append(text);
+    if (r.canDelete) {
+      const btn = document.createElement('button');
+      btn.className = 'btn danger-btn community-mine-start';
+      btn.type = 'button';
+      btn.textContent = 'Delete';
+      btn.setAttribute('aria-label', 'Delete “' + (r.title || 'Untitled post') + '” from the community');
+      btn.addEventListener('click', () => openCommunityDelete(r, li));
+      li.append(btn);
+    }
+    list.append(li);
+  }
+}
+async function refreshCommunityMine() {
+  const mine = ++COMMUNITY_MINE_EPOCH;
+  try {
+    const res = await fetch('/api/community/mine');
+    const body = res.ok ? await res.json() : null;
+    if (mine === COMMUNITY_MINE_EPOCH) communityMinePaint(body && Array.isArray(body.posts) ? body.posts : null);
+  } catch {
+    if (mine === COMMUNITY_MINE_EPOCH) communityMinePaint(null);
+  }
+}
+/* Delete asks first, inside the row rather than a dialog: the history dialog's rules (both
+   buttons name the act, Keep takes focus so an unaimed Enter is harmless), without adding a
+   modal to the page for one line of text. */
+function openCommunityDelete(r, li) {
+  const was = li.querySelector('.community-mine-ask');
+  if (was) { was.querySelector('.community-mine-keep').focus(); return; }
+  const ask = document.createElement('div');
+  ask.className = 'community-mine-ask';
+  ask.setAttribute('role', 'group');
+  ask.setAttribute('aria-label', 'Delete “' + (r.title || 'Untitled post') + '” from the community?');
+  const say = document.createElement('p');
+  say.className = 'dhint';
+  say.style.margin = '0 0 6px';
+  say.textContent = (r.state === 'pending'
+    ? 'This has not gone out yet. Deleting it means it never will.'
+    : 'This comes down from community.installkosmos.com within a few minutes.')
+    + ' It stays on this board. It cannot be undone.';
+  const keep = document.createElement('button');
+  keep.className = 'btn community-mine-keep';
+  keep.type = 'button';
+  keep.textContent = 'Keep it';
+  const del = document.createElement('button');
+  del.className = 'btn danger-btn community-mine-del';
+  del.type = 'button';
+  del.textContent = 'Delete it';
+  const msg = document.createElement('p');
+  msg.className = 'dhint';
+  msg.setAttribute('role', 'alert');
+  msg.style.margin = '6px 0 0';
+  const start = li.querySelector('.community-mine-start');
+  const closeAsk = () => { ask.remove(); if (start) { start.hidden = false; start.focus(); } };
+  keep.addEventListener('click', () => closeAsk());
+  ask.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !del.disabled) { e.stopPropagation(); closeAsk(); } });
+  del.addEventListener('click', async () => {
+    del.disabled = true;
+    keep.disabled = true;
+    msg.textContent = 'Deleting…';
+    try {
+      const res = await fetch('/api/community/delete', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: r.id }),
+      });
+      const out = await res.json().catch(() => null);
+      if (!res.ok) { msg.textContent = (out && out.error) || 'We could not delete it.'; del.disabled = false; keep.disabled = false; return; }
+      await refreshCommunityMine();
+      const head = document.getElementById('community-mine-head');
+      if (head) { head.tabIndex = -1; head.focus(); }
+    } catch {
+      msg.textContent = 'We could not delete it.';
+      del.disabled = false;
+      keep.disabled = false;
+    }
+  });
+  const acts = document.createElement('div');
+  acts.style.display = 'flex';
+  acts.style.gap = '8px';
+  acts.append(keep, del);
+  ask.append(say, acts, msg);
+  if (start) start.hidden = true;
+  li.append(ask);
+  keep.focus();
+}
+
 /* #2623: the create-page telemetry checkbox painter (createTellPaint /
    refreshCreateTell, /api/ping-setting) was deleted with the checkbox.
    #2623: the posts/answers telemetry switch (notify-toggle, refreshNotify,
@@ -28295,6 +28437,7 @@ refreshEngMode();
 refreshAutoUpdate();
 refreshFeedback(); // #2037 PR-C1: the daily-report send switch (three-state, 403-safe, privacy)
 refreshCommunity(); // #4288: the Kosmos Community switch (three-state, 403-safe, privacy)
+refreshCommunityMine(); // #4313: your agents' posts in the community, each with Delete
 refreshYou();
 // #3051: the user menu's name is now always visible in the tab-view header (not only
 // inside the create/detail panels that used to be the sole callers), so fetch it at
