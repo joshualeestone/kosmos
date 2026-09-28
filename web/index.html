@@ -19572,6 +19572,8 @@ async function engineRestartClick() {
     setTimeout(() => { const sl = document.getElementById('utoast-slot'); if (sl) delete sl.dataset.v; }, ENGINE_SAID_HOLD_MS);
   };
   if (btn) { btn.disabled = true; btn.textContent = 'Restarting…'; }
+  /* Set before the request, so a status poll that lands while it is in flight cannot repaint an enabled button. */
+  ENGINE_RESTARTING = true;
   /* A press after a refused one must not keep saying it could not restart while it is restarting. */
   if (title) title.textContent = 'Kosmos is restarting';
   const before = ENGINE_STALE && ENGINE_STALE.startedAt;
@@ -19584,6 +19586,7 @@ async function engineRestartClick() {
       /* Already current (another page, or a restart that just finished): nothing to restart, so show it. */
       if (r.status === 409 && out && out.current === true) { location.reload(); return; }
       try { console.info('Kosmos could not restart itself: ' + String((out && out.because) || r.status)); } catch { /* no console */ }
+      ENGINE_RESTARTING = false;
       if (btn) { btn.disabled = false; btn.textContent = 'Restart Kosmos'; }
       /* No remedy is promised: which one works depends on how this board was started, and a wrong one is worse. */
       said('Kosmos could not restart itself');
@@ -19592,12 +19595,12 @@ async function engineRestartClick() {
     }
   } catch (e) {
     try { console.info('Kosmos restart request failed: ' + String((e && e.message) || e)); } catch { /* no console */ }
+    ENGINE_RESTARTING = false;
     if (btn) { btn.disabled = false; btn.textContent = 'Restart Kosmos'; }
     said('Kosmos could not be reached');
     if (small) small.textContent = 'Kosmos could not be reached to restart it. Try again in a moment.';
     return;
   }
-  ENGINE_RESTARTING = true;
   /* Back when a board with a different start time answers; then the page itself reloads onto it. */
   const until = Date.now() + ENGINE_RESTART_WAIT_MS;
   while (Date.now() < until) {
@@ -19644,6 +19647,8 @@ function renderUpdateToast(u) {
       + '<div class="utxt"><b>Kosmos needs a quick restart</b><small>'
       + what + ' '
       + (can ? 'A restart picks it up. Your agents keep running.'
+        /* A phone looking at a board that can restart itself: true, and where to do it. */
+        : remote && ENGINE_STALE.canRestart === true ? 'Restart it from Kosmos on that computer to pick it up. Your agents keep running.'
         /* No remedy promised: this is a board that cannot restart itself, and which step would work
            (a sign-in, a login item, a hand start) depends on how it was started. */
         : 'Kosmos cannot restart itself here, so it keeps running the old copy until it is next started. Your agents keep running.')
@@ -20410,6 +20415,9 @@ function paintOfflineNote(down, deviceIsOffline) {
     delete slot.dataset.on;
     return;
   }
+  /* #4408: the board is away because the person asked it to restart; "not answering, open Kosmos" would ask
+     them for a step they must not take. Their own connection being down is still true, so that note stays. */
+  if (!deviceIsOffline && typeof ENGINE_RESTARTING !== 'undefined' && ENGINE_RESTARTING) return;
   /* #718 state 1: the note says which end is offline, and a change of end is a change of
      message, so the key is which one it is saying rather than only that it is saying one. */
   const which = deviceIsOffline ? 'device' : 'mac';

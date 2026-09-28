@@ -419,6 +419,11 @@ test('#4408: a Kosmos+ remote view (a phone) says "your Kosmos computer" and off
   const far = draw(true);
   assert.match(far, /A Kosmos file was changed on your Kosmos computer \(engine\/roles\.js\)/);
   assert.doesNotMatch(far, /ut-engine-restart/, 'a phone was offered a restart of the Mac');
+  assert.doesNotMatch(far, /cannot restart itself/, 'a phone said a board that can restart itself cannot');
+  assert.match(far, /Restart it from Kosmos on that computer/);
+  engine.canRestart = false;
+  assert.match(draw(true), /cannot restart itself/, 'CONTROL: a board that cannot restart itself still says so on a phone');
+  engine.canRestart = true;
   const near = draw(false);
   assert.match(near, /changed on this computer/, 'CONTROL: the computer itself says this computer');
   assert.match(near, /ut-engine-restart/, 'CONTROL: and gets the button');
