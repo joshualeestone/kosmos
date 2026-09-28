@@ -305,9 +305,7 @@ const INVENTORY = [
   { file: 'engine/projects.js', family: 'path-delimiter-literal', count: 1, contains: ".split('/').join('').split('\\\\').join('').split(':').join('')", disposition: 'sanitizer', why: 'name sanitizer; strips / \\ :, Windows-aware' },
   // --- posix-root fallbacks (os.tmpdir() used; '/tmp' is a harmless extra) ---
   { file: 'engine/projects.js', family: 'fs-root-literal', count: 1, contains: "[os.tmpdir(), '/tmp']", disposition: 'posix-root-fallback', why: "os.tmpdir() is the real root; '/tmp' is an extra known root, never matches on Windows" },
-  { file: 'engine/create.js', family: 'fs-root-literal', count: 1, contains: "roots.push('/tmp');", disposition: 'macos-only-branch', why: "#4279 tempRoots: the system temp roots a leftover launchd job's plist can sit in; reached only on the launchd path" },
   { file: 'engine/create.js', family: 'fs-root-literal', count: 1, contains: "roots.push('/private/tmp');", disposition: 'macos-only-branch', why: "#4279 tempRoots: /tmp's /private spelling, as launchd may report it; launchd path only" },
-  { file: 'engine/create.js', family: 'fs-root-literal', count: 1, contains: "roots.push('/var/folders');", disposition: 'macos-only-branch', why: "#4279 tempRoots: macOS per-user temp root; launchd path only" },
   { file: 'engine/create.js', family: 'fs-root-literal', count: 1, contains: "roots.push('/private/var/folders');", disposition: 'macos-only-branch', why: "#4279 tempRoots: /var/folders' /private spelling; launchd path only" },
   { file: 'engine/status.js', family: 'fs-root-literal', count: 1, contains: "[os.tmpdir(), '/tmp']", disposition: 'posix-root-fallback', why: "os.tmpdir() is the real root; '/tmp' extra" },
   { file: 'engine/status.js', family: 'fs-root-literal', count: 1, contains: "process.env.TMUX_TMPDIR || '/tmp'", disposition: 'macos-only-branch', why: 'tmux socket path; tmux does not exist on Windows so this branch is macOS-only' },

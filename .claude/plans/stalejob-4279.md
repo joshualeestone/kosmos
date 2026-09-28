@@ -13,14 +13,14 @@ a thing they cannot see: a crash mid-remove, an older install, or a reinstall in
 
 - `engine/create.js`, the "loaded with nothing on disk" refusal: when `launchctl print` names the plist
   the job was loaded from (the first-level `path = ...` line), and that plist is NOT this board's own
-  plist path, AND it is gone or under a SYSTEM temp root (`/tmp`, `/var/folders`, each also with its
-  `/private` spelling; `os.tmpdir()` and `$TMPDIR` are deliberately NOT trusted), the job is booted out, the
+  plist path, AND it is gone or under a SYSTEM temp root (`/private/tmp`, `/private/var/folders`, compared
+  on the realpath; `os.tmpdir()` and `$TMPDIR` are deliberately NOT trusted), the job is booted out, the
   creation re-checks that it is gone, and it goes on with a step naming the file removed and why (also
   logged). If the bootout does not take, a failed step says so, and it refuses as before, loading nothing.
 - Everything else still refuses, unchanged: a plist at our own path, a plist that exists outside a temp
   folder, or a print that names no path. Labels are world-scoped, so a same-label job is this board's own
   agent or its leftover, and we do not unload what we cannot prove is dead.
-- `leftoverJob(printed, ours)` is exported and unit-tested. The four root literals are classified in
+- `leftoverJob(printed, ours)` is exported and unit-tested. The two root literals are classified in
   the #1732 Windows-coupling inventory as macos-only-branch (the path is launchd-only).
 - Tests in `engine/create.test.js` (#4279): temp plist replaced and created; gone plist replaced and
   created; own path refused; present non-temp plist refused; a bootout that does not take still refuses;
@@ -65,6 +65,15 @@ crash-looping today is still somebody's agent; the proof that a job is a leftove
   that. Anything else refuses. Pinned with a chmod 000 folder.
 - Our own plist path is realpath'd too, and a temp symlink to it is pinned as ours (deleting that check
   reds).
+
+## Review 4
+
+- BLOCKER, fixed: any throw from the verify print read as "gone". Only launchd's own missing-service throw
+  counts now (exit 113, `Could not find service ...`, measured on this Mac); a timeout or a failed exec
+  refuses. Tested with an ETIMEDOUT that leaves the job loaded.
+- The bare `/tmp` and `/var/folders` roots were dead: the realpath of an existing file is always the
+  `/private` spelling. Dropped, with their #1732 rows.
+- A refusal for a present plist outside temp said "nothing else left of it"; it now names the file.
 
 ## Weakest premise
 

@@ -766,15 +766,16 @@ test('a name a live session already answers to is refused, even with no folder',
 /* #4279: a LEFTOVER job holding the name is booted out; anything else still refuses.
    The runner is stateful: `print` describes the job until `bootout` runs, then
    describes nothing, which is what launchctl does. */
-function leftoverRunner(printedPath, { bootoutWorks = true } = {}) {
+function leftoverRunner(printedPath, { bootoutWorks = true, verifyThrows = null } = {}) {
   const calls = [];
   let loaded = true;
   create.setRunner((file, args) => {
     calls.push([file, args]);
+    if (args && args[0] === 'print' && verifyThrows && calls.some(([, a]) => a && a[0] === 'bootout')) throw verifyThrows;
     if (args && args[0] === 'print') {
       /* Real `launchctl print` THROWS for a service that is not there (run() is
          execFileSync), so once booted out this throws, as the real one does. */
-      if (!loaded) throw new Error('Could not find service in domain for user gui: 501');
+      if (!loaded) { const e = new Error('Command failed: /bin/launchctl print'); e.status = 113; e.stderr = 'Bad request.\nCould not find service "x" in domain for user gui: 501'; throw e; }
       return printedPath !== undefined
         ? { ok: true, stdout: `gui/501/x = {\n\tactive count = 1\n\tpath = ${printedPath}\n\tstate = spawn scheduled\n\truns = 8096\n\tlast exit code = 1\n}\n` }
         : { ok: true, stdout: 'x = { ... }' };
@@ -833,6 +834,24 @@ test('#4279: a bootout that does not take is still a refusal, not a creation', W
   assert.ok(!calls.some(([, a]) => a && a[0] === 'bootstrap'), 'it loaded a second job over one that would not leave');
   assert.ok(r.steps.some((s) => /would not leave/.test(s.label) && s.ok === false), 'the failed removal is not reported');
   assert.match(r.because, /removing it did not work/, 'the refusal does not say the cleanup was tried');
+});
+
+test('#4279: a verify that throws for any OTHER reason is not proof the job left', WIN_LAUNCHD, () => {
+  const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'rx-launch-'));
+  const leaked = nodePath.join(dir, 'com.kosmos.agent.leftover-timeout.plist');
+  fs.writeFileSync(leaked, '<plist/>');
+  const err = new Error('spawnSync /bin/launchctl ETIMEDOUT'); err.code = 'ETIMEDOUT';
+  const calls = leftoverRunner(leaked, { bootoutWorks: false, verifyThrows: err });
+  const r = create.createAgent({ ...BINS, name: 'leftover-timeout', role: 'pm' });
+  assert.equal(r.outcome, create.OUTCOME.REFUSED, 'an unconfirmed removal went on to create');
+  assert.ok(!calls.some(([, a]) => a && a[0] === 'bootstrap'));
+});
+
+test('#4279: a job loaded from a PRESENT plist outside temp is refused, and the refusal names that file', WIN_LAUNCHD, () => {
+  leftoverRunner('/etc/hosts');
+  const r = create.createAgent({ ...BINS, name: 'leftover-named', role: 'pm' });
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.match(r.because, /\/etc\/hosts/, 'the refusal does not name the file it found');
 });
 
 test('#4279: leftoverJob reads only the first-level path, and only temp or gone counts', () => {

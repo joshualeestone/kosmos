@@ -914,15 +914,14 @@ function serviceLabel(name, worldId) {
 function plistPath(name, worldId) { return path.join(agentsDir(), `${serviceLabel(name, worldId)}.plist`); }
 
 /* #4279: the system temp roots a leftover test job's plist can sit in: /tmp and
-   macOS's per-user /var/folders, each in both spellings, since launchd reports
-   whichever the job was loaded with. FIXED on purpose: os.tmpdir() and $TMPDIR are
-   NOT trusted, because TMPDIR is often repointed (direnv, a sandbox, a shell
-   profile) to a folder that persists, and a plist there could be a live job. */
+   macOS's per-user /var/folders. Only their /private spellings are listed, because
+   leftoverJob compares the plist's REALPATH, and on macOS /tmp and /var are symlinks
+   into /private, so a real path never starts with the bare spelling. FIXED on
+   purpose: os.tmpdir() and $TMPDIR are NOT trusted, because TMPDIR is often
+   repointed (direnv, a sandbox, a shell profile) to a folder that persists. */
 function tempRoots() {
   const roots = [];
-  roots.push('/tmp');
   roots.push('/private/tmp');
-  roots.push('/var/folders');
   roots.push('/private/var/folders');
   return roots;
 }
@@ -4380,13 +4379,16 @@ function createAgentInner(opts) {
     if (leftover) {
       let gone = false;
       try { run('/bin/launchctl', ['bootout', `gui/${process.getuid()}/${serviceLabel(name)}`]); } catch { /* verify below either way */ }
-      /* Real `launchctl print` THROWS when the service is gone (run() is execFileSync),
-         so a throw here means the bootout worked: the same convention as the loaded check
-         above. A print that still describes the job means it did not. */
+      /* Real `launchctl print` THROWS when the service is gone (run() is execFileSync):
+         exit 113, stderr `Could not find service "<label>" in domain for ...` (measured,
+         macOS 26, 2026-09-27). ONLY that throw means the bootout worked; any other throw
+         (a timeout, a failed exec) is "could not confirm", which refuses. */
       try {
         const again = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${serviceLabel(name)}`]);
         gone = !(again && again.ok !== false && String(again.stdout || '').trim());
-      } catch { gone = true; }
+      } catch (e) {
+        gone = /Could not find service/.test(`${(e && e.stderr) || ''} ${(e && e.message) || ''}`);
+      }
       if (gone) {
         try { console.log(`create: removed a leftover startup job for ${name} (${leftover.why}; it was loaded from ${leftover.path})`); } catch { /* never mask */ }
         steps.push({ label: `removed a leftover startup entry for ${shown} that was blocking the name (${leftover.why}: ${leftover.path})`, ok: true });
@@ -4398,6 +4400,18 @@ function createAgentInner(opts) {
   }
   if (loaded) {
     const tried = steps.find((s) => s.ok === false && /would not leave/.test(s.label || ''));
+    const named = /^\tpath = (.+)$/m.exec(printed);
+    const namedPath = named ? named[1].trim() : '';
+    let namedExists = false;
+    try { namedExists = Boolean(namedPath) && path.isAbsolute(namedPath) && fs.statSync(namedPath).isFile(); } catch { namedExists = false; }
+    if (!tried && namedExists) {
+      return {
+        outcome: OUTCOME.REFUSED,
+        because: `something called ${shown} is already set to start on this computer, from a startup file Kosmos did not make here (${namedPath}). Pick another name, or remove that entry first.`,
+        field: 'name',
+        steps,
+      };
+    }
     if (tried) {
       return {
         outcome: OUTCOME.REFUSED,
