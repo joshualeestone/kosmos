@@ -26,3 +26,13 @@ with that Homebrew; this Mac has 3.6a without jemalloc. Mortals can run it after
 ## Weakest premise
 That 5.3.1's COPYING covers the bottle's binary: Homebrew builds jemalloc from upstream source with no added
 licence, so its COPYING is the licence.
+
+## Review 1
+- CONVENTION the entry keeps COPYING's own 80-dash separators and "Unless otherwise specified" header, where the
+  file's entries use 72-dash separators --> NOT CHANGED, deliberately: the text is jemalloc's COPYING byte for byte,
+  and this repo treats verbatim licence texts as the authoritative ones (build-tmux-bundle.sh's own comment: the
+  typed summaries missed clauses before). Trimming it to our format trades exactness for looks.
+- NIT "EVENT" in licence boilerplate already satisfies the libevent_core name match in origin/main (3 hits
+  before this change) --> NOTED, not introduced here.
+- Verified by the reviewer: byte-identical to the bottle's COPYING; release bundles never contain jemalloc; the
+  derived name is exactly `jemalloc`; the self-qualifying note is accurate in a shipped non-jemalloc tarball.
