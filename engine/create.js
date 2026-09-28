@@ -3630,8 +3630,10 @@ function createdLog() {
    agents created before that are not in the log and cannot be counted here.
    #4350: minus the setup guide Kosmos created by itself (isAutoGuideBirth, below). */
 function createdCount() {
+  // Lazy, once per call: setup-assistant.js requires this file, so a top-level require would cycle.
+  const sa = require('./setup-assistant');
   return createdLog().filter((e) => (e.outcome === OUTCOME.CREATED || e.outcome === OUTCOME.PARTIAL)
-    && !isAutoGuideBirth(e)).length;
+    && !isAutoGuideBirth(e, sa)).length;
 }
 
 /* #4350 (Splinter's call on the card): the setup guide Kosmos creates by itself is not an
@@ -3642,9 +3644,7 @@ function createdCount() {
    operator set createdBy, so role alone or createdBy alone would drop real agents.)
    ⚠️ An install that already reported a count INCLUDING its guide keeps that higher number on
    the collector (Math.max), so its next creation does not move the public total once. */
-function isAutoGuideBirth(e) {
-  // Lazy: setup-assistant.js requires this file, so a top-level require would be a cycle.
-  const sa = require('./setup-assistant');
+function isAutoGuideBirth(e, sa = require('./setup-assistant')) {
   return e.createdBy === sa.GUIDE_CREATED_BY && e.role === sa.SETUP_ROLE_KEY
     && sa.GUIDE_PURPOSE_PREFIXES.some((pre) => String(e.purpose || '').startsWith(pre));
 }
