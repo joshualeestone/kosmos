@@ -453,6 +453,9 @@ test('an over-long title or detail is refused in words a sender can act on, not 
   assert.match(long.json.error, /"title" is over 200 characters; put the rest in "detail"/);
   assert.doesNotMatch(long.json.error, /box/, 'no screen words for a webhook caller');
   assert.equal((await call(made.json.url, { title: 'x', detail: 'y'.repeat(2001) })).status, 400);
+  const odd = await call(made.json.url, { title: 'x', detail: 42 });
+  assert.equal(odd.status, 400, 'a detail that is not text is refused, not silently dropped');
+  assert.match(odd.json.error, /"detail" must be text/);
   // CONTROL: exactly at the limits is accepted.
   assert.equal((await call(made.json.url, { title: 'x'.repeat(200), detail: 'y'.repeat(2000) })).status, 201);
 });

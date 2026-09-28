@@ -123,6 +123,17 @@ function chk(ok, label, extra) {
         const still = await page.evaluate(async (u) => (await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"title":"after rename"}' })).status, made.url);
         const renamed = projects.get(proj.id).tasks.find((x) => x.sentence === 'after rename');
         chk(still === 201 && renamed && renamed.addedBy === 'Billing system', '[rename] the same link still works, under the new name', JSON.stringify({ still, by: renamed && renamed.addedBy }));
+        // Rename by typing and pressing Tab: focus moves to that row's Delete and stays there through
+        // the repaint the rename's follow-up read makes.
+        await page.fill('[data-hook-name]', 'Billing');
+        await page.press('[data-hook-name]', 'Tab');
+        await page.waitForFunction(() => /Renamed/.test(document.getElementById('pjs-hooks-msg').textContent), null, { timeout: 8000 }).catch(() => {});
+        await page.waitForTimeout(600);
+        const tabbed = await page.evaluate(() => { const a = document.activeElement; return { del: !!(a && a.hasAttribute('data-hook-delete')), tag: a && a.tagName }; });
+        chk(tabbed.del, '[rename] after Tab the focus is on that row\'s Delete, through the repaint', JSON.stringify(tabbed));
+        await page.fill('[data-hook-name]', 'Billing system');
+        await page.press('[data-hook-name]', 'Enter');
+        await page.waitForFunction(() => /Renamed/.test(document.getElementById('pjs-hooks-msg').textContent) && document.querySelector('[data-hook-name]').value === 'Billing system', null, { timeout: 8000 }).catch(() => {});
 
         // Delete asks first; Keep it cancels; Delete revokes.
         await page.click('[data-hook-delete]');

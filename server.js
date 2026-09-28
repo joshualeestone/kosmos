@@ -15873,7 +15873,8 @@ const server = http.createServer((req, res) => {
   /* #1307: a webhook call adds a task to its project. The id and secret are checked against the
      store's hash; an unknown id, a wrong secret and a gone project all answer the same 404, so a
      caller learns nothing about which webhooks exist. Body: JSON { "title": ..., "detail": ... }
-     ("text" is accepted for the title). JSON only: a plain-text POST is the shape any web page can
+     ("text" is accepted for the title). A JSON body, sent as any type but a form or plain text: a
+     plain-text POST is the shape any web page can
      send without a preflight, which the board's cross-site guard (crossSiteWrite) refuses on every
      route, and a webhook is no reason to weaken it. The task is marked as added by this webhook
      and is given to nobody. */
@@ -15905,6 +15906,10 @@ const server = http.createServer((req, res) => {
         return;
       }
       const t = parsed.title !== undefined ? parsed.title : parsed.text;
+      if (parsed.detail !== undefined && parsed.detail !== null && typeof parsed.detail !== 'string') {
+        sendJson(res, 400, { error: 'the "detail" must be text' });
+        return;
+      }
       const detail = typeof parsed.detail === 'string' ? parsed.detail.trim() : '';
       /* The title is ONE line of plain text: it is printed in agents' task lists one task per line,
          and a newline in it would let a caller print a line of its own with no webhook mark.
