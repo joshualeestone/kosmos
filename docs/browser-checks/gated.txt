@@ -43,6 +43,7 @@ render-conn-top-3708
 render-connect-win32-install-570
 render-connlost-reconnect-3410
 render-cons-tree-2929
+render-consolidated-nav-4345
 render-consolidated-newagent-3053
 render-consolidated-projects-3052
 render-consolidated-settings-2842

@@ -104,3 +104,15 @@ helpers), 28361 (tab click). Re-check with `git merge-tree` before the PR.
   their own flow, and "my agents" is visible in the rail there. What would change it: Josh asking.
 - Every other showTab('agents') caller was traced by the reviewer and lands where it did before.
 - Browser check 48 -> 54; both fixes mutation-checked.
+
+## Final validation (6j), first run: FAILED on four tests, all mine
+- `browser-checks-indexed`: the README must name every check -> row added.
+- `tools.browser-checks-wired` (#1387): every check must be run by the runner -> added to
+  `docs/browser-checks/gated.txt` (NOT_WIRED is a debt list that may only shrink).
+- `server.test.js` "the tab click handler actually calls the top-level reset": the pin reads the first
+  1600 characters of the handler, and the inserted branch pushed `showTab(btn.dataset.tab)` past it.
+  The branch moved into `consNavClick(btn)`, leaving one line in the handler (show now at ~1550).
+  Widening the pin's window was rejected: that loosens a guard to fit my change.
+- `server.test.js` "the narrow-screen menu keeps the keyboard": it runs the handler against a stub DOM,
+  which had no `layoutConsolidated`. The stub now has `consNavClick = () => false` (the tab layout),
+  next to its existing `showTab` and `topLevelReset` stubs.

@@ -28380,23 +28380,7 @@ document.getElementById('tabs').addEventListener('click', (e) => {
   const btn = e.target.closest('.tab');
   // Same reason as the back button: a tab click is also walking away from a
   // creation in flight.
-  /* #4345 (Josh): in the consolidated view the top nav loads into the display column instead of
-     switching to the tab view. Agents and Tasks open there; Projects puts the board back (the "easy
-     way to get back"), handled in the branch below, not by the tab path's top-of-section reset. */
-  /* Keyed on the saved layout (layoutConsolidated), not on body.consolidated: an agent's page and
-     the full Tasks page drop the class while the person's layout is still consolidated, and from
-     there Agents must still land on the Agents view, not the board (review round 1). The burger
-     never shows at the consolidated widths, so it needs no handling here.
-     Projects here keeps the active project: the projects column is always on screen in this
-     view, so there is no "top of the section" to reset to, only the board to come back to. */
-  if (btn && layoutConsolidated() && ['agents', 'tasks', 'projects'].includes(btn.dataset.tab)) {
-    WATCH += 1;
-    const t = btn.dataset.tab;
-    if (!document.body.classList.contains('consolidated') || t === 'projects') showTab('projects');
-    if (t === 'agents') openConsolidatedAgents();
-    else if (t === 'tasks') openConsolidatedTasks();
-    return;
-  }
+  if (btn && consNavClick(btn)) return;   // #4345
   if (btn) {
     WATCH += 1;
     /* ⚠️ A TAB CLICK MEANS THE TOP OF THAT SECTION, and this is the only place
@@ -39138,6 +39122,26 @@ function openConsolidatedAgents() {
   boardApplyVisibility(true);
   syncPlusChrome();
   consNavLight('agents');
+}
+/* #4345: the top-nav click in the consolidated layout. Returns true when it handled the click, so the
+   tab handler stays short (a source pin reads the first 1600 characters of it for the top-level reset). */
+function consNavClick(btn) {
+  /* #4345 (Josh): in the consolidated view the top nav loads into the display column instead of
+   switching to the tab view. Agents and Tasks open there; Projects puts the board back (the "easy
+   way to get back"), handled in the branch below, not by the tab path's top-of-section reset. */
+  /* Keyed on the saved layout (layoutConsolidated), not on body.consolidated: an agent's page and
+   the full Tasks page drop the class while the person's layout is still consolidated, and from
+   there Agents must still land on the Agents view, not the board (review round 1). The burger
+   never shows at the consolidated widths, so it needs no handling here.
+   Projects here keeps the active project: the projects column is always on screen in this
+   view, so there is no "top of the section" to reset to, only the board to come back to. */
+  if (!layoutConsolidated() || !['agents', 'tasks', 'projects'].includes(btn.dataset.tab)) return false;
+  WATCH += 1;
+  const t = btn.dataset.tab;
+  if (!document.body.classList.contains('consolidated') || t === 'projects') showTab('projects');
+  if (t === 'agents') openConsolidatedAgents();
+  else if (t === 'tasks') openConsolidatedTasks();
+  return true;
 }
 /* #4345: which top-nav item is lit in the consolidated view says what the display column holds:
    Agents or Tasks when those are open there, Projects for the board itself, none for an overlay
