@@ -157,7 +157,7 @@ test('the attach-only filename auto-fill repaints the mirror (no stale/blank mir
   // other programmatic value-set it must route through pjGrowComposer (which repaints the mirror),
   // or .mention-live keeps the text transparent over a stale mirror and the composer looks empty
   // while holding the filenames it is about to post.
-  const at = PAGE.indexOf('input.value = attachList(ATTACH_ROOM).map((r) => r.name)');
+  const at = PAGE.indexOf("input.value = (onlyMention ? replyMention : '') + attachList(ATTACH_ROOM).map((r) => r.name)");   // #4359: the mention prefix
   assert.ok(at > 0, 'the attach-only filename fill must exist in pjPostSend');
   // Bound the search from the fill to the start of the send (PJ_POSTING = true), so the check is
   // robust to comment length rather than a fixed char window.
