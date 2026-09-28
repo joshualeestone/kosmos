@@ -42,11 +42,21 @@ needs_you on the board.
 - N3 NOTED: the former-member picture test stays a source pin (pjRoomRow's lift needs much of the room).
 - N4 NOTED: web.reply-where's window was at 3379/3400 before this card; this card does not move it.
 
+## Review iteration 2 (sonnet): 0 BLOCKER, 2 WARNING, 0 CONVENTION, 1 NIT
+- W1 FIXED: Save marked the menu "shown" with the value read AFTER the request; a pick made during the request would
+  read as saved and be repainted away. The value sent is read once before the request (reportsSent) and reused.
+- W2 FIXED: a real-browser check of this card's own page behaviour, docs/browser-checks/render-rename-followups-4423.js
+  (OPENED, STEADY, RENAMED, ROLE, PICKED). On #4437's page RENAMED and ROLE fail; with the menu compared against its
+  own innerHTML, STEADY fails in Chromium (the read-back rewrite, measured in a real browser, not only argued).
+- NIT FIXED: the redundant `res.ok` in that line is gone.
+Sweep: 34 files (with the registration tests), each alone, 0 fail.
+
 ## Weakest part
 Item 4 names each agent through readIdentity per note per room read; a room with very many recommender notes pays
 that each poll. Cheap today (profile + one small file); a cache per read would be the fix if it shows.
 
 ## Checks
+- docs/browser-checks/render-rename-followups-4423.js: see review iteration 2 (real browser, with controls).
 - web.rename-followups-4423.test.js: the page's real followCard, dmReplyPaint, pjReplyPaint, rxnsInner on real fleet
   cards; a source pin for pjRoomRow's fallback. Against #4437's page: 6 of 7 fail (the 7th is the fixture check).
 - server.rename-followups-4423.test.js: a recommender note in a real room, a rename through the real route, both

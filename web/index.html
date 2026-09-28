@@ -39238,6 +39238,8 @@ document.getElementById('d-save').addEventListener('click', async () => {
        left on the old name by a rename made elsewhere renames the agent BACK on a role-only Save. */
     const renameBox = document.getElementById('d-rename');
     const nameEdited = !!renameTo && renameTo !== ((renameBox.dataset.shown || '').trim().slice(0, 80));
+    /* #4423: read once, before the request: what is SENT is what the menu is marked as showing after it lands. */
+    const reportsSent = document.getElementById('d-reports-wrap').hidden ? null : document.getElementById('d-reports').value;
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/profile',
       { method: 'PUT', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ role: document.getElementById('d-role').value.trim(),
@@ -39247,8 +39249,7 @@ document.getElementById('d-save').addEventListener('click', async () => {
                                   empty string CLEARS the record -- so an
                                   unconditional send would erase a reporting
                                   line every time somebody saved a role. */
-                               ...(document.getElementById('d-reports-wrap').hidden
-                                 ? {} : { reportsTo: document.getElementById('d-reports').value }) }) });
+                               ...(reportsSent === null ? {} : { reportsTo: reportsSent }) }) });
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     if (!res.ok) throw new Error('that did not save');
     const saved = await res.json().catch(() => null);
@@ -39339,9 +39340,9 @@ document.getElementById('d-save').addEventListener('click', async () => {
        #4421: before the switched-agent return below, since PROJECTS is every project's, not this panel's. */
     if (nameEdited && renameTo !== wasCalled) loadProjects();
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;   // #4421 (review iteration 3): switched during the read
-    /* #4423: the Reports-to choice just saved is now what the menu "shows" (followCard's untouched test), or the
-       menu would read as edited forever and stop following renames of the agents it lists. */
-    { const rsel = document.getElementById('d-reports'); if (rsel && res.ok) rsel.dataset.shown = rsel.value; }
+    /* #4423: the Reports-to choice just SAVED (the value sent, not whatever the menu says after the wait: a pick made
+       during the request stays an unsaved pick) is now what the menu "shows", or it would read as edited forever. */
+    { const rsel = document.getElementById('d-reports'); if (rsel && rsel.dataset && reportsSent !== null) rsel.dataset.shown = reportsSent; }
     if (nameEdited) {
       renameBox.dataset.shown = renameTo;
       /* The box shows what was saved (trimmed, capped), or it would never again equal `shown` and would stop
