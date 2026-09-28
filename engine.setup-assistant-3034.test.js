@@ -289,24 +289,6 @@ test('#4405 explicit: a never-armed install gets a guide when the person switche
   } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
 });
 
-test('#4405 forgetGoneGuide forgets ONLY a record whose folder is gone from disk', () => {
-  setupAssistant.resetEnsureGuideForTests();
-  try {
-    assert.equal(setupAssistant.forgetGoneGuide(), false, 'no record: nothing to forget');
-    setupAssistant.markSetupAssistantSeeded({ name: 'josh-4405-gone', via: 'test' });
-    const dir = path.dirname(require('./engine/instructions').fileFor('josh-4405-gone'));
-    fs.mkdirSync(dir, { recursive: true });
-    assert.equal(setupAssistant.forgetGoneGuide(), false, 'CONTROL: the folder is there (marked or not), so the record stays');
-    assert.equal(setupAssistant.setupAssistantSeeded(), true);
-    fs.rmSync(dir, { recursive: true, force: true });
-    assert.equal(setupAssistant.forgetGoneGuide(), true, 'the folder is gone, so the record is forgotten');
-    assert.equal(setupAssistant.setupAssistantSeeded(), false);
-    fs.writeFileSync(setupAssistant.flagPath(), '{ not json');
-    assert.equal(setupAssistant.forgetGoneGuide(), false, 'an unreadable record is never forgotten on a guess');
-    assert.equal(setupAssistant.setupAssistantSeeded(), true);
-  } finally { fs.rmSync(setupAssistant.flagPath(), { force: true }); setupAssistant.resetEnsureGuideForTests(); }
-});
-
 test('#4405 explicit never makes a SECOND guide once one was made (a removed one is restored by /api/settings instead)', async () => {
   setupAssistant.resetEnsureGuideForTests();
   armed(true);

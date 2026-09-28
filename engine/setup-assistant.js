@@ -177,20 +177,6 @@ function refreshGuideAvatar(dir = GUIDE_AVATAR_DIR, retired = RETIRED_GUIDE_AVAT
   } catch { return false; }
 }
 
-/* #4405: forget the guide on record when its folder is GONE from disk (deleted for good, not merely removed from
- * Kosmos, which keeps the folder). The record then points at nothing, so the person switching the assistant on may
- * get a new guide. Only a record naming a folder that does not exist is forgotten; an unreadable record, or a
- * folder that is there (marked or not), is left alone. Returns whether it forgot. Never throws. */
-function forgetGoneGuide() {
-  try {
-    const name = guideName();
-    const dir = name ? guideFolder(name) : null;
-    if (!name || !dir || fs.existsSync(dir)) return false;
-    fs.rmSync(flagPath(), { force: true });
-    return !setupAssistantSeeded();
-  } catch { return false; }
-}
-
 function guideFolder(agentName) {
   try {
     const file = require('./instructions').fileFor(agentName);
@@ -748,7 +734,6 @@ function mergeSetting(stored, patch) {
 }
 
 module.exports = {
-  forgetGoneGuide,
   SETUP_ROLE_KEY,
   GUIDE_CREATED_BY,
   GUIDE_PURPOSE_PREFIXES,

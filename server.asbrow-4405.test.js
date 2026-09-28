@@ -162,7 +162,7 @@ test('#4405: a guide that was made and then REMOVED is put back by switching ON 
   }
 });
 
-test('#4405: a recorded guide whose folder is GONE from disk is forgotten, and switching ON makes a new one', async () => {
+test('#4405: a recorded guide whose folder is GONE from disk is NOT forgotten or made again: it says unclear', async () => {
   const box = sandbox();
   let child;
   try {
@@ -174,8 +174,8 @@ test('#4405: a recorded guide whose folder is GONE from disk is forgotten, and s
     assert.equal(sg.reason, 'not-guide', 'CONTROL: a recorded guide with no folder reads not-guide: ' + JSON.stringify(sg));
     const on = await save(booted.base, true);
     assert.equal(on.status, 200);
-    assert.deepEqual(on.body.guide, { state: 'seeded', seeded: true }, JSON.stringify(on.body));
-    assert.equal(JSON.parse(fs.readFileSync(flagFile(box), 'utf8')).via, 'settings', 'the new guide was not recorded');
+    assert.deepEqual(on.body.guide, { state: 'unclear', seeded: false }, JSON.stringify(on.body));
+    assert.equal(JSON.parse(fs.readFileSync(flagFile(box), 'utf8')).via, 'first-run', 'the record was forgotten or rewritten');
   } finally {
     if (child) await stopBoard(child);
     fs.rmSync(box.sb, { recursive: true, force: true });

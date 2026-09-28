@@ -63922,10 +63922,12 @@ function asbSayNotMade(made) {
   const taken = made.state === 'names-taken';
   /* 'unclear' (the board could not be sure there is no guide, so it made none) and 'seeded' (a guide was already
      made this session) do not clear with a moment's wait either. */
-  const unclear = made.state === 'unclear' || made.state === 'seeded';
+  const unclear = made.state === 'unclear';
+  const madeEarlier = made.state === 'seeded';
   m.textContent = noModel ? 'The Kosmos Guide needs a connected AI model. Connect one in AI Models, then choose Set it up now.'
     : deadModel ? 'Your AI model could not be reached just now. Check it in AI Models, then try again.'
     : taken ? 'Two of your agents already use the Kosmos Guide\'s names (Josh and Josh AI). Rename one, restart Kosmos, then try again.'
+    : madeEarlier ? 'A Kosmos Guide was already set up on this computer. Look for it in Agents.'
     : unclear ? 'Kosmos could not tell whether a Kosmos Guide is already on this computer, so it did not make another. If one of your agents is called Josh, look at it in Agents.'
     : made.because ? made.because
     : 'We could not set up the Kosmos Guide just now. Try again in a moment.';

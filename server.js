@@ -10611,11 +10611,10 @@ const server = http.createServer((req, res) => {
            now, and say what happened so the page can say it plainly (e.g. no model connected yet). */
         if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
           const now = (body.setupAssistant && body.setupAssistant.on === true) ? setupGuideNow() : null;
-          /* Made only when the board is SURE there is no guide: none on record, or one whose folder is GONE from disk
-             (forgotten here). Anything ambiguous (a record it cannot read, another agent on the name, a check it could
-             not make) is left alone: making one there could make a SECOND guide. */
-          const gone = !!now && !now.ok && now.reason === 'not-guide' && setupAssistant.forgetGoneGuide();
-          if (now && !now.ok && (now.reason === 'none' || gone) && !setupAssistant.setupAssistantSeeded()) {
+          /* Made only when the board is SURE there has never been a guide: none on record. Anything else that is not a
+             removed guide (a record it cannot read, a folder missing or without the marker, a check it could not make) is
+             left alone: making one there could make a SECOND guide, and forgetting a record cannot be undone. */
+          if (now && !now.ok && now.reason === 'none' && !setupAssistant.setupAssistantSeeded()) {
             return setupAssistant.ensureGuide({ createAgent: create.createAgent, via: 'settings', explicit: true })
               .then(recordGuideOutcome)   // returns its input
               .catch(() => ({ seeded: false, state: 'refused' }))
