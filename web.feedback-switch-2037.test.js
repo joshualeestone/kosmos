@@ -92,8 +92,10 @@ test('could-not-read is the PRIVACY treatment: knob hidden, actionable line, nev
   assert.match(fp, /paintSwitch\('feedback-toggle', unread \? null : \(damaged \? false : r\.on === true\)\)/,
     'the switch paints a position when there was no answer (a false Off on a privacy control)');
   // Unread = no body or a non-boolean on (403-safe).
-  assert.match(fp, /const unread = !r \|\| typeof r\.on !== 'boolean'/,
+  assert.match(fp, /const unread = !r \|\| typeof r\.on !== 'boolean' \|\| \(r\.ok === false && !damaged\)/,
     'the unread test is not 403-safe');
+  assert.match(fp, /const damaged = !!r && r\.ok === false && r\.on === false/,
+    'damaged is not keyed on the engine\'s exact damaged answer');
   assert.match(fp, /We could not check this setting here\. Open Kosmos from its icon/,
     'the could-not-read line is not the actionable privacy message');
   // refreshFeedback must not .json() a non-ok response into a position.

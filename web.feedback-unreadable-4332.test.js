@@ -35,8 +35,10 @@ function pageFnSource(name) {
 
 function fakeToggle() {
   const classes = new Set();
+  /* Starts PAINTED (visible, Off), so the no-answer arm proves the switch is actively stripped, not merely
+     never touched. */
   return {
-    hidden: true, attrs: {},
+    hidden: false, attrs: { 'aria-checked': 'false' },
     classList: { toggle(c, on) { if (on) classes.add(c); else classes.delete(c); }, remove(c) { classes.delete(c); } },
     setAttribute(k, v) { this.attrs[k] = String(v); }, getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
     removeAttribute(k) { delete this.attrs[k]; },
@@ -67,6 +69,12 @@ test('#4332 privacy arm: NO ANSWER (a 403 or a failed fetch) still hides the swi
     assert.equal(s.checked, null);
     assert.match(s.msg, /could not check this setting here/);
   }
+});
+
+test('#4332: an ok:false answer that is NOT the engine\'s damaged shape is treated as no answer, never a false Off', () => {
+  const s = paint({ on: true, ok: false });
+  assert.equal(s.hidden, true, 'a switch that may be sending was drawn as a position');
+  assert.equal(s.checked, null);
 });
 
 test('#4332 control: a readable setting shows its real position and no message', () => {

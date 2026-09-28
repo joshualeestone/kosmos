@@ -15,7 +15,7 @@
  * while the engine may be sending. This proves the switch instead shows COULD-NOT-READ
  * (hidden, no position, a message) on a gated read, never a false Off.
  *
- * TWO ARMS, and the 200 control is what makes the 403 arm mean something (an
+ * THREE ARMS, and the 200 control is what makes the other two mean something (an
  * assertion that only ever saw a readable board cannot fail on this):
  *   200 CONTROL  a readable board: the switch RENDERS with a real position.
  *   403 ARM      /api/feedback-setting forced to 403 via page.route (an enforcing
@@ -28,8 +28,8 @@
  *                and paints the repaired answer. Hiding it here was a dead end.
  *
  * Runs HEADLESS-safe (DOM-state assertions only). Needs a board it can reach; a plain
- * sandboxed board is fine (this check never writes, it only reads the setting and, in
- * the 403 arm, intercepts that read at the browser).
+ * sandboxed board is fine (this check never writes: it reads the setting and, in the 403
+ * and damaged arms, intercepts the read, and the damaged arm's save, at the browser).
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
  *     node docs/browser-checks/render-optout-403-2020.js http://127.0.0.1:PORT
  */
@@ -127,11 +127,11 @@ async function run() {
 
     // ── DAMAGED ARM (#4332): an answered, damaged file shows Off with a repair line ──
     const p3 = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
-    const puts = [];
+    const puts = {};
     await p3.route('**/api/feedback-setting', (route) => {
       const req = route.request();
       if (req.method() === 'PUT') {
-        puts.push(req.postData());
+        (puts.cur = puts.cur || []).push(req.postData());
         return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ on: true, ok: true }) });
       }
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ on: false, ok: false }) });
@@ -143,10 +143,11 @@ async function run() {
       check(id + ' [damaged arm]: reads Off', s.checked === 'false', String(s.checked));
       check(id + ' [damaged arm]: says the setting could not be read and how to repair it',
         /could not be read/i.test(s.msg) && /turn it on/i.test(s.msg), JSON.stringify(s.msg));
+      puts.cur = [];
       await p3.evaluate((i) => document.getElementById(i).click(), id);
       await p3.waitForTimeout(400);
       const after = await readSwitch(p3, id);
-      check(id + ' [damaged arm]: pressing it sends on:true (the repair)', puts.length === 1 && /"on":true/.test(puts[0]), JSON.stringify(puts));
+      check(id + ' [damaged arm]: pressing it sends on:true (the repair)', puts.cur.length === 1 && /"on":true/.test(puts.cur[0]), JSON.stringify(puts.cur));
       check(id + ' [damaged arm]: the repaired answer reads On with the repair line gone',
         after.checked === 'true' && !/could not be read/i.test(after.msg), JSON.stringify(after));
     }
