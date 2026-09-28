@@ -13,14 +13,15 @@ a thing they cannot see: a crash mid-remove, an older install, or a reinstall in
 
 - `engine/create.js`, the "loaded with nothing on disk" refusal: when `launchctl print` names the plist
   the job was loaded from (the first-level `path = ...` line), and that plist is NOT this board's own
-  plist path, AND it is gone or under a temp folder (`/tmp`, `/private/tmp`, `/var/folders`,
-  `/private/var/folders`, `os.tmpdir()` and `$TMPDIR`, both spellings), the job is booted out, the
+  plist path, AND it is gone or under a temp folder (`os.tmpdir()` and `$TMPDIR` in both spellings,
+  plus `/tmp` and `/private/tmp`), the job is booted out, the
   creation re-checks that it is gone, and it goes on with a step saying what was removed and why (also
   logged). If the bootout does not take, it refuses as before and loads nothing.
 - Everything else still refuses, unchanged: a plist at our own path, a plist that exists outside a temp
   folder, or a print that names no path. Labels are world-scoped, so a same-label job is this board's own
   agent or its leftover, and we do not unload what we cannot prove is dead.
-- `leftoverJob(printed, ours)` is exported and unit-tested.
+- `leftoverJob(printed, ours)` is exported and unit-tested. The two `/tmp` literals are classified in
+  the #1732 Windows-coupling inventory as posix-root-fallback (the path is launchd-only).
 - Tests in `engine/create.test.js` (#4279): temp plist replaced and created; gone plist replaced and
   created; own path refused; present non-temp plist refused; a bootout that does not take still refuses;
   the parser reads only the first-level path. The existing "loaded with nothing on disk" test (no path in

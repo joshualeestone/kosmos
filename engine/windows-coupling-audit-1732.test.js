@@ -305,6 +305,8 @@ const INVENTORY = [
   { file: 'engine/projects.js', family: 'path-delimiter-literal', count: 1, contains: ".split('/').join('').split('\\\\').join('').split(':').join('')", disposition: 'sanitizer', why: 'name sanitizer; strips / \\ :, Windows-aware' },
   // --- posix-root fallbacks (os.tmpdir() used; '/tmp' is a harmless extra) ---
   { file: 'engine/projects.js', family: 'fs-root-literal', count: 1, contains: "[os.tmpdir(), '/tmp']", disposition: 'posix-root-fallback', why: "os.tmpdir() is the real root; '/tmp' is an extra known root, never matches on Windows" },
+  { file: 'engine/create.js', family: 'fs-root-literal', count: 1, contains: "roots.add('/tmp');", disposition: 'posix-root-fallback', why: "#4279 tempRoots: os.tmpdir()/$TMPDIR are the real roots; '/tmp' is an extra known root, and the leftover-job check is reached only on the launchd path" },
+  { file: 'engine/create.js', family: 'fs-root-literal', count: 1, contains: "roots.add('/private/tmp');", disposition: 'posix-root-fallback', why: "#4279 tempRoots: the /private spelling of '/tmp' that launchd may report; harmless on Windows, where this path is never reached" },
   { file: 'engine/status.js', family: 'fs-root-literal', count: 1, contains: "[os.tmpdir(), '/tmp']", disposition: 'posix-root-fallback', why: "os.tmpdir() is the real root; '/tmp' extra" },
   { file: 'engine/status.js', family: 'fs-root-literal', count: 1, contains: "process.env.TMUX_TMPDIR || '/tmp'", disposition: 'macos-only-branch', why: 'tmux socket path; tmux does not exist on Windows so this branch is macOS-only' },
   // --- macOS-only launchd path ---

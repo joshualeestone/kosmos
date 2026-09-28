@@ -914,10 +914,13 @@ function serviceLabel(name, worldId) {
 function plistPath(name, worldId) { return path.join(agentsDir(), `${serviceLabel(name, worldId)}.plist`); }
 
 /* #4279: the temp roots a leftover test job's plist can sit in. A real agent's
-   plist never does. Both spellings of macOS's per-user temp are listed, since
-   launchd reports whichever the job was loaded with. */
+   plist never does. The per-user temp folder (os.tmpdir(), $TMPDIR) is the real
+   one, in both spellings (/var/folders/.../T and its /private realpath), since
+   launchd reports whichever the job was loaded with; /tmp is an extra known root. */
 function tempRoots() {
-  const roots = new Set(['/tmp', '/private/tmp', '/var/folders', '/private/var/folders']);
+  const roots = new Set();
+  roots.add('/tmp');
+  roots.add('/private/tmp');
   for (const t of [os.tmpdir(), process.env.TMPDIR]) {
     if (!t) continue;
     roots.add(path.resolve(t));
