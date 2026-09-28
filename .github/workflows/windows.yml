@@ -43,7 +43,7 @@ jobs:
       # on a Mac, but git on a Windows runner converts to CRLF at checkout (core.autocrlf=true),
       # and tests that cut functions out of source by '\n}\n' then read the wrong bytes (#1777
       # measured web.win32-board-copy red for exactly that). Before checkout, so it applies.
-      - name: check out LF, as shipped
+      - name: keep LF line endings for the checkout below, as shipped
         shell: bash
         run: git config --global core.autocrlf false
       - uses: actions/checkout@v4

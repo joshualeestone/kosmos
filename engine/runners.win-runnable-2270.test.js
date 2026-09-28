@@ -28,6 +28,11 @@ function file(name, mode) {
   return p;
 }
 
+// The POSIX controls read the real exec bit through X_OK, which a Windows HOST does not have
+// (#1777 measured them red on windows-latest), so they run only on a POSIX host. The platform
+// under test is still injected; this is about the machine the test runs on.
+const POSIX_HOST = process.platform !== 'win32';
+
 test('#2270: on win32, executability is the EXTENSION, not the exec bit', () => {
   // A real executable (0o755) with NO extension: launchable on POSIX, NOT a
   // runner on Windows (the loader needs a PATHEXT suffix). This is the exact
@@ -35,9 +40,7 @@ test('#2270: on win32, executability is the EXTENSION, not the exec bit', () => 
   const execNoExt = file('claude', 0o755);
   assert.equal(runnableExactly(execNoExt, 'win32'), false,
     'win32 must reject an extensionless file even with the exec bit set (X_OK is a no-op there)');
-  // The POSIX controls read the real exec bit through X_OK, which a Windows HOST does not
-  // have (#1777 measured this arm red on windows-latest), so they hold only on a POSIX host.
-  if (process.platform !== 'win32') {
+  if (POSIX_HOST) {
     assert.equal(runnableExactly(execNoExt, 'darwin'), true,
       'POSIX control: the same 0o755 file IS runnable by X_OK');
   }
@@ -46,7 +49,7 @@ test('#2270: on win32, executability is the EXTENSION, not the exec bit', () => 
   const exe644 = file('claude.exe', 0o644);
   assert.equal(runnableExactly(exe644, 'win32'), true,
     'win32 must accept a .exe by its extension regardless of the (meaningless-there) mode bit');
-  if (process.platform !== 'win32') {
+  if (POSIX_HOST) {
     assert.equal(runnableExactly(exe644, 'darwin'), false,
       'POSIX control: a 0o644 file is not runnable, .exe or not');
   }

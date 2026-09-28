@@ -63,12 +63,14 @@ function selectFiles(engineNames, rootNames = []) {
 }
 
 // The failing test names in a run's spec-reporter output: "✖ <name> (<n>ms)" lines, minus the
-// file-level line node prints for the file itself.
-function failingTests(output) {
+// file-level line node prints for the file itself (its path, with either separator). Only that
+// exact line is dropped, so a real test whose title ends in ".test.js" still counts.
+function failingTests(output, file = '') {
+  const self = file.replace(/\\/g, '/');
   const names = new Set();
   for (const line of String(output).split('\n')) {
     const m = line.match(/^\s*✖ (.+) \([\d.]+m?s\)\s*$/);
-    if (m && !/\.test\.js$/.test(m[1])) names.add(m[1]);
+    if (m && !(self && m[1].replace(/\\/g, '/') === self)) names.add(m[1]);
   }
   return [...names];
 }
@@ -134,7 +136,7 @@ function main() {
     const counts = tests === null ? '' : ` [${tests} tests, ${skipped || 0} skipped]`;
     const slow = ms > PER_FILE_TIMEOUT_MS / 2 ? ' SLOW: over half the file cap' : '';
     console.log(`${ok ? 'PASS' : 'FAIL'} ${Math.round(ms / 1000)}s ${file}${why}${counts}${slow}`);
-    const failing = ok ? [] : failingTests(output);
+    const failing = ok ? [] : failingTests(output, file);
     if (!ok) {
       const lines = output.split('\n').filter((l) => /^\s*✖|Error/.test(l));
       for (const l of lines.slice(0, 20)) console.log('    ' + l.trim());

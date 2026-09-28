@@ -47,7 +47,15 @@ test('failing test names are read from the spec reporter, without the file-level
     '✖ the first one (3.1198ms)',
     '  AssertionError [ERR_ASSERTION]: nope',
   ].join('\n');
-  assert.deepEqual(w.failingTests(out), ['the first one', 'a nested one']);
+  assert.deepEqual(w.failingTests(out, 'engine/win32x.test.js'), ['the first one', 'a nested one']);
+});
+
+test('a real test whose title ends in .test.js is still read as failing', () => {
+  const out = [
+    '✖ engine/win32x.test.js (12ms)',
+    '✖ loads config.test.js (1.5ms)',
+  ].join('\n');
+  assert.deepEqual(w.failingTests(out, 'engine/win32x.test.js'), ['loads config.test.js']);
 });
 
 const KNOWN = { 'engine/a.test.js': { card: '#1', tests: ['t1', 't2'] } };
