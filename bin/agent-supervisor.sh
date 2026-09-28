@@ -61,7 +61,7 @@ MODEL="${6:-}"
 # The RUNNER this agent runs on, optional and NEW as of #245 (2026-08-24).
 # 'claude' (the default every existing plist means by omission), 'codex', 'gemini', 'grok',
 # or 'antigravity' (#3568, on by default; AGENT_WORKFORCE_ANTIGRAVITY=0 turns off setting one up),
-# or 'muse' (#3939, Meta Muse: only set up with AGENT_WORKFORCE_MUSE=1 on a Mac).
+# or 'muse' (#3939, Meta Muse: only set up where Muse is switched on, see engine/musestatus.enabled).
 # Per the vector contract above: optional, defaulted, position seven, and
 # every earlier argument keeps its position and meaning. $3 stays "the path
 # to the runner binary" -- for a codex agent, create.js writes the codex
