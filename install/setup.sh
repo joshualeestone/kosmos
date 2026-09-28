@@ -3751,6 +3751,14 @@ fi
 # including a file that cannot be read, is not started: the installer cannot ask, and the app
 # starts the board and asks again at its next launch. `$(cat ...)` drops trailing newlines, as the
 # app's reader does.
+# #4356 migration: an install from before the first screen has no mode file, which the app reads
+# as "not chosen" and would ask about, for instance when a second Kosmos (#1852) opens its own first
+# run on a Mac that has run agents for months. An update of an install whose first run is done
+# records `run`, which is what that Mac has always been. A fresh install, or one whose first run
+# never finished, keeps no file and is asked (review round 21).
+if [ "$FRESH_INSTALL" = no ] && [ ! -e "$KOSMOS_HOME/mode" ] && [ -f "$_wf_data_root/first-run.json" ]; then
+  printf 'run\n' > "$KOSMOS_HOME/mode" 2>/dev/null || true
+fi
 # Read again now (_kosmos_board_decide): the person may have answered the first screen, or used the
 # menu, during this run. The latest reading decides whether this run starts the board.
 _kosmos_board_decide

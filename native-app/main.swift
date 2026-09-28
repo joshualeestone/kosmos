@@ -193,7 +193,8 @@ func resolveInstall(config: KosmosInstallConfig?) throws -> ResolvedInstall {
 // computer, in the install (KOSMOS_HOME), not per Kosmos instance: the instances of #1852 share one
 // install, and the installer and the updater read this same file (install/setup.sh) so an update
 // never starts a board on a computer that connects elsewhere. One word:
-//   (no file)  never chosen: every install before #4356, and a fresh one. Behaves as today.
+//   (no file)  never chosen: a fresh install (asked), or an install from before #4356 (an update of
+//              one whose first run is done records `run`, install/setup.sh, so it is not asked).
 //   run        this computer runs agents.
 //   connect    this computer opens Kosmos Plus sign-in, and never starts its own board.
 //   both       runs agents, as run does (the app, the installer and updates treat it as run), and
@@ -1966,7 +1967,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         else { logLine("#4356: ignored a mode message while not asking (\(body))"); return }
         switch choice {
         case "run":
-            // First run carries on either way; a choice that could not be saved is asked again next time.
+            // First run carries on either way; a choice that could not be saved is said (showChoiceNotSaved),
+            // and with no file the computer counts as run once its first run is done.
             if !writeComputerMode(.run, kosmosHome: home) { showChoiceNotSaved(home) }
             computerMode = .run
             ensureBoardRunning(home: home)

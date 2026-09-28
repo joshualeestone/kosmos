@@ -20121,6 +20121,11 @@ document.getElementById('uc-go').addEventListener('click', async () => {
   back.innerHTML = '<div class="upd-msg" role="alert" tabindex="-1">'
     + '<canvas class="upd-k" width="176" height="206" role="img" aria-label="Updating"></canvas>'
     + '<b>' + esc(updateOverlayLead(true, downloading, undefined, rollingBack)) + '</b> Your agents keep working.</div>';
+  /* #4356: an update over the first screen is shown, not hidden under it: the screen goes (and its
+     inert hold with it), so the person sees why the buttons stopped; the reload that ends every
+     update brings the screen back, still asking (review round 21). */
+  { const frc = document.getElementById('fr-choice');
+    if (frc && !frc.hidden) { frc.hidden = true; if (typeof frChoiceInert === 'function') frChoiceInert(false); } }
   document.body.appendChild(back);
   /* After it is in the document: the loader measures the canvas, and a detached
      one has no layout to measure. */

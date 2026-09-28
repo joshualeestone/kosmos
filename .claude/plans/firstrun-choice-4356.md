@@ -26,8 +26,9 @@
 - The mode file: `$KOSMOS_HOME/mode`, one word, `run`, `connect` or `both`. Per computer (the
   install), not per Kosmos instance (#1852 instances share one install). Written by the Mac
   app, which knows KOSMOS_HOME (the board is not told it, server.js:48).
-  - absent: never chosen (a fresh install, or every install before this change). Treated as
-    run by the app, the installer and updates, exactly as today.
+  - absent: never chosen. A fresh install is asked. An install from before this change gets
+    `run` written by its next update when its first run is done (so a second Kosmos, #1852, on a
+    Mac that has always run agents is not asked); the installer treats absent as run.
   - `run` / `connect` / `both`: chosen. `both` is run for the app and the installer; the app
     passes ?mode=both so the page ends first run at Kosmos Plus sign-in (frPlusLast).
   - anything else, or unreadable: the app starts the board and shows the choice screen

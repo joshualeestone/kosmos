@@ -283,6 +283,13 @@ test('#4356: a layer appended to <body> while the screen is up goes inert, and t
   assert.equal(observed, 'disconnected', 'the watch outlives the screen and inerts the board');
 });
 
+test('#4356: an update over the first screen hides the screen, so its overlay is seen, not dead buttons', () => {
+  const at = PAGE.indexOf("document.querySelectorAll('body > *:not(.upd-back)').forEach((el) => { el.inert = true; });");
+  assert.notEqual(at, -1, 'the update overlay code moved');
+  const before = PAGE.slice(Math.max(0, at - 1200), at);
+  assert.match(before, /if \(frc && !frc\.hidden\) \{ frc\.hidden = true; if \(typeof frChoiceInert === 'function'\) frChoiceInert\(false\); \}[\s\S]*document\.body\.appendChild\(back\);/);
+});
+
 test('#4356: the address keeper carries ?mode=, or first run never sees it', () => {
   // syncUrl rebuilds the query from the page's own state at boot; a key it does not carry is gone
   // before firstRunBoot reads it. That is how the first screen went missing in the browser check.
