@@ -6,8 +6,8 @@ writes, tested), and make it visible locally (a message on the board; turning re
 
 ## Finished means
 1. An interrupted write cannot produce an unreadable file: the previous file stays whole (test).
-2. A damaged file shows "Remote access settings could not be read. Turn remote access on again to repair them."
-   on the Plus pane of a real board, and turning remote access on rewrites it.
+2. A damaged file shows "Your remote-access settings could not be read. Turn remote access on again to repair
+   them." on the Plus pane of a real board, and turning remote access on rewrites it.
 3. No signed call goes out while the file is unreadable (test, with a control that does call).
 
 ## What already existed
@@ -30,14 +30,18 @@ writes, tested), and make it visible locally (a message on the board; turning re
   Forget. Background writes return `{ ok:false, unreadable:true }` and leave the file.
   Rejected: letting any write repair (erases the error before the person sees it); refusing all writes
   including the switch (then nothing can repair it).
-- **The page message shows only on the enrolled pane.** Enrollment is the state dir, not this file, so an
-  enrolled Mac with a damaged file sits on the connected pane reading "Off"; a machine that never enrolled has
-  nothing in this file worth saying anything about.
+- **The repair instruction has one source: the engine's status() sentence.** The page already shows that
+  sentence under the switch (paintPlus), so the change is in engine/remote.js only and web/index.html is untouched.
+  An earlier cut set the text on the page as well, which was a second copy of one fact (convention #5; review
+  iteration 2). It shows on the enrolled pane only: enrollment is the state dir, not this file.
+- **A refused device whose note cannot be saved says so** on stderr (deviceDeny), instead of dropping it silently;
+  the coordinator has the answer either way (review iteration 2).
 - **A repaired file starts from defaults:** the relay override and email in the damaged file are gone (they
   could not be read). The device id is the exception: if this process already minted one for a sign-in, the repair
   keeps it, so a sign-in on a damaged file does not produce a second "this computer" (review iteration 1).
-- **Stale temporary files** (a write killed between open and rename) are removed after a successful save once
-  older than ten minutes, never a fresh one that a live writer may still be filling.
+- **Stale temporary files** (a write killed between open and rename) are removed after a successful save only if
+  their writer is gone (the pid is in the name; `kill(pid, 0)`) AND they are older than ten minutes. A still-running
+  writer keeps its file however old it is (review iteration 2).
 - **fsync on macOS** hands the bytes to the disk but does not flush the drive's own cache (F_FULLFSYNC, which Node
   does not expose). The comment says so rather than promising more.
 
@@ -60,6 +64,8 @@ repairs the file.
 - Real board (sandboxed data, this branch, fake tunnel): a damaged remote.json on an enrolled Mac shows the repair
   message on the Plus pane under an Off switch; turning remote access on rewrote it as valid settings, the message
   went, and no temporary file was left.
-- web.remote-unreadable-4308.test.js: 3 tests; 2 fail on the old page.
+- web.remote-unreadable-4308.test.js: 3 tests, end to end: a real damaged remote.json in a sandbox, the real
+  status() it produces, paintPlus run on that answer. The message test fails on the engine sentence before this
+  change.
 - engine/remote.test.js: the #3827 save-failure fixture planted a directory at the fixed temporary name; it now
   refuses to open a temporary file for remote.json instead. 101/101.

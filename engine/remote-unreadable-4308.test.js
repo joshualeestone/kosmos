@@ -136,12 +136,17 @@ test('6. a save removes temporary files left by a killed write, but never a fres
   saveGood({ on: false });
   const stale = FILE + '.99999.deadbeef.tmp';
   const fresh = FILE + '.99998.cafef00d.tmp';
+  const liveOld = FILE + '.' + process.ppid + '.0badc0de.tmp';   // an OLD file whose writer is still running
   fs.writeFileSync(stale, '{"on":true,"email":"old@example.com"}');
   fs.writeFileSync(fresh, '{"on":true}');
+  fs.writeFileSync(liveOld, '{"on":true}');
   const old = new Date(Date.now() - 60 * 60 * 1000);
   fs.utimesSync(stale, old, old);
+  fs.utimesSync(liveOld, old, old);
   assert.equal(remote.setRelay('sweep.example:443').ok, true);
   assert.equal(fs.existsSync(stale), false, 'a stale temporary file (with a copy of the settings) was left');
   assert.equal(fs.existsSync(fresh), true, 'a fresh temporary file, possibly a live writer, was removed');
+  assert.equal(fs.existsSync(liveOld), true, 'an old temporary file of a still-running writer was removed');
   fs.rmSync(fresh, { force: true });
+  fs.rmSync(liveOld, { force: true });
 });

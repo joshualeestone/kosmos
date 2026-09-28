@@ -326,15 +326,23 @@ function federationLive() {
    sign-in and Forget pass { repair: true }. Everything else leaves a damaged file exactly as it is. */
 const UNREADABLE = 'remote access settings could not be read';
 /* A write killed between opening its temporary file and the rename leaves remote.json.<pid>.<random>.tmp behind, and
-   each holds a copy of the settings. Remove any older than ten minutes, after a successful save: old enough that no
-   live writer (in this process or another) can still be filling it. */
+   each holds a copy of the settings. After a successful save, remove those whose writer is GONE and that are older
+   than ten minutes. The pid is in the name: a writer that is still running keeps its file however old it is (a
+   process stalled on a hung volume would otherwise lose its save to our sweep). This process's own writes are
+   synchronous, so any of its temporaries is finished. The age bound covers a pid reused by an unrelated process. */
 const STALE_TEMP_MS = 10 * 60 * 1000;
+function writerAlive(pid) {
+  try { process.kill(pid, 0); return true; }
+  catch (err) { return !!(err && err.code === 'EPERM'); }   // EPERM: it exists, it is just not ours to signal
+}
 function sweepStaleTemps() {
   try {
     const dir = path.dirname(FILE); const base = path.basename(FILE) + '.';
     for (const name of fs.readdirSync(dir)) {
       if (!name.startsWith(base) || !name.endsWith('.tmp')) continue;
       const p = path.join(dir, name);
+      const pid = Number(name.slice(base.length).split('.')[0]);
+      if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && writerAlive(pid)) continue;
       try { if (Date.now() - fs.statSync(p).mtimeMs > STALE_TEMP_MS) fs.unlinkSync(p); } catch { /* gone, or not ours to remove */ }
     }
   } catch { /* best-effort housekeeping */ }
@@ -608,7 +616,9 @@ function status() {
       return {
         state: 'off',
         address: null,
-        because: 'your remote-access settings could not be read',
+        /* #4308: say what repairs it, here and only here. The page shows this sentence as it is (paintPlus), so the
+           repair instruction has one source. Only the person's own switch rewrites a damaged file (see write()). */
+        because: 'your remote-access settings could not be read. Turn remote access on again to repair them',
       };
     }
     if (!settings.on) return { state: 'off', address: null, because: 'the switch is off' };
@@ -1101,7 +1111,10 @@ async function deviceDeny(id) {
     const denied = { ...read().denied, [id]: Math.floor(Date.now() / 1000) };
     /* Bounded: the newest 50, so a file cannot grow without limit. */
     const keep = Object.entries(denied).sort((a, b) => b[1] - a[1]).slice(0, 50);
-    write({ denied: Object.fromEntries(keep) });
+    const saved = write({ denied: Object.fromEntries(keep) });
+    /* #4308: the coordinator has the answer either way; only this Mac's own note of it (used to word a re-ask) is
+       lost when the settings file is damaged. Say so rather than drop it silently. */
+    if (!saved.ok) process.stderr.write('remote: the device was refused, but this Mac could not note it: ' + saved.because + '\n');
   }
   return r;
 }
