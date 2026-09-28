@@ -10,8 +10,8 @@ with no report as UNKNOWN ("Can't tell"). The API-key Gemini CLI has SessionStar
 - bin/agy-report-bridge.js: a Kosmos-only event, KosmosLaunch -> idle, auto. Not in STATE_FOR_EVENT (that map is
   what agy's hooks fire).
 - bin/agent-supervisor.sh, agy arm: right after new-session, run the bridge once with KosmosLaunch as the new pane
-  (TMUX_PANE from display-message #{pane_id}), ONLY when both hold, because an idle report never decays and nothing
-  else would correct it (review 1's blocker):
+  (its pane id), ONLY when all three conditions below hold, because an idle report never decays and nothing else
+  would correct it (review 1's blocker):
   - the hook is in place and on: engine/agyhooks.js now prints `hooked` on stdout only then (a folder inside a git
     project, a hooks.json left alone, or the person's `enabled:false` print nothing);
   - the folder is in agy's trusted list: engine/agytrust.js now prints `trusted` only then (review 3), since an agy
@@ -48,6 +48,7 @@ with no report as UNKNOWN ("Can't tell"). The API-key Gemini CLI has SessionStar
   git-project workdir: none; signed-out record: none; no record: none; agy settings a dangling link (trust fails):
   none. (The harness now points agytrust at a sandbox agy home: an earlier run had added its scratch folder to this
   Mac's real agy trusted list, which was then removed by hand.)
-- engine/agyseed-4417.test.js 5/5 (bridge run against a stand-in board with an empty store root, so no real board
+- engine/agyseed-4417.test.js (bridge run against a stand-in board with an empty store root, so no real board
   token leaves; source pin on both gates and the env allowlist; agyhooks CLI `hooked` on a plain folder, silent for
-  the off switch and a git project). engine/agyhooks.test.js 29/29.
+  the off switch and a git project; agytrust CLI `trusted` for a trustable folder, silent otherwise), all passing,
+  with engine/agyhooks.test.js, engine/agytrust.test.js and engine/create.test.js.

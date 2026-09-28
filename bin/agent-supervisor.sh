@@ -811,7 +811,7 @@ if [ -z "$adopt" ]; then
     #   - agystatus.lastKnown() has signedIn true.
     # Sent as the new pane (its id from new-session). Of the pane's own env list, only the KOSMOS_*,
     # AGENT_WORKFORCE_* and HOME entries are added (the launch token, port, world and store root the bridge reads).
-    # `auto`, so it never erases a deliberate blocked. Best-effort and bounded by the bridge's own timeout.
+    # `auto`, so it never erases a deliberate blocked. Best-effort: `|| true`, and its output goes nowhere.
     if [ -n "${NODE_BIN:-}" ] && [ -f "${_AGY_BRIDGE:-}" ] && [ "$_AGY_HOOKED" = hooked ] && [ "$_AGY_TRUSTED" = trusted ] && [ -n "$_AGY_PANE" ]; then
       _AGY_SIGNED="$("$NODE_BIN" -e 'try { const r = require(process.argv[1] + "/agystatus").lastKnown(); if (r && r.signedIn === true) process.stdout.write("signed-in"); } catch (e) { /* unknown is not signed in */ }' "$_eng" 2>/dev/null || true)"
       if [ "$_AGY_SIGNED" = signed-in ]; then
