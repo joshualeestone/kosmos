@@ -39,6 +39,13 @@ test('#4418: an unread agent message is NOT marked, so no gold edge is drawn any
   assert.deepEqual(run(false), []);
 });
 
+test('#4418: unreadEdgeApply is the ONLY thing that marks a message data-unread, so off there is off everywhere', () => {
+  const setters = SCRIPT.match(/setAttribute\('data-unread'/g) || [];
+  assert.equal(setters.length, 1, 'exactly one place marks a message unread');
+  assert.match(page.lift(SCRIPT, 'unreadEdgeApply'), /setAttribute\('data-unread'/, 'and it is inside unreadEdgeApply, behind the switch');
+  assert.doesNotMatch(SCRIPT, /toggleAttribute\('data-unread'|dataset\.unread\s*=/, 'no other spelling marks it either');
+});
+
 test('#4418 CONTROL: with the switch on, the same unread message would be marked', () => {
   assert.deepEqual(run(true), ['m2']);
 });
