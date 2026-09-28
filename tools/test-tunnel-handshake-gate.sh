@@ -207,12 +207,21 @@ run "an earlier gate's connector still running -> CANNOT TELL"       2 "gate's i
 # this gate; the case above is its control.
 standin "$W/elsewhere/tunnel-gate.Stale2/a1/state"
 run "an earlier gate's connector under another temp root does not hold -> PASS" 0 "tunnel-gate: PASS" "up" "up"; unstand
-# kosmos#4352: a connector that has exited by the time the gate reads its command line holds
-# nothing. Played by a `ps` that prints nothing (pgrep still finds the stand-in); the first case
-# above, with the real ps, is its control.
-mkdir -p "$W/psbin"; printf '#!/bin/sh\nexit 1\n' > "$W/psbin/ps"; chmod +x "$W/psbin/ps"
+# kosmos#4352: the same under another root, but with state that NAMES this identity: it is seen
+# wherever it lives (a gate run under another TMPDIR spelling must not hide a real leftover).
+mkidentity "$W/elsewhere/tunnel-gate.Mine1/a1/state"
+standin "$W/elsewhere/tunnel-gate.Mine1/a1/state"
+run "a leftover under another temp root that names this identity -> CANNOT TELL" 2 "gate's identity is still running" "up" "up"; unstand
+# kosmos#4352: a pid that has really EXITED by the time the gate looks holds nothing. Played by a
+# pgrep that reports a dead pid (both scans); the first stand-in row above is its control.
+sleep 0 & DEAD=$!; wait "$DEAD"
+mkdir -p "$W/pgbin"; printf '%s\n' '#!/bin/sh' "echo $DEAD" > "$W/pgbin/pgrep"; chmod +x "$W/pgbin/pgrep"
+PATH="$W/pgbin:$PATH" run "a connector that has already exited -> PASS" 0 "tunnel-gate: PASS" "up" "up"
+# ...but a LIVE one whose command line cannot be read still counts (fail closed). Played by a ps
+# that prints nothing while the stand-in runs.
+mkdir -p "$W/psbin"; printf '%s\n' '#!/bin/sh' 'exit 1' > "$W/psbin/ps"; chmod +x "$W/psbin/ps"
 standin "$GT/tunnel-gate.Stale3/a1/state"
-PATH="$W/psbin:$PATH" run "a connector that exited before its command line was read -> PASS" 0 "tunnel-gate: PASS" "up" "up"; unstand
+PATH="$W/psbin:$PATH" run "a live connector whose command line cannot be read -> CANNOT TELL" 2 "gate's identity is still running" "up" "up"; unstand
 standin "$W/state"
 run "a hand-started connector on the gate's state -> CANNOT TELL"    2 "gate's identity is still running"   "up" "up"; unstand
 standin "$W/state" " --state-dir="
@@ -284,5 +293,5 @@ if [ "$left" = 0 ]; then pass=$((pass + 1)); echo "  ok    no connector left run
 else fail=$((fail + 1)); echo "  FAIL  $left stub connector(s) left running"; pkill -f "kosmos-gate-stub-$TAG"; fi
 
 echo "test-tunnel-handshake-gate: $pass passed, $fail failed"
-# 55 = every row above; equal to the count so a dropped row cannot pass.
-[ "$fail" -eq 0 ] && [ "$pass" -eq 55 ]
+# 57 = every row above; equal to the count so a dropped row cannot pass.
+[ "$fail" -eq 0 ] && [ "$pass" -eq 57 ]

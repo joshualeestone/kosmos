@@ -12,20 +12,22 @@ Two copies of tools/test-tunnel-handshake-gate.sh run at once: one went 51/2, bo
 
 ## Fix
 - Test: a per-run gate address from the run's own temp dir, and every gate it starts gets the
-  run's own TMPDIR ($W/tmp); the stand-ins live under it. Row pin 53 -> 55.
-- Gate: only connectors under THIS gate's temp root (${TMPDIR:-/tmp}/tunnel-gate.*, trailing
-  slashes tolerated) are considered earlier gates' leftovers; a pid whose command line is gone by
-  the time ps reads it is skipped. The "unreadable state still counts" rule is unchanged.
-- New rows: a stand-in under another temp root does not hold (PASS); a connector that exited
-  before its command line was read does not hold (PASS, via a ps shim). Each is red under its
-  own mutant.
+  run's own TMPDIR ($W/tmp); the stand-ins live under it. Row pin 53 -> 57.
+- Gate, earlier-gate leftovers (tunnel-gate.* copies):
+  - one whose copied state NAMES this identity counts wherever it lives (any temp root);
+  - one whose state cannot be read counts only under THIS gate's temp root
+    (${TMPDIR:-/tmp}, trailing slashes tolerated), so one run's stand-in never holds another's;
+  - a pid is skipped only when kill -0 says it is gone (both scans); a live pid whose command
+    line cannot be read counts (fail closed), with a second kill -0 for the exit-between-reads race.
+- New rows, each red under its own mutant: a foreign-root unreadable stand-in does not hold; a
+  foreign-root stand-in naming this identity does; a really exited pid (pgrep shim) does not; a
+  live pid with no readable command line (ps shim) does.
 
 ## Rejected
 - My first proposal on the card (skip a connector whose state dir no longer exists): it
   contradicted the existing SIGKILLed-gate row and was not the mechanism measured.
 
 ## Weakest premise
-- That a SIGKILLed gate's leftover connector always sits under the same TMPDIR as the next
-  gate. True for one user running the gate from one environment; a gate run under a different
-  TMPDIR (another shell, sudo) would not see it. The lock on the state dir still stops two gates
-  on the same identity at once.
+- A leftover from a gate that ran under ANOTHER temp root AND whose copied state can no longer be
+  read (its dir removed) is not seen. Stated in the gate's NOT COVERED header. One whose state
+  still names this identity IS seen; review round 1 caught that my first version scoped those too.
