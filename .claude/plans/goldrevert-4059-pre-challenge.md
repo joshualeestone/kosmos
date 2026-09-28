@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: goldrevert-4059
-diff_hash: f79bc8200cf919c7a01b015ef920ddf9a360899975fd71057b9a6711d7386aaa
+diff_hash: 6775b4c61332dd9428b6b4d2caaf076f98c20bdfd31d709838ba877c175fe575
 validation: running at PR time (full suite on cf5a7f2, 0 failures so far); CI's full suite gates the merge
 subdir_audit: pending with the same run
 timestamp: 2026-09-28T19:54:57Z
@@ -42,6 +42,11 @@ merge.
 **Reviewer model:** sonnet
 **New findings:** none
 **Converged** - no new actionable findings.
+
+### After the PR opened
+- Rebased onto main (a README conflict with #4418's row; resolved by keeping main's row and dropping the gold one).
+- CI: render-dm-tapreact-718 red at phone size. Bisected to daffe26d (#4387, mine): main has been red on it since.
+  Fixed here (the tap on your own message lands where it can be seen); ALL PASS on the rebased branch.
 
 ### Final Ledger
 
