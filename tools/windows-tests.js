@@ -85,9 +85,7 @@ const KNOWN_RED = {
 // or fail, and neither is judged. Each names its card. Keep this short; a test here is not run
 // in any sense that counts.
 const FLAKY = {
-  'engine/win32handoff.test.js': { card: '#4278', tests: [
-    '\u{1F6D1} win32-installer-native round 6 finding 1: the launcher\'s hand-off probe is unchanged: one 2 s limit for the connect and the answer (#2983)',
-  ] },
+  // Empty since #4278 made win32handoff's hand-off arm deterministic (a simulated late refusal).
 };
 
 const PER_TEST_TIMEOUT_MS = 60000;

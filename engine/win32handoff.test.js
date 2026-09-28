@@ -684,7 +684,7 @@ test('🛑 win32-installer-native round 6 finding 1: a look right after a board 
   assert.equal(after.outcome, PROBE_OUTCOMES.REFUSED, 'the look after the board went away: ' + JSON.stringify(after));
 });
 
-test('🛑 win32-installer-native round 6 finding 1: the launcher\'s hand-off probe is unchanged: one 2 s limit for the connect and the answer (#2983)', async (t) => {
+test('🛑 win32-installer-native round 6 finding 1: the launcher\'s hand-off probe is unchanged: one 2 s limit for the connect and the answer (#2983)', async () => {
   const source = fs.readFileSync(nodePath.join(__dirname, 'win32handoff.js'), 'utf8');
   assert.match(source, /const probe = o\.probe \|\| probeBoard;/, 'the hand-off no longer probes with probeBoard and no options');
 
@@ -706,27 +706,47 @@ test('🛑 win32-installer-native round 6 finding 1: the launcher\'s hand-off pr
     await new Promise((resolve) => hung.close(resolve));
   }
 
-  /* On this PC's own non-loopback address a closed port is refused only after about 2 s: the hand-off still
-     reads that as timed-out at 2 s, exactly as before, while the every-address look waits for the refusal. */
-  if (process.platform !== 'win32') { t.diagnostic('ARM NOT RUN: the slow refusal on a PC\'s own addresses was measured on Windows'); return; }
-  const own = Object.values(os.networkInterfaces()).flat().filter((i) => i && !i.internal && i.family === 'IPv4').map((i) => i.address);
-  for (const address of own) {
-    const listener = net.createServer();
-    const listening = await new Promise((resolve) => { listener.once('error', () => resolve(false)); listener.listen(0, address, () => resolve(true)); });
-    if (!listening) continue;
-    const port = listener.address().port;
-    await new Promise((resolve) => listener.close(resolve));
-    const limited = await probeBoardOnEveryAddress(port, { KOSMOS_BIND_HOST: address });
+  /* A connect that is still pending when the limit is reached, and is refused only later. On Windows a PC's own
+     address refuses a closed port after about 2 s, and that is how this was first seen; but a real network
+     refused at 2005 ms on one runner in six (#4278), racing the limit. So the connect is simulated here: a
+     socket whose name lookup never answers stays connecting, and is refused at REFUSED_AT_MS, well after the
+     2 s limit and well before the every-address look's 5 s connect limit. The OUTCOMES are the contract:
+     the hand-off, with one limit for the connect and the answer, gives up (timed-out) without waiting for the
+     refusal, and the every-address look, whose connect gets its own limit, waits and reads it (refused). */
+  const REFUSED_AT_MS = 3500;
+  const pending = new Set();
+  const stalledThenRefused = () => {
+    const socket = net.createConnection({ host: 'kosmos-4278-stalled.invalid', port: 9, lookup: () => {} });
+    const timer = setTimeout(() => socket.destroy(Object.assign(new Error('connect ECONNREFUSED (simulated)'), { code: 'ECONNREFUSED' })), REFUSED_AT_MS);
+    pending.add({ socket, timer });
+    return socket;
+  };
+  const agent = http.globalAgent;
+  const realCreateConnection = agent.createConnection;
+  try {
+    agent.createConnection = stalledThenRefused;
     const startedAt = Date.now();
-    const handoffLook = await probeBoard(port, address);
+    const handoffLook = await probeBoard(9);
     const tookMs = Date.now() - startedAt;
-    if (handoffLook.outcome === PROBE_OUTCOMES.REFUSED && tookMs < 1000) { t.diagnostic(address + ' refuses at once here, so it cannot show the difference'); continue; }
-    assert.equal(handoffLook.outcome, PROBE_OUTCOMES.TIMED_OUT, address + ': the hand-off look changed: ' + JSON.stringify(handoffLook) + ' in ' + tookMs + ' ms');
-    assert.ok(tookMs < 2600, address + ': the hand-off look took ' + tookMs + ' ms');
-    assert.equal(limited.outcome, PROBE_OUTCOMES.REFUSED, address + ': the every-address look did not wait for the slow refusal');
-    return;
+    agent.createConnection = realCreateConnection;
+    assert.equal(pending.size, 1, 'the hand-off look did not use the stalled socket, so this proves nothing');
+    assert.equal(handoffLook.outcome, PROBE_OUTCOMES.TIMED_OUT, 'the hand-off look waited for the refusal instead of its one 2 s limit: ' + JSON.stringify(handoffLook) + ' in ' + tookMs + ' ms');
+    /* The outcome is the contract: a look settles once, so timed-out means the limit fired before the refusal.
+       The LOWER bound says it waited its ~2 s limit rather than failing at once. The upper bound is only a
+       hang-guard, as above, well clear of a loaded runner. */
+    assert.ok(tookMs >= 1900 && tookMs < 8000, 'the hand-off look took ' + tookMs + ' ms, not its 2 s');
+
+    const withTheStalledSocket = (port, host, options) => probeBoard(port, host, { ...options, createConnection: stalledThenRefused });
+    const limitedStartedAt = Date.now();
+    const limited = await probeBoardOnEveryAddress(9, {}, withTheStalledSocket);
+    const limitedMs = Date.now() - limitedStartedAt;
+    assert.ok(pending.size > 1, 'the every-address look did not use the stalled socket, so a real, instant refusal could pass here');
+    assert.equal(limited.outcome, PROBE_OUTCOMES.REFUSED, 'the every-address look did not wait for the late refusal: ' + JSON.stringify(limited));
+    assert.ok(limitedMs >= REFUSED_AT_MS - 100, 'the every-address look answered in ' + limitedMs + ' ms, before the refusal it should wait for');
+  } finally {
+    agent.createConnection = realCreateConnection;
+    for (const { socket, timer } of pending) { clearTimeout(timer); socket.destroy(); }
   }
-  t.diagnostic('ARM NOT RUN: no IPv4 address of this PC refuses slowly');
 });
 
 /* ---- the round 7 review, fixed in round 8 ------------------------------------ */
