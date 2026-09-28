@@ -23,6 +23,43 @@ set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 
+# #4317: CI runs the two halves as separate parallel jobs. KOSMOS_TEST_PART picks one:
+#   all   (the default, and what `yarn test` runs): the node suite, then test:shell, as before;
+#   node  the node suite only;
+#   shell test:shell only, or with KOSMOS_SHELL_SHARD=i/n just shard i of n (tools/shell-shard.js).
+# Every part keeps every guard below (coverage, launchd, temp root, leaks, the browser-check gates).
+# A value it does not know refuses HERE, first, before the machine claim, the temp root or any test,
+# rather than running a subset silently. tools.shell-shard-4317.test.js runs each refusal.
+KOSMOS_TEST_PART="${KOSMOS_TEST_PART:-all}"
+case "$KOSMOS_TEST_PART" in
+  all|node|shell) ;;
+  *) echo "run-tests: KOSMOS_TEST_PART must be all, node or shell (got '$KOSMOS_TEST_PART')" >&2; exit 2 ;;
+esac
+# A part other than all runs only some of the suite, so it is honoured only where it is meant: in
+# CI (GITHUB_ACTIONS=true), or locally with KOSMOS_TEST_PART_LOCAL=1 said on purpose. A value merely
+# inherited from a shell would otherwise narrow a release cut's or a validation's `yarn test` to a
+# part and let it pass. And a part always says so, on stderr, so a log shows what ran.
+if [ "$KOSMOS_TEST_PART" != all ]; then
+  if [ "${GITHUB_ACTIONS:-}" != true ] && [ "${KOSMOS_TEST_PART_LOCAL:-}" != 1 ]; then
+    echo "run-tests: KOSMOS_TEST_PART=$KOSMOS_TEST_PART runs only part of the suite; outside CI, set KOSMOS_TEST_PART_LOCAL=1 to mean it (unset KOSMOS_TEST_PART for the whole suite)" >&2
+    exit 2
+  fi
+  echo "run-tests: running ONLY the $KOSMOS_TEST_PART part of the suite${KOSMOS_SHELL_SHARD:+ (shard $KOSMOS_SHELL_SHARD)} (#4317); the other part runs in its own job" >&2
+fi
+# Extra arguments go to node --test, so a shell-only run has nowhere to put them: refuse them.
+if [ "$KOSMOS_TEST_PART" = shell ] && [ "$#" -gt 0 ]; then
+  echo "run-tests: KOSMOS_TEST_PART=shell runs no node tests, so it takes no node --test arguments (got: $*)" >&2
+  exit 2
+fi
+# A shard is only ever part of a shell-only run, and only in the form i/n. Anything else refuses:
+# a stray value would otherwise turn `yarn test` into the node suite plus one shard, green.
+if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
+  if [ "$KOSMOS_TEST_PART" != shell ] || ! printf '%s' "$KOSMOS_SHELL_SHARD" | grep -Eq '^[0-9]+/[0-9]+$'; then
+    echo "run-tests: KOSMOS_SHELL_SHARD must be i/n and only with KOSMOS_TEST_PART=shell (got part '$KOSMOS_TEST_PART', shard '$KOSMOS_SHELL_SHARD')" >&2
+    exit 2
+  fi
+fi
+
 # #2858: strip the ambient Codex-home vars ONCE here, at the single runner every
 # `yarn test` (and the canonical validation / pre-challenge gate) routes through,
 # so the whole suite -- node AND `yarn test:shell`, every test including ones not
@@ -282,10 +319,21 @@ fi
 # #3605: --require preloads a guard into EVERY file's process (node forwards it) that
 # makes any fs write into the real ~/Library/LaunchAgents throw, so an unsandboxed test
 # fails on its own line instead of leaking a job file launchd loads at the next login.
+#
+# #4317: which part runs is decided (and a bad value refused) at the top of this file.
+# ⚠️ The node --test line stays FLUSH LEFT: three guards find the suite by `^node --test`
+# (#1934's count-and-run pin, #3605's preload pin, #4273's guard-after-suite order).
+NODE_STATUS=0
+if [ "$KOSMOS_TEST_PART" != shell ]; then
 node --test --require "$REPO/test-support/launch-guard.js" --require "$REPO/test-support/tool-guard.js" "${KOSMOS_TEST_FILES[@]}" "$@"
 NODE_STATUS=$?
-if [ "$NODE_STATUS" -eq 0 ]; then
-  yarn -s test:shell
+fi
+if [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ]; then
+  if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
+    node "$REPO/tools/shell-shard.js" run "${KOSMOS_SHELL_SHARD%/*}" "${KOSMOS_SHELL_SHARD#*/}"
+  else
+    yarn -s test:shell
+  fi
   NODE_STATUS=$?
 fi
 # --- #3011: refuse if the suite created or modified a real com.kosmos.agent.* plist -

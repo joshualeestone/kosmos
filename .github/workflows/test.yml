@@ -78,7 +78,27 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  test:
+  # #4317: the suite runs as parallel jobs, so no one job sits near its limit. On main the one job
+  # took 24-28 min (the node part 517 s and test:shell 1,021 s when timed apart on this runner,
+  # probe run 36412608975). Now: the node suite in one job, and test:shell split by
+  # tools/shell-shard.js into SHELL_SHARDS jobs (every command in exactly one shard;
+  # tools.shell-shard-4317.test.js proves the union is the full list and pins this matrix to it).
+  # The `test` job below needs them all and is the one check named `test`, as before.
+  # The cost: a run now holds three macos-latest runners instead of one (the #3499 contention was
+  # about exactly those runners). Queue time is not part of timeout-minutes, so it cannot cancel a
+  # job; it can only delay the result.
+  suite:
+    name: suite (${{ matrix.part }}${{ matrix.shard && format(' {0}', matrix.shard) || '' }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: node
+            shard: ''
+          - part: shell
+            shard: '1/2'
+          - part: shell
+            shard: '2/2'
     # 🛑 macOS, NOT ubuntu. This is a macOS app's suite and it is not portable to
     # Linux: measured on ubuntu-latest, ~40 tests fail on platform assumptions the
     # product legitimately makes -- `/tmp` is a symlink on macOS but not on Linux,
@@ -93,11 +113,20 @@ jobs:
     # past the old "~2-3 min"), so 15 left almost no margin -- a single slow run could
     # cross it and be CANCELLED (read as `fail`). 30 gives a single run real headroom
     # while still catching a genuine hang at ~2x the runtime.
-    # #4317 (2026-09-28): the job now runs 20-23.5 min on main (the last five green runs), so 30
-    # left ~6 min for everyone and #4307 was CANCELLED at the limit. 45 is ~2x the runtime again.
-    # Sharding the job (with a warning at 70% of this) is the follow-up on #4317.
+    # #4317 (2026-09-28): before sharding, the one job's suite step ran 24 to 28 min on main (runs
+    # 36395139895, 36397645580, 36399854828), so 30 left too little
+    # and #4307 was CANCELLED at the limit; the limit went to 45 (#4322).
+    # #4317, sharded: each job ran about 5 to 12 min in the measured runs (see the plan); 45 keeps it well under 60% and still catches a
+    # hang. SUITE_TIMEOUT_MIN is the same number, for the 70% warning at the end of the job;
+    # tools.shell-shard-4317.test.js pins the two equal.
     timeout-minutes: 45
+    env:
+      SUITE_TIMEOUT_MIN: 45
     steps:
+      # #4317: the clock for the 70% warning starts at the job's first step. "Set up job" (the runner
+      # and action downloads, a few seconds) counts toward timeout-minutes but not toward this.
+      - name: start the clock
+        run: echo "SUITE_T0=$(date +%s)" >> "$GITHUB_ENV"
       # #1794: fetch-depth 0 (full history). checkout@v4 shallow-clones by
       # default; #1025's "a range is reduced to its base" resolves a git range,
       # which needs the history a depth-1 clone truncates. The other #1025 arms
@@ -141,12 +170,52 @@ jobs:
           echo "image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
       # No install step, but NOT dependency-free: this repo declares zero package
       # dependencies (empty deps/devDeps, no lockfile), so `yarn install` would
-      # install nothing and only add a way to fail. run-tests.sh does two things:
-      # `node --test engine/*.test.js *.test.js` (the JS suite) and then, on a green
-      # node run, `yarn -s test:shell` (dozens of tools/test-*.sh). So the runner's
-      # preinstalled `yarn` and `bash` ARE required at runtime; both ship on
-      # ubuntu-latest. Verified green on this recipe on node 22 AND node 26 (both
-      # arms of run-tests.sh, exit 0). If GitHub ever drops yarn from the image the
-      # suite would exit 127 and red here honestly, which is the correct direction.
-      - name: the suite (node --test + yarn test:shell, gated on the exit code)
+      # install nothing and only add a way to fail. #4317: each job runs ONE part of
+      # run-tests.sh. The node job runs `node --test engine/*.test.js *.test.js`; a shell
+      # shard runs its share of test:shell's tools/test-*.sh through tools/shell-shard.js
+      # (sh -c each). No CI job calls yarn now (`yarn test` still does, locally, running
+      # both parts). So the runner's `node`, `bash` and `sh` are what the suite needs here;
+      # a missing one exits 127 and reds here honestly, which is the correct direction.
+      # #4317: this job's part of it (KOSMOS_TEST_PART, and KOSMOS_SHELL_SHARD for a shell shard).
+      - name: this job's part of the suite (run-tests.sh, gated on the exit code)
+        env:
+          KOSMOS_TEST_PART: ${{ matrix.part }}
+          KOSMOS_SHELL_SHARD: ${{ matrix.shard }}
         run: bash tools/run-tests.sh
+      # #4317: say how close this job came to its limit, and WARN past 70%, so a job that is growing
+      # toward a cancel is seen on a green run, not discovered as a cancel that reads like a flake.
+      - name: how close to the limit
+        if: always()
+        run: |
+          # An unset clock fails the step: defaulting it to now would read 0% and hide the warning.
+          elapsed=$(( $(date +%s) - ${SUITE_T0:?the clock step did not run, so this job cannot say how close it came to its limit} ))
+          limit=$(( SUITE_TIMEOUT_MIN * 60 ))
+          pct=$(( elapsed * 100 / limit ))
+          name="${{ matrix.part }}${{ matrix.shard && format(' {0}', matrix.shard) || '' }}"
+          line="suite ($name): $((elapsed / 60))m $((elapsed % 60))s of ${SUITE_TIMEOUT_MIN} min (${pct}%)"
+          echo "$line"
+          if [ "$pct" -ge 70 ]; then
+            if [ "${{ matrix.part }}" = shell ]; then fix="raise SHELL_SHARDS in tools/shell-shard.js and add the shard to this matrix"; else fix="split the node files too (run-tests.sh runs them all in this job)"; fi
+            echo "::warning title=suite near its limit (#4317)::$line. Past 70% of timeout-minutes: $fix before it is cancelled."
+            echo "⚠️ $line: past 70% of the limit; $fix (#4317)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "$line" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # #4317: the one check named `test`, as it always was: green only when every suite job is green.
+  # !cancelled(), not always(): a failed shard still gives a red `test`. A superseded run shows its
+  # suite jobs as cancelled and `test` as SKIPPED. No check is required on this repo today (see the
+  # top of this file); if `test` is ever made required, note that GitHub counts a skipped job as
+  # passing.
+  # It runs no tests, only reads needs.suite.result, so it is on ubuntu-latest on purpose: the
+  # macOS rule above is for the suite, and a fourth macOS runner per run would be waste.
+  test:
+    needs: suite
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: every suite job passed
+        run: |
+          echo "suite: ${{ needs.suite.result }}"
+          [ "${{ needs.suite.result }}" = success ]
