@@ -93,6 +93,7 @@ test('#4417: a launched, hooked, trusted, signed-in agy agent sends one idle, as
   assert.equal(body.state, 'idle');
   assert.equal(body.auto, true);
   assert.equal(body.from_pane, '%91', 'the report is not sent as the pane new-session printed');
+  assert.ok(/^[0-9a-f]+$/.test(String(out.reports[0].token || '')), 'the launch token the supervisor minted did not reach the board, so an enforcing board refuses the seed');
   assert.match(out.reports[0].callsBefore, new RegExp('^set-option -t ' + out.session + ' @kosmos_agent ' + out.session + '$', 'm'),
     'the report arrived before the session was claimed, so a real board could not tie it to the agent');
   assert.match(out.reports[0].callsBefore, /^set-option -t \S+ @kosmos_runner antigravity$/m, 'the report arrived before the runner was recorded');
@@ -123,7 +124,10 @@ test('#4417: a folder where no hook could be written (inside a git project) send
 test('#4417: the adopt path sends nothing, even with every gate value set in the inherited environment', async () => {
   const out = await run('adopt', {
     signedIn: true, adopt: true,
-    extraEnv: { _AGY_HOOKED: 'hooked', _AGY_TRUSTED: 'trusted', _AGY_PANE: '%7', _AGY_BRIDGE: nodePath.join(__dirname, 'bin', 'agy-report-bridge.js') },
+    /* NODE_BIN and _eng too (review 9): the adopt path never sets them, so without them the gate fails on NODE_BIN
+       first and this case could not see whether the reset of the other four holds. */
+    extraEnv: { _AGY_HOOKED: 'hooked', _AGY_TRUSTED: 'trusted', _AGY_PANE: '%7', _AGY_BRIDGE: nodePath.join(__dirname, 'bin', 'agy-report-bridge.js'),
+      NODE_BIN: process.execPath, _eng: nodePath.join(__dirname, 'engine') },
   });
   assert.doesNotMatch(out.calls, /^new-session /m, 'control: the adopt path launched a new pane, so this case shows nothing');
   assert.match(out.calls, /^set-option -t \S+ @kosmos_agent /m, 'control: the adopt path still claims the session');
