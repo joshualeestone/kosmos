@@ -158,6 +158,13 @@ if (args[0] === 'signin') {
     // can assert it landed via stdin and is absent from the recorded argv.
     const token = fs.readFileSync(0, 'utf8').trim();
     if (!token) { process.stderr.write('no session token on stdin\\n'); process.exit(1); }
+    // A register that takes its time and keeps this Mac's identity and certificate, writing
+    // nothing (#4277: a restart timer fires inside it, and no new id stops the tunnel after it).
+    if (mode.includes('slow-signin')) {
+      const until = Date.now() + Number(process.env.FAKE_REGISTER_MS || 2500); while (Date.now() < until) { /* wait */ }
+      console.log(JSON.stringify({ stage: 'registered', mac_id: 'fake', name: flag('--name'), address: flag('--name') + '.kosmos.invalid', standing: 'good', kept_certificate: true }));
+      process.exit(0);
+    }
     const name = flag('--name');
     if (name === 'taken') { process.stderr.write('the coordinator said no (409): a Mac on this account already has that name\\n'); process.exit(1); }
     // The coordinator's own sentences, as the tunnel prints them (setup.rs: "Kosmos+ said no (<code>): <words>").
@@ -613,7 +620,7 @@ test('#4277: a restart timer firing into an unwanted board counts nothing, and a
   const crt = nodePath.join(remote.stateDir(), 'tls.crt');
   const saved = fs.readFileSync(crt);
   fs.rmSync(crt);
-  await new Promise((r) => setTimeout(r, 2500));   // past the 1 s first backoff
+  await until(() => remote.supervisorState() === 'none', 'the restart timer to fire into the unwanted board');
   assert.equal(remote.restartCount(), before, 'a timer firing into an unwanted board counted a relaunch');
   // The person puts it right and the board starts the tunnel: not a supervisor relaunch.
   delete process.env.FAKE_TUNNEL_MODE;
@@ -653,6 +660,30 @@ test('#4277: a restart timer firing during a register does not count the registe
     assert.equal(r.ok, true, r.because);
     await until(() => remote.status().state === 'up', 'the register to bring the tunnel up');
     assert.equal(remote.restartCount(), before, 'the register\'s own start was counted as a supervisor relaunch');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.FAKE_REGISTER_MS; remote.resetForTests(); }
+});
+
+test('#4277: the same, through the in-app sign-in register when it keeps this Mac\'s identity', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9448';
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  process.env.FAKE_TUNNEL_MODE = 'crash';
+  await remote.setupComplete('123456', 'hers');
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  remote.ensure(4340);
+  await until(() => remote.status().state === 'restarting', 'the crash to schedule a restart');
+  process.env.FAKE_TUNNEL_MODE = 'slow-signin';
+  process.env.FAKE_REGISTER_MS = '3000';
+  const before = remote.restartCount();
+  try {
+    const racing = remote.signinRegister('kept');
+    await until(() => remote.supervisorState() === 'none', 'the restart timer to fire while the register is out');
+    assert.equal(remote.currentChildPid(), null, 'fixture: ensure() started a tunnel while the register was out');
+    const r = await racing;
+    assert.equal(r.ok, true, r.because);
+    await until(() => remote.status().state === 'up', 'the register to bring the tunnel up');
+    assert.equal(remote.restartCount(), before, 'the sign-in register\'s own start was counted as a supervisor relaunch');
   } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.FAKE_REGISTER_MS; remote.resetForTests(); }
 });
 

@@ -21,13 +21,22 @@ Rejected:
 ## Evidence
 - `node --test engine/remote-report.test.js`: 12 of 12 (with real tunnel sentences: relay dial, TLS, 5xx vs 4xx): codes for every known failure kind, unknown text reads `other`, a 100k-character line classifies in under 200 ms, not-enrolled names the missing files, heal semantics.
 - `engine/mac-standing.test.js`: 17 of 17, including a 20-minute clock step back that still sends and a repeated failure logged once (mutants on both fail), including the not-enrolled report (missing files named, no email), the test-runner guard (spied, with a control), the heal commit at BOTH call sites, the in-flight guard, and key-only signing needing the key on disk and refusing every other route.
-- `engine/remote.test.js`: 105 of 105, including four #4277 tests: a killed tunnel relaunched and counted; a restart timer firing into an unwanted board counts nothing; a restart timer firing during a register does not count the register's start; the report's enrolment list equals enrolled()'s. Mutants on the counting rules and the list each fail one.
+- `engine/remote.test.js`: 106 of 106, including five #4277 tests: a killed tunnel relaunched and counted; a restart timer firing into an unwanted board counts nothing; a restart timer firing during a register does not count the register's start, through setup and through the in-app sign-in; the report's enrolment list equals enrolled()'s. Mutants on the counting rules and the list each fail one.
 
 ## Deferred (review 2)
 - A register does not wait for an in-flight key-only report (only Forget waits on signedInFlight), so clearHalfIdentity can race one. The class is pre-existing for enrolled renames, and the worst outcome is a stray file or a 401.
 
 ## Accepted (review 5)
 - The coordinator bounds `error` but does not restrict it to known codes, so its privacy rests on the board's classify() discipline. The board sends only fixed tokens or fixed file names.
+
+## Review 14
+- switch-off, settings-unreadable and no-relay-address removed from CODES: nothing is sent while the switch is off or the settings are unreadable (fetchStanding returns first; the not-enrolled report needs `ok && on`), and RELAY() always has a default. `tunnel: off` stays in the vocabulary the coordinator accepts but is not sent today.
+- New code coordinator-bad-answer for coordinator.rs's `the Kosmos+ answer is not JSON` / `has no ticket field` / `reading the Kosmos+ answer` (a captive portal or proxy on the ticket path), which read `other`.
+- signinRegister's register-start clear is pinned by its own test, with a fake register that keeps the Mac's identity (the ordinary fake mints a new id, whose stopChild would hide the line); removing the line fails it.
+- The unwanted-board test waits until the restart timer has fired (supervisorState `none`), not a fixed 2.5 s.
+- The not-enrolled test's failure message names kosmos-relay macremote.rs says_not_enrolled(), which matches that prefix.
+- **Ship order, decided:** the kosmos-relay reportonly-4277 PR merges and Kitty deploys it BEFORE this PR merges; stated as a hard gate in this PR's body and on the card. I merge both and own the Mac cut. Rejected: a mechanical gate (a coordinator capability signal the board waits for): a new protocol field for a window that ends at one deploy. Weakest premise: that the order is kept by the person merging; the cost if not is half-enrolled Macs reading as seen until the deploy.
+- **Deferred, a follow-up:** a board whose settings file is corrupt sends nothing at all, so that way of going dark is invisible from our side. Reporting it needs a send path while `on` is unknown; separate card.
 
 ## Review 13
 - settings-unreadable, no-relay-address and cert-renewal now each have a verbatim test sentence (remote.js status() and session.rs).
@@ -39,7 +48,7 @@ Rejected:
 - `tunnel` no longer reads `crashed` for the tunnel's own in-process reconnects (graceful close, renewal): `restarting` is `crashed` only when the supervisor's process is not up, else `starting`. A board ON but not enrolled reads `stopped`, not `starting`, since it will never start.
 - The register's start is uncounted by clearing restartPending at the register's own success, not in ensure(): a register that fails leaves the pending relaunch for the next tick, which counts it.
 - binary-missing matches only status()'s spawn sentence (`could not be started`); the dead ENOENT/EACCES/subcommand alternatives are gone.
-- Kept, not dead: switch-off (an enrolled board with the switch off still answers standing and reports), awaiting-sign-in (an enrolled board re-signing in).
+- Kept: awaiting-sign-in (an enrolled board re-signing in). (This line said switch-off was reachable too; it is not, corrected in review 14.)
 - The CODES order in this plan now follows the code.
 
 ## Review 11
@@ -68,8 +77,8 @@ Rejected:
 ## Deferred (review 7)
 - build() reads the settings once for `on`, and status() reads them again. Both are synchronous with no yield between, so they can only disagree if another process rewrites the file in that instant, and the cost is one report with a mismatched `on`.
 
-## Deferred (review 6)
-- `tunnel` reads `crashed` for a tunnel that is reconnecting in its own loop, and `starting` for a board that is permanently half-enrolled. The `error` code disambiguates both (`reconnecting`, `not-enrolled; missing: ...`), so the pair is right even where the one field alone reads loosely.
+## Deferred (review 6), since resolved
+- Resolved in review 12: an in-process reconnect reads `starting` while the supervisor's process is up, and a half-enrolled board reads `stopped`.
 
 ## Weakest premise
 A Mac whose key file is gone cannot report at all (nothing can sign for it). The coordinator's admin read shows how long ago each Mac was last seen next to its last report, so a Mac that stops reporting still stands out.

@@ -57,9 +57,8 @@ const CODES = [
   // "connecting to the relay" once read as relay-unreachable); remote-report.test.js asserts that
   // each healthy sentence matches `starting` alone, whatever the order here.
   ['starting', /^(starting the connection|connecting to the relay)$/i],
-  ['switch-off', /the switch is off/i],
-  ['settings-unreadable', /settings could not be read/i],
-  ['no-relay-address', /no relay address/i],
+  // No switch-off, settings-unreadable or no-relay-address: nothing is sent while the switch is
+  // off or the settings cannot be read, and RELAY() always has a default (review 14).
   ['status-unreadable', /status unreadable/i],
   // status() words every spawn failure as `the tunnel program could not be started: <why>` (review 12).
   ['binary-missing', /could not be started/i],
@@ -75,6 +74,9 @@ const CODES = [
   // so the 5xx form is taken first (review 9). These are the only coordinator patterns (review 11).
   ['coordinator-unreachable', /^Kosmos\+ (answered 5\d\d|unreachable)|^Kosmos\+ refused.*\bHTTP 5\d\d\b/i],
   ['coordinator-refused', /^Kosmos\+ (refused|answered 4\d\d)/i],
+  // An answer that is not what the coordinator sends (coordinator.rs: not JSON, no ticket field,
+  // unreadable): a captive portal or a proxy in the way, on the ticket path itself (review 14).
+  ['coordinator-bad-answer', /the Kosmos\+ answer/i],
   // The tunnel's dial of the RELAY (session.rs dial_relay): kept apart from the coordinator,
   // which is the whole question when a Mac never gets a ticket (review 6).
   // The tunnel's own dial error is `connecting to <host:port>: <why>` (a colon after the address).

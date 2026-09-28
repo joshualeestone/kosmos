@@ -68,10 +68,6 @@ test('the error is a CODE classified from status()\'s sentence; the sentence nev
 
 test('classify: each known failure kind gets its code, anything else is other, never the text', () => {
   const cases = [
-    ['the switch is off', 'switch-off'],
-    // remote.js status(), verbatim (review 13).
-    ['your remote-access settings could not be read', 'settings-unreadable'],
-    ['no relay address is set yet', 'no-relay-address'],
     // session.rs, verbatim shape: the tunnel reconnects to renew its certificate (review 13).
     ['certificate renewal is due (20 days left); reconnecting to renew', 'cert-renewal'],
     ['the tunnel program could not be started: spawn /x ENOENT', 'binary-missing'],
@@ -100,6 +96,10 @@ test('classify: each known failure kind gets its code, anything else is other, n
     ['unexpected Ping frame from the relay', 'relay-dropped'],
     ['Kosmos+ answered 503 for /v1/mac/relay-ticket: busy', 'coordinator-unreachable'],
     ['Kosmos+ answered 409 for /v1/mac/relay-ticket: taken', 'coordinator-refused'],
+    // coordinator.rs, verbatim: an answer that is not the coordinator's (review 14).
+    ['the Kosmos+ answer is not JSON: expected value at line 1 column 1', 'coordinator-bad-answer'],
+    ['the Kosmos+ answer has no ticket field', 'coordinator-bad-answer'],
+    ['reading the Kosmos+ answer: unexpected end of file', 'coordinator-bad-answer'],
     // A 5xx whose body parses as a refusal is still an outage (review 9).
     ['Kosmos+ refused this Mac: busy (HTTP 503 on /v1/mac/relay-ticket)', 'coordinator-unreachable'],
     ['status unreadable: ENOENT: no such file', 'status-unreadable'],
@@ -132,7 +132,10 @@ test('switch on, key held, not enrolled: the error names the missing enrolment f
   report.resetForTests();
   const dir = stateDir(['mac_id', 'mac_key']);
   const r = report.build({ remote: fakeRemote({ dir, state: 'connecting', because: 'waiting for the code sent to josh@stuff.io' }), env: {} });
-  assert.equal(r.error, 'not-enrolled; missing: address, tls.crt, tls.key');
+  // kosmos-relay coordinator/src/macremote.rs says_not_enrolled() matches this `not-enrolled` prefix
+  // so the Mac is not shown as seen: change both together.
+  assert.equal(r.error, 'not-enrolled; missing: address, tls.crt, tls.key',
+    'the not-enrolled wording changed: kosmos-relay macremote.rs says_not_enrolled() matches its prefix');
   assert.equal(r.tunnel, 'stopped', 'a board that is not enrolled will never start; it is not `starting`');
   assert.ok(!JSON.stringify(r).includes('@'), 'the email left the Mac');
 });
