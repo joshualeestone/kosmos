@@ -30594,10 +30594,6 @@ function renderAvatar(a) {
 }
 
 /**
- * Refresh the open agent's picture from the latest poll, keeping everything
- * else on the panel, including anything typed and not yet saved.
- */
-/**
  * #4421: the open agent's NAME follows every poll. CURRENT is the card as it was when the agent was opened, and a
  * dozen places read CURRENT.name: the "Direct Message to" title, every agent message's label, the "is working"
  * line, the send path, the Fresh start and restart sentences. After a rename (Josh, 2026-09-28: "Demis Hassabis -
@@ -30621,14 +30617,17 @@ function followRename(fresh) {
   const ini = document.getElementById('d-initials');
   if (ini) ini.textContent = initials(fresh.name);
   paintInstrLede(CURRENT);
+  paintDetailMeta(fresh);
+  /* CURRENT, not fresh: CURRENT now has the new name and still the open-time memory reading, which the ring and
+     badge beside the box also show. Only the name changes; the reading stays the one they agree on. */
   const mem = document.getElementById('d-memory');
-  if (mem) mem.innerHTML = memoryBox(fresh);
+  if (mem) mem.innerHTML = memoryBox(CURRENT);
   /* 🛑 THE RENAME BOX, and this one is not cosmetic: Save always sends its value as the name, so a box still
      holding the old name after a rename made elsewhere would quietly rename the agent BACK the next time somebody
      saved its role. Moved only while it still says the old name and nobody is typing in it; a name somebody is in
      the middle of typing is theirs. */
   const box = document.getElementById('d-rename');
-  if (box && box.value === (was || '') && document.activeElement !== box) box.value = fresh.name;
+  if (box && box.value === (was || '') && document.activeElement !== box) { box.value = fresh.name; box.dataset.shown = fresh.name; }
 }
 
 /* "What <name> is for", the Instructions lede: one sentence, painted at open and after a rename (#4421).
@@ -30642,10 +30641,43 @@ function paintInstrLede(a) {
     + 'and the only thing that survives a restart.';
 }
 
+/* The title line under the agent's name, and #684's "no name was chosen" note: painted at open and after a rename
+   (#4421: an agent given a name keeps the note no longer). */
+function paintDetailMeta(a) {
+  const roleSeg = roleLine(a, ROLE_TITLES);
+  /* #3385 (Josh, 2026-09-21): the header moved into the left column and simplified to identity
+     only -- name, then TITLE, then the status bubble. The #2833 subtitle (Title · Provider ·
+     Account · Model) is dropped here per Josh: "remove the provider account and model information
+     that we had on the other view just to simplify this page." So #d-meta now carries ONLY the
+     title, reading as the title line under the name. The model still shows in the AI Settings
+     section (drun; the model + memory fold) and the account in Settings, so nothing is lost, only
+     moved off this header. */
+  const metaBits = [];
+  if (roleSeg) metaBits.push(esc(roleSeg));
+  // #684 is KEPT: the machine-name disclosure still explains a name that is really the machine's,
+  // in the stranger's words -- only the #2833 provider/account/model segments are dropped (#3385).
+  if (!a.nameDerived) metaBits.push('<span class="dmeta-note">' + esc('no name was chosen for it, so this is the one it runs under') + '</span>');
+  // Join with '' not '<br>': .dmeta-note is display:block with its own margin-top, so a <br>
+  // before it stacked a redundant blank line when both the title and the #684 disclosure show.
+  // The block note already starts on its own line; the title alone or the note alone are single
+  // segments where the separator never renders.
+  const dmeta = document.getElementById('d-meta');
+  dmeta.innerHTML = metaBits.join('');
+  // Hide #d-meta when it has nothing (a role-less agent with a real name): .dnamerow is a
+  // flex column with gap:4px, so an empty-but-shown #d-meta would still take a slot and
+  // double the gap between the name and the status badge (#3385 iteration-9).
+  dmeta.hidden = metaBits.length === 0;
+}
+
+/**
+ * Refresh the open agent's picture from the latest poll, keeping everything
+ * else on the panel, including anything typed and not yet saved.
+ */
 function refreshAvatar() {
   if (!CURRENT) return;
   const a = LAST.find((x) => x.sessionName === CURRENT.sessionName);
   if (!a) return;
+  followRename(a);   // #4421: before CURRENT is replaced, or a rename it carries would never be painted
   CURRENT = a;
   renderAvatar(a);
 }
@@ -31575,12 +31607,13 @@ const TERM_DRAFTS = {};
  * ⚠️ THE RECORD HOLDS THE SESSION NAME — the log holds what the wire holds —
  * and every surface resolves it at the edge. `name` is the display name the
  * page already has for the agent whose box this is, so a reply from THEM reads
- * as them; anything else is a session name we have no card for here and is
- * shown as it is rather than guessed at.
+ * as them; anyone else is named by their current card (#4421: the internal id
+ * was shown even when a card named them), and by the session name only when
+ * there is no card at all, rather than guessed at.
  */
 function dmWho(from, name) {
   if (!CURRENT) return String(from);
-  return from === CURRENT.sessionName ? (name || CURRENT.name || String(from)) : String(from);
+  return from === CURRENT.sessionName ? (name || CURRENT.name || String(from)) : tskAgentName(from);   // #4421: others by their card
 }
 
 function dmRow(m, name, replyAdjacent) {
@@ -33200,29 +33233,7 @@ function openDetail(sessionName, section, fromProject) {
      agent with no role -- in which case #d-meta renders empty (see the metaBits build below).
      #3385 dropped the #1841 <b> title bolding along with the rest of the #2833 subtitle; the
      title is now plain text, so nothing wraps the role in markup. */
-  const roleSeg = roleLine(a, ROLE_TITLES);
-  /* #3385 (Josh, 2026-09-21): the header moved into the left column and simplified to identity
-     only -- name, then TITLE, then the status bubble. The #2833 subtitle (Title · Provider ·
-     Account · Model) is dropped here per Josh: "remove the provider account and model information
-     that we had on the other view just to simplify this page." So #d-meta now carries ONLY the
-     title, reading as the title line under the name. The model still shows in the AI Settings
-     section (drun; the model + memory fold) and the account in Settings, so nothing is lost, only
-     moved off this header. */
-  const metaBits = [];
-  if (roleSeg) metaBits.push(esc(roleSeg));
-  // #684 is KEPT: the machine-name disclosure still explains a name that is really the machine's,
-  // in the stranger's words -- only the #2833 provider/account/model segments are dropped (#3385).
-  if (!a.nameDerived) metaBits.push('<span class="dmeta-note">' + esc('no name was chosen for it, so this is the one it runs under') + '</span>');
-  // Join with '' not '<br>': .dmeta-note is display:block with its own margin-top, so a <br>
-  // before it stacked a redundant blank line when both the title and the #684 disclosure show.
-  // The block note already starts on its own line; the title alone or the note alone are single
-  // segments where the separator never renders.
-  const dmeta = document.getElementById('d-meta');
-  dmeta.innerHTML = metaBits.join('');
-  // Hide #d-meta when it has nothing (a role-less agent with a real name): .dnamerow is a
-  // flex column with gap:4px, so an empty-but-shown #d-meta would still take a slot and
-  // double the gap between the name and the status badge (#3385 iteration-9).
-  dmeta.hidden = metaBits.length === 0;
+  paintDetailMeta(a);
   paintDetailState(a);
   /* The lede names the AGENT rather than saying "this agent", which is the
      pack's wording and the same substitution the rest of this panel already
@@ -33411,6 +33422,7 @@ function openDetail(sessionName, section, fromProject) {
      over the instruction file); `a.sessionName` is where it lives, and is not
      what this field edits. */
   document.getElementById('d-rename').value = a.name || '';
+  document.getElementById('d-rename').dataset.shown = a.name || '';   // #4421: Save sends a name only if edited
   document.getElementById('d-initials').textContent = initials(a.name);
 
   renderAvatar(a);
@@ -39071,10 +39083,16 @@ document.getElementById('d-save').addEventListener('click', async () => {
   msg.textContent = 'Saving…';
   try {
     const renameTo = document.getElementById('d-rename').value.trim().slice(0, 80);
+    /* 🛑 #4421: A NAME IS SENT ONLY WHEN SOMEBODY EDITED THE BOX. Save used to send the box every time, so a box
+       still holding the old name (a rename made in another tab, before this page's poll caught up, or a throttled
+       background tab) renamed the agent BACK when somebody only changed its role. `shown` is what the box was last
+       filled with (openDetail, followRename); a box that still says that was not edited. */
+    const renameBox = document.getElementById('d-rename');
+    const nameEdited = !!renameTo && renameTo !== ((renameBox.dataset.shown || '').trim().slice(0, 80));
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/profile',
       { method: 'PUT', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ role: document.getElementById('d-role').value.trim(),
-                               displayName: renameTo,
+                               ...(nameEdited ? { displayName: renameTo } : {}),
                                /* Only when the field is showing. On a one-agent
                                   board it is hidden and empty, and sending an
                                   empty string CLEARS the record -- so an
@@ -39107,7 +39125,7 @@ document.getElementById('d-save').addEventListener('click', async () => {
     /* The route says what the file said before (`was`); the screen's name is
        the fallback for an older engine that does not. */
     const before = (ren && ren.changed && (ren.was || wasCalled) || '').trim();
-    const renamedFrom = before && renameTo && before !== renameTo ? before : '';
+    const renamedFrom = before && nameEdited && before !== renameTo ? before : '';
     msg.textContent = !ren ? 'Saved.'
       : ren.changed ? (isRunning
           ? 'Saved. Its instructions say the new name too, so restart it when you are ready and it will know.'
@@ -39159,7 +39177,8 @@ document.getElementById('d-save').addEventListener('click', async () => {
        name the record does not hold. An empty-after-trim name is dropped by the
        route (deliberately, so nobody blanks an agent into anonymity), so the
        heading is left alone in that case rather than being emptied. */
-    if (renameTo) {
+    if (nameEdited) {
+      renameBox.dataset.shown = renameTo;
       const h = document.getElementById('d-name');
       if (h) h.textContent = renameTo;
       detailNavNames(renameTo);
@@ -39175,7 +39194,7 @@ document.getElementById('d-save').addEventListener('click', async () => {
        swallows its own read errors in an internal try/catch and never rethrows),
        so it never delays or breaks the save feedback; the picker reads PROJECTS
        live on the next keystroke, so an async refresh is enough. */
-    if (renameTo && renameTo !== wasCalled) loadProjects();
+    if (nameEdited && renameTo !== wasCalled) loadProjects();
     await tick();
   } catch (err) {
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;

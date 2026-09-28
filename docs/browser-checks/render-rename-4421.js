@@ -1,4 +1,4 @@
-// Browser-check-surface: d-talk-label d-dmthread msg-nm d-busy d-name
+// Browser-check-surface: d-talk-label d-dmthread msg-nm d-busy d-name d-meta d-rename d-save
 'use strict';
 /**
  * #4421 (Josh, 2026-09-28): he renamed an agent and its heading said "Demis Hassabis - Gemini" while the
@@ -9,7 +9,10 @@
  * real openDetail, then the board serves the SAME agent renamed and working, and the real poll (tick) runs.
  *   OPENED   before the rename: the title names the old name (the control: the fixture reaches the page).
  *   RENAMED  after one poll: the title, the agent's message labels, the working line and the heading all name the
- *            new name, and the old one appears in none of them.
+ *            new name, and the old one appears in none of them; the "no name was chosen" note under the heading
+ *            is gone (it was given one); the rename box shows the new name.
+ *   SAVE     the person then changes only the role and presses Save: the request carries the role and NO name,
+ *            so the rename made elsewhere is not undone (Save used to send the box every time).
  * The thread fixture holds a person's message and the agent's reply, so the labels are really drawn.
  * Harness posture mirrors render-dm-owes-4340.js: load over file://, answer fetches from the fixture, no timers.
  *
@@ -27,8 +30,8 @@ const chk = (ok, label, extra) => {
   if (!ok) fail.push(label);
 };
 const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
-const card = (name, state) => ({
-  sessionName: ID, name, state, role: 'Project Manager', running: true, isNamedOurs: true, hasAvatar: false,
+const card = (name, state, nameDerived) => ({
+  sessionName: ID, name, state, role: 'Project Manager', running: true, isNamedOurs: true, hasAvatar: false, nameDerived,
   because: null, confidence: 'structured', runner: 'gemini', provider: 'google', stateProject: null,
 });
 const THREAD = {
@@ -46,7 +49,9 @@ async function surfaces(page) {
     const txt = (id) => { const el = document.getElementById(id); return el ? el.textContent.trim() : null; };
     const box = document.getElementById('d-dmthread');
     const labels = box ? [...box.querySelectorAll('.msg-nm')].map((b) => b.textContent.trim()) : [];
-    return { title: txt('d-talk-label'), heading: txt('d-name'), busy: txt('d-busy'), labels, rows: box ? box.querySelectorAll('.msg').length : 0 };
+    const note = document.querySelector('#d-meta .dmeta-note');
+    return { title: txt('d-talk-label'), heading: txt('d-name'), busy: txt('d-busy'), labels, rows: box ? box.querySelectorAll('.msg').length : 0,
+      note: note ? note.textContent : '', box: (document.getElementById('d-rename') || {}).value };
   });
 }
 
@@ -58,10 +63,12 @@ async function surfaces(page) {
     page.on('pageerror', (e) => errs.push('pageerror ' + e.message));
     await page.addInitScript((t) => {
       window.__status = null;
+      window.__puts = [];
       const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
       window.setInterval = () => 0;
-      window.fetch = async (url) => {
+      window.fetch = async (url, init) => {
         const u = String(url);
+        if (u.includes('/profile') && init && init.method === 'PUT') { window.__puts.push(JSON.parse(init.body)); return enc({ ok: true }); }
         if (u.includes('/thread')) return enc(t);
         if (u.includes('/api/status')) return enc(window.__status);
         if (u.includes('/api/projects')) return enc({ projects: [] });
@@ -76,12 +83,13 @@ async function surfaces(page) {
       await tick();
       openDetail(c.sessionName);
       document.getElementById('panel-detail').hidden = false;
-    }, card(ID, 'idle'));
+    }, card(ID, 'idle', false));
     await page.waitForTimeout(400);
     const before = await surfaces(page);
     chk(before.title === 'Direct Message to ' + ID, 'OPENED: the title names the agent as the board served it', JSON.stringify(before));
+    chk(/no name was chosen/.test(before.note), 'OPENED: an agent with no chosen name carries the note (the control for RENAMED)', JSON.stringify(before));
 
-    await page.evaluate(async (c) => { window.__status = { agents: [c], version: '0.0.0' }; await tick(); }, card(NEW, 'working'));
+    await page.evaluate(async (c) => { window.__status = { agents: [c], version: '0.0.0' }; await tick(); }, card(NEW, 'working', true));
     await page.waitForTimeout(400);
     const after = await surfaces(page);
     const all = JSON.stringify(after);
@@ -91,6 +99,18 @@ async function surfaces(page) {
     chk(/is working/.test(after.busy || '') && (after.busy || '').includes(NEW), 'RENAMED: the working line names the new name', all);
     chk(after.heading === NEW, 'RENAMED: the heading names the new name', all);
     chk(![after.title, after.busy, after.heading, ...after.labels].some((s) => (s || '').includes(ID)), 'RENAMED: the old name appears on none of them', all);
+    chk(after.note === '', 'RENAMED: the "no name was chosen" note is gone', all);
+    chk(after.box === NEW, 'RENAMED: the rename box shows the new name', all);
+
+    const puts = await page.evaluate(async () => {
+      document.getElementById('d-role').value = 'Chief of Staff';
+      document.getElementById('d-save').click();
+      await new Promise((r) => setTimeout(r, 300));
+      return window.__puts;
+    });
+    const put = puts[puts.length - 1] || null;
+    chk(!!put && put.role === 'Chief of Staff', 'SAVE: the role change was sent', JSON.stringify(puts));
+    chk(!!put && !('displayName' in put), 'SAVE: no name was sent, so the rename is not undone', JSON.stringify(puts));
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();
   } finally {

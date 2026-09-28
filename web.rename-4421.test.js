@@ -30,25 +30,27 @@ function world({ boxValue = OLD, focused = false } = {}) {
     'd-initials': { textContent: 'G' },
     'd-instr-lede': { textContent: '' },
     'd-memory': { innerHTML: '' },
-    'd-rename': { value: boxValue },
+    'd-rename': { value: boxValue, dataset: { shown: OLD } },
   };
   const nav = [];
   const doc = { getElementById: (id) => els[id] || null, get activeElement() { return focused ? els['d-rename'] : null; } };
-  const src = 'let CURRENT = null;\n'
+  const src = 'let CURRENT = null;\nlet LAST = [];\n'
     + page.liftConst(SCRIPT, 'WORKING_VERB') + '\n'
     // The avatar tints: one line each (DISC_INKS is aligned with two spaces, which liftConst does not match).
     + ['DISC_TINTS', 'DISC_INKS'].map((c) => (SCRIPT.match(new RegExp('^const ' + c + '\\s+=.*$', 'm')) || [''])[0]).join('\n') + '\n'
-    + page.liftAll(SCRIPT, ['esc', 'initials', 'discIndex', 'discTint', 'discInk', 'busyRow', 'dmWho', 'followRename', 'paintInstrLede']) + '\n'
-    + 'return { set: (c) => { CURRENT = c; }, get: () => CURRENT, followRename, dmWho, busyRow, initials };';
+    + page.liftAll(SCRIPT, ['esc', 'initials', 'discIndex', 'discTint', 'discInk', 'busyRow', 'dmWho', 'followRename', 'paintInstrLede', 'tskAgentName']) + '\n'
+    + 'return { set: (c) => { CURRENT = c; }, get: () => CURRENT, setLast: (l) => { LAST = l; }, followRename, dmWho, busyRow, initials };';
   // eslint-disable-next-line no-new-func
-  /* memoryBox is the page's own; stubbed to show which card it was handed (its name is what matters here). */
-  const w = new Function('document', 'detailNavNames', 'fitDetailName', 'memoryBox', src)(
-    doc, (n) => nav.push(n), () => {}, (a) => 'memory of ' + (a && a.name));
-  return { ...w, heading, nav, els };
+  /* memoryBox and paintDetailMeta are the page's own; stubbed to show which card each was handed (the browser check
+     runs the real ones). */
+  const metas = [];
+  const w = new Function('document', 'detailNavNames', 'fitDetailName', 'memoryBox', 'paintDetailMeta', src)(
+    doc, (n) => nav.push(n), () => {}, (a) => 'memory of ' + (a && a.name) + ' at ' + (a && a.memPct), (a) => metas.push(a));
+  return { ...w, heading, nav, els, metas };
 }
 
-const opened = () => ({ sessionName: OLD, name: OLD, state: 'working', hasAvatar: false });
-const polled = () => ({ sessionName: OLD, name: NEW, state: 'working', hasAvatar: false });
+const opened = () => ({ sessionName: OLD, name: OLD, state: 'working', hasAvatar: false, memPct: 40, nameDerived: false });
+const polled = () => ({ sessionName: OLD, name: NEW, state: 'working', hasAvatar: false, memPct: 90, nameDerived: true });
 
 test('#4421 fixture: before the poll, the page shows the name it was opened with (the bug\'s starting point)', () => {
   const w = world();
@@ -63,7 +65,6 @@ test('#4421: after a rename, the poll moves every surface to the new name, and t
   w.followRename(fresh);
   const name = w.get().name;   // what the poll then passes to paintTalk and paintBusy
   assert.equal(name, NEW, 'CURRENT kept the old name, so every surface that reads it did too');
-  assert.equal('Direct Message to ' + name, 'Direct Message to ' + NEW, 'the DM title');
   assert.equal(w.dmWho(OLD, name), NEW, 'the label on the agent\'s own messages');
   const busy = w.busyRow(fresh, name);
   assert.match(busy, new RegExp(NEW + ' is working'), 'the "is working" line: ' + busy);
@@ -73,8 +74,20 @@ test('#4421: after a rename, the poll moves every surface to the new name, and t
   assert.equal(w.els['d-initials'].textContent, w.initials(NEW), 'the initials on the picture (the page\'s own rule)');
   assert.notEqual(w.initials(NEW), w.initials(OLD), 'fixture: the two names share initials, so this proves nothing');
   assert.match(w.els['d-instr-lede'].textContent, /^What Demis Hassabis - Gemini is for/, 'the Instructions lede');
-  assert.equal(w.els['d-memory'].innerHTML, 'memory of ' + NEW, 'the memory box is drawn from the renamed card');
+  assert.equal(w.els['d-memory'].innerHTML, 'memory of ' + NEW + ' at 40',
+    'the memory box: the new name, and still the open-time reading the ring and badge beside it show');
+  assert.equal(w.metas.length, 1);
+  assert.equal(w.metas[0].nameDerived, true, 'the title line was not repainted from the renamed card (its "no name was chosen" note)');
   assert.equal(w.els['d-rename'].value, NEW, 'the rename box, which Save sends as the name');
+});
+
+test('#4421: a DM row from someone other than the open agent is named by their card, not their id', () => {
+  const w = world();
+  w.set(opened());
+  w.setLast([{ sessionName: 'april', name: 'April Ludgate' }]);
+  assert.equal(w.dmWho('april', OLD), 'April Ludgate');
+  w.setLast([]);
+  assert.equal(w.dmWho('april', OLD), 'april', 'with no card, the id is all there is');
 });
 
 test('#4421: the rename box follows only while untouched, so Save cannot rename the agent back, and typing is kept', () => {
@@ -82,6 +95,7 @@ test('#4421: the rename box follows only while untouched, so Save cannot rename 
   idle.set(opened());
   idle.followRename(polled());
   assert.equal(idle.els['d-rename'].value, NEW, 'an untouched box kept the old name, and the next Save would restore it');
+  assert.equal(idle.els['d-rename'].dataset.shown, NEW, 'the box forgot what it now shows, so Save would read it as edited');
   const typed = world({ boxValue: 'Somebody New' });
   typed.set(opened());
   typed.followRename(polled());
@@ -123,7 +137,9 @@ test('#4421: the poll follows the rename BEFORE it paints the title, the labels 
     assert.ok(i > 0, 'moved: ' + needle);
     return i;
   };
-  const follow = at('followRename(fresh);');
+  const m = SCRIPT.match(/^\s*followRename\(fresh\);/m);   // a live call, not a commented-out one
+  assert.ok(m, 'the poll no longer calls followRename');
+  const follow = m.index;
   assert.ok(follow < at('paintTalk(CURRENT.sessionName, CURRENT.name);'), 'the title and labels are painted before the name follows');
   assert.ok(follow < at('paintBusy(fresh, CURRENT.name);'), 'the working line is painted before the name follows');
   assert.match(SCRIPT, /textContent = 'Direct Message to ' \+ name;/, 'the title no longer comes from the name the poll passes');

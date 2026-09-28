@@ -6,8 +6,10 @@ require('./test-support/tmpscope');   // #4273: this file's temp dirs are remove
  * follow the agent's card (web.rename-4421.test.js), so the card must carry the new name whatever runs the agent:
  * Claude, Codex (OpenAI), Gemini (API key), Antigravity (Google subscription), Grok and Muse each read a different
  * instructions file, and the card's name comes from engine/status.js readIdentity, where the recorded name wins.
- * (The rename route also rewrites the name line in the agent's own file, so both sources move together; the control
- * that fails this test is a card naming the pane id, the failure Josh saw, not a readIdentity that ignores the record.)
+ * Each agent runs as a pane of its OWN runner (the card says so) and is born with a name different from its id in its
+ * own runner's file (CLAUDE.md, AGENTS.md or GEMINI.md). The rename route also rewrites that file, asserted per
+ * runner, so both sources move together; the control that fails this test is a card naming the pane id, the failure
+ * Josh saw, not a readIdentity that ignores the record.
  * Through the REAL rename route (PUT /api/agent/:name/profile) and the REAL /api/status and /api/projects, whose
  * members' names are what the project room labels its posts with (pjNameOf).
  * Not red on main: this half was already right. It guards the "every provider, DMs and rooms" claim the fix rests on.
@@ -38,16 +40,20 @@ const { start, server } = require('./server');
 const { assertSandboxedDataRoot } = require('./test-support/data-root-sandbox');
 assertSandboxedDataRoot(SANDBOX, [store.ROOT]);
 
-/* provider (as the profile records it) -> the session name, which is also the name its file gives it at birth */
+/* provider (as the profile records it), the runner its pane runs, and its session name (the internal id). Each is
+   BORN with a name different from its id, in its own runner's instructions file, in the "You are **Name**" line
+   the rename route rewrites. */
 const AGENTS = [
-  { provider: 'anthropic', session: 'claude-sub' },
-  { provider: 'openai', session: 'codex-sub' },
-  { provider: 'google', session: 'gemini-sub' },
-  { provider: 'antigravity', session: 'agy-sub' },
-  { provider: 'xai', session: 'grok-sub' },
-  { provider: 'meta', session: 'muse-sub' },
+  { provider: 'anthropic', runner: '', session: 'claude-sub', state: 'idle' },
+  { provider: 'openai', runner: 'codex', session: 'codex-sub', state: 'unknown' },
+  { provider: 'google', runner: 'gemini', session: 'gemini-sub', state: 'idle' },
+  { provider: 'antigravity', runner: 'antigravity', session: 'agy-sub', state: 'stopped' },
+  { provider: 'xai', runner: 'grok', session: 'grok-sub', state: 'stopped' },
+  { provider: 'meta', runner: 'muse', session: 'muse-sub', state: 'stopped' },
 ];
+const born = (a) => 'Born ' + a.session;
 const renamed = (a) => 'Demis Hassabis - ' + a.session;
+const briefOf = (a) => path.join(create.workerDir(a.session), create.briefFilename(create.recordedRunner(a.session)));
 
 let base;
 let board = null;
@@ -55,12 +61,13 @@ test.before(async () => {
   for (const a of AGENTS) {
     fs.mkdirSync(create.workerDir(a.session), { recursive: true });
     store.writeProfile(a.session, { provider: a.provider });
-    const file = create.briefFilename(create.recordedRunner(a.session));
-    fs.writeFileSync(path.join(create.workerDir(a.session), file), `# ${a.session}\n\nYou are ${a.session}.\n`);
+    fs.writeFileSync(briefOf(a), `# ${born(a)}\n\nYou are **${born(a)}**, a project manager.\n`);
   }
-  /* RUNNING panes, through the real status producers (test-support/fleet): the rename route only accepts an agent
-     on a Kosmos pane, and a running agent's card is the one Josh was looking at. */
-  board = fleet.install(AGENTS.map((a) => fleet.agent(a.session, { state: 'idle' })));
+  /* Kosmos panes of each agent's OWN runner, through the real status producers (test-support/fleet): the rename
+     route only accepts an agent on a Kosmos pane. The states are what the engine reads off a pane without that
+     runner's real process (the fleet fixture verifies them); the name comes from the same readIdentity whatever
+     the state. */
+  board = fleet.install(AGENTS.map((a) => fleet.agent(a.session, { state: a.state, runner: a.runner })));
   await start(0);
   base = `http://127.0.0.1:${server.address().port}`;
 });
@@ -71,15 +78,17 @@ const cards = async () => {
   assert.equal(res.status, 200);
   return (await res.json()).agents || [];
 };
-const nameOf = (list, s) => (list.find((c) => c.sessionName === s) || {}).name;
+const cardOf = (list, s) => list.find((c) => c.sessionName === s) || {};
+const nameOf = (list, s) => cardOf(list, s).name;
 
 test('#4421: every provider\'s card carries the new name after a rename, never the id', async () => {
   const before = await cards();
   for (const a of AGENTS) {
-    assert.equal(nameOf(before, a.session), a.session, 'fixture: ' + a.session + ' has no card, or one not named by its file');
+    assert.equal(nameOf(before, a.session), born(a), 'fixture: ' + a.session + ' has no card, or one not named by its own file');
+    assert.equal(cardOf(before, a.session).runner || 'claude', a.runner || 'claude', 'fixture: ' + a.session + '\'s pane is not its runner');
   }
-  const runners = new Set(AGENTS.map((a) => create.recordedRunner(a.session)));
-  assert.equal(runners.size, AGENTS.length, 'fixture: the agents do not cover six different runners: ' + [...runners].join(','));
+  const files = new Set(AGENTS.map(briefOf).map((f) => path.basename(f)));
+  assert.deepEqual([...files].sort(), ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md'], 'fixture: the runners do not read their three kinds of file');
 
   for (const a of AGENTS) {
     const res = await fetch(`${base}/api/agent/${a.session}/profile`, {
@@ -87,10 +96,13 @@ test('#4421: every provider\'s card carries the new name after a rename, never t
       body: JSON.stringify({ displayName: renamed(a) }),
     });
     assert.equal(res.status, 200, 'the rename route refused ' + a.session);
+    const body = await res.json();
+    assert.equal(body.renamed && body.renamed.changed, true, a.session + ': its own file was not rewritten: ' + JSON.stringify(body.renamed));
+    assert.match(fs.readFileSync(briefOf(a), 'utf8'), new RegExp('You are \\*\\*' + renamed(a) + '\\*\\*'), a.session + '\'s file does not say its new name');
   }
   const after = await cards();
   for (const a of AGENTS) {
-    assert.equal(nameOf(after, a.session), renamed(a), `${a.session} (${create.recordedRunner(a.session)}) kept its old name on its card`);
+    assert.equal(nameOf(after, a.session), renamed(a), `${a.session} (${a.runner || 'claude'}) kept its old name on its card`);
   }
 });
 
