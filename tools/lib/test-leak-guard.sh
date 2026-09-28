@@ -37,9 +37,16 @@ leak_labels_snapshot() {
   launchctl list 2>/dev/null | awk 'NR > 1 && NF >= 3 { print $3 }' | LC_ALL=C sort -u
 }
 
+# leak_plist_path <uid> <label>: the plist path launchd holds for a job, or nothing.
+leak_plist_path() {
+  launchctl print "gui/$1/$2" 2>/dev/null | awk -F' = ' '/^[[:space:]]+path = / { print $2; exit }'
+}
+
 # leak_launchd_check <before-file> <root>: a label loaded since <before-file> whose
 # plist lives under <root> is this run's leak. It is booted out (it would otherwise
 # respawn against a directory about to be removed) and printed.
+# The path is parsed from `launchctl print` (a `path = ...` line, measured on macOS 26.7);
+# tools/test-test-leak-guard-4273.sh checks that parse against this Mac's real jobs.
 # launchd records a plist's RESOLVED path, and on macOS the temp root is reached
 # through the /var -> /private/var symlink, so both spellings of the root are matched.
 leak_launchd_check() {
@@ -49,7 +56,10 @@ leak_launchd_check() {
   uid=$(id -u)
   while IFS= read -r label; do
     [ -n "$label" ] || continue
-    plist=$(launchctl print "gui/$uid/$label" 2>/dev/null | awk -F' = ' '/^[[:space:]]+path = / { print $2; exit }')
+    plist=$(leak_plist_path "$uid" "$label")
+    # An unread path cannot be scoped, so it is not judged; but it is SAID, so a change in
+    # launchctl's output shows up as notes instead of a silent clean pass.
+    [ -n "$plist" ] || { echo "note: new launchd job $label: no plist path read, not checked"; continue; }
     case "$plist" in
       "$root"/*|"$real"/*)
         launchctl bootout "gui/$uid/$label" >/dev/null 2>&1 || true

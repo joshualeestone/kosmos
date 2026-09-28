@@ -40,7 +40,8 @@ test("a child process's mkdtemp is contained too (it inherits the scoped TMPDIR)
   assert.deepEqual(entries(base), [], 'the grandchild left something behind');
 });
 
-test('SIGTERM removes the scope and the process still dies by SIGTERM', { timeout: 15000 }, async (t) => {
+for (const SIG of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
+test(`${SIG} removes the scope and the process still dies by ${SIG}`, { timeout: 15000 }, async (t) => {
   const base = freshBase(t);
   const code = `require(${JSON.stringify(SCOPE)});${MAKE}console.log('ready');setInterval(()=>{},1000);`;
   const c = spawn(process.execPath, ['-e', code], { env: { ...process.env, TMPDIR: base }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -52,11 +53,12 @@ test('SIGTERM removes the scope and the process still dies by SIGTERM', { timeou
   });
   assert.equal(entries(base).length, 1, 'the scope dir should exist while the process runs');
   const ended = new Promise((res) => c.on('exit', (code2, sig) => res({ code: code2, sig })));
-  c.kill('SIGTERM');
+  c.kill(SIG);
   const { sig } = await ended;
-  assert.equal(sig, 'SIGTERM', 'the process should still end by the signal it was sent');
-  assert.deepEqual(entries(base), [], 'a SIGTERM left the scope dir behind');
+  assert.equal(sig, SIG, 'the process should still end by the signal it was sent');
+  assert.deepEqual(entries(base), [], `a ${SIG} left the scope dir behind`);
 });
+}
 
 test('the scope name is short, so a tmux socket path under it still fits', () => {
   // `kts-` plus six characters: under ten added, as run-tests.sh budgets for.
